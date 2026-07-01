@@ -194,3 +194,26 @@ public_validation_exit_code: 0
 | `validation-closeout-tool-drain` | `forced_validation_closeout` 将一次诊断工具成功误当成验证成功，模型最终声明 `Validation passed`，但 public validation exit code 为 1，目标源文件未修改 | R4-D |
 
 这个问题必须按 validation/tool-result 语义链路修，不应归因于 large output 或简单提示词。
+
+## 1.9 2026-07-01 R4-F non-direct 链路更新
+
+R4-F 对 CodeMode、multi-agent、MCP 三类非 direct tool path 做了收口分类。结论不是把所有
+non-direct tool 都强行写入 TaskSpace map，而是把“谁能看到什么反馈、归属在哪里、是否可 replay”
+写成可验证规则。
+
+| Path | Runtime Decision | Evidence |
+|---|---|---|
+| CodeMode nested tool | `ToolCallSource::CodeMode` 不伪装成 direct model tool call；结果返回给 CodeMode runtime，并在 trace 中保留 code cell parent attribution、runtime tool id 和 raw result payload | `dispatch_lifecycle_trace_records_direct_and_code_mode_requesters`; `mcp_tool_output_code_mode_result_stays_raw_call_tool_result` |
+| multi-agent tool output | multi-agent control/result wrapper 通过 `FunctionToolOutput::from_text(...).to_response_item(...)` 生成 standard function-call output；CodeMode 调用返回 structured JSON | `multi_agent_tool_output_response_item_preserves_json_and_success`; `multi_agent_tool_output_code_mode_result_preserves_structured_fields` |
+| MCP tool output | MCP output 继续由 `McpToolOutput::to_response_item` 处理，保留 wall time、structured content、content items，并对大 structured content 做 bounded truncation | `mcp_tool_output_response_item_includes_wall_time`; `mcp_tool_output_response_item_truncates_large_structured_content`; `mcp_tool_output_response_item_preserves_content_items` |
+
+同时把 `r4-tool-path-coverage.json` 中所有 canonical path 绑定 `coverage_test`，并让
+`test-r4-tool-path-coverage.ps1` 检查该字段。这样 R4-A 的静态治理门禁能防止以后出现
+“path 标记 canonical 但没有可运行证据”的回归。
+
+验证：
+
+```text
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/taskspace-benchmark/test-r4-tool-path-coverage.ps1
+PASS: R4 tool path coverage gate passed: 10 paths
+```

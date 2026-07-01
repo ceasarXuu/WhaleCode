@@ -8,15 +8,14 @@
 Updated: 2026-07-01
 Code state at evidence capture: R4 tool-chain convergence changes through install/metrics fixes
 Status:
-  R4-A pass: tool path coverage manifest and gate are executable.
+  R4-A pass: tool path coverage manifest and gate are executable; canonical paths now require coverage_test.
   R4-B pass: known sample evidence ledger and gate are executable.
   R4-C pass for direct tool success/error map-preview parity.
-  R4-D pass for count-call-stack internal tool feedback path: before wrong/timeout, after solved.
-  R4-D remains open for validation-closeout-tool-drain, discovered by large-output-ref-smoke.
-  R4-E partial pass for large raw output / rollout bloat: timeout removed and rollout bounded.
-  R4-E remains open for full pair-safe projection semantics.
-  R4-G partial pass: processing-pipeline inspect no-progress now reaches implement/test with real edit.
-  R4-F/R4-G/R4-H remain open until non-direct tools, public-10, and closeout gates finish.
+  R4-D pass for internal feedback, validation closeout drain, and closed-validation contract focused gates.
+  R4-E pass for large raw output ref and pair-safe provider projection focused gates.
+  R4-F pass for CodeMode, multi-agent, and MCP non-direct tool path classification gates.
+  R4-G partial pass: processing-pipeline inspect/no-progress and infra-closeout converge, but public-10 paired report remains open.
+  R4-H remains open until public-10 report and final closeout doc finish.
 ```
 
 ## 5.2 PhaseBenefitEvidenceV1
@@ -26,9 +25,9 @@ Status:
 | R4-A | tool path 覆盖从人工 Markdown 变成机器可读 manifest 和 gate，新增或遗漏 path 可被门禁发现 | `docs/v0.0.5/build-R4/01-static-tool-chain-map.md` | `docs/v0.0.5/build-R4/r4-tool-path-coverage.json` + validator output | `test-r4-tool-path-coverage.ps1` 校验 schema、source anchors、owner phase、required semantics | `unknown/unowned/missing-anchor` | 无可执行检查 | `path_count=10`, `failure_count=0` | `failure_count=0` | pass | `target/r4-tool-path-coverage/r4-tool-path-coverage-evidence.json` |
 | R4-B | 历史 sample 现场从 scattered target/CoE 变成机器可读账本，known-bad 类型和 owner phase 可验证 | `docs/v0.0.5/build-R4/02-field-evidence-and-sample-ledger.md` | `docs/v0.0.5/build-R4/r4-sample-evidence-ledger.json` + validator output | `test-r4-sample-ledger.ps1` 校验 sample id、failure class、owner phase、evidence path、required classes | `sample_count/missing-evidence` | 无可执行检查 | `sample_count=12`, `failure_count=0` | `sample_count>=6`, `failure_count=0` | pass | `target/r4-sample-ledger/r4-sample-ledger-evidence.json` |
 | R4-C | direct tool error 的 TaskSpace map preview 不再走独立摘要，而是从 standard failure response 的 model-visible item 派生 | `parallel.rs` success/error map preview 来源分叉；manifest `direct-tool-error-map-preview=needs-fix` | `failure_response_for_error` + `response_input_model_visible_preview`；manifest `direct-tool-error-map-preview=canonical` | focused Rust unit test + R4 coverage validator | `failure_response_preview` | error path 独立 `action_map_tool_error_preview` | focused tests pass；coverage path canonical | focused tests pass；coverage validator pass | pass | `cargo test -p codex-core failure_response_preview --lib`; `target/r4-tool-path-coverage/r4-tool-path-coverage-evidence.json` |
-| R4-D | action-contract internal failed tool outputs、validation gate failure、unreviewed-result blocker、dependency read evidence 都能以可执行语义进入下一轮，而不是被压成无法行动的 raw stderr 或 generic recovery | `count-call-stack` 历史 run：TaskSpace wrong/no patch，后续多轮 timeout；apply_patch 失败、validator 覆盖失败、unreviewed result、dependency read evidence 丢失分别导致卡住 | `third_party/codex-cli/codex-rs/core/src/session/turn.rs`、`action_map/runtime.rs`、`tools/parallel.rs` 修复；真实 rerun solved | focused Rust tests + paired public sample rerun | `outcome_taskspace`, `tool_call_count`, `wall_time_ratio`, `changed_paths`, `public_validation_exit_code` | wrong/no patch 或 900s timeout；`changed_paths` 空；validator/projection 链路卡死 | solved；`changed_paths=src/call_stack_counter.py`；`public_validation_exit_code=0`；tool calls 11 vs standard 20；wall ratio 1.12 | known feedback-loss sample 不再 wrong/no_patch；validation exit 0；无 evidence gate failure | pass for this P0 path | `target/r4-d-count-call-stack-dependency-read-20260630/count-call-stack/20260630-204427-136/pair-001/pair-report.md` |
-| R4-E | large raw tool output 不再把 provider payload / rollout 撑爆，output-ref 事件可追踪；但本 phase 的 pair-safe projection 总体尚未完全关闭 | `large-output-ref-smoke` timeout；TaskSpace rollout `490,846,386` bytes | `large-output-ref-smoke` rerun 无 900s timeout；TaskSpace rollout `360,600` bytes；`output_ref.created`；exact payload scan `large_raw_output_tokens=0`、`replacement_confirmed=true` | large-output rerun + rollout size + exact payload scan + output-ref events | `timeout`, `rollout_size_bytes`, `large_raw_output_tokens`, `output_ref.created` | timeout；rollout `490,846,386` bytes；失败日志膨胀 | no timeout；rollout `360,600` bytes；`large_raw_output_tokens=0`；`output_ref.created` | no timeout；rollout bounded；large raw not provider-visible；ref event present | partial pass: large-output/log-bloat 子项 pass；correctness/validation closeout fail | `target/r4-e-large-output-ref-20260630/large-output-ref-smoke/20260630-211225-432/pair-001/pair-report.md`; `target/r4-e-large-output-ref-20260630/large-output-ref-smoke/20260630-211225-432/pair-001/right/artifacts/exact-payload-scan-events.jsonl`; `target/r4-e-large-output-ref-20260630/large-output-ref-smoke/20260630-211225-432/pair-001/right/artifacts/output-ref-events.jsonl` |
-| R4-F | CodeMode/multi-agent/MCP 等 non-direct tools 有明确 inclusion/exclusion 和 provider-visible feedback 证明 | R4-A manifest 标记 non-direct paths `needs-fix` | pending | coverage fixtures + exclusion proof | `classified_path_count`, `missing_feedback_count` | blind spots | pending | all non-direct paths classified or intentionally excluded with tests | open | pending |
+| R4-D | action-contract internal failed tool outputs、validation gate failure、unreviewed-result blocker、dependency read evidence、validation closeout drain 都能以可执行语义进入下一轮或形成明确 closed validation 状态 | `count-call-stack` 历史 run：TaskSpace wrong/no patch，后续多轮 timeout；`large-output-ref-smoke` 曾把诊断工具成功误判为验证成功；processing-pipeline 曾在 infra failure 后继续 open leaf | `turn.rs`、`action_map/runtime.rs`、`tools/parallel.rs` 修复；真实 rerun solved 或收敛到 infra-blocked closed validation；manifest 对应 P0/P1 path canonical | focused Rust tests + paired public sample rerun + processing-pipeline v11 | `outcome_taskspace`, `changed_paths`, `public_validation_exit_code`, `open_leaf`, `invalid`, `closed_contract` | wrong/no patch、validation false-positive、900s timeout 或 open leaf | count-call-stack solved；large-output solved；processing-pipeline v11 `exec_timed_out=false`, `open_leaf=0`, `invalid=1`, `TaskSpaceActionContractClosedValidationV1=1` | known feedback-loss sample 不再 wrong/no_patch；诊断工具成功不再伪装 validation pass；closed validation 不再继续开新节点 | pass | `target/r4-d-count-call-stack-dependency-read-20260630/count-call-stack/20260630-204427-136/pair-001/pair-report.md`; `target/r4-d-missing-source-blocker-20260701/large-output-ref-smoke/20260701-130225-851/pair-001/pair-report.md`; `C:\WhaleRunCache\r4-public10-20260701\actual\processing-pipeline-v11\runs\terminal_bench__processing-pipeline\20260701-214838-298` |
+| R4-E | large raw tool output 不再把 provider payload / rollout 撑爆；tool call/result pair 在 active context replacement 中成组 omit/ref/keep，不产生 orphan tool history | `large-output-ref-smoke` timeout；TaskSpace rollout `490,846,386` bytes；active context replacement 曾出现 pair-safe 证明缺失 | `large-output-ref-smoke` rerun 无 900s timeout且 rollout bounded；pair-safe projection focused tests pass；manifest `large-raw-tool-output-ref` 与 `provider-visible-history-projection` 均 canonical | large-output rerun + rollout size + exact payload scan + output-ref events + focused Rust pair-safe tests | `timeout`, `rollout_size_bytes`, `large_raw_output_tokens`, `output_ref.created`, `paired_omit_tests` | timeout；rollout `490,846,386` bytes；失败日志膨胀；pair-safe 未证明 | no timeout；rollout `360,600` bytes；`large_raw_output_tokens=0`；`output_ref.created`；`active_context_replacement_omits_paired` pass | no timeout；rollout bounded；large raw not provider-visible；ref event present；tool call/result 不单边残留 | pass for projection/output-ref engineering gates | `target/r4-e-large-output-ref-20260630/large-output-ref-smoke/20260630-211225-432/pair-001/pair-report.md`; `target/r4-e-large-output-ref-20260630/large-output-ref-smoke/20260630-211225-432/pair-001/right/artifacts/exact-payload-scan-events.jsonl`; `cargo test -j1 -p codex-core active_context_replacement_omits_paired --lib` |
+| R4-F | CodeMode/multi-agent/MCP 等 non-direct tools 有明确 inclusion/exclusion 和 provider-visible/code-runtime feedback 证明 | R4-A manifest 标记 non-direct paths `needs-fix`，multi-agent wrapper 缺少独立语义保真测试 | manifest 中 `codemode-nested-tool-result`、`multi-agent-tool-output-wrapper`、`mcp-tool-output-response-item` 均 canonical；新增 multi-agent wrapper tests | coverage fixtures + exclusion proof + R4 coverage validator | `classified_path_count`, `missing_feedback_count`, `coverage_test_presence` | blind spots；3 条 non-direct path needs-fix | `path_count=10`, `canonical_count=10`, `needs_fix_count=0`; CodeMode/MCP/multi-agent focused tests pass | all non-direct paths classified or intentionally excluded with tests | pass | `cargo test -j1 -p codex-core dispatch_lifecycle_trace_records_direct_and_code_mode_requesters --lib`; `cargo test -j1 -p codex-core mcp_tool_output_response_item --lib`; `cargo test -j1 -p codex-core multi_agent_tool_output --lib`; `target/r4-tool-path-coverage/r4-tool-path-coverage-evidence.json` |
 | R4-G | known-bad 和 10 个公开 benchmark 样本证明收益真实，而不是只靠局部单测 | `processing-pipeline` v3/v4：单 inspect 节点重复读取，`changed_paths=[]`，metrics `tool_call_count=0` 误导 | v7：`forced_inspect_transition` 触发，进入 implement/test，`changed_paths=[generate_report.sh]`；metrics extractor 可从 rollout 复算 tool calls | public-10 plan gate + paired standard/taskspace 10 public samples + per-sample tool analysis | `tool_feedback_loss_count`, `wall/token/tool ratio`, `cache_hit`, `public_sample_count`, `rollout_tool_call_count` | v3/v4: no implement/test, no edit；tool count 漏计 | v7: node_count 3, edge_count 2, rollout ordinary tools 15, failed 1, control 2；但 validator infra `E_ACCESSDENIED` 后仍 timeout | public-10 plan gate pass；final report 10 rows；feedback loss 0；cache hit >= 0.95 or explained | partial/open | `C:\WhaleRunCache\r4-public10-20260701\actual\processing-pipeline-v7\runs\terminal_bench__processing-pipeline\20260701-163507-220`; `scripts/taskspace-benchmark/test-r4-metrics-extractor-large-rollout.ps1` |
 | R4-H | 工程层收口可审计、可复现 | scattered phase evidence | pending | closeout doc + committed artifacts | `open_phase_count`, `unexplained_failure_count` | pending | pending | no phase marked completed without benefit evidence | open | pending |
 
@@ -576,3 +575,40 @@ TaskSpaceActionContractClosedValidationV1=1
 `e3_external_validator_fidelity_unproven` / `e3_external_validator_not_e3_eligible`
 返回 PairAbort；这不是 TaskSpace 内部图闭环失败。v11 的内部证据证明 R4 当前这条
 tool-feedback/control 闭环已经从真实超时收敛为可解释的 infra-blocked 完成态。
+
+## 5.9 2026-07-01 R4-F non-direct tool path closeout
+
+本轮把 R4-A coverage manifest 从“登记路径”升级为“登记路径 + 可运行证据”：
+
+1. `test-r4-tool-path-coverage.ps1` 现在要求所有 `canonical` path 必须声明 `coverage_test`。
+2. `r4-tool-path-coverage.json` 中 10 条路径全部为 `canonical`，`needs_fix_count=0`。
+3. R4-F 的三条 non-direct path 不再只停留在静态推理：
+   - CodeMode nested tool：证明 direct call 有 model-visible call id，CodeMode call 不伪装为 direct provider result，但保留 code cell parent attribution 和 raw result payload。
+   - MCP tool：证明 response item 保留 wall time、structured content、content items，且大 structured content 会被截断；CodeMode 结果保持 raw `CallToolResult`。
+   - multi-agent tool：新增 wrapper 单测，证明 provider-visible function output 和 CodeMode structured result 都保留 `agent_id/status/message`，并保留 `success` metadata。
+
+已执行命令：
+
+```text
+cargo test -j1 -p codex-core multi_agent_tool_output --lib
+PASS: 2 passed
+
+cargo test -j1 -p codex-core dispatch_lifecycle_trace_records_direct_and_code_mode_requesters --lib
+PASS: 1 passed
+
+cargo test -j1 -p codex-core mcp_tool_output_response_item --lib
+PASS: 3 passed
+
+cargo test -j1 -p codex-core mcp_tool_output_code_mode_result_stays_raw_call_tool_result --lib
+PASS: 1 passed
+
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/taskspace-benchmark/test-r4-tool-path-coverage.ps1
+PASS: R4 tool path coverage gate passed: 10 paths
+```
+
+收益边界：
+
+1. R4-F 可以关闭：non-direct tool path 都有明确 inclusion/exclusion 语义和 focused coverage。
+2. R4-D/E 的 manifest 级缺口已经关闭，但真实收益仍以 5.3、5.7、5.8 的样本证据为准。
+3. R4-G 仍不能关闭：还缺 10 个公开 benchmark 的实际 paired run/report。
+4. R4-H 仍不能关闭：最终 closeout 依赖 R4-G 的 10 样本综合验收结果。

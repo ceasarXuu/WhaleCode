@@ -88,6 +88,9 @@ if (-not (Test-Path -LiteralPath $ManifestPath -PathType Leaf)) {
         if ([string]::IsNullOrWhiteSpace([string]$path.required_evidence)) {
             Add-Failure $failures "required_evidence missing for $id"
         }
+        if ($status -eq "canonical" -and [string]::IsNullOrWhiteSpace([string]$path.coverage_test)) {
+            Add-Failure $failures "canonical path missing coverage_test: $id"
+        }
         if ($status -eq "intentionally-excluded") {
             if ([string]::IsNullOrWhiteSpace([string]$path.exclusion_rationale)) {
                 Add-Failure $failures "intentionally-excluded path missing exclusion_rationale: $id"
@@ -110,6 +113,8 @@ $evidence = [ordered]@{
     } else { "" }
     status = if ($failures.Count -eq 0) { "pass" } else { "fail" }
     path_count = if ($manifest) { @($manifest.paths).Count } else { 0 }
+    canonical_count = if ($manifest) { @($manifest.paths | Where-Object { [string]$_.status -eq "canonical" }).Count } else { 0 }
+    needs_fix_count = if ($manifest) { @($manifest.paths | Where-Object { [string]$_.status -eq "needs-fix" }).Count } else { 0 }
     failure_count = $failures.Count
     failures = @($failures.ToArray())
 }

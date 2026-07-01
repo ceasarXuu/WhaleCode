@@ -237,6 +237,44 @@ invalid tool-call history fixture 通过。
 intentionally-excluded path 有测试证明不会影响 agent-visible feedback。
 ```
 
+2026-07-01 执行结果：
+
+```text
+Manifest:
+  docs/v0.0.5/build-R4/r4-tool-path-coverage.json
+Gate:
+  scripts/taskspace-benchmark/test-r4-tool-path-coverage.ps1
+Result:
+  path_count=10
+  canonical_count=10
+  needs_fix_count=0
+```
+
+R4-F 当前关闭范围：
+
+1. CodeMode nested tool 不作为 direct provider tool result 回灌，但通过 `ToolCallSource::CodeMode` 保留 code cell parent attribution 和 runtime tool id；trace result 保留 raw result payload。
+2. MCP tool output 继续走 `ToolOutput::to_response_item`；focused tests 覆盖 wall time、structured content、content items、large structured truncation，以及 CodeMode raw `CallToolResult`。
+3. multi-agent tool output 通过 `tool_output_response_item` 生成 standard function-call output；新增 focused tests 覆盖 `agent_id/status/message` 与 `success` metadata 不丢失。
+
+已验证：
+
+```text
+cargo test -j1 -p codex-core dispatch_lifecycle_trace_records_direct_and_code_mode_requesters --lib
+PASS
+
+cargo test -j1 -p codex-core mcp_tool_output_response_item --lib
+PASS
+
+cargo test -j1 -p codex-core mcp_tool_output_code_mode_result_stays_raw_call_tool_result --lib
+PASS
+
+cargo test -j1 -p codex-core multi_agent_tool_output --lib
+PASS
+
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/taskspace-benchmark/test-r4-tool-path-coverage.ps1
+PASS
+```
+
 ## 3.7 Phase R4-G：Benchmark Gates and Benefit Validation
 
 目标：
