@@ -37,6 +37,15 @@ function Get-ObjectNumber {
     return [double]$value
 }
 
+function Get-ObjectNullableNumber {
+    param([object]$Object, [string]$Name)
+    if ($null -eq $Object) { return $null }
+    if (-not ($Object.PSObject.Properties.Name -contains $Name)) { return $null }
+    $value = $Object.$Name
+    if ($null -eq $value -or [string]::IsNullOrWhiteSpace([string]$value)) { return $null }
+    try { return [double]$value } catch { return $null }
+}
+
 function Get-ObjectString {
     param([object]$Object, [string]$Name, [string]$Default = "")
     if ($null -eq $Object) { return $Default }
@@ -49,6 +58,13 @@ function Get-Ratio {
     param([double]$Numerator, [double]$Denominator)
     if ($Denominator -le 0) { return 0 }
     return [math]::Round(($Numerator / $Denominator), 4)
+}
+
+function Get-NullableRatio {
+    param($Numerator, $Denominator)
+    if ($null -eq $Numerator -or $null -eq $Denominator) { return $null }
+    if ([double]$Denominator -le 0) { return $null }
+    return [math]::Round(([double]$Numerator / [double]$Denominator), 4)
 }
 
 function Get-StringArray {
@@ -103,14 +119,43 @@ function Get-MetricsByLogicalMode {
     return $result
 }
 
-function Get-CacheHitRate {
+function Get-CacheHitRateInfo {
     param([string]$ArtifactsDir, [object]$Metrics)
     $summary = Read-JsonFile (Join-Path $ArtifactsDir "provider-cache-trace-summary.json")
-    $rate = Get-ObjectNumber $summary "request_2_plus_hit_rate" -1
-    if ($rate -ge 0) { return [math]::Round($rate, 6) }
-    $cached = Get-ObjectNumber $Metrics "cached_input_tokens" 0
-    $input = Get-ObjectNumber $Metrics "input_tokens" 0
-    return Get-Ratio $cached $input
+    $rate = Get-ObjectNullableNumber $summary "request_2_plus_hit_rate"
+    if ($null -ne $rate) {
+        return [pscustomobject]@{ Rate = [math]::Round([double]$rate, 6); Availability = "measured"; Source = "provider_cache_trace_summary" }
+    }
+    $cached = Get-ObjectNullableNumber $Metrics "cached_input_tokens"
+    $input = Get-ObjectNullableNumber $Metrics "input_tokens"
+    $derived = Get-NullableRatio $cached $input
+    if ($null -ne $derived) {
+        return [pscustomobject]@{ Rate = $derived; Availability = "derived_from_token_summary"; Source = "metrics_token_summary" }
+    }
+    $availability = if ($summary) { "cache_trace_unavailable" } else { "source_missing" }
+    return [pscustomobject]@{ Rate = $null; Availability = $availability; Source = "unavailable" }
+}
+
+function Get-TokenSummaryAvailability {
+    param([object]$Metrics)
+    $availability = Get-ObjectString $Metrics "token_summary_availability" ""
+    if (-not [string]::IsNullOrWhiteSpace($availability)) { return $availability }
+    $input = Get-ObjectNullableNumber $Metrics "input_tokens"
+    $output = Get-ObjectNullableNumber $Metrics "output_tokens"
+    if ($null -ne $input -or $null -ne $output) { return "measured_legacy" }
+    return "usage_unavailable"
+}
+
+function Get-UsageAccountingStatus {
+    param([object]$Metrics)
+    $availability = Get-TokenSummaryAvailability $Metrics
+    $input = Get-ObjectNullableNumber $Metrics "input_tokens"
+    $output = Get-ObjectNullableNumber $Metrics "output_tokens"
+    $timedOut = ($Metrics -and $Metrics.PSObject.Properties.Name -contains "exec_timed_out" -and [bool]$Metrics.exec_timed_out)
+    if ($null -ne $input -and $null -ne $output) { return "measured" }
+    if ($timedOut) { return "usage_unavailable_after_timeout" }
+    if ([string]$availability -eq "source_missing") { return "usage_source_missing" }
+    return "usage_unavailable"
 }
 
 function Get-ProjectionSummary {
@@ -211,7 +256,13 @@ function New-MissingRow {
         taskspace_input_tokens = 0
         taskspace_output_tokens = 0
         taskspace_token_ratio = 0
+        standard_token_summary_availability = "missing_run"
+        taskspace_token_summary_availability = "missing_run"
+        standard_usage_accounting_status = "missing_run"
+        taskspace_usage_accounting_status = "missing_run"
+        token_ratio_availability = "missing_run"
         request_2_plus_cache_hit_rate = 0
+        request_2_plus_cache_hit_rate_availability = "missing_run"
         tool_feedback_loss_count = 0
         tool_feedback_semantic_loss_count = 0
         tool_result_projection_count_by_reason = [ordered]@{}
@@ -244,8 +295,15 @@ function New-RunRow {
     $reportLines = Get-Content -Encoding UTF8 -LiteralPath $PairReport.FullName
     $standardMetrics = $standard.metrics
     $taskspaceMetrics = $taskspace.metrics
-    $standardTokens = (Get-ObjectNumber $standardMetrics "input_tokens" 0) + (Get-ObjectNumber $standardMetrics "output_tokens" 0)
-    $taskspaceTokens = (Get-ObjectNumber $taskspaceMetrics "input_tokens" 0) + (Get-ObjectNumber $taskspaceMetrics "output_tokens" 0)
+    $standardInputTokens = Get-ObjectNullableNumber $standardMetrics "input_tokens"
+    $standardOutputTokens = Get-ObjectNullableNumber $standardMetrics "output_tokens"
+    $taskspaceInputTokens = Get-ObjectNullableNumber $taskspaceMetrics "input_tokens"
+    $taskspaceOutputTokens = Get-ObjectNullableNumber $taskspaceMetrics "output_tokens"
+    $standardTokens = if ($null -ne $standardInputTokens -and $null -ne $standardOutputTokens) { [double]$standardInputTokens + [double]$standardOutputTokens } else { $null }
+    $taskspaceTokens = if ($null -ne $taskspaceInputTokens -and $null -ne $taskspaceOutputTokens) { [double]$taskspaceInputTokens + [double]$taskspaceOutputTokens } else { $null }
+    $tokenRatio = Get-NullableRatio $taskspaceTokens $standardTokens
+    $tokenRatioAvailability = if ($null -ne $tokenRatio) { "measured" } else { "unavailable" }
+    $cacheHitInfo = Get-CacheHitRateInfo $taskspace.artifacts_dir $taskspaceMetrics
     $taxonomy = Get-ReportValue $reportLines "failure_taxonomy" "none"
     $graph = Read-JsonFile (Join-Path $taskspace.artifacts_dir "graph-health.json")
     $projection = Get-ProjectionSummary $taskspace.artifacts_dir $taskspaceMetrics
@@ -279,12 +337,18 @@ function New-RunRow {
         standard_tool_calls = [int]$standardCalls
         taskspace_tool_calls = [int]$taskspaceCalls
         taskspace_tool_call_ratio = Get-Ratio $taskspaceCalls $standardCalls
-        standard_input_tokens = [int64](Get-ObjectNumber $standardMetrics "input_tokens" 0)
-        standard_output_tokens = [int64](Get-ObjectNumber $standardMetrics "output_tokens" 0)
-        taskspace_input_tokens = [int64](Get-ObjectNumber $taskspaceMetrics "input_tokens" 0)
-        taskspace_output_tokens = [int64](Get-ObjectNumber $taskspaceMetrics "output_tokens" 0)
-        taskspace_token_ratio = Get-Ratio $taskspaceTokens $standardTokens
-        request_2_plus_cache_hit_rate = Get-CacheHitRate $taskspace.artifacts_dir $taskspaceMetrics
+        standard_input_tokens = if ($null -ne $standardInputTokens) { [int64]$standardInputTokens } else { $null }
+        standard_output_tokens = if ($null -ne $standardOutputTokens) { [int64]$standardOutputTokens } else { $null }
+        taskspace_input_tokens = if ($null -ne $taskspaceInputTokens) { [int64]$taskspaceInputTokens } else { $null }
+        taskspace_output_tokens = if ($null -ne $taskspaceOutputTokens) { [int64]$taskspaceOutputTokens } else { $null }
+        taskspace_token_ratio = $tokenRatio
+        standard_token_summary_availability = Get-TokenSummaryAvailability $standardMetrics
+        taskspace_token_summary_availability = Get-TokenSummaryAvailability $taskspaceMetrics
+        standard_usage_accounting_status = Get-UsageAccountingStatus $standardMetrics
+        taskspace_usage_accounting_status = Get-UsageAccountingStatus $taskspaceMetrics
+        token_ratio_availability = $tokenRatioAvailability
+        request_2_plus_cache_hit_rate = $cacheHitInfo.Rate
+        request_2_plus_cache_hit_rate_availability = [string]$cacheHitInfo.Availability
         tool_feedback_loss_count = $feedbackLoss
         tool_feedback_semantic_loss_count = $semanticLoss
         tool_result_projection_count_by_reason = $projection

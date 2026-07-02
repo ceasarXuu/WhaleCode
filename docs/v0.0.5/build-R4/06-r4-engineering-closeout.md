@@ -53,7 +53,7 @@ xychart-beta
 | public-10 report | runtime/test | `target/r4-public-10-tool-stress/r4-public-10-tool-stress-report.json` | `write-r4-public-10-tool-stress-report.ps1 -RequireComplete` | passed, 10/10 rows | report artifact is under `target`, not committed by design |
 | local URL scanner fix | code/test | `terminal-bench-remote-assets.ps1` | adapter harness local-url case | passed | none found |
 | heredoc URL scanner fix | code/test | `terminal-bench-remote-assets.ps1` | adapter harness heredoc case | passed | none found |
-| large-rollout tool-call accounting | code/test/report | `metrics-extractor.ps1`, `write-r4-public-10-tool-stress-report.ps1` | observability fallback self-test + public-10 report gate | passed; `organization-json-generator` TaskSpace calls corrected to 17 | timeout token usage still partial |
+| large-rollout tool-call and timeout usage report accounting | code/test/report | `metrics-extractor.ps1`, `write-r4-public-10-tool-stress-report.ps1`, `test-r4-public-10-usage-accounting-gate.ps1` | observability fallback self-test + public-10 report gate + ambiguous usage negative gate | passed; `organization-json-generator` TaskSpace calls corrected to 17; timeout usage no longer reported as fake zero | provider timeout usage may still be unavailable, but report marks that explicitly |
 | R4-G final evidence | doc/runtime | `docs/v0.0.5/build-R4/05-phase-benefit-evidence.md` | report gate plus documented summary | passed | utility is negative |
 | git safety | review/runtime | git history | commits pushed through `c95a5ac49` | passed | generated target artifacts remain untracked |
 
@@ -64,7 +64,7 @@ xychart-beta
 | TaskSpace utility parity | TaskSpace should be competitive with standard on tool-heavy tasks | not achieved | public-10 has TaskSpace timeout/wrong where standard solved | `organization-json-generator`, `sqlite-db-truncate`, `heterogeneous-dates`, `csv-to-parquet` rows | cannot claim R4 improves real task outcomes | redesign |
 | Long-flow convergence | TaskSpace should not keep running after enough actionable state exists | not achieved | multiple 900s timeout rows with open leaves or partial edits | public-10 rows for `organization-json-generator`, `tmux-advanced-workflow`, `git-workflow-hack` | high latency/cost and failed tasks | finish |
 | Cost/token advantage | TaskSpace should not be materially more expensive for solved tasks | not achieved | solved rows show 3.73x, 5.40x, 11.08x token ratios | public-10 report | cost remains too high even with cache hits | redesign |
-| Timeout usage accounting | timeout rows should preserve usage enough for cost analysis | partial | timeout rows have token ratio `n/a` or zero due incomplete provider usage flush | public-10 report notes | cost diagnosis is weaker on worst cases | finish |
+| Timeout usage accounting | timeout rows should preserve usage enough for cost analysis | report marking fixed; provider flush incomplete | timeout rows now use `null` plus `usage_unavailable_after_timeout` / `cache_trace_unavailable` instead of fake zero | public-10 report fields and usage-accounting gate | cost diagnosis no longer confuses missing usage with zero cost; exact timeout token cost may still be unavailable | finish provider flush if exact timeout cost is required |
 | E3 formal readiness | proceed to formal E3 only with clean utility evidence | blocked | public-10 utility no-go and validator fidelity still E1/E2-candidate | pair reports include `e3_external_validator_fidelity_unproven` | E3 would produce misleading release signal | blocked by redesign |
 
 ## 6. Recommended Next Actions
@@ -72,7 +72,7 @@ xychart-beta
 | Priority | Action | Rationale | Dependency | Expected Outcome | Verification |
 |---:|---|---|---|---|---|
 | P0 | Open R5 or equivalent utility-convergence plan for TaskSpace long-flow timeout/wrong cases | R4 proved observability and gates, but not TaskSpace utility | R4 closeout | targeted fixes for timeout/wrong public samples | rerun `organization-json-generator`, `sqlite-db-truncate`, `heterogeneous-dates`, `csv-to-parquet` |
-| P0 | Add timeout-safe provider usage flush and report marking | current worst rows cannot support precise token cost analysis | provider event writer | timeout rows have valid partial usage or explicit unavailable reason | focused timeout harness |
+| P0 | Add timeout-safe provider usage flush | report marking is fixed, but exact usage can still be unavailable when the process is killed before provider usage flush | provider event writer | timeout rows have valid partial usage, not only explicit unavailable reason | focused timeout harness |
 | P1 | Reduce TaskSpace projection/token multiplier for solved tasks | solved rows still cost 3.73x to 11.08x tokens | context manager and projection policy | solved samples keep cache hit while reducing input tokens | paired rerun with token ratio threshold |
 | P1 | Separate validator environment noise from agent quality in final tables | `engineering_unclean` rows are useful but not utility pass | report generator | clearer utility and infra columns | report generator self-test |
 | P2 | Promote public-10 report artifact into durable docs or release bundle when stable | current canonical JSON is under `target` | artifact policy decision | durable audit path outside generated cache | docs gate or release artifact check |

@@ -844,3 +844,78 @@ right timeout=900s before first JSON event
 1. H-024 的工程收益已由 action-contract 单测证明：TaskSpace 生成的 `run_test` 顶层 OR 链不会再被原样交给 PowerShell。
 2. 这轮真实 pair 复验没有进入工具执行层，不能作为 H-024 真实收益证明。
 3. 新现场应单独归类为 provider/model first-event timeout 或 harness 首包超时问题，不能混入 tool-chain 语义修复结论。
+
+## 5.13 2026-07-02 public-10 timeout usage accounting 修复
+
+本轮继续对照 R4-G/R4-H 的成本证据门禁，确认并修复一个报告层缺口：timeout 行中缺失 provider usage 时，public-10 report 曾把 token/cache 缺失默认成 `0`。这会把“未落盘/不可统计”误读成“真实 0 成本”，从而污染 TaskSpace 成本收益判断。
+
+baseline：
+
+```text
+target/r4-public-10-tool-stress/r4-public-10-tool-stress-report.json
+
+git-multibranch:
+  taskspace_token_ratio=0
+  request_2_plus_cache_hit_rate=0
+  standard/taskspace metrics token_summary_availability=usage_unavailable
+
+organization-json-generator:
+  taskspace_token_ratio=0
+  request_2_plus_cache_hit_rate=0
+  taskspace metrics token_summary_availability=usage_unavailable
+```
+
+修复：
+
+```text
+scripts/taskspace-benchmark/write-r4-public-10-tool-stress-report.ps1
+scripts/taskspace-benchmark/test-r4-public-10-tool-stress-plan.ps1
+scripts/taskspace-benchmark/test-r4-public-10-usage-accounting-gate.ps1
+docs/v0.0.5/build-R4/r4-public-10-tool-stress-plan.json
+```
+
+新语义：
+
+```text
+taskspace_token_ratio = null when unavailable
+token_ratio_availability = measured | unavailable
+standard_usage_accounting_status = measured | usage_unavailable_after_timeout | usage_source_missing | usage_unavailable
+taskspace_usage_accounting_status = measured | usage_unavailable_after_timeout | usage_source_missing | usage_unavailable
+request_2_plus_cache_hit_rate = null when unavailable
+request_2_plus_cache_hit_rate_availability = measured | derived_from_token_summary | cache_trace_unavailable | source_missing
+```
+
+after：
+
+```text
+git-multibranch:
+  token_ratio_availability=unavailable
+  standard_usage_accounting_status=usage_unavailable_after_timeout
+  taskspace_usage_accounting_status=usage_unavailable_after_timeout
+  request_2_plus_cache_hit_rate_availability=cache_trace_unavailable
+
+organization-json-generator:
+  token_ratio_availability=unavailable
+  standard_usage_accounting_status=measured
+  taskspace_usage_accounting_status=usage_unavailable_after_timeout
+  request_2_plus_cache_hit_rate_availability=cache_trace_unavailable
+```
+
+已执行门禁：
+
+```text
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/taskspace-benchmark/write-r4-public-10-tool-stress-report.ps1 -RequireComplete
+PASS: complete_run_count=10 missing_run_count=0
+
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/taskspace-benchmark/test-r4-public-10-tool-stress-plan.ps1 -ReportPath target/r4-public-10-tool-stress/r4-public-10-tool-stress-report.json
+PASS: R4 public-10 tool-stress gate passed: 10 planned samples
+
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/taskspace-benchmark/test-r4-public-10-usage-accounting-gate.ps1
+PASS: R4 public-10 usage accounting gate rejects ambiguous token usage
+```
+
+收益判断：
+
+1. R4-G report 不再把 timeout 后未 flush 的 provider usage 伪装成 0，成本收益表的语义更准确。
+2. 新 gate 能拒绝 `token_ratio_availability=measured` 但 `taskspace_token_ratio` 缺失的报告，防止回归。
+3. 该修复不等于 provider timeout usage 已完整 flush；真实 token usage 仍需后续从 provider event writer 或超时回收路径补强。

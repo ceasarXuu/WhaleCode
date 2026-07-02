@@ -156,7 +156,13 @@ if (-not (Test-Path -LiteralPath $PlanPath -PathType Leaf)) {
         "taskspace_outcome",
         "taskspace_wall_time_ratio",
         "taskspace_token_ratio",
+        "standard_token_summary_availability",
+        "taskspace_token_summary_availability",
+        "standard_usage_accounting_status",
+        "taskspace_usage_accounting_status",
+        "token_ratio_availability",
         "request_2_plus_cache_hit_rate",
+        "request_2_plus_cache_hit_rate_availability",
         "tool_feedback_loss_count",
         "tool_feedback_semantic_loss_count",
         "taskspace_map_attribution_missing_count",
@@ -196,6 +202,41 @@ if (-not [string]::IsNullOrWhiteSpace($ReportPath)) {
             }
             if (-not (Test-TruthValue $row.task_id_registry_verified)) {
                 Add-Failure $failures "report row ${taskId} must set task_id_registry_verified=true"
+            }
+            $tokenAvailability = [string]$row.token_ratio_availability
+            $tokenRatioMissing = ($null -eq $row.taskspace_token_ratio -or [string]::IsNullOrWhiteSpace([string]$row.taskspace_token_ratio))
+            if ($tokenAvailability -eq "measured" -and $tokenRatioMissing) {
+                Add-Failure $failures "report row ${taskId} token_ratio_availability=measured but taskspace_token_ratio is missing"
+            }
+            if ($tokenAvailability -ne "measured" -and -not $tokenRatioMissing) {
+                Add-Failure $failures "report row ${taskId} has taskspace_token_ratio but token_ratio_availability is not measured"
+            }
+            foreach ($mode in @("standard", "taskspace")) {
+                $statusName = "${mode}_usage_accounting_status"
+                $availabilityName = "${mode}_token_summary_availability"
+                $inputName = "${mode}_input_tokens"
+                $outputName = "${mode}_output_tokens"
+                $status = [string]$row.$statusName
+                $availability = [string]$row.$availabilityName
+                if ([string]::IsNullOrWhiteSpace($status)) {
+                    Add-Failure $failures "report row ${taskId} missing ${statusName}"
+                }
+                if ([string]::IsNullOrWhiteSpace($availability)) {
+                    Add-Failure $failures "report row ${taskId} missing ${availabilityName}"
+                }
+                $inputMissing = ($null -eq $row.$inputName -or [string]::IsNullOrWhiteSpace([string]$row.$inputName))
+                $outputMissing = ($null -eq $row.$outputName -or [string]::IsNullOrWhiteSpace([string]$row.$outputName))
+                if (($inputMissing -or $outputMissing) -and $status -eq "measured") {
+                    Add-Failure $failures "report row ${taskId} ${mode} usage_accounting_status=measured but token fields are missing"
+                }
+            }
+            $cacheAvailability = [string]$row.request_2_plus_cache_hit_rate_availability
+            $cacheMissing = ($null -eq $row.request_2_plus_cache_hit_rate -or [string]::IsNullOrWhiteSpace([string]$row.request_2_plus_cache_hit_rate))
+            if ($cacheAvailability -in @("measured", "derived_from_token_summary") -and $cacheMissing) {
+                Add-Failure $failures "report row ${taskId} cache availability is $cacheAvailability but request_2_plus_cache_hit_rate is missing"
+            }
+            if ($cacheAvailability -notin @("measured", "derived_from_token_summary", "cache_trace_unavailable", "source_missing", "missing_run")) {
+                Add-Failure $failures "report row ${taskId} has unknown request_2_plus_cache_hit_rate_availability: $cacheAvailability"
             }
         }
     }
