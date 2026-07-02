@@ -2090,6 +2090,61 @@ impl ActionMapRuntimeState {
                 ActionClass::Read | ActionClass::Search
             )
             && !node_has_successful_action(map, node, ActionClass::Edit)
+            && let Some((artifact_ref, previous_result_id)) =
+                implement_node_duplicate_validation_rework_artifact_read(map, node, &descriptor)
+        {
+            let reason = "validation_rework_duplicate_artifact_read".to_string();
+            let message = format!(
+                "TaskSpace blocked this {} because validation rework node `{}` already read failure artifact `{}` in result `{}` and no successful edit has been recorded after that read. Use the existing file contents from that result and apply the smallest fix with apply_patch, or return blocked with the exact reason no safe edit can be made.",
+                descriptor.action_class.as_str(),
+                node.id,
+                artifact_ref,
+                previous_result_id
+            );
+            let current_node_item = format!("current_node:{}:{}", node.id, node.kind.as_str());
+            let blocked_node_kind = node.kind.as_str().to_string();
+            let repeated_block = self.record_blocked_action_repeat(
+                &map_id,
+                &node_id,
+                progress_signature,
+                &reason,
+                &descriptor,
+            );
+            let recovery = gate_recovery_message_with_repeated_block(
+                &message,
+                &reason,
+                vec![
+                    current_node_item,
+                    format!("failure_artifact:{artifact_ref}"),
+                    format!("previous_read_result:{previous_result_id}"),
+                ],
+                vec![
+                    format!("call apply_patch for `{artifact_ref}`"),
+                    "or return blocked with exact missing evidence".to_string(),
+                ],
+                Vec::new(),
+                Some(&repeated_block),
+            );
+            return Err(ActionMapGateError::new(
+                recovery,
+                vec![MapRuntimeEvent::ToolActionBlocked(
+                    MapRuntimeToolActionBlockedEvent {
+                        map_id,
+                        node_id,
+                        node_kind: blocked_node_kind,
+                        tool_name: descriptor.tool_name,
+                        action_class: descriptor.action_class.as_str().to_string(),
+                        reason,
+                    },
+                )],
+            ));
+        }
+        if node.kind == NodeKind::ImplementSolution
+            && matches!(
+                descriptor.action_class,
+                ActionClass::Read | ActionClass::Search
+            )
+            && !node_has_successful_action(map, node, ActionClass::Edit)
             && (implement_node_has_dependency_working_evidence(map, node)
                 || implement_node_has_dependency_validation_rework_evidence(map, node)
                 || self
@@ -5036,16 +5091,39 @@ preview:\n\
             if matches!(node.kind, NodeKind::SmokeTest | NodeKind::RegressionTest) {
                 validation_node_failed_noninfra_result(map, node)
                     .or_else(|| validation_node_semantic_failure_result(map, node))
-                    .or_else(|| validation_node_local_infra_unvalidated_artifact_result(map, node))
-                    .or_else(|| {
-                        validation_node_local_infra_blocker_unvalidated_artifact_result(
-                            map,
-                            node,
-                            blocker_summary,
+                    .map(|(failed_result_id, failed_summary)| {
+                        (
+                            NodeKind::ImplementSolution,
+                            node.kind,
+                            failed_result_id,
+                            failed_summary,
+                            Vec::new(),
                         )
                     })
-                    .map(|(failed_result_id, failed_summary)| {
-                        (node.kind, failed_result_id, failed_summary)
+                    .or_else(|| {
+                        let dependency_node_ids = map
+                            .edges
+                            .iter()
+                            .filter(|edge| edge.to == node.id)
+                            .map(|edge| edge.from.clone())
+                            .collect::<Vec<_>>();
+                        validation_node_local_infra_unvalidated_artifact_result(map, node)
+                            .or_else(|| {
+                                validation_node_local_infra_blocker_unvalidated_artifact_result(
+                                    map,
+                                    node,
+                                    blocker_summary,
+                                )
+                            })
+                            .map(|(failed_result_id, failed_summary)| {
+                                (
+                                    node.kind,
+                                    node.kind,
+                                    failed_result_id,
+                                    failed_summary,
+                                    dependency_node_ids,
+                                )
+                            })
                     })
             } else {
                 None
@@ -5058,17 +5136,34 @@ preview:\n\
             NodeStatus::Blocked,
             false,
         )?;
-        if let Some((node_kind, failed_result_id, failed_summary)) = validation_rework {
-            let title = format!("Fix failed {}", node_kind.as_str());
-            let context_summary = format!(
-                "Validation node `{node_id}` was blocked after failed test/build result `{failed_result_id}`. Failure preview: {failed_summary}. Fix the implementation artifact(s) named in the failure output, then finish this implement_solution node into a fresh validation rerun."
-            );
+        if let Some((
+            next_kind,
+            failed_node_kind,
+            failed_result_id,
+            failed_summary,
+            dependency_node_ids,
+        )) = validation_rework
+        {
+            let title = if next_kind == NodeKind::ImplementSolution {
+                format!("Fix failed {}", failed_node_kind.as_str())
+            } else {
+                format!("Run platform-compatible {}", failed_node_kind.as_str())
+            };
+            let context_summary = if next_kind == NodeKind::ImplementSolution {
+                format!(
+                    "Validation node `{node_id}` was blocked after failed test/build result `{failed_result_id}`. Failure preview: {failed_summary}. Fix the implementation artifact(s) named in the failure output, then finish this implement_solution node into a fresh validation rerun."
+                )
+            } else {
+                format!(
+                    "Validation node `{node_id}` was blocked because local validator infrastructure failed before changed artifacts were proven. Failure preview: {failed_summary}. Run the changed artifact(s) directly with a platform-compatible command such as `python recover.py`, or run another real validator that covers the same changed artifact(s)."
+                )
+            };
             let (rework_node_id, mut rework_events) = self.create_node_for_main_with_kind(
                 owner_session_id,
-                NodeKind::ImplementSolution,
+                next_kind,
                 title,
                 context_summary,
-                Vec::new(),
+                dependency_node_ids,
                 true,
             )?;
             if let Some(map) = self.maps.get_mut(&map_id)
@@ -8969,8 +9064,10 @@ preview:\n\
                 continue;
             }
             if map.nodes.get(&node_id).is_some_and(|node| {
-                node.kind == NodeKind::ImplementSolution
-                    && node.origin_node_id.as_deref() == Some(validation_node_id)
+                matches!(
+                    node.kind,
+                    NodeKind::ImplementSolution | NodeKind::SmokeTest | NodeKind::RegressionTest
+                ) && node.origin_node_id.as_deref() == Some(validation_node_id)
             }) {
                 return true;
             }
@@ -13266,13 +13363,20 @@ fn tool_action_descriptor_targets_any_artifact(
     descriptor: &ToolActionDescriptor,
     artifact_refs: &[String],
 ) -> bool {
+    tool_action_descriptor_matching_artifact_ref(descriptor, artifact_refs).is_some()
+}
+
+fn tool_action_descriptor_matching_artifact_ref(
+    descriptor: &ToolActionDescriptor,
+    artifact_refs: &[String],
+) -> Option<String> {
     let Some(command) = tool_action_descriptor_command(descriptor) else {
-        return false;
+        return None;
     };
     let normalized_command = normalize_artifact_ref(&command).to_ascii_lowercase();
-    artifact_refs.iter().any(|artifact_ref| {
+    artifact_refs.iter().find_map(|artifact_ref| {
         let key = artifact_key(artifact_ref);
-        !key.is_empty() && normalized_command.contains(&key)
+        (!key.is_empty() && normalized_command.contains(&key)).then(|| artifact_ref.clone())
     })
 }
 
@@ -13965,6 +14069,40 @@ fn implement_node_validation_rework_read_targets_failure_artifact(
     let artifact_refs = implement_node_dependency_validation_rework_artifact_refs(map, node);
     !artifact_refs.is_empty()
         && tool_action_descriptor_targets_any_artifact(descriptor, &artifact_refs)
+}
+
+fn implement_node_duplicate_validation_rework_artifact_read(
+    map: &ActionMapInstance,
+    node: &MapNode,
+    descriptor: &ToolActionDescriptor,
+) -> Option<(String, NodeResultId)> {
+    if node.kind != NodeKind::ImplementSolution
+        || !matches!(
+            descriptor.action_class,
+            ActionClass::Read | ActionClass::Search
+        )
+    {
+        return None;
+    }
+    let artifact_refs = implement_node_dependency_validation_rework_artifact_refs(map, node);
+    let artifact_ref = tool_action_descriptor_matching_artifact_ref(descriptor, &artifact_refs)?;
+    let target_artifact_key = artifact_key(&artifact_ref);
+    node.result_context.iter().rev().find_map(|result_ref| {
+        let result = map.results.get(&result_ref.id)?;
+        if result.kind != NodeResultKind::MainToolCall
+            || result.tool_success != Some(true)
+            || !matches!(
+                result.action_class,
+                Some(ActionClass::Read | ActionClass::Search)
+            )
+        {
+            return None;
+        }
+        result_artifact_refs(result)
+            .iter()
+            .any(|existing| artifact_key(existing) == target_artifact_key)
+            .then(|| (artifact_ref.clone(), result.id.clone()))
+    })
 }
 
 fn implement_node_dependency_validation_rework_artifact_refs(
@@ -27519,29 +27657,76 @@ summary: diagnostic payload for output reference smoke\n\
             )
             .expect("finish implementation into validation");
         let validation_node_id = handoff.next_node_id.expect("validation node id");
+        let lifecycle_result_ids = {
+            let map = state.active_map().expect("active map");
+            map.results
+                .values()
+                .filter(|result| result.kind == NodeResultKind::Result)
+                .map(|result| result.id.clone())
+                .collect::<Vec<_>>()
+        };
+        for result_id in lifecycle_result_ids {
+            state
+                .mark_result_validity_for_main(
+                    owner,
+                    &result_id,
+                    "accepted",
+                    "accepted setup lifecycle result".to_string(),
+                    vec![ActionMapCognitiveClaimInput {
+                        id: format!("claim-setup-{result_id}"),
+                        statement:
+                            "Setup lifecycle result accepted for platform-compatible validation."
+                                .to_string(),
+                        evidence_refs: vec![ActionMapEvidenceRefInput {
+                            result_id: Some(result_id.clone()),
+                            ..Default::default()
+                        }],
+                    }],
+                    vec![ActionMapEvidenceRefInput {
+                        result_id: Some(result_id.clone()),
+                        ..Default::default()
+                    }],
+                    Vec::new(),
+                    Vec::new(),
+                    Vec::new(),
+                )
+                .expect("setup lifecycle result accepted");
+        }
         state
             .block_main_node(
                 owner,
                 &validation_node_id,
                 "Local validator infrastructure failed: PowerShell InvalidEndOfLine. Cannot execute test commands.".to_string(),
             )
-            .expect("manual recoverable infra block should route rework");
-        let rework_node_id = state
+            .expect("manual recoverable infra block should route validation retry");
+        let retry_validation_node_id = state
             .current_main_node_id
             .clone()
-            .expect("manual infra block should bind rework");
+            .expect("manual infra block should bind validation retry");
 
-        let error = state
-            .block_main_node(
+        let map = state.active_map().expect("active map");
+        let retry_validation_node = map
+            .nodes
+            .get(&retry_validation_node_id)
+            .expect("retry validation node");
+        assert_eq!(retry_validation_node.kind, NodeKind::SmokeTest);
+        assert_eq!(
+            retry_validation_node.origin_node_id.as_deref(),
+            Some(validation_node_id.as_str())
+        );
+        assert!(
+            retry_validation_node
+                .context
+                .summary
+                .contains("platform-compatible")
+        );
+
+        state
+            .prepare_main_tool_call(
                 owner,
-                &rework_node_id,
-                "Cannot read recover.py to fix indentation errors after failed smoke_test."
-                    .to_string(),
+                ToolActionDescriptor::new("shell_command", ActionClass::Test, "python recover.py"),
             )
-            .expect_err("rework node must not close for missing current artifact visibility");
-
-        assert!(error.contains("cannot be blocked for missing source visibility"));
-        assert!(error.contains("apply_patch"));
+            .expect("validation retry may run changed artifact directly");
     }
 
     #[test]
@@ -27669,9 +27854,38 @@ summary: diagnostic payload for output reference smoke\n\
                         "command": "Get-Content -LiteralPath \"recover.py\" -TotalCount 240"
                     })
                     .to_string(),
-                ),
+                )
+                .with_call_id("read-recover-script"),
             )
             .expect("validation rework may read the traceback target file before editing");
+
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "read-recover-script",
+                "shell_command",
+                Some(ActionClass::Read),
+                true,
+                "import sqlite3\nprint('recover rows')\n".to_string(),
+            )
+            .expect("targeted rework read result records");
+        let repeated_read = state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new(
+                    "shell_command",
+                    ActionClass::Read,
+                    serde_json::json!({
+                        "command": "Get-Content -LiteralPath \"recover.py\" -TotalCount 240"
+                    })
+                    .to_string(),
+                ),
+            )
+            .expect_err("same validation rework artifact should not be reread before edit");
+        let repeated_message = repeated_read.to_string();
+        assert!(repeated_message.contains("validation_rework_duplicate_artifact_read"));
+        assert!(repeated_message.contains("recover.py"));
+        assert!(repeated_message.contains("apply_patch"));
     }
 
     #[test]
@@ -27925,6 +28139,41 @@ summary: diagnostic payload for output reference smoke\n\
             )
             .expect("finish implementation into validation");
         let validation_node_id = handoff.next_node_id.expect("validation node id");
+        let lifecycle_result_ids = {
+            let map = state.active_map().expect("active map");
+            map.results
+                .values()
+                .filter(|result| result.kind == NodeResultKind::Result)
+                .map(|result| result.id.clone())
+                .collect::<Vec<_>>()
+        };
+        for result_id in lifecycle_result_ids {
+            state
+                .mark_result_validity_for_main(
+                    owner,
+                    &result_id,
+                    "accepted",
+                    "accepted setup lifecycle result".to_string(),
+                    vec![ActionMapCognitiveClaimInput {
+                        id: format!("claim-setup-{result_id}"),
+                        statement:
+                            "Setup lifecycle result accepted for platform-compatible validation."
+                                .to_string(),
+                        evidence_refs: vec![ActionMapEvidenceRefInput {
+                            result_id: Some(result_id.clone()),
+                            ..Default::default()
+                        }],
+                    }],
+                    vec![ActionMapEvidenceRefInput {
+                        result_id: Some(result_id.clone()),
+                        ..Default::default()
+                    }],
+                    Vec::new(),
+                    Vec::new(),
+                    Vec::new(),
+                )
+                .expect("setup lifecycle result accepted");
+        }
 
         state
             .record_main_tool_result_with_class(
@@ -27937,10 +28186,10 @@ summary: diagnostic payload for output reference smoke\n\
             )
             .expect("platform-incompatible validator failure records");
 
-        let rework_node_id = state
+        let retry_validation_node_id = state
             .current_main_node_id
             .clone()
-            .expect("bash E_ACCESSDENIED should bind implementation rework");
+            .expect("bash E_ACCESSDENIED should bind validation retry");
         let map = state.maps.get(&map_id).expect("map");
         assert_eq!(
             map.nodes
@@ -27949,15 +28198,33 @@ summary: diagnostic payload for output reference smoke\n\
                 .status,
             NodeStatus::Blocked
         );
-        let rework_node = map.nodes.get(&rework_node_id).expect("rework node");
-        assert_eq!(rework_node.kind, NodeKind::ImplementSolution);
-        assert!(rework_node.context.summary.contains("recover.py"));
+        let retry_validation_node = map
+            .nodes
+            .get(&retry_validation_node_id)
+            .expect("retry validation node");
+        assert_eq!(retry_validation_node.kind, NodeKind::SmokeTest);
+        assert_eq!(
+            retry_validation_node.origin_node_id.as_deref(),
+            Some(validation_node_id.as_str())
+        );
         assert!(
-            rework_node
+            retry_validation_node
                 .context
                 .summary
                 .contains("platform-compatible execution")
         );
+        assert!(
+            map.edges.iter().any(|edge| {
+                edge.from == implement_node_id && edge.to == retry_validation_node_id
+            })
+        );
+
+        state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new("shell_command", ActionClass::Test, "python recover.py"),
+            )
+            .expect("retry validation may run changed artifact directly");
     }
 
     #[test]

@@ -1423,3 +1423,114 @@
 - Remaining runtime finding:
   - The edge-count fix only removes a false signal. The same real run still timed out after repeated implement/validation rework. `node-7` accumulated 13 results and `node-9` was still running at the 900s timeout, so the next root cause is TaskSpace state-machine convergence, not observability accounting.
 - Time: 2026-07-02 15:42
+
+## Hypothesis H-023: validation rework must deduplicate same-artifact reads and route local-infra changed-artifact checks back to validation
+
+- Related problems:
+  - P-004
+- Status: repaired-by-unit-tests; real-sample exposed next root cause H-024
+- Claim:
+  - After H-021, `sqlite-db-truncate` still had two state-machine gaps:
+    - validation rework could read the same failed artifact repeatedly before any edit;
+    - local validator infrastructure failures involving an already changed artifact were routed to an `implement_solution` node, even when the next useful action was to run the changed artifact with platform-compatible syntax.
+- Evidence:
+  - Pre-repair real run:
+    ```text
+    RunDir: C:\WhaleRunCache\r4-rerun-20260702\sqlite-db-truncate-patch-feedback-fix\runs\terminal_bench__sqlite-db-truncate\20260702-143858-261\pair-001
+    taskspace_exec_timed_out=true
+    node_count=8
+    logical_edges_after_rerender=7
+    node-7 result_count=13
+    node-9 running at timeout
+    ```
+  - First post duplicate-read repair run:
+    ```text
+    RunDir: C:\WhaleRunCache\r4-rerun-20260702\sqlite-db-truncate-duplicate-rework-read-fix\runs\terminal_bench__sqlite-db-truncate\20260702-152414-237\pair-001
+    taskspace_exec_timed_out=false
+    taskspace_wall_time_ms=124948
+    standard_wall_time_ms=159798
+    taskspace_tool_call_count=5
+    standard_tool_call_count=10
+    node_count=4
+    edge_count=3
+    public_validation_exit_code=1
+    ```
+  - This proves the repeated-rework timeout was removed, but the run still failed because `recover.py` was created and never executed, leaving `/app/recover.json` missing.
+  - Second post local-infra routing run:
+    ```text
+    RunDir: C:\WhaleRunCache\r4-rerun-20260702\sqlite-db-truncate-local-infra-validation-retry\runs\terminal_bench__sqlite-db-truncate\20260702-160146-549\pair-001
+    taskspace_exec_timed_out=false
+    outcome_taskspace=wrong
+    node_count=3
+    edge_count=2
+    taskspace_tool_call_count=4
+    public_validation_exit_code=1
+    ```
+- Root cause:
+  - The `implement_node_validation_rework_read_targets_failure_artifact(...)` exception allowed the first focused read of a traceback artifact, but there was no second-order guard for rereading that same artifact before an edit.
+  - `block_main_node(...)` treated every validation rework as implementation rework. For local infrastructure failures on changed artifacts, that created a policy contradiction: the context asked for platform-compatible execution, while the active node kind still pressured the agent toward another edit.
+  - The lifecycle review exemption for origin validation blockers only covered implement-rework chains, not validation retry nodes whose `origin_node_id` points to the blocked validation node.
+- Repair:
+  - Added `implement_node_duplicate_validation_rework_artifact_read(...)`.
+  - Added `validation_rework_duplicate_artifact_read` gate with prior result id and next valid action `apply_patch`.
+  - Split validation rework routing:
+    - failed/semantic validation still routes to `implement_solution`;
+    - local-infra unvalidated changed artifact routes to a fresh validation node of the same kind, preserving dependency edges to the implementation node.
+  - Extended active rework input-blocker exemption so validation retry nodes can proceed without reviewing the origin infra blocker first.
+- Validation:
+  ```text
+  CARGO_TARGET_DIR=D:\BuildCache\whalecode\cargo-target cargo test -j1 -p codex-core validation_rework_allows_target_file_read_from_traceback_before_edit --lib
+  PASS
+
+  CARGO_TARGET_DIR=D:\BuildCache\whalecode\cargo-target cargo test -j1 -p codex-core validation_rework_ --lib
+  PASS, 6 tests
+
+  CARGO_TARGET_DIR=D:\BuildCache\whalecode\cargo-target cargo test -j1 -p codex-core access_denied_ --lib
+  PASS, 2 tests
+
+  cargo fmt --all -- --check
+  PASS
+
+  CARGO_TARGET_DIR=D:\BuildCache\whalecode\cargo-target cargo build -j1 --profile dev-small -p codex-cli --bin whale
+  PASS
+  ```
+- Remaining runtime finding:
+  - H-023 improved convergence but did not solve `sqlite-db-truncate`. The next real blocker is H-024: inspect-node `run_test` command normalization allowed Bash-style `||` to reach PowerShell unchanged.
+- Time: 2026-07-02 16:23
+
+## Hypothesis H-024: action-contract run_test must normalize Bash logical operators before PowerShell execution
+
+- Related problems:
+  - P-004
+- Status: open
+- Claim:
+  - TaskSpace action-contract `run_test` can pass Bash-style `||` through to PowerShell, causing `InvalidEndOfLine` before useful diagnostic output is produced. The model then over-attributes the failure to validator infrastructure and gets stuck in state_commit/block recovery instead of running the changed artifact or fixing the command.
+- Evidence:
+  - Real rerun:
+    ```text
+    RunDir: C:\WhaleRunCache\r4-rerun-20260702\sqlite-db-truncate-local-infra-validation-retry\runs\terminal_bench__sqlite-db-truncate\20260702-160146-549\pair-001
+    outcome_taskspace=wrong
+    exec_timed_out=false
+    taskspace_tool_call_count=4
+    public_validation_exit_code=1
+    ```
+  - The inspect diagnostic command was:
+    ```text
+    sqlite3 trunc.db ".tables" 2>&1 || echo 'sqlite3 not available, trying python'; python -c ...
+    ```
+  - PowerShell rejected it before the Python fallback:
+    ```text
+    The token '||' is not a valid statement separator in this version.
+    FullyQualifiedErrorId : InvalidEndOfLine
+    ```
+  - After that, the run created `recover.py` but never created `recover.json`, and the final external validator failed with:
+    ```text
+    FileNotFoundError: [Errno 2] No such file or directory: '/app/recover.json'
+    ```
+- Root cause hypothesis:
+  - Existing action-contract command normalization handles some `run_test` shell cases, but does not convert or reject Bash logical OR (`||`) for the PowerShell execution environment.
+  - This is a tool invocation normalization problem, not a budget problem and not the same as H-023 local-infra validation retry.
+- Next repair target:
+  - Normalize `cmd1 || cmd2` into a PowerShell-compatible equivalent or reject it with structured feedback that requires a platform-compatible command.
+  - Add tests for `run_test` command translation with `||`, and rerun `sqlite-db-truncate`.
+- Time: 2026-07-02 16:23
