@@ -53,7 +53,7 @@ xychart-beta
 | public-10 report | runtime/test | `target/r4-public-10-tool-stress/r4-public-10-tool-stress-report.json` | `write-r4-public-10-tool-stress-report.ps1 -RequireComplete` | passed, 10/10 rows | report artifact is under `target`, not committed by design |
 | local URL scanner fix | code/test | `terminal-bench-remote-assets.ps1` | adapter harness local-url case | passed | none found |
 | heredoc URL scanner fix | code/test | `terminal-bench-remote-assets.ps1` | adapter harness heredoc case | passed | none found |
-| large-rollout tool-call and timeout usage report accounting | code/test/report | `metrics-extractor.ps1`, `write-r4-public-10-tool-stress-report.ps1`, `test-r4-public-10-usage-accounting-gate.ps1` | observability fallback self-test + public-10 report gate + ambiguous usage negative gate | passed; `organization-json-generator` TaskSpace calls corrected to 17; timeout usage no longer reported as fake zero | provider timeout usage may still be unavailable, but report marks that explicitly |
+| large-rollout tool-call, timeout usage, and model request accounting | code/test/report | `metrics-extractor.ps1`, `write-r4-public-10-tool-stress-report.ps1`, `test-r4-public-10-usage-accounting-gate.ps1` | observability fallback self-test + public-10 report gate + ambiguous usage/request-count negative gates | passed; `organization-json-generator` TaskSpace calls corrected to 17; timeout usage no longer reported as fake zero; request amplification now exposed from rollout/provider traces | provider timeout usage may still be unavailable, but report marks that explicitly |
 | R4-G final evidence | doc/runtime | `docs/v0.0.5/build-R4/05-phase-benefit-evidence.md` | report gate plus documented summary | passed | utility is negative |
 | git safety | review/runtime | git history | commits pushed through `c95a5ac49` | passed | generated target artifacts remain untracked |
 
@@ -63,7 +63,7 @@ xychart-beta
 |---|---|---|---|---|---|---|
 | TaskSpace utility parity | TaskSpace should be competitive with standard on tool-heavy tasks | not achieved | public-10 has TaskSpace timeout/wrong where standard solved | `organization-json-generator`, `sqlite-db-truncate`, `heterogeneous-dates`, `csv-to-parquet` rows | cannot claim R4 improves real task outcomes | redesign |
 | Long-flow convergence | TaskSpace should not keep running after enough actionable state exists | not achieved | multiple 900s timeout rows with open leaves or partial edits | public-10 rows for `organization-json-generator`, `tmux-advanced-workflow`, `git-workflow-hack` | high latency/cost and failed tasks | finish |
-| Cost/token advantage | TaskSpace should not be materially more expensive for solved tasks | not achieved | solved rows show 3.73x, 5.40x, 11.08x token ratios | public-10 report | cost remains too high even with cache hits | redesign |
+| Cost/token advantage | TaskSpace should not be materially more expensive for solved tasks | not achieved | solved rows show 3.73x, 5.40x, 11.08x token ratios; request ratios include 6x, 8x, 12x and larger timeout-row amplification | public-10 report | cost remains too high even with cache hits because request count/convergence is amplified | redesign |
 | Timeout usage accounting | timeout rows should preserve usage enough for cost analysis | report marking fixed; provider flush incomplete | timeout rows now use `null` plus `usage_unavailable_after_timeout` / `cache_trace_unavailable` instead of fake zero | public-10 report fields and usage-accounting gate | cost diagnosis no longer confuses missing usage with zero cost; exact timeout token cost may still be unavailable | finish provider flush if exact timeout cost is required |
 | E3 formal readiness | proceed to formal E3 only with clean utility evidence | blocked | public-10 utility no-go and validator fidelity still E1/E2-candidate | pair reports include `e3_external_validator_fidelity_unproven` | E3 would produce misleading release signal | blocked by redesign |
 
@@ -83,7 +83,43 @@ R4 engineering deliverables are closed. R4 does not authorize E3 progression for
 
 The next stage must treat the public-10 negative evidence as input requirements, not as optional optimization.
 
-## 8. 2026-07-02 Post-Closeout Utility Finding
+## 8. 2026-07-02 Post-Closeout Request Amplification Finding
+
+继续审计 public-10 成本证据时，确认 closeout 之前的报告还缺少有效模型请求数。`heterogeneous-dates` 的 TaskSpace cache hit 为 `0.98556`，但 token ratio 为 `11.082`；对应真实请求数是 standard `1` vs TaskSpace `12`。因此当前成本负收益不是 cache hit 不稳定，而是 long-flow convergence 导致的请求轮数放大。
+
+已补齐字段：
+- `standard_model_request_count`
+- `taskspace_model_request_count`
+- `taskspace_model_request_ratio`
+- `standard_model_request_count_source`
+- `taskspace_model_request_count_source`
+- `model_request_count_availability`
+
+public-10 当前暴露的请求倍率包括：
+
+```text
+vim-terminal-task: 6x
+heterogeneous-dates: 12x
+sqlite-db-truncate: 9x
+git-workflow-hack: 21x
+sqlite-with-gcov: 18x
+csv-to-parquet: 8x
+tmux-advanced-workflow: 28x
+```
+
+新增门禁已经通过：
+
+```text
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/taskspace-benchmark/test-r4-public-10-tool-stress-plan.ps1 -ReportPath target/r4-public-10-tool-stress/r4-public-10-tool-stress-report.json
+PASS
+
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/taskspace-benchmark/test-r4-public-10-usage-accounting-gate.ps1
+PASS
+```
+
+结论不变：R4 的工程可观测性继续增强，但 TaskSpace utility parity、long-flow convergence、cost/token advantage 仍未完成，不能进入 E3。
+
+## 9. 2026-07-02 Post-Closeout Utility Finding
 
 R4 closeout 后继续复跑 `sqlite-db-truncate`，确认了一个额外的工程事实：R4 的局部状态机修复仍能产生真实收益，但 TaskSpace utility 仍未收敛。
 
@@ -128,7 +164,7 @@ open_leaf_nodes=1
 - 样本仍未 solved，失败从 closed-validation masking 转移为 900s long-flow timeout。
 - 因此 R4 的 release decision 不变：工程交付和观测门禁可以保留为完成，但 TaskSpace utility parity 仍是后续 P0。
 
-## 9. 2026-07-02 Post-Closeout H-024 Tool Invocation Finding
+## 10. 2026-07-02 Post-Closeout H-024 Tool Invocation Finding
 
 继续追踪 `sqlite-db-truncate` 时，又确认了一个 action-contract `run_test` host-shell 规范化缺口：TaskSpace 可能把 Bash 顶层 `||` 原样交给 Windows PowerShell，导致 `InvalidEndOfLine`，工具还没有产生有价值诊断就失败。
 

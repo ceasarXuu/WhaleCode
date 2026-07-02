@@ -919,3 +919,80 @@ PASS: R4 public-10 usage accounting gate rejects ambiguous token usage
 1. R4-G report 不再把 timeout 后未 flush 的 provider usage 伪装成 0，成本收益表的语义更准确。
 2. 新 gate 能拒绝 `token_ratio_availability=measured` 但 `taskspace_token_ratio` 缺失的报告，防止回归。
 3. 该修复不等于 provider timeout usage 已完整 flush；真实 token usage 仍需后续从 provider event writer 或超时回收路径补强。
+
+## 5.14 2026-07-02 public-10 model request amplification accounting
+
+继续审计 R4-G 成本证据时，发现 public-10 report 仍有一个报告层语义缺口：`request-summary.json` 顶层 `model_request_count` 可能来自 token summary 聚合，而 TaskSpace 的真实多轮请求数存在于 `rollout_trace.model_request_count` 或 provider cache trace 中。如果报告只暴露 token ratio，不暴露有效模型请求数，就无法解释“cache hit 很高但 token/时长仍然放大”的根因。
+
+现场证据：
+
+```text
+heterogeneous-dates:
+  standard request-summary model_request_count=1
+  taskspace request-summary top-level model_request_count=1
+  taskspace rollout_trace.model_request_count=12
+  taskspace provider_cache_trace.provider_request_count=11
+  taskspace_token_ratio=11.082
+  request_2_plus_cache_hit_rate=0.98556
+```
+
+修复：
+
+```text
+scripts/taskspace-benchmark/write-r4-public-10-tool-stress-report.ps1
+scripts/taskspace-benchmark/test-r4-public-10-tool-stress-plan.ps1
+scripts/taskspace-benchmark/test-r4-public-10-usage-accounting-gate.ps1
+docs/v0.0.5/build-R4/r4-public-10-tool-stress-plan.json
+docs/v0.0.5/build-R4/04-benefit-gates-and-public-sample-acceptance.md
+```
+
+新增字段：
+
+```text
+standard_model_request_count
+taskspace_model_request_count
+taskspace_model_request_ratio
+standard_model_request_count_source
+taskspace_model_request_count_source
+model_request_count_availability
+```
+
+计数来源优先级：
+
+```text
+rollout_trace.model_request_count
+provider-cache-trace-summary.provider_request_count
+request-summary.model_request_count
+metrics.model_request_count
+```
+
+更新后的 public-10 关键行：
+
+```text
+vim-terminal-task: standard=1 taskspace=6 ratio=6 cache_hit=0.987628 token_ratio=3.734
+heterogeneous-dates: standard=1 taskspace=12 ratio=12 cache_hit=0.985560 token_ratio=11.082
+sqlite-db-truncate: standard=1 taskspace=9 ratio=9 cache_hit=0.986363 token_ratio=3.5924
+git-workflow-hack: standard=1 taskspace=21 ratio=21 cache_hit=0.988228 token_ratio=unavailable
+sqlite-with-gcov: standard=1 taskspace=18 ratio=18 cache_hit=0.982483 token_ratio=0.5248
+csv-to-parquet: standard=1 taskspace=8 ratio=8 cache_hit=0.986379 token_ratio=5.4041
+tmux-advanced-workflow: standard=1 taskspace=28 ratio=28 cache_hit=0.986285 token_ratio=unavailable
+```
+
+已执行门禁：
+
+```text
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/taskspace-benchmark/write-r4-public-10-tool-stress-report.ps1 -RequireComplete
+PASS: complete_run_count=10 missing_run_count=0
+
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/taskspace-benchmark/test-r4-public-10-tool-stress-plan.ps1 -ReportPath target/r4-public-10-tool-stress/r4-public-10-tool-stress-report.json
+PASS: R4 public-10 tool-stress gate passed: 10 planned samples
+
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/taskspace-benchmark/test-r4-public-10-usage-accounting-gate.ps1
+PASS: R4 public-10 usage accounting gate rejects ambiguous token usage
+```
+
+收益判断：
+
+1. R4-G report 现在能证明高 cache hit 不等于低成本；TaskSpace 的主要成本放大来自多轮请求放大。
+2. gate 会拒绝 `model_request_count_availability=measured` 但缺少 `taskspace_model_request_ratio` 的报告，防止请求放大被再次隐藏。
+3. 这不是 TaskSpace utility 修复；它把剩余 P0 问题更准确地收敛为 long-flow convergence 和请求轮数控制。

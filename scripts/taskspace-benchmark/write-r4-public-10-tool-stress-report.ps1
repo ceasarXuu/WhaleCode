@@ -136,6 +136,34 @@ function Get-CacheHitRateInfo {
     return [pscustomobject]@{ Rate = $null; Availability = $availability; Source = "unavailable" }
 }
 
+function Get-ModelRequestCountInfo {
+    param([string]$ArtifactsDir, [object]$Metrics)
+    $requestSummary = Read-JsonFile (Join-Path $ArtifactsDir "request-summary.json")
+    $rolloutCount = Get-ObjectNullableNumber $requestSummary.rollout_trace "model_request_count"
+    if ($null -ne $rolloutCount -and [double]$rolloutCount -gt 0) {
+        return [pscustomobject]@{ Count = [int64]$rolloutCount; Availability = "measured"; Source = "rollout_trace" }
+    }
+
+    $providerSummary = Read-JsonFile (Join-Path $ArtifactsDir "provider-cache-trace-summary.json")
+    $providerCount = Get-ObjectNullableNumber $providerSummary "provider_request_count"
+    if ($null -ne $providerCount -and [double]$providerCount -gt 0) {
+        return [pscustomobject]@{ Count = [int64]$providerCount; Availability = "measured"; Source = "provider_cache_trace_summary" }
+    }
+
+    $summaryCount = Get-ObjectNullableNumber $requestSummary "model_request_count"
+    if ($null -ne $summaryCount -and [double]$summaryCount -gt 0) {
+        return [pscustomobject]@{ Count = [int64]$summaryCount; Availability = "measured"; Source = "request_summary" }
+    }
+
+    $metricsCount = Get-ObjectNullableNumber $Metrics "model_request_count"
+    if ($null -ne $metricsCount -and [double]$metricsCount -gt 0) {
+        return [pscustomobject]@{ Count = [int64]$metricsCount; Availability = "measured"; Source = "metrics_token_summary" }
+    }
+
+    $availability = if ($requestSummary -or $providerSummary) { "unavailable" } else { "source_missing" }
+    return [pscustomobject]@{ Count = $null; Availability = $availability; Source = "unavailable" }
+}
+
 function Get-TokenSummaryAvailability {
     param([object]$Metrics)
     $availability = Get-ObjectString $Metrics "token_summary_availability" ""
@@ -256,6 +284,12 @@ function New-MissingRow {
         taskspace_input_tokens = 0
         taskspace_output_tokens = 0
         taskspace_token_ratio = 0
+        standard_model_request_count = $null
+        taskspace_model_request_count = $null
+        taskspace_model_request_ratio = $null
+        standard_model_request_count_source = "missing_run"
+        taskspace_model_request_count_source = "missing_run"
+        model_request_count_availability = "missing_run"
         standard_token_summary_availability = "missing_run"
         taskspace_token_summary_availability = "missing_run"
         standard_usage_accounting_status = "missing_run"
@@ -304,6 +338,10 @@ function New-RunRow {
     $tokenRatio = Get-NullableRatio $taskspaceTokens $standardTokens
     $tokenRatioAvailability = if ($null -ne $tokenRatio) { "measured" } else { "unavailable" }
     $cacheHitInfo = Get-CacheHitRateInfo $taskspace.artifacts_dir $taskspaceMetrics
+    $standardRequestInfo = Get-ModelRequestCountInfo $standard.artifacts_dir $standardMetrics
+    $taskspaceRequestInfo = Get-ModelRequestCountInfo $taskspace.artifacts_dir $taskspaceMetrics
+    $requestRatio = Get-NullableRatio $taskspaceRequestInfo.Count $standardRequestInfo.Count
+    $requestAvailability = if ($null -ne $requestRatio) { "measured" } else { "unavailable" }
     $taxonomy = Get-ReportValue $reportLines "failure_taxonomy" "none"
     $graph = Read-JsonFile (Join-Path $taskspace.artifacts_dir "graph-health.json")
     $projection = Get-ProjectionSummary $taskspace.artifacts_dir $taskspaceMetrics
@@ -317,6 +355,7 @@ function New-RunRow {
     $standardWall = Get-ObjectNumber $standardMetrics "wall_time_ms" 0
     $taskspaceWall = Get-ObjectNumber $taskspaceMetrics "wall_time_ms" 0
     $summary = "standard=$($standardCalls) tool calls; taskspace=$($taskspaceCalls) tool calls; " +
+        "standard_model_requests=$($standardRequestInfo.Count); taskspace_model_requests=$($taskspaceRequestInfo.Count); " +
         "standard_tool_source=$($standardCallStats.Source); taskspace_tool_source=$($taskspaceCallStats.Source); " +
         "projection_count=$($projection.projection_count); protected_miss=$($projection.protected_miss_count); " +
         "feedback_loss=$feedbackLoss; semantic_loss=$semanticLoss."
@@ -342,6 +381,12 @@ function New-RunRow {
         taskspace_input_tokens = if ($null -ne $taskspaceInputTokens) { [int64]$taskspaceInputTokens } else { $null }
         taskspace_output_tokens = if ($null -ne $taskspaceOutputTokens) { [int64]$taskspaceOutputTokens } else { $null }
         taskspace_token_ratio = $tokenRatio
+        standard_model_request_count = $standardRequestInfo.Count
+        taskspace_model_request_count = $taskspaceRequestInfo.Count
+        taskspace_model_request_ratio = $requestRatio
+        standard_model_request_count_source = [string]$standardRequestInfo.Source
+        taskspace_model_request_count_source = [string]$taskspaceRequestInfo.Source
+        model_request_count_availability = $requestAvailability
         standard_token_summary_availability = Get-TokenSummaryAvailability $standardMetrics
         taskspace_token_summary_availability = Get-TokenSummaryAvailability $taskspaceMetrics
         standard_usage_accounting_status = Get-UsageAccountingStatus $standardMetrics

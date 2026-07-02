@@ -1567,3 +1567,65 @@
   ```
   - This rerun did not reach the tool execution layer, so it cannot prove or disprove H-024's runtime benefit.
   - It is evidence of an external/provider/model first-event timeout in the harness run, not evidence that the `||` normalization failed.
+
+## Hypothesis H-025: public-10 cost reporting must expose effective model request amplification
+
+- Related problems:
+  - P-004
+- Status: repaired-by-report-gate
+- Claim:
+  - Public-10 reporting previously exposed token ratios and cache hit rates, but did not expose the effective TaskSpace model request count from rollout/provider traces. This hid the causal link between high cache hit and still-high cost: TaskSpace repeatedly asks the model more times than standard.
+- Evidence:
+  - `heterogeneous-dates` solved in both modes, but TaskSpace remained much more expensive:
+    ```text
+    standard request-summary model_request_count=1
+    taskspace request-summary top-level model_request_count=1
+    taskspace rollout_trace.model_request_count=12
+    taskspace provider_cache_trace.provider_request_count=11
+    taskspace_token_ratio=11.082
+    request_2_plus_cache_hit_rate=0.98556
+    ```
+  - After report repair, public-10 rows expose effective request ratios:
+    ```text
+    vim-terminal-task: 6x
+    heterogeneous-dates: 12x
+    sqlite-db-truncate: 9x
+    git-workflow-hack: 21x
+    sqlite-with-gcov: 18x
+    csv-to-parquet: 8x
+    tmux-advanced-workflow: 28x
+    ```
+- Root cause:
+  - `write-r4-public-10-tool-stress-report.ps1` used token/cost fields but had no first-class model request count fields. The available trace hierarchy had more precise data in `request-summary.rollout_trace.model_request_count` and `provider-cache-trace-summary.provider_request_count`, but the report schema and gate did not require those fields.
+- Repair:
+  - Added effective model request count extraction with source priority:
+    ```text
+    rollout_trace.model_request_count
+    provider-cache-trace-summary.provider_request_count
+    request-summary.model_request_count
+    metrics.model_request_count
+    ```
+  - Added report fields:
+    ```text
+    standard_model_request_count
+    taskspace_model_request_count
+    taskspace_model_request_ratio
+    standard_model_request_count_source
+    taskspace_model_request_count_source
+    model_request_count_availability
+    ```
+  - Extended public-10 gate and usage-accounting negative test so `model_request_count_availability=measured` cannot pass without `taskspace_model_request_ratio`.
+- Validation:
+  ```text
+  powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\write-r4-public-10-tool-stress-report.ps1 -RequireComplete
+  PASS: complete_run_count=10 missing_run_count=0
+
+  powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-r4-public-10-tool-stress-plan.ps1 -ReportPath target\r4-public-10-tool-stress\r4-public-10-tool-stress-report.json
+  PASS: R4 public-10 tool-stress gate passed: 10 planned samples
+
+  powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-r4-public-10-usage-accounting-gate.ps1
+  PASS: R4 public-10 usage accounting gate rejects ambiguous token usage
+  ```
+- Conclusion:
+  - The reporting gap is fixed. The underlying TaskSpace utility issue remains open: high cache hit does not compensate for long-flow convergence and request-count amplification.
+- Time: 2026-07-02 18:10

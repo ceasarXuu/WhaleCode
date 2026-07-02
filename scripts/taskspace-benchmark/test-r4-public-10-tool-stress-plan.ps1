@@ -156,6 +156,12 @@ if (-not (Test-Path -LiteralPath $PlanPath -PathType Leaf)) {
         "taskspace_outcome",
         "taskspace_wall_time_ratio",
         "taskspace_token_ratio",
+        "standard_model_request_count",
+        "taskspace_model_request_count",
+        "taskspace_model_request_ratio",
+        "standard_model_request_count_source",
+        "taskspace_model_request_count_source",
+        "model_request_count_availability",
         "standard_token_summary_availability",
         "taskspace_token_summary_availability",
         "standard_usage_accounting_status",
@@ -210,6 +216,23 @@ if (-not [string]::IsNullOrWhiteSpace($ReportPath)) {
             }
             if ($tokenAvailability -ne "measured" -and -not $tokenRatioMissing) {
                 Add-Failure $failures "report row ${taskId} has taskspace_token_ratio but token_ratio_availability is not measured"
+            }
+            $requestAvailability = [string]$row.model_request_count_availability
+            $requestRatioMissing = ($null -eq $row.taskspace_model_request_ratio -or [string]::IsNullOrWhiteSpace([string]$row.taskspace_model_request_ratio))
+            if ($requestAvailability -eq "measured" -and $requestRatioMissing) {
+                Add-Failure $failures "report row ${taskId} model_request_count_availability=measured but taskspace_model_request_ratio is missing"
+            }
+            if ($requestAvailability -ne "measured" -and -not $requestRatioMissing) {
+                Add-Failure $failures "report row ${taskId} has taskspace_model_request_ratio but model_request_count_availability is not measured"
+            }
+            if ($requestAvailability -notin @("measured", "unavailable", "source_missing", "missing_run")) {
+                Add-Failure $failures "report row ${taskId} has unknown model_request_count_availability: $requestAvailability"
+            }
+            foreach ($sourceName in @("standard_model_request_count_source", "taskspace_model_request_count_source")) {
+                $source = [string]$row.$sourceName
+                if ($source -notin @("rollout_trace", "provider_cache_trace_summary", "request_summary", "metrics_token_summary", "unavailable", "missing_run")) {
+                    Add-Failure $failures "report row ${taskId} has unknown ${sourceName}: $source"
+                }
             }
             foreach ($mode in @("standard", "taskspace")) {
                 $statusName = "${mode}_usage_accounting_status"
