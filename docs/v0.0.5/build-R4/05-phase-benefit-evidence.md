@@ -1359,3 +1359,44 @@ taskspace_usage_accounting_status=recovered_from_rollout_trace
 
 - 这是报告层和 evidence gate 的修复，不证明 TaskSpace utility parity。
 - 如果 provider 进程在写出 `response.completed` 或 rollout `token_count` 前被 kill，exact usage 仍不可得；该情况仍必须显式标为 unavailable，而不是伪装成 0。
+
+## 5.17 2026-07-03 R4 acceptance readiness gate
+
+为避免 R4-H 继续依赖人工串读多个 gate 和文档，本轮新增统一 readiness gate：
+
+```text
+scripts/taskspace-benchmark/test-r4-acceptance-readiness.ps1
+```
+
+该 gate 聚合：
+
+- tool path coverage
+- sample ledger
+- public-10 snapshot gate
+- usage accounting gate
+- external wrapper harness
+- DeepSeek provider credential preflight state
+
+当前主机复验结果：
+
+```text
+status=blocked
+engineering_gates_status=pass
+provider_credential_status=missing
+e3_readiness=not_ready_until_real_utility_evidence_passes
+gate_count=5
+failed_gate_count=0
+blocker=provider_credential_missing
+```
+
+输出：
+
+```text
+target/r4-acceptance-readiness/r4-acceptance-readiness.json
+```
+
+解释：
+
+- R4 工程 readiness 当前可由一个 JSON artifact 证明。
+- 该 gate 不会把 R4 判成完成；缺 `DEEPSEEK_API_KEY` 时以 exit code `3` 明确阻断。
+- key 配置后，该 gate 应先变为 `ready_for_real_utility_rerun`，再继续真实 public sample 复验。

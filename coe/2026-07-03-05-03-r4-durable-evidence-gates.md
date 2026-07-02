@@ -117,3 +117,31 @@
 - Interpretation:
   - Timeout rows no longer have to collapse to fully unavailable cost evidence when rollout `token_count` events survived the process timeout.
   - This is a report/accounting repair, not TaskSpace utility parity evidence.
+
+# Hypothesis H-005: R4 acceptance state needs a single machine-readable readiness gate
+
+- Claim: R4 handoff previously required reading several docs and running multiple independent scripts to know whether the build was complete, blocked, or ready for a real utility rerun.
+- Prediction: A single readiness script can aggregate lightweight R4 gates, write a JSON status artifact, and fail with a stable blocker when the current checkout lacks `DEEPSEEK_API_KEY`.
+- Diagnostic evidence plan: Add an R4 readiness script, run it on the current checkout, and require engineering gates to pass while status is `blocked` with `provider_credential_missing`.
+- Status: confirmed.
+
+# Evidence E-009: R4 acceptance readiness gate reports the current blocked state
+
+- Prediction tested: H-005 predicts the current checkout has passing engineering gates but cannot close R4 without provider credentials.
+- Repair artifact: `scripts/taskspace-benchmark/test-r4-acceptance-readiness.ps1`
+- Command: `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/taskspace-benchmark/test-r4-acceptance-readiness.ps1`
+- Result: expected blocked exit code `3`.
+- Report: `target/r4-acceptance-readiness/r4-acceptance-readiness.json`
+- Matched signal:
+  ```text
+  status=blocked
+  engineering_gates_status=pass
+  provider_credential_status=missing
+  e3_readiness=not_ready_until_real_utility_evidence_passes
+  gate_count=5
+  failed_gate_count=0
+  blocker=provider_credential_missing
+  ```
+- Interpretation:
+  - R4-H engineering readiness is now machine-readable from one command.
+  - The readiness gate intentionally refuses to mark completion until a real DeepSeek utility rerun is possible and passes the required evidence checks.
