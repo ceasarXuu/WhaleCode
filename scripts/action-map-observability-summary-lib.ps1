@@ -167,6 +167,7 @@ function New-ActionMapLargeRolloutSummary {
     $nodes = @{}
     $agents = @{}
     $edges = New-Object System.Collections.Generic.List[object]
+    $edgeKeys = @{}
     $toolCalls = New-Object System.Collections.Generic.List[object]
     $toolCallById = @{}
     $runtimeCounts = @{}
@@ -213,7 +214,16 @@ function New-ActionMapLargeRolloutSummary {
                     foreach ($snapshotMap in @($payload.snapshot.maps)) {
                         $map = Ensure-Map $maps $mapById ([string]$snapshotMap.id) ([string]$snapshotMap.title) ([string]$snapshotMap.ownerSessionId) $snapshotMap.createdFrom ([string]$snapshotMap.taskId)
                         foreach ($snapshotPlan in @($snapshotMap.subagentPlans)) { Add-Or-Update-SubagentPlan $map $snapshotPlan }
-                        foreach ($snapshotEdge in @($snapshotMap.edges)) { $edges.Add([ordered]@{ mapId = [string]$snapshotMap.id; from = [string]$snapshotEdge.from; to = [string]$snapshotEdge.to }) }
+                        foreach ($snapshotEdge in @($snapshotMap.edges)) {
+                            $from = [string]$snapshotEdge.from
+                            $to = [string]$snapshotEdge.to
+                            $mapId = [string]$snapshotMap.id
+                            $edgeKey = "$mapId|$from|$to"
+                            if ($from -and $to -and -not $edgeKeys.ContainsKey($edgeKey)) {
+                                $edgeKeys[$edgeKey] = $true
+                                $edges.Add([ordered]@{ mapId = $mapId; from = $from; to = $to })
+                            }
+                        }
                         foreach ($snapshotNode in @($snapshotMap.nodes)) { $node = Ensure-Node $nodes ([string]$snapshotNode.id) ([string]$snapshotNode.title) ([string]$snapshotNode.kind); if ($node -and $snapshotNode.status) { $node.status = [string]$snapshotNode.status } }
                         foreach ($snapshotResult in @($snapshotMap.results)) { $node = Ensure-Node $nodes ([string]$snapshotResult.nodeId); Add-Or-Update-NodeResult $node $at ([string]$snapshotResult.id) ([string]$snapshotResult.assignmentId) ([string]$snapshotResult.sourceThreadId) ([string]$snapshotResult.kind) ([string]$snapshotResult.actionClass) "" $null ([string]$snapshotMap.id) ([string]$snapshotMap.taskId) ([string]$snapshotResult.subagentPlanId) }
                     }

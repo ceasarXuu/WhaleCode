@@ -1388,3 +1388,38 @@
   PASS
   ```
 - Time: 2026-07-02 15:13
+
+## Hypothesis H-022: large-rollout summary edge count duplicated every snapshot edge
+
+- Related problems:
+  - P-004
+- Status: repaired-by-test-and-rerender; runtime convergence follow-up remains open
+- Claim:
+  - The post H-021 `edges=466` signal was an observability export bug, not proof that the runtime graph had created hundreds of logical edges. The large-rollout summary path appended every edge from every `snapshot_updated` event, while the full export path already deduplicated edges by `(mapId, from, to)`.
+- Evidence:
+  - Same real rollout after H-021:
+    ```text
+    Source: C:\WhaleRunCache\r4-rerun-20260702\sqlite-db-truncate-patch-feedback-fix\runs\terminal_bench__sqlite-db-truncate\20260702-143858-261\pair-001\right\artifacts\rollout.jsonl
+    Original summary edges=466
+    Rerendered summary edges=7
+    nodes=8
+    runtime_events=1266
+    ```
+  - The rerender used the same rollout bytes and only changed the summary exporter. Therefore the original edge count was a reporting artifact.
+- Root cause:
+  - `New-ActionMapLargeRolloutSummary` kept a flat `$edges` list and appended snapshot edges on every `snapshot_updated` event.
+  - Unlike the non-summary export path, it had no `$edgeKeys` set to preserve one logical edge per `(mapId, from, to)`.
+- Repair:
+  - Added summary-export edge de-duplication with `$edgeKeys`.
+  - Extended the summary-export self-test so 135 repeated snapshots of the same `node-1 -> node-2` edge must produce exactly one summary edge and one exported edge row.
+- Validation:
+  ```text
+  powershell -NoProfile -ExecutionPolicy Bypass -File scripts\test-action-map-observability-summary-export.ps1
+  PASS
+
+  powershell -NoProfile -ExecutionPolicy Bypass -File scripts\export-action-map-observability.ps1 -RolloutPath C:\WhaleRunCache\r4-rerun-20260702\sqlite-db-truncate-patch-feedback-fix\runs\terminal_bench__sqlite-db-truncate\20260702-143858-261\pair-001\right\artifacts\rollout.jsonl -JsonlPath C:\WhaleRunCache\r4-rerun-20260702\sqlite-db-truncate-patch-feedback-fix\runs\terminal_bench__sqlite-db-truncate\20260702-143858-261\pair-001\right\artifacts\whale-exec.jsonl -OutputDir C:\WhaleRunCache\r4-rerun-20260702\sqlite-db-truncate-patch-feedback-fix\rerender-observability-h022 -ArtifactRoot C:\WhaleRunCache\r4-rerun-20260702\sqlite-db-truncate-patch-feedback-fix\runs\terminal_bench__sqlite-db-truncate\20260702-143858-261\pair-001\right\app
+  PASS, Edges=7
+  ```
+- Remaining runtime finding:
+  - The edge-count fix only removes a false signal. The same real run still timed out after repeated implement/validation rework. `node-7` accumulated 13 results and `node-9` was still running at the 900s timeout, so the next root cause is TaskSpace state-machine convergence, not observability accounting.
+- Time: 2026-07-02 15:42

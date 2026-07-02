@@ -41,8 +41,11 @@ for ($i = 1; $i -le 135; $i++) {
                     title = "Large export"
                     ownerSessionId = "thread-1"
                     createdFrom = $null
-                    edges = @()
-                    nodes = @([ordered]@{ id = "node-1"; title = "Summarize"; kind = "inspect_code_context"; status = "completed" })
+                    edges = @([ordered]@{ from = "node-1"; to = "node-2" })
+                    nodes = @(
+                        [ordered]@{ id = "node-1"; title = "Summarize"; kind = "inspect_code_context"; status = "completed" },
+                        [ordered]@{ id = "node-2"; title = "Patch"; kind = "implement_solution"; status = "ready" }
+                    )
                     subagentPlans = @()
                     results = @([ordered]@{
                         id = "result-$i"
@@ -103,6 +106,8 @@ Assert-True ([int64]$obs.source.exportPolicy.rollout_bytes -gt 1048576) "fixture
 Assert-True ([int]$obs.summary.timelineEventsDropped -gt 0) "summary export should bound timeline size"
 Assert-Equal ([int]$obs.summary.runtimeEventCounts.'output_ref.created') 1 "summary event counts should preserve output ref creation"
 Assert-Equal ([int]$obs.summary.runtimeEventCounts.'state_commit.final') 1 "summary event counts should preserve state commit update kind"
+Assert-Equal ([int]$obs.summary.edges) 1 "summary export should deduplicate repeated snapshot edges"
+Assert-Equal (@($obs.edges).Count) 1 "summary edge table should contain one logical edge"
 Assert-True ([int]$obs.source.rolloutReadStats.largeLineSkippedCount -ge 1) "summary export should skip oversized event payload materialization"
 Assert-True ((Get-Item -LiteralPath $jsonPath).Length -lt 1048576) "summary JSON should stay under 1MiB"
 Assert-True ((Get-Item -LiteralPath $htmlPath).Length -lt 1048576) "summary HTML should stay under 1MiB"
