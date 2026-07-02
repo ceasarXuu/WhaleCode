@@ -714,3 +714,69 @@ PASS: R4 public-10 tool-stress gate passed: 10 planned samples
 
 R4-G 状态可以关闭为“验收机制与证据生成完成，TaskSpace 当前收益不成立且问题已暴露”。
 R4-H 关闭前必须把这些负证据转化为后续工程项，而不是声明 TaskSpace 已优于 standard。
+
+## 5.11 2026-07-02 sqlite-db-truncate ready recovery 增量证据
+
+本轮针对 `sqlite-db-truncate` 继续做 R4-D/R4-G 交叉验证，结论不是样本 solved，而是确认并修复了一个新的状态机缺口。
+
+已修复问题：
+
+1. 当 validation node 已 blocked，但同时存在 ready 的 `implement_solution`/validation recovery node 时，action-contract 不应注入 `TaskSpaceActionContractClosedValidationV1`。
+2. terminal `blocked` 改写路径也必须复用同一判断，不能把 ready recovery path 伪装成 closed validation path。
+
+代码修复：
+
+```text
+third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs
+third_party/codex-cli/codex-rs/core/src/session/mod.rs
+third_party/codex-cli/codex-rs/core/src/session/turn.rs
+```
+
+验证：
+
+```text
+cargo test -j1 -p codex-core blocked_validation_with_ready_recovery_node_is_not_closed --lib
+PASS
+
+相关回归：
+- direct_final_response_rejects_open_contract_without_validation_after_thin_work
+- access_denied_bash_validation_command_routes_unvalidated_artifact_to_rework
+- access_denied_local_infra_blocks_validation_without_rework_after_changed_artifact
+- validation_node_blocks_vacuous_test_after_changed_artifact
+- validation_rework_rejects_validator_procedure_blocker_before_edit
+- validation_rework_rejects_missing_current_artifact_visibility_blocker
+- manual_local_infra_validation_block_routes_unvalidated_changed_artifact_to_rework
+- action_contract_prompt_structures_validator_procedure_blocker_rejection
+PASS
+
+cargo fmt --all -- --check
+PASS
+
+cargo build -j1 --profile dev-small -p codex-cli --bin whale
+PASS
+```
+
+真实复跑：
+
+```text
+RunDir:
+C:\WhaleRunCache\r4-rerun-20260702\sqlite-db-truncate-ready-recovery-fix\runs\terminal_bench__sqlite-db-truncate\20260702-101238-428\pair-001
+
+outcome_standard=solved
+outcome_taskspace=engineering_unclean
+business_success=false
+public_validation_skipped=true
+public_validation_skip_reason=agent_exec_timeout
+taskspace_wall_time_ms=900037
+tool_call_count=24
+rollout_trace_model_request_count=28
+changed_paths=recover.py, trunc.db.recovered
+nodes=6
+open_leaf_nodes=1
+```
+
+收益判断：
+
+1. ready recovery 被 closed-validation 覆盖的问题已被修复，真实复跑从 9 次工具调用推进到 24 次工具调用，并进入 `node-6` recovery path。
+2. 样本仍失败，新根因转移为长流程 convergence/timeout：`python recover.py` 暴露 `PermissionError: [WinError 5]` 后，TaskSpace 在 `node-6` 上继续运行到 900s timeout。
+3. 这条证据强化 R4 的 no-go 结论：R4 的 tool-chain observability 和若干状态机局部修复有效，但 TaskSpace utility 仍未收敛，后续必须进入 utility-convergence 专项。

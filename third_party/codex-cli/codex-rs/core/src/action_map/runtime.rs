@@ -4986,11 +4986,21 @@ preview:\n\
         }
         if node.kind == NodeKind::ImplementSolution
             && !node_has_successful_action(map, node, ActionClass::Edit)
-            && implement_node_has_dependency_implementation_source_evidence(map, node)
+            && (implement_node_has_dependency_implementation_source_evidence(map, node)
+                || implement_node_has_dependency_validation_rework_evidence(map, node))
             && blocker_claims_missing_inspected_source_evidence(blocker_summary)
         {
             return Err(format!(
-                "TaskSpace implement_solution node `{node_id}` cannot be blocked for missing source visibility because a dependency inspect node already recorded implementation source evidence. Next valid action: retry apply_patch using the inspected source evidence and the failed patch feedback, or block only with a specific external blocker that makes editing impossible."
+                "TaskSpace implement_solution node `{node_id}` cannot be blocked for missing source visibility because dependency evidence already identifies the implementation artifact or validation rework target. Next valid action: retry apply_patch using the inspected source evidence and failed validation feedback, or block only with a specific external blocker that makes editing impossible."
+            ));
+        }
+        if node.kind == NodeKind::ImplementSolution
+            && !node_has_successful_action(map, node, ActionClass::Edit)
+            && implement_node_has_dependency_validation_rework_evidence(map, node)
+            && blocker_claims_validation_procedure_instead_of_implementation_fix(blocker_summary)
+        {
+            return Err(format!(
+                "TaskSpace implement_solution node `{node_id}` cannot be blocked for validator procedure or test-command concerns because dependency validation evidence already identifies an implementation failure and this rework node has no successful edit. Next valid action: apply_patch the implementation artifact named by the failed validation evidence, or block only with a specific external blocker that makes editing impossible."
             ));
         }
         if node.kind == NodeKind::ImplementSolution
@@ -5007,6 +5017,13 @@ preview:\n\
             if matches!(node.kind, NodeKind::SmokeTest | NodeKind::RegressionTest) {
                 validation_node_failed_noninfra_result(map, node)
                     .or_else(|| validation_node_local_infra_unvalidated_artifact_result(map, node))
+                    .or_else(|| {
+                        validation_node_local_infra_blocker_unvalidated_artifact_result(
+                            map,
+                            node,
+                            blocker_summary,
+                        )
+                    })
                     .map(|(failed_result_id, failed_summary)| {
                         (node.kind, failed_result_id, failed_summary)
                     })
@@ -6585,6 +6602,16 @@ preview:\n\
         map_has_blocked_validation_result(map)
     }
 
+    pub(crate) fn active_map_has_ready_recovery_node(&self) -> bool {
+        let Some(map_id) = self.active_map_id.as_deref() else {
+            return false;
+        };
+        let Some(map) = self.maps.get(map_id) else {
+            return false;
+        };
+        map_has_ready_recovery_node(map)
+    }
+
     fn validate_completion_evidence_for(&self, map_id: &str, node_id: &str) -> Result<(), String> {
         let map = self
             .maps
@@ -7453,7 +7480,8 @@ preview:\n\
         let node_id = match self.current_main_node_id.clone() {
             Some(node_id) => node_id,
             None => {
-                if has_completed_final_synthesis {
+                if has_completed_final_synthesis || self.active_task_requires_final_readiness_gate()
+                {
                     self.validate_final_response_ready(owner_session_id, message, true)?;
                 }
                 return Ok(None);
@@ -7501,9 +7529,43 @@ preview:\n\
         )?;
         self.validate_no_open_blocking_questions()?;
         self.validate_decision_result_dependencies_ready()?;
+        self.validate_final_success_criteria_ready()?;
         self.validate_final_synthesis_has_validation_after_edit()?;
         self.validate_final_answer_no_internal_orchestration_terms(message)?;
         Ok(())
+    }
+
+    fn active_task_requires_final_readiness_gate(&self) -> bool {
+        let Some(task_id) = self.active_task_id.as_deref() else {
+            return false;
+        };
+        let Some(task) = self.tasks.get(task_id) else {
+            return false;
+        };
+        task.problem_ledger.has_success_criteria()
+            || !task.cognitive_state.output_contracts.is_empty()
+    }
+
+    fn validate_final_success_criteria_ready(&self) -> Result<(), String> {
+        let Some(task_id) = self.active_task_id.as_deref() else {
+            return Ok(());
+        };
+        let Some(map_id) = self.active_map_id.as_deref() else {
+            return Ok(());
+        };
+        let Some(task) = self.tasks.get(task_id) else {
+            return Ok(());
+        };
+        let Some(map) = self.maps.get(map_id) else {
+            return Ok(());
+        };
+        if task_success_criteria_complete_for_final(task, map) {
+            return Ok(());
+        }
+        Err(
+            "TaskSpace final answer cannot be emitted until every success criterion and output contract is satisfied or waived with evidence. Continue the active task: create or bind the required implementation/validation node, produce the required artifact, run validation, and record accepted evidence before final_answer."
+                .to_string(),
+        )
     }
 
     fn validate_no_open_blocking_questions(&self) -> Result<(), String> {
@@ -12829,14 +12891,17 @@ fn validation_test_coverage_block(
         return None;
     }
     let changed_artifacts = validation_dependency_changed_artifacts(map, node);
+    let output_targets = task_output_contract_artifact_targets(task);
     if changed_artifacts.is_empty()
         || changed_artifacts
+            .iter()
+            .any(|artifact| command_mentions_artifact(&command, artifact))
+        || output_targets
             .iter()
             .any(|artifact| command_mentions_artifact(&command, artifact))
     {
         return None;
     }
-    let output_targets = task_output_contract_artifact_targets(task);
     let changed_summary = changed_artifacts
         .iter()
         .take(4)
@@ -12970,6 +13035,31 @@ fn validation_node_local_infra_unvalidated_artifact_result(
             ),
         ))
     })
+}
+
+fn validation_node_local_infra_blocker_unvalidated_artifact_result(
+    map: &ActionMapInstance,
+    node: &MapNode,
+    blocker_summary: &str,
+) -> Option<(String, String)> {
+    if node_has_successful_validation_action(map, node)
+        || !text_mentions_local_validator_infra_failure(blocker_summary)
+        || !local_validator_infra_failure_can_rework_command(blocker_summary)
+    {
+        return None;
+    }
+    let changed_artifacts = validation_dependency_changed_artifacts(map, node);
+    if changed_artifacts.is_empty() {
+        return None;
+    }
+    Some((
+        "blocked_validation_local_infra".to_string(),
+        format!(
+            "local validator infrastructure blocker was recorded before changed artifacts were proven. Changed artifacts still need platform-compatible execution: {}. Blocker preview: {}",
+            changed_artifacts.join(", "),
+            single_line_preview(blocker_summary, 180)
+        ),
+    ))
 }
 
 fn unresolved_validation_rework_requirement(
@@ -13536,6 +13626,9 @@ fn blocker_claims_missing_inspected_source_evidence(blocker_summary: &str) -> bo
         || lower.contains("source")
         || lower.contains("src/")
         || lower.contains("src\\")
+        || lower.contains(".py")
+        || lower.contains(".js")
+        || lower.contains(".sh")
         || lower.contains("file content")
         || lower.contains("current code");
     let missing_claim = lower.contains("unknown")
@@ -13544,9 +13637,31 @@ fn blocker_claims_missing_inspected_source_evidence(blocker_summary: &str) -> bo
         || lower.contains("not visible")
         || lower.contains("not shown")
         || lower.contains("need to read")
+        || lower.contains("need to inspect")
         || lower.contains("need source")
         || lower.contains("cannot guess");
     source_subject && missing_claim
+}
+
+fn blocker_claims_validation_procedure_instead_of_implementation_fix(
+    blocker_summary: &str,
+) -> bool {
+    let lower = blocker_summary.to_ascii_lowercase();
+    let validation_subject = lower.contains("pytest")
+        || lower.contains("test command")
+        || lower.contains("test file")
+        || lower.contains("tests discovered")
+        || lower.contains("collected 0 items")
+        || lower.contains("validator")
+        || lower.contains("validation");
+    let procedure_claim = lower.contains("adjust the test")
+        || lower.contains("create a proper test")
+        || lower.contains("no tests discovered")
+        || lower.contains("cache permission")
+        || lower.contains("test infrastructure")
+        || lower.contains("cannot run recover.py")
+        || lower.contains("run the script manually");
+    validation_subject && procedure_claim
 }
 
 fn inspect_node_unread_referenced_scripts(map: &ActionMapInstance, node: &MapNode) -> Vec<String> {
@@ -13644,10 +13759,27 @@ fn implement_node_dependency_validation_rework_summary(
             {
                 return None;
             }
+            let blocker_summary = dependency
+                .result_context
+                .iter()
+                .rev()
+                .find_map(|result_ref| {
+                    let result = map.results.get(&result_ref.id)?;
+                    (result.kind == NodeResultKind::Blocker)
+                        .then(|| single_line_preview(&result.body, 240))
+                });
             let (failed_result_id, failed_summary) =
-                validation_node_failed_noninfra_result(map, dependency).or_else(|| {
-                    validation_node_local_infra_unvalidated_artifact_result(map, dependency)
-                })?;
+                validation_node_failed_noninfra_result(map, dependency)
+                    .or_else(|| {
+                        validation_node_local_infra_unvalidated_artifact_result(map, dependency)
+                    })
+                    .or_else(|| {
+                        blocker_summary.as_deref().and_then(|summary| {
+                            validation_node_local_infra_blocker_unvalidated_artifact_result(
+                                map, dependency, summary,
+                            )
+                        })
+                    })?;
             let blocker_summary = dependency
                 .result_context
                 .iter()
@@ -14307,6 +14439,17 @@ fn map_has_blocked_validation_result(map: &ActionMapInstance) -> bool {
     })
 }
 
+fn map_has_ready_recovery_node(map: &ActionMapInstance) -> bool {
+    map.nodes.values().any(|node| {
+        node.status == NodeStatus::Ready
+            && node.active_lease.is_none()
+            && matches!(
+                node.kind,
+                NodeKind::ImplementSolution | NodeKind::SmokeTest | NodeKind::RegressionTest
+            )
+    })
+}
+
 fn should_auto_block_local_infra_validation_after_state_commit(
     outcome: &ActionMapStateCommitOutcome,
 ) -> bool {
@@ -14359,6 +14502,11 @@ fn local_validator_infra_failure_can_rework_command(text: &str) -> bool {
     text.contains("invalidendofline")
         || text.contains("not a valid statement separator")
         || compact.contains("invalidendofline")
+        || (text.contains("e_accessdenied")
+            && (text.contains("command: bash ")
+                || text.contains("bash setup-")
+                || text.contains("bash run-")
+                || text.contains("bash -lc")))
 }
 
 fn map_has_accepted_implementation_result(map: &ActionMapInstance) -> bool {
@@ -20337,6 +20485,22 @@ def normalize_status(value: str) -> str:\n\
             )
             .expect("validation may execute the changed artifact");
 
+        let checks_output_contract = serde_json::json!({
+            "command": "python -c \"import json; data=json.load(open('/app/recovered_logs/results.json')); assert isinstance(data, list)\"",
+            "timeout_ms": 120000
+        })
+        .to_string();
+        state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new(
+                    "shell_command",
+                    ActionClass::Test,
+                    checks_output_contract,
+                ),
+            )
+            .expect("validation may directly check the output contract artifact");
+
         state
             .prepare_main_tool_call(
                 owner,
@@ -21200,6 +21364,34 @@ def normalize_status(value: str) -> str:\n\
         let node = map.nodes.get("node-1").expect("inspect node");
         assert_eq!(node.status, NodeStatus::Running);
         assert!(map.results.is_empty());
+    }
+
+    #[test]
+    fn direct_final_response_rejects_open_contract_without_validation_after_thin_work() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        start_test_task(
+            &mut state,
+            owner,
+            "Recover sqlite rows",
+            "Inspect the corrupted database and produce recover.json.",
+            true,
+        );
+        state.current_main_node_id = None;
+        state.current_main_lease_id = None;
+
+        let error = state
+            .record_main_final_response(owner, "Created recover.py but recover.json is missing.")
+            .expect_err("open output contract must block final answer");
+
+        assert!(
+            error.contains("final answer cannot be emitted"),
+            "unexpected error: {error}"
+        );
+        assert!(error.contains("success criterion"));
+        assert!(error.contains("output contract"));
+        assert!(state.current_main_node_id.is_none());
     }
 
     #[test]
@@ -26862,6 +27054,283 @@ summary: diagnostic payload for output reference smoke\n\
     }
 
     #[test]
+    fn manual_local_infra_validation_block_routes_unvalidated_changed_artifact_to_rework() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (_, map_id, implement_node_id, _) = start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::ImplementSolution,
+            "Recover sqlite output",
+            "Create the script and output artifact.",
+            "Implement recovery",
+            "Create recover.py and generate recover.json.",
+            true,
+        );
+        let (edit_result_id, _) = state
+            .record_main_tool_result_with_class(
+                owner,
+                "edit-recover-script",
+                "apply_patch",
+                Some(ActionClass::Edit),
+                true,
+                "Success. Updated the following files:\nA recover.py\n".to_string(),
+            )
+            .expect("edit result")
+            .expect("edit result id");
+        state
+            .mark_result_validity_for_main(
+                owner,
+                &edit_result_id,
+                "accepted",
+                "accepted implementation edit".to_string(),
+                vec![ActionMapCognitiveClaimInput {
+                    id: "claim-edit-recover-script".to_string(),
+                    statement: "Recovery script was created.".to_string(),
+                    evidence_refs: vec![ActionMapEvidenceRefInput {
+                        result_id: Some(edit_result_id.clone()),
+                        ..Default::default()
+                    }],
+                }],
+                vec![ActionMapEvidenceRefInput {
+                    result_id: Some(edit_result_id.clone()),
+                    ..Default::default()
+                }],
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+            )
+            .expect("edit accepted");
+        let (handoff, _) = state
+            .finish_main_node_with_next(
+                owner,
+                &implement_node_id,
+                "Created recovery script.".to_string(),
+                None,
+                Some(ActionMapNextNodeDraft {
+                    kind: NodeKind::SmokeTest,
+                    title: "Run recovery validation".to_string(),
+                    context_summary: "Run validation that exercises recover.py.".to_string(),
+                    dependency_node_ids: vec![implement_node_id.clone()],
+                }),
+            )
+            .expect("finish implementation into validation");
+        let validation_node_id = handoff.next_node_id.expect("validation node id");
+
+        state
+            .block_main_node(
+                owner,
+                &validation_node_id,
+                "Local validator infrastructure failed: PowerShell InvalidEndOfLine. Cannot execute test commands.".to_string(),
+            )
+            .expect("manual recoverable infra block should route rework");
+
+        let rework_node_id = state
+            .current_main_node_id
+            .as_deref()
+            .expect("manual infra block should bind rework");
+        let map = state.maps.get(&map_id).expect("map");
+        assert_eq!(
+            map.nodes
+                .get(&validation_node_id)
+                .expect("validation node")
+                .status,
+            NodeStatus::Blocked
+        );
+        let rework_node = map.nodes.get(rework_node_id).expect("rework node");
+        assert_eq!(rework_node.kind, NodeKind::ImplementSolution);
+        assert!(rework_node.context.summary.contains("recover.py"));
+        assert!(
+            rework_node
+                .context
+                .summary
+                .contains("platform-compatible execution")
+        );
+    }
+
+    #[test]
+    fn validation_rework_rejects_missing_current_artifact_visibility_blocker() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (_, _map_id, implement_node_id, _) = start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::ImplementSolution,
+            "Recover sqlite output",
+            "Create the script and output artifact.",
+            "Implement recovery",
+            "Create recover.py and generate recover.json.",
+            true,
+        );
+        let (edit_result_id, _) = state
+            .record_main_tool_result_with_class(
+                owner,
+                "edit-recover-script",
+                "apply_patch",
+                Some(ActionClass::Edit),
+                true,
+                "Success. Updated the following files:\nA recover.py\n".to_string(),
+            )
+            .expect("edit result")
+            .expect("edit result id");
+        state
+            .mark_result_validity_for_main(
+                owner,
+                &edit_result_id,
+                "accepted",
+                "accepted implementation edit".to_string(),
+                vec![ActionMapCognitiveClaimInput {
+                    id: "claim-edit-recover-script".to_string(),
+                    statement: "Recovery script was created.".to_string(),
+                    evidence_refs: vec![ActionMapEvidenceRefInput {
+                        result_id: Some(edit_result_id.clone()),
+                        ..Default::default()
+                    }],
+                }],
+                vec![ActionMapEvidenceRefInput {
+                    result_id: Some(edit_result_id.clone()),
+                    ..Default::default()
+                }],
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+            )
+            .expect("edit accepted");
+        let (handoff, _) = state
+            .finish_main_node_with_next(
+                owner,
+                &implement_node_id,
+                "Created recovery script.".to_string(),
+                None,
+                Some(ActionMapNextNodeDraft {
+                    kind: NodeKind::SmokeTest,
+                    title: "Run recovery validation".to_string(),
+                    context_summary: "Run validation that exercises recover.py.".to_string(),
+                    dependency_node_ids: vec![implement_node_id.clone()],
+                }),
+            )
+            .expect("finish implementation into validation");
+        let validation_node_id = handoff.next_node_id.expect("validation node id");
+        state
+            .block_main_node(
+                owner,
+                &validation_node_id,
+                "Local validator infrastructure failed: PowerShell InvalidEndOfLine. Cannot execute test commands.".to_string(),
+            )
+            .expect("manual recoverable infra block should route rework");
+        let rework_node_id = state
+            .current_main_node_id
+            .clone()
+            .expect("manual infra block should bind rework");
+
+        let error = state
+            .block_main_node(
+                owner,
+                &rework_node_id,
+                "Need to inspect current recover.py to apply precise patch.".to_string(),
+            )
+            .expect_err("rework node must not close for missing current artifact visibility");
+
+        assert!(error.contains("cannot be blocked for missing source visibility"));
+        assert!(error.contains("apply_patch"));
+    }
+
+    #[test]
+    fn validation_rework_rejects_validator_procedure_blocker_before_edit() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (_, _map_id, implement_node_id, _) = start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::ImplementSolution,
+            "Recover sqlite output",
+            "Create the script and output artifact.",
+            "Implement recovery",
+            "Create recover.py and generate recover.json.",
+            true,
+        );
+        let (edit_result_id, _) = state
+            .record_main_tool_result_with_class(
+                owner,
+                "edit-recover-script",
+                "apply_patch",
+                Some(ActionClass::Edit),
+                true,
+                "Success. Updated the following files:\nA recover.py\n".to_string(),
+            )
+            .expect("edit result")
+            .expect("edit result id");
+        state
+            .mark_result_validity_for_main(
+                owner,
+                &edit_result_id,
+                "accepted",
+                "accepted implementation edit".to_string(),
+                vec![ActionMapCognitiveClaimInput {
+                    id: "claim-edit-recover-script".to_string(),
+                    statement: "Recovery script was created.".to_string(),
+                    evidence_refs: vec![ActionMapEvidenceRefInput {
+                        result_id: Some(edit_result_id.clone()),
+                        ..Default::default()
+                    }],
+                }],
+                vec![ActionMapEvidenceRefInput {
+                    result_id: Some(edit_result_id.clone()),
+                    ..Default::default()
+                }],
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+            )
+            .expect("edit accepted");
+        let (handoff, _) = state
+            .finish_main_node_with_next(
+                owner,
+                &implement_node_id,
+                "Created recovery script.".to_string(),
+                None,
+                Some(ActionMapNextNodeDraft {
+                    kind: NodeKind::SmokeTest,
+                    title: "Run recovery validation".to_string(),
+                    context_summary: "Run validation that exercises recover.py.".to_string(),
+                    dependency_node_ids: vec![implement_node_id.clone()],
+                }),
+            )
+            .expect("finish implementation into validation");
+        let validation_node_id = handoff.next_node_id.expect("validation node id");
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "run-recover-script",
+                "shell_command",
+                Some(ActionClass::Test),
+                false,
+                "python recover.py failed with IndentationError: unexpected indent".to_string(),
+            )
+            .expect("failed validation should route rework")
+            .expect("validation result");
+        let rework_node_id = state
+            .current_main_node_id
+            .clone()
+            .expect("failed validation should bind rework");
+        assert_ne!(rework_node_id, validation_node_id);
+
+        let error = state
+            .block_main_node(
+                owner,
+                &rework_node_id,
+                "Test failure: pytest collected 0 items; evidence from run_test output shows no tests discovered. Need to create a proper test file or adjust the test command before proceeding.".to_string(),
+            )
+            .expect_err("rework node must patch implementation instead of blocking on test procedure");
+
+        assert!(error.contains("cannot be blocked for validator procedure"));
+        assert!(error.contains("apply_patch"));
+    }
+
+    #[test]
     fn access_denied_local_infra_blocks_validation_without_rework_after_changed_artifact() {
         let mut state = ActionMapRuntimeState::default();
         let owner = ThreadId::new();
@@ -26956,6 +27425,105 @@ summary: diagnostic payload for output reference smoke\n\
     }
 
     #[test]
+    fn access_denied_bash_validation_command_routes_unvalidated_artifact_to_rework() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (_, map_id, implement_node_id, _) = start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::ImplementSolution,
+            "Recover sqlite output",
+            "Create recover.py and materialize recover.json.",
+            "Implement recovery",
+            "Create the recovery script.",
+            true,
+        );
+        let (edit_result_id, _) = state
+            .record_main_tool_result_with_class(
+                owner,
+                "edit-recover-script",
+                "apply_patch",
+                Some(ActionClass::Edit),
+                true,
+                "Success. Updated the following files:\n*** Add File: recover.py\n".to_string(),
+            )
+            .expect("edit result")
+            .expect("edit result id");
+        state
+            .mark_result_validity_for_main(
+                owner,
+                &edit_result_id,
+                "accepted",
+                "accepted implementation edit".to_string(),
+                vec![ActionMapCognitiveClaimInput {
+                    id: "claim-edit-recover-script".to_string(),
+                    statement: "Recovery script was created.".to_string(),
+                    evidence_refs: vec![ActionMapEvidenceRefInput {
+                        result_id: Some(edit_result_id.clone()),
+                        ..Default::default()
+                    }],
+                }],
+                vec![ActionMapEvidenceRefInput {
+                    result_id: Some(edit_result_id.clone()),
+                    ..Default::default()
+                }],
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+            )
+            .expect("edit accepted");
+        let (handoff, _) = state
+            .finish_main_node_with_next(
+                owner,
+                &implement_node_id,
+                "Created recovery script.".to_string(),
+                None,
+                Some(ActionMapNextNodeDraft {
+                    kind: NodeKind::SmokeTest,
+                    title: "Run benchmark validation".to_string(),
+                    context_summary: "Run the benchmark validation scripts.".to_string(),
+                    dependency_node_ids: vec![implement_node_id.clone()],
+                }),
+            )
+            .expect("finish implementation into validation");
+        let validation_node_id = handoff.next_node_id.expect("validation node id");
+
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "run-bash-validator",
+                "shell_command",
+                Some(ActionClass::Test),
+                false,
+                "TaskSpaceToolInvocationV1:\ncommand: bash setup-uv-pytest.sh 2>&1 && bash run-uv-pytest.sh 2>&1\nraw_output:\nlocal_validator_infra_failure: Bash/Service/CreateInstance/E_ACCESSDENIED".to_string(),
+            )
+            .expect("platform-incompatible validator failure records");
+
+        let rework_node_id = state
+            .current_main_node_id
+            .clone()
+            .expect("bash E_ACCESSDENIED should bind implementation rework");
+        let map = state.maps.get(&map_id).expect("map");
+        assert_eq!(
+            map.nodes
+                .get(&validation_node_id)
+                .expect("validation node")
+                .status,
+            NodeStatus::Blocked
+        );
+        let rework_node = map.nodes.get(&rework_node_id).expect("rework node");
+        assert_eq!(rework_node.kind, NodeKind::ImplementSolution);
+        assert!(rework_node.context.summary.contains("recover.py"));
+        assert!(
+            rework_node
+                .context
+                .summary
+                .contains("platform-compatible execution")
+        );
+    }
+
+    #[test]
     fn active_map_detects_blocked_validation_result() {
         let mut state = ActionMapRuntimeState::default();
         let owner = ThreadId::new();
@@ -26993,6 +27561,51 @@ summary: diagnostic payload for output reference smoke\n\
             map.nodes.get(current).expect("rework node").kind,
             NodeKind::ImplementSolution
         );
+    }
+
+    #[test]
+    fn blocked_validation_with_ready_recovery_node_is_not_closed() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (_, map_id, _validation_node_id, _) = start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::SmokeTest,
+            "Validate fix",
+            "Run the validation suite.",
+            "Run smoke tests",
+            "Run pytest.",
+            true,
+        );
+
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "call-test-fail",
+                "shell_command",
+                Some(ActionClass::Test),
+                false,
+                "IndentationError: unexpected indent at line 1 in recover.py".to_string(),
+            )
+            .expect("failed test result records");
+        let rework_node_id = state
+            .current_main_node_id
+            .clone()
+            .expect("failed validation should bind rework");
+
+        {
+            let map = state.maps.get_mut(&map_id).expect("active map");
+            let rework = map.nodes.get_mut(&rework_node_id).expect("rework node");
+            rework.status = NodeStatus::Ready;
+            rework.active_lease = None;
+            map.leases.clear();
+        }
+        state.current_main_node_id = None;
+        state.current_main_lease_id = None;
+
+        assert!(state.active_map_has_blocked_validation_result());
+        assert!(state.active_map_has_ready_recovery_node());
     }
 
     #[test]

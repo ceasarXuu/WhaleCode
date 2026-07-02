@@ -2246,7 +2246,10 @@ async fn run_sampling_request(
             && transport_mode == TaskspaceProviderTransportMode::CacheOptimizedActionContract
         {
             prompt_input.push(taskspace_action_contract_state_item(snapshot));
-            if snapshot.node_id.is_none() && sess.action_map_has_blocked_validation_result().await {
+            if snapshot.node_id.is_none()
+                && sess.action_map_has_blocked_validation_result().await
+                && !sess.action_map_has_ready_recovery_node().await
+            {
                 prompt_input.push(taskspace_action_contract_closed_validation_item());
             }
             if snapshot.node_kind.as_deref() == Some("inspect_code_context") {
@@ -2620,6 +2623,8 @@ fn is_actionable_taskspace_gate_feedback_output(item: &ResponseItem) -> bool {
             ))
         || (response_item_text_contains(item, "cannot be blocked for missing source visibility")
             && response_item_text_contains(item, "already recorded implementation source evidence"))
+        || (response_item_text_contains(item, "cannot be blocked for validator procedure")
+            && response_item_text_contains(item, "implementation failure"))
         || response_item_texts_contain(item, &|text| {
             taskspace_output_mentions_local_validator_infra_state_commit(text)
         })
@@ -2684,6 +2689,11 @@ fn taskspace_action_contract_recent_tool_outputs_item(
             || (text.contains("cannot be blocked for missing source visibility")
                 && text.contains("already recorded implementation source evidence"))
     });
+    let validator_procedure_blocker_rejected_seen = summaries.iter().any(|(_, text)| {
+        text.contains("validator_procedure_blocker_rejected")
+            || (text.contains("cannot be blocked for validator procedure")
+                && text.contains("implementation failure"))
+    });
 
     let mut remaining_chars = TASKSPACE_ACTION_CONTRACT_MAX_RECENT_TOOL_OUTPUT_CHARS;
     let mut sections = Vec::new();
@@ -2706,7 +2716,9 @@ fn taskspace_action_contract_recent_tool_outputs_item(
     }
 
     let in_implement_rework = current_node_kind == Some("implement_solution");
-    let progress_hint = if missing_source_blocker_rejected_seen {
+    let progress_hint = if validator_procedure_blocker_rejected_seen {
+        "progress_hint: A previous block_node action was rejected because it blamed validator procedure or test-command setup while dependency validation evidence already identifies an implementation failure. Do not create tests, adjust validator commands, or block for pytest/cache procedure concerns. Next action must be apply_patch for the implementation artifact named by the failed validation evidence.\n"
+    } else if missing_source_blocker_rejected_seen {
         "progress_hint: A previous block_node action was rejected because implementation source evidence is already available. Do not create another inspect node and do not rerun diagnostics. Next action must be apply_patch; use the failed patch feedback to correct the target, function signature, or context lines.\n"
     } else if internal_policy_blocker_rejected_seen {
         "progress_hint: A previous block_node action was rejected because it described TaskSpace internal policy or a repeated diagnostic, not an external blocker. Do not create another inspect node and do not rerun the diagnostic. Next action must be apply_patch with the smallest concrete implementation fix from dependency evidence.\n"
@@ -2895,6 +2907,19 @@ tool_action: {action}\n\
 tool_result: blocked\n\
 failure_kind: missing_source_visibility_blocker_rejected\n\
 next_valid_action: emit exactly one apply_patch action. Use the failed patch feedback plus inspected source evidence to correct the target, function signature, or context lines. Do not create another inspect node, rerun diagnostics, or block for missing source visibility.\n\
+raw_output:\n{text}"
+        );
+    }
+    if text.contains("cannot be blocked for validator procedure")
+        && text.contains("implementation failure")
+    {
+        return format!(
+            "{TASKSPACE_TOOL_FEEDBACK_MARKER}\n\
+tool_source: action_contract_internal\n\
+tool_action: {action}\n\
+tool_result: blocked\n\
+failure_kind: validator_procedure_blocker_rejected\n\
+next_valid_action: emit exactly one apply_patch action for the implementation artifact named by the failed validation evidence. Do not create tests, adjust validator commands, or block for pytest/cache procedure concerns.\n\
 raw_output:\n{text}"
         );
     }
@@ -5484,6 +5509,40 @@ tax_calc.py\n\
     }
 
     #[test]
+    fn action_contract_prompt_structures_validator_procedure_blocker_rejection() {
+        let latest_active_projection = format!(
+            "{TASKSPACE_ACTIVE_PROFILE_MARKER}\n{TASKSPACE_ACTIVE_PROJECTION_MARKER}\nactive_objective: latest"
+        );
+        let items = vec![
+            message("user", "Continue the task"),
+            message("developer", &latest_active_projection),
+            ResponseItem::FunctionCallOutput {
+                call_id: "taskspace-action-contract-8-blocked".to_string(),
+                output: FunctionCallOutputPayload {
+                    body: FunctionCallOutputBody::Text(
+                        "TaskSpace implement_solution node `node-6` cannot be blocked for validator procedure or test-command concerns because dependency validation evidence already identifies an implementation failure and this rework node has no successful edit. Next valid action: apply_patch the implementation artifact named by the failed validation evidence, or block only with a specific external blocker that makes editing impossible."
+                            .to_string(),
+                    ),
+                    success: Some(false),
+                },
+            },
+        ];
+
+        let prepared = prepare_taskspace_action_contract_prompt_items_for_node(
+            items,
+            Some("implement_solution"),
+        );
+        let joined = item_texts(&prepared).join("\n");
+
+        assert!(joined.contains(TASKSPACE_TOOL_FEEDBACK_MARKER));
+        assert!(joined.contains("failure_kind: validator_procedure_blocker_rejected"));
+        assert!(joined.contains("progress_hint: A previous block_node action was rejected"));
+        assert!(joined.contains("validator procedure or test-command setup"));
+        assert!(joined.contains("Next action must be apply_patch"));
+        assert!(!joined.contains("failure_kind: tool_execution_failed"));
+    }
+
+    #[test]
     fn action_contract_prompt_omits_pre_user_tool_output() {
         let latest_active_projection = format!(
             "{TASKSPACE_ACTIVE_PROFILE_MARKER}\n{TASKSPACE_ACTIVE_PROJECTION_MARKER}\nactive_objective: latest"
@@ -7348,6 +7407,7 @@ async fn should_block_after_closed_validation_without_active_node(
         return false;
     }
     sess.action_map_has_blocked_validation_result().await
+        && !sess.action_map_has_ready_recovery_node().await
 }
 
 fn taskspace_action_is_finish_node_control(action: &TaskSpaceActionV1) -> bool {
@@ -9212,15 +9272,32 @@ async fn try_run_sampling_request(
                                 last_agent_message = Some(rationale.to_string());
                             }
                         }
-                        Ok((_action, Some(final_message), None)) => {
-                            apply_taskspace_terminal_action_message(
-                                &mut needs_follow_up,
-                                &mut saw_actionable_output,
-                                &mut last_agent_message,
-                                final_message,
-                            );
-                            taskspace_terminal_action_observed = true;
-                            taskspace_terminal_action_observed_in_request = true;
+                        Ok((action, Some(final_message), None)) => {
+                            let final_answer_rejected = action.action == "final_answer"
+                                && sess
+                                    .record_action_map_main_final_response(
+                                        &turn_context,
+                                        &final_message,
+                                    )
+                                    .await
+                                    .is_err();
+                            if final_answer_rejected {
+                                needs_follow_up = true;
+                                saw_actionable_output = true;
+                                last_agent_message = Some(
+                                    "TaskSpace final_answer rejected by final readiness gate. Continue the same task and clear the gate before final_answer."
+                                        .to_string(),
+                                );
+                            } else {
+                                apply_taskspace_terminal_action_message(
+                                    &mut needs_follow_up,
+                                    &mut saw_actionable_output,
+                                    &mut last_agent_message,
+                                    final_message,
+                                );
+                                taskspace_terminal_action_observed = true;
+                                taskspace_terminal_action_observed_in_request = true;
+                            }
                         }
                         Ok((_action, None, None)) => {}
                         Err(reason) => {

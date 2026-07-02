@@ -82,3 +82,48 @@ xychart-beta
 R4 engineering deliverables are closed. R4 does not authorize E3 progression for TaskSpace utility.
 
 The next stage must treat the public-10 negative evidence as input requirements, not as optional optimization.
+
+## 8. 2026-07-02 Post-Closeout Utility Finding
+
+R4 closeout 后继续复跑 `sqlite-db-truncate`，确认了一个额外的工程事实：R4 的局部状态机修复仍能产生真实收益，但 TaskSpace utility 仍未收敛。
+
+新增修复：
+
+- 修复 `blocked validation + ready recovery node` 被 action-contract closed-validation 覆盖的问题。
+- 新增 `active_map_has_ready_recovery_node` 共享判断，并在 prompt 注入和 terminal `blocked` 改写两处复用。
+
+新增验证：
+
+```text
+cargo test -j1 -p codex-core blocked_validation_with_ready_recovery_node_is_not_closed --lib
+PASS
+
+相关 R4-D/R4-G 回归测试全部通过
+cargo fmt --all -- --check
+PASS
+cargo build -j1 --profile dev-small -p codex-cli --bin whale
+PASS
+```
+
+真实样本结果：
+
+```text
+RunDir:
+C:\WhaleRunCache\r4-rerun-20260702\sqlite-db-truncate-ready-recovery-fix\runs\terminal_bench__sqlite-db-truncate\20260702-101238-428\pair-001
+
+outcome_standard=solved
+outcome_taskspace=engineering_unclean
+public_validation_skipped=true
+public_validation_skip_reason=agent_exec_timeout
+taskspace_wall_time_ms=900037
+tool_call_count=24
+rollout_trace_model_request_count=28
+changed_paths=recover.py, trunc.db.recovered
+open_leaf_nodes=1
+```
+
+解释：
+
+- 相比前一轮 9 次工具调用后错误 closed-validation，本轮进入 `node-6` recovery path，说明 ready-recovery 修复有效。
+- 样本仍未 solved，失败从 closed-validation masking 转移为 900s long-flow timeout。
+- 因此 R4 的 release decision 不变：工程交付和观测门禁可以保留为完成，但 TaskSpace utility parity 仍是后续 P0。

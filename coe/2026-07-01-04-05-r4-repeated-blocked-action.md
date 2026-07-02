@@ -1044,3 +1044,69 @@
   - The same sample no longer times out after successful smoke validation. Compared with v10, open leaf dropped from 1 to 0 and edge count dropped from 313 to 2.
   - The harness process still returned exit code 1 because E3/audit scoring gates were intentionally unmet (`repeats_lt_3`, `audit_review_missing`, external validator fidelity not E3 eligible). Pair-level business outcomes were solved on both sides.
 - Time: 2026-07-02 03:00
+
+## Hypothesis H-017: closed-validation action-contract must not hide ready recovery nodes
+
+- Related problems:
+  - P-004
+- Status: confirmed-and-repaired-by-unit-tests; real-sample benefit confirmed, sample still not solved
+- Claim:
+  - After a failed validation creates a follow-up `implement_solution` recovery node, the action-contract prompt can still see "no active node + blocked validation" and inject `TaskSpaceActionContractClosedValidationV1`. That closes the path to `final_answer` or `blocked` even when a ready recovery node exists.
+- Evidence:
+  - `sqlite-db-truncate-output-contract-validation-fix`:
+    - RunDir: `C:\WhaleRunCache\r4-rerun-20260702\sqlite-db-truncate-output-contract-validation-fix\runs\terminal_bench__sqlite-db-truncate\20260702-094101-549\pair-001`
+    - `outcome_taskspace=engineering_unclean`;
+    - `business_success=false`;
+    - `tool_call_count=9`;
+    - `changed_paths` included `recover.py` but not `recover.json`;
+    - graph health: `nodes=6`, `open_leaf_nodes=1`;
+    - node table showed `node-6` as `implement_solution/ready`, while `last-message.md` was a terminal `blocked` action claiming validation was closed.
+  - The live `recover.py` was already corrected after the second edit, but the model was told that remaining actions were final/blocked instead of binding the ready recovery node.
+- Root cause:
+  - Closed-validation detection used only `active_map_has_blocked_validation_result`.
+  - It did not check for ready recovery nodes (`implement_solution`, `smoke_test`, or `regression_test`) that the projection layer would otherwise expose as the next valid action.
+- Repair:
+  - Added `active_map_has_ready_recovery_node`.
+  - The action-contract prompt now injects `TaskSpaceActionContractClosedValidationV1` only when blocked validation exists and no ready recovery node exists.
+  - The terminal `blocked` rewrite path uses the same guard, so a ready recovery node cannot be masked by the closed-validation shortcut.
+- Validation:
+  ```text
+  cargo test -j1 -p codex-core blocked_validation_with_ready_recovery_node_is_not_closed --lib
+  PASS
+
+  cargo test -j1 -p codex-core direct_final_response_rejects_open_contract_without_validation_after_thin_work --lib
+  cargo test -j1 -p codex-core access_denied_bash_validation_command_routes_unvalidated_artifact_to_rework --lib
+  cargo test -j1 -p codex-core access_denied_local_infra_blocks_validation_without_rework_after_changed_artifact --lib
+  cargo test -j1 -p codex-core validation_node_blocks_vacuous_test_after_changed_artifact --lib
+  cargo test -j1 -p codex-core validation_rework_rejects_validator_procedure_blocker_before_edit --lib
+  cargo test -j1 -p codex-core validation_rework_rejects_missing_current_artifact_visibility_blocker --lib
+  cargo test -j1 -p codex-core manual_local_infra_validation_block_routes_unvalidated_changed_artifact_to_rework --lib
+  cargo test -j1 -p codex-core action_contract_prompt_structures_validator_procedure_blocker_rejection --lib
+  PASS
+
+  cargo fmt --all -- --check
+  PASS
+
+  cargo build -j1 --profile dev-small -p codex-cli --bin whale
+  PASS
+  ```
+- Real-sample rerun:
+  ```text
+  RunDir: C:\WhaleRunCache\r4-rerun-20260702\sqlite-db-truncate-ready-recovery-fix\runs\terminal_bench__sqlite-db-truncate\20260702-101238-428\pair-001
+  outcome_standard=solved
+  outcome_taskspace=engineering_unclean
+  business_success=false
+  public_validation_skipped=true
+  public_validation_skip_reason=agent_exec_timeout
+  taskspace_wall_time_ms=900037
+  tool_call_count=24
+  rollout_trace_model_request_count=28
+  changed_paths=recover.py, trunc.db.recovered
+  nodes=6
+  open_leaf_nodes=1
+  ```
+- Interpretation:
+  - The original closed-validation masking bug is repaired: the rerun continued through the recovery path instead of immediately returning `blocked`.
+  - The sample still fails. The new failure is long-flow convergence: `node-6` remains running until the 900s external timeout after `python recover.py` exposed `PermissionError: [WinError 5]` on `trunc.db.recovered`.
+  - This is a separate R4/R5 utility issue, not proof that the ready-recovery guard failed.
+- Time: 2026-07-02 10:36

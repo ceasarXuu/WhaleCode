@@ -1075,6 +1075,13 @@ impl Session {
             .active_map_has_blocked_validation_result()
     }
 
+    pub(crate) async fn action_map_has_ready_recovery_node(&self) -> bool {
+        let state = self.state.lock().await;
+        state
+            .action_map_runtime
+            .active_map_has_ready_recovery_node()
+    }
+
     pub(crate) async fn record_action_map_main_tool_result(
         &self,
         turn_context: &TurnContext,
