@@ -1957,6 +1957,30 @@ fn taskspace_expected_lines_target_from_apply_patch_text(message: &str) -> Optio
     (!target.is_empty()).then_some(target)
 }
 
+fn taskspace_context_mismatch_target_from_apply_patch_text(message: &str) -> Option<String> {
+    if !message.contains("apply_patch verification failed")
+        || !message.contains("Failed to find context ")
+        || !message.contains(" in ")
+    {
+        return None;
+    }
+    let (_, rest) = message.rsplit_once(" in ")?;
+    let target = rest
+        .lines()
+        .next()
+        .unwrap_or(rest)
+        .trim()
+        .trim_end_matches(':');
+    let target = taskspace_normalize_apply_patch_target(target);
+    (!target.is_empty()).then_some(target)
+}
+
+fn taskspace_apply_patch_invalid_hunk_looks_unified(message: &str) -> bool {
+    message.contains("apply_patch verification failed")
+        && message.contains("invalid hunk")
+        && (message.contains("@@ -") || message.contains("@@ +"))
+}
+
 fn taskspace_normalize_apply_patch_target(target: &str) -> String {
     let normalized = target.trim().trim_matches('"').replace('\\', "/");
     if let Some((_, relative)) = normalized.split_once("/app/src/") {
@@ -2824,6 +2848,31 @@ tool_result: failed\n\
 failure_kind: apply_patch_expected_lines_mismatch\n\
 target: {target}\n\
 next_valid_action: emit exactly one corrected apply_patch. Do not repeat the same context hunk. If the intended full contents are known or the file is small/generated, use `*** Delete File: {target}` followed by `*** Add File: {target}` with the complete corrected file contents; otherwise use an `*** Update File: {target}` hunk with exact existing context.\n\
+raw_output:\n{text}"
+        );
+    }
+    if action == "apply_patch"
+        && let Some(target) = taskspace_context_mismatch_target_from_apply_patch_text(text)
+    {
+        return format!(
+            "{TASKSPACE_TOOL_FEEDBACK_MARKER}\n\
+tool_source: action_contract_internal\n\
+tool_action: apply_patch\n\
+tool_result: failed\n\
+failure_kind: apply_patch_context_mismatch\n\
+target: {target}\n\
+next_valid_action: emit exactly one corrected apply_patch. Do not repeat the same context hunk. If the failed hunk used a unified-diff header such as `@@ -1,1 +1,1 @@`, remove the range header and use native apply_patch `@@` grammar, or replace the small/generated file with `*** Delete File: {target}` followed by `*** Add File: {target}` and complete corrected contents.\n\
+raw_output:\n{text}"
+        );
+    }
+    if action == "apply_patch" && taskspace_apply_patch_invalid_hunk_looks_unified(text) {
+        return format!(
+            "{TASKSPACE_TOOL_FEEDBACK_MARKER}\n\
+tool_source: action_contract_internal\n\
+tool_action: apply_patch\n\
+tool_result: failed\n\
+failure_kind: apply_patch_unified_hunk_header_in_native_patch\n\
+next_valid_action: emit exactly one corrected apply_patch using native apply_patch grammar. Do not include unified-diff range headers like `@@ -0,0 +1,44 @@`; use `@@` for native hunks, `*** Add File: <path>` for new files, and prefix every added file content line with `+`.\n\
 raw_output:\n{text}"
         );
     }
@@ -4042,6 +4091,27 @@ Then I will inspect the file."#,
     }
 
     #[test]
+    fn taskspace_apply_patch_context_mismatch_target_is_detected() {
+        let windows_message = "apply_patch verification failed: Failed to find context '-1,1 +1,1 @@' in S:\\app\\recover.py";
+        let unix_message = "apply_patch verification failed: Failed to find context '-4,3 +4,5 @@' in /app/src/recover_accuracy.py";
+
+        assert_eq!(
+            taskspace_context_mismatch_target_from_apply_patch_text(windows_message),
+            Some("recover.py".to_string())
+        );
+        assert_eq!(
+            taskspace_context_mismatch_target_from_apply_patch_text(unix_message),
+            Some("recover_accuracy.py".to_string())
+        );
+        assert_eq!(
+            taskspace_context_mismatch_target_from_apply_patch_text(
+                "apply_patch verification failed: invalid hunk"
+            ),
+            None
+        );
+    }
+
+    #[test]
     fn taskspace_apply_patch_missing_target_recovery_forces_add_file_grammar() {
         let targets = taskspace_missing_update_targets_from_apply_patch_error(Some(
             "TaskSpace tool call failed: apply_patch verification failed: Failed to read file to update W:\\app\\src\\recover_accuracy.py: 系统找不到指定的路径。 (os error 3)",
@@ -4501,6 +4571,48 @@ Then I will inspect the file."#,
     }
 
     #[test]
+    fn taskspace_action_contract_apply_patch_normalizes_native_unified_update_hunk_headers() {
+        let action = parse_taskspace_action_v1(
+            r#"{"schema_version":"taskspace-action-v1","action":"apply_patch","node_id":"node-1","args":{"patch":"*** Begin Patch\n*** Update File: core/src/session/turn.rs\n@@ -1,1 +1,1 @@\n-old\n+new\n*** End Patch\n"}}"#,
+        )
+        .expect("valid json");
+        let call = taskspace_action_to_tool_call(&action, &provider_snapshot("implement_solution"))
+            .expect("policy ok")
+            .expect("tool call");
+
+        match call.payload {
+            ToolPayload::Custom { input } => {
+                assert!(input.contains("*** Update File: core/src/session/turn.rs"));
+                assert!(input.contains("\n@@\n"));
+                assert!(!input.contains("@@ -1,1 +1,1 @@"));
+            }
+            other => panic!("expected custom payload, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn taskspace_action_contract_apply_patch_drops_unified_hunk_header_from_add_file() {
+        let action = parse_taskspace_action_v1(
+            r#"{"schema_version":"taskspace-action-v1","action":"apply_patch","node_id":"node-1","args":{"patch":"*** Begin Patch\n*** Add File: recover.py\n@@ -0,0 +1,2 @@\n+line 1\n+line 2\n*** End Patch\n"}}"#,
+        )
+        .expect("valid json");
+        let call = taskspace_action_to_tool_call(&action, &provider_snapshot("implement_solution"))
+            .expect("policy ok")
+            .expect("tool call");
+
+        match call.payload {
+            ToolPayload::Custom { input } => {
+                assert!(input.contains("*** Add File: recover.py"));
+                assert!(input.contains("+line 1"));
+                assert!(input.contains("+line 2"));
+                assert!(!input.contains("@@ -0,0 +1,2 @@"));
+                assert!(!input.contains("\n@@\n"));
+            }
+            other => panic!("expected custom payload, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn taskspace_action_contract_apply_patch_normalizes_plain_unified_diff() {
         let action = parse_taskspace_action_v1(
             r#"{"schema_version":"taskspace-action-v1","action":"apply_patch","node_id":"node-1","args":{"patch":"*** Begin Patch\n--- tax_calc.py\n+++ tax_calc.py\n@@ -1 +1 @@\n-old\n+new\n*** End Patch\n"}}"#,
@@ -4647,8 +4759,8 @@ tax_calc.py\n\
         );
 
         assert!(patch.starts_with("*** Begin Patch\n*** Update File: src/tax_calc.py\n"));
-        assert!(patch.contains("@@ -5,7 +5,7 @@ def calculate_tax(subtotal, region):"));
-        assert!(!patch.contains("\n@@\n@@ -5,7 +5,7 @@"));
+        assert!(patch.contains("@@ def calculate_tax(subtotal, region):"));
+        assert!(!patch.contains("@@ -5,7 +5,7 @@"));
         assert!(patch.ends_with("*** End Patch\n"));
     }
 
@@ -4667,7 +4779,8 @@ tax_calc.py\n\
         );
 
         assert!(patch.starts_with("*** Begin Patch\n*** Update File: src/tax_calc.py\n"));
-        assert!(patch.contains("@@ -5,7 +5,7 @@ def calculate_tax(subtotal, region):"));
+        assert!(patch.contains("@@ def calculate_tax(subtotal, region):"));
+        assert!(!patch.contains("@@ -5,7 +5,7 @@"));
         assert!(patch.ends_with("*** End Patch\n"));
     }
 
@@ -5277,6 +5390,67 @@ tax_calc.py\n\
         assert!(joined.contains("Do not repeat the same context hunk"));
         assert!(joined.contains("*** Delete File: convert.py"));
         assert!(joined.contains("*** Add File: convert.py"));
+    }
+
+    #[test]
+    fn action_contract_prompt_structures_apply_patch_context_mismatch_feedback() {
+        let latest_active_projection = format!(
+            "{TASKSPACE_ACTIVE_PROFILE_MARKER}\n{TASKSPACE_ACTIVE_PROJECTION_MARKER}\nactive_objective: latest"
+        );
+        let items = vec![
+            message("user", "Fix the failed implementation"),
+            message("developer", &latest_active_projection),
+            ResponseItem::CustomToolCallOutput {
+                call_id: "taskspace-action-contract-11-apply_patch".to_string(),
+                name: Some("apply_patch".to_string()),
+                output: FunctionCallOutputPayload {
+                    body: FunctionCallOutputBody::Text(
+                        "apply_patch verification failed: Failed to find context '-1,1 +1,1 @@' in S:\\app\\recover.py"
+                            .to_string(),
+                    ),
+                    success: Some(false),
+                },
+            },
+        ];
+
+        let prepared = prepare_taskspace_action_contract_prompt_items(items);
+        let joined = item_texts(&prepared).join("\n");
+
+        assert!(joined.contains(TASKSPACE_TOOL_FEEDBACK_MARKER));
+        assert!(joined.contains("failure_kind: apply_patch_context_mismatch"));
+        assert!(joined.contains("target: recover.py"));
+        assert!(joined.contains("native apply_patch `@@` grammar"));
+        assert!(joined.contains("Do not repeat the same context hunk"));
+    }
+
+    #[test]
+    fn action_contract_prompt_structures_apply_patch_unified_hunk_header_feedback() {
+        let latest_active_projection = format!(
+            "{TASKSPACE_ACTIVE_PROFILE_MARKER}\n{TASKSPACE_ACTIVE_PROJECTION_MARKER}\nactive_objective: latest"
+        );
+        let items = vec![
+            message("user", "Fix the failed implementation"),
+            message("developer", &latest_active_projection),
+            ResponseItem::CustomToolCallOutput {
+                call_id: "taskspace-action-contract-12-apply_patch".to_string(),
+                name: Some("apply_patch".to_string()),
+                output: FunctionCallOutputPayload {
+                    body: FunctionCallOutputBody::Text(
+                        "apply_patch verification failed: invalid hunk at line 3, '@@ -0,0 +1,44 @@' is not a valid hunk header. Valid hunk headers: '*** Add File: {path}', '*** Delete File: {path}', '*** Update File: {path}'"
+                            .to_string(),
+                    ),
+                    success: Some(false),
+                },
+            },
+        ];
+
+        let prepared = prepare_taskspace_action_contract_prompt_items(items);
+        let joined = item_texts(&prepared).join("\n");
+
+        assert!(joined.contains(TASKSPACE_TOOL_FEEDBACK_MARKER));
+        assert!(joined.contains("failure_kind: apply_patch_unified_hunk_header_in_native_patch"));
+        assert!(joined.contains("Do not include unified-diff range headers"));
+        assert!(joined.contains("prefix every added file content line with `+`"));
     }
 
     #[test]
@@ -7587,22 +7761,76 @@ fn taskspace_action_arg_u64(args: &serde_json::Value, name: &str, default: u64) 
 fn normalize_taskspace_apply_patch(patch: &str) -> String {
     let normalized = patch.replace("\r\n", "\n");
     if let Some(rewritten) = normalize_taskspace_unwrapped_apply_patch(&normalized) {
-        return rewritten;
+        return normalize_taskspace_native_hunk_headers(&rewritten);
     }
     if let Some(rewritten) = normalize_taskspace_bare_file_patch(&normalized) {
-        return rewritten;
+        return normalize_taskspace_native_hunk_headers(&rewritten);
     }
     let lines = normalized.lines().collect::<Vec<_>>();
+    let has_native_file_operation = lines
+        .iter()
+        .any(|line| line.starts_with("*** Update File: ") || line.starts_with("*** Add File: "));
     if lines.len() < 5
         || lines.first() != Some(&"*** Begin Patch")
         || lines.last() != Some(&"*** End Patch")
-        || !lines
-            .iter()
-            .any(|line| line.starts_with("*** Update File: "))
+        || !has_native_file_operation
     {
         return normalized;
     }
-    rewrite_taskspace_apply_patch_unique_update_paths(&normalized)
+    normalize_taskspace_native_hunk_headers(&rewrite_taskspace_apply_patch_unique_update_paths(
+        &normalized,
+    ))
+}
+
+fn normalize_taskspace_native_hunk_headers(patch: &str) -> String {
+    let mut changed = false;
+    let mut section_kind: Option<&str> = None;
+    let mut lines = Vec::new();
+    for line in patch.lines() {
+        if line.starts_with("*** Add File: ") {
+            section_kind = Some("add");
+            lines.push(line.to_string());
+            continue;
+        }
+        if line.starts_with("*** Update File: ") {
+            section_kind = Some("update");
+            lines.push(line.to_string());
+            continue;
+        }
+        if line.starts_with("*** Delete File: ") {
+            section_kind = Some("delete");
+            lines.push(line.to_string());
+            continue;
+        }
+        if line == "*** End Patch" {
+            section_kind = None;
+            lines.push(line.to_string());
+            continue;
+        }
+        if line.starts_with("@@") {
+            match section_kind {
+                Some("add") => {
+                    changed = true;
+                    continue;
+                }
+                Some("update") => {
+                    let normalized = normalize_taskspace_unified_hunk_line(line);
+                    if normalized != line {
+                        changed = true;
+                    }
+                    lines.push(normalized);
+                    continue;
+                }
+                _ => {}
+            }
+        }
+        lines.push(line.to_string());
+    }
+    if changed {
+        lines.join("\n") + "\n"
+    } else {
+        patch.to_string()
+    }
 }
 
 fn normalize_taskspace_bare_file_patch(patch: &str) -> Option<String> {

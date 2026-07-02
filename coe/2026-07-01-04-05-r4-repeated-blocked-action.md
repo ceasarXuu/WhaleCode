@@ -1306,3 +1306,85 @@
   PASS
   ```
 - Time: 2026-07-02 14:06
+
+## Hypothesis H-021: action-contract apply_patch feedback must normalize native/unified grammar failures
+
+- Related problems:
+  - P-004
+- Status: repaired-by-unit-tests; real-sample exposed next root cause H-022
+- Claim:
+  - After H-020 routed semantic validation failures into implementation rework, `sqlite-db-truncate` still wasted requests on repeated `apply_patch` failures. The raw tool feedback was visible, but the action-contract path did not structure two failure shapes from the real run and did not normalize native patch payloads that included unified-diff hunk ranges.
+- Evidence:
+  - Real rerun before this repair:
+    ```text
+    RunDir: C:\WhaleRunCache\r4-rerun-20260702\sqlite-db-truncate-semantic-rework-fix\runs\terminal_bench__sqlite-db-truncate\20260702-134303-636\pair-001
+    outcome_taskspace=engineering_unclean
+    taskspace_exec_timed_out=true
+    nodes=6
+    edges=5
+    open_leaf_nodes=1
+    ```
+  - `node-4` consumed multiple attempts on patch grammar/path mistakes before one edit succeeded:
+    ```text
+    apply_patch verification failed: Failed to find context '-1,1 +1,1 @@' in S:\app\recover.py
+    apply_patch verification failed: Failed to read file to update S:\app\src\new ... (os error 3)
+    apply_patch verification failed: invalid hunk at line 3, '@@ -0,0 +1,44 @@' is not a valid hunk header
+    ```
+  - Real rerun after this repair:
+    ```text
+    RunDir: C:\WhaleRunCache\r4-rerun-20260702\sqlite-db-truncate-patch-feedback-fix\runs\terminal_bench__sqlite-db-truncate\20260702-143858-261\pair-001
+    taskspace_exec_timed_out=true
+    nodes=8
+    edges=466
+    provider requests=31
+    main_tool_result events=21
+    exact_payload_scan_passed=true
+    replacement_confirmed=true
+    legacy_taskspace_history_present=false
+    ```
+  - The post-repair app shows the immediate patch-feedback issue moved forward: `right\app\recover.py` exists and includes `import sqlite3`, addressing the prior `Python sqlite3: name 'sqlite3' is not defined` validation failure. No post-repair evidence showed the same context-mismatch or invalid unified hunk apply_patch failure as the active blocker.
+  - The post-repair failure shifted to a separate state-machine problem: repeated implement/validation nodes, `node-7` with 13 results, `node-9` still running, and 466 duplicate edges before the 900s sample timeout.
+- Root cause:
+  - `taskspace_action_contract_tool_feedback_summary(...)` classified missing update targets and expected-line mismatches, but did not classify `Failed to find context ... in <path>` or invalid unified hunk headers inside native apply_patch payloads.
+  - `normalize_taskspace_apply_patch(...)` normalized full unified diffs, but native `*** Update File` / `*** Add File` payloads containing `@@ -x +y @@` headers passed through unchanged. For `Add File`, converting that line to `@@` would still be invalid because add-file sections accept only added lines.
+- Repair:
+  - Added context-mismatch parsing that extracts the target path from real `Failed to find context ... in S:\app\recover.py` messages.
+  - Added structured model-visible feedback for:
+    - `apply_patch_context_mismatch`
+    - `apply_patch_unified_hunk_header_in_native_patch`
+  - Normalized native update hunks by stripping unified range metadata while preserving trailing context, for example `@@ -5,7 +5,7 @@ def f` becomes `@@ def f`.
+  - Dropped unified hunk headers from `*** Add File` sections instead of converting them to another invalid hunk.
+  - Kept existing full unified-diff conversion and missing-target behavior intact.
+- Validation:
+  ```text
+  CARGO_TARGET_DIR=D:\BuildCache\whalecode\cargo-target cargo test -j1 -p codex-core taskspace_apply_patch_context_mismatch_target_is_detected --lib
+  PASS
+
+  CARGO_TARGET_DIR=D:\BuildCache\whalecode\cargo-target cargo test -j1 -p codex-core taskspace_action_contract_apply_patch_normalizes_native_unified_update_hunk_headers --lib
+  PASS
+
+  CARGO_TARGET_DIR=D:\BuildCache\whalecode\cargo-target cargo test -j1 -p codex-core taskspace_action_contract_apply_patch_drops_unified_hunk_header_from_add_file --lib
+  PASS
+
+  CARGO_TARGET_DIR=D:\BuildCache\whalecode\cargo-target cargo test -j1 -p codex-core action_contract_prompt_structures_apply_patch_context_mismatch_feedback --lib
+  PASS
+
+  CARGO_TARGET_DIR=D:\BuildCache\whalecode\cargo-target cargo test -j1 -p codex-core action_contract_prompt_structures_apply_patch_unified_hunk_header_feedback --lib
+  PASS
+
+  CARGO_TARGET_DIR=D:\BuildCache\whalecode\cargo-target cargo test -j1 -p codex-core taskspace_action_contract_apply_patch_normalizes --lib
+  PASS
+
+  CARGO_TARGET_DIR=D:\BuildCache\whalecode\cargo-target cargo test -j1 -p codex-core taskspace_apply_patch_ --lib
+  PASS, 13 tests
+
+  CARGO_TARGET_DIR=D:\BuildCache\whalecode\cargo-target cargo test -j1 -p codex-core edit_failure_recovery_preserves_failed_tool_feedback --lib
+  PASS
+
+  cargo fmt --all -- --check
+  PASS
+
+  CARGO_TARGET_DIR=D:\BuildCache\whalecode\cargo-target cargo build -j1 --profile dev-small -p codex-cli --bin whale
+  PASS
+  ```
+- Time: 2026-07-02 15:13
