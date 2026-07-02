@@ -2101,3 +2101,95 @@
 - Interpretation:
   - Engineering loop fixed: the sample moved from timeout/open-leaf/tool-loop to non-timeout closed graph.
   - Remaining failure is model solution quality / patch correctness (`agent_patch_wrong`), not TaskSpace tool-chain execution.
+
+## Hypothesis H-034: changed-artifact validation coverage gates need validation-specific recovery
+
+- Status: repaired-and-partial-real-sample-benefit-confirmed
+- Claim:
+  - A validation node can run a command, but ActionMap may reject it because the command does not execute the changed artifact.
+  - The rejection already includes `TaskSpaceGateRecoveryV1` with `validation_test_missing_changed_artifact_coverage` and exact `next_valid_actions`.
+  - The session layer currently treats that rejection as generic no-action recovery instead of `TaskSpaceValidationNeedsTestRecoveryV1`, so the model may ignore the concrete changed-artifact command and keep validating the wrong target.
+- Evidence:
+  ```text
+  RunDir:
+  C:\WhaleRunCache\r4-public10-20260702\actual\organization-json-generator-v1\runs\terminal_bench__organization-json-generator\20260702-055624-750\pair-001
+
+  outcome_standard=solved
+  outcome_taskspace=agent_exec_timeout
+  taskspace_exec_timed_out=true
+  taskspace_wall_ms=900041
+  changed_paths_taskspace=generate_organization.py
+  open_leaf_nodes=2
+  ```
+  Repeated validation gate signature:
+  ```text
+  validation_test_missing_changed_artifact_coverage
+  next_valid_actions:
+  run_test with command `python generate_organization.py` to execute changed artifact `generate_organization.py`
+  ```
+  Follow-up model behavior:
+  ```text
+  python generate.py
+  jsonschema validation against organization.json
+  ```
+  These follow-up commands did not execute `generate_organization.py`, so the validation loop did not converge before timeout.
+- Prediction:
+  - `taskspace_message_hit_validation_needs_test(...)` currently does not recognize `validation_test_missing_changed_artifact_coverage`.
+  - Routing that gate reason into `TaskSpaceValidationNeedsTestRecoveryV1` and preserving the gate payload should make the model-visible guidance name the exact changed-artifact command instead of generic no-action guidance.
+- Repair:
+  - Extended `taskspace_message_hit_validation_needs_test(...)` to recognize validation coverage gate reasons:
+    ```text
+    validation_test_missing_changed_artifact_coverage
+    validation_test_missing_local_validator_coverage
+    ```
+  - Extended `build_taskspace_validation_needs_test_recovery_item(...)` to preserve the original `TaskSpaceGateRecoveryV1` payload and its `next_valid_actions`.
+- Validation:
+  ```text
+  cargo fmt --all -- --check
+  PASS
+
+  cargo test -j1 -p codex-core validation_changed_artifact_coverage_recovery_preserves_next_action --lib
+  PASS
+
+  cargo test -j1 -p codex-core validation_needs_test_recovery_blocks_discovery_loop --lib
+  PASS
+
+  cargo test -j1 -p codex-core no_action_recovery_preserves_recent_gate_recovery_context --lib
+  PASS
+
+  cargo build -j1 --profile dev-small -p codex-cli --bin whale
+  PASS
+  ```
+- After repair real rerun:
+  ```text
+  RunDir:
+  C:\WhaleRunCache\r4-validation-coverage-org-json-20260702\runs\terminal_bench__organization-json-generator\20260702-223232-599\pair-001
+
+  outcome_standard=solved
+  outcome_taskspace=engineering_unclean
+  taskspace_exec_timed_out=true
+  taskspace_wall_ms=420117
+  taskspace_tool_call_count=15
+  maps=1
+  nodes=6
+  edges=5
+  accepted_results=3
+  unreviewed_results=17
+  open_leaf_nodes=1
+  changed_paths_taskspace=generate.py
+  ```
+- Benefit:
+  - The old public-10 run timed out after 900041 ms with 455 edges, all 20 results unreviewed, and no accepted results.
+  - The repaired rerun timed out at the shorter 420117 ms harness limit with 5 edges and 3 accepted results.
+  - The original coverage-gate loop was not reproduced; the run advanced to executable validation and concrete `IndentationError` feedback on `generate.py`.
+- Remaining issue found:
+  ```text
+  result-14: python generate.py failed with IndentationError on line 1.
+  result-18: python generate.py failed with IndentationError on line 42.
+  TaskSpaceApplyPatchUnanchoredUpdateRecoveryV1 was inserted for generate.py.
+  TaskSpaceEditFailureRecoveryV1 was inserted after apply_patch verification failed.
+  request_count=19->20 max=20 state=compact_checkpoint_required->over_profile_hint.
+  ```
+  Interpretation:
+  - Tool feedback propagation is working for this layer: the model saw validation failures and attempted edits.
+  - The remaining blocker is failed-patch recovery convergence under the profile request hint/timeout envelope, not the original validation coverage recovery bug.

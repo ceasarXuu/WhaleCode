@@ -1737,6 +1737,10 @@ Current required behavior:\n\
 }
 
 fn build_taskspace_validation_needs_test_recovery_item(last_message: Option<&str>) -> ResponseItem {
+    let gate_context = last_message
+        .filter(|value| value.contains(TASKSPACE_GATE_RECOVERY_MARKER))
+        .map(taskspace_gate_recovery_context)
+        .unwrap_or_default();
     let last = last_message
         .map(str::trim)
         .filter(|value| !value.is_empty())
@@ -1750,6 +1754,7 @@ fn build_taskspace_validation_needs_test_recovery_item(last_message: Option<&str
     let text = format!(
         "{TASKSPACE_VALIDATION_NEEDS_TEST_MARKER}\n\
 The current node is smoke_test/regression_test. Validation nodes must execute validation, not rediscover files.\n\
+{gate_context}\
 {last}\
 Current required behavior:\n\
 - Emit exactly one run_test action now, or blocked with the exact reason validation cannot run.\n\
@@ -1904,11 +1909,15 @@ fn taskspace_message_hit_implementation_needs_edit(message: Option<&str>) -> boo
 
 fn taskspace_message_hit_validation_needs_test(message: Option<&str>) -> bool {
     message.is_some_and(|message| {
+        let validation_coverage_gate = message.contains(TASKSPACE_GATE_RECOVERY_MARKER)
+            && (message.contains("validation_test_missing_changed_artifact_coverage")
+                || message.contains("validation_test_missing_local_validator_coverage"));
         (message.contains("node_policy_violation:smoke_test:")
             || message.contains("node_policy_violation:regression_test:"))
             && (message.contains(":list_files")
                 || message.contains(":read_file")
                 || message.contains(":search"))
+            || validation_coverage_gate
     })
 }
 
@@ -6435,6 +6444,22 @@ TaskSpaceGateRecoveryV1: {\"schema_version\":\"TaskSpaceGateRecoveryV1\",\"allow
         assert!(text.contains("python scripts/validate.py"));
         assert!(!is_taskspace_no_action_recovery_item(&item));
         assert!(taskspace_message_hit_validation_needs_test(Some(last)));
+    }
+
+    #[test]
+    fn validation_changed_artifact_coverage_recovery_preserves_next_action() {
+        let last = "TaskSpace blocked this validation command.\n\
+TaskSpaceGateRecoveryV1: {\"schema_version\":\"TaskSpaceGateRecoveryV1\",\"allowed\":false,\"reason\":\"validation_test_missing_changed_artifact_coverage\",\"next_valid_actions\":[\"run_test with command `python generate_organization.py` to execute changed artifact `generate_organization.py`\"]}";
+        let item = build_taskspace_validation_needs_test_recovery_item(Some(last));
+        let text = item_text(item.clone());
+
+        assert!(taskspace_message_hit_validation_needs_test(Some(last)));
+        assert!(text.contains(TASKSPACE_VALIDATION_NEEDS_TEST_MARKER));
+        assert!(text.contains(TASKSPACE_GATE_RECOVERY_MARKER));
+        assert!(text.contains("validation_test_missing_changed_artifact_coverage"));
+        assert!(text.contains("python generate_organization.py"));
+        assert!(text.contains("obey the `next_valid_actions`"));
+        assert!(!is_taskspace_no_action_recovery_item(&item));
     }
 
     #[test]
