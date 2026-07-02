@@ -3792,12 +3792,27 @@ preview:\n\
         {
             return Ok(None);
         }
+        let mut events = self.accept_implementation_evidence_for_validation_closeout(
+            owner_session_id,
+            &map_id,
+            node_id,
+            trigger,
+        )?;
         let result_summary = format!(
             "{} successful validation evidence supported closeout after {trigger}; finish validation now and proceed to final answer.",
             node_kind.as_str()
         );
-        let (outcome, mut events) =
+        let (outcome, finish_events) =
             self.finish_main_node(owner_session_id, node_id, result_summary, None)?;
+        events.extend(finish_events);
+        if let Some(event) = self.accept_forced_transition_result(
+            &map_id,
+            &outcome.result_id,
+            "Runtime accepted validation closeout after a successful validation result.",
+            "runtime accepted forced validation closeout result",
+        )? {
+            events.push(event);
+        }
         let id = self.next_trace_event_id();
         let created_at_ms = now_ms();
         let tags = vec![
@@ -3843,6 +3858,64 @@ preview:\n\
             },
         ));
         Ok(Some((outcome, events)))
+    }
+
+    fn accept_implementation_evidence_for_validation_closeout(
+        &mut self,
+        owner_session_id: ThreadId,
+        map_id: &str,
+        validation_node_id: &str,
+        trigger: &str,
+    ) -> Result<Vec<MapRuntimeEvent>, String> {
+        let edit_result_ids = self
+            .maps
+            .get(map_id)
+            .map(|map| successful_dependency_edit_result_ids(map, validation_node_id))
+            .unwrap_or_default();
+        let lifecycle_result_ids = self
+            .maps
+            .get(map_id)
+            .map(|map| dependency_implementation_lifecycle_result_ids(map, validation_node_id))
+            .unwrap_or_default();
+        let mut events = Vec::new();
+        for result_id in edit_result_ids {
+            events.extend(self.mark_result_validity_for_main(
+                owner_session_id,
+                &result_id,
+                "accepted",
+                format!(
+                    "Successful validation closeout after {trigger} accepted the implementation edit evidence."
+                ),
+                vec![ActionMapCognitiveClaimInput {
+                    id: format!("claim-{result_id}-validated-edit"),
+                    statement:
+                        "The implementation edit was exercised by the successful validation node."
+                            .to_string(),
+                    evidence_refs: vec![ActionMapEvidenceRefInput {
+                        result_id: Some(result_id.clone()),
+                        ..Default::default()
+                    }],
+                }],
+                vec![ActionMapEvidenceRefInput {
+                    result_id: Some(result_id.clone()),
+                    ..Default::default()
+                }],
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+            )?);
+        }
+        for result_id in lifecycle_result_ids {
+            if let Some(event) = self.accept_forced_transition_result(
+                map_id,
+                &result_id,
+                "Runtime accepted implementation lifecycle evidence after successful validation.",
+                "runtime accepted implementation lifecycle before validation closeout",
+            )? {
+                events.push(event);
+            }
+        }
+        Ok(events)
     }
 
     fn accept_forced_transition_result(
@@ -13265,10 +13338,41 @@ fn validation_node_failed_noninfra_result(
                 Some(ActionClass::Test | ActionClass::Build)
             )
             || is_local_validator_infra_failure(&result.body)
+            || validation_failure_is_known_input_path_error(map, result)
         {
             return None;
         }
         Some((result.id.clone(), single_line_preview(&result.body, 220)))
+    })
+}
+
+fn validation_failure_is_known_input_path_error(
+    map: &ActionMapInstance,
+    result: &NodeResult,
+) -> bool {
+    let body = result.body.replace('\\', "/").to_ascii_lowercase();
+    if !body.contains("filenotfounderror") && !body.contains("no such file or directory") {
+        return false;
+    }
+    let command_section = body
+        .split("raw_output:")
+        .next()
+        .unwrap_or(body.as_str())
+        .to_string();
+    let known_artifacts = map
+        .results
+        .values()
+        .flat_map(result_visible_artifact_refs)
+        .collect::<Vec<_>>();
+    known_artifacts.iter().any(|artifact| {
+        let normalized = normalize_artifact_ref(artifact).to_ascii_lowercase();
+        let Some(file_name) = normalized.rsplit('/').next() else {
+            return false;
+        };
+        !file_name.is_empty()
+            && normalized.contains('/')
+            && command_section.contains(file_name)
+            && !command_section.contains(&normalized)
     })
 }
 
@@ -14859,6 +14963,61 @@ fn map_has_successful_edit(map: &ActionMapInstance) -> bool {
     map.nodes
         .values()
         .any(|node| node_has_successful_action(map, node, ActionClass::Edit))
+}
+
+fn successful_dependency_edit_result_ids(
+    map: &ActionMapInstance,
+    validation_node_id: &str,
+) -> Vec<NodeResultId> {
+    dependency_implementation_result_ids(map, validation_node_id, |result| {
+        result.kind == NodeResultKind::MainToolCall
+            && result.tool_success == Some(true)
+            && result.action_class == Some(ActionClass::Edit)
+            && result.evidence_package.validity == ResultValidity::Unreviewed
+    })
+}
+
+fn dependency_implementation_lifecycle_result_ids(
+    map: &ActionMapInstance,
+    validation_node_id: &str,
+) -> Vec<NodeResultId> {
+    dependency_implementation_result_ids(map, validation_node_id, |result| {
+        result.kind == NodeResultKind::Result
+            && result.evidence_package.validity == ResultValidity::Unreviewed
+    })
+}
+
+fn dependency_implementation_result_ids(
+    map: &ActionMapInstance,
+    validation_node_id: &str,
+    include_result: impl Fn(&NodeResult) -> bool,
+) -> Vec<NodeResultId> {
+    let dependency_node_ids = map
+        .edges
+        .iter()
+        .filter(|edge| edge.to == validation_node_id)
+        .map(|edge| edge.from.as_str())
+        .collect::<HashSet<_>>();
+    let mut result_ids = Vec::new();
+    for node_id in dependency_node_ids {
+        let Some(node) = map.nodes.get(node_id) else {
+            continue;
+        };
+        if node.kind != NodeKind::ImplementSolution {
+            continue;
+        }
+        for result_ref in &node.result_context {
+            let Some(result) = map.results.get(&result_ref.id) else {
+                continue;
+            };
+            if include_result(result) {
+                result_ids.push(result_ref.id.clone());
+            }
+        }
+    }
+    result_ids.sort();
+    result_ids.dedup();
+    result_ids
 }
 
 fn map_has_accepted_successful_validation_result(map: &ActionMapInstance) -> bool {
@@ -21155,6 +21314,77 @@ def normalize_status(value: str) -> str:\n\
     }
 
     #[test]
+    fn validation_known_input_path_error_stays_on_validation_node() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (_, map_id, validation_node_id, _) = start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::SmokeTest,
+            "Validate average output",
+            "Rerun validation with known task input paths when a validator command is wrong.",
+            "Smoke test",
+            "Validate avg_temp.txt.",
+            true,
+        );
+        let (read_result_id, _) = state
+            .record_main_tool_result_with_class(
+                owner,
+                "read-high",
+                "shell_command",
+                Some(ActionClass::Read),
+                true,
+                "read task-deps/daily_temp_sf_high.csv".to_string(),
+            )
+            .expect("read evidence records")
+            .expect("read result id");
+        {
+            let map = state.maps.get_mut(&map_id).expect("map");
+            let result = map.results.get_mut(&read_result_id).expect("read result");
+            result.evidence_package.evidence_refs.push(EvidenceRef {
+                artifact_ref: Some("task-deps/daily_temp_sf_high.csv".to_string()),
+                ..Default::default()
+            });
+        }
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "bad-validator-command",
+                "shell_command",
+                Some(ActionClass::Test),
+                false,
+                "TaskSpaceToolInvocationV1:\n\
+tool: shell_command\n\
+command: python -c \"open('daily_temp_sf_high.csv')\"\n\
+raw_output:\n\
+Traceback (most recent call last):\n\
+FileNotFoundError: [Errno 2] No such file or directory: 'daily_temp_sf_high.csv'"
+                    .to_string(),
+            )
+            .expect("path-error validation result records")
+            .expect("failed validation result id");
+
+        let map = state.maps.get(&map_id).expect("map");
+        let validation_node = map.nodes.get(&validation_node_id).expect("validation node");
+        assert_eq!(validation_node.status, NodeStatus::Running);
+        assert_eq!(
+            state.current_main_node_id.as_deref(),
+            Some(validation_node_id.as_str())
+        );
+        assert!(
+            validation_node_failed_noninfra_result(map, validation_node).is_none(),
+            "known input path mistakes should not route to implementation rework"
+        );
+        assert!(
+            !map.nodes
+                .values()
+                .any(|node| node.kind == NodeKind::ImplementSolution
+                    && node.origin_node_id.as_deref() == Some(validation_node_id.as_str()))
+        );
+    }
+
+    #[test]
     fn validation_node_failed_test_blocks_inspect_node_rediscovery() {
         let mut state = ActionMapRuntimeState::default();
         let owner = ThreadId::new();
@@ -27045,6 +27275,117 @@ fi\n"
             MapRuntimeEvent::TaskspaceTraceEventRecorded(event)
                 if event.kind == "forced_validation_closeout"
         )));
+    }
+
+    #[test]
+    fn forced_validation_closeout_accepts_dependency_edit_for_final_readiness() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (_, map_id, implement_node_id, _) = start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::ImplementSolution,
+            "Create output artifact",
+            "Create the requested artifact and validate it.",
+            "Apply artifact fix",
+            "Write the requested output artifact.",
+            true,
+        );
+        let (edit_result_id, _) = state
+            .record_main_tool_result_with_class(
+                owner,
+                "call-edit-output",
+                "apply_patch",
+                Some(ActionClass::Edit),
+                true,
+                "Success. Updated the following files:\nA avg_temp.txt\n".to_string(),
+            )
+            .expect("edit result records")
+            .expect("edit result id");
+        let (implement_outcome, _) = state
+            .finish_main_node_with_next(
+                owner,
+                &implement_node_id,
+                "Output artifact was written.".to_string(),
+                None,
+                Some(ActionMapNextNodeDraft {
+                    kind: NodeKind::SmokeTest,
+                    title: "Validate output artifact".to_string(),
+                    context_summary: "Check the requested output artifact.".to_string(),
+                    dependency_node_ids: vec![implement_node_id.clone()],
+                }),
+            )
+            .expect("implementation finishes into validation");
+        let validation_node_id = implement_outcome
+            .next_node_id
+            .clone()
+            .expect("validation node created");
+        let (validation_result_id, _) = state
+            .record_main_tool_result_with_class(
+                owner,
+                "call-validate-output",
+                "shell_command",
+                Some(ActionClass::Test),
+                true,
+                "Exit code: 0\nOutput:\n11.428571428571429".to_string(),
+            )
+            .expect("validation result records")
+            .expect("validation result id");
+        let snapshot = ActionMapProviderRequestBudgetSnapshot {
+            task_id: state.active_task_id.clone(),
+            map_id: map_id.clone(),
+            node_id: Some(validation_node_id.clone()),
+            node_kind: Some(NodeKind::SmokeTest.as_str().to_string()),
+            current_node_progress_signature: None,
+            current_node_has_successful_edit: false,
+            current_node_has_dependency_working_evidence: false,
+            current_node_has_uncovered_mandatory_evidence: false,
+            current_node_uncovered_mandatory_evidence: Vec::new(),
+            route_mode: Some("deep".to_string()),
+            profile_name: Some("taskspace-v005-deep".to_string()),
+            request_phase: Some("validation_recovery".to_string()),
+            provider_request_context_missing_reason: None,
+            request_count: 9,
+            max_requests: 20,
+            node_request_count: 1,
+            max_model_requests_per_node: 5,
+            post_budget_grace_requests: 1,
+            post_budget_grace_request_count: 0,
+            budget_state: "normal".to_string(),
+        };
+
+        state
+            .force_finish_validation_after_successful_tool(
+                owner,
+                &snapshot,
+                "validation_success_after_tool_drain",
+            )
+            .expect("forced validation closeout should be valid")
+            .expect("successful validation should close the node");
+
+        let map = state.maps.get(&map_id).expect("map");
+        assert!(map.results.get(&edit_result_id).is_some_and(|result| {
+            result.evidence_package.validity == ResultValidity::Accepted
+                && result
+                    .evidence_package
+                    .changed_artifacts
+                    .contains(&"avg_temp.txt".to_string())
+        }));
+        assert!(
+            map.results
+                .get(&validation_result_id)
+                .is_some_and(|result| {
+                    result.evidence_package.validity == ResultValidity::Accepted
+                })
+        );
+        assert!(
+            task_success_criteria_complete_for_final(state.tasks.get("task-1").expect("task"), map),
+            "validated artifact work should satisfy final readiness without another node"
+        );
+        state
+            .record_main_final_response(owner, "Validation passed; avg_temp.txt is ready.")
+            .expect("final answer readiness should pass");
     }
 
     #[test]

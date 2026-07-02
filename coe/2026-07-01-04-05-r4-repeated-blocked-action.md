@@ -1685,3 +1685,139 @@
   - The timed-out build process was stopped to avoid RAM pressure.
   - A real `heterogeneous-dates` rerun still requires a fresh Whale binary; do not claim runtime benefit until that rerun is complete.
 - Time: 2026-07-02 19:05
+
+## Hypothesis H-027: forced validation closeout did not accept implementation evidence for final readiness
+
+- Related problems:
+  - P-004
+- Status: repaired-by-focused-tests-and-real-rerun
+- Claim:
+  - After inspect convergence repair, `heterogeneous-dates` reached a clean validation state but TaskSpace still rejected `final_answer`. The forced validation closeout path finished the validation node without accepting the directly dependent implementation edit/lifecycle evidence and without accepting the forced validation lifecycle result, so the final readiness gate saw open/unreviewed evidence and kept the session alive until timeout.
+- Evidence:
+  - Real rerun before this repair:
+    ```text
+    RunDir:
+    C:\WhaleRunCache\r4-inspect-convergence-heterogeneous-20260702-minfree15\runs\terminal_bench__heterogeneous-dates\20260702-180700-127\pair-001
+
+    outcome_standard=solved
+    outcome_taskspace=agent_exec_timeout
+    failure_taxonomy=engineering_unclean, taskspace_overhead_timeout, audit_unclean
+    standard_wall_ms=86114
+    taskspace_wall_ms=900039
+    public_validation_exit_code_standard=0
+    public_validation_exit_code_taskspace=0
+    taskspace_changed_paths=avg_temp.txt, solve.py
+    ```
+  - Tail logs repeatedly reported:
+    ```text
+    TaskSpace final_answer rejected by final readiness gate. Continue the same task and clear the gate before final_answer.
+    ```
+  - Active context showed `current_node: none` while `output-contract-1 status=open`, which means the graph had no useful next work node but the readiness gate still blocked final synthesis.
+  - A focused regression initially failed with:
+    ```text
+    TaskSpace result result-2 on node node-1 is still unreviewed
+    ```
+- Root cause:
+  - `force_finish_validation_after_successful_tool(...)` closed the validation node semantically, but did not propagate acceptance to successful edit/lifecycle results on directly dependent `implement_solution` nodes. It also created a validation closeout lifecycle result that remained unaccepted. The final gate correctly rejected unreviewed evidence, but the runtime gave the agent no meaningful graph state to repair.
+- Repair:
+  - Added dependency evidence acceptance before forced validation closeout:
+    ```text
+    successful_dependency_edit_result_ids(...)
+    dependency_implementation_lifecycle_result_ids(...)
+    dependency_implementation_result_ids(...)
+    accept_implementation_evidence_for_validation_closeout(...)
+    ```
+  - Accepted the forced validation closeout lifecycle result after node finish through `accept_forced_transition_result(...)`.
+- Validation:
+  ```text
+  cargo fmt --all -- --check
+  PASS
+
+  CARGO_TARGET_DIR=D:\BuildCache\whalecode\cargo-target cargo test -j1 -p codex-core forced_validation_closeout_accepts_dependency_edit_for_final_readiness --lib
+  PASS
+
+  CARGO_TARGET_DIR=D:\BuildCache\whalecode\cargo-target cargo test -j1 -p codex-core force_finish_validation_after_successful_tool_closes_smoke_node --lib
+  PASS
+
+  CARGO_TARGET_DIR=D:\BuildCache\whalecode\cargo-target cargo test -j1 -p codex-core finish_final_synthesis_accepts_open_behavior_after_accepted_fix_and_validation --lib
+  PASS
+
+  CARGO_TARGET_DIR=D:\BuildCache\whalecode\cargo-target cargo build -j1 --profile dev-small -p codex-cli --bin whale
+  PASS
+  ```
+  - Real rerun after repair:
+    ```text
+    RunDir:
+    C:\WhaleRunCache\r4-final-readiness-heterogeneous-20260702\runs\terminal_bench__heterogeneous-dates\20260702-185101-849\pair-001
+
+    outcome_standard=solved
+    outcome_taskspace=engineering_unclean
+    failure_taxonomy=engineering_unclean, audit_unclean
+    standard_wall_ms=42043
+    taskspace_wall_ms=229459
+    standard_exec_timed_out=false
+    taskspace_exec_timed_out=false
+    public_validation_exit_code_standard=0
+    public_validation_exit_code_taskspace=0
+    taskspace_model_request_count=16
+    request_2_plus_cache_hit_rate=0.988319
+    active_context_replacement_confirmed=true
+    legacy_taskspace_history_present=false
+    taskspace_control_count=7
+    ```
+- Conclusion:
+  - The final-readiness timeout failure is fixed for this sample: TaskSpace moved from 900s timeout to non-timeout completion with public validation passing. The run still ended `engineering_unclean` because a separate validation path-error classification issue polluted blocked-node accounting.
+- Time: 2026-07-02 19:35
+
+## Hypothesis H-028: known input path errors in validation were misclassified as implementation failure
+
+- Related problems:
+  - P-004
+- Status: repaired-by-focused-tests; real rerun inconclusive due model patch error
+- Claim:
+  - Validation failures caused by a validator command referencing a known input artifact basename from the wrong working directory should remain validation/invocation errors, not be treated as implementation failure. Otherwise TaskSpace creates unnecessary rework/blockage after the artifact already exists at its known path.
+- Evidence:
+  - In the H-027 post-repair rerun, both standard and TaskSpace public validation passed, but TaskSpace still reported `engineering_unclean`.
+  - The blocked graph state was tied to validation code using `daily_temp_sf_high.csv` from the task root while known evidence had the artifact at:
+    ```text
+    task-deps/daily_temp_sf_high.csv
+    ```
+  - The validation failure was therefore about the validation command's path assumption, not about a missing implementation artifact.
+- Root cause:
+  - `validation_node_failed_noninfra_result(...)` treated file-not-found validation failures as non-infra validation blockers without checking whether the missing basename was already represented by a known artifact path in the map.
+- Repair:
+  - Added `validation_failure_is_known_input_path_error(map, result)`.
+  - Excluded validation failures from non-infra blocking when the stderr references a missing basename that is already known under a task artifact path.
+  - Preserved the existing rework behavior for truly unknown missing files such as `data.csv`.
+- Validation:
+  ```text
+  cargo fmt --all -- --check
+  PASS
+
+  CARGO_TARGET_DIR=D:\BuildCache\whalecode\cargo-target cargo test -j1 -p codex-core validation_known_input_path_error_stays_on_validation_node --lib
+  PASS
+
+  CARGO_TARGET_DIR=D:\BuildCache\whalecode\cargo-target cargo test -j1 -p codex-core validation_node_failed_test_blocks_repeated_validation --lib
+  PASS
+
+  CARGO_TARGET_DIR=D:\BuildCache\whalecode\cargo-target cargo build -j1 --profile dev-small -p codex-cli --bin whale
+  PASS
+  ```
+  - Real rerun after repair:
+    ```text
+    RunDir:
+    C:\WhaleRunCache\r4-validation-path-heterogeneous-20260702\runs\terminal_bench__heterogeneous-dates\20260702-190925-951\pair-001
+
+    outcome_standard=wrong
+    outcome_taskspace=engineering_unclean
+    failure_taxonomy=engineering_unclean, agent_patch_wrong, audit_unclean
+    standard_wall_ms=56673
+    taskspace_wall_ms=404609
+    public_validation_exit_code_standard=1
+    public_validation_exit_code_taskspace=1
+    taskspace_changed_paths=.python-version, calculate.py, main.py, pyproject.toml, README.md, uv.lock
+    ```
+  - This rerun cannot prove utility benefit because standard also failed and TaskSpace generated invalid Python (`SyntaxError` / `IndentationError`). It is evidence that the next blocker is model/tool-use quality on that stochastic run, not proof that the path classification repair failed.
+- Conclusion:
+  - The classification path is fixed by focused regression and the unknown-file negative regression remains protected. A clean real-sample benefit proof still requires another non-polluted rerun or a smaller deterministic tool-stress sample.
+- Time: 2026-07-02 19:50

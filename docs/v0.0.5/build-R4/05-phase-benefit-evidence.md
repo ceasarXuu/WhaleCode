@@ -1074,3 +1074,142 @@ TIMEOUT after 604s
 1. 工程收益已由 focused tests 证明：inspect 节点具备成功诊断和工作证据后，后续低价值 read/search 会进入 finish-to-implement，而不是继续消耗请求。
 2. 真实样本收益尚未证明，因为新 Whale 二进制未能在本轮构建完成，不能用旧 bin 复验。
 3. 该修复仍保持非硬预算原则：它不限制复杂任务继续做新的必要诊断，只收敛成功诊断后的低价值读取。
+
+## 5.16 2026-07-02 final readiness 收尾证据接受修复
+
+在 inspect convergence 修复后，`heterogeneous-dates` 的真实复跑暴露了一个更靠后的收尾问题：TaskSpace 已经完成实现和验证，public validation 也能通过，但 `final_answer` 被 readiness gate 持续拒绝，最终跑到 900s timeout。
+
+失败现场：
+
+```text
+RunDir:
+C:\WhaleRunCache\r4-inspect-convergence-heterogeneous-20260702-minfree15\runs\terminal_bench__heterogeneous-dates\20260702-180700-127\pair-001
+
+outcome_standard=solved
+outcome_taskspace=agent_exec_timeout
+failure_taxonomy=engineering_unclean, taskspace_overhead_timeout, audit_unclean
+standard_wall_ms=86114
+taskspace_wall_ms=900039
+public_validation_exit_code_standard=0
+public_validation_exit_code_taskspace=0
+taskspace_changed_paths=avg_temp.txt, solve.py
+```
+
+根因：
+
+`force_finish_validation_after_successful_tool(...)` 只把 validation 节点收尾，没有接受直接依赖的 `implement_solution` edit/lifecycle 证据，也没有接受 forced validation closeout 自己生成的 lifecycle result。final readiness gate 因此正确拒绝 final answer，但图上已经没有可操作的当前节点，形成无效循环。
+
+修复：
+
+```text
+third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs
+```
+
+- forced validation closeout 前接受直接依赖实现节点上的成功 edit evidence。
+- 同时接受直接依赖实现节点上的 lifecycle result。
+- validation 节点 finish 后接受 forced validation closeout lifecycle result。
+
+验证：
+
+```text
+cargo fmt --all -- --check
+PASS
+
+CARGO_TARGET_DIR=D:\BuildCache\whalecode\cargo-target cargo test -j1 -p codex-core forced_validation_closeout_accepts_dependency_edit_for_final_readiness --lib
+PASS
+
+CARGO_TARGET_DIR=D:\BuildCache\whalecode\cargo-target cargo test -j1 -p codex-core force_finish_validation_after_successful_tool_closes_smoke_node --lib
+PASS
+
+CARGO_TARGET_DIR=D:\BuildCache\whalecode\cargo-target cargo test -j1 -p codex-core finish_final_synthesis_accepts_open_behavior_after_accepted_fix_and_validation --lib
+PASS
+
+CARGO_TARGET_DIR=D:\BuildCache\whalecode\cargo-target cargo build -j1 --profile dev-small -p codex-cli --bin whale
+PASS
+```
+
+真实复验：
+
+```text
+RunDir:
+C:\WhaleRunCache\r4-final-readiness-heterogeneous-20260702\runs\terminal_bench__heterogeneous-dates\20260702-185101-849\pair-001
+
+outcome_standard=solved
+outcome_taskspace=engineering_unclean
+failure_taxonomy=engineering_unclean, audit_unclean
+standard_wall_ms=42043
+taskspace_wall_ms=229459
+standard_exec_timed_out=false
+taskspace_exec_timed_out=false
+public_validation_exit_code_standard=0
+public_validation_exit_code_taskspace=0
+taskspace_model_request_count=16
+request_2_plus_cache_hit_rate=0.988319
+active_context_replacement_confirmed=true
+legacy_taskspace_history_present=false
+taskspace_control_count=7
+```
+
+收益判断：
+
+1. 真实收益成立：同一类现场从 900s timeout 降为 229s 非 timeout 完成，public validation 继续通过。
+2. active context replacement 与 taskspace control usage 在该轮均能被报告证实，不再是不可观测状态。
+3. 该修复没有让样本达到最终 `solved`，因为后续又暴露 validation path-error classification 污染；因此它只证明 final readiness 收尾收益，不证明 TaskSpace utility parity。
+
+## 5.17 2026-07-02 known input path validation 误分类修复
+
+5.16 的真实复验虽然不再 timeout，并且 public validation 通过，但仍返回 `engineering_unclean`。继续追踪后发现，blocked graph 主要来自 validation 命令在错误工作目录引用 `daily_temp_sf_high.csv`，而 TaskSpace map 已经知道真实输入路径是 `task-deps/daily_temp_sf_high.csv`。
+
+根因：
+
+`validation_node_failed_noninfra_result(...)` 把 validation 阶段的 `FileNotFoundError` 统一视为非 infra validation blocker，没有区分：
+
+- 真实缺少实现产物或未知输入。
+- validator 命令使用了已知输入 artifact 的 basename，但没有使用 map 中已经记录的真实路径。
+
+修复：
+
+```text
+third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs
+```
+
+- 新增 `validation_failure_is_known_input_path_error(map, result)`。
+- 当 stderr 中的缺失 basename 已经能映射到 map 里的已知 artifact path 时，不把它升级为 implementation rework。
+- 保留未知文件缺失的原有 rework 行为。
+
+验证：
+
+```text
+cargo fmt --all -- --check
+PASS
+
+CARGO_TARGET_DIR=D:\BuildCache\whalecode\cargo-target cargo test -j1 -p codex-core validation_known_input_path_error_stays_on_validation_node --lib
+PASS
+
+CARGO_TARGET_DIR=D:\BuildCache\whalecode\cargo-target cargo test -j1 -p codex-core validation_node_failed_test_blocks_repeated_validation --lib
+PASS
+
+CARGO_TARGET_DIR=D:\BuildCache\whalecode\cargo-target cargo build -j1 --profile dev-small -p codex-cli --bin whale
+PASS
+```
+
+真实复验：
+
+```text
+RunDir:
+C:\WhaleRunCache\r4-validation-path-heterogeneous-20260702\runs\terminal_bench__heterogeneous-dates\20260702-190925-951\pair-001
+
+outcome_standard=wrong
+outcome_taskspace=engineering_unclean
+failure_taxonomy=engineering_unclean, agent_patch_wrong, audit_unclean
+standard_wall_ms=56673
+taskspace_wall_ms=404609
+public_validation_exit_code_standard=1
+public_validation_exit_code_taskspace=1
+```
+
+收益判断：
+
+1. 工程收益由 focused regression 证明：已知输入 artifact 的 basename path error 不再被误判为实现失败。
+2. 真实样本收益暂不能确认：这一轮 standard 也失败，且 TaskSpace 生成了无效 Python，属于被模型随机错误污染的复验。
+3. 下一步需要继续跑非污染样本，才能把该修复升级为真实收益证明。

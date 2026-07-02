@@ -239,3 +239,98 @@ left/right both timed out at 900s before first JSON event
 - H-024 的代码路径已通过 focused action-contract 测试证明。
 - 本次 pair 复验没有进入 tool execution 层，不能证明真实样本收益，也不能否定本次修复。
 - R4 release decision 不变：tool-chain 局部质量继续收敛，但 TaskSpace utility parity 仍未达成。
+
+## 12. 2026-07-02 Post-Closeout H-027 Final Readiness Finding
+
+继续复跑 `heterogeneous-dates` 后，确认一个 final readiness 收尾缺口：TaskSpace 可以完成实现和验证，public validation 也能通过，但 forced validation closeout 没有接受依赖实现节点的 edit/lifecycle evidence，导致 final answer 被 gate 拒绝并跑到 timeout。
+
+新增修复：
+
+- forced validation closeout 前接受直接依赖 `implement_solution` 节点的成功 edit evidence。
+- 同时接受直接依赖实现节点上的 lifecycle result。
+- validation 节点 finish 后接受 forced validation closeout lifecycle result。
+
+新增验证：
+
+```text
+cargo test -j1 -p codex-core forced_validation_closeout_accepts_dependency_edit_for_final_readiness --lib
+PASS
+
+cargo test -j1 -p codex-core force_finish_validation_after_successful_tool_closes_smoke_node --lib
+PASS
+
+cargo test -j1 -p codex-core finish_final_synthesis_accepts_open_behavior_after_accepted_fix_and_validation --lib
+PASS
+
+cargo fmt --all -- --check
+PASS
+
+cargo build -j1 --profile dev-small -p codex-cli --bin whale
+PASS
+```
+
+真实复验收益：
+
+```text
+Before:
+C:\WhaleRunCache\r4-inspect-convergence-heterogeneous-20260702-minfree15\runs\terminal_bench__heterogeneous-dates\20260702-180700-127\pair-001
+outcome_taskspace=agent_exec_timeout
+taskspace_wall_ms=900039
+public_validation_exit_code_taskspace=0
+
+After:
+C:\WhaleRunCache\r4-final-readiness-heterogeneous-20260702\runs\terminal_bench__heterogeneous-dates\20260702-185101-849\pair-001
+outcome_taskspace=engineering_unclean
+taskspace_wall_ms=229459
+taskspace_exec_timed_out=false
+public_validation_exit_code_taskspace=0
+```
+
+解释：
+
+- 该修复有真实收益：final readiness 循环从 900s timeout 收敛为非 timeout 完成。
+- 该修复没有完成 TaskSpace utility parity，因为同一轮还暴露了 validation path-error classification 污染。
+
+## 13. 2026-07-02 Post-Closeout H-028 Known Input Path Validation Finding
+
+5.16 后继续分析，发现 validation 阶段把已知输入 artifact 的 basename path error 误判成 implementation failure。典型现场是 validator 使用 `daily_temp_sf_high.csv`，而 map 中已知真实路径是 `task-deps/daily_temp_sf_high.csv`。
+
+新增修复：
+
+- 新增 `validation_failure_is_known_input_path_error(map, result)`。
+- 对已知输入 artifact 的 basename path error，不再触发 implementation rework。
+- 保留未知文件缺失触发 rework 的原有保护。
+
+新增验证：
+
+```text
+cargo test -j1 -p codex-core validation_known_input_path_error_stays_on_validation_node --lib
+PASS
+
+cargo test -j1 -p codex-core validation_node_failed_test_blocks_repeated_validation --lib
+PASS
+
+cargo fmt --all -- --check
+PASS
+
+cargo build -j1 --profile dev-small -p codex-cli --bin whale
+PASS
+```
+
+真实复验状态：
+
+```text
+C:\WhaleRunCache\r4-validation-path-heterogeneous-20260702\runs\terminal_bench__heterogeneous-dates\20260702-190925-951\pair-001
+
+outcome_standard=wrong
+outcome_taskspace=engineering_unclean
+failure_taxonomy=engineering_unclean, agent_patch_wrong, audit_unclean
+public_validation_exit_code_standard=1
+public_validation_exit_code_taskspace=1
+```
+
+解释：
+
+- 该修复目前只能记为 engineering-gate pass，不能记为真实样本收益 pass。
+- 这轮 standard 也失败，TaskSpace 生成 invalid Python，因此样本被模型/tool-use 随机错误污染。
+- R4 当前状态不能说 100% 全部完成；下一步必须继续拿非污染样本证明 H-028 的真实收益，并继续收敛 remaining utility issues。
