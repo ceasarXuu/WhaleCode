@@ -1,5 +1,6 @@
 param(
-    [string]$RunRoot = ""
+    [string]$RunRoot = "",
+    [string]$SnapshotReportPath = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -15,14 +16,15 @@ function Assert-True {
 }
 
 $planPath = Join-Path $repoRoot "docs\v0.0.5\build-R4\r4-public-10-tool-stress-plan.json"
+$defaultSnapshotReportPath = Join-Path $repoRoot "docs\v0.0.5\build-R4\r4-public-10-tool-stress-report.snapshot.json"
+if ([string]::IsNullOrWhiteSpace($SnapshotReportPath)) {
+    $SnapshotReportPath = $defaultSnapshotReportPath
+}
 $goodReport = Join-Path $RunRoot "good-report.json"
 $badReport = Join-Path $RunRoot "bad-report.json"
 
-& powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "write-r4-public-10-tool-stress-report.ps1") `
-    -PlanPath $planPath `
-    -OutputPath $goodReport `
-    -RequireComplete
-Assert-True ($LASTEXITCODE -eq 0) "failed to build public-10 report fixture"
+Assert-True (Test-Path -LiteralPath $SnapshotReportPath -PathType Leaf) "snapshot report not found: $SnapshotReportPath"
+Copy-Item -LiteralPath $SnapshotReportPath -Destination $goodReport -Force
 
 & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "test-r4-public-10-tool-stress-plan.ps1") `
     -PlanPath $planPath `

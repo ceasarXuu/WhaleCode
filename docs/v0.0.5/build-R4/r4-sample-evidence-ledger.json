@@ -2,7 +2,7 @@
   "schema_version": 1,
   "artifact": "r4-sample-evidence-ledger",
   "phase": "R4-B",
-  "updated": "2026-06-30",
+  "updated": "2026-07-03",
   "status": "active_baseline",
   "benefit_gate": {
     "claimed_engineering_benefit": "Known TaskSpace tool-chain field failures are tracked as machine-readable evidence rows with owner phases instead of scattered target/CoE references.",
@@ -27,7 +27,8 @@
       "taskspace_outcome": "solved",
       "taskspace_wall_time_ratio": 2.7,
       "taskspace_tool_call_ratio": 0.71,
-      "primary_evidence": "target/r3-tool-feedback-rerun-single-file-20260630-0343/single-file-fast-fix/20260630-034332-008/pair-001/pair-report.md",
+      "primary_evidence": "docs/v0.0.5/build-R4/02-field-evidence-and-sample-ledger.md",
+      "archived_run_path": "target/r3-tool-feedback-rerun-single-file-20260630-0343/single-file-fast-fix/20260630-034332-008/pair-001/pair-report.md",
       "required_followup": "Keep as positive control while measuring residual TaskSpace performance overhead."
     },
     {
@@ -39,7 +40,8 @@
       "taskspace_outcome": "wrong",
       "taskspace_wall_time_ratio": 5.69,
       "taskspace_tool_call_ratio": 0.73,
-      "primary_evidence": "target/r3-tools-result-sweep-20260630-3samples/count-call-stack/20260630-035312-839/pair-001/pair-report.md",
+      "primary_evidence": "docs/v0.0.5/build-R4/02-field-evidence-and-sample-ledger.md",
+      "archived_run_path": "target/r3-tools-result-sweep-20260630-3samples/count-call-stack/20260630-035312-839/pair-001/pair-report.md",
       "required_followup": "Prove action-contract internal apply_patch failure feedback is visible in the next provider payload."
     },
     {
@@ -51,7 +53,11 @@
       "taskspace_outcome": "solved",
       "taskspace_wall_time_ratio": 1.12,
       "taskspace_tool_call_ratio": 0.55,
-      "primary_evidence": "target/r4-d-count-call-stack-dependency-read-20260630/count-call-stack/20260630-204427-136/pair-001/pair-report.md",
+      "primary_evidence": "coe/2026-06-27-00-48-r3-btier-regressions.md",
+      "secondary_evidence": [
+        "docs/v0.0.5/build-R4/05-phase-benefit-evidence.md"
+      ],
+      "archived_run_path": "target/r4-d-count-call-stack-dependency-read-20260630/count-call-stack/20260630-204427-136/pair-001/pair-report.md",
       "required_followup": "Keep as R4-D before/after proof that internal tool feedback, validation feedback, unreviewed result feedback, and dependency read evidence no longer make this public sample wrong/no-patch."
     },
     {
@@ -63,7 +69,8 @@
       "taskspace_outcome": "wrong",
       "taskspace_wall_time_ratio": 2.2,
       "taskspace_tool_call_ratio": 0.77,
-      "primary_evidence": "target/r3-tools-result-sweep-20260630-3samples/multi-file-order-pipeline/20260630-041950-584/pair-001/pair-report.md",
+      "primary_evidence": "docs/v0.0.5/build-R4/02-field-evidence-and-sample-ledger.md",
+      "archived_run_path": "target/r3-tools-result-sweep-20260630-3samples/multi-file-order-pipeline/20260630-041950-584/pair-001/pair-report.md",
       "required_followup": "Make parse and node-policy rejections structured enough to drive a valid next action."
     },
     {
@@ -73,8 +80,12 @@
       "owner_phase": "R4-E",
       "standard_outcome": "timeout_or_incomplete",
       "taskspace_outcome": "timeout",
-      "primary_evidence": "target/r3-tools-result-sweep-20260630-3samples/large-output-ref-smoke/20260630-040045-153/pair-001/right/artifacts/rollout.jsonl",
+      "primary_evidence": "docs/v0.0.5/build-R4/02-field-evidence-and-sample-ledger.md",
       "secondary_evidence": [
+        "coe/2026-06-27-00-48-r3-btier-regressions.md"
+      ],
+      "archived_run_paths": [
+        "target/r3-tools-result-sweep-20260630-3samples/large-output-ref-smoke/20260630-040045-153/pair-001/right/artifacts/rollout.jsonl",
         "target/r3-tools-result-sweep-20260630-3samples/large-output-ref-smoke/20260630-040045-153/pair-001/right/artifacts/validation.stdout.log",
         "target/r3-tools-result-sweep-20260630-3samples/large-output-ref-smoke/20260630-040045-153/pair-001/right/artifacts/whale-exec.stderr.log"
       ],
@@ -89,8 +100,12 @@
       "taskspace_outcome": "wrong",
       "taskspace_wall_time_ratio": 1.8,
       "taskspace_tool_call_ratio": 0.12,
-      "primary_evidence": "target/r4-e-large-output-ref-20260630/large-output-ref-smoke/20260630-211225-432/pair-001/pair-report.md",
+      "primary_evidence": "coe/2026-06-27-00-48-r3-btier-regressions.md",
       "secondary_evidence": [
+        "docs/v0.0.5/build-R4/05-phase-benefit-evidence.md"
+      ],
+      "archived_run_paths": [
+        "target/r4-e-large-output-ref-20260630/large-output-ref-smoke/20260630-211225-432/pair-001/pair-report.md",
         "target/r4-e-large-output-ref-20260630/large-output-ref-smoke/20260630-211225-432/pair-001/right/artifacts/exact-payload-scan-events.jsonl",
         "target/r4-e-large-output-ref-20260630/large-output-ref-smoke/20260630-211225-432/pair-001/right/artifacts/output-ref-events.jsonl",
         "target/r4-e-large-output-ref-20260630/large-output-ref-smoke/20260630-211225-432/pair-001/right/artifacts/rollout.jsonl"
@@ -106,8 +121,12 @@
       "taskspace_outcome": "wrong",
       "taskspace_wall_time_ratio": 1.8,
       "taskspace_tool_call_ratio": 0.12,
-      "primary_evidence": "target/r4-e-large-output-ref-20260630/large-output-ref-smoke/20260630-211225-432/pair-001/pair-report.md",
+      "primary_evidence": "coe/2026-06-27-00-48-r3-btier-regressions.md",
       "secondary_evidence": [
+        "docs/v0.0.5/build-R4/05-phase-benefit-evidence.md"
+      ],
+      "archived_run_paths": [
+        "target/r4-e-large-output-ref-20260630/large-output-ref-smoke/20260630-211225-432/pair-001/pair-report.md",
         "target/r4-e-large-output-ref-20260630/large-output-ref-smoke/20260630-211225-432/pair-001/right/artifacts/rollout.jsonl",
         "target/r4-e-large-output-ref-20260630/large-output-ref-smoke/20260630-211225-432/pair-001/right/artifacts/validation.stdout.log"
       ],
@@ -122,8 +141,12 @@
       "taskspace_outcome": "solved",
       "taskspace_wall_time_ratio": 6.45,
       "taskspace_tool_call_ratio": 0.57,
-      "primary_evidence": "target/r4-d-missing-source-blocker-20260701/large-output-ref-smoke/20260701-130225-851/pair-001/pair-report.md",
+      "primary_evidence": "coe/2026-07-01-04-05-r4-repeated-blocked-action.md",
       "secondary_evidence": [
+        "docs/v0.0.5/build-R4/05-phase-benefit-evidence.md"
+      ],
+      "archived_run_paths": [
+        "target/r4-d-missing-source-blocker-20260701/large-output-ref-smoke/20260701-130225-851/pair-001/pair-report.md",
         "target/r4-d-missing-source-blocker-20260701/large-output-ref-smoke/20260701-130225-851/pair-001/right/artifacts/rollout.jsonl",
         "target/r4-d-missing-source-blocker-20260701/large-output-ref-smoke/20260701-130225-851/pair-001/right/artifacts/exact-payload-scan-events.jsonl",
         "target/r4-d-missing-source-blocker-20260701/large-output-ref-smoke/20260701-130225-851/pair-001/pair-timing.json"
@@ -169,7 +192,11 @@
       "taskspace_outcome": "wrong",
       "taskspace_wall_time_ratio": 1.63,
       "taskspace_tool_call_ratio": 0.71,
-      "primary_evidence": "target/r3-light-effect-single-file-20260630-024154/single-file-fast-fix/20260630-024155-720/pair-001/pair-report.md",
+      "primary_evidence": "coe/2026-06-27-00-48-r3-btier-regressions.md",
+      "secondary_evidence": [
+        "docs/v0.0.5/build-R4/02-field-evidence-and-sample-ledger.md"
+      ],
+      "archived_run_path": "target/r3-light-effect-single-file-20260630-024154/single-file-fast-fix/20260630-024155-720/pair-001/pair-report.md",
       "required_followup": "Ensure known correct edits are converted into successful file changes or clear model-visible failure feedback."
     },
     {
