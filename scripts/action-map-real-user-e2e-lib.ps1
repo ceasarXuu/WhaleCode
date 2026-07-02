@@ -134,8 +134,9 @@ function Get-ThreadId([string]$JsonlText) {
 
 function Find-LatestRollout([datetime]$StartedAt, [string]$ThreadId) {
     $homes = @()
-    if ($env:WHALE_HOME) { $homes += $env:WHALE_HOME }
-    $homes += (Join-Path $env:USERPROFILE ".whale")
+    if (-not [string]::IsNullOrWhiteSpace($env:WHALE_HOME)) { $homes += $env:WHALE_HOME }
+    if (-not [string]::IsNullOrWhiteSpace($env:USERPROFILE)) { $homes += (Join-Path $env:USERPROFILE ".whale") }
+    if (-not [string]::IsNullOrWhiteSpace($env:HOME)) { $homes += (Join-Path $env:HOME ".whale") }
     foreach ($candidateHome in $homes | Select-Object -Unique) {
         if (-not (Test-Path $candidateHome)) { continue }
         $recent = Get-ChildItem -Path $candidateHome -Recurse -Filter "rollout-*.jsonl" -ErrorAction SilentlyContinue |
@@ -462,4 +463,3 @@ function Count-EditResultsAfter([object[]]$Nodes, [string]$Timestamp) {
                 })
         }).Count
 }
-

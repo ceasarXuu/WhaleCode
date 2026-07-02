@@ -165,7 +165,11 @@ if ($probeTimeoutStderrText -notmatch "oracle isolation probe timed out after 1 
 
 $fakeBin = New-Dir (Join-Path $runDir "fake-bin")
 $fakeDockerLog = Join-Path $artifactDir "fake-docker.log"
-$fakeDocker = Join-Path $fakeBin "docker.cmd"
+$hostIsWindows = [System.Environment]::OSVersion.Platform -eq [System.PlatformID]::Win32NT
+$pathSeparator = [System.IO.Path]::PathSeparator
+$fakeDockerName = if ($hostIsWindows) { "docker.cmd" } else { "docker" }
+$fakeDocker = Join-Path $fakeBin $fakeDockerName
+if ($hostIsWindows) {
 @'
 @echo off
 echo %*>>"%FAKE_DOCKER_LOG%"
@@ -177,6 +181,20 @@ if "%1"=="rm" exit /b 0
 if "%1"=="image" exit /b 1
 exit /b 0
 '@ | Set-Content -LiteralPath $fakeDocker -Encoding ASCII
+} else {
+@'
+#!/bin/sh
+echo "$@" >> "$FAKE_DOCKER_LOG"
+if [ "$1" = "inspect" ]; then
+  echo '[{"Id":"fake-container-id","Config":{"Labels":{"whale.taskspace.terminal_bench":"true","whale.taskspace.repo_hash":"0123456789abcdef","whale.taskspace.proof_nonce":"0123456789abcdef0123456789abcdef","whale.taskspace.proof_dir_hash":"fedcba9876543210"}}}]'
+  exit 0
+fi
+if [ "$1" = "rm" ]; then exit 0; fi
+if [ "$1" = "image" ]; then exit 1; fi
+exit 0
+'@ | Set-Content -LiteralPath $fakeDocker -Encoding ASCII
+    chmod +x $fakeDocker
+}
 $cleanupProofDir = New-Dir (Join-Path $artifactDir "cleanup-proof")
 @{
     proof_nonce = "0123456789abcdef0123456789abcdef"
@@ -192,7 +210,7 @@ $cleanupStderr = Join-Path $artifactDir "validation-cleanup-timeout.stderr.log"
 $oldPath = $env:PATH
 $oldFakeDockerLog = $env:FAKE_DOCKER_LOG
 try {
-    $env:PATH = "$fakeBin;$oldPath"
+    $env:PATH = "$fakeBin$pathSeparator$oldPath"
     $env:FAKE_DOCKER_LOG = $fakeDockerLog
     $cleanupTimeoutExit = Invoke-TaskspaceValidationCommand $repoDir ([pscustomobject]@{
         command = "powershell"
@@ -269,7 +287,9 @@ if ([string]$invalidCleanup.classification -ne "docker_cleanup_manifest_invalid"
 
 $fakeFailBin = New-Dir (Join-Path $runDir "fake-fail-bin")
 $fakeFailDockerLog = Join-Path $artifactDir "fake-fail-docker.log"
-$fakeFailDocker = Join-Path $fakeFailBin "docker.cmd"
+$fakeFailDockerName = if ($hostIsWindows) { "docker.cmd" } else { "docker" }
+$fakeFailDocker = Join-Path $fakeFailBin $fakeFailDockerName
+if ($hostIsWindows) {
 @'
 @echo off
 echo %*>>"%FAKE_DOCKER_LOG%"
@@ -281,6 +301,20 @@ if "%1"=="rm" exit /b 7
 if "%1"=="image" exit /b 1
 exit /b 0
 '@ | Set-Content -LiteralPath $fakeFailDocker -Encoding ASCII
+} else {
+@'
+#!/bin/sh
+echo "$@" >> "$FAKE_DOCKER_LOG"
+if [ "$1" = "inspect" ]; then
+  echo '[{"Id":"fake-container-id","Config":{"Labels":{"whale.taskspace.terminal_bench":"true","whale.taskspace.repo_hash":"0123456789abcdef","whale.taskspace.proof_nonce":"0123456789abcdef0123456789abcdef","whale.taskspace.proof_dir_hash":"fedcba9876543210"}}}]'
+  exit 0
+fi
+if [ "$1" = "rm" ]; then exit 7; fi
+if [ "$1" = "image" ]; then exit 1; fi
+exit 0
+'@ | Set-Content -LiteralPath $fakeFailDocker -Encoding ASCII
+    chmod +x $fakeFailDocker
+}
 $cleanupFailProofDir = New-Dir (Join-Path $artifactDir "cleanup-failure-proof")
 @{
     proof_nonce = "0123456789abcdef0123456789abcdef"
@@ -296,7 +330,7 @@ $cleanupFailStderr = Join-Path $artifactDir "validation-cleanup-failure.stderr.l
 $oldPath = $env:PATH
 $oldFakeDockerLog = $env:FAKE_DOCKER_LOG
 try {
-    $env:PATH = "$fakeFailBin;$oldPath"
+    $env:PATH = "$fakeFailBin$pathSeparator$oldPath"
     $env:FAKE_DOCKER_LOG = $fakeFailDockerLog
     $cleanupFailureExit = Invoke-TaskspaceValidationCommand $repoDir ([pscustomobject]@{
         command = "powershell"

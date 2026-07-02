@@ -17,6 +17,11 @@ category: file-operations
 '@ | Set-Content -LiteralPath (Join-Path $taskDir "task.yaml") -Encoding UTF8
 "FROM scratch" | Set-Content -LiteralPath (Join-Path $taskDir "Dockerfile") -Encoding UTF8
 "echo ok" | Set-Content -LiteralPath (Join-Path $taskDir "run-tests.sh") -Encoding UTF8
+$uvSeed = Join-Path $runDir "uv-cache-seed"
+New-Item -ItemType Directory -Path $uvSeed -Force | Out-Null
+"offline installer seed" | Set-Content -LiteralPath (Join-Path $uvSeed "install.sh") -Encoding ASCII
+"offline archive seed" | Set-Content -LiteralPath (Join-Path $uvSeed "uv-x86_64-unknown-linux-gnu.tar.gz") -Encoding ASCII
+$env:TASKSPACE_TBENCH_UV_CACHE_SOURCE = $uvSeed
 
 $runnerStub = Join-Path $runDir "external-wrapper-stub.ps1"
 @'
@@ -46,6 +51,27 @@ exit 1
 $freshWhaleBin = Join-Path $runDir "fresh-whale.exe"
 "fake fresh whale" | Set-Content -LiteralPath $freshWhaleBin -Encoding UTF8
 (Get-Item -LiteralPath $freshWhaleBin).LastWriteTimeUtc = (Get-Date).ToUniversalTime().AddMinutes(1)
+
+. (Join-Path $PSScriptRoot "lib\source-guard.ps1")
+$sensitiveSource = Join-Path $runDir "sensitive-validator.txt"
+"hidden validator" | Set-Content -LiteralPath $sensitiveSource -Encoding UTF8
+$sourceGuardPairDir = Join-Path $runDir "source-guard-pair"
+New-Item -ItemType Directory -Path $sourceGuardPairDir -Force | Out-Null
+$sourceGuard = Protect-TaskspaceExternalSensitiveSource ([pscustomobject]@{
+        ScenarioRoot = $runDir
+        ExternalBenchmark = [pscustomobject]@{
+            adapter_metadata = [pscustomobject]@{
+                sensitive_source_files = @($sensitiveSource)
+            }
+        }
+    }) $sourceGuardPairDir
+if ([System.Environment]::OSVersion.Platform -ne [System.PlatformID]::Win32NT) {
+    Assert-True (-not [bool]$sourceGuard.active) "source guard should not use Windows ACLs on non-Windows hosts"
+    Assert-True ([string]$sourceGuard.reason -eq "windows_acl_unavailable") "source guard did not record stable non-Windows reason"
+} else {
+    Assert-True ([bool]$sourceGuard.active) "source guard should stay active on Windows hosts"
+}
+$sourceGuard = Unprotect-TaskspaceExternalSensitiveSource $sourceGuard
 
 $wrapperRunRoot = Join-Path $runDir "wrapper-runs"
 $defaultOutput = & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "run-taskspace-external-benchmark.ps1") -Benchmark terminal-bench -TaskDir $taskDir -SourceVersion "pinned" -RunRoot $wrapperRunRoot -RunnerPath $runnerStub -WhaleBin $freshWhaleBin 2>&1

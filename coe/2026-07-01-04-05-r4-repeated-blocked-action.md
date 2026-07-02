@@ -2300,3 +2300,104 @@
 - Interpretation:
   - The H-036 prediction is now covered by current code.
   - Validation rework failure summaries use a raw-output-focused extractor and preserve actionable error lines after command/warning noise.
+
+## Hypothesis H-037: Linux external benchmark harness must not assume Windows host primitives
+
+- Status: repaired-and-validated-by-harness-tests
+- Claim:
+  - R4 `organization-json-generator` could not be re-run on the current Linux host because several external benchmark harness layers assumed Windows-only primitives.
+  - The failures happened before useful model/TaskSpace evidence could be collected, so they must be classified as harness defects, not sample utility failures.
+- Evidence:
+  ```text
+  Source checkout:
+  target/external-sources/terminal-bench-core-0.1.1
+  commit 91e10457b5410f16c44364da1a34cb6de8c488a5
+
+  Plan-only failure 1:
+  external_materialization
+  Windows Principal functionality is not supported on this platform.
+
+  Plan-only/self-test failure 2:
+  terminal-bench uv cache attempted curl.exe on Linux.
+
+  Real-run failure 3:
+  validator launcher attempted cmd.exe on Linux.
+
+  Real-run failure 4:
+  execution alias attempted subst on Linux.
+
+  Real-run failure 5:
+  rollout lookup joined a null USERPROFILE path on Linux.
+  ```
+- Repair:
+  - `scripts/taskspace-benchmark/adapters/external-benchmark-common.ps1`: stale ACL repair is a no-op when Windows ACLs are unavailable.
+  - `scripts/taskspace-benchmark/lib/source-guard.ps1`: source guard records `windows_acl_unavailable` instead of throwing on non-Windows.
+  - `scripts/taskspace-benchmark/adapters/terminal-bench-uv-cache.ps1`: uv cache downloader selects `curl.exe` or platform `curl`.
+  - `scripts/taskspace-benchmark/lib/oracle-runner.ps1`: validation process launches directly with redirected stdout/stderr instead of `cmd.exe /c`.
+  - `scripts/taskspace-benchmark/lib/workspace.ps1`: terminal-bench execution alias uses direct repo dir on non-Windows instead of `subst`.
+  - `scripts/action-map-real-user-e2e-lib.ps1`: rollout lookup uses non-empty `WHALE_HOME`, `USERPROFILE`, and `HOME/.whale` candidates.
+- Verification:
+  ```text
+  powershell -NoProfile -ExecutionPolicy Bypass -File scripts/taskspace-benchmark/test-terminal-bench-uv-cache-harness.ps1
+  PASS
+
+  powershell -NoProfile -ExecutionPolicy Bypass -File scripts/taskspace-benchmark/test-external-wrapper-harness.ps1
+  PASS
+
+  powershell -NoProfile -ExecutionPolicy Bypass -File scripts/taskspace-benchmark/test-oracle-runner-harness.ps1
+  PASS
+
+  powershell -NoProfile -ExecutionPolicy Bypass -File scripts/taskspace-benchmark/test-terminal-bench-adapter-harness.ps1
+  PASS
+
+  powershell -NoProfile -ExecutionPolicy Bypass -File scripts/taskspace-benchmark/test-metrics-extractor-harness.ps1
+  PASS
+
+  powershell -NoProfile -ExecutionPolicy Bypass -File scripts/taskspace-benchmark/test-harness.ps1
+  PASS
+
+  organization-json-generator plan-only:
+  RunDir target/r4-org-json-plan-20260703/.../20260703-053756-940
+  PromptInvalid=False
+  PromptManualReview=False
+  ```
+- Interpretation:
+  - Linux can now materialize and plan the pinned sample.
+  - A real run can proceed far enough to produce complete diagnostic reports instead of crashing in the harness.
+
+## Hypothesis H-038: missing DeepSeek provider credentials must fail before paired execution
+
+- Status: repaired-and-validated-by-real-preflight
+- Claim:
+  - Without `DEEPSEEK_API_KEY`, Whale emits JSONL errors and exits before model execution.
+  - The benchmark runner previously continued into validation, which mixed provider setup failure with Docker validator failure and obscured the real blocker.
+- Evidence before repair:
+  ```text
+  target/r4-org-json-real-20260703e/runs/terminal_bench__organization-json-generator/20260703-054112-829/pair-001/*/artifacts/whale-exec.jsonl
+
+  {"type":"error","message":"Missing environment variable: `DEEPSEEK_API_KEY`. Set DEEPSEEK_API_KEY to a DeepSeek API key before starting Whale."}
+  {"type":"turn.failed","error":{"message":"Missing environment variable: `DEEPSEEK_API_KEY`. Set DEEPSEEK_API_KEY to a DeepSeek API key before starting Whale."}}
+
+  Same diagnostic run also exposed validator environment noise:
+  Docker build failed at `RUN pip install jsonschema` because the configured proxy could not resolve.
+  ```
+- Repair:
+  - `scripts/taskspace-benchmark/run-taskspace-benchmark.ps1` now writes `provider-credential-preflight-health.json`.
+  - DeepSeek models fail as `invalid_harness` with stable code `provider_credential_missing` when `DEEPSEEK_API_KEY` is absent.
+- Verification:
+  ```text
+  target/r4-org-json-real-20260703f/runs/terminal_bench__organization-json-generator/20260703-054256-842
+
+  ProviderCredentialHealth:
+  provider-credential-preflight-health.json
+
+  AbortSummary:
+  abort-summary.md
+
+  exit_code=3
+  abort_phase=provider_credential_preflight
+  stable_code=provider_credential_missing
+  ```
+- Interpretation:
+  - Current host cannot produce `organization-json-generator` utility evidence until `DEEPSEEK_API_KEY` and Docker/Python package network are configured.
+  - The runner now blocks earlier and preserves a stable preflight artifact instead of wasting validation time and mixing independent environment failures.

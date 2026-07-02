@@ -16,12 +16,20 @@ function New-TerminalBenchUvCache {
             }
         }
     }
+    $curlCommand = Get-Command curl.exe -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($null -eq $curlCommand) {
+        $curlCommand = Get-Command curl -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+    }
     $enabled = $true
     foreach ($item in @(@($installerUrl, $installer, 60), @($archiveUrl, $archive, 180))) {
         $downloadOk = $true
         if (-not (Test-Path -LiteralPath $item[1])) {
-            & curl.exe -sS -L --max-time $item[2] -o $item[1] $item[0] 2>$null | Out-Null
-            $downloadOk = ($LASTEXITCODE -eq 0)
+            if ($null -eq $curlCommand) {
+                $downloadOk = $false
+            } else {
+                & $curlCommand.Source -sS -L --max-time $item[2] -o $item[1] $item[0] 2>$null | Out-Null
+                $downloadOk = ($LASTEXITCODE -eq 0)
+            }
         }
         if (-not $downloadOk -or -not (Test-Path -LiteralPath $item[1])) { $enabled = $false }
     }

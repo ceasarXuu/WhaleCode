@@ -338,11 +338,12 @@ function Export-TaskspaceObservabilityIfAvailable {
         [AllowEmptyString()][string]$ThreadId = ""
     )
     $rollout = Find-LatestRollout $StartedAt $ThreadId
-    if (-not $rollout) {
-        return [pscustomobject]@{ exit_code = -1; rollout_path = ""; observability_json = ""; observability = $null }
+    $rolloutPath = if ($rollout -and $rollout.PSObject.Properties.Name -contains "FullName") { [string]$rollout.FullName } else { "" }
+    if ([string]::IsNullOrWhiteSpace($rolloutPath) -or -not (Test-Path -LiteralPath $rolloutPath)) {
+        return [pscustomobject]@{ exit_code = -1; rollout_path = ""; observability_json = ""; observability = $null; availability = "rollout_not_found" }
     }
     $rolloutCopy = Join-Path $ArtifactDir "rollout.jsonl"
-    Copy-Item -LiteralPath $rollout.FullName -Destination $rolloutCopy -Force
+    Copy-Item -LiteralPath $rolloutPath -Destination $rolloutCopy -Force
     $obsDir = New-Dir (Join-Path $ArtifactDir "observability")
     $stdoutPath = Join-Path $ArtifactDir "observability.stdout.log"
     $stderrPath = Join-Path $ArtifactDir "observability.stderr.log"

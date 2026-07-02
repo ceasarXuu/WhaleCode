@@ -100,6 +100,46 @@ current process before running tests:
 $env:PATH = "$env:USERPROFILE\.cargo\bin;$env:PATH"
 ```
 
+## Terminal-Bench Linux 复验前置
+
+R4 接手时在 Linux 主机复验 `organization-json-generator` 暴露了几类前置问题。后续复用同类流程时先检查这些项，避免把 harness 或环境问题误记为 TaskSpace utility 失败：
+
+```bash
+git clone --filter=blob:none --sparse --branch dataset/terminal-bench-core/v0.1.x \
+  https://github.com/laude-institute/terminal-bench \
+  target/external-sources/terminal-bench-core-0.1.1
+git -C target/external-sources/terminal-bench-core-0.1.1 sparse-checkout set tasks/organization-json-generator
+git -C target/external-sources/terminal-bench-core-0.1.1 rev-parse HEAD
+```
+
+期望 commit：
+
+```text
+91e10457b5410f16c44364da1a34cb6de8c488a5
+```
+
+先跑 plan-only，确认 adapter 和 prompt guard 可用：
+
+```bash
+powershell -NoProfile -ExecutionPolicy Bypass \
+  -File scripts/taskspace-benchmark/run-taskspace-external-benchmark.ps1 \
+  -Benchmark terminal-bench \
+  -TaskDir target/external-sources/terminal-bench-core-0.1.1/tasks/organization-json-generator \
+  -SampleId organization-json-generator \
+  -SourceVersion 91e10457b5410f16c44364da1a34cb6de8c488a5 \
+  -RunRoot target/r4-org-json-plan-YYYYMMDD \
+  -WhaleBin /home/zhangxu/.local/bin/whale \
+  -Model deepseek-v4-flash \
+  -SandboxMode workspace-write \
+  -PlanOnly
+```
+
+真实运行前必须确认：
+
+- `DEEPSEEK_API_KEY` 已设置；缺失时 benchmark 会在 `provider_credential_preflight` 阶段以 `provider_credential_missing` fail-fast。
+- Docker build 能访问 Python package 源；`organization-json-generator` 的 validator image 会执行 `pip install jsonschema`，代理解析失败会被归为 `docker_build_environment_failure`。
+- Linux runner 不应依赖 Windows-only primitives：`WindowsIdentity`、`icacls`、`curl.exe`、`cmd.exe`、`subst`、`USERPROFILE` 都必须有跨平台分支或 no-op 记录。
+
 ## Why Full Builds Are Slow
 
 The first measured Windows bottleneck was not a single slow command. It was

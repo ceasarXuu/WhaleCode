@@ -227,6 +227,37 @@ if ([string]$binaryHealth.status -eq "fail") {
     Write-Host "AbortSummary: $abortPath"
     exit 3
 }
+$providerCredentialHealthPath = Join-Path $runDir "provider-credential-preflight-health.json"
+$providerCredentialFindings = @()
+if ([string]$Model -match '^deepseek' -and [string]::IsNullOrWhiteSpace($env:DEEPSEEK_API_KEY)) {
+    $providerCredentialFindings = @([pscustomobject]@{
+            severity = "fail"
+            stable_code = "provider_credential_missing"
+            message = "DEEPSEEK_API_KEY is required for DeepSeek benchmark model execution."
+            path = "env:DEEPSEEK_API_KEY"
+        })
+}
+$providerCredentialHealth = [pscustomobject]@{
+    schema_version = 1
+    status = if ($providerCredentialFindings.Count -gt 0) { "fail" } else { "pass" }
+    run_validity = if ($providerCredentialFindings.Count -gt 0) { "invalid_harness" } else { "valid" }
+    model = $Model
+    findings = @($providerCredentialFindings)
+    generated_at = (Get-Date).ToString("o")
+}
+Write-TaskspaceHarnessHealth $providerCredentialHealthPath $providerCredentialHealth
+Write-TaskspaceRunEvent $runDir "provider_credential_preflight_completed" @{ status = [string]$providerCredentialHealth.status; path = $providerCredentialHealthPath; model = $Model }
+if ([string]$providerCredentialHealth.status -eq "fail") {
+    $firstFinding = @($providerCredentialHealth.findings | Where-Object { [string]$_.severity -eq "fail" } | Select-Object -First 1)[0]
+    $signature = New-TaskspaceInfraSignature "harness_materialization_failure" "provider_credential_preflight" ([string]$firstFinding.stable_code) ([string]$firstFinding.message) "" $providerCredentialHealthPath
+    $abortPath = Join-Path $runDir "abort-summary.md"
+    New-TaskspaceHarnessAbortSummaryLines "TaskSpace Provider Credential Abort" "provider_credential_preflight" $firstFinding $signature $providerCredentialHealthPath | Set-Content -LiteralPath $abortPath -Encoding UTF8
+    Set-TaskspaceInvalidHarnessStatus $runDir $manifest.Id "provider_credential_preflight" ([string]$firstFinding.stable_code) $signature $providerCredentialHealthPath $commandLine 0 0 | Out-Null
+    Write-Host "RunDir: $runDir"
+    Write-Host "ProviderCredentialHealth: $providerCredentialHealthPath"
+    Write-Host "AbortSummary: $abortPath"
+    exit 3
+}
 if (-not (Test-Path -LiteralPath $WhaleBin)) { throw "Whale binary not found: $WhaleBin" }
 $helpText = & $WhaleBin exec --help 2>&1
 if (($helpText -join [Environment]::NewLine) -notmatch "--taskspace") {

@@ -14,9 +14,15 @@ function Write-TaskspaceExternalJson {
     ($Value | ConvertTo-Json -Depth 30) | Set-Content -LiteralPath $Path -Encoding UTF8
 }
 
+function Test-TaskspaceExternalWindowsAclAvailable {
+    ([System.Environment]::OSVersion.Platform -eq [System.PlatformID]::Win32NT) -and
+    $null -ne (Get-Command icacls -ErrorAction SilentlyContinue)
+}
+
 function Repair-TaskspaceExternalStaleDenyForCurrentUser {
     param([Parameter(Mandatory = $true)][string]$Path)
     $resolved = (Resolve-Path -LiteralPath $Path).Path
+    if (-not (Test-TaskspaceExternalWindowsAclAvailable)) { return $resolved }
     $identity = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
     & icacls $resolved /remove:d "$identity" *> $null
     $resolved
@@ -25,6 +31,7 @@ function Repair-TaskspaceExternalStaleDenyForCurrentUser {
 function Repair-TaskspaceExternalStaleDenyTreeForCurrentUser {
     param([Parameter(Mandatory = $true)][string]$Path)
     $resolved = (Resolve-Path -LiteralPath $Path).Path
+    if (-not (Test-TaskspaceExternalWindowsAclAvailable)) { return $resolved }
     $identity = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
     & icacls $resolved /remove:d "$identity" /T /C *> $null
     $resolved

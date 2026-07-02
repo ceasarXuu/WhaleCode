@@ -37,7 +37,8 @@ function Assert-Throws([scriptblock]$Body, [string]$Message) {
     } catch {}
 }
 $aggregateCommand = Get-Command Write-TaskspaceAggregateReport
-Assert-True ([string]$aggregateCommand.ScriptBlock.File -like "*lib\aggregate-report.ps1") "aggregate report writer was not loaded from lib\aggregate-report.ps1"
+$aggregateCommandFile = ([string]$aggregateCommand.ScriptBlock.File).Replace("\", "/")
+Assert-True ($aggregateCommandFile -like "*/lib/aggregate-report.ps1") "aggregate report writer was not loaded from lib\aggregate-report.ps1"
 
 $manifest = Read-TaskspaceScenarioManifest $repoRoot $Scenario
 $manifestByPath = Read-TaskspaceScenarioManifest $repoRoot "" $manifest.ScenarioRoot
@@ -180,7 +181,8 @@ $worstLooseObjectPath = Join-Path $terminalBenchPair.Left.RepoDir ".git\objects\
 $probeResultPath = Join-Path (Join-Path $terminalBenchPair.Left.RunnerPrivateDir "vprobe") "validator-probe-result.json"
 $runtimeResultPath = Join-Path (Join-Path $terminalBenchPair.Left.ArtifactDir "vrun") "validation-cleanup-result.json"
 Assert-True ($terminalBenchPair.Left.ExecutionAliasRoot -eq (Split-Path -Parent $terminalBenchPair.Left.RepoDir)) "terminal-bench alias root should map side root directly"
-Assert-True ($terminalBenchPair.Left.RepoDir.EndsWith("\left\app") -and -not ($terminalBenchPair.Left.RepoDir -match "terminal-bench-drive")) "terminal-bench repo path was not shortened"
+$terminalBenchRepoDir = ([string]$terminalBenchPair.Left.RepoDir).Replace("\", "/")
+Assert-True ($terminalBenchRepoDir.EndsWith("/left/app") -and -not ($terminalBenchRepoDir -match "terminal-bench-drive")) "terminal-bench repo path was not shortened"
 Assert-True ($worstLooseObjectPath.Length -lt 260) "terminal-bench workspace path exceeds Git object path budget: $($worstLooseObjectPath.Length)"
 Assert-True ($probeResultPath.Length -lt 260) "terminal-bench probe proof path exceeds Windows path budget: $($probeResultPath.Length)"
 Assert-True ($runtimeResultPath.Length -lt 260) "terminal-bench runtime proof path exceeds Windows path budget: $($runtimeResultPath.Length)"
@@ -909,7 +911,11 @@ New-Item -ItemType Directory -Path (Join-Path $aliasRoot "app") -Force | Out-Nul
 $aliasSide = [pscustomobject]@{ RepoDir = (Join-Path $aliasRoot "app"); ExecutionAliasRoot = $aliasRoot }
 $aliasMount = Mount-TaskspaceExecutionAlias $aliasSide
 try {
-    powershell -NoProfile -Command "Set-Location '$($aliasMount.execution_repo_dir)'; New-Item -ItemType File -Force -Path /app/subst-smoke.txt | Out-Null"
+    if ([System.Environment]::OSVersion.Platform -eq [System.PlatformID]::Win32NT) {
+        powershell -NoProfile -Command "Set-Location '$($aliasMount.execution_repo_dir)'; New-Item -ItemType File -Force -Path /app/subst-smoke.txt | Out-Null"
+    } else {
+        powershell -NoProfile -Command "Set-Location '$($aliasMount.execution_repo_dir)'; New-Item -ItemType File -Force -Path subst-smoke.txt | Out-Null"
+    }
 } finally {
     Dismount-TaskspaceExecutionAlias $aliasMount
 }

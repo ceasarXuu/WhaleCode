@@ -14,7 +14,7 @@ $cacheRoot = Join-Path $runDir "cached"
 New-Item -ItemType Directory -Force -Path (Join-Path $cacheRoot "_adapter-generated\uv-cache") | Out-Null
 "installer" | Set-Content -LiteralPath (Join-Path $cacheRoot "_adapter-generated\uv-cache\install.sh") -Encoding ASCII
 "archive" | Set-Content -LiteralPath (Join-Path $cacheRoot "_adapter-generated\uv-cache\uv-x86_64-unknown-linux-gnu.tar.gz") -Encoding ASCII
-cmd /c exit 35
+& powershell -NoProfile -Command "exit 35" | Out-Null
 $cache = New-TerminalBenchUvCache $cacheRoot
 Assert-True ([bool]$cache.enabled) "existing uv cache was disabled by stale LASTEXITCODE"
 
@@ -69,8 +69,8 @@ $relativeScenarioDir = [string]($relativeAdapterOut | Select-Object -Last 1 | Fo
 $relativeScenario = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $relativeScenarioDir "scenario.json") | ConvertFrom-Json
 $relativeValidator = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $relativeScenarioDir "external-validator.ps1")
 $relativeCachePath = [string]$relativeScenario.external_benchmark.adapter_metadata.validator_dependency_cache.root
-Assert-True ($relativeCachePath -match '^[A-Za-z]:\\') "relative OutputRoot produced non-absolute uv cache metadata path"
-Assert-True ($relativeValidator -match "\`$script:uvCacheDir = '([A-Za-z]:\\[^']+_adapter-generated\\uv-cache)'") "relative OutputRoot produced non-absolute validator uvCacheDir"
+Assert-True ([System.IO.Path]::IsPathFullyQualified($relativeCachePath)) "relative OutputRoot produced non-absolute uv cache metadata path"
+Assert-True ($relativeValidator.Contains($relativeCachePath)) "relative OutputRoot produced non-absolute validator uvCacheDir"
 $pairCwd = Join-Path $relativeCacheRoot "pair-cwd"
 New-Item -ItemType Directory -Force -Path $pairCwd | Out-Null
 Push-Location $pairCwd

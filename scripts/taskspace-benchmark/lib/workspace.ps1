@@ -134,6 +134,15 @@ function Mount-TaskspaceExecutionAlias {
     if ([string]::IsNullOrWhiteSpace($aliasRoot)) {
         return [pscustomobject]@{ mounted = $false; drive = ""; execution_repo_dir = $Side.RepoDir }
     }
+    if ([System.Environment]::OSVersion.Platform -ne [System.PlatformID]::Win32NT) {
+        return [pscustomobject]@{
+            mounted = $false
+            drive = ""
+            alias_root = $aliasRoot
+            execution_repo_dir = $Side.RepoDir
+            mount_strategy = "direct_repo_dir_non_windows"
+        }
+    }
     $drive = Get-TaskspaceFreeSubstDrive
     & subst $drive $aliasRoot
     if ($LASTEXITCODE -ne 0) { throw "Failed to mount execution alias drive $drive -> $aliasRoot" }

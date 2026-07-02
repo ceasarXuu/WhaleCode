@@ -70,26 +70,35 @@ function Invoke-TaskspaceValidationProcess {
     $testsCompletedMarkerRecorded = $false
     $startedAt = Get-Date
     $timeoutPhase = ""
-    $argumentString = ConvertTo-TaskspaceCmdArgumentString $ArgumentList
-    $quotedFile = '"' + ($FilePath -replace '"', '""') + '"'
-    $quotedStdout = '"' + ($StdoutPath -replace '"', '""') + '"'
-    $quotedStderr = '"' + ($StderrPath -replace '"', '""') + '"'
-    $cmdLine = "call $quotedFile $argumentString > $quotedStdout 2> $quotedStderr"
+    $encoding = [System.Text.UTF8Encoding]::new($false)
     $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
-    $startInfo.FileName = "cmd.exe"
-    $startInfo.Arguments = "/d /c $cmdLine"
+    $resolved = Get-Command $FilePath -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+    $startInfo.FileName = if ($resolved) { [string]$resolved.Source } else { $FilePath }
+    $startInfo.Arguments = ConvertTo-TaskspaceProcessArgumentString $ArgumentList
     $startInfo.WorkingDirectory = $WorkingDirectory
     $startInfo.UseShellExecute = $false
+    $startInfo.RedirectStandardOutput = $true
+    $startInfo.RedirectStandardError = $true
+    $startInfo.StandardOutputEncoding = $encoding
+    $startInfo.StandardErrorEncoding = $encoding
     $startInfo.CreateNoWindow = $true
     $process = [System.Diagnostics.Process]::new()
     $process.StartInfo = $startInfo
     $launchStartedAt = $null
     $processStartedAt = $null
     $launchWaitMs = $null
+    $stdoutStream = $null
+    $stderrStream = $null
+    $stdoutCopyTask = $null
+    $stderrCopyTask = $null
     try {
+        $stdoutStream = [System.IO.FileStream]::new($StdoutPath, [System.IO.FileMode]::Create, [System.IO.FileAccess]::Write, [System.IO.FileShare]::ReadWrite)
+        $stderrStream = [System.IO.FileStream]::new($StderrPath, [System.IO.FileMode]::Create, [System.IO.FileAccess]::Write, [System.IO.FileShare]::ReadWrite)
         $launchStartedAt = Get-Date
         [void]$process.Start()
         $processStartedAt = Get-Date
+        $stdoutCopyTask = $process.StandardOutput.BaseStream.CopyToAsync($stdoutStream)
+        $stderrCopyTask = $process.StandardError.BaseStream.CopyToAsync($stderrStream)
         $launchWaitMs = [int64](($processStartedAt - $launchStartedAt).TotalMilliseconds)
         if ([string]$env:TASKSPACE_VALIDATION_DIRECT_MARKERS -eq "1") {
             $testsStartedAt = $processStartedAt
@@ -111,6 +120,8 @@ function Invoke-TaskspaceValidationProcess {
             Start-Sleep -Milliseconds 100
             $now = Get-Date
             $text = ""
+            try { if ($null -ne $stdoutStream) { $stdoutStream.Flush() } } catch {}
+            try { if ($null -ne $stderrStream) { $stderrStream.Flush() } } catch {}
             try { $text = (Get-Content -Raw -Encoding UTF8 -LiteralPath $StdoutPath -ErrorAction SilentlyContinue) + "`n" + (Get-Content -Raw -Encoding UTF8 -LiteralPath $StderrPath -ErrorAction SilentlyContinue) } catch {}
             if (-not $testsStartedAt -and $text -match "(?m)^validator_tests_started=true\s*$") {
                 $testsStartedAt = $now
@@ -166,6 +177,10 @@ function Invoke-TaskspaceValidationProcess {
         }
         [pscustomobject]@{ exit_code = [int]$process.ExitCode; timed_out = $false; timeout_phase = ""; process_launch_wait_ms = $launchWaitMs }
     } finally {
+        try { if ($null -ne $stdoutCopyTask) { $stdoutCopyTask.Wait(5000) | Out-Null } } catch {}
+        try { if ($null -ne $stderrCopyTask) { $stderrCopyTask.Wait(5000) | Out-Null } } catch {}
+        try { if ($null -ne $stdoutStream) { $stdoutStream.Dispose() } } catch {}
+        try { if ($null -ne $stderrStream) { $stderrStream.Dispose() } } catch {}
         $process.Dispose()
     }
 }

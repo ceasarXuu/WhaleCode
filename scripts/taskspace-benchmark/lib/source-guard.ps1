@@ -65,6 +65,11 @@ function Invoke-TaskspaceGuardReadProbe {
     }
 }
 
+function Test-TaskspaceSourceGuardWindowsAclAvailable {
+    ([System.Environment]::OSVersion.Platform -eq [System.PlatformID]::Win32NT) -and
+    $null -ne (Get-Command icacls -ErrorAction SilentlyContinue)
+}
+
 function Protect-TaskspaceExternalSensitiveSource {
     param(
         [Parameter(Mandatory = $true)]$Manifest,
@@ -73,6 +78,15 @@ function Protect-TaskspaceExternalSensitiveSource {
     $proofPath = Join-Path $PairDir "external-source-guard-proof.json"
     if ($null -eq $Manifest.ExternalBenchmark) {
         return [pscustomobject]@{ active = $false; proof_path = ""; files = @() }
+    }
+    if (-not (Test-TaskspaceSourceGuardWindowsAclAvailable)) {
+        return [pscustomobject]@{
+            active = $false
+            proof_path = ""
+            files = @()
+            reason = "windows_acl_unavailable"
+            platform = [string][System.Environment]::OSVersion.Platform
+        }
     }
     $identity = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
     $files = @(Get-TaskspaceExternalSensitiveSourceFiles $Manifest | Where-Object { Test-Path -LiteralPath $_ })
