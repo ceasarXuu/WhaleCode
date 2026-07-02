@@ -2193,3 +2193,55 @@
   Interpretation:
   - Tool feedback propagation is working for this layer: the model saw validation failures and attempted edits.
   - The remaining blocker is failed-patch recovery convergence under the profile request hint/timeout envelope, not the original validation coverage recovery bug.
+
+## Hypothesis H-035: mixed native/unified apply_patch headers corrupt failure feedback
+
+- Status: active
+- Claim:
+  - After `TaskSpaceApplyPatchUnanchoredUpdateRecoveryV1`, the model can emit an unwrapped native patch that starts with `*** Update File: <path>` but also includes unified file header lines `---` and `+++`.
+  - `normalize_taskspace_unwrapped_apply_patch(...)` wraps that payload in `*** Begin Patch` / `*** End Patch`, but `normalize_taskspace_native_hunk_headers(...)` currently keeps `---` / `+++` inside the native update hunk.
+  - Native `apply_patch` then interprets `---` as an expected deleted source line, producing misleading feedback such as `Failed to find expected lines ... --`.
+  - This corrupts the next recovery signal and makes failed-patch recovery less stable than standard mode.
+- Evidence:
+  ```text
+  RunDir:
+  C:\WhaleRunCache\r4-validation-coverage-org-json-20260702\runs\terminal_bench__organization-json-generator\20260702-223232-599\pair-001
+
+  item_96:
+  TaskSpaceActionV1 rejected: apply_patch_unanchored_update:generate.py
+
+  item_103:
+  patch starts with:
+  *** Update File: generate.py
+  ---
+  +++
+  @@ -1,10 +1,35 @@
+
+  result-20 / recovery:
+  apply_patch verification failed: Failed to find expected lines in R:\app\generate.py:
+  --
+  ```
+- Prediction:
+  - A focused normalizer test with the item_103 shape currently preserves `---` / `+++` inside a native `Update File` patch.
+  - Stripping unified file headers within native update sections will preserve the real edit intent and prevent the misleading `--` expected-line failure.
+
+## Hypothesis H-036: validation rework summaries drop high-signal failure output behind command/noise
+
+- Status: active
+- Claim:
+  - Validation failure routing uses `single_line_preview(result.body, 220)` for `failed_summary`.
+  - For action-contract tool results, the result body begins with tool metadata, command, and often dependency warnings before the actual traceback/assertion.
+  - The short preview can omit the actual failure, so the rework node sees only "exit code 1" or warning noise and the model guesses edits instead of fixing the named failure.
+- Evidence:
+  ```text
+  RunDir:
+  C:\WhaleRunCache\r4-mixed-patch-header-org-json-20260702\runs\terminal_bench__organization-json-generator\20260702-230519-902\pair-001
+
+  Model reasoning after result-14:
+  "The test failed with exit code 1 and no error details. It just shows a warning and no success."
+
+  Projection/recovery evidence:
+  smoke_test node-3 has blocked validation evidence result-14, but visible summary is dominated by command preview and truncated output.
+  ```
+- Prediction:
+  - Replacing validation failure summaries with a raw-output-focused extractor that filters warning noise and preserves `Traceback`, `AssertionError`, `KeyError`, `IndentationError`, etc. will make the rework node receive actionable failure evidence.

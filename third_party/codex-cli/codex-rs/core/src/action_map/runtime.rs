@@ -11015,6 +11015,73 @@ fn working_evidence_body_excerpt(body: &str, max_chars: usize) -> String {
     }
 }
 
+fn validation_failure_body_excerpt(body: &str, max_chars: usize) -> String {
+    let focused = body
+        .split_once("\nraw_output:\n")
+        .map(|(_, rest)| rest)
+        .or_else(|| body.split_once("\r\nraw_output:\r\n").map(|(_, rest)| rest))
+        .unwrap_or(body);
+    let mut signal_lines = Vec::new();
+    let mut fallback_lines = Vec::new();
+    for line in focused.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || validation_failure_line_is_noise(trimmed) {
+            continue;
+        }
+        let lower = trimmed.to_ascii_lowercase();
+        if validation_failure_line_is_signal(&lower) {
+            signal_lines.push(trimmed.to_string());
+        } else {
+            fallback_lines.push(trimmed.to_string());
+        }
+    }
+    let selected = if signal_lines.is_empty() {
+        fallback_lines
+    } else {
+        signal_lines
+    };
+    if selected.is_empty() {
+        single_line_preview(&working_evidence_body_excerpt(body, max_chars), max_chars)
+    } else {
+        single_line_preview(&selected.join(" | "), max_chars)
+    }
+}
+
+fn validation_failure_line_is_noise(line: &str) -> bool {
+    let lower = line.to_ascii_lowercase();
+    lower.starts_with("exit code:")
+        || lower.starts_with("wall time:")
+        || lower == "output:"
+        || lower.starts_with("taskspacetoolinvocationv1:")
+        || lower.starts_with("tool:")
+        || lower.starts_with("command:")
+        || lower.starts_with("raw_output:")
+        || lower.starts_with("preview:")
+        || lower.starts_with("success:")
+        || lower.starts_with("call_id:")
+        || lower.starts_with("action_class:")
+        || lower.contains("requestsdependencywarning")
+        || lower.contains("warnings.warn(")
+}
+
+fn validation_failure_line_is_signal(lower_line: &str) -> bool {
+    lower_line.contains("traceback")
+        || lower_line.contains("assertionerror")
+        || lower_line.contains("keyerror")
+        || lower_line.contains("indentationerror")
+        || lower_line.contains("syntaxerror")
+        || lower_line.contains("filenotfounderror")
+        || lower_line.contains("modulenotfounderror")
+        || lower_line.contains("typeerror")
+        || lower_line.contains("valueerror")
+        || lower_line.contains("exception")
+        || lower_line.contains("error:")
+        || lower_line.contains("failed")
+        || lower_line.contains("no such file")
+        || lower_line.contains("not found")
+        || lower_line.contains(" line ")
+}
+
 fn projection_next_valid_actions(
     map: &ActionMapInstance,
     current_node_id: Option<&str>,
@@ -13300,14 +13367,28 @@ fn validation_test_coverage_block(
     }
     let changed_artifacts = validation_dependency_changed_artifacts(map, node);
     let output_targets = task_output_contract_artifact_targets(task);
-    if changed_artifacts.is_empty()
-        || changed_artifacts
+    let changed_artifacts_requiring_coverage = changed_artifacts
+        .iter()
+        .filter(|artifact| {
+            !output_targets
+                .iter()
+                .any(|output| artifact_refs_equivalent(artifact, output))
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    let covered_changed_artifact = if changed_artifacts_requiring_coverage.is_empty() {
+        changed_artifacts
             .iter()
             .any(|artifact| command_mentions_artifact(&command, artifact))
-        || output_targets
+            || output_targets
+                .iter()
+                .any(|artifact| command_mentions_artifact(&command, artifact))
+    } else {
+        changed_artifacts_requiring_coverage
             .iter()
             .any(|artifact| command_mentions_artifact(&command, artifact))
-    {
+    };
+    if changed_artifacts.is_empty() || covered_changed_artifact {
         return None;
     }
     let changed_summary = changed_artifacts
@@ -13376,6 +13457,10 @@ fn command_covers_local_validator(command: &str, validator_command: &str) -> boo
         || command.contains(" scripts/validate.py")
 }
 
+fn artifact_refs_equivalent(left: &str, right: &str) -> bool {
+    normalize_artifact_ref(left).eq_ignore_ascii_case(&normalize_artifact_ref(right))
+}
+
 fn push_unique_string(values: &mut Vec<String>, value: String) {
     if !values.iter().any(|existing| existing == &value) {
         values.push(value);
@@ -13413,7 +13498,10 @@ fn validation_node_failed_noninfra_result(
         {
             return None;
         }
-        Some((result.id.clone(), single_line_preview(&result.body, 220)))
+        Some((
+            result.id.clone(),
+            validation_failure_body_excerpt(&result.body, 640),
+        ))
     })
 }
 
@@ -13464,7 +13552,10 @@ fn validation_node_semantic_failure_result(
         {
             return None;
         }
-        Some((result.id.clone(), single_line_preview(&result.body, 220)))
+        Some((
+            result.id.clone(),
+            validation_failure_body_excerpt(&result.body, 640),
+        ))
     })
 }
 
@@ -21220,6 +21311,135 @@ def normalize_status(value: str) -> str:\n\
             "timeout_ms": 120000
         })
         .to_string();
+        let error = state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new(
+                    "shell_command",
+                    ActionClass::Test,
+                    checks_output_contract,
+                ),
+            )
+            .expect_err("output-only validation does not exercise the changed generator");
+        assert!(
+            error.contains("validation_test_missing_changed_artifact_coverage"),
+            "{error}"
+        );
+        assert!(error.contains("recover_logs.py"), "{error}");
+
+        state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new("shell_command", ActionClass::Test, "pytest"),
+            )
+            .expect("general project validators remain allowed");
+    }
+
+    #[test]
+    fn validation_node_allows_output_check_when_changed_artifact_is_output_contract() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (_, _, implement_node_id, _) = start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::ImplementSolution,
+            "Write report",
+            "Create the requested JSON artifact.",
+            "Implement output",
+            "Write the output artifact directly.",
+            true,
+        );
+        state
+            .record_output_contract_for_main(
+                owner,
+                "oc-report",
+                "artifact",
+                "organization.json".to_string(),
+                vec![ActionMapEvidenceRefInput {
+                    artifact_ref: Some("user-request".to_string()),
+                    ..Default::default()
+                }],
+            )
+            .expect("output contract records");
+        let (edit_result_id, _) = state
+            .record_main_tool_result_with_class(
+                owner,
+                "edit-output",
+                "apply_patch",
+                Some(ActionClass::Edit),
+                true,
+                "Success. Updated the following files:\n*** Add File: organization.json\n"
+                    .to_string(),
+            )
+            .expect("edit result")
+            .expect("edit result id");
+        state
+            .mark_result_validity_for_main(
+                owner,
+                &edit_result_id,
+                "accepted",
+                "accepted output edit".to_string(),
+                vec![ActionMapCognitiveClaimInput {
+                    id: "claim-output-edit".to_string(),
+                    statement: "Output artifact was written directly.".to_string(),
+                    evidence_refs: vec![ActionMapEvidenceRefInput {
+                        result_id: Some(edit_result_id.clone()),
+                        ..Default::default()
+                    }],
+                }],
+                vec![ActionMapEvidenceRefInput {
+                    result_id: Some(edit_result_id.clone()),
+                    ..Default::default()
+                }],
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+            )
+            .expect("edit accepted");
+        let (outcome, _) = state
+            .finish_main_node_with_next(
+                owner,
+                &implement_node_id,
+                "Created output artifact.".to_string(),
+                None,
+                Some(ActionMapNextNodeDraft {
+                    kind: NodeKind::SmokeTest,
+                    title: "Validate output".to_string(),
+                    context_summary: "Check the generated output artifact.".to_string(),
+                    dependency_node_ids: vec![implement_node_id.clone()],
+                }),
+            )
+            .expect("finish implementation into validation");
+        state
+            .mark_result_validity_for_main(
+                owner,
+                &outcome.result_id,
+                "accepted",
+                "accepted implementation handoff".to_string(),
+                vec![ActionMapCognitiveClaimInput {
+                    id: "claim-output-handoff".to_string(),
+                    statement: "Direct output edit can proceed to validation.".to_string(),
+                    evidence_refs: vec![ActionMapEvidenceRefInput {
+                        result_id: Some(outcome.result_id.clone()),
+                        ..Default::default()
+                    }],
+                }],
+                vec![ActionMapEvidenceRefInput {
+                    result_id: Some(outcome.result_id.clone()),
+                    ..Default::default()
+                }],
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+            )
+            .expect("handoff accepted");
+
+        let checks_output_contract = serde_json::json!({
+            "command": "python -c \"import json; data=json.load(open('organization.json')); assert isinstance(data, dict)\"",
+            "timeout_ms": 120000
+        })
+        .to_string();
         state
             .prepare_main_tool_call(
                 owner,
@@ -21229,14 +21449,7 @@ def normalize_status(value: str) -> str:\n\
                     checks_output_contract,
                 ),
             )
-            .expect("validation may directly check the output contract artifact");
-
-        state
-            .prepare_main_tool_call(
-                owner,
-                ToolActionDescriptor::new("shell_command", ActionClass::Test, "pytest"),
-            )
-            .expect("general project validators remain allowed");
+            .expect("direct output artifact edits may be validated by checking the output");
     }
 
     #[test]
@@ -21549,6 +21762,35 @@ FileNotFoundError: [Errno 2] No such file or directory: 'daily_temp_sf_high.csv'
             Some(validation_node_id.as_str())
         );
         assert!(rework_node.context.summary.contains("IndentationError"));
+    }
+
+    #[test]
+    fn validation_failure_summary_preserves_error_after_warning_noise() {
+        let body = "Main tool call\n\
+tool: shell_command\n\
+call_id: taskspace-action-contract-13-run_test\n\
+action_class: test\n\
+success: false\n\
+preview:\n\
+TaskSpaceToolInvocationV1:\n\
+tool: shell_command\n\
+command: python3 -c \"import json; assert False\"\n\
+raw_output:\n\
+Exit code: 1\n\
+Wall time: 4.3 seconds\n\
+Output:\n\
+C:\\Users\\77585\\miniconda3\\Lib\\site-packages\\requests\\__init__.py:113: RequestsDependencyWarning: urllib3 mismatch\n\
+  warnings.warn(\n\
+Traceback (most recent call last):\n\
+  File \"<string>\", line 1, in <module>\n\
+AssertionError: schema field missing";
+
+        let summary = validation_failure_body_excerpt(body, 640);
+
+        assert!(summary.contains("Traceback"));
+        assert!(summary.contains("AssertionError: schema field missing"));
+        assert!(!summary.contains("RequestsDependencyWarning"));
+        assert!(!summary.contains("command: python3"));
     }
 
     #[test]

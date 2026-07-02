@@ -4963,6 +4963,41 @@ tax_calc.py\n\
     }
 
     #[test]
+    fn taskspace_apply_patch_strips_unified_file_headers_inside_native_update() {
+        let patch = normalize_taskspace_apply_patch(
+            "*** Update File: generate.py\n\
+--- \n\
++++ \n\
+@@ -1,10 +1,35 @@\n\
+-import csv\n\
++import csv\n\
++import json\n",
+        );
+
+        assert!(patch.starts_with("*** Begin Patch\n*** Update File: "));
+        assert!(patch.contains("generate.py\n"));
+        assert!(patch.contains("@@\n-import csv\n+import csv\n+import json\n"));
+        assert!(!patch.contains("\n--- \n"));
+        assert!(!patch.contains("\n+++ \n"));
+        assert!(patch.ends_with("*** End Patch\n"));
+    }
+
+    #[test]
+    fn taskspace_apply_patch_keeps_unified_like_content_after_native_hunk_starts() {
+        let patch = normalize_taskspace_apply_patch(
+            "*** Update File: generate.py\n\
+@@\n\
+-old\n\
++--- not a file header\n\
++++ not a file header\n\
++new\n",
+        );
+
+        assert!(patch.contains("+--- not a file header\n"));
+        assert!(patch.contains("+++ not a file header\n"));
+    }
+
+    #[test]
     fn taskspace_finish_current_node_action_builds_control_finish() {
         let action =
             taskspace_finish_current_node_action(Some("node-2"), "Implementation edit succeeded.");
@@ -8034,52 +8069,88 @@ fn normalize_taskspace_apply_patch(patch: &str) -> String {
 fn normalize_taskspace_native_hunk_headers(patch: &str) -> String {
     let mut changed = false;
     let mut section_kind: Option<&str> = None;
+    let mut update_hunk_started = false;
     let mut lines = Vec::new();
-    for line in patch.lines() {
+    let source_lines = patch.lines().collect::<Vec<_>>();
+    let mut index = 0usize;
+    while index < source_lines.len() {
+        let line = source_lines[index];
         if line.starts_with("*** Add File: ") {
             section_kind = Some("add");
             lines.push(line.to_string());
+            index += 1;
             continue;
         }
         if line.starts_with("*** Update File: ") {
             section_kind = Some("update");
+            update_hunk_started = false;
             lines.push(line.to_string());
+            index += 1;
             continue;
         }
         if line.starts_with("*** Delete File: ") {
             section_kind = Some("delete");
+            update_hunk_started = false;
             lines.push(line.to_string());
+            index += 1;
             continue;
         }
         if line == "*** End Patch" {
             section_kind = None;
+            update_hunk_started = false;
             lines.push(line.to_string());
+            index += 1;
+            continue;
+        }
+        if section_kind == Some("update")
+            && !update_hunk_started
+            && taskspace_line_looks_unified_old_file_header(line)
+            && source_lines
+                .get(index + 1)
+                .is_some_and(|next| taskspace_line_looks_unified_new_file_header(next))
+        {
+            changed = true;
+            index += 2;
             continue;
         }
         if line.starts_with("@@") {
             match section_kind {
                 Some("add") => {
                     changed = true;
+                    index += 1;
                     continue;
                 }
                 Some("update") => {
+                    update_hunk_started = true;
                     let normalized = normalize_taskspace_unified_hunk_line(line);
                     if normalized != line {
                         changed = true;
                     }
                     lines.push(normalized);
+                    index += 1;
                     continue;
                 }
                 _ => {}
             }
         }
         lines.push(line.to_string());
+        index += 1;
     }
     if changed {
         lines.join("\n") + "\n"
     } else {
         patch.to_string()
     }
+}
+
+fn taskspace_line_looks_unified_old_file_header(line: &str) -> bool {
+    let trimmed = line.trim();
+    trimmed == "---" || trimmed.starts_with("--- ") || trimmed.starts_with("---\t")
+}
+
+fn taskspace_line_looks_unified_new_file_header(line: &str) -> bool {
+    let trimmed = line.trim();
+    trimmed == "+++" || trimmed.starts_with("+++ ") || trimmed.starts_with("+++\t")
 }
 
 fn normalize_taskspace_bare_file_patch(patch: &str) -> Option<String> {
