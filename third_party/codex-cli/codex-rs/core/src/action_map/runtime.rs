@@ -2097,6 +2097,11 @@ impl ActionMapRuntimeState {
                     .is_some_and(|progress| {
                         progress >= contract.max_main_tool_results_before_split_hint
                     }))
+            && !implement_node_validation_rework_read_targets_failure_artifact(
+                map,
+                node,
+                &descriptor,
+            )
         {
             let evidence_source =
                 if implement_node_has_dependency_validation_rework_evidence(map, node) {
@@ -2253,6 +2258,7 @@ impl ActionMapRuntimeState {
             && descriptor.action_class != ActionClass::Control
             && let Some((failed_result_id, failed_summary)) =
                 validation_node_failed_noninfra_result(map, node)
+                    .or_else(|| validation_node_semantic_failure_result(map, node))
         {
             let reason = "validation_failed_requires_rework_routing".to_string();
             let message = format!(
@@ -2524,6 +2530,19 @@ preview:\n\
             )
             && let Some((validation_node_id, blocker_summary)) =
                 self.current_main_validation_node_failed_noninfra_summary()
+            && validation_node_id == node_id
+        {
+            let (_, mut blocker_events) =
+                self.block_main_node(owner_session_id, &validation_node_id, blocker_summary)?;
+            events.append(&mut blocker_events);
+        } else if success
+            && matches!(
+                recorded_action_class,
+                Some(ActionClass::Build | ActionClass::Test)
+            )
+            && validation_output_indicates_failure(&body)
+            && let Some((validation_node_id, blocker_summary)) =
+                self.current_main_validation_node_semantic_failure_summary()
             && validation_node_id == node_id
         {
             let (_, mut blocker_events) =
@@ -5016,6 +5035,7 @@ preview:\n\
         let validation_rework =
             if matches!(node.kind, NodeKind::SmokeTest | NodeKind::RegressionTest) {
                 validation_node_failed_noninfra_result(map, node)
+                    .or_else(|| validation_node_semantic_failure_result(map, node))
                     .or_else(|| validation_node_local_infra_unvalidated_artifact_result(map, node))
                     .or_else(|| {
                         validation_node_local_infra_blocker_unvalidated_artifact_result(
@@ -6577,6 +6597,32 @@ preview:\n\
                 node_id.to_string(),
                 format!(
                     "Validation node `{node_id}` failed test/build result `{result_id}`. Failure preview: {failed_summary}. Fix the implementation artifact(s) named in the failure output, then finish this implement_solution node into a fresh validation rerun."
+                ),
+            )
+        })
+    }
+
+    fn current_main_validation_node_semantic_failure_summary(&self) -> Option<(String, String)> {
+        let Some(map_id) = self.active_map_id.as_deref() else {
+            return None;
+        };
+        let Some(node_id) = self.current_main_node_id.as_deref() else {
+            return None;
+        };
+        let Some(map) = self.maps.get(map_id) else {
+            return None;
+        };
+        let Some(node) = map.nodes.get(node_id) else {
+            return None;
+        };
+        if !matches!(node.kind, NodeKind::SmokeTest | NodeKind::RegressionTest) {
+            return None;
+        }
+        validation_node_semantic_failure_result(map, node).map(|(result_id, failed_summary)| {
+            (
+                node_id.to_string(),
+                format!(
+                    "Validation node `{node_id}` produced a semantic failure result `{result_id}` despite exit code 0. Failure preview: {failed_summary}. Fix the implementation artifact(s) named in the failure output, then finish this implement_solution node into a fresh validation rerun."
                 ),
             )
         })
@@ -12332,6 +12378,7 @@ fn validation_output_indicates_failure(text: &str) -> bool {
         "not found",
         "0 passed",
         "no tests ran",
+        "recovered 0 rows",
     ];
     strong_failure_markers
         .iter()
@@ -13107,6 +13154,27 @@ fn validation_node_failed_noninfra_result(
     })
 }
 
+fn validation_node_semantic_failure_result(
+    map: &ActionMapInstance,
+    node: &MapNode,
+) -> Option<(String, String)> {
+    node.result_context.iter().rev().find_map(|result_ref| {
+        let result = map.results.get(&result_ref.id)?;
+        if result.kind != NodeResultKind::MainToolCall
+            || result.tool_success != Some(true)
+            || !matches!(
+                result.action_class,
+                Some(ActionClass::Test | ActionClass::Build)
+            )
+            || node_result_is_successful_validation(result)
+            || !validation_output_indicates_failure(&result.body)
+        {
+            return None;
+        }
+        Some((result.id.clone(), single_line_preview(&result.body, 220)))
+    })
+}
+
 fn validation_node_local_infra_unvalidated_artifact_result(
     map: &ActionMapInstance,
     node: &MapNode,
@@ -13473,6 +13541,54 @@ fn normalize_artifact_ref(path: &str) -> String {
         .replace('\\', "/")
 }
 
+fn validation_failure_text_artifact_refs(text: &str) -> Vec<String> {
+    let mut artifacts = Vec::new();
+    for raw_token in text.split(|ch: char| ch.is_whitespace() || matches!(ch, '"' | '\'' | '`')) {
+        let token = raw_token.trim_matches(|ch: char| {
+            matches!(
+                ch,
+                ',' | ':' | ';' | ')' | '(' | '[' | ']' | '{' | '}' | '<' | '>'
+            )
+        });
+        let lower = token.to_ascii_lowercase();
+        if !is_validation_failure_artifact_token(&lower) {
+            continue;
+        }
+        let artifact_ref = normalize_failure_artifact_token(token);
+        if !artifact_ref.is_empty() && !artifacts.iter().any(|existing| existing == &artifact_ref) {
+            artifacts.push(artifact_ref);
+        }
+    }
+    artifacts
+}
+
+fn is_validation_failure_artifact_token(lower: &str) -> bool {
+    [
+        ".py", ".rs", ".js", ".ts", ".tsx", ".jsx", ".sh", ".ps1", ".go", ".java", ".c", ".cpp",
+        ".h", ".hpp",
+    ]
+    .iter()
+    .any(|suffix| lower.ends_with(suffix) || lower.contains(&format!("{suffix}:")))
+}
+
+fn normalize_failure_artifact_token(token: &str) -> String {
+    let mut normalized = normalize_artifact_ref(token);
+    while let Some(idx) = normalized.find("/app/") {
+        normalized = normalized[idx + "/app/".len()..].to_string();
+    }
+    if normalized.len() > 2 && normalized.as_bytes().get(1) == Some(&b':') {
+        normalized = normalized[2..].trim_start_matches('/').to_string();
+    }
+    normalized
+        .trim_matches(|ch: char| {
+            matches!(
+                ch,
+                ',' | ':' | ';' | ')' | '(' | '[' | ']' | '{' | '}' | '<' | '>'
+            )
+        })
+        .to_string()
+}
+
 fn is_implementation_surface_ref(artifact_ref: &str) -> bool {
     let normalized = artifact_ref.replace('\\', "/").to_ascii_lowercase();
     if normalized == "readme.md" || normalized.starts_with("docs/") {
@@ -13738,6 +13854,10 @@ fn blocker_claims_missing_inspected_source_evidence(blocker_summary: &str) -> bo
         || lower.contains("need to read")
         || lower.contains("need to inspect")
         || lower.contains("need source")
+        || lower.contains("cannot read")
+        || lower.contains("can't read")
+        || lower.contains("lack visibility")
+        || lower.contains("lacks visibility")
         || lower.contains("cannot guess");
     source_subject && missing_claim
 }
@@ -13827,6 +13947,75 @@ fn implement_node_has_dependency_validation_rework_evidence(
     node: &MapNode,
 ) -> bool {
     implement_node_dependency_validation_rework_summary(map, node).is_some()
+}
+
+fn implement_node_validation_rework_read_targets_failure_artifact(
+    map: &ActionMapInstance,
+    node: &MapNode,
+    descriptor: &ToolActionDescriptor,
+) -> bool {
+    if node.kind != NodeKind::ImplementSolution
+        || !matches!(
+            descriptor.action_class,
+            ActionClass::Read | ActionClass::Search
+        )
+    {
+        return false;
+    }
+    let artifact_refs = implement_node_dependency_validation_rework_artifact_refs(map, node);
+    !artifact_refs.is_empty()
+        && tool_action_descriptor_targets_any_artifact(descriptor, &artifact_refs)
+}
+
+fn implement_node_dependency_validation_rework_artifact_refs(
+    map: &ActionMapInstance,
+    node: &MapNode,
+) -> Vec<String> {
+    if node.kind != NodeKind::ImplementSolution {
+        return Vec::new();
+    }
+    let mut artifact_refs = Vec::new();
+    let mut dependency_node_ids = map
+        .edges
+        .iter()
+        .filter(|edge| edge.to == node.id)
+        .map(|edge| edge.from.as_str())
+        .collect::<Vec<_>>();
+    if let Some(origin_node_id) = node.origin_node_id.as_deref()
+        && !dependency_node_ids.contains(&origin_node_id)
+    {
+        dependency_node_ids.push(origin_node_id);
+    }
+    for dependency_node_id in dependency_node_ids {
+        let Some(dependency) = map.nodes.get(dependency_node_id) else {
+            continue;
+        };
+        if !matches!(
+            dependency.kind,
+            NodeKind::SmokeTest | NodeKind::RegressionTest
+        ) || dependency.status != NodeStatus::Blocked
+        {
+            continue;
+        }
+        for result_ref in &dependency.result_context {
+            let Some(result) = map.results.get(&result_ref.id) else {
+                continue;
+            };
+            if result.kind != NodeResultKind::MainToolCall && result.kind != NodeResultKind::Blocker
+            {
+                continue;
+            }
+            for artifact_ref in validation_failure_text_artifact_refs(&result.body) {
+                if !artifact_refs
+                    .iter()
+                    .any(|existing| existing == &artifact_ref)
+                {
+                    artifact_refs.push(artifact_ref);
+                }
+            }
+        }
+    }
+    artifact_refs
 }
 
 fn implement_node_dependency_validation_rework_summary(
@@ -26713,7 +26902,7 @@ summary: diagnostic payload for output reference smoke\n\
     }
 
     #[test]
-    fn force_finish_validation_rejects_semantic_failure_output() {
+    fn semantic_failure_output_blocks_validation_instead_of_closeout() {
         let mut state = ActionMapRuntimeState::default();
         let owner = ThreadId::new();
         state.set_mode(MapRuntimeMode::Experiment);
@@ -26771,12 +26960,17 @@ summary: diagnostic payload for output reference smoke\n\
 
         assert!(result.is_none());
         let map = state.maps.get(&map_id).expect("map");
-        assert!(
-            map.nodes
-                .get(&node_id)
-                .is_some_and(|node| { node.status == NodeStatus::Running })
-        );
+        let node = map.nodes.get(&node_id).expect("validation node");
+        assert_eq!(node.status, NodeStatus::Blocked);
         assert!(!state.active_map_has_accepted_successful_validation_result());
+        assert!(state.active_map_has_blocked_validation_result());
+        let current = state
+            .current_main_node_id
+            .as_deref()
+            .expect("semantic failure should bind rework");
+        let rework = map.nodes.get(current).expect("rework node");
+        assert_eq!(rework.kind, NodeKind::ImplementSolution);
+        assert_eq!(rework.origin_node_id.as_deref(), Some(node_id.as_str()));
     }
 
     #[test]
@@ -27215,6 +27409,19 @@ summary: diagnostic payload for output reference smoke\n\
                 }),
             )
             .expect("finish implementation into validation");
+        state
+            .mark_result_validity_for_main(
+                owner,
+                &handoff.result_id,
+                "accepted",
+                "accepted implementation node finish".to_string(),
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+            )
+            .expect("implementation finish accepted");
         let validation_node_id = handoff.next_node_id.expect("validation node id");
 
         state
@@ -27328,12 +27535,143 @@ summary: diagnostic payload for output reference smoke\n\
             .block_main_node(
                 owner,
                 &rework_node_id,
-                "Need to inspect current recover.py to apply precise patch.".to_string(),
+                "Cannot read recover.py to fix indentation errors after failed smoke_test."
+                    .to_string(),
             )
             .expect_err("rework node must not close for missing current artifact visibility");
 
         assert!(error.contains("cannot be blocked for missing source visibility"));
         assert!(error.contains("apply_patch"));
+    }
+
+    #[test]
+    fn validation_rework_allows_target_file_read_from_traceback_before_edit() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (_, _map_id, implement_node_id, _) = start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::ImplementSolution,
+            "Recover sqlite output",
+            "Create the script and output artifact.",
+            "Implement recovery",
+            "Create recover.py and generate recover.json.",
+            true,
+        );
+        let (edit_result_id, _) = state
+            .record_main_tool_result_with_class(
+                owner,
+                "edit-recover-script",
+                "apply_patch",
+                Some(ActionClass::Edit),
+                true,
+                "Success. Updated the following files:\nA recover.py\n".to_string(),
+            )
+            .expect("edit result")
+            .expect("edit result id");
+        state
+            .mark_result_validity_for_main(
+                owner,
+                &edit_result_id,
+                "accepted",
+                "accepted implementation edit".to_string(),
+                vec![ActionMapCognitiveClaimInput {
+                    id: "claim-edit-recover-script-for-read".to_string(),
+                    statement: "Recovery script was created.".to_string(),
+                    evidence_refs: vec![ActionMapEvidenceRefInput {
+                        result_id: Some(edit_result_id.clone()),
+                        ..Default::default()
+                    }],
+                }],
+                vec![ActionMapEvidenceRefInput {
+                    result_id: Some(edit_result_id.clone()),
+                    ..Default::default()
+                }],
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+            )
+            .expect("edit accepted");
+        let (handoff, _) = state
+            .finish_main_node_with_next(
+                owner,
+                &implement_node_id,
+                "Created recovery script.".to_string(),
+                None,
+                Some(ActionMapNextNodeDraft {
+                    kind: NodeKind::SmokeTest,
+                    title: "Run recovery validation".to_string(),
+                    context_summary: "Run validation that exercises recover.py.".to_string(),
+                    dependency_node_ids: vec![implement_node_id.clone()],
+                }),
+            )
+            .expect("finish implementation into validation");
+        let validation_node_id = handoff.next_node_id.expect("validation node id");
+        let lifecycle_result_ids = {
+            let map = state.active_map().expect("active map");
+            map.results
+                .values()
+                .filter(|result| result.kind == NodeResultKind::Result)
+                .map(|result| result.id.clone())
+                .collect::<Vec<_>>()
+        };
+        for result_id in lifecycle_result_ids {
+            state
+                .mark_result_validity_for_main(
+                    owner,
+                    &result_id,
+                    "accepted",
+                    "accepted setup lifecycle result".to_string(),
+                    vec![ActionMapCognitiveClaimInput {
+                        id: format!("claim-setup-{result_id}"),
+                        statement:
+                            "Setup implementation result accepted for focused read-gate test."
+                                .to_string(),
+                        evidence_refs: vec![ActionMapEvidenceRefInput {
+                            artifact_ref: Some("recover.py".to_string()),
+                            ..Default::default()
+                        }],
+                    }],
+                    vec![ActionMapEvidenceRefInput {
+                        artifact_ref: Some("recover.py".to_string()),
+                        ..Default::default()
+                    }],
+                    Vec::new(),
+                    Vec::new(),
+                    Vec::new(),
+                )
+                .expect("setup lifecycle result accepted");
+        }
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "run-recover-script",
+                "shell_command",
+                Some(ActionClass::Test),
+                false,
+                "Exit code: 1\n  File \"S:\\app\\recover.py\", line 3\n    import os\nIndentationError: unexpected indent\n".to_string(),
+            )
+            .expect("failed validation should route rework");
+        let rework_node_id = state
+            .current_main_node_id
+            .clone()
+            .expect("failed validation should bind rework");
+        assert_ne!(rework_node_id, validation_node_id);
+
+        state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new(
+                    "shell_command",
+                    ActionClass::Read,
+                    serde_json::json!({
+                        "command": "Get-Content -LiteralPath \"recover.py\" -TotalCount 240"
+                    })
+                    .to_string(),
+                ),
+            )
+            .expect("validation rework may read the traceback target file before editing");
     }
 
     #[test]
@@ -27822,12 +28160,12 @@ summary: diagnostic payload for output reference smoke\n\
                     "shell_command",
                     ActionClass::Read,
                     serde_json::json!({
-                        "command": "Get-Content -LiteralPath \"convert.py\" -TotalCount 240"
+                        "command": "Get-Content -LiteralPath \"README.md\" -TotalCount 240"
                     })
                     .to_string(),
                 ),
             )
-            .expect_err("rework must patch or block instead of rediscovery reads");
+            .expect_err("rework must patch, block, or read the failed artifact instead of rediscovery reads");
 
         assert!(
             read_error
@@ -28251,6 +28589,69 @@ summary: diagnostic payload for output reference smoke\n\
         let node = map.nodes.get(&node_id).expect("validation node");
         assert_eq!(node.status, NodeStatus::Blocked);
         assert!(state.active_map_has_blocked_validation_result());
+    }
+
+    #[test]
+    fn semantic_failure_success_exit_auto_blocks_validation_and_routes_rework() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (_, map_id, node_id, _) = start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::SmokeTest,
+            "Validate fix",
+            "Run the validation suite.",
+            "Run smoke tests",
+            "Run recover.py.",
+            true,
+        );
+
+        let (result_id, events) = state
+            .record_main_tool_result_with_class(
+                owner,
+                "taskspace-action-contract-16-run_test",
+                "shell_command",
+                Some(ActionClass::Test),
+                true,
+                "TaskSpaceToolInvocationV1:\n\
+tool: shell_command\n\
+command: python recover.py\n\
+raw_output:\n\
+Exit code: 0\n\
+Output:\n\
+Backup failed: file is not a database\n\
+Recovered 0 rows\n\
+OK: 0 rows"
+                    .to_string(),
+            )
+            .expect("semantic failure validation result records")
+            .expect("test result id");
+
+        let map = state.maps.get(&map_id).expect("active map");
+        let result = map
+            .results
+            .get(&result_id)
+            .expect("semantic failure validation result");
+        assert!(!node_result_is_successful_validation(result));
+        assert!(validation_output_indicates_failure(&result.body));
+        let validation_node = map.nodes.get(&node_id).expect("validation node");
+        assert_eq!(validation_node.status, NodeStatus::Blocked);
+        assert!(state.active_map_has_blocked_validation_result());
+        let current = state
+            .current_main_node_id
+            .as_deref()
+            .expect("runtime should bind semantic-failure rework");
+        let rework = map.nodes.get(current).expect("rework node");
+        assert_eq!(rework.kind, NodeKind::ImplementSolution);
+        assert_eq!(rework.origin_node_id.as_deref(), Some(node_id.as_str()));
+        assert!(events.iter().any(|event| {
+            matches!(
+                event,
+                MapRuntimeEvent::NodeStatusChanged(changed)
+                    if changed.node_id == node_id && changed.current_status == "blocked"
+            )
+        }));
     }
 
     #[test]

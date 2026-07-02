@@ -1186,3 +1186,123 @@
   - Remaining failure has moved from engineering timeout/tool-loop to answer quality: TaskSpace changed `recover.py` and project scaffolding but did not produce the required `recover.json`, so public validation failed as `agent_patch_wrong`.
   - This becomes the next R4 unresolved utility issue; it is not the same gate-loop defect.
 - Time: 2026-07-02 12:12
+
+## Hypothesis H-019: validation rework must allow narrow reads of the failing artifact before editing
+
+- Related problems:
+  - P-004
+- Status: repaired-by-unit-tests; real-sample rerun pending
+- Claim:
+  - After H-018 removed the nested result-review loop, `sqlite-db-truncate` exposed a second TaskSpace utility issue: validation rework could see that `recover.py` was failing, but the read/search gate still treated reading the failing file as rediscovery instead of a focused validation-repair action. The agent then attempted blind one-line patches, accumulated indentation errors, and finally emitted a blocker saying it could not read the file.
+- Evidence:
+  - Real rerun:
+    ```text
+    RunDir: C:\WhaleRunCache\r4-rerun-20260702\sqlite-db-truncate-nested-validation-chain-fix\runs\terminal_bench__sqlite-db-truncate\20260702-115413-930\pair-001
+    outcome_taskspace=engineering_unclean
+    failure_taxonomy=engineering_unclean, agent_patch_wrong, audit_unclean
+    taskspace_exec_timed_out=false
+    taskspace_public_validation_exit_code=1
+    ```
+  - Public validation failed because the expected artifact was not created:
+    ```text
+    FileNotFoundError: [Errno 2] No such file or directory: '/app/recover.json'
+    ```
+  - Rollout showed the validation rework chain repeatedly running `python recover.py`, observing successive `IndentationError` failures, and patching individual import lines without first reading the current file.
+  - The final TaskSpace app contained `recover.py` but no `recover.json`; `recover.py` was a concatenation of two scripts with malformed top-level indentation.
+  - The agent eventually used `taskspace_control(block_node)` with:
+    ```text
+    Cannot read recover.py to fix indentation errors after failed smoke_test.
+    ```
+- Root cause:
+  - The active validation-rework read/search gate correctly tried to prevent broad rediscovery after validation failure, but it did not distinguish a narrow read of the exact failing traceback artifact from unrelated exploration.
+  - The blocker classifier also missed phrases such as `Cannot read ...`, so the runtime accepted a missing-source-visibility blocker even though the correct next action was a focused read plus edit.
+- Repair:
+  - Extract artifact references from validation failure text, including traceback-style paths such as `S:\app\recover.py` and `/app/recover.py`.
+  - Allow active validation-rework read/search actions only when their descriptor targets one of those failed artifacts.
+  - Keep unrelated reads/searches blocked until an edit is attempted, preserving the original anti-rediscovery intent.
+  - Extend missing-source-visibility blocker detection for `cannot read`, `can't read`, `lack visibility`, and `lacks visibility`.
+- Validation:
+  ```text
+  cargo fmt --all -- --check
+  PASS
+
+  cargo test -j1 -p codex-core validation_rework_allows_target_file_read_from_traceback_before_edit --lib
+  PASS
+
+  cargo test -j1 -p codex-core validation_rework_rejects_missing_current_artifact_visibility_blocker --lib
+  PASS
+
+  cargo test -j1 -p codex-core blocked_validation_rework_requires_edit_before_rediscovery --lib
+  PASS
+
+  cargo build -j1 --profile dev-small -p codex-cli --bin whale
+  PASS
+  ```
+- Time: 2026-07-02 12:44
+
+## Hypothesis H-020: validation success-exit semantic failures must route to rework instead of recovery-looping
+
+- Related problems:
+  - P-004
+- Status: repaired-by-unit-tests; real-sample rerun pending
+- Claim:
+  - A validation command can exit 0 while still proving that the implementation is semantically wrong. TaskSpace previously rejected such output for validation closeout, but did not route it to a rework node. The active validation node stayed running, then repeated `validation_recovery` requests with no tools until the external 900s timeout.
+- Evidence:
+  - Real rerun:
+    ```text
+    RunDir: C:\WhaleRunCache\r4-rerun-20260702\sqlite-db-truncate-target-read-rework-fix\runs\terminal_bench__sqlite-db-truncate\20260702-130118-459\pair-001
+    outcome_taskspace=agent_exec_timeout
+    taskspace_exec_timed_out=true
+    right_validation_lifecycle_stage=unknown
+    right_tests_started_seen=False
+    taskspace_tool_call_count=10
+    nodes=7
+    edges=686
+    open_leaf_nodes=1
+    ```
+  - `node-7` recorded a successful local command result, but the output showed semantic failure:
+    ```text
+    command: python recover.py
+    Exit code: 0
+    Backup failed: file is not a database
+    Recovered 0 rows
+    OK: 0 rows
+    ```
+  - After that result, provider requests continued in `request_phase:validation_recovery` with `tools_present:false` and repeated last-message preview:
+    ```text
+    A successful implementation edit is already recorded.
+    ```
+  - The final app had `recover.py` and `recover.json`, but `recover.json` was `[]`, and external validation was skipped due to `agent_exec_timeout`.
+- Root cause:
+  - `force_finish_validation_after_successful_tool` correctly refused to close the validation node because the output was not a confirmed validator success.
+  - The failed-validation rework path only covered `tool_success=false` results and local infrastructure failures. It did not cover `tool_success=true` results whose output contained failure semantics.
+  - As a result, the validation node was neither completed nor blocked, so the turn loop kept asking the model for validation recovery instead of moving to implementation rework.
+- Repair:
+  - Added `validation_node_semantic_failure_result(...)` for successful test/build tool calls whose output includes failure markers and is not a successful validation.
+  - Added `recovered 0 rows` to semantic failure markers for recovery/data-processing tasks.
+  - Routed semantic-failure validation results through the same block-and-rework path as normal failed validation.
+  - Kept genuine successful validation closeout unchanged.
+- Validation:
+  ```text
+  cargo test -j1 -p codex-core semantic_failure_success_exit_auto_blocks_validation_and_routes_rework --lib
+  PASS
+
+  cargo test -j1 -p codex-core semantic_failure_output_blocks_validation_instead_of_closeout --lib
+  PASS
+
+  cargo test -j1 -p codex-core force_finish_validation_after_successful_tool_closes_smoke_node --lib
+  PASS
+
+  cargo test -j1 -p codex-core local_infra_tool_result_auto_blocks_validation_node --lib
+  PASS
+
+  cargo test -j1 -p codex-core validation_rework_allows_target_file_read_from_traceback_before_edit --lib
+  PASS
+
+  cargo fmt --all -- --check
+  PASS
+
+  cargo build -j1 --profile dev-small -p codex-cli --bin whale
+  PASS
+  ```
+- Time: 2026-07-02 14:06
