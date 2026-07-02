@@ -1629,3 +1629,59 @@
 - Conclusion:
   - The reporting gap is fixed. The underlying TaskSpace utility issue remains open: high cache hit does not compensate for long-flow convergence and request-count amplification.
 - Time: 2026-07-02 18:10
+
+## Hypothesis H-026: inspect nodes keep accepting low-value reads after successful diagnostic evidence
+
+- Related problems:
+  - P-004
+- Status: repaired-by-focused-tests; real rerun pending build availability
+- Claim:
+  - In action-contract TaskSpace sessions, `inspect_code_context` only auto-converged after duplicate diagnostics, no-action recovery, progress pressure, or request budget pressure. It did not reuse the existing successful-required-action auto-finish path for the common case where inspect already had both a successful diagnostic and concrete working evidence, so the model could keep reading already-known or wrong-path files before implementation.
+- Evidence:
+  - Real `heterogeneous-dates` public-10 row:
+    ```text
+    outcome_standard=solved
+    outcome_taskspace=solved
+    standard_model_request_count=1
+    taskspace_model_request_count=12
+    taskspace_token_ratio=11.082
+    request_2_plus_cache_hit_rate=0.98556
+    ```
+  - The TaskSpace inspect node had six main tool results before convergence:
+    ```text
+    result-3 read task-deps/daily_temp_sf_high.csv success
+    result-4 run_test computed 11.428571428571429 success
+    result-5 re-read task-deps/daily_temp_sf_high.csv success
+    result-6 read daily_temp_sf_low.csv at wrong root failed
+    result-7 forced inspect transition only after inspect_no_action_with_evidence
+    ```
+  - Code inspection confirmed `should_finish_node_after_successful_required_action(...)` only handled `implement_solution` and validation nodes, not `inspect_code_context`.
+- Root cause:
+  - Inspect convergence had a forced-transition path, but not a semantic auto-finish path for "successful diagnostic + working evidence + next action is more discovery." This is a state-machine convergence gap, not a cache-hit failure and not a fixed request-budget issue.
+- Repair:
+  - Added `current_main_inspect_has_successful_diagnostic_and_working_evidence()` in the action map runtime.
+  - Added a session wrapper for that query.
+  - Extended action-contract auto-finish so an inspect node with successful diagnostic plus working evidence converts subsequent `list_files`/`search`/`read_file` into `finish_node`.
+  - Added a dedicated inspect finish action that creates an `implement_solution` next node with the inspect node as dependency.
+- Validation:
+  ```text
+  cargo fmt --all -- --check
+  PASS
+
+  CARGO_TARGET_DIR=D:\BuildCache\whalecode\cargo-target cargo test -j1 -p codex-core inspect_successful_diagnostic_and_working_evidence_marks_convergence_ready --lib
+  PASS
+
+  CARGO_TARGET_DIR=D:\BuildCache\whalecode\cargo-target cargo test -j1 -p codex-core taskspace_finish_inspect_to_implementation_action_builds_next_node --lib
+  PASS
+
+  CARGO_TARGET_DIR=D:\BuildCache\whalecode\cargo-target cargo test -j1 -p codex-core taskspace_action_contract_finish_node --lib
+  PASS
+  ```
+- Build/rerun gap:
+  ```text
+  CARGO_TARGET_DIR=D:\BuildCache\whalecode\cargo-target cargo build -j1 --profile dev-small -p codex-core
+  TIMEOUT after 604s
+  ```
+  - The timed-out build process was stopped to avoid RAM pressure.
+  - A real `heterogeneous-dates` rerun still requires a fresh Whale binary; do not claim runtime benefit until that rerun is complete.
+- Time: 2026-07-02 19:05

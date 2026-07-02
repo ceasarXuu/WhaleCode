@@ -4842,6 +4842,20 @@ tax_calc.py\n\
     }
 
     #[test]
+    fn taskspace_finish_inspect_to_implementation_action_builds_next_node() {
+        let action = taskspace_finish_inspect_to_implementation_action(Some("node-1"));
+
+        assert_eq!(action.action, "taskspace_control");
+        assert_eq!(action.node_id.as_deref(), Some("node-1"));
+        assert_eq!(action.args["action"], "finish_node");
+        assert_eq!(action.args["node_id"], "node-1");
+        assert_eq!(action.args["next_node_kind"], "implement_solution");
+        assert_eq!(action.args["next_node_title"], "Apply inspected fix");
+        assert_eq!(action.args["next_dependency_node_ids"][0], "node-1");
+        assert!(taskspace_action_is_finish_node_control(&action));
+    }
+
+    #[test]
     fn taskspace_provider_transport_defaults_deepseek_to_action_contract() {
         assert_eq!(
             taskspace_provider_transport_mode_for_request(true, ""),
@@ -7580,6 +7594,13 @@ async fn should_finish_node_after_successful_required_action(
                     .action_map_current_main_node_has_successful_action(ActionClass::Build)
                     .await
         }
+        Some("inspect_code_context") => {
+            taskspace_action_is_read_or_search(&action.action)
+                && sess
+                    .action_map_current_main_inspect_has_successful_diagnostic_and_working_evidence(
+                    )
+                    .await
+        }
         _ => false,
     }
 }
@@ -7788,6 +7809,40 @@ fn taskspace_finish_current_node_action(
         args: serde_json::Value::Object(args),
         rationale: Some("A successful implementation edit is already recorded.".to_string()),
     }
+}
+
+fn taskspace_finish_inspect_to_implementation_action(node_id: Option<&str>) -> TaskSpaceActionV1 {
+    let mut action = taskspace_finish_current_node_action(
+        node_id,
+        "Inspect evidence already includes successful diagnostic output and working evidence; proceed to implementation.",
+    );
+    if let serde_json::Value::Object(root) = &mut action.args {
+        root.insert(
+            "next_node_kind".to_string(),
+            serde_json::Value::String("implement_solution".to_string()),
+        );
+        root.insert(
+            "next_node_title".to_string(),
+            serde_json::Value::String("Apply inspected fix".to_string()),
+        );
+        root.insert(
+            "next_node_context_summary".to_string(),
+            serde_json::Value::String(
+                "Apply the narrow implementation change indicated by the successful inspect diagnostic and working evidence.".to_string(),
+            ),
+        );
+        if let Some(node_id) = node_id.filter(|value| !value.trim().is_empty()) {
+            root.insert(
+                "next_dependency_node_ids".to_string(),
+                serde_json::Value::Array(vec![serde_json::Value::String(node_id.to_string())]),
+            );
+        }
+    }
+    action.rationale = Some(
+        "Inspect already has successful diagnostic and working evidence; avoid low-value discovery."
+            .to_string(),
+    );
+    action
 }
 
 fn taskspace_action_arg_string(args: &serde_json::Value, name: &str) -> Option<String> {
@@ -9506,10 +9561,16 @@ async fn try_run_sampling_request(
                                 )
                                 .await
                             {
-                                taskspace_finish_current_node_action(
-                                    snapshot.node_id.as_deref(),
-                                    "Required node work already succeeded; finishing node.",
-                                )
+                                if snapshot.node_kind.as_deref() == Some("inspect_code_context") {
+                                    taskspace_finish_inspect_to_implementation_action(
+                                        snapshot.node_id.as_deref(),
+                                    )
+                                } else {
+                                    taskspace_finish_current_node_action(
+                                        snapshot.node_id.as_deref(),
+                                        "Required node work already succeeded; finishing node.",
+                                    )
+                                }
                             } else if let Some(snapshot) = provider_budget_snapshot.as_ref()
                                 && should_answer_after_successful_validation_redundant_node(
                                     &action,

@@ -119,7 +119,41 @@ PASS
 
 结论不变：R4 的工程可观测性继续增强，但 TaskSpace utility parity、long-flow convergence、cost/token advantage 仍未完成，不能进入 E3。
 
-## 9. 2026-07-02 Post-Closeout Utility Finding
+## 9. 2026-07-02 Post-Closeout Inspect Convergence Finding
+
+基于 request amplification report，继续分析 `heterogeneous-dates`，确认一个新的工程缺口：inspect 节点在已有成功诊断和工作证据后，仍允许继续做低价值 read/search。该样本中 TaskSpace 已经在 inspect result-4 计算出正确答案 `11.428571428571429`，但之后又重复读取 high CSV 并读取错误 root low CSV，最终到 no-action recovery 才进入 implement。
+
+已实现的工程修复：
+- runtime 增加 `current_main_inspect_has_successful_diagnostic_and_working_evidence`。
+- session action-contract auto-finish 现在覆盖 inspect 节点。
+- inspect auto-finish 会创建 `implement_solution` next node，而不是只关闭 inspect。
+
+已通过验证：
+
+```text
+cargo fmt --all -- --check
+PASS
+
+cargo test -j1 -p codex-core inspect_successful_diagnostic_and_working_evidence_marks_convergence_ready --lib
+PASS
+
+cargo test -j1 -p codex-core taskspace_finish_inspect_to_implementation_action_builds_next_node --lib
+PASS
+
+cargo test -j1 -p codex-core taskspace_action_contract_finish_node --lib
+PASS
+```
+
+仍未完成：
+
+```text
+cargo build -j1 --profile dev-small -p codex-core
+TIMEOUT after 604s
+```
+
+因此该修复只能记为 engineering-gate pass，不能记为真实 `heterogeneous-dates` runtime benefit pass。真实收益仍需新 Whale binary 构建后复跑该样本，并比较 TaskSpace model request count 是否从 12 明显下降。
+
+## 10. 2026-07-02 Post-Closeout Utility Finding
 
 R4 closeout 后继续复跑 `sqlite-db-truncate`，确认了一个额外的工程事实：R4 的局部状态机修复仍能产生真实收益，但 TaskSpace utility 仍未收敛。
 
@@ -164,7 +198,7 @@ open_leaf_nodes=1
 - 样本仍未 solved，失败从 closed-validation masking 转移为 900s long-flow timeout。
 - 因此 R4 的 release decision 不变：工程交付和观测门禁可以保留为完成，但 TaskSpace utility parity 仍是后续 P0。
 
-## 10. 2026-07-02 Post-Closeout H-024 Tool Invocation Finding
+## 11. 2026-07-02 Post-Closeout H-024 Tool Invocation Finding
 
 继续追踪 `sqlite-db-truncate` 时，又确认了一个 action-contract `run_test` host-shell 规范化缺口：TaskSpace 可能把 Bash 顶层 `||` 原样交给 Windows PowerShell，导致 `InvalidEndOfLine`，工具还没有产生有价值诊断就失败。
 

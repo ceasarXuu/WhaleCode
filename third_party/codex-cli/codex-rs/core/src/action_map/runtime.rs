@@ -6379,6 +6379,27 @@ preview:\n\
             })
     }
 
+    pub(crate) fn current_main_inspect_has_successful_diagnostic_and_working_evidence(
+        &self,
+    ) -> bool {
+        let Some(map_id) = self.active_map_id.as_ref() else {
+            return false;
+        };
+        let Some(node_id) = self.current_main_node_id.as_ref() else {
+            return false;
+        };
+        let Some(map) = self.maps.get(map_id) else {
+            return false;
+        };
+        let Some(node) = map.nodes.get(node_id) else {
+            return false;
+        };
+        node.kind == NodeKind::InspectCodeContext
+            && node_has_successful_diagnostic_test_result(map, node)
+            && node_has_successful_code_or_test_inspect_result(map, node)
+            && inspect_node_unread_referenced_scripts(map, node).is_empty()
+    }
+
     pub(crate) fn current_main_inspect_unread_referenced_scripts(&self) -> Vec<String> {
         let Some(map_id) = self.active_map_id.as_ref() else {
             return Vec::new();
@@ -22974,6 +22995,75 @@ def normalize_status(value: str) -> str:\n\
                 .inspect_node_has_successful_code_or_test_read(&map_id, &node_id)
                 .expect("inspect node should exist"),
             "concrete source content should count as working evidence"
+        );
+    }
+
+    #[test]
+    fn inspect_successful_diagnostic_and_working_evidence_marks_convergence_ready() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::InspectCodeContext,
+            "Inspect data",
+            "Inspect data before writing answer.",
+            "Inspect data",
+            "Inspect data before writing answer.",
+            true,
+        );
+
+        state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new(
+                    "shell_command",
+                    ActionClass::Read,
+                    "Get-Content -LiteralPath \"src/tax_calc.py\"",
+                )
+                .with_call_id("read-high"),
+            )
+            .expect("read should be allowed");
+        state
+            .record_main_tool_result(
+                owner,
+                "read-high",
+                "shell_command",
+                true,
+                "def calculate_tax(subtotal, region):\n    return subtotal".to_string(),
+            )
+            .expect("read result records");
+
+        assert!(
+            !state.current_main_inspect_has_successful_diagnostic_and_working_evidence(),
+            "working evidence alone is not enough to auto-converge inspect"
+        );
+
+        state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new(
+                    "shell_command",
+                    ActionClass::Test,
+                    "python -c \"print(11.428571428571429)\"",
+                )
+                .with_call_id("calc-average"),
+            )
+            .expect("diagnostic should be allowed");
+        state
+            .record_main_tool_result(
+                owner,
+                "calc-average",
+                "shell_command",
+                true,
+                "11.428571428571429".to_string(),
+            )
+            .expect("diagnostic result records");
+
+        assert!(
+            state.current_main_inspect_has_successful_diagnostic_and_working_evidence(),
+            "successful diagnostic plus working evidence should be ready to converge"
         );
     }
 

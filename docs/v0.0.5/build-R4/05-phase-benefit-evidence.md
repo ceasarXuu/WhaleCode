@@ -996,3 +996,81 @@ PASS: R4 public-10 usage accounting gate rejects ambiguous token usage
 1. R4-G report 现在能证明高 cache hit 不等于低成本；TaskSpace 的主要成本放大来自多轮请求放大。
 2. gate 会拒绝 `model_request_count_availability=measured` 但缺少 `taskspace_model_request_ratio` 的报告，防止请求放大被再次隐藏。
 3. 这不是 TaskSpace utility 修复；它把剩余 P0 问题更准确地收敛为 long-flow convergence 和请求轮数控制。
+
+## 5.15 2026-07-02 inspect 成功诊断后的低价值读取收敛修复
+
+基于 5.14 暴露的请求放大证据，继续分析 `heterogeneous-dates`。该样本 standard 和 TaskSpace 都 solved，因此适合排除 correctness 干扰，单独观察请求放大。
+
+现场证据：
+
+```text
+RunDir:
+C:\WhaleRunCache\r4-public10-20260702\actual\heterogeneous-dates-v1\runs\terminal_bench__heterogeneous-dates\20260702-042837-780\pair-001
+
+standard_model_request_count=1
+taskspace_model_request_count=12
+taskspace_token_ratio=11.082
+request_2_plus_cache_hit_rate=0.98556
+```
+
+TaskSpace inspect node 的关键结果：
+
+```text
+result-3: read task-deps/daily_temp_sf_high.csv success
+result-4: run_test success, output 11.428571428571429
+result-5: re-read task-deps/daily_temp_sf_high.csv success
+result-6: read daily_temp_sf_low.csv at wrong root failed
+result-7: forced inspect transition after inspect_no_action_with_evidence
+```
+
+根因：
+
+`should_finish_node_after_successful_required_action(...)` 已经覆盖 `implement_solution` 和 validation 节点：成功 edit/test 后，后续低价值动作会被转成 `finish_node`。但 `inspect_code_context` 没有同类语义收敛路径；inspect 只有 duplicate diagnostic、no-action recovery、progress pressure 等后置路径，导致已具备成功诊断和工作证据后仍可继续 read/search。
+
+修复：
+
+```text
+third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs
+third_party/codex-cli/codex-rs/core/src/session/mod.rs
+third_party/codex-cli/codex-rs/core/src/session/turn.rs
+```
+
+行为变化：
+
+```text
+inspect_code_context
+  if successful diagnostic exists
+  and working read/search evidence exists
+  and no unread referenced script blocks convergence
+  and next action is list_files/search/read_file
+=> rewrite to taskspace_control(action=finish_node, next_node_kind=implement_solution)
+```
+
+验证：
+
+```text
+cargo fmt --all -- --check
+PASS
+
+CARGO_TARGET_DIR=D:\BuildCache\whalecode\cargo-target cargo test -j1 -p codex-core inspect_successful_diagnostic_and_working_evidence_marks_convergence_ready --lib
+PASS
+
+CARGO_TARGET_DIR=D:\BuildCache\whalecode\cargo-target cargo test -j1 -p codex-core taskspace_finish_inspect_to_implementation_action_builds_next_node --lib
+PASS
+
+CARGO_TARGET_DIR=D:\BuildCache\whalecode\cargo-target cargo test -j1 -p codex-core taskspace_action_contract_finish_node --lib
+PASS
+```
+
+未完成验证：
+
+```text
+CARGO_TARGET_DIR=D:\BuildCache\whalecode\cargo-target cargo build -j1 --profile dev-small -p codex-core
+TIMEOUT after 604s
+```
+
+收益判断：
+
+1. 工程收益已由 focused tests 证明：inspect 节点具备成功诊断和工作证据后，后续低价值 read/search 会进入 finish-to-implement，而不是继续消耗请求。
+2. 真实样本收益尚未证明，因为新 Whale 二进制未能在本轮构建完成，不能用旧 bin 复验。
+3. 该修复仍保持非硬预算原则：它不限制复杂任务继续做新的必要诊断，只收敛成功诊断后的低价值读取。
