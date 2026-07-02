@@ -152,6 +152,8 @@ const TASKSPACE_EDIT_FAILURE_MARKER: &str = "TaskSpaceEditFailureRecoveryV1:";
 const TASKSPACE_APPLY_PATCH_FORMAT_MARKER: &str = "TaskSpaceApplyPatchFormatRecoveryV1:";
 const TASKSPACE_APPLY_PATCH_MISSING_TARGET_MARKER: &str =
     "TaskSpaceApplyPatchMissingTargetRecoveryV1:";
+const TASKSPACE_APPLY_PATCH_UNANCHORED_UPDATE_MARKER: &str =
+    "TaskSpaceApplyPatchUnanchoredUpdateRecoveryV1:";
 const TASKSPACE_PATCH_INTENT_FORMAT_MARKER: &str = "TaskSpacePatchIntentFormatRecoveryV1:";
 const TASKSPACE_VALIDATION_INFRA_RECOVERY_MARKER: &str = "TaskSpaceValidationInfraRecoveryV1:";
 const TASKSPACE_VALIDATION_NEEDS_TEST_MARKER: &str = "TaskSpaceValidationNeedsTestRecoveryV1:";
@@ -1583,6 +1585,33 @@ Current required behavior:\n\
     }
 }
 
+fn build_taskspace_apply_patch_unanchored_update_recovery_item(targets: &str) -> ResponseItem {
+    let targets = targets.trim();
+    let targets = if targets.is_empty() {
+        "(unknown updated file)"
+    } else {
+        targets
+    };
+    let text = format!(
+        "{TASKSPACE_APPLY_PATCH_UNANCHORED_UPDATE_MARKER}\n\
+The previous apply_patch used `*** Update File` with only added lines and no existing context or deleted lines for: {targets}\n\
+That patch shape is ambiguous for an existing file: it can insert new text without replacing the broken code that validation reported.\n\
+Current required behavior:\n\
+- Emit exactly one corrected apply_patch now.\n\
+- For an in-place fix, include existing context lines and the exact `-old` / `+new` replacement lines.\n\
+- If the file is small or generated and the full intended contents are known, use `*** Delete File: <path>` followed by `*** Add File: <path>` with the complete corrected file.\n\
+- Do not call finish_node, create_node, read_file, search, or validation until this corrected edit succeeds."
+    );
+
+    ResponseItem::Message {
+        id: None,
+        role: "developer".to_string(),
+        content: vec![ContentItem::InputText { text }],
+        end_turn: None,
+        phase: None,
+    }
+}
+
 fn build_taskspace_patch_intent_format_recovery_item(
     evidence_summary: Option<&str>,
     raw_preview: Option<&str>,
@@ -1831,6 +1860,7 @@ fn is_taskspace_implement_needs_edit_recovery_item(item: &ResponseItem) -> bool 
     response_item_text_contains(item, TASKSPACE_IMPLEMENT_NEEDS_EDIT_MARKER)
         || response_item_text_contains(item, TASKSPACE_EDIT_FAILURE_MARKER)
         || response_item_text_contains(item, TASKSPACE_APPLY_PATCH_MISSING_TARGET_MARKER)
+        || response_item_text_contains(item, TASKSPACE_APPLY_PATCH_UNANCHORED_UPDATE_MARKER)
         || response_item_text_contains(item, TASKSPACE_PATCH_INTENT_FORMAT_MARKER)
 }
 
@@ -1841,6 +1871,8 @@ fn taskspace_special_recovery_warning_message(item: &ResponseItem) -> String {
         "TaskSpace inserted TaskSpaceApplyPatchFormatRecoveryV1 after apply_patch tried to add an existing file. This guidance does not consume the no-action recovery allowance.".to_string()
     } else if response_item_text_contains(item, TASKSPACE_APPLY_PATCH_MISSING_TARGET_MARKER) {
         "TaskSpace inserted TaskSpaceApplyPatchMissingTargetRecoveryV1 after apply_patch tried to update a missing file. This guidance does not consume the no-action recovery allowance.".to_string()
+    } else if response_item_text_contains(item, TASKSPACE_APPLY_PATCH_UNANCHORED_UPDATE_MARKER) {
+        "TaskSpace inserted TaskSpaceApplyPatchUnanchoredUpdateRecoveryV1 after apply_patch used an unanchored Update File patch. This guidance does not consume the no-action recovery allowance.".to_string()
     } else if response_item_text_contains(item, TASKSPACE_EDIT_FAILURE_MARKER) {
         "TaskSpace inserted TaskSpaceEditFailureRecoveryV1 after an edit tool call failed. This guidance does not consume the no-action recovery allowance.".to_string()
     } else if response_item_text_contains(item, TASKSPACE_IMPLEMENT_NEEDS_EDIT_MARKER) {
@@ -1861,7 +1893,13 @@ fn taskspace_special_recovery_warning_message(item: &ResponseItem) -> String {
 }
 
 fn taskspace_message_hit_implementation_needs_edit(message: Option<&str>) -> bool {
-    message.is_some_and(|message| message.contains("implementation_needs_edit"))
+    message.is_some_and(|message| {
+        message.contains("implementation_needs_edit")
+            || (message.contains("validation rework node")
+                && message.contains("already read failure artifact")
+                && message.contains("no successful edit"))
+            || message.contains("has enough read/search evidence and no successful edit")
+    })
 }
 
 fn taskspace_message_hit_validation_needs_test(message: Option<&str>) -> bool {
@@ -1901,6 +1939,17 @@ fn taskspace_raw_text_mentions_apply_patch_intent(raw_text: &str) -> bool {
 fn taskspace_existing_file_add_targets_from_rejection(message: Option<&str>) -> Option<String> {
     let message = message?;
     let (_, rest) = message.split_once("apply_patch_existing_file_as_add:")?;
+    let targets = rest
+        .split_once(". Return exactly")
+        .map(|(targets, _)| targets)
+        .unwrap_or(rest)
+        .trim();
+    (!targets.is_empty()).then(|| targets.to_string())
+}
+
+fn taskspace_unanchored_update_targets_from_rejection(message: Option<&str>) -> Option<String> {
+    let message = message?;
+    let (_, rest) = message.split_once("apply_patch_unanchored_update:")?;
     let targets = rest
         .split_once(". Return exactly")
         .map(|(targets, _)| targets)
@@ -4016,6 +4065,24 @@ Then I will inspect the file."#,
     }
 
     #[test]
+    fn validation_rework_duplicate_read_rejection_uses_edit_recovery() {
+        assert!(taskspace_message_hit_implementation_needs_edit(Some(
+            "TaskSpace blocked this read because validation rework node `node-4` already read failure artifact `recover.py` in result `result-12` and no successful edit has been recorded after that read. Use the existing file contents from that result and apply the smallest fix with apply_patch, or return blocked with the exact reason no safe edit can be made."
+        )));
+
+        let item = build_taskspace_implement_needs_edit_recovery_item(Some(
+            "result-12: recover.py current binary scan recovered 2 rows",
+        ));
+        let text = item_text(item.clone());
+
+        assert!(text.contains(TASKSPACE_IMPLEMENT_NEEDS_EDIT_MARKER));
+        assert!(text.contains("recover.py"));
+        assert!(text.contains("apply_patch"));
+        assert!(!is_taskspace_no_action_recovery_item(&item));
+        assert!(is_taskspace_implement_needs_edit_recovery_item(&item));
+    }
+
+    #[test]
     fn taskspace_strict_json_apply_patch_intent_rejection_is_detected() {
         let raw = r#"{"schema_version":"taskspace-action-v1","action":"apply_patch","node_id":"node-1","args":{"patch":"*** Begin Patch\n*** Update File: app.py\n*** End Patch\n"}} extra"#;
         assert!(taskspace_raw_text_mentions_apply_patch_intent(raw));
@@ -4726,6 +4793,63 @@ Then I will inspect the file."#,
         let err = taskspace_action_to_tool_call(&action, &provider_snapshot("implement_solution"))
             .expect_err("existing files must be patched as updates");
         assert_eq!(err, "apply_patch_existing_file_as_add:Cargo.toml");
+    }
+
+    #[test]
+    fn taskspace_action_contract_rejects_unanchored_update_patch() {
+        let raw = serde_json::json!({
+            "schema_version": "taskspace-action-v1",
+            "action": "apply_patch",
+            "node_id": "node-1",
+            "args": {
+                "patch": "*** Begin Patch\n*** Update File: recover.py\n+import sqlite3\n+print('fixed')\n*** End Patch\n"
+            },
+        })
+        .to_string();
+        let action = parse_taskspace_action_v1(&raw).expect("valid json");
+
+        let err = taskspace_action_to_tool_call(&action, &provider_snapshot("implement_solution"))
+            .expect_err("unanchored updates can insert without replacing broken code");
+
+        assert_eq!(err, "apply_patch_unanchored_update:src/recover.py");
+    }
+
+    #[test]
+    fn taskspace_action_contract_allows_anchored_update_patch() {
+        let raw = serde_json::json!({
+            "schema_version": "taskspace-action-v1",
+            "action": "apply_patch",
+            "node_id": "node-1",
+            "args": {
+                "patch": "*** Begin Patch\n*** Update File: recover.py\n@@\n- import sqlite3\n+import sqlite3\n*** End Patch\n"
+            },
+        })
+        .to_string();
+        let action = parse_taskspace_action_v1(&raw).expect("valid json");
+
+        let call = taskspace_action_to_tool_call(&action, &provider_snapshot("implement_solution"))
+            .expect("anchored replacement is valid")
+            .expect("tool call");
+
+        assert_eq!(call.tool_name.name, "apply_patch");
+    }
+
+    #[test]
+    fn apply_patch_unanchored_update_recovery_does_not_count_as_no_action_retry() {
+        let targets = taskspace_unanchored_update_targets_from_rejection(Some(
+            "TaskSpaceActionV1 rejected: apply_patch_unanchored_update:recover.py. Return exactly one valid taskspace-action-v1 JSON object.",
+        ))
+        .expect("target parsed");
+        let item = build_taskspace_apply_patch_unanchored_update_recovery_item(&targets);
+        let text = item_text(item.clone());
+
+        assert_eq!(targets, "recover.py");
+        assert!(text.contains(TASKSPACE_APPLY_PATCH_UNANCHORED_UPDATE_MARKER));
+        assert!(text.contains("recover.py"));
+        assert!(text.contains("`-old` / `+new`"));
+        assert!(text.contains("*** Delete File: <path>"));
+        assert!(!is_taskspace_no_action_recovery_item(&item));
+        assert!(is_taskspace_implement_needs_edit_recovery_item(&item));
     }
 
     #[test]
@@ -8213,6 +8337,70 @@ fn taskspace_apply_patch_declared_targets(patch: &str) -> Vec<String> {
     targets
 }
 
+fn taskspace_apply_patch_unanchored_update_targets(patch: &str) -> Vec<String> {
+    let mut targets = Vec::new();
+    let mut current_target: Option<String> = None;
+    let mut saw_added_line = false;
+    let mut saw_anchor_line = false;
+
+    let finish_section = |targets: &mut Vec<String>,
+                          current_target: &mut Option<String>,
+                          saw_added_line: &mut bool,
+                          saw_anchor_line: &mut bool| {
+        if let Some(target) = current_target.take()
+            && *saw_added_line
+            && !*saw_anchor_line
+            && !targets.iter().any(|existing| existing == &target)
+        {
+            targets.push(target);
+        }
+        *saw_added_line = false;
+        *saw_anchor_line = false;
+    };
+
+    for line in patch.lines() {
+        if let Some(target) = line.strip_prefix("*** Update File: ").map(str::trim) {
+            finish_section(
+                &mut targets,
+                &mut current_target,
+                &mut saw_added_line,
+                &mut saw_anchor_line,
+            );
+            current_target = (!target.is_empty()).then(|| target.to_string());
+            continue;
+        }
+
+        if line.starts_with("*** Add File: ")
+            || line.starts_with("*** Delete File: ")
+            || line.starts_with("*** End Patch")
+        {
+            finish_section(
+                &mut targets,
+                &mut current_target,
+                &mut saw_added_line,
+                &mut saw_anchor_line,
+            );
+            continue;
+        }
+
+        if current_target.is_some() {
+            if line.starts_with('+') && !line.starts_with("+++") {
+                saw_added_line = true;
+            } else if (line.starts_with('-') && !line.starts_with("---")) || line.starts_with(' ') {
+                saw_anchor_line = true;
+            }
+        }
+    }
+
+    finish_section(
+        &mut targets,
+        &mut current_target,
+        &mut saw_added_line,
+        &mut saw_anchor_line,
+    );
+    targets
+}
+
 fn normalize_taskspace_patch_target_key(target: &str) -> String {
     target
         .trim()
@@ -8420,6 +8608,13 @@ fn taskspace_action_to_tool_call(
             }
             let patch = normalize_taskspace_unified_diff_patch(&patch)
                 .unwrap_or_else(|| normalize_taskspace_apply_patch(&patch));
+            let unanchored_update_targets = taskspace_apply_patch_unanchored_update_targets(&patch);
+            if !unanchored_update_targets.is_empty() {
+                return Err(format!(
+                    "apply_patch_unanchored_update:{}",
+                    unanchored_update_targets.join(",")
+                ));
+            }
             if let Some(missing_targets) =
                 taskspace_apply_patch_missing_mandatory_targets(&patch, snapshot)
             {
@@ -9935,6 +10130,12 @@ async fn try_run_sampling_request(
                         last_agent_message.as_deref(),
                     ) {
                         Some(build_taskspace_apply_patch_format_recovery_item(&targets))
+                    } else if let Some(targets) = taskspace_unanchored_update_targets_from_rejection(
+                        last_agent_message.as_deref(),
+                    ) {
+                        Some(build_taskspace_apply_patch_unanchored_update_recovery_item(
+                            &targets,
+                        ))
                     } else if current_budget_snapshot.as_ref().is_some_and(|snapshot| {
                         snapshot.node_kind.as_deref() == Some("implement_solution")
                     }) && let Some(targets) =

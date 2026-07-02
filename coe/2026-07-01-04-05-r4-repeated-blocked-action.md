@@ -1932,3 +1932,172 @@
 - Conclusion:
   - The H-029 repair has real engineering benefit: the same public sample moved from 900s timeout with public validation already passing to non-timeout solved with both public and hidden oracle passing. Remaining `engineering_unclean` in the pair report is caused by E3/audit eligibility requirements, not by TaskSpace execution failure.
 - Time: 2026-07-02 20:10
+
+## Hypothesis H-030: timeout harness must stream stdout/stderr before process exit
+
+- Status: repaired-and-validated-by-harness-test; real-sample diagnostic benefit confirmed
+- Linkage:
+  - R4 public sample reruns for `sqlite-db-truncate`.
+  - Prior run timed out before preserving enough right-side artifacts, making the TaskSpace failure look black-box.
+- Claim:
+  - `Invoke-RealProcess` buffered stdout/stderr with `ReadToEndAsync()` and wrote logs only after normal process completion. When the benchmark-side timeout killed the process, the most important diagnostic artifacts could be missing or incomplete.
+- Evidence:
+  - Added `scripts/taskspace-benchmark/test-real-process-streaming.ps1`.
+  - Harness self-test:
+    ```text
+    powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-real-process-streaming.ps1
+    PASS: Invoke-RealProcess streams stdout/stderr and preserves timeout diagnostics
+    ```
+  - External wrapper self-test:
+    ```text
+    TASKSPACE_MIN_FREE_GIB=15
+    powershell -NoProfile -ExecutionPolicy Bypass -File scripts\taskspace-benchmark\test-external-wrapper-harness.ps1
+    PASS
+    ```
+  - After the harness repair, timed-out TaskSpace samples preserved `whale-exec.jsonl`, stderr, timing JSON, and metrics, which enabled the later root-cause analysis below.
+- Repair:
+  - Reworked `scripts/action-map-real-user-e2e-lib.ps1` to stream stdout/stderr into files through FileStream copy tasks.
+  - On timeout, the harness now kills the process, writes a timeout marker to stderr, records `timed_out=true`, `completed=false`, and avoids accumulating full output in memory.
+- Benefit:
+  - This does not make TaskSpace solve a sample by itself, but it prevents timeout diagnostics from being lost and reduces RAM pressure from large outputs.
+
+## Hypothesis H-031: uv cache access denied is local validator infrastructure, not implementation failure
+
+- Status: repaired-by-unit-tests; real sample exposed the branch once, subsequent rerun moved to a different failure
+- Claim:
+  - `uv run pytest` can fail on the host with `C:\Users\77585\AppData\Local\uv\cache\sdists-v9\.git ... Access is denied (os error 5)`. TaskSpace previously risked treating that as implementation validation failure.
+- Evidence:
+  - Observed in `sqlite-db-truncate` rerun:
+    ```text
+    error: failed to open file ...\uv\cache\sdists-v9\.git
+    os error 5
+    ```
+  - Focused regression:
+    ```text
+    cargo test -j1 -p codex-core uv_cache_access_denied_auto_blocks_validation_as_local_infra --lib
+    PASS
+    ```
+  - Related local-infra regressions all passed:
+    ```text
+    local_infra_tool_result_auto_blocks_validation_node
+    action_contract_run_test_local_infra_result_auto_blocks_validation
+    semantic_failure_success_exit_auto_blocks_validation_and_routes_rework
+    local_validator_infra_failure_does_not_raise_validator_failure
+    ```
+- Repair:
+  - Extended local validator infra detection in `action_map/runtime.rs` for uv cache paths plus access-denied / permission-denied signatures.
+- Benefit:
+  - Local host cache failures no longer pollute implementation rework classification.
+
+## Hypothesis H-032: unanchored `Update File` patches must be rejected before execution
+
+- Status: repaired-by-unit-tests; real rerun did not reproduce the old unanchored branch
+- Claim:
+  - TaskSpace action-contract allowed an `apply_patch` shaped like:
+    ```text
+    *** Update File: recover.py
+    +import sqlite3
+    +...
+    ```
+    with no existing context lines and no deleted lines. For an existing file this can insert new text without replacing the broken content, but the model can treat the edit as successful and continue.
+- Evidence:
+  - Failed `sqlite-db-truncate` run before repair:
+    ```text
+    RunDir:
+    C:\WhaleRunCache\r4-uv-infra-sqlite-truncate-20260702\runs\terminal_bench__sqlite-db-truncate\20260702-210016-678
+
+    outcome_taskspace=agent_exec_timeout
+    changed_paths=recover.py
+    first bad patch produced leading-space IndentationError
+    later Update File patch added lines without replacing the broken file
+    ```
+- Repair:
+  - Added `taskspace_apply_patch_unanchored_update_targets(...)`.
+  - `taskspace_action_to_tool_call(...)` now rejects unanchored update patches with:
+    ```text
+    apply_patch_unanchored_update:<targets>
+    ```
+  - Added `TaskSpaceApplyPatchUnanchoredUpdateRecoveryV1` guidance telling the model to use exact `-old/+new` context or `Delete File` plus `Add File` for a full replacement.
+- Validation:
+  ```text
+  cargo fmt --all -- --check
+  PASS
+
+  cargo test -j1 -p codex-core taskspace_action_contract_rejects_unanchored_update_patch --lib
+  PASS
+
+  cargo test -j1 -p codex-core taskspace_action_contract_allows_anchored_update_patch --lib
+  PASS
+
+  cargo test -j1 -p codex-core apply_patch_unanchored_update_recovery_does_not_count_as_no_action_retry --lib
+  PASS
+  ```
+- Benefit:
+  - The bad patch shape is now stopped before it can create misleading successful file-change evidence.
+
+## Hypothesis H-033: duplicate validation-rework artifact reads need edit-specific recovery
+
+- Status: repaired-and-real-sample-benefit-confirmed
+- Claim:
+  - When a validation rework `implement_solution` node already read the failed artifact and has no successful edit, repeated `read_file` calls are correctly blocked by ActionMap, but the session layer previously mapped that rejection to generic `TaskSpaceNoActionRecoveryV1`.
+  - Generic no-action recovery was too weak: the model kept rereading the same file and the run timed out.
+- Before repair evidence:
+  ```text
+  RunDir:
+  C:\WhaleRunCache\r4-unanchored-patch-sqlite-truncate-20260702\runs\terminal_bench__sqlite-db-truncate\20260702-213917-258\pair-001
+
+  outcome_standard=solved
+  outcome_taskspace=agent_exec_timeout
+  taskspace_exec_timed_out=true
+  taskspace_wall_ms=420067
+  taskspace_tool_call_count=13
+  open_leaf_nodes=1
+  failure_taxonomy=engineering_unclean, taskspace_overhead_timeout, audit_unclean
+  ```
+  Repeated log signature:
+  ```text
+  TaskSpace blocked this read because validation rework node `node-4`
+  already read failure artifact `recover.py` in result `result-12`
+  and no successful edit has been recorded after that read.
+
+  TaskSpace inserted TaskSpaceNoActionRecoveryV1 ...
+  ```
+- Repair:
+  - Extended `taskspace_message_hit_implementation_needs_edit(...)` to recognize:
+    ```text
+    validation rework node ... already read failure artifact ... no successful edit
+    ```
+  - The same rejection now routes to `TaskSpaceImplementNeedsEditRecoveryV1`, which says the next valid action is `apply_patch`, `taskspace_control`, or a specific blocked result.
+- Validation:
+  ```text
+  cargo fmt --all -- --check
+  PASS
+
+  cargo test -j1 -p codex-core validation_rework_duplicate_read_rejection_uses_edit_recovery --lib
+  PASS
+
+  cargo test -j1 -p codex-core taskspace_implementation_needs_edit_rejection_uses_specific_recovery --lib
+  PASS
+
+  cargo build -j1 --profile dev-small -p codex-cli --bin whale
+  PASS
+  ```
+- After repair real rerun:
+  ```text
+  RunDir:
+  C:\WhaleRunCache\r4-edit-recovery-sqlite-truncate-20260702\runs\terminal_bench__sqlite-db-truncate\20260702-220208-680\pair-001
+
+  outcome_standard=solved
+  outcome_taskspace=engineering_unclean
+  failure_taxonomy=engineering_unclean, agent_patch_wrong, audit_unclean
+  taskspace_exec_timed_out=false
+  taskspace_wall_ms=196129
+  taskspace_tool_call_count=5
+  open_leaf_nodes=0
+  right_validation_lifecycle_stage=tests_completed
+  public_validation_exit_code_taskspace=1
+  hidden_oracle_exit_code_taskspace=0
+  ```
+- Interpretation:
+  - Engineering loop fixed: the sample moved from timeout/open-leaf/tool-loop to non-timeout closed graph.
+  - Remaining failure is model solution quality / patch correctness (`agent_patch_wrong`), not TaskSpace tool-chain execution.

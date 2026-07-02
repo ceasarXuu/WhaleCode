@@ -30,6 +30,8 @@ function Invoke-RealProcess {
         [hashtable]$Environment = @{}
     )
     $encoding = [System.Text.UTF8Encoding]::new($false)
+    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $StdoutPath) | Out-Null
+    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $StderrPath) | Out-Null
     $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
     $startInfo.FileName = $FilePath
     $startInfo.WorkingDirectory = $WorkingDirectory
@@ -49,34 +51,74 @@ function Invoke-RealProcess {
     }) -join " ")
     $process = [System.Diagnostics.Process]::new()
     $process.StartInfo = $startInfo
+    $stdoutStream = [System.IO.FileStream]::new($StdoutPath, [System.IO.FileMode]::Create, [System.IO.FileAccess]::Write, [System.IO.FileShare]::Read)
+    $stderrStream = [System.IO.FileStream]::new($StderrPath, [System.IO.FileMode]::Create, [System.IO.FileAccess]::Write, [System.IO.FileShare]::Read)
     $launchStartedAt = Get-Date
-    [void]$process.Start()
-    $processStartedAt = Get-Date
-    if (-not [string]::IsNullOrWhiteSpace($TimingPath)) {
-        New-Item -ItemType Directory -Force -Path (Split-Path -Parent $TimingPath) | Out-Null
-        [pscustomobject]@{
-            schema_version = 1
-            process_launch_started_at = $launchStartedAt.ToString("o")
-            process_started_at = $processStartedAt.ToString("o")
-            process_launch_wait_ms = [int64](($processStartedAt - $launchStartedAt).TotalMilliseconds)
-        } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $TimingPath -Encoding UTF8
+    $processStartedAt = $null
+    $timedOut = $false
+    $exitCode = $null
+    try {
+        [void]$process.Start()
+        $processStartedAt = Get-Date
+        $stdoutCopyTask = $process.StandardOutput.BaseStream.CopyToAsync($stdoutStream)
+        $stderrCopyTask = $process.StandardError.BaseStream.CopyToAsync($stderrStream)
+        if (-not [string]::IsNullOrWhiteSpace($TimingPath)) {
+            New-Item -ItemType Directory -Force -Path (Split-Path -Parent $TimingPath) | Out-Null
+            [pscustomobject]@{
+                schema_version = 1
+                process_launch_started_at = $launchStartedAt.ToString("o")
+                process_started_at = $processStartedAt.ToString("o")
+                process_launch_wait_ms = [int64](($processStartedAt - $launchStartedAt).TotalMilliseconds)
+                timed_out = $false
+                completed = $false
+            } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $TimingPath -Encoding UTF8
+        }
+        if ($StdinPath) {
+            $stdinBytes = [System.IO.File]::ReadAllBytes($StdinPath)
+            $process.StandardInput.BaseStream.Write($stdinBytes, 0, $stdinBytes.Length)
+            $process.StandardInput.Close()
+        }
+        if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
+            $timedOut = $true
+            try { $process.Kill($true) } catch { try { $process.Kill() } catch {} }
+            try { $process.WaitForExit(5000) | Out-Null } catch {}
+        } else {
+            $process.WaitForExit()
+            $exitCode = $process.ExitCode
+        }
+    } finally {
+        try {
+            if ($null -ne $stdoutCopyTask) { $stdoutCopyTask.Wait(5000) | Out-Null }
+        } catch {}
+        try {
+            if ($null -ne $stderrCopyTask) { $stderrCopyTask.Wait(5000) | Out-Null }
+        } catch {}
+        if ($timedOut) {
+            $timeoutBytes = $encoding.GetBytes("Process timed out after $TimeoutSeconds seconds: $FilePath $($ArgumentList -join ' ')`n")
+            try { $stderrStream.Write($timeoutBytes, 0, $timeoutBytes.Length) } catch {}
+        }
+        $completedAt = Get-Date
+        if (-not [string]::IsNullOrWhiteSpace($TimingPath) -and $null -ne $processStartedAt) {
+            [pscustomobject]@{
+                schema_version = 1
+                process_launch_started_at = $launchStartedAt.ToString("o")
+                process_started_at = $processStartedAt.ToString("o")
+                process_completed_at = $completedAt.ToString("o")
+                process_launch_wait_ms = [int64](($processStartedAt - $launchStartedAt).TotalMilliseconds)
+                wall_time_ms = [int64](($completedAt - $processStartedAt).TotalMilliseconds)
+                timed_out = $timedOut
+                completed = (-not $timedOut)
+                exit_code = $exitCode
+            } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $TimingPath -Encoding UTF8
+        }
+        try { $stdoutStream.Dispose() } catch {}
+        try { $stderrStream.Dispose() } catch {}
+        try { $process.Dispose() } catch {}
     }
-    $stdoutTask = $process.StandardOutput.ReadToEndAsync()
-    $stderrTask = $process.StandardError.ReadToEndAsync()
-    if ($StdinPath) {
-        $stdinBytes = [System.IO.File]::ReadAllBytes($StdinPath)
-        $process.StandardInput.BaseStream.Write($stdinBytes, 0, $stdinBytes.Length)
-        $process.StandardInput.Close()
-    }
-    if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
-        try { $process.Kill($true) } catch { $process.Kill() }
+    if ($timedOut) {
         throw "Process timed out after $TimeoutSeconds seconds: $FilePath $($ArgumentList -join ' ')"
     }
-    $stdoutTask.Wait()
-    $stderrTask.Wait()
-    $stdoutTask.Result | Set-Content -Encoding UTF8 $StdoutPath
-    $stderrTask.Result | Set-Content -Encoding UTF8 $StderrPath
-    $process.ExitCode
+    $exitCode
 }
 
 function Get-ThreadId([string]$JsonlText) {

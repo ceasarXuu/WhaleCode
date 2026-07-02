@@ -15157,10 +15157,20 @@ fn text_mentions_local_validator_infra_failure(text: &str) -> bool {
         .chars()
         .filter(|ch| ch.is_ascii_alphanumeric() || *ch == '_')
         .collect::<String>();
+    let uv_cache_permission_failure = (text.contains("uv\\cache")
+        || text.contains("uv/cache")
+        || text.contains("sdists-v9")
+        || text.contains("appdata\\local\\uv\\cache"))
+        && (text.contains("os error 5")
+            || text.contains("access is denied")
+            || text.contains("access denied")
+            || text.contains("permission denied")
+            || text.contains("拒绝访问"));
     text.contains("bash/service/createinstance/e_accessdenied")
         || text.contains("wsl/service/e_accessdenied")
         || text.contains("e_accessdenied")
         || text.contains("invalidendofline")
+        || uv_cache_permission_failure
         || compact.contains("bashservicecreateinstanceeaccessdenied")
         || compact.contains("bashservicecreateinstancee_accessdenied")
         || compact.contains("wslserviceeaccessdenied")
@@ -29541,6 +29551,57 @@ summary: diagnostic payload for output reference smoke\n\
             .get(&result_id)
             .expect("infra validation result");
         assert_eq!(result.evidence_package.validity, ResultValidity::Invalid);
+        let node = map.nodes.get(&node_id).expect("validation node");
+        assert_eq!(node.status, NodeStatus::Blocked);
+        assert!(state.active_map_has_blocked_validation_result());
+    }
+
+    #[test]
+    fn uv_cache_access_denied_auto_blocks_validation_as_local_infra() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (_, map_id, node_id, _) = start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::SmokeTest,
+            "Validate sqlite recovery",
+            "Run the validation suite.",
+            "Run pytest.",
+            "Run uv pytest.",
+            true,
+        );
+
+        let body = "TaskSpaceToolInvocationV1:\n\
+tool: shell_command\n\
+command: uv run pytest\n\
+raw_output:\n\
+Exit code: 1\n\
+Output:\n\
+error: failed to open file `C:\\Users\\77585\\AppData\\Local\\uv\\cache\\sdists-v9\\.git`: Access is denied. (os error 5)";
+        let (result_id, events) = state
+            .record_main_tool_result_with_class(
+                owner,
+                "taskspace-action-contract-22-run_test",
+                "shell_command",
+                Some(ActionClass::Test),
+                false,
+                body.to_string(),
+            )
+            .expect("uv cache validation infra result records")
+            .expect("uv cache result id");
+
+        assert!(events.iter().any(|event| {
+            matches!(
+                event,
+                MapRuntimeEvent::ResultValidityChanged(changed)
+                    if changed.result_id == result_id && changed.validity == "invalid"
+            )
+        }));
+        let map = state.maps.get(&map_id).expect("active map");
+        let result = map.results.get(&result_id).expect("uv cache result");
+        assert_eq!(result.evidence_package.validity, ResultValidity::Invalid);
+        assert!(node_result_is_local_validator_infra_failure(result));
         let node = map.nodes.get(&node_id).expect("validation node");
         assert_eq!(node.status, NodeStatus::Blocked);
         assert!(state.active_map_has_blocked_validation_result());
