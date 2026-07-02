@@ -1110,3 +1110,79 @@
   - The sample still fails. The new failure is long-flow convergence: `node-6` remains running until the 900s external timeout after `python recover.py` exposed `PermissionError: [WinError 5]` on `trunc.db.recovered`.
   - This is a separate R4/R5 utility issue, not proof that the ready-recovery guard failed.
 - Time: 2026-07-02 10:36
+
+## Hypothesis H-018: nested validation/rework chains must exempt ancestor lifecycle results from active tool gates
+
+- Related problems:
+  - P-004
+- Status: confirmed-and-repaired-by-unit-tests; real-sample timeout benefit confirmed, sample now fails as agent_patch_wrong
+- Claim:
+  - After more than one validation/rework cycle, TaskSpace's unreviewed-result gate treated older validation blockers and rework lifecycle results as unrelated stale results. Those results were actually ancestors of the current active rework/validation chain, so forcing `state_commit` before the next edit/test created repeated tool-free recovery turns instead of letting the agent continue the standard edit/test loop.
+- Evidence:
+  - `sqlite-db-truncate-ready-recovery-fix` reached a second rework after `python recover.py` raised `PermissionError: [WinError 5]`, but timed out at 900s with `node-6` still open.
+  - Rollout inspection showed repeated model attempts to emit `apply_patch` for `recover.py`, while the runtime injected recovery text requiring review of an older TaskSpace result before ordinary work.
+  - The first focused regression failed before the repair:
+    ```text
+    nested_validation_rework_can_edit_without_reviewing_prior_blocker_result
+    FAIL: TaskSpace result `result-4` on node `node-2` is still unreviewed.
+    ```
+  - A subsequent real rerun exposed the same category one step later: node-7 validation recovery repeatedly complained about `result-15` on node-3, producing `tool_free_action_contract` requests until timeout. Pair report:
+    ```text
+    RunDir: C:\WhaleRunCache\r4-rerun-20260702\sqlite-db-truncate-nested-rework-barrier-fix\runs\terminal_bench__sqlite-db-truncate\20260702-112316-691\pair-001
+    outcome_taskspace=agent_exec_timeout
+    taskspace_wall_time_ms=900042
+    taskspace_tool_call_count=17
+    nodes=7
+    edges=699
+    open_leaf_nodes=1
+    provider_request_count reached 50 with request_phase=validation_recovery
+    ```
+- Root cause:
+  - Runtime dependency checks only handled direct validation/rework adjacency:
+    - active rework edit exemption handled only direct `origin_node_id == failed_validation_node_id`;
+    - validation-after-rework exemption handled only direct dependency edges;
+    - completed rework lifecycle `Result` was exempt only for direct validation dependencies.
+  - Runtime-created failed-validation rework nodes encode provenance through both `origin_node_id` and graph edges. The gate walked only part of that combined structure, so nested chains were misclassified as stale unreviewed history.
+- Repair:
+  - Added dependency-chain traversal that follows both incoming edges and `origin_node_id`.
+  - Extended active rework input checks so ancestor blocked validation nodes and ancestor completed rework results do not block the current active rework edit or validation test.
+  - Kept final-answer readiness strict; the exemption applies only to active edit/test progression inside the same validation/rework chain.
+- Validation:
+  ```text
+  cargo test -j1 -p codex-core blocked_validation_rework_can_edit_without_reviewing_blocker_result --lib
+  cargo test -j1 -p codex-core validation_after_rework_can_test_without_reviewing_origin_blocker_result --lib
+  cargo test -j1 -p codex-core nested_validation_rework_can_edit_without_reviewing_prior_blocker_result --lib
+  cargo test -j1 -p codex-core nested_validation_after_rework_can_test_without_reviewing_prior_chain_results --lib
+  cargo test -j1 -p codex-core blocked_validation_with_ready_recovery_node_is_not_closed --lib
+  PASS
+
+  cargo fmt --all -- --check
+  PASS
+
+  cargo build -j1 --profile dev-small -p codex-cli --bin whale
+  PASS
+  ```
+- Real-sample rerun:
+  ```text
+  RunDir: C:\WhaleRunCache\r4-rerun-20260702\sqlite-db-truncate-nested-validation-chain-fix\runs\terminal_bench__sqlite-db-truncate\20260702-115413-930\pair-001
+  outcome_standard=solved
+  outcome_taskspace=engineering_unclean
+  failure_taxonomy=engineering_unclean, agent_patch_wrong, audit_unclean
+  taskspace_exec_timed_out=false
+  taskspace_public_validation_exit_code=1
+  taskspace_hidden_oracle_exit_code=0
+  taskspace_wall_time_ms=566817
+  standard_wall_time_ms=209836
+  taskspace_wall_time_ratio=2.70
+  taskspace_tool_call_count=18
+  standard_tool_call_count=18
+  taskspace_tool_call_ratio=1.00
+  nodes=10
+  edges=9
+  open_leaf_nodes=0
+  ```
+- Interpretation:
+  - The nested result-review gate no longer creates an agent-exec timeout. The sample now reaches completed public validation on the TaskSpace side.
+  - Remaining failure has moved from engineering timeout/tool-loop to answer quality: TaskSpace changed `recover.py` and project scaffolding but did not produce the required `recover.json`, so public validation failed as `agent_patch_wrong`.
+  - This becomes the next R4 unresolved utility issue; it is not the same gate-loop defect.
+- Time: 2026-07-02 12:12

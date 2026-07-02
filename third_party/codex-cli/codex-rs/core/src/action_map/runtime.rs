@@ -8846,6 +8846,16 @@ preview:\n\
             || current_node.status != NodeStatus::Running
             || current_node.origin_node_id.as_deref() != Some(result.node_id.as_str())
         {
+            if current_node.kind == NodeKind::ImplementSolution
+                && current_node.status == NodeStatus::Running
+                && Self::active_rework_chain_contains_blocked_validation_node(
+                    map,
+                    current_node,
+                    &result.node_id,
+                )
+            {
+                return true;
+            }
             return Self::current_node_is_validation_after_rework_input_blocker(
                 map,
                 current_node,
@@ -8865,7 +8875,7 @@ preview:\n\
     ) -> bool {
         if !matches!(
             current_node.kind,
-            NodeKind::SmokeTest | NodeKind::RegressionTest
+            NodeKind::ImplementSolution | NodeKind::SmokeTest | NodeKind::RegressionTest
         ) || current_node.status != NodeStatus::Running
         {
             return false;
@@ -8875,6 +8885,13 @@ preview:\n\
                 && origin.status == NodeStatus::Blocked
         }) {
             return false;
+        }
+        if Self::active_rework_chain_contains_blocked_validation_node(
+            map,
+            current_node,
+            &result.node_id,
+        ) {
+            return true;
         }
         map.edges
             .iter()
@@ -8886,6 +8903,75 @@ preview:\n\
                         && dependency.origin_node_id.as_deref() == Some(result.node_id.as_str())
                 })
             })
+    }
+
+    fn active_rework_chain_contains_blocked_validation_node(
+        map: &ActionMapInstance,
+        current_node: &MapNode,
+        validation_node_id: &str,
+    ) -> bool {
+        if !map.nodes.get(validation_node_id).is_some_and(|node| {
+            matches!(node.kind, NodeKind::SmokeTest | NodeKind::RegressionTest)
+                && node.status == NodeStatus::Blocked
+        }) {
+            return false;
+        }
+        let mut stack = vec![current_node.id.clone()];
+        let mut visited = HashSet::new();
+        while let Some(node_id) = stack.pop() {
+            if !visited.insert(node_id.clone()) {
+                continue;
+            }
+            if map.nodes.get(&node_id).is_some_and(|node| {
+                node.kind == NodeKind::ImplementSolution
+                    && node.origin_node_id.as_deref() == Some(validation_node_id)
+            }) {
+                return true;
+            }
+            if let Some(origin_node_id) = map
+                .nodes
+                .get(&node_id)
+                .and_then(|node| node.origin_node_id.clone())
+            {
+                stack.push(origin_node_id);
+            }
+            for edge in &map.edges {
+                if edge.to == node_id {
+                    stack.push(edge.from.clone());
+                }
+            }
+        }
+        false
+    }
+
+    fn dependency_chain_contains_node(
+        map: &ActionMapInstance,
+        current_node_id: &str,
+        ancestor_node_id: &str,
+    ) -> bool {
+        let mut stack = vec![current_node_id.to_string()];
+        let mut visited = HashSet::new();
+        while let Some(node_id) = stack.pop() {
+            if !visited.insert(node_id.clone()) {
+                continue;
+            }
+            if node_id == ancestor_node_id {
+                return true;
+            }
+            if let Some(origin_node_id) = map
+                .nodes
+                .get(&node_id)
+                .and_then(|node| node.origin_node_id.clone())
+            {
+                stack.push(origin_node_id);
+            }
+            for edge in &map.edges {
+                if edge.to == node_id {
+                    stack.push(edge.from.clone());
+                }
+            }
+        }
+        false
     }
 
     fn unreviewed_result_is_active_rework_dependency_finish(
@@ -8901,7 +8987,7 @@ preview:\n\
         };
         if !matches!(
             current_node.kind,
-            NodeKind::SmokeTest | NodeKind::RegressionTest
+            NodeKind::ImplementSolution | NodeKind::SmokeTest | NodeKind::RegressionTest
         ) || current_node.status != NodeStatus::Running
         {
             return false;
@@ -8914,6 +9000,19 @@ preview:\n\
             || result_node.origin_node_id.is_none()
         {
             return false;
+        }
+        if current_node.status == NodeStatus::Running
+            && Self::dependency_chain_contains_node(map, &current_node.id, &result.node_id)
+        {
+            return result_node
+                .origin_node_id
+                .as_deref()
+                .is_some_and(|origin_id| {
+                    map.nodes.get(origin_id).is_some_and(|origin| {
+                        matches!(origin.kind, NodeKind::SmokeTest | NodeKind::RegressionTest)
+                            && origin.status == NodeStatus::Blocked
+                    })
+                });
         }
         map.edges
             .iter()
@@ -27843,6 +27942,263 @@ summary: diagnostic payload for output reference smoke\n\
                 ToolActionDescriptor::new("shell_command", ActionClass::Test, "python -m pytest"),
             )
             .expect("validation after rework should not be blocked by the origin blocker result");
+    }
+
+    #[test]
+    fn nested_validation_rework_can_edit_without_reviewing_prior_blocker_result() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (_, _, first_validation_node_id, _) = start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::SmokeTest,
+            "Validate recovery",
+            "Run the recovery script.",
+            "Run smoke test",
+            "Run python recover.py.",
+            true,
+        );
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "call-test-fail-1",
+                "shell_command",
+                Some(ActionClass::Test),
+                false,
+                "FileNotFoundError: recover.json missing after recover.py".to_string(),
+            )
+            .expect("first failed test records");
+        let first_rework_node_id = state
+            .current_main_node_id
+            .as_deref()
+            .expect("first failed validation should bind rework")
+            .to_string();
+        let first_blocker_result_id = {
+            let map = state.active_map().expect("active map");
+            map.nodes
+                .get(&first_validation_node_id)
+                .expect("first validation node")
+                .result_context
+                .iter()
+                .find(|result_ref| result_ref.kind == NodeResultKind::Blocker)
+                .expect("first blocker result")
+                .id
+                .clone()
+        };
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "call-edit-rework-1",
+                "apply_patch",
+                Some(ActionClass::Edit),
+                true,
+                "patched recover.py to write recover.json".to_string(),
+            )
+            .expect("first rework edit records");
+        let second_validation_draft = ActionMapNextNodeDraft {
+            kind: NodeKind::SmokeTest,
+            title: "Run focused validation".to_string(),
+            context_summary: "Run recover.py again after rework.".to_string(),
+            dependency_node_ids: vec![first_rework_node_id.clone()],
+        };
+        state
+            .finish_main_node_with_next(
+                owner,
+                &first_rework_node_id,
+                "first rework edit applied".to_string(),
+                None,
+                Some(second_validation_draft),
+            )
+            .expect("first rework finishes into second validation");
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "call-test-fail-2",
+                "shell_command",
+                Some(ActionClass::Test),
+                false,
+                "PermissionError: [WinError 5] access denied: 'trunc.db.recovered' in recover.py"
+                    .to_string(),
+            )
+            .expect("second failed test records");
+        let second_rework_node_id = state
+            .current_main_node_id
+            .as_deref()
+            .expect("second failed validation should bind rework")
+            .to_string();
+        {
+            let map = state.active_map().expect("active map");
+            assert_eq!(
+                map.results
+                    .get(&first_blocker_result_id)
+                    .expect("first blocker")
+                    .evidence_package
+                    .validity,
+                ResultValidity::Unreviewed
+            );
+            assert_eq!(
+                map.nodes
+                    .get(&second_rework_node_id)
+                    .expect("second rework")
+                    .kind,
+                NodeKind::ImplementSolution
+            );
+            let first_rework_result = map
+                .results
+                .values()
+                .find(|result| {
+                    result.node_id == first_rework_node_id && result.kind == NodeResultKind::Result
+                })
+                .expect("first rework lifecycle result");
+            assert!(
+                ActionMapRuntimeState::dependency_chain_contains_node(
+                    map,
+                    &second_rework_node_id,
+                    &first_rework_node_id,
+                ),
+                "second rework should retain dependency-chain access to first rework"
+            );
+            assert!(
+                state.unreviewed_result_is_active_rework_dependency_finish(
+                    map,
+                    first_rework_result,
+                ),
+                "first rework result should be treated as active nested rework input"
+            );
+        }
+
+        state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new(
+                    "apply_patch",
+                    ActionClass::Edit,
+                    "*** Begin Patch\n*** Update File: recover.py\n*** End Patch",
+                ),
+            )
+            .expect("nested rework edit should not be blocked by prior validation blocker");
+    }
+
+    #[test]
+    fn nested_validation_after_rework_can_test_without_reviewing_prior_chain_results() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (_, _, first_validation_node_id, _) = start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::SmokeTest,
+            "Validate recovery",
+            "Run the recovery script.",
+            "Run smoke test",
+            "Run python recover.py.",
+            true,
+        );
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "call-test-fail-1",
+                "shell_command",
+                Some(ActionClass::Test),
+                false,
+                "FileNotFoundError: recover.json missing after recover.py".to_string(),
+            )
+            .expect("first failed test records");
+        let first_rework_node_id = state
+            .current_main_node_id
+            .as_deref()
+            .expect("first failed validation should bind rework")
+            .to_string();
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "call-edit-rework-1",
+                "apply_patch",
+                Some(ActionClass::Edit),
+                true,
+                "patched recover.py to write recover.json".to_string(),
+            )
+            .expect("first rework edit records");
+        state
+            .finish_main_node_with_next(
+                owner,
+                &first_rework_node_id,
+                "first rework edit applied".to_string(),
+                None,
+                Some(ActionMapNextNodeDraft {
+                    kind: NodeKind::SmokeTest,
+                    title: "Run focused validation".to_string(),
+                    context_summary: "Run recover.py again after rework.".to_string(),
+                    dependency_node_ids: vec![first_rework_node_id.clone()],
+                }),
+            )
+            .expect("first rework finishes into second validation");
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "call-test-fail-2",
+                "shell_command",
+                Some(ActionClass::Test),
+                false,
+                "PermissionError: [WinError 5] access denied: 'trunc.db.recovered' in recover.py"
+                    .to_string(),
+            )
+            .expect("second failed test records");
+        let second_rework_node_id = state
+            .current_main_node_id
+            .as_deref()
+            .expect("second failed validation should bind rework")
+            .to_string();
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "call-edit-rework-2",
+                "apply_patch",
+                Some(ActionClass::Edit),
+                true,
+                "patched recover.py to avoid replacing locked files".to_string(),
+            )
+            .expect("second rework edit records");
+        state
+            .finish_main_node_with_next(
+                owner,
+                &second_rework_node_id,
+                "second rework edit applied".to_string(),
+                None,
+                Some(ActionMapNextNodeDraft {
+                    kind: NodeKind::SmokeTest,
+                    title: "Run focused validation".to_string(),
+                    context_summary: "Run recover.py after nested rework.".to_string(),
+                    dependency_node_ids: vec![second_rework_node_id.clone()],
+                }),
+            )
+            .expect("second rework finishes into third validation");
+        let third_validation_node_id = state
+            .current_main_node_id
+            .as_deref()
+            .expect("third validation should bind")
+            .to_string();
+        {
+            let map = state.active_map().expect("active map");
+            assert!(
+                ActionMapRuntimeState::active_rework_chain_contains_blocked_validation_node(
+                    map,
+                    map.nodes
+                        .get(&third_validation_node_id)
+                        .expect("third validation"),
+                    &first_validation_node_id,
+                ),
+                "third validation should retain nested rework-chain access to first validation"
+            );
+        }
+
+        state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new("shell_command", ActionClass::Test, "python recover.py"),
+            )
+            .expect("nested validation should not be blocked by prior chain results");
     }
 
     #[test]
