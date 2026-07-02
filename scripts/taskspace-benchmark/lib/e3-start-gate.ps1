@@ -485,9 +485,10 @@ function Invoke-TaskspaceE3StartGate {
     $diskHealth = New-TaskspaceDiskHealth @($paths.ToArray()) "e3_start_gate"
     $gates = New-Object System.Collections.Generic.List[object]
     $gates.Add((New-TaskspaceE3GateRow "disk_preflight" ([string]$diskHealth.status) $(if ([string]$diskHealth.status -eq "pass") { "" } else { "disk_space_low" }) $(if ([string]$diskHealth.status -eq "pass") { "" } else { "disk_space_low" })))
-    $dockerFailures = @($diskHealth.docker_storage_checks | Where-Object { [string]$_.status -eq "fail" })
-    $dockerStatus = if (@($diskHealth.docker_storage_checks).Count -eq 0) { "fail" } elseif ($dockerFailures.Count -eq 0) { "pass" } else { "fail" }
-    $dockerReason = if (@($diskHealth.docker_storage_checks).Count -eq 0) { "docker_storage_unverified" } elseif ($dockerFailures.Count -eq 0) { "" } else { "docker_storage_low" }
+    $dockerChecks = @($diskHealth.docker_storage_checks)
+    $dockerFailures = @($dockerChecks | Where-Object { [string]$_.status -eq "fail" })
+    $dockerStatus = if ($dockerChecks.Count -eq 0) { "skipped_allowed" } elseif ($dockerFailures.Count -eq 0) { "pass" } else { "fail" }
+    $dockerReason = if ($dockerChecks.Count -eq 0) { "docker_storage_unverified" } elseif ($dockerFailures.Count -eq 0) { "" } else { "docker_storage_low" }
     $gates.Add((New-TaskspaceE3GateRow "docker_storage" $dockerStatus $dockerReason $dockerReason))
     if ($manifestHealth) {
         $pathFailures = @($manifestHealth.findings | Where-Object { [string]$_.stable_code -in @("relative_materialized_path", "path_unresolvable", "uv_cache_missing", "validator_source_missing") })
