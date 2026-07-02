@@ -1328,3 +1328,34 @@ request_2_plus_hit_rate=0.981959
 2. 工具效率收益成立：TaskSpace tool_call_count=6，standard=13，比例 0.46。
 3. 时长仍比 standard 慢，taskspace_wall_time_ratio=1.84，但已经低于该报告的 wall-time warning 阈值。
 4. pair report 仍有 `engineering_unclean`，原因是 E3 外部 validator fidelity / audit review 未完成，不是 TaskSpace 执行失败。
+
+## 5.16 2026-07-03 timeout usage accounting fallback
+
+继续收口 R4-H evidence durability 时，确认 public-10 报告还有一个 timeout 成本语义缺口：当 `metrics.json` 顶层 `input_tokens` / `output_tokens` 缺失，但 `request-summary.json` 或 metrics 中已经保留 rollout `token_count` 聚合时，报告仍可能把该行归为 usage unavailable。
+
+本轮修复：
+
+- `write-r4-public-10-tool-stress-report.ps1` 新增 token accounting fallback。
+- 顶层 provider token summary 可用时仍标为 `measured`。
+- 顶层 token summary 不可用但 rollout `token_count` 可用时，填充 input/output token 和 token ratio，并标为 `recovered_from_rollout_trace`。
+- missing run 的 token/cache 字段从 `0` 改成 `null`，避免把缺失证据误读为真实 0 成本。
+- `test-r4-public-10-tool-stress-plan.ps1` 允许并验证 `recovered_from_rollout_trace` 状态。
+- `test-r4-public-10-usage-accounting-gate.ps1` 新增 synthetic timeout pair，证明 writer 会从 rollout trace 恢复 partial usage。
+
+验证：
+
+```text
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/taskspace-benchmark/test-r4-public-10-usage-accounting-gate.ps1
+PASS
+
+synthetic heterogeneous-dates:
+token_ratio_availability=recovered_from_rollout_trace
+taskspace_token_ratio=3
+standard_usage_accounting_status=recovered_from_rollout_trace
+taskspace_usage_accounting_status=recovered_from_rollout_trace
+```
+
+边界：
+
+- 这是报告层和 evidence gate 的修复，不证明 TaskSpace utility parity。
+- 如果 provider 进程在写出 `response.completed` 或 rollout `token_count` 前被 kill，exact usage 仍不可得；该情况仍必须显式标为 unavailable，而不是伪装成 0。

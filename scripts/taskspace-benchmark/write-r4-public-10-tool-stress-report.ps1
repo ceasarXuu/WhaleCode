@@ -186,6 +186,23 @@ function Get-UsageAccountingStatus {
     return "usage_unavailable"
 }
 
+function Get-TokenAccountingInfo {
+    param([object]$Metrics)
+    $input = Get-ObjectNullableNumber $Metrics "input_tokens"
+    $output = Get-ObjectNullableNumber $Metrics "output_tokens"
+    $cached = Get-ObjectNullableNumber $Metrics "cached_input_tokens"
+    if ($null -ne $input -and $null -ne $output) {
+        return [pscustomobject]@{ Input = [int64]$input; Output = [int64]$output; Cached = if ($null -ne $cached) { [int64]$cached } else { $null }; Status = "measured" }
+    }
+    $rolloutInput = Get-ObjectNullableNumber $Metrics "rollout_trace_input_tokens"
+    $rolloutOutput = Get-ObjectNullableNumber $Metrics "rollout_trace_output_tokens"
+    $rolloutCached = Get-ObjectNullableNumber $Metrics "rollout_trace_cached_input_tokens"
+    if ($null -ne $rolloutInput -and $null -ne $rolloutOutput) {
+        return [pscustomobject]@{ Input = [int64]$rolloutInput; Output = [int64]$rolloutOutput; Cached = if ($null -ne $rolloutCached) { [int64]$rolloutCached } else { $null }; Status = "recovered_from_rollout_trace" }
+    }
+    [pscustomobject]@{ Input = $null; Output = $null; Cached = $null; Status = Get-UsageAccountingStatus $Metrics }
+}
+
 function Get-ProjectionSummary {
     param([string]$ArtifactsDir, [object]$Metrics)
     $projection = Read-JsonFile (Join-Path $ArtifactsDir "context-projection-summary.json")
@@ -279,11 +296,11 @@ function New-MissingRow {
         standard_tool_calls = 0
         taskspace_tool_calls = 0
         taskspace_tool_call_ratio = 0
-        standard_input_tokens = 0
-        standard_output_tokens = 0
-        taskspace_input_tokens = 0
-        taskspace_output_tokens = 0
-        taskspace_token_ratio = 0
+        standard_input_tokens = $null
+        standard_output_tokens = $null
+        taskspace_input_tokens = $null
+        taskspace_output_tokens = $null
+        taskspace_token_ratio = $null
         standard_model_request_count = $null
         taskspace_model_request_count = $null
         taskspace_model_request_ratio = $null
@@ -295,7 +312,7 @@ function New-MissingRow {
         standard_usage_accounting_status = "missing_run"
         taskspace_usage_accounting_status = "missing_run"
         token_ratio_availability = "missing_run"
-        request_2_plus_cache_hit_rate = 0
+        request_2_plus_cache_hit_rate = $null
         request_2_plus_cache_hit_rate_availability = "missing_run"
         tool_feedback_loss_count = 0
         tool_feedback_semantic_loss_count = 0
@@ -329,14 +346,22 @@ function New-RunRow {
     $reportLines = Get-Content -Encoding UTF8 -LiteralPath $PairReport.FullName
     $standardMetrics = $standard.metrics
     $taskspaceMetrics = $taskspace.metrics
-    $standardInputTokens = Get-ObjectNullableNumber $standardMetrics "input_tokens"
-    $standardOutputTokens = Get-ObjectNullableNumber $standardMetrics "output_tokens"
-    $taskspaceInputTokens = Get-ObjectNullableNumber $taskspaceMetrics "input_tokens"
-    $taskspaceOutputTokens = Get-ObjectNullableNumber $taskspaceMetrics "output_tokens"
+    $standardTokenInfo = Get-TokenAccountingInfo $standardMetrics
+    $taskspaceTokenInfo = Get-TokenAccountingInfo $taskspaceMetrics
+    $standardInputTokens = $standardTokenInfo.Input
+    $standardOutputTokens = $standardTokenInfo.Output
+    $taskspaceInputTokens = $taskspaceTokenInfo.Input
+    $taskspaceOutputTokens = $taskspaceTokenInfo.Output
     $standardTokens = if ($null -ne $standardInputTokens -and $null -ne $standardOutputTokens) { [double]$standardInputTokens + [double]$standardOutputTokens } else { $null }
     $taskspaceTokens = if ($null -ne $taskspaceInputTokens -and $null -ne $taskspaceOutputTokens) { [double]$taskspaceInputTokens + [double]$taskspaceOutputTokens } else { $null }
     $tokenRatio = Get-NullableRatio $taskspaceTokens $standardTokens
-    $tokenRatioAvailability = if ($null -ne $tokenRatio) { "measured" } else { "unavailable" }
+    $tokenRatioAvailability = if ($null -ne $tokenRatio -and ([string]$standardTokenInfo.Status -eq "measured" -and [string]$taskspaceTokenInfo.Status -eq "measured")) {
+        "measured"
+    } elseif ($null -ne $tokenRatio -and ([string]$standardTokenInfo.Status -eq "recovered_from_rollout_trace" -or [string]$taskspaceTokenInfo.Status -eq "recovered_from_rollout_trace")) {
+        "recovered_from_rollout_trace"
+    } else {
+        "unavailable"
+    }
     $cacheHitInfo = Get-CacheHitRateInfo $taskspace.artifacts_dir $taskspaceMetrics
     $standardRequestInfo = Get-ModelRequestCountInfo $standard.artifacts_dir $standardMetrics
     $taskspaceRequestInfo = Get-ModelRequestCountInfo $taskspace.artifacts_dir $taskspaceMetrics
@@ -389,8 +414,8 @@ function New-RunRow {
         model_request_count_availability = $requestAvailability
         standard_token_summary_availability = Get-TokenSummaryAvailability $standardMetrics
         taskspace_token_summary_availability = Get-TokenSummaryAvailability $taskspaceMetrics
-        standard_usage_accounting_status = Get-UsageAccountingStatus $standardMetrics
-        taskspace_usage_accounting_status = Get-UsageAccountingStatus $taskspaceMetrics
+        standard_usage_accounting_status = [string]$standardTokenInfo.Status
+        taskspace_usage_accounting_status = [string]$taskspaceTokenInfo.Status
         token_ratio_availability = $tokenRatioAvailability
         request_2_plus_cache_hit_rate = $cacheHitInfo.Rate
         request_2_plus_cache_hit_rate_availability = [string]$cacheHitInfo.Availability

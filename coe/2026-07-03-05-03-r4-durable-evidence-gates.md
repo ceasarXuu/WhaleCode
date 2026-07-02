@@ -87,3 +87,33 @@
 - Result: passed.
 - Key output: `PASS: R4 public-10 usage accounting gate rejects ambiguous token usage`
 - Interpretation: The gate now validates accounting semantics on fresh checkout instead of failing before the intended invariant checks.
+
+# Hypothesis H-004: public-10 report drops timeout-side rollout token usage
+
+- Claim: A timed-out side can still have `rollout_trace_*_tokens` flushed through `token_count` events, but `write-r4-public-10-tool-stress-report.ps1` only used top-level `input_tokens` and `output_tokens` for token ratios and usage status.
+- Prediction: A synthetic pair with missing top-level token summary and present rollout trace token counts will be reported as token usage unavailable before the repair, even though partial usage is recoverable.
+- Diagnostic evidence plan: Build a synthetic public-10 pair for `heterogeneous-dates` with only rollout trace token fields, run the report writer, and require `token_ratio_availability=recovered_from_rollout_trace`.
+- Status: confirmed.
+
+# Evidence E-008: rollout token fallback is now covered by the usage accounting gate
+
+- Prediction tested: H-004 predicts a synthetic timeout pair can recover token ratio from rollout trace token counts.
+- Repair artifacts:
+  - `scripts/taskspace-benchmark/write-r4-public-10-tool-stress-report.ps1`
+  - `scripts/taskspace-benchmark/test-r4-public-10-tool-stress-plan.ps1`
+  - `scripts/taskspace-benchmark/test-r4-public-10-usage-accounting-gate.ps1`
+- Command: `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/taskspace-benchmark/test-r4-public-10-usage-accounting-gate.ps1`
+- Result: passed.
+- Key output:
+  ```text
+  R4 public-10 report written: target/r4-public-10-usage-accounting-gate/rollout-token-fallback-report.json
+  complete_run_count=1 missing_run_count=9
+  PASS: R4 public-10 usage accounting gate rejects ambiguous token usage
+  ```
+- Matched signal:
+  - Synthetic `heterogeneous-dates` row reports `token_ratio_availability=recovered_from_rollout_trace`.
+  - `taskspace_token_ratio=3`.
+  - standard and TaskSpace usage statuses are `recovered_from_rollout_trace`.
+- Interpretation:
+  - Timeout rows no longer have to collapse to fully unavailable cost evidence when rollout `token_count` events survived the process timeout.
+  - This is a report/accounting repair, not TaskSpace utility parity evidence.

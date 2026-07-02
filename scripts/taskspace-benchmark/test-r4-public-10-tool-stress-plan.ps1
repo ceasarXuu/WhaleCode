@@ -210,12 +210,16 @@ if (-not [string]::IsNullOrWhiteSpace($ReportPath)) {
                 Add-Failure $failures "report row ${taskId} must set task_id_registry_verified=true"
             }
             $tokenAvailability = [string]$row.token_ratio_availability
+            $tokenRatioAvailable = $tokenAvailability -in @("measured", "recovered_from_rollout_trace")
             $tokenRatioMissing = ($null -eq $row.taskspace_token_ratio -or [string]::IsNullOrWhiteSpace([string]$row.taskspace_token_ratio))
-            if ($tokenAvailability -eq "measured" -and $tokenRatioMissing) {
-                Add-Failure $failures "report row ${taskId} token_ratio_availability=measured but taskspace_token_ratio is missing"
+            if ($tokenRatioAvailable -and $tokenRatioMissing) {
+                Add-Failure $failures "report row ${taskId} token_ratio_availability=$tokenAvailability but taskspace_token_ratio is missing"
             }
-            if ($tokenAvailability -ne "measured" -and -not $tokenRatioMissing) {
+            if (-not $tokenRatioAvailable -and -not $tokenRatioMissing) {
                 Add-Failure $failures "report row ${taskId} has taskspace_token_ratio but token_ratio_availability is not measured"
+            }
+            if ($tokenAvailability -notin @("measured", "recovered_from_rollout_trace", "unavailable", "missing_run")) {
+                Add-Failure $failures "report row ${taskId} has unknown token_ratio_availability: $tokenAvailability"
             }
             $requestAvailability = [string]$row.model_request_count_availability
             $requestRatioMissing = ($null -eq $row.taskspace_model_request_ratio -or [string]::IsNullOrWhiteSpace([string]$row.taskspace_model_request_ratio))
@@ -249,8 +253,11 @@ if (-not [string]::IsNullOrWhiteSpace($ReportPath)) {
                 }
                 $inputMissing = ($null -eq $row.$inputName -or [string]::IsNullOrWhiteSpace([string]$row.$inputName))
                 $outputMissing = ($null -eq $row.$outputName -or [string]::IsNullOrWhiteSpace([string]$row.$outputName))
-                if (($inputMissing -or $outputMissing) -and $status -eq "measured") {
-                    Add-Failure $failures "report row ${taskId} ${mode} usage_accounting_status=measured but token fields are missing"
+                if (($inputMissing -or $outputMissing) -and $status -in @("measured", "recovered_from_rollout_trace")) {
+                    Add-Failure $failures "report row ${taskId} ${mode} usage_accounting_status=$status but token fields are missing"
+                }
+                if ($status -notin @("measured", "recovered_from_rollout_trace", "usage_unavailable_after_timeout", "usage_source_missing", "usage_unavailable", "documented_ratio_only", "documented_snapshot", "missing_run")) {
+                    Add-Failure $failures "report row ${taskId} has unknown ${statusName}: $status"
                 }
             }
             $cacheAvailability = [string]$row.request_2_plus_cache_hit_rate_availability
