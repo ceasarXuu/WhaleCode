@@ -4337,6 +4337,35 @@ Then I will inspect the file."#,
     }
 
     #[test]
+    fn taskspace_action_contract_run_test_normalizes_powershell_or_chain() {
+        let command = r#"sqlite3 trunc.db ".tables" 2>&1 || echo 'sqlite3 not available, trying python'; python -c "print('fallback')""#;
+        let action = parse_taskspace_action_v1(&format!(
+            r#"{{"schema_version":"taskspace-action-v1","action":"run_test","node_id":"node-1","args":{{"command":{}}}}}"#,
+            serde_json::to_string(command).expect("quoted command")
+        ))
+        .expect("valid json");
+        let call =
+            taskspace_action_to_tool_call(&action, &provider_snapshot("inspect_code_context"))
+                .expect("policy ok")
+                .expect("tool call");
+
+        match call.payload {
+            ToolPayload::Function { arguments } => {
+                let value: serde_json::Value = serde_json::from_str(&arguments).expect("json");
+                if cfg!(windows) {
+                    assert_eq!(
+                        value["command"],
+                        "sqlite3 trunc.db \".tables\" 2>&1; if ($LASTEXITCODE -ne 0) { echo 'sqlite3 not available, trying python' }; python -c \"print('fallback')\""
+                    );
+                } else {
+                    assert_eq!(value["command"], command);
+                }
+            }
+            other => panic!("expected function payload, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn taskspace_powershell_chain_split_ignores_quoted_ampersands() {
         assert_eq!(
             split_top_level_double_ampersand("python -c 'print(\"a && b\")' && pytest -q"),
@@ -4346,6 +4375,22 @@ Then I will inspect the file."#,
             ])
         );
         assert_eq!(split_top_level_double_ampersand("python -c 'a && b'"), None);
+    }
+
+    #[test]
+    fn taskspace_powershell_or_split_ignores_quoted_pipes() {
+        assert_eq!(
+            split_top_level_double_pipe_once("python -c 'print(\"a || b\")' || pytest -q"),
+            Some((
+                "python -c 'print(\"a || b\")'".to_string(),
+                "pytest -q".to_string()
+            ))
+        );
+        assert_eq!(split_top_level_double_pipe_once("python -c 'a || b'"), None);
+        assert_eq!(
+            split_top_level_semicolon_once("echo 'a; b'; python recover.py"),
+            Some(("echo 'a; b'".to_string(), "python recover.py".to_string()))
+        );
     }
 
     #[test]
@@ -8868,6 +8913,9 @@ fn normalize_taskspace_host_shell_test_command(command: &str) -> String {
 }
 
 fn normalize_taskspace_powershell_and_chain(command: &str) -> Option<String> {
+    if let Some(normalized) = normalize_taskspace_powershell_or_chain(command) {
+        return Some(normalized);
+    }
     let segments = split_top_level_double_ampersand(command)?;
     if segments.len() < 2 {
         return None;
@@ -8878,6 +8926,28 @@ fn normalize_taskspace_powershell_and_chain(command: &str) -> Option<String> {
             normalized.push_str("; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; ");
         }
         normalized.push_str(segment.trim());
+    }
+    Some(normalized)
+}
+
+fn normalize_taskspace_powershell_or_chain(command: &str) -> Option<String> {
+    let (left, right) = split_top_level_double_pipe_once(command)?;
+    let (fallback, tail) = split_top_level_semicolon_once(&right)
+        .map(|(fallback, tail)| (fallback, Some(tail)))
+        .unwrap_or((right, None));
+    if left.trim().is_empty() || fallback.trim().is_empty() {
+        return None;
+    }
+    let mut normalized = format!(
+        "{}; if ($LASTEXITCODE -ne 0) {{ {} }}",
+        left.trim(),
+        fallback.trim()
+    );
+    if let Some(tail) = tail
+        && !tail.trim().is_empty()
+    {
+        normalized.push_str("; ");
+        normalized.push_str(tail.trim());
     }
     Some(normalized)
 }
@@ -8915,6 +8985,54 @@ fn split_top_level_double_ampersand(command: &str) -> Option<Vec<String>> {
     }
     segments.push(tail.to_string());
     Some(segments)
+}
+
+fn split_top_level_double_pipe_once(command: &str) -> Option<(String, String)> {
+    let mut in_single_quote = false;
+    let mut in_double_quote = false;
+    let chars = command.char_indices().collect::<Vec<_>>();
+    let mut index = 0usize;
+    while index < chars.len() {
+        let (byte_index, ch) = chars[index];
+        match ch {
+            '\'' if !in_double_quote => in_single_quote = !in_single_quote,
+            '"' if !in_single_quote => in_double_quote = !in_double_quote,
+            '|' if !in_single_quote && !in_double_quote => {
+                if chars.get(index + 1).is_some_and(|(_, next)| *next == '|') {
+                    let left = command[..byte_index].trim();
+                    let right = command[byte_index + 2..].trim();
+                    if left.is_empty() || right.is_empty() {
+                        return None;
+                    }
+                    return Some((left.to_string(), right.to_string()));
+                }
+            }
+            _ => {}
+        }
+        index += 1;
+    }
+    None
+}
+
+fn split_top_level_semicolon_once(command: &str) -> Option<(String, String)> {
+    let mut in_single_quote = false;
+    let mut in_double_quote = false;
+    for (byte_index, ch) in command.char_indices() {
+        match ch {
+            '\'' if !in_double_quote => in_single_quote = !in_single_quote,
+            '"' if !in_single_quote => in_double_quote = !in_double_quote,
+            ';' if !in_single_quote && !in_double_quote => {
+                let left = command[..byte_index].trim();
+                let right = command[byte_index + 1..].trim();
+                if left.is_empty() || right.is_empty() {
+                    return None;
+                }
+                return Some((left.to_string(), right.to_string()));
+            }
+            _ => {}
+        }
+    }
+    None
 }
 
 fn normalize_taskspace_shell_script_test_command(command: &str) -> Option<String> {

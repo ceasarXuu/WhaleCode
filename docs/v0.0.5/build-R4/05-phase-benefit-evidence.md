@@ -780,3 +780,67 @@ open_leaf_nodes=1
 1. ready recovery 被 closed-validation 覆盖的问题已被修复，真实复跑从 9 次工具调用推进到 24 次工具调用，并进入 `node-6` recovery path。
 2. 样本仍失败，新根因转移为长流程 convergence/timeout：`python recover.py` 暴露 `PermissionError: [WinError 5]` 后，TaskSpace 在 `node-6` 上继续运行到 900s timeout。
 3. 这条证据强化 R4 的 no-go 结论：R4 的 tool-chain observability 和若干状态机局部修复有效，但 TaskSpace utility 仍未收敛，后续必须进入 utility-convergence 专项。
+
+## 5.12 2026-07-02 run_test PowerShell OR 链规范化证据
+
+本轮继续追踪 `sqlite-db-truncate`，新暴露的问题不是预算，也不是解题错误，而是 action-contract `run_test` 对 host shell 的规范化缺口：
+
+```text
+sqlite3 trunc.db ".tables" 2>&1 || echo 'sqlite3 not available, trying python'; python -c ...
+```
+
+在 Windows PowerShell 5.1 下，顶层 `||` 会直接触发：
+
+```text
+FullyQualifiedErrorId : InvalidEndOfLine
+```
+
+修复：
+
+```text
+third_party/codex-cli/codex-rs/core/src/session/turn.rs
+```
+
+核心行为：
+
+```text
+cmd1 || cmd2; tail
+=>
+cmd1; if ($LASTEXITCODE -ne 0) { cmd2 }; tail
+```
+
+同时保持引号内 `||` 和 `;` 不被误切。
+
+验证：
+
+```text
+cargo test -j1 -p codex-core run_test_normalizes --lib
+PASS: 2 tests
+
+cargo test -j1 -p codex-core taskspace_powershell_ --lib
+PASS: 2 tests
+
+cargo fmt --all -- --check
+PASS
+
+cargo build -j1 --profile dev-small -p codex-cli --bin whale
+PASS
+```
+
+真实复验：
+
+```text
+RunDir:
+C:\WhaleRunCache\r4-rerun-20260702\sqlite-db-truncate-powershell-or-chain-fix\runs\terminal_bench__sqlite-db-truncate\20260702-163512-422\pair-001
+
+left whale-exec.jsonl len=0
+right whale-exec.jsonl len=0
+left timeout=900s before first JSON event
+right timeout=900s before first JSON event
+```
+
+收益判断：
+
+1. H-024 的工程收益已由 action-contract 单测证明：TaskSpace 生成的 `run_test` 顶层 OR 链不会再被原样交给 PowerShell。
+2. 这轮真实 pair 复验没有进入工具执行层，不能作为 H-024 真实收益证明。
+3. 新现场应单独归类为 provider/model first-event timeout 或 harness 首包超时问题，不能混入 tool-chain 语义修复结论。

@@ -127,3 +127,45 @@ open_leaf_nodes=1
 - 相比前一轮 9 次工具调用后错误 closed-validation，本轮进入 `node-6` recovery path，说明 ready-recovery 修复有效。
 - 样本仍未 solved，失败从 closed-validation masking 转移为 900s long-flow timeout。
 - 因此 R4 的 release decision 不变：工程交付和观测门禁可以保留为完成，但 TaskSpace utility parity 仍是后续 P0。
+
+## 9. 2026-07-02 Post-Closeout H-024 Tool Invocation Finding
+
+继续追踪 `sqlite-db-truncate` 时，又确认了一个 action-contract `run_test` host-shell 规范化缺口：TaskSpace 可能把 Bash 顶层 `||` 原样交给 Windows PowerShell，导致 `InvalidEndOfLine`，工具还没有产生有价值诊断就失败。
+
+新增修复：
+
+- `run_test` 在 Windows 上将顶层 `cmd1 || cmd2; tail` 转换为 PowerShell 兼容形式：`cmd1; if ($LASTEXITCODE -ne 0) { cmd2 }; tail`。
+- 分隔符扫描忽略单引号和双引号内部的 `||`/`;`，避免破坏 Python/SQL 等内联片段。
+
+新增验证：
+
+```text
+cargo test -j1 -p codex-core run_test_normalizes --lib
+PASS
+
+cargo test -j1 -p codex-core taskspace_powershell_ --lib
+PASS
+
+cargo fmt --all -- --check
+PASS
+
+cargo build -j1 --profile dev-small -p codex-cli --bin whale
+PASS
+```
+
+真实复验说明：
+
+```text
+RunDir:
+C:\WhaleRunCache\r4-rerun-20260702\sqlite-db-truncate-powershell-or-chain-fix\runs\terminal_bench__sqlite-db-truncate\20260702-163512-422\pair-001
+
+left whale-exec.jsonl len=0
+right whale-exec.jsonl len=0
+left/right both timed out at 900s before first JSON event
+```
+
+解释：
+
+- H-024 的代码路径已通过 focused action-contract 测试证明。
+- 本次 pair 复验没有进入 tool execution 层，不能证明真实样本收益，也不能否定本次修复。
+- R4 release decision 不变：tool-chain 局部质量继续收敛，但 TaskSpace utility parity 仍未达成。

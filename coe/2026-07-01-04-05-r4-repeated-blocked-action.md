@@ -1502,7 +1502,7 @@
 
 - Related problems:
   - P-004
-- Status: open
+- Status: repaired-by-unit-tests; real pair rerun invalid due provider/model first-event timeout
 - Claim:
   - TaskSpace action-contract `run_test` can pass Bash-style `||` through to PowerShell, causing `InvalidEndOfLine` before useful diagnostic output is produced. The model then over-attributes the failure to validator infrastructure and gets stuck in state_commit/block recovery instead of running the changed artifact or fixing the command.
 - Evidence:
@@ -1534,3 +1534,36 @@
   - Normalize `cmd1 || cmd2` into a PowerShell-compatible equivalent or reject it with structured feedback that requires a platform-compatible command.
   - Add tests for `run_test` command translation with `||`, and rerun `sqlite-db-truncate`.
 - Time: 2026-07-02 16:23
+
+- Repair:
+  - `third_party/codex-cli/codex-rs/core/src/session/turn.rs` now normalizes top-level Bash OR chains before Windows PowerShell execution:
+    ```text
+    cmd1 || cmd2; tail
+    =>
+    cmd1; if ($LASTEXITCODE -ne 0) { cmd2 }; tail
+    ```
+  - The splitter ignores `||` and `;` inside single or double quotes, so command strings such as Python snippets are not corrupted.
+- Validation:
+  ```text
+  cargo test -j1 -p codex-core run_test_normalizes --lib
+  PASS: 2 tests
+
+  cargo test -j1 -p codex-core taskspace_powershell_ --lib
+  PASS: 2 tests
+
+  cargo fmt --all -- --check
+  PASS
+
+  cargo build -j1 --profile dev-small -p codex-cli --bin whale
+  PASS
+  ```
+- Invalid real rerun:
+  ```text
+  RunDir: C:\WhaleRunCache\r4-rerun-20260702\sqlite-db-truncate-powershell-or-chain-fix\runs\terminal_bench__sqlite-db-truncate\20260702-163512-422\pair-001
+  left whale-exec.jsonl len=0
+  right whale-exec.jsonl len=0
+  left timeout=900s before first JSON event
+  right timeout=900s before first JSON event
+  ```
+  - This rerun did not reach the tool execution layer, so it cannot prove or disprove H-024's runtime benefit.
+  - It is evidence of an external/provider/model first-event timeout in the harness run, not evidence that the `||` normalization failed.
