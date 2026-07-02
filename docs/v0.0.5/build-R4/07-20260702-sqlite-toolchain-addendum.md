@@ -172,3 +172,8 @@ hidden_oracle_exit_code_taskspace=0
 | 工具调用 | TaskSpace 13 次降到 5 次 |
 | 业务正确性 | 未通过，仍是 `agent_patch_wrong` |
 | 下一步 | 把 wrong 作为模型策略/任务解法质量问题进入后续样本分析，不再归入本分支工具链循环 |
+
+2026-07-03 接手复核补充：
+- 本样本已完成 R4 工具链闭环归档：从 `agent_exec_timeout` / open leaf 收敛到非 timeout closed graph。
+- 不再把它作为当前 R4 工具链 phase 的首要阻塞点；后续若追求 utility parity，需要进入模型策略/任务解法质量分析，而不是继续在本分支假设工具链循环。
+- 下一个更高价值 public sample 是 `organization-json-generator`：其 H-035/H-036 工具链假设已被聚焦测试排除，适合用新证据确认剩余失败归因。

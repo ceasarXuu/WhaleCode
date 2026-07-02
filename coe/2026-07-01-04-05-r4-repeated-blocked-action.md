@@ -2196,7 +2196,7 @@
 
 ## Hypothesis H-035: mixed native/unified apply_patch headers corrupt failure feedback
 
-- Status: active
+- Status: repaired-and-validated-by-focused-test
 - Claim:
   - After `TaskSpaceApplyPatchUnanchoredUpdateRecoveryV1`, the model can emit an unwrapped native patch that starts with `*** Update File: <path>` but also includes unified file header lines `---` and `+++`.
   - `normalize_taskspace_unwrapped_apply_patch(...)` wraps that payload in `*** Begin Patch` / `*** End Patch`, but `normalize_taskspace_native_hunk_headers(...)` currently keeps `---` / `+++` inside the native update hunk.
@@ -2227,7 +2227,7 @@
 
 ## Hypothesis H-036: validation rework summaries drop high-signal failure output behind command/noise
 
-- Status: active
+- Status: repaired-and-validated-by-focused-test
 - Claim:
   - Validation failure routing uses `single_line_preview(result.body, 220)` for `failed_summary`.
   - For action-contract tool results, the result body begins with tool metadata, command, and often dependency warnings before the actual traceback/assertion.
@@ -2245,3 +2245,58 @@
   ```
 - Prediction:
   - Replacing validation failure summaries with a raw-output-focused extractor that filters warning noise and preserves `Traceback`, `AssertionError`, `KeyError`, `IndentationError`, etc. will make the rework node receive actionable failure evidence.
+
+## Evidence E-016: mixed native/unified apply_patch header repair is present and unit-validated
+
+- Date: 2026-07-03
+- Scope: H-035 current-checkout verification
+- Implementation evidence:
+  ```text
+  third_party/codex-cli/codex-rs/core/src/session/turn.rs:8069
+  normalize_taskspace_native_hunk_headers(...)
+
+  third_party/codex-cli/codex-rs/core/src/session/turn.rs:4966
+  taskspace_apply_patch_strips_unified_file_headers_inside_native_update
+  ```
+- Verification command:
+  ```bash
+  cd third_party/codex-cli/codex-rs
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core taskspace_apply_patch_strips_unified_file_headers_inside_native_update --lib
+  ```
+- Result:
+  ```text
+  test session::turn::active_context_replacement_tests::taskspace_apply_patch_strips_unified_file_headers_inside_native_update ... ok
+  test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 2206 filtered out
+  ```
+- Interpretation:
+  - The H-035 prediction is now covered by current code.
+  - The native `Update File` patch normalizer strips leading unified file headers before native hunk parsing, preventing the misleading expected-line failure on `--`.
+
+## Evidence E-017: validation failure summary repair is present and unit-validated
+
+- Date: 2026-07-03
+- Scope: H-036 current-checkout verification
+- Implementation evidence:
+  ```text
+  third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs:11018
+  validation_failure_body_excerpt(...)
+
+  third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs:13503
+  validation_failure_body_excerpt(&result.body, 640)
+
+  third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs:21768
+  validation_failure_summary_preserves_error_after_warning_noise
+  ```
+- Verification command:
+  ```bash
+  cd third_party/codex-cli/codex-rs
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core validation_failure_summary_preserves_error_after_warning_noise --lib
+  ```
+- Result:
+  ```text
+  test action_map::runtime::tests::validation_failure_summary_preserves_error_after_warning_noise ... ok
+  test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 2206 filtered out
+  ```
+- Interpretation:
+  - The H-036 prediction is now covered by current code.
+  - Validation rework failure summaries use a raw-output-focused extractor and preserve actionable error lines after command/warning noise.

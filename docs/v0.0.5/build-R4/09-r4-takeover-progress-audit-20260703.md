@@ -2,7 +2,7 @@
 
 报告日期：2026-07-03  
 接手范围：`v0.0.5 build-R4` tools chain 专项、R4 文档、机器可读门禁、public-10 证据、当前 `whalecode-alpha` HEAD  
-当前 HEAD：`700cfe1 Allow Linux E3 gate without WSL docker probe`
+接手基线 HEAD：`7ecbeb5 R4 restore durable evidence gates`
 
 ## 1. 总体判断
 
@@ -46,6 +46,17 @@ CoE：`coe/2026-07-03-05-03-r4-durable-evidence-gates.md`
 | `scripts/taskspace-benchmark/test-r4-public-10-usage-accounting-gate.ps1` | 默认读取 durable snapshot 作为 good report，再执行原有正向/负向 mutation gate |
 | `coe/2026-07-03-05-03-r4-durable-evidence-gates.md` | 记录问题、假设、诊断证据和 fix-validation |
 
+### 3.3 sqlite/organization 后续假设复核
+
+接手继续检查 `coe/2026-07-01-04-05-r4-repeated-blocked-action.md` 时发现：
+
+| 假设 | 当前复核结论 | 验证 |
+|---|---|---|
+| H-035 mixed native/unified apply_patch headers | 当前代码已修复并有聚焦测试覆盖 | `CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core taskspace_apply_patch_strips_unified_file_headers_inside_native_update --lib` PASS |
+| H-036 validation rework summaries lose high-signal output | 当前代码已修复并有聚焦测试覆盖 | `CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core validation_failure_summary_preserves_error_after_warning_noise --lib` PASS |
+
+这两项已在 CoE 中从 active 更新为 `repaired-and-validated-by-focused-test`，并新增 E-016/E-017。它们说明 `organization-json-generator` 后续问题不应继续归因到这两个已验证的工具链缺陷；下一步应回到真实 public sample 重新跑证据，确认剩余失败是否来自 request/timeout envelope、patch recovery convergence 或模型解题策略。
+
 ## 4. 本次验证
 
 | 验证项 | 命令 | 结果 |
@@ -55,14 +66,16 @@ CoE：`coe/2026-07-03-05-03-r4-durable-evidence-gates.md`
 | Sample ledger | `pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/taskspace-benchmark/test-r4-sample-ledger.ps1` | PASS：12 samples |
 | Public-10 plan + snapshot | `pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/taskspace-benchmark/test-r4-public-10-tool-stress-plan.ps1 -ReportPath docs/v0.0.5/build-R4/r4-public-10-tool-stress-report.snapshot.json` | PASS：10 planned samples |
 | Usage accounting | `pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/taskspace-benchmark/test-r4-public-10-usage-accounting-gate.ps1` | PASS：rejects ambiguous token usage |
+| H-035 focused Rust unit | `CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core taskspace_apply_patch_strips_unified_file_headers_inside_native_update --lib` | PASS：1 passed |
+| H-036 focused Rust unit | `CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core validation_failure_summary_preserves_error_after_warning_noise --lib` | PASS：1 passed |
 | Whitespace | `git diff --check` | PASS |
 
 ## 5. 当前未完成项
 
 | 优先级 | 未完成项 | 当前证据 | 下一步 |
 |---:|---|---|---|
-| P0 | TaskSpace utility parity | public-10 closeout 中 TaskSpace 仅 3/10 solved；post-closeout 只证明 `heterogeneous-dates` 已改善 | 继续逐个复验 `organization-json-generator`、`sqlite-db-truncate`、`git-workflow-hack`、`tmux-advanced-workflow` |
-| P0 | Long-flow convergence | 多个样本有 timeout/request amplification | 建立 R5 或 R4-extension utility-convergence case，按样本闭环 |
+| P0 | TaskSpace utility parity | public-10 closeout 中 TaskSpace 仅 3/10 solved；post-closeout 只证明 `heterogeneous-dates` 已改善；`sqlite-db-truncate` 已收敛到非 timeout wrong | 继续逐个复验 `organization-json-generator`、`git-workflow-hack`、`tmux-advanced-workflow` |
+| P0 | Long-flow convergence | 多个样本有 timeout/request amplification；H-035/H-036 已排除为当前阻塞 | 建立 R5 或 R4-extension utility-convergence case，按样本闭环 |
 | P0 | Provider timeout usage flush | timeout 行现在不会伪装成 0，但 exact usage 仍可能不可得 | 增加 timeout-safe provider usage flush 或回收路径 |
 | P1 | 成本/token 放大 | `heterogeneous-dates` post-closeout 已改善，但 public-10 closeout 仍记录 6x-28x request amplification | 新二进制重跑 public-10 subset，更新 durable report snapshot |
 | P1 | Release evidence bundle | raw paired run artifacts 仍在外部 run cache，不在仓库内 | 设计 release artifact policy：保留 summary snapshot、压缩关键 evidence，还是外链 run cache |
@@ -71,5 +84,6 @@ CoE：`coe/2026-07-03-05-03-r4-durable-evidence-gates.md`
 
 1. 先把本次 evidence durability 修复提交并推送，保持 R4-H 证据门禁可复核。
 2. 建立 R4 utility-convergence 继续工作入口，优先选择一个 public-10 负样本做 bug-killer 闭环。
-3. 推荐首个样本：`sqlite-db-truncate`。它已经有 ready recovery、PowerShell OR normalization、timeout 等连续证据，适合继续收敛状态机。
-4. 每完成一个样本，更新 public-10 snapshot 或生成新的 durable report artifact，避免再次依赖未提交 `target/` 缓存。
+3. `sqlite-db-truncate` 当前适合作为已收敛工具链样本归档：状态是非 timeout、closed graph、`agent_patch_wrong`。
+4. 下一个建议样本：`organization-json-generator`。H-035/H-036 已由聚焦测试排除后，应重新跑真实样本，观察剩余失败是否仍是 failed-patch recovery 或 request/timeout envelope。
+5. 每完成一个样本，更新 public-10 snapshot 或生成新的 durable report artifact，避免再次依赖未提交 `target/` 缓存。

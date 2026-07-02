@@ -74,6 +74,26 @@ cargo check -p codex-cli --locked
 cargo run --quiet -p codex-cli --bin whale -- --version
 ```
 
+On Linux hosts that do not have `libcap.pc` available, the default test build can
+fail while compiling the vendored bubblewrap path in `codex-linux-sandbox`:
+
+```text
+pkg-config --libs --cflags libcap
+The system library `libcap` required by crate `codex-linux-sandbox` was not found.
+```
+
+For focused `codex-core` unit tests that do not exercise the Linux sandbox
+binary itself, skip the vendored bubblewrap build:
+
+```bash
+cd third_party/codex-cli/codex-rs
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core <test_name> --lib
+```
+
+This is appropriate for non-sandbox unit coverage such as TaskSpace normalizer
+or ActionMap summary tests. Full sandbox/bubblewrap coverage still requires the
+host to provide the libcap development package and `libcap.pc`.
+
 For low-disk machines, follow `docs/runbooks/cross-system-restore.md` and set
 `CARGO_TARGET_DIR` outside the repo before building.
 
