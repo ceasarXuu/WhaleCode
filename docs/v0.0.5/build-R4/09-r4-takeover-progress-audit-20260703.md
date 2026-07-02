@@ -67,9 +67,9 @@ CoE：`coe/2026-07-03-05-03-r4-durable-evidence-gates.md`
 | plan-only | 已通过：`PromptInvalid=False`、`PromptManualReview=False` |
 | Linux harness | 已修 Windows-only primitive：`WindowsIdentity`、`curl.exe`、`cmd.exe` validator launcher、`subst`、null `USERPROFILE` rollout lookup |
 | provider preflight | 已新增 `provider-credential-preflight-health.json`；当前主机缺 `DEEPSEEK_API_KEY` 时以 `provider_credential_missing` fail-fast |
-| validator env | 当前 Docker build 仍因代理无法解析 `pip install jsonschema` 失败；这是下一步环境前置，不是 TaskSpace utility 证据 |
+| validator env | 已修复 native Docker loopback proxy build：`pip install jsonschema` 可通过；直接 validator run 会进入预期业务断言失败 |
 
-CoE：`coe/2026-07-01-04-05-r4-repeated-blocked-action.md` H-037/H-038。
+CoE：`coe/2026-07-01-04-05-r4-repeated-blocked-action.md` H-037/H-038/H-039。
 
 ## 4. 本次验证
 
@@ -90,13 +90,14 @@ CoE：`coe/2026-07-01-04-05-r4-repeated-blocked-action.md` H-037/H-038。
 | Benchmark harness | `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/taskspace-benchmark/test-harness.ps1` | PASS |
 | organization-json-generator plan-only | `run-taskspace-external-benchmark.ps1 ... -PlanOnly` | PASS：prompt guard clean |
 | organization-json-generator provider preflight | `run-taskspace-external-benchmark.ps1 ... deepseek-v4-flash` without `DEEPSEEK_API_KEY` | PASS：invalid_harness `provider_credential_missing` |
+| organization-json-generator direct validator | direct `external-validator.ps1` run on generated fixture | PASS：Docker build `classification=ok`; run reaches expected missing `organization.json` assertions |
 | Whitespace | `git diff --check` | PASS |
 
 ## 5. 当前未完成项
 
 | 优先级 | 未完成项 | 当前证据 | 下一步 |
 |---:|---|---|---|
-| P0 | TaskSpace utility parity | public-10 closeout 中 TaskSpace 仅 3/10 solved；post-closeout 只证明 `heterogeneous-dates` 已改善；`sqlite-db-truncate` 已收敛到非 timeout wrong；`organization-json-generator` 当前停在 provider/docker 环境前置 | 配置 `DEEPSEEK_API_KEY` 并修复 Docker/Python package proxy 后，继续真实样本复验 |
+| P0 | TaskSpace utility parity | public-10 closeout 中 TaskSpace 仅 3/10 solved；post-closeout 只证明 `heterogeneous-dates` 已改善；`sqlite-db-truncate` 已收敛到非 timeout wrong；`organization-json-generator` 当前停在 provider credential 前置 | 配置 `DEEPSEEK_API_KEY` 后，继续真实样本复验 |
 | P0 | Long-flow convergence | 多个样本有 timeout/request amplification；H-035/H-036 已排除为当前阻塞；H-037/H-038 修复 Linux harness/preflight | 建立 R5 或 R4-extension utility-convergence case，按样本闭环 |
 | P0 | Provider timeout usage flush | timeout 行现在不会伪装成 0，但 exact usage 仍可能不可得 | 增加 timeout-safe provider usage flush 或回收路径 |
 | P1 | 成本/token 放大 | `heterogeneous-dates` post-closeout 已改善，但 public-10 closeout 仍记录 6x-28x request amplification | 新二进制重跑 public-10 subset，更新 durable report snapshot |
@@ -107,6 +108,6 @@ CoE：`coe/2026-07-01-04-05-r4-repeated-blocked-action.md` H-037/H-038。
 1. 先把本次 evidence durability 修复提交并推送，保持 R4-H 证据门禁可复核。
 2. 建立 R4 utility-convergence 继续工作入口，优先选择一个 public-10 负样本做 bug-killer 闭环。
 3. `sqlite-db-truncate` 当前适合作为已收敛工具链样本归档：状态是非 timeout、closed graph、`agent_patch_wrong`。
-4. `organization-json-generator` 当前下一步不是 patch recovery，而是环境前置：补 `DEEPSEEK_API_KEY`，修 Docker build 的 `pip install jsonschema` 代理/包缓存，再重跑真实样本。
+4. `organization-json-generator` 当前下一步不是 patch recovery，而是 provider 前置：补 `DEEPSEEK_API_KEY` 后重跑真实样本；Docker build 的 `pip install jsonschema` 代理问题已修。
 5. 环境前置满足后，重新观察剩余失败是否仍是 failed-patch recovery、request/timeout envelope 或模型解题策略。
 6. 每完成一个样本，更新 public-10 snapshot 或生成新的 durable report artifact，避免再次依赖未提交 `target/` 缓存。

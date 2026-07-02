@@ -137,7 +137,8 @@ powershell -NoProfile -ExecutionPolicy Bypass \
 真实运行前必须确认：
 
 - `DEEPSEEK_API_KEY` 已设置；缺失时 benchmark 会在 `provider_credential_preflight` 阶段以 `provider_credential_missing` fail-fast。
-- Docker build 能访问 Python package 源；`organization-json-generator` 的 validator image 会执行 `pip install jsonschema`，代理解析失败会被归为 `docker_build_environment_failure`。
+- Docker build 能访问 Python package 源；`organization-json-generator` 的 validator image 会执行 `pip install jsonschema`。
+- Linux native Docker 如果使用宿主 loopback proxy，例如 `127.0.0.1:7890`，generated validator 必须对 build/run 使用 `--network host`，不能只把 proxy 改成 `host.docker.internal`。
 - Linux runner 不应依赖 Windows-only primitives：`WindowsIdentity`、`icacls`、`curl.exe`、`cmd.exe`、`subst`、`USERPROFILE` 都必须有跨平台分支或 no-op 记录。
 
 ## Why Full Builds Are Slow

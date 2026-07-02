@@ -100,6 +100,10 @@ Assert-True ([bool]$coveredAssets[0].equivalence_proven) "uv-covered runtime dep
 $coveredFileSize = [int64](Get-Item -LiteralPath ([string]$coveredAssets[0].cache_path)).Length
 Assert-True ([int64]$coveredAssets[0].size_bytes -eq $coveredFileSize) "uv-covered runtime dependency size did not match concrete cache file"
 Assert-True (-not [bool]$coveredScenario.external_benchmark.adapter_metadata.e3_downgraded_until_remote_assets_proven) "uv-covered/comment-only scenario should not be downgraded by remote asset proof"
+$coveredValidatorText = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $coveredScenarioDir "external-validator.ps1")
+Assert-True ($coveredValidatorText -match '\$nativeLoopbackProxy = \$false') "generated validator did not track native loopback proxy"
+Assert-True ($coveredValidatorText -match '\$buildNetworkArgs = if \(\$backend -eq "wsl" -or \$nativeLoopbackProxy\).*"--network", "host"') "native Docker build did not use host network for loopback proxy"
+Assert-True ($coveredValidatorText -match '\$networkArgs = if \(\$backend -eq "wsl" -or \$nativeLoopbackProxy\).*"--network", "host"') "native Docker run did not use host network for loopback proxy"
 
 $localServiceTask = Join-Path $runDir "local-service-url"
 New-Item -ItemType Directory -Path (Join-Path $localServiceTask "tests") -Force | Out-Null

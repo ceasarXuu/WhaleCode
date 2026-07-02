@@ -2401,3 +2401,50 @@
 - Interpretation:
   - Current host cannot produce `organization-json-generator` utility evidence until `DEEPSEEK_API_KEY` and Docker/Python package network are configured.
   - The runner now blocks earlier and preserves a stable preflight artifact instead of wasting validation time and mixing independent environment failures.
+
+## Hypothesis H-039: native Docker loopback proxy needs host network during validator image build
+
+- Status: repaired-and-validated-by-direct-validator-run
+- Claim:
+  - On the current Linux host, proxy variables point at host loopback `127.0.0.1:7890`.
+  - The generated Terminal-Bench validator rewrote/handled proxy values for runtime, but native Docker build did not use host networking for loopback proxy access.
+  - `RUN pip install jsonschema` therefore failed during `docker build`, blocking `organization-json-generator` before public validation could reach task assertions.
+- Diagnostic evidence:
+  ```text
+  Environment probe:
+  DEEPSEEK_API_KEY_PRESENT=no
+  http_proxy=http://127.0.0.1:7890
+  https_proxy=http://127.0.0.1:7890
+  docker server=29.6.1
+
+  Docker network probe:
+  docker run --rm -i --network host ghcr.io/laude-institute/t-bench/python-3-13:latest python -
+  loopback_proxy_connect=yes
+
+  Before repair:
+  docker build failed at RUN pip install jsonschema.
+  With host-gateway add-host only, proxy host resolved but connection was refused.
+  ```
+- Repair:
+  - `scripts/taskspace-benchmark/adapters/terminal-bench-adapter.ps1` now tracks `$nativeLoopbackProxy`.
+  - For native Docker with loopback proxy, generated validators use `--network host` for both build and run.
+  - Non-loopback native Docker keeps the existing `host.docker.internal:host-gateway` path.
+- Verification:
+  ```text
+  powershell -NoProfile -ExecutionPolicy Bypass -File scripts/taskspace-benchmark/test-terminal-bench-adapter-harness.ps1
+  PASS
+
+  Direct validator run:
+  target/r4-org-json-validator-build-work-20260703b/.taskspace-validator-proof/docker-build-result.json
+
+  phases:
+  build exit_code=0 classification=ok
+  run exit_code=1 classification=docker_run_failure
+  inspect exit_code=0 classification=ok
+
+  Expected run failure:
+  /app/organization.json does not exist
+  ```
+- Interpretation:
+  - Docker/Python package network is no longer the immediate `organization-json-generator` validator blocker on this host.
+  - The remaining hard preflight blocker for real utility evidence is `DEEPSEEK_API_KEY` absence.

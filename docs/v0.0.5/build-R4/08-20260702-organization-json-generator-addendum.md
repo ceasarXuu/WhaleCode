@@ -205,4 +205,45 @@ abort_phase=provider_credential_preflight
 当前结论：
 - H-035/H-036 已由聚焦单测排除；本轮没有进入 patch recovery utility 层。
 - Linux harness 已能完成物化和前置诊断，不再被 Windows primitive 阻断。
-- 继续该样本前必须先配置 `DEEPSEEK_API_KEY`，并修复 Docker build 的 Python package/proxy 环境；否则任何 TaskSpace utility 结论都不成立。
+- 继续该样本前必须先配置 `DEEPSEEK_API_KEY`；否则任何 TaskSpace utility 结论都不成立。
+
+## 5. 2026-07-03 Docker validator proxy 修复
+
+继续复核 Docker build 失败后，确认根因不是 `jsonschema` 包本身，而是 native Docker build 阶段没有使用能访问宿主 loopback proxy 的网络模式。
+
+诊断证据：
+
+```text
+host proxy:
+http_proxy=http://127.0.0.1:7890
+https_proxy=http://127.0.0.1:7890
+
+docker network probe:
+docker run --rm -i --network host ghcr.io/laude-institute/t-bench/python-3-13:latest python -
+loopback_proxy_connect=yes
+```
+
+修复：
+
+```text
+scripts/taskspace-benchmark/adapters/terminal-bench-adapter.ps1
+
+native Docker + loopback proxy:
+buildNetworkArgs = --network host
+networkArgs      = --network host
+```
+
+复验：
+
+```text
+target/r4-org-json-validator-build-work-20260703b/.taskspace-validator-proof/docker-build-result.json
+
+build:   exit_code=0 classification=ok
+run:     exit_code=1 classification=docker_run_failure
+inspect: exit_code=0 classification=ok
+```
+
+解释：
+- Docker build 已经越过 `RUN pip install jsonschema`，不再是当前阻塞。
+- run 阶段失败是直接 validator 复验的预期结果，因为未经过 agent 生成 `organization.json`。
+- 当前继续真实 utility 复验的唯一硬阻塞是 `DEEPSEEK_API_KEY` 缺失；key 配置后应重跑该样本，观察是否回到 patch recovery / request envelope 层。
