@@ -1213,3 +1213,118 @@ public_validation_exit_code_taskspace=1
 1. 工程收益由 focused regression 证明：已知输入 artifact 的 basename path error 不再被误判为实现失败。
 2. 真实样本收益暂不能确认：这一轮 standard 也失败，且 TaskSpace 生成了无效 Python，属于被模型随机错误污染的复验。
 3. 下一步需要继续跑非污染样本，才能把该修复升级为真实收益证明。
+
+## 5.18 2026-07-02 validation closeout ledger adoption 修复
+
+继续复跑 `heterogeneous-dates` 后，又暴露出一个更精确的收尾缺口：模型已经产生合法 `final_answer`，`avg_temp.txt` 已写出，public validation 和 hidden oracle 都能通过，但 TaskSpace 仍持续请求模型直到 timeout。原因不是工具失败，也不是解题错误，而是原始 user criteria / output contract 没有被验证证据采纳。
+
+失败现场：
+
+```text
+RunDir:
+C:\WhaleRunCache\r4-h028-rerun-heterogeneous-20260702\runs\terminal_bench__heterogeneous-dates\20260702-192443-140\pair-001
+
+outcome_standard=solved
+outcome_taskspace=agent_exec_timeout
+failure_taxonomy=engineering_unclean, taskspace_overhead_timeout, audit_unclean
+taskspace_wall_ms=900034
+public_validation_exit_code_taskspace=0
+hidden_oracle_exit_code_taskspace=0
+taskspace_changed_paths=avg_temp.txt
+provider_request_count=57
+```
+
+关键证据：
+
+```text
+criterion-1 status=open evidenceRefs=[]
+criterion-2 status=open evidenceRefs=[]
+criterion-3 status=open evidenceRefs=[]
+output-contract-1 status=open
+sc-node-3-validation-pass status=satisfied result-7
+```
+
+根因：
+
+`force_finish_validation_after_successful_tool(...)` 已经接受 implementation edit 和 validation result，但只新增了 node-local validation criterion，没有把已被实现和验证共同证明的原始验收项更新为 `satisfied`。因此 final readiness gate 仍认为“用户验收项未完成”。
+
+修复：
+
+```text
+third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs
+```
+
+- 新增 validation-closeout ledger adoption。
+- 在 accepted implementation + accepted validation 同时成立时，自动将可由 validated artifact 证明的 open criteria 更新为 `satisfied`。
+- 自动采纳范围只包括：`test`、`validator`、`artifact`、`behavior`、`user_visible_output`。
+- 不自动满足 `performance` / `compatibility` 等不能由一次 smoke validation 直接证明的验收项。
+- satisfied criteria 同时引用 implementation result 和 validation result，保留 why-chain。
+
+验证：
+
+```text
+cargo fmt --all -- --check
+PASS
+
+CARGO_TARGET_DIR=D:\BuildCache\whalecode\cargo-target cargo test -j1 -p codex-core forced_validation_closeout_satisfies_open_user_criteria_for_final_answer --lib
+PASS
+
+CARGO_TARGET_DIR=D:\BuildCache\whalecode\cargo-target cargo test -j1 -p codex-core forced_validation_closeout_accepts_dependency_edit_for_final_readiness --lib
+PASS
+
+CARGO_TARGET_DIR=D:\BuildCache\whalecode\cargo-target cargo test -j1 -p codex-core force_finish_validation_after_successful_tool_closes_smoke_node --lib
+PASS
+
+CARGO_TARGET_DIR=D:\BuildCache\whalecode\cargo-target cargo test -j1 -p codex-core validation_known_input_path_error_stays_on_validation_node --lib
+PASS
+
+CARGO_TARGET_DIR=D:\BuildCache\whalecode\cargo-target cargo test -j1 -p codex-core validation_node_failed_test_blocks_repeated_validation --lib
+PASS
+
+CARGO_TARGET_DIR=D:\BuildCache\whalecode\cargo-target cargo build -j1 --profile dev-small -p codex-cli --bin whale
+PASS
+```
+
+真实复验：
+
+```text
+RunDir:
+C:\WhaleRunCache\r4-ledger-adoption-heterogeneous-20260702\runs\terminal_bench__heterogeneous-dates\20260702-195745-535\pair-001
+
+outcome_standard=solved
+outcome_taskspace=solved
+failure_taxonomy=engineering_unclean, audit_unclean
+standard_wall_ms=57668
+taskspace_wall_ms=105841
+standard_exec_timed_out=false
+taskspace_exec_timed_out=false
+public_validation_exit_code_standard=0
+public_validation_exit_code_taskspace=0
+hidden_oracle_exit_code_standard=0
+hidden_oracle_exit_code_taskspace=0
+standard_tool_call_count=13
+taskspace_tool_call_count=6
+taskspace_tool_call_ratio=0.46
+taskspace_wall_time_ratio=1.84
+```
+
+观测证据：
+
+```text
+accepted results=5
+final artifacts=1
+cognitive hard gate=True
+finalArtifactMissingWhyChainCount=0
+nonAcceptedFinalArtifactDependencyCount=0
+criterion-1 / criterion-2 / output-contract-1 在 validation closeout 后更新
+rollout_trace.model_request_count=9
+provider_request_count=8
+request_2_plus_hit_rate=0.981959
+```
+
+收益判断：
+
+1. 真实收益成立：同一个公开样本从 900s timeout 变成 solved，public validation 和 hidden oracle 都通过。
+2. 工具效率收益成立：TaskSpace tool_call_count=6，standard=13，比例 0.46。
+3. 时长仍比 standard 慢，taskspace_wall_time_ratio=1.84，但已经低于该报告的 wall-time warning 阈值。
+4. pair report 仍有 `engineering_unclean`，原因是 E3 外部 validator fidelity / audit review 未完成，不是 TaskSpace 执行失败。

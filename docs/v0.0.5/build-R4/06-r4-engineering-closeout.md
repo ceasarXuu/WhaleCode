@@ -334,3 +334,79 @@ public_validation_exit_code_taskspace=1
 - 该修复目前只能记为 engineering-gate pass，不能记为真实样本收益 pass。
 - 这轮 standard 也失败，TaskSpace 生成 invalid Python，因此样本被模型/tool-use 随机错误污染。
 - R4 当前状态不能说 100% 全部完成；下一步必须继续拿非污染样本证明 H-028 的真实收益，并继续收敛 remaining utility issues。
+
+## 14. 2026-07-02 Post-Closeout H-029 Ledger Adoption Finding
+
+继续复跑 `heterogeneous-dates` 后，确认 H-028 后还有一个 final readiness 的 ledger adoption 缺口：validation closeout 已接受 implementation edit 和 validation result，但原始 user criteria / output contract 仍保持 open，导致合法 `final_answer` 被 gate 拒绝并持续请求模型。
+
+失败现场：
+
+```text
+C:\WhaleRunCache\r4-h028-rerun-heterogeneous-20260702\runs\terminal_bench__heterogeneous-dates\20260702-192443-140\pair-001
+
+outcome_standard=solved
+outcome_taskspace=agent_exec_timeout
+taskspace_wall_ms=900034
+public_validation_exit_code_taskspace=0
+hidden_oracle_exit_code_taskspace=0
+provider_request_count=57
+```
+
+新增修复：
+
+- validation closeout 后执行 `satisfy_closeout_success_criteria(...)`。
+- 对 `test`、`validator`、`artifact`、`behavior`、`user_visible_output` 类型 open criteria，若已有 accepted implementation + accepted validation，则更新为 `satisfied`。
+- 每条 satisfied criteria 同时引用 implementation result 和 validation result。
+- 不自动满足 performance / compatibility 这类不能由单次 smoke validation 证明的验收项。
+
+新增验证：
+
+```text
+cargo test -j1 -p codex-core forced_validation_closeout_satisfies_open_user_criteria_for_final_answer --lib
+PASS
+
+相关 final readiness / validation path 回归测试全部 PASS
+cargo fmt --all -- --check
+PASS
+cargo build -j1 --profile dev-small -p codex-cli --bin whale
+PASS
+```
+
+真实复验：
+
+```text
+C:\WhaleRunCache\r4-ledger-adoption-heterogeneous-20260702\runs\terminal_bench__heterogeneous-dates\20260702-195745-535\pair-001
+
+outcome_standard=solved
+outcome_taskspace=solved
+standard_wall_ms=57668
+taskspace_wall_ms=105841
+standard_exec_timed_out=false
+taskspace_exec_timed_out=false
+public_validation_exit_code_standard=0
+public_validation_exit_code_taskspace=0
+hidden_oracle_exit_code_standard=0
+hidden_oracle_exit_code_taskspace=0
+standard_tool_call_count=13
+taskspace_tool_call_count=6
+taskspace_tool_call_ratio=0.46
+taskspace_wall_time_ratio=1.84
+```
+
+Action Map 观测：
+
+```text
+accepted results=5
+final artifacts=1
+cognitive hard gate=True
+finalArtifactMissingWhyChainCount=0
+nonAcceptedFinalArtifactDependencyCount=0
+criterion-1, criterion-2, output-contract-1 updated after validation closeout
+request_2_plus_hit_rate=0.981959
+```
+
+解释：
+
+- `heterogeneous-dates` 的 TaskSpace 执行层问题已经收敛：从 900s timeout 变为 solved。
+- 当前 pair report 仍标 `engineering_unclean` 是因为 E3 外部 validator fidelity / audit review 未满足，不是本样本的 TaskSpace 执行失败。
+- R4 的整体结论需要更新：不能再把 `heterogeneous-dates` 列为 remaining execution failure；但 public-10 的其他 timeout/wrong 样本仍需要逐个复验和修复，不能据此宣布 R4 全部完成。

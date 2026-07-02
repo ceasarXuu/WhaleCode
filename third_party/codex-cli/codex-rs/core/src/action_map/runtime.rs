@@ -3813,6 +3813,11 @@ preview:\n\
         )? {
             events.push(event);
         }
+        events.extend(self.satisfy_closeout_success_criteria(
+            owner_session_id,
+            &map_id,
+            node_id,
+        )?);
         let id = self.next_trace_event_id();
         let created_at_ms = now_ms();
         let tags = vec![
@@ -3916,6 +3921,72 @@ preview:\n\
             }
         }
         Ok(events)
+    }
+
+    fn satisfy_closeout_success_criteria(
+        &mut self,
+        owner_session_id: ThreadId,
+        map_id: &str,
+        validation_node_id: &str,
+    ) -> Result<Vec<MapRuntimeEvent>, String> {
+        let Some((task_id, validation_result_id, implementation_result_ids, criteria)) =
+            self.maps.get(map_id).and_then(|map| {
+                let task_id = map.task_id.clone()?;
+                let validation_node = map.nodes.get(validation_node_id)?;
+                let validation_result_id =
+                    latest_accepted_successful_validation_result_id(map, validation_node)?;
+                if !map_has_accepted_implementation_result(map) {
+                    return None;
+                }
+                let implementation_result_ids =
+                    dependency_implementation_result_ids(map, validation_node_id, |result| {
+                        result.evidence_package.validity == ResultValidity::Accepted
+                            && result.kind != NodeResultKind::Blocker
+                            && (!result.evidence_package.changed_artifacts.is_empty()
+                                || result.action_class == Some(ActionClass::Edit))
+                    });
+                if implementation_result_ids.is_empty() {
+                    return None;
+                }
+                let criteria = self
+                    .tasks
+                    .get(&task_id)?
+                    .problem_ledger
+                    .success_criteria
+                    .iter()
+                    .filter(|criterion| {
+                        criterion.status == "open"
+                            && criterion_kind_can_be_satisfied_by_validated_artifact(
+                                &criterion.kind,
+                            )
+                    })
+                    .map(|criterion| ActionMapSuccessCriterionInput {
+                        id: criterion.id.clone(),
+                        kind: criterion.kind.clone(),
+                        description: criterion.description.clone(),
+                        status: "satisfied".to_string(),
+                        evidence_refs: closeout_success_criterion_evidence_refs(
+                            &validation_result_id,
+                            &implementation_result_ids,
+                            validation_node.kind.as_str(),
+                        ),
+                    })
+                    .collect::<Vec<_>>();
+                Some((
+                    task_id,
+                    validation_result_id,
+                    implementation_result_ids,
+                    criteria,
+                ))
+            })
+        else {
+            return Ok(Vec::new());
+        };
+        let _ = (task_id, validation_result_id, implementation_result_ids);
+        if criteria.is_empty() {
+            return Ok(Vec::new());
+        }
+        self.record_success_criteria_for_main(owner_session_id, criteria)
     }
 
     fn accept_forced_transition_result(
@@ -15148,6 +15219,49 @@ fn latest_successful_validation_result_id(
             None
         }
     })
+}
+
+fn latest_accepted_successful_validation_result_id(
+    map: &ActionMapInstance,
+    node: &MapNode,
+) -> Option<NodeResultId> {
+    node.result_context.iter().rev().find_map(|result_ref| {
+        let result = map.results.get(&result_ref.id)?;
+        if result.evidence_package.validity == ResultValidity::Accepted
+            && node_result_is_successful_validation(result)
+        {
+            Some(result_ref.id.clone())
+        } else {
+            None
+        }
+    })
+}
+
+fn criterion_kind_can_be_satisfied_by_validated_artifact(kind: &str) -> bool {
+    matches!(
+        kind,
+        "test" | "validator" | "artifact" | "behavior" | "user_visible_output"
+    )
+}
+
+fn closeout_success_criterion_evidence_refs(
+    validation_result_id: &str,
+    implementation_result_ids: &[NodeResultId],
+    validator_ref: &str,
+) -> Vec<ActionMapEvidenceRefInput> {
+    let mut refs = Vec::new();
+    for result_id in implementation_result_ids {
+        refs.push(ActionMapEvidenceRefInput {
+            result_id: Some(result_id.clone()),
+            ..Default::default()
+        });
+    }
+    refs.push(ActionMapEvidenceRefInput {
+        result_id: Some(validation_result_id.to_string()),
+        validator_ref: Some(validator_ref.to_string()),
+        ..Default::default()
+    });
+    refs
 }
 
 fn rewrite_result_id_refs(
@@ -27382,6 +27496,149 @@ fi\n"
         assert!(
             task_success_criteria_complete_for_final(state.tasks.get("task-1").expect("task"), map),
             "validated artifact work should satisfy final readiness without another node"
+        );
+        state
+            .record_main_final_response(owner, "Validation passed; avg_temp.txt is ready.")
+            .expect("final answer readiness should pass");
+    }
+
+    #[test]
+    fn forced_validation_closeout_satisfies_open_user_criteria_for_final_answer() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (_, map_id, implement_node_id, _) = start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::ImplementSolution,
+            "Create average output",
+            "Read input CSVs, calculate the mean temperature difference, and write avg_temp.txt.",
+            "Apply average output",
+            "Write the requested output artifact.",
+            true,
+        );
+        state
+            .record_success_criteria_for_main(
+                owner,
+                vec![
+                    ActionMapSuccessCriterionInput {
+                        id: "criterion-1".to_string(),
+                        kind: "test".to_string(),
+                        description: "Read daily_temp_sf_high.csv and daily_temp_sf_low.csv"
+                            .to_string(),
+                        status: "open".to_string(),
+                        evidence_refs: Vec::new(),
+                    },
+                    ActionMapSuccessCriterionInput {
+                        id: "criterion-2".to_string(),
+                        kind: "test".to_string(),
+                        description: "Calculate the mean of (high - low) across all days"
+                            .to_string(),
+                        status: "open".to_string(),
+                        evidence_refs: Vec::new(),
+                    },
+                    ActionMapSuccessCriterionInput {
+                        id: "criterion-3".to_string(),
+                        kind: "test".to_string(),
+                        description: "Write only the numeric result to avg_temp.txt".to_string(),
+                        status: "open".to_string(),
+                        evidence_refs: Vec::new(),
+                    },
+                ],
+            )
+            .expect("open user criteria record");
+        let (edit_result_id, _) = state
+            .record_main_tool_result_with_class(
+                owner,
+                "call-edit-output",
+                "apply_patch",
+                Some(ActionClass::Edit),
+                true,
+                "Success. Updated the following files:\nA avg_temp.txt\n".to_string(),
+            )
+            .expect("edit result records")
+            .expect("edit result id");
+        let (implement_outcome, _) = state
+            .finish_main_node_with_next(
+                owner,
+                &implement_node_id,
+                "Output artifact was written.".to_string(),
+                None,
+                Some(ActionMapNextNodeDraft {
+                    kind: NodeKind::SmokeTest,
+                    title: "Validate output artifact".to_string(),
+                    context_summary: "Check the requested output artifact.".to_string(),
+                    dependency_node_ids: vec![implement_node_id.clone()],
+                }),
+            )
+            .expect("implementation finishes into validation");
+        let validation_node_id = implement_outcome
+            .next_node_id
+            .clone()
+            .expect("validation node created");
+        let (validation_result_id, _) = state
+            .record_main_tool_result_with_class(
+                owner,
+                "call-validate-output",
+                "shell_command",
+                Some(ActionClass::Test),
+                true,
+                "Exit code: 0\nOutput:\n11.428571428571429".to_string(),
+            )
+            .expect("validation result records")
+            .expect("validation result id");
+        let snapshot = ActionMapProviderRequestBudgetSnapshot {
+            task_id: state.active_task_id.clone(),
+            map_id: map_id.clone(),
+            node_id: Some(validation_node_id.clone()),
+            node_kind: Some(NodeKind::SmokeTest.as_str().to_string()),
+            current_node_progress_signature: None,
+            current_node_has_successful_edit: false,
+            current_node_has_dependency_working_evidence: false,
+            current_node_has_uncovered_mandatory_evidence: false,
+            current_node_uncovered_mandatory_evidence: Vec::new(),
+            route_mode: Some("deep".to_string()),
+            profile_name: Some("taskspace-v005-deep".to_string()),
+            request_phase: Some("validation_recovery".to_string()),
+            provider_request_context_missing_reason: None,
+            request_count: 9,
+            max_requests: 20,
+            node_request_count: 1,
+            max_model_requests_per_node: 5,
+            post_budget_grace_requests: 1,
+            post_budget_grace_request_count: 0,
+            budget_state: "normal".to_string(),
+        };
+
+        state
+            .force_finish_validation_after_successful_tool(
+                owner,
+                &snapshot,
+                "validation_success_after_tool_drain",
+            )
+            .expect("forced validation closeout should be valid")
+            .expect("successful validation should close the node");
+
+        let map = state.maps.get(&map_id).expect("map");
+        let task = state.tasks.get("task-1").expect("task");
+        for criterion_id in ["criterion-1", "criterion-2", "criterion-3", "contract-test"] {
+            let criterion = task
+                .problem_ledger
+                .success_criteria
+                .iter()
+                .find(|criterion| criterion.id == criterion_id)
+                .expect("criterion exists");
+            assert_eq!(criterion.status, "satisfied");
+            assert!(criterion.evidence_refs.iter().any(|evidence_ref| {
+                evidence_ref.result_id.as_deref() == Some(validation_result_id.as_str())
+            }));
+            assert!(criterion.evidence_refs.iter().any(|evidence_ref| {
+                evidence_ref.result_id.as_deref() == Some(edit_result_id.as_str())
+            }));
+        }
+        assert!(
+            task_success_criteria_complete_for_final(task, map),
+            "validated artifact criteria should satisfy final readiness"
         );
         state
             .record_main_final_response(owner, "Validation passed; avg_temp.txt is ready.")

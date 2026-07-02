@@ -1821,3 +1821,114 @@
 - Conclusion:
   - The classification path is fixed by focused regression and the unknown-file negative regression remains protected. A clean real-sample benefit proof still requires another non-polluted rerun or a smaller deterministic tool-stress sample.
 - Time: 2026-07-02 19:50
+
+## Hypothesis H-029: validation closeout did not adopt open user criteria and output contract
+
+- Related problems:
+  - P-004
+- Status: repaired-by-focused-tests-and-real-rerun
+- Claim:
+  - After H-027/H-028, `heterogeneous-dates` could write the correct artifact and pass validation, but final answer still timed out when the initial problem ledger contained open user criteria without evidence refs. Forced validation closeout accepted implementation and validation results, but did not update the original open criteria/output contract to `satisfied`, so final readiness still rejected a valid `final_answer`.
+- Evidence:
+  - Real rerun before repair:
+    ```text
+    RunDir:
+    C:\WhaleRunCache\r4-h028-rerun-heterogeneous-20260702\runs\terminal_bench__heterogeneous-dates\20260702-192443-140\pair-001
+
+    outcome_standard=solved
+    outcome_taskspace=agent_exec_timeout
+    failure_taxonomy=engineering_unclean, taskspace_overhead_timeout, audit_unclean
+    taskspace_wall_ms=900034
+    public_validation_exit_code_taskspace=0
+    hidden_oracle_exit_code_taskspace=0
+    taskspace_changed_paths=avg_temp.txt
+    ```
+  - The model produced a valid `final_answer`, but the snapshot still had:
+    ```text
+    criterion-1 status=open evidenceRefs=[]
+    criterion-2 status=open evidenceRefs=[]
+    criterion-3 status=open evidenceRefs=[]
+    output-contract-1 status=open
+    sc-node-3-validation-pass status=satisfied result-7
+    provider_request_count reached 57
+    ```
+  - This proved the remaining issue was not tool execution, not validation correctness, and not JSON parsing. It was ledger adoption: the validated edit/test evidence was accepted but not joined back to the user-facing acceptance records.
+- Root cause:
+  - `force_finish_validation_after_successful_tool(...)` accepted implementation edit/lifecycle evidence and the validation closeout result, but only auto-created the node-local validation criterion. It did not satisfy pre-existing open criteria whose kinds were directly provable by accepted implementation plus accepted validation.
+- Repair:
+  - Added validation-closeout ledger adoption:
+    ```text
+    satisfy_closeout_success_criteria(...)
+    latest_accepted_successful_validation_result_id(...)
+    criterion_kind_can_be_satisfied_by_validated_artifact(...)
+    closeout_success_criterion_evidence_refs(...)
+    ```
+  - The adoption path updates open criteria of these kinds only:
+    ```text
+    test, validator, artifact, behavior, user_visible_output
+    ```
+  - It cites both the accepted implementation result and the accepted validation result. It intentionally does not auto-satisfy unrelated `performance` / `compatibility` criteria.
+- Validation:
+  ```text
+  cargo fmt --all -- --check
+  PASS
+
+  CARGO_TARGET_DIR=D:\BuildCache\whalecode\cargo-target cargo test -j1 -p codex-core forced_validation_closeout_satisfies_open_user_criteria_for_final_answer --lib
+  PASS
+
+  CARGO_TARGET_DIR=D:\BuildCache\whalecode\cargo-target cargo test -j1 -p codex-core forced_validation_closeout_accepts_dependency_edit_for_final_readiness --lib
+  PASS
+
+  CARGO_TARGET_DIR=D:\BuildCache\whalecode\cargo-target cargo test -j1 -p codex-core force_finish_validation_after_successful_tool_closes_smoke_node --lib
+  PASS
+
+  CARGO_TARGET_DIR=D:\BuildCache\whalecode\cargo-target cargo test -j1 -p codex-core validation_known_input_path_error_stays_on_validation_node --lib
+  PASS
+
+  CARGO_TARGET_DIR=D:\BuildCache\whalecode\cargo-target cargo test -j1 -p codex-core validation_node_failed_test_blocks_repeated_validation --lib
+  PASS
+
+  CARGO_TARGET_DIR=D:\BuildCache\whalecode\cargo-target cargo build -j1 --profile dev-small -p codex-cli --bin whale
+  PASS
+  ```
+  - Real rerun after repair:
+    ```text
+    RunDir:
+    C:\WhaleRunCache\r4-ledger-adoption-heterogeneous-20260702\runs\terminal_bench__heterogeneous-dates\20260702-195745-535\pair-001
+
+    outcome_standard=solved
+    outcome_taskspace=solved
+    failure_taxonomy=engineering_unclean, audit_unclean
+    standard_wall_ms=57668
+    taskspace_wall_ms=105841
+    standard_exec_timed_out=false
+    taskspace_exec_timed_out=false
+    public_validation_exit_code_standard=0
+    public_validation_exit_code_taskspace=0
+    hidden_oracle_exit_code_standard=0
+    hidden_oracle_exit_code_taskspace=0
+    standard_tool_call_count=13
+    taskspace_tool_call_count=6
+    taskspace_tool_call_ratio=0.46
+    taskspace_wall_time_ratio=1.84
+    ```
+  - Action-map observability after repair:
+    ```text
+    accepted results=5
+    final artifacts=1
+    cognitive hard gate=True
+    finalArtifactMissingWhyChainCount=0
+    nonAcceptedFinalArtifactDependencyCount=0
+    criterion-1 updated after validation closeout
+    criterion-2 updated after validation closeout
+    output-contract-1 updated after validation closeout
+    ```
+  - Request/cache evidence:
+    ```text
+    rollout_trace.model_request_count=9
+    provider_request_count=8
+    request_2_plus_hit_rate=0.981959
+    ```
+- Conclusion:
+  - The H-029 repair has real engineering benefit: the same public sample moved from 900s timeout with public validation already passing to non-timeout solved with both public and hidden oracle passing. Remaining `engineering_unclean` in the pair report is caused by E3/audit eligibility requirements, not by TaskSpace execution failure.
+- Time: 2026-07-02 20:10
