@@ -202,6 +202,15 @@ exit_code=3
 abort_phase=provider_credential_preflight
 ```
 
+后续固化：
+
+```text
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/taskspace-benchmark/test-external-wrapper-harness.ps1
+PASS
+```
+
+该 harness 会临时清空 `DEEPSEEK_API_KEY`，确认 `deepseek-v4-flash` benchmark 在 paired execution 前稳定写出 `provider-credential-preflight-health.json`，并以 `provider_credential_missing` 退出。
+
 当前结论：
 - H-035/H-036 已由聚焦单测排除；本轮没有进入 patch recovery utility 层。
 - Linux harness 已能完成物化和前置诊断，不再被 Windows primitive 阻断。

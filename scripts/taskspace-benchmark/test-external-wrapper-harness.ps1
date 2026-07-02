@@ -108,6 +108,37 @@ if ($directStaleStatusPath) {
     Assert-True ([string]$directStaleSampleStatus.abort_reason -eq "whale_binary_stale_for_codex_source") "direct stale whale binary abort reason was not stable"
 }
 
+$providerRunRoot = Join-Path $runDir "provider-credential-run"
+$savedDeepSeekApiKey = $env:DEEPSEEK_API_KEY
+Remove-Item Env:DEEPSEEK_API_KEY -ErrorAction SilentlyContinue
+try {
+    $providerOutput = & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "run-taskspace-benchmark.ps1") -Scenario single-file-fast-fix -RunRoot $providerRunRoot -WhaleBin $freshWhaleBin -Model deepseek-v4-flash 2>&1
+    $providerExitCode = $LASTEXITCODE
+} finally {
+    if ($null -ne $savedDeepSeekApiKey) {
+        $env:DEEPSEEK_API_KEY = $savedDeepSeekApiKey
+    } else {
+        Remove-Item Env:DEEPSEEK_API_KEY -ErrorAction SilentlyContinue
+    }
+}
+Assert-True ($providerExitCode -eq 3) "direct benchmark runner did not fail fast when DEEPSEEK_API_KEY was missing"
+Assert-True (($providerOutput -join "`n") -match "ProviderCredentialHealth:") "direct benchmark runner did not print provider credential health path"
+$providerStatusPath = Get-ChildItem -LiteralPath $providerRunRoot -Filter "sample-status.json" -Recurse | Select-Object -First 1
+Assert-True ($null -ne $providerStatusPath) "direct benchmark runner did not write sample-status for missing provider credential"
+if ($providerStatusPath) {
+    $providerSampleStatus = Get-Content -Raw -Encoding UTF8 -LiteralPath $providerStatusPath.FullName | ConvertFrom-Json
+    Assert-True ([string]$providerSampleStatus.abort_phase -eq "provider_credential_preflight") "missing provider credential abort phase was not stable"
+    Assert-True ([string]$providerSampleStatus.abort_reason -eq "provider_credential_missing") "missing provider credential abort reason was not stable"
+}
+$providerHealthPath = Get-ChildItem -LiteralPath $providerRunRoot -Filter "provider-credential-preflight-health.json" -Recurse | Select-Object -First 1
+Assert-True ($null -ne $providerHealthPath) "direct benchmark runner did not write provider credential health artifact"
+if ($providerHealthPath) {
+    $providerHealth = Get-Content -Raw -Encoding UTF8 -LiteralPath $providerHealthPath.FullName | ConvertFrom-Json
+    Assert-True ([string]$providerHealth.status -eq "fail") "provider credential health did not fail"
+    Assert-True ([string]$providerHealth.run_validity -eq "invalid_harness") "provider credential health did not mark invalid_harness"
+    Assert-True ([string]@($providerHealth.findings)[0].stable_code -eq "provider_credential_missing") "provider credential health did not record stable missing-key code"
+}
+
 $attestationOutput = & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "write-whale-binary-attestation.ps1") -WhaleBin $staleWhaleBin -BuildCommand "fixture build" 2>&1
 Assert-True ($LASTEXITCODE -eq 0) "whale binary attestation writer failed: $($attestationOutput -join ' | ')"
 $attestedRunRoot = Join-Path $runDir "attested-stale-wrapper-run"

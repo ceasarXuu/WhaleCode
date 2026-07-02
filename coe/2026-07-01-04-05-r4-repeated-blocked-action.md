@@ -2367,7 +2367,7 @@
 
 ## Hypothesis H-038: missing DeepSeek provider credentials must fail before paired execution
 
-- Status: repaired-and-validated-by-real-preflight
+- Status: repaired-and-validated-by-real-preflight-and-focused-harness
 - Claim:
   - Without `DEEPSEEK_API_KEY`, Whale emits JSONL errors and exits before model execution.
   - The benchmark runner previously continued into validation, which mixed provider setup failure with Docker validator failure and obscured the real blocker.
@@ -2401,6 +2401,32 @@
 - Interpretation:
   - Current host cannot produce `organization-json-generator` utility evidence until `DEEPSEEK_API_KEY` and Docker/Python package network are configured.
   - The runner now blocks earlier and preserves a stable preflight artifact instead of wasting validation time and mixing independent environment failures.
+
+## Evidence E-018: missing DeepSeek credential preflight is covered by focused harness
+
+- Related hypotheses:
+  - H-038
+- Direction: supports
+- Type: validation
+- Source: `scripts/taskspace-benchmark/test-external-wrapper-harness.ps1`
+- Prediction or plan link:
+  - H-038 requires missing DeepSeek credentials to fail before paired execution and before the fake Whale binary can be invoked.
+- Matched signal:
+  - The harness temporarily clears `DEEPSEEK_API_KEY`, invokes `run-taskspace-benchmark.ps1` with `-Model deepseek-v4-flash`, and asserts exit code `3`.
+  - It validates `sample-status.json` has `abort_phase=provider_credential_preflight` and `abort_reason=provider_credential_missing`.
+  - It validates `provider-credential-preflight-health.json` has `status=fail`, `run_validity=invalid_harness`, and stable finding code `provider_credential_missing`.
+- Correlation keys:
+  - `target/external-wrapper-selftest/20260703-055719-501`
+- Raw content:
+  ```text
+  powershell -NoProfile -ExecutionPolicy Bypass -File scripts/taskspace-benchmark/test-external-wrapper-harness.ps1
+  TaskSpace external wrapper self-test: PASS
+  RunRoot: /home/zhangxu/whalecode-alpha/target/external-wrapper-selftest/20260703-055719-501
+  ```
+- Interpretation:
+  - The missing-key behavior is no longer only a one-off `organization-json-generator` repro.
+  - Fresh checkout harness validation will catch regressions that would otherwise waste a benchmark run and mix provider setup failure with utility evidence.
+- Time: 2026-07-03 05:57
 
 ## Hypothesis H-039: native Docker loopback proxy needs host network during validator image build
 
