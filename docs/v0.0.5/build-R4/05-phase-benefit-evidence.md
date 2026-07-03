@@ -3190,3 +3190,71 @@ CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/co
 还需要 commit/push、binary attestation 和下一轮 keyed rerun。下一轮期望 line 73 这类 payload 在工具执行前被拒绝为
 `apply_patch_unanchored_update:organization.json`，并插入 `TaskSpaceApplyPatchUnanchoredUpdateRecoveryV1`，不再退化成 generic
 `TaskSpaceEditFailureRecoveryV1`。
+
+## 5.47 2026-07-04 Python Add File common-indent normalization
+
+non-diff Update File payload 修复、commit/push、binary attestation 后的 keyed rerun 没有复现 H-036 的
+`python3 -c` inside patch 形态；新的 blocker 是 Python Add File 共同前导空格。provider 这次生成了脚本而不是直接生成
+JSON，但在 native `*** Add File` 中每个 Python 内容行都写成 `+ import...` / `+ def...`，工具按字面创建文件后
+`python generate_org_json.py` 在 line 1 报 `IndentationError: unexpected indent`。
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260703ai-non-diff-patch/runs/terminal_bench__organization-json-generator/20260704-073032-022
+reported_evidence_level: E2-candidate
+outcome_standard: solved
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 15
+right_open_leaf_nodes: 1
+public_validation_exit_code: 1
+hidden_oracle_exit_code: 0
+preflight_git_head: 711b69e577f8b21033abe1b1ebeeecf0b9982160
+build_attestation_status: pass
+```
+
+关键观察：
+
+| Signal | 结论 |
+|---|---|
+| line 29 `*** Add File: generate_org_json.py` 中所有内容行都是 `+ import` / `+ def` / `+     ...` | provider 常见地把 patch marker 后的空格当成排版，而工具按字面写入源文件 |
+| line 43 `IndentationError: unexpected indent` at line 1 | 统一多一格前导空格让 Python 文件无效 |
+| line 50 首次 `read_file generate_org_json.py` 输出确认整文件都有共同一格前导空格 | 不是单行局部缩进问题，是 Add File 共同缩进问题 |
+| lines 58/65/72/79 `TaskSpaceValidationReworkDuplicateReadRecoveryV1` | duplicate-read feedback 生效，但模型在 thin/budget recovery 中仍反复读 |
+| line 80 `TaskSpaceProviderBudgetHardStopV1 node_request_count=6/5` | 继续依赖 rework 纠偏会消耗节点预算 |
+
+本轮新增并 focused 修复的问题类型：
+
+| Case | Before | After | Evidence |
+|---|---|---|---|
+| `python-add-file-common-indent-normalization-gap` | Python Add File 中每个 `+` 内容行统一多一个空格时，工具忠实写入，生成语法无效文件并把问题推给后续 validation rework | `normalize_taskspace_apply_patch` 对 `*** Add File: *.py` / `*.pyw` 做窄范围共同缩进规范化：仅当所有非空新增内容行都统一多一格时，去掉一层；非 Python 文件和混合缩进内容不动 | `taskspace_apply_patch_strips_common_python_add_file_indent`; `taskspace_apply_patch_preserves_non_python_add_file_indent` |
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked common_python_add_file_indent
+  PASS：1 test
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked non_python_add_file_indent
+  PASS：1 test
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked apply_patch_
+  PASS：35 tests
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked validation_rework
+  PASS：15 tests
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked validation_
+  PASS：92 tests
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked duplicate_rework
+  PASS：2 tests
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+git diff --check
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-cli --bin whale --locked
+  PASS
+```
+
+状态：该 apply_patch capability normalization class 已 focused fixed，并通过本地回归、fmt、diff check 和 `whale` build；
+还需要 commit/push、binary attestation 和下一轮 keyed rerun。下一轮期望 line 29 这类 Python Add File 直接生成无共同前导空格的
+脚本，不再在第一轮 validation 出现 line 1 `IndentationError`。

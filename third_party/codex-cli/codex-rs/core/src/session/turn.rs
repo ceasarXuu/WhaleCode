@@ -6161,6 +6161,41 @@ tax_calc.py\n\
     }
 
     #[test]
+    fn taskspace_apply_patch_strips_common_python_add_file_indent() {
+        let patch = normalize_taskspace_apply_patch(
+            "*** Begin Patch\n\
+*** Add File: generate_org_json.py\n\
++ import csv\n\
++ import json\n\
++ \n\
++ def main():\n\
++     print('ok')\n\
++ \n\
++ main()\n\
+*** End Patch\n",
+        );
+
+        assert!(patch.contains("*** Add File: generate_org_json.py"));
+        assert!(patch.contains("+import csv\n+import json\n+\n+def main():\n+    print('ok')"));
+        assert!(!patch.contains("+ import csv"));
+        assert!(!patch.contains("+ def main():"));
+        assert!(patch.ends_with("*** End Patch\n"));
+    }
+
+    #[test]
+    fn taskspace_apply_patch_preserves_non_python_add_file_indent() {
+        let patch = normalize_taskspace_apply_patch(
+            "*** Begin Patch\n\
+*** Add File: notes.txt\n\
++ indented text\n\
++   nested text\n\
+*** End Patch\n",
+        );
+
+        assert!(patch.contains("+ indented text\n+   nested text"));
+    }
+
+    #[test]
     fn taskspace_apply_patch_wraps_unwrapped_update_file_patch() {
         let patch = normalize_taskspace_apply_patch(
             "*** Update File: tax_calc.py\n\
@@ -9601,10 +9636,10 @@ fn taskspace_action_arg_u64(args: &serde_json::Value, name: &str, default: u64) 
 fn normalize_taskspace_apply_patch(patch: &str) -> String {
     let normalized = patch.replace("\r\n", "\n");
     if let Some(rewritten) = normalize_taskspace_unwrapped_apply_patch(&normalized) {
-        return normalize_taskspace_native_hunk_headers(&rewritten);
+        return normalize_taskspace_native_patch_payloads(&rewritten);
     }
     if let Some(rewritten) = normalize_taskspace_bare_file_patch(&normalized) {
-        return normalize_taskspace_native_hunk_headers(&rewritten);
+        return normalize_taskspace_native_patch_payloads(&rewritten);
     }
     let lines = normalized.lines().collect::<Vec<_>>();
     let has_native_file_operation = lines
@@ -9617,8 +9652,14 @@ fn normalize_taskspace_apply_patch(patch: &str) -> String {
     {
         return normalized;
     }
-    normalize_taskspace_native_hunk_headers(&rewrite_taskspace_apply_patch_unique_update_paths(
+    normalize_taskspace_native_patch_payloads(&rewrite_taskspace_apply_patch_unique_update_paths(
         &normalized,
+    ))
+}
+
+fn normalize_taskspace_native_patch_payloads(patch: &str) -> String {
+    normalize_taskspace_python_add_file_common_indent(&normalize_taskspace_native_hunk_headers(
+        patch,
     ))
 }
 
@@ -9697,6 +9738,83 @@ fn normalize_taskspace_native_hunk_headers(patch: &str) -> String {
     } else {
         patch.to_string()
     }
+}
+
+fn normalize_taskspace_python_add_file_common_indent(patch: &str) -> String {
+    let source_lines = patch.lines().collect::<Vec<_>>();
+    let mut changed = false;
+    let mut lines = Vec::new();
+    let mut index = 0usize;
+    while index < source_lines.len() {
+        let line = source_lines[index];
+        let Some(target) = line.strip_prefix("*** Add File: ").map(str::trim) else {
+            lines.push(line.to_string());
+            index += 1;
+            continue;
+        };
+
+        lines.push(line.to_string());
+        index += 1;
+
+        let mut content = Vec::new();
+        while index < source_lines.len() {
+            let next = source_lines[index];
+            if next == "*** End Patch"
+                || next.starts_with("*** Add File: ")
+                || next.starts_with("*** Update File: ")
+                || next.starts_with("*** Delete File: ")
+            {
+                break;
+            }
+            content.push(next);
+            index += 1;
+        }
+
+        if taskspace_patch_target_is_python(target)
+            && taskspace_added_file_content_has_common_single_indent(&content)
+        {
+            changed = true;
+            lines.extend(content.into_iter().map(|content_line| {
+                content_line
+                    .strip_prefix("+ ")
+                    .map(|rest| format!("+{rest}"))
+                    .unwrap_or_else(|| content_line.to_string())
+            }));
+        } else {
+            lines.extend(content.into_iter().map(str::to_string));
+        }
+    }
+
+    if changed {
+        lines.join("\n") + "\n"
+    } else {
+        patch.to_string()
+    }
+}
+
+fn taskspace_patch_target_is_python(target: &str) -> bool {
+    let normalized = target.trim().to_ascii_lowercase();
+    normalized.ends_with(".py") || normalized.ends_with(".pyw")
+}
+
+fn taskspace_added_file_content_has_common_single_indent(content: &[&str]) -> bool {
+    let mut saw_non_empty_added_content = false;
+    for line in content {
+        let Some(rest) = line.strip_prefix('+') else {
+            if line.trim().is_empty() {
+                continue;
+            }
+            return false;
+        };
+        if rest.is_empty() || rest.trim().is_empty() {
+            continue;
+        }
+        saw_non_empty_added_content = true;
+        if !rest.starts_with(' ') {
+            return false;
+        }
+    }
+    saw_non_empty_added_content
 }
 
 fn taskspace_line_looks_unified_old_file_header(line: &str) -> bool {

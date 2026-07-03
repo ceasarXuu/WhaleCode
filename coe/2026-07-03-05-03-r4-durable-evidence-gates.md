@@ -1998,3 +1998,62 @@
   - The recovery text now says not to put shell, Python, or JSON transformation commands inside apply_patch payloads.
   - A deletion-only patch with `@@` and `-old` remains a valid `apply_patch` tool call.
 - Interpretation: The `apply-patch-non-diff-update-payload-feedback-gap` class is focused-fixed at action-contract/recovery-text/build level. Commit/push, binary attestation, and another keyed rerun are still required before claiming live convergence beyond this case.
+
+# Evidence E-081: post-H-036 rerun exposes Python Add File common-indent capability gap
+
+- Prediction tested: H-036 direct payload class should no longer be the only known blocker after commit/push/attestation; the next rerun should identify the next tools-chain issue if the sample still fails.
+- Real rerun:
+  ```text
+  RunDir: target/r4-org-json-real-keyed-20260703ai-non-diff-patch/runs/terminal_bench__organization-json-generator/20260704-073032-022
+  PairReport: pair-001/pair-report.md
+  reported_evidence_level: E2-candidate
+  outcome_standard: solved
+  outcome_taskspace: engineering_unclean
+  right_exec_timed_out: False
+  right_tool_call_count: 15
+  right_open_leaf_nodes: 1
+  public_validation_exit_code: 1
+  hidden_oracle_exit_code: 0
+  preflight_git_head: 711b69e577f8b21033abe1b1ebeeecf0b9982160
+  build_attestation_status: pass
+  ```
+- Matched trace signals:
+  - Line 29 created `generate_org_json.py` with native `*** Add File`, but every non-empty Python content line was emitted as `+ import ...`, `+ def ...`, etc., meaning the created file has one unintended leading space on every line.
+  - Line 43 ran the exact validation command `python generate_org_json.py && python -m jsonschema -i organization.json schema.json`, and Python failed at line 1 with `IndentationError: unexpected indent`.
+  - Line 50 executed the first allowed `read_file generate_org_json.py`, and the output confirmed the entire file carries a common one-space prefix.
+  - Lines 58, 65, 72, 79 repeat `TaskSpaceValidationReworkDuplicateReadRecoveryV1`; the feedback layer is present but the model keeps rereading instead of patching until line 80 hard-stops.
+- Interpretation: This is a capability-layer normalization gap at the edit boundary. The patch payload contains a common LLM-native `+ ` spacing mistake for a new Python file; treating it as literal source creates invalid Python and forces a rework loop. A safe narrow normalizer can strip one shared leading space only for Python Add File sections where every non-empty added line has that extra space.
+
+# Hypothesis H-037: Python Add File payloads with common extra leading space should normalize
+
+- Claim: When a native `*** Add File: *.py` section has every non-empty added content line starting with exactly at least one space after `+`, the provider likely used `+ ` as patch-list formatting rather than intended module-level indentation. For Python files, a whole-file top-level one-space indent is syntactically invalid and repeatedly leads to `IndentationError`. The edit boundary should strip one common leading space from every added Python content line, while preserving relative indentation and leaving non-Python files or mixed-indent Python content untouched.
+- Prediction: A focused test using the live `generate_org_json.py` shape should normalize `+ import csv` to `+import csv` and `+     print(...)` to `+    print(...)`. A non-Python Add File with leading spaces should be preserved.
+- Diagnostic evidence plan: Add normalizer tests for Python Add File common indent and non-Python preservation; route all native apply_patch postprocessing through the new normalizer; run apply_patch and validation rework regression filters.
+- Status: confirmed.
+
+# Evidence E-082: Python Add File common leading indent now normalizes narrowly
+
+- Prediction tested: H-037 requires Python Add File common leading indentation to be stripped only when all non-empty added lines share the extra leading space.
+- Repair artifact:
+  - `third_party/codex-cli/codex-rs/core/src/session/turn.rs`
+- Focused commands:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked common_python_add_file_indent
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked non_python_add_file_indent
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked apply_patch_
+  ```
+- Adjacent regression/build commands:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked validation_rework
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked validation_
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked duplicate_rework
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+  git diff --check
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-cli --bin whale --locked
+  ```
+- Result: passed. `common_python_add_file_indent` is 1/1, `non_python_add_file_indent` is 1/1, `apply_patch_` is 35/35, `validation_rework` is 15/15, `validation_` is 92/92, and `duplicate_rework` is 2/2. `cargo fmt --check`, `git diff --check`, and the `whale` build passed.
+- Matched test signals:
+  - Python `*** Add File: generate_org_json.py` normalizes `+ import csv` to `+import csv`.
+  - Relative indentation is preserved by removing only one shared leading space, e.g. `+     print('ok')` becomes `+    print('ok')`.
+  - Non-Python `*** Add File: notes.txt` keeps leading spaces unchanged.
+- Interpretation: The `python-add-file-common-indent-normalization-gap` class is focused-fixed at apply_patch normalization/build level. Commit/push, binary attestation, and another keyed rerun are required before claiming live convergence beyond this case.
