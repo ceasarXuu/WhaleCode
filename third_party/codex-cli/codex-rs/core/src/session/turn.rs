@@ -622,44 +622,10 @@ pub(crate) async fn run_turn(
                                     format!("TaskSpace inserted TaskSpaceNoActionRecoveryV1 because the provider response requested follow-up or was rejected by the final-response gate without an actionable tool/control/final result. Recovery attempt {}/{} is being used.", taskspace_no_action_recovery_count, no_action_recovery_cap)
                                 }
                             } else if counts_against_implement_needs_edit_cap {
-                                if response_item_text_contains(
+                                taskspace_implement_recovery_advisory_warning_message(
                                     &recovery_item,
-                                    TASKSPACE_PATCH_INTENT_FORMAT_MARKER,
-                                ) {
-                                    format!(
-                                        "TaskSpace inserted TaskSpacePatchIntentFormatRecoveryV1 because an apply_patch intent was rejected for non-strict JSON and must be re-emitted as one strict action. Advisory recovery attempt {} is being used.",
-                                        taskspace_implement_needs_edit_recovery_count
-                                    )
-                                } else if response_item_text_contains(
-                                    &recovery_item,
-                                    TASKSPACE_APPLY_PATCH_MISSING_TARGET_MARKER,
-                                ) {
-                                    format!(
-                                        "TaskSpace inserted TaskSpaceApplyPatchMissingTargetRecoveryV1 because apply_patch tried to update a missing file and must be re-emitted with Add File or the correct existing target. Advisory recovery attempt {} is being used.",
-                                        taskspace_implement_needs_edit_recovery_count
-                                    )
-                                } else if response_item_text_contains(
-                                    &recovery_item,
-                                    TASKSPACE_EDIT_FAILURE_MARKER,
-                                ) {
-                                    format!(
-                                        "TaskSpace inserted TaskSpaceEditFailureRecoveryV1 because the previous edit tool call failed and the model must use that tool feedback to retry or block. Advisory recovery attempt {} is being used.",
-                                        taskspace_implement_needs_edit_recovery_count
-                                    )
-                                } else if response_item_text_contains(
-                                    &recovery_item,
-                                    TASKSPACE_VALIDATION_REWORK_DUPLICATE_READ_MARKER,
-                                ) {
-                                    format!(
-                                        "TaskSpace inserted TaskSpaceValidationReworkDuplicateReadRecoveryV1 because validation rework already has the target file contents and the model must patch or block instead of reading again. Advisory recovery attempt {} is being used.",
-                                        taskspace_implement_needs_edit_recovery_count
-                                    )
-                                } else {
-                                    format!(
-                                        "TaskSpace inserted TaskSpaceImplementNeedsEditRecoveryV1 because implementation has enough read/search evidence and must edit or block. Advisory recovery attempt {} is being used.",
-                                        taskspace_implement_needs_edit_recovery_count
-                                    )
-                                }
+                                    taskspace_implement_needs_edit_recovery_count,
+                                )
                             } else {
                                 taskspace_special_recovery_warning_message(&recovery_item)
                             },
@@ -2071,6 +2037,7 @@ Previous blocked feedback:\n{previous_excerpt}\n\
 {evidence}\
 Current required behavior:\n\
 - Emit exactly one taskspace-action-v1 apply_patch action targeting `{artifact}` now, using the current contents already visible in `{previous_result}` and the failed validation evidence.\n\
+- Use native apply_patch grammar only: `*** Update File: <path>` with `@@` plus exact context and exact `-old` / `+new` lines, or `*** Delete File` followed by `*** Add File` for a complete small/generated rewrite. Do not include `--- a/...`, `+++ b/...`, `@@ -old,+new @@`, or `@@ ... @@` placeholder headers.\n\
 - If repair_contract is present, satisfy it exactly before rerunning validation.\n\
 - Do not call read_file, list_files, search, broad shell discovery, schema inspection, or validation from this implementation node before a successful edit is recorded.\n\
 - If no safe edit can be made from the already visible evidence, emit exactly one taskspace_control block_node with the exact missing evidence or unsafe-edit reason.\n\
@@ -2174,6 +2141,45 @@ fn is_taskspace_implement_needs_edit_recovery_item(item: &ResponseItem) -> bool 
         || response_item_text_contains(item, TASKSPACE_APPLY_PATCH_UNANCHORED_UPDATE_MARKER)
         || response_item_text_contains(item, TASKSPACE_APPLY_PATCH_NATIVE_HUNK_MARKER)
         || response_item_text_contains(item, TASKSPACE_PATCH_INTENT_FORMAT_MARKER)
+}
+
+fn taskspace_implement_recovery_advisory_warning_message(
+    item: &ResponseItem,
+    attempt: usize,
+) -> String {
+    if response_item_text_contains(item, TASKSPACE_PATCH_INTENT_FORMAT_MARKER) {
+        format!(
+            "TaskSpace inserted TaskSpacePatchIntentFormatRecoveryV1 because an apply_patch intent was rejected for non-strict JSON and must be re-emitted as one strict action. Advisory recovery attempt {attempt} is being used."
+        )
+    } else if response_item_text_contains(item, TASKSPACE_APPLY_PATCH_FORMAT_MARKER) {
+        format!(
+            "TaskSpace inserted TaskSpaceApplyPatchFormatRecoveryV1 because apply_patch tried to add an existing file and must be re-emitted as an update. Advisory recovery attempt {attempt} is being used."
+        )
+    } else if response_item_text_contains(item, TASKSPACE_APPLY_PATCH_MISSING_TARGET_MARKER) {
+        format!(
+            "TaskSpace inserted TaskSpaceApplyPatchMissingTargetRecoveryV1 because apply_patch tried to update a missing file and must be re-emitted with Add File or the correct existing target. Advisory recovery attempt {attempt} is being used."
+        )
+    } else if response_item_text_contains(item, TASKSPACE_APPLY_PATCH_UNANCHORED_UPDATE_MARKER) {
+        format!(
+            "TaskSpace inserted TaskSpaceApplyPatchUnanchoredUpdateRecoveryV1 because apply_patch used an unanchored Update File patch and must be re-emitted with exact context. Advisory recovery attempt {attempt} is being used."
+        )
+    } else if response_item_text_contains(item, TASKSPACE_APPLY_PATCH_NATIVE_HUNK_MARKER) {
+        format!(
+            "TaskSpace inserted TaskSpaceApplyPatchNativeHunkRecoveryV1 because apply_patch mixed native grammar with unified/range/placeholder hunk syntax and must be re-emitted in native apply_patch grammar. Advisory recovery attempt {attempt} is being used."
+        )
+    } else if response_item_text_contains(item, TASKSPACE_EDIT_FAILURE_MARKER) {
+        format!(
+            "TaskSpace inserted TaskSpaceEditFailureRecoveryV1 because the previous edit tool call failed and the model must use that tool feedback to retry or block. Advisory recovery attempt {attempt} is being used."
+        )
+    } else if response_item_text_contains(item, TASKSPACE_VALIDATION_REWORK_DUPLICATE_READ_MARKER) {
+        format!(
+            "TaskSpace inserted TaskSpaceValidationReworkDuplicateReadRecoveryV1 because validation rework already has the target file contents and the model must patch or block instead of reading again. Advisory recovery attempt {attempt} is being used."
+        )
+    } else {
+        format!(
+            "TaskSpace inserted TaskSpaceImplementNeedsEditRecoveryV1 because implementation has enough read/search evidence and must edit or block. Advisory recovery attempt {attempt} is being used."
+        )
+    }
 }
 
 fn taskspace_special_recovery_warning_message(item: &ResponseItem) -> String {
@@ -4786,6 +4792,8 @@ Then I will inspect the file."#,
         assert!(text.contains("projectStatusDistribution"));
         assert!(text.contains("TaskSpaceGateRecoveryV1"));
         assert!(text.contains("Emit exactly one taskspace-action-v1 apply_patch"));
+        assert!(text.contains("Use native apply_patch grammar only"));
+        assert!(text.contains("Do not include `--- a/...`"));
         assert!(text.contains("Do not call read_file"));
         assert!(text.contains("Do not repeat the blocked read"));
         assert!(is_taskspace_implement_needs_edit_recovery_item(&item));
@@ -5833,6 +5841,26 @@ Then I will inspect the file."#,
         assert!(text.contains("recover.py"));
         assert!(text.contains("Do not call read_file"));
         assert!(text.contains("*** Delete File: <path>"));
+        assert!(!is_taskspace_no_action_recovery_item(&item));
+        assert!(is_taskspace_implement_needs_edit_recovery_item(&item));
+    }
+
+    #[test]
+    fn apply_patch_mixed_native_unified_recovery_uses_native_hunk_warning() {
+        let targets = taskspace_native_hunk_targets_from_rejection(Some(
+            "TaskSpaceActionV1 rejected: apply_patch_mixed_native_unified:generate_org.py. Return exactly one valid taskspace-action-v1 JSON object.",
+        ))
+        .expect("target parsed");
+        let item = build_taskspace_apply_patch_native_hunk_recovery_item(&targets);
+        let text = item_text(item.clone());
+        let warning = taskspace_implement_recovery_advisory_warning_message(&item, 7);
+
+        assert_eq!(targets, "generate_org.py");
+        assert!(text.contains(TASKSPACE_APPLY_PATCH_NATIVE_HUNK_MARKER));
+        assert!(text.contains("generate_org.py"));
+        assert!(text.contains("Do not call read_file"));
+        assert!(warning.contains("TaskSpaceApplyPatchNativeHunkRecoveryV1"));
+        assert!(!warning.contains("TaskSpaceImplementNeedsEditRecoveryV1"));
         assert!(!is_taskspace_no_action_recovery_item(&item));
         assert!(is_taskspace_implement_needs_edit_recovery_item(&item));
     }

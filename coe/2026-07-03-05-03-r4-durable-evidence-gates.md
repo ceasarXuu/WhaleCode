@@ -1698,3 +1698,61 @@
   - `taskspace_special_recovery_warning_message` now logs `TaskSpaceValidationReworkDuplicateReadRecoveryV1` distinctly instead of falling through to a generic recovery warning.
 - Operational note: a bare `cargo test -p codex-core ...` failed in this host because `codex-linux-sandbox` tried to build vendored bubblewrap and `libcap.pc` is unavailable. The stable local test command for this repository remains `CODEX_SKIP_VENDORED_BWRAP=1 cargo test ...`.
 - Interpretation: The new `validation-rework-duplicate-read-immediate-recovery-bypass` class is focused-fixed at session feedback level. A binary rebuild/attestation and another keyed rerun are required to verify the external sample now receives the dedicated patch-only recovery in the live trace.
+
+# Hypothesis H-032: patch grammar recovery is diluted after mixed native/unified rejection
+
+- Claim: After H-031, duplicate validation rework reads receive the dedicated patch-only recovery in the live trace, but a neighboring apply_patch feedback class still drains the implementation rework node. `apply_patch_mixed_native_unified:<target>` is rejected by the action contract, but the advisory warning path labels the recovery as generic `TaskSpaceImplementNeedsEditRecoveryV1`. Then a later duplicate-read recovery says "patch now" without restating native apply_patch grammar, so the provider repeats unified-diff headers inside native `*** Update File` payloads until the node hard limit.
+- Prediction: The post-H-031 keyed rerun will show `TaskSpaceValidationReworkDuplicateReadRecoveryV1` after a duplicate read, proving H-031 crossed. The next blocker will be repeated `apply_patch_mixed_native_unified:generate_org.py` rejections followed by generic implement-needs-edit warnings and `TaskSpaceProviderBudgetHardStopV1`. Repair should classify advisory warnings for `TaskSpaceApplyPatchNativeHunkRecoveryV1` distinctly, and duplicate-read recovery should preserve native apply_patch grammar constraints so it does not erase the previous patch grammar rejection.
+- Diagnostic evidence plan: Inspect the post-H-031 keyed rerun trace and pair report; add focused tests for mixed-native/unified advisory warning and duplicate-read recovery grammar preservation; run apply_patch and validation rework regression filters.
+- Status: confirmed.
+
+# Evidence E-071: H-031 rerun crosses duplicate-read recovery and exposes patch grammar dilution
+
+- Prediction tested: H-032 predicts the dedicated duplicate-read recovery appears in live trace, and the next failure moves to apply_patch grammar recovery.
+- Real rerun:
+  ```text
+  RunDir: target/r4-org-json-real-keyed-20260703ad-immediate-recovery/runs/terminal_bench__organization-json-generator/20260704-061808-358
+  PairReport: pair-001/pair-report.md
+  reported_evidence_level: E1
+  outcome_standard: wrong
+  outcome_taskspace: engineering_unclean
+  right_exec_timed_out: False
+  right_tool_call_count: 11
+  right_open_leaf_nodes: 1
+  public_validation_exit_code: 1
+  hidden_oracle_exit_code: 0
+  ```
+- Matched trace signals:
+  - H-031 crossed: repeated `read_file generate_org.py` on validation rework was blocked, and the next warning was `TaskSpaceValidationReworkDuplicateReadRecoveryV1`.
+  - The provider's first rework patch used mixed native/unified syntax and was rejected as `apply_patch_mixed_native_unified:generate_org.py`.
+  - The advisory warning logged generic `TaskSpaceImplementNeedsEditRecoveryV1` after the mixed patch rejection.
+  - After the duplicate-read recovery, the provider emitted another mixed native/unified patch, again rejected as `apply_patch_mixed_native_unified:generate_org.py`.
+  - The turn ended with `TaskSpaceProviderBudgetHardStopV1 reason=provider_node_request_hard_limit_exceeded request_count=17/20 node_request_count=6/5`.
+- Interpretation: The duplicate-read feedback fix is live, but patch grammar feedback is still diluted in advisory observability and can be overwritten by later recovery text. This is a feedback-layer routing and preservation bug, not an inability to detect invalid patch syntax.
+
+# Evidence E-072: mixed native/unified patch recovery now preserves native grammar semantics
+
+- Prediction tested: H-032 requires mixed native/unified patch rejection to keep a dedicated advisory label, and duplicate-read recovery to carry native apply_patch grammar constraints.
+- Repair artifact:
+  - `third_party/codex-cli/codex-rs/core/src/session/turn.rs`
+- Focused commands:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib --locked native_hunk
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib --locked duplicate_rework
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib --locked validation_rework_duplicate
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib --locked apply_patch_
+  ```
+- Adjacent regression/build commands:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib --locked validation_rework
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib --locked validation_
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+  git diff --check
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-cli --bin whale --locked
+  ```
+- Result: passed. `native_hunk` is 3/3, `duplicate_rework` is 2/2, `validation_rework_duplicate` is 2/2, `apply_patch_` is 33/33, `validation_rework` is 14/14, and `validation_` is 91/91. `cargo fmt --check`, `git diff --check`, and the `whale` build passed.
+- Matched test signals:
+  - `apply_patch_mixed_native_unified:generate_org.py` now maps to `TaskSpaceApplyPatchNativeHunkRecoveryV1` advisory warning instead of `TaskSpaceImplementNeedsEditRecoveryV1`.
+  - The native hunk recovery tells the provider not to call `read_file` and to re-emit exactly one native apply_patch.
+  - `TaskSpaceValidationReworkDuplicateReadRecoveryV1` now restates native apply_patch grammar and explicitly forbids `--- a/...`, `+++ b/...`, range hunks, and placeholder hunks.
+- Interpretation: The `apply-patch-native-hunk-recovery-dilution` class is focused-fixed at session feedback text/observability/build level. It still needs commit/push, binary attestation, and another keyed rerun to prove the external sample advances beyond patch grammar.
