@@ -126,6 +126,7 @@ raw signal 存在但语义没有正确进入下一轮 tool contract：
 | `provider-budget-advisory-runaway` | keyed rerun `20260703d` 证实 `request_count` 达到 `max_requests` 后仍继续 provider sampling；已升级为 pre-dispatch hard gate，插入 `TaskSpaceProviderBudgetHardStopV1` 并结束当前 turn，保留一次明确 budget recovery grace | focused fixed / real rerun pending |
 | `provider-node-budget-premature-inspect-stop` | keyed rerun `20260704-000713-854` 证实 hard stop 消除 timeout 后，固定 per-node limit 又在 fact-source evidence floor 前终止 inspect；已改为按声明 fact-source artifacts 扩展 inspect effective node limit，并在边界 recovery 时标记 `budget_recovery` | focused fixed / real rerun pending |
 | `implementation-rework-feedback-evidence-join` | keyed rerun `20260704-001749-411` 证实 inspect 已读全 fact sources 后，implement rework 仍逐行修 `IndentationError` 并凭空使用不存在的 `salary` 字段；已改为合并 validation failure 与上游 inspect CSV/schema evidence，并强化 recovery next-action contract | focused fixed / real rerun pending |
+| `inspect-projection-finish-before-fact-source-coverage` | keyed rerun `20260704-003459-046` 证实底层 fact-source guard 已知道缺 `projects.csv`，但 projection `next_valid_actions` 仍广告 `finish_node -> implement_solution`；已改为 projection 复用 TaskState fact-source coverage guard，缺 artifact 时只提示读取缺失事实源 | focused fixed / real rerun pending |
 
 新增关键判断：
 
@@ -206,6 +207,53 @@ CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core implement_recovery_prio
 
 当前状态：focused 修复已完成；仍需重跑 `organization-json-generator` 验证是否越过 implement rework，或者按新 trace 收录下一层 R4-D/R4-G blocker。
 
+### 3.10 inspect projection fact-source guard
+
+rework evidence join 修复后的真实 rerun：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260703g-rework-evidence/runs/terminal_bench__organization-json-generator/20260704-003459-046
+reported_evidence_level: E2-candidate
+outcome_standard: solved
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 11
+```
+
+本次进展和新问题：
+
+| 层 | 结论 |
+|---|---|
+| timeout / hard stop | 900s timeout 没有复发，provider node budget hard stop 在 `request_count=11/20`、`node_request_count=11/10` 截断 |
+| inspect evidence | TaskSpace 已读 `schema.json`、`departments.csv`、`employees.csv`，但仍缺 `projects.csv` |
+| feedback visibility | final projection 的 `verified_input_evidence` 明确只列前三个输入，说明缺失事实源可从 runtime 状态推导 |
+| projection bug | 同一 projection 的 `next_valid_actions` 仍包含 `finish_node -> implement_solution`，没有复用底层 fact-source coverage guard |
+
+根因判断：
+
+这个 case 是反馈层“语义缺失”而不是“语义扭曲”。底层 duplicate/manual/forced finish guard 没有错，缺失的是
+provider-visible `projection_next_valid_actions` 这一路没有拿到 `TaskState`，因此无法调用声明 fact-source coverage 判断。
+
+本轮修复：
+
+| 层 | 结论 |
+|---|---|
+| context projection | `append_context_projection_with_header` 调用 `projection_next_valid_actions(map, current_node_id, Some(task))` |
+| next action policy | inspect 节点缺声明 fact-source artifacts 时，projection 只输出 `read_file declared fact-source artifact ... next` 和 `do not finish inspect_code_context...` |
+| regression | 保留原先“已有证据且无缺失 fact source 时可进入 implement”的 projection 行为 |
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core projection_blocks_inspect_finish_until_declared_fact_sources_read --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core projection_prioritizes_inspect_to_implement_after_evidence --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core inspect_duplicate_read_reports_missing_fact_source_artifacts_without_finish --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core inspect_missing_fact_sources_block_manual_and_forced_finish_until_read --lib
+```
+
+当前状态：focused 修复已完成；仍需重跑 `organization-json-generator` 验证 projection 不再误导模型提前 finish，
+并观察 TaskSpace 是否能读取 `projects.csv` 后进入 implement。
+
 ## 4. 本次验证
 
 | 验证项 | 命令 | 结果 |
@@ -247,6 +295,9 @@ CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core implement_recovery_prio
 | organization-json-generator adaptive-budget rerun | `run-taskspace-external-benchmark.ps1 ... -RunRoot target/r4-org-json-real-keyed-20260703f-adaptive-budget` | DIAGNOSTIC: inspect 已读全 fact sources；TaskSpace 进入 implement rework，暴露 `IndentationError` 逐行修复和 `KeyError: 'salary'` |
 | implementation rework evidence join | `CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core validation_rework_summary_merges_transitive_inspect_evidence_and_failure --lib` | PASS：rework summary 同时包含 validation failure 和上游 CSV 字段证据 |
 | implementation recovery action contract | `CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core implement_recovery_prioritizes_validation_failure_and_inspected_fields --lib` | PASS：recovery 明确 failure 优先、整文件缩进修复、字段不得发明 |
+| inspect projection fact-source guard | `CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core projection_blocks_inspect_finish_until_declared_fact_sources_read --lib` | PASS：缺 `projects.csv` 时 projection 不再提示 `finish_node` / implement transition |
+| inspect projection normal transition regression | `CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core projection_prioritizes_inspect_to_implement_after_evidence --lib` | PASS：无缺失声明 fact source 的正常 inspect evidence 仍可提示进入 implement |
+| projection fix build | `cargo fmt --all --check && CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale --locked && git diff --check` | PASS：format/build/whitespace 通过；仅有已知 stable rustfmt config warning |
 | organization-json-generator direct validator | direct `external-validator.ps1` run on generated fixture | PASS：Docker build `classification=ok`; run reaches expected missing `organization.json` assertions |
 | Whitespace | `git diff --check` | PASS |
 
@@ -255,8 +306,8 @@ CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core implement_recovery_prio
 | 优先级 | 未完成项 | 当前证据 | 下一步 |
 |---:|---|---|---|
 | P0 | TaskSpace utility parity | public-10 closeout 中 TaskSpace 仅 3/10 solved；post-closeout 只证明 `heterogeneous-dates` 已改善；`sqlite-db-truncate` 已收敛到非 timeout wrong；keyed `organization-json-generator` 仍是 E1 diagnostic fail | 继续 R4 utility-convergence，不进入验收通过 |
-| P0 | Long-flow convergence | keyed `organization-json-generator` 的 900s timeout 已被 hard stop 消除；adaptive fact-source budget 已让 inspect 读全输入；当前 focused fixed 到 implement rework feedback evidence join | 重跑该样本；若仍 wrong，再按新 trace 建立下一层 tool/control case |
-| P0 | Provider budget hard stop real-run validation | hard gate 已真实生效；adaptive fact-source node limit 的真实 rerun 已证明不再过早停在 inspect，但 implement rework 消耗完 rollout budget | 下一次 keyed rerun 同时验证 provider hard stop、adaptive inspect、rework evidence join 是否共同推进 utility |
+| P0 | Long-flow convergence | keyed `organization-json-generator` 的 900s timeout 已被 hard stop 消除；adaptive fact-source budget 曾让 inspect 读全输入并暴露 implement rework；最新 rerun 又暴露 projection 在缺 `projects.csv` 时仍提示 finish | 重跑该样本；若仍 wrong，再按新 trace 建立下一层 tool/control case |
+| P0 | Provider budget hard stop real-run validation | hard gate 已真实生效；adaptive fact-source node limit 的真实 rerun 已越过固定 5-request stopper；最新 blocker 是 projection 缺 fact-source guard 后在 `projects.csv` 未读时耗尽 node budget | 下一次 keyed rerun 同时验证 provider hard stop、adaptive inspect、rework evidence join、projection fact-source guard 是否共同推进 utility |
 | P0 | Provider timeout usage flush | 报告层已能从 rollout token_count 恢复 timeout 前 partial usage，并标为 `recovered_from_rollout_trace`；如果进程被杀前没有任何 token_count/response.completed，exact usage 仍不可得 | 后续真实复验时检查 timeout 行是否有 rollout token_count；如无，再做 provider 退出/回收路径 |
 | P1 | 成本/token 放大 | `heterogeneous-dates` post-closeout 已改善，但 public-10 closeout 仍记录 6x-28x request amplification | 新二进制重跑 public-10 subset，更新 durable report snapshot |
 | P1 | Release evidence bundle | raw paired run artifacts 仍在外部 run cache，不在仓库内 | 设计 release artifact policy：保留 summary snapshot、压缩关键 evidence，还是外链 run cache |
@@ -267,5 +318,5 @@ CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core implement_recovery_prio
 2. 建立 R4 utility-convergence 继续工作入口，优先选择一个 public-10 负样本做 bug-killer 闭环。
 3. `sqlite-db-truncate` 当前适合作为已收敛工具链样本归档：状态是非 timeout、closed graph、`agent_patch_wrong`。
 4. `organization-json-generator` 当前下一步不再是 provider 前置；keyed run 已证明 provider preflight 通过，`bwrap` feedback-layer case 已收录并修复。
-5. 先重跑 `organization-json-generator` 验证 `tool-runtime-bootstrap-failure`、fact-source coverage、provider hard stop、adaptive inspect node limit 和 implementation rework evidence join 是否让 TaskSpace 越过 implement/validation；如仍 wrong，按新 trace 建立下一层 case。
+5. 先重跑 `organization-json-generator` 验证 `tool-runtime-bootstrap-failure`、fact-source coverage、provider hard stop、adaptive inspect node limit、implementation rework evidence join 和 inspect projection fact-source guard 是否让 TaskSpace 越过 inspect/implement；如仍 wrong，按新 trace 建立下一层 case。
 6. 每完成一个样本，更新 public-10 snapshot 或生成新的 durable report artifact，避免再次依赖未提交 `target/` 缓存。

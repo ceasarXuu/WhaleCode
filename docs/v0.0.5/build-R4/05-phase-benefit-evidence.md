@@ -1611,3 +1611,50 @@ CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core implement_recovery_prio
 ```
 
 状态：该 feedback-layer class 已 focused fixed；R4-G utility 仍未通过，需要再次 keyed rerun 验证是否越过 implement rework，或暴露下一层问题。
+
+## 5.22 2026-07-04 inspect projection fact-source guard
+
+rework evidence join 修复后的 keyed rerun：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260703g-rework-evidence/runs/terminal_bench__organization-json-generator/20260704-003459-046
+reported_evidence_level: E2-candidate
+outcome_standard: solved
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 11
+```
+
+关键观察：
+
+| Signal | 结论 |
+|---|---|
+| TaskSpace 读了 `schema.json`、`departments.csv`、`employees.csv`，但没有读 `projects.csv` | fact-source coverage 仍未完成 |
+| `TaskSpaceProviderBudgetHardStopV1 reason=provider_node_request_hard_limit_exceeded request_count=11/20 node_request_count=11/10` | hard stop 正常截断，没有退回 900s timeout |
+| final projection 的 `verified_input_evidence` 只列出前三个输入 | runtime 已有足够状态判断缺 `projects.csv` |
+| 同一 projection 的 `next_valid_actions` 仍包含 `finish_node -> implement_solution` | provider-visible projection 缺少 fact-source coverage guard，向模型暴露了错误的合法下一步 |
+
+本轮新增并 focused 修复的新问题类型：
+
+| Case | Before | After | Evidence |
+|---|---|---|---|
+| `inspect-projection-finish-before-fact-source-coverage` | 底层 duplicate/manual/forced finish guard 已能识别缺 fact source，但 `projection_next_valid_actions` 不接收 `TaskState`，因此只要 inspect 有任意 tool result 就广告 `finish_node -> implement_solution` | context projection 调用 `projection_next_valid_actions(..., Some(task))`；inspect 节点缺声明 fact-source artifacts 时只输出“读取缺失 artifact”的 next action，不再提示 finish/implement | `projection_blocks_inspect_finish_until_declared_fact_sources_read`; `projection_prioritizes_inspect_to_implement_after_evidence`; `inspect_duplicate_read_reports_missing_fact_source_artifacts_without_finish`; `inspect_missing_fact_sources_block_manual_and_forced_finish_until_read` |
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core projection_blocks_inspect_finish_until_declared_fact_sources_read --lib
+  PASS
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core projection_prioritizes_inspect_to_implement_after_evidence --lib
+  PASS
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core inspect_duplicate_read_reports_missing_fact_source_artifacts_without_finish --lib
+  PASS
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core inspect_missing_fact_sources_block_manual_and_forced_finish_until_read --lib
+  PASS
+```
+
+状态：该 projection-layer feedback class 已 focused fixed；R4-G utility 仍需再次 keyed rerun 验证 TaskSpace 是否会读取
+`projects.csv` 并进入 implement，或暴露下一层 long-flow 问题。

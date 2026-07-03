@@ -524,3 +524,50 @@
   - `current_main_working_evidence_summary()` now includes `validation_rework`, `KeyError`, `salary`, `data/employees.csv`, and `employee_id,name,department_id,title` in the same recovery summary.
   - `TaskSpaceImplementNeedsEditRecoveryV1` now tells the model to treat validation failure as the primary target, fix top-level Python `IndentationError` at whole-file/block scope, and use only observed schema/CSV/JSON field names for `KeyError` repairs.
 - Interpretation: The new `implementation-rework-feedback-evidence-join` class is focused-fixed. Real utility validation still requires another keyed rerun to see whether `organization-json-generator` moves past implement rework or exposes the next failure class.
+
+# Hypothesis H-012: inspect next-action projection can advertise finish before declared fact-source coverage
+
+- Claim: After H-011, the next `organization-json-generator` blocker is a provider-visible projection bug. The lower-level duplicate/manual/forced finish guards can detect missing declared fact-source artifacts, but `projection_next_valid_actions` does not receive `TaskState` and therefore cannot apply the same fact-source coverage check. Once an inspect node has any main tool result, projection can still advertise `finish_node -> implement_solution` even when `projects.csv` is unread.
+- Prediction: A keyed rerun after H-011 will show TaskSpace missing at least one declared fact source while the final projection still lists an implement transition as a valid next action. Source inspection will show `projection_next_valid_actions(map, current_node_id)` lacks task/fact-source context. Fix validation requires a focused test where `schema.json`, `departments.csv`, and `employees.csv` are read, `projects.csv` is missing, and projection omits `finish_node`.
+- Diagnostic evidence plan: Inspect the H-011 rerun pair report, rollout projection, and `whale-exec.jsonl`; inspect `append_context_projection_with_header` and `projection_next_valid_actions`; validate with focused projection and adjacent fact-source guard tests.
+- Status: confirmed.
+
+# Evidence E-030: keyed rerun shows projection advertised finish while `projects.csv` was unread
+
+- Prediction tested: H-012 predicts the failure survives after implementation rework feedback is joined and appears as a projection next-action inconsistency.
+- Real rerun:
+  ```text
+  RunDir: target/r4-org-json-real-keyed-20260703g-rework-evidence/runs/terminal_bench__organization-json-generator/20260704-003459-046
+  PairReport: pair-001/pair-report.md
+  reported_evidence_level: E2-candidate
+  outcome_standard: solved
+  outcome_taskspace: engineering_unclean
+  right_exec_timed_out: False
+  right_tool_call_count: 11
+  ```
+- Matched trace signals:
+  - TaskSpace read `schema.json`, `departments.csv`, and `employees.csv`.
+  - TaskSpace did not read `projects.csv`.
+  - The final projection listed verified input evidence for the first three artifacts only.
+  - The same projection still listed `taskspace_control(action=finish_node, ... next_node_kind="implement_solution" ...)` under `next_valid_actions`.
+  - The turn ended with `TaskSpaceProviderBudgetHardStopV1 reason=provider_node_request_hard_limit_exceeded request_count=11/20 node_request_count=11/10`.
+- Interpretation: The missing signal was not a raw tool failure. The feedback-layer problem is that projection emitted an invalid-looking valid action because it lacked the same task-level fact-source guard that lower-level runtime paths already use.
+
+# Evidence E-031: inspect projection now blocks finish until declared fact sources are read
+
+- Prediction tested: H-012 requires projection to use TaskState fact-source coverage before advertising inspect finish.
+- Repair artifact:
+  - `third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs`
+- Focused commands:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core projection_blocks_inspect_finish_until_declared_fact_sources_read --lib
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core projection_prioritizes_inspect_to_implement_after_evidence --lib
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core inspect_duplicate_read_reports_missing_fact_source_artifacts_without_finish --lib
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core inspect_missing_fact_sources_block_manual_and_forced_finish_until_read --lib
+  ```
+- Result: passed.
+- Matched test signals:
+  - When `projects.csv` is declared but unread, `projection_next_valid_actions` now mentions `projects.csv`, includes `do not finish inspect_code_context`, and omits `finish_node` / `next_node_kind="implement_solution"`.
+  - Existing normal projection behavior still permits inspect-to-implement when no declared fact-source artifact is missing.
+  - Existing duplicate/manual/forced finish fact-source guards remain passing.
+- Interpretation: The new `inspect-projection-finish-before-fact-source-coverage` class is focused-fixed. Real utility validation still requires another keyed rerun to see whether TaskSpace now reads `projects.csv` and moves into implementation, or exposes the next long-flow blocker.

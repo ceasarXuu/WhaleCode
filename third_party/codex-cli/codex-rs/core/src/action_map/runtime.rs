@@ -10896,7 +10896,7 @@ fn append_context_projection_with_header(
         .take(8)
         .map(|result_id| format!("result:{result_id}"))
         .collect::<Vec<_>>();
-    let next_valid_actions = projection_next_valid_actions(map, current_node_id);
+    let next_valid_actions = projection_next_valid_actions(map, current_node_id, Some(task));
 
     let mut projection = String::new();
     projection.push('\n');
@@ -11294,6 +11294,7 @@ fn validation_failure_line_is_signal(lower_line: &str) -> bool {
 fn projection_next_valid_actions(
     map: &ActionMapInstance,
     current_node_id: Option<&str>,
+    task: Option<&TaskState>,
 ) -> Vec<String> {
     let Some(node) = current_node_id.and_then(|node_id| map.nodes.get(node_id)) else {
         return projection_no_current_next_valid_actions(map);
@@ -11303,6 +11304,22 @@ fn projection_next_valid_actions(
             let main_tool_result_count =
                 count_node_results_of_kind(node, NodeResultKind::MainToolCall);
             if main_tool_result_count > 0 {
+                let missing_fact_source_artifacts = task
+                    .map(|task| inspect_missing_required_fact_source_artifacts(task, map, node))
+                    .unwrap_or_default();
+                if !missing_fact_source_artifacts.is_empty() {
+                    let mut actions = missing_fact_source_artifacts
+                        .iter()
+                        .take(4)
+                        .map(|artifact| {
+                            format!("read_file declared fact-source artifact `{artifact}` next")
+                        })
+                        .collect::<Vec<_>>();
+                    actions.push(
+                        "do not finish inspect_code_context until declared fact-source artifacts are read".to_string(),
+                    );
+                    return actions;
+                }
                 vec![
                     "taskspace_control(action=state_commit) for accepted findings".to_string(),
                     format!(
@@ -21720,7 +21737,7 @@ def build_organization():\n\
             .expect("tool result records")
             .expect("result id");
         let map = state.maps.get("map-1").expect("map");
-        let actions = projection_next_valid_actions(map, Some("node-1"));
+        let actions = projection_next_valid_actions(map, Some("node-1"), None);
 
         assert!(
             actions
@@ -21736,6 +21753,62 @@ def build_organization():\n\
             !actions
                 .iter()
                 .any(|action| action == "read/search/test diagnostic evidence")
+        );
+    }
+
+    #[test]
+    fn projection_blocks_inspect_finish_until_declared_fact_sources_read() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::InspectCodeContext,
+            "Inspect organization data",
+            "Read schema and every CSV fact source before implementation.",
+            "Inspect organization data",
+            "Read schema and every CSV fact source before implementation.",
+            true,
+        );
+        record_required_fact_source_artifacts(
+            &mut state,
+            owner,
+            &[
+                "schema.json",
+                "departments.csv",
+                "employees.csv",
+                "projects.csv",
+            ],
+        );
+        record_successful_read_result(&mut state, owner, "schema", "schema.json");
+        record_successful_read_result(&mut state, owner, "departments", "departments.csv");
+        record_successful_read_result(&mut state, owner, "employees", "employees.csv");
+
+        let task_id = state.active_task_id.clone().expect("active task");
+        let map = state.maps.get("map-1").expect("map");
+        let task = state.tasks.get(&task_id).expect("task");
+        let actions = projection_next_valid_actions(map, Some("node-1"), Some(task));
+
+        assert!(
+            actions.iter().any(|action| action.contains("projects.csv")),
+            "{actions:?}"
+        );
+        assert!(
+            actions
+                .iter()
+                .any(|action| action.contains("do not finish inspect_code_context")),
+            "{actions:?}"
+        );
+        assert!(
+            !actions.iter().any(|action| action.contains("finish_node")),
+            "projection must not advertise finish_node while declared fact sources are missing: {actions:?}"
+        );
+        assert!(
+            !actions
+                .iter()
+                .any(|action| action.contains("next_node_kind=\"implement_solution\"")),
+            "projection must not advertise implementation transition while declared fact sources are missing: {actions:?}"
         );
     }
 
@@ -21767,7 +21840,7 @@ def build_organization():\n\
             .expect("validator discovery records")
             .expect("result id");
         let map = state.maps.get("map-1").expect("map");
-        let actions = projection_next_valid_actions(map, Some(&node_id));
+        let actions = projection_next_valid_actions(map, Some(&node_id), None);
 
         assert_eq!(
             compact_projection_allowed_actions_for_node(NodeKind::SmokeTest),
@@ -22065,7 +22138,7 @@ def normalize_status(value: str) -> str:\n\
 
         let map = state.maps.get("map-1").expect("map");
         assert_eq!(map.nodes["node-2"].status, NodeStatus::Ready);
-        let actions = projection_next_valid_actions(map, None);
+        let actions = projection_next_valid_actions(map, None, None);
 
         assert!(
             actions

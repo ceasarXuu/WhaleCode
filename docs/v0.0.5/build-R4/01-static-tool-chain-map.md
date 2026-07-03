@@ -268,6 +268,7 @@ cargo test -j1 -p codex-core taskspace_action_contract_tool_runtime_bootstrap_fa
 | `provider-budget-advisory-runaway` | control loop + feedback | `request_count` 或单节点 `node_request_count` 到达 active budget 后仍可能继续发 provider 请求 | `gate_provider_request_pre_dispatch` 在 provider dispatch 前 hard stop；session 插入 `TaskSpaceProviderBudgetHardStopV1` 并结束当前 turn；保留一次明确 `budget_recovery` grace | focused fixed / real rerun pending |
 | `provider-node-budget-premature-inspect-stop` | control loop + phase gate | per-node hard limit 低于声明 fact-source evidence floor，导致 inspect 未读全 `employees.csv`/`projects.csv` 就 hard stop | inspect 节点的 effective `max_model_requests_per_node` 根据声明 fact-source artifacts 扩展；recovery item 到达边界时下一次请求标记为 `budget_recovery` | focused fixed / real rerun pending |
 | `implementation-rework-feedback-evidence-join` | feedback + dependency projection | validation rework 能看到失败，但 recovery 没把最新 validation failure 和上游 inspect 的 CSV/schema evidence 合并成同一行动上下文，导致逐行修 `IndentationError` 或凭空使用 `salary` 等未观察字段 | `current_main_working_evidence_summary` 使用当前节点的有界依赖闭包并合并 `validation_rework` 摘要；`TaskSpaceImplementNeedsEditRecoveryV1` 明确 validation failure 优先、Python 顶层缩进按文件/块整体修、`KeyError` 只能用已观察字段 | focused fixed / real rerun pending |
+| `inspect-projection-finish-before-fact-source-coverage` | feedback + provider projection | 底层 duplicate/manual/forced finish guard 已知道缺声明 fact sources，但 context projection 的 `next_valid_actions` 仍暴露 `finish_node -> implement_solution`，模型继续在 inspect 中重复读已读文件直到 node budget hard stop | `projection_next_valid_actions` 接收 `TaskState` 并复用声明 fact-source coverage guard；缺 artifact 时只提示继续读取缺失 fact sources，禁止在投影里广告 `finish_node` / implement transition | focused fixed / real rerun pending |
 
 其中 `duplicate-inspect-premature-fact-source-convergence` 是本次新增收录的 case。它不是工具原始失败，也不是单纯模型策略错误；
 raw evidence 存在，问题在 feedback/phase gate 语义缺失：runtime 把“重复读已成功”恢复成“inspect 可结束”，但没有检查
@@ -289,6 +290,19 @@ raw evidence 存在，问题在 feedback/phase gate 语义缺失：runtime 把�
 系统性错误被逐行修复，后续 replacement 又使用了 CSV 中不存在的 `salary` 字段，最终 `KeyError: 'salary'`。
 这不是能力层工具不可用，而是 feedback 层没有把“最新 validation failure”和“已经读到的字段证据”合并为同一 next-action contract。
 
+rework evidence join 修复后的 rerun `20260704-003459-046` 又暴露 `inspect-projection-finish-before-fact-source-coverage`：
+TaskSpace 已读 `schema.json`、`departments.csv`、`employees.csv`，但没有读 `projects.csv`；runtime 的 duplicate/read guard
+能够识别缺失 fact source，最后也被 provider node budget hard stop 截断。然而该轮 context projection 的
+`next_valid_actions` 仍然包含：
+
+```text
+taskspace_control(action=finish_node, ... next_node_kind="implement_solution" ...)
+```
+
+这说明语义不是完全缺失，也不是底层 guard 被扭曲，而是 provider-visible projection 层缺少同一套 fact-source
+coverage 判断。模型看到“可以 finish”的合法动作后，继续在 inspect 内重复读取 `schema.json`，没有被清晰导向
+`projects.csv`。
+
 对应 focused gate：
 
 ```text
@@ -298,5 +312,6 @@ CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core taskspace_active_budget
 CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core provider_budget --lib
 CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core validation_rework_summary_merges_transitive_inspect_evidence_and_failure --lib
 CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core implement_recovery_prioritizes_validation_failure_and_inspected_fields --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core projection_blocks_inspect_finish_until_declared_fact_sources_read --lib
 CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale --locked
 ```
