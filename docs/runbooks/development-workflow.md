@@ -138,6 +138,17 @@ powershell -NoProfile -ExecutionPolicy Bypass \
 
 - `DEEPSEEK_API_KEY` 已设置；缺失时 benchmark 会在 `provider_credential_preflight` 阶段以 `provider_credential_missing` fail-fast。
 - 凭证 preflight 回归由 `scripts/taskspace-benchmark/test-external-wrapper-harness.ps1` 覆盖；该 harness 会临时清空 `DEEPSEEK_API_KEY` 并验证缺 key 时不会进入 paired execution。
+- 若刚提交过 Rust/source 变更，先重建 whale 并刷新二进制 attestation；否则 preflight 会以 `whale_binary_stale_for_codex_source` 或 attestation mismatch fail-fast，不能把它误记为 TaskSpace utility 失败：
+
+```bash
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale --locked
+powershell -NoProfile -ExecutionPolicy Bypass \
+  -File scripts/taskspace-benchmark/write-whale-binary-attestation.ps1 \
+  -WhaleBin third_party/codex-cli/codex-rs/target/debug/whale \
+  -BuildCommand "CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale --locked"
+```
+
+- attestation 刷新后再启动真实 run；如果 preflight 已经报 stale，不要复用该 run root 作为 utility 证据，换新的 run root 重跑。
 - Docker build 能访问 Python package 源；`organization-json-generator` 的 validator image 会执行 `pip install jsonschema`。
 - Linux native Docker 如果使用宿主 loopback proxy，例如 `127.0.0.1:7890`，generated validator 必须对 build/run 使用 `--network host`，不能只把 proxy 改成 `host.docker.internal`。
 - Linux runner 不应依赖 Windows-only primitives：`WindowsIdentity`、`icacls`、`curl.exe`、`cmd.exe`、`subst`、`USERPROFILE` 都必须有跨平台分支或 no-op 记录。

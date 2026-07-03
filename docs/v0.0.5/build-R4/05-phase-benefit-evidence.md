@@ -1891,3 +1891,67 @@ CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_ --locked
 
 状态：该 feedback/projection class 已 focused fixed；R4-G utility 仍需再次 keyed rerun 验证模型是否执行
 `python process.py && python -m jsonschema -i organization.json schema.json`，若仍 wrong，再按新 trace 建立下一层 tools case。
+
+## 5.27 2026-07-04 validation rework target artifact read gap
+
+recovery projection 修复后的真实 rerun：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260703m-recovery-projection/runs/terminal_bench__organization-json-generator/20260704-020629-368
+reported_evidence_level: E1
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 8
+public_validation_exit_code: 1
+```
+
+关键观察：
+
+| Signal | 结论 |
+|---|---|
+| `item_26` 提交 `python generate_org.py && python -m jsonschema -i organization.json schema.json` | H-016 的 exact recovery projection 已在真实 run 中生效 |
+| `item_27` 执行该命令并返回 `members` / `averageDepartmentBudget` 等 schema 错误 | 工具失败语义正确传回，不再是 generator-only 或弱 JSON parse |
+| `item_29` 插入 `TaskSpaceImplementNeedsEditRecoveryV1` | validation failure 正确路由到 implement rework |
+| `item_33` 尝试读取 `schema.json`，`item_35` 以 `node_policy_violation:implement_solution:read_file:implementation_needs_edit` 拒绝 | action contract 仍正确阻止泛读 |
+| `item_40` block：`Cannot apply correct patch without reading generate_org.py` | rework 节点缺少命名目标工件读取权限，无法看到当前实现内容后 patch |
+| `item_52` 把问题归因为真实实现缺陷而非 infra | failure 语义已保真，但下一步能力边界没有传入 session contract |
+
+本轮新增并 focused 修复的问题类型：
+
+| Case | Before | After | Evidence |
+|---|---|---|---|
+| `validation-rework-target-artifact-read-gap` | schema validation failure 没有 traceback/file path，runtime 只知道 validation dependency；`implementation_needs_edit` 状态把 `read_file` 全拦，模型不能读取 `generate_org.py` 修复当前代码 | runtime 从 blocked validation dependency 的 changed artifacts 提取 rework targets；provider snapshot/projection 明确列出 `current_node_validation_rework_artifacts`；session action contract 只允许读取这些命名 target artifact，继续拒绝 `schema.json` 等泛读 | `validation_rework_allows_changed_artifact_read_when_schema_failure_lacks_traceback`; `taskspace_action_contract_allows_named_validation_rework_artifact_read` |
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_rework_allows_changed_artifact_read_when_schema_failure_lacks_traceback --locked
+  PASS：schema failure 无 traceback 时从 blocked validation dependency changed artifacts 推导 `generate_org.py`
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core taskspace_action_contract_allows_named_validation_rework_artifact_read --locked
+  PASS：`implementation_needs_edit` 下允许读取 `generate_org.py`，仍拒绝 `schema.json`
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_rework --locked
+  PASS：11 tests
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core implementation_needs_edit --locked
+  PASS
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_node_blocks --locked
+  PASS
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core force_finish_validation --locked
+  PASS
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_ --locked
+  PASS：80 tests
+
+cargo fmt --all --check
+  PASS：仅有已知 stable rustfmt config warning
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale --locked
+  PASS
+```
+
+状态：该 feedback/action-contract class 已 focused fixed；R4-G utility 仍需再次 keyed rerun 验证 TaskSpace 是否读取或直接 patch
+`generate_org.py`，修正 `members` / camelCase statistics 等 schema contract。

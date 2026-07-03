@@ -1271,7 +1271,7 @@ Allowed actions by active node kind:
 - bootstrap/no active task: taskspace_control, blocked
 - existing task with no active node: final_answer, taskspace_control, blocked
 - inspect_code_context: list_files, search, read_file, run_test, taskspace_control, blocked; use run_test only for pre-edit diagnostic or baseline evidence, not final validation closeout
-- implement_solution: list_files, search, read_file, apply_patch, taskspace_control, blocked before implementation_needs_edit; once TaskSpaceActionContractStateV1 says implementation_needs_edit, only apply_patch, taskspace_control, or blocked are valid
+- implement_solution: list_files, search, read_file, apply_patch, taskspace_control, blocked before implementation_needs_edit; once TaskSpaceActionContractStateV1 says implementation_needs_edit, only apply_patch, taskspace_control, blocked, or a read_file explicitly targeting a validation rework artifact named in TaskSpaceActionContractStateV1/projection/recent feedback are valid
 - smoke_test/regression_test: run_test, taskspace_control, blocked
 - final_synthesis: final_answer, taskspace_control, blocked
 Action argument rules:
@@ -1321,8 +1321,15 @@ Active node kind: {node_kind}"
     }
     if taskspace_snapshot_requires_implementation_edit(snapshot) {
         text.push_str(
-            "\nImplementation convergence state: implementation_needs_edit. Current request allowed actions are narrowed to apply_patch, taskspace_control, or blocked only. Do not call list_files, search, read_file, shell discovery, or validation before a successful edit is recorded.",
+            "\nImplementation convergence state: implementation_needs_edit. Current request allowed actions are narrowed to apply_patch, taskspace_control, blocked, or read_file only for a validation rework target artifact explicitly named below/projection/recent feedback. Do not call list_files, search, broad read_file, shell discovery, or validation before a successful edit is recorded.",
         );
+        if !snapshot.current_node_validation_rework_artifacts.is_empty() {
+            text.push_str("\nValidation rework target artifacts that may be read once if current contents are not visible:");
+            for artifact in &snapshot.current_node_validation_rework_artifacts {
+                text.push_str("\n- ");
+                text.push_str(artifact);
+            }
+        }
         if !snapshot
             .current_node_uncovered_mandatory_evidence
             .is_empty()
@@ -3947,6 +3954,7 @@ mod active_context_replacement_tests {
             current_node_has_dependency_working_evidence: false,
             current_node_has_uncovered_mandatory_evidence: false,
             current_node_uncovered_mandatory_evidence: Vec::new(),
+            current_node_validation_rework_artifacts: Vec::new(),
             route_mode: Some("thin".to_string()),
             profile_name: Some("taskspace-v005-active".to_string()),
             request_phase: Some("model_sampling".to_string()),
@@ -4380,6 +4388,37 @@ Then I will inspect the file."#,
             .expect("successful edit clears late read block")
             .expect("read_file still maps to a shell command after edit");
         assert_eq!(call.tool_name.name, "shell_command");
+    }
+
+    #[test]
+    fn taskspace_action_contract_allows_named_validation_rework_artifact_read() {
+        let action = parse_taskspace_action_v1(
+            r#"{"schema_version":"taskspace-action-v1","action":"read_file","node_id":"node-1","args":{"path":"generate_org.py"}}"#,
+        )
+        .expect("valid json");
+        let mut snapshot = provider_snapshot("implement_solution");
+        snapshot.current_node_progress_signature =
+            Some(TASKSPACE_IMPLEMENT_PROGRESS_BEFORE_EDIT_HINT);
+        snapshot.current_node_validation_rework_artifacts = vec!["generate_org.py".to_string()];
+
+        let call = taskspace_action_to_tool_call(&action, &snapshot)
+            .expect("named validation rework target read should be allowed")
+            .expect("read_file maps to a shell command");
+        assert_eq!(call.tool_name.name, "shell_command");
+
+        let broad_read = parse_taskspace_action_v1(
+            r#"{"schema_version":"taskspace-action-v1","action":"read_file","node_id":"node-1","args":{"path":"schema.json"}}"#,
+        )
+        .expect("valid json");
+        let err = taskspace_action_to_tool_call(&broad_read, &snapshot)
+            .expect_err("non-target read remains blocked");
+        assert!(err.contains(
+            "node_policy_violation:implement_solution:read_file:implementation_needs_edit"
+        ));
+
+        let state_text = item_text(taskspace_action_contract_state_item(&snapshot));
+        assert!(state_text.contains("generate_org.py"));
+        assert!(state_text.contains("may be read once"));
     }
 
     #[test]
@@ -9272,6 +9311,7 @@ fn taskspace_action_to_tool_call(
     }
     if taskspace_snapshot_requires_implementation_edit(snapshot)
         && taskspace_action_is_read_or_search(action_name)
+        && !taskspace_action_reads_validation_rework_artifact(action, snapshot)
     {
         return Err(format!(
             "node_policy_violation:implement_solution:{action_name}:implementation_needs_edit"
@@ -9419,6 +9459,26 @@ fn taskspace_action_to_tool_call(
         }
         _ => Err(format!("unsupported_action:{action_name}")),
     }
+}
+
+fn taskspace_action_reads_validation_rework_artifact(
+    action: &TaskSpaceActionV1,
+    snapshot: &crate::action_map::ActionMapProviderRequestBudgetSnapshot,
+) -> bool {
+    if action.action != "read_file" || snapshot.current_node_validation_rework_artifacts.is_empty()
+    {
+        return false;
+    }
+    let Some(path) = taskspace_action_arg_string(&action.args, "path") else {
+        return false;
+    };
+    let requested = taskspace_normalize_apply_patch_target(&path).to_ascii_lowercase();
+    snapshot
+        .current_node_validation_rework_artifacts
+        .iter()
+        .any(|artifact| {
+            taskspace_normalize_apply_patch_target(artifact).to_ascii_lowercase() == requested
+        })
 }
 
 fn taskspace_read_file_command(path: &str) -> String {

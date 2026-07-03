@@ -814,3 +814,55 @@
   - Active projection no longer emits the generic `run validator/test command` line while latest gate recovery exists for the validation node.
   - Existing generator-only, schema fact-source, forced closeout, and validation-node guard regressions continue to pass.
 - Interpretation: The new `validation-recovery-next-action-projection-dilution` class is focused-fixed. Real utility validation still requires another keyed rerun to verify the model now follows the schema-validating command and exposes the next unresolved R4 tools issue, if any.
+
+# Hypothesis H-017: validation rework lacks permission to read its changed artifact
+
+- Claim: After H-016, TaskSpace can finally execute the exact schema-validation command and route schema failures into implementation rework, but `implementation_needs_edit` still narrows the session action contract to edit-only behavior. If the schema failure has no traceback/file path, runtime does not expose the dependency changed artifact as the readable rework target, so the model cannot inspect the current implementation file before patching.
+- Prediction: A keyed rerun after H-016 will show the exact `python generate_org.py && python -m jsonschema -i organization.json schema.json` command executing, schema errors such as missing `members` / `averageDepartmentBudget`, a rework node, then a `read_file` rejection under `node_policy_violation:implement_solution:read_file:implementation_needs_edit` before the model blocks because it cannot read `generate_org.py`.
+- Diagnostic evidence plan: Inspect the H-016 rerun trace for the exact schema-validation command, schema error output, rework recovery event, rejected read action, and final blocker text; add focused tests that derive rework targets from validation dependency changed artifacts and allow only that named artifact read through the session action contract.
+- Status: confirmed.
+
+# Evidence E-041: schema failure routes to rework but target read is blocked
+
+- Prediction tested: H-017 predicts that H-016 enables exact schema validation, and the next blocker moves to target-artifact visibility inside implementation rework.
+- Real rerun:
+  ```text
+  RunDir: target/r4-org-json-real-keyed-20260703m-recovery-projection/runs/terminal_bench__organization-json-generator/20260704-020629-368
+  PairReport: pair-001/pair-report.md
+  reported_evidence_level: E1
+  outcome_taskspace: engineering_unclean
+  right_exec_timed_out: False
+  right_tool_call_count: 8
+  ```
+- Matched trace signals:
+  - `item_26` submitted `run_test` with `python generate_org.py && python -m jsonschema -i organization.json schema.json`.
+  - `item_27` executed that exact command and failed with real schema errors: project objects had `member_ids` while `members` was required, and statistics omitted required camelCase keys including `averageDepartmentBudget`, `totalEmployees`, `skillDistribution`, `departmentSizes`, `projectStatusDistribution`, and `averageYearsOfService`.
+  - `item_29` inserted `TaskSpaceImplementNeedsEditRecoveryV1`.
+  - `item_33` tried to read `schema.json`; `item_35` rejected it with `node_policy_violation:implement_solution:read_file:implementation_needs_edit`.
+  - `item_40` blocked with `Cannot apply correct patch without reading generate_org.py to see current project processing code`.
+  - `item_52` correctly identified the schema failure as a real implementation defect rather than infrastructure.
+- Interpretation: The failure semantic is no longer missing and no longer diluted. The remaining feedback/control gap is that validation rework does not carry a precise target-artifact read allowance from the dependency changed artifacts into the session action contract.
+
+# Evidence E-042: validation rework exposes and gates named target artifact reads
+
+- Prediction tested: H-017 requires runtime to derive the rework target from the blocked validation dependency and session action-contract enforcement to permit only that named target read.
+- Repair artifacts:
+  - `third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs`
+  - `third_party/codex-cli/codex-rs/core/src/session/turn.rs`
+- Focused commands:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_rework_allows_changed_artifact_read_when_schema_failure_lacks_traceback --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core taskspace_action_contract_allows_named_validation_rework_artifact_read --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_rework --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core implementation_needs_edit --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_ --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale --locked
+  ```
+- Result: passed.
+- Matched test signals:
+  - A schema failure without traceback now derives `generate_org.py` from the blocked validation dependency changed artifacts.
+  - Implement rework projection lists the action `read_file validation rework target artifact generate_org.py only if current contents are not visible`.
+  - The provider budget snapshot exposes `current_node_validation_rework_artifacts`.
+  - Session action contract allows `read_file` for `generate_org.py` under `implementation_needs_edit` but still rejects broad reads such as `schema.json`.
+  - `validation_rework` passed 11 tests and `validation_` passed 80 tests.
+- Interpretation: The new `validation-rework-target-artifact-read-gap` class is focused-fixed. Real utility validation still requires another keyed rerun to verify TaskSpace reads or patches `generate_org.py`, fixes schema fields, and either passes public validation or exposes the next R4 tools issue.

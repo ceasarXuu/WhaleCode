@@ -485,6 +485,56 @@ CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_ --locked
 当前状态：focused 修复已完成；仍需再次 keyed rerun 验证 TaskSpace 是否按 projection 中的 exact command 执行
 `python process.py && python -m jsonschema -i organization.json schema.json`。
 
+### 3.15 validation rework target artifact read gap
+
+recovery projection 修复后的真实 rerun：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260703m-recovery-projection/runs/terminal_bench__organization-json-generator/20260704-020629-368
+reported_evidence_level: E1
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 8
+public_validation_exit_code: 1
+```
+
+本次进展和新问题：
+
+| 层 | 结论 |
+|---|---|
+| exact validation | TaskSpace 执行了 `python generate_org.py && python -m jsonschema -i organization.json schema.json` |
+| schema feedback | jsonschema 返回真实业务错误：project 缺 `members`，statistics 缺 `averageDepartmentBudget`、`totalEmployees`、`skillDistribution` 等 required keys |
+| rework routing | runtime 插入 `TaskSpaceImplementNeedsEditRecoveryV1`，说明 validation failure 正确进入 implement rework |
+| action contract | `implementation_needs_edit` 下 `read_file schema.json` 被拒绝为 `node_policy_violation`，泛读拦截仍正确 |
+| target visibility | 模型随后 block：无法读取 `generate_org.py` 就不能做正确 patch |
+
+根因判断：
+
+这次不是 validation feedback 丢失，也不是 projection dilution。exact schema command 已经执行，schema failure 也正确进入 rework。
+缺口在 rework 目标工件投影和 session action contract 之间：schema failure 没有 traceback path，旧逻辑只从 failure text
+找目标文件，没有把 blocked validation dependency 的 changed artifact `generate_org.py` 作为可读取 rework target 暴露给
+`implementation_needs_edit`。
+
+本轮修复：
+
+| 层 | 结论 |
+|---|---|
+| runtime dependency projection | `implement_node_dependency_validation_rework_artifact_refs` 合并 blocked validation dependency 的 changed artifacts |
+| provider snapshot | 新增 `current_node_validation_rework_artifacts`，供 action contract state 和 projection 使用 |
+| projection | implement rework 未编辑前，`next_valid_actions` 明确列出命名 target artifact read 和 patch |
+| session action contract | `implementation_needs_edit` 下只允许读取命名 validation rework target artifact；`schema.json` 等泛读仍被拒绝 |
+| regression | 新增 runtime 和 session focused tests 覆盖 schema failure 无 traceback、命名读取放行、泛读拒绝 |
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_rework_allows_changed_artifact_read_when_schema_failure_lacks_traceback --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core taskspace_action_contract_allows_named_validation_rework_artifact_read --locked
+```
+
+当前状态：focused 修复已完成；仍需再次 keyed rerun 验证 TaskSpace 是否读取或直接 patch `generate_org.py`，
+并把 `organization.json` 修到 schema/public validator 通过。
+
 ## 4. 本次验证
 
 | 验证项 | 命令 | 结果 |
@@ -536,9 +586,13 @@ CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_ --locked
 | output contract feedback | `CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core action_contract_prompt_structures_output_contract_coverage_failure --locked` | PASS：recent feedback 输出 `validation_test_missing_output_contract_coverage` 和 combined next command |
 | schema fact-source output contract guard | `CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_node_requires_schema_fact_source_for_output_contract_check --locked` | PASS：`schema.json` 只作为 fact source 时，弱 `json.load` validation 被拒绝并要求 `jsonschema` |
 | validation recovery projection preservation | `CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_node_requires_schema_fact_source_for_output_contract_check --locked` | PASS：gate recovery 后 active projection 保留 exact `python process.py && python -m jsonschema -i organization.json schema.json`，并不再泛化为 `run validator/test command` |
+| validation rework target artifact runtime | `CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_rework_allows_changed_artifact_read_when_schema_failure_lacks_traceback --locked` | PASS：schema failure 无 traceback 时从 blocked validation dependency changed artifacts 推导 `generate_org.py`，并在 projection/recovery 中暴露命名 target |
+| validation rework target artifact action contract | `CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core taskspace_action_contract_allows_named_validation_rework_artifact_read --locked` | PASS：`implementation_needs_edit` 下允许读取 `generate_org.py`，仍拒绝 `schema.json` 泛读 |
+| validation rework regression suite | `CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_rework --locked` | PASS：11 tests |
+| implementation needs edit regression | `CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core implementation_needs_edit --locked` | PASS |
 | validation node output-contract regression | `CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_node_blocks --locked` | PASS |
 | forced validation closeout regression | `CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core force_finish_validation --locked` | PASS |
-| validation aggregate regression | `CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_ --locked` | PASS：78 tests |
+| validation aggregate regression | `CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_ --locked` | PASS：80 tests |
 | latest R4-D fix build | `cargo fmt --all --check && CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale --locked && git diff --check` | PASS：format/build/whitespace 通过；仅有已知 stable rustfmt config warning |
 | organization-json-generator direct validator | direct `external-validator.ps1` run on generated fixture | PASS：Docker build `classification=ok`; run reaches expected missing `organization.json` assertions |
 | Whitespace | `git diff --check` | PASS |
@@ -548,8 +602,8 @@ CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_ --locked
 | 优先级 | 未完成项 | 当前证据 | 下一步 |
 |---:|---|---|---|
 | P0 | TaskSpace utility parity | public-10 closeout 中 TaskSpace 仅 3/10 solved；post-closeout 只证明 `heterogeneous-dates` 已改善；`sqlite-db-truncate` 已收敛到非 timeout wrong；keyed `organization-json-generator` 仍是 E1 diagnostic fail | 继续 R4 utility-convergence，不进入验收通过 |
-| P0 | Long-flow convergence | keyed `organization-json-generator` 的 900s timeout 已被 hard stop 消除；最新真实进展已越过 fact-source projection、editable blocker、generator-only closeout、schema fact-source weak validation，并 focused fixed 到 recovery projection dilution | 重跑该样本；若仍 wrong，再按新 trace 建立下一层 tool/control case |
-| P0 | Provider budget hard stop real-run validation | hard gate 已真实生效；adaptive fact-source node limit 的真实 rerun 已越过固定 5-request stopper；projection guard 后无 timeout，当前失败在 validation recovery exact command 未被 projection 保持 | 下一次 keyed rerun 同时验证 provider hard stop、adaptive inspect、rework evidence join、projection fact-source guard、editable validation blocker guard、output contract coverage guard、schema fact-source guard、recovery projection guard 是否共同推进 utility |
+| P0 | Long-flow convergence | keyed `organization-json-generator` 的 900s timeout 已被 hard stop 消除；最新真实进展已越过 fact-source projection、editable blocker、generator-only closeout、schema fact-source weak validation、recovery projection dilution，并 focused fixed 到 validation rework target artifact read gap | 重跑该样本；若仍 wrong，再按新 trace 建立下一层 tool/control case |
+| P0 | Provider budget hard stop real-run validation | hard gate 已真实生效；adaptive fact-source node limit 的真实 rerun 已越过固定 5-request stopper；projection guard 后无 timeout，当前失败在 schema failure rework 目标工件读取权限缺失 | 下一次 keyed rerun 同时验证 provider hard stop、adaptive inspect、rework evidence join、projection fact-source guard、editable validation blocker guard、output contract coverage guard、schema fact-source guard、recovery projection guard、validation rework target artifact read guard 是否共同推进 utility |
 | P0 | Provider timeout usage flush | 报告层已能从 rollout token_count 恢复 timeout 前 partial usage，并标为 `recovered_from_rollout_trace`；如果进程被杀前没有任何 token_count/response.completed，exact usage 仍不可得 | 后续真实复验时检查 timeout 行是否有 rollout token_count；如无，再做 provider 退出/回收路径 |
 | P1 | 成本/token 放大 | `heterogeneous-dates` post-closeout 已改善，但 public-10 closeout 仍记录 6x-28x request amplification | 新二进制重跑 public-10 subset，更新 durable report snapshot |
 | P1 | Release evidence bundle | raw paired run artifacts 仍在外部 run cache，不在仓库内 | 设计 release artifact policy：保留 summary snapshot、压缩关键 evidence，还是外链 run cache |
@@ -560,5 +614,5 @@ CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_ --locked
 2. 建立 R4 utility-convergence 继续工作入口，优先选择一个 public-10 负样本做 bug-killer 闭环。
 3. `sqlite-db-truncate` 当前适合作为已收敛工具链样本归档：状态是非 timeout、closed graph、`agent_patch_wrong`。
 4. `organization-json-generator` 当前下一步不再是 provider 前置；keyed run 已证明 provider preflight 通过，`bwrap` feedback-layer case 已收录并修复。
-5. 先重跑 `organization-json-generator` 验证 `tool-runtime-bootstrap-failure`、fact-source coverage、provider hard stop、adaptive inspect node limit、implementation rework evidence join、inspect projection fact-source guard、editable validation blocker guard、output contract coverage guard、schema fact-source guard 和 recovery projection guard 是否让 TaskSpace 生成 schema/public-test 正确的 `organization.json`；如仍 wrong，按新 trace 建立下一层 case。
+5. 先重跑 `organization-json-generator` 验证 `tool-runtime-bootstrap-failure`、fact-source coverage、provider hard stop、adaptive inspect node limit、implementation rework evidence join、inspect projection fact-source guard、editable validation blocker guard、output contract coverage guard、schema fact-source guard、recovery projection guard 和 validation rework target artifact read guard 是否让 TaskSpace 生成 schema/public-test 正确的 `organization.json`；如仍 wrong，按新 trace 建立下一层 case。
 6. 每完成一个样本，更新 public-10 snapshot 或生成新的 durable report artifact，避免再次依赖未提交 `target/` 缓存。

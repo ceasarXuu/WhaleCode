@@ -482,6 +482,7 @@ pub(crate) struct ActionMapProviderRequestBudgetSnapshot {
     pub(crate) current_node_has_dependency_working_evidence: bool,
     pub(crate) current_node_has_uncovered_mandatory_evidence: bool,
     pub(crate) current_node_uncovered_mandatory_evidence: Vec<String>,
+    pub(crate) current_node_validation_rework_artifacts: Vec<String>,
     pub(crate) route_mode: Option<String>,
     pub(crate) profile_name: Option<String>,
     pub(crate) request_phase: Option<String>,
@@ -2355,6 +2356,8 @@ impl ActionMapRuntimeState {
             );
             let current_node_item = format!("current_node:{}:{}", node.id, node.kind.as_str());
             let blocked_node_kind = node.kind.as_str().to_string();
+            let validation_rework_artifacts =
+                implement_node_dependency_validation_rework_artifact_refs(map, node);
             let repeated_block = self.record_blocked_action_repeat(
                 &map_id,
                 &node_id,
@@ -2362,14 +2365,31 @@ impl ActionMapRuntimeState {
                 &reason,
                 &descriptor,
             );
+            let mut next_valid_actions = Vec::new();
+            if !validation_rework_artifacts.is_empty() {
+                next_valid_actions.extend(validation_rework_artifacts.iter().take(4).map(
+                    |artifact| {
+                        format!(
+                            "read_file validation rework target artifact `{artifact}` only if current contents are not visible"
+                        )
+                    },
+                ));
+                next_valid_actions.extend(
+                    validation_rework_artifacts
+                        .iter()
+                        .take(4)
+                        .map(|artifact| format!("or call apply_patch for `{artifact}`")),
+                );
+            } else {
+                next_valid_actions
+                    .push("call apply_patch for the current implementation node".to_string());
+            }
+            next_valid_actions.push("or return blocked with exact missing evidence".to_string());
             let recovery = gate_recovery_message_with_repeated_block(
                 &message,
                 &reason,
                 vec![current_node_item],
-                vec![
-                    "call apply_patch for the current implementation node".to_string(),
-                    "or return blocked with exact missing evidence".to_string(),
-                ],
+                next_valid_actions,
                 Vec::new(),
                 Some(&repeated_block),
             );
@@ -3016,6 +3036,17 @@ preview:\n\
             .unwrap_or_default();
         let current_node_has_uncovered_mandatory_evidence =
             !current_node_uncovered_mandatory_evidence.is_empty();
+        let current_node_validation_rework_artifacts = self
+            .maps
+            .get(&map_id)
+            .and_then(|map| {
+                current_node.and_then(|node| {
+                    (node.kind == NodeKind::ImplementSolution).then(|| {
+                        implement_node_dependency_validation_rework_artifact_refs(map, node)
+                    })
+                })
+            })
+            .unwrap_or_default();
         let provider_request_context_missing_reason =
             self.provider_request_context_missing_reason(&map_id, node_id.as_deref(), phase);
         let task_id = self.maps.get(&map_id).and_then(|map| map.task_id.clone());
@@ -3046,6 +3077,7 @@ preview:\n\
             current_node_has_dependency_working_evidence,
             current_node_has_uncovered_mandatory_evidence,
             current_node_uncovered_mandatory_evidence,
+            current_node_validation_rework_artifacts,
             route_mode: Some(budget.route_mode.as_str().to_string()),
             profile_name: Some(budget.profile_name.clone()),
             request_phase,
@@ -3081,6 +3113,11 @@ preview:\n\
         } else {
             Vec::new()
         };
+        let current_node_validation_rework_artifacts = if node.kind == NodeKind::ImplementSolution {
+            implement_node_dependency_validation_rework_artifact_refs(map, node)
+        } else {
+            Vec::new()
+        };
         let node_request_count = self
             .budget_counters
             .model_request_count_by_node
@@ -3098,6 +3135,7 @@ preview:\n\
             current_node_has_uncovered_mandatory_evidence:
                 !current_node_uncovered_mandatory_evidence.is_empty(),
             current_node_uncovered_mandatory_evidence,
+            current_node_validation_rework_artifacts,
             route_mode: None,
             profile_name: None,
             request_phase: Some(
@@ -11495,10 +11533,36 @@ fn projection_next_valid_actions(
                 ]
             }
         }
-        NodeKind::ImplementSolution => vec![
-            "edit implementation artifacts".to_string(),
-            "taskspace_control(action=finish_node) into smoke_test/regression_test".to_string(),
-        ],
+        NodeKind::ImplementSolution => {
+            let validation_rework_artifacts =
+                implement_node_dependency_validation_rework_artifact_refs(map, node);
+            if !validation_rework_artifacts.is_empty()
+                && !node_has_successful_action(map, node, ActionClass::Edit)
+            {
+                let mut actions = validation_rework_artifacts
+                    .iter()
+                    .take(4)
+                    .map(|artifact| {
+                        format!(
+                            "read_file validation rework target artifact `{artifact}` only if current contents are not visible"
+                        )
+                    })
+                    .collect::<Vec<_>>();
+                actions.push(format!(
+                    "apply_patch validation rework target artifact(s): {}",
+                    validation_rework_artifacts.join(", ")
+                ));
+                actions.push(
+                    "taskspace_control(action=finish_node) into smoke_test/regression_test after successful edit"
+                        .to_string(),
+                );
+                return actions;
+            }
+            vec![
+                "edit implementation artifacts".to_string(),
+                "taskspace_control(action=finish_node) into smoke_test/regression_test".to_string(),
+            ]
+        }
         NodeKind::SmokeTest | NodeKind::RegressionTest => {
             if !latest_gate_recovery_next_actions.is_empty() {
                 let mut actions = latest_gate_recovery_next_actions.to_vec();
@@ -15561,6 +15625,14 @@ fn implement_node_dependency_validation_rework_artifact_refs(
             {
                 continue;
             }
+            for artifact_ref in validation_dependency_changed_artifacts(map, dependency) {
+                if !artifact_refs
+                    .iter()
+                    .any(|existing| existing == &artifact_ref)
+                {
+                    artifact_refs.push(artifact_ref);
+                }
+            }
             for artifact_ref in validation_failure_text_artifact_refs(&result.body) {
                 if !artifact_refs
                     .iter()
@@ -17914,6 +17986,7 @@ mod tests {
             current_node_has_dependency_working_evidence: false,
             current_node_has_uncovered_mandatory_evidence: false,
             current_node_uncovered_mandatory_evidence: Vec::new(),
+            current_node_validation_rework_artifacts: Vec::new(),
             route_mode: Some("thin".to_string()),
             profile_name: Some("thin-profile".to_string()),
             request_phase: Some("model_sampling".to_string()),
@@ -22294,6 +22367,7 @@ def build_organization():\n\
             current_node_has_dependency_working_evidence: false,
             current_node_has_uncovered_mandatory_evidence: false,
             current_node_uncovered_mandatory_evidence: Vec::new(),
+            current_node_validation_rework_artifacts: Vec::new(),
             route_mode: Some("thin".to_string()),
             profile_name: Some("taskspace-v005-thin".to_string()),
             request_phase: Some("model_sampling".to_string()),
@@ -26080,6 +26154,7 @@ D001,Engineering,1500000"
             current_node_has_dependency_working_evidence: false,
             current_node_has_uncovered_mandatory_evidence: false,
             current_node_uncovered_mandatory_evidence: Vec::new(),
+            current_node_validation_rework_artifacts: Vec::new(),
             route_mode: Some("thin".to_string()),
             profile_name: Some("taskspace-v005-thin".to_string()),
             request_phase: Some("model_sampling".to_string()),
@@ -26145,6 +26220,7 @@ def build_organization():\n\
             current_node_has_dependency_working_evidence: false,
             current_node_has_uncovered_mandatory_evidence: false,
             current_node_uncovered_mandatory_evidence: Vec::new(),
+            current_node_validation_rework_artifacts: Vec::new(),
             route_mode: Some("thin".to_string()),
             profile_name: Some("taskspace-v005-thin".to_string()),
             request_phase: Some("model_sampling".to_string()),
@@ -26220,6 +26296,7 @@ OutputReferenceV1: output-ref://sha256/example"
             current_node_has_dependency_working_evidence: false,
             current_node_has_uncovered_mandatory_evidence: false,
             current_node_uncovered_mandatory_evidence: Vec::new(),
+            current_node_validation_rework_artifacts: Vec::new(),
             route_mode: Some("thin".to_string()),
             profile_name: Some("taskspace-v005-thin".to_string()),
             request_phase: Some("model_sampling".to_string()),
@@ -26457,6 +26534,7 @@ def test_normalize_status_strips_and_lowercases():\n\
             current_node_has_dependency_working_evidence: false,
             current_node_has_uncovered_mandatory_evidence: false,
             current_node_uncovered_mandatory_evidence: Vec::new(),
+            current_node_validation_rework_artifacts: Vec::new(),
             route_mode: Some("thin".to_string()),
             profile_name: Some("taskspace-v005-thin".to_string()),
             request_phase: Some("model_sampling".to_string()),
@@ -26554,6 +26632,7 @@ def test_normalize_status_strips_and_lowercases():\n\
             current_node_has_dependency_working_evidence: false,
             current_node_has_uncovered_mandatory_evidence: false,
             current_node_uncovered_mandatory_evidence: Vec::new(),
+            current_node_validation_rework_artifacts: Vec::new(),
             route_mode: Some("thin".to_string()),
             profile_name: Some("taskspace-v005-thin".to_string()),
             request_phase: Some("model_sampling".to_string()),
@@ -26694,6 +26773,7 @@ def normalize_status(value: str) -> str:\n\
             current_node_has_dependency_working_evidence: false,
             current_node_has_uncovered_mandatory_evidence: false,
             current_node_uncovered_mandatory_evidence: Vec::new(),
+            current_node_validation_rework_artifacts: Vec::new(),
             route_mode: Some("default_compact".to_string()),
             profile_name: Some("taskspace-v005-active".to_string()),
             request_phase: Some("model_sampling".to_string()),
@@ -26770,6 +26850,7 @@ def normalize_status(value: str) -> str:\n\
             current_node_has_dependency_working_evidence: false,
             current_node_has_uncovered_mandatory_evidence: false,
             current_node_uncovered_mandatory_evidence: Vec::new(),
+            current_node_validation_rework_artifacts: Vec::new(),
             route_mode: Some("thin".to_string()),
             profile_name: Some("taskspace-v005-thin".to_string()),
             request_phase: Some("model_sampling".to_string()),
@@ -26849,6 +26930,7 @@ def normalize_status(value: str) -> str:\n\
             current_node_has_dependency_working_evidence: false,
             current_node_has_uncovered_mandatory_evidence: false,
             current_node_uncovered_mandatory_evidence: Vec::new(),
+            current_node_validation_rework_artifacts: Vec::new(),
             route_mode: Some("thin".to_string()),
             profile_name: Some("taskspace-v005-thin".to_string()),
             request_phase: Some("model_sampling".to_string()),
@@ -26963,6 +27045,7 @@ def normalize_status(value: str) -> str:\n\
             current_node_has_dependency_working_evidence: false,
             current_node_has_uncovered_mandatory_evidence: false,
             current_node_uncovered_mandatory_evidence: Vec::new(),
+            current_node_validation_rework_artifacts: Vec::new(),
             route_mode: Some("thin".to_string()),
             profile_name: Some("taskspace-v005-thin".to_string()),
             request_phase: Some("model_sampling".to_string()),
@@ -27175,6 +27258,7 @@ def normalize_status(value: str) -> str:\n\
             current_node_has_dependency_working_evidence: false,
             current_node_has_uncovered_mandatory_evidence: false,
             current_node_uncovered_mandatory_evidence: Vec::new(),
+            current_node_validation_rework_artifacts: Vec::new(),
             route_mode: Some("thin".to_string()),
             profile_name: Some("taskspace-v005-thin".to_string()),
             request_phase: Some("model_sampling".to_string()),
@@ -27266,6 +27350,7 @@ def normalize_status(value: str) -> str:\n\
             current_node_has_dependency_working_evidence: false,
             current_node_has_uncovered_mandatory_evidence: false,
             current_node_uncovered_mandatory_evidence: Vec::new(),
+            current_node_validation_rework_artifacts: Vec::new(),
             route_mode: Some("deep".to_string()),
             profile_name: Some("taskspace-v005-deep".to_string()),
             request_phase: Some("model_sampling".to_string()),
@@ -27370,6 +27455,7 @@ def normalize_status(value: str) -> str:\n\
             current_node_has_dependency_working_evidence: false,
             current_node_has_uncovered_mandatory_evidence: false,
             current_node_uncovered_mandatory_evidence: Vec::new(),
+            current_node_validation_rework_artifacts: Vec::new(),
             route_mode: Some("thin".to_string()),
             profile_name: Some("taskspace-v005-thin".to_string()),
             request_phase: Some("model_sampling".to_string()),
@@ -27493,6 +27579,7 @@ fi\n"
             current_node_has_dependency_working_evidence: false,
             current_node_has_uncovered_mandatory_evidence: false,
             current_node_uncovered_mandatory_evidence: Vec::new(),
+            current_node_validation_rework_artifacts: Vec::new(),
             route_mode: Some("thin".to_string()),
             profile_name: Some("taskspace-v005-thin".to_string()),
             request_phase: Some("model_sampling".to_string()),
@@ -27652,6 +27739,7 @@ fi\n"
             current_node_has_dependency_working_evidence: false,
             current_node_has_uncovered_mandatory_evidence: false,
             current_node_uncovered_mandatory_evidence: Vec::new(),
+            current_node_validation_rework_artifacts: Vec::new(),
             route_mode: Some("thin".to_string()),
             profile_name: Some("taskspace-v005-thin".to_string()),
             request_phase: Some("model_sampling".to_string()),
@@ -27777,6 +27865,7 @@ fi\n"
             current_node_has_dependency_working_evidence: false,
             current_node_has_uncovered_mandatory_evidence: false,
             current_node_uncovered_mandatory_evidence: Vec::new(),
+            current_node_validation_rework_artifacts: Vec::new(),
             route_mode: Some("thin".to_string()),
             profile_name: Some("taskspace-v005-thin".to_string()),
             request_phase: Some("model_sampling".to_string()),
@@ -29837,6 +29926,7 @@ fi\n"
             current_node_has_dependency_working_evidence: false,
             current_node_has_uncovered_mandatory_evidence: false,
             current_node_uncovered_mandatory_evidence: Vec::new(),
+            current_node_validation_rework_artifacts: Vec::new(),
             route_mode: Some("deep".to_string()),
             profile_name: Some("taskspace-v005-deep".to_string()),
             request_phase: Some("validation_recovery".to_string()),
@@ -29940,6 +30030,7 @@ fi\n"
             current_node_has_dependency_working_evidence: false,
             current_node_has_uncovered_mandatory_evidence: false,
             current_node_uncovered_mandatory_evidence: Vec::new(),
+            current_node_validation_rework_artifacts: Vec::new(),
             route_mode: Some("deep".to_string()),
             profile_name: Some("taskspace-v005-deep".to_string()),
             request_phase: Some("validation_recovery".to_string()),
@@ -30081,6 +30172,7 @@ fi\n"
             current_node_has_dependency_working_evidence: false,
             current_node_has_uncovered_mandatory_evidence: false,
             current_node_uncovered_mandatory_evidence: Vec::new(),
+            current_node_validation_rework_artifacts: Vec::new(),
             route_mode: Some("deep".to_string()),
             profile_name: Some("taskspace-v005-deep".to_string()),
             request_phase: Some("validation_recovery".to_string()),
@@ -30173,6 +30265,7 @@ summary: diagnostic payload for output reference smoke\n\
             current_node_has_dependency_working_evidence: false,
             current_node_has_uncovered_mandatory_evidence: false,
             current_node_uncovered_mandatory_evidence: Vec::new(),
+            current_node_validation_rework_artifacts: Vec::new(),
             route_mode: Some("thin".to_string()),
             profile_name: Some("taskspace-v005-thin".to_string()),
             request_phase: Some("validation_recovery".to_string()),
@@ -30247,6 +30340,7 @@ summary: diagnostic payload for output reference smoke\n\
             current_node_has_dependency_working_evidence: false,
             current_node_has_uncovered_mandatory_evidence: false,
             current_node_uncovered_mandatory_evidence: Vec::new(),
+            current_node_validation_rework_artifacts: Vec::new(),
             route_mode: Some("deep".to_string()),
             profile_name: Some("taskspace-v005-deep".to_string()),
             request_phase: Some("validation_recovery".to_string()),
@@ -30391,6 +30485,7 @@ organization.json generated successfully.\n"
             current_node_has_dependency_working_evidence: false,
             current_node_has_uncovered_mandatory_evidence: false,
             current_node_uncovered_mandatory_evidence: Vec::new(),
+            current_node_validation_rework_artifacts: Vec::new(),
             route_mode: Some("deep".to_string()),
             profile_name: Some("taskspace-v005-deep".to_string()),
             request_phase: Some("validation_recovery".to_string()),
@@ -31215,6 +31310,174 @@ organization.json generated successfully.\n"
         assert!(repeated_message.contains("validation_rework_duplicate_artifact_read"));
         assert!(repeated_message.contains("recover.py"));
         assert!(repeated_message.contains("apply_patch"));
+    }
+
+    #[test]
+    fn validation_rework_allows_changed_artifact_read_when_schema_failure_lacks_traceback() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (_, _map_id, implement_node_id, _) = start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::ImplementSolution,
+            "Generate organization output",
+            "Create the generator script and output artifact.",
+            "Implement generator",
+            "Create generate_org.py and organization.json.",
+            true,
+        );
+        let (edit_result_id, _) = state
+            .record_main_tool_result_with_class(
+                owner,
+                "edit-generator",
+                "apply_patch",
+                Some(ActionClass::Edit),
+                true,
+                "Success. Updated the following files:\n*** Add File: generate_org.py\n"
+                    .to_string(),
+            )
+            .expect("edit result")
+            .expect("edit result id");
+        state
+            .mark_result_validity_for_main(
+                owner,
+                &edit_result_id,
+                "accepted",
+                "accepted implementation edit".to_string(),
+                vec![ActionMapCognitiveClaimInput {
+                    id: "claim-edit-generator-schema".to_string(),
+                    statement: "Generator script was created.".to_string(),
+                    evidence_refs: vec![ActionMapEvidenceRefInput {
+                        result_id: Some(edit_result_id.clone()),
+                        ..Default::default()
+                    }],
+                }],
+                vec![ActionMapEvidenceRefInput {
+                    result_id: Some(edit_result_id.clone()),
+                    ..Default::default()
+                }],
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+            )
+            .expect("edit accepted");
+        let (handoff, _) = state
+            .finish_main_node_with_next(
+                owner,
+                &implement_node_id,
+                "Created generator script.".to_string(),
+                None,
+                Some(ActionMapNextNodeDraft {
+                    kind: NodeKind::SmokeTest,
+                    title: "Run schema validation".to_string(),
+                    context_summary:
+                        "Run generate_org.py and validate organization.json against schema.json."
+                            .to_string(),
+                    dependency_node_ids: vec![implement_node_id.clone()],
+                }),
+            )
+            .expect("finish implementation into validation");
+        let validation_node_id = handoff.next_node_id.expect("validation node id");
+        let lifecycle_result_ids = {
+            let map = state.active_map().expect("active map");
+            map.results
+                .values()
+                .filter(|result| result.kind == NodeResultKind::Result)
+                .map(|result| result.id.clone())
+                .collect::<Vec<_>>()
+        };
+        for result_id in lifecycle_result_ids {
+            state
+                .mark_result_validity_for_main(
+                    owner,
+                    &result_id,
+                    "accepted",
+                    "accepted setup lifecycle result".to_string(),
+                    vec![ActionMapCognitiveClaimInput {
+                        id: format!("claim-setup-{result_id}"),
+                        statement: "Setup lifecycle result accepted for schema rework read test."
+                            .to_string(),
+                        evidence_refs: vec![ActionMapEvidenceRefInput {
+                            result_id: Some(result_id.clone()),
+                            ..Default::default()
+                        }],
+                    }],
+                    vec![ActionMapEvidenceRefInput {
+                        result_id: Some(result_id.clone()),
+                        ..Default::default()
+                    }],
+                    Vec::new(),
+                    Vec::new(),
+                    Vec::new(),
+                )
+                .expect("setup lifecycle result accepted");
+        }
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "run-generator-schema",
+                "shell_command",
+                Some(ActionClass::Test),
+                false,
+                "Successfully generated organization.json\n{'name': 'Madrid', 'member_ids': ['D001-E001']}: 'members' is a required property\n{'total_departments': 5}: 'averageDepartmentBudget' is a required property\n".to_string(),
+            )
+            .expect("failed schema validation should route rework")
+            .expect("validation result");
+        let rework_node_id = state
+            .current_main_node_id
+            .clone()
+            .expect("failed validation should bind rework");
+        assert_ne!(rework_node_id, validation_node_id);
+
+        let map = state.active_map().expect("active map");
+        let rework_node = map.nodes.get(&rework_node_id).expect("rework node");
+        let targets = implement_node_dependency_validation_rework_artifact_refs(map, rework_node);
+        assert_eq!(targets, vec!["generate_org.py"]);
+        let actions = projection_next_valid_actions(map, Some(&rework_node_id), None, &[]);
+        assert!(
+            actions.iter().any(|action| action
+                .contains("read_file validation rework target artifact `generate_org.py`")),
+            "{actions:?}"
+        );
+
+        let broad_read_error = state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new(
+                    "shell_command",
+                    ActionClass::Read,
+                    serde_json::json!({
+                        "command": "sed -n '1,240p' -- schema.json"
+                    })
+                    .to_string(),
+                ),
+            )
+            .expect_err("non-target schema read remains blocked on validation rework");
+        let broad_read_message = broad_read_error.to_string();
+        assert!(
+            broad_read_message.contains("enough read/search evidence"),
+            "{broad_read_message}"
+        );
+        assert!(
+            broad_read_message.contains("generate_org.py"),
+            "{broad_read_message}"
+        );
+
+        state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new(
+                    "shell_command",
+                    ActionClass::Read,
+                    serde_json::json!({
+                        "command": "sed -n '1,240p' -- generate_org.py"
+                    })
+                    .to_string(),
+                )
+                .with_call_id("read-generator"),
+            )
+            .expect("validation rework may read dependency changed artifact before editing");
     }
 
     #[test]
