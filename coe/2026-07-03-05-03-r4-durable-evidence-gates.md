@@ -1461,3 +1461,60 @@
   - `TaskSpaceApplyPatchNativeHunkRecoveryV1` tells the provider to emit exactly one corrected native `apply_patch` or a full Delete/Add replacement, and it does not consume the generic no-action recovery allowance.
   - Pure unified diffs still normalize to native apply_patch; only mixed native/unified or placeholder native hunks are rejected.
 - Interpretation: The new `validator-path-target-pollution-and-native-patch-grammar-feedback-gap` class is fixed at unit/regression/build level. Binary attestation and another keyed rerun are required before claiming the external `organization-json-generator` case advances past this edit-syntax layer.
+
+# Hypothesis H-028: empty provider response on an active TaskSpace node is misclassified as final candidate
+
+- Claim: After H-027, a keyed rerun may fail before reaching the patch-feedback layer if the provider returns a reasoning-only / empty assistant response while a TaskSpace node is still running. The session classifier currently treats `saw_actionable_output=false` and `assistant_message_present=false` as `final_candidate` when `needs_follow_up=false`, even though an active node still requires a tool/control/result. This ends the turn with zero tool calls and leaves the node open.
+- Prediction: A rerun will show `taskspace_control start_task` creating `node-1`, then a second model request with only reasoning tokens, no assistant message, no actionable output, `response_actionability:final_candidate`, no recovery item, and `tool_call_count=0` / `open_leaf_nodes=1`. Repair should classify this state as `empty_follow_up`, emit `TaskSpaceNoActionRecoveryV1`, and continue sampling.
+- Diagnostic evidence plan: Inspect the H-027 rerun trace and request summary; add focused session tests proving empty responses require recovery only when an active TaskSpace node exists, while no-active-node empty responses can remain final candidates.
+- Status: confirmed.
+
+# Evidence E-063: H-027 rerun exits after start_task because empty active-node response is accepted
+
+- Prediction tested: H-028 predicts an early control/feedback failure before any ordinary tool call.
+- Real rerun:
+  ```text
+  RunDir: target/r4-org-json-real-keyed-20260703z-native-patch-feedback/runs/terminal_bench__organization-json-generator/20260704-053313-020
+  PairReport: pair-001/pair-report.md
+  reported_evidence_level: E2-candidate
+  outcome_standard: solved
+  outcome_taskspace: wrong
+  right_exec_timed_out: False
+  right_tool_call_count: 0
+  right_open_leaf_nodes: 1
+  public_validation_exit_code: 1
+  hidden_oracle_exit_code: 0
+  ```
+- Matched trace signals:
+  - The first model response emitted a valid `taskspace_control(action=start_task)` action and `node-1` was created as `inspect_code_context`.
+  - The following provider request returned only reasoning output: `output_tokens=41`, `reasoning_output_tokens=41`.
+  - Runtime recorded `response_actionability:final_candidate`, `saw_actionable_output:false`, `assistant_message_present:false`, `recovery_action:none`, with active `node_kind:inspect_code_context`.
+  - No `TaskSpaceNoActionRecoveryV1` was inserted, no ordinary tool ran, and the turn ended with `tool_call_count=0`.
+- Interpretation: This rerun did not reach H-027's patch syntax layer. It exposed a lower control-loop issue: final-candidate semantics were too permissive while TaskSpace still had active work.
+
+# Evidence E-064: active-node empty responses now trigger no-action recovery
+
+- Prediction tested: H-028 requires empty/no-action responses to recover only when an active TaskSpace node exists.
+- Repair artifact:
+  - `third_party/codex-cli/codex-rs/core/src/session/turn.rs`
+- Focused commands:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core provider_response_actionability_treats_empty_active_node_response_as_recovery --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core provider_response_actionability_allows_empty_response_without_active_node_final_candidate --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core provider_response_actionability_ --locked
+  ```
+- Adjacent regression and build commands:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_rework --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib apply_patch_ --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_ --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --all --check
+  git diff --check
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-cli --bin whale --locked
+  ```
+- Result: passed. `provider_response_actionability_` is now 8/8, `validation_rework` remains 13/13, lib-scoped `apply_patch_` remains 32/32, and `validation_` remains 89/89.
+- Matched test signals:
+  - `node_kind=inspect_code_context`, no actionable output, no assistant message, and no terminal action now becomes `empty_follow_up` and requires recovery.
+  - The same empty response without an active node still classifies as `final_candidate`.
+  - Existing actionability behavior for final-gate rejection, no-action follow-up, gate recovery, actionable responses, and replayable trace recording remains intact.
+- Interpretation: The new `active-node-empty-response-final-candidate-misclassification` class is fixed at unit/regression/build level. Another keyed rerun is required before checking whether H-027's edit-syntax layer is now reached.

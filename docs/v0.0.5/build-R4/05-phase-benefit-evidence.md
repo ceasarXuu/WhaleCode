@@ -2572,3 +2572,66 @@ CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/co
 状态：该 tools 链路 class 已在 unit/regression/build 层通过；下一次 keyed rerun 应验证模型在 schema repair contract
 存在时，用合法 native patch 修正 `process.py`，而不是把 patch 语法错误交给底层 edit tool 或把
 jsonschema runtime 路径当作可读 artifact。
+
+## 5.38 2026-07-04 active node empty response final-candidate misclassification
+
+`validator-path-target-pollution-and-native-patch-grammar-feedback-gap` 修复后的 keyed rerun 没有进入
+patch 语法层，而是在 TaskSpace 启动后更早退出：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260703z-native-patch-feedback/runs/terminal_bench__organization-json-generator/20260704-053313-020
+reported_evidence_level: E2-candidate
+outcome_standard: solved
+outcome_taskspace: wrong
+right_exec_timed_out: False
+right_tool_call_count: 0
+right_open_leaf_nodes: 1
+public_validation_exit_code: 1
+hidden_oracle_exit_code: 0
+```
+
+关键观察：
+
+| Signal | 结论 |
+|---|---|
+| 第一条响应是合法 `taskspace_control(action=start_task)` | `node-1` 已创建为 `inspect_code_context` |
+| 第二次 provider request 只有 reasoning output：`output_tokens=41`, `reasoning_output_tokens=41` | provider 没有给 assistant action / tool / final text |
+| runtime 记录 `response_actionability:final_candidate` | active node 上的空响应被误判为可结束 |
+| `saw_actionable_output:false`, `assistant_message_present:false`, `recovery_action:none` | no-action recovery 没有触发 |
+| TaskSpace 侧 `tool_call_count=0`, `open_leaf_nodes=1` | 控制环提前终止，未进入 inspect/tool 执行 |
+
+本轮新增并 focused 修复的问题类型：
+
+| Case | Before | After | Evidence |
+|---|---|---|---|
+| `active-node-empty-response-final-candidate-misclassification` | 当 TaskSpace 仍有 active node 时，provider 空响应因为 `needs_follow_up=false` 被归为 `final_candidate`，不会插入 recovery，turn 直接结束 | session 层新增 active-node 空响应判定：有 active node、无 actionable output、无 assistant text、无 terminal action 时强制进入 `empty_follow_up`，外层插入 `TaskSpaceNoActionRecoveryV1` 并继续采样；无 active node 的空响应仍可保持 final candidate | `provider_response_actionability_treats_empty_active_node_response_as_recovery`; `provider_response_actionability_allows_empty_response_without_active_node_final_candidate`; `provider_response_actionability_` |
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core provider_response_actionability_treats_empty_active_node_response_as_recovery --locked
+  PASS：active `inspect_code_context` node 上的空响应归入 `empty_follow_up`
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core provider_response_actionability_allows_empty_response_without_active_node_final_candidate --locked
+  PASS：没有 active node 时，空响应仍可归为 `final_candidate`
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core provider_response_actionability_ --locked
+  PASS：8 tests
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_rework --locked
+  PASS：13 tests
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib apply_patch_ --locked
+  PASS：32 tests
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_ --locked
+  PASS：89 tests
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --all --check
+git diff --check
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-cli --bin whale --locked
+  PASS
+```
+
+状态：该 control/feedback class 已在 unit/regression/build 层通过；还需要 keyed rerun，验证 start_task
+后的空响应会被 recovery 拉回工具执行路径，然后继续检验 H-027 的 patch 语法修复是否生效。

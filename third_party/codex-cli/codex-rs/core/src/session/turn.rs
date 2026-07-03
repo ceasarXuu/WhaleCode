@@ -2468,6 +2468,18 @@ fn classify_taskspace_provider_response_actionability(
     }
 }
 
+fn taskspace_active_node_empty_response_requires_follow_up(
+    node_kind: Option<&str>,
+    saw_actionable_output: bool,
+    assistant_message_present: bool,
+    taskspace_terminal_action_observed_in_request: bool,
+) -> bool {
+    node_kind.is_some()
+        && !saw_actionable_output
+        && !assistant_message_present
+        && !taskspace_terminal_action_observed_in_request
+}
+
 fn taskspace_last_message_preview(message: Option<&str>) -> Option<String> {
     let message = message?.trim();
     if message.is_empty() {
@@ -7666,6 +7678,50 @@ TaskSpaceGateRecoveryV1: {\"schema_version\":\"TaskSpaceGateRecoveryV1\",\"allow
     }
 
     #[test]
+    fn provider_response_actionability_treats_empty_active_node_response_as_recovery() {
+        let needs_follow_up = taskspace_active_node_empty_response_requires_follow_up(
+            Some("inspect_code_context"),
+            false,
+            false,
+            false,
+        );
+        let classification = classify_taskspace_provider_response_actionability(
+            needs_follow_up,
+            false,
+            false,
+            false,
+            false,
+            false,
+        );
+
+        assert_eq!(
+            classification,
+            TaskspaceProviderResponseActionability::EmptyFollowUp
+        );
+        assert!(classification.needs_recovery());
+    }
+
+    #[test]
+    fn provider_response_actionability_allows_empty_response_without_active_node_final_candidate() {
+        let needs_follow_up =
+            taskspace_active_node_empty_response_requires_follow_up(None, false, false, false);
+        let classification = classify_taskspace_provider_response_actionability(
+            needs_follow_up,
+            false,
+            false,
+            false,
+            false,
+            false,
+        );
+
+        assert_eq!(
+            classification,
+            TaskspaceProviderResponseActionability::FinalCandidate
+        );
+        assert!(!classification.needs_recovery());
+    }
+
+    #[test]
     fn budget_pressure_follow_up_intent_does_not_require_recovery() {
         assert!(!taskspace_budget_pressure_follow_up_intent(
             30,
@@ -11491,6 +11547,16 @@ async fn try_run_sampling_request(
                 }
                 let current_budget_snapshot =
                     sess.action_map_provider_request_budget_snapshot().await;
+                if taskspace_active_node_empty_response_requires_follow_up(
+                    current_budget_snapshot
+                        .as_ref()
+                        .and_then(|snapshot| snapshot.node_kind.as_deref()),
+                    saw_actionable_output,
+                    assistant_message_present,
+                    taskspace_terminal_action_observed_in_request,
+                ) {
+                    needs_follow_up = true;
+                }
                 let provider_budget_exhausted_followup = false;
                 let budget_pressure_follow_up_intent = current_budget_snapshot
                     .as_ref()
