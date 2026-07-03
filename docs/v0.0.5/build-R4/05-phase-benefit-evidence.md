@@ -2966,3 +2966,73 @@ CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/co
 状态：该 action-contract feedback class 已 focused fixed，并通过本地回归、fmt、diff check 和 `whale` build；
 还需要 commit/push、binary attestation 后再次 keyed rerun。下一轮期望 line 80 这类 payload 在工具执行前转成
 `TaskSpaceApplyPatchNativeHunkRecoveryV1`，不再进入 generic edit-failure + read refresh 路径。
+
+## 5.44 2026-07-04 duplicate-read after patch grammar feedback loss
+
+`apply-patch-dash-native-header-feedback-gap` 修复并 attestation 后的 keyed rerun 证明 H-033 已越过：本轮没有
+`--- Update File:` 漏检；当 provider 输出 `*** Update File` 内夹 `--- a/...` / `+++ b/...` / range hunk 时，
+action contract 在工具执行前拒绝为 `apply_patch_mixed_native_unified:generate_org.py`，并插入
+`TaskSpaceApplyPatchNativeHunkRecoveryV1`。新的 blocker 是后续 duplicate-read recovery 覆盖了最近 patch grammar
+failure。
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260703af-dash-native-header/runs/terminal_bench__organization-json-generator/20260704-064858-360
+reported_evidence_level: E1
+outcome_standard: wrong
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 13
+right_open_leaf_nodes: 1
+public_validation_exit_code: 1
+hidden_oracle_exit_code: 0
+```
+
+关键观察：
+
+| Signal | 结论 |
+|---|---|
+| preflight git head `fa9a5d2b...` 且 attestation pass | H-033 修复进入实测二进制 |
+| lines 54/61/68 插入 `TaskSpaceValidationReworkDuplicateReadRecoveryV1` | duplicate-read 专用 recovery 仍生效 |
+| line 74 `apply_patch_mixed_native_unified:generate_org.py` | mixed native/unified patch 被 action contract 前置拒绝 |
+| line 75 `TaskSpaceApplyPatchNativeHunkRecoveryV1` | H-032/H-033 live crossed，专用 NativeHunk recovery 已送达 |
+| line 79 再次 `read_file generate_org.py` | provider 在 NativeHunk recovery 后仍尝试读文件 |
+| line 82 普通 `TaskSpaceValidationReworkDuplicateReadRecoveryV1` | duplicate-read recovery 覆盖了最近 patch grammar failure summary |
+| line 83 `TaskSpaceProviderBudgetHardStopV1 node_request_count=6/5` | 最后一次 recovery 没机会再次送达模型 |
+
+本轮新增并 focused 修复的问题类型：
+
+| Case | Before | After | Evidence |
+|---|---|---|---|
+| `validation-rework-duplicate-read-after-patch-grammar-feedback-loss` | NativeHunk recovery 后的重复读被普通 duplicate-read recovery 接管，recent failed edit summary 中的 `apply_patch_mixed_native_unified:<target>` 不再出现在 provider-visible recovery 中 | duplicate-read recovery 现在接收最近 failed edit summary；当 summary 含 `apply_patch_mixed_native_unified` / `apply_patch_native_hunk_header` 时，明确必须 corrected native apply_patch，`read_file/context refresh` 不是有效恢复；warning 输出 `TaskSpaceValidationReworkDuplicateReadAfterPatchGrammarRecoveryV1` | `validation_rework_duplicate_read_recovery_preserves_failed_patch_grammar`; `implementation_recovery_preserves_failed_patch_grammar_on_duplicate_read` |
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib --locked failed_patch_grammar
+  PASS：2 tests
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib --locked duplicate_rework
+  PASS：2 tests
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib --locked validation_rework
+  PASS：15 tests
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib --locked native_hunk
+  PASS：3 tests
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib --locked apply_patch_
+  PASS：33 tests
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib --locked validation_
+  PASS：92 tests
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+git diff --check
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-cli --bin whale --locked
+  PASS
+```
+
+状态：该 session recovery composition class 已 focused fixed，并通过本地回归、fmt、diff check 和 `whale` build；
+还需要 commit/push、binary attestation 和下一轮 keyed rerun。下一轮期望 line 82 这种场景输出
+`TaskSpaceValidationReworkDuplicateReadAfterPatchGrammarRecoveryV1`，并在正文保留最近
+`apply_patch_mixed_native_unified:<target>` failure，避免 patch grammar 语义被 duplicate-read 语义覆盖。

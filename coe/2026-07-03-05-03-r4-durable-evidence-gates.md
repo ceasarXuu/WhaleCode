@@ -1813,3 +1813,62 @@
   - `--- Update File: generate_organization.py` no longer reaches `apply_patch` tool execution.
   - The native hunk recovery text explicitly forbids `--- Update File:` alongside `--- a/...`, `+++ b/...`, range hunks, and placeholder hunks.
 - Interpretation: The `apply-patch-dash-native-header-feedback-gap` class is focused-fixed at action-contract classification/build level. Commit/push, binary attestation, and another keyed rerun are still required before claiming live external convergence beyond this malformed-header case.
+
+# Hypothesis H-034: duplicate-read recovery drops recent patch grammar failure after NativeHunk recovery
+
+- Claim: After H-033, action-contract classification and NativeHunk advisory labels are correct, but a later duplicate validation-rework read can overwrite the recent patch grammar failure context. `build_taskspace_implementation_recovery_item` prioritizes `TaskSpaceValidationReworkDuplicateReadRecoveryV1` over `failed_edit_summary`, so if the provider calls `read_file` immediately after `TaskSpaceApplyPatchNativeHunkRecoveryV1`, the next duplicate-read recovery no longer carries `apply_patch_mixed_native_unified:<target>` / `apply_patch_native_hunk_header:<target>` feedback. The node then reaches its hard limit with the most specific edit failure semantics no longer visible in the final recovery.
+- Prediction: The post-H-033 keyed rerun will show `apply_patch_mixed_native_unified:generate_org.py` rejected before tool execution and `TaskSpaceApplyPatchNativeHunkRecoveryV1` inserted, proving H-032/H-033 crossed. If this hypothesis is true, the provider then repeats `read_file generate_org.py`, TaskSpace inserts ordinary `TaskSpaceValidationReworkDuplicateReadRecoveryV1`, and the turn ends at `TaskSpaceProviderBudgetHardStopV1` without a recovery warning that preserves the failed patch grammar.
+- Diagnostic evidence plan: Inspect the post-H-033 keyed rerun trace around the NativeHunk rejection and subsequent duplicate read. Add focused tests proving duplicate-read recovery preserves a recent failed patch grammar summary and emits a distinct advisory warning when both semantics are present.
+- Status: confirmed.
+
+# Evidence E-075: H-033 rerun crosses dash-native gap and exposes duplicate-read/patch-grammar preservation gap
+
+- Prediction tested: H-034 predicts H-033 is fixed live, then the next failure is recovery semantic loss after NativeHunk recovery.
+- Real rerun:
+  ```text
+  RunDir: target/r4-org-json-real-keyed-20260703af-dash-native-header/runs/terminal_bench__organization-json-generator/20260704-064858-360
+  PairReport: pair-001/pair-report.md
+  reported_evidence_level: E1
+  outcome_standard: wrong
+  outcome_taskspace: engineering_unclean
+  right_exec_timed_out: False
+  right_tool_call_count: 13
+  right_open_leaf_nodes: 1
+  public_validation_exit_code: 1
+  hidden_oracle_exit_code: 0
+  ```
+- Matched trace signals:
+  - Preflight used git head `fa9a5d2b9ad9514b4fb2ca31ccadef265e07b5e4` with passing binary attestation.
+  - Lines 53, 60, and 67 block duplicate `read_file generate_org.py`; lines 54, 61, and 68 insert `TaskSpaceValidationReworkDuplicateReadRecoveryV1`.
+  - Line 72 emits a mixed native/unified patch with `*** Update File: generate_org.py`, `--- a/generate_org.py`, `+++ b/generate_org.py`, and range hunks.
+  - Line 74 rejects it as `TaskSpaceActionV1 rejected: apply_patch_mixed_native_unified:generate_org.py`.
+  - Line 75 correctly inserts `TaskSpaceApplyPatchNativeHunkRecoveryV1`, so H-032/H-033 crossed.
+  - Line 79 repeats `read_file generate_org.py`; line 82 inserts ordinary `TaskSpaceValidationReworkDuplicateReadRecoveryV1`, and line 83 hard-stops with `provider_node_request_hard_limit_exceeded node_request_count=6/5`.
+- Interpretation: The apply_patch grammar failure is detected and labeled correctly, but the next duplicate-read recovery does not preserve that failed edit summary. This is a recovery-composition bug between duplicate-read feedback and patch-grammar feedback, not a missing patch parser.
+
+# Evidence E-076: duplicate-read recovery now preserves recent patch grammar failure
+
+- Prediction tested: H-034 requires duplicate-read recovery to keep the recent failed edit summary when the blocked read follows a patch grammar rejection.
+- Repair artifact:
+  - `third_party/codex-cli/codex-rs/core/src/session/turn.rs`
+- Focused commands:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib --locked failed_patch_grammar
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib --locked duplicate_rework
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib --locked validation_rework
+  ```
+- Adjacent regression commands:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib --locked native_hunk
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib --locked apply_patch_
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib --locked validation_
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+  git diff --check
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-cli --bin whale --locked
+  ```
+- Result: passed. `failed_patch_grammar` is 2/2, `duplicate_rework` is 2/2, `validation_rework` is 15/15, `native_hunk` is 3/3, `apply_patch_` is 33/33, and `validation_` is 92/92. `cargo fmt --check`, `git diff --check`, and the `whale` build passed.
+- Matched test signals:
+  - Duplicate-read recovery includes `Most recent failed edit feedback to preserve` with `apply_patch_mixed_native_unified:<target>` or `apply_patch_native_hunk_header:<target>`.
+  - The recovery explicitly says patch grammar must be corrected now and `read_file/context refresh is not a valid recovery` for that failure.
+  - Advisory observability emits `TaskSpaceValidationReworkDuplicateReadAfterPatchGrammarRecoveryV1` when duplicate-read and patch-grammar semantics are both present.
+- Interpretation: The `validation-rework-duplicate-read-after-patch-grammar-feedback-loss` class is focused-fixed at session recovery composition/build level. Commit/push, binary attestation, and another keyed rerun are still required before claiming live progress beyond the NativeHunk recovery follow-up.
