@@ -1640,3 +1640,61 @@
   - Implementation recovery selection prioritizes duplicate rework read feedback over generic `TaskSpaceImplementNeedsEditRecoveryV1`.
   - Existing action-contract recent feedback for duplicate reads still exposes `target_artifact`, `previous_read_result`, and `repair_contract`.
 - Interpretation: The new `validation-rework-duplicate-read-recovery-dilution` class is focused-fixed at session feedback/build level. Binary attestation and another keyed rerun are required before claiming the external sample advances from patch-only recovery into a corrected edit.
+
+# Hypothesis H-031: immediate actionability recovery bypasses duplicate-read recovery selection
+
+- Claim: The first H-030 fix added a dedicated duplicate-read recovery selector, but one live session path still bypassed it. When a blocked tool action is classified by `response_actionability.needs_recovery()` inside the response-completed path, the implementation branch directly calls generic `build_taskspace_implement_needs_edit_recovery_item` instead of the newer selector. This means the gate feedback can correctly say "validation rework artifact already read; patch now", while the next developer recovery message still becomes generic `TaskSpaceImplementNeedsEditRecoveryV1`.
+- Prediction: The keyed rerun after E-068 will still cross weak validation and schema validation, then show repeated validation rework target reads blocked by the gate. The actionability preview will contain natural-language duplicate-read feedback, but the following recovery warnings will remain generic `TaskSpaceImplementNeedsEditRecoveryV1` until the provider node hard limit. Repair should route the immediate actionability implementation recovery through `build_taskspace_implementation_recovery_item`, preserve the duplicate-read marker even when the stable reason string is absent, and log a distinct `TaskSpaceValidationReworkDuplicateReadRecoveryV1` warning.
+- Diagnostic evidence plan: Inspect the post-E-068 keyed rerun trace, add a focused selector test using the real natural-language blocked-read text without the stable reason field, and patch the immediate response-actionability recovery branch.
+- Status: confirmed.
+
+# Evidence E-069: E-068 fix was bypassed by the immediate actionability branch
+
+- Prediction tested: H-031 predicts H-030's dedicated recovery exists but is not used by the live immediate recovery path.
+- Real rerun:
+  ```text
+  RunDir: target/r4-org-json-real-keyed-20260703ac-duplicate-read-recovery/runs/terminal_bench__organization-json-generator/20260704-060538-444
+  PairReport: pair-001/pair-report.md
+  reported_evidence_level: E2-candidate
+  outcome_standard: solved
+  outcome_taskspace: engineering_unclean
+  right_exec_timed_out: False
+  right_tool_call_count: 14
+  right_open_leaf_nodes: 1
+  public_validation_exit_code: 1
+  hidden_oracle_exit_code: 0
+  ```
+- Matched trace signals:
+  - The run crossed H-029 again: weak validation was rejected and the exact schema validation command was executed.
+  - `node-4` entered implementation rework and read `generate.py` once.
+  - Repeated reads of `generate.py` were blocked with feedback text: `validation rework node ... already read failure artifact ... no successful edit has been recorded`.
+  - Despite that blocked-read semantics, the next recovery warnings were generic `TaskSpaceImplementNeedsEditRecoveryV1` advisory attempts 5, 6, 7, 8, and 9.
+  - The turn stopped at `TaskSpaceProviderBudgetHardStopV1 reason=provider_node_request_hard_limit_exceeded request_count=17/20 node_request_count=6/5`.
+- Interpretation: The duplicate-read semantics were not missing in the gate; they were lost because the response-actionability branch did not use the specialized implementation recovery selector. This is a session feedback routing bug, not a model ability failure.
+
+# Evidence E-070: immediate implementation recovery now uses the duplicate-read selector
+
+- Prediction tested: H-031 requires the live actionability recovery branch and warning text to use the same specialized selector as the post-drain fallback path.
+- Repair artifact:
+  - `third_party/codex-cli/codex-rs/core/src/session/turn.rs`
+- Focused command:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib --locked duplicate
+  ```
+- Adjacent regression/build commands:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib --locked implementation_needs_edit
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib --locked validation_rework
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib --locked validation_
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+  git diff --check
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-cli --bin whale --locked
+  ```
+- Result: passed. The `duplicate` filtered suite ran 21 tests including the new `implementation_recovery_selects_duplicate_rework_from_gate_text_without_reason`; `implementation_needs_edit` is 2/2, `validation_rework` is 14/14, and `validation_` is 91/91. `cargo fmt --check`, `git diff --check`, and the `whale` build passed.
+- Matched test signals:
+  - The selector recognizes the real blocked-read wording even when `TaskSpaceGateRecoveryV1.reason=validation_rework_duplicate_artifact_read` is absent from the visible text.
+  - The generated recovery contains `TaskSpaceValidationReworkDuplicateReadRecoveryV1`, `failure_kind: validation_rework_duplicate_artifact_read`, `target_artifact: generate.py`, `previous_read_result: result-11`, and the repair contract.
+  - The recovery does not contain the generic `TaskSpaceImplementNeedsEditRecoveryV1` marker.
+  - `taskspace_special_recovery_warning_message` now logs `TaskSpaceValidationReworkDuplicateReadRecoveryV1` distinctly instead of falling through to a generic recovery warning.
+- Operational note: a bare `cargo test -p codex-core ...` failed in this host because `codex-linux-sandbox` tried to build vendored bubblewrap and `libcap.pc` is unavailable. The stable local test command for this repository remains `CODEX_SKIP_VENDORED_BWRAP=1 cargo test ...`.
+- Interpretation: The new `validation-rework-duplicate-read-immediate-recovery-bypass` class is focused-fixed at session feedback level. A binary rebuild/attestation and another keyed rerun are required to verify the external sample now receives the dedicated patch-only recovery in the live trace.

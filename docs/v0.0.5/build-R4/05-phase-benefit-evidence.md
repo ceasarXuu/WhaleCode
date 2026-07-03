@@ -2763,3 +2763,72 @@ CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/co
 状态：该 feedback priority class 已在 session feedback/build 层 focused fixed；还需要 commit/push、binary attestation 和 keyed rerun。
 下一轮期望 provider 在 duplicate-read rejection 后收到专用 patch-only recovery，直接 `apply_patch generate_org.py`，
 或者更早给出 bounded block，而不是继续重复读到 node hard stop。
+
+## 5.41 2026-07-04 validation rework immediate recovery bypass
+
+`validation-rework-duplicate-read-recovery-dilution` 的第一轮 focused fix 添加了专用 selector，但新的 keyed rerun 证明
+真实链路还有一个分支没有接入 selector：`response_actionability.needs_recovery()` 的即时 implementation recovery
+仍然直接插入 generic `TaskSpaceImplementNeedsEditRecoveryV1`。
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260703ac-duplicate-read-recovery/runs/terminal_bench__organization-json-generator/20260704-060538-444
+reported_evidence_level: E2-candidate
+outcome_standard: solved
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 14
+right_open_leaf_nodes: 1
+public_validation_exit_code: 1
+hidden_oracle_exit_code: 0
+```
+
+关键观察：
+
+| Signal | 结论 |
+|---|---|
+| weak JSON validation 再次被拒绝，随后执行 schema validation | H-029 仍生效 |
+| `node-4` 首次读取 `generate.py` 后进入 rework | rework target read 能力存在 |
+| 后续重复 `read_file generate.py` 被 gate 文本拦截：target 已读且尚无成功 edit | runtime/gate 语义存在 |
+| recovery warning 仍连续插入 `TaskSpaceImplementNeedsEditRecoveryV1` attempts 5-9 | 专用 recovery selector 没覆盖即时 actionability 分支 |
+| 结束于 `TaskSpaceProviderBudgetHardStopV1 node_request_count=6/5` | control loop 仍靠预算硬停收尾 |
+
+本轮新增并 focused 修复的问题类型：
+
+| Case | Before | After | Evidence |
+|---|---|---|---|
+| `validation-rework-duplicate-read-immediate-recovery-bypass` | 专用 duplicate-read recovery selector 只接在 post-drain fallback，response-completed 的即时 recovery 分支仍直接生成 generic implement-needs-edit guidance；即使 gate 已说明“用已有 result patch”，下一轮也会继续被 generic 语义稀释 | 即时 implementation recovery 分支统一调用 `build_taskspace_implementation_recovery_item`，并传入 failed-edit summary；selector 能从没有稳定 reason 字段的自然语言 blocked-read 文本识别 duplicate rework read；warning 明确输出 `TaskSpaceValidationReworkDuplicateReadRecoveryV1` | `implementation_recovery_selects_duplicate_rework_from_gate_text_without_reason`; `duplicate` filtered suite |
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib --locked duplicate
+  PASS：21 tests；新增测试覆盖真实 blocked-read 文本不含稳定 reason 字段时仍生成专用 duplicate-read recovery
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib --locked implementation_needs_edit
+  PASS：2 tests
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib --locked validation_rework
+  PASS：14 tests
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib --locked validation_
+  PASS：91 tests
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+git diff --check
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-cli --bin whale --locked
+  PASS
+```
+
+环境记录：
+
+```text
+cargo test -p codex-core --lib --locked duplicate
+  FAIL：当前 host 缺少 libcap.pc，vendored bubblewrap build 无法完成
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib --locked duplicate
+  PASS
+```
+
+状态：该 feedback routing class 已在 session feedback 层 focused fixed；本地回归、fmt、diff check 和 `whale`
+构建已通过；还需要 commit/push、binary attestation 和 keyed rerun。下一轮期望 live trace 中出现 `TaskSpaceValidationReworkDuplicateReadRecoveryV1`，
+随后 provider 只能 patch `generate.py` 或给出 bounded block，不能再用 generic recovery 连续重复读。

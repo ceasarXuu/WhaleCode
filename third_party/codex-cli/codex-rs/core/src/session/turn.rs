@@ -2191,6 +2191,8 @@ fn taskspace_special_recovery_warning_message(item: &ResponseItem) -> String {
         "TaskSpace inserted TaskSpaceApplyPatchNativeHunkRecoveryV1 after apply_patch mixed native grammar with unified/range/placeholder hunk syntax. This guidance does not consume the no-action recovery allowance.".to_string()
     } else if response_item_text_contains(item, TASKSPACE_EDIT_FAILURE_MARKER) {
         "TaskSpace inserted TaskSpaceEditFailureRecoveryV1 after an edit tool call failed. This guidance does not consume the no-action recovery allowance.".to_string()
+    } else if response_item_text_contains(item, TASKSPACE_VALIDATION_REWORK_DUPLICATE_READ_MARKER) {
+        "TaskSpace inserted TaskSpaceValidationReworkDuplicateReadRecoveryV1 after a validation rework node repeated an already-read failure artifact. This guidance does not consume the no-action recovery allowance.".to_string()
     } else if response_item_text_contains(item, TASKSPACE_IMPLEMENT_NEEDS_EDIT_MARKER) {
         "TaskSpace inserted TaskSpaceImplementNeedsEditRecoveryV1 because implementation has enough read/search evidence and must edit or block. This guidance does not consume the no-action recovery allowance.".to_string()
     } else if response_item_text_contains(item, TASKSPACE_PATCH_INTENT_FORMAT_MARKER) {
@@ -4803,6 +4805,28 @@ Then I will inspect the file."#,
         assert!(text.contains(TASKSPACE_VALIDATION_REWORK_DUPLICATE_READ_MARKER));
         assert!(!text.contains(TASKSPACE_IMPLEMENT_NEEDS_EDIT_MARKER));
         assert!(text.contains("previous_read_result: result-10"));
+    }
+
+    #[test]
+    fn implementation_recovery_selects_duplicate_rework_from_gate_text_without_reason() {
+        let last_message = "TaskSpace blocked this read because validation rework node `node-4` already read failure artifact `generate.py` in result `result-11` and no successful edit has been recorded after that read. Use the existing file contents from that result and apply the smallest fix with apply_patch, or return blocked with the exact reason no safe edit can be made. Validation repair contract: missing_required_properties=members, averageDepartmentBudget | target_artifacts=generate.py";
+        let item = build_taskspace_implementation_recovery_item(
+            Some(last_message),
+            Some("validation_rework result-11 artifacts=generate.py"),
+            None,
+        );
+        let text = item_text(item.clone());
+
+        assert!(text.contains(TASKSPACE_VALIDATION_REWORK_DUPLICATE_READ_MARKER));
+        assert!(text.contains("failure_kind: validation_rework_duplicate_artifact_read"));
+        assert!(text.contains("target_artifact: generate.py"));
+        assert!(text.contains("previous_read_result: result-11"));
+        assert!(text.contains("repair_contract: missing_required_properties=members"));
+        assert!(!text.contains(TASKSPACE_IMPLEMENT_NEEDS_EDIT_MARKER));
+        assert!(
+            taskspace_special_recovery_warning_message(&item)
+                .contains("TaskSpaceValidationReworkDuplicateReadRecoveryV1")
+        );
     }
 
     #[test]
@@ -11771,8 +11795,12 @@ async fn try_run_sampling_request(
                     }) {
                         let evidence_summary =
                             sess.action_map_current_working_evidence_summary().await;
-                        Some(build_taskspace_implement_needs_edit_recovery_item(
+                        let failed_edit_summary =
+                            sess.action_map_current_recent_failed_edit_summary().await;
+                        Some(build_taskspace_implementation_recovery_item(
+                            last_agent_message.as_deref(),
                             evidence_summary.as_deref(),
+                            failed_edit_summary.as_deref(),
                         ))
                     } else if current_budget_snapshot.as_ref().is_some_and(|snapshot| {
                         matches!(
