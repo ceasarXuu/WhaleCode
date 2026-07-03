@@ -4757,6 +4757,22 @@ preview:\n\
                 kind.as_str()
             ));
         }
+        let manual_validation_rework_origin = {
+            let map = self
+                .maps
+                .get(&map_id)
+                .ok_or_else(|| format!("TaskSpace active task path `{map_id}` is missing."))?;
+            if kind == NodeKind::ImplementSolution && !bind_current {
+                self.current_main_node_id.as_deref().and_then(|current_id| {
+                    map.nodes.get(current_id).and_then(|current| {
+                        matches!(current.kind, NodeKind::SmokeTest | NodeKind::RegressionTest)
+                            .then(|| current_id.to_string())
+                    })
+                })
+            } else {
+                None
+            }
+        };
         let active_budget = self.active_budget.as_ref().cloned().unwrap_or_else(|| {
             taskspace_active_budget_for_route(
                 "taskspace-v005-active",
@@ -4796,6 +4812,16 @@ preview:\n\
         } else {
             dependency_node_ids
         };
+        let dependency_node_ids =
+            if let Some(origin_node_id) = manual_validation_rework_origin.as_ref() {
+                let mut merged = dependency_node_ids;
+                if !merged.iter().any(|existing| existing == origin_node_id) {
+                    merged.push(origin_node_id.clone());
+                }
+                merged
+            } else {
+                dependency_node_ids
+            };
         let mut dependencies = Vec::new();
         for dependency in dependency_node_ids {
             let dependency = dependency.trim();
@@ -4809,9 +4835,16 @@ preview:\n\
             };
             dependencies.push((dependency.to_string(), node.status));
         }
-        let ready = dependencies
-            .iter()
-            .all(|(_, status)| *status == NodeStatus::Completed);
+        let ready = dependencies.iter().all(|(dependency_id, status)| {
+            *status == NodeStatus::Completed
+                || new_node_dependency_ready_from_status(
+                    map,
+                    kind,
+                    manual_validation_rework_origin.as_deref(),
+                    dependency_id,
+                    *status,
+                )
+        });
         if !bind_current
             && ready
             && kind == NodeKind::InspectCodeContext
@@ -4855,7 +4888,7 @@ preview:\n\
                 },
                 active_lease: None,
                 result_context: Vec::new(),
-                origin_node_id: None,
+                origin_node_id: manual_validation_rework_origin.clone(),
             },
         );
         for (dependency, _) in dependencies {
@@ -5571,6 +5604,9 @@ preview:\n\
             NodeStatus::Blocked,
             false,
         )?;
+        if let Some(map) = self.maps.get_mut(&map_id) {
+            events.extend(refresh_ready_validation_rework_nodes(map, node_id));
+        }
         if let Some((
             next_kind,
             failed_node_kind,
@@ -13496,11 +13532,6 @@ fn refresh_ready_nodes(map: &mut ActionMapInstance) -> Vec<MapRuntimeEvent> {
         return Vec::new();
     }
     let mut events = Vec::new();
-    let completed = map
-        .nodes
-        .iter()
-        .filter_map(|(id, node)| (node.status == NodeStatus::Completed).then_some(id.clone()))
-        .collect::<HashSet<_>>();
     let pending_ids = map
         .nodes
         .iter()
@@ -13513,12 +13544,12 @@ fn refresh_ready_nodes(map: &mut ActionMapInstance) -> Vec<MapRuntimeEvent> {
             .filter(|edge| edge.to == node_id)
             .map(|edge| edge.from.clone())
             .collect::<Vec<_>>();
-        if !deps.is_empty()
-            && deps
-                .iter()
-                .all(|dependency_id| completed.contains(dependency_id))
-            && let Some(node) = map.nodes.get_mut(&node_id)
-        {
+        let ready = !deps.is_empty()
+            && map.nodes.get(&node_id).is_some_and(|node| {
+                deps.iter()
+                    .all(|dependency_id| node_dependency_ready(map, node, dependency_id))
+            });
+        if ready && let Some(node) = map.nodes.get_mut(&node_id) {
             let previous_status = node.status;
             node.status = NodeStatus::Ready;
             events.push(node_status_changed_event(
@@ -13531,6 +13562,87 @@ fn refresh_ready_nodes(map: &mut ActionMapInstance) -> Vec<MapRuntimeEvent> {
         }
     }
     events
+}
+
+fn refresh_ready_validation_rework_nodes(
+    map: &mut ActionMapInstance,
+    validation_node_id: &str,
+) -> Vec<MapRuntimeEvent> {
+    if map.status != MapStatus::Active
+        || !map.nodes.get(validation_node_id).is_some_and(|node| {
+            matches!(node.kind, NodeKind::SmokeTest | NodeKind::RegressionTest)
+                && node.status == NodeStatus::Blocked
+        })
+    {
+        return Vec::new();
+    }
+    let mut events = Vec::new();
+    let pending_ids = map
+        .nodes
+        .iter()
+        .filter_map(|(id, node)| {
+            (node.kind == NodeKind::ImplementSolution
+                && node.status == NodeStatus::Pending
+                && node.origin_node_id.as_deref() == Some(validation_node_id))
+            .then_some(id.clone())
+        })
+        .collect::<Vec<_>>();
+    for node_id in pending_ids {
+        let deps = map
+            .edges
+            .iter()
+            .filter(|edge| edge.to == node_id)
+            .map(|edge| edge.from.clone())
+            .collect::<Vec<_>>();
+        let ready = !deps.is_empty()
+            && map.nodes.get(&node_id).is_some_and(|node| {
+                deps.iter()
+                    .all(|dependency_id| node_dependency_ready(map, node, dependency_id))
+            });
+        if ready && let Some(node) = map.nodes.get_mut(&node_id) {
+            let previous_status = node.status;
+            node.status = NodeStatus::Ready;
+            events.push(node_status_changed_event(
+                &map.id,
+                &node.id,
+                &node.title,
+                previous_status,
+                node.status,
+            ));
+        }
+    }
+    events
+}
+
+fn node_dependency_ready(map: &ActionMapInstance, node: &MapNode, dependency_id: &str) -> bool {
+    map.nodes.get(dependency_id).is_some_and(|dependency| {
+        dependency.status == NodeStatus::Completed
+            || new_node_dependency_ready_from_status(
+                map,
+                node.kind,
+                node.origin_node_id.as_deref(),
+                dependency_id,
+                dependency.status,
+            )
+    })
+}
+
+fn new_node_dependency_ready_from_status(
+    map: &ActionMapInstance,
+    node_kind: NodeKind,
+    origin_node_id: Option<&str>,
+    dependency_id: &str,
+    dependency_status: NodeStatus,
+) -> bool {
+    node_kind == NodeKind::ImplementSolution
+        && origin_node_id == Some(dependency_id)
+        && dependency_status == NodeStatus::Blocked
+        && map.nodes.get(dependency_id).is_some_and(|dependency| {
+            matches!(
+                dependency.kind,
+                NodeKind::SmokeTest | NodeKind::RegressionTest
+            )
+        })
 }
 
 fn dependencies_will_be_completed_after_finish(
@@ -24184,6 +24296,79 @@ FileNotFoundError: [Errno 2] No such file or directory: 'daily_temp_sf_high.csv'
             Some(validation_node_id.as_str())
         );
         assert!(rework_node.context.summary.contains("IndentationError"));
+    }
+
+    #[test]
+    fn manual_validation_rework_created_before_block_keeps_origin() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (_, map_id, validation_node_id, _) = start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::SmokeTest,
+            "Validate generated organization",
+            "Run generated JSON validation and route failures to rework.",
+            "Smoke test generated JSON",
+            "Run the generator and schema validation.",
+            true,
+        );
+
+        let (rework_node_id, _) = state
+            .create_node_for_main_with_kind(
+                owner,
+                NodeKind::ImplementSolution,
+                "Fix indentation error in process.py".to_string(),
+                "Fix the blocked validation failure in process.py.".to_string(),
+                Vec::new(),
+                false,
+            )
+            .expect("manual rework node can be drafted while validation is running");
+        {
+            let map = state.maps.get(&map_id).expect("map");
+            let rework = map.nodes.get(&rework_node_id).expect("rework node");
+            assert_eq!(rework.status, NodeStatus::Pending);
+            assert_eq!(
+                rework.origin_node_id.as_deref(),
+                Some(validation_node_id.as_str())
+            );
+            assert!(
+                map.edges
+                    .iter()
+                    .any(|edge| edge.from == validation_node_id && edge.to == rework_node_id)
+            );
+        }
+
+        let (blocker_result_id, _) = state
+            .block_main_node(
+                owner,
+                &validation_node_id,
+                "File process.py has indentation error on line 1; fix it before retesting."
+                    .to_string(),
+            )
+            .expect("validation node blocks");
+        {
+            let map = state.maps.get(&map_id).expect("map");
+            let validation = map.nodes.get(&validation_node_id).expect("validation node");
+            assert_eq!(validation.status, NodeStatus::Blocked);
+            let rework = map.nodes.get(&rework_node_id).expect("rework node");
+            assert_eq!(rework.status, NodeStatus::Ready);
+            let blocker = map.results.get(&blocker_result_id).expect("blocker");
+            assert_eq!(
+                blocker.evidence_package.validity,
+                ResultValidity::Unreviewed
+            );
+        }
+
+        state
+            .bind_main_node(owner, &rework_node_id)
+            .expect("bind manual rework");
+        state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new("apply_patch", ActionClass::Edit, "patch"),
+            )
+            .expect("active rework may edit using the unreviewed blocker as input evidence");
     }
 
     #[test]

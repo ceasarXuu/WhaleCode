@@ -974,3 +974,54 @@
   - A second read of the same target before a successful edit is rejected with `validation_rework_duplicate_artifact_read`.
   - The recovery message contains the target artifact and `apply_patch`, preserving the existing edit-or-block convergence path.
 - Interpretation: The new `implementation-rework-repeat-read-budget-drain` class is focused-fixed. Real utility validation still requires another keyed rerun to verify the model now patches `csv_processor.py` after the first target read instead of draining node budget.
+
+# Hypothesis H-020: manually created validation rework nodes lose blocked-validation origin
+
+- Claim: After H-019, the duplicate rework read gate correctly blocks repeated target reads, but the model can manually create a follow-up `implement_solution` node from a validation recovery context before it records the validation node as blocked. `create_node` defaults the new node dependency to the latest completed implementation node and leaves `origin_node_id` empty. When the validation node is later blocked, the new rework node is not recognized as a legitimate dependency of that blocked validation result, so the lifecycle review gate rejects the next patch with `result still unreviewed` and the run exhausts provider budget.
+- Prediction: A keyed rerun after H-019 will show duplicate read feedback firing, a manual `create_node` for a rework implementation node, a blocked validation result left unreviewed, a later `bind_node` for the new rework node, then an `apply_patch` rejection requiring `state_commit` for the blocker result instead of allowing the patch as active validation rework.
+- Diagnostic evidence plan: Inspect the H-019 rerun action map for node statuses, edges, result validity, blocked actions, and provider actionability; add a focused runtime test where a validation node creates a detached implementation rework node before blocking, then verify that blocking the validation node marks the rework node ready and allows edit without requiring a separate state_commit for the blocker input.
+- Status: confirmed.
+
+# Evidence E-047: blocked validation result is visible but manual rework node is not attached to it
+
+- Prediction tested: H-020 predicts that the previous duplicate-read fix works, and the next failure is origin/dependency loss around a manually created rework node.
+- Real rerun:
+  ```text
+  RunDir: target/r4-org-json-real-keyed-20260703q-postcommit-attestation/runs/terminal_bench__organization-json-generator/20260704-030017-880
+  PairReport: pair-001/pair-report.md
+  reported_evidence_level: E1
+  outcome_taskspace: engineering_unclean
+  right_exec_timed_out: False
+  right_tool_call_count: 14
+  right_open_leaf_nodes: 1
+  public_validation_exit_code: 1
+  ```
+- Matched trace signals:
+  - `item_41` successfully read `process.py` through `sed -n '1,240p' -- process.py`; `result-11` recorded `artifactRef: process.py`, proving H-019's sed read attribution repair was active.
+  - `item_48` and `item_55` repeated `read_file process.py`; runtime blocked both with `validation_rework_duplicate_artifact_read`.
+  - `item_62` then patched `process.py`, and `node-4` completed with accepted handoff `result-13`.
+  - `item_82` manually created `node-6` as `implement_solution` from the validation recovery context; the final graph recorded edge `node-4 -> node-6`, not `node-5 -> node-6`, and `node-6.origin_node_id` was absent.
+  - `item_89` blocked `node-5` with `result-14`; `result-14` stayed `unreviewed`.
+  - `item_95` bound `node-6`, but `item_102` `apply_patch` was rejected with feedback requiring `taskspace_control(action=state_commit)` for unreviewed `result-14`.
+  - The turn then hard-stopped with `TaskSpaceProviderBudgetHardStopV1 reason=provider_request_hard_limit_exceeded request_count=20/20`.
+- Interpretation: This is not another artifact attribution failure. The blocked result and its failure text were visible, but the manually created rework node had lost the validation origin needed by `unreviewed_result_is_active_rework_input_blocker`.
+
+# Evidence E-048: manual validation rework keeps origin and can edit using blocker input
+
+- Prediction tested: H-020 requires detached implementation nodes created from an active validation node to keep that validation node as origin, become ready when the origin validation node is blocked, and pass the lifecycle review gate for edits.
+- Repair artifact:
+  - `third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs`
+- Focused and adjacent commands:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core manual_validation_rework_created_before_block_keeps_origin --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core validation_rework --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core validation_ --locked
+  cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-cli --bin whale --locked
+  ```
+- Result: passed. `validation_rework` now covers 12 tests and `validation_` now covers 82 tests.
+- Matched test signals:
+  - A detached `implement_solution` node created while a validation node is active records `origin_node_id` as that validation node and adds an edge from the validation node.
+  - When the validation node is blocked, only matching pending validation rework nodes are refreshed to `Ready`; generic blocked nodes still do not unlock downstream work.
+  - After binding the manual rework node, `apply_patch` is allowed even though the validation blocker result is still unreviewed, because it is now recognized as active rework input evidence.
+- Interpretation: The new `validation-blocker-manual-rework-origin-loss` class is focused-fixed. Real utility validation still requires another keyed rerun to verify the model now patches the rework artifact instead of exhausting budget on state-commit recovery.

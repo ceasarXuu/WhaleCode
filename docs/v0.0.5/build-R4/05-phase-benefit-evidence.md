@@ -2064,3 +2064,56 @@ git diff --check
 ```
 
 状态：该 feedback/attribution class 已 focused fixed；R4-G utility 仍需再次 keyed rerun 验证 TaskSpace 是否在读取目标 artifact 后执行 patch，并继续通过 schema/public validator。
+
+## 5.30 2026-07-04 validation blocker manual rework origin loss
+
+`implementation-rework-repeat-read-budget-drain` 修复后，post-commit keyed rerun 证明 sed attribution 已生效，
+但暴露出下一层 control/feedback 问题：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260703q-postcommit-attestation/runs/terminal_bench__organization-json-generator/20260704-030017-880
+reported_evidence_level: E1
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 14
+right_open_leaf_nodes: 1
+public_validation_exit_code: 1
+```
+
+关键观察：
+
+| Signal | 结论 |
+|---|---|
+| `process.py` 第一次 read 记录 `artifactRef: process.py` | 5.29 sed attribution 修复生效 |
+| 第二、三次 `read_file process.py` 被 `validation_rework_duplicate_artifact_read` 阻止 | duplicate rework gate 已能收到正确 artifact identity |
+| 模型随后 patch `process.py`，但只修了 line 1，仍留下 line 2 起的顶层缩进 | implementation 仍未完全修好，这是模型 patch 质量问题 |
+| validation recovery 中模型先 `create_node(implement_solution)`，后 `blocked node-5` | 出现手动 rework path，而不是 runtime 自动 rework path |
+| action map 最终边为 `node-4 -> node-6`，`node-6.origin_node_id` 缺失 | 新 rework node 没有继承 blocked validation node `node-5` |
+| 绑定 `node-6` 后的 `apply_patch` 被拒绝，反馈要求先 `state_commit result-14` | lifecycle gate 因 origin 丢失无法识别 active validation rework input |
+| 最终 `provider_request_hard_limit_exceeded request_count=20/20` | 可机械修正的状态归因问题被转化成继续采样预算消耗 |
+
+本轮新增并 focused 修复的问题类型：
+
+| Case | Before | After | Evidence |
+|---|---|---|---|
+| `validation-blocker-manual-rework-origin-loss` | 手动创建的 rework node 默认依赖最近 completed implementation，未记录 blocked validation origin；随后 blocked result 保持 unreviewed，patch 被 lifecycle review gate 拦截 | detached `implement_solution` 若从 active validation node 创建，会记录该 validation node 为 `origin_node_id` 并加入依赖；当 origin validation blocked 时，只刷新对应 pending rework node 为 Ready；active rework edit 可使用该 blocker input | `manual_validation_rework_created_before_block_keeps_origin` |
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core manual_validation_rework_created_before_block_keeps_origin --locked
+  PASS：manual rework 记录 validation origin，origin blocked 后 Ready，patch 不再被 unreviewed blocker gate 拦截
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core validation_rework --locked
+  PASS：12 tests
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core validation_ --locked
+  PASS：82 tests
+
+cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-cli --bin whale --locked
+  PASS
+```
+
+状态：该 feedback/DAG-origin class 已 focused fixed；R4-G utility 仍需再次 keyed rerun 验证模型能在 duplicate-read
+阻断后完成完整 patch、重跑 schema/public validation，并暴露下一层未解决 tools 问题。
