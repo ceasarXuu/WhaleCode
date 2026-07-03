@@ -279,3 +279,102 @@
 - Interpretation:
   - The current repair closes the feedback-layer semantic gap for the observed bwrap bootstrap case.
   - It does not claim R4 utility acceptance; a real `organization-json-generator` rerun is still required to prove the long-flow timeout no longer occurs in the live benchmark path.
+
+# Hypothesis H-008: R4 still has related tool-feedback gaps after bootstrap classification
+
+- Claim: The `organization-json-generator` follow-up runs expose a family of R4 tool-chain failures where the raw signal exists, but TaskSpace either routes it to the wrong phase, omits a required next action, or treats partial inspect evidence as sufficient convergence.
+- Prediction: Focused tests will reproduce each subcase as a feedback/coverage contract problem rather than as a generic model retry issue.
+- Diagnostic evidence plan: Add focused runtime/session tests for host-platform read commands, duplicate successful read/search, input data artifact evidence, changed-artifact validation coverage, missing validation command scripts, and declared fact-source coverage before inspect finish.
+- Status: confirmed.
+
+# Evidence E-016: platform-specific read_file recovery commands are now host-correct
+
+- Prediction tested: H-008 predicts a recovery command can carry the wrong platform syntax and lose feedback actionability.
+- Repair artifacts:
+  - `third_party/codex-cli/codex-rs/core/src/session/turn.rs`
+- Focused command: `CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core host_platform_command --lib`
+- Result: passed.
+- Matched test signals:
+  - `action_contract_read_file_uses_host_platform_command`
+  - `repeated_blocked_inspect_bootstrap_uses_host_platform_command`
+- Interpretation: Recovery feedback no longer tells a Unix shell to run PowerShell `Get-Content`, or a Windows shell to run Unix `sed`.
+
+# Evidence E-017: duplicate successful read/search feedback is structured and repeat-gated
+
+- Prediction tested: H-008 predicts repeated successful inspect reads must not be surfaced as a vague retry opportunity.
+- Repair artifacts:
+  - `third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs`
+  - `third_party/codex-cli/codex-rs/core/src/session/turn.rs`
+- Focused commands:
+  - `CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core inspect_node_blocks_repeated_successful_read_command --lib`
+  - `CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core forced_inspect_transition_accepts_duplicate_read_search_gate_recovery --lib`
+  - `CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core duplicate_read_search_recovery_pushes_inspect_transition --lib`
+- Result: passed.
+- Interpretation: The duplicate read/search case is now a named feedback type, `inspect_duplicate_successful_read_or_search`, with repeat state and recovery context instead of an unbounded loop.
+
+# Evidence E-018: schema/data artifacts now count as inspect working evidence
+
+- Prediction tested: H-008 predicts data-heavy tasks can lose inspect progress if `.json`/`.csv` reads are not counted as working evidence.
+- Repair artifact: `third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs`
+- Focused command: `CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core inspect_data_artifact_read_counts_as_working_evidence --lib`
+- Result: passed.
+- Interpretation: `schema.json` and CSV inputs read by a shell command are included in working evidence summaries, so TaskSpace can distinguish real data inspection from path listing.
+
+# Evidence E-019: validation changed-artifact coverage feedback is now actionable
+
+- Prediction tested: H-008 predicts validation gates can block a command correctly but fail to pass the exact required command back to the model.
+- Repair artifacts:
+  - `third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs`
+  - `third_party/codex-cli/codex-rs/core/src/session/turn.rs`
+- Focused commands:
+  - `CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core validation_node_blocks_vacuous_test_after_changed_artifact --lib`
+  - `CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core action_contract_prompt_structures_changed_artifact_coverage_failure --lib`
+- Result: passed.
+- Interpretation: A validation command that does not exercise the changed artifact is now reported as `validation_test_missing_changed_artifact_coverage` with an explicit coverage-correct next action.
+
+# Evidence E-020: wrong validation script names stay on the validation node
+
+- Prediction tested: H-008 predicts a command such as `python process.py` can be a validation command error, not implementation evidence.
+- Repair artifacts:
+  - `third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs`
+  - `third_party/codex-cli/codex-rs/core/src/session/turn.rs`
+- Focused commands:
+  - `CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core validation_missing_command_script_stays_on_validation_node --lib`
+  - `CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core action_contract_prompt_structures_missing_validation_script_failure --lib`
+- Result: passed.
+- Interpretation: `can't open file ... process.py` is classified as `validation_command_missing_script`, keeping recovery on the validation node and pointing back to the existing changed script instead of spawning an implementation rework node.
+
+# Evidence E-021: declared fact-source coverage prevents premature inspect convergence
+
+- Prediction tested: H-008 predicts duplicate read/search recovery can force inspect into implement before all declared task fact-source artifacts are read.
+- Real-run signal:
+  - Run root: `target/r4-org-json-real-keyed-20260703-validation-command-routing`
+  - Trace: right side read `schema.json` and `departments.csv`, repeated `departments.csv`, then `TaskSpaceForcedInspectTransitionV1 trigger=inspect_duplicate_read_search_gate_recovery` created implement before `employees.csv` and `projects.csv` were inspected.
+  - Later validation failures included `IndentationError` and `KeyError: 'id'`, consistent with implementation based on incomplete CSV/schema evidence.
+- Repair artifact: `third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs`
+- Focused commands:
+  - `CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core inspect_duplicate_read_reports_missing_fact_source_artifacts_without_finish --lib`
+  - `CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core inspect_missing_fact_sources_block_manual_and_forced_finish_until_read --lib`
+- Result: passed.
+- Interpretation: Duplicate read/search feedback now reports missing declared fact-source artifacts such as `employees.csv` and `projects.csv`, omits `finish_node` while they are missing, and blocks both manual and forced inspect finish until coverage exists.
+
+# Evidence E-022: Linux sandbox now has ability-layer fallback for restricted netns/proc environments
+
+- Prediction tested: H-007 and H-008 both require tool runtime failure handling to distinguish non-recoverable bootstrap failure from recoverable environment restrictions.
+- Repair artifacts:
+  - `third_party/codex-cli/codex-rs/linux-sandbox/src/linux_run_main.rs`
+  - `third_party/codex-cli/codex-rs/linux-sandbox/src/linux_run_main_tests.rs`
+  - `third_party/codex-cli/codex-rs/linux-sandbox/README.md`
+- Focused command: `CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-linux-sandbox --lib`
+- Result: passed.
+- Smoke signals:
+  - bwrap fallback created `target/linux-sandbox-netns-fallback-smoke.txt`.
+  - Network socket smoke under sandbox returned `PermissionError: [Errno 1] Operation not permitted`, confirming seccomp still enforces network restriction after fallback.
+- Interpretation: Non-proxy restricted networking can degrade from isolated netns to full bwrap network plus seccomp, and legacy-compatible failures can fall back to Landlock/seccomp instead of surfacing as repeated agent-level tool failures.
+
+# Evidence E-023: provider budget advisory remains unresolved as a hard-stop policy
+
+- Prediction tested: H-008 predicts feedback fixes reduce specific loops but do not by themselves make provider budget hints terminal.
+- Current result: focused runtime tests now prevent the observed bootstrap, duplicate-read, validation-command, and fact-source convergence errors; no repair in this slice changes provider request budget advisory into a hard stop.
+- Remaining signal: `organization-json-generator` still requires a real keyed rerun after the new fixes. If it still exceeds request budget or repeats no-action recovery, the next hypothesis should target request-budget hard gating or repeated no-action terminal blocking.
+- Interpretation: This remains an open R4 utility-convergence risk, not a closed engineering benefit.

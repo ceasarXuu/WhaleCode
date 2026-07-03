@@ -249,3 +249,31 @@ cargo test -j1 -p codex-core bwrap_bootstrap_failure_auto_blocks_validation_as_l
 cargo test -j1 -p codex-core tool_runtime_bootstrap_failure_blocks_inspect_node --lib
 cargo test -j1 -p codex-core taskspace_action_contract_tool_runtime_bootstrap_failure_forbids_new_nodes --lib
 ```
+
+## 1.11 2026-07-03 R4-D tools 问题类型扩展
+
+`organization-json-generator` keyed 复验后，R4-D 的问题类型不再只覆盖“内部 tool error 是否进入下一轮”。
+当前需要把能力层和反馈层分开记录：
+
+| Problem Type | Layer | Symptom | Runtime Decision | Status |
+|---|---|---|---|---|
+| `tool-platform-command-mismatch` | feedback | Linux recovery payload 给出 `Get-Content`，或 Windows payload 给出 `sed` | `read_file` recovery command 按 host platform 生成 | fixed by focused tests |
+| `tool-runtime-bootstrap-failure` | ability + feedback | `bwrap`/loopback/RTM_NEWADDR 启动失败后继续开新节点重试 | 分类为 `sandbox_bootstrap_failed` task-level blocker；无 active node 时只允许 `final_answer` / `blocked` | fixed by focused tests |
+| `linux-sandbox-restricted-netns-proc` | ability | 容器/宿主不允许 userns/netns/proc mount，工具在业务命令前失败 | 非 proxy restricted network 可退化到 bwrap full network + seccomp；legacy-compatible 场景可退回 Landlock/seccomp | fixed by sandbox tests |
+| `duplicate-successful-evidence-loop` | feedback | inspect 中重复读同一文件或重复搜索同一命令 | 分类为 `inspect_duplicate_successful_read_or_search`，回传 previous result 和 repeat state | fixed by focused tests |
+| `inspect-data-artifact-evidence-gap` | feedback | `.json`/`.csv` 输入已读但不计为 working evidence | 从 command、result body、evidence refs 合并 input data artifact refs | fixed by focused tests |
+| `validation-changed-artifact-coverage-feedback` | feedback | validation gate 拒绝 vacuous test，但下一轮缺少 exact coverage command | 输出 `validation_test_missing_changed_artifact_coverage` 和 required command / next_valid_action | fixed by focused tests |
+| `validation-command-missing-script-feedback` | feedback | `python process.py` 这类不存在脚本被误路由成 implementation rework | 留在 validation node，输出 `validation_command_missing_script` 和缺失脚本名 | fixed by focused tests |
+| `duplicate-inspect-premature-fact-source-convergence` | feedback + phase gate | 重复 read/search recovery 在只读了部分声明 fact sources 时强制进入 implement | duplicate gate 列出缺失 fact-source artifacts；manual/forced inspect finish 都要求覆盖声明 artifact | fixed by focused tests |
+| `provider-budget-advisory-runaway` | control loop | `request_count` 超过 profile hint 后仍可能多轮 no-action recovery | 当前仍是风险；需真实 rerun 判断是否升级为 hard gate / terminal blocker | open |
+
+其中 `duplicate-inspect-premature-fact-source-convergence` 是本次新增收录的 case。它不是工具原始失败，也不是单纯模型策略错误；
+raw evidence 存在，问题在 feedback/phase gate 语义缺失：runtime 把“重复读已成功”恢复成“inspect 可结束”，但没有检查
+`initial_fact_sources` / `fact_sources` 中声明的 `employees.csv`、`projects.csv` 是否已经被成功 inspect。
+
+对应 focused gate：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core inspect_duplicate_read_reports_missing_fact_source_artifacts_without_finish --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core inspect_missing_fact_sources_block_manual_and_forced_finish_until_read --lib
+```

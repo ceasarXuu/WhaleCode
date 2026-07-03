@@ -176,35 +176,61 @@ pub fn run_main() -> ! {
 
     if !use_legacy_landlock {
         // Outer stage: bubblewrap first, then re-enter this binary in the
-        // sandboxed environment to apply seccomp. This path never falls back
-        // to legacy Landlock on failure.
-        let proxy_route_spec =
-            if allow_network_for_proxy {
+        // sandboxed environment to apply seccomp. If the host cannot bootstrap
+        // bwrap user namespaces, legacy-compatible policies can still fall
+        // through to Landlock + seccomp below.
+        let command_cwd_path = command_cwd.as_deref().unwrap_or(&sandbox_policy_cwd);
+        let launch_options = resolve_bwrap_launch_options(
+            &sandbox_policy_cwd,
+            command_cwd_path,
+            &file_system_sandbox_policy,
+            network_sandbox_policy,
+            !no_proc,
+            allow_network_for_proxy,
+        );
+        let bwrap_bootstrap_supported = preflight_bwrap_bootstrap_support(
+            &sandbox_policy_cwd,
+            command_cwd_path,
+            &file_system_sandbox_policy,
+            launch_options,
+        );
+        if !bwrap_bootstrap_supported
+            && can_fallback_to_legacy_landlock_after_bwrap_bootstrap_failure(
+                allow_network_for_proxy,
+                &file_system_sandbox_policy,
+                network_sandbox_policy,
+                &sandbox_policy_cwd,
+            )
+        {
+            // Fall through to the legacy Landlock path below with the original
+            // command. That preserves filesystem enforcement instead of
+            // executing the inner seccomp-only command outside bwrap.
+        } else {
+            let proxy_route_spec = if allow_network_for_proxy {
                 Some(prepare_host_proxy_route_spec().unwrap_or_else(|err| {
                     panic!("failed to prepare host proxy routing bridge: {err}")
                 }))
             } else {
                 None
             };
-        let inner = build_inner_seccomp_command(InnerSeccompCommandArgs {
-            sandbox_policy_cwd: &sandbox_policy_cwd,
-            command_cwd: command_cwd.as_deref(),
-            sandbox_policy: &sandbox_policy,
-            file_system_sandbox_policy: &file_system_sandbox_policy,
-            network_sandbox_policy,
-            allow_network_for_proxy,
-            proxy_route_spec,
-            command,
-        });
-        run_bwrap_with_proc_fallback(
-            &sandbox_policy_cwd,
-            command_cwd.as_deref(),
-            &file_system_sandbox_policy,
-            network_sandbox_policy,
-            inner,
-            !no_proc,
-            allow_network_for_proxy,
-        );
+            let inner = build_inner_seccomp_command(InnerSeccompCommandArgs {
+                sandbox_policy_cwd: &sandbox_policy_cwd,
+                command_cwd: command_cwd.as_deref(),
+                sandbox_policy: &sandbox_policy,
+                file_system_sandbox_policy: &file_system_sandbox_policy,
+                network_sandbox_policy,
+                allow_network_for_proxy,
+                proxy_route_spec,
+                command,
+            });
+            run_bwrap_with_options(
+                &sandbox_policy_cwd,
+                command_cwd.as_deref(),
+                &file_system_sandbox_policy,
+                inner,
+                launch_options,
+            );
+        }
     }
 
     // Legacy path: Landlock enforcement only, when bwrap sandboxing is not enabled.
@@ -395,8 +421,11 @@ fn ensure_legacy_landlock_mode_supports_policy(
     sandbox_policy_cwd: &Path,
 ) {
     if use_legacy_landlock
-        && file_system_sandbox_policy
-            .needs_direct_runtime_enforcement(network_sandbox_policy, sandbox_policy_cwd)
+        && !legacy_landlock_mode_supports_policy(
+            file_system_sandbox_policy,
+            network_sandbox_policy,
+            sandbox_policy_cwd,
+        )
     {
         panic!(
             "split sandbox policies requiring direct runtime enforcement are incompatible with --use-legacy-landlock"
@@ -404,18 +433,59 @@ fn ensure_legacy_landlock_mode_supports_policy(
     }
 }
 
-fn run_bwrap_with_proc_fallback(
-    sandbox_policy_cwd: &Path,
-    command_cwd: Option<&Path>,
+fn can_fallback_to_legacy_landlock_after_bwrap_bootstrap_failure(
+    allow_network_for_proxy: bool,
     file_system_sandbox_policy: &FileSystemSandboxPolicy,
     network_sandbox_policy: NetworkSandboxPolicy,
-    inner: Vec<String>,
+    sandbox_policy_cwd: &Path,
+) -> bool {
+    !allow_network_for_proxy
+        && legacy_landlock_mode_supports_policy(
+            file_system_sandbox_policy,
+            network_sandbox_policy,
+            sandbox_policy_cwd,
+        )
+}
+
+fn legacy_landlock_mode_supports_policy(
+    file_system_sandbox_policy: &FileSystemSandboxPolicy,
+    network_sandbox_policy: NetworkSandboxPolicy,
+    sandbox_policy_cwd: &Path,
+) -> bool {
+    !file_system_sandbox_policy
+        .needs_direct_runtime_enforcement(network_sandbox_policy, sandbox_policy_cwd)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct BwrapLaunchOptions {
+    mount_proc: bool,
+    network_mode: BwrapNetworkMode,
+}
+
+fn resolve_bwrap_launch_options(
+    sandbox_policy_cwd: &Path,
+    command_cwd: &Path,
+    file_system_sandbox_policy: &FileSystemSandboxPolicy,
+    network_sandbox_policy: NetworkSandboxPolicy,
     mount_proc: bool,
     allow_network_for_proxy: bool,
-) -> ! {
-    let network_mode = bwrap_network_mode(network_sandbox_policy, allow_network_for_proxy);
+) -> BwrapLaunchOptions {
+    let mut network_mode = bwrap_network_mode(network_sandbox_policy, allow_network_for_proxy);
     let mut mount_proc = mount_proc;
-    let command_cwd = command_cwd.unwrap_or(sandbox_policy_cwd);
+
+    if network_mode == BwrapNetworkMode::Isolated {
+        let isolated_network_supported = preflight_network_namespace_support(
+            sandbox_policy_cwd,
+            command_cwd,
+            file_system_sandbox_policy,
+            network_mode,
+        );
+        network_mode = choose_bwrap_network_mode(
+            network_sandbox_policy,
+            allow_network_for_proxy,
+            isolated_network_supported,
+        );
+    }
 
     if mount_proc
         && !preflight_proc_mount_support(
@@ -430,9 +500,24 @@ fn run_bwrap_with_proc_fallback(
         mount_proc = false;
     }
 
-    let options = BwrapOptions {
+    BwrapLaunchOptions {
         mount_proc,
         network_mode,
+    }
+}
+
+fn run_bwrap_with_options(
+    sandbox_policy_cwd: &Path,
+    command_cwd: Option<&Path>,
+    file_system_sandbox_policy: &FileSystemSandboxPolicy,
+    inner: Vec<String>,
+    launch_options: BwrapLaunchOptions,
+) -> ! {
+    let command_cwd = command_cwd.unwrap_or(sandbox_policy_cwd);
+
+    let options = BwrapOptions {
+        mount_proc: launch_options.mount_proc,
+        network_mode: launch_options.network_mode,
         ..Default::default()
     };
     let mut bwrap_args = build_bwrap_argv(
@@ -446,6 +531,25 @@ fn run_bwrap_with_proc_fallback(
     exec_bwrap(bwrap_args.args, bwrap_args.preserved_files);
 }
 
+fn choose_bwrap_network_mode(
+    network_sandbox_policy: NetworkSandboxPolicy,
+    allow_network_for_proxy: bool,
+    isolated_network_supported: bool,
+) -> BwrapNetworkMode {
+    let mode = bwrap_network_mode(network_sandbox_policy, allow_network_for_proxy);
+    if mode == BwrapNetworkMode::Isolated && !isolated_network_supported {
+        // Some container hosts permit bubblewrap user/pid/filesystem setup but
+        // deny loopback configuration inside a fresh network namespace. In
+        // restricted non-proxy mode we can still enforce outbound networking
+        // with the inner seccomp stage, so prefer a working filesystem sandbox
+        // over failing every tool before it starts. Proxy-only mode is never
+        // downgraded because its routing bridge requires a private netns.
+        BwrapNetworkMode::FullAccess
+    } else {
+        mode
+    }
+}
+
 fn bwrap_network_mode(
     network_sandbox_policy: NetworkSandboxPolicy,
     allow_network_for_proxy: bool,
@@ -457,6 +561,47 @@ fn bwrap_network_mode(
     } else {
         BwrapNetworkMode::Isolated
     }
+}
+
+fn preflight_network_namespace_support(
+    sandbox_policy_cwd: &Path,
+    command_cwd: &Path,
+    file_system_sandbox_policy: &FileSystemSandboxPolicy,
+    network_mode: BwrapNetworkMode,
+) -> bool {
+    let preflight_argv = build_preflight_bwrap_argv_with_options(
+        sandbox_policy_cwd,
+        command_cwd,
+        file_system_sandbox_policy,
+        BwrapOptions {
+            mount_proc: false,
+            network_mode,
+            ..Default::default()
+        },
+    );
+    let stderr = run_bwrap_in_child_capture_stderr(preflight_argv);
+    !is_network_namespace_loopback_failure(stderr.as_str())
+}
+
+fn preflight_bwrap_bootstrap_support(
+    sandbox_policy_cwd: &Path,
+    command_cwd: &Path,
+    file_system_sandbox_policy: &FileSystemSandboxPolicy,
+    launch_options: BwrapLaunchOptions,
+) -> bool {
+    let preflight_argv = build_preflight_bwrap_argv_with_options(
+        sandbox_policy_cwd,
+        command_cwd,
+        file_system_sandbox_policy,
+        BwrapOptions {
+            mount_proc: launch_options.mount_proc,
+            network_mode: launch_options.network_mode,
+            ..Default::default()
+        },
+    );
+    let stderr = run_bwrap_in_child_capture_stderr(preflight_argv);
+    !is_bwrap_user_namespace_failure(stderr.as_str())
+        && !is_network_namespace_loopback_failure(stderr.as_str())
 }
 
 fn build_bwrap_argv(
@@ -529,21 +674,44 @@ fn preflight_proc_mount_support(
     file_system_sandbox_policy: &FileSystemSandboxPolicy,
     network_mode: BwrapNetworkMode,
 ) -> bool {
-    let preflight_argv = build_preflight_bwrap_argv(
+    let preflight_argv = build_preflight_bwrap_argv_with_options(
         sandbox_policy_cwd,
         command_cwd,
         file_system_sandbox_policy,
-        network_mode,
+        BwrapOptions {
+            mount_proc: true,
+            network_mode,
+            ..Default::default()
+        },
     );
     let stderr = run_bwrap_in_child_capture_stderr(preflight_argv);
     !is_proc_mount_failure(stderr.as_str())
 }
 
+#[cfg(test)]
 fn build_preflight_bwrap_argv(
     sandbox_policy_cwd: &Path,
     command_cwd: &Path,
     file_system_sandbox_policy: &FileSystemSandboxPolicy,
     network_mode: BwrapNetworkMode,
+) -> crate::bwrap::BwrapArgs {
+    build_preflight_bwrap_argv_with_options(
+        sandbox_policy_cwd,
+        command_cwd,
+        file_system_sandbox_policy,
+        BwrapOptions {
+            mount_proc: true,
+            network_mode,
+            ..Default::default()
+        },
+    )
+}
+
+fn build_preflight_bwrap_argv_with_options(
+    sandbox_policy_cwd: &Path,
+    command_cwd: &Path,
+    file_system_sandbox_policy: &FileSystemSandboxPolicy,
+    options: BwrapOptions,
 ) -> crate::bwrap::BwrapArgs {
     let preflight_command = vec![resolve_true_command()];
     build_bwrap_argv(
@@ -551,11 +719,7 @@ fn build_preflight_bwrap_argv(
         file_system_sandbox_policy,
         sandbox_policy_cwd,
         command_cwd,
-        BwrapOptions {
-            mount_proc: true,
-            network_mode,
-            ..Default::default()
-        },
+        options,
     )
 }
 
@@ -651,6 +815,29 @@ fn is_proc_mount_failure(stderr: &str) -> bool {
         && (stderr.contains("Invalid argument")
             || stderr.contains("Operation not permitted")
             || stderr.contains("Permission denied"))
+}
+
+fn is_network_namespace_loopback_failure(stderr: &str) -> bool {
+    let lower = stderr.to_ascii_lowercase();
+    let compact = lower
+        .chars()
+        .filter(|ch| ch.is_ascii_alphanumeric() || *ch == '_')
+        .collect::<String>();
+    (lower.contains("bwrap") || lower.contains("bubblewrap"))
+        && (lower.contains("loopback")
+            || lower.contains("rtm_newaddr")
+            || compact.contains("failedrtmnewaddr"))
+        && lower.contains("operation not permitted")
+}
+
+fn is_bwrap_user_namespace_failure(stderr: &str) -> bool {
+    let lower = stderr.to_ascii_lowercase();
+    (lower.contains("bwrap") || lower.contains("bubblewrap"))
+        && (lower.contains("setting up uid map")
+            || lower.contains("setting up gid map")
+            || lower.contains("creating new namespace")
+            || lower.contains("user namespace"))
+        && (lower.contains("permission denied") || lower.contains("operation not permitted"))
 }
 
 struct InnerSeccompCommandArgs<'a> {

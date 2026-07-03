@@ -142,6 +142,53 @@ powershell -NoProfile -ExecutionPolicy Bypass \
 - Linux native Docker 如果使用宿主 loopback proxy，例如 `127.0.0.1:7890`，generated validator 必须对 build/run 使用 `--network host`，不能只把 proxy 改成 `host.docker.internal`。
 - Linux runner 不应依赖 Windows-only primitives：`WindowsIdentity`、`icacls`、`curl.exe`、`cmd.exe`、`subst`、`USERPROFILE` 都必须有跨平台分支或 no-op 记录。
 
+## R4 Tools Feedback 调试内循环
+
+R4 tools 链路问题优先按 feedback semantics 分类，不要直接归因为模型策略。常见判断：
+
+- raw tool output 完整但下一轮继续错误动作：优先检查 `failure_kind`、`next_valid_actions`、recent tool feedback 和 active projection。
+- action-contract gate 正确拒绝但模型继续同类动作：检查 gate recovery 是否带 repeat state，是否缺少 exact required command。
+- inspect 过早进入 implement：检查是否有声明 `fact_sources` artifact 未被 successful read/search 覆盖。
+- validation 失败后进入 implement rework：先区分 validation command error、validator infra error、业务断言失败和实现代码失败。
+
+本地 Rust focused tests 默认使用系统或当前构建的 sandbox 行为。调试 R4 sandbox/bootstrap 相关用例时，优先显式跳过 vendored bwrap：
+
+```bash
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core bootstrap_failure --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-linux-sandbox --lib
+```
+
+Linux sandbox 变更后至少做两个 smoke：
+
+```bash
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-linux-sandbox --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale --locked
+```
+
+如果变更涉及 restricted network fallback，还要人工确认：
+
+- fallback 后普通文件写入能完成，例如写入 `target/linux-sandbox-netns-fallback-smoke.txt`。
+- restricted network 仍被 seccomp 拦住，socket probe 应返回 `PermissionError: [Errno 1] Operation not permitted` 或等价 EPERM。
+
+长跑 real benchmark 不要只等到 900s timeout。出现以下组合时应先中断并转入 CoE/focused test：
+
+- `TaskSpaceProviderRequestBudgetEventV1` 的 `request_count` 已显著超过 `max_requests`。
+- `TaskSpaceNoActionRecoveryV1` 的 recovery attempt 多次增长但 current node / result count 没有实质变化。
+- trace 中反复出现同一个 gate reason 或同一个 tool command。
+
+定位 trace 时使用有界读取，避免把巨大 rollout 打进终端：
+
+```bash
+rg -n "TaskSpaceForcedInspectTransitionV1|TaskSpaceNoActionRecoveryV1|failure_kind|bwrap:" target/<run-root> -g '*.jsonl' | tail -n 80
+```
+
+记录结论时同步更新：
+
+- `/coe/<active-r4-case>.md` 的 Hypothesis/Evidence。
+- `docs/v0.0.5/build-R4/01-static-tool-chain-map.md` 的问题类型。
+- `docs/v0.0.5/build-R4/05-phase-benefit-evidence.md` 的 focused evidence。
+- `docs/v0.0.5/build-R4/09-r4-takeover-progress-audit-20260703.md` 的当前 open items。
+
 ## Why Full Builds Are Slow
 
 The first measured Windows bottleneck was not a single slow command. It was

@@ -161,7 +161,8 @@ const TASKSPACE_TOOL_FEEDBACK_MARKER: &str = "TaskSpaceToolFeedbackV1:";
 const TASKSPACE_INSPECT_BOOTSTRAP_CALL_ID: &str = "taskspace-inspect-bootstrap-rg-files";
 const TASKSPACE_REPEATED_BLOCKED_INSPECT_BOOTSTRAP_CALL_ID: &str =
     "taskspace-inspect-bootstrap-repeated-blocked-read";
-const TASKSPACE_REPEATED_BLOCKED_INSPECT_BOOTSTRAP_COMMAND: &str = "rg --files -g '*.py' -g '*.md' -g '*.txt' | Select-Object -First 8 | ForEach-Object { Write-Output ('===== ' + $_); Get-Content -LiteralPath $_ -TotalCount 120 }";
+const TASKSPACE_REPEATED_BLOCKED_INSPECT_BOOTSTRAP_COMMAND_WINDOWS: &str = "rg --files -g '*.py' -g '*.md' -g '*.txt' | Select-Object -First 8 | ForEach-Object { Write-Output ('===== ' + $_); Get-Content -LiteralPath $_ -TotalCount 120 }";
+const TASKSPACE_REPEATED_BLOCKED_INSPECT_BOOTSTRAP_COMMAND_UNIX: &str = "rg --files -g '*.py' -g '*.md' -g '*.txt' | head -n 8 | while IFS= read -r path; do printf '===== %s\\n' \"$path\"; sed -n '1,120p' -- \"$path\"; done";
 const TASKSPACE_INSPECT_TEST_BOOTSTRAP_CALL_ID: &str = "taskspace-inspect-bootstrap-pytest";
 const TASKSPACE_ACTIVE_MAX_RAW_TOOL_OUTPUT_CHARS: usize = 12_000;
 
@@ -1473,6 +1474,27 @@ fn taskspace_message_has_gate_recovery_reason(message: Option<&str>, reason: &st
     })
 }
 
+fn taskspace_message_has_inspect_duplicate_successful_evidence(message: Option<&str>) -> bool {
+    taskspace_message_has_gate_recovery_reason(
+        message,
+        "inspect_duplicate_successful_diagnostic_test",
+    ) || taskspace_message_has_gate_recovery_reason(
+        message,
+        "inspect_duplicate_successful_read_or_search",
+    )
+}
+
+fn taskspace_inspect_duplicate_successful_evidence_trigger(message: Option<&str>) -> &'static str {
+    if taskspace_message_has_gate_recovery_reason(
+        message,
+        "inspect_duplicate_successful_read_or_search",
+    ) {
+        "inspect_duplicate_read_search_gate_recovery"
+    } else {
+        "inspect_duplicate_diagnostic_gate_recovery"
+    }
+}
+
 fn taskspace_message_has_repeated_blocked_action(message: Option<&str>) -> bool {
     message.is_some_and(|message| {
         message.contains("\"repeated_blocked_action\"")
@@ -1509,6 +1531,48 @@ Example action intent: action=read_file, node_id=<active inspect node id>, args.
         content: vec![ContentItem::InputText { text }],
         end_turn: None,
         phase: None,
+    }
+}
+
+fn build_taskspace_duplicate_read_search_inspect_recovery_item(
+    last_message: Option<&str>,
+) -> ResponseItem {
+    let previous = last_message
+        .filter(|message| !message.trim().is_empty())
+        .unwrap_or("(no assistant text was captured)");
+    let gate_recovery = taskspace_gate_recovery_context(previous);
+    let text = format!(
+        "TaskSpaceDuplicateReadSearchInspectRecoveryV1:\n\
+The requested read/search command has already completed successfully on this inspect_code_context node. Re-reading the same artifact is not new evidence.\n\
+Previous assistant/tool feedback: {previous}\n\
+{gate_recovery}\
+Current required behavior:\n\
+- Do not rerun the blocked read/search command.\n\
+- Use the recorded result named in the blocked feedback as current evidence.\n\
+- If enough source/test evidence has been read, emit taskspace_control with action=finish_node and next_node_kind=implement_solution.\n\
+- Only emit another read_file or search if it targets a different concrete artifact needed for implementation.\n\
+- Do not return blocked merely because the duplicate read/search was blocked."
+    );
+
+    ResponseItem::Message {
+        id: None,
+        role: "developer".to_string(),
+        content: vec![ContentItem::InputText { text }],
+        end_turn: None,
+        phase: None,
+    }
+}
+
+fn build_taskspace_duplicate_inspect_successful_evidence_recovery_item(
+    last_message: Option<&str>,
+) -> ResponseItem {
+    if taskspace_message_has_gate_recovery_reason(
+        last_message,
+        "inspect_duplicate_successful_read_or_search",
+    ) {
+        build_taskspace_duplicate_read_search_inspect_recovery_item(last_message)
+    } else {
+        build_taskspace_duplicate_diagnostic_inspect_recovery_item(last_message)
     }
 }
 
@@ -1774,6 +1838,7 @@ The current node is smoke_test/regression_test. Validation nodes must execute va
 {last}\
 Current required behavior:\n\
 - Emit exactly one run_test action now, or blocked with the exact reason validation cannot run.\n\
+- If the recovery context contains next_valid_actions, use the named command exactly before trying generic validators or alternate filenames.\n\
 - Do not call list_files, read_file, search, broad shell discovery, apply_patch, or create another inspect node.\n\
 - If a local validator such as scripts/validate.py was already discovered, run it directly, for example: {{\"schema_version\":\"taskspace-action-v1\",\"action\":\"run_test\",\"node_id\":\"<active node id>\",\"args\":{{\"command\":\"python scripts/validate.py\",\"timeout_ms\":120000}},\"rationale\":\"run discovered local validator\"}}.\n\
 - After a successful run_test, finish validation or answer final according to the next TaskSpace guidance."
@@ -1903,7 +1968,7 @@ fn taskspace_special_recovery_warning_message(item: &ResponseItem) -> String {
     } else if response_item_text_contains(item, TASKSPACE_VALIDATION_INFRA_RECOVERY_MARKER) {
         "TaskSpace inserted TaskSpaceValidationInfraRecoveryV1 after local validator infrastructure failed. This guidance does not consume the no-action recovery allowance.".to_string()
     } else if response_item_text_contains(item, TASKSPACE_VALIDATION_NEEDS_TEST_MARKER) {
-        "TaskSpace inserted TaskSpaceValidationNeedsTestRecoveryV1 after a validation node requested discovery instead of run_test. This guidance does not consume the no-action recovery allowance.".to_string()
+        "TaskSpace inserted TaskSpaceValidationNeedsTestRecoveryV1 after a validation node needed a concrete coverage-correct run_test. This guidance does not consume the no-action recovery allowance.".to_string()
     } else if response_item_text_contains(item, TASKSPACE_FORCED_INSPECT_TRANSITION_MARKER) {
         "TaskSpace inserted TaskSpaceForcedInspectTransitionRecoveryV1 after a provider-budget forced inspect transition. This guidance does not consume the no-action recovery allowance.".to_string()
     } else if response_item_text_contains(item, TASKSPACE_FORCED_VALIDATION_CLOSEOUT_MARKER) {
@@ -2709,6 +2774,10 @@ fn is_actionable_taskspace_gate_feedback_output(item: &ResponseItem) -> bool {
     (response_item_text_contains(item, "high-signal inspected evidence")
         && response_item_text_contains(item, "uncovered"))
         || response_item_text_contains(item, "validation_test_missing_local_validator_coverage")
+        || response_item_text_contains(item, "validation_test_missing_changed_artifact_coverage")
+        || (response_item_texts_contain(item, &|text| {
+            taskspace_missing_command_script_from_text(text).is_some()
+        }))
         || response_item_text_contains(item, "required_validator:python scripts/validate.py")
         || (response_item_text_contains(item, "still unreviewed")
             && response_item_text_contains(item, "result_validities"))
@@ -2767,6 +2836,12 @@ fn taskspace_action_contract_recent_tool_outputs_item(
         text.contains("validation_test_missing_local_validator_coverage")
             || text.contains("required_validator:python scripts/validate.py")
     });
+    let changed_artifact_coverage_failure_seen = summaries
+        .iter()
+        .any(|(_, text)| text.contains("validation_test_missing_changed_artifact_coverage"));
+    let validation_command_missing_script_seen = summaries
+        .iter()
+        .any(|(_, text)| text.contains("validation_command_missing_script"));
     let unreviewed_result_blocker_seen = summaries.iter().any(|(_, text)| {
         text.contains("taskspace_unreviewed_result_blocker")
             || (text.contains("still unreviewed") && text.contains("result_validities"))
@@ -2830,6 +2905,10 @@ fn taskspace_action_contract_recent_tool_outputs_item(
         "progress_hint: A previous block_node action was rejected because the dependency inspect node already recorded successful diagnostic evidence. Do not rerun diagnostic commands and do not block for the same prerequisite. Next action must be apply_patch with the smallest concrete implementation fix from inspected evidence.\n"
     } else if unreviewed_result_blocker_seen {
         "progress_hint: A previous ordinary tool was blocked because a TaskSpace node result is still unreviewed. Do not repeat read/list/search. Next action must be taskspace_control with action=state_commit and result_validities for the named result.\n"
+    } else if validation_command_missing_script_seen {
+        "progress_hint: The previous run_test did not start the validator because the command referenced a missing script. Stay on the validation node. Next action must be run_test with an existing changed script from the current TaskSpace projection, then validate the expected output artifact.\n"
+    } else if changed_artifact_coverage_failure_seen {
+        "progress_hint: A previous run_test was rejected because it did not exercise the changed artifact required for validation. Do not substitute generic validators or alternate filenames. Next action must be the concrete run_test command named in the validation_test_missing_changed_artifact_coverage feedback, or blocked with the exact reason that command cannot run.\n"
     } else if local_validator_coverage_failure_seen {
         "progress_hint: A previous run_test was rejected because it skipped a discovered local validator. Do not repeat pytest or discovery. Next action must be run_test with command `python scripts/validate.py`, or blocked with the exact reason that command cannot run.\n"
     } else if uncovered_high_signal_seen {
@@ -2971,6 +3050,36 @@ next_valid_action: emit exactly one run_test action with command `{required_vali
 raw_output:\n{text}"
         );
     }
+    if action == "run_test" && text.contains("validation_test_missing_changed_artifact_coverage") {
+        let required_command = taskspace_validation_changed_artifact_required_command(text)
+            .unwrap_or_else(|| {
+                "the changed artifact command named in TaskSpaceGateRecoveryV1".to_string()
+            });
+        return format!(
+            "{TASKSPACE_TOOL_FEEDBACK_MARKER}\n\
+tool_source: action_contract_internal\n\
+tool_action: run_test\n\
+tool_result: blocked\n\
+failure_kind: validation_test_missing_changed_artifact_coverage\n\
+required_command: {required_command}\n\
+next_valid_action: emit exactly one run_test action with command `{required_command}`. Do not repeat generic validators, read_file, list_files, search, or alternate filenames before this changed artifact is executed.\n\
+raw_output:\n{text}"
+        );
+    }
+    if action == "run_test"
+        && let Some(missing_script) = taskspace_missing_command_script_from_text(text)
+    {
+        return format!(
+            "{TASKSPACE_TOOL_FEEDBACK_MARKER}\n\
+tool_source: action_contract_internal\n\
+tool_action: run_test\n\
+tool_result: failed\n\
+failure_kind: validation_command_missing_script\n\
+missing_script: {missing_script}\n\
+next_valid_action: emit exactly one run_test action that executes an existing changed script named in the current TaskSpace projection, then validates the expected output artifact. Do not switch to implement_solution or finish the validation node for this command-name error.\n\
+raw_output:\n{text}"
+        );
+    }
     if text.contains("still unreviewed") && text.contains("result_validities") {
         let (result_id, node_id) = taskspace_unreviewed_result_refs(text);
         return format!(
@@ -3059,6 +3168,42 @@ failure_kind: tool_execution_failed\n\
 next_valid_action: inspect this tool result and emit one corrected taskspace-action-v1 action. Do not ignore this failed tool result or finish the node until the failure is resolved or explicitly blocked with evidence.\n\
 raw_output:\n{text}"
     )
+}
+
+fn taskspace_validation_changed_artifact_required_command(text: &str) -> Option<String> {
+    let (_, rest) = text.split_once("run_test with command `")?;
+    let (command, _) = rest.split_once('`')?;
+    let command = command.trim();
+    (!command.is_empty()).then(|| command.to_string())
+}
+
+fn taskspace_missing_command_script_from_text(text: &str) -> Option<String> {
+    let lower = text.replace('\\', "/").to_ascii_lowercase();
+    if !lower.contains("can't open file") && !lower.contains("cannot open file") {
+        return None;
+    }
+    let marker = if lower.contains("can't open file") {
+        "can't open file"
+    } else {
+        "cannot open file"
+    };
+    let (_, rest) = lower.split_once(marker)?;
+    let rest = rest.trim_start_matches(|ch: char| ch.is_whitespace() || ch == ':');
+    let value = if let Some(rest) = rest.strip_prefix('\'') {
+        rest.split_once('\'').map(|(path, _)| path.to_string())
+    } else if let Some(rest) = rest.strip_prefix('"') {
+        rest.split_once('"').map(|(path, _)| path.to_string())
+    } else {
+        rest.split(|ch: char| ch.is_whitespace() || ch == ':')
+            .next()
+            .map(str::to_string)
+    }?;
+    let file_name = value.rsplit('/').next().unwrap_or(value.as_str());
+    matches!(
+        file_name.rsplit_once('.').map(|(_, ext)| ext),
+        Some("py" | "js" | "mjs" | "sh")
+    )
+    .then(|| file_name.to_string())
 }
 
 fn taskspace_action_contract_action_name_from_call_id(call_id: &str) -> Option<&str> {
@@ -5451,6 +5596,48 @@ tax_calc.py\n\
     }
 
     #[test]
+    fn action_contract_read_file_uses_host_platform_command() {
+        let snapshot = provider_snapshot("inspect_code_context");
+        let read_file = parse_taskspace_action_v1(
+            r#"{"schema_version":"taskspace-action-v1","action":"read_file","node_id":"node-1","args":{"path":"dir/schema file.json"}}"#,
+        )
+        .expect("valid action shape");
+
+        let call = taskspace_action_to_tool_call(&read_file, &snapshot)
+            .expect("read_file should be valid")
+            .expect("read_file should execute shell_command");
+        let ToolPayload::Function { arguments } = call.payload else {
+            panic!("expected function payload");
+        };
+        let value: serde_json::Value = serde_json::from_str(&arguments).expect("json payload");
+        let command = value["command"].as_str().expect("command");
+        if cfg!(windows) {
+            assert!(command.starts_with("Get-Content -LiteralPath "));
+            assert!(command.contains("-TotalCount 240"));
+        } else {
+            assert!(command.starts_with("sed -n "));
+            assert!(command.contains("1,240p"));
+            assert!(command.contains(" -- "));
+            assert!(command.contains("'dir/schema file.json'"));
+            assert!(!command.contains("Get-Content"));
+        }
+    }
+
+    #[test]
+    fn repeated_blocked_inspect_bootstrap_uses_host_platform_command() {
+        let command = taskspace_repeated_blocked_inspect_bootstrap_command();
+        if cfg!(windows) {
+            assert!(command.contains("Get-Content -LiteralPath"));
+            assert!(command.contains("Select-Object -First 8"));
+        } else {
+            assert!(command.contains("head -n 8"));
+            assert!(command.contains("sed -n '1,120p' --"));
+            assert!(!command.contains("Get-Content"));
+            assert!(!command.contains("Select-Object"));
+        }
+    }
+
+    #[test]
     fn provider_budget_does_not_reduce_tools_for_implementation_request() {
         assert_eq!(
             taskspace_provider_tool_visibility_for_budget(
@@ -5770,6 +5957,78 @@ tax_calc.py\n\
         assert!(joined.contains(
             "next_valid_action: emit exactly one run_test action with command `python scripts/validate.py`"
         ));
+        assert!(!joined.contains("failure_kind: tool_execution_failed"));
+    }
+
+    #[test]
+    fn action_contract_prompt_structures_changed_artifact_coverage_failure() {
+        let latest_active_projection = format!(
+            "{TASKSPACE_ACTIVE_PROFILE_MARKER}\n{TASKSPACE_ACTIVE_PROJECTION_MARKER}\nactive_objective: latest"
+        );
+        let items = vec![
+            message("user", "Run validation"),
+            message("developer", &latest_active_projection),
+            ResponseItem::FunctionCallOutput {
+                call_id: "taskspace-action-contract-9-run_test".to_string(),
+                output: FunctionCallOutputPayload {
+                    body: FunctionCallOutputBody::Text(
+                        "TaskSpace blocked this validation command because current node `node-3` kind: smoke_test must validate the implementation edit, but requested command `python -m jsonschema -i organization.json schema.json` does not execute or reference changed artifact(s): generate_organization.py. Declared output contract targets: organization.json.\nTaskSpaceGateRecoveryV1: {\"schema_version\":\"TaskSpaceGateRecoveryV1\",\"allowed\":false,\"reason\":\"validation_test_missing_changed_artifact_coverage\",\"next_valid_actions\":[\"run_test with command `python generate_organization.py` to execute changed artifact `generate_organization.py`\"]}"
+                            .to_string(),
+                    ),
+                    success: Some(false),
+                },
+            },
+        ];
+
+        let prepared =
+            prepare_taskspace_action_contract_prompt_items_for_node(items, Some("smoke_test"));
+        let joined = item_texts(&prepared).join("\n");
+
+        assert!(joined.contains(TASKSPACE_TOOL_FEEDBACK_MARKER));
+        assert!(joined.contains("failure_kind: validation_test_missing_changed_artifact_coverage"));
+        assert!(joined.contains("progress_hint: A previous run_test was rejected because it did not exercise the changed artifact"));
+        assert!(joined.contains("required_command: python generate_organization.py"));
+        assert!(joined.contains(
+            "next_valid_action: emit exactly one run_test action with command `python generate_organization.py`"
+        ));
+        assert!(!joined.contains("failure_kind: tool_execution_failed"));
+    }
+
+    #[test]
+    fn action_contract_prompt_structures_missing_validation_script_failure() {
+        let latest_active_projection = format!(
+            "{TASKSPACE_ACTIVE_PROFILE_MARKER}\n{TASKSPACE_ACTIVE_PROJECTION_MARKER}\nactive_objective: latest"
+        );
+        let items = vec![
+            message("user", "Run validation"),
+            message("developer", &latest_active_projection),
+            ResponseItem::FunctionCallOutput {
+                call_id: "taskspace-action-contract-9-run_test".to_string(),
+                output: FunctionCallOutputPayload {
+                    body: FunctionCallOutputBody::Text(
+                        "TaskSpaceToolInvocationV1:\n\
+tool: shell_command\n\
+command: python process.py && python -c 'import json; json.load(open(\"organization.json\"))'\n\
+raw_output:\n\
+python: can't open file '/workspace/process.py': [Errno 2] No such file or directory"
+                            .to_string(),
+                    ),
+                    success: Some(false),
+                },
+            },
+        ];
+
+        let prepared =
+            prepare_taskspace_action_contract_prompt_items_for_node(items, Some("smoke_test"));
+        let joined = item_texts(&prepared).join("\n");
+
+        assert!(joined.contains(TASKSPACE_TOOL_FEEDBACK_MARKER));
+        assert!(joined.contains("failure_kind: validation_command_missing_script"));
+        assert!(joined.contains("missing_script: process.py"));
+        assert!(
+            joined.contains("progress_hint: The previous run_test did not start the validator")
+        );
+        assert!(joined.contains("Stay on the validation node"));
         assert!(!joined.contains("failure_kind: tool_execution_failed"));
     }
 
@@ -6416,6 +6675,30 @@ TaskSpaceGateRecoveryV1: {\"schema_version\":\"TaskSpaceGateRecoveryV1\",\"allow
         assert!(text.contains("Do not rerun the blocked diagnostic command"));
         assert!(text.contains("read_file or search"));
         assert!(text.contains("Do not return blocked"));
+        assert!(!is_taskspace_no_action_recovery_item(&item));
+    }
+
+    #[test]
+    fn duplicate_read_search_recovery_pushes_inspect_transition() {
+        let blocked_output = "TaskSpace blocked this evidence command.\n\
+TaskSpaceGateRecoveryV1: {\"schema_version\":\"TaskSpaceGateRecoveryV1\",\"allowed\":false,\"reason\":\"inspect_duplicate_successful_read_or_search\",\"next_valid_actions\":[\"taskspace_control(action=finish_node, node_id=\\\"node-1\\\", next_node_kind=\\\"implement_solution\\\")\"]}";
+
+        assert!(taskspace_message_has_inspect_duplicate_successful_evidence(
+            Some(blocked_output)
+        ));
+        assert_eq!(
+            taskspace_inspect_duplicate_successful_evidence_trigger(Some(blocked_output)),
+            "inspect_duplicate_read_search_gate_recovery"
+        );
+        let item = build_taskspace_duplicate_inspect_successful_evidence_recovery_item(Some(
+            blocked_output,
+        ));
+        let text = item_text(item.clone());
+
+        assert!(text.contains("TaskSpaceDuplicateReadSearchInspectRecoveryV1"));
+        assert!(text.contains("Re-reading the same artifact is not new evidence"));
+        assert!(text.contains("finish_node"));
+        assert!(text.contains("implement_solution"));
         assert!(!is_taskspace_no_action_recovery_item(&item));
     }
 
@@ -8727,7 +9010,7 @@ fn taskspace_action_to_tool_call(
             let path = taskspace_action_arg_string(args, "path")
                 .ok_or_else(|| "missing_read_file_path".to_string())?;
             let arguments = serde_json::json!({
-                "command": format!("Get-Content -LiteralPath {:?} -TotalCount 240", path),
+                "command": taskspace_read_file_command(&path),
                 "timeout_ms": 10000,
             })
             .to_string();
@@ -8824,6 +9107,29 @@ fn taskspace_action_to_tool_call(
             }))
         }
         _ => Err(format!("unsupported_action:{action_name}")),
+    }
+}
+
+fn taskspace_read_file_command(path: &str) -> String {
+    if cfg!(windows) {
+        format!("Get-Content -LiteralPath {path:?} -TotalCount 240")
+    } else {
+        let args = vec![
+            "sed".to_string(),
+            "-n".to_string(),
+            "1,240p".to_string(),
+            "--".to_string(),
+            path.to_string(),
+        ];
+        codex_shell_command::parse_command::shlex_join(&args)
+    }
+}
+
+fn taskspace_repeated_blocked_inspect_bootstrap_command() -> &'static str {
+    if cfg!(windows) {
+        TASKSPACE_REPEATED_BLOCKED_INSPECT_BOOTSTRAP_COMMAND_WINDOWS
+    } else {
+        TASKSPACE_REPEATED_BLOCKED_INSPECT_BOOTSTRAP_COMMAND_UNIX
     }
 }
 
@@ -10336,18 +10642,22 @@ async fn try_run_sampling_request(
                         ))
                     } else if current_budget_snapshot.as_ref().is_some_and(|snapshot| {
                         snapshot.node_kind.as_deref() == Some("inspect_code_context")
-                            && taskspace_message_has_gate_recovery_reason(
+                            && taskspace_message_has_inspect_duplicate_successful_evidence(
                                 last_agent_message.as_deref(),
-                                "inspect_duplicate_successful_diagnostic_test",
                             )
                     }) {
                         let snapshot = current_budget_snapshot
                             .as_ref()
                             .expect("snapshot checked above")
                             .clone();
+                        let duplicate_read_search_gate = taskspace_message_has_gate_recovery_reason(
+                            last_agent_message.as_deref(),
+                            "inspect_duplicate_successful_read_or_search",
+                        );
                         if taskspace_message_has_repeated_blocked_action(
                             last_agent_message.as_deref(),
-                        ) {
+                        ) && !duplicate_read_search_gate
+                        {
                             match sess
                                 .force_finish_action_map_inspect_for_provider_budget(
                                     &turn_context,
@@ -10364,12 +10674,12 @@ async fn try_run_sampling_request(
                                         tool_runtime.clone(),
                                         sess.clone(),
                                         turn_context.clone(),
-                                        snapshot.request_count,
-                                        TASKSPACE_REPEATED_BLOCKED_INSPECT_BOOTSTRAP_CALL_ID,
-                                        TASKSPACE_REPEATED_BLOCKED_INSPECT_BOOTSTRAP_COMMAND,
-                                        "TaskSpaceRepeatedBlockedInspectBootstrapV1 executed bounded source/test reads after an inspect_code_context action repeated an already-blocked diagnostic command.",
-                                        cancellation_token.child_token(),
-                                    )
+                                    snapshot.request_count,
+                                    TASKSPACE_REPEATED_BLOCKED_INSPECT_BOOTSTRAP_CALL_ID,
+                                    taskspace_repeated_blocked_inspect_bootstrap_command(),
+                                    "TaskSpaceRepeatedBlockedInspectBootstrapV1 executed bounded source/test reads after an inspect_code_context action repeated an already-blocked diagnostic command.",
+                                    cancellation_token.child_token(),
+                                )
                                     .await?;
                                     None
                                 }
@@ -10391,11 +10701,14 @@ async fn try_run_sampling_request(
                                 }
                             }
                         } else {
+                            let trigger = taskspace_inspect_duplicate_successful_evidence_trigger(
+                                last_agent_message.as_deref(),
+                            );
                             match sess
                                 .force_finish_action_map_inspect_for_provider_budget(
                                     &turn_context,
                                     snapshot,
-                                    "inspect_duplicate_diagnostic_gate_recovery",
+                                    trigger,
                                 )
                                 .await
                             {
@@ -10403,7 +10716,7 @@ async fn try_run_sampling_request(
                                     Some(build_taskspace_forced_inspect_transition_recovery_item())
                                 }
                                 Ok(false) => Some(
-                                    build_taskspace_duplicate_diagnostic_inspect_recovery_item(
+                                    build_taskspace_duplicate_inspect_successful_evidence_recovery_item(
                                         last_agent_message.as_deref(),
                                     ),
                                 ),
@@ -10412,13 +10725,13 @@ async fn try_run_sampling_request(
                                         &turn_context,
                                         EventMsg::Warning(WarningEvent {
                                             message: format!(
-                                                "TaskSpaceForcedInspectTransitionFailedV1 trigger=inspect_duplicate_diagnostic_gate_recovery error={error}"
+                                                "TaskSpaceForcedInspectTransitionFailedV1 trigger={trigger} error={error}"
                                             ),
                                         }),
                                     )
                                     .await;
                                     Some(
-                                        build_taskspace_duplicate_diagnostic_inspect_recovery_item(
+                                        build_taskspace_duplicate_inspect_successful_evidence_recovery_item(
                                             last_agent_message.as_deref(),
                                         ),
                                     )
@@ -10804,9 +11117,8 @@ async fn try_run_sampling_request(
             if taskspace_message_has_gate_recovery(result.last_agent_message.as_deref()) {
                 let mut forced_transition = false;
                 let mut repeated_block_bootstrap = false;
-                if taskspace_message_has_gate_recovery_reason(
+                if taskspace_message_has_inspect_duplicate_successful_evidence(
                     result.last_agent_message.as_deref(),
-                    "inspect_duplicate_successful_diagnostic_test",
                 ) && let Some(snapshot) = provider_budget_snapshot
                     .as_ref()
                     .filter(|snapshot| {
@@ -10814,9 +11126,14 @@ async fn try_run_sampling_request(
                     })
                     .cloned()
                 {
+                    let duplicate_read_search_gate = taskspace_message_has_gate_recovery_reason(
+                        result.last_agent_message.as_deref(),
+                        "inspect_duplicate_successful_read_or_search",
+                    );
                     if taskspace_message_has_repeated_blocked_action(
                         result.last_agent_message.as_deref(),
-                    ) {
+                    ) && !duplicate_read_search_gate
+                    {
                         match sess
                             .force_finish_action_map_inspect_for_provider_budget(
                                 &turn_context,
@@ -10837,7 +11154,7 @@ async fn try_run_sampling_request(
                                     turn_context.clone(),
                                     snapshot.request_count,
                                     TASKSPACE_REPEATED_BLOCKED_INSPECT_BOOTSTRAP_CALL_ID,
-                                    TASKSPACE_REPEATED_BLOCKED_INSPECT_BOOTSTRAP_COMMAND,
+                                    taskspace_repeated_blocked_inspect_bootstrap_command(),
                                     "TaskSpaceRepeatedBlockedInspectBootstrapV1 executed bounded source/test reads after progress stayed unchanged on a repeated blocked diagnostic command.",
                                     cancellation_token.child_token(),
                                 )
@@ -10857,11 +11174,14 @@ async fn try_run_sampling_request(
                             }
                         }
                     } else {
+                        let trigger = taskspace_inspect_duplicate_successful_evidence_trigger(
+                            result.last_agent_message.as_deref(),
+                        );
                         match sess
                             .force_finish_action_map_inspect_for_provider_budget(
                                 &turn_context,
                                 snapshot,
-                                "inspect_duplicate_diagnostic_gate_recovery",
+                                trigger,
                             )
                             .await
                         {
@@ -10876,7 +11196,7 @@ async fn try_run_sampling_request(
                                         &turn_context,
                                         EventMsg::Warning(WarningEvent {
                                             message: format!(
-                                                "TaskSpaceForcedInspectTransitionFailedV1 trigger=inspect_duplicate_diagnostic_gate_recovery error={error}"
+                                                "TaskSpaceForcedInspectTransitionFailedV1 trigger={trigger} error={error}"
                                             ),
                                         }),
                                     )
@@ -10887,11 +11207,10 @@ async fn try_run_sampling_request(
                 }
                 if !forced_transition && !repeated_block_bootstrap {
                     result.taskspace_no_action_recovery_item = Some(
-                        if taskspace_message_has_gate_recovery_reason(
+                        if taskspace_message_has_inspect_duplicate_successful_evidence(
                             result.last_agent_message.as_deref(),
-                            "inspect_duplicate_successful_diagnostic_test",
                         ) {
-                            build_taskspace_duplicate_diagnostic_inspect_recovery_item(
+                            build_taskspace_duplicate_inspect_successful_evidence_recovery_item(
                                 result.last_agent_message.as_deref(),
                             )
                         } else {

@@ -1524,3 +1524,43 @@ git diff --check
 
 结论：该 case 的 feedback-layer 语义已修复并纳入 R4 coverage；R4 验收仍需真实 keyed rerun 证明
 `organization-json-generator` 不再在同类 tool-runtime failure 上 900s timeout。
+
+## 5.20 2026-07-03 R4-D tools feedback 子类型收敛
+
+本轮继续沿 `organization-json-generator` 真实 keyed run 暴露的问题推进。结论是：多个 case 的 raw signal
+已经存在，但 feedback 层或 phase gate 没有把它变成正确的下一步语义。因此本节只记录 R4-D 工程收益，不把
+R4-G utility parity 标记为通过。
+
+| Case | Before | After | Evidence |
+|---|---|---|---|
+| host-platform read recovery | recovery payload 可能给出非当前主机命令 | `read_file` recovery 按 host platform 生成 `sed` 或 `Get-Content` | `cargo test -j1 -p codex-core host_platform_command --lib` |
+| duplicate read/search | inspect 重复成功 read/search 后可能继续重复或过早推进 | named gate `inspect_duplicate_successful_read_or_search`，带 previous result 和 repeat state | `inspect_node_blocks_repeated_successful_read_command`; `duplicate_read_search_recovery_pushes_inspect_transition` |
+| data artifact evidence | `.json`/`.csv` 读入不稳定计为 working evidence | command/body/evidence refs 合并 input data artifacts | `inspect_data_artifact_read_counts_as_working_evidence` |
+| validation coverage | 不覆盖 changed artifact 的 validation 被拒绝，但反馈不够可执行 | `validation_test_missing_changed_artifact_coverage` 带 required command / next action | `action_contract_prompt_structures_changed_artifact_coverage_failure` |
+| missing validation script | `python process.py` 不存在脚本被当成 implementation failure | `validation_command_missing_script` 留在 validation node | `validation_missing_command_script_stays_on_validation_node` |
+| missing fact-source coverage | 重复 `departments.csv` 后强制进入 implement，漏读 `employees.csv`/`projects.csv` | duplicate gate 列出缺失 fact-source artifacts；manual/forced inspect finish 都被 coverage guard 拦截 | `inspect_duplicate_read_reports_missing_fact_source_artifacts_without_finish`; `inspect_missing_fact_sources_block_manual_and_forced_finish_until_read` |
+| restricted Linux sandbox | bwrap netns/proc/userns 限制可能在业务命令前失败 | sandbox preflight/fallback 区分 recoverable ability 降级和 terminal bootstrap failure | `cargo test -j1 -p codex-linux-sandbox --lib`; sandbox smoke |
+
+本轮新增的关键语义边界：
+
+1. `taskspace runtime` 可以负责工具可用性检测、反馈分类、next_valid_actions 和 phase completion guard。
+2. 它不能把“重复成功证据”解释为“inspect 已完成”；完成条件必须包含声明 fact source coverage。
+3. 如果缺失 `fact_sources` 中的 artifact，反馈层应继续要求 read/search 这些 artifact，而不是提供 `finish_node`。
+4. validation 命令错误要先区分“验证命令写错”和“实现代码失败”，否则会把工具反馈错误路由到 implement rework。
+
+本轮验证命令：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core inspect_duplicate_read_reports_missing_fact_source_artifacts_without_finish --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core inspect_missing_fact_sources_block_manual_and_forced_finish_until_read --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core inspect_node_blocks_repeated_successful_read_command --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core forced_inspect_transition_accepts_duplicate_read_search_gate_recovery --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core inspect_data_artifact_read_counts_as_working_evidence --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core duplicate_read_search_recovery_pushes_inspect_transition --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core inspect_successful_diagnostic_and_working_evidence_marks_convergence_ready --lib
+```
+
+仍未关闭：
+
+- `provider-budget-advisory-runaway`：本轮没有把 request budget hint 改成 hard stop。
+- `organization-json-generator` utility evidence：需要基于新二进制重跑 keyed sample，确认是否还会 900s timeout 或进入新的 failure class。

@@ -91,6 +91,14 @@
         {
           "file": "third_party/codex-cli/codex-rs/core/src/tools/parallel.rs",
           "pattern": "taskspace_tool_result_preview_with_invocation"
+        },
+        {
+          "file": "third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs",
+          "pattern": "inspect_duplicate_successful_read_or_search"
+        },
+        {
+          "file": "third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs",
+          "pattern": "validation_failure_is_missing_command_script_error"
         }
       ],
       "required_semantics": [
@@ -99,11 +107,13 @@
         "failure_kind",
         "target_path",
         "stderr_or_error_text",
+        "changed_artifact_coverage",
+        "declared_fact_source_coverage",
         "next_payload_visibility"
       ],
-      "required_evidence": "Failed internal apply_patch/shell/test feedback appears in the next provider-visible payload and the R4-D count-call-stack rerun solved instead of no-patch/wrong."
+      "required_evidence": "Failed internal apply_patch/shell/test feedback appears in the next provider-visible payload, validation command and changed-artifact coverage failures are actionable, duplicate inspect reads cannot bypass declared fact-source coverage, and the R4-D count-call-stack rerun solved instead of no-patch/wrong."
       ,
-      "coverage_test": "cargo test -j1 -p codex-core response_input_for_taskspace_action_tool_error --lib; cargo test -j1 -p codex-core taskspace_implementation_needs_edit_rejection_uses_specific_recovery --lib"
+      "coverage_test": "cargo test -j1 -p codex-core response_input_for_taskspace_action_tool_error --lib; cargo test -j1 -p codex-core taskspace_implementation_needs_edit_rejection_uses_specific_recovery --lib; cargo test -j1 -p codex-core action_contract_prompt_structures_changed_artifact_coverage_failure --lib; cargo test -j1 -p codex-core action_contract_prompt_structures_missing_validation_script_failure --lib; cargo test -j1 -p codex-core inspect_duplicate_read_reports_missing_fact_source_artifacts_without_finish --lib"
     },
     {
       "id": "action-contract-parse-policy-rejection",

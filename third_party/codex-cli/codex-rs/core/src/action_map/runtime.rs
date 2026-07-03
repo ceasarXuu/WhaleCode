@@ -2084,6 +2084,100 @@ impl ActionMapRuntimeState {
                 ));
             }
         }
+        if node.kind == NodeKind::InspectCodeContext
+            && matches!(
+                descriptor.action_class,
+                ActionClass::Read | ActionClass::Search
+            )
+            && let Some((previous_result_id, command)) =
+                inspect_duplicate_successful_read_or_search(map, node, &descriptor)
+        {
+            let reason = "inspect_duplicate_successful_read_or_search".to_string();
+            let missing_fact_source_artifacts = map
+                .task_id
+                .as_deref()
+                .and_then(|task_id| self.tasks.get(task_id))
+                .map(|task| inspect_missing_required_fact_source_artifacts(task, map, node))
+                .unwrap_or_default();
+            let has_missing_fact_sources = !missing_fact_source_artifacts.is_empty();
+            let message = format!(
+                "TaskSpace blocked this evidence command because inspect node `{}` already recorded successful read/search evidence `{}` for the same command `{}`. {}",
+                node.id,
+                previous_result_id,
+                single_line_preview(&command, 220),
+                if has_missing_fact_sources {
+                    format!(
+                        "Use the existing result for that command, but do not finish this inspect node yet; declared fact-source artifact(s) still need inspect evidence: {}.",
+                        missing_fact_source_artifacts.join(", ")
+                    )
+                } else {
+                    "Use the existing result, read/search a different concrete artifact only if needed, or finish this inspect node into implement_solution.".to_string()
+                }
+            );
+            let current_node_item = format!("current_node:{}:{}", node.id, node.kind.as_str());
+            let blocked_node_kind = node.kind.as_str().to_string();
+            let finish_node_action = format!(
+                "taskspace_control(action=finish_node, node_id=\"{}\", next_node_kind=\"implement_solution\")",
+                node.id
+            );
+            let mut evidence_refs = vec![
+                current_node_item,
+                format!("previous_read_search_result:{previous_result_id}"),
+            ];
+            evidence_refs.extend(
+                missing_fact_source_artifacts
+                    .iter()
+                    .map(|artifact| format!("missing_fact_source_artifact:{artifact}")),
+            );
+            let mut next_valid_actions = if has_missing_fact_sources {
+                missing_fact_source_artifacts
+                    .iter()
+                    .map(|artifact| {
+                        format!(
+                            "read_file or search for declared fact-source artifact `{artifact}`"
+                        )
+                    })
+                    .collect::<Vec<_>>()
+            } else {
+                vec![
+                    "read_file or search for a different concrete implementation/test artifact"
+                        .to_string(),
+                ]
+            };
+            next_valid_actions
+                .push("taskspace_control(action=state_commit) for accepted findings".to_string());
+            if !has_missing_fact_sources {
+                next_valid_actions.push(finish_node_action);
+            }
+            let repeated_block = self.record_blocked_action_repeat(
+                &map_id,
+                &node_id,
+                progress_signature,
+                &reason,
+                &descriptor,
+            );
+            let recovery = gate_recovery_message_with_repeated_block(
+                &message,
+                &reason,
+                evidence_refs,
+                next_valid_actions,
+                Vec::new(),
+                Some(&repeated_block),
+            );
+            return Err(ActionMapGateError::new(
+                recovery,
+                vec![MapRuntimeEvent::ToolActionBlocked(
+                    MapRuntimeToolActionBlockedEvent {
+                        map_id,
+                        node_id,
+                        node_kind: blocked_node_kind,
+                        tool_name: descriptor.tool_name,
+                        action_class: descriptor.action_class.as_str().to_string(),
+                        reason,
+                    },
+                )],
+            ));
+        }
         if node.kind == NodeKind::ImplementSolution
             && matches!(
                 descriptor.action_class,
@@ -3502,7 +3596,7 @@ preview:\n\
             None => return Ok(None),
         };
         let map_id = snapshot.map_id.clone();
-        let (task_id, node_kind, evidence_summary) = {
+        let (task_id, node_kind, evidence_summary, missing_fact_source_artifacts) = {
             let map = self
                 .maps
                 .get(&map_id)
@@ -3515,6 +3609,11 @@ preview:\n\
                 map.task_id.clone(),
                 node.kind,
                 inspect_code_or_test_read_summary(map, node),
+                map.task_id
+                    .as_deref()
+                    .and_then(|task_id| self.tasks.get(task_id))
+                    .map(|task| inspect_missing_required_fact_source_artifacts(task, map, node))
+                    .unwrap_or_default(),
             )
         };
         if node_kind != NodeKind::InspectCodeContext {
@@ -3524,11 +3623,14 @@ preview:\n\
         let progress_driven_convergence = trigger == "inspect_progress_convergence";
         let duplicate_diagnostic_gate_recovery =
             trigger == "inspect_duplicate_diagnostic_gate_recovery";
+        let duplicate_read_search_gate_recovery =
+            trigger == "inspect_duplicate_read_search_gate_recovery";
         let repeated_blocked_gate_recovery =
             trigger == "inspect_repeated_blocked_action_with_evidence";
         if !evidence_driven_no_action_recovery
             && !progress_driven_convergence
             && !duplicate_diagnostic_gate_recovery
+            && !duplicate_read_search_gate_recovery
             && !repeated_blocked_gate_recovery
             && !provider_request_budget_pressure_active_for_node(
                 snapshot.request_count,
@@ -3568,6 +3670,9 @@ preview:\n\
             inspect_node_unread_referenced_scripts(map, node)
         };
         if !unread_script_refs.is_empty() {
+            return Ok(None);
+        }
+        if !missing_fact_source_artifacts.is_empty() {
             return Ok(None);
         }
         let result_summary = format!(
@@ -6522,6 +6627,16 @@ preview:\n\
         {
             return false;
         }
+        if map
+            .task_id
+            .as_deref()
+            .and_then(|task_id| self.tasks.get(task_id))
+            .is_some_and(|task| {
+                !inspect_missing_required_fact_source_artifacts(task, map, node).is_empty()
+            })
+        {
+            return false;
+        }
         self.current_node_progress_signature(map_id, node_id)
             .is_some_and(|progress| {
                 progress
@@ -6549,6 +6664,13 @@ preview:\n\
             && node_has_successful_diagnostic_test_result(map, node)
             && node_has_successful_code_or_test_inspect_result(map, node)
             && inspect_node_unread_referenced_scripts(map, node).is_empty()
+            && map
+                .task_id
+                .as_deref()
+                .and_then(|task_id| self.tasks.get(task_id))
+                .is_none_or(|task| {
+                    inspect_missing_required_fact_source_artifacts(task, map, node).is_empty()
+                })
     }
 
     pub(crate) fn current_main_inspect_unread_referenced_scripts(&self) -> Vec<String> {
@@ -6957,6 +7079,16 @@ preview:\n\
                     return Err(format!(
                         "TaskSpace inspect_code_context node `{node_id}` cannot be completed without a recorded successful read/search action or a problem-state update tied to this node. Record a fact, open question, decision, or evidence-backed finding before finishing."
                     ));
+                }
+                if let Some(task) = task {
+                    let missing_fact_source_artifacts =
+                        inspect_missing_required_fact_source_artifacts(task, map, node);
+                    if !missing_fact_source_artifacts.is_empty() {
+                        return Err(format!(
+                            "TaskSpace inspect_code_context node `{node_id}` cannot be completed while declared fact-source artifact(s) remain unread: {}. Read/search those concrete artifact(s), then finish into implement_solution.",
+                            missing_fact_source_artifacts.join(", ")
+                        ));
+                    }
                 }
             }
             NodeKind::ImplementSolution => {
@@ -13400,6 +13532,7 @@ fn validation_test_coverage_block(
         changed_artifacts
             .iter()
             .any(|artifact| command_mentions_artifact(&command, artifact))
+            || command_invokes_script_artifact(&command)
             || output_targets
                 .iter()
                 .any(|artifact| command_mentions_artifact(&command, artifact))
@@ -13407,6 +13540,7 @@ fn validation_test_coverage_block(
         changed_artifacts_requiring_coverage
             .iter()
             .any(|artifact| command_mentions_artifact(&command, artifact))
+            || command_invokes_script_artifact(&command)
     };
     if changed_artifacts.is_empty() || covered_changed_artifact {
         return None;
@@ -13515,6 +13649,7 @@ fn validation_node_failed_noninfra_result(
             )
             || is_local_validator_infra_failure(&result.body)
             || validation_failure_is_known_input_path_error(map, result)
+            || validation_failure_is_missing_command_script_error(result)
         {
             return None;
         }
@@ -13553,6 +13688,36 @@ fn validation_failure_is_known_input_path_error(
             && command_section.contains(file_name)
             && !command_section.contains(&normalized)
     })
+}
+
+fn validation_failure_is_missing_command_script_error(result: &NodeResult) -> bool {
+    let body = result.body.replace('\\', "/").to_ascii_lowercase();
+    if !body.contains("can't open file") && !body.contains("cannot open file") {
+        return false;
+    }
+    let Some(script_ref) = missing_command_script_ref(&body) else {
+        return false;
+    };
+    script_artifact_token(&script_ref)
+}
+
+fn missing_command_script_ref(body: &str) -> Option<String> {
+    let marker = if body.contains("can't open file") {
+        "can't open file"
+    } else {
+        "cannot open file"
+    };
+    let (_, rest) = body.split_once(marker)?;
+    let rest = rest.trim_start_matches(|ch: char| ch.is_whitespace() || ch == ':');
+    if let Some(rest) = rest.strip_prefix('\'') {
+        return rest.split_once('\'').map(|(path, _)| path.to_string());
+    }
+    if let Some(rest) = rest.strip_prefix('"') {
+        return rest.split_once('"').map(|(path, _)| path.to_string());
+    }
+    rest.split(|ch: char| ch.is_whitespace() || ch == ':')
+        .next()
+        .map(str::to_string)
 }
 
 fn validation_node_semantic_failure_result(
@@ -13719,6 +13884,38 @@ fn inspect_duplicate_successful_diagnostic_test(
     })
 }
 
+fn inspect_duplicate_successful_read_or_search(
+    map: &ActionMapInstance,
+    node: &MapNode,
+    descriptor: &ToolActionDescriptor,
+) -> Option<(NodeResultId, String)> {
+    let command = tool_action_descriptor_command(descriptor)?;
+    let normalized_command = normalize_command_for_repeat_detection(&command);
+    if normalized_command.is_empty() {
+        return None;
+    }
+    node.result_context.iter().rev().find_map(|result_ref| {
+        let result = map.results.get(&result_ref.id)?;
+        if result.kind != NodeResultKind::MainToolCall
+            || result.tool_success != Some(true)
+            || !matches!(
+                result.action_class,
+                Some(ActionClass::Read | ActionClass::Search)
+            )
+        {
+            return None;
+        }
+        let previous_command = result_body_command(result)
+            .map(|command| normalize_command_for_repeat_detection(&command))
+            .unwrap_or_default();
+        if previous_command == normalized_command {
+            Some((result.id.clone(), command.clone()))
+        } else {
+            None
+        }
+    })
+}
+
 fn result_body_command(result: &NodeResult) -> Option<String> {
     result
         .body
@@ -13754,6 +13951,35 @@ fn command_is_general_validation_runner(command: &str) -> bool {
     ]
     .iter()
     .any(|marker| lower.contains(marker))
+}
+
+fn command_invokes_script_artifact(command: &str) -> bool {
+    let normalized = command.replace('\\', "/").to_ascii_lowercase();
+    for marker in ["python ", "python3 ", "py ", "node ", "bash ", "sh "] {
+        let mut rest = normalized.as_str();
+        while let Some((_, after_marker)) = rest.split_once(marker) {
+            let token = after_marker
+                .trim_start()
+                .split(|ch: char| ch.is_whitespace() || matches!(ch, '&' | '|' | ';' | ')' | '('))
+                .next()
+                .unwrap_or("")
+                .trim_matches(|ch| matches!(ch, '"' | '\'' | '`'));
+            if !token.starts_with('-') && script_artifact_token(token) {
+                return true;
+            }
+            rest = after_marker;
+        }
+    }
+    false
+}
+
+fn script_artifact_token(token: &str) -> bool {
+    let normalized =
+        normalize_artifact_ref(token.trim_matches(|ch| matches!(ch, '"' | '\'' | '`')));
+    matches!(
+        normalized.rsplit_once('.').map(|(_, ext)| ext),
+        Some("py" | "js" | "mjs" | "sh")
+    )
 }
 
 fn validation_dependency_changed_artifacts(map: &ActionMapInstance, node: &MapNode) -> Vec<String> {
@@ -13811,6 +14037,130 @@ fn task_output_contract_artifact_targets(task: &TaskState) -> Vec<String> {
         }
     }
     targets
+}
+
+fn task_required_fact_source_artifact_refs(task: &TaskState) -> Vec<String> {
+    let mut artifact_refs = Vec::new();
+    for source in &task.cognitive_state.fact_sources {
+        for value in [&source.id, &source.description] {
+            for artifact in extract_artifact_like_refs(value) {
+                push_required_fact_source_artifact_ref(&mut artifact_refs, artifact);
+            }
+        }
+        for evidence in &source.evidence_refs {
+            if let Some(artifact_ref) = evidence.artifact_ref.as_deref() {
+                push_required_fact_source_artifact_ref(
+                    &mut artifact_refs,
+                    normalize_artifact_ref(artifact_ref),
+                );
+            }
+        }
+    }
+    artifact_refs
+}
+
+fn push_required_fact_source_artifact_ref(artifact_refs: &mut Vec<String>, artifact_ref: String) {
+    if !required_fact_source_artifact_ref(&artifact_ref)
+        || artifact_refs
+            .iter()
+            .any(|existing| artifact_refs_match(existing, &artifact_ref))
+    {
+        return;
+    }
+    artifact_refs.push(artifact_ref);
+}
+
+fn required_fact_source_artifact_ref(artifact_ref: &str) -> bool {
+    let normalized = normalize_artifact_ref(artifact_ref);
+    let lower = normalized.to_ascii_lowercase();
+    if lower.is_empty()
+        || lower.contains("://")
+        || lower.starts_with("test-fixture:")
+        || lower.starts_with("output-ref:")
+        || lower.starts_with("validator:")
+    {
+        return false;
+    }
+    artifact_like_token(&normalized)
+}
+
+fn inspect_missing_required_fact_source_artifacts(
+    task: &TaskState,
+    map: &ActionMapInstance,
+    node: &MapNode,
+) -> Vec<String> {
+    let observed_artifacts = inspect_node_observed_artifact_refs(map, node);
+    task_required_fact_source_artifact_refs(task)
+        .into_iter()
+        .filter(|required| {
+            !observed_artifacts
+                .iter()
+                .any(|observed| artifact_refs_match(required, observed))
+        })
+        .collect()
+}
+
+fn inspect_node_observed_artifact_refs(map: &ActionMapInstance, node: &MapNode) -> Vec<String> {
+    let mut artifact_refs = Vec::new();
+    for result_ref in &node.result_context {
+        let Some(result) = map.results.get(&result_ref.id) else {
+            continue;
+        };
+        if result.kind != NodeResultKind::MainToolCall
+            || result.tool_success != Some(true)
+            || !matches!(
+                result.action_class,
+                Some(ActionClass::Read | ActionClass::Search)
+            )
+        {
+            continue;
+        }
+        for artifact in result_visible_artifact_refs(result) {
+            push_unique_artifact_ref(&mut artifact_refs, artifact);
+        }
+        for artifact in result_input_data_artifact_refs(result) {
+            push_unique_artifact_ref(&mut artifact_refs, artifact);
+        }
+        if let Some(command) = result_body_command(result) {
+            for artifact in command_artifact_refs(&command) {
+                push_unique_artifact_ref(&mut artifact_refs, artifact);
+            }
+        }
+    }
+    artifact_refs
+}
+
+fn command_artifact_refs(command: &str) -> Vec<String> {
+    let mut artifact_refs = Vec::new();
+    for artifact in extract_artifact_like_refs(command) {
+        let normalized = normalize_artifact_ref(&artifact);
+        if normalized.starts_with('-') || normalized.contains('*') || normalized.contains('?') {
+            continue;
+        }
+        push_unique_artifact_ref(&mut artifact_refs, normalized);
+    }
+    artifact_refs
+}
+
+fn push_unique_artifact_ref(artifact_refs: &mut Vec<String>, artifact_ref: String) {
+    if !artifact_ref.is_empty()
+        && !artifact_refs
+            .iter()
+            .any(|existing| artifact_refs_match(existing, &artifact_ref))
+    {
+        artifact_refs.push(artifact_ref);
+    }
+}
+
+fn artifact_refs_match(left: &str, right: &str) -> bool {
+    if artifact_refs_equivalent(left, right) {
+        return true;
+    }
+    let left_variants = artifact_command_match_variants(left);
+    let right_variants = artifact_command_match_variants(right);
+    left_variants
+        .iter()
+        .any(|left| right_variants.iter().any(|right| left == right))
 }
 
 fn command_mentions_artifact(command: &str, artifact: &str) -> bool {
@@ -14854,10 +15204,39 @@ fn is_probable_path_listing_line(line: &str) -> bool {
 }
 
 fn result_input_data_artifact_refs(result: &NodeResult) -> Vec<String> {
-    result_artifact_refs(result)
+    let mut artifacts = result_artifact_refs(result)
         .into_iter()
         .filter(|artifact| is_input_data_artifact_ref(artifact))
-        .collect()
+        .collect::<Vec<_>>();
+    if let Some(command) = result_body_command(result) {
+        for artifact in command_input_data_artifact_refs(&command) {
+            if !artifacts.iter().any(|existing| existing == &artifact) {
+                artifacts.push(artifact);
+            }
+        }
+    }
+    artifacts
+}
+
+fn command_input_data_artifact_refs(command: &str) -> Vec<String> {
+    let mut artifacts = Vec::new();
+    for token in command.split_whitespace() {
+        let candidate = normalize_artifact_ref(token.trim_matches(|ch: char| {
+            ch == '\'' || ch == '"' || ch == '`' || ch == ',' || ch == ';'
+        }));
+        if candidate.is_empty()
+            || candidate.starts_with('-')
+            || candidate.contains('*')
+            || candidate.contains('?')
+            || !is_input_data_artifact_ref(&candidate)
+        {
+            continue;
+        }
+        if !artifacts.iter().any(|existing| existing == &candidate) {
+            artifacts.push(candidate);
+        }
+    }
+    artifacts
 }
 
 fn is_input_data_artifact_ref(artifact_ref: &str) -> bool {
@@ -14905,7 +15284,12 @@ fn working_evidence_summary_for_nodes(map: &ActionMapInstance, node_ids: &[&str]
         })
         .filter(|(_, result)| successful_inspect_result_has_working_evidence(result))
         .map(|(index, result)| {
-            let artifacts = result_visible_artifact_refs(result);
+            let mut artifacts = result_visible_artifact_refs(result);
+            for artifact in result_input_data_artifact_refs(result) {
+                if !artifacts.iter().any(|existing| existing == &artifact) {
+                    artifacts.push(artifact);
+                }
+            }
             let artifact_text = if artifacts.is_empty() {
                 String::new()
             } else {
@@ -16968,6 +17352,51 @@ mod tests {
                 evidence_refs,
             )
             .expect("test fact source records");
+    }
+
+    fn record_required_fact_source_artifacts(
+        state: &mut ActionMapRuntimeState,
+        owner: ThreadId,
+        artifacts: &[&str],
+    ) {
+        for artifact in artifacts {
+            state
+                .record_fact_source_for_main(
+                    owner,
+                    &format!("source-{}", artifact.replace('/', "-").replace('.', "-")),
+                    "provided_by_user",
+                    format!("Required input fact source `{artifact}`."),
+                    vec![ActionMapEvidenceRefInput {
+                        artifact_ref: Some((*artifact).to_string()),
+                        ..Default::default()
+                    }],
+                )
+                .expect("required fact source records");
+        }
+    }
+
+    fn record_successful_read_result(
+        state: &mut ActionMapRuntimeState,
+        owner: ThreadId,
+        call_id_suffix: &str,
+        artifact: &str,
+    ) {
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                &format!("read-{call_id_suffix}"),
+                "shell_command",
+                Some(ActionClass::Read),
+                true,
+                format!(
+                    "TaskSpaceToolInvocationV1:\n\
+tool: shell_command\n\
+command: sed -n '1,240p' -- {artifact}\n\
+raw_output:\n\
+sample rows from {artifact}"
+                ),
+            )
+            .expect("successful read records");
     }
 
     fn snapshot_trace_for_result(
@@ -20780,6 +21209,219 @@ def test_large_output_ref():\n\
     }
 
     #[test]
+    fn inspect_node_blocks_repeated_successful_read_command() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        start_test_task(
+            &mut state,
+            owner,
+            "Inspect before edit",
+            "Read one source artifact before editing.",
+            true,
+        );
+        let descriptor = ToolActionDescriptor::new(
+            "shell_command",
+            ActionClass::Read,
+            r#"{"command":"sed -n '1,240p' -- schema.json","timeout_ms":10000}"#,
+        );
+
+        state
+            .prepare_main_tool_call(owner, descriptor.clone())
+            .expect("first read is allowed");
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "read-schema",
+                "shell_command",
+                Some(ActionClass::Read),
+                true,
+                "TaskSpaceToolInvocationV1:\n\
+tool: shell_command\n\
+command: sed -n '1,240p' -- schema.json\n\
+raw_output:\n\
+def build_organization():\n\
+    return {}"
+                    .to_string(),
+            )
+            .expect("successful read records");
+
+        let error = state
+            .prepare_main_tool_call(owner, descriptor)
+            .expect_err("same successful read command should not rerun");
+        let (message, events) = error.into_parts();
+
+        assert!(message.contains("inspect_duplicate_successful_read_or_search"));
+        assert!(message.contains("previous_read_search_result:result-1"));
+        assert!(message.contains("different concrete implementation/test artifact"));
+        assert!(message.contains("finish_node"));
+        assert!(events.iter().any(|event| {
+            matches!(
+                event,
+                MapRuntimeEvent::ToolActionBlocked(blocked)
+                    if blocked.reason == "inspect_duplicate_successful_read_or_search"
+                        && blocked.node_kind == "inspect_code_context"
+                        && blocked.action_class == "read"
+            )
+        }));
+    }
+
+    #[test]
+    fn inspect_duplicate_read_reports_missing_fact_source_artifacts_without_finish() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::InspectCodeContext,
+            "Inspect organization data",
+            "Read schema and every CSV fact source before implementation.",
+            "Inspect organization data",
+            "Read schema and every CSV fact source before implementation.",
+            true,
+        );
+        record_required_fact_source_artifacts(
+            &mut state,
+            owner,
+            &[
+                "schema.json",
+                "departments.csv",
+                "employees.csv",
+                "projects.csv",
+            ],
+        );
+        record_successful_read_result(&mut state, owner, "schema", "schema.json");
+        record_successful_read_result(&mut state, owner, "departments", "departments.csv");
+
+        let duplicate_departments = ToolActionDescriptor::new(
+            "shell_command",
+            ActionClass::Read,
+            r#"{"command":"sed -n '1,240p' -- departments.csv","timeout_ms":10000}"#,
+        );
+        let error = state
+            .prepare_main_tool_call(owner, duplicate_departments)
+            .expect_err("duplicate read must be blocked with missing fact-source recovery");
+        let (message, events) = error.into_parts();
+
+        assert!(message.contains("inspect_duplicate_successful_read_or_search"));
+        assert!(message.contains("missing_fact_source_artifact:employees.csv"));
+        assert!(message.contains("missing_fact_source_artifact:projects.csv"));
+        assert!(message.contains("declared fact-source artifact `employees.csv`"));
+        assert!(message.contains("declared fact-source artifact `projects.csv`"));
+        assert!(
+            !message.contains("taskspace_control(action=finish_node"),
+            "finish_node must not be a next action while declared fact sources are unread"
+        );
+        assert!(events.iter().any(|event| {
+            matches!(
+                event,
+                MapRuntimeEvent::ToolActionBlocked(blocked)
+                    if blocked.reason == "inspect_duplicate_successful_read_or_search"
+                        && blocked.node_kind == "inspect_code_context"
+                        && blocked.action_class == "read"
+            )
+        }));
+    }
+
+    #[test]
+    fn inspect_missing_fact_sources_block_manual_and_forced_finish_until_read() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (_, map_id, node_id, _) = start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::InspectCodeContext,
+            "Inspect organization data",
+            "Read schema and every CSV fact source before implementation.",
+            "Inspect organization data",
+            "Read schema and every CSV fact source before implementation.",
+            true,
+        );
+        record_required_fact_source_artifacts(
+            &mut state,
+            owner,
+            &[
+                "schema.json",
+                "departments.csv",
+                "employees.csv",
+                "projects.csv",
+            ],
+        );
+        record_successful_read_result(&mut state, owner, "schema", "schema.json");
+        record_successful_read_result(&mut state, owner, "departments", "departments.csv");
+
+        let snapshot = ActionMapProviderRequestBudgetSnapshot {
+            task_id: state.active_task_id.clone(),
+            map_id: map_id.clone(),
+            node_id: Some(node_id.clone()),
+            node_kind: Some(NodeKind::InspectCodeContext.as_str().to_string()),
+            current_node_progress_signature: None,
+            current_node_has_successful_edit: false,
+            current_node_has_dependency_working_evidence: false,
+            current_node_has_uncovered_mandatory_evidence: false,
+            current_node_uncovered_mandatory_evidence: Vec::new(),
+            route_mode: Some("thin".to_string()),
+            profile_name: Some("taskspace-v005-thin".to_string()),
+            request_phase: Some("model_sampling".to_string()),
+            provider_request_context_missing_reason: None,
+            request_count: 12,
+            max_requests: 20,
+            node_request_count: 12,
+            max_model_requests_per_node: 3,
+            post_budget_grace_requests: 1,
+            post_budget_grace_request_count: 0,
+            budget_state: "warned".to_string(),
+        };
+
+        let forced = state
+            .force_finish_inspect_for_provider_budget(
+                owner,
+                &snapshot,
+                "inspect_duplicate_read_search_gate_recovery",
+            )
+            .expect("missing fact-source guard should not error");
+        assert!(forced.is_none());
+        assert_eq!(
+            state.current_main_node_id.as_deref(),
+            Some(node_id.as_str())
+        );
+
+        let manual_error = state
+            .finish_main_node_with_next(
+                owner,
+                &node_id,
+                "Only schema and departments were inspected.".to_string(),
+                None,
+                Some(ActionMapNextNodeDraft {
+                    kind: NodeKind::ImplementSolution,
+                    title: "Apply inspected fix".to_string(),
+                    context_summary: "Apply implementation after inspection.".to_string(),
+                    dependency_node_ids: vec![node_id.clone()],
+                }),
+            )
+            .expect_err("manual finish must be blocked until all fact sources are read");
+        assert!(manual_error.contains("declared fact-source artifact(s) remain unread"));
+        assert!(manual_error.contains("employees.csv"));
+        assert!(manual_error.contains("projects.csv"));
+
+        record_successful_read_result(&mut state, owner, "employees", "employees.csv");
+        record_successful_read_result(&mut state, owner, "projects", "projects.csv");
+        let forced_after_reads = state
+            .force_finish_inspect_for_provider_budget(
+                owner,
+                &snapshot,
+                "inspect_duplicate_read_search_gate_recovery",
+            )
+            .expect("force finish should not error after fact-source coverage")
+            .expect("force finish should create implementation node after coverage");
+
+        assert_eq!(forced_after_reads.0.next_node_id.as_deref(), Some("node-2"));
+        assert_eq!(state.current_main_node_id.as_deref(), Some("node-2"));
+    }
+
+    #[test]
     fn provider_request_budget_snapshot_uses_final_synthesis_phase() {
         let owner = ThreadId::new();
         let mut state = ActionMapRuntimeState::default();
@@ -21387,6 +22029,22 @@ def normalize_status(value: str) -> str:\n\
         );
         assert!(error.contains("recover_logs.py"), "{error}");
 
+        let wrong_script_validation_attempt = serde_json::json!({
+            "command": "python process.py && python -c \"import json; data=json.load(open('/app/recovered_logs/results.json')); assert isinstance(data, list)\"",
+            "timeout_ms": 120000
+        })
+        .to_string();
+        state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new(
+                    "shell_command",
+                    ActionClass::Test,
+                    wrong_script_validation_attempt,
+                ),
+            )
+            .expect("script execution attempts should reach the tool layer for concrete feedback");
+
         state
             .prepare_main_tool_call(
                 owner,
@@ -21708,6 +22366,57 @@ def normalize_status(value: str) -> str:\n\
             Some(validation_node_id.as_str())
         );
         assert!(rework_node.context.summary.contains("FileNotFoundError"));
+    }
+
+    #[test]
+    fn validation_missing_command_script_stays_on_validation_node() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (_, map_id, validation_node_id, _) = start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::SmokeTest,
+            "Validate generated organization",
+            "Run the converter script with a valid command.",
+            "Smoke test",
+            "Run the converter and validate organization.json.",
+            true,
+        );
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "bad-script-name",
+                "shell_command",
+                Some(ActionClass::Test),
+                false,
+                "TaskSpaceToolInvocationV1:\n\
+tool: shell_command\n\
+command: python process.py && python -c 'import json; json.load(open(\"organization.json\"))'\n\
+raw_output:\n\
+python: can't open file '/workspace/process.py': [Errno 2] No such file or directory"
+                    .to_string(),
+            )
+            .expect("missing command script result records")
+            .expect("failed validation result id");
+
+        let map = state.maps.get(&map_id).expect("map");
+        let validation_node = map.nodes.get(&validation_node_id).expect("validation node");
+        assert_eq!(validation_node.status, NodeStatus::Running);
+        assert_eq!(
+            state.current_main_node_id.as_deref(),
+            Some(validation_node_id.as_str())
+        );
+        assert!(
+            validation_node_failed_noninfra_result(map, validation_node).is_none(),
+            "missing command script is validation command feedback, not implementation failure"
+        );
+        assert!(
+            !map.nodes
+                .values()
+                .any(|node| node.kind == NodeKind::ImplementSolution
+                    && node.origin_node_id.as_deref() == Some(validation_node_id.as_str()))
+        );
     }
 
     #[test]
@@ -23724,6 +24433,68 @@ AssertionError: schema field missing";
     }
 
     #[test]
+    fn inspect_data_artifact_read_counts_as_working_evidence() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (_, map_id, node_id, _) = start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::InspectCodeContext,
+            "Inspect data inputs",
+            "Read schema and CSV data before implementation.",
+            "Inspect data inputs",
+            "Read schema and CSV data before implementation.",
+            true,
+        );
+
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "read-schema",
+                "shell_command",
+                Some(ActionClass::Read),
+                true,
+                "TaskSpaceToolInvocationV1:\n\
+tool: shell_command\n\
+command: sed -n '1,240p' -- schema.json\n\
+raw_output:\n\
+{\"type\":\"object\",\"required\":[\"metadata\",\"organization\",\"statistics\"]}"
+                    .to_string(),
+            )
+            .expect("schema read records");
+
+        assert!(
+            state
+                .inspect_node_has_successful_code_or_test_read(&map_id, &node_id)
+                .expect("inspect node should exist"),
+            "schema/data artifact command target should count as inspect working evidence"
+        );
+
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "read-csv",
+                "shell_command",
+                Some(ActionClass::Read),
+                true,
+                "TaskSpaceToolInvocationV1:\n\
+tool: shell_command\n\
+command: sed -n '1,240p' -- departments.csv\n\
+raw_output:\n\
+id,name,budget\n\
+D001,Engineering,1500000"
+                    .to_string(),
+            )
+            .expect("csv read records");
+
+        let summary = state
+            .current_main_working_evidence_summary()
+            .expect("working evidence summary");
+        assert!(summary.contains("schema.json") || summary.contains("departments.csv"));
+    }
+
+    #[test]
     fn thin_route_allows_bounded_shallow_directory_discovery_in_inspect() {
         let mut state = ActionMapRuntimeState::default();
         let owner = ThreadId::new();
@@ -24005,6 +24776,81 @@ AssertionError: schema field missing";
             Some("node-1"),
             "runtime should leave the inspect node active for recovery"
         );
+    }
+
+    #[test]
+    fn forced_inspect_transition_accepts_duplicate_read_search_gate_recovery() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (_, map_id, node_id, _) = start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::InspectCodeContext,
+            "Inspect schema",
+            "Read schema before implementation.",
+            "Inspect schema",
+            "Read schema before implementation.",
+            true,
+        );
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "read-schema",
+                "shell_command",
+                Some(ActionClass::Read),
+                true,
+                "TaskSpaceToolInvocationV1:\n\
+tool: shell_command\n\
+command: sed -n '1,240p' -- schema.json\n\
+raw_output:\n\
+def build_organization():\n\
+    return {}"
+                    .to_string(),
+            )
+            .expect("successful read records");
+        let snapshot = ActionMapProviderRequestBudgetSnapshot {
+            task_id: state.active_task_id.clone(),
+            map_id,
+            node_id: Some(node_id),
+            node_kind: Some(NodeKind::InspectCodeContext.as_str().to_string()),
+            current_node_progress_signature: None,
+            current_node_has_successful_edit: false,
+            current_node_has_dependency_working_evidence: false,
+            current_node_has_uncovered_mandatory_evidence: false,
+            current_node_uncovered_mandatory_evidence: Vec::new(),
+            route_mode: Some("thin".to_string()),
+            profile_name: Some("taskspace-v005-thin".to_string()),
+            request_phase: Some("model_sampling".to_string()),
+            provider_request_context_missing_reason: None,
+            request_count: 12,
+            max_requests: 20,
+            node_request_count: 12,
+            max_model_requests_per_node: 3,
+            post_budget_grace_requests: 1,
+            post_budget_grace_request_count: 0,
+            budget_state: "warned".to_string(),
+        };
+
+        let forced = state
+            .force_finish_inspect_for_provider_budget(
+                owner,
+                &snapshot,
+                "inspect_duplicate_read_search_gate_recovery",
+            )
+            .expect("duplicate read/search gate recovery should not error")
+            .expect("duplicate read/search gate recovery should force inspect transition");
+
+        assert_eq!(forced.0.next_node_id.as_deref(), Some("node-2"));
+        assert_eq!(state.current_main_node_id.as_deref(), Some("node-2"));
+        assert!(forced.1.iter().any(|event| {
+            matches!(
+                event,
+                MapRuntimeEvent::TaskspaceTraceEventRecorded(recorded)
+                    if recorded.kind == "forced_inspect_transition"
+                        && recorded.tags.iter().any(|tag| tag == "trigger:inspect_duplicate_read_search_gate_recovery")
+            )
+        }));
     }
 
     #[test]
