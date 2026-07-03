@@ -712,3 +712,55 @@
   - Direct output artifacts remain allowed when the changed artifact itself is the output and the validation body contains a concrete output value.
   - Existing local validator, changed-artifact coverage, validation infra, and rework routing regressions continue to pass.
 - Interpretation: The new `validation-closeout-output-contract-coverage-gap` class is focused-fixed. Real utility validation still requires another keyed rerun to verify that TaskSpace uses a contract-checking validation command and no longer finalizes after generator-only success.
+
+# Hypothesis H-015: output-contract coverage can accept weak JSON parse instead of schema validation
+
+- Claim: After H-014, TaskSpace correctly rejects generator-only validation and feeds the failure back to the model, but the output-contract coverage predicate can still be too weak when the schema artifact is recorded as a fact source or success criterion rather than as an output contract. In that case a command like `python process.py && python -c 'json.load(open("organization.json"))'` mentions the output artifact and has parse semantics, so runtime accepts it even though it does not validate `schema.json`, public tests, or equivalent field assertions.
+- Prediction: The next keyed rerun will show `validation_test_missing_output_contract_coverage` feedback for `python process.py`, then the model will switch to a weak JSON parse command, final answer will claim schema validation, and public validation will still fail on schema/test keys. Source inspection will show `task_output_contract_validation_requirements` only derives schema targets from `output_contracts`, not from `fact_sources` / `success_criteria`.
+- Diagnostic evidence plan: Inspect the H-014 rerun trace for `TaskSpaceValidationNeedsTestRecoveryV1`, the accepted validation command, public validator errors, and generated JSON keys; add a focused runtime test where `organization.json` is an output contract while `schema.json` is only a fact source; tighten command semantics so schema/validator targets require schema/validator validation semantics.
+- Status: confirmed.
+
+# Evidence E-037: keyed rerun blocks generator-only validation but accepts weak JSON parse
+
+- Prediction tested: H-015 predicts the old generator-only closeout is gone and the next failure is weak coverage semantics.
+- Real rerun:
+  ```text
+  RunDir: target/r4-org-json-real-keyed-20260703k-output-contract/runs/terminal_bench__organization-json-generator/20260704-013819-201
+  PairReport: pair-001/pair-report.md
+  reported_evidence_level: E1
+  outcome_standard: wrong
+  outcome_taskspace: wrong
+  right_exec_timed_out: False
+  right_tool_call_count: 9
+  ```
+- Matched trace signals:
+  - Runtime rejected `run_test` command `python process.py` with `validation_test_missing_output_contract_coverage`.
+  - Session inserted `TaskSpaceValidationNeedsTestRecoveryV1`, proving the failure semantic reached the model.
+  - The model then ran `python process.py && python -c 'import json; data=json.load(open("organization.json")); print("Valid")'`.
+  - That command exited 0 and only proved JSON parse/read success.
+  - The final answer claimed the processor was validated successfully against the schema.
+  - Public validator failed with `KeyError: 'members'` and `KeyError: 'averageDepartmentBudget'`.
+  - Generated output still used `memberIds` and omitted `averageDepartmentBudget`, `skillDistribution`, `departmentSizes`, and `projectStatusDistribution`.
+- Interpretation: This is not raw tool failure and not feedback loss. It is feedback semantic under-specification: the model obeyed the recovery signal, but runtime accepted a weaker command because `schema.json` lived in fact sources rather than output contracts.
+
+# Evidence E-038: schema fact-source output-contract gate rejects weak JSON parse
+
+- Prediction tested: H-015 requires schema/validator artifacts from fact sources and success criteria to participate in output-contract validation requirements.
+- Repair artifact:
+  - `third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs`
+- Focused commands:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_node_requires_schema_fact_source_for_output_contract_check --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_node_blocks --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core force_finish_validation --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_ --locked
+  cargo fmt --all --check
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale --locked
+  ```
+- Result: passed; `validation_` now covers 78 tests.
+- Matched test signals:
+  - When `organization.json` is the output contract and `schema.json` is only a fact source, `python process.py && python -c "json.load(...); print('Valid')"` is rejected with `validation_test_missing_output_contract_coverage`.
+  - The next valid action preserves `python process.py && python -m jsonschema -i organization.json schema.json`.
+  - Schema-aware validation with `python -m jsonschema` is allowed.
+  - Direct output artifact edits can still be validated by concrete output assertions such as `assert isinstance(data, dict)`.
+- Interpretation: The new `validation-output-contract-schema-fact-source-gap` class is focused-fixed. Real utility validation still requires another keyed rerun to determine whether TaskSpace now performs schema/public-test validation or exposes the next R4 tool/control issue.

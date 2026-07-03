@@ -1787,3 +1787,57 @@ CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_ --locked
 状态：该 validation/feedback class 已 focused fixed；R4-G utility 仍需再次 keyed rerun 验证 TaskSpace 是否会使用
 `python generate_json.py && python -m jsonschema -i organization.json schema.json` 或真实 public-equivalent validator，而不再
 generator-only closeout。
+
+## 5.25 2026-07-04 schema fact-source weak validation gap
+
+output-contract coverage 修复后的真实 rerun：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260703k-output-contract/runs/terminal_bench__organization-json-generator/20260704-013819-201
+reported_evidence_level: E1
+outcome_standard: wrong
+outcome_taskspace: wrong
+right_exec_timed_out: False
+right_tool_call_count: 9
+```
+
+关键观察：
+
+| Signal | 结论 |
+|---|---|
+| `python process.py` 被 `validation_test_missing_output_contract_coverage` 拒绝 | H-014 的 generator-only guard 已在真实 run 中生效 |
+| session 插入 `TaskSpaceValidationNeedsTestRecoveryV1` | 失败语义已传给模型，不是 feedback 丢失 |
+| 模型改跑 `python process.py && python -c 'import json; data=json.load(open("organization.json")); print("Valid")'` | 模型响应了 feedback，但 validation 语义仍过弱 |
+| runtime 接受该命令，final answer 声称 “validated successfully against the schema” | coverage predicate 把 JSON parse 当成 schema validation |
+| public validator 仍报 `KeyError: 'members'`、`KeyError: 'averageDepartmentBudget'` | 输出 contract 未满足；`memberIds` 和缺失统计字段仍未被本地 validation 捕获 |
+
+本轮新增并 focused 修复的问题类型：
+
+| Case | Before | After | Evidence |
+|---|---|---|---|
+| `validation-output-contract-schema-fact-source-gap` | output contract 只声明 `organization.json`，`schema.json` 作为 fact source / success criterion 出现时，coverage gate 只要求命令提到 output artifact 并具有任意 validation marker；`json.load` / 普通 `python -c` 可通过 | schema/validator artifact 从 output contracts、success criteria、fact sources 一并进入 `schema_targets`；有 schema/validator target 时必须看到 schema/validator validation 语义，如 `jsonschema`、`validate`、`pytest`、`run-tests`，不能只靠 JSON parse | `validation_node_requires_schema_fact_source_for_output_contract_check`; `validation_node_blocks`; `force_finish_validation`; `validation_` |
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_node_requires_schema_fact_source_for_output_contract_check --locked
+  PASS
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_node_blocks --locked
+  PASS
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core force_finish_validation --locked
+  PASS
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_ --locked
+  PASS：78 tests
+
+cargo fmt --all --check
+  PASS
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale --locked
+  PASS
+```
+
+状态：该 validation/feedback class 已 focused fixed；R4-G utility 仍需再次 keyed rerun 验证 TaskSpace 是否会实际运行
+`python -m jsonschema -i organization.json schema.json`、public-equivalent validator 或等价 schema assertions。
