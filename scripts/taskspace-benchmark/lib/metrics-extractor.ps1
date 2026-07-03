@@ -170,16 +170,14 @@ function Add-TaskspaceChangedPath {
     $hashErrorId = ""
     $hashRetries = 0
     if (Test-Path -LiteralPath $absolute -PathType Leaf) {
-        $fileInfo = Get-Item -LiteralPath $absolute
-        $size = [int64]$fileInfo.Length
         for ($attempt = 0; $attempt -lt 3; $attempt++) {
             try {
                 if ($attempt -gt 0) {
                     $hashRetries++
                     Start-Sleep -Milliseconds 100
-                    $fileInfo = Get-Item -LiteralPath $absolute -ErrorAction Stop
-                    $size = [int64]$fileInfo.Length
                 }
+                $fileInfo = Get-Item -LiteralPath $absolute -ErrorAction Stop
+                $size = [int64]$fileInfo.Length
                 $sha = (Get-FileHash -Algorithm SHA256 -LiteralPath $absolute -ErrorAction Stop).Hash.ToLowerInvariant()
                 $hashStatus = "hashed"
                 $hashError = ""
@@ -189,6 +187,12 @@ function Add-TaskspaceChangedPath {
                 $hashStatus = "read_error"
                 $hashError = [string]$_.Exception.Message
                 $hashErrorId = [string]$_.FullyQualifiedErrorId
+                if ($hashErrorId -match "PathNotFound|ItemNotFound" -or $hashError -match "Could not find item|Cannot find path") {
+                    $hashStatus = "missing"
+                    $hashError = ""
+                    $hashErrorId = ""
+                    break
+                }
                 if ($hashError -match "being used by another process|cannot access the file|in use" -or $hashErrorId -match "FileReadError") {
                     $hashStatus = "unavailable_locked"
                 }

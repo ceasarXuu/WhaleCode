@@ -5,7 +5,7 @@
 ## 5.1 当前状态
 
 ```text
-Updated: 2026-07-02
+Updated: 2026-07-03
 Code state at evidence capture: R4 tool-chain convergence changes through public-10 closeout
 Status:
   R4-A pass: tool path coverage manifest and gate are executable; canonical paths now require coverage_test.
@@ -15,7 +15,7 @@ Status:
   R4-E pass for large raw output ref and pair-safe provider projection focused gates.
   R4-F pass for CodeMode, multi-agent, and MCP non-direct tool path classification gates.
   R4-G closed for benchmark/report engineering gate; utility evidence is negative and blocks E3.
-  R4-H closed with engineering closeout and E3 no-go decision.
+  R4-H closed with engineering closeout and E3 no-go decision; 2026-07-03 keyed rerun confirms provider credentials are no longer the blocker, but TaskSpace utility convergence remains blocked.
 ```
 
 ## 5.2 PhaseBenefitEvidenceV1
@@ -1400,3 +1400,84 @@ target/r4-acceptance-readiness/r4-acceptance-readiness.json
 - R4 工程 readiness 当前可由一个 JSON artifact 证明。
 - 该 gate 不会把 R4 判成完成；缺 `DEEPSEEK_API_KEY` 时以 exit code `3` 明确阻断。
 - key 配置后，该 gate 应先变为 `ready_for_real_utility_rerun`，再继续真实 public sample 复验。
+
+## 5.18 2026-07-03 keyed organization-json-generator 复验
+
+用户提供 `.env.local` 中的 `DEEPSEEK_API_KEY` 后，R4 readiness gate 从 credential blocked 进入可真实复验状态。key 只通过当前 shell 环境传给子进程，不进入仓库、报告或日志摘要。
+
+### 5.18.1 readiness gate
+
+```text
+set -a; . ./.env.local; set +a; powershell -NoProfile -ExecutionPolicy Bypass -File scripts/taskspace-benchmark/test-r4-acceptance-readiness.ps1
+R4 acceptance readiness passed for real utility rerun
+ReadinessReport: target/r4-acceptance-readiness/r4-acceptance-readiness.json
+```
+
+解释：
+
+- lightweight engineering gates pass。
+- provider credential preflight pass。
+- 这只表示“可以重跑真实 utility”，不表示 R4 已验收。
+
+### 5.18.2 metrics extractor durability repair
+
+首次 keyed `organization-json-generator` 真实执行进入 model run 后，在 post-processing 阶段失败：
+
+```text
+Get-Item: scripts/taskspace-benchmark/lib/metrics-extractor.ps1:173
+Could not find item .../pair-001/left/app/.python-version.
+```
+
+根因：`Add-TaskspaceChangedPath` 在 `Test-Path` 后、进入 retry/catch 前执行 `Get-Item`，文件若在这段窗口消失会直接终止 metrics extraction。
+
+修复：
+
+- `Get-Item` 移入原有 retry/catch 块。
+- `PathNotFound` / `ItemNotFound` / `Could not find item` / `Cannot find path` 归一为 `hash_status=missing`。
+- `test-metrics-extractor-harness.ps1` 增加 vanished changed path 断言。
+
+验证：
+
+```text
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/taskspace-benchmark/test-metrics-extractor-harness.ps1
+TaskSpace metrics extractor harness self-test: PASS
+```
+
+第二次 keyed run 的真实 metrics 也记录：
+
+```text
+.python-version[??] hash_status=missing
+```
+
+### 5.18.3 keyed rerun utility result
+
+第二次 keyed rerun 成功写出完整 paired artifacts：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260703b/runs/terminal_bench__organization-json-generator/20260703-155610-406
+PairReport: pair-001/pair-report.md
+reported_evidence_level: E1
+included_in_utility_aggregate: False
+```
+
+核心结果：
+
+| Side | Result |
+| --- | --- |
+| standard | `exec_exit_code=0`，`public_validation_exit_code=1`，`hidden_oracle_exit_code=0`，`business_success=False`，`outcome_standard=wrong` |
+| taskspace | `exec_exit_code=124`，`exec_timed_out=True`，`wall_time_ms=900088`，`tool_call_count=92`，`business_success=False`，`outcome_taskspace=agent_exec_timeout` |
+
+TaskSpace diagnostic signals：
+
+```text
+TaskSpaceProviderRequestBudgetEventV1 ... request_count=89->90 max=20 state=over_profile_hint
+TaskSpaceNoActionRecoveryV1 ... Recovery attempt 32 ... advisory threshold 3
+bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted
+```
+
+判断：
+
+1. R4 的 provider credential blocker 已解除；`.env.local` 配置方式可用。
+2. R4 仍不能验收：该 run 是 E1 诊断证据，不进入 utility aggregate，也不满足 E3。
+3. 当前 P0 blocker 是 TaskSpace 在 sandbox/tool failure 后不能收敛到 bounded blocked-with-evidence，导致 request amplification 和 900s timeout。
+4. 下一步应优先做 request budget hard gate 或 repeated no-action recovery hard stop，再重跑 `organization-json-generator`。

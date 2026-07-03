@@ -145,3 +145,88 @@
 - Interpretation:
   - R4-H engineering readiness is now machine-readable from one command.
   - The readiness gate intentionally refuses to mark completion until a real DeepSeek utility rerun is possible and passes the required evidence checks.
+
+# Hypothesis H-006: changed-file inventory has a file-disappearance race
+
+- Claim: During real benchmark post-processing, `Add-TaskspaceChangedPath` checks whether a changed path exists, then calls `Get-Item` outside the retry/catch block. If the file disappears between discovery and metadata capture, metrics extraction throws and aborts the whole paired run after model execution.
+- Prediction: The keyed `organization-json-generator` run will fail in `metrics-extractor.ps1` at the initial `Get-Item` for a changed path that no longer exists; wrapping metadata capture in the existing retry/missing-file logic will let post-processing continue and record `hash_status=missing`.
+- Diagnostic evidence plan: Use the keyed run stack trace and code location to confirm the uncaught `Get-Item` path, then add a focused harness assertion that disappeared changed paths are represented as missing instead of throwing.
+- Status: confirmed.
+
+# Evidence E-010: keyed organization-json-generator run aborts in metrics extractor post-processing
+
+- Prediction tested: H-006 predicts post-processing can abort after a changed file disappears before metadata capture.
+- Command: `run-taskspace-external-benchmark.ps1 ... organization-json-generator ... deepseek-v4-flash`
+- Run root: `target/r4-org-json-real-keyed-20260703/runs/terminal_bench__organization-json-generator/20260703-154156-481`
+- Result: process exited `1` during metrics extraction.
+- Matched signal:
+  ```text
+  Get-Item: scripts/taskspace-benchmark/lib/metrics-extractor.ps1:173
+  Could not find item
+  .../pair-001/left/app/.python-version.
+  ```
+- Interpretation:
+  - The DeepSeek key successfully moved the run past provider preflight into real paired execution.
+  - The current blocker is a harness post-processing crash, not a completed utility result.
+
+# Evidence E-011: metrics extractor performs uncaught metadata read after Test-Path
+
+- Prediction tested: H-006 predicts the initial metadata read is outside the catch/retry block.
+- Source: `scripts/taskspace-benchmark/lib/metrics-extractor.ps1`
+- Matched signal:
+  ```text
+  if (Test-Path -LiteralPath $absolute -PathType Leaf) {
+      $fileInfo = Get-Item -LiteralPath $absolute
+      $size = [int64]$fileInfo.Length
+      for ($attempt = 0; $attempt -lt 3; $attempt++) {
+          try {
+              ...
+  ```
+- Interpretation:
+  - A file that vanishes after `Test-Path` but before `Get-Item` bypasses the intended retry/catch behavior and terminates the script.
+
+# Evidence E-012: missing changed files are now represented instead of aborting metrics extraction
+
+- Prediction tested: H-006 predicts the repaired extractor records vanished changed paths as `hash_status=missing`.
+- Repair artifacts:
+  - `scripts/taskspace-benchmark/lib/metrics-extractor.ps1`
+  - `scripts/taskspace-benchmark/test-metrics-extractor-harness.ps1`
+- Focused command: `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/taskspace-benchmark/test-metrics-extractor-harness.ps1`
+- Focused result: passed.
+- Real rerun: `target/r4-org-json-real-keyed-20260703b/runs/terminal_bench__organization-json-generator/20260703-155610-406`
+- Matched real-run signal:
+  ```text
+  .python-version[??] hash_status=missing
+  PairReport: pair-001/pair-report.md
+  ```
+- Interpretation:
+  - The previous post-processing crash is fixed.
+  - A real keyed run now reaches pair report and metrics emission even when a discovered changed file disappears before hashing.
+  - This is harness durability evidence, not TaskSpace utility success.
+
+# Evidence E-013: keyed organization-json-generator rerun exposes TaskSpace execution convergence failure
+
+- Prediction tested: After H-006 repair, the keyed rerun should either produce utility evidence or expose the next real blocker.
+- Command: `run-taskspace-external-benchmark.ps1 ... organization-json-generator ... deepseek-v4-flash`
+- Run root: `target/r4-org-json-real-keyed-20260703b/runs/terminal_bench__organization-json-generator/20260703-155610-406`
+- Result: process exited `1`, but `run-status.json` reports a valid completed run with one completed pair.
+- Matched signal:
+  ```text
+  reported_evidence_level: E1
+  included_in_utility_aggregate: False
+  outcome_standard: wrong
+  outcome_taskspace: agent_exec_timeout
+  right / taskspace exec_exit_code: 124
+  right / taskspace exec_timed_out: True
+  right / taskspace tool_call_count: 92
+  ```
+- Additional diagnostic signal:
+  ```text
+  TaskSpaceProviderRequestBudgetEventV1 ... request_count=89->90 max=20 state=over_profile_hint
+  TaskSpaceNoActionRecoveryV1 ... Recovery attempt 32 ... advisory threshold 3
+  bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted
+  ```
+- Interpretation:
+  - `DEEPSEEK_API_KEY` is now correctly wired for the harness; provider preflight passed and the model was invoked.
+  - R4 remains not accepted: this run is E1 diagnostic evidence only, not score-valid utility evidence.
+  - The next blocker is TaskSpace convergence under sandbox/tool failures: the path exceeded provider request budget hints and timed out instead of producing a bounded blocked-with-evidence result.

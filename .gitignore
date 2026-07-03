@@ -3,6 +3,7 @@ tmp/
 node_modules/
 dist/
 coverage/
+.vscode/
 target/
 target-test/
 target-map-show/

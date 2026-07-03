@@ -43,6 +43,10 @@ Assert-True ($paths -contains "src/main.py") "tracked source change was not repo
 Assert-True ($paths -contains "notes.txt") "real untracked file was not reported"
 Assert-True (@($paths | Where-Object { $_ -like ".tbench-testing/*" }).Count -eq 0) "runtime .tbench-testing files leaked into changed inventory"
 Assert-True (@($paths | Where-Object { $_ -like "*external-validator-source*" }).Count -eq 0) "ignored runtime validator-looking files leaked into changed inventory"
+$vanishedRows = @{}
+Add-TaskspaceChangedPath $vanishedRows $repo "vanished/.python-version" "??" "git_status"
+Assert-True ($vanishedRows.ContainsKey("vanished/.python-version")) "vanished changed path was not represented"
+Assert-True ([string]$vanishedRows["vanished/.python-version"].hash_status -eq "missing") "vanished changed path did not stay hash_status=missing"
 
 $artifactDir = New-Dir (Join-Path $runDir "large-rollout-artifacts")
 $jsonlPath = Join-Path $artifactDir "whale-exec.jsonl"
