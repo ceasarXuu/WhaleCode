@@ -21,6 +21,7 @@ use crate::action_map::ActionMapProviderResponseActionabilityInput;
 use crate::action_map::ActionMapRuntimeState;
 use crate::action_map::NodeKind;
 use crate::action_map::TaskSpaceBudgetGateDecision;
+use crate::action_map::TaskSpaceProviderRequestPhase;
 use crate::action_map::ToolActionDescriptor;
 use crate::agent::AgentControl;
 use crate::agent::AgentStatus;
@@ -1174,6 +1175,22 @@ impl Session {
         state
             .action_map_runtime
             .gate_provider_request_pre_dispatch(snapshot)
+    }
+
+    pub(crate) async fn action_map_mark_next_provider_request_budget_recovery(
+        &self,
+        turn_context: &TurnContext,
+        reason: impl Into<String>,
+    ) {
+        let events = {
+            let mut state = self.state.lock().await;
+            state.action_map_runtime.set_next_provider_request_phase(
+                TaskSpaceProviderRequestPhase::BudgetRecovery,
+                reason,
+            )
+        };
+        self.emit_action_map_events_for_turn(turn_context, events)
+            .await;
     }
 
     pub(crate) async fn record_action_map_provider_request_budget_events(

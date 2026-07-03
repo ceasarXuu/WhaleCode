@@ -2994,6 +2994,14 @@ preview:\n\
                     .copied()
             })
             .unwrap_or(0);
+        let task = task_id
+            .as_deref()
+            .and_then(|task_id| self.tasks.get(task_id));
+        let max_model_requests_per_node = effective_provider_node_request_limit(
+            budget.max_model_requests_per_node,
+            task,
+            current_node,
+        );
         Some(ActionMapProviderRequestBudgetSnapshot {
             task_id,
             map_id,
@@ -3011,7 +3019,7 @@ preview:\n\
             request_count: self.budget_counters.rollout_model_request_count,
             max_requests: budget.max_rollout_model_requests,
             node_request_count,
-            max_model_requests_per_node: budget.max_model_requests_per_node,
+            max_model_requests_per_node,
             post_budget_grace_requests: budget.post_budget_grace_requests,
             post_budget_grace_request_count: self.budget_counters.post_budget_grace_request_count,
             budget_state: self.budget_state.as_str().to_string(),
@@ -13424,6 +13432,24 @@ fn provider_request_budget_snapshot_pressure_active_for_node(
     false
 }
 
+fn effective_provider_node_request_limit(
+    base_limit: usize,
+    task: Option<&TaskState>,
+    node: Option<&MapNode>,
+) -> usize {
+    if !node.is_some_and(|node| node.kind == NodeKind::InspectCodeContext) {
+        return base_limit;
+    }
+    let fact_source_count = task
+        .map(task_required_fact_source_artifact_refs)
+        .unwrap_or_default()
+        .len();
+    if fact_source_count == 0 {
+        return base_limit;
+    }
+    base_limit.max(fact_source_count.saturating_mul(2).saturating_add(2))
+}
+
 fn budget_state_for_counter(counter_value: usize, counter_limit: usize) -> TaskSpaceBudgetState {
     if counter_limit == 0 || counter_value >= counter_limit {
         return TaskSpaceBudgetState::OverProfileHint;
@@ -16758,6 +16784,49 @@ mod tests {
                 .iter()
                 .any(|item| item == "post_budget_grace:1/1")
         );
+    }
+
+    #[test]
+    fn taskspace_active_budget_expands_inspect_node_limit_for_fact_sources() {
+        let owner = ThreadId::new();
+        let mut state = ActionMapRuntimeState::default();
+        state.set_mode(MapRuntimeMode::Experiment);
+        state.activate_active_budget_for_route("deep-profile", TaskSpaceRouteMode::Deep);
+        let (_task_id, _map_id, node_id, _events) = start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::InspectCodeContext,
+            "Inspect organization data",
+            "Read schema and every CSV fact source before implementation.",
+            "Inspect organization data",
+            "Read schema and every CSV fact source before implementation.",
+            true,
+        );
+        record_required_fact_source_artifacts(
+            &mut state,
+            owner,
+            &[
+                "schema.json",
+                "departments.csv",
+                "employees.csv",
+                "projects.csv",
+            ],
+        );
+        state
+            .budget_counters
+            .model_request_count_by_node
+            .insert(node_id, 5);
+
+        let snapshot = state
+            .provider_request_budget_snapshot()
+            .expect("snapshot should use active budget");
+        let decision = state.gate_provider_request_pre_dispatch(&snapshot);
+
+        assert_eq!(snapshot.node_request_count, 5);
+        assert_eq!(snapshot.max_requests, 20);
+        assert_eq!(snapshot.max_model_requests_per_node, 10);
+        assert!(decision.allowed);
+        assert_eq!(decision.reason, "provider_request_budget_available");
     }
 
     #[test]

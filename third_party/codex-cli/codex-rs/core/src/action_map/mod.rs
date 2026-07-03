@@ -37,4 +37,5 @@ pub(crate) use runtime::ActionMapStateCommitResultValidityInput;
 pub(crate) use runtime::ActionMapSubagentPlanInput;
 pub(crate) use runtime::ActionMapSuccessCriterionInput;
 pub(crate) use runtime::TaskSpaceBudgetGateDecision;
+pub(crate) use runtime::TaskSpaceProviderRequestPhase;
 pub(crate) use runtime::format_action_map_snapshot;

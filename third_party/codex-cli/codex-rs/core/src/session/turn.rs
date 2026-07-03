@@ -661,6 +661,15 @@ pub(crate) async fn run_turn(
                         last_agent_message = sampling_request_last_agent_message;
                         break;
                     }
+                    if let Some(snapshot) = sess.action_map_provider_request_budget_snapshot().await
+                        && taskspace_provider_budget_limit_reached(&snapshot)
+                    {
+                        sess.action_map_mark_next_provider_request_budget_recovery(
+                            &turn_context,
+                            "taskspace_recovery_item_after_provider_budget_limit",
+                        )
+                        .await;
+                    }
                     continue;
                 }
                 let has_pending_input = sess.has_pending_input().await;
@@ -2022,6 +2031,14 @@ fn is_taskspace_no_action_recovery_item(item: &ResponseItem) -> bool {
 
 fn is_taskspace_provider_budget_hard_stop_item(item: &ResponseItem) -> bool {
     response_item_text_contains(item, TASKSPACE_PROVIDER_BUDGET_HARD_STOP_MARKER)
+}
+
+fn taskspace_provider_budget_limit_reached(
+    snapshot: &crate::action_map::ActionMapProviderRequestBudgetSnapshot,
+) -> bool {
+    (snapshot.max_requests > 0 && snapshot.request_count >= snapshot.max_requests)
+        || (snapshot.max_model_requests_per_node > 0
+            && snapshot.node_request_count >= snapshot.max_model_requests_per_node)
 }
 
 fn is_taskspace_implement_needs_edit_recovery_item(item: &ResponseItem) -> bool {
@@ -6759,6 +6776,24 @@ TaskSpaceGateRecoveryV1: {\"schema_version\":\"TaskSpaceGateRecoveryV1\",\"allow
             taskspace_special_recovery_warning_message(&item)
                 .contains("current turn will stop without another model request")
         );
+    }
+
+    #[test]
+    fn provider_budget_limit_reached_detects_rollout_or_node_limit() {
+        let mut snapshot = provider_snapshot("inspect_code_context");
+
+        assert!(!taskspace_provider_budget_limit_reached(&snapshot));
+
+        snapshot.request_count = snapshot.max_requests;
+        assert!(taskspace_provider_budget_limit_reached(&snapshot));
+
+        snapshot.request_count = 1;
+        snapshot.node_request_count = snapshot.max_model_requests_per_node;
+        assert!(taskspace_provider_budget_limit_reached(&snapshot));
+
+        snapshot.max_requests = 0;
+        snapshot.max_model_requests_per_node = 0;
+        assert!(!taskspace_provider_budget_limit_reached(&snapshot));
     }
 
     #[test]

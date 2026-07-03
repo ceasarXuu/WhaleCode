@@ -429,3 +429,53 @@
 - Interpretation:
   - `provider-budget-advisory-runaway` is closed by focused engineering evidence.
   - R4 utility acceptance is still pending a real keyed `organization-json-generator` rerun with the new binary.
+
+# Hypothesis H-010: fixed per-node provider budget can hard-stop inspect before required fact-source coverage
+
+- Claim: After H-009, provider budget hard stop correctly prevents runaway, but a fixed per-node hard limit can stop a data-heavy inspect node before the state machine's minimum fact-source coverage is possible. In this case the active task declared four required fact-source artifacts, but the deep profile per-node hard limit was five requests.
+- Prediction: A real rerun with H-009 will no longer timeout, but TaskSpace can stop at a `provider_node_request_hard_limit_exceeded` before reading all declared fact sources. Source inspection will show `provider_request_budget_snapshot` returns the fixed profile `max_model_requests_per_node` without adapting to declared fact-source count.
+- Diagnostic evidence plan: Inspect the rerun pair report and right trace for early `TaskSpaceProviderBudgetHardStopV1`; inspect snapshot construction; fix validation requires a focused test where inspect fact-source count expands the effective node request limit, plus provider budget regression tests.
+- Status: confirmed.
+
+# Evidence E-026: hard stop removed timeout but exposed premature inspect budget stop
+
+- Prediction tested: H-010 predicts H-009 converts runaway into a bounded stop, but the fixed node limit can be too low for declared fact-source coverage.
+- Real rerun: `target/r4-org-json-real-keyed-20260703e-hardgate/runs/terminal_bench__organization-json-generator/20260704-000713-854`
+- Matched run signals:
+  ```text
+  reported_evidence_level: E2-candidate
+  outcome_standard: solved
+  outcome_taskspace: wrong
+  right / taskspace exec_timed_out: False
+  right / taskspace wall_time_ms: 27571
+  right / taskspace tool_call_count: 5
+  TaskSpaceProviderBudgetHardStopV1 reason=provider_node_request_hard_limit_exceeded request_count=5/20 node_request_count=5/5
+  ```
+- Additional trace signal:
+  - TaskSpace read `schema.json` and `departments.csv`, repeated `departments.csv`, then stopped before `employees.csv` and `projects.csv`.
+- Interpretation:
+  - H-009 fixed the unbounded retry/timeout class.
+  - The next blocker is a control-layer budget/fact-source mismatch: hard stop is now real, but its per-node limit is lower than the evidence floor required by the task state.
+
+# Evidence E-027: inspect provider node limit now adapts to declared fact sources
+
+- Prediction tested: H-010 requires data-heavy inspect nodes to receive a higher effective per-node request hard limit before provider dispatch.
+- Repair artifacts:
+  - `third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs`
+  - `third_party/codex-cli/codex-rs/core/src/action_map/mod.rs`
+  - `third_party/codex-cli/codex-rs/core/src/session/mod.rs`
+  - `third_party/codex-cli/codex-rs/core/src/session/turn.rs`
+- Focused commands:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core taskspace_active_budget --lib
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core provider_budget --lib
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale --locked
+  ```
+- Result: passed.
+- Matched test signals:
+  - `taskspace_active_budget_expands_inspect_node_limit_for_fact_sources`
+  - `provider_budget_limit_reached_detects_rollout_or_node_limit`
+- Interpretation:
+  - The hard-stop policy remains in place.
+  - For inspect nodes, the effective node request hard limit now respects declared fact-source artifacts so the runtime does not stop before the minimum evidence floor is reachable.
+  - Real utility validation still requires another keyed rerun.

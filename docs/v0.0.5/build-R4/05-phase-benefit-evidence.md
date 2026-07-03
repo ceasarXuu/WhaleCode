@@ -1541,6 +1541,7 @@ R4-G utility parity 标记为通过。
 | missing fact-source coverage | 重复 `departments.csv` 后强制进入 implement，漏读 `employees.csv`/`projects.csv` | duplicate gate 列出缺失 fact-source artifacts；manual/forced inspect finish 都被 coverage guard 拦截 | `inspect_duplicate_read_reports_missing_fact_source_artifacts_without_finish`; `inspect_missing_fact_sources_block_manual_and_forced_finish_until_read` |
 | restricted Linux sandbox | bwrap netns/proc/userns 限制可能在业务命令前失败 | sandbox preflight/fallback 区分 recoverable ability 降级和 terminal bootstrap failure | `cargo test -j1 -p codex-linux-sandbox --lib`; sandbox smoke |
 | provider budget overrun | active budget 到达上限后仍继续 provider sampling，`over_profile_hint` 只是 telemetry | provider dispatch 前执行 hard gate；插入 `TaskSpaceProviderBudgetHardStopV1` 并结束当前 turn；保留一次 `budget_recovery` grace | `cargo test -j1 -p codex-core provider_budget --lib`; `cargo test -j1 -p codex-core taskspace_active_budget --lib` |
+| premature inspect node hard stop | per-node hard limit 低于声明 fact-source evidence floor，导致 inspect 未读全输入就停止 | inspect 节点的 effective per-node limit 按声明 fact-source artifacts 扩展；边界 recovery 请求标记为 `budget_recovery` | `taskspace_active_budget_expands_inspect_node_limit_for_fact_sources`; `provider_budget_limit_reached_detects_rollout_or_node_limit` |
 
 本轮新增的关键语义边界：
 
@@ -1549,6 +1550,7 @@ R4-G utility parity 标记为通过。
 3. 如果缺失 `fact_sources` 中的 artifact，反馈层应继续要求 read/search 这些 artifact，而不是提供 `finish_node`。
 4. validation 命令错误要先区分“验证命令写错”和“实现代码失败”，否则会把工具反馈错误路由到 implement rework。
 5. provider budget 是 runtime 控制边界，不是普通提示词；到达 hard limit 后必须在 dispatch 前停止，而不是继续让模型“自觉”收敛。
+6. hard limit 不能低于 phase completion 的最低证据地板；否则会把 timeout 修成过早 blocked/wrong。
 
 本轮验证命令：
 
