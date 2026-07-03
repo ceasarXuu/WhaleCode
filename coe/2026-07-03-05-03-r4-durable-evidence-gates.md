@@ -1025,3 +1025,55 @@
   - When the validation node is blocked, only matching pending validation rework nodes are refreshed to `Ready`; generic blocked nodes still do not unlock downstream work.
   - After binding the manual rework node, `apply_patch` is allowed even though the validation blocker result is still unreviewed, because it is now recognized as active rework input evidence.
 - Interpretation: The new `validation-blocker-manual-rework-origin-loss` class is focused-fixed. Real utility validation still requires another keyed rerun to verify the model now patches the rework artifact instead of exhausting budget on state-commit recovery.
+
+# Hypothesis H-021: validation nodes can reuse stale failure blockers without current validation result
+
+- Claim: After H-020, TaskSpace can patch from validation rework, but a new validation node may be blocked with an older validation failure summary before that node records any current test/build result. This lets the model convert stale, still-editable failure text into a terminal validation block and reach graph closeout without rerunning validation after the latest edit.
+- Prediction: A keyed rerun after H-020 will show a rework patch, then a new smoke/regression validation node with no same-node test/build result; `block_node` will cite the previous `IndentationError` instead of running the required validator command, leaving the public validator failing while the action map has no open leaf.
+- Diagnostic evidence plan: Inspect the post-H-020 keyed rerun pair report and right rollout trace for current validation node result context, blocked reason, test/build result absence, and public validation status; add a focused runtime test proving a smoke/regression node rejects failed-validation blockers until it records a current `Build` or `Test` result, while existing local validator infrastructure blockers still route correctly.
+- Status: confirmed.
+
+# Evidence E-049: keyed rerun blocks validation with stale IndentationError before rerunning test
+
+- Prediction tested: H-021 predicts that the next failure after manual rework origin repair is not an origin/lifecycle gate problem but stale validation failure reuse on a fresh validation node.
+- Real rerun:
+  ```text
+  RunDir: target/r4-org-json-real-keyed-20260703r-manual-rework-origin/runs/terminal_bench__organization-json-generator/20260704-032001-321
+  PairReport: pair-001/pair-report.md
+  reported_evidence_level: E1
+  outcome_taskspace: engineering_unclean
+  right_exec_timed_out: False
+  right_tool_call_count: 12
+  right_open_leaf_nodes: 0
+  public_validation_exit_code: 1
+  ```
+- Matched trace signals:
+  - TaskSpace created `generate_org.py` with leading spaces on all top-level lines.
+  - Weak generator-only smoke validation was rejected by `validation_test_missing_output_contract_coverage`, then the exact command `python generate_org.py && python -m jsonschema -i organization.json schema.json` failed with `IndentationError: unexpected indent`.
+  - Validation rework read `generate_org.py` through `sed -n '1,240p' -- generate_org.py`; the read recorded the target artifact and the next repeated read was blocked by `validation_rework_duplicate_artifact_read`, proving H-019 remained fixed.
+  - The model patched only line 1, leaving the remaining top-level leading spaces in the file.
+  - The next smoke node (`node-5`) was blocked with the old `IndentationError` text without recording any same-node `Build` or `Test` result.
+  - Final readiness rejected an attempted final answer, but the graph had no open leaf and public validation still failed because `organization.json` was not generated.
+- Interpretation: The failure semantic was not fully lost; stale failure text was present. The missing control invariant was that a new validation node cannot claim failed validation until that node has actually run a validation tool, except for explicit external/local infrastructure blockers.
+
+# Evidence E-050: validation block guard requires current validation tool evidence
+
+- Prediction tested: H-021 requires smoke/regression `block_node` to reject failed-validation blockers when the current node has no current test/build result, while preserving existing manual local-infrastructure validation blocks.
+- Repair artifact:
+  - `third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs`
+- Focused and adjacent commands:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core block_validation_node_rejects_stale_failure_without_current_test --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core block_validation_node --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core validation_ --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core validation_rework --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-cli --bin whale --locked
+  git diff --check
+  ```
+- Result: passed. `validation_` now covers 83 tests and `validation_rework` remains 12 tests.
+- Matched test signals:
+  - A fresh smoke node with no current validation tool result rejects a blocker that cites `IndentationError` and asks to rerun the required validation command first.
+  - A smoke node with a same-node failed validator result can still be blocked.
+  - Manual local validator infrastructure blockers such as `Local validator infrastructure failed: PowerShell InvalidEndOfLine. Cannot execute test commands.` still route to validation retry/rework instead of being misclassified as stale failure reuse.
+- Interpretation: The new `validation-stale-failure-block-without-current-test` class is focused-fixed. Real utility validation still requires another keyed rerun to verify the model reruns validation after rework, exposes the remaining indentation failure, and continues patching instead of closing the graph.

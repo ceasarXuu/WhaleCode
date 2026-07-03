@@ -2117,3 +2117,59 @@ CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/co
 
 状态：该 feedback/DAG-origin class 已 focused fixed；R4-G utility 仍需再次 keyed rerun 验证模型能在 duplicate-read
 阻断后完成完整 patch、重跑 schema/public validation，并暴露下一层未解决 tools 问题。
+
+## 5.31 2026-07-04 validation stale failure block without current test
+
+`validation-blocker-manual-rework-origin-loss` 修复后的 keyed rerun 证明 origin/lifecycle 问题已经越过：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260703r-manual-rework-origin/runs/terminal_bench__organization-json-generator/20260704-032001-321
+reported_evidence_level: E1
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 12
+right_open_leaf_nodes: 0
+public_validation_exit_code: 1
+```
+
+关键观察：
+
+| Signal | 结论 |
+|---|---|
+| `generate_org.py` 第一次 read 使用 `sed -n '1,240p' -- generate_org.py` 且记录目标 artifact | sed attribution 修复仍生效 |
+| 第二次 `read_file generate_org.py` 被 `validation_rework_duplicate_artifact_read` 阻止 | duplicate rework gate 仍生效 |
+| 模型只 patch 了 line 1，剩余顶层行仍有前导空格 | implementation 仍需要继续修复 |
+| 新 smoke node 没有记录当前 `Build`/`Test` result，却用旧 `IndentationError` 文案执行 `block_node` | 旧失败语义被跨节点复用为当前 validation 结果 |
+| graph `open_leaf_nodes=0`，public validation 仍 exit 1 | runtime 接受了没有当前验证证据的 validation block，导致错误闭合 |
+
+本轮新增并 focused 修复的问题类型：
+
+| Case | Before | After | Evidence |
+|---|---|---|---|
+| `validation-stale-failure-block-without-current-test` | rework 后的新 smoke/regression node 可以不运行当前 validation，直接复用上一轮失败文本 block；模型停止继续 patch，public validator 仍失败 | `block_main_node` 对 smoke/regression node 增加当前验证证据要求：声称 validation/test failure 前必须有同节点 `Build`/`Test` tool result；local validator infrastructure blocker 仍走 infra/retry 路径 | `block_validation_node_rejects_stale_failure_without_current_test` |
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core block_validation_node_rejects_stale_failure_without_current_test --locked
+  PASS：fresh validation node 不能用旧 `IndentationError` blocker 代替当前 test/build result
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core block_validation_node --locked
+  PASS：3 tests；有同节点 failed validator result 的 validation block 仍允许
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core validation_ --locked
+  PASS：83 tests；manual local validator infrastructure blocker 仍通过
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core validation_rework --locked
+  PASS：12 tests
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+  PASS
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-cli --bin whale --locked
+git diff --check
+  PASS
+```
+
+状态：该 feedback/validation-evidence class 已 focused fixed；下一次 keyed rerun 应验证模型在 rework patch 后会重新运行
+schema/public validation，而不是用上一轮失败文本关闭新的 validation node。

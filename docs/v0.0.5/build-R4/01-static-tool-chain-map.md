@@ -277,10 +277,16 @@ cargo test -j1 -p codex-core taskspace_action_contract_tool_runtime_bootstrap_fa
 | `validation-jsonschema-module-missing-rework-misroute` | validation + feedback + provider projection | `python3 -c "import jsonschema"` 在 agent host 环境缺模块时以 `ModuleNotFoundError` 失败，runtime 将其当成非 infra validation failure 路由到 implement rework；模型读到目标 artifact 后反复 `finish_node`，直到 node hard stop | `ModuleNotFoundError: No module named 'jsonschema'` 从 noninfra implementation rework 分类中排除；validation projection 基于 output contract/schema requirements 给出 `python -m jsonschema -i organization.json schema.json` 的默认 Python CLI recovery，并明确不要把缺 validator dependency 路由成 implementation rework | focused fixed / real rerun pending |
 | `implementation-rework-repeat-read-budget-drain` | feedback + attribution + control loop | validation rework 已允许读取目标 artifact，但 Unix action-contract `read_file` 通过 `sed -n '1,240p' -- csv_processor.py` 执行，read result 记录为 `artifactRefs=[]`；runtime 的 duplicate rework read gate 无法识别同一文件已读，模型反复读 `csv_processor.py` 直到 node budget hard stop | `read_command_artifact_ref` 识别稳定 Unix `sed -n ... -- path` 读文件命令并把 path 写入 read result evidence；第一次 target read 仍允许，第二次同 target read 在无成功 edit 前触发 `validation_rework_duplicate_artifact_read`，要求 `apply_patch` 或 blocked | focused fixed / real rerun pending |
 | `validation-blocker-manual-rework-origin-loss` | feedback + DAG origin + control loop | duplicate read gate 已阻止重复读取后，模型可在 validation recovery 中先手动 `create_node(implement_solution)` 再 `block` validation；runtime 默认把新 rework node 挂到最近 completed implementation，`origin_node_id` 为空，后续 patch 被 `result still unreviewed` gate 拦截并耗尽 provider budget | detached `implement_solution` 若从 active validation node 创建，会记录该 validation node 为 `origin_node_id` 并加入依赖边；当 origin validation 被 blocked 时，只刷新匹配的 pending rework node 为 Ready；active rework edit 可使用该 blocker input，不需要额外 state_commit 自救 | focused fixed / real rerun pending |
+| `validation-stale-failure-block-without-current-test` | feedback + validation evidence + control loop | rework patch 后新建的 smoke/regression node 尚未运行当前验证命令，却可用上一轮 `IndentationError` 等旧失败文本 `block_node`；graph 被关掉但 public validation 仍失败 | smoke/regression `block_node` 若声称 validation/test failure，必须先有同节点 `Build`/`Test` tool result；local validator infrastructure blocker 仍允许按 infra path 路由 | focused fixed / real rerun pending |
 
 其中 `duplicate-inspect-premature-fact-source-convergence` 是本次新增收录的 case。它不是工具原始失败，也不是单纯模型策略错误；
 raw evidence 存在，问题在 feedback/phase gate 语义缺失：runtime 把“重复读已成功”恢复成“inspect 可结束”，但没有检查
 `initial_fact_sources` / `fact_sources` 中声明的 `employees.csv`、`projects.csv` 是否已经被成功 inspect。
+
+manual validation rework origin 修复后的 rerun `20260704-032001-321` 已证明 origin/lifecycle gate 不再是当前 blocker，
+但暴露 `validation-stale-failure-block-without-current-test`：模型 patch 了 `generate_org.py` 的第一行后进入新的
+smoke node，却没有在该 node 运行新的 validation command，而是复用上一轮 `IndentationError` 文案直接 block。
+这是反馈层的“旧失败语义缺少当前节点证据约束”：语义没有完全丢失，但被跨节点复用成了当前 validation 结果。
 
 `provider-budget-advisory-runaway` 是本轮继续推进后收录并修复的控制环 case。真实 keyed rerun
 `target/r4-org-json-real-keyed-20260703d/.../whale-exec.jsonl` 显示前置 feedback fixes 生效：TaskSpace 读到了

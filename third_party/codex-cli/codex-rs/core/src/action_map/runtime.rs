@@ -5509,6 +5509,15 @@ preview:\n\
                 node.kind.as_str()
             ));
         }
+        if matches!(node.kind, NodeKind::SmokeTest | NodeKind::RegressionTest)
+            && !node_has_validation_tool_result(map, node)
+            && blocker_claims_validation_failure_without_current_result(blocker_summary)
+        {
+            return Err(format!(
+                "TaskSpace {} node `{node_id}` cannot be blocked as failed validation before this node records a test/build result. Run the required validation command on `{node_id}` first, or block only with a specific external blocker that prevents validation from running.",
+                node.kind.as_str()
+            ));
+        }
         if node.kind == NodeKind::ImplementSolution
             && blocker_claims_missing_completed_diagnostic(blocker_summary)
             && node_has_dependency_successful_diagnostic(map, node)
@@ -15500,6 +15509,19 @@ fn node_has_successful_action(
     })
 }
 
+fn node_has_validation_tool_result(map: &ActionMapInstance, node: &MapNode) -> bool {
+    node.result_context.iter().any(|result_ref| {
+        let Some(result) = map.results.get(&result_ref.id) else {
+            return false;
+        };
+        result.kind == NodeResultKind::MainToolCall
+            && matches!(
+                result.action_class,
+                Some(ActionClass::Build | ActionClass::Test)
+            )
+    })
+}
+
 fn node_recent_failed_action_summary(
     map: &ActionMapInstance,
     node: &MapNode,
@@ -15588,6 +15610,39 @@ fn blocker_claims_internal_policy_instead_of_external_blocker(blocker_summary: &
         || (lower.contains("cannot run")
             && lower.contains("current node")
             && (lower.contains("allowed actions") || lower.contains("state")))
+}
+
+fn blocker_claims_validation_failure_without_current_result(blocker_summary: &str) -> bool {
+    let lower = blocker_summary.to_ascii_lowercase();
+    let validation_subject = lower.contains("validation")
+        || lower.contains("validator")
+        || lower.contains("test")
+        || lower.contains("run_test")
+        || lower.contains("exit code")
+        || lower.contains(".py");
+    let failure_claim = lower.contains("failed")
+        || lower.contains("failure")
+        || lower.contains("indentationerror")
+        || lower.contains("syntaxerror")
+        || lower.contains("traceback")
+        || lower.contains("assertionerror")
+        || lower.contains("typeerror")
+        || lower.contains("valueerror")
+        || lower.contains("keyerror");
+    let validation_infra_blocker = lower.contains("infrastructure")
+        && (lower.contains("validation") || lower.contains("validator") || lower.contains("test"));
+    let external_blocker = lower.contains("e_accessdenied")
+        || lower.contains("access denied")
+        || lower.contains("permission denied")
+        || lower.contains("sandbox")
+        || lower.contains("tool runtime bootstrap")
+        || lower.contains("network")
+        || lower.contains("service unavailable")
+        || lower.contains("cannot execute test commands")
+        || lower.contains("cannot run test commands")
+        || lower.contains("unable to execute test commands")
+        || validation_infra_blocker;
+    validation_subject && failure_claim && !external_blocker
 }
 
 fn blocker_claims_missing_inspected_source_evidence(blocker_summary: &str) -> bool {
@@ -31169,6 +31224,91 @@ organization.json generated successfully.\n"
         assert!(error.contains("action=state_commit"));
         assert!(error.contains("result_validities"));
         assert!(error.contains("finished_nodes"));
+    }
+
+    #[test]
+    fn block_validation_node_rejects_stale_failure_without_current_test() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (_, map_id, implement_node_id, _) = start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::ImplementSolution,
+            "Generate organization JSON",
+            "Create and validate organization.json.",
+            "Implement generator",
+            "Create generate_org.py.",
+            true,
+        );
+        let (edit_result_id, _) = state
+            .record_main_tool_result_with_class(
+                owner,
+                "edit-generate-org",
+                "apply_patch",
+                Some(ActionClass::Edit),
+                true,
+                "Success. Updated the following files:\nA generate_org.py\n".to_string(),
+            )
+            .expect("edit result records")
+            .expect("edit result id");
+        state
+            .mark_result_validity_for_main(
+                owner,
+                &edit_result_id,
+                "accepted",
+                "accepted implementation edit".to_string(),
+                vec![ActionMapCognitiveClaimInput {
+                    id: "claim-edit-generate-org".to_string(),
+                    statement: "Generator script was edited.".to_string(),
+                    evidence_refs: vec![ActionMapEvidenceRefInput {
+                        result_id: Some(edit_result_id.clone()),
+                        ..Default::default()
+                    }],
+                }],
+                vec![ActionMapEvidenceRefInput {
+                    result_id: Some(edit_result_id.clone()),
+                    ..Default::default()
+                }],
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+            )
+            .expect("edit accepted");
+        let (handoff, _) = state
+            .finish_main_node_with_next(
+                owner,
+                &implement_node_id,
+                "Patched generator.".to_string(),
+                None,
+                Some(ActionMapNextNodeDraft {
+                    kind: NodeKind::SmokeTest,
+                    title: "Run focused validation".to_string(),
+                    context_summary: "Run generate_org.py and schema validation.".to_string(),
+                    dependency_node_ids: vec![implement_node_id.clone()],
+                }),
+            )
+            .expect("finish implementation into validation");
+        let validation_node_id = handoff.next_node_id.expect("validation node");
+
+        let error = state
+            .block_main_node(
+                owner,
+                &validation_node_id,
+                "The file app/generate_org.py has an IndentationError at line 1 (unexpected indent). The code contains leading whitespace that prevents execution. A fix is required by removing the leading indent in an implement_solution node."
+                    .to_string(),
+            )
+            .expect_err("stale validation failure cannot block without current test");
+
+        assert!(error.contains("cannot be blocked as failed validation"));
+        assert!(error.contains("Run the required validation command"));
+        let map = state.maps.get(&map_id).expect("map");
+        let validation = map.nodes.get(&validation_node_id).expect("validation node");
+        assert_eq!(validation.status, NodeStatus::Running);
+        assert_eq!(
+            state.current_main_node_id.as_deref(),
+            Some(validation_node_id.as_str())
+        );
     }
 
     #[test]
