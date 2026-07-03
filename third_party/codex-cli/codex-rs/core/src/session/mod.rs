@@ -20,6 +20,7 @@ use crate::action_map::ActionMapProviderRequestBudgetSnapshot;
 use crate::action_map::ActionMapProviderResponseActionabilityInput;
 use crate::action_map::ActionMapRuntimeState;
 use crate::action_map::NodeKind;
+use crate::action_map::TaskSpaceBudgetGateDecision;
 use crate::action_map::ToolActionDescriptor;
 use crate::agent::AgentControl;
 use crate::agent::AgentStatus;
@@ -1163,6 +1164,16 @@ impl Session {
     ) -> Option<ActionMapProviderRequestBudgetSnapshot> {
         let state = self.state.lock().await;
         state.action_map_runtime.provider_request_budget_snapshot()
+    }
+
+    pub(crate) async fn action_map_gate_provider_request_pre_dispatch(
+        &self,
+        snapshot: &ActionMapProviderRequestBudgetSnapshot,
+    ) -> TaskSpaceBudgetGateDecision {
+        let mut state = self.state.lock().await;
+        state
+            .action_map_runtime
+            .gate_provider_request_pre_dispatch(snapshot)
     }
 
     pub(crate) async fn record_action_map_provider_request_budget_events(

@@ -123,13 +123,31 @@ raw signal 存在但语义没有正确进入下一轮 tool contract：
 | `validation-changed-artifact-coverage-feedback` | 不覆盖 changed artifact 的 validation gate 现在回传 required command / next action | focused fixed |
 | `validation-command-missing-script-feedback` | 不存在的 validation script 留在 validation node，不再误转 implement rework | focused fixed |
 | `duplicate-inspect-premature-fact-source-convergence` | 本次新增收录 case；缺少 `employees.csv` / `projects.csv` 这类声明 fact sources 时，duplicate gate 不再给 `finish_node`，manual/forced finish 都会被 coverage guard 拦截 | focused fixed |
-| `provider-budget-advisory-runaway` | 仍未关闭；需要真实 rerun 判断是否升级为 hard gate / terminal blocked-with-evidence | open |
+| `provider-budget-advisory-runaway` | keyed rerun `20260703d` 证实 `request_count` 达到 `max_requests` 后仍继续 provider sampling；已升级为 pre-dispatch hard gate，插入 `TaskSpaceProviderBudgetHardStopV1` 并结束当前 turn，保留一次明确 budget recovery grace | focused fixed / real rerun pending |
 
 新增关键判断：
 
 - 这是反馈层“语义缺失”多于“语义扭曲”：原始失败/证据信号进入了 trace 或 tool output，但缺少 failure kind、required command、missing artifact 或 phase completion guard。
 - `taskspace runtime` 可以负责工具反馈分类和 phase gate，但不能超越状态机底线把“重复证据”解释成“inspect 已完成”。
 - R4 当前实际进行位置：phase 流程已到 R4-H/post-closeout；工程上继续在 R4-D feedback layer 和 R4-G utility-convergence 做回补，不应重新标记 R4 已验收。
+
+### 3.8 provider budget hard stop
+
+在 `organization-json-generator` keyed rerun `target/r4-org-json-real-keyed-20260703d/.../whale-exec.jsonl` 中，前置 feedback fixes 已经让 inspect 读到
+`schema.json`、`departments.csv`、`employees.csv`，没有再触发 duplicate-read premature implement；但 `projects.csv` 未读时，
+provider request budget 从 `19->20 max=20` 后继续到 `26->27`，全部处于 `over_profile_hint`。
+
+本轮修复：
+
+| 层 | 结论 |
+|---|---|
+| action map | `gate_provider_request_pre_dispatch` 对 rollout/node budget 超限返回 `allowed=false`，reason 分别为 `provider_request_hard_limit_exceeded` / `provider_node_request_hard_limit_exceeded` |
+| session | `Session::action_map_gate_provider_request_pre_dispatch` 暴露 hard gate 给采样路径 |
+| turn loop | `try_run_sampling_request` 在 `stream_with_provider_request_budget` 前阻断；外层 loop 记录 hard-stop item 后直接结束当前 turn |
+| feedback | 新增 `TaskSpaceProviderBudgetHardStopV1`，携带 request/node/grace 计数、blocking items 和 next valid actions |
+| grace | 只允许 `request_phase=budget_recovery` 且 grace 未消耗时继续一次恢复请求 |
+
+当前状态：focused 修复已完成；仍需用新二进制重跑 `organization-json-generator` 验证真实 900s timeout 是否消失。
 
 ## 4. 本次验证
 
@@ -165,6 +183,9 @@ raw signal 存在但语义没有正确进入下一轮 tool contract：
 | data artifact inspect evidence | `CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core inspect_data_artifact_read_counts_as_working_evidence --lib` | PASS |
 | session duplicate recovery | `CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core duplicate_read_search_recovery_pushes_inspect_transition --lib` | PASS |
 | inspect convergence regression | `CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core inspect_successful_diagnostic_and_working_evidence_marks_convergence_ready --lib` | PASS |
+| provider budget focused suite | `CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core provider_budget --lib` | PASS：21 tests |
+| active budget hard gate suite | `CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core taskspace_active_budget --lib` | PASS：10 tests |
+| Whale build after hard gate | `CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale --locked` | PASS |
 | organization-json-generator direct validator | direct `external-validator.ps1` run on generated fixture | PASS：Docker build `classification=ok`; run reaches expected missing `organization.json` assertions |
 | Whitespace | `git diff --check` | PASS |
 
@@ -173,8 +194,8 @@ raw signal 存在但语义没有正确进入下一轮 tool contract：
 | 优先级 | 未完成项 | 当前证据 | 下一步 |
 |---:|---|---|---|
 | P0 | TaskSpace utility parity | public-10 closeout 中 TaskSpace 仅 3/10 solved；post-closeout 只证明 `heterogeneous-dates` 已改善；`sqlite-db-truncate` 已收敛到非 timeout wrong；keyed `organization-json-generator` 仍是 E1 diagnostic fail | 继续 R4 utility-convergence，不进入验收通过 |
-| P0 | Long-flow convergence | keyed `organization-json-generator` 中 TaskSpace 92 tool calls、900s timeout、request_count 90/20、recovery attempt 32；bootstrap、validation-command、duplicate-read、fact-source coverage 等 focused feedback issues 已修，但尚未真实 rerun 验证 | 重跑该样本；若仍 timeout，再建立 request budget hard gate / repeated no-action recovery hard stop |
-| P0 | Provider budget hard stop | 当前仍是 advisory/warned/over-profile-hint 语义，不会天然终止 provider turns | 基于下一次 real rerun 决定是否把 request budget hint 升级为 hard gate，或对 repeated no-action recovery 做 terminal blocked-with-evidence |
+| P0 | Long-flow convergence | keyed `organization-json-generator` 中 TaskSpace 92 tool calls、900s timeout、request_count 90/20、recovery attempt 32；bootstrap、validation-command、duplicate-read、fact-source coverage、provider budget hard stop 等 focused issues 已修，但尚未真实 rerun 验证 | 重跑该样本；若仍 timeout，再建立 repeated no-action recovery hard stop 或新的 tool feedback case |
+| P0 | Provider budget hard stop real-run validation | focused hard gate 已完成；真实 `organization-json-generator` 尚未用新二进制复验 | 重跑 keyed sample，确认是否出现 `TaskSpaceProviderBudgetHardStopV1` 或直接收敛到 bounded blocked/final |
 | P0 | Provider timeout usage flush | 报告层已能从 rollout token_count 恢复 timeout 前 partial usage，并标为 `recovered_from_rollout_trace`；如果进程被杀前没有任何 token_count/response.completed，exact usage 仍不可得 | 后续真实复验时检查 timeout 行是否有 rollout token_count；如无，再做 provider 退出/回收路径 |
 | P1 | 成本/token 放大 | `heterogeneous-dates` post-closeout 已改善，但 public-10 closeout 仍记录 6x-28x request amplification | 新二进制重跑 public-10 subset，更新 durable report snapshot |
 | P1 | Release evidence bundle | raw paired run artifacts 仍在外部 run cache，不在仓库内 | 设计 release artifact policy：保留 summary snapshot、压缩关键 evidence，还是外链 run cache |
@@ -185,5 +206,5 @@ raw signal 存在但语义没有正确进入下一轮 tool contract：
 2. 建立 R4 utility-convergence 继续工作入口，优先选择一个 public-10 负样本做 bug-killer 闭环。
 3. `sqlite-db-truncate` 当前适合作为已收敛工具链样本归档：状态是非 timeout、closed graph、`agent_patch_wrong`。
 4. `organization-json-generator` 当前下一步不再是 provider 前置；keyed run 已证明 provider preflight 通过，`bwrap` feedback-layer case 已收录并修复。
-5. 先重跑 `organization-json-generator` 验证 `tool-runtime-bootstrap-failure` 修复是否消除持续 recovery；如仍 timeout，再把 request budget hint 升级为 hard gate，或在 repeated no-action recovery 超阈值时强制 blocked-with-evidence。
+5. 先重跑 `organization-json-generator` 验证 `tool-runtime-bootstrap-failure`、fact-source coverage 和 provider budget hard stop 是否消除持续 recovery；如仍 timeout，再把 repeated no-action recovery 超阈值升级为强制 blocked-with-evidence。
 6. 每完成一个样本，更新 public-10 snapshot 或生成新的 durable report artifact，避免再次依赖未提交 `target/` 缓存。

@@ -265,15 +265,23 @@ cargo test -j1 -p codex-core taskspace_action_contract_tool_runtime_bootstrap_fa
 | `validation-changed-artifact-coverage-feedback` | feedback | validation gate 拒绝 vacuous test，但下一轮缺少 exact coverage command | 输出 `validation_test_missing_changed_artifact_coverage` 和 required command / next_valid_action | fixed by focused tests |
 | `validation-command-missing-script-feedback` | feedback | `python process.py` 这类不存在脚本被误路由成 implementation rework | 留在 validation node，输出 `validation_command_missing_script` 和缺失脚本名 | fixed by focused tests |
 | `duplicate-inspect-premature-fact-source-convergence` | feedback + phase gate | 重复 read/search recovery 在只读了部分声明 fact sources 时强制进入 implement | duplicate gate 列出缺失 fact-source artifacts；manual/forced inspect finish 都要求覆盖声明 artifact | fixed by focused tests |
-| `provider-budget-advisory-runaway` | control loop | `request_count` 超过 profile hint 后仍可能多轮 no-action recovery | 当前仍是风险；需真实 rerun 判断是否升级为 hard gate / terminal blocker | open |
+| `provider-budget-advisory-runaway` | control loop + feedback | `request_count` 或单节点 `node_request_count` 到达 active budget 后仍可能继续发 provider 请求 | `gate_provider_request_pre_dispatch` 在 provider dispatch 前 hard stop；session 插入 `TaskSpaceProviderBudgetHardStopV1` 并结束当前 turn；保留一次明确 `budget_recovery` grace | focused fixed / real rerun pending |
 
 其中 `duplicate-inspect-premature-fact-source-convergence` 是本次新增收录的 case。它不是工具原始失败，也不是单纯模型策略错误；
 raw evidence 存在，问题在 feedback/phase gate 语义缺失：runtime 把“重复读已成功”恢复成“inspect 可结束”，但没有检查
 `initial_fact_sources` / `fact_sources` 中声明的 `employees.csv`、`projects.csv` 是否已经被成功 inspect。
+
+`provider-budget-advisory-runaway` 是本轮继续推进后收录并修复的控制环 case。真实 keyed rerun
+`target/r4-org-json-real-keyed-20260703d/.../whale-exec.jsonl` 显示前置 feedback fixes 生效：TaskSpace 读到了
+`schema.json`、`departments.csv`、`employees.csv`，没有再因 duplicate read/search 过早强制进入 implement；
+但 `projects.csv` 未读时，provider request budget 从 `19->20 max=20` 以后继续到 `26->27`，
+全部处于 `over_profile_hint`。根因不是预算语义写错，而是预算 gate 没有接入 provider dispatch 前的硬阻断路径。
 
 对应 focused gate：
 
 ```text
 CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core inspect_duplicate_read_reports_missing_fact_source_artifacts_without_finish --lib
 CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core inspect_missing_fact_sources_block_manual_and_forced_finish_until_read --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core taskspace_active_budget --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core provider_budget --lib
 ```

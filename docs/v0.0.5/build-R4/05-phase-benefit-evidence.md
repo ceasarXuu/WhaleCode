@@ -1540,6 +1540,7 @@ R4-G utility parity 标记为通过。
 | missing validation script | `python process.py` 不存在脚本被当成 implementation failure | `validation_command_missing_script` 留在 validation node | `validation_missing_command_script_stays_on_validation_node` |
 | missing fact-source coverage | 重复 `departments.csv` 后强制进入 implement，漏读 `employees.csv`/`projects.csv` | duplicate gate 列出缺失 fact-source artifacts；manual/forced inspect finish 都被 coverage guard 拦截 | `inspect_duplicate_read_reports_missing_fact_source_artifacts_without_finish`; `inspect_missing_fact_sources_block_manual_and_forced_finish_until_read` |
 | restricted Linux sandbox | bwrap netns/proc/userns 限制可能在业务命令前失败 | sandbox preflight/fallback 区分 recoverable ability 降级和 terminal bootstrap failure | `cargo test -j1 -p codex-linux-sandbox --lib`; sandbox smoke |
+| provider budget overrun | active budget 到达上限后仍继续 provider sampling，`over_profile_hint` 只是 telemetry | provider dispatch 前执行 hard gate；插入 `TaskSpaceProviderBudgetHardStopV1` 并结束当前 turn；保留一次 `budget_recovery` grace | `cargo test -j1 -p codex-core provider_budget --lib`; `cargo test -j1 -p codex-core taskspace_active_budget --lib` |
 
 本轮新增的关键语义边界：
 
@@ -1547,6 +1548,7 @@ R4-G utility parity 标记为通过。
 2. 它不能把“重复成功证据”解释为“inspect 已完成”；完成条件必须包含声明 fact source coverage。
 3. 如果缺失 `fact_sources` 中的 artifact，反馈层应继续要求 read/search 这些 artifact，而不是提供 `finish_node`。
 4. validation 命令错误要先区分“验证命令写错”和“实现代码失败”，否则会把工具反馈错误路由到 implement rework。
+5. provider budget 是 runtime 控制边界，不是普通提示词；到达 hard limit 后必须在 dispatch 前停止，而不是继续让模型“自觉”收敛。
 
 本轮验证命令：
 
@@ -1558,9 +1560,12 @@ CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core forced_inspect_transiti
 CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core inspect_data_artifact_read_counts_as_working_evidence --lib
 CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core duplicate_read_search_recovery_pushes_inspect_transition --lib
 CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core inspect_successful_diagnostic_and_working_evidence_marks_convergence_ready --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core provider_budget --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core taskspace_active_budget --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale --locked
 ```
 
 仍未关闭：
 
-- `provider-budget-advisory-runaway`：本轮没有把 request budget hint 改成 hard stop。
 - `organization-json-generator` utility evidence：需要基于新二进制重跑 keyed sample，确认是否还会 900s timeout 或进入新的 failure class。
+- repeated no-action terminal policy：如果 hard budget stop 后仍在新 turn 或恢复路径形成无效循环，需要另建 case，把 repeated no-action recovery 超阈值升级为 bounded blocked-with-evidence。

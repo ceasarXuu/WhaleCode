@@ -378,3 +378,54 @@
 - Current result: focused runtime tests now prevent the observed bootstrap, duplicate-read, validation-command, and fact-source convergence errors; no repair in this slice changes provider request budget advisory into a hard stop.
 - Remaining signal: `organization-json-generator` still requires a real keyed rerun after the new fixes. If it still exceeds request budget or repeats no-action recovery, the next hypothesis should target request-budget hard gating or repeated no-action terminal blocking.
 - Interpretation: This remains an open R4 utility-convergence risk, not a closed engineering benefit.
+
+# Hypothesis H-009: provider budget overrun is caused by missing pre-dispatch hard gate
+
+- Claim: The provider request budget state machine records `over_profile_hint`, but `try_run_sampling_request` does not call `gate_provider_request_pre_dispatch` before opening the provider stream. As a result, request budget events are advisory telemetry rather than a terminal control decision, and the agent can keep sampling after `request_count >= max_requests`.
+- Prediction: A real keyed rerun after H-008 fixes will show fewer feedback-layer loops but still continue provider sampling after the active budget is exhausted. Source inspection will show no session-level pre-dispatch hard stop before `stream_with_provider_request_budget`.
+- Diagnostic evidence plan: Inspect the keyed rerun trace for request counts after budget exhaustion and inspect `session/turn.rs` for the provider request path. Fix validation requires focused tests that make node and rollout budget exhaustion return `allowed=false`, preserve one explicit `budget_recovery` grace request, and produce a terminal `TaskSpaceProviderBudgetHardStopV1` feedback item.
+- Status: confirmed.
+
+# Evidence E-024: keyed rerun confirms advisory budget overrun after feedback fixes
+
+- Prediction tested: H-009 predicts provider sampling continues after active budget exhaustion even when earlier feedback fixes reduce specific loops.
+- Real rerun: `target/r4-org-json-real-keyed-20260703d/runs/terminal_bench__organization-json-generator/20260703-235033-117`
+- Trace: `pair-001/right/artifacts/whale-exec.jsonl`
+- Matched run signals:
+  ```text
+  request_count=19->20 max=20 state=compact_checkpoint_required->over_profile_hint
+  request_count=20->21 ... state=over_profile_hint->over_profile_hint
+  request_count=26->27 ... state=over_profile_hint->over_profile_hint
+  ```
+- Additional signal:
+  - TaskSpace read `schema.json`, `departments.csv`, and `employees.csv`.
+  - The earlier premature duplicate-read forced transition did not recur.
+  - `projects.csv` had not been read before the budget runaway segment.
+- Interpretation:
+  - H-008 focused fixes improved the feedback layer but did not close the control loop.
+  - The remaining failure is a missing hard gate before provider dispatch, not a malformed provider warning string.
+
+# Evidence E-025: provider budget now hard-stops before dispatch
+
+- Prediction tested: H-009 requires provider budget exhaustion to block before the provider stream starts, while preserving one explicit budget recovery grace request.
+- Repair artifacts:
+  - `third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs`
+  - `third_party/codex-cli/codex-rs/core/src/action_map/mod.rs`
+  - `third_party/codex-cli/codex-rs/core/src/session/mod.rs`
+  - `third_party/codex-cli/codex-rs/core/src/session/turn.rs`
+- Focused commands:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core provider_budget --lib
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core taskspace_active_budget --lib
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale --locked
+  git diff --check
+  ```
+- Result: passed.
+- Matched test signals:
+  - `taskspace_active_budget_node_request_gate_blocks_before_rollout_budget`
+  - `taskspace_active_budget_rollout_request_gate_blocks_pre_dispatch`
+  - `taskspace_active_budget_allows_one_budget_recovery_grace_request`
+  - `provider_budget_hard_stop_item_is_terminal_recovery_guidance`
+- Interpretation:
+  - `provider-budget-advisory-runaway` is closed by focused engineering evidence.
+  - R4 utility acceptance is still pending a real keyed `organization-json-generator` rerun with the new binary.

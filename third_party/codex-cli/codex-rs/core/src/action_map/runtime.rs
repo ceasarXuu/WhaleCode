@@ -1215,6 +1215,56 @@ impl ActionMapRuntimeState {
         &mut self,
         snapshot: &ActionMapProviderRequestBudgetSnapshot,
     ) -> TaskSpaceBudgetGateDecision {
+        let rollout_limit_exceeded =
+            snapshot.max_requests > 0 && snapshot.request_count >= snapshot.max_requests;
+        let node_limit_exceeded = snapshot.max_model_requests_per_node > 0
+            && snapshot.node_request_count >= snapshot.max_model_requests_per_node;
+        let grace_remaining = snapshot.post_budget_grace_request_count
+            < snapshot.post_budget_grace_requests
+            && snapshot.request_phase.as_deref()
+                == Some(TaskSpaceProviderRequestPhase::BudgetRecovery.as_str());
+        if (rollout_limit_exceeded || node_limit_exceeded) && !grace_remaining {
+            let reason = if node_limit_exceeded {
+                "provider_node_request_hard_limit_exceeded"
+            } else {
+                "provider_request_hard_limit_exceeded"
+            };
+            let node_id = snapshot
+                .node_id
+                .as_deref()
+                .unwrap_or("provider-context-missing");
+            return TaskSpaceBudgetGateDecision {
+                allowed: false,
+                budget_state: self.budget_state,
+                reason: reason.to_string(),
+                blocking_items: vec![
+                    format!("current_node:{node_id}"),
+                    format!(
+                        "request_count:{}/{}",
+                        snapshot.request_count, snapshot.max_requests
+                    ),
+                    format!(
+                        "node_request_count:{}/{}",
+                        snapshot.node_request_count, snapshot.max_model_requests_per_node
+                    ),
+                    format!(
+                        "post_budget_grace:{}/{}",
+                        snapshot.post_budget_grace_request_count,
+                        snapshot.post_budget_grace_requests
+                    ),
+                ],
+                next_valid_actions: vec![
+                    "stop provider sampling for this turn".to_string(),
+                    "block the current TaskSpace node with bounded evidence or return a final blocked-with-evidence answer".to_string(),
+                ],
+                recovery_request_phase: Some(
+                    TaskSpaceProviderRequestPhase::BudgetRecovery
+                        .as_str()
+                        .to_string(),
+                ),
+                quality_impact_required: true,
+            };
+        }
         TaskSpaceBudgetGateDecision {
             allowed: true,
             budget_state: self.budget_state,
@@ -16603,10 +16653,110 @@ mod tests {
         assert_eq!(snapshot.max_requests, 8);
         assert_eq!(snapshot.node_request_count, 3);
         assert_eq!(snapshot.max_model_requests_per_node, 3);
-        assert!(decision.allowed);
+        assert!(!decision.allowed);
+        assert_eq!(decision.reason, "provider_node_request_hard_limit_exceeded");
+        assert!(
+            decision
+                .blocking_items
+                .iter()
+                .any(|item| item == "node_request_count:3/3")
+        );
         assert_eq!(
-            decision.reason,
-            "provider_node_request_profile_hint_exceeded"
+            decision.recovery_request_phase.as_deref(),
+            Some("budget_recovery")
+        );
+    }
+
+    #[test]
+    fn taskspace_active_budget_rollout_request_gate_blocks_pre_dispatch() {
+        let owner = ThreadId::new();
+        let mut state = ActionMapRuntimeState::default();
+        state.set_mode(MapRuntimeMode::Experiment);
+        state.activate_active_budget_for_route("thin-profile", TaskSpaceRouteMode::Thin);
+        let (_task_id, _map_id, node_id, _events) = state
+            .start_task_for_main(
+                owner,
+                "thin budget task".to_string(),
+                "verify rollout budget gate".to_string(),
+                "inspect".to_string(),
+                "inspect active budget gate".to_string(),
+                true,
+            )
+            .expect("start task");
+        state.budget_counters.rollout_model_request_count = 8;
+        state
+            .budget_counters
+            .model_request_count_by_node
+            .insert(node_id, 1);
+
+        let snapshot = state
+            .provider_request_budget_snapshot()
+            .expect("snapshot should use active budget");
+        let decision = state.gate_provider_request_pre_dispatch(&snapshot);
+
+        assert_eq!(snapshot.request_count, 8);
+        assert_eq!(snapshot.max_requests, 8);
+        assert_eq!(snapshot.node_request_count, 1);
+        assert!(!decision.allowed);
+        assert_eq!(decision.reason, "provider_request_hard_limit_exceeded");
+        assert!(
+            decision
+                .blocking_items
+                .iter()
+                .any(|item| item == "request_count:8/8")
+        );
+    }
+
+    #[test]
+    fn taskspace_active_budget_allows_one_budget_recovery_grace_request() {
+        let owner = ThreadId::new();
+        let mut state = ActionMapRuntimeState::default();
+        state.set_mode(MapRuntimeMode::Experiment);
+        state.activate_active_budget_for_route("thin-profile", TaskSpaceRouteMode::Thin);
+        let (_task_id, _map_id, node_id, _events) = state
+            .start_task_for_main(
+                owner,
+                "thin budget task".to_string(),
+                "verify rollout budget recovery".to_string(),
+                "inspect".to_string(),
+                "inspect active budget recovery".to_string(),
+                true,
+            )
+            .expect("start task");
+        state.budget_counters.rollout_model_request_count = 8;
+        state
+            .budget_counters
+            .model_request_count_by_node
+            .insert(node_id, 1);
+        state.set_next_provider_request_phase(
+            TaskSpaceProviderRequestPhase::BudgetRecovery,
+            "test-budget-recovery",
+        );
+
+        let snapshot = state
+            .provider_request_budget_snapshot()
+            .expect("snapshot should use active budget");
+        let decision = state.gate_provider_request_pre_dispatch(&snapshot);
+
+        assert_eq!(snapshot.request_phase.as_deref(), Some("budget_recovery"));
+        assert_eq!(snapshot.post_budget_grace_request_count, 0);
+        assert_eq!(snapshot.post_budget_grace_requests, 1);
+        assert!(decision.allowed);
+        assert_eq!(decision.reason, "provider_request_profile_hint_exceeded");
+
+        state.budget_counters.post_budget_grace_request_count = 1;
+        let snapshot = state
+            .provider_request_budget_snapshot()
+            .expect("snapshot should use active budget");
+        let decision = state.gate_provider_request_pre_dispatch(&snapshot);
+
+        assert!(!decision.allowed);
+        assert_eq!(decision.reason, "provider_request_hard_limit_exceeded");
+        assert!(
+            decision
+                .blocking_items
+                .iter()
+                .any(|item| item == "post_budget_grace:1/1")
         );
     }
 

@@ -157,6 +157,7 @@ const TASKSPACE_APPLY_PATCH_UNANCHORED_UPDATE_MARKER: &str =
 const TASKSPACE_PATCH_INTENT_FORMAT_MARKER: &str = "TaskSpacePatchIntentFormatRecoveryV1:";
 const TASKSPACE_VALIDATION_INFRA_RECOVERY_MARKER: &str = "TaskSpaceValidationInfraRecoveryV1:";
 const TASKSPACE_VALIDATION_NEEDS_TEST_MARKER: &str = "TaskSpaceValidationNeedsTestRecoveryV1:";
+const TASKSPACE_PROVIDER_BUDGET_HARD_STOP_MARKER: &str = "TaskSpaceProviderBudgetHardStopV1:";
 const TASKSPACE_TOOL_FEEDBACK_MARKER: &str = "TaskSpaceToolFeedbackV1:";
 const TASKSPACE_INSPECT_BOOTSTRAP_CALL_ID: &str = "taskspace-inspect-bootstrap-rg-files";
 const TASKSPACE_REPEATED_BLOCKED_INSPECT_BOOTSTRAP_CALL_ID: &str =
@@ -587,6 +588,8 @@ pub(crate) async fn run_turn(
                 } = sampling_request_output;
                 can_drain_pending_input = true;
                 if let Some(recovery_item) = taskspace_no_action_recovery_item {
+                    let is_provider_budget_hard_stop =
+                        is_taskspace_provider_budget_hard_stop_item(&recovery_item);
                     let counts_against_no_action_cap =
                         is_taskspace_no_action_recovery_item(&recovery_item);
                     let counts_against_implement_needs_edit_cap =
@@ -654,6 +657,10 @@ pub(crate) async fn run_turn(
                     .await;
                     sess.record_conversation_items(&turn_context, &[recovery_item])
                         .await;
+                    if is_provider_budget_hard_stop {
+                        last_agent_message = sampling_request_last_agent_message;
+                        break;
+                    }
                     continue;
                 }
                 let has_pending_input = sess.has_pending_input().await;
@@ -1422,6 +1429,77 @@ fn build_taskspace_provider_budget_guidance_item(
     return None;
 }
 
+fn build_taskspace_provider_budget_hard_stop_item(
+    snapshot: &crate::action_map::ActionMapProviderRequestBudgetSnapshot,
+    decision: &crate::action_map::TaskSpaceBudgetGateDecision,
+) -> ResponseItem {
+    let blocking_items = if decision.blocking_items.is_empty() {
+        "- (none)".to_string()
+    } else {
+        decision
+            .blocking_items
+            .iter()
+            .map(|item| format!("- {item}"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+    let next_valid_actions = if decision.next_valid_actions.is_empty() {
+        "- stop provider sampling for this turn".to_string()
+    } else {
+        decision
+            .next_valid_actions
+            .iter()
+            .map(|item| format!("- {item}"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+    let node_id = snapshot
+        .node_id
+        .as_deref()
+        .unwrap_or("provider-context-missing");
+    let node_kind = snapshot.node_kind.as_deref().unwrap_or("unknown");
+    let request_phase = snapshot.request_phase.as_deref().unwrap_or("unknown");
+    let recovery_phase = decision
+        .recovery_request_phase
+        .as_deref()
+        .unwrap_or("budget_recovery");
+    let text = format!(
+        "{TASKSPACE_PROVIDER_BUDGET_HARD_STOP_MARKER}\n\
+reason: {reason}\n\
+budget_state: {budget_state}\n\
+node_id: {node_id}\n\
+node_kind: {node_kind}\n\
+request_phase: {request_phase}\n\
+recovery_request_phase: {recovery_phase}\n\
+request_count: {request_count}/{max_requests}\n\
+node_request_count: {node_request_count}/{max_model_requests_per_node}\n\
+post_budget_grace: {post_budget_grace_request_count}/{post_budget_grace_requests}\n\
+quality_impact_required: {quality_impact_required}\n\
+blocking_items:\n{blocking_items}\n\
+next_valid_actions:\n{next_valid_actions}\n\
+required_behavior:\n\
+- Do not send another provider request for this turn.\n\
+- Preserve bounded evidence and stop; a later turn may block the node or continue only after TaskSpace state changes.",
+        reason = decision.reason,
+        budget_state = decision.budget_state.as_str(),
+        request_count = snapshot.request_count,
+        max_requests = snapshot.max_requests,
+        node_request_count = snapshot.node_request_count,
+        max_model_requests_per_node = snapshot.max_model_requests_per_node,
+        post_budget_grace_request_count = snapshot.post_budget_grace_request_count,
+        post_budget_grace_requests = snapshot.post_budget_grace_requests,
+        quality_impact_required = decision.quality_impact_required,
+    );
+
+    ResponseItem::Message {
+        id: None,
+        role: "developer".to_string(),
+        content: vec![ContentItem::InputText { text }],
+        end_turn: None,
+        phase: None,
+    }
+}
+
 fn build_taskspace_no_action_recovery_item(last_message: Option<&str>) -> ResponseItem {
     let previous = last_message
         .filter(|message| !message.trim().is_empty())
@@ -1942,6 +2020,10 @@ fn is_taskspace_no_action_recovery_item(item: &ResponseItem) -> bool {
     response_item_text_contains(item, TASKSPACE_NO_ACTION_RECOVERY_MARKER)
 }
 
+fn is_taskspace_provider_budget_hard_stop_item(item: &ResponseItem) -> bool {
+    response_item_text_contains(item, TASKSPACE_PROVIDER_BUDGET_HARD_STOP_MARKER)
+}
+
 fn is_taskspace_implement_needs_edit_recovery_item(item: &ResponseItem) -> bool {
     response_item_text_contains(item, TASKSPACE_IMPLEMENT_NEEDS_EDIT_MARKER)
         || response_item_text_contains(item, TASKSPACE_EDIT_FAILURE_MARKER)
@@ -1951,7 +2033,9 @@ fn is_taskspace_implement_needs_edit_recovery_item(item: &ResponseItem) -> bool 
 }
 
 fn taskspace_special_recovery_warning_message(item: &ResponseItem) -> String {
-    if response_item_text_contains(item, TASKSPACE_FORCED_IMPLEMENT_TRANSITION_MARKER) {
+    if response_item_text_contains(item, TASKSPACE_PROVIDER_BUDGET_HARD_STOP_MARKER) {
+        "TaskSpace inserted TaskSpaceProviderBudgetHardStopV1 because provider request budget was exhausted before dispatch. The current turn will stop without another model request.".to_string()
+    } else if response_item_text_contains(item, TASKSPACE_FORCED_IMPLEMENT_TRANSITION_MARKER) {
         "TaskSpace inserted TaskSpaceForcedImplementTransitionRecoveryV1 after a provider-budget forced implement transition. This guidance does not consume the no-action recovery allowance.".to_string()
     } else if response_item_text_contains(item, TASKSPACE_APPLY_PATCH_FORMAT_MARKER) {
         "TaskSpace inserted TaskSpaceApplyPatchFormatRecoveryV1 after apply_patch tried to add an existing file. This guidance does not consume the no-action recovery allowance.".to_string()
@@ -6639,6 +6723,45 @@ TaskSpaceGateRecoveryV1: {\"schema_version\":\"TaskSpaceGateRecoveryV1\",\"allow
     }
 
     #[test]
+    fn provider_budget_hard_stop_item_is_terminal_recovery_guidance() {
+        let mut snapshot = provider_snapshot("inspect_code_context");
+        snapshot.request_count = 8;
+        snapshot.max_requests = 8;
+        snapshot.node_request_count = 3;
+        snapshot.max_model_requests_per_node = 3;
+        snapshot.budget_state = "over_profile_hint".to_string();
+        let mut state = crate::action_map::ActionMapRuntimeState::default();
+        let mut decision =
+            state.gate_create_node_budget("map-1", crate::action_map::NodeKind::InspectCodeContext);
+        decision.allowed = false;
+        decision.reason = "provider_node_request_hard_limit_exceeded".to_string();
+        decision.blocking_items = vec![
+            "current_node:node-1".to_string(),
+            "request_count:8/8".to_string(),
+            "node_request_count:3/3".to_string(),
+        ];
+        decision.next_valid_actions = vec!["stop provider sampling for this turn".to_string()];
+        decision.recovery_request_phase = Some("budget_recovery".to_string());
+        decision.quality_impact_required = true;
+
+        let item = build_taskspace_provider_budget_hard_stop_item(&snapshot, &decision);
+        let text = item_text(item.clone());
+
+        assert!(text.contains(TASKSPACE_PROVIDER_BUDGET_HARD_STOP_MARKER));
+        assert!(text.contains("reason: provider_node_request_hard_limit_exceeded"));
+        assert!(text.contains("request_count: 8/8"));
+        assert!(text.contains("node_request_count: 3/3"));
+        assert!(text.contains("Do not send another provider request for this turn"));
+        assert!(is_taskspace_provider_budget_hard_stop_item(&item));
+        assert!(!is_taskspace_no_action_recovery_item(&item));
+        assert!(!is_taskspace_implement_needs_edit_recovery_item(&item));
+        assert!(
+            taskspace_special_recovery_warning_message(&item)
+                .contains("current turn will stop without another model request")
+        );
+    }
+
+    #[test]
     fn gate_recovery_message_is_not_treated_as_inspect_bootstrap_gap() {
         let blocked_output = "TaskSpace blocked this diagnostic command.\n\
 TaskSpaceGateRecoveryV1: {\"schema_version\":\"TaskSpaceGateRecoveryV1\",\"allowed\":false,\"reason\":\"inspect_duplicate_successful_diagnostic_test\",\"next_valid_actions\":[\"read_file or search for implementation/test evidence\",\"taskspace_control(action=finish_node, node_id=\\\"node-1\\\", next_node_kind=\\\"implement_solution\\\")\"]}";
@@ -9961,6 +10084,40 @@ async fn try_run_sampling_request(
         turn_context.provider.info().name.as_str(),
     );
     let provider_budget_snapshot = sess.action_map_provider_request_budget_snapshot().await;
+    if let Some(snapshot) = provider_budget_snapshot.as_ref() {
+        let gate = sess
+            .action_map_gate_provider_request_pre_dispatch(snapshot)
+            .await;
+        if !gate.allowed {
+            sess.send_event(
+                &turn_context,
+                EventMsg::Warning(WarningEvent {
+                    message: format!(
+                        "TaskSpaceProviderBudgetHardStopV1 reason={} request_count={}/{} node_request_count={}/{} state={} node_kind={} phase={}",
+                        gate.reason,
+                        snapshot.request_count,
+                        snapshot.max_requests,
+                        snapshot.node_request_count,
+                        snapshot.max_model_requests_per_node,
+                        snapshot.budget_state,
+                        snapshot.node_kind.as_deref().unwrap_or("unknown"),
+                        snapshot.request_phase.as_deref().unwrap_or("unknown"),
+                    ),
+                }),
+            )
+            .await;
+            return Ok(SamplingRequestResult {
+                needs_follow_up: false,
+                last_agent_message: Some(format!(
+                    "TaskSpace provider budget hard stop: {}",
+                    gate.reason
+                )),
+                taskspace_no_action_recovery_item: Some(
+                    build_taskspace_provider_budget_hard_stop_item(snapshot, &gate),
+                ),
+            });
+        }
+    }
     let provider_request_budget = provider_budget_snapshot
         .as_ref()
         .map(|snapshot| {
