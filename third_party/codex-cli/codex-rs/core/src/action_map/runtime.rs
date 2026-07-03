@@ -14759,6 +14759,12 @@ fn blocker_claims_editable_validation_failure_as_blocker(blocker_summary: &str) 
         || lower.contains("valueerror");
     let block_claim = lower.contains("need to inspect")
         || lower.contains("need to read")
+        || lower.contains("cannot read")
+        || lower.contains("can't read")
+        || lower.contains("read actions are not allowed")
+        || lower.contains("read restriction")
+        || lower.contains("insufficient information")
+        || lower.contains("current narrowed state")
         || lower.contains("file state")
         || lower.contains("cannot execute")
         || lower.contains("can't execute")
@@ -30284,7 +30290,7 @@ summary: diagnostic payload for output reference smoke\n\
             .block_main_node(
                 owner,
                 &rework_node_id,
-                "Test failed with IndentationError on line 3 after patch. Need to inspect file state to fix remaining indentation errors.".to_string(),
+                "Test failed with IndentationError; cannot read files to diagnose because read actions are not allowed in current narrowed state".to_string(),
             )
             .expect_err("editable validation failure should require implementation patch");
 

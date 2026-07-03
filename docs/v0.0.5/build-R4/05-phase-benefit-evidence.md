@@ -1712,3 +1712,26 @@ CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core implement_recovery_prio
 
 状态：该 control/feedback class 已 focused fixed；R4-G utility 仍需再次 keyed rerun 验证 TaskSpace 是否会继续 patch
 `generate_organization.py`，生成 `organization.json`，并通过 public validation。
+
+补充真实复验：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260703i-editable-blocker/runs/terminal_bench__organization-json-generator/20260704-005922-113
+reported_evidence_level: E1
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 8
+```
+
+该 run 证明同一问题类型仍未在所有 provider 文案下关闭：模型最终使用
+`Test failed with IndentationError; cannot read files to diagnose because read actions are not allowed in current narrowed state`
+作为 `block_node` reason，runtime 接受了 blocker。已把 `cannot read`、`read actions are not allowed`、
+`read restriction`、`insufficient information`、`current narrowed state` 纳入
+`implementation-editable-validation-failure-misblocked` 的 blocker detector，并用真实文案更新 focused test。
+
+新增验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core validation_rework_rejects_editable_validation_failure_blocker_before_edit --lib
+  PASS
+```

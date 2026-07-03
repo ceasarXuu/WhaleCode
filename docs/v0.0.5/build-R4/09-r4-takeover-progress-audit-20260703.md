@@ -308,6 +308,27 @@ CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core action_contract_prompt_
 当前状态：focused 修复已完成；仍需重跑 `organization-json-generator` 验证 TaskSpace 是否继续 patch 缩进问题、生成
 `organization.json`，并通过 public validation。
 
+第二次复验：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260703i-editable-blocker/runs/terminal_bench__organization-json-generator/20260704-005922-113
+reported_evidence_level: E1
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 8
+```
+
+进展：TaskSpace 仍无 900s timeout，并且已读全 fact sources、创建 `processor.py`、进入 validation。
+未通过原因仍属于同一 `implementation-editable-validation-failure-misblocked` 类型，但 provider wording 变成：
+
+```text
+Test failed with IndentationError; cannot read files to diagnose because read actions are not allowed in current narrowed state
+```
+
+该 wording 最初没有命中 `blocker_claims_editable_validation_failure_as_blocker`，因此 runtime 接受了 `block_node`。
+已把 `cannot read`、`read actions are not allowed`、`read restriction`、`insufficient information` 和
+`current narrowed state` 纳入同一 detector，并用该真实文案更新 focused test。
+
 ## 4. 本次验证
 
 | 验证项 | 命令 | 结果 |
@@ -353,6 +374,7 @@ CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core action_contract_prompt_
 | inspect projection normal transition regression | `CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core projection_prioritizes_inspect_to_implement_after_evidence --lib` | PASS：无缺失声明 fact source 的正常 inspect evidence 仍可提示进入 implement |
 | editable validation failure blocker guard | `CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core validation_rework_rejects_editable_validation_failure_blocker_before_edit --lib` | PASS：rework node 不能把 `IndentationError` 这类可编辑 validation failure block 成 infra/closed validation |
 | editable validation failure feedback | `CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core action_contract_prompt_structures_editable_validation_failure_blocker_rejection --lib` | PASS：recent feedback 输出 `editable_validation_failure_blocker_rejected`，并要求 whole-file/block patch |
+| editable validation failure real wording regression | `CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core validation_rework_rejects_editable_validation_failure_blocker_before_edit --lib` | PASS：使用真实 rerun 中的 `cannot read files ... read actions are not allowed ... current narrowed state` blocker 文案 |
 | latest R4-D fix build | `cargo fmt --all --check && CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale --locked && git diff --check` | PASS：format/build/whitespace 通过；仅有已知 stable rustfmt config warning |
 | organization-json-generator direct validator | direct `external-validator.ps1` run on generated fixture | PASS：Docker build `classification=ok`; run reaches expected missing `organization.json` assertions |
 | Whitespace | `git diff --check` | PASS |

@@ -627,3 +627,31 @@
   ```
 - Adjacent regression result: passed.
 - Interpretation: The new `implementation-editable-validation-failure-misblocked` class is focused-fixed. Real utility validation still requires another keyed rerun to see whether TaskSpace repairs the full indentation issue and creates `organization.json`.
+
+# Evidence E-034: second rerun exposes the same editable misblock with read-restriction wording
+
+- Prediction tested: H-013 predicts the root class persists if the guard does not recognize the provider's blocker wording.
+- Real rerun:
+  ```text
+  RunDir: target/r4-org-json-real-keyed-20260703i-editable-blocker/runs/terminal_bench__organization-json-generator/20260704-005922-113
+  PairReport: pair-001/pair-report.md
+  reported_evidence_level: E1
+  outcome_taskspace: engineering_unclean
+  right_exec_timed_out: False
+  right_tool_call_count: 8
+  ```
+- Matched trace signals:
+  - TaskSpace created `processor.py` and validation failed with fallback command output containing `IndentationError: unexpected indent`.
+  - The model repeatedly attempted `finish_node`; runtime rejected at least one finish with "cannot be completed without a recorded successful edit action."
+  - The final `block_node` reason was: `Test failed with IndentationError; cannot read files to diagnose because read actions are not allowed in current narrowed state`.
+  - Runtime accepted that blocker as `TaskSpace node blocked: node-4 result result-11`, because the editable-failure blocker detector did not yet match `cannot read` / `read actions are not allowed` / `current narrowed state`.
+  - Public validation still failed because `/app/organization.json` did not exist.
+- Repair update:
+  - `blocker_claims_editable_validation_failure_as_blocker` now treats `cannot read`, `read actions are not allowed`, `read restriction`, `insufficient information`, and `current narrowed state` as blocker claims when paired with an editable validation failure.
+  - The focused runtime test now uses the exact observed blocker wording.
+- Focused command:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core validation_rework_rejects_editable_validation_failure_blocker_before_edit --lib
+  ```
+- Result: passed.
+- Interpretation: H-013 remains the active failure class; this evidence tightens the detector to the real provider wording observed in `20260704-005922-113`. Another keyed rerun is still required for real utility validation.

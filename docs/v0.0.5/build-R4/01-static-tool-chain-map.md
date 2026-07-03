@@ -317,6 +317,11 @@ IndentationError: unexpected indent
 `infra-evidence-unresolved-indentation`。这属于 control/feedback 语义扭曲：可编辑实现失败被错误提升为不可继续的
 infra blocker。
 
+第二次 rerun `20260704-005922-113` 仍属于同一类型，但 provider wording 变成
+`cannot read files to diagnose because read actions are not allowed in current narrowed state`。因此 detector 不能只匹配
+`need to inspect` / `closed validation`，还要把 `cannot read`、`read actions are not allowed`、`read restriction`、
+`insufficient information` 和 `current narrowed state` 这类“把可编辑失败归因为读权限/状态限制”的说法纳入拒绝条件。
+
 对应 focused gate：
 
 ```text
