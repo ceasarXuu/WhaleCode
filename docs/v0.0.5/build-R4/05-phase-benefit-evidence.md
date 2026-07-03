@@ -2289,3 +2289,70 @@ git diff --check
 ```
 
 状态：该 feedback/action-contract class 已 focused fixed；下一次 keyed rerun 应验证模型在 node-5 上重新运行 schema/public validation，而不是继续用旧 `IndentationError` 文案 closeout。
+
+## 5.34 2026-07-04 validation rework duplicate-read action-contract feedback gap
+
+`validation-stale-failure-action-contract-feedback-gap` 修复后的 keyed rerun 证明当前 validation node 已经会重新运行测试，
+但 rework 节点仍因重复读取反馈不够强而没有进入 patch：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260703u-action-contract-feedback/runs/terminal_bench__organization-json-generator/20260704-041121-187
+reported_evidence_level: E2-candidate
+outcome_standard: solved
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 12
+right_open_leaf_nodes: 1
+public_validation_exit_code: 1
+hidden_oracle_exit_code: 0
+rollout_trace_model_request_count: 19
+```
+
+关键观察：
+
+| Signal | 结论 |
+|---|---|
+| `node-3` 执行 `python process.py && python -m jsonschema -i organization.json schema.json` | H-023 生效，旧失败 closeout loop 已越过 |
+| schema 失败集中在 `statistics`：`averageDepartmentBudget`、`totalEmployees`、`skillDistribution`、`departmentSizes`、`projectStatusDistribution`、`averageYearsOfService` 缺失 | 这是可编辑 implementation defect，不是 validator infrastructure |
+| runtime 将 `node-3` blocked 并创建 `node-4` rework | phase routing 正确 |
+| `node-4` 第一次成功读取 `process.py`，之后继续读 `process.py` / `schema.json` | 模型没有把已有证据转成 patch |
+| runtime 拦截为 `validation_rework_duplicate_artifact_read` 或 `implementation_needs_edit`，但最终仍 hard stop | feedback 层没有把拒绝语义压成强 `apply_patch` action contract |
+
+本轮新增并 focused 修复的问题类型：
+
+| Case | Before | After | Evidence |
+|---|---|---|---|
+| `validation-rework-duplicate-read-action-contract-feedback-gap` | rework target 内容和 failed validation 都已可见，但 duplicate read / implementation_needs_edit 的 action-contract feedback 仍接近泛化工具失败，模型继续读文件耗尽节点预算 | duplicate read 输出 `failure_kind: validation_rework_duplicate_artifact_read`、`target_artifact`、`previous_read_result` 和强 `apply_patch` next action；generic implementation-needs-edit 输出独立 `failure_kind: implementation_needs_edit`；jsonschema required-property 失败被压缩为 `missing_required_properties`；runtime recovery 在 target 已读后不再广告 read_file | `action_contract_feedback_requires_patch_after_rework_duplicate_read`; `action_contract_feedback_requires_patch_after_implementation_needs_edit`; `validation_failure_excerpt_extracts_required_property_list`; `validation_rework_allows_changed_artifact_read_when_schema_failure_lacks_traceback` |
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core action_contract_feedback_requires_patch_after_rework_duplicate_read -- --nocapture
+  PASS：重复读取已读 rework artifact 时，feedback 明确要求 apply_patch 并禁止继续 read/search/schema rediscovery
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core action_contract_feedback_requires_patch_after_implementation_needs_edit -- --nocapture
+  PASS：普通 implementation_needs_edit 拒绝不再落到 generic tool failure
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core validation_failure_excerpt_extracts_required_property_list -- --nocapture
+  PASS：jsonschema required-property 输出结构化为 missing_required_properties
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core validation_rework_allows_changed_artifact_read_when_schema_failure_lacks_traceback -- --nocapture
+  PASS：target 已读后 runtime recovery 使用 existing result + apply_patch，不再把 read_file 放回 next_valid_actions
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core validation_rework -- --nocapture
+  PASS：12 tests
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core implementation_needs_edit -- --nocapture
+  PASS：2 tests
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core validation_ -- --nocapture
+  PASS：88 tests
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-cli --bin whale --locked
+git diff --check
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/taskspace-benchmark/write-whale-binary-attestation.ps1 -WhaleBin third_party/codex-cli/codex-rs/target/debug/whale -BuildCommand "CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-cli --bin whale --locked"
+  PASS
+```
+
+状态：该 feedback/action-contract class 已 focused fixed；下一次 keyed rerun 应验证模型在 `node-4` 读取 `process.py` 后直接 patch statistics camelCase / distribution 字段，并重新进入 schema/public validation。

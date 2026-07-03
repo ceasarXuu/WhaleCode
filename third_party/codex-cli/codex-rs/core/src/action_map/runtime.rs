@@ -2358,6 +2358,50 @@ impl ActionMapRuntimeState {
             let blocked_node_kind = node.kind.as_str().to_string();
             let validation_rework_artifacts =
                 implement_node_dependency_validation_rework_artifact_refs(map, node);
+            let mut next_valid_actions = Vec::new();
+            if !validation_rework_artifacts.is_empty() {
+                let visible_target_reads = implement_node_validation_rework_artifact_read_results(
+                    map,
+                    node,
+                    &validation_rework_artifacts,
+                );
+                if visible_target_reads.is_empty() {
+                    next_valid_actions.extend(validation_rework_artifacts.iter().take(4).map(
+                        |artifact| {
+                            format!(
+                                "read_file validation rework target artifact `{artifact}` only if current contents are not visible"
+                            )
+                        },
+                    ));
+                    next_valid_actions.extend(
+                        validation_rework_artifacts
+                            .iter()
+                            .take(4)
+                            .map(|artifact| format!("or call apply_patch for `{artifact}`")),
+                    );
+                } else {
+                    next_valid_actions.extend(visible_target_reads.iter().take(4).map(
+                        |(artifact, result_id)| {
+                            format!(
+                                "use existing validation rework target read result `{result_id}` for `{artifact}`; do not read/search it again before edit"
+                            )
+                        },
+                    ));
+                    next_valid_actions.extend(
+                        visible_target_reads
+                            .iter()
+                            .take(4)
+                            .map(|(artifact, _)| format!("call apply_patch for `{artifact}`")),
+                    );
+                    next_valid_actions.push(
+                        "read/search is no longer a valid next action on this validation rework node until a successful edit records progress".to_string(),
+                    );
+                }
+            } else {
+                next_valid_actions
+                    .push("call apply_patch for the current implementation node".to_string());
+            }
+            next_valid_actions.push("or return blocked with exact missing evidence".to_string());
             let repeated_block = self.record_blocked_action_repeat(
                 &map_id,
                 &node_id,
@@ -2365,26 +2409,6 @@ impl ActionMapRuntimeState {
                 &reason,
                 &descriptor,
             );
-            let mut next_valid_actions = Vec::new();
-            if !validation_rework_artifacts.is_empty() {
-                next_valid_actions.extend(validation_rework_artifacts.iter().take(4).map(
-                    |artifact| {
-                        format!(
-                            "read_file validation rework target artifact `{artifact}` only if current contents are not visible"
-                        )
-                    },
-                ));
-                next_valid_actions.extend(
-                    validation_rework_artifacts
-                        .iter()
-                        .take(4)
-                        .map(|artifact| format!("or call apply_patch for `{artifact}`")),
-                );
-            } else {
-                next_valid_actions
-                    .push("call apply_patch for the current implementation node".to_string());
-            }
-            next_valid_actions.push("or return blocked with exact missing evidence".to_string());
             let recovery = gate_recovery_message_with_repeated_block(
                 &message,
                 &reason,
@@ -11524,6 +11548,7 @@ fn validation_failure_body_excerpt(body: &str, max_chars: usize) -> String {
         .map(|(_, rest)| rest)
         .or_else(|| body.split_once("\r\nraw_output:\r\n").map(|(_, rest)| rest))
         .unwrap_or(body);
+    let missing_required_properties = validation_failure_required_properties(focused);
     let mut signal_lines = Vec::new();
     let mut fallback_lines = Vec::new();
     for line in focused.lines() {
@@ -11543,11 +11568,57 @@ fn validation_failure_body_excerpt(body: &str, max_chars: usize) -> String {
     } else {
         signal_lines
     };
-    if selected.is_empty() {
+    let selected_text = if selected.is_empty() {
         single_line_preview(&working_evidence_body_excerpt(body, max_chars), max_chars)
     } else {
         single_line_preview(&selected.join(" | "), max_chars)
+    };
+    if missing_required_properties.is_empty() {
+        selected_text
+    } else {
+        let required_summary = format!(
+            "missing_required_properties: {}",
+            missing_required_properties.join(", ")
+        );
+        if selected_text.trim().is_empty() {
+            required_summary
+        } else {
+            single_line_preview(&format!("{required_summary} | {selected_text}"), max_chars)
+        }
     }
+}
+
+fn validation_failure_required_properties(text: &str) -> Vec<String> {
+    let mut properties = Vec::new();
+    for line in text.lines() {
+        let lower = line.to_ascii_lowercase();
+        if !lower.contains("is a required property") {
+            continue;
+        }
+        let Some(marker_start) = lower.find("is a required property") else {
+            continue;
+        };
+        let before = &line[..marker_start];
+        let Some(property) = quoted_suffix_value(before) else {
+            continue;
+        };
+        if !properties.iter().any(|existing| existing == &property) {
+            properties.push(property);
+        }
+    }
+    properties
+}
+
+fn quoted_suffix_value(text: &str) -> Option<String> {
+    quoted_suffix_value_with(text, '\'').or_else(|| quoted_suffix_value_with(text, '"'))
+}
+
+fn quoted_suffix_value_with(text: &str, quote: char) -> Option<String> {
+    let end = text.rfind(quote)?;
+    let before_end = &text[..end];
+    let start = before_end.rfind(quote)?;
+    let value = before_end[start + quote.len_utf8()..].trim();
+    (!value.is_empty()).then(|| value.to_string())
 }
 
 fn validation_failure_line_is_noise(line: &str) -> bool {
@@ -11580,6 +11651,7 @@ fn validation_failure_line_is_signal(lower_line: &str) -> bool {
         || lower_line.contains("exception")
         || lower_line.contains("error:")
         || lower_line.contains("failed")
+        || lower_line.contains("is a required property")
         || lower_line.contains("no such file")
         || lower_line.contains("not found")
         || lower_line.contains(" line ")
@@ -32347,6 +32419,34 @@ def build_organization():\n\
         assert!(allowed_actions.contains("read/search"));
         assert!(allowed_actions.contains("will be blocked"));
 
+        let schema_after_read_error = state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new(
+                    "shell_command",
+                    ActionClass::Read,
+                    serde_json::json!({
+                        "command": "sed -n '1,240p' -- schema.json"
+                    })
+                    .to_string(),
+                ),
+            )
+            .expect_err("non-target schema read remains blocked after target source is visible");
+        let schema_after_read_message = schema_after_read_error.to_string();
+        assert!(
+            schema_after_read_message.contains("use existing validation rework target read result"),
+            "{schema_after_read_message}"
+        );
+        assert!(
+            schema_after_read_message.contains("read/search is no longer a valid next action"),
+            "{schema_after_read_message}"
+        );
+        assert!(
+            !schema_after_read_message
+                .contains("read_file validation rework target artifact `generate_org.py`"),
+            "{schema_after_read_message}"
+        );
+
         let repeated_read_error = state
             .prepare_main_tool_call(
                 owner,
@@ -32367,6 +32467,31 @@ def build_organization():\n\
         );
         assert!(repeated_message.contains("generate_org.py"));
         assert!(repeated_message.contains("apply_patch"));
+    }
+
+    #[test]
+    fn validation_failure_excerpt_extracts_required_property_list() {
+        let excerpt = validation_failure_body_excerpt(
+            "TaskSpaceToolInvocationV1:\n\
+tool: shell_command\n\
+raw_output:\n\
+organization.json generated successfully\n\
+{'total_departments': 5}: 'averageDepartmentBudget' is a required property\n\
+{'total_departments': 5}: 'totalEmployees' is a required property\n\
+{'total_departments': 5}: 'skillDistribution' is a required property\n",
+            320,
+        );
+
+        assert!(
+            excerpt.contains(
+                "missing_required_properties: averageDepartmentBudget, totalEmployees, skillDistribution"
+            ),
+            "{excerpt}"
+        );
+        assert!(
+            excerpt.contains("'averageDepartmentBudget' is a required property"),
+            "{excerpt}"
+        );
     }
 
     #[test]

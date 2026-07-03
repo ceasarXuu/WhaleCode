@@ -1200,3 +1200,70 @@
   - `validation_` now covers 87 passing tests including the new finish/action-contract feedback paths.
   - `cargo fmt --check`, `codex-cli --bin whale` build, and `git diff --check` all pass.
 - Interpretation: The new `validation-stale-failure-action-contract-feedback-gap` class is focused-fixed at the unit level. Real utility validation still requires another keyed rerun to prove the model reruns validation on `node-5` instead of retrying stale failure closeout.
+
+# Hypothesis H-024: validation rework duplicate-read feedback is not action-forcing enough
+
+- Claim: After H-023, TaskSpace correctly forces a fresh validation run and routes schema failures into implementation rework, but the action-contract feedback for rework duplicate reads and generic `implementation_needs_edit` rejects still degrades to broad tool failure/recovery language. The raw state is correct: the target artifact read result and schema failure are present. The missing piece is an explicit provider-visible contract saying the next action must be `apply_patch` against the already-read artifact, with structured validation fields from jsonschema output.
+- Prediction: The post-H-023 keyed rerun will show a real `run_test` on the validation node, a blocked schema validation result, a rework node that reads `process.py` once, repeated `validation_rework_duplicate_artifact_read` / `implementation_needs_edit` rejects, no successful edit on the rework node, and provider-node hard stop. Unit repair should add a distinct `validation_rework_duplicate_artifact_read` feedback class, a generic `implementation_needs_edit` feedback class, structured missing-required-property extraction, and no read-file next action in runtime recovery after target contents are visible.
+- Diagnostic evidence plan: Inspect the post-H-023 keyed rerun trace and observability; add focused session tests for duplicate rework read and generic implementation-needs-edit feedback, plus runtime tests for jsonschema required-property extraction and post-target-read recovery next actions.
+- Status: confirmed.
+
+# Evidence E-055: rework reaches real schema validation but repeats reads instead of patching
+
+- Prediction tested: H-024 predicts the stale validation closeout loop is gone, but implementation rework still fails because duplicate-read feedback is not converted into an action-forcing patch contract.
+- Real rerun:
+  ```text
+  RunDir: target/r4-org-json-real-keyed-20260703u-action-contract-feedback/runs/terminal_bench__organization-json-generator/20260704-041121-187
+  PairReport: pair-001/pair-report.md
+  reported_evidence_level: E2-candidate
+  outcome_standard: solved
+  outcome_taskspace: engineering_unclean
+  right_exec_timed_out: False
+  right_tool_call_count: 12
+  right_open_leaf_nodes: 1
+  public_validation_exit_code: 1
+  hidden_oracle_exit_code: 0
+  rollout_trace_model_request_count: 19
+  ```
+- Matched trace signals:
+  - `node-3` ran `python process.py && python -m jsonschema -i organization.json schema.json`; this confirms H-023 worked for the stale closeout class.
+  - The validator failed on real schema fields: `averageDepartmentBudget`, `totalEmployees`, `skillDistribution`, `departmentSizes`, `projectStatusDistribution`, and `averageYearsOfService` were required but missing from `statistics`.
+  - Runtime blocked `node-3` and created `node-4` as `implement_solution` rework with blocker text that named the failed validation result.
+  - `node-4` successfully read `process.py` once as `result-10`.
+  - After that, the model repeated `read_file process.py` and `read_file schema.json`; runtime rejected these with `validation_rework_duplicate_artifact_read` or `implementation_needs_edit`.
+  - `node-4` ended `running` with one read result, three blocked duplicate-read actions in observability, no successful edit result, and `TaskSpaceProviderBudgetHardStopV1 reason=provider_node_request_hard_limit_exceeded request_count=18/20 node_request_count=6/5`.
+- Interpretation: Runtime state was not out of bounds; the issue was feedback-layer actionability. The model had enough evidence to patch `process.py`, but the tool feedback did not preserve a distinct “already-read validation rework artifact; patch now” semantic and did not structure jsonschema required-property failures enough for a compact repair.
+
+# Evidence E-056: duplicate rework read and implementation-needs-edit feedback now force apply_patch
+
+- Prediction tested: H-024 requires rejected duplicate reads and generic implement-needs-edit rejects to be summarized as `apply_patch`-forcing feedback, and jsonschema required-property failures to become compact repair evidence.
+- Repair artifacts:
+  - `third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs`
+  - `third_party/codex-cli/codex-rs/core/src/session/turn.rs`
+- Focused commands:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core action_contract_feedback_requires_patch_after_rework_duplicate_read -- --nocapture
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core action_contract_feedback_requires_patch_after_implementation_needs_edit -- --nocapture
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core validation_failure_excerpt_extracts_required_property_list -- --nocapture
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core validation_rework_allows_changed_artifact_read_when_schema_failure_lacks_traceback -- --nocapture
+  ```
+- Adjacent regression commands:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core validation_rework -- --nocapture
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core implementation_needs_edit -- --nocapture
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core validation_ -- --nocapture
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-cli --bin whale --locked
+  git diff --check
+  powershell -NoProfile -ExecutionPolicy Bypass -File scripts/taskspace-benchmark/write-whale-binary-attestation.ps1 -WhaleBin third_party/codex-cli/codex-rs/target/debug/whale -BuildCommand "CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-cli --bin whale --locked"
+  ```
+- Result: passed.
+- Matched test signals:
+  - Duplicate rework reads now produce `failure_kind: validation_rework_duplicate_artifact_read`, `target_artifact`, `previous_read_result`, and `next_valid_action: emit exactly one apply_patch`.
+  - Generic implementation-needs-edit rejects now produce `failure_kind: implementation_needs_edit` instead of generic tool failure.
+  - Recent tool feedback emits progress hints that forbid `read_file`, `list_files`, `search`, schema rediscovery, and implementation-node validation until a successful edit is recorded.
+  - `validation_failure_body_excerpt` extracts jsonschema required-property failures into `missing_required_properties: averageDepartmentBudget, totalEmployees, skillDistribution, ...`.
+  - Runtime recovery after a visible rework target read now lists the existing read result and `apply_patch`, and no longer re-advertises `read_file validation rework target artifact ...`.
+  - `validation_` now covers 88 passing tests including the new required-property summary and feedback paths.
+  - `cargo fmt --check`, `codex-cli --bin whale` build, `git diff --check`, and whale binary attestation all pass.
+- Interpretation: The new `validation-rework-duplicate-read-action-contract-feedback-gap` class is focused-fixed at the unit level. Real utility validation still requires another keyed rerun to verify the provider patches `process.py` instead of repeating rework reads.

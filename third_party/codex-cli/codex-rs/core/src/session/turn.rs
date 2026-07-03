@@ -2092,11 +2092,31 @@ fn taskspace_special_recovery_warning_message(item: &ResponseItem) -> String {
 fn taskspace_message_hit_implementation_needs_edit(message: Option<&str>) -> bool {
     message.is_some_and(|message| {
         message.contains("implementation_needs_edit")
-            || (message.contains("validation rework node")
-                && message.contains("already read failure artifact")
-                && message.contains("no successful edit"))
+            || taskspace_text_mentions_validation_rework_duplicate_artifact_read(message)
             || message.contains("has enough read/search evidence and no successful edit")
     })
+}
+
+fn taskspace_text_mentions_validation_rework_duplicate_artifact_read(text: &str) -> bool {
+    text.contains("validation_rework_duplicate_artifact_read")
+        || (text.contains("validation rework node")
+            && text.contains("already read failure artifact")
+            && text.contains("no successful edit"))
+}
+
+fn taskspace_validation_rework_duplicate_artifact(text: &str) -> Option<String> {
+    taskspace_backtick_value_after(text, "failure artifact `")
+}
+
+fn taskspace_validation_rework_duplicate_previous_result(text: &str) -> Option<String> {
+    taskspace_backtick_value_after(text, "in result `")
+}
+
+fn taskspace_backtick_value_after(text: &str, marker: &str) -> Option<String> {
+    let (_, rest) = text.split_once(marker)?;
+    let (value, _) = rest.split_once('`')?;
+    let value = value.trim();
+    (!value.is_empty()).then(|| value.to_string())
 }
 
 fn taskspace_message_hit_validation_needs_test(message: Option<&str>) -> bool {
@@ -3000,6 +3020,15 @@ fn taskspace_action_contract_recent_tool_outputs_item(
             || (text.contains("cannot be completed without a recorded successful edit action")
                 && text.contains("Execute the edit in this node"))
     });
+    let validation_rework_duplicate_read_seen = summaries
+        .iter()
+        .any(|(_, text)| taskspace_text_mentions_validation_rework_duplicate_artifact_read(text));
+    let implementation_needs_edit_seen = summaries.iter().any(|(_, text)| {
+        text.contains("failure_kind: implementation_needs_edit")
+            || text.contains("implementation_needs_edit")
+            || (text.contains("has enough read/search evidence")
+                && text.contains("no successful edit"))
+    });
     let internal_policy_blocker_rejected_seen = summaries.iter().any(|(_, text)| {
         text.contains("internal_policy_blocker_rejected")
             || (text.contains("cannot be blocked for an internal node-policy")
@@ -3052,6 +3081,10 @@ fn taskspace_action_contract_recent_tool_outputs_item(
         "progress_hint: A previous block_node action was rejected because it described TaskSpace internal policy or a repeated diagnostic, not an external blocker. Do not create another inspect node and do not rerun the diagnostic. Next action must be apply_patch with the smallest concrete implementation fix from dependency evidence.\n"
     } else if implement_missing_edit_before_finish_seen {
         "progress_hint: A previous finish_node action was rejected because the implement_solution node has no successful edit. Do not finish, block, create another inspect node, or rerun diagnostics. Next action must be apply_patch with the smallest concrete implementation fix from dependency evidence.\n"
+    } else if validation_rework_duplicate_read_seen {
+        "progress_hint: A previous read/search was blocked because this validation rework node already has the target artifact contents visible and no successful edit has happened yet. Do not read_file, list_files, search, inspect schema again, or run validation from this implementation node. Next action must be apply_patch for the already-read validation rework artifact, or blocked only with a concrete external reason editing is impossible.\n"
+    } else if implementation_needs_edit_seen {
+        "progress_hint: A previous read/search/control action was blocked because this implement_solution node already has enough evidence and no successful edit has happened yet. Do not read_file, list_files, search, broad shell discovery, or validation from this implementation node. Next action must be apply_patch with the smallest concrete fix from the existing evidence, or blocked only with a concrete external reason editing is impossible.\n"
     } else if diagnostic_prerequisite_already_satisfied_seen {
         "progress_hint: A previous block_node action was rejected because the dependency inspect node already recorded successful diagnostic evidence. Do not rerun diagnostic commands and do not block for the same prerequisite. Next action must be apply_patch with the smallest concrete implementation fix from inspected evidence.\n"
     } else if unreviewed_result_blocker_seen {
@@ -3154,6 +3187,36 @@ tool_action: {action}\n\
 tool_result: blocked\n\
 failure_kind: validation_finish_missing_current_test_result\n\
 next_valid_action: emit exactly one run_test action on the current validation node using the required validation command from the current TaskSpace projection. Do not finish_node, block_node, create implementation rework, read_file, list_files, or search before a current test/build result exists.\n\
+raw_output:\n{text}"
+        );
+    }
+    if taskspace_text_mentions_validation_rework_duplicate_artifact_read(text) {
+        let artifact = taskspace_validation_rework_duplicate_artifact(text)
+            .unwrap_or_else(|| "already-read validation rework artifact".to_string());
+        let previous_result = taskspace_validation_rework_duplicate_previous_result(text)
+            .unwrap_or_else(|| "previous read result".to_string());
+        return format!(
+            "{TASKSPACE_TOOL_FEEDBACK_MARKER}\n\
+tool_source: action_contract_internal\n\
+tool_action: {action}\n\
+tool_result: blocked\n\
+failure_kind: validation_rework_duplicate_artifact_read\n\
+target_artifact: {artifact}\n\
+previous_read_result: {previous_result}\n\
+next_valid_action: emit exactly one apply_patch action targeting `{artifact}` using the current contents already visible in `{previous_result}` and the failed validation evidence. Do not read_file, list_files, search, inspect schema again, or run validation from this implementation node before a successful edit is recorded.\n\
+raw_output:\n{text}"
+        );
+    }
+    if text.contains("implementation_needs_edit")
+        || (text.contains("has enough read/search evidence") && text.contains("no successful edit"))
+    {
+        return format!(
+            "{TASKSPACE_TOOL_FEEDBACK_MARKER}\n\
+tool_source: action_contract_internal\n\
+tool_action: {action}\n\
+tool_result: blocked\n\
+failure_kind: implementation_needs_edit\n\
+next_valid_action: emit exactly one apply_patch action with the smallest concrete implementation fix from already inspected evidence or failed validation output. Do not read_file, list_files, search, broad shell discovery, or validation from this implementation node before a successful edit is recorded.\n\
 raw_output:\n{text}"
         );
     }
@@ -4844,6 +4907,72 @@ Then I will inspect the file."#,
         assert!(text.contains("Next action must be run_test"));
         assert!(text.contains("before this node had its own test/build result"));
         assert!(taskspace_message_hit_validation_needs_test(Some(&summary)));
+    }
+
+    #[test]
+    fn action_contract_feedback_requires_patch_after_rework_duplicate_read() {
+        let tool_call = ToolCall {
+            tool_name: ToolName::plain("shell_command"),
+            call_id: "taskspace-action-contract-19-read_file".to_string(),
+            payload: ToolPayload::Function {
+                arguments: "{\"command\":\"sed -n '1,240p' -- process.py\"}".to_string(),
+            },
+        };
+        let err = CodexErr::Fatal(
+            "TaskSpace blocked this read because validation rework node `node-4` already read failure artifact `process.py` in result `result-10` and no successful edit has been recorded after that read. Use the existing file contents from that result and apply the smallest fix with apply_patch, or return blocked with the exact reason no safe edit can be made.\nTaskSpaceGateRecoveryV1: {\"schema_version\":\"TaskSpaceGateRecoveryV1\",\"allowed\":false,\"reason\":\"validation_rework_duplicate_artifact_read\",\"next_valid_actions\":[\"call apply_patch for `process.py`\"]}".to_string(),
+        );
+        let response_input = response_input_for_taskspace_action_tool_error(&tool_call, &err);
+        let response_item: ResponseItem = response_input.into();
+        let (_, summary) = taskspace_action_contract_tool_output_summary(&response_item)
+            .expect("failed action-contract output summarizes");
+        let recent = taskspace_action_contract_recent_tool_outputs_item(
+            &[response_item],
+            Some("implement_solution"),
+        )
+        .expect("recent feedback should be produced");
+        let text = item_text(recent);
+
+        assert!(summary.contains("failure_kind: validation_rework_duplicate_artifact_read"));
+        assert!(summary.contains("target_artifact: process.py"));
+        assert!(summary.contains("previous_read_result: result-10"));
+        assert!(summary.contains("next_valid_action: emit exactly one apply_patch action"));
+        assert!(text.contains("Next action must be apply_patch"));
+        assert!(text.contains("Do not read_file"));
+        assert!(taskspace_message_hit_implementation_needs_edit(Some(
+            &summary
+        )));
+    }
+
+    #[test]
+    fn action_contract_feedback_requires_patch_after_implementation_needs_edit() {
+        let tool_call = ToolCall {
+            tool_name: ToolName::plain("shell_command"),
+            call_id: "taskspace-action-contract-20-read_file".to_string(),
+            payload: ToolPayload::Function {
+                arguments: "{\"command\":\"sed -n '1,240p' -- schema.json\"}".to_string(),
+            },
+        };
+        let err = CodexErr::Fatal(
+            "TaskSpaceActionV1 rejected: node_policy_violation:implement_solution:read_file:implementation_needs_edit. Return exactly one valid taskspace-action-v1 JSON object.".to_string(),
+        );
+        let response_input = response_input_for_taskspace_action_tool_error(&tool_call, &err);
+        let response_item: ResponseItem = response_input.into();
+        let (_, summary) = taskspace_action_contract_tool_output_summary(&response_item)
+            .expect("failed action-contract output summarizes");
+        let recent = taskspace_action_contract_recent_tool_outputs_item(
+            &[response_item],
+            Some("implement_solution"),
+        )
+        .expect("recent feedback should be produced");
+        let text = item_text(recent);
+
+        assert!(summary.contains("failure_kind: implementation_needs_edit"));
+        assert!(summary.contains("next_valid_action: emit exactly one apply_patch action"));
+        assert!(text.contains("Next action must be apply_patch"));
+        assert!(text.contains("no successful edit"));
+        assert!(taskspace_message_hit_implementation_needs_edit(Some(
+            &summary
+        )));
     }
 
     #[test]
