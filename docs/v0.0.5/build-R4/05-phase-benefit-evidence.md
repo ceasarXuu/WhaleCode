@@ -1841,3 +1841,53 @@ CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale --locked
 
 状态：该 validation/feedback class 已 focused fixed；R4-G utility 仍需再次 keyed rerun 验证 TaskSpace 是否会实际运行
 `python -m jsonschema -i organization.json schema.json`、public-equivalent validator 或等价 schema assertions。
+
+## 5.26 2026-07-04 validation recovery next-action projection dilution
+
+schema fact-source guard 修复后的真实 rerun：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260703l-schema-factsource/runs/terminal_bench__organization-json-generator/20260704-014928-473
+reported_evidence_level: E1
+outcome_standard: wrong
+outcome_taskspace: wrong
+right_exec_timed_out: False
+right_tool_call_count: 13
+right_open_leaf_nodes: 1
+```
+
+关键观察：
+
+| Signal | 结论 |
+|---|---|
+| 弱 validation 被反复拒绝为 `validation_test_missing_output_contract_coverage` | H-015 的 schema fact-source guard 已在真实 run 中生效 |
+| `TaskSpaceGateRecoveryV1.next_valid_actions` 包含 `python process.py && python -m jsonschema -i organization.json schema.json` | gate recovery 已生成精确 schema validation 命令 |
+| `TaskSpaceValidationNeedsTestRecoveryV1` 明确要求 obey `next_valid_actions`、use the named command exactly | recovery developer feedback 本身没有丢失 |
+| 随后的 `ContextProjectionV1 active replacement` 只暴露 `run validator/test command` | active projection 重新推导了泛化 action，稀释了精确 recovery |
+| smoke node 最终 `provider_node_request_hard_limit_exceeded request_count=14/20 node_request_count=6/5` | 模型继续弱重试直到节点预算 hard stop |
+| public validator 报 `/app/organization.json does not exist` | TaskSpace 未执行 schema-validating command，也未生成最终输出 |
+
+本轮新增并 focused 修复的问题类型：
+
+| Case | Before | After | Evidence |
+|---|---|---|---|
+| `validation-recovery-next-action-projection-dilution` | validation gate 和 recovery developer message 已包含精确 `jsonschema` 命令，但 active/shadow projection 在同一 validation node 只给 `run validator/test command`，导致模型继续弱重试 | runtime 记录最新 gate recovery `next_valid_actions`，active/shadow projection 在 smoke/regression node 优先原样输出这些动作，并追加“不要替换为更弱 validation”的约束；当前节点记录新 main tool result、清理 blocked repeats 时同步清理该 recovery 状态 | `validation_node_requires_schema_fact_source_for_output_contract_check`; `validation_node_blocks`; `force_finish_validation`; `validation_` |
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_node_requires_schema_fact_source_for_output_contract_check --locked
+  PASS：active projection 保留 exact `python process.py && python -m jsonschema -i organization.json schema.json`
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_node_blocks --locked
+  PASS
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core force_finish_validation --locked
+  PASS
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_ --locked
+  PASS：78 tests
+```
+
+状态：该 feedback/projection class 已 focused fixed；R4-G utility 仍需再次 keyed rerun 验证模型是否执行
+`python process.py && python -m jsonschema -i organization.json schema.json`，若仍 wrong，再按新 trace 建立下一层 tools case。

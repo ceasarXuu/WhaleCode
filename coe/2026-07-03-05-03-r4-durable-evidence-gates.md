@@ -764,3 +764,53 @@
   - Schema-aware validation with `python -m jsonschema` is allowed.
   - Direct output artifact edits can still be validated by concrete output assertions such as `assert isinstance(data, dict)`.
 - Interpretation: The new `validation-output-contract-schema-fact-source-gap` class is focused-fixed. Real utility validation still requires another keyed rerun to determine whether TaskSpace now performs schema/public-test validation or exposes the next R4 tool/control issue.
+
+# Hypothesis H-016: validation recovery next action is diluted by active projection
+
+- Claim: After H-015, runtime can correctly reject weak validation and generate a precise recovery action, but the active context projection can recompute generic validation-node actions (`run validator/test command`) instead of carrying the latest `TaskSpaceGateRecoveryV1.next_valid_actions`. This creates a feedback-layer semantic loss between gate recovery and the next provider-visible TaskSpace surface.
+- Prediction: A keyed rerun after H-015 will show `TaskSpaceGateRecoveryV1` and `TaskSpaceValidationNeedsTestRecoveryV1` containing an exact command such as `python process.py && python -m jsonschema -i organization.json schema.json`, followed by `ContextProjectionV1 active replacement` that only advertises `run validator/test command`. The model will keep submitting weaker validation commands until the smoke node hits provider-node hard stop.
+- Diagnostic evidence plan: Inspect rollout ordering around the blocked `run_test`, recovery developer message, following active projection, and provider budget hard stop; persist latest gate recovery next actions in runtime state and feed them into projection for smoke/regression nodes.
+- Status: confirmed.
+
+# Evidence E-039: exact recovery exists but active projection weakens it
+
+- Prediction tested: H-016 predicts the feedback is generated correctly but diluted by the projection layer.
+- Real rerun:
+  ```text
+  RunDir: target/r4-org-json-real-keyed-20260703l-schema-factsource/runs/terminal_bench__organization-json-generator/20260704-014928-473
+  PairReport: pair-001/pair-report.md
+  reported_evidence_level: E1
+  outcome_standard: wrong
+  outcome_taskspace: wrong
+  right_exec_timed_out: False
+  right_tool_call_count: 13
+  right_open_leaf_nodes: 1
+  ```
+- Matched trace signals:
+  - Runtime rejected repeated weak validation attempts with `validation_test_missing_output_contract_coverage`.
+  - `TaskSpaceGateRecoveryV1.next_valid_actions` contained `run_test with command \`python process.py && python -m jsonschema -i organization.json schema.json\``.
+  - `TaskSpaceValidationNeedsTestRecoveryV1` told the model to obey `next_valid_actions` and use the named command exactly.
+  - The immediately following `ContextProjectionV1 active replacement` exposed only `run validator/test command` plus state-commit guidance for the same `smoke_test` node.
+  - Provider hard-stopped at `provider_node_request_hard_limit_exceeded request_count=14/20 node_request_count=6/5`.
+  - Public validation failed because `/app/organization.json does not exist`; TaskSpace never reached the required schema-validating command.
+- Interpretation: This is feedback semantic loss, not raw tool failure. The exact recovery action was present in the gate payload and recovery developer message, but the projection surface recomputed a weaker action list and competed with the more precise feedback.
+
+# Evidence E-040: projection preserves latest validation gate recovery next action
+
+- Prediction tested: H-016 requires the latest gate recovery actions to be durable enough to survive active/shadow projection.
+- Repair artifact:
+  - `third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs`
+- Focused commands:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_node_requires_schema_fact_source_for_output_contract_check --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_node_blocks --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core force_finish_validation --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_ --locked
+  ```
+- Result: passed; `validation_` covers 78 tests.
+- Matched test signals:
+  - After weak JSON validation is rejected, active projection contains `python process.py && python -m jsonschema -i organization.json schema.json`.
+  - Active projection adds `do not substitute weaker validation; use the exact recovered command unless it cannot run`.
+  - Active projection no longer emits the generic `run validator/test command` line while latest gate recovery exists for the validation node.
+  - Existing generator-only, schema fact-source, forced closeout, and validation-node guard regressions continue to pass.
+- Interpretation: The new `validation-recovery-next-action-projection-dilution` class is focused-fixed. Real utility validation still requires another keyed rerun to verify the model now follows the schema-validating command and exposes the next unresolved R4 tools issue, if any.

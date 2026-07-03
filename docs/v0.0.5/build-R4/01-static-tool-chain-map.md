@@ -272,6 +272,7 @@ cargo test -j1 -p codex-core taskspace_action_contract_tool_runtime_bootstrap_fa
 | `implementation-editable-validation-failure-misblocked` | control loop + feedback | implement rework 的依赖 validation 明确是 `IndentationError` / `SyntaxError` / `KeyError` 等可编辑实现失败，但模型可以 `block_node` 并把它说成 closed validation / infra blocker | `block_main_node` 拒绝这类 editable validation failure blocker；recent feedback 输出 `editable_validation_failure_blocker_rejected`，要求 patch 失败 artifact，Python 顶层缩进/语法错误按文件或块整体修 | focused fixed / real rerun pending |
 | `validation-closeout-output-contract-coverage-gap` | validation + feedback + closeout | validation tool result 只是 generator execution success，例如 `python generate_json.py` exit 0 并打印 `organization.json generated successfully`，但 runtime forced closeout 将其当成 output/schema contract 已验证，final answer 声称成功，public validator 仍因 `members` / `averageDepartmentBudget` 等字段缺失失败 | validation gate 要求声明 output contract artifacts 被同一次 `run_test` 的真实 validator/schema/assertion 覆盖；generator-only command 输出 `validation_test_missing_output_contract_coverage`；forced closeout 备份会重开引用该结果的 success criteria 并把 generator-only validation result 标记 invalid | focused fixed / real rerun pending |
 | `validation-output-contract-schema-fact-source-gap` | validation + feedback | generator-only 被拒绝后，模型改用 `python -c json.load(open("organization.json"))` 这种弱 JSON parse；runtime 因 `schema.json` 只在 fact source / success criterion 中出现而没有把它纳入 schema target，误把 parse success 当成 schema validation | output-contract coverage 从 output contracts、success criteria、fact sources 一并提取 schema/validator artifacts；有 schema/validator target 时必须看到 `jsonschema` / `validate` / `pytest` / `run-tests` 等真实 schema/validator 语义，普通 `json.load` / `python -c` 不再足够 | focused fixed / real rerun pending |
+| `validation-recovery-next-action-projection-dilution` | feedback + provider projection | validation gate 和 `TaskSpaceValidationNeedsTestRecoveryV1` 已给出精确 schema validation 命令，但 active/shadow `ContextProjectionV1.next_valid_actions` 重新退化为 `run validator/test command`，模型继续弱重试直到 smoke node hard stop | runtime 记录 latest gate recovery `next_valid_actions`；validation node projection 优先原样输出精确 recovery command，并追加“不替换为更弱 validation”的约束；当前节点记录新 main tool result、清理 blocked repeats 时同步清理该 recovery 状态 | focused fixed / real rerun pending |
 
 其中 `duplicate-inspect-premature-fact-source-convergence` 是本次新增收录的 case。它不是工具原始失败，也不是单纯模型策略错误；
 raw evidence 存在，问题在 feedback/phase gate 语义缺失：runtime 把“重复读已成功”恢复成“inspect 可结束”，但没有检查
@@ -342,6 +343,14 @@ runtime 接受了该弱验证，final answer 声称 schema validated，public va
 `initial_fact_sources` 或 success criteria。现在 schema/validator fact sources 也进入 output-contract validation
 requirements，且有 schema/validator target 时必须看到真正的 schema/validator validation 语义，不能只做 JSON parse。
 
+schema fact-source guard 修复后的 rerun `20260704-014928-473` 进一步说明 feedback 链路需要跨层保持精确语义：
+`TaskSpaceGateRecoveryV1` 和随后的 `TaskSpaceValidationNeedsTestRecoveryV1` 都包含
+`python process.py && python -m jsonschema -i organization.json schema.json`，但 active projection 又把
+`next_valid_actions` 泛化成 `run validator/test command`。这不是工具能力层问题，也不是 gate recovery 缺失，而是
+provider-visible projection 稀释了已经生成的恢复动作。现在 runtime 会把最新 gate recovery 的 `next_valid_actions`
+作为节点级状态传入 projection；只要当前 smoke/regression node 仍未产生新状态，projection 就优先展示 exact command，
+避免下一轮上下文给模型一个更弱的合法动作。
+
 对应 focused gate：
 
 ```text
@@ -358,6 +367,8 @@ CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_node_blocks_gene
 CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core force_finish_validation_rejects_generator_only_output_contract_success --locked
 CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core action_contract_prompt_structures_output_contract_coverage_failure --locked
 CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_node_requires_schema_fact_source_for_output_contract_check --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_node_blocks --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core force_finish_validation --locked
 CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_ --locked
 CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale --locked
 ```

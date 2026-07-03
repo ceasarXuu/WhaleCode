@@ -801,6 +801,7 @@ pub(crate) struct ActionMapRuntimeState {
     budget_counters: TaskSpaceBudgetCounters,
     legacy_state_action_attempts: Vec<LegacyStateActionAttemptV1>,
     blocked_action_repeats: HashMap<String, usize>,
+    latest_gate_recovery_next_actions: HashMap<String, Vec<String>>,
     budget_state: TaskSpaceBudgetState,
     budget_violations: Vec<TaskSpaceBudgetViolation>,
     sentinel_warnings: Vec<TaskSpaceSentinelWarning>,
@@ -932,6 +933,7 @@ impl Default for ActionMapRuntimeState {
             budget_counters: TaskSpaceBudgetCounters::default(),
             legacy_state_action_attempts: Vec::new(),
             blocked_action_repeats: HashMap::new(),
+            latest_gate_recovery_next_actions: HashMap::new(),
             budget_state: TaskSpaceBudgetState::Normal,
             budget_violations: Vec::new(),
             sentinel_warnings: Vec::new(),
@@ -1001,6 +1003,37 @@ impl ActionMapRuntimeState {
         let prefix = format!("{map_id}\x1f{node_id}\x1f");
         self.blocked_action_repeats
             .retain(|key, _| !key.starts_with(&prefix));
+        self.latest_gate_recovery_next_actions
+            .remove(&latest_gate_recovery_key(map_id, node_id));
+    }
+
+    fn record_latest_gate_recovery_next_actions(
+        &mut self,
+        map_id: &str,
+        node_id: &str,
+        next_valid_actions: &[String],
+    ) {
+        if next_valid_actions.is_empty() {
+            return;
+        }
+        self.latest_gate_recovery_next_actions.insert(
+            latest_gate_recovery_key(map_id, node_id),
+            next_valid_actions.to_vec(),
+        );
+    }
+
+    fn latest_gate_recovery_next_actions_for_node(
+        &self,
+        map_id: &str,
+        node_id: Option<&str>,
+    ) -> Vec<String> {
+        node_id
+            .and_then(|node_id| {
+                self.latest_gate_recovery_next_actions
+                    .get(&latest_gate_recovery_key(map_id, node_id))
+            })
+            .cloned()
+            .unwrap_or_default()
     }
 
     fn install_active_budget_for_route(
@@ -2431,6 +2464,7 @@ impl ActionMapRuntimeState {
                 &reason,
                 &descriptor,
             );
+            self.record_latest_gate_recovery_next_actions(&map_id, &node_id, &next_valid_actions);
             let recovery = gate_recovery_message_with_repeated_block(
                 &message,
                 &reason,
@@ -8833,11 +8867,17 @@ preview:\n\
                 .or(self.active_task_id.as_ref())
                 .and_then(|task_id| self.tasks.get(task_id))
             {
+                let latest_gate_recovery_next_actions = self
+                    .latest_gate_recovery_next_actions_for_node(
+                        &map.id,
+                        self.current_main_node_id.as_deref(),
+                    );
                 append_context_projection_shadow(
                     &mut context,
                     task,
                     map,
                     self.current_main_node_id.as_deref(),
+                    &latest_gate_recovery_next_actions,
                 );
                 append_task_cognitive_context(&mut context, task, map);
             }
@@ -8959,12 +8999,18 @@ preview:\n\
                 context.push_str(barrier.reason.as_str());
                 context.push('\n');
             }
+            let latest_gate_recovery_next_actions = self
+                .latest_gate_recovery_next_actions_for_node(
+                    &map.id,
+                    self.current_main_node_id.as_deref(),
+                );
             let estimated_tokens = append_context_projection_active(
                 &mut context,
                 task,
                 map,
                 self.current_main_node_id.as_deref(),
                 self.active_budget.as_ref(),
+                &latest_gate_recovery_next_actions,
             );
             if let Some(node_id) = self.current_main_node_id.as_ref()
                 && let Some(node) = map.nodes.get(node_id)
@@ -9045,11 +9091,16 @@ preview:\n\
         let mut context = String::from(
             "TaskSpace ContextProjectionV1 shadow update. This is a compact model-visible projection only; legacy TaskSpace context remains authoritative until active profile rollout.\n",
         );
+        let latest_gate_recovery_next_actions = self.latest_gate_recovery_next_actions_for_node(
+            &map.id,
+            self.current_main_node_id.as_deref(),
+        );
         append_context_projection_shadow(
             &mut context,
             task,
             map,
             self.current_main_node_id.as_deref(),
+            &latest_gate_recovery_next_actions,
         );
         Some(context)
     }
@@ -10865,6 +10916,7 @@ fn append_context_projection_shadow(
     task: &TaskState,
     map: &ActionMapInstance,
     current_node_id: Option<&str>,
+    latest_gate_recovery_next_actions: &[String],
 ) {
     append_context_projection_with_header(
         context,
@@ -10874,6 +10926,7 @@ fn append_context_projection_shadow(
         "shadow",
         "ContextProjectionV1 shadow (not active replacement):",
         None,
+        latest_gate_recovery_next_actions,
     );
 }
 
@@ -10883,6 +10936,7 @@ fn append_context_projection_active(
     map: &ActionMapInstance,
     current_node_id: Option<&str>,
     active_budget: Option<&TaskSpaceActiveBudgetV1>,
+    latest_gate_recovery_next_actions: &[String],
 ) -> usize {
     append_context_projection_with_header(
         context,
@@ -10894,6 +10948,7 @@ fn append_context_projection_active(
             .unwrap_or("active"),
         "ContextProjectionV1 active replacement:",
         active_budget,
+        latest_gate_recovery_next_actions,
     )
 }
 
@@ -10905,6 +10960,7 @@ fn append_context_projection_with_header(
     profile: &str,
     header: &str,
     active_budget: Option<&TaskSpaceActiveBudgetV1>,
+    latest_gate_recovery_next_actions: &[String],
 ) -> usize {
     let projection_id = format!("projection-{profile}-{}-{}", task.id, map.id);
     let current_node = current_node_id
@@ -10993,7 +11049,12 @@ fn append_context_projection_with_header(
         .take(8)
         .map(|result_id| format!("result:{result_id}"))
         .collect::<Vec<_>>();
-    let next_valid_actions = projection_next_valid_actions(map, current_node_id, Some(task));
+    let next_valid_actions = projection_next_valid_actions(
+        map,
+        current_node_id,
+        Some(task),
+        latest_gate_recovery_next_actions,
+    );
 
     let mut projection = String::new();
     projection.push('\n');
@@ -11392,6 +11453,7 @@ fn projection_next_valid_actions(
     map: &ActionMapInstance,
     current_node_id: Option<&str>,
     task: Option<&TaskState>,
+    latest_gate_recovery_next_actions: &[String],
 ) -> Vec<String> {
     let Some(node) = current_node_id.and_then(|node_id| map.nodes.get(node_id)) else {
         return projection_no_current_next_valid_actions(map);
@@ -11438,6 +11500,13 @@ fn projection_next_valid_actions(
             "taskspace_control(action=finish_node) into smoke_test/regression_test".to_string(),
         ],
         NodeKind::SmokeTest | NodeKind::RegressionTest => {
+            if !latest_gate_recovery_next_actions.is_empty() {
+                let mut actions = latest_gate_recovery_next_actions.to_vec();
+                actions.push(
+                    "do not substitute weaker validation; use the exact recovered command unless it cannot run".to_string(),
+                );
+                return actions;
+            }
             let required_validators = discovered_required_local_validator_commands(map);
             if !required_validators.is_empty() {
                 required_validators
@@ -14583,6 +14652,10 @@ fn normalize_command_for_repeat_detection(command: &str) -> String {
         .collect::<Vec<_>>()
         .join(" ")
         .to_ascii_lowercase()
+}
+
+fn latest_gate_recovery_key(map_id: &str, node_id: &str) -> String {
+    format!("{map_id}\x1f{node_id}")
 }
 
 fn command_is_general_validation_runner(command: &str) -> bool {
@@ -22330,7 +22403,7 @@ def build_organization():\n\
             .expect("tool result records")
             .expect("result id");
         let map = state.maps.get("map-1").expect("map");
-        let actions = projection_next_valid_actions(map, Some("node-1"), None);
+        let actions = projection_next_valid_actions(map, Some("node-1"), None, &[]);
 
         assert!(
             actions
@@ -22381,7 +22454,7 @@ def build_organization():\n\
         let task_id = state.active_task_id.clone().expect("active task");
         let map = state.maps.get("map-1").expect("map");
         let task = state.tasks.get(&task_id).expect("task");
-        let actions = projection_next_valid_actions(map, Some("node-1"), Some(task));
+        let actions = projection_next_valid_actions(map, Some("node-1"), Some(task), &[]);
 
         assert!(
             actions.iter().any(|action| action.contains("projects.csv")),
@@ -22433,7 +22506,7 @@ def build_organization():\n\
             .expect("validator discovery records")
             .expect("result id");
         let map = state.maps.get("map-1").expect("map");
-        let actions = projection_next_valid_actions(map, Some(&node_id), None);
+        let actions = projection_next_valid_actions(map, Some(&node_id), None, &[]);
 
         assert_eq!(
             compact_projection_allowed_actions_for_node(NodeKind::SmokeTest),
@@ -22731,7 +22804,7 @@ def normalize_status(value: str) -> str:\n\
 
         let map = state.maps.get("map-1").expect("map");
         assert_eq!(map.nodes["node-2"].status, NodeStatus::Ready);
-        let actions = projection_next_valid_actions(map, None, None);
+        let actions = projection_next_valid_actions(map, None, None, &[]);
 
         assert!(
             actions
@@ -23272,6 +23345,25 @@ def normalize_status(value: str) -> str:\n\
                 "python process.py && python -m jsonschema -i organization.json schema.json"
             ),
             "{error}"
+        );
+        let active_projection = state
+            .build_active_projection_developer_context()
+            .expect("active projection is available after validation gate recovery");
+        assert!(
+            active_projection.contains(
+                "python process.py && python -m jsonschema -i organization.json schema.json"
+            ),
+            "{active_projection}"
+        );
+        assert!(
+            active_projection.contains(
+                "do not substitute weaker validation; use the exact recovered command unless it cannot run"
+            ),
+            "{active_projection}"
+        );
+        assert!(
+            !active_projection.contains("    - run validator/test command\n"),
+            "projection must not dilute exact recovery into generic validator wording: {active_projection}"
         );
 
         let schema_validation = serde_json::json!({
