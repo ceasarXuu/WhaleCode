@@ -1745,12 +1745,13 @@ fn build_taskspace_apply_patch_unanchored_update_recovery_item(targets: &str) ->
     };
     let text = format!(
         "{TASKSPACE_APPLY_PATCH_UNANCHORED_UPDATE_MARKER}\n\
-The previous apply_patch used `*** Update File` with only added lines and no existing context or deleted lines for: {targets}\n\
-That patch shape is ambiguous for an existing file: it can insert new text without replacing the broken code that validation reported.\n\
+The previous apply_patch used `*** Update File` without a valid native update hunk for: {targets}\n\
+That patch shape is ambiguous for an existing file: it can insert new text without replacing the broken code that validation reported, or it can send non-diff command text to the patch tool.\n\
 Current required behavior:\n\
 - Emit exactly one corrected apply_patch now.\n\
 - For an in-place fix, include existing context lines and the exact `-old` / `+new` replacement lines.\n\
 - If the file is small or generated and the full intended contents are known, use `*** Delete File: <path>` followed by `*** Add File: <path>` with the complete corrected file.\n\
+- Do not put shell, Python, or JSON transformation commands inside the patch payload; apply_patch only accepts native diff content.\n\
 - Do not call finish_node, create_node, read_file, search, or validation until this corrected edit succeeds."
     );
 
@@ -5822,6 +5823,46 @@ Then I will inspect the file."#,
             .expect_err("unanchored updates can insert without replacing broken code");
 
         assert_eq!(err, "apply_patch_unanchored_update:src/recover.py");
+    }
+
+    #[test]
+    fn taskspace_action_contract_rejects_non_diff_update_payload() {
+        let raw = serde_json::json!({
+            "schema_version": "taskspace-action-v1",
+            "action": "apply_patch",
+            "node_id": "node-1",
+            "args": {
+                "patch": "*** Begin Patch\n*** Update File: organization.json\npython3 -c \"\nimport json\nwith open('organization.json') as f:\n    data = json.load(f)\nwith open('organization.json', 'w') as f:\n    json.dump(data, f, indent=2)\n\"\n*** End Patch"
+            },
+        })
+        .to_string();
+        let action = parse_taskspace_action_v1(&raw).expect("valid json");
+
+        let err = taskspace_action_to_tool_call(&action, &provider_snapshot("implement_solution"))
+            .expect_err("command payload is not native apply_patch diff content");
+
+        assert!(err.starts_with("apply_patch_unanchored_update:"));
+        assert!(err.ends_with("organization.json"));
+    }
+
+    #[test]
+    fn taskspace_action_contract_allows_delete_only_update_patch() {
+        let raw = serde_json::json!({
+            "schema_version": "taskspace-action-v1",
+            "action": "apply_patch",
+            "node_id": "node-1",
+            "args": {
+                "patch": "*** Begin Patch\n*** Update File: recover.py\n@@\n-print('remove me')\n*** End Patch\n"
+            },
+        })
+        .to_string();
+        let action = parse_taskspace_action_v1(&raw).expect("valid json");
+
+        let call = taskspace_action_to_tool_call(&action, &provider_snapshot("implement_solution"))
+            .expect("delete-only patch is anchored by a deleted line")
+            .expect("tool call");
+
+        assert_eq!(call.tool_name.name, "apply_patch");
     }
 
     #[test]
@@ -10028,21 +10069,27 @@ fn taskspace_apply_patch_unanchored_update_targets(patch: &str) -> Vec<String> {
     let mut targets = Vec::new();
     let mut current_target: Option<String> = None;
     let mut saw_added_line = false;
+    let mut saw_deleted_line = false;
     let mut saw_anchor_line = false;
+    let mut saw_section_content = false;
 
     let finish_section = |targets: &mut Vec<String>,
                           current_target: &mut Option<String>,
                           saw_added_line: &mut bool,
-                          saw_anchor_line: &mut bool| {
+                          saw_deleted_line: &mut bool,
+                          saw_anchor_line: &mut bool,
+                          saw_section_content: &mut bool| {
         if let Some(target) = current_target.take()
-            && *saw_added_line
-            && !*saw_anchor_line
+            && ((*saw_added_line && !*saw_anchor_line)
+                || (*saw_section_content && !*saw_added_line && !*saw_deleted_line))
             && !targets.iter().any(|existing| existing == &target)
         {
             targets.push(target);
         }
         *saw_added_line = false;
+        *saw_deleted_line = false;
         *saw_anchor_line = false;
+        *saw_section_content = false;
     };
 
     for line in patch.lines() {
@@ -10051,7 +10098,9 @@ fn taskspace_apply_patch_unanchored_update_targets(patch: &str) -> Vec<String> {
                 &mut targets,
                 &mut current_target,
                 &mut saw_added_line,
+                &mut saw_deleted_line,
                 &mut saw_anchor_line,
+                &mut saw_section_content,
             );
             current_target = (!target.is_empty()).then(|| target.to_string());
             continue;
@@ -10065,15 +10114,23 @@ fn taskspace_apply_patch_unanchored_update_targets(patch: &str) -> Vec<String> {
                 &mut targets,
                 &mut current_target,
                 &mut saw_added_line,
+                &mut saw_deleted_line,
                 &mut saw_anchor_line,
+                &mut saw_section_content,
             );
             continue;
         }
 
         if current_target.is_some() {
+            if !line.trim().is_empty() {
+                saw_section_content = true;
+            }
             if line.starts_with('+') && !line.starts_with("+++") {
                 saw_added_line = true;
-            } else if (line.starts_with('-') && !line.starts_with("---")) || line.starts_with(' ') {
+            } else if line.starts_with('-') && !line.starts_with("---") {
+                saw_deleted_line = true;
+                saw_anchor_line = true;
+            } else if line.starts_with(' ') {
                 saw_anchor_line = true;
             }
         }
@@ -10083,7 +10140,9 @@ fn taskspace_apply_patch_unanchored_update_targets(patch: &str) -> Vec<String> {
         &mut targets,
         &mut current_target,
         &mut saw_added_line,
+        &mut saw_deleted_line,
         &mut saw_anchor_line,
+        &mut saw_section_content,
     );
     targets
 }

@@ -1938,3 +1938,63 @@
   - `--- Update File: <target>` still rejects as `apply_patch_native_hunk_header:<target>`.
 - Operational note: from repository root, stable Rust commands must use `--manifest-path third_party/codex-cli/codex-rs/Cargo.toml`; a bare `cargo test -p codex-core ...` fails because the project root is not a Cargo workspace root.
 - Interpretation: The `apply-patch-mixed-native-unified-auto-normalization-gap` class is focused-fixed at action-contract normalization/build level. Commit/push, binary attestation, and another keyed rerun are still required before claiming live external convergence beyond this case.
+
+# Evidence E-079: H-035 rerun crosses mixed patch normalization and exposes non-diff update payload gap
+
+- Prediction tested: H-035 fix should remove the `apply_patch_mixed_native_unified` / `TaskSpaceApplyPatchNativeHunkRecoveryV1` loop from the live trace.
+- Real rerun:
+  ```text
+  RunDir: target/r4-org-json-real-keyed-20260703ah-mixed-normalization/runs/terminal_bench__organization-json-generator/20260704-071947-777
+  PairReport: pair-001/pair-report.md
+  reported_evidence_level: E1
+  outcome_standard: wrong
+  outcome_taskspace: engineering_unclean
+  right_exec_timed_out: False
+  right_tool_call_count: 14
+  right_open_leaf_nodes: 1
+  public_validation_exit_code: 1
+  hidden_oracle_exit_code: 0
+  preflight_git_head: 5a29b811a077776ae2d31ee6741aa8c775a89ee5
+  build_attestation_status: pass
+  ```
+- Matched trace signals:
+  - No `apply_patch_mixed_native_unified` rejection appears in the rerun trace, and no `TaskSpaceApplyPatchNativeHunkRecoveryV1` loop appears.
+  - The task advanced into schema validation: line 41 ran `python -m jsonschema -i organization.json schema.json`.
+  - Line 43 reported real schema failures including missing project `members` and missing statistics keys such as `averageDepartmentBudget`, `totalEmployees`, `skillDistribution`, `departmentSizes`, `projectStatusDistribution`, and `averageYearsOfService`.
+  - Lines 50-58 show duplicate reads of already-read `organization.json` are still blocked and receive `TaskSpaceValidationReworkDuplicateReadRecoveryV1`.
+- Interpretation: H-035 is live-crossed. The remaining blocker is a new apply_patch payload-class issue, not mixed native/unified grammar.
+
+# Hypothesis H-036: non-diff Update File payloads bypass action-contract grammar feedback
+
+- Claim: In validation rework, the provider can emit `apply_patch` with `*** Update File: <path>` followed by shell/Python command text instead of native diff hunk content. The current action contract only rejects add-only unanchored updates when it sees `+...` lines without context, so command payloads with no `+` / `-` change lines reach the `apply_patch` tool. Tool failure then degrades to generic `TaskSpaceEditFailureRecoveryV1`, which can reopen read attempts and drain the node budget.
+- Prediction: The H-035 rerun will show an `apply_patch` payload with `*** Update File: organization.json` followed by `python3 -c` script text and no `@@`, `-old`, or `+new` hunk. The trace will mark that response actionable, then insert generic `TaskSpaceEditFailureRecoveryV1` rather than `TaskSpaceApplyPatchUnanchoredUpdateRecoveryV1`. Repair should reject such payloads before tool execution as `apply_patch_unanchored_update:<target>` and should keep deletion-only native updates valid.
+- Diagnostic evidence plan: Inspect the H-035 rerun trace around the failed edit; add focused tests for the live `python3 -c` payload and for deletion-only native update. Expand the unanchored update detector to flag `*** Update File` sections with content but no native diff change lines.
+- Status: confirmed.
+
+# Evidence E-080: non-diff Update File payloads now reject before apply_patch tool execution
+
+- Prediction tested: H-036 requires command/text payloads inside `*** Update File` to be caught by the action contract, while valid deletion-only update hunks remain allowed.
+- Repair artifact:
+  - `third_party/codex-cli/codex-rs/core/src/session/turn.rs`
+- Focused commands:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked non_diff_update_payload
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked unanchored_update
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked delete_only_update
+  ```
+- Adjacent regression/build commands:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked apply_patch_
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked validation_rework
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked validation_
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked duplicate_rework
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+  git diff --check
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-cli --bin whale --locked
+  ```
+- Result: passed. `non_diff_update_payload` is 1/1, `unanchored_update` is 2/2, `delete_only_update` is 1/1, `apply_patch_` is 33/33, `validation_rework` is 15/15, `validation_` is 92/92, and `duplicate_rework` is 2/2. `cargo fmt --check`, `git diff --check`, and the `whale` build passed.
+- Matched test signals:
+  - The live `*** Update File: organization.json` + `python3 -c` payload now rejects as `apply_patch_unanchored_update:<target>` before tool execution.
+  - The recovery text now says not to put shell, Python, or JSON transformation commands inside apply_patch payloads.
+  - A deletion-only patch with `@@` and `-old` remains a valid `apply_patch` tool call.
+- Interpretation: The `apply-patch-non-diff-update-payload-feedback-gap` class is focused-fixed at action-contract/recovery-text/build level. Commit/push, binary attestation, and another keyed rerun are still required before claiming live convergence beyond this case.

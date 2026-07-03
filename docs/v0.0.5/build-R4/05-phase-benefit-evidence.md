@@ -3112,6 +3112,81 @@ CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/co
 `--manifest-path third_party/codex-cli/codex-rs/Cargo.toml`；本仓库根目录不是 Cargo workspace root，裸
 `cargo test -p codex-core ...` 会失败。
 
-状态：该 action-contract normalization class 已 focused fixed，并通过本地回归、fmt、diff check 和 `whale` build；
-还需要 commit/push、binary attestation 和下一轮 keyed rerun。下一轮期望 line 66/80 这类 mixed payload 直接被规范化并交给
-`apply_patch` 工具，不再出现连续 `apply_patch_mixed_native_unified:csv2json.py` recovery loop。
+状态：该 action-contract normalization class 已 focused fixed，并通过本地回归、fmt、diff check 和 `whale` build。
+后续 keyed rerun `20260704-071947-777` 已证明该类 live crossed：trace 中不再出现连续
+`apply_patch_mixed_native_unified:csv2json.py` / `TaskSpaceApplyPatchNativeHunkRecoveryV1` loop。新的 blocker 记录在 5.46。
+
+## 5.46 2026-07-04 non-diff Update File payload feedback gap
+
+mixed native/unified auto-normalization 修复、commit/push、binary attestation 后的 keyed rerun 证明 H-035 已越过：
+本轮没有 `apply_patch_mixed_native_unified` 拒绝，也没有 NativeHunk recovery loop。TaskSpace 进入真实 schema validation，
+然后暴露新的 apply_patch payload coverage gap：provider 把一段 `python3 -c` JSON transformation command 塞进
+`*** Update File: organization.json` section，runtime 没有在 dispatch 前识别它不是 native diff 内容，最终退化成 generic
+`TaskSpaceEditFailureRecoveryV1` 并再次打开 read drain path。
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260703ah-mixed-normalization/runs/terminal_bench__organization-json-generator/20260704-071947-777
+reported_evidence_level: E1
+outcome_standard: wrong
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 14
+right_open_leaf_nodes: 1
+public_validation_exit_code: 1
+hidden_oracle_exit_code: 0
+preflight_git_head: 5a29b811a077776ae2d31ee6741aa8c775a89ee5
+build_attestation_status: pass
+```
+
+关键观察：
+
+| Signal | 结论 |
+|---|---|
+| trace 中无 `apply_patch_mixed_native_unified` / `TaskSpaceApplyPatchNativeHunkRecoveryV1` loop | H-035 实测越过 |
+| line 41 执行 `python -m jsonschema -i organization.json schema.json` | validation exact command 已运行，不是弱验证绕过 |
+| line 43 报缺 `members`、`averageDepartmentBudget`、`totalEmployees`、`skillDistribution` 等 schema required properties | rework failure 是业务 schema mismatch |
+| lines 50/55 duplicate `read_file organization.json` 被 `TaskSpaceValidationReworkDuplicateReadRecoveryV1` 拦截 | duplicate-read feedback 仍生效 |
+| line 73 `apply_patch` payload 为 `*** Update File: organization.json` 后跟 `python3 -c` 脚本，没有 `@@` / `-old` / `+new` | 新 payload 不是 native diff，而是 command text 被误放进 patch |
+| lines 76/83/92 只插入 generic `TaskSpaceEditFailureRecoveryV1` | action contract 没有在工具前保留具体 patch grammar 语义 |
+| line 93 `TaskSpaceProviderBudgetHardStopV1 node_request_count=6/5` | generic recovery 后仍进入预算耗尽路径 |
+
+本轮新增并 focused 修复的问题类型：
+
+| Case | Before | After | Evidence |
+|---|---|---|---|
+| `apply-patch-non-diff-update-payload-feedback-gap` | `*** Update File` section 只要不是 add-only `+...` 形态，就可能穿过 unanchored detector；没有任何 `+`/`-` diff change 行的 command/text payload 会进入 apply_patch 工具，并被降级成 generic edit failure | Update File section 若有内容但没有任何 native diff change 行，dispatch 前拒绝为 `apply_patch_unanchored_update:<target>`；recovery 明确不能把 shell/Python/JSON transformation command 放入 apply_patch payload；deletion-only update 仍合法 | `taskspace_action_contract_rejects_non_diff_update_payload`; `taskspace_action_contract_allows_delete_only_update_patch` |
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked non_diff_update_payload
+  PASS：1 test
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked unanchored_update
+  PASS：2 tests
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked delete_only_update
+  PASS：1 test
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked apply_patch_
+  PASS：33 tests
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked validation_rework
+  PASS：15 tests
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked validation_
+  PASS：92 tests
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked duplicate_rework
+  PASS：2 tests
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+git diff --check
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-cli --bin whale --locked
+  PASS
+```
+
+状态：该 action-contract feedback class 已 focused fixed，并通过本地回归、fmt、diff check 和 `whale` build；
+还需要 commit/push、binary attestation 和下一轮 keyed rerun。下一轮期望 line 73 这类 payload 在工具执行前被拒绝为
+`apply_patch_unanchored_update:organization.json`，并插入 `TaskSpaceApplyPatchUnanchoredUpdateRecoveryV1`，不再退化成 generic
+`TaskSpaceEditFailureRecoveryV1`。
