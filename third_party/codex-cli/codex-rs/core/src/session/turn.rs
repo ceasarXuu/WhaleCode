@@ -2112,6 +2112,30 @@ fn taskspace_validation_rework_duplicate_previous_result(text: &str) -> Option<S
     taskspace_backtick_value_after(text, "in result `")
 }
 
+fn taskspace_validation_rework_repair_contract(text: &str) -> Option<String> {
+    for line in text.lines() {
+        for marker in [
+            "Validation repair contract:",
+            "validation_schema_repair_contract:",
+            "validation_rework_contract:",
+        ] {
+            let Some((_, rest)) = line.split_once(marker) else {
+                continue;
+            };
+            let contract = rest
+                .trim()
+                .trim_matches(',')
+                .trim_matches('"')
+                .trim_matches('`')
+                .trim();
+            if !contract.is_empty() {
+                return Some(contract.to_string());
+            }
+        }
+    }
+    None
+}
+
 fn taskspace_backtick_value_after(text: &str, marker: &str) -> Option<String> {
     let (_, rest) = text.split_once(marker)?;
     let (value, _) = rest.split_once('`')?;
@@ -3195,6 +3219,9 @@ raw_output:\n{text}"
             .unwrap_or_else(|| "already-read validation rework artifact".to_string());
         let previous_result = taskspace_validation_rework_duplicate_previous_result(text)
             .unwrap_or_else(|| "previous read result".to_string());
+        let repair_contract = taskspace_validation_rework_repair_contract(text)
+            .map(|contract| format!("repair_contract: {contract}\n"))
+            .unwrap_or_default();
         return format!(
             "{TASKSPACE_TOOL_FEEDBACK_MARKER}\n\
 tool_source: action_contract_internal\n\
@@ -3203,20 +3230,25 @@ tool_result: blocked\n\
 failure_kind: validation_rework_duplicate_artifact_read\n\
 target_artifact: {artifact}\n\
 previous_read_result: {previous_result}\n\
-next_valid_action: emit exactly one apply_patch action targeting `{artifact}` using the current contents already visible in `{previous_result}` and the failed validation evidence. Do not read_file, list_files, search, inspect schema again, or run validation from this implementation node before a successful edit is recorded.\n\
+{repair_contract}\
+next_valid_action: emit exactly one apply_patch action targeting `{artifact}` using the current contents already visible in `{previous_result}` and the failed validation evidence. If repair_contract is present, satisfy it exactly. Do not read_file, list_files, search, inspect schema again, or run validation from this implementation node before a successful edit is recorded.\n\
 raw_output:\n{text}"
         );
     }
     if text.contains("implementation_needs_edit")
         || (text.contains("has enough read/search evidence") && text.contains("no successful edit"))
     {
+        let repair_contract = taskspace_validation_rework_repair_contract(text)
+            .map(|contract| format!("repair_contract: {contract}\n"))
+            .unwrap_or_default();
         return format!(
             "{TASKSPACE_TOOL_FEEDBACK_MARKER}\n\
 tool_source: action_contract_internal\n\
 tool_action: {action}\n\
 tool_result: blocked\n\
 failure_kind: implementation_needs_edit\n\
-next_valid_action: emit exactly one apply_patch action with the smallest concrete implementation fix from already inspected evidence or failed validation output. Do not read_file, list_files, search, broad shell discovery, or validation from this implementation node before a successful edit is recorded.\n\
+{repair_contract}\
+next_valid_action: emit exactly one apply_patch action with the smallest concrete implementation fix from already inspected evidence or failed validation output. If repair_contract is present, satisfy it exactly. Do not read_file, list_files, search, broad shell discovery, or validation from this implementation node before a successful edit is recorded.\n\
 raw_output:\n{text}"
         );
     }
@@ -4944,7 +4976,7 @@ Then I will inspect the file."#,
             },
         };
         let err = CodexErr::Fatal(
-            "TaskSpace blocked this read because validation rework node `node-4` already read failure artifact `process.py` in result `result-10` and no successful edit has been recorded after that read. Use the existing file contents from that result and apply the smallest fix with apply_patch, or return blocked with the exact reason no safe edit can be made.\nTaskSpaceGateRecoveryV1: {\"schema_version\":\"TaskSpaceGateRecoveryV1\",\"allowed\":false,\"reason\":\"validation_rework_duplicate_artifact_read\",\"next_valid_actions\":[\"call apply_patch for `process.py`\"]}".to_string(),
+            "TaskSpace blocked this read because validation rework node `node-4` already read failure artifact `process.py` in result `result-10` and no successful edit has been recorded after that read. Use the existing file contents from that result and apply the smallest fix with apply_patch, or return blocked with the exact reason no safe edit can be made. Validation repair contract: missing_required_properties=members, averageDepartmentBudget | schema_required_groups=schema.json:properties.statistics requires averageDepartmentBudget, totalEmployees, skillDistribution, departmentSizes, projectStatusDistribution, averageYearsOfService | target_artifacts=process.py\nTaskSpaceGateRecoveryV1: {\"schema_version\":\"TaskSpaceGateRecoveryV1\",\"allowed\":false,\"reason\":\"validation_rework_duplicate_artifact_read\",\"next_valid_actions\":[\"call apply_patch for `process.py`\"]}".to_string(),
         );
         let response_input = response_input_for_taskspace_action_tool_error(&tool_call, &err);
         let response_item: ResponseItem = response_input.into();
@@ -4960,7 +4992,10 @@ Then I will inspect the file."#,
         assert!(summary.contains("failure_kind: validation_rework_duplicate_artifact_read"));
         assert!(summary.contains("target_artifact: process.py"));
         assert!(summary.contains("previous_read_result: result-10"));
+        assert!(summary.contains("repair_contract: missing_required_properties=members"));
+        assert!(summary.contains("projectStatusDistribution"));
         assert!(summary.contains("next_valid_action: emit exactly one apply_patch action"));
+        assert!(summary.contains("satisfy it exactly"));
         assert!(text.contains("Next action must be apply_patch"));
         assert!(text.contains("Do not read_file"));
         assert!(taskspace_message_hit_implementation_needs_edit(Some(
@@ -4978,7 +5013,7 @@ Then I will inspect the file."#,
             },
         };
         let err = CodexErr::Fatal(
-            "TaskSpaceActionV1 rejected: node_policy_violation:implement_solution:read_file:implementation_needs_edit. Return exactly one valid taskspace-action-v1 JSON object.".to_string(),
+            "TaskSpaceActionV1 rejected: node_policy_violation:implement_solution:read_file:implementation_needs_edit. Validation repair contract: missing_required_properties=members, averageDepartmentBudget | schema_required_groups=schema.json:properties.statistics requires averageDepartmentBudget, totalEmployees, skillDistribution, departmentSizes, projectStatusDistribution, averageYearsOfService | target_artifacts=process.py. Return exactly one valid taskspace-action-v1 JSON object.".to_string(),
         );
         let response_input = response_input_for_taskspace_action_tool_error(&tool_call, &err);
         let response_item: ResponseItem = response_input.into();
@@ -4992,7 +5027,10 @@ Then I will inspect the file."#,
         let text = item_text(recent);
 
         assert!(summary.contains("failure_kind: implementation_needs_edit"));
+        assert!(summary.contains("repair_contract: missing_required_properties=members"));
+        assert!(summary.contains("projectStatusDistribution"));
         assert!(summary.contains("next_valid_action: emit exactly one apply_patch action"));
+        assert!(summary.contains("satisfy it exactly"));
         assert!(text.contains("Next action must be apply_patch"));
         assert!(text.contains("no successful edit"));
         assert!(taskspace_message_hit_implementation_needs_edit(Some(

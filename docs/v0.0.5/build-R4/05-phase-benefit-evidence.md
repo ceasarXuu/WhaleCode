@@ -2428,3 +2428,66 @@ git diff --check
 
 状态：该 feedback/runtime class 已 focused fixed；下一次 keyed rerun 应验证模型在 failed patch 后刷新 `generate_org.py`
 上下文或直接修正 patch，而不是把可编辑 `IndentationError` 关闭为 blocker。
+
+## 5.36 2026-07-04 validation schema repair contract projection gap
+
+`failed-edit-context-refresh-blocked-by-duplicate-read-guard` 修复后的 keyed rerun 没有再撞 failed-edit
+refresh；它暴露的是更细的 schema repair feedback 缺口：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260703x-failed-edit-refresh/runs/terminal_bench__organization-json-generator/20260704-044849-474
+reported_evidence_level: E1
+outcome_standard: wrong
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 13
+right_open_leaf_nodes: 1
+public_validation_exit_code: 1
+hidden_oracle_exit_code: 0
+```
+
+关键观察：
+
+| Signal | 结论 |
+|---|---|
+| `node-3` 运行 `python process_csv_to_json.py && python -m jsonschema -i organization.json schema.json` | 当前 validation 节点已执行真实 schema 验证 |
+| jsonschema 失败包含 `members` 以及 statistics required 字段 | 失败是可编辑 implementation defect，不是 validator infra |
+| `node-4` 先试图读 `schema.json`，被 `implementation_needs_edit` 拒绝 | rework 节点已经应该进入 edit，而不是 schema rediscovery |
+| `node-4` 成功读 `process_csv_to_json.py` 后仍重复读 schema/target | projection 只说 target 已读和 apply_patch，不够明确地保留 schema repair contract |
+| 最终 `provider_node_request_hard_limit_exceeded node_request_count=6/5` | feedback 层仍未把“缺哪些 schema 字段、改哪个 target”压成足够稳定的工具反馈 |
+
+本轮新增并 focused 修复的问题类型：
+
+| Case | Before | After | Evidence |
+|---|---|---|---|
+| `validation-schema-repair-contract-not-projected` | raw validator/schema facts 存在，但 compact projection、gate recovery、recent tool feedback 没有稳定携带 `missing_required_properties` + schema required sibling group；模型继续读 schema/target | runtime 从失败输出和已读 `schema.json` 提取 `validation_schema_repair_contract`，写入 `critical_artifact_evidence`、`next_valid_actions`、duplicate-read recovery、generic `implementation_needs_edit` recovery；session recent feedback 顶层输出 `repair_contract`，并要求 exactly satisfy 后再 validation | `validation_rework_projects_schema_repair_contract_from_schema_read`; `action_contract_feedback_requires_patch_after_rework_duplicate_read`; `action_contract_feedback_requires_patch_after_implementation_needs_edit` |
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core validation_rework_projects_schema_repair_contract_from_schema_read --locked
+  PASS：schema failure 只暴露 members/averageDepartmentBudget 时，projection 仍从已读 schema.json 带出完整 statistics required group
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core action_contract_feedback_requires_patch_after_rework_duplicate_read --locked
+  PASS：duplicate target read feedback 顶层包含 repair_contract，并要求 apply_patch exactly satisfy
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core action_contract_feedback_requires_patch_after_implementation_needs_edit --locked
+  PASS：generic implementation_needs_edit feedback 不再丢 schema repair contract
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core validation_rework --locked
+  PASS：13 tests
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core implementation_needs_edit --locked
+  PASS：2 tests
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core validation_ --locked
+  PASS：89 tests
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-cli --bin whale --locked
+  PASS
+```
+
+状态：该 feedback-layer class 已 focused fixed；下一次 keyed rerun 应验证模型在 `node-4` 直接 patch
+`process_csv_to_json.py`，把 `member_ids` 输出修成 schema 需要的 `members`，并补齐 statistics 的 camelCase
+required 字段后重新进入 schema/public validation。

@@ -2272,12 +2272,19 @@ impl ActionMapRuntimeState {
                 implement_node_duplicate_validation_rework_artifact_read(map, node, &descriptor)
         {
             let reason = "validation_rework_duplicate_artifact_read".to_string();
+            let repair_contract =
+                implement_node_dependency_validation_rework_repair_contract(map, node);
+            let contract_message = repair_contract
+                .as_ref()
+                .map(|contract| format!(" Validation repair contract: {contract}"))
+                .unwrap_or_default();
             let message = format!(
-                "TaskSpace blocked this {} because validation rework node `{}` already read failure artifact `{}` in result `{}` and no successful edit has been recorded after that read. Use the existing file contents from that result and apply the smallest fix with apply_patch, or return blocked with the exact reason no safe edit can be made.",
+                "TaskSpace blocked this {} because validation rework node `{}` already read failure artifact `{}` in result `{}` and no successful edit has been recorded after that read. Use the existing file contents from that result and apply the smallest fix with apply_patch, or return blocked with the exact reason no safe edit can be made.{}",
                 descriptor.action_class.as_str(),
                 node.id,
                 artifact_ref,
-                previous_result_id
+                previous_result_id,
+                contract_message
             );
             let current_node_item = format!("current_node:{}:{}", node.id, node.kind.as_str());
             let blocked_node_kind = node.kind.as_str().to_string();
@@ -2288,18 +2295,26 @@ impl ActionMapRuntimeState {
                 &reason,
                 &descriptor,
             );
+            let mut blocking_items = vec![
+                current_node_item,
+                format!("failure_artifact:{artifact_ref}"),
+                format!("previous_read_result:{previous_result_id}"),
+            ];
+            if let Some(contract) = repair_contract.as_ref() {
+                blocking_items.push(format!("validation_rework_contract:{contract}"));
+            }
+            let mut next_valid_actions = vec![format!("call apply_patch for `{artifact_ref}`")];
+            if let Some(contract) = repair_contract.as_ref() {
+                next_valid_actions.push(format!(
+                    "satisfy validation_schema_repair_contract: {contract}"
+                ));
+            }
+            next_valid_actions.push("or return blocked with exact missing evidence".to_string());
             let recovery = gate_recovery_message_with_repeated_block(
                 &message,
                 &reason,
-                vec![
-                    current_node_item,
-                    format!("failure_artifact:{artifact_ref}"),
-                    format!("previous_read_result:{previous_result_id}"),
-                ],
-                vec![
-                    format!("call apply_patch for `{artifact_ref}`"),
-                    "or return blocked with exact missing evidence".to_string(),
-                ],
+                blocking_items,
+                next_valid_actions,
                 Vec::new(),
                 Some(&repeated_block),
             );
@@ -2347,12 +2362,19 @@ impl ActionMapRuntimeState {
             let reason = format!(
                 "implement_solution has enough read/search evidence ({evidence_source}) and no successful edit"
             );
+            let repair_contract =
+                implement_node_dependency_validation_rework_repair_contract(map, node);
+            let contract_message = repair_contract
+                .as_ref()
+                .map(|contract| format!(" Validation repair contract: {contract}"))
+                .unwrap_or_default();
             let message = format!(
-                "TaskSpace blocked this {} because current node `{}` kind: implement_solution has enough read/search evidence and no successful edit. Requested tool `{}` action class: {}. Apply the smallest implementation edit with apply_patch now, or return blocked with the exact missing evidence if no safe edit can be made.",
+                "TaskSpace blocked this {} because current node `{}` kind: implement_solution has enough read/search evidence and no successful edit. Requested tool `{}` action class: {}. Apply the smallest implementation edit with apply_patch now, or return blocked with the exact missing evidence if no safe edit can be made.{}",
                 descriptor.action_class.as_str(),
                 node.id,
                 descriptor.tool_name,
-                descriptor.action_class.as_str()
+                descriptor.action_class.as_str(),
+                contract_message
             );
             let current_node_item = format!("current_node:{}:{}", node.id, node.kind.as_str());
             let blocked_node_kind = node.kind.as_str().to_string();
@@ -2418,6 +2440,11 @@ impl ActionMapRuntimeState {
                         "read/search is no longer a valid next action on this validation rework node until a successful edit records progress".to_string(),
                     );
                 }
+                if let Some(contract) = repair_contract.as_ref() {
+                    next_valid_actions.push(format!(
+                        "satisfy validation_schema_repair_contract: {contract}"
+                    ));
+                }
             } else {
                 next_valid_actions
                     .push("call apply_patch for the current implementation node".to_string());
@@ -2433,7 +2460,15 @@ impl ActionMapRuntimeState {
             let recovery = gate_recovery_message_with_repeated_block(
                 &message,
                 &reason,
-                vec![current_node_item],
+                repair_contract
+                    .as_ref()
+                    .map(|contract| {
+                        vec![
+                            current_node_item.clone(),
+                            format!("validation_rework_contract:{contract}"),
+                        ]
+                    })
+                    .unwrap_or_else(|| vec![current_node_item]),
                 next_valid_actions,
                 Vec::new(),
                 Some(&repeated_block),
@@ -11442,6 +11477,16 @@ fn projection_critical_artifact_evidence(
     {
         let validation_rework_artifacts =
             implement_node_dependency_validation_rework_artifact_refs(map, current_node);
+        if let Some(contract) =
+            implement_node_dependency_validation_rework_repair_contract(map, current_node)
+        {
+            evidence.push(format!(
+                "validation_rework_schema_repair signal=validation_schema_repair_contract\n{contract}"
+            ));
+            if evidence.len() >= max_results {
+                return evidence;
+            }
+        }
         for (artifact, result_id) in implement_node_validation_rework_artifact_read_results(
             map,
             current_node,
@@ -11612,6 +11657,16 @@ fn validation_failure_body_excerpt(body: &str, max_chars: usize) -> String {
 fn validation_failure_required_properties(text: &str) -> Vec<String> {
     let mut properties = Vec::new();
     for line in text.lines() {
+        if let Some((_, rest)) = line.split_once("missing_required_properties:") {
+            let required_part = rest.split('|').next().unwrap_or(rest);
+            for property in required_part
+                .split(',')
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+            {
+                push_unique_required_property(&mut properties, property.to_string());
+            }
+        }
         let lower = line.to_ascii_lowercase();
         if !lower.contains("is a required property") {
             continue;
@@ -11623,11 +11678,108 @@ fn validation_failure_required_properties(text: &str) -> Vec<String> {
         let Some(property) = quoted_suffix_value(before) else {
             continue;
         };
-        if !properties.iter().any(|existing| existing == &property) {
-            properties.push(property);
-        }
+        push_unique_required_property(&mut properties, property);
     }
     properties
+}
+
+fn push_unique_required_property(properties: &mut Vec<String>, property: String) {
+    let property = property.trim().to_string();
+    if property.is_empty() {
+        return;
+    }
+    if !properties.iter().any(|existing| existing == &property) {
+        properties.push(property);
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct SchemaRequiredGroup {
+    source_artifact: String,
+    path: String,
+    required: Vec<String>,
+}
+
+fn schema_required_groups_from_tool_result(result: &NodeResult) -> Vec<SchemaRequiredGroup> {
+    let mut artifacts = result_visible_artifact_refs(result);
+    if let Some(command) = result_body_command(result)
+        && let Some(artifact) = read_command_artifact_ref(&command)
+        && !artifacts.iter().any(|existing| existing == &artifact)
+    {
+        artifacts.push(artifact);
+    }
+    let Some(source_artifact) = artifacts.into_iter().find(|artifact| {
+        let lower = artifact_key(artifact);
+        lower == "schema.json" || lower.ends_with("/schema.json")
+    }) else {
+        return Vec::new();
+    };
+    let Some(value) = json_document_from_tool_body(&result.body) else {
+        return Vec::new();
+    };
+    let mut groups = Vec::new();
+    collect_schema_required_groups(&value, &source_artifact, &mut Vec::new(), &mut groups);
+    groups
+}
+
+fn json_document_from_tool_body(body: &str) -> Option<serde_json::Value> {
+    let focused = body
+        .split_once("\nraw_output:\n")
+        .map(|(_, rest)| rest)
+        .or_else(|| body.split_once("\r\nraw_output:\r\n").map(|(_, rest)| rest))
+        .unwrap_or(body);
+    let start = focused.find('{')?;
+    let end = focused.rfind('}')?;
+    if end <= start {
+        return None;
+    }
+    serde_json::from_str(&focused[start..=end]).ok()
+}
+
+fn collect_schema_required_groups(
+    value: &serde_json::Value,
+    source_artifact: &str,
+    path: &mut Vec<String>,
+    groups: &mut Vec<SchemaRequiredGroup>,
+) {
+    match value {
+        serde_json::Value::Object(object) => {
+            if let Some(required) = object.get("required").and_then(serde_json::Value::as_array) {
+                let required = required
+                    .iter()
+                    .filter_map(serde_json::Value::as_str)
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .map(str::to_string)
+                    .collect::<Vec<_>>();
+                if !required.is_empty() {
+                    groups.push(SchemaRequiredGroup {
+                        source_artifact: source_artifact.to_string(),
+                        path: if path.is_empty() {
+                            "root".to_string()
+                        } else {
+                            path.join(".")
+                        },
+                        required,
+                    });
+                }
+            }
+            for (key, child) in object {
+                if key == "required" {
+                    continue;
+                }
+                path.push(key.clone());
+                collect_schema_required_groups(child, source_artifact, path, groups);
+                path.pop();
+            }
+        }
+        serde_json::Value::Array(items) => {
+            for item in items {
+                collect_schema_required_groups(item, source_artifact, path, groups);
+            }
+        }
+        _ => {}
+    }
 }
 
 fn quoted_suffix_value(text: &str) -> Option<String> {
@@ -11786,6 +11938,11 @@ fn projection_next_valid_actions(
                         .map(|(artifact, _)| artifact.clone())
                         .collect::<Vec<_>>()
                 };
+                if let Some(contract) =
+                    implement_node_dependency_validation_rework_repair_contract(map, node)
+                {
+                    actions.push(format!("validation_schema_repair_contract: {contract}"));
+                }
                 actions.push(format!(
                     "apply_patch validation rework target artifact(s): {}",
                     patch_artifacts.join(", ")
@@ -16271,15 +16428,199 @@ fn implement_node_dependency_validation_rework_summary(
             let blocker_suffix = blocker_summary
                 .map(|summary| format!(" Blocker: {summary}"))
                 .unwrap_or_default();
+            let repair_contract =
+                implement_node_dependency_validation_rework_repair_contract(map, node)
+                    .map(|contract| format!(" Repair contract: {contract}"))
+                    .unwrap_or_default();
             Some(format!(
-                "{} `{}` has blocked validation evidence `{}`: {}{}",
+                "{} `{}` has blocked validation evidence `{}`: {}{}{}",
                 dependency.kind.as_str(),
                 dependency.id,
                 failed_result_id,
                 failed_summary,
-                blocker_suffix
+                blocker_suffix,
+                repair_contract
             ))
         })
+}
+
+fn implement_node_dependency_validation_rework_repair_contract(
+    map: &ActionMapInstance,
+    node: &MapNode,
+) -> Option<String> {
+    if node.kind != NodeKind::ImplementSolution {
+        return None;
+    }
+    let missing_required_properties =
+        implement_node_dependency_validation_rework_missing_required_properties(map, node);
+    if missing_required_properties.is_empty() {
+        return None;
+    }
+    let target_artifacts = implement_node_dependency_validation_rework_artifact_refs(map, node);
+    let schema_groups = implement_node_dependency_schema_required_groups_for_properties(
+        map,
+        node,
+        &missing_required_properties,
+    );
+    let mut parts = vec![format!(
+        "missing_required_properties={}",
+        missing_required_properties.join(", ")
+    )];
+    if !schema_groups.is_empty() {
+        let group_summary = schema_groups
+            .iter()
+            .take(4)
+            .map(|group| {
+                format!(
+                    "{}:{} requires {}",
+                    group.source_artifact,
+                    group.path,
+                    group.required.join(", ")
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("; ");
+        parts.push(format!("schema_required_groups={group_summary}"));
+    }
+    if !target_artifacts.is_empty() {
+        parts.push(format!("target_artifacts={}", target_artifacts.join(", ")));
+    }
+    parts.push(
+        "patch_requirement=update generated output keys and objects to satisfy these schema-required names before rerunning validation"
+            .to_string(),
+    );
+    Some(single_line_preview(&parts.join(" | "), 900))
+}
+
+fn implement_node_dependency_validation_rework_missing_required_properties(
+    map: &ActionMapInstance,
+    node: &MapNode,
+) -> Vec<String> {
+    let mut properties = Vec::new();
+    for dependency_node_id in implement_node_validation_rework_dependency_node_ids(map, node) {
+        let Some(dependency) = map.nodes.get(&dependency_node_id) else {
+            continue;
+        };
+        if !matches!(
+            dependency.kind,
+            NodeKind::SmokeTest | NodeKind::RegressionTest
+        ) || dependency.status != NodeStatus::Blocked
+        {
+            continue;
+        }
+        for result_ref in &dependency.result_context {
+            let Some(result) = map.results.get(&result_ref.id) else {
+                continue;
+            };
+            if result.kind != NodeResultKind::MainToolCall && result.kind != NodeResultKind::Blocker
+            {
+                continue;
+            }
+            for property in validation_failure_required_properties(&result.body) {
+                push_unique_required_property(&mut properties, property);
+            }
+        }
+    }
+    properties
+}
+
+fn implement_node_dependency_schema_required_groups_for_properties(
+    map: &ActionMapInstance,
+    node: &MapNode,
+    missing_required_properties: &[String],
+) -> Vec<SchemaRequiredGroup> {
+    if missing_required_properties.is_empty() {
+        return Vec::new();
+    }
+    let missing = missing_required_properties
+        .iter()
+        .map(|property| property.to_ascii_lowercase())
+        .collect::<HashSet<_>>();
+    let mut groups = Vec::new();
+    let mut seen = HashSet::new();
+    for dependency_node_id in implement_node_transitive_dependency_node_ids(map, node) {
+        let Some(dependency) = map.nodes.get(&dependency_node_id) else {
+            continue;
+        };
+        for result_ref in &dependency.result_context {
+            let Some(result) = map.results.get(&result_ref.id) else {
+                continue;
+            };
+            if result.kind != NodeResultKind::MainToolCall
+                || result.tool_success != Some(true)
+                || !matches!(
+                    result.action_class,
+                    Some(ActionClass::Read | ActionClass::Search)
+                )
+            {
+                continue;
+            }
+            for group in schema_required_groups_from_tool_result(result) {
+                if !group
+                    .required
+                    .iter()
+                    .any(|property| missing.contains(&property.to_ascii_lowercase()))
+                {
+                    continue;
+                }
+                let key = format!(
+                    "{}:{}:{}",
+                    group.source_artifact,
+                    group.path,
+                    group.required.join(",")
+                );
+                if seen.insert(key) {
+                    groups.push(group);
+                }
+            }
+        }
+    }
+    groups
+}
+
+fn implement_node_validation_rework_dependency_node_ids(
+    map: &ActionMapInstance,
+    node: &MapNode,
+) -> Vec<String> {
+    let mut node_ids = map
+        .edges
+        .iter()
+        .filter(|edge| edge.to == node.id)
+        .map(|edge| edge.from.clone())
+        .collect::<Vec<_>>();
+    if let Some(origin_node_id) = node.origin_node_id.as_deref()
+        && !node_ids.iter().any(|existing| existing == origin_node_id)
+    {
+        node_ids.push(origin_node_id.to_string());
+    }
+    node_ids
+}
+
+fn implement_node_transitive_dependency_node_ids(
+    map: &ActionMapInstance,
+    node: &MapNode,
+) -> Vec<String> {
+    let mut ordered = Vec::new();
+    let mut seen = HashSet::new();
+    let mut stack = implement_node_validation_rework_dependency_node_ids(map, node);
+    while let Some(node_id) = stack.pop() {
+        if !seen.insert(node_id.clone()) {
+            continue;
+        }
+        ordered.push(node_id.clone());
+        for edge in map.edges.iter().filter(|edge| edge.to == node_id) {
+            stack.push(edge.from.clone());
+        }
+        if let Some(origin_node_id) = map
+            .nodes
+            .get(&node_id)
+            .and_then(|dependency| dependency.origin_node_id.as_deref())
+            && !seen.contains(origin_node_id)
+        {
+            stack.push(origin_node_id.to_string());
+        }
+    }
+    ordered
 }
 
 fn implement_node_has_dependency_implementation_source_evidence(
@@ -32287,6 +32628,303 @@ organization.json generated successfully.\n"
         assert!(repeated_message.contains("validation_rework_duplicate_artifact_read"));
         assert!(repeated_message.contains("recover.py"));
         assert!(repeated_message.contains("apply_patch"));
+    }
+
+    #[test]
+    fn validation_rework_projects_schema_repair_contract_from_schema_read() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (_, _, inspect_node_id, _) = start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::InspectCodeContext,
+            "Generate organization JSON",
+            "Inspect schema and source CSV files before implementation.",
+            "Inspect source data",
+            "Read schema before implementing generator.",
+            true,
+        );
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "read-schema",
+                "shell_command",
+                Some(ActionClass::Read),
+                true,
+                "TaskSpaceToolInvocationV1:\n\
+tool: shell_command\n\
+command: sed -n '1,240p' -- schema.json\n\
+raw_output:\n\
+{\n\
+  \"type\": \"object\",\n\
+  \"properties\": {\n\
+    \"organization\": {\n\
+      \"type\": \"object\",\n\
+      \"properties\": {\n\
+        \"departments\": {\n\
+          \"type\": \"array\",\n\
+          \"items\": {\n\
+            \"type\": \"object\",\n\
+            \"properties\": {\n\
+              \"projects\": {\n\
+                \"type\": \"array\",\n\
+                \"items\": {\n\
+                  \"type\": \"object\",\n\
+                  \"required\": [\"name\", \"status\", \"members\", \"deadline\"]\n\
+                }\n\
+              }\n\
+            }\n\
+          }\n\
+        }\n\
+      }\n\
+    },\n\
+    \"statistics\": {\n\
+      \"type\": \"object\",\n\
+      \"required\": [\"averageDepartmentBudget\", \"totalEmployees\", \"skillDistribution\", \"departmentSizes\", \"projectStatusDistribution\", \"averageYearsOfService\"]\n\
+    }\n\
+  }\n\
+}\n"
+                    .to_string(),
+            )
+            .expect("schema read records");
+        let (inspect_outcome, _) = state
+            .finish_main_node_with_next(
+                owner,
+                &inspect_node_id,
+                "Read schema.json required fields.".to_string(),
+                None,
+                Some(ActionMapNextNodeDraft {
+                    kind: NodeKind::ImplementSolution,
+                    title: "Generate organization script".to_string(),
+                    context_summary: "Create generate_org.py from inspected schema.".to_string(),
+                    dependency_node_ids: vec![inspect_node_id.clone()],
+                }),
+            )
+            .expect("inspect finishes into implement");
+        let implement_node_id = inspect_outcome
+            .next_node_id
+            .expect("implement node should be created");
+        let (edit_result_id, _) = state
+            .record_main_tool_result_with_class(
+                owner,
+                "edit-generator",
+                "apply_patch",
+                Some(ActionClass::Edit),
+                true,
+                "Success. Updated the following files:\n*** Add File: generate_org.py\n"
+                    .to_string(),
+            )
+            .expect("implementation edit records")
+            .expect("edit result id");
+        state
+            .mark_result_validity_for_main(
+                owner,
+                &edit_result_id,
+                "accepted",
+                "accepted generated script".to_string(),
+                vec![ActionMapCognitiveClaimInput {
+                    id: "claim-generated-org-script".to_string(),
+                    statement: "Generator script was created.".to_string(),
+                    evidence_refs: vec![ActionMapEvidenceRefInput {
+                        artifact_ref: Some("generate_org.py".to_string()),
+                        ..Default::default()
+                    }],
+                }],
+                vec![ActionMapEvidenceRefInput {
+                    artifact_ref: Some("generate_org.py".to_string()),
+                    ..Default::default()
+                }],
+                vec!["generate_org.py".to_string()],
+                Vec::new(),
+                Vec::new(),
+            )
+            .expect("implementation edit accepted");
+        let (implement_outcome, _) = state
+            .finish_main_node_with_next(
+                owner,
+                &implement_node_id,
+                "Created generator script.".to_string(),
+                None,
+                Some(ActionMapNextNodeDraft {
+                    kind: NodeKind::SmokeTest,
+                    title: "Run schema validation".to_string(),
+                    context_summary: "Run generate_org.py and validate organization.json."
+                        .to_string(),
+                    dependency_node_ids: vec![implement_node_id.clone()],
+                }),
+            )
+            .expect("implement finishes into validation");
+        let validation_node_id = implement_outcome
+            .next_node_id
+            .expect("validation node should be created");
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "run-schema",
+                "shell_command",
+                Some(ActionClass::Test),
+                false,
+                "TaskSpaceToolInvocationV1:\n\
+tool: shell_command\n\
+command: python generate_org.py && python -m jsonschema -i organization.json schema.json\n\
+raw_output:\n\
+{'name': 'Madrid', 'member_ids': ['D001-E001']}: 'members' is a required property\n\
+{'total_departments': 5}: 'averageDepartmentBudget' is a required property\n"
+                    .to_string(),
+            )
+            .expect("failed schema validation routes to rework");
+
+        let rework_node_id = state
+            .current_main_node_id
+            .clone()
+            .expect("failed validation should bind rework");
+        assert_ne!(rework_node_id, validation_node_id);
+        let lifecycle_result_ids = {
+            let map = state.active_map().expect("active map");
+            map.results
+                .values()
+                .filter(|result| result.kind == NodeResultKind::Result)
+                .map(|result| result.id.clone())
+                .collect::<Vec<_>>()
+        };
+        for result_id in lifecycle_result_ids {
+            state
+                .mark_result_validity_for_main(
+                    owner,
+                    &result_id,
+                    "accepted",
+                    "accepted setup lifecycle result".to_string(),
+                    vec![ActionMapCognitiveClaimInput {
+                        id: format!("claim-setup-{result_id}"),
+                        statement:
+                            "Setup lifecycle result accepted for schema repair contract test."
+                                .to_string(),
+                        evidence_refs: vec![ActionMapEvidenceRefInput {
+                            result_id: Some(result_id.clone()),
+                            ..Default::default()
+                        }],
+                    }],
+                    vec![ActionMapEvidenceRefInput {
+                        result_id: Some(result_id.clone()),
+                        ..Default::default()
+                    }],
+                    Vec::new(),
+                    Vec::new(),
+                    Vec::new(),
+                )
+                .expect("setup lifecycle result accepted");
+        }
+        let map = state.active_map().expect("active map");
+        let rework = map.nodes.get(&rework_node_id).expect("rework node");
+        let contract = implement_node_dependency_validation_rework_repair_contract(map, rework)
+            .expect("schema repair contract");
+        assert!(
+            contract.contains("missing_required_properties=members, averageDepartmentBudget"),
+            "{contract}"
+        );
+        assert!(contract.contains("projectStatusDistribution"), "{contract}");
+        assert!(contract.contains("averageYearsOfService"), "{contract}");
+        assert!(
+            contract.contains("target_artifacts=generate_org.py"),
+            "{contract}"
+        );
+        let critical_evidence =
+            projection_critical_artifact_evidence(map, Some(&rework_node_id), 4, 900);
+        assert!(
+            critical_evidence
+                .iter()
+                .any(|item| item.contains("validation_schema_repair_contract")
+                    && item.contains("projectStatusDistribution")),
+            "{critical_evidence:?}"
+        );
+        let actions = projection_next_valid_actions(map, Some(&rework_node_id), None, &[]);
+        assert!(
+            actions.iter().any(
+                |action| action.contains("validation_schema_repair_contract")
+                    && action.contains("projectStatusDistribution")
+            ),
+            "{actions:?}"
+        );
+
+        let schema_read_error = state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new(
+                    "shell_command",
+                    ActionClass::Read,
+                    serde_json::json!({
+                        "command": "sed -n '1,240p' -- schema.json"
+                    })
+                    .to_string(),
+                ),
+            )
+            .expect_err("schema rediscovery should be blocked with repair contract");
+        let schema_read_message = schema_read_error.to_string();
+        assert!(
+            schema_read_message.contains("validation_rework_contract"),
+            "{schema_read_message}"
+        );
+        assert!(
+            schema_read_message.contains("projectStatusDistribution"),
+            "{schema_read_message}"
+        );
+
+        state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new(
+                    "shell_command",
+                    ActionClass::Read,
+                    serde_json::json!({
+                        "command": "sed -n '1,240p' -- generate_org.py"
+                    })
+                    .to_string(),
+                )
+                .with_call_id("read-generator"),
+            )
+            .expect("target read is allowed before edit");
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "read-generator",
+                "shell_command",
+                Some(ActionClass::Read),
+                true,
+                "TaskSpaceToolInvocationV1:\n\
+tool: shell_command\n\
+command: sed -n '1,240p' -- generate_org.py\n\
+raw_output:\n\
+projects.append({'name': row['name'], 'member_ids': row['member_ids'].split(';')})\n"
+                    .to_string(),
+            )
+            .expect("target read records");
+        let duplicate_read_error = state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new(
+                    "shell_command",
+                    ActionClass::Read,
+                    serde_json::json!({
+                        "command": "sed -n '1,240p' -- generate_org.py"
+                    })
+                    .to_string(),
+                ),
+            )
+            .expect_err("duplicate target read should surface repair contract");
+        let duplicate_read_message = duplicate_read_error.to_string();
+        assert!(
+            duplicate_read_message.contains("validation_rework_duplicate_artifact_read"),
+            "{duplicate_read_message}"
+        );
+        assert!(
+            duplicate_read_message.contains("Validation repair contract"),
+            "{duplicate_read_message}"
+        );
+        assert!(
+            duplicate_read_message.contains("projectStatusDistribution"),
+            "{duplicate_read_message}"
+        );
     }
 
     #[test]

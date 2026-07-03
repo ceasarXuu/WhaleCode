@@ -1332,3 +1332,64 @@
   - Runtime rejects blockers claiming truncated/missing full file content for editable validation failures.
   - Session feedback for `Failed to find expected lines` now says the next action may be one `read_file` of the same target only if context is truncated/stale, otherwise corrected `apply_patch`.
 - Interpretation: The new `failed-edit-context-refresh-blocked-by-duplicate-read-guard` class is focused-fixed at the unit level. Another keyed rerun is required to verify the provider refreshes context, patches indentation, and continues to schema validation.
+
+# Hypothesis H-026: validation schema repair contract is not projected into rework feedback
+
+- Claim: After H-025, the next keyed rerun can reach real schema validation and create rework, but the compact projection and action-contract rejection feedback only say "patch the already-read target"; they do not preserve a short, structured schema repair contract. The failed validator output and earlier `schema.json` read contain enough facts, but those facts are not carried into `critical_artifact_evidence`, `next_valid_actions`, or recent tool feedback in a form that tells the provider exactly which required fields must be satisfied.
+- Prediction: The post-H-025 keyed rerun will show `node-3` failing schema validation on `members` plus statistics fields, `node-4` reading the target script once, then repeated `schema.json` / target rediscovery attempts and `validation_rework_duplicate_artifact_read` or `implementation_needs_edit` rejects. Projection will include target read evidence and apply_patch next actions, but not a durable `validation_schema_repair_contract` containing missing required properties and schema-required sibling groups.
+- Diagnostic evidence plan: Inspect the post-H-025 keyed trace, action-map observability, and runtime projection output; add focused tests proving schema required-property groups are extracted from already-read `schema.json`, surfaced in projection/recovery, and preserved in session recent tool feedback.
+- Status: confirmed.
+
+# Evidence E-059: post-H-025 rerun repeats schema/target rediscovery despite enough schema facts
+
+- Prediction tested: H-026 predicts a feedback-layer contract gap after validation rework, not an edit-refresh failure.
+- Real rerun:
+  ```text
+  RunDir: target/r4-org-json-real-keyed-20260703x-failed-edit-refresh/runs/terminal_bench__organization-json-generator/20260704-044849-474
+  PairReport: pair-001/pair-report.md
+  reported_evidence_level: E1
+  outcome_standard: wrong
+  outcome_taskspace: engineering_unclean
+  right_exec_timed_out: False
+  right_tool_call_count: 13
+  right_open_leaf_nodes: 1
+  public_validation_exit_code: 1
+  hidden_oracle_exit_code: 0
+  ```
+- Matched trace signals:
+  - `node-3` ran `python process_csv_to_json.py && python -m jsonschema -i organization.json schema.json` and failed on schema-required fields.
+  - The validator output showed project objects using `member_ids` while schema required `members`, and statistics required `averageDepartmentBudget`, `totalEmployees`, `skillDistribution`, `departmentSizes`, `projectStatusDistribution`, and `averageYearsOfService`.
+  - `node-4` first attempted `read_file schema.json`; runtime rejected it as `implementation_needs_edit`.
+  - `node-4` then successfully read `process_csv_to_json.py` as `result-11`.
+  - After the target read, projection said to use existing target result and `apply_patch`, but only exposed target source excerpt under `critical_artifact_evidence`; it did not expose a compact schema repair contract with the missing required fields and schema sibling group.
+  - The provider repeated `read_file schema.json` and `read_file process_csv_to_json.py`, causing `implementation_needs_edit` and `validation_rework_duplicate_artifact_read` rejects until `TaskSpaceProviderBudgetHardStopV1 reason=provider_node_request_hard_limit_exceeded node_request_count=6/5`.
+- Interpretation: This confirms a feedback-layer semantic absence. The raw validation failure and schema read existed, but the provider-visible contract did not carry the schema repair facts tightly enough for the next edit.
+
+# Evidence E-060: schema repair contract is now projected and fed back after blocked rework reads
+
+- Prediction tested: H-026 requires the runtime projection and session recent tool feedback to carry a structured repair contract.
+- Repair artifacts:
+  - `third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs`
+  - `third_party/codex-cli/codex-rs/core/src/session/turn.rs`
+- Focused commands:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core validation_rework_projects_schema_repair_contract_from_schema_read --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core action_contract_feedback_requires_patch_after_rework_duplicate_read --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core action_contract_feedback_requires_patch_after_implementation_needs_edit --locked
+  ```
+- Adjacent regression and build commands:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core validation_rework --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core implementation_needs_edit --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core validation_ --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-cli --bin whale --locked
+  ```
+- Result: passed. `validation_rework` is now 13/13, `implementation_needs_edit` remains 2/2, and `validation_` is now 89/89.
+- Matched test signals:
+  - Runtime extracts `missing_required_properties` both from raw jsonschema lines and from prior compact `missing_required_properties:` summaries.
+  - Runtime parses already-read `schema.json` JSON and finds required-property groups that contain observed missing fields.
+  - A schema failure that only exposes `members` and `averageDepartmentBudget` still projects the full relevant statistics group including `totalEmployees`, `skillDistribution`, `departmentSizes`, `projectStatusDistribution`, and `averageYearsOfService`.
+  - `critical_artifact_evidence` now includes `validation_rework_schema_repair signal=validation_schema_repair_contract`.
+  - `next_valid_actions`, duplicate-read gate recovery, generic `implementation_needs_edit` recovery, and session `TaskSpaceActionContractRecentToolOutputsV1` now carry `repair_contract` and tell the provider to satisfy it exactly before validation rerun.
+- Interpretation: The new `validation-schema-repair-contract-not-projected` class is focused-fixed at unit/regression level. A new keyed rerun is required to verify that `organization-json-generator` now patches schema fields instead of rereading schema/target.
