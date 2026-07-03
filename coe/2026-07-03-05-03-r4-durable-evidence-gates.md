@@ -1872,3 +1872,69 @@
   - The recovery explicitly says patch grammar must be corrected now and `read_file/context refresh is not a valid recovery` for that failure.
   - Advisory observability emits `TaskSpaceValidationReworkDuplicateReadAfterPatchGrammarRecoveryV1` when duplicate-read and patch-grammar semantics are both present.
 - Interpretation: The `validation-rework-duplicate-read-after-patch-grammar-feedback-loss` class is focused-fixed at session recovery composition/build level. Commit/push, binary attestation, and another keyed rerun are still required before claiming live progress beyond the NativeHunk recovery follow-up.
+
+# Hypothesis H-035: mixed native/unified apply_patch rejection should normalize safely convertible patches
+
+- Claim: After H-034, patch grammar feedback is preserved and correctly labeled, but a remaining capability-layer boundary rejects mechanically convertible `apply_patch` payloads before normalization. The provider repeatedly emits `*** Update File: <path>` with adjacent `--- a/<path>` / `+++ b/<path>` headers and range hunks. Those payloads are structurally sufficient to convert into native apply_patch grammar, but the action contract rejects them as `apply_patch_mixed_native_unified:<target>` before the existing normalizer can strip unified file headers and normalize range hunk headers. This drains the rework node even though the tool boundary could safely repair the payload shape.
+- Prediction: The post-H-034 keyed rerun will show `TaskSpaceApplyPatchNativeHunkRecoveryV1` repeatedly after `apply_patch_mixed_native_unified:csv2json.py`, proving feedback is not missing. The same trace will show the patch payload contains a valid target path, old/new unified file headers, and concrete range hunks, not placeholder `@@ ... @@` hunks or malformed `--- Update File:` headers. Code inspection will show mixed native/unified detection occurs before `normalize_taskspace_unified_diff_patch` / `normalize_taskspace_apply_patch`.
+- Diagnostic evidence plan: Inspect the post-H-034 trace for repeated mixed native/unified rejections and NativeHunk recovery markers; inspect `taskspace_action_to_tool_call` ordering; add focused tests using the live wrapped and unwrapped `csv2json.py` patch shapes. Repair should keep rejecting malformed dash-native operation headers and placeholder hunks, but normalize safe mixed native/unified payloads before final validation.
+- Status: confirmed.
+
+# Evidence E-077: H-034 rerun exposes safe mixed patch normalization gap
+
+- Prediction tested: H-035 predicts patch feedback is delivered, but action dispatch rejects a safely convertible mixed patch before normalization.
+- Real rerun:
+  ```text
+  RunDir: target/r4-org-json-real-keyed-20260703ag-duplicate-read-after-grammar/runs/terminal_bench__organization-json-generator/20260704-070452-184
+  PairReport: pair-001/pair-report.md
+  reported_evidence_level: E2-candidate
+  outcome_standard: solved
+  outcome_taskspace: engineering_unclean
+  right_exec_timed_out: False
+  right_tool_call_count: 10
+  right_open_leaf_nodes: 1
+  public_validation_exit_code: 1
+  hidden_oracle_exit_code: 0
+  ```
+- Matched trace signals:
+  - Line 50 records the actionable validation failure: `IndentationError: unexpected indent` in `csv2json.py` line 2.
+  - Lines 66, 73, 80, 87, and 94 emit `apply_patch` payloads for `csv2json.py` containing `*** Update File`, `--- a/csv2json.py`, `+++ b/csv2json.py`, and concrete range hunks such as `@@ -1,2 +1,2 @@`.
+  - Lines 68, 75, 82, 89, and 96 reject those payloads as `TaskSpaceActionV1 rejected: apply_patch_mixed_native_unified:csv2json.py`.
+  - Lines 69, 76, 83, 90, and 97 insert `TaskSpaceApplyPatchNativeHunkRecoveryV1`, so the feedback semantics are present and not diluted.
+  - Line 98 hard-stops with `TaskSpaceProviderBudgetHardStopV1 reason=provider_node_request_hard_limit_exceeded node_request_count=6/5`.
+- Code-path signal:
+  - `taskspace_action_to_tool_call` checked `taskspace_apply_patch_mixed_native_unified_targets(&patch)` before calling `normalize_taskspace_unified_diff_patch(&patch).unwrap_or_else(|| normalize_taskspace_apply_patch(&patch))`.
+  - `normalize_taskspace_native_hunk_headers` already knows how to strip adjacent `---` / `+++` headers inside native update sections and normalize range hunk lines to native `@@`.
+- Interpretation: This is not a feedback-layer loss in this concrete case. The provider received the correct failure and recovery marker repeatedly. The remaining root cause is a capability-layer policy boundary that treats a safely normalizable mixed patch as fatal instead of canonicalizing it before dispatch.
+
+# Evidence E-078: safe mixed native/unified patches normalize before dispatch
+
+- Prediction tested: H-035 requires safely convertible mixed native/unified patches to reach the existing normalizer before mixed-patch rejection, while malformed dash-native operations and placeholder hunks remain rejected before tool execution.
+- Repair artifact:
+  - `third_party/codex-cli/codex-rs/core/src/session/turn.rs`
+- Focused commands:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked mixed_native
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked native_unified_update
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked unified_hunk_header_from_add
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked native_hunk
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked dash_native
+  ```
+- Adjacent regression/build commands:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked apply_patch_
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked validation_rework
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked validation_
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked duplicate_rework
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+  git diff --check
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-cli --bin whale --locked
+  ```
+- Result: passed. `mixed_native` is 4/4, `native_unified_update` is 1/1, `unified_hunk_header_from_add` is 1/1, `native_hunk` is 3/3, `dash_native` is 1/1, `apply_patch_` is 33/33, `validation_rework` is 15/15, `validation_` is 92/92, and `duplicate_rework` is 2/2. `cargo fmt --check`, `git diff --check`, and the `whale` build passed.
+- Matched test signals:
+  - Live wrapped trace shape `*** Begin Patch` + `*** Update File: csv2json.py` + `--- a/csv2json.py` / `+++ b/csv2json.py` + `@@ -1,2 +1,2 @@` normalizes to one native `*** Update File` section with native `@@`.
+  - Live unwrapped trace shape starting at `*** Update File: csv2json.py` also normalizes by adding `*** Begin Patch` / `*** End Patch`, stripping unified file headers, and normalizing range hunk headers.
+  - `@@ ... @@` placeholder hunk still rejects as `apply_patch_native_hunk_header:<target>`.
+  - `--- Update File: <target>` still rejects as `apply_patch_native_hunk_header:<target>`.
+- Operational note: from repository root, stable Rust commands must use `--manifest-path third_party/codex-cli/codex-rs/Cargo.toml`; a bare `cargo test -p codex-core ...` fails because the project root is not a Cargo workspace root.
+- Interpretation: The `apply-patch-mixed-native-unified-auto-normalization-gap` class is focused-fixed at action-contract normalization/build level. Commit/push, binary attestation, and another keyed rerun are still required before claiming live external convergence beyond this case.

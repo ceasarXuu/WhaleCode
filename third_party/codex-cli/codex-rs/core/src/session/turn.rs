@@ -5695,30 +5695,43 @@ Then I will inspect the file."#,
     }
 
     #[test]
-    fn taskspace_action_contract_rejects_native_unified_update_hunk_headers() {
+    fn taskspace_action_contract_normalizes_native_unified_update_hunk_headers() {
         let action = parse_taskspace_action_v1(
             r#"{"schema_version":"taskspace-action-v1","action":"apply_patch","node_id":"node-1","args":{"patch":"*** Begin Patch\n*** Update File: core/src/session/turn.rs\n@@ -1,1 +1,1 @@\n-old\n+new\n*** End Patch\n"}}"#,
         )
         .expect("valid json");
-        let err = taskspace_action_to_tool_call(&action, &provider_snapshot("implement_solution"))
-            .expect_err("native apply_patch must not use unified range hunks");
+        let call = taskspace_action_to_tool_call(&action, &provider_snapshot("implement_solution"))
+            .expect("range hunk can be normalized")
+            .expect("tool call");
 
-        assert_eq!(
-            err,
-            "apply_patch_mixed_native_unified:core/src/session/turn.rs"
-        );
+        match call.payload {
+            ToolPayload::Custom { input } => {
+                assert!(input.contains("*** Update File: core/src/session/turn.rs"));
+                assert!(input.contains("@@\n-old\n+new"));
+                assert!(!input.contains("@@ -1,1 +1,1 @@"));
+            }
+            other => panic!("expected custom payload, got {other:?}"),
+        }
     }
 
     #[test]
-    fn taskspace_action_contract_rejects_unified_hunk_header_from_add_file() {
+    fn taskspace_action_contract_normalizes_unified_hunk_header_from_add_file() {
         let action = parse_taskspace_action_v1(
             r#"{"schema_version":"taskspace-action-v1","action":"apply_patch","node_id":"node-1","args":{"patch":"*** Begin Patch\n*** Add File: recover.py\n@@ -0,0 +1,2 @@\n+line 1\n+line 2\n*** End Patch\n"}}"#,
         )
         .expect("valid json");
-        let err = taskspace_action_to_tool_call(&action, &provider_snapshot("implement_solution"))
-            .expect_err("native add file must not use unified range hunks");
+        let call = taskspace_action_to_tool_call(&action, &provider_snapshot("implement_solution"))
+            .expect("add-file range hunk can be removed")
+            .expect("tool call");
 
-        assert_eq!(err, "apply_patch_mixed_native_unified:recover.py");
+        match call.payload {
+            ToolPayload::Custom { input } => {
+                assert!(input.contains("*** Add File: recover.py"));
+                assert!(input.contains("+line 1\n+line 2"));
+                assert!(!input.contains("@@ -0,0 +1,2 @@"));
+            }
+            other => panic!("expected custom payload, got {other:?}"),
+        }
     }
 
     #[test]
@@ -5812,7 +5825,7 @@ Then I will inspect the file."#,
     }
 
     #[test]
-    fn taskspace_action_contract_rejects_mixed_native_unified_patch() {
+    fn taskspace_action_contract_normalizes_mixed_native_unified_patch() {
         let raw = serde_json::json!({
             "schema_version": "taskspace-action-v1",
             "action": "apply_patch",
@@ -5824,10 +5837,86 @@ Then I will inspect the file."#,
         .to_string();
         let action = parse_taskspace_action_v1(&raw).expect("valid json");
 
-        let err = taskspace_action_to_tool_call(&action, &provider_snapshot("implement_solution"))
-            .expect_err("mixed native/unified patch must be corrected before tool execution");
+        let call = taskspace_action_to_tool_call(&action, &provider_snapshot("implement_solution"))
+            .expect("safe mixed native/unified patch can be normalized")
+            .expect("tool call");
 
-        assert_eq!(err, "apply_patch_mixed_native_unified:recover.py");
+        match call.payload {
+            ToolPayload::Custom { input } => {
+                assert!(input.contains("*** Update File: src/recover.py"));
+                assert!(input.contains("@@\n-print('bad')\n+print('fixed')"));
+                assert!(!input.contains("--- a/recover.py"));
+                assert!(!input.contains("+++ b/recover.py"));
+                assert!(!input.contains("@@ -1,1 +1,1 @@"));
+            }
+            other => panic!("expected custom payload, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn taskspace_action_contract_normalizes_live_wrapped_mixed_native_unified_patch() {
+        let raw = serde_json::json!({
+            "schema_version": "taskspace-action-v1",
+            "action": "apply_patch",
+            "node_id": "node-1",
+            "args": {
+                "patch": "*** Begin Patch\n*** Update File: csv2json.py\n--- a/csv2json.py\n+++ b/csv2json.py\n@@ -1,2 +1,2 @@\n #!/usr/bin/env python3\n- \"\"\"CSV to JSON processor - reads CSV files and produces organization.json following schema.json.\"\"\"\n+\"\"\"CSV to JSON processor - reads CSV files and produces organization.json following schema.json.\"\"\"\n*** End Patch"
+            },
+            "rationale": "fix indentation"
+        })
+        .to_string();
+        let action = parse_taskspace_action_v1(&raw).expect("valid json");
+
+        let call = taskspace_action_to_tool_call(&action, &provider_snapshot("implement_solution"))
+            .expect("live mixed patch can be normalized")
+            .expect("tool call");
+
+        match call.payload {
+            ToolPayload::Custom { input } => {
+                assert!(input.starts_with("*** Begin Patch\n"));
+                assert!(input.ends_with("*** End Patch\n"));
+                assert_eq!(input.matches("*** Update File: ").count(), 1);
+                assert!(input.contains("csv2json.py"));
+                assert!(input.contains("@@\n #!/usr/bin/env python3"));
+                assert!(!input.contains("--- a/csv2json.py"));
+                assert!(!input.contains("+++ b/csv2json.py"));
+                assert!(!input.contains("@@ -1,2 +1,2 @@"));
+            }
+            other => panic!("expected custom payload, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn taskspace_action_contract_normalizes_live_unwrapped_mixed_native_unified_patch() {
+        let raw = serde_json::json!({
+            "schema_version": "taskspace-action-v1",
+            "action": "apply_patch",
+            "node_id": "node-1",
+            "args": {
+                "patch": "*** Update File: csv2json.py\n--- a/csv2json.py\n+++ b/csv2json.py\n@@ -1,2 +1,2 @@\n- #!/usr/bin/env python3\n+#!/usr/bin/env python3\n \"\"\"CSV to JSON processor - reads CSV files and produces organization.json following schema.json.\"\"\""
+            },
+            "rationale": "fix indentation"
+        })
+        .to_string();
+        let action = parse_taskspace_action_v1(&raw).expect("valid json");
+
+        let call = taskspace_action_to_tool_call(&action, &provider_snapshot("implement_solution"))
+            .expect("live unwrapped mixed patch can be normalized")
+            .expect("tool call");
+
+        match call.payload {
+            ToolPayload::Custom { input } => {
+                assert!(input.starts_with("*** Begin Patch\n"));
+                assert!(input.ends_with("*** End Patch\n"));
+                assert_eq!(input.matches("*** Update File: ").count(), 1);
+                assert!(input.contains("csv2json.py"));
+                assert!(input.contains("@@\n- #!/usr/bin/env python3\n+#!/usr/bin/env python3"));
+                assert!(!input.contains("--- a/csv2json.py"));
+                assert!(!input.contains("+++ b/csv2json.py"));
+                assert!(!input.contains("@@ -1,2 +1,2 @@"));
+            }
+            other => panic!("expected custom payload, got {other:?}"),
+        }
     }
 
     #[test]
@@ -9878,6 +9967,18 @@ fn taskspace_apply_patch_mixed_native_unified_targets(patch: &str) -> Vec<String
     taskspace_apply_patch_declared_targets(patch)
 }
 
+fn taskspace_apply_patch_malformed_native_operation_targets(patch: &str) -> Vec<String> {
+    let mut targets = Vec::new();
+    for line in patch.lines() {
+        if let Some(target) = taskspace_malformed_native_patch_operation_target(line)
+            && !targets.iter().any(|existing| existing == &target)
+        {
+            targets.push(target);
+        }
+    }
+    targets
+}
+
 fn taskspace_apply_patch_native_hunk_header_targets(patch: &str) -> Vec<String> {
     let mut targets = Vec::new();
     let mut current_target: Option<String> = None;
@@ -9902,9 +10003,7 @@ fn taskspace_apply_patch_native_hunk_header_targets(patch: &str) -> Vec<String> 
             continue;
         }
         let trimmed = line.trim();
-        let invalid_hunk = trimmed.starts_with("@@ -")
-            || trimmed.starts_with("@@ +")
-            || (trimmed.starts_with("@@") && trimmed.contains("..."));
+        let invalid_hunk = trimmed.starts_with("@@") && trimmed.contains("...");
         if invalid_hunk
             && let Some(target) = current_target.as_ref()
             && !targets.iter().any(|existing| existing == target)
@@ -10195,12 +10294,12 @@ fn taskspace_action_to_tool_call(
                     existing_add_targets.join(",")
                 ));
             }
-            let mixed_native_unified_targets =
-                taskspace_apply_patch_mixed_native_unified_targets(&patch);
-            if !mixed_native_unified_targets.is_empty() {
+            let malformed_native_operation_targets =
+                taskspace_apply_patch_malformed_native_operation_targets(&patch);
+            if !malformed_native_operation_targets.is_empty() {
                 return Err(format!(
-                    "apply_patch_mixed_native_unified:{}",
-                    mixed_native_unified_targets.join(",")
+                    "apply_patch_native_hunk_header:{}",
+                    malformed_native_operation_targets.join(",")
                 ));
             }
             let native_hunk_header_targets =
@@ -10219,6 +10318,14 @@ fn taskspace_action_to_tool_call(
                 return Err(format!(
                     "apply_patch_native_hunk_header:{}",
                     native_hunk_header_targets.join(",")
+                ));
+            }
+            let mixed_native_unified_targets =
+                taskspace_apply_patch_mixed_native_unified_targets(&patch);
+            if !mixed_native_unified_targets.is_empty() {
+                return Err(format!(
+                    "apply_patch_mixed_native_unified:{}",
+                    mixed_native_unified_targets.join(",")
                 ));
             }
             let unanchored_update_targets = taskspace_apply_patch_unanchored_update_targets(&patch);

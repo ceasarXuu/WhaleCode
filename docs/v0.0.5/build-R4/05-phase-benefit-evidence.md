@@ -3036,3 +3036,82 @@ CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/co
 还需要 commit/push、binary attestation 和下一轮 keyed rerun。下一轮期望 line 82 这种场景输出
 `TaskSpaceValidationReworkDuplicateReadAfterPatchGrammarRecoveryV1`，并在正文保留最近
 `apply_patch_mixed_native_unified:<target>` failure，避免 patch grammar 语义被 duplicate-read 语义覆盖。
+
+## 5.45 2026-07-04 mixed native/unified patch auto-normalization
+
+`validation-rework-duplicate-read-after-patch-grammar-feedback-loss` 修复并 attestation 后的 keyed rerun 证明
+H-034 已越过：trace 中没有出现普通 duplicate-read recovery 覆盖 patch grammar 的问题，`TaskSpaceApplyPatchNativeHunkRecoveryV1`
+连续插入并且语义明确。新的 blocker 是能力层边界过硬：provider 连续输出可机械转换的 mixed native/unified patch，
+但 action contract 在 normalizer 前拒绝，导致 rework node 预算耗尽。
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260703ag-duplicate-read-after-grammar/runs/terminal_bench__organization-json-generator/20260704-070452-184
+reported_evidence_level: E2-candidate
+outcome_standard: solved
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 10
+right_open_leaf_nodes: 1
+public_validation_exit_code: 1
+hidden_oracle_exit_code: 0
+```
+
+关键观察：
+
+| Signal | 结论 |
+|---|---|
+| line 50 `IndentationError: unexpected indent` | validation failure 是可编辑实现错误 |
+| lines 66/73/80/87/94 连续输出 `*** Update File: csv2json.py` + `--- a/...` / `+++ b/...` + concrete range hunk | 这些 payload 有明确 target、明确 old/new file header、明确 range hunk，不是 placeholder |
+| lines 68/75/82/89/96 `apply_patch_mixed_native_unified:csv2json.py` | action contract 在 normalizer 之前拒绝 |
+| lines 69/76/83/90/97 `TaskSpaceApplyPatchNativeHunkRecoveryV1` | 反馈语义已经正确送达，不是本轮主要缺陷 |
+| line 98 `TaskSpaceProviderBudgetHardStopV1 node_request_count=6/5` | provider 未能按反馈自我修正，control loop 仍靠 hard stop 截断 |
+
+本轮新增并 focused 修复的问题类型：
+
+| Case | Before | After | Evidence |
+|---|---|---|---|
+| `apply-patch-mixed-native-unified-auto-normalization-gap` | 安全 mixed native/unified patch 在 `normalize_taskspace_unified_diff_patch` / `normalize_taskspace_apply_patch` 前被拒绝为 `apply_patch_mixed_native_unified:<target>`，即使它只需要 strip unified file headers 并把 `@@ -... +... @@` 归一为 native `@@` | action contract 前置只拒绝 malformed `--- Update File:` 和 placeholder `@@ ... @@`；安全 mixed patch 先进入 normalizer，规范化后再执行 mixed/native/unanchored/missing-target 检查 | `taskspace_action_contract_normalizes_live_wrapped_mixed_native_unified_patch`; `taskspace_action_contract_normalizes_live_unwrapped_mixed_native_unified_patch`; `mixed_native` |
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked mixed_native
+  PASS：4 tests
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked native_unified_update
+  PASS：1 test
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked unified_hunk_header_from_add
+  PASS：1 test
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked native_hunk
+  PASS：3 tests
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked dash_native
+  PASS：1 test
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked apply_patch_
+  PASS：33 tests
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked validation_rework
+  PASS：15 tests
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked validation_
+  PASS：92 tests
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked duplicate_rework
+  PASS：2 tests
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+git diff --check
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-cli --bin whale --locked
+  PASS
+```
+
+操作经验：从 repo root 运行 Rust 命令必须带
+`--manifest-path third_party/codex-cli/codex-rs/Cargo.toml`；本仓库根目录不是 Cargo workspace root，裸
+`cargo test -p codex-core ...` 会失败。
+
+状态：该 action-contract normalization class 已 focused fixed，并通过本地回归、fmt、diff check 和 `whale` build；
+还需要 commit/push、binary attestation 和下一轮 keyed rerun。下一轮期望 line 66/80 这类 mixed payload 直接被规范化并交给
+`apply_patch` 工具，不再出现连续 `apply_patch_mixed_native_unified:csv2json.py` recovery loop。
