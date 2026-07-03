@@ -1955,3 +1955,55 @@ CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale --locked
 
 状态：该 feedback/action-contract class 已 focused fixed；R4-G utility 仍需再次 keyed rerun 验证 TaskSpace 是否读取或直接 patch
 `generate_org.py`，修正 `members` / camelCase statistics 等 schema contract。
+
+## 5.28 2026-07-04 validation jsonschema module missing rework misroute
+
+target artifact read 修复后的真实 rerun：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260703n-rework-target-read/runs/terminal_bench__organization-json-generator/20260704-022632-418
+reported_evidence_level: E2-candidate
+outcome_standard: solved
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 9
+right_open_leaf_nodes: 1
+public_validation_exit_code: 1
+```
+
+关键观察：
+
+| Signal | 结论 |
+|---|---|
+| TaskSpace 读齐 `schema.json`、`departments.csv`、`employees.csv`、`projects.csv` | fact-source coverage / inspect projection 仍有效 |
+| TaskSpace 创建 `organization.json` 并进入 validation | 前序 output-contract gate 已推动到真实验证阶段 |
+| validation 命令为 `python3 -c "import json, jsonschema; ... jsonschema.validate(...)"` | 命令语义是 schema validation，而不是 generator-only 或 weak JSON parse |
+| validation 失败为 `ModuleNotFoundError: No module named 'jsonschema'` | 失败发生在 validator dependency loading，schema 还没有执行 |
+| runtime 插入 `TaskSpaceImplementNeedsEditRecoveryV1` | 旧分类把 validator dependency failure 当成 implementation rework evidence |
+| rework 成功 `read_file organization.json` | 5.27 的 named target artifact read guard 在真实 run 中生效 |
+| 模型反复 `finish_node` 并引用 missing jsonschema，最终 `provider_node_request_hard_limit_exceeded` | rework 方向错误，导致控制环耗尽 |
+
+本轮新增并 focused 修复的问题类型：
+
+| Case | Before | After | Evidence |
+|---|---|---|---|
+| `validation-jsonschema-module-missing-rework-misroute` | `ModuleNotFoundError: No module named 'jsonschema'` 被归入 noninfra failed validation，自动 block validation 并进入 implement rework；模型没有新的代码 patch 依据，只能反复 finish | runtime 将 jsonschema module missing 从 noninfra rework 分类中排除；validation projection 根据 output contract/schema requirements 给出 `python -m jsonschema -i organization.json schema.json`；缺 validator dependency 不再直接路由成 implementation rework | `validation_missing_jsonschema_dependency_stays_on_validation_with_cli_recovery`; `validation_`; `local_infra`; `force_finish_validation` |
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_missing_jsonschema_dependency_stays_on_validation_with_cli_recovery --locked
+  PASS：missing jsonschema 留在 validation node，projection 输出 `python -m jsonschema -i organization.json schema.json`
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_ --locked
+  PASS：81 tests
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core local_infra --locked
+  PASS：11 tests
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core force_finish_validation --locked
+  PASS
+```
+
+状态：该 validation/feedback class 已 focused fixed；R4-G utility 仍需再次 keyed rerun 验证 TaskSpace 是否改用
+`python -m jsonschema -i organization.json schema.json`，并在真实 schema 错误后继续修正 output contract。

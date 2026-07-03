@@ -161,6 +161,7 @@ R4 tools 链路问题优先按 feedback semantics 分类，不要直接归因为
 - action-contract gate 正确拒绝但模型继续同类动作：检查 gate recovery 是否带 repeat state，是否缺少 exact required command。
 - inspect 过早进入 implement：检查是否有声明 `fact_sources` artifact 未被 successful read/search 覆盖。
 - validation 失败后进入 implement rework：先区分 validation command error、validator infra error、业务断言失败和实现代码失败。
+- schema validation 命令若因 `ModuleNotFoundError: No module named 'jsonschema'` 失败，先按 validator dependency recovery 处理，不要直接路由到 implementation rework；在本机 Linux 复验中 `python3` 可能无 `jsonschema`，但默认 `python -m jsonschema -i organization.json schema.json` 可用。
 
 本地 Rust focused tests 默认使用系统或当前构建的 sandbox 行为。调试 R4 sandbox/bootstrap 相关用例时，优先显式跳过 vendored bwrap：
 

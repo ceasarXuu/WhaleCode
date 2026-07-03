@@ -866,3 +866,54 @@
   - Session action contract allows `read_file` for `generate_org.py` under `implementation_needs_edit` but still rejects broad reads such as `schema.json`.
   - `validation_rework` passed 11 tests and `validation_` passed 80 tests.
 - Interpretation: The new `validation-rework-target-artifact-read-gap` class is focused-fixed. Real utility validation still requires another keyed rerun to verify TaskSpace reads or patches `generate_org.py`, fixes schema fields, and either passes public validation or exposes the next R4 tools issue.
+
+# Hypothesis H-018: missing jsonschema dependency is misrouted as implementation rework
+
+- Claim: After H-017, TaskSpace can read validation rework targets, but a validation command that fails before schema execution because `python3` lacks the `jsonschema` module is still classified as a non-infrastructure validation failure. Runtime then routes to implementation rework, where the model can read the output artifact but repeatedly tries `finish_node` because it believes the validator dependency, not the implementation, failed.
+- Prediction: A keyed rerun after H-017 will show TaskSpace executing a schema validation command with `python3 -c "import json, jsonschema; ..."`, receiving `ModuleNotFoundError: No module named 'jsonschema'`, entering `TaskSpaceImplementNeedsEditRecoveryV1`, reading the named target artifact, then repeatedly trying `finish_node` until provider-node hard stop.
+- Diagnostic evidence plan: Inspect the H-017 rerun trace and pair report; inspect runtime classification around `validation_node_failed_noninfra_result` and local infra predicates; add a focused test proving `ModuleNotFoundError: jsonschema` stays on the validation node and projection emits `python -m jsonschema -i organization.json schema.json`.
+- Status: confirmed.
+
+# Evidence E-043: jsonschema module missing routes into rework and loops
+
+- Prediction tested: H-018 predicts the targeted rework read is now fixed, and the next blocker is validator dependency failure misclassification.
+- Real rerun:
+  ```text
+  RunDir: target/r4-org-json-real-keyed-20260703n-rework-target-read/runs/terminal_bench__organization-json-generator/20260704-022632-418
+  PairReport: pair-001/pair-report.md
+  reported_evidence_level: E2-candidate
+  outcome_standard: solved
+  outcome_taskspace: engineering_unclean
+  right_exec_timed_out: False
+  right_tool_call_count: 9
+  right_open_leaf_nodes: 1
+  ```
+- Matched trace signals:
+  - TaskSpace read `schema.json`, `departments.csv`, `employees.csv`, and `projects.csv`, then created `organization.json`.
+  - `item_26` submitted `run_test` command `python3 -c "import json, jsonschema; schema=json.load(open('schema.json')); data=json.load(open('organization.json')); jsonschema.validate(data, schema); print('Validation passed')"`.
+  - `item_27` failed before schema execution with `ModuleNotFoundError: No module named 'jsonschema'`.
+  - `item_29` routed to `TaskSpaceImplementNeedsEditRecoveryV1`.
+  - `item_33` successfully read `organization.json`, proving H-017's named-target read allowance works.
+  - `item_41`, `item_48`, `item_55`, `item_62`, and `item_69` repeatedly tried `finish_node` while citing missing `jsonschema` as environment validation failure.
+  - `item_73` ended with `TaskSpaceProviderBudgetHardStopV1 reason=provider_node_request_hard_limit_exceeded request_count=15/20 node_request_count=6/5`.
+- Interpretation: The new failure is not missing target-read capability. It is validation feedback classification: dependency failure happened before the schema check, so it should stay on validation with an alternate validator command instead of being treated as implementation evidence.
+
+# Evidence E-044: missing jsonschema dependency stays on validation with CLI recovery
+
+- Prediction tested: H-018 requires `ModuleNotFoundError: jsonschema` to be excluded from non-infra implementation rework and projected as an actionable validation retry.
+- Repair artifact:
+  - `third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs`
+- Focused and adjacent commands:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_missing_jsonschema_dependency_stays_on_validation_with_cli_recovery --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_ --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core local_infra --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core force_finish_validation --locked
+  ```
+- Result: passed; `validation_` now covers 81 tests, and `local_infra` remains 11 tests.
+- Matched test signals:
+  - A failed validation result with `ModuleNotFoundError: No module named 'jsonschema'` no longer triggers `validation_node_failed_noninfra_result`.
+  - The current node remains `smoke_test` instead of auto-routing to implementation rework.
+  - Projection exposes `python -m jsonschema -i organization.json schema.json` as the next validation action.
+  - Existing local-infrastructure blockers such as E_ACCESSDENIED, uv cache access denial, and bwrap bootstrap failure still pass their focused coverage.
+- Interpretation: The new `validation-jsonschema-module-missing-rework-misroute` class is focused-fixed. Real utility validation still requires another keyed rerun to verify TaskSpace uses the CLI validator, reaches real schema errors, and either fixes the output contract or exposes the next R4 tools issue.

@@ -11571,6 +11571,13 @@ fn projection_next_valid_actions(
                 );
                 return actions;
             }
+            if let Some(task) = task {
+                let dependency_actions =
+                    validation_missing_jsonschema_dependency_next_actions(map, node, task);
+                if !dependency_actions.is_empty() {
+                    return dependency_actions;
+                }
+            }
             let required_validators = discovered_required_local_validator_commands(map);
             if !required_validators.is_empty() {
                 required_validators
@@ -14436,6 +14443,7 @@ fn validation_node_failed_noninfra_result(
             || is_local_validator_infra_failure(&result.body)
             || validation_failure_is_known_input_path_error(map, result)
             || validation_failure_is_missing_command_script_error(result)
+            || validation_failure_is_missing_jsonschema_dependency(result)
         {
             return None;
         }
@@ -14444,6 +14452,53 @@ fn validation_node_failed_noninfra_result(
             validation_failure_body_excerpt(&result.body, 640),
         ))
     })
+}
+
+fn validation_missing_jsonschema_dependency_next_actions(
+    map: &ActionMapInstance,
+    node: &MapNode,
+    task: &TaskState,
+) -> Vec<String> {
+    let Some(result) = node.result_context.iter().rev().find_map(|result_ref| {
+        let result = map.results.get(&result_ref.id)?;
+        validation_failure_is_missing_jsonschema_dependency(result).then_some(result)
+    }) else {
+        return Vec::new();
+    };
+    let requirements = task_output_contract_validation_requirements(task);
+    let changed_artifacts = validation_dependency_changed_artifacts(map, node);
+    let requirements =
+        output_contract_requirements_for_validation_command(&requirements, &changed_artifacts);
+    let mut actions = validation_output_contract_check_command(&requirements)
+        .map(|command| {
+            vec![format!(
+                "run_test with command `{command}` using the default python environment because `{}` failed to import jsonschema",
+                result.id
+            )]
+        })
+        .unwrap_or_default();
+    actions.push(
+        "do not route missing jsonschema module errors to implementation rework; run an available schema validator or block with exact validator dependency evidence"
+            .to_string(),
+    );
+    actions
+}
+
+fn validation_failure_is_missing_jsonschema_dependency(result: &NodeResult) -> bool {
+    if result.kind != NodeResultKind::MainToolCall
+        || result.tool_success != Some(false)
+        || !matches!(
+            result.action_class,
+            Some(ActionClass::Test | ActionClass::Build)
+        )
+    {
+        return false;
+    }
+    let body = result.body.to_ascii_lowercase();
+    body.contains("jsonschema")
+        && body.contains("modulenotfounderror")
+        && (body.contains("no module named 'jsonschema'")
+            || body.contains("no module named \"jsonschema\""))
 }
 
 fn validation_failure_is_known_input_path_error(
@@ -23451,6 +23506,167 @@ def normalize_status(value: str) -> str:\n\
                 ToolActionDescriptor::new("shell_command", ActionClass::Test, schema_validation),
             )
             .expect("schema-aware validation should be allowed");
+    }
+
+    #[test]
+    fn validation_missing_jsonschema_dependency_stays_on_validation_with_cli_recovery() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (_, map_id, implement_node_id, _) = start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::ImplementSolution,
+            "Generate organization JSON",
+            "Validated output matches schema.json.",
+            "Implement output",
+            "Create organization.json.",
+            true,
+        );
+        state
+            .record_output_contract_for_main(
+                owner,
+                "oc-organization-json",
+                "artifact",
+                "organization.json generated in root directory".to_string(),
+                vec![ActionMapEvidenceRefInput {
+                    artifact_ref: Some("user-request".to_string()),
+                    ..Default::default()
+                }],
+            )
+            .expect("output contract records");
+        state
+            .record_fact_source_for_main(
+                owner,
+                "fs-schema",
+                "observed_from_environment",
+                "schema.json defines target JSON structure".to_string(),
+                vec![ActionMapEvidenceRefInput {
+                    artifact_ref: Some("schema.json".to_string()),
+                    ..Default::default()
+                }],
+            )
+            .expect("schema fact source records");
+        let (edit_result_id, _) = state
+            .record_main_tool_result_with_class(
+                owner,
+                "edit-output",
+                "apply_patch",
+                Some(ActionClass::Edit),
+                true,
+                "Success. Updated the following files:\n*** Add File: organization.json\n"
+                    .to_string(),
+            )
+            .expect("edit result")
+            .expect("edit result id");
+        state
+            .mark_result_validity_for_main(
+                owner,
+                &edit_result_id,
+                "accepted",
+                "accepted output edit".to_string(),
+                vec![ActionMapCognitiveClaimInput {
+                    id: "claim-output".to_string(),
+                    statement: "organization.json was created.".to_string(),
+                    evidence_refs: vec![ActionMapEvidenceRefInput {
+                        result_id: Some(edit_result_id.clone()),
+                        ..Default::default()
+                    }],
+                }],
+                vec![ActionMapEvidenceRefInput {
+                    result_id: Some(edit_result_id.clone()),
+                    ..Default::default()
+                }],
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+            )
+            .expect("edit accepted");
+        let (outcome, _) = state
+            .finish_main_node_with_next(
+                owner,
+                &implement_node_id,
+                "Created output artifact.".to_string(),
+                None,
+                Some(ActionMapNextNodeDraft {
+                    kind: NodeKind::SmokeTest,
+                    title: "Validate organization JSON".to_string(),
+                    context_summary: "Validate organization.json against schema.json.".to_string(),
+                    dependency_node_ids: vec![implement_node_id.clone()],
+                }),
+            )
+            .expect("finish implementation into validation");
+        let validation_node_id = outcome.next_node_id.expect("validation node");
+        state
+            .mark_result_validity_for_main(
+                owner,
+                &outcome.result_id,
+                "accepted",
+                "accepted validation handoff".to_string(),
+                vec![ActionMapCognitiveClaimInput {
+                    id: "claim-validation-handoff".to_string(),
+                    statement: "Output can proceed to schema validation.".to_string(),
+                    evidence_refs: vec![ActionMapEvidenceRefInput {
+                        result_id: Some(outcome.result_id.clone()),
+                        ..Default::default()
+                    }],
+                }],
+                vec![ActionMapEvidenceRefInput {
+                    result_id: Some(outcome.result_id.clone()),
+                    ..Default::default()
+                }],
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+            )
+            .expect("handoff accepted");
+
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "run-python3-jsonschema",
+                "shell_command",
+                Some(ActionClass::Test),
+                false,
+                "TaskSpaceToolInvocationV1:\n\
+tool: shell_command\n\
+command: python3 -c \"import json, jsonschema; schema=json.load(open('schema.json')); data=json.load(open('organization.json')); jsonschema.validate(data, schema)\"\n\
+raw_output:\n\
+Exit code: 1\n\
+Output:\n\
+Traceback (most recent call last):\n\
+  File \"<string>\", line 1, in <module>\n\
+ModuleNotFoundError: No module named 'jsonschema'\n"
+                    .to_string(),
+            )
+            .expect("missing jsonschema validation result records")
+            .expect("validation result id");
+
+        assert_eq!(
+            state.current_main_node_id.as_deref(),
+            Some(validation_node_id.as_str()),
+            "missing validator dependency must not auto-route to implementation rework"
+        );
+        let map = state.maps.get(&map_id).expect("map");
+        let validation_node = map.nodes.get(&validation_node_id).expect("validation node");
+        assert_eq!(validation_node.status, NodeStatus::Running);
+        assert!(validation_node_failed_noninfra_result(map, validation_node).is_none());
+        let task = map
+            .task_id
+            .as_ref()
+            .and_then(|task_id| state.tasks.get(task_id))
+            .expect("task state");
+        let actions =
+            projection_next_valid_actions(map, Some(&validation_node_id), Some(task), &[]);
+        let joined = actions.join("\n");
+        assert!(
+            joined.contains("python -m jsonschema -i organization.json schema.json"),
+            "{joined}"
+        );
+        assert!(
+            joined.contains("do not route missing jsonschema module errors"),
+            "{joined}"
+        );
     }
 
     #[test]
