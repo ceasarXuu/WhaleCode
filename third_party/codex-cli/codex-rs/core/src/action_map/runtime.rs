@@ -14585,10 +14585,15 @@ fn task_output_contract_validation_requirements(
             }
         }
     }
+    for criterion in &task.problem_ledger.success_criteria {
+        push_success_criterion_validation_requirements(
+            &mut requirements,
+            &criterion.description,
+            &criterion.evidence_refs,
+        );
+    }
     for criterion in &task.cognitive_state.success_criteria {
-        for artifact in extract_artifact_like_refs(criterion) {
-            push_output_contract_schema_or_validator_requirement(&mut requirements, &artifact);
-        }
+        push_success_criterion_validation_requirements(&mut requirements, criterion, &[]);
     }
     for source in &task.cognitive_state.fact_sources {
         for value in [&source.id, &source.description] {
@@ -14636,6 +14641,41 @@ fn push_output_contract_schema_or_validator_requirement(
     push_unique_artifact_ref(&mut requirements.schema_targets, artifact);
 }
 
+fn push_success_criterion_validation_requirement(
+    requirements: &mut OutputContractValidationRequirements,
+    artifact: &str,
+) {
+    let artifact = normalize_artifact_ref(artifact);
+    if !output_contract_validation_artifact_ref(&artifact) {
+        return;
+    }
+    if output_contract_artifact_ref_looks_like_schema_or_validator(&artifact) {
+        push_unique_artifact_ref(&mut requirements.schema_targets, artifact);
+        return;
+    }
+    if output_contract_artifact_ref_looks_like_generated_json_output(&artifact) {
+        push_unique_artifact_ref(&mut requirements.targets, artifact);
+    }
+}
+
+fn push_success_criterion_validation_requirements(
+    requirements: &mut OutputContractValidationRequirements,
+    description: &str,
+    evidence_refs: &[EvidenceRef],
+) {
+    for artifact in extract_artifact_like_refs(description) {
+        push_success_criterion_validation_requirement(requirements, &artifact);
+    }
+    for evidence in evidence_refs {
+        if let Some(artifact_ref) = evidence.artifact_ref.as_deref() {
+            push_success_criterion_validation_requirement(
+                requirements,
+                &normalize_artifact_ref(artifact_ref),
+            );
+        }
+    }
+}
+
 fn output_contract_validation_artifact_ref(artifact: &str) -> bool {
     let normalized = normalize_artifact_ref(artifact);
     let lower = normalized.to_ascii_lowercase();
@@ -14648,6 +14688,12 @@ fn output_contract_validation_artifact_ref(artifact: &str) -> bool {
         return false;
     }
     artifact_like_token(&normalized)
+}
+
+fn output_contract_artifact_ref_looks_like_generated_json_output(artifact: &str) -> bool {
+    let lower = normalize_artifact_ref(artifact).to_ascii_lowercase();
+    let file = lower.rsplit('/').next().unwrap_or(lower.as_str());
+    file.ends_with(".json") && !output_contract_artifact_ref_looks_like_schema_or_validator(file)
 }
 
 fn output_contract_schema_or_validator_target(artifact: &str, kind: OutputContractKind) -> bool {
@@ -24389,6 +24435,185 @@ def normalize_status(value: str) -> str:\n\
                 ToolActionDescriptor::new("shell_command", ActionClass::Test, schema_validation),
             )
             .expect("schema-aware validation should be allowed");
+    }
+
+    #[test]
+    fn validation_node_derives_output_target_from_success_criteria_for_schema_check() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (_, _, implement_node_id, _) = start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::ImplementSolution,
+            "Generate organization JSON",
+            "Create a JSON processor from CSV files.",
+            "Implement generator",
+            "Create generator script.",
+            true,
+        );
+        state
+            .record_output_contract_for_main(
+                owner,
+                "oc-transform-json",
+                "artifact",
+                "Transform CSV data into JSON".to_string(),
+                vec![ActionMapEvidenceRefInput {
+                    artifact_ref: Some("user-request".to_string()),
+                    ..Default::default()
+                }],
+            )
+            .expect("generic output contract records");
+        state
+            .record_success_criteria_for_main(
+                owner,
+                vec![ActionMapSuccessCriterionInput {
+                    id: "criterion-organization-json".to_string(),
+                    kind: "artifact".to_string(),
+                    description:
+                        "Output file organization.json is generated and follows schema.json"
+                            .to_string(),
+                    status: "open".to_string(),
+                    evidence_refs: vec![ActionMapEvidenceRefInput {
+                        artifact_ref: Some("user-request".to_string()),
+                        ..Default::default()
+                    }],
+                }],
+            )
+            .expect("success criterion records output target");
+        state
+            .record_fact_source_for_main(
+                owner,
+                "fs-schema",
+                "observed_from_environment",
+                "schema.json defines target JSON structure".to_string(),
+                vec![ActionMapEvidenceRefInput {
+                    artifact_ref: Some("schema.json".to_string()),
+                    ..Default::default()
+                }],
+            )
+            .expect("schema fact source records");
+        let task_id = state.active_task_id.clone().expect("active task");
+        let requirements =
+            task_output_contract_validation_requirements(state.tasks.get(&task_id).expect("task"));
+        assert!(
+            requirements
+                .targets
+                .iter()
+                .any(|target| target == "organization.json"),
+            "{requirements:?}"
+        );
+        assert!(
+            requirements
+                .schema_targets
+                .iter()
+                .any(|target| target == "schema.json"),
+            "{requirements:?}"
+        );
+        assert!(
+            !requirements
+                .targets
+                .iter()
+                .any(|target| target.ends_with(".csv")),
+            "{requirements:?}"
+        );
+
+        let (edit_result_id, _) = state
+            .record_main_tool_result_with_class(
+                owner,
+                "edit-generator",
+                "apply_patch",
+                Some(ActionClass::Edit),
+                true,
+                "Success. Updated the following files:\n*** Add File: process.py\n".to_string(),
+            )
+            .expect("edit result")
+            .expect("edit result id");
+        state
+            .mark_result_validity_for_main(
+                owner,
+                &edit_result_id,
+                "accepted",
+                "accepted generator edit".to_string(),
+                vec![ActionMapCognitiveClaimInput {
+                    id: "claim-generator".to_string(),
+                    statement: "Generator script was created.".to_string(),
+                    evidence_refs: vec![ActionMapEvidenceRefInput {
+                        result_id: Some(edit_result_id.clone()),
+                        ..Default::default()
+                    }],
+                }],
+                vec![ActionMapEvidenceRefInput {
+                    result_id: Some(edit_result_id.clone()),
+                    ..Default::default()
+                }],
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+            )
+            .expect("edit accepted");
+        let (outcome, _) = state
+            .finish_main_node_with_next(
+                owner,
+                &implement_node_id,
+                "Created generator script.".to_string(),
+                None,
+                Some(ActionMapNextNodeDraft {
+                    kind: NodeKind::SmokeTest,
+                    title: "Validate generated JSON".to_string(),
+                    context_summary: "Run the generator and validate organization.json."
+                        .to_string(),
+                    dependency_node_ids: vec![implement_node_id.clone()],
+                }),
+            )
+            .expect("finish implementation into validation");
+        state
+            .mark_result_validity_for_main(
+                owner,
+                &outcome.result_id,
+                "accepted",
+                "accepted implementation handoff".to_string(),
+                vec![ActionMapCognitiveClaimInput {
+                    id: "claim-generator-handoff".to_string(),
+                    statement: "Generator can proceed to validation.".to_string(),
+                    evidence_refs: vec![ActionMapEvidenceRefInput {
+                        result_id: Some(outcome.result_id.clone()),
+                        ..Default::default()
+                    }],
+                }],
+                vec![ActionMapEvidenceRefInput {
+                    result_id: Some(outcome.result_id.clone()),
+                    ..Default::default()
+                }],
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+            )
+            .expect("handoff accepted");
+
+        let weak_json_parse = serde_json::json!({
+            "command": "python process.py && python -c \"import json; data=json.load(open('organization.json')); print('Valid JSON:', list(data.keys()))\"",
+            "timeout_ms": 30000
+        })
+        .to_string();
+        let error = state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new("shell_command", ActionClass::Test, weak_json_parse),
+            )
+            .expect_err("top-level JSON parsing does not validate schema-derived output target");
+        assert!(
+            error.contains("validation_test_missing_output_contract_coverage"),
+            "{error}"
+        );
+        assert!(error.contains("organization.json"), "{error}");
+        assert!(error.contains("schema.json"), "{error}");
+        assert!(
+            error.contains(
+                "python process.py && python -m jsonschema -i organization.json schema.json"
+            ),
+            "{error}"
+        );
     }
 
     #[test]

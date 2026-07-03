@@ -2635,3 +2635,59 @@ CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/co
 
 状态：该 control/feedback class 已在 unit/regression/build 层通过；还需要 keyed rerun，验证 start_task
 后的空响应会被 recovery 拉回工具执行路径，然后继续检验 H-027 的 patch 语法修复是否生效。
+
+## 5.39 2026-07-04 success criteria output artifact validation target gap
+
+`active-node-empty-response-final-candidate-misclassification` 修复后的 keyed rerun 已经越过 0-tool 早停：
+TaskSpace 创建任务、读取文件、生成 `process.py`、运行 validation，并给出 final answer。但它暴露了新的反馈层问题：
+validation gate 接受了弱 JSON parse，把“JSON 能打开”误当成“输出满足 schema/public contract”。
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260703aa-empty-response-recovery/runs/terminal_bench__organization-json-generator/20260704-054010-809
+reported_evidence_level: E1
+outcome_standard: wrong
+outcome_taskspace: wrong
+right_tool_call_count: 8
+right_open_leaf_nodes: 0
+public_validation_exit_code: 1
+hidden_oracle_exit_code: 0
+```
+
+关键观察：
+
+| Signal | 结论 |
+|---|---|
+| `tool_call_count=8`, `open_leaf_nodes=0` | H-028 的 active-node 空响应早停已越过 |
+| accepted validation command 是 `python process.py && python -c "...json.load(open('organization.json'))..."` | validation 只证明 generator 执行和 JSON 可解析 |
+| 输出仅显示 top-level keys：`metadata`, `organization`, `statistics` | 没有证明 schema required fields |
+| forced closeout 使用 `validation_success_after_tool_drain` | runtime 把弱 validation success 提升为完成 |
+| public validator 报 `KeyError: 'members'`、`KeyError: 'averageDepartmentBudget'` | schema/public contract 仍未满足 |
+| code path 中 `requirements.targets=[]`, `schema_targets=["schema.json"]` | `organization.json` 只在 success criteria 中出现，未被提升为 output validation target |
+
+本轮新增并 focused 修复的问题类型：
+
+| Case | Before | After | Evidence |
+|---|---|---|---|
+| `success-criteria-output-artifact-validation-target-gap` | output contract 可以是泛化描述，如 `Transform CSV data into JSON`；生成目标 `organization.json` 只出现在 success criteria 中时，runtime 只提取 `schema.json`，没有 output target，因此 `json.load` 弱验证被接受 | validation requirements 同时读取 `problem_ledger.success_criteria` 和 legacy cognitive success criteria；success criteria 中的非 schema `.json` 生成物进入 output targets，schema/validator artifact 仍进入 schema_targets；弱 JSON parse 触发 `validation_test_missing_output_contract_coverage` 并给出 exact `python process.py && python -m jsonschema -i organization.json schema.json` recovery | `validation_node_derives_output_target_from_success_criteria_for_schema_check`; `validation_node_`; `validation_` |
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core validation_node_derives_output_target_from_success_criteria_for_schema_check --locked
+  PASS：generic output contract + success criteria 中的 organization.json/schema.json 会生成 targets/schema_targets，并拒绝弱 JSON parse
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core validation_node_ --locked
+  PASS：21 tests
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core validation_ --locked
+  PASS：90 tests
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+git diff --check
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-cli --bin whale --locked
+  PASS
+```
+
+状态：该 feedback-layer class 已在 validation runtime/build 层 focused fixed；还需要提交二进制 attestation，
+再重跑 keyed `organization-json-generator`。下一轮期望不再接受弱 JSON parse，必须运行 schema/public contract 等价验证；
+如果仍 wrong，再按新 trace 继续收录下一层 tools 链路问题。

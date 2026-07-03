@@ -1518,3 +1518,62 @@
   - The same empty response without an active node still classifies as `final_candidate`.
   - Existing actionability behavior for final-gate rejection, no-action follow-up, gate recovery, actionable responses, and replayable trace recording remains intact.
 - Interpretation: The new `active-node-empty-response-final-candidate-misclassification` class is fixed at unit/regression/build level. Another keyed rerun is required before checking whether H-027's edit-syntax layer is now reached.
+
+# Hypothesis H-029: success-criteria output artifacts are not promoted to validation coverage targets
+
+- Claim: After H-028, a keyed rerun can execute tools and close TaskSpace without timeout, but the validation coverage requirement can still be incomplete when the generated output artifact is named only in problem success criteria rather than in the explicit output contract. In the observed run, the output contract said only "Transform CSV data into JSON"; `organization.json` appeared in the success criterion, and `schema.json` appeared in the success criterion/fact source. Runtime extracted the schema target but did not promote `organization.json` to an output validation target, so a weak `json.load(open("organization.json"))` command was accepted as validation.
+- Prediction: A post-H-028 keyed rerun will show `python process.py && python -c "... json.load(open('organization.json')) ..."` accepted, forced validation closeout triggered, and public validation failing with schema/public-test fields such as `members` and `averageDepartmentBudget`. Repair should derive generated JSON output targets from `problem_ledger.success_criteria` while keeping schema/validator artifacts in `schema_targets`, then reject weak JSON parse commands with `validation_test_missing_output_contract_coverage` and an exact `python process.py && python -m jsonschema -i organization.json schema.json` recovery.
+- Diagnostic evidence plan: Inspect the post-H-028 keyed pair report and runtime trace; add focused runtime tests that record a generic output contract plus a success criterion naming `organization.json` and `schema.json`, then prove weak JSON parsing is rejected while schema-aware validation is allowed.
+- Status: confirmed.
+
+# Evidence E-065: H-028 rerun accepts weak JSON parse because success criteria output target is absent
+
+- Prediction tested: H-029 predicts the failure is a validation coverage target gap, not a tool execution failure or empty-response control failure.
+- Real rerun:
+  ```text
+  RunDir: target/r4-org-json-real-keyed-20260703aa-empty-response-recovery/runs/terminal_bench__organization-json-generator/20260704-054010-809
+  PairReport: pair-001/pair-report.md
+  reported_evidence_level: E1
+  outcome_standard: wrong
+  outcome_taskspace: wrong
+  right_tool_call_count: 8
+  right_open_leaf_nodes: 0
+  public_validation_exit_code: 1
+  hidden_oracle_exit_code: 0
+  ```
+- Matched trace signals:
+  - H-028 was crossed: TaskSpace no longer stopped with zero tools and an open active node.
+  - TaskSpace listed/read files, created `process.py`, ran a validation command, and emitted a final answer.
+  - The accepted validation command only proved generator execution plus JSON parsing/top-level keys:
+    `python process.py && python -c "import json; data = json.load(open('organization.json')); print('Valid JSON: ', list(data.keys()))"`.
+  - Output showed only `['metadata', 'organization', 'statistics']`; it did not prove schema/public-test requirements.
+  - Runtime forced validation closeout via `TaskSpaceForcedValidationCloseoutV1 trigger=validation_success_after_tool_drain`.
+  - Public validation still failed with `KeyError: 'members'` and `KeyError: 'averageDepartmentBudget'`.
+  - Code-path inspection showed `task_output_contract_validation_requirements` read schema/validator artifacts from success criteria and fact sources, but only read output targets from explicit output contracts. With a generic output contract description, `requirements.targets` was empty.
+- Interpretation: The semantic signal was missing, not merely distorted. The runtime had schema requirements, but the generated output file named in success criteria was absent from validation target coverage, so weak JSON parse appeared sufficient.
+
+# Evidence E-066: success criteria now contribute generated JSON output targets to validation coverage
+
+- Prediction tested: H-029 requires validation requirements to derive generated output targets from the problem ledger success criteria, reject weak JSON parsing, and preserve schema-aware validation recovery.
+- Repair artifact:
+  - `third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs`
+- Focused commands:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core validation_node_derives_output_target_from_success_criteria_for_schema_check --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core validation_node_ --locked
+  ```
+- Adjacent regression command:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core validation_ --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+  git diff --check
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-cli --bin whale --locked
+  ```
+- Result: passed. `validation_node_` is 21/21 and `validation_` is 90/90.
+- Matched test signals:
+  - A generic output contract `"Transform CSV data into JSON"` no longer needs to carry the exact file name for coverage to work.
+  - The success criterion `"Output file organization.json is generated and follows schema.json"` contributes `organization.json` to output validation targets and `schema.json` to schema targets.
+  - CSV/input artifacts are not promoted to generated output targets.
+  - `python process.py && python -c "...json.load(open('organization.json'))..."` is rejected with `validation_test_missing_output_contract_coverage`.
+  - The recovery text includes the exact command `python process.py && python -m jsonschema -i organization.json schema.json`.
+- Interpretation: The new `success-criteria-output-artifact-validation-target-gap` class is focused-fixed at validation runtime/build level. Binary attestation and a keyed rerun are still required before claiming this external sample advances past weak validation closeout.
