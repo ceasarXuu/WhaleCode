@@ -2691,3 +2691,75 @@ CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/co
 状态：该 feedback-layer class 已在 validation runtime/build 层 focused fixed；还需要提交二进制 attestation，
 再重跑 keyed `organization-json-generator`。下一轮期望不再接受弱 JSON parse，必须运行 schema/public contract 等价验证；
 如果仍 wrong，再按新 trace 继续收录下一层 tools 链路问题。
+
+## 5.40 2026-07-04 validation rework duplicate-read recovery dilution
+
+`success-criteria-output-artifact-validation-target-gap` 修复并提交 attestation 后，新的 keyed rerun 证明 H-029 已被越过：
+弱 JSON validation 被拒绝，TaskSpace 执行了真实 schema validation。但该 run 暴露了下一层 feedback priority 问题：
+runtime/projection 已经说“不要再读，必须 patch”，session recovery 又把该语义泛化成普通 implement-needs-edit，导致模型重复读文件直到 node hard stop。
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260703ab-schema-success-target/runs/terminal_bench__organization-json-generator/20260704-055155-897
+reported_evidence_level: E2-candidate
+outcome_standard: solved
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 14
+right_open_leaf_nodes: 1
+public_validation_exit_code: 1
+hidden_oracle_exit_code: 0
+```
+
+关键观察：
+
+| Signal | 结论 |
+|---|---|
+| `python generate_org.py && python -m json.tool organization.json > /dev/null` 被 blocked | H-029 生效，弱 JSON parse 不再被当作 output/schema validation |
+| 随后执行 `python generate_org.py && python -m jsonschema -i organization.json schema.json` | recovery exact command 生效 |
+| schema 报 `members`、`averageDepartmentBudget`、`totalEmployees`、`skillDistribution` 等字段缺失 | failure 语义是可编辑 implementation defect |
+| `node-4` 首次读取 `generate_org.py` 为 `result-11` | rework target read 能力存在 |
+| active projection 显示 `use existing validation rework target read result result-11`、`apply_patch validation rework target artifact(s): generate_org.py`、`read/search is no longer a valid next action` | runtime/projection 语义正确 |
+| provider 后续重复 `read_file generate_org.py` 并最终读 `schema.json` | 模型没有执行 patch-only next action |
+| 每次重复读被 action contract 拒绝为 `validation_rework_duplicate_artifact_read` | 底层 gate 正确 |
+| session 插入的是泛化 `TaskSpaceImplementNeedsEditRecoveryV1` advisory attempts 3-7 | 专用 failure_kind 被 recovery 层稀释 |
+| 结束于 `provider_node_request_hard_limit_exceeded node_request_count=6/5` | control loop 用 node budget 兜底，太晚 |
+
+本轮新增并 focused 修复的问题类型：
+
+| Case | Before | After | Evidence |
+|---|---|---|---|
+| `validation-rework-duplicate-read-recovery-dilution` | action-contract feedback 已包含 `validation_rework_duplicate_artifact_read`、target、previous result、repair contract，但 session follow-up 把它降成 generic `TaskSpaceImplementNeedsEditRecoveryV1`；provider 可连续重复读直到 node hard stop | session 新增 `TaskSpaceValidationReworkDuplicateReadRecoveryV1`，保留 `failure_kind`、`target_artifact`、`previous_read_result`、`repair_contract`、`TaskSpaceGateRecoveryV1`，并要求 exactly one `apply_patch` 或 exact `block_node`；implementation recovery selection 优先该专用 marker | `validation_rework_duplicate_read_recovery_preserves_patch_only_contract`; `implementation_recovery_prioritizes_duplicate_rework_read_feedback`; `validation_rework_duplicate_read`; `validation_` |
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core validation_rework_duplicate_read_recovery_preserves_patch_only_contract --locked
+  PASS：dedicated recovery 保留 target/process result/repair_contract/GateRecovery，并禁止继续 read/search
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core validation_rework_duplicate_read --locked
+  PASS：2 tests
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core implementation_recovery_prioritizes_duplicate_rework_read_feedback --locked
+  PASS：duplicate rework read feedback 优先于 generic implement-needs-edit
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core action_contract_feedback_requires_patch_after_rework_duplicate_read --locked
+  PASS：recent tool feedback 仍保留 target_artifact / previous_read_result / repair_contract
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core implementation_needs_edit --locked
+  PASS：2 tests
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core validation_rework --locked
+  PASS：14 tests
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core validation_ --locked
+  PASS：91 tests
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+git diff --check
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-cli --bin whale --locked
+  PASS
+```
+
+状态：该 feedback priority class 已在 session feedback/build 层 focused fixed；还需要 commit/push、binary attestation 和 keyed rerun。
+下一轮期望 provider 在 duplicate-read rejection 后收到专用 patch-only recovery，直接 `apply_patch generate_org.py`，
+或者更早给出 bounded block，而不是继续重复读到 node hard stop。

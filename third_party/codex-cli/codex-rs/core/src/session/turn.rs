@@ -148,6 +148,8 @@ const TASKSPACE_FORCED_IMPLEMENT_TRANSITION_MARKER: &str =
 const TASKSPACE_FORCED_VALIDATION_CLOSEOUT_MARKER: &str =
     "TaskSpaceForcedValidationCloseoutRecoveryV1:";
 const TASKSPACE_IMPLEMENT_NEEDS_EDIT_MARKER: &str = "TaskSpaceImplementNeedsEditRecoveryV1:";
+const TASKSPACE_VALIDATION_REWORK_DUPLICATE_READ_MARKER: &str =
+    "TaskSpaceValidationReworkDuplicateReadRecoveryV1:";
 const TASKSPACE_EDIT_FAILURE_MARKER: &str = "TaskSpaceEditFailureRecoveryV1:";
 const TASKSPACE_APPLY_PATCH_FORMAT_MARKER: &str = "TaskSpaceApplyPatchFormatRecoveryV1:";
 const TASKSPACE_APPLY_PATCH_MISSING_TARGET_MARKER: &str =
@@ -642,6 +644,14 @@ pub(crate) async fn run_turn(
                                 ) {
                                     format!(
                                         "TaskSpace inserted TaskSpaceEditFailureRecoveryV1 because the previous edit tool call failed and the model must use that tool feedback to retry or block. Advisory recovery attempt {} is being used.",
+                                        taskspace_implement_needs_edit_recovery_count
+                                    )
+                                } else if response_item_text_contains(
+                                    &recovery_item,
+                                    TASKSPACE_VALIDATION_REWORK_DUPLICATE_READ_MARKER,
+                                ) {
+                                    format!(
+                                        "TaskSpace inserted TaskSpaceValidationReworkDuplicateReadRecoveryV1 because validation rework already has the target file contents and the model must patch or block instead of reading again. Advisory recovery attempt {} is being used.",
                                         taskspace_implement_needs_edit_recovery_count
                                     )
                                 } else {
@@ -2018,6 +2028,83 @@ Current required behavior:\n\
     }
 }
 
+fn build_taskspace_validation_rework_duplicate_read_recovery_item(
+    last_message: Option<&str>,
+    evidence_summary: Option<&str>,
+) -> ResponseItem {
+    let previous = last_message
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("(no blocked read feedback was captured)");
+    let previous_excerpt = previous.chars().take(2200).collect::<String>();
+    let artifact = taskspace_validation_rework_duplicate_artifact(previous)
+        .unwrap_or_else(|| "already-read validation rework artifact".to_string());
+    let previous_result = taskspace_validation_rework_duplicate_previous_result(previous)
+        .unwrap_or_else(|| "previous read result".to_string());
+    let repair_contract = taskspace_validation_rework_repair_contract(previous)
+        .map(|contract| format!("\nrepair_contract: {contract}\n"))
+        .unwrap_or_default();
+    let gate_recovery = taskspace_gate_recovery_context(previous);
+    let evidence = evidence_summary
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| {
+            let bullets = value
+                .split(" | ")
+                .map(str::trim)
+                .filter(|item| !item.is_empty())
+                .map(|item| format!("- {item}"))
+                .collect::<Vec<_>>()
+                .join("\n");
+            format!("\nAlready inspected evidence available to use now:\n{bullets}\n")
+        })
+        .unwrap_or_default();
+    let text = format!(
+        "{TASKSPACE_VALIDATION_REWORK_DUPLICATE_READ_MARKER}\n\
+failure_kind: validation_rework_duplicate_artifact_read\n\
+target_artifact: {artifact}\n\
+previous_read_result: {previous_result}\n\
+{repair_contract}\
+The previous action was blocked because this validation rework node already read the failure artifact and no successful edit has been recorded after that read.\n\
+Previous blocked feedback:\n{previous_excerpt}\n\
+{gate_recovery}\
+{evidence}\
+Current required behavior:\n\
+- Emit exactly one taskspace-action-v1 apply_patch action targeting `{artifact}` now, using the current contents already visible in `{previous_result}` and the failed validation evidence.\n\
+- If repair_contract is present, satisfy it exactly before rerunning validation.\n\
+- Do not call read_file, list_files, search, broad shell discovery, schema inspection, or validation from this implementation node before a successful edit is recorded.\n\
+- If no safe edit can be made from the already visible evidence, emit exactly one taskspace_control block_node with the exact missing evidence or unsafe-edit reason.\n\
+- Do not repeat the blocked read under a different rationale."
+    );
+
+    ResponseItem::Message {
+        id: None,
+        role: "developer".to_string(),
+        content: vec![ContentItem::InputText { text }],
+        end_turn: None,
+        phase: None,
+    }
+}
+
+fn build_taskspace_implementation_recovery_item(
+    last_agent_message: Option<&str>,
+    evidence_summary: Option<&str>,
+    failed_edit_summary: Option<&str>,
+) -> ResponseItem {
+    if last_agent_message
+        .is_some_and(taskspace_text_mentions_validation_rework_duplicate_artifact_read)
+    {
+        build_taskspace_validation_rework_duplicate_read_recovery_item(
+            last_agent_message,
+            evidence_summary,
+        )
+    } else if failed_edit_summary.is_some() {
+        build_taskspace_edit_failure_recovery_item(failed_edit_summary, evidence_summary)
+    } else {
+        build_taskspace_implement_needs_edit_recovery_item(evidence_summary)
+    }
+}
+
 fn build_taskspace_edit_failure_recovery_item(
     failure_summary: Option<&str>,
     evidence_summary: Option<&str>,
@@ -2081,6 +2168,7 @@ fn taskspace_provider_budget_limit_reached(
 
 fn is_taskspace_implement_needs_edit_recovery_item(item: &ResponseItem) -> bool {
     response_item_text_contains(item, TASKSPACE_IMPLEMENT_NEEDS_EDIT_MARKER)
+        || response_item_text_contains(item, TASKSPACE_VALIDATION_REWORK_DUPLICATE_READ_MARKER)
         || response_item_text_contains(item, TASKSPACE_EDIT_FAILURE_MARKER)
         || response_item_text_contains(item, TASKSPACE_APPLY_PATCH_MISSING_TARGET_MARKER)
         || response_item_text_contains(item, TASKSPACE_APPLY_PATCH_UNANCHORED_UPDATE_MARKER)
@@ -4675,6 +4763,46 @@ Then I will inspect the file."#,
         assert!(text.contains("apply_patch"));
         assert!(!is_taskspace_no_action_recovery_item(&item));
         assert!(is_taskspace_implement_needs_edit_recovery_item(&item));
+    }
+
+    #[test]
+    fn validation_rework_duplicate_read_recovery_preserves_patch_only_contract() {
+        let last_message = "TaskSpace blocked this read because validation rework node `node-4` already read failure artifact `process.py` in result `result-10` and no successful edit has been recorded after that read. Use the existing file contents from that result and apply the smallest fix with apply_patch, or return blocked with the exact reason no safe edit can be made. Validation repair contract: missing_required_properties=members, averageDepartmentBudget | schema_required_groups=schema.json:properties.statistics requires averageDepartmentBudget, totalEmployees, skillDistribution, departmentSizes, projectStatusDistribution, averageYearsOfService | target_artifacts=process.py\nTaskSpaceGateRecoveryV1: {\"schema_version\":\"TaskSpaceGateRecoveryV1\",\"allowed\":false,\"reason\":\"validation_rework_duplicate_artifact_read\",\"next_valid_actions\":[\"call apply_patch for `process.py`\"]}";
+        let item = build_taskspace_validation_rework_duplicate_read_recovery_item(
+            Some(last_message),
+            Some(
+                "validation_rework: SmokeTest `node-3` failed schema validation | result-10 artifacts=process.py",
+            ),
+        );
+        let text = item_text(item.clone());
+
+        assert!(text.contains(TASKSPACE_VALIDATION_REWORK_DUPLICATE_READ_MARKER));
+        assert!(text.contains("failure_kind: validation_rework_duplicate_artifact_read"));
+        assert!(text.contains("target_artifact: process.py"));
+        assert!(text.contains("previous_read_result: result-10"));
+        assert!(text.contains("repair_contract: missing_required_properties=members"));
+        assert!(text.contains("projectStatusDistribution"));
+        assert!(text.contains("TaskSpaceGateRecoveryV1"));
+        assert!(text.contains("Emit exactly one taskspace-action-v1 apply_patch"));
+        assert!(text.contains("Do not call read_file"));
+        assert!(text.contains("Do not repeat the blocked read"));
+        assert!(is_taskspace_implement_needs_edit_recovery_item(&item));
+        assert!(!is_taskspace_no_action_recovery_item(&item));
+    }
+
+    #[test]
+    fn implementation_recovery_prioritizes_duplicate_rework_read_feedback() {
+        let last_message = "TaskSpace blocked this read because validation rework node `node-4` already read failure artifact `process.py` in result `result-10` and no successful edit has been recorded after that read. TaskSpaceGateRecoveryV1: {\"reason\":\"validation_rework_duplicate_artifact_read\",\"next_valid_actions\":[\"call apply_patch for `process.py`\"]}";
+        let item = build_taskspace_implementation_recovery_item(
+            Some(last_message),
+            Some("result-10 artifacts=process.py"),
+            None,
+        );
+        let text = item_text(item);
+
+        assert!(text.contains(TASKSPACE_VALIDATION_REWORK_DUPLICATE_READ_MARKER));
+        assert!(!text.contains(TASKSPACE_IMPLEMENT_NEEDS_EDIT_MARKER));
+        assert!(text.contains("previous_read_result: result-10"));
     }
 
     #[test]
@@ -12065,14 +12193,12 @@ async fn try_run_sampling_request(
     {
         let evidence_summary = sess.action_map_current_working_evidence_summary().await;
         let failed_edit_summary = sess.action_map_current_recent_failed_edit_summary().await;
-        result.taskspace_no_action_recovery_item = Some(if failed_edit_summary.is_some() {
-            build_taskspace_edit_failure_recovery_item(
-                failed_edit_summary.as_deref(),
+        result.taskspace_no_action_recovery_item =
+            Some(build_taskspace_implementation_recovery_item(
+                result.last_agent_message.as_deref(),
                 evidence_summary.as_deref(),
-            )
-        } else {
-            build_taskspace_implement_needs_edit_recovery_item(evidence_summary.as_deref())
-        });
+                failed_edit_summary.as_deref(),
+            ));
     }
     if let Ok(result) = &mut outcome
         && result.taskspace_no_action_recovery_item.is_none()

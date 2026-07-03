@@ -1577,3 +1577,66 @@
   - `python process.py && python -c "...json.load(open('organization.json'))..."` is rejected with `validation_test_missing_output_contract_coverage`.
   - The recovery text includes the exact command `python process.py && python -m jsonschema -i organization.json schema.json`.
 - Interpretation: The new `success-criteria-output-artifact-validation-target-gap` class is focused-fixed at validation runtime/build level. Binary attestation and a keyed rerun are still required before claiming this external sample advances past weak validation closeout.
+
+# Hypothesis H-030: validation rework duplicate-read feedback is diluted by generic implement recovery
+
+- Claim: After H-029, the runtime correctly rejects weak validation and reaches real schema failure, but a follow-up feedback-layer gap can still drain the implement rework node. When `validation_rework_duplicate_artifact_read` blocks a repeated read of the already-read target artifact, the recent tool feedback and projection say to use the previous result and `apply_patch`; however, the session follow-up path then replaces that specific blocked feedback with generic `TaskSpaceImplementNeedsEditRecoveryV1`. The provider keeps retrying `read_file`, and the turn only stops at provider node hard limit.
+- Prediction: A keyed rerun after H-029 will show `TaskSpaceValidationNeedsTestRecoveryV1` blocking weak JSON validation, then exact `python ... jsonschema ...` execution, a validation rework node reading the target once, repeated duplicate reads of that same target, generic `TaskSpaceImplementNeedsEditRecoveryV1` advisory attempts, and finally `TaskSpaceProviderBudgetHardStopV1 node_request_count=6/5`. Repair should preserve a dedicated `TaskSpaceValidationReworkDuplicateReadRecoveryV1` marker with target artifact, previous read result, repair contract, and patch-only next action, and it should prioritize that marker over generic implement-needs-edit recovery.
+- Diagnostic evidence plan: Inspect the post-H-029 keyed trace, active projection, and session recovery messages; add focused session tests proving duplicate validation rework reads produce a dedicated patch-only recovery and that implementation recovery selection prioritizes it.
+- Status: confirmed.
+
+# Evidence E-067: H-029 rerun crosses weak validation but drains budget on duplicate rework reads
+
+- Prediction tested: H-030 predicts H-029 is fixed and the next failure is recovery dilution after validation rework target read.
+- Real rerun:
+  ```text
+  RunDir: target/r4-org-json-real-keyed-20260703ab-schema-success-target/runs/terminal_bench__organization-json-generator/20260704-055155-897
+  PairReport: pair-001/pair-report.md
+  reported_evidence_level: E2-candidate
+  outcome_standard: solved
+  outcome_taskspace: engineering_unclean
+  right_exec_timed_out: False
+  right_tool_call_count: 14
+  right_open_leaf_nodes: 1
+  public_validation_exit_code: 1
+  hidden_oracle_exit_code: 0
+  ```
+- Matched trace signals:
+  - H-029 was crossed: weak validation `python generate_org.py && python -m json.tool organization.json > /dev/null` was blocked because declared output contract artifacts required schema/validator coverage.
+  - The provider then executed the exact schema command: `python generate_org.py && python -m jsonschema -i organization.json schema.json`.
+  - The validator returned real schema defects: project objects used `member_ids` while `members` was required; statistics missed `averageDepartmentBudget`, `totalEmployees`, `skillDistribution`, `departmentSizes`, `projectStatusDistribution`, and `averageYearsOfService`.
+  - `node-4` read the target `generate_org.py` once as `result-11`.
+  - Active projection was correct and patch-only: `use existing validation rework target read result result-11`, `apply_patch validation rework target artifact(s): generate_org.py`, and `read/search is no longer a valid next action`.
+  - The provider repeated `read_file generate_org.py` four times and then `read_file schema.json`.
+  - Each target repeat was blocked as `validation_rework_duplicate_artifact_read`, but session recovery emitted generic `TaskSpaceImplementNeedsEditRecoveryV1` advisory attempts 3 through 7.
+  - The turn ended with `TaskSpaceProviderBudgetHardStopV1 reason=provider_node_request_hard_limit_exceeded node_request_count=6/5`.
+- Interpretation: The feedback was not absent at the runtime/projection layer; it was diluted in the session recovery layer after action-contract rejection. This is a feedback-layer priority bug.
+
+# Evidence E-068: duplicate validation rework reads now get dedicated patch-only recovery
+
+- Prediction tested: H-030 requires session recovery to preserve duplicate-read semantics instead of falling back to generic implement-needs-edit guidance.
+- Repair artifact:
+  - `third_party/codex-cli/codex-rs/core/src/session/turn.rs`
+- Focused commands:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core validation_rework_duplicate_read_recovery_preserves_patch_only_contract --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core validation_rework_duplicate_read --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core implementation_recovery_prioritizes_duplicate_rework_read_feedback --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core action_contract_feedback_requires_patch_after_rework_duplicate_read --locked
+  ```
+- Adjacent regression command:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core implementation_needs_edit --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core validation_rework --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core validation_ --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+  git diff --check
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-cli --bin whale --locked
+  ```
+- Result: passed. `validation_rework_duplicate_read` is 2/2, `implementation_needs_edit` is 2/2, `validation_rework` is 14/14, and `validation_` is 91/91.
+- Matched test signals:
+  - New `TaskSpaceValidationReworkDuplicateReadRecoveryV1` preserves `failure_kind=validation_rework_duplicate_artifact_read`, `target_artifact`, `previous_read_result`, `repair_contract`, and the embedded `TaskSpaceGateRecoveryV1`.
+  - The recovery requires exactly one `apply_patch` targeting the already-read artifact or one exact `block_node`; it forbids `read_file`, `list_files`, `search`, schema inspection, and validation before a successful edit.
+  - Implementation recovery selection prioritizes duplicate rework read feedback over generic `TaskSpaceImplementNeedsEditRecoveryV1`.
+  - Existing action-contract recent feedback for duplicate reads still exposes `target_artifact`, `previous_read_result`, and `repair_contract`.
+- Interpretation: The new `validation-rework-duplicate-read-recovery-dilution` class is focused-fixed at session feedback/build level. Binary attestation and another keyed rerun are required before claiming the external sample advances from patch-only recovery into a corrected edit.
