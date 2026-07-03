@@ -1756,3 +1756,60 @@
   - The native hunk recovery tells the provider not to call `read_file` and to re-emit exactly one native apply_patch.
   - `TaskSpaceValidationReworkDuplicateReadRecoveryV1` now restates native apply_patch grammar and explicitly forbids `--- a/...`, `+++ b/...`, range hunks, and placeholder hunks.
 - Interpretation: The `apply-patch-native-hunk-recovery-dilution` class is focused-fixed at session feedback text/observability/build level. It still needs commit/push, binary attestation, and another keyed rerun to prove the external sample advances beyond patch grammar.
+
+# Hypothesis H-033: dash-native apply_patch headers bypass native hunk recovery
+
+- Claim: After H-032, the provider can still emit a malformed native-looking patch that starts with `--- Update File: <path>` rather than `*** Update File: <path>`. This is neither a standard unified diff (`--- a/...` followed by `+++ b/...`) nor a valid native apply_patch operation, so the current action contract misses it and lets the edit tool fail. The following session recovery becomes generic `TaskSpaceEditFailureRecoveryV1`, which can allow a same-target read refresh and drain the rework node budget instead of forcing a corrected native patch.
+- Prediction: The post-H-032 keyed rerun will show `TaskSpaceValidationReworkDuplicateReadRecoveryV1`, then an `apply_patch` payload beginning with `--- Update File: generate_organization.py` and a placeholder/range hunk such as `@@ -... +@@ ... @@`. The trace will not show `TaskSpaceApplyPatchNativeHunkRecoveryV1`; instead it will insert `TaskSpaceEditFailureRecoveryV1`, accept a subsequent `read_file generate_organization.py`, and end at `TaskSpaceProviderBudgetHardStopV1`.
+- Diagnostic evidence plan: Inspect the post-H-032 keyed rerun trace for the malformed patch payload, the exact recovery marker, and whether a duplicate target read is executed after edit-failure recovery. Add a focused action-contract test using the live `--- Update File` patch shape. Repair should reject this payload before tool execution as `apply_patch_native_hunk_header:<target>` and preserve `TaskSpaceApplyPatchNativeHunkRecoveryV1` guidance.
+- Status: confirmed.
+
+# Evidence E-073: H-032 rerun exposes dash-native header feedback gap
+
+- Prediction tested: H-033 predicts the mixed native/unified feedback class is improved, but a different malformed native-looking header bypasses pre-dispatch recovery.
+- Real rerun:
+  ```text
+  RunDir: target/r4-org-json-real-keyed-20260703ae-patch-grammar-recovery/runs/terminal_bench__organization-json-generator/20260704-063554-000
+  PairReport: pair-001/pair-report.md
+  reported_evidence_level: E1
+  outcome_standard: wrong
+  outcome_taskspace: engineering_unclean
+  right_exec_timed_out: False
+  right_tool_call_count: 14
+  right_open_leaf_nodes: 1
+  public_validation_exit_code: 1
+  hidden_oracle_exit_code: 0
+  ```
+- Matched trace signals:
+  - Lines 61, 68, and 75 block repeated `read_file generate_organization.py` actions, and lines 62, 69, and 76 insert `TaskSpaceValidationReworkDuplicateReadRecoveryV1`, proving the duplicate-read recovery remains live.
+  - Line 80 emits `apply_patch` with `--- Update File: generate_organization.py` plus `@@ -... +@@ ... @@`, a malformed native header and placeholder/range hunk.
+  - Line 82 still classifies the response as actionable.
+  - Lines 83 and 92 insert generic `TaskSpaceEditFailureRecoveryV1`; no `TaskSpaceApplyPatchNativeHunkRecoveryV1` appears.
+  - Lines 87-89 execute another `read_file generate_organization.py` after the failed edit, then line 93 ends at `TaskSpaceProviderBudgetHardStopV1 reason=provider_node_request_hard_limit_exceeded node_request_count=6/5`.
+- Interpretation: This is a feedback/action-contract coverage gap. The runtime can detect and recover duplicate rework reads, but the malformed `--- Update File:` variant is not classified before tool execution, so the failure semantics are weakened to generic edit failure and the loop regains a read path.
+
+# Evidence E-074: dash-native header is rejected before tool execution
+
+- Prediction tested: H-033 requires the action contract to classify `--- Update File:` as native patch grammar failure instead of dispatching it to the edit tool.
+- Repair artifact:
+  - `third_party/codex-cli/codex-rs/core/src/session/turn.rs`
+- Focused command:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib --locked dash_native
+  ```
+- Adjacent regression/build commands:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib --locked native_hunk
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib --locked apply_patch_
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib --locked validation_rework
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib --locked validation_
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib --locked duplicate_rework
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+  git diff --check
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-cli --bin whale --locked
+  ```
+- Result: passed. The new `taskspace_action_contract_rejects_dash_native_update_header_patch` test rejects the live patch shape as `apply_patch_native_hunk_header:generate_organization.py`. `native_hunk` is 3/3, `apply_patch_` is 33/33, `validation_rework` is 14/14, `validation_` is 91/91, and `duplicate_rework` is 2/2. `cargo fmt --check`, `git diff --check`, and the `whale` build passed.
+- Matched test signals:
+  - `--- Update File: generate_organization.py` no longer reaches `apply_patch` tool execution.
+  - The native hunk recovery text explicitly forbids `--- Update File:` alongside `--- a/...`, `+++ b/...`, range hunks, and placeholder hunks.
+- Interpretation: The `apply-patch-dash-native-header-feedback-gap` class is focused-fixed at action-contract classification/build level. Commit/push, binary attestation, and another keyed rerun are still required before claiming live external convergence beyond this malformed-header case.

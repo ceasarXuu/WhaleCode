@@ -2899,3 +2899,70 @@ CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/co
 构建已通过；还需要 commit/push、binary attestation 和 keyed rerun。下一轮期望 mixed native/unified
 patch rejection 后 live warning 为 `TaskSpaceApplyPatchNativeHunkRecoveryV1`，并且后续 duplicate-read recovery
 仍保留 native patch grammar，避免再次输出 unified diff hunk。
+
+## 5.43 2026-07-04 apply_patch dash-native header feedback gap
+
+`apply-patch-native-hunk-recovery-dilution` 修复后的 keyed rerun 越过了 duplicate-read 专用 recovery，
+但暴露出新的 apply_patch 语法变体：provider 没有输出标准 unified diff，也没有输出合法 native
+`*** Update File`，而是输出 `--- Update File: generate_organization.py` 加 placeholder/range hunk。
+这类 payload 原本会进入 apply_patch 工具失败，随后只得到 generic edit-failure recovery，语义再次变弱。
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260703ae-patch-grammar-recovery/runs/terminal_bench__organization-json-generator/20260704-063554-000
+reported_evidence_level: E1
+outcome_standard: wrong
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 14
+right_open_leaf_nodes: 1
+public_validation_exit_code: 1
+hidden_oracle_exit_code: 0
+```
+
+关键观察：
+
+| Signal | 结论 |
+|---|---|
+| lines 62/69/76 插入 `TaskSpaceValidationReworkDuplicateReadRecoveryV1` | H-031/H-032 的 duplicate-read recovery 仍然生效 |
+| line 80 输出 `--- Update File: generate_organization.py` 和 `@@ -... +@@ ... @@` | 新问题不是旧的 `--- a/...` unified diff，而是假 native header |
+| line 82 仍标记 actionable | action contract 没有在 dispatch 前拒绝该 patch |
+| lines 83/92 插入 `TaskSpaceEditFailureRecoveryV1` | 失败语义降级成 generic edit failure，没有进入 NativeHunk recovery |
+| lines 87-89 再次执行 `read_file generate_organization.py` | generic edit failure 允许了同目标 context refresh，重新打开预算消耗路径 |
+| line 93 `TaskSpaceProviderBudgetHardStopV1 node_request_count=6/5` | control loop 仍靠 hard stop 收尾 |
+
+本轮新增并 focused 修复的问题类型：
+
+| Case | Before | After | Evidence |
+|---|---|---|---|
+| `apply-patch-dash-native-header-feedback-gap` | `--- Update File:` 不是合法 native operation，也不是完整 unified diff；runtime 漏检后进入 apply_patch 工具失败，并退化为 `TaskSpaceEditFailureRecoveryV1` | action contract 将 `--- Update File:` / `--- Add File:` / `--- Delete File:` 归类为 native header/hunk 语法错误，dispatch 前拒绝为 `apply_patch_native_hunk_header:<target>`；NativeHunk recovery 文案显式禁止 `--- Update File:` | `taskspace_action_contract_rejects_dash_native_update_header_patch`; `dash_native` |
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib --locked dash_native
+  PASS：1 test
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib --locked native_hunk
+  PASS：3 tests
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib --locked apply_patch_
+  PASS：33 tests
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib --locked validation_rework
+  PASS：14 tests
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib --locked validation_
+  PASS：91 tests
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib --locked duplicate_rework
+  PASS：2 tests
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+git diff --check
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-cli --bin whale --locked
+  PASS
+```
+
+状态：该 action-contract feedback class 已 focused fixed，并通过本地回归、fmt、diff check 和 `whale` build；
+还需要 commit/push、binary attestation 后再次 keyed rerun。下一轮期望 line 80 这类 payload 在工具执行前转成
+`TaskSpaceApplyPatchNativeHunkRecoveryV1`，不再进入 generic edit-failure + read refresh 路径。

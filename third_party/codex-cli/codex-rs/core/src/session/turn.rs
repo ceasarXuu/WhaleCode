@@ -1773,7 +1773,7 @@ fn build_taskspace_apply_patch_native_hunk_recovery_item(targets: &str) -> Respo
     let text = format!(
         "{TASKSPACE_APPLY_PATCH_NATIVE_HUNK_MARKER}\n\
 The previous apply_patch mixed native apply_patch grammar with unified-diff/range/placeholder hunk syntax for: {targets}\n\
-Native apply_patch does not use `--- a/...`, `+++ b/...`, `@@ -old,+new @@`, or `@@ ... @@` placeholder headers inside `*** Update File` sections.\n\
+Native apply_patch does not use `--- Update File:`, `--- a/...`, `+++ b/...`, `@@ -old,+new @@`, or `@@ ... @@` placeholder headers inside `*** Update File` sections.\n\
 Current required behavior:\n\
 - Emit exactly one corrected apply_patch now.\n\
 - Use native `*** Update File: <relative/path>` with `@@` plus exact existing context and exact `-old` / `+new` lines.\n\
@@ -2037,7 +2037,7 @@ Previous blocked feedback:\n{previous_excerpt}\n\
 {evidence}\
 Current required behavior:\n\
 - Emit exactly one taskspace-action-v1 apply_patch action targeting `{artifact}` now, using the current contents already visible in `{previous_result}` and the failed validation evidence.\n\
-- Use native apply_patch grammar only: `*** Update File: <path>` with `@@` plus exact context and exact `-old` / `+new` lines, or `*** Delete File` followed by `*** Add File` for a complete small/generated rewrite. Do not include `--- a/...`, `+++ b/...`, `@@ -old,+new @@`, or `@@ ... @@` placeholder headers.\n\
+- Use native apply_patch grammar only: `*** Update File: <path>` with `@@` plus exact context and exact `-old` / `+new` lines, or `*** Delete File` followed by `*** Add File` for a complete small/generated rewrite. Do not include `--- Update File:`, `--- a/...`, `+++ b/...`, `@@ -old,+new @@`, or `@@ ... @@` placeholder headers.\n\
 - If repair_contract is present, satisfy it exactly before rerunning validation.\n\
 - Do not call read_file, list_files, search, broad shell discovery, schema inspection, or validation from this implementation node before a successful edit is recorded.\n\
 - If no safe edit can be made from the already visible evidence, emit exactly one taskspace_control block_node with the exact missing evidence or unsafe-edit reason.\n\
@@ -4793,7 +4793,8 @@ Then I will inspect the file."#,
         assert!(text.contains("TaskSpaceGateRecoveryV1"));
         assert!(text.contains("Emit exactly one taskspace-action-v1 apply_patch"));
         assert!(text.contains("Use native apply_patch grammar only"));
-        assert!(text.contains("Do not include `--- a/...`"));
+        assert!(text.contains("Do not include `--- Update File:`"));
+        assert!(text.contains("`--- a/...`"));
         assert!(text.contains("Do not call read_file"));
         assert!(text.contains("Do not repeat the blocked read"));
         assert!(is_taskspace_implement_needs_edit_recovery_item(&item));
@@ -5790,6 +5791,28 @@ Then I will inspect the file."#,
     }
 
     #[test]
+    fn taskspace_action_contract_rejects_dash_native_update_header_patch() {
+        let raw = serde_json::json!({
+            "schema_version": "taskspace-action-v1",
+            "action": "apply_patch",
+            "node_id": "node-1",
+            "args": {
+                "patch": "*** Begin Patch\n--- Update File: generate_organization.py\n@@ -... +@@ ... @@\n+import json\n*** End Patch\n"
+            },
+        })
+        .to_string();
+        let action = parse_taskspace_action_v1(&raw).expect("valid json");
+
+        let err = taskspace_action_to_tool_call(&action, &provider_snapshot("implement_solution"))
+            .expect_err("dash native update header must be corrected before tool execution");
+
+        assert_eq!(
+            err,
+            "apply_patch_native_hunk_header:generate_organization.py"
+        );
+    }
+
+    #[test]
     fn taskspace_action_contract_allows_anchored_update_patch() {
         let raw = serde_json::json!({
             "schema_version": "taskspace-action-v1",
@@ -5840,6 +5863,7 @@ Then I will inspect the file."#,
         assert!(text.contains(TASKSPACE_APPLY_PATCH_NATIVE_HUNK_MARKER));
         assert!(text.contains("recover.py"));
         assert!(text.contains("Do not call read_file"));
+        assert!(text.contains("`--- Update File:`"));
         assert!(text.contains("*** Delete File: <path>"));
         assert!(!is_taskspace_no_action_recovery_item(&item));
         assert!(is_taskspace_implement_needs_edit_recovery_item(&item));
@@ -5859,6 +5883,7 @@ Then I will inspect the file."#,
         assert!(text.contains(TASKSPACE_APPLY_PATCH_NATIVE_HUNK_MARKER));
         assert!(text.contains("generate_org.py"));
         assert!(text.contains("Do not call read_file"));
+        assert!(text.contains("`--- Update File:`"));
         assert!(warning.contains("TaskSpaceApplyPatchNativeHunkRecoveryV1"));
         assert!(!warning.contains("TaskSpaceImplementNeedsEditRecoveryV1"));
         assert!(!is_taskspace_no_action_recovery_item(&item));
@@ -9798,6 +9823,13 @@ fn taskspace_apply_patch_native_hunk_header_targets(patch: &str) -> Vec<String> 
     let mut targets = Vec::new();
     let mut current_target: Option<String> = None;
     for line in patch.lines() {
+        if let Some(target) = taskspace_malformed_native_patch_operation_target(line) {
+            if !targets.iter().any(|existing| existing == &target) {
+                targets.push(target.clone());
+            }
+            current_target = Some(target);
+            continue;
+        }
         if let Some(target) = line
             .strip_prefix("*** Update File: ")
             .or_else(|| line.strip_prefix("*** Add File: "))
@@ -9822,6 +9854,16 @@ fn taskspace_apply_patch_native_hunk_header_targets(patch: &str) -> Vec<String> 
         }
     }
     targets
+}
+
+fn taskspace_malformed_native_patch_operation_target(line: &str) -> Option<String> {
+    let trimmed = line.trim();
+    let target = trimmed
+        .strip_prefix("--- Update File: ")
+        .or_else(|| trimmed.strip_prefix("--- Add File: "))
+        .or_else(|| trimmed.strip_prefix("--- Delete File: "))?
+        .trim();
+    (!target.is_empty()).then(|| target.to_string())
 }
 
 fn taskspace_apply_patch_unanchored_update_targets(patch: &str) -> Vec<String> {
