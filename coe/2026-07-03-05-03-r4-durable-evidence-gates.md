@@ -917,3 +917,60 @@
   - Projection exposes `python -m jsonschema -i organization.json schema.json` as the next validation action.
   - Existing local-infrastructure blockers such as E_ACCESSDENIED, uv cache access denial, and bwrap bootstrap failure still pass their focused coverage.
 - Interpretation: The new `validation-jsonschema-module-missing-rework-misroute` class is focused-fixed. Real utility validation still requires another keyed rerun to verify TaskSpace uses the CLI validator, reaches real schema errors, and either fixes the output contract or exposes the next R4 tools issue.
+
+# Hypothesis H-019: action-contract sed reads lose validation rework artifact identity
+
+- Claim: After H-018, TaskSpace reaches real schema errors and enters implementation rework, but the Unix action-contract `read_file` transport maps `read_file(path)` to `sed -n '1,240p' -- path`. Runtime records those successful reads with `actionClass=read` but `artifactRefs=[]` because `read_command_artifact_ref` only recognizes PowerShell `Get-Content`, `cat`, and `type`. The existing `validation_rework_duplicate_artifact_read` gate therefore cannot tell the target artifact was already read, so repeated `read_file csv_processor.py` calls drain the provider-node budget instead of forcing `apply_patch` or `blocked`.
+- Prediction: A keyed rerun after H-018 will show schema validation executing with `python -m jsonschema`, rework reading `csv_processor.py` repeatedly on node-4, each `main_tool_result` carrying `artifactRefs: []`, repeated `TaskSpaceImplementNeedsEditRecoveryV1`, and final `TaskSpaceProviderBudgetHardStopV1`.
+- Diagnostic evidence plan: Inspect the H-018 rerun pair report and right-side trace for repeated `read_file csv_processor.py`, trace artifact refs, and node hard stop; inspect `read_command_artifact_ref` and read-result reservation code; add a focused test proving Unix `sed -n '1,240p' -- generate_org.py` records the artifact ref and that a second read of the same validation rework target is blocked before edit.
+- Status: confirmed.
+
+# Evidence E-045: repeated rework read loses artifact refs and bypasses duplicate gate
+
+- Prediction tested: H-019 predicts that the next blocker after jsonschema recovery is artifact identity loss on Unix action-contract reads.
+- Real rerun:
+  ```text
+  RunDir: target/r4-org-json-real-keyed-20260703o-jsonschema-recovery/runs/terminal_bench__organization-json-generator/20260704-024204-931
+  PairReport: pair-001/pair-report.md
+  reported_evidence_level: E1
+  outcome_taskspace: engineering_unclean
+  right_exec_timed_out: False
+  right_tool_call_count: 14
+  right_open_leaf_nodes: 1
+  public_validation_exit_code: 1
+  ```
+- Matched trace signals:
+  - `item_26` ran `python csv_processor.py && python -m jsonschema -i organization.json schema.json`.
+  - `item_27` reached real schema errors: project objects used `member_ids` where `members` is required, and statistics omitted required camelCase fields such as `averageDepartmentBudget`, `totalEmployees`, `skillDistribution`, `departmentSizes`, `projectStatusDistribution`, and `averageYearsOfService`.
+  - Runtime inserted `TaskSpaceImplementNeedsEditRecoveryV1` with instructions not to rediscover and to patch the artifact.
+  - `item_33`, `item_41`, `item_49`, `item_57`, `item_65`, and `item_73` repeatedly emitted `read_file` for `csv_processor.py`; each executed as `sed -n '1,240p' -- csv_processor.py`.
+  - Right rollout trace recorded `main_tool_result` entries such as `taskspace-action-contract-15-read_file` with `actionClass:"read"`, `toolSuccess:true`, and `artifactRefs:[]`.
+  - No `validation_rework_duplicate_artifact_read` or `node_policy_violation` event appeared before `TaskSpaceProviderBudgetHardStopV1 reason=provider_node_request_hard_limit_exceeded request_count=15/20 node_request_count=6/5`.
+- Code-path evidence:
+  - `read_command_artifact_ref` recognized PowerShell `Get-Content`, `cat`, and `type`, but did not recognize the Unix action-contract read command shape `sed -n '1,240p' -- path`.
+  - `record_main_tool_result_with_class` uses reserved artifact refs for successful `ActionClass::Read`; when reservation refs are empty, `result_artifact_refs` is empty and `implement_node_duplicate_validation_rework_artifact_read` cannot match the previous read.
+- Interpretation: This is a feedback-layer identity loss. The validation failure semantic reached the model, but the read result lost the artifact key needed by the runtime control gate.
+
+# Evidence E-046: sed read artifact attribution blocks repeated validation rework reads
+
+- Prediction tested: H-019 requires Unix action-contract read commands to reserve the target artifact and let the existing duplicate rework gate fire on the second read.
+- Repair artifact:
+  - `third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs`
+- Focused and adjacent commands:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core validation_rework_allows_changed_artifact_read_when_schema_failure_lacks_traceback --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core validation_rework --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core implementation_needs_edit --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core inspect_data_artifact_read_counts_as_working_evidence --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core validation_ --locked
+  cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-cli --bin whale --locked
+  git diff --check
+  ```
+- Result: passed. `validation_rework` remains 11 tests, `validation_` remains 81 tests, and the CLI build completed after the sed attribution repair.
+- Matched test signals:
+  - `sed -n '1,240p' -- generate_org.py` now records `result_artifact_refs(read_result) == ["generate_org.py"]`.
+  - The first named validation rework target read remains allowed before edit.
+  - A second read of the same target before a successful edit is rejected with `validation_rework_duplicate_artifact_read`.
+  - The recovery message contains the target artifact and `apply_patch`, preserving the existing edit-or-block convergence path.
+- Interpretation: The new `implementation-rework-repeat-read-budget-drain` class is focused-fixed. Real utility validation still requires another keyed rerun to verify the model now patches `csv_processor.py` after the first target read instead of draining node budget.

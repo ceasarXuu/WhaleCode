@@ -141,13 +141,14 @@ powershell -NoProfile -ExecutionPolicy Bypass \
 - 若刚提交过 Rust/source 变更，先重建 whale 并刷新二进制 attestation；否则 preflight 会以 `whale_binary_stale_for_codex_source` 或 attestation mismatch fail-fast，不能把它误记为 TaskSpace utility 失败：
 
 ```bash
-CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-cli --bin whale --locked
 powershell -NoProfile -ExecutionPolicy Bypass \
   -File scripts/taskspace-benchmark/write-whale-binary-attestation.ps1 \
   -WhaleBin third_party/codex-cli/codex-rs/target/debug/whale \
-  -BuildCommand "CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale --locked"
+  -BuildCommand "CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-cli --bin whale --locked"
 ```
 
+- 如果 shell 当前目录已经是 `third_party/codex-cli/codex-rs`，可以省略 `--manifest-path`；从 repo 根目录执行时必须带上。
 - attestation 刷新后再启动真实 run；如果 preflight 已经报 stale，不要复用该 run root 作为 utility 证据，换新的 run root 重跑。
 - Docker build 能访问 Python package 源；`organization-json-generator` 的 validator image 会执行 `pip install jsonschema`。
 - Linux native Docker 如果使用宿主 loopback proxy，例如 `127.0.0.1:7890`，generated validator 必须对 build/run 使用 `--network host`，不能只把 proxy 改成 `host.docker.internal`。
@@ -162,6 +163,7 @@ R4 tools 链路问题优先按 feedback semantics 分类，不要直接归因为
 - inspect 过早进入 implement：检查是否有声明 `fact_sources` artifact 未被 successful read/search 覆盖。
 - validation 失败后进入 implement rework：先区分 validation command error、validator infra error、业务断言失败和实现代码失败。
 - schema validation 命令若因 `ModuleNotFoundError: No module named 'jsonschema'` 失败，先按 validator dependency recovery 处理，不要直接路由到 implementation rework；在本机 Linux 复验中 `python3` 可能无 `jsonschema`，但默认 `python -m jsonschema -i organization.json schema.json` 可用。
+- rework 中同一个 `read_file` 反复成功但 duplicate gate 不触发时，检查 rollout 的 `main_tool_result.artifactRefs`。Linux action-contract `read_file` 会表现为 `sed -n '1,240p' -- path`；该结果必须带 target artifact ref，否则 runtime 无法把“已读 target”传给 `validation_rework_duplicate_artifact_read`。
 
 本地 Rust focused tests 默认使用系统或当前构建的 sandbox 行为。调试 R4 sandbox/bootstrap 相关用例时，优先显式跳过 vendored bwrap：
 
@@ -174,7 +176,7 @@ Linux sandbox 变更后至少做两个 smoke：
 
 ```bash
 CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-linux-sandbox --lib
-CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-cli --bin whale --locked
 ```
 
 如果变更涉及 restricted network fallback，还要人工确认：

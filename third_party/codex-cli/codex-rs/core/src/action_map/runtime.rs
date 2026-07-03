@@ -15081,11 +15081,48 @@ fn read_command_artifact_ref(command: &str) -> Option<String> {
             .as_deref()
             .map(normalize_artifact_ref);
     }
+    if let Some(path) = sed_read_command_artifact_ref(command) {
+        return Some(path);
+    }
     command
         .strip_prefix("cat ")
         .or_else(|| command.strip_prefix("type "))
         .map(str::trim)
         .map(|path| normalize_artifact_ref(path.trim_matches('"').trim_matches('\'')))
+}
+
+fn sed_read_command_artifact_ref(command: &str) -> Option<String> {
+    let tokens = shlex::split(command)?;
+    if tokens.first().map(String::as_str) != Some("sed") {
+        return None;
+    }
+
+    let mut paths = Vec::new();
+    let mut tokens = tokens.iter().skip(1).peekable();
+    let mut after_double_dash = false;
+    while let Some(token) = tokens.next() {
+        if after_double_dash {
+            paths.push(token.as_str());
+            continue;
+        }
+        if token == "--" {
+            after_double_dash = true;
+            continue;
+        }
+        if token == "-n" {
+            let _ = tokens.next();
+            continue;
+        }
+        if token.starts_with("-n") {
+            continue;
+        }
+        if token.starts_with('-') {
+            continue;
+        }
+        paths.push(token.as_str());
+    }
+
+    (paths.len() == 1).then(|| normalize_artifact_ref(paths[0]))
 }
 
 fn powershell_path_arg(command: &str) -> Option<String> {
@@ -31694,6 +31731,47 @@ organization.json generated successfully.\n"
                 .with_call_id("read-generator"),
             )
             .expect("validation rework may read dependency changed artifact before editing");
+        let (read_result_id, _) = state
+            .record_main_tool_result_with_class(
+                owner,
+                "read-generator",
+                "shell_command",
+                Some(ActionClass::Read),
+                true,
+                "TaskSpaceToolInvocationV1:\n\
+tool: shell_command\n\
+command: sed -n '1,240p' -- generate_org.py\n\
+raw_output:\n\
+def build_organization():\n\
+    return {}\n"
+                    .to_string(),
+            )
+            .expect("targeted rework read records")
+            .expect("targeted rework read result id");
+        let map = state.active_map().expect("active map after target read");
+        let read_result = map.results.get(&read_result_id).expect("read result");
+        assert_eq!(result_artifact_refs(read_result), vec!["generate_org.py"]);
+
+        let repeated_read_error = state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new(
+                    "shell_command",
+                    ActionClass::Read,
+                    serde_json::json!({
+                        "command": "sed -n '1,240p' -- generate_org.py"
+                    })
+                    .to_string(),
+                ),
+            )
+            .expect_err("same validation rework target read should not repeat before edit");
+        let repeated_message = repeated_read_error.to_string();
+        assert!(
+            repeated_message.contains("validation_rework_duplicate_artifact_read"),
+            "{repeated_message}"
+        );
+        assert!(repeated_message.contains("generate_org.py"));
+        assert!(repeated_message.contains("apply_patch"));
     }
 
     #[test]

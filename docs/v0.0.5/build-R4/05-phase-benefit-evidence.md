@@ -2007,3 +2007,60 @@ CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core force_finish_validation --l
 
 状态：该 validation/feedback class 已 focused fixed；R4-G utility 仍需再次 keyed rerun 验证 TaskSpace 是否改用
 `python -m jsonschema -i organization.json schema.json`，并在真实 schema 错误后继续修正 output contract。
+
+## 5.29 2026-07-04 implementation rework repeat-read budget drain
+
+`validation-jsonschema-module-missing-rework-misroute` 修复后，keyed rerun 已越过 validator dependency blocker：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260703o-jsonschema-recovery/runs/terminal_bench__organization-json-generator/20260704-024204-931
+reported_evidence_level: E1
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 14
+right_open_leaf_nodes: 1
+public_validation_exit_code: 1
+```
+
+关键观察：
+
+| Signal | 结论 |
+|---|---|
+| `python csv_processor.py && python -m jsonschema -i organization.json schema.json` 执行 | H-018 修复生效，schema validation 已使用可用 CLI 路径 |
+| schema 输出缺 `members`、`averageDepartmentBudget`、`totalEmployees`、`skillDistribution` 等真实字段错误 | failure 语义是可编辑 implementation defect |
+| runtime 插入 `TaskSpaceImplementNeedsEditRecoveryV1`，提示不要 rediscover、应 patch target artifact | recovery 方向正确 |
+| `csv_processor.py` 被反复 `read_file` 6 次，命令形态为 `sed -n '1,240p' -- csv_processor.py` | model-visible 动作进入重复读取 |
+| right rollout 中 `taskspace-action-contract-*-read_file` 的 `main_tool_result` 为 `actionClass=read`、`toolSuccess=true`、`artifactRefs=[]` | Unix action-contract read 丢失 artifact identity |
+| 未出现 `validation_rework_duplicate_artifact_read`，最终 `provider_node_request_hard_limit_exceeded` | 既有 duplicate rework gate 因 artifact refs 为空而失明 |
+
+本轮新增并 focused 修复的问题类型：
+
+| Case | Before | After | Evidence |
+|---|---|---|---|
+| `implementation-rework-repeat-read-budget-drain` | 命名 rework target read 被允许后，Unix `sed` 读文件结果不带 artifact ref；runtime 无法识别同目标重复读取，模型反复读 `csv_processor.py` 直到 node budget hard stop | `read_command_artifact_ref` 支持 `sed -n ... -- path`；successful read result 记录 target artifact；第二次同目标 rework read 在无 edit 前触发 `validation_rework_duplicate_artifact_read`，要求 `apply_patch` 或 blocked | `validation_rework_allows_changed_artifact_read_when_schema_failure_lacks_traceback` |
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core validation_rework_allows_changed_artifact_read_when_schema_failure_lacks_traceback --locked
+  PASS：`sed -n '1,240p' -- generate_org.py` 记录 artifact ref；第二次同 target read 被 duplicate rework gate 拒绝
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core validation_rework --locked
+  PASS：11 tests
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core implementation_needs_edit --locked
+  PASS
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core inspect_data_artifact_read_counts_as_working_evidence --locked
+  PASS
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core validation_ --locked
+  PASS：81 tests
+
+cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-cli --bin whale --locked
+git diff --check
+  PASS
+```
+
+状态：该 feedback/attribution class 已 focused fixed；R4-G utility 仍需再次 keyed rerun 验证 TaskSpace 是否在读取目标 artifact 后执行 patch，并继续通过 schema/public validator。
