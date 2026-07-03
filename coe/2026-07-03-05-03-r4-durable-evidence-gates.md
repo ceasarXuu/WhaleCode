@@ -655,3 +655,60 @@
   ```
 - Result: passed.
 - Interpretation: H-013 remains the active failure class; this evidence tightens the detector to the real provider wording observed in `20260704-005922-113`. Another keyed rerun is still required for real utility validation.
+
+# Hypothesis H-014: validation closeout can treat generator execution as output-contract validation
+
+- Claim: After editable-failure blocker wording is fixed, `organization-json-generator` can create an output file and run its generator with `exit_code=0`, but the validation closeout path can still mark the node complete even when the command only proves script execution and does not check the declared output contract (`organization.json` shape, `schema.json`, public tests, or equivalent assertions).
+- Prediction: A keyed rerun after H-013 will show TaskSpace running a command like `python generate_json.py`, receiving `organization.json generated successfully`, and then emitting forced validation closeout/final answer while public validation still fails on schema/field contract keys such as `project.members` and `statistics.averageDepartmentBudget`.
+- Diagnostic evidence plan: Inspect public validator stdout, generated `organization.json`, `schema.json`, and `whale-exec.jsonl`; add pre-run validation gate plus forced-closeout backup gate; validate with focused runtime tests and action-contract feedback tests.
+- Status: confirmed.
+
+# Evidence E-035: generator-only validation closeout false positive
+
+- Prediction tested: H-014 predicts the next real failure is a validation success false positive rather than an editable blocker.
+- Real rerun:
+  ```text
+  RunDir: target/r4-org-json-real-keyed-20260703j-editable-wording/runs/terminal_bench__organization-json-generator/20260704-010752-603
+  PairReport: pair-001/pair-report.md
+  reported_evidence_level: E2-candidate
+  outcome_standard: solved
+  outcome_taskspace: wrong
+  right_exec_timed_out: False
+  right_tool_call_count: 8
+  ```
+- Matched trace signals:
+  - TaskSpace created `generate_json.py`.
+  - The only validation command was `python generate_json.py`.
+  - The command exited 0 and printed `organization.json generated successfully.`
+  - Runtime emitted `TaskSpaceForcedValidationCloseoutV1 trigger=validation_success_after_tool_drain`.
+  - Final answer claimed the artifact followed `schema.json`.
+  - Public validator failed with `KeyError: 'members'` and `KeyError: 'averageDepartmentBudget'`.
+  - Generated output used `member_ids` and snake_case statistics (`total_employees`, `average_years_of_service`) while schema/tests require `members`, `averageDepartmentBudget`, `totalEmployees`, etc.
+- Interpretation: The tool result was not lost. Its semantics were incomplete: `exit_code=0` meant “generator executed”, not “declared output contract validated”. The feedback/control layer upgraded an execution success into validation success.
+
+# Evidence E-036: output-contract coverage gate blocks generator-only validation
+
+- Prediction tested: H-014 requires generator-only `run_test` to be rejected before execution when declared output contract artifacts exist, and forced closeout to downgrade any already-recorded generator-only validation result.
+- Repair artifacts:
+  - `third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs`
+  - `third_party/codex-cli/codex-rs/core/src/session/turn.rs`
+- Focused commands:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_node_blocks_generator_only_command_for_schema_output_contract --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core force_finish_validation_rejects_generator_only_output_contract_success --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core action_contract_prompt_structures_output_contract_coverage_failure --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_output_contract_coverage_recovery_preserves_next_action --locked
+  ```
+- Result: passed.
+- Adjacent regression command:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_ --locked
+  ```
+- Adjacent regression result: passed, 77 tests.
+- Matched test signals:
+  - `python generate_json.py` is blocked with `validation_test_missing_output_contract_coverage` when the task declares `organization.json` / `schema.json`.
+  - The next valid action preserves a combined command such as `python generate_json.py && python -m jsonschema -i organization.json schema.json`.
+  - A forced closeout attempt after a generator-only successful result reopens success criteria citing that result and marks the result invalid before rejecting closeout.
+  - Direct output artifacts remain allowed when the changed artifact itself is the output and the validation body contains a concrete output value.
+  - Existing local validator, changed-artifact coverage, validation infra, and rework routing regressions continue to pass.
+- Interpretation: The new `validation-closeout-output-contract-coverage-gap` class is focused-fixed. Real utility validation still requires another keyed rerun to verify that TaskSpace uses a contract-checking validation command and no longer finalizes after generator-only success.

@@ -1735,3 +1735,55 @@ right_tool_call_count: 8
 CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core validation_rework_rejects_editable_validation_failure_blocker_before_edit --lib
   PASS
 ```
+
+## 5.24 2026-07-04 validation closeout output-contract coverage gap
+
+editable blocker wording 修复后的真实 rerun：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260703j-editable-wording/runs/terminal_bench__organization-json-generator/20260704-010752-603
+reported_evidence_level: E2-candidate
+outcome_standard: solved
+outcome_taskspace: wrong
+right_exec_timed_out: False
+right_tool_call_count: 8
+```
+
+关键观察：
+
+| Signal | 结论 |
+|---|---|
+| TaskSpace 创建 `generate_json.py` | 已越过 inspect / editable blocker，进入生成实现 |
+| validation 只运行 `python generate_json.py`，stdout 为 `organization.json generated successfully.` | 工具成功只证明 generator 执行成功 |
+| runtime 随后触发 `TaskSpaceForcedValidationCloseoutV1 trigger=validation_success_after_tool_drain` | closeout 将 execution success 升级成 validation success |
+| final answer 声称 artifact followed `schema.json` | 反馈层把未验证的契约当成已满足 |
+| public validator 报 `KeyError: 'members'`、`KeyError: 'averageDepartmentBudget'` | 输出 contract 实际未满足；生成 JSON 使用 `member_ids` 和 snake_case statistics |
+
+本轮新增并 focused 修复的问题类型：
+
+| Case | Before | After | Evidence |
+|---|---|---|---|
+| `validation-closeout-output-contract-coverage-gap` | validation node 的 successful tool result 只要 exit 0 就可被 forced closeout 接受；`python generate_json.py` 被解释成“输出契约通过” | validation gate 对声明 output contract artifacts 增加覆盖检查；generator-only command 被拒绝，要求同一次 `run_test` 执行变更脚本并验证 output/schema，或运行真实项目 validator；forced closeout 备份路径会重开引用该结果的 success criteria 并将 generator-only result 标记 invalid | `validation_node_blocks_generator_only_command_for_schema_output_contract`; `force_finish_validation_rejects_generator_only_output_contract_success`; `action_contract_prompt_structures_output_contract_coverage_failure`; `validation_output_contract_coverage_recovery_preserves_next_action` |
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_node_blocks_generator_only_command_for_schema_output_contract --locked
+  PASS
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core force_finish_validation_rejects_generator_only_output_contract_success --locked
+  PASS
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core action_contract_prompt_structures_output_contract_coverage_failure --locked
+  PASS
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_output_contract_coverage_recovery_preserves_next_action --locked
+  PASS
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_ --locked
+  PASS：77 tests
+```
+
+状态：该 validation/feedback class 已 focused fixed；R4-G utility 仍需再次 keyed rerun 验证 TaskSpace 是否会使用
+`python generate_json.py && python -m jsonschema -i organization.json schema.json` 或真实 public-equivalent validator，而不再
+generator-only closeout。

@@ -329,6 +329,56 @@ Test failed with IndentationError; cannot read files to diagnose because read ac
 已把 `cannot read`、`read actions are not allowed`、`read restriction`、`insufficient information` 和
 `current narrowed state` 纳入同一 detector，并用该真实文案更新 focused test。
 
+### 3.12 validation closeout output contract coverage gap
+
+editable blocker wording 修复后的真实 rerun：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260703j-editable-wording/runs/terminal_bench__organization-json-generator/20260704-010752-603
+reported_evidence_level: E2-candidate
+outcome_standard: solved
+outcome_taskspace: wrong
+right_exec_timed_out: False
+right_tool_call_count: 8
+```
+
+本次进展和新问题：
+
+| 层 | 结论 |
+|---|---|
+| implement | TaskSpace 创建 `generate_json.py`，并成功生成 `organization.json` |
+| validation | 只运行 `python generate_json.py`；该命令 exit 0 只证明 generator 执行成功 |
+| closeout | runtime 触发 `TaskSpaceForcedValidationCloseoutV1 trigger=validation_success_after_tool_drain`，把 generator success 当成 validation success |
+| final answer | 声称 `organization.json` follows `schema.json` |
+| public validator | 失败于 `KeyError: 'members'` 和 `KeyError: 'averageDepartmentBudget'`；输出使用 `member_ids` 和 snake_case statistics |
+
+根因判断：
+
+这是 validation/feedback 语义缺失，不是工具执行失败。raw tool success 正确传递了 `exit_code=0`，但 runtime 把“脚本运行成功”
+提升成“输出契约验证成功”。R4 tools 链路必须区分 execution success、generator success、output/schema contract success。
+
+本轮修复：
+
+| 层 | 结论 |
+|---|---|
+| validation gate | 对声明 output contract artifacts 的 validation command 增加覆盖检查；generator-only command 输出 `validation_test_missing_output_contract_coverage` |
+| next action | recovery 保留 combined command，例如 `python generate_json.py && python -m jsonschema -i organization.json schema.json` |
+| forced closeout | 若 generator-only successful result 已记录，closeout 前会重开引用该 result 的 satisfied success criteria，并将 result 标记 invalid |
+| regression | 直接输出 artifact 的数值验证、local validator、changed-artifact coverage、validation infra/rework 路径保持通过 |
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_node_blocks_generator_only_command_for_schema_output_contract --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core force_finish_validation_rejects_generator_only_output_contract_success --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core action_contract_prompt_structures_output_contract_coverage_failure --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_output_contract_coverage_recovery_preserves_next_action --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_ --locked
+```
+
+当前状态：focused 修复已完成；仍需再次 keyed rerun 验证 TaskSpace 是否不再 generator-only closeout，并实际修正
+`organization.json` 的 schema/public-test contract。
+
 ## 4. 本次验证
 
 | 验证项 | 命令 | 结果 |
@@ -375,6 +425,10 @@ Test failed with IndentationError; cannot read files to diagnose because read ac
 | editable validation failure blocker guard | `CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core validation_rework_rejects_editable_validation_failure_blocker_before_edit --lib` | PASS：rework node 不能把 `IndentationError` 这类可编辑 validation failure block 成 infra/closed validation |
 | editable validation failure feedback | `CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core action_contract_prompt_structures_editable_validation_failure_blocker_rejection --lib` | PASS：recent feedback 输出 `editable_validation_failure_blocker_rejected`，并要求 whole-file/block patch |
 | editable validation failure real wording regression | `CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core validation_rework_rejects_editable_validation_failure_blocker_before_edit --lib` | PASS：使用真实 rerun 中的 `cannot read files ... read actions are not allowed ... current narrowed state` blocker 文案 |
+| output contract validation gate | `CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_node_blocks_generator_only_command_for_schema_output_contract --locked` | PASS：`python generate_json.py` generator-only validation 被拒绝，要求 schema/output contract check |
+| output contract forced closeout guard | `CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core force_finish_validation_rejects_generator_only_output_contract_success --locked` | PASS：generator-only successful result 被标记 invalid，引用它的 success criterion 被重开 |
+| output contract feedback | `CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core action_contract_prompt_structures_output_contract_coverage_failure --locked` | PASS：recent feedback 输出 `validation_test_missing_output_contract_coverage` 和 combined next command |
+| validation aggregate regression | `CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_ --locked` | PASS：77 tests |
 | latest R4-D fix build | `cargo fmt --all --check && CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale --locked && git diff --check` | PASS：format/build/whitespace 通过；仅有已知 stable rustfmt config warning |
 | organization-json-generator direct validator | direct `external-validator.ps1` run on generated fixture | PASS：Docker build `classification=ok`; run reaches expected missing `organization.json` assertions |
 | Whitespace | `git diff --check` | PASS |
@@ -384,8 +438,8 @@ Test failed with IndentationError; cannot read files to diagnose because read ac
 | 优先级 | 未完成项 | 当前证据 | 下一步 |
 |---:|---|---|---|
 | P0 | TaskSpace utility parity | public-10 closeout 中 TaskSpace 仅 3/10 solved；post-closeout 只证明 `heterogeneous-dates` 已改善；`sqlite-db-truncate` 已收敛到非 timeout wrong；keyed `organization-json-generator` 仍是 E1 diagnostic fail | 继续 R4 utility-convergence，不进入验收通过 |
-| P0 | Long-flow convergence | keyed `organization-json-generator` 的 900s timeout 已被 hard stop 消除；最新真实进展已越过 fact-source projection，当前 focused fixed 到 editable validation failure misblock | 重跑该样本；若仍 wrong，再按新 trace 建立下一层 tool/control case |
-| P0 | Provider budget hard stop real-run validation | hard gate 已真实生效；adaptive fact-source node limit 的真实 rerun 已越过固定 5-request stopper；projection guard 后无 timeout，当前失败在 rework block semantics | 下一次 keyed rerun 同时验证 provider hard stop、adaptive inspect、rework evidence join、projection fact-source guard、editable validation blocker guard 是否共同推进 utility |
+| P0 | Long-flow convergence | keyed `organization-json-generator` 的 900s timeout 已被 hard stop 消除；最新真实进展已越过 fact-source projection 和 editable blocker，当前 focused fixed 到 generator-only validation closeout | 重跑该样本；若仍 wrong，再按新 trace 建立下一层 tool/control case |
+| P0 | Provider budget hard stop real-run validation | hard gate 已真实生效；adaptive fact-source node limit 的真实 rerun 已越过固定 5-request stopper；projection guard 后无 timeout，当前失败在 output contract validation coverage | 下一次 keyed rerun 同时验证 provider hard stop、adaptive inspect、rework evidence join、projection fact-source guard、editable validation blocker guard、output contract coverage guard 是否共同推进 utility |
 | P0 | Provider timeout usage flush | 报告层已能从 rollout token_count 恢复 timeout 前 partial usage，并标为 `recovered_from_rollout_trace`；如果进程被杀前没有任何 token_count/response.completed，exact usage 仍不可得 | 后续真实复验时检查 timeout 行是否有 rollout token_count；如无，再做 provider 退出/回收路径 |
 | P1 | 成本/token 放大 | `heterogeneous-dates` post-closeout 已改善，但 public-10 closeout 仍记录 6x-28x request amplification | 新二进制重跑 public-10 subset，更新 durable report snapshot |
 | P1 | Release evidence bundle | raw paired run artifacts 仍在外部 run cache，不在仓库内 | 设计 release artifact policy：保留 summary snapshot、压缩关键 evidence，还是外链 run cache |
@@ -396,5 +450,5 @@ Test failed with IndentationError; cannot read files to diagnose because read ac
 2. 建立 R4 utility-convergence 继续工作入口，优先选择一个 public-10 负样本做 bug-killer 闭环。
 3. `sqlite-db-truncate` 当前适合作为已收敛工具链样本归档：状态是非 timeout、closed graph、`agent_patch_wrong`。
 4. `organization-json-generator` 当前下一步不再是 provider 前置；keyed run 已证明 provider preflight 通过，`bwrap` feedback-layer case 已收录并修复。
-5. 先重跑 `organization-json-generator` 验证 `tool-runtime-bootstrap-failure`、fact-source coverage、provider hard stop、adaptive inspect node limit、implementation rework evidence join、inspect projection fact-source guard 和 editable validation blocker guard 是否让 TaskSpace 生成 `organization.json` 并通过 validation；如仍 wrong，按新 trace 建立下一层 case。
+5. 先重跑 `organization-json-generator` 验证 `tool-runtime-bootstrap-failure`、fact-source coverage、provider hard stop、adaptive inspect node limit、implementation rework evidence join、inspect projection fact-source guard、editable validation blocker guard 和 output contract coverage guard 是否让 TaskSpace 生成 schema/public-test 正确的 `organization.json`；如仍 wrong，按新 trace 建立下一层 case。
 6. 每完成一个样本，更新 public-10 snapshot 或生成新的 durable report artifact，避免再次依赖未提交 `target/` 缓存。

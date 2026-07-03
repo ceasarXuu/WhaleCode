@@ -3940,7 +3940,7 @@ preview:\n\
             None => return Ok(None),
         };
         let map_id = snapshot.map_id.clone();
-        let (task_id, node_kind, node_status, has_successful_validation) = {
+        let (task_id, node_kind, node_status, has_successful_validation, output_contract_block) = {
             let map = self
                 .maps
                 .get(&map_id)
@@ -3949,11 +3949,18 @@ preview:\n\
                 .nodes
                 .get(node_id)
                 .ok_or_else(|| format!("TaskSpace current node `{node_id}` is missing."))?;
+            let task = map
+                .task_id
+                .as_deref()
+                .and_then(|task_id| self.tasks.get(task_id));
             (
                 map.task_id.clone(),
                 node.kind,
                 node.status,
                 node_has_successful_validation_action(map, node),
+                task.and_then(|task| {
+                    validation_node_output_contract_coverage_block(map, node, task)
+                }),
             )
         };
         if !matches!(node_kind, NodeKind::SmokeTest | NodeKind::RegressionTest)
@@ -3961,6 +3968,39 @@ preview:\n\
             || !has_successful_validation
         {
             return Ok(None);
+        }
+        if let Some(block) = output_contract_block {
+            if let Some(result_id) = block.result_id.as_deref() {
+                self.reopen_success_criteria_citing_result_for_main(
+                    owner_session_id,
+                    result_id,
+                    "Reopened because the cited validation result did not validate declared output contracts.",
+                )?;
+                let evidence_refs = vec![ActionMapEvidenceRefInput {
+                    result_id: Some(result_id.to_string()),
+                    ..Default::default()
+                }];
+                let _ = self.mark_result_validity_for_main(
+                    owner_session_id,
+                    result_id,
+                    "invalid",
+                    block.message.clone(),
+                    Vec::new(),
+                    evidence_refs,
+                    Vec::new(),
+                    Vec::new(),
+                    vec![
+                        "successful command did not validate declared output contracts".to_string(),
+                    ],
+                )?;
+            }
+            return Err(gate_recovery_message(
+                &block.message,
+                &block.reason,
+                block.evidence_refs,
+                block.next_valid_actions,
+                Vec::new(),
+            ));
         }
         let mut events = self.accept_implementation_evidence_for_validation_closeout(
             owner_session_id,
@@ -7187,6 +7227,18 @@ preview:\n\
                     .task_id
                     .as_deref()
                     .and_then(|task_id| self.tasks.get(task_id));
+                if let Some(task) = task
+                    && let Some(block) =
+                        validation_node_output_contract_coverage_block(map, node, task)
+                {
+                    return Err(gate_recovery_message(
+                        &block.message,
+                        &block.reason,
+                        block.evidence_refs,
+                        block.next_valid_actions,
+                        Vec::new(),
+                    ));
+                }
                 if !task.is_some_and(|task| {
                     node_satisfies_success_criterion_with_validation_result(task, map, node)
                 }) {
@@ -7834,6 +7886,42 @@ preview:\n\
             );
         }
         Ok(())
+    }
+
+    fn reopen_success_criteria_citing_result_for_main(
+        &mut self,
+        owner_session_id: ThreadId,
+        result_id: &str,
+        reason: &str,
+    ) -> Result<Vec<MapRuntimeEvent>, String> {
+        let (task_id, _) = self.active_task_context_for_cognitive_update(owner_session_id)?;
+        let criteria = self
+            .tasks
+            .get(&task_id)
+            .map(|task| {
+                task.problem_ledger
+                    .success_criteria
+                    .iter()
+                    .filter(|criterion| {
+                        criterion.status == "satisfied"
+                            && criterion.evidence_refs.iter().any(|evidence_ref| {
+                                evidence_ref.result_id.as_deref() == Some(result_id)
+                            })
+                    })
+                    .map(|criterion| ActionMapSuccessCriterionInput {
+                        id: criterion.id.clone(),
+                        kind: criterion.kind.clone(),
+                        description: format!("{} {reason}", criterion.description),
+                        status: "open".to_string(),
+                        evidence_refs: Vec::new(),
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        if criteria.is_empty() {
+            return Ok(Vec::new());
+        }
+        self.record_success_criteria_for_main(owner_session_id, criteria)
     }
 
     fn active_fact_citing_result(&self, task_id: &str, result_id: &str) -> Option<String> {
@@ -13623,6 +13711,7 @@ fn validation_test_coverage_block(
     }
     let changed_artifacts = validation_dependency_changed_artifacts(map, node);
     let output_targets = task_output_contract_artifact_targets(task);
+    let output_requirements = task_output_contract_validation_requirements(task);
     let changed_artifacts_requiring_coverage = changed_artifacts
         .iter()
         .filter(|artifact| {
@@ -13647,6 +13736,20 @@ fn validation_test_coverage_block(
             || command_invokes_script_artifact(&command)
     };
     if changed_artifacts.is_empty() || covered_changed_artifact {
+        if let Some(block) = validation_output_contract_coverage_block_for_command(
+            map,
+            node,
+            &changed_artifacts,
+            &output_requirements,
+            &command,
+        ) {
+            return Some((
+                block.reason,
+                block.message,
+                block.next_valid_actions,
+                block.evidence_refs,
+            ));
+        }
         return None;
     }
     let changed_summary = changed_artifacts
@@ -13696,6 +13799,382 @@ fn validation_test_coverage_block(
     Some((reason, message, next_valid_actions, evidence_refs))
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct OutputContractValidationRequirements {
+    targets: Vec<String>,
+    schema_targets: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ValidationCoverageBlock {
+    result_id: Option<String>,
+    reason: String,
+    message: String,
+    next_valid_actions: Vec<String>,
+    evidence_refs: Vec<String>,
+}
+
+fn validation_node_output_contract_coverage_block(
+    map: &ActionMapInstance,
+    node: &MapNode,
+    task: &TaskState,
+) -> Option<ValidationCoverageBlock> {
+    let requirements = task_output_contract_validation_requirements(task);
+    let changed_artifacts = validation_dependency_changed_artifacts(map, node);
+    let result = latest_successful_validation_result(map, node)?;
+    let command = result_body_command(result).unwrap_or_default();
+    if command.trim().is_empty()
+        && output_contract_targets_are_changed_artifacts(&requirements, &changed_artifacts)
+        && validation_result_body_has_output_value(&result.body)
+    {
+        return None;
+    }
+    if command.trim().is_empty() && validation_result_body_confirms_general_validator(&result.body)
+    {
+        return None;
+    }
+    validation_output_contract_coverage_block_for_command(
+        map,
+        node,
+        &changed_artifacts,
+        &requirements,
+        &command,
+    )
+    .map(|mut block| {
+        block.result_id = Some(result.id.clone());
+        block
+    })
+}
+
+fn latest_successful_validation_result<'a>(
+    map: &'a ActionMapInstance,
+    node: &'a MapNode,
+) -> Option<&'a NodeResult> {
+    node.result_context.iter().rev().find_map(|result_ref| {
+        let result = map.results.get(&result_ref.id)?;
+        node_result_is_successful_validation(result).then_some(result)
+    })
+}
+
+fn validation_output_contract_coverage_block_for_command(
+    map: &ActionMapInstance,
+    node: &MapNode,
+    changed_artifacts: &[String],
+    requirements: &OutputContractValidationRequirements,
+    command: &str,
+) -> Option<ValidationCoverageBlock> {
+    let requirements =
+        output_contract_requirements_for_validation_command(requirements, changed_artifacts);
+    if requirements.targets.is_empty()
+        || command_is_general_validation_runner(command)
+        || command_validates_output_contract_targets(command, &requirements)
+    {
+        return None;
+    }
+    let target_summary = summarize_artifact_refs(&requirements.targets);
+    let schema_summary = if requirements.schema_targets.is_empty() {
+        "none recorded".to_string()
+    } else {
+        summarize_artifact_refs(&requirements.schema_targets)
+    };
+    let reason = "validation_test_missing_output_contract_coverage".to_string();
+    let message = format!(
+        "TaskSpace blocked this validation command because current node `{}` kind: {} has declared output contract artifact(s): {}, schema/validator artifact(s): {}, but requested command `{}` does not validate those output contract(s). Running a generator or changed script with exit code 0 only proves execution; it does not prove the produced artifact satisfies the declared format/schema/validator contract.",
+        node.id,
+        node.kind.as_str(),
+        target_summary,
+        schema_summary,
+        single_line_preview(command, 220)
+    );
+    let next_valid_actions =
+        validation_output_contract_next_actions(changed_artifacts, &requirements);
+    let mut evidence_refs = vec![format!("current_node:{}:{}", node.id, node.kind.as_str())];
+    evidence_refs.extend(
+        changed_artifacts
+            .iter()
+            .take(4)
+            .map(|artifact| format!("changed_artifact:{artifact}")),
+    );
+    evidence_refs.extend(
+        requirements
+            .targets
+            .iter()
+            .take(4)
+            .map(|artifact| format!("output_contract:{artifact}")),
+    );
+    for event in map
+        .task_id
+        .iter()
+        .map(|task_id| format!("task:{task_id}"))
+        .take(1)
+    {
+        evidence_refs.push(event);
+    }
+    Some(ValidationCoverageBlock {
+        result_id: None,
+        reason,
+        message,
+        next_valid_actions,
+        evidence_refs,
+    })
+}
+
+fn task_output_contract_validation_requirements(
+    task: &TaskState,
+) -> OutputContractValidationRequirements {
+    let mut requirements = OutputContractValidationRequirements::default();
+    for contract in &task.cognitive_state.output_contracts {
+        for value in [&contract.id, &contract.description] {
+            for artifact in extract_artifact_like_refs(value) {
+                push_output_contract_validation_target(&mut requirements, &artifact, contract.kind);
+            }
+        }
+        for evidence in &contract.evidence_refs {
+            if let Some(artifact) = evidence.artifact_ref.as_deref() {
+                push_output_contract_validation_target(
+                    &mut requirements,
+                    &normalize_artifact_ref(artifact),
+                    contract.kind,
+                );
+            }
+        }
+    }
+    requirements
+}
+
+fn push_output_contract_validation_target(
+    requirements: &mut OutputContractValidationRequirements,
+    artifact: &str,
+    kind: OutputContractKind,
+) {
+    let artifact = normalize_artifact_ref(artifact);
+    if !output_contract_validation_artifact_ref(&artifact) {
+        return;
+    }
+    push_unique_artifact_ref(&mut requirements.targets, artifact.clone());
+    if output_contract_schema_or_validator_target(&artifact, kind) {
+        push_unique_artifact_ref(&mut requirements.schema_targets, artifact);
+    }
+}
+
+fn output_contract_validation_artifact_ref(artifact: &str) -> bool {
+    let normalized = normalize_artifact_ref(artifact);
+    let lower = normalized.to_ascii_lowercase();
+    if lower.is_empty()
+        || lower.contains("://")
+        || lower.starts_with("test-fixture:")
+        || lower.starts_with("output-ref:")
+        || lower.starts_with("validator:")
+    {
+        return false;
+    }
+    artifact_like_token(&normalized)
+}
+
+fn output_contract_schema_or_validator_target(artifact: &str, kind: OutputContractKind) -> bool {
+    matches!(
+        kind,
+        OutputContractKind::Schema | OutputContractKind::Validator
+    ) || artifact
+        .rsplit('/')
+        .next()
+        .unwrap_or(artifact)
+        .to_ascii_lowercase()
+        .contains("schema")
+}
+
+fn command_validates_output_contract_targets(
+    command: &str,
+    requirements: &OutputContractValidationRequirements,
+) -> bool {
+    if requirements.targets.is_empty() {
+        return true;
+    }
+    if command_is_general_validation_runner(command) {
+        return true;
+    }
+    let mentions_output_target = requirements
+        .targets
+        .iter()
+        .any(|target| command_mentions_artifact(command, target));
+    if !mentions_output_target || !command_has_validation_check_semantics(command) {
+        return false;
+    }
+    requirements.schema_targets.is_empty()
+        || requirements
+            .schema_targets
+            .iter()
+            .any(|target| command_mentions_artifact(command, target))
+}
+
+fn output_contract_requirements_for_validation_command(
+    requirements: &OutputContractValidationRequirements,
+    changed_artifacts: &[String],
+) -> OutputContractValidationRequirements {
+    let removable_changed_scripts = requirements
+        .targets
+        .iter()
+        .filter(|target| {
+            script_artifact_token(target)
+                && changed_artifacts
+                    .iter()
+                    .any(|artifact| artifact_refs_match(artifact, target))
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    if removable_changed_scripts.is_empty()
+        || removable_changed_scripts.len() >= requirements.targets.len()
+    {
+        return requirements.clone();
+    }
+    let targets = requirements
+        .targets
+        .iter()
+        .filter(|target| {
+            !removable_changed_scripts
+                .iter()
+                .any(|script| artifact_refs_match(script, target))
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    let schema_targets = requirements
+        .schema_targets
+        .iter()
+        .filter(|schema| {
+            targets
+                .iter()
+                .any(|target| artifact_refs_match(target, schema))
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    OutputContractValidationRequirements {
+        targets,
+        schema_targets,
+    }
+}
+
+fn output_contract_targets_are_changed_artifacts(
+    requirements: &OutputContractValidationRequirements,
+    changed_artifacts: &[String],
+) -> bool {
+    !requirements.targets.is_empty()
+        && requirements.targets.iter().all(|target| {
+            changed_artifacts
+                .iter()
+                .any(|artifact| artifact_refs_match(artifact, target))
+        })
+}
+
+fn validation_result_body_has_output_value(body: &str) -> bool {
+    let lower = body.to_ascii_lowercase();
+    lower
+        .split_once("output:")
+        .map(|(_, output)| !output.trim().is_empty())
+        .unwrap_or(false)
+}
+
+fn command_has_validation_check_semantics(command: &str) -> bool {
+    let lower = command.to_ascii_lowercase();
+    [
+        "assert",
+        "check",
+        "cmp ",
+        "diff ",
+        "grep ",
+        "jq ",
+        "json.load",
+        "json.loads",
+        "jsonschema",
+        "node -e",
+        "perl -e",
+        "python - <<",
+        "python -c",
+        "python3 - <<",
+        "python3 -c",
+        "ruby -e",
+        "schema",
+        "test",
+        "validate",
+        "validator",
+    ]
+    .iter()
+    .any(|marker| lower.contains(marker))
+}
+
+fn validation_result_body_confirms_general_validator(body: &str) -> bool {
+    let lower = body.to_ascii_lowercase();
+    lower.contains("validator_tests_completed=true")
+        || lower.contains("validator_lifecycle_stage=tests_completed")
+        || lower.contains("pytest")
+        || lower.contains("collected ")
+        || lower.contains(" passed")
+}
+
+fn validation_output_contract_next_actions(
+    changed_artifacts: &[String],
+    requirements: &OutputContractValidationRequirements,
+) -> Vec<String> {
+    let mut actions = Vec::new();
+    let script_command = changed_artifacts
+        .iter()
+        .find(|artifact| script_artifact_token(artifact))
+        .map(|artifact| validation_changed_artifact_command(artifact));
+    let contract_check = validation_output_contract_check_command(requirements);
+    if let (Some(script_command), Some(contract_check)) = (&script_command, &contract_check) {
+        actions.push(format!(
+            "run_test with command `{script_command} && {contract_check}` to execute the changed artifact and validate declared output contract(s)"
+        ));
+    }
+    if let Some(contract_check) = contract_check {
+        actions.push(format!(
+            "or run_test with command `{contract_check}` after the changed artifact has generated the declared output"
+        ));
+    }
+    actions.push(
+        "or run a real project/official validator command such as pytest, cargo test, npm test, or run-tests that validates the declared output contract(s)"
+            .to_string(),
+    );
+    actions
+}
+
+fn validation_output_contract_check_command(
+    requirements: &OutputContractValidationRequirements,
+) -> Option<String> {
+    let output_target = requirements
+        .targets
+        .iter()
+        .find(|target| {
+            !requirements
+                .schema_targets
+                .iter()
+                .any(|schema| artifact_refs_match(schema, target))
+        })
+        .or_else(|| requirements.targets.first())?;
+    if let Some(schema_target) = requirements.schema_targets.first() {
+        return Some(format!(
+            "python -m jsonschema -i {output_target} {schema_target}"
+        ));
+    }
+    if output_target.ends_with(".json") {
+        return Some(format!(
+            "python -c \"import json; data=json.load(open('{output_target}')); assert data\""
+        ));
+    }
+    Some(format!("test -s {output_target}"))
+}
+
+fn summarize_artifact_refs(artifacts: &[String]) -> String {
+    if artifacts.is_empty() {
+        return "none recorded".to_string();
+    }
+    artifacts
+        .iter()
+        .take(4)
+        .cloned()
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
 fn discovered_required_local_validator_commands(map: &ActionMapInstance) -> Vec<String> {
     let mut commands = Vec::new();
     for result in map.results.values() {
@@ -13727,7 +14206,13 @@ fn push_unique_string(values: &mut Vec<String>, value: String) {
 
 fn validation_changed_artifact_action(artifact: &str) -> String {
     let normalized = normalize_artifact_ref(artifact);
-    let command = if normalized.ends_with(".py") {
+    let command = validation_changed_artifact_command(&normalized);
+    format!("run_test with command `{command}` to execute changed artifact `{normalized}`")
+}
+
+fn validation_changed_artifact_command(artifact: &str) -> String {
+    let normalized = normalize_artifact_ref(artifact);
+    if normalized.ends_with(".py") {
         format!("python {normalized}")
     } else if normalized.ends_with(".js") || normalized.ends_with(".mjs") {
         format!("node {normalized}")
@@ -13735,8 +14220,7 @@ fn validation_changed_artifact_action(artifact: &str) -> String {
         format!("bash {normalized}")
     } else {
         normalized.clone()
-    };
-    format!("run_test with command `{command}` to execute changed artifact `{normalized}`")
+    }
 }
 
 fn validation_node_failed_noninfra_result(
@@ -22363,7 +22847,7 @@ def normalize_status(value: str) -> str:\n\
             "timeout_ms": 120000
         })
         .to_string();
-        state
+        let error = state
             .prepare_main_tool_call(
                 owner,
                 ToolActionDescriptor::new(
@@ -22372,7 +22856,29 @@ def normalize_status(value: str) -> str:\n\
                     runs_changed_artifact,
                 ),
             )
-            .expect("validation may execute the changed artifact");
+            .expect_err("generator-only validation should not close output contracts");
+        assert!(
+            error.contains("validation_test_missing_output_contract_coverage"),
+            "{error}"
+        );
+        assert!(error.contains("recovered_logs/results.json"), "{error}");
+        assert!(error.contains("python /app/recover_logs.py &&"), "{error}");
+
+        let runs_changed_artifact_and_checks_output = serde_json::json!({
+            "command": "python /app/recover_logs.py && python -c \"import json; data=json.load(open('/app/recovered_logs/results.json')); assert isinstance(data, list)\"",
+            "timeout_ms": 120000
+        })
+        .to_string();
+        state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new(
+                    "shell_command",
+                    ActionClass::Test,
+                    runs_changed_artifact_and_checks_output,
+                ),
+            )
+            .expect("validation may execute the changed artifact and check the output contract");
 
         let checks_output_contract = serde_json::json!({
             "command": "python -c \"import json; data=json.load(open('/app/recovered_logs/results.json')); assert isinstance(data, list)\"",
@@ -22417,6 +22923,154 @@ def normalize_status(value: str) -> str:\n\
                 ToolActionDescriptor::new("shell_command", ActionClass::Test, "pytest"),
             )
             .expect("general project validators remain allowed");
+    }
+
+    #[test]
+    fn validation_node_blocks_generator_only_command_for_schema_output_contract() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (_, _, implement_node_id, _) = start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::ImplementSolution,
+            "Generate organization JSON",
+            "Generate organization.json that follows schema.json.",
+            "Implement generator",
+            "Create generator script.",
+            true,
+        );
+        state
+            .record_output_contract_for_main(
+                owner,
+                "oc-organization-json",
+                "artifact",
+                "organization.json must follow schema.json".to_string(),
+                vec![ActionMapEvidenceRefInput {
+                    artifact_ref: Some("user-request".to_string()),
+                    ..Default::default()
+                }],
+            )
+            .expect("output contract records");
+        let (edit_result_id, _) = state
+            .record_main_tool_result_with_class(
+                owner,
+                "edit-generator",
+                "apply_patch",
+                Some(ActionClass::Edit),
+                true,
+                "Success. Updated the following files:\n*** Add File: generate_json.py\n"
+                    .to_string(),
+            )
+            .expect("edit result")
+            .expect("edit result id");
+        state
+            .mark_result_validity_for_main(
+                owner,
+                &edit_result_id,
+                "accepted",
+                "accepted generator edit".to_string(),
+                vec![ActionMapCognitiveClaimInput {
+                    id: "claim-generator".to_string(),
+                    statement: "Generator script was created.".to_string(),
+                    evidence_refs: vec![ActionMapEvidenceRefInput {
+                        result_id: Some(edit_result_id.clone()),
+                        ..Default::default()
+                    }],
+                }],
+                vec![ActionMapEvidenceRefInput {
+                    result_id: Some(edit_result_id.clone()),
+                    ..Default::default()
+                }],
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+            )
+            .expect("edit accepted");
+        let (outcome, _) = state
+            .finish_main_node_with_next(
+                owner,
+                &implement_node_id,
+                "Created generator script.".to_string(),
+                None,
+                Some(ActionMapNextNodeDraft {
+                    kind: NodeKind::SmokeTest,
+                    title: "Validate generated JSON".to_string(),
+                    context_summary: "Run the generator and validate organization.json."
+                        .to_string(),
+                    dependency_node_ids: vec![implement_node_id.clone()],
+                }),
+            )
+            .expect("finish implementation into validation");
+        let validation_node_id = outcome.next_node_id.expect("validation node");
+        state
+            .mark_result_validity_for_main(
+                owner,
+                &outcome.result_id,
+                "accepted",
+                "accepted implementation handoff".to_string(),
+                vec![ActionMapCognitiveClaimInput {
+                    id: "claim-generator-handoff".to_string(),
+                    statement: "Generator can proceed to validation.".to_string(),
+                    evidence_refs: vec![ActionMapEvidenceRefInput {
+                        result_id: Some(outcome.result_id.clone()),
+                        ..Default::default()
+                    }],
+                }],
+                vec![ActionMapEvidenceRefInput {
+                    result_id: Some(outcome.result_id.clone()),
+                    ..Default::default()
+                }],
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+            )
+            .expect("handoff accepted");
+
+        let generator_only = serde_json::json!({
+            "command": "python generate_json.py",
+            "timeout_ms": 30000
+        })
+        .to_string();
+        let error = state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new("shell_command", ActionClass::Test, generator_only),
+            )
+            .expect_err("generator-only smoke test does not validate output contract");
+        assert!(
+            error.contains("validation_test_missing_output_contract_coverage"),
+            "{error}"
+        );
+        assert!(error.contains("organization.json"), "{error}");
+        assert!(error.contains("schema.json"), "{error}");
+        assert!(
+            error.contains(
+                "python generate_json.py && python -m jsonschema -i organization.json schema.json"
+            ),
+            "{error}"
+        );
+
+        let combined = serde_json::json!({
+            "command": "python generate_json.py && python -m jsonschema -i organization.json schema.json",
+            "timeout_ms": 120000
+        })
+        .to_string();
+        state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new("shell_command", ActionClass::Test, combined),
+            )
+            .expect("combined generation and schema validation should be allowed");
+
+        let map = state.maps.get("map-1").expect("map");
+        assert_eq!(
+            map.nodes
+                .get(&validation_node_id)
+                .expect("validation node")
+                .status,
+            NodeStatus::Running
+        );
     }
 
     #[test]
@@ -23749,7 +24403,7 @@ AssertionError: schema field missing";
             .record_main_final_response(owner, "Done.")
             .expect_err("final response must require accepted validation after edits");
 
-        assert!(error.contains("accepted smoke_test or regression_test result"));
+        assert!(error.contains("final answer cannot be emitted"), "{error}");
         assert_eq!(state.current_main_node_id.as_deref(), Some("node-2"));
     }
 
@@ -29324,6 +29978,152 @@ summary: diagnostic payload for output reference smoke\n\
     }
 
     #[test]
+    fn force_finish_validation_rejects_generator_only_output_contract_success() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (_, map_id, implement_node_id, _) = start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::ImplementSolution,
+            "Generate organization JSON",
+            "Generate organization.json that follows schema.json.",
+            "Implement generator",
+            "Create generator script.",
+            true,
+        );
+        state
+            .record_output_contract_for_main(
+                owner,
+                "oc-organization-json",
+                "artifact",
+                "organization.json must follow schema.json".to_string(),
+                vec![ActionMapEvidenceRefInput {
+                    artifact_ref: Some("user-request".to_string()),
+                    ..Default::default()
+                }],
+            )
+            .expect("output contract records");
+        let (edit_result_id, _) = state
+            .record_main_tool_result_with_class(
+                owner,
+                "edit-generator",
+                "apply_patch",
+                Some(ActionClass::Edit),
+                true,
+                "Success. Updated the following files:\nA generate_json.py\n".to_string(),
+            )
+            .expect("edit result records")
+            .expect("edit result id");
+        state
+            .mark_result_validity_for_main(
+                owner,
+                &edit_result_id,
+                "accepted",
+                "accepted generator edit".to_string(),
+                vec![ActionMapCognitiveClaimInput {
+                    id: "claim-generator-edit".to_string(),
+                    statement: "Generator script was created.".to_string(),
+                    evidence_refs: vec![ActionMapEvidenceRefInput {
+                        result_id: Some(edit_result_id.clone()),
+                        ..Default::default()
+                    }],
+                }],
+                vec![ActionMapEvidenceRefInput {
+                    result_id: Some(edit_result_id.clone()),
+                    ..Default::default()
+                }],
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+            )
+            .expect("edit accepted");
+        let (implement_outcome, _) = state
+            .finish_main_node_with_next(
+                owner,
+                &implement_node_id,
+                "Created generator script.".to_string(),
+                None,
+                Some(ActionMapNextNodeDraft {
+                    kind: NodeKind::SmokeTest,
+                    title: "Validate generated JSON".to_string(),
+                    context_summary: "Run the generator and validate organization.json."
+                        .to_string(),
+                    dependency_node_ids: vec![implement_node_id.clone()],
+                }),
+            )
+            .expect("implementation finishes into validation");
+        let validation_node_id = implement_outcome
+            .next_node_id
+            .clone()
+            .expect("validation node created");
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "taskspace-action-contract-9-run_test",
+                "shell_command",
+                Some(ActionClass::Test),
+                true,
+                "TaskSpaceToolInvocationV1:\n\
+tool: shell_command\n\
+command: python generate_json.py\n\
+raw_output:\n\
+Exit code: 0\n\
+Output:\n\
+organization.json generated successfully.\n"
+                    .to_string(),
+            )
+            .expect("validation result records")
+            .expect("validation result id");
+        let snapshot = ActionMapProviderRequestBudgetSnapshot {
+            task_id: state.active_task_id.clone(),
+            map_id: map_id.clone(),
+            node_id: Some(validation_node_id.clone()),
+            node_kind: Some(NodeKind::SmokeTest.as_str().to_string()),
+            current_node_progress_signature: None,
+            current_node_has_successful_edit: false,
+            current_node_has_dependency_working_evidence: false,
+            current_node_has_uncovered_mandatory_evidence: false,
+            current_node_uncovered_mandatory_evidence: Vec::new(),
+            route_mode: Some("deep".to_string()),
+            profile_name: Some("taskspace-v005-deep".to_string()),
+            request_phase: Some("validation_recovery".to_string()),
+            provider_request_context_missing_reason: None,
+            request_count: 9,
+            max_requests: 20,
+            node_request_count: 1,
+            max_model_requests_per_node: 5,
+            post_budget_grace_requests: 1,
+            post_budget_grace_request_count: 0,
+            budget_state: "normal".to_string(),
+        };
+
+        let error = state
+            .force_finish_validation_after_successful_tool(
+                owner,
+                &snapshot,
+                "validation_success_after_tool_drain",
+            )
+            .expect_err("generator-only success should not force validation closeout");
+
+        assert!(
+            error.contains("validation_test_missing_output_contract_coverage"),
+            "{error}"
+        );
+        assert!(error.contains("organization.json"), "{error}");
+        assert!(error.contains("schema.json"), "{error}");
+        let map = state.maps.get(&map_id).expect("map");
+        assert_eq!(
+            map.nodes
+                .get(&validation_node_id)
+                .expect("validation node")
+                .status,
+            NodeStatus::Running
+        );
+        assert!(!state.active_map_has_accepted_successful_validation_result());
+    }
+
+    #[test]
     fn state_commit_accepts_validation_result_before_finishing_node_and_creating_next() {
         let mut state = ActionMapRuntimeState::default();
         let owner = ThreadId::new();
@@ -30537,12 +31337,28 @@ summary: diagnostic payload for output reference smoke\n\
             })
         );
 
-        state
+        let generator_only_error = state
             .prepare_main_tool_call(
                 owner,
                 ToolActionDescriptor::new("shell_command", ActionClass::Test, "python recover.py"),
             )
-            .expect("retry validation may run changed artifact directly");
+            .expect_err("retry validation must also validate the declared output contract");
+        assert!(
+            generator_only_error.contains("validation_test_missing_output_contract_coverage"),
+            "{generator_only_error}"
+        );
+        assert!(generator_only_error.contains("recover.json"));
+
+        state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new(
+                    "shell_command",
+                    ActionClass::Test,
+                    "python recover.py && python -c \"import json; data=json.load(open('recover.json')); assert data\"",
+                ),
+            )
+            .expect("retry validation may execute the changed artifact and validate output");
     }
 
     #[test]

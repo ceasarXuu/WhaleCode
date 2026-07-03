@@ -2096,7 +2096,8 @@ fn taskspace_message_hit_validation_needs_test(message: Option<&str>) -> bool {
     message.is_some_and(|message| {
         let validation_coverage_gate = message.contains(TASKSPACE_GATE_RECOVERY_MARKER)
             && (message.contains("validation_test_missing_changed_artifact_coverage")
-                || message.contains("validation_test_missing_local_validator_coverage"));
+                || message.contains("validation_test_missing_local_validator_coverage")
+                || message.contains("validation_test_missing_output_contract_coverage"));
         (message.contains("node_policy_violation:smoke_test:")
             || message.contains("node_policy_violation:regression_test:"))
             && (message.contains(":list_files")
@@ -2879,6 +2880,7 @@ fn is_actionable_taskspace_gate_feedback_output(item: &ResponseItem) -> bool {
         && response_item_text_contains(item, "uncovered"))
         || response_item_text_contains(item, "validation_test_missing_local_validator_coverage")
         || response_item_text_contains(item, "validation_test_missing_changed_artifact_coverage")
+        || response_item_text_contains(item, "validation_test_missing_output_contract_coverage")
         || (response_item_texts_contain(item, &|text| {
             taskspace_missing_command_script_from_text(text).is_some()
         }))
@@ -2945,6 +2947,9 @@ fn taskspace_action_contract_recent_tool_outputs_item(
     let changed_artifact_coverage_failure_seen = summaries
         .iter()
         .any(|(_, text)| text.contains("validation_test_missing_changed_artifact_coverage"));
+    let output_contract_coverage_failure_seen = summaries
+        .iter()
+        .any(|(_, text)| text.contains("validation_test_missing_output_contract_coverage"));
     let validation_command_missing_script_seen = summaries
         .iter()
         .any(|(_, text)| text.contains("validation_command_missing_script"));
@@ -3022,6 +3027,8 @@ fn taskspace_action_contract_recent_tool_outputs_item(
         "progress_hint: The previous run_test did not start the validator because the command referenced a missing script. Stay on the validation node. Next action must be run_test with an existing changed script from the current TaskSpace projection, then validate the expected output artifact.\n"
     } else if changed_artifact_coverage_failure_seen {
         "progress_hint: A previous run_test was rejected because it did not exercise the changed artifact required for validation. Do not substitute generic validators or alternate filenames. Next action must be the concrete run_test command named in the validation_test_missing_changed_artifact_coverage feedback, or blocked with the exact reason that command cannot run.\n"
+    } else if output_contract_coverage_failure_seen {
+        "progress_hint: A previous run_test was rejected because it executed code but did not validate declared output contract artifacts such as expected files, formats, schemas, or validators. Next action must be the concrete combined run_test command named in the validation_test_missing_output_contract_coverage feedback, or a real project/official validator that checks those output contracts.\n"
     } else if local_validator_coverage_failure_seen {
         "progress_hint: A previous run_test was rejected because it skipped a discovered local validator. Do not repeat pytest or discovery. Next action must be run_test with command `python scripts/validate.py`, or blocked with the exact reason that command cannot run.\n"
     } else if uncovered_high_signal_seen {
@@ -3176,6 +3183,23 @@ tool_result: blocked\n\
 failure_kind: validation_test_missing_changed_artifact_coverage\n\
 required_command: {required_command}\n\
 next_valid_action: emit exactly one run_test action with command `{required_command}`. Do not repeat generic validators, read_file, list_files, search, or alternate filenames before this changed artifact is executed.\n\
+raw_output:\n{text}"
+        );
+    }
+    if action == "run_test" && text.contains("validation_test_missing_output_contract_coverage") {
+        let required_command = taskspace_validation_changed_artifact_required_command(text)
+            .unwrap_or_else(|| {
+                "the output-contract validation command named in TaskSpaceGateRecoveryV1"
+                    .to_string()
+            });
+        return format!(
+            "{TASKSPACE_TOOL_FEEDBACK_MARKER}\n\
+tool_source: action_contract_internal\n\
+tool_action: run_test\n\
+tool_result: blocked\n\
+failure_kind: validation_test_missing_output_contract_coverage\n\
+required_command: {required_command}\n\
+next_valid_action: emit exactly one run_test action with command `{required_command}`. It must execute the changed artifact when needed and validate the declared output contract artifacts. Do not finish validation after a generator-only success.\n\
 raw_output:\n{text}"
         );
     }
@@ -6140,6 +6164,40 @@ tax_calc.py\n\
     }
 
     #[test]
+    fn action_contract_prompt_structures_output_contract_coverage_failure() {
+        let latest_active_projection = format!(
+            "{TASKSPACE_ACTIVE_PROFILE_MARKER}\n{TASKSPACE_ACTIVE_PROJECTION_MARKER}\nactive_objective: latest"
+        );
+        let items = vec![
+            message("user", "Run validation"),
+            message("developer", &latest_active_projection),
+            ResponseItem::FunctionCallOutput {
+                call_id: "taskspace-action-contract-9-run_test".to_string(),
+                output: FunctionCallOutputPayload {
+                    body: FunctionCallOutputBody::Text(
+                        "TaskSpace blocked this validation command because current node `node-3` kind: smoke_test has declared output contract artifact(s): organization.json, schema.json, but requested command `python generate_json.py` does not validate those output contract(s).\nTaskSpaceGateRecoveryV1: {\"schema_version\":\"TaskSpaceGateRecoveryV1\",\"allowed\":false,\"reason\":\"validation_test_missing_output_contract_coverage\",\"next_valid_actions\":[\"run_test with command `python generate_json.py && python -m jsonschema -i organization.json schema.json` to execute the changed artifact and validate declared output contract(s)\"]}"
+                            .to_string(),
+                    ),
+                    success: Some(false),
+                },
+            },
+        ];
+
+        let prepared =
+            prepare_taskspace_action_contract_prompt_items_for_node(items, Some("smoke_test"));
+        let joined = item_texts(&prepared).join("\n");
+
+        assert!(joined.contains(TASKSPACE_TOOL_FEEDBACK_MARKER));
+        assert!(joined.contains("failure_kind: validation_test_missing_output_contract_coverage"));
+        assert!(joined.contains("progress_hint: A previous run_test was rejected because it executed code but did not validate declared output contract"));
+        assert!(joined.contains(
+            "required_command: python generate_json.py && python -m jsonschema -i organization.json schema.json"
+        ));
+        assert!(joined.contains("Do not finish validation after a generator-only success"));
+        assert!(!joined.contains("failure_kind: tool_execution_failed"));
+    }
+
+    #[test]
     fn action_contract_prompt_structures_missing_validation_script_failure() {
         let latest_active_projection = format!(
             "{TASKSPACE_ACTIVE_PROFILE_MARKER}\n{TASKSPACE_ACTIVE_PROJECTION_MARKER}\nactive_objective: latest"
@@ -7044,6 +7102,22 @@ TaskSpaceGateRecoveryV1: {\"schema_version\":\"TaskSpaceGateRecoveryV1\",\"allow
         assert!(text.contains(TASKSPACE_GATE_RECOVERY_MARKER));
         assert!(text.contains("validation_test_missing_changed_artifact_coverage"));
         assert!(text.contains("python generate_organization.py"));
+        assert!(text.contains("obey the `next_valid_actions`"));
+        assert!(!is_taskspace_no_action_recovery_item(&item));
+    }
+
+    #[test]
+    fn validation_output_contract_coverage_recovery_preserves_next_action() {
+        let last = "TaskSpace blocked this validation command.\n\
+TaskSpaceGateRecoveryV1: {\"schema_version\":\"TaskSpaceGateRecoveryV1\",\"allowed\":false,\"reason\":\"validation_test_missing_output_contract_coverage\",\"next_valid_actions\":[\"run_test with command `python generate_json.py && python -m jsonschema -i organization.json schema.json` to execute the changed artifact and validate declared output contract(s)\"]}";
+        let item = build_taskspace_validation_needs_test_recovery_item(Some(last));
+        let text = item_text(item.clone());
+
+        assert!(taskspace_message_hit_validation_needs_test(Some(last)));
+        assert!(text.contains(TASKSPACE_VALIDATION_NEEDS_TEST_MARKER));
+        assert!(text.contains(TASKSPACE_GATE_RECOVERY_MARKER));
+        assert!(text.contains("validation_test_missing_output_contract_coverage"));
+        assert!(text.contains("python generate_json.py && python -m jsonschema"));
         assert!(text.contains("obey the `next_valid_actions`"));
         assert!(!is_taskspace_no_action_recovery_item(&item));
     }

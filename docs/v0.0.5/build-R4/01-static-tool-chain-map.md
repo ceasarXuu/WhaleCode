@@ -270,6 +270,7 @@ cargo test -j1 -p codex-core taskspace_action_contract_tool_runtime_bootstrap_fa
 | `implementation-rework-feedback-evidence-join` | feedback + dependency projection | validation rework 能看到失败，但 recovery 没把最新 validation failure 和上游 inspect 的 CSV/schema evidence 合并成同一行动上下文，导致逐行修 `IndentationError` 或凭空使用 `salary` 等未观察字段 | `current_main_working_evidence_summary` 使用当前节点的有界依赖闭包并合并 `validation_rework` 摘要；`TaskSpaceImplementNeedsEditRecoveryV1` 明确 validation failure 优先、Python 顶层缩进按文件/块整体修、`KeyError` 只能用已观察字段 | focused fixed / real rerun pending |
 | `inspect-projection-finish-before-fact-source-coverage` | feedback + provider projection | 底层 duplicate/manual/forced finish guard 已知道缺声明 fact sources，但 context projection 的 `next_valid_actions` 仍暴露 `finish_node -> implement_solution`，模型继续在 inspect 中重复读已读文件直到 node budget hard stop | `projection_next_valid_actions` 接收 `TaskState` 并复用声明 fact-source coverage guard；缺 artifact 时只提示继续读取缺失 fact sources，禁止在投影里广告 `finish_node` / implement transition | focused fixed / real rerun pending |
 | `implementation-editable-validation-failure-misblocked` | control loop + feedback | implement rework 的依赖 validation 明确是 `IndentationError` / `SyntaxError` / `KeyError` 等可编辑实现失败，但模型可以 `block_node` 并把它说成 closed validation / infra blocker | `block_main_node` 拒绝这类 editable validation failure blocker；recent feedback 输出 `editable_validation_failure_blocker_rejected`，要求 patch 失败 artifact，Python 顶层缩进/语法错误按文件或块整体修 | focused fixed / real rerun pending |
+| `validation-closeout-output-contract-coverage-gap` | validation + feedback + closeout | validation tool result 只是 generator execution success，例如 `python generate_json.py` exit 0 并打印 `organization.json generated successfully`，但 runtime forced closeout 将其当成 output/schema contract 已验证，final answer 声称成功，public validator 仍因 `members` / `averageDepartmentBudget` 等字段缺失失败 | validation gate 要求声明 output contract artifacts 被同一次 `run_test` 的真实 validator/schema/assertion 覆盖；generator-only command 输出 `validation_test_missing_output_contract_coverage`；forced closeout 备份会重开引用该结果的 success criteria 并把 generator-only validation result 标记 invalid | focused fixed / real rerun pending |
 
 其中 `duplicate-inspect-premature-fact-source-convergence` 是本次新增收录的 case。它不是工具原始失败，也不是单纯模型策略错误；
 raw evidence 存在，问题在 feedback/phase gate 语义缺失：runtime 把“重复读已成功”恢复成“inspect 可结束”，但没有检查
@@ -322,6 +323,17 @@ infra blocker。
 `need to inspect` / `closed validation`，还要把 `cannot read`、`read actions are not allowed`、`read restriction`、
 `insufficient information` 和 `current narrowed state` 这类“把可编辑失败归因为读权限/状态限制”的说法纳入拒绝条件。
 
+editable blocker wording 修复后的 rerun `20260704-010752-603` 进一步暴露
+`validation-closeout-output-contract-coverage-gap`：TaskSpace 已生成 `organization.json`，但 validation 只运行了
+`python generate_json.py`。该命令 exit 0 表示 generator 执行成功，不表示输出满足 schema/public tests。runtime 仍触发
+`TaskSpaceForcedValidationCloseoutV1 trigger=validation_success_after_tool_drain`，final answer 声称成功；public validator 随后报
+`KeyError: 'members'` 和 `KeyError: 'averageDepartmentBudget'`。这属于反馈层验证语义缺失：工具成功没有丢失，但成功的含义被提升得过宽。
+
+对应修复把 output contract coverage 接入 validation gate 和 forced closeout 备份路径：如果任务声明了
+`organization.json` / `schema.json` 等 output contract artifact，`run_test` 必须执行变更 artifact 并检查输出契约，例如
+`python generate_json.py && python -m jsonschema -i organization.json schema.json`，或运行真实项目 validator。若 generator-only
+结果已被记录，closeout 会撤销由该结果支撑的 satisfied success criterion，并将该 result 标记 invalid。
+
 对应 focused gate：
 
 ```text
@@ -334,5 +346,9 @@ CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core implement_recovery_prio
 CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core projection_blocks_inspect_finish_until_declared_fact_sources_read --lib
 CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core validation_rework_rejects_editable_validation_failure_blocker_before_edit --lib
 CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core action_contract_prompt_structures_editable_validation_failure_blocker_rejection --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_node_blocks_generator_only_command_for_schema_output_contract --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core force_finish_validation_rejects_generator_only_output_contract_success --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core action_contract_prompt_structures_output_contract_coverage_failure --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_ --locked
 CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale --locked
 ```
