@@ -1077,3 +1077,56 @@
   - A smoke node with a same-node failed validator result can still be blocked.
   - Manual local validator infrastructure blockers such as `Local validator infrastructure failed: PowerShell InvalidEndOfLine. Cannot execute test commands.` still route to validation retry/rework instead of being misclassified as stale failure reuse.
 - Interpretation: The new `validation-stale-failure-block-without-current-test` class is focused-fixed. Real utility validation still requires another keyed rerun to verify the model reruns validation after rework, exposes the remaining indentation failure, and continues patching instead of closing the graph.
+
+# Hypothesis H-022: validation rework duplicate-read feedback is diluted by projection after target read
+
+- Claim: After H-021, TaskSpace reruns real schema validation and routes schema failures into implementation rework, but once the model reads the target artifact, the compact projection still advertises `read_file validation rework target artifact ... only if current contents are not visible` and `allowed action classes: read, search, edit, control`. Because the target read result is not surfaced as current critical evidence, the model repeatedly requests the same read, the duplicate-read gate blocks each attempt, and provider node budget is exhausted without an edit.
+- Prediction: A keyed rerun after H-021 will show the stale validation block no longer occurring, schema validation reaching real `members`/camelCase statistics failures, one successful target read on the rework node, multiple `validation_rework_duplicate_artifact_read` blocked actions, no successful edit on that rework node, and `provider_node_request_hard_limit_exceeded` with an open leaf.
+- Diagnostic evidence plan: Inspect the post-H-021 keyed rerun pair report, right rollout, projection text, and action-map observability; add a focused runtime projection test proving that after a validation rework target read, projection lists the existing result as critical evidence, removes read-file next actions for that target, and narrows allowed actions to edit/control until a successful edit.
+- Status: confirmed.
+
+# Evidence E-051: duplicate rework read gate works but projection keeps inviting reads
+
+- Prediction tested: H-022 predicts that the next blocker after stale validation guard is not stale validation closeout; it is projection/recovery conflict after the target artifact is already visible.
+- Real rerun:
+  ```text
+  RunDir: target/r4-org-json-real-keyed-20260703s-stale-validation-guard/runs/terminal_bench__organization-json-generator/20260704-033716-688
+  PairReport: pair-001/pair-report.md
+  reported_evidence_level: E1
+  outcome_taskspace: engineering_unclean
+  right_exec_timed_out: False
+  right_tool_call_count: 16
+  right_open_leaf_nodes: 1
+  public_validation_exit_code: 1
+  ```
+- Matched trace signals:
+  - TaskSpace read all declared fact sources, generated `process.py`, and ran `python process.py && python -m jsonschema -i organization.json schema.json`.
+  - The validation failure reached real schema semantics: project objects used `member_ids` where `members` is required, and statistics used snake_case fields instead of required camelCase fields such as `averageDepartmentBudget`, `totalEmployees`, and `averageYearsOfService`.
+  - Runtime routed to validation rework node `node-4`; `item_49` read `process.py` successfully and `result-11` recorded artifact ref `process.py`.
+  - `item_56`, `item_63`, `item_70`, `item_77`, and `item_84` repeated `read_file process.py`; each was blocked with `validation_rework_duplicate_artifact_read`.
+  - The action-map observability for `node-4` showed five blocked read actions, one successful read result, no successful edit result, and node status still `running`.
+  - The final projection still showed `next_valid_actions` containing `read_file validation rework target artifact process.py only if current contents are not visible`, plus noisy line/external refs such as `process.py:63` and the jsonschema CLI file path, while `critical_artifact_evidence` was `none`.
+  - The turn ended with `TaskSpaceProviderBudgetHardStopV1 reason=provider_node_request_hard_limit_exceeded request_count=17/20 node_request_count=6/5`.
+- Interpretation: This is not the old sed attribution issue; artifact identity is present and the duplicate-read gate fires. The unresolved defect is provider-visible feedback conflict: the compact projection does not make the target read result visible as the current contents and continues to advertise read/search as valid after the read.
+
+# Evidence E-052: projection uses existing rework target read and stops advertising reads
+
+- Prediction tested: H-022 requires projection to expose the already-read target result and make `apply_patch` the next action after a validation rework target read.
+- Repair artifact:
+  - `third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs`
+- Focused and adjacent commands:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core validation_rework_allows_changed_artifact_read_when_schema_failure_lacks_traceback --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core validation_rework --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core validation_ --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-cli --bin whale --locked
+  git diff --check
+  ```
+- Result: passed. `validation_rework` remains 12 tests and `validation_` remains 83 tests.
+- Matched test signals:
+  - Before the target read, projection still advertises one named `read_file validation rework target artifact generate_org.py` action.
+  - After the target read, projection advertises `use existing validation rework target read result ... for generate_org.py`, no longer advertises `read_file` for that target, and keeps `apply_patch generate_org.py` as the next action.
+  - `critical_artifact_evidence` includes the target read excerpt with `signal=validation_rework_target_read`.
+  - The current node contract narrows to `edit, control` with an explicit warning that read/search of visible rework targets will be blocked until a successful edit.
+- Interpretation: The new `validation-rework-duplicate-read-projection-loop` class is focused-fixed. Real utility validation still requires another keyed rerun to verify the model patches `process.py` after the first target read and then reruns schema/public validation.

@@ -2173,3 +2173,55 @@ git diff --check
 
 状态：该 feedback/validation-evidence class 已 focused fixed；下一次 keyed rerun 应验证模型在 rework patch 后会重新运行
 schema/public validation，而不是用上一轮失败文本关闭新的 validation node。
+
+## 5.32 2026-07-04 validation rework duplicate-read projection loop
+
+`validation-stale-failure-block-without-current-test` 修复后的 keyed rerun 已越过旧失败复用，并到达真实 schema rework：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260703s-stale-validation-guard/runs/terminal_bench__organization-json-generator/20260704-033716-688
+reported_evidence_level: E1
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 16
+right_open_leaf_nodes: 1
+public_validation_exit_code: 1
+```
+
+关键观察：
+
+| Signal | 结论 |
+|---|---|
+| `python process.py && python -m jsonschema -i organization.json schema.json` 执行 | 已到真实 output/schema validation |
+| schema 报 `members` required、`averageDepartmentBudget` / `totalEmployees` / `averageYearsOfService` 等字段缺失 | validation failure 是可编辑 implementation defect |
+| rework node `node-4` 第一次成功读取 `process.py`，`result-11` 带 artifact ref | sed attribution 和 target read allowance 正常 |
+| 后续 5 次 `read_file process.py` 全部被 `validation_rework_duplicate_artifact_read` 拦截 | duplicate gate 正常工作 |
+| projection 仍显示 `read_file validation rework target artifact process.py only if current contents are not visible`，`critical_artifact_evidence` 为 none | provider-visible contract 没有把 result-11 作为当前内容展示 |
+| 最终 `provider_node_request_hard_limit_exceeded node_request_count=6/5`，node-4 open | 正确底层反馈被 projection 冲淡，形成重复 read loop |
+
+本轮新增并 focused 修复的问题类型：
+
+| Case | Before | After | Evidence |
+|---|---|---|---|
+| `validation-rework-duplicate-read-projection-loop` | rework target 已读且 duplicate gate 已拦截重复 read，但 compact projection 仍广告 read/search，并未把 target read result 展示为 critical evidence | target read 后 projection 显示 `use existing validation rework target read result ...`，移除该 target 的 read_file next action，把 target read excerpt 放入 `critical_artifact_evidence`，allowed actions 收窄为 edit/control | `validation_rework_allows_changed_artifact_read_when_schema_failure_lacks_traceback` |
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core validation_rework_allows_changed_artifact_read_when_schema_failure_lacks_traceback --locked
+  PASS：target 未读前仍允许一次命名 read；target 读完后 projection 使用 result、要求 apply_patch，且 critical evidence 包含目标内容 excerpt
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core validation_rework --locked
+  PASS：12 tests
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core validation_ --locked
+  PASS：83 tests
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-cli --bin whale --locked
+git diff --check
+  PASS
+```
+
+状态：该 feedback/projection class 已 focused fixed；下一次 keyed rerun 应验证模型在第一次读取 `process.py` 后直接
+patch `members` 和 statistics camelCase 字段，再重跑 schema/public validation。

@@ -8972,7 +8972,7 @@ preview:\n\
                 context.push_str(" kind=");
                 context.push_str(node.kind.as_str());
                 context.push_str("\nCurrent node contract:\n- allowed action classes: ");
-                context.push_str(&compact_projection_allowed_actions_for_node(node.kind));
+                context.push_str(&projection_allowed_actions_for_node(map, node));
                 context.push_str("\nBefore requesting a blocked action, call taskspace_control(action=finish_node) and bind or create a suitable next node. If the current node kind is implement_solution, shell test commands will be blocked; after implementation edits, finish the implementation node and create or bind a smoke_test or regression_test node before running tests.\n");
             }
             context.push_str("\nNodes:\n");
@@ -9103,7 +9103,7 @@ preview:\n\
                 context.push_str(" kind=");
                 context.push_str(node.kind.as_str());
                 context.push_str("\n- allowed action classes: ");
-                context.push_str(&compact_projection_allowed_actions_for_node(node.kind));
+                context.push_str(&projection_allowed_actions_for_node(map, node));
                 context.push('\n');
             }
             (
@@ -11365,6 +11365,32 @@ fn projection_critical_artifact_evidence(
 ) -> Vec<String> {
     let mut evidence = Vec::new();
     let mut seen = HashSet::new();
+    if let Some(current_node) = current_node_id.and_then(|node_id| map.nodes.get(node_id))
+        && current_node.kind == NodeKind::ImplementSolution
+    {
+        let validation_rework_artifacts =
+            implement_node_dependency_validation_rework_artifact_refs(map, current_node);
+        for (artifact, result_id) in implement_node_validation_rework_artifact_read_results(
+            map,
+            current_node,
+            &validation_rework_artifacts,
+        ) {
+            let Some(result) = map.results.get(&result_id) else {
+                continue;
+            };
+            let key = format!("{result_id}:{}", artifact_file_key(&artifact));
+            if !seen.insert(key) {
+                continue;
+            }
+            evidence.push(format!(
+                "{result_id} artifacts={artifact} signal=validation_rework_target_read\nexcerpt:\n{}",
+                working_evidence_body_excerpt(&result.body, max_excerpt_chars)
+            ));
+            if evidence.len() >= max_results {
+                return evidence;
+            }
+        }
+    }
     for node_id in projection_evidence_node_ids(map, current_node_id) {
         let Some(node) = map.nodes.get(node_id) else {
             continue;
@@ -11584,19 +11610,49 @@ fn projection_next_valid_actions(
             if !validation_rework_artifacts.is_empty()
                 && !node_has_successful_action(map, node, ActionClass::Edit)
             {
-                let mut actions = validation_rework_artifacts
-                    .iter()
-                    .take(4)
-                    .map(|artifact| {
-                        format!(
-                            "read_file validation rework target artifact `{artifact}` only if current contents are not visible"
-                        )
-                    })
-                    .collect::<Vec<_>>();
+                let visible_target_reads = implement_node_validation_rework_artifact_read_results(
+                    map,
+                    node,
+                    &validation_rework_artifacts,
+                );
+                let mut actions = if visible_target_reads.is_empty() {
+                    validation_rework_artifacts
+                        .iter()
+                        .take(4)
+                        .map(|artifact| {
+                            format!(
+                                "read_file validation rework target artifact `{artifact}` only if current contents are not visible"
+                            )
+                        })
+                        .collect::<Vec<_>>()
+                } else {
+                    visible_target_reads
+                        .iter()
+                        .take(4)
+                        .map(|(artifact, result_id)| {
+                            format!(
+                                "use existing validation rework target read result `{result_id}` for `{artifact}`; do not read/search it again before edit"
+                            )
+                        })
+                        .collect::<Vec<_>>()
+                };
+                let patch_artifacts = if visible_target_reads.is_empty() {
+                    validation_rework_artifacts.clone()
+                } else {
+                    visible_target_reads
+                        .iter()
+                        .map(|(artifact, _)| artifact.clone())
+                        .collect::<Vec<_>>()
+                };
                 actions.push(format!(
                     "apply_patch validation rework target artifact(s): {}",
-                    validation_rework_artifacts.join(", ")
+                    patch_artifacts.join(", ")
                 ));
+                if !visible_target_reads.is_empty() {
+                    actions.push(
+                        "read/search is no longer a valid next action on this validation rework node until a successful edit records progress".to_string(),
+                    );
+                }
                 actions.push(
                     "taskspace_control(action=finish_node) into smoke_test/regression_test after successful edit"
                         .to_string(),
@@ -11663,6 +11719,26 @@ fn compact_projection_allowed_actions_for_node(kind: NodeKind) -> String {
             .collect::<Vec<_>>()
             .join(", "),
     }
+}
+
+fn projection_allowed_actions_for_node(map: &ActionMapInstance, node: &MapNode) -> String {
+    if node.kind == NodeKind::ImplementSolution
+        && !node_has_successful_action(map, node, ActionClass::Edit)
+    {
+        let validation_rework_artifacts =
+            implement_node_dependency_validation_rework_artifact_refs(map, node);
+        if !validation_rework_artifacts.is_empty()
+            && !implement_node_validation_rework_artifact_read_results(
+                map,
+                node,
+                &validation_rework_artifacts,
+            )
+            .is_empty()
+        {
+            return "edit, control (read/search of already visible validation rework targets will be blocked until a successful edit)".to_string();
+        }
+    }
+    compact_projection_allowed_actions_for_node(node.kind)
 }
 
 fn blocked_action_recovery_message(
@@ -15846,6 +15922,45 @@ fn implement_node_duplicate_validation_rework_artifact_read(
     })
 }
 
+fn implement_node_validation_rework_artifact_read_results(
+    map: &ActionMapInstance,
+    node: &MapNode,
+    artifact_refs: &[String],
+) -> Vec<(String, NodeResultId)> {
+    if node.kind != NodeKind::ImplementSolution || artifact_refs.is_empty() {
+        return Vec::new();
+    }
+    let mut read_results = Vec::new();
+    let mut seen_artifacts = HashSet::new();
+    for result_ref in node.result_context.iter().rev() {
+        let Some(result) = map.results.get(&result_ref.id) else {
+            continue;
+        };
+        if result.kind != NodeResultKind::MainToolCall
+            || result.tool_success != Some(true)
+            || !matches!(
+                result.action_class,
+                Some(ActionClass::Read | ActionClass::Search)
+            )
+        {
+            continue;
+        }
+        for result_artifact in result_artifact_refs(result) {
+            if !artifact_refs
+                .iter()
+                .any(|target| artifact_refs_match(target, &result_artifact))
+            {
+                continue;
+            }
+            let key = artifact_file_key(&result_artifact);
+            if seen_artifacts.insert(key) {
+                read_results.push((result_artifact, result.id.clone()));
+            }
+        }
+    }
+    read_results
+}
+
 fn implement_node_dependency_validation_rework_artifact_refs(
     map: &ActionMapInstance,
     node: &MapNode,
@@ -16145,6 +16260,18 @@ fn result_body_section_artifact_refs(body: &str) -> Vec<String> {
 
 fn artifact_key(path: &str) -> String {
     normalize_artifact_ref(path).to_ascii_lowercase()
+}
+
+fn artifact_file_key(path: &str) -> String {
+    let key = artifact_key(path);
+    if let Some((file, line)) = key.rsplit_once(':')
+        && !file.is_empty()
+        && !line.is_empty()
+        && line.chars().all(|ch| ch.is_ascii_digit())
+    {
+        return file.to_string();
+    }
+    key
 }
 
 fn mandatory_evidence_signal(body: &str) -> Option<&'static str> {
@@ -32076,6 +32203,39 @@ def build_organization():\n\
         let map = state.active_map().expect("active map after target read");
         let read_result = map.results.get(&read_result_id).expect("read result");
         assert_eq!(result_artifact_refs(read_result), vec!["generate_org.py"]);
+        let actions_after_read =
+            projection_next_valid_actions(map, Some(&rework_node_id), None, &[]);
+        assert!(
+            actions_after_read.iter().any(|action| action
+                .contains("use existing validation rework target read result")
+                && action.contains("generate_org.py")),
+            "{actions_after_read:?}"
+        );
+        assert!(
+            !actions_after_read.iter().any(|action| action
+                .contains("read_file validation rework target artifact `generate_org.py`")),
+            "{actions_after_read:?}"
+        );
+        assert!(
+            actions_after_read
+                .iter()
+                .any(|action| action.contains("apply_patch") && action.contains("generate_org.py")),
+            "{actions_after_read:?}"
+        );
+        let critical_evidence =
+            projection_critical_artifact_evidence(map, Some(&rework_node_id), 4, 240);
+        assert!(
+            critical_evidence.iter().any(|evidence| evidence
+                .contains("signal=validation_rework_target_read")
+                && evidence.contains("generate_org.py")
+                && evidence.contains("def build_organization")),
+            "{critical_evidence:?}"
+        );
+        let rework_node_after_read = map.nodes.get(&rework_node_id).expect("rework node");
+        let allowed_actions = projection_allowed_actions_for_node(map, rework_node_after_read);
+        assert!(allowed_actions.contains("edit, control"));
+        assert!(allowed_actions.contains("read/search"));
+        assert!(allowed_actions.contains("will be blocked"));
 
         let repeated_read_error = state
             .prepare_main_tool_call(
