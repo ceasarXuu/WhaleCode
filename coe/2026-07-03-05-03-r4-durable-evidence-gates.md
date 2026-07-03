@@ -1130,3 +1130,73 @@
   - `critical_artifact_evidence` includes the target read excerpt with `signal=validation_rework_target_read`.
   - The current node contract narrows to `edit, control` with an explicit warning that read/search of visible rework targets will be blocked until a successful edit.
 - Interpretation: The new `validation-rework-duplicate-read-projection-loop` class is focused-fixed. Real utility validation still requires another keyed rerun to verify the model patches `process.py` after the first target read and then reruns schema/public validation.
+
+# Hypothesis H-023: action-contract validation failure closeout feedback loses the current-test requirement
+
+- Claim: After H-022, TaskSpace can patch after the target read, but if the patch is incomplete the next validation node may still reuse older failure text through action-contract `blocked` or `taskspace_control(action=finish_node, status=failed|reason=...)`. The runtime rejects or fails these actions, yet the session feedback classifies them as generic tool failures instead of a validation-node current-test requirement, so the model repeats block/finish attempts until provider node budget is exhausted.
+- Prediction: The post-H-022 keyed rerun will show the new validation node has no same-node `Build`/`Test` result, repeated `blocked` / failed `finish_node` attempts citing an older `IndentationError`, `node-5` still running with no results, and a provider-node hard stop. Source inspection will show `block_main_node` has the current-test guard, while action-contract recent feedback lacks a `validation_stale_failure_without_current_test` class and `finish_node` failure aliases are not consistently normalized to `block_node`.
+- Diagnostic evidence plan: Inspect the post-H-022 rerun trace and action-map observability for `node-5` result context and repeated closeout attempts; add focused runtime and session tests proving failed validation closeout without a current test/build result is rejected and fed back as a required `run_test`, not a generic retry.
+- Status: confirmed.
+
+# Evidence E-053: action-contract closeout retries exhaust validation node budget without current test evidence
+
+- Prediction tested: H-023 predicts a feedback gap around rejected validation closeout actions, not another target-read projection failure.
+- Real rerun:
+  ```text
+  RunDir: target/r4-org-json-real-keyed-20260703t-rework-target-projection/runs/terminal_bench__organization-json-generator/20260704-035138-996
+  PairReport: pair-001/pair-report.md
+  reported_evidence_level: E2-candidate
+  outcome_taskspace: engineering_unclean
+  outcome_standard: solved
+  right_exec_timed_out: False
+  right_tool_call_count: 10
+  right_open_leaf_nodes: 1
+  public_validation_exit_code: 1
+  hidden_oracle_exit_code: 0
+  ```
+- Matched trace signals:
+  - The H-022 projection fix worked enough for the model to patch `process.py` after the target read; it stopped the duplicate-read loop.
+  - The patch only removed leading spaces from the first import block, leaving the file still malformed.
+  - `node-5` was a fresh `smoke_test` node with status `running`, no results, and no blocked actions in `action-map-observability.json`.
+  - `item_61`, `item_89`, and `item_96` attempted `taskspace_control(action=finish_node, status/result_validity/reason failed...)`; `item_68`, `item_75`, and `item_82` attempted action-contract `blocked`; all cited the older `IndentationError` instead of running a same-node validator.
+  - The run ended with `TaskSpaceProviderBudgetHardStopV1 reason=provider_node_request_hard_limit_exceeded request_count=19/20 node_request_count=6/5 state=compact_checkpoint_required node_kind=smoke_test`.
+- Code-path evidence:
+  - `block_main_node` already rejected stale failed-validation blockers without a current test/build result, but session recent-feedback did not classify that rejection as a validation `run_test` requirement.
+  - `finish_node` normalization only converted some failed validation shapes; `status=failed`, `result_validity=failed`, and failure text in `reason/result` could flow to generic finish failure handling.
+- Interpretation: The stale failure semantic was present, but feedback semantics were incomplete. The model was not told that the only legal recovery was to run validation on the current node before any block/finish/rework transition.
+
+# Evidence E-054: action-contract stale validation closeout feedback now forces current run_test
+
+- Prediction tested: H-023 requires both `block_node` and failed `finish_node` action-contract paths to preserve the current-test requirement.
+- Repair artifacts:
+  - `third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs`
+  - `third_party/codex-cli/codex-rs/core/src/session/turn.rs`
+- Focused commands:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core finish_validation_node_rejects_stale_failure_without_current_test --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core action_contract_failed_validation_finish_normalizes_to_block_node --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core action_contract_feedback_requires_current_test_after_stale_validation_block --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core action_contract_feedback_requires_current_test_after_validation_finish_without_result --locked
+  ```
+- Adjacent regression and build commands:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core block_validation_node --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core validation_rework --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core validation_ --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-cli --bin whale --locked
+  git diff --check
+  ```
+- Result: passed.
+- Matched test signals:
+  - A validation node cannot be finished as failed validation with stale `IndentationError` text before it records a same-node test/build result.
+  - Action-contract `finish_node` with `status=failed` and failure text normalizes to `block_node`, so the same runtime evidence guard handles it.
+  - Rejected stale validation closeout is summarized as `failure_kind: validation_stale_failure_without_current_test`.
+  - Generic validation `finish_node` without a current test/build result is summarized as `failure_kind: validation_finish_missing_current_test_result`.
+  - Recent action-contract feedback now says the next action must be `run_test` and forbids `finish_node`, `block_node`, rework creation, reads, lists, or searches until the current validation result exists.
+- Regression signals:
+  - `block_validation_node` remains 3/3 passing.
+  - `validation_rework` remains 12/12 passing.
+  - `validation_` now covers 87 passing tests including the new finish/action-contract feedback paths.
+  - `cargo fmt --check`, `codex-cli --bin whale` build, and `git diff --check` all pass.
+- Interpretation: The new `validation-stale-failure-action-contract-feedback-gap` class is focused-fixed at the unit level. Real utility validation still requires another keyed rerun to prove the model reruns validation on `node-5` instead of retrying stale failure closeout.

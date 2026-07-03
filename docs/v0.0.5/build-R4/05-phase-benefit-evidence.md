@@ -2225,3 +2225,67 @@ git diff --check
 
 状态：该 feedback/projection class 已 focused fixed；下一次 keyed rerun 应验证模型在第一次读取 `process.py` 后直接
 patch `members` 和 statistics camelCase 字段，再重跑 schema/public validation。
+
+## 5.33 2026-07-04 validation stale failure action-contract feedback gap
+
+`validation-rework-duplicate-read-projection-loop` 修复后的 keyed rerun 证明 target-read projection loop 已越过：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260703t-rework-target-projection/runs/terminal_bench__organization-json-generator/20260704-035138-996
+reported_evidence_level: E2-candidate
+outcome_standard: solved
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 10
+right_open_leaf_nodes: 1
+public_validation_exit_code: 1
+hidden_oracle_exit_code: 0
+```
+
+关键观察：
+
+| Signal | 结论 |
+|---|---|
+| rework node 第一次读取 `process.py` 后执行 `apply_patch` | H-022 的 projection 修复生效 |
+| patch 只修掉顶部 import 行的缩进，剩余顶层代码仍可能保留前导空格 | 实现仍需要继续验证和修复 |
+| 新 `smoke_test` node-5 没有任何同节点 `Build` / `Test` result | 不能把旧失败文案当成当前 validation 证据 |
+| 多次 `blocked` 和 `taskspace_control finish_node status/result_validity failed` 继续引用旧 `IndentationError` | action-contract 入口的失败反馈没有把下一步强制收敛到当前 `run_test` |
+| 最终 `provider_node_request_hard_limit_exceeded node_request_count=6/5`，node-5 仍 running | runtime guard 存在，但 feedback 分类过泛导致模型重复 closeout 尝试 |
+
+本轮新增并 focused 修复的问题类型：
+
+| Case | Before | After | Evidence |
+|---|---|---|---|
+| `validation-stale-failure-action-contract-feedback-gap` | `block_node`/`finish_node failed` 入口可携带旧 validation failure 文本；runtime 拒绝后 feedback 落到 generic failure，模型继续重试 block/finish，耗尽 validation node 预算 | failed validation `finish_node` aliases 先归一到 `block_node`；`finish_main_node` 也拒绝无当前 test/build result 的 failed-validation closeout；action-contract recent feedback 输出 `validation_stale_failure_without_current_test` / `validation_finish_missing_current_test_result`，下一步只允许当前 validation node 执行 `run_test` | `finish_validation_node_rejects_stale_failure_without_current_test`; `action_contract_failed_validation_finish_normalizes_to_block_node`; `action_contract_feedback_requires_current_test_after_stale_validation_block`; `action_contract_feedback_requires_current_test_after_validation_finish_without_result` |
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core finish_validation_node_rejects_stale_failure_without_current_test --locked
+  PASS：validation node 不能用旧失败摘要 finish 成 failed validation
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core action_contract_failed_validation_finish_normalizes_to_block_node --locked
+  PASS：`finish_node status=failed reason=...` 归一到 `block_node`
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core action_contract_feedback_requires_current_test_after_stale_validation_block --locked
+  PASS：stale validation block reject 输出 `validation_stale_failure_without_current_test`，下一步是 `run_test`
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core action_contract_feedback_requires_current_test_after_validation_finish_without_result --locked
+  PASS：validation finish 缺当前 test/build result 时输出 `validation_finish_missing_current_test_result`，下一步是 `run_test`
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core block_validation_node --locked
+  PASS：3 tests
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core validation_rework --locked
+  PASS：12 tests
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core validation_ --locked
+  PASS：87 tests
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-cli --bin whale --locked
+git diff --check
+  PASS
+```
+
+状态：该 feedback/action-contract class 已 focused fixed；下一次 keyed rerun 应验证模型在 node-5 上重新运行 schema/public validation，而不是继续用旧 `IndentationError` 文案 closeout。

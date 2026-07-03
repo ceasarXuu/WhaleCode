@@ -5285,6 +5285,7 @@ preview:\n\
             next_node_id,
             next_node_draft.as_ref(),
         )?;
+        self.validate_validation_finish_failure_has_current_result(node_id, result_summary)?;
         let mut validation_events = self.auto_accept_validation_result_for_finish(
             owner_session_id,
             node_id,
@@ -5478,6 +5479,32 @@ preview:\n\
             ));
         }
         Ok(())
+    }
+
+    fn validate_validation_finish_failure_has_current_result(
+        &self,
+        node_id: &str,
+        result_summary: &str,
+    ) -> Result<(), String> {
+        let Some(map_id) = self.active_map_id.as_deref() else {
+            return Ok(());
+        };
+        let Some(map) = self.maps.get(map_id) else {
+            return Ok(());
+        };
+        let Some(node) = map.nodes.get(node_id) else {
+            return Ok(());
+        };
+        if !matches!(node.kind, NodeKind::SmokeTest | NodeKind::RegressionTest)
+            || node_has_validation_tool_result(map, node)
+            || !blocker_claims_validation_failure_without_current_result(result_summary)
+        {
+            return Ok(());
+        }
+        Err(format!(
+            "TaskSpace {} node `{node_id}` cannot be finished as failed validation before this node records a test/build result. Run the required validation command on `{node_id}` first, or finish only after a same-node successful validation result.",
+            node.kind.as_str()
+        ))
     }
 
     pub(crate) fn block_main_node(
@@ -31436,6 +31463,89 @@ organization.json generated successfully.\n"
             state.current_main_node_id.as_deref(),
             Some(validation_node_id.as_str())
         );
+    }
+
+    #[test]
+    fn finish_validation_node_rejects_stale_failure_without_current_test() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (_, map_id, implement_node_id, _) = start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::ImplementSolution,
+            "Generate organization JSON",
+            "Create and validate organization.json.",
+            "Implement generator",
+            "Create generate_org.py.",
+            true,
+        );
+        let (edit_result_id, _) = state
+            .record_main_tool_result_with_class(
+                owner,
+                "edit-generate-org",
+                "apply_patch",
+                Some(ActionClass::Edit),
+                true,
+                "Success. Updated the following files:\nA generate_org.py\n".to_string(),
+            )
+            .expect("edit result records")
+            .expect("edit result id");
+        state
+            .mark_result_validity_for_main(
+                owner,
+                &edit_result_id,
+                "accepted",
+                "accepted implementation edit".to_string(),
+                vec![ActionMapCognitiveClaimInput {
+                    id: "claim-edit-generate-org".to_string(),
+                    statement: "Generator script was edited.".to_string(),
+                    evidence_refs: vec![ActionMapEvidenceRefInput {
+                        result_id: Some(edit_result_id.clone()),
+                        ..Default::default()
+                    }],
+                }],
+                vec![ActionMapEvidenceRefInput {
+                    result_id: Some(edit_result_id.clone()),
+                    ..Default::default()
+                }],
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+            )
+            .expect("edit accepted");
+        let (handoff, _) = state
+            .finish_main_node_with_next(
+                owner,
+                &implement_node_id,
+                "Patched generator.".to_string(),
+                None,
+                Some(ActionMapNextNodeDraft {
+                    kind: NodeKind::SmokeTest,
+                    title: "Run focused validation".to_string(),
+                    context_summary: "Run generate_org.py and schema validation.".to_string(),
+                    dependency_node_ids: vec![implement_node_id.clone()],
+                }),
+            )
+            .expect("finish implementation into validation");
+        let validation_node_id = handoff.next_node_id.expect("validation node");
+
+        let error = state
+            .finish_main_node(
+                owner,
+                &validation_node_id,
+                "Test failed with IndentationError on line 1 of generate_org.py before retesting."
+                    .to_string(),
+                None,
+            )
+            .expect_err("stale failed validation cannot finish without current test");
+
+        assert!(error.contains("cannot be finished as failed validation"));
+        assert!(error.contains("Run the required validation command"));
+        let map = state.maps.get(&map_id).expect("map");
+        let validation = map.nodes.get(&validation_node_id).expect("validation node");
+        assert_eq!(validation.status, NodeStatus::Running);
+        assert!(validation.result_context.is_empty());
     }
 
     #[test]

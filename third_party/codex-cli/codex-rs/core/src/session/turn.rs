@@ -2111,7 +2111,25 @@ fn taskspace_message_hit_validation_needs_test(message: Option<&str>) -> bool {
                 || message.contains(":read_file")
                 || message.contains(":search"))
             || validation_coverage_gate
+            || taskspace_text_mentions_current_validation_test_required(message)
     })
+}
+
+fn taskspace_text_mentions_current_validation_test_required(text: &str) -> bool {
+    taskspace_text_mentions_stale_validation_failure_without_current_test(text)
+        || taskspace_text_mentions_validation_finish_missing_current_test(text)
+        || text.contains("validation_stale_failure_without_current_test")
+        || text.contains("validation_finish_missing_current_test_result")
+}
+
+fn taskspace_text_mentions_stale_validation_failure_without_current_test(text: &str) -> bool {
+    (text.contains("cannot be blocked as failed validation")
+        || text.contains("cannot be finished as failed validation"))
+        && text.contains("before this node records a test/build result")
+}
+
+fn taskspace_text_mentions_validation_finish_missing_current_test(text: &str) -> bool {
+    text.contains("cannot be completed without a recorded successful test or build action")
 }
 
 fn taskspace_message_hit_apply_patch_intent_format_rejection(message: Option<&str>) -> bool {
@@ -2888,6 +2906,9 @@ fn is_actionable_taskspace_gate_feedback_output(item: &ResponseItem) -> bool {
         || response_item_text_contains(item, "validation_test_missing_local_validator_coverage")
         || response_item_text_contains(item, "validation_test_missing_changed_artifact_coverage")
         || response_item_text_contains(item, "validation_test_missing_output_contract_coverage")
+        || response_item_texts_contain(item, &|text| {
+            taskspace_text_mentions_current_validation_test_required(text)
+        })
         || (response_item_texts_contain(item, &|text| {
             taskspace_missing_command_script_from_text(text).is_some()
         }))
@@ -2960,6 +2981,11 @@ fn taskspace_action_contract_recent_tool_outputs_item(
     let validation_command_missing_script_seen = summaries
         .iter()
         .any(|(_, text)| text.contains("validation_command_missing_script"));
+    let validation_current_test_required_seen = summaries.iter().any(|(_, text)| {
+        text.contains("validation_stale_failure_without_current_test")
+            || text.contains("validation_finish_missing_current_test_result")
+            || taskspace_text_mentions_current_validation_test_required(text)
+    });
     let unreviewed_result_blocker_seen = summaries.iter().any(|(_, text)| {
         text.contains("taskspace_unreviewed_result_blocker")
             || (text.contains("still unreviewed") && text.contains("result_validities"))
@@ -3030,6 +3056,8 @@ fn taskspace_action_contract_recent_tool_outputs_item(
         "progress_hint: A previous block_node action was rejected because the dependency inspect node already recorded successful diagnostic evidence. Do not rerun diagnostic commands and do not block for the same prerequisite. Next action must be apply_patch with the smallest concrete implementation fix from inspected evidence.\n"
     } else if unreviewed_result_blocker_seen {
         "progress_hint: A previous ordinary tool was blocked because a TaskSpace node result is still unreviewed. Do not repeat read/list/search. Next action must be taskspace_control with action=state_commit and result_validities for the named result.\n"
+    } else if validation_current_test_required_seen {
+        "progress_hint: A previous block_node or finish_node action tried to close the current validation node using failure text before this node had its own test/build result. Stay on the validation node. Next action must be run_test with the required validation command from the current TaskSpace projection; do not finish_node, block_node, create implementation rework, read_file, list_files, or search before the current validation result is recorded.\n"
     } else if validation_command_missing_script_seen {
         "progress_hint: The previous run_test did not start the validator because the command referenced a missing script. Stay on the validation node. Next action must be run_test with an existing changed script from the current TaskSpace projection, then validate the expected output artifact.\n"
     } else if changed_artifact_coverage_failure_seen {
@@ -3107,6 +3135,28 @@ fn taskspace_action_contract_tool_feedback_summary(
         return text.to_string();
     }
     let action = taskspace_action_contract_action_name_from_call_id(call_id).unwrap_or("unknown");
+    if taskspace_text_mentions_stale_validation_failure_without_current_test(text) {
+        return format!(
+            "{TASKSPACE_TOOL_FEEDBACK_MARKER}\n\
+tool_source: action_contract_internal\n\
+tool_action: {action}\n\
+tool_result: blocked\n\
+failure_kind: validation_stale_failure_without_current_test\n\
+next_valid_action: emit exactly one run_test action on the current validation node using the required validation command from the current TaskSpace projection. Do not finish_node, block_node, create implementation rework, read_file, list_files, or search until this validation node records its own test/build result.\n\
+raw_output:\n{text}"
+        );
+    }
+    if taskspace_text_mentions_validation_finish_missing_current_test(text) {
+        return format!(
+            "{TASKSPACE_TOOL_FEEDBACK_MARKER}\n\
+tool_source: action_contract_internal\n\
+tool_action: {action}\n\
+tool_result: blocked\n\
+failure_kind: validation_finish_missing_current_test_result\n\
+next_valid_action: emit exactly one run_test action on the current validation node using the required validation command from the current TaskSpace projection. Do not finish_node, block_node, create implementation rework, read_file, list_files, or search before a current test/build result exists.\n\
+raw_output:\n{text}"
+        );
+    }
     if action == "apply_patch"
         && let Some(target) = taskspace_missing_update_targets_from_apply_patch_text(text)
     {
@@ -4713,6 +4763,87 @@ Then I will inspect the file."#,
             }
             _ => panic!("expected function payload"),
         }
+    }
+
+    #[test]
+    fn action_contract_failed_validation_finish_normalizes_to_block_node() {
+        let snapshot = provider_snapshot("smoke_test");
+        let args = serde_json::json!({
+            "action": "finish_node",
+            "status": "failed",
+            "reason": "Test failed with IndentationError on process.py line 1."
+        });
+
+        let normalized = normalize_taskspace_action_contract_control_args(&args, Some(&snapshot))
+            .expect("failed validation finish should normalize");
+
+        assert_eq!(normalized["action"], "block_node");
+        assert_eq!(normalized["node_id"], "node-1");
+        assert_eq!(
+            normalized["blocker_summary"],
+            "Test failed with IndentationError on process.py line 1."
+        );
+        assert!(normalized.get("reason").is_none());
+    }
+
+    #[test]
+    fn action_contract_feedback_requires_current_test_after_stale_validation_block() {
+        let tool_call = ToolCall {
+            tool_name: ToolName::plain("taskspace_control"),
+            call_id: "taskspace-action-contract-17-blocked".to_string(),
+            payload: ToolPayload::Function {
+                arguments: "{\"action\":\"block_node\"}".to_string(),
+            },
+        };
+        let err = CodexErr::Fatal(
+            "TaskSpace smoke_test node `node-5` cannot be blocked as failed validation before this node records a test/build result. Run the required validation command on `node-5` first, or block only with a specific external blocker that prevents validation from running.".to_string(),
+        );
+        let response_input = response_input_for_taskspace_action_tool_error(&tool_call, &err);
+        let response_item: ResponseItem = response_input.into();
+        let (_, summary) = taskspace_action_contract_tool_output_summary(&response_item)
+            .expect("failed action-contract output summarizes");
+        let recent = taskspace_action_contract_recent_tool_outputs_item(
+            &[response_item],
+            Some("smoke_test"),
+        )
+        .expect("recent feedback should be produced");
+        let text = item_text(recent);
+
+        assert!(summary.contains("failure_kind: validation_stale_failure_without_current_test"));
+        assert!(summary.contains("next_valid_action: emit exactly one run_test action"));
+        assert!(text.contains("Next action must be run_test"));
+        assert!(text.contains("do not finish_node"));
+        assert!(taskspace_message_hit_validation_needs_test(Some(&summary)));
+    }
+
+    #[test]
+    fn action_contract_feedback_requires_current_test_after_validation_finish_without_result() {
+        let tool_call = ToolCall {
+            tool_name: ToolName::plain("taskspace_control"),
+            call_id: "taskspace-action-contract-18-taskspace_control".to_string(),
+            payload: ToolPayload::Function {
+                arguments: "{\"action\":\"finish_node\"}".to_string(),
+            },
+        };
+        let err = CodexErr::Fatal(
+            "TaskSpace smoke_test node `node-5` cannot be completed without a recorded successful test or build action. Run validation in this node, or block it if validation fails and create a follow-up implementation node.".to_string(),
+        );
+        let response_input = response_input_for_taskspace_action_tool_error(&tool_call, &err);
+        let response_item: ResponseItem = response_input.into();
+        let (_, summary) = taskspace_action_contract_tool_output_summary(&response_item)
+            .expect("failed action-contract output summarizes");
+        let recent = taskspace_action_contract_recent_tool_outputs_item(
+            &[response_item],
+            Some("smoke_test"),
+        )
+        .expect("recent feedback should be produced");
+        let text = item_text(recent);
+
+        assert!(summary.contains("failure_kind: validation_finish_missing_current_test_result"));
+        assert!(summary.contains("next_valid_action: emit exactly one run_test action"));
+        assert!(text.contains("Next action must be run_test"));
+        assert!(text.contains("before this node had its own test/build result"));
+        assert!(taskspace_message_hit_validation_needs_test(Some(&summary)));
     }
 
     #[test]
@@ -9686,6 +9817,15 @@ fn taskspace_finish_node_should_block_failed_validation(
     taskspace_json_contains_failed_validity(root.get("result_validities"))
         || taskspace_json_contains_failed_validity(root.get("validities"))
         || taskspace_json_contains_failed_validity(root.get("results"))
+        || taskspace_json_contains_failed_validity(root.get("result_validity"))
+        || taskspace_json_contains_failed_validity(root.get("validity"))
+        || taskspace_json_contains_failed_validity(root.get("status"))
+        || taskspace_json_contains_failed_validity(root.get("outcome"))
+        || taskspace_json_claims_failed_validation(root.get("blocker_summary"))
+        || taskspace_json_claims_failed_validation(root.get("result_summary"))
+        || taskspace_json_claims_failed_validation(root.get("summary"))
+        || taskspace_json_claims_failed_validation(root.get("result"))
+        || taskspace_json_claims_failed_validation(root.get("reason"))
 }
 
 fn taskspace_json_contains_failed_validity(value: Option<&serde_json::Value>) -> bool {
@@ -9710,6 +9850,36 @@ fn taskspace_validity_is_failed(value: &str) -> bool {
         value.trim().to_ascii_lowercase().as_str(),
         "fail" | "failed" | "failure" | "invalid" | "questioned" | "blocked"
     )
+}
+
+fn taskspace_json_claims_failed_validation(value: Option<&serde_json::Value>) -> bool {
+    let Some(value) = value else {
+        return false;
+    };
+    match value {
+        serde_json::Value::String(value) => taskspace_text_claims_failed_validation(value),
+        serde_json::Value::Array(items) => items
+            .iter()
+            .any(|item| taskspace_json_claims_failed_validation(Some(item))),
+        serde_json::Value::Object(map) => map
+            .values()
+            .any(|value| taskspace_json_claims_failed_validation(Some(value))),
+        _ => false,
+    }
+}
+
+fn taskspace_text_claims_failed_validation(value: &str) -> bool {
+    let lower = value.to_ascii_lowercase();
+    taskspace_validity_is_failed(&lower)
+        || lower.contains("test failed")
+        || lower.contains("tests failed")
+        || lower.contains("validation failed")
+        || lower.contains("validator failed")
+        || lower.contains("schema validation failed")
+        || lower.contains("exit code 1")
+        || lower.contains("indentationerror")
+        || lower.contains("syntaxerror")
+        || lower.contains("traceback")
 }
 
 fn taskspace_failed_validation_blocker_summary(
