@@ -2900,6 +2900,8 @@ fn is_actionable_taskspace_gate_feedback_output(item: &ResponseItem) -> bool {
             && response_item_text_contains(item, "already recorded implementation source evidence"))
         || (response_item_text_contains(item, "cannot be blocked for validator procedure")
             && response_item_text_contains(item, "implementation failure"))
+        || (response_item_text_contains(item, "cannot be blocked for editable validation failure")
+            && response_item_text_contains(item, "failed validation evidence"))
         || response_item_texts_contain(item, &|text| {
             taskspace_output_mentions_local_validator_infra_state_commit(text)
         })
@@ -2975,6 +2977,11 @@ fn taskspace_action_contract_recent_tool_outputs_item(
             || (text.contains("cannot be blocked for validator procedure")
                 && text.contains("implementation failure"))
     });
+    let editable_validation_failure_blocker_rejected_seen = summaries.iter().any(|(_, text)| {
+        text.contains("editable_validation_failure_blocker_rejected")
+            || (text.contains("cannot be blocked for editable validation failure")
+                && text.contains("failed validation evidence"))
+    });
 
     let mut remaining_chars = TASKSPACE_ACTION_CONTRACT_MAX_RECENT_TOOL_OUTPUT_CHARS;
     let mut sections = Vec::new();
@@ -2997,7 +3004,9 @@ fn taskspace_action_contract_recent_tool_outputs_item(
     }
 
     let in_implement_rework = current_node_kind == Some("implement_solution");
-    let progress_hint = if validator_procedure_blocker_rejected_seen {
+    let progress_hint = if editable_validation_failure_blocker_rejected_seen {
+        "progress_hint: A previous block_node action was rejected because validation evidence identifies an editable implementation failure such as IndentationError, SyntaxError, or KeyError. Do not close validation as infrastructure-blocked and do not block for needing more inspection. Next action must be apply_patch for the implementation artifact named by the failed validation evidence; for top-level Python indentation or syntax failures, patch the whole affected file or block in one edit.\n"
+    } else if validator_procedure_blocker_rejected_seen {
         "progress_hint: A previous block_node action was rejected because it blamed validator procedure or test-command setup while dependency validation evidence already identifies an implementation failure. Do not create tests, adjust validator commands, or block for pytest/cache procedure concerns. Next action must be apply_patch for the implementation artifact named by the failed validation evidence.\n"
     } else if missing_source_blocker_rejected_seen {
         "progress_hint: A previous block_node action was rejected because implementation source evidence is already available. Do not create another inspect node and do not rerun diagnostics. Next action must be apply_patch; use the failed patch feedback to correct the target, function signature, or context lines.\n"
@@ -3260,6 +3269,19 @@ tool_action: {action}\n\
 tool_result: blocked\n\
 failure_kind: validator_procedure_blocker_rejected\n\
 next_valid_action: emit exactly one apply_patch action for the implementation artifact named by the failed validation evidence. Do not create tests, adjust validator commands, or block for pytest/cache procedure concerns.\n\
+raw_output:\n{text}"
+        );
+    }
+    if text.contains("cannot be blocked for editable validation failure")
+        && text.contains("failed validation evidence")
+    {
+        return format!(
+            "{TASKSPACE_TOOL_FEEDBACK_MARKER}\n\
+tool_source: action_contract_internal\n\
+tool_action: {action}\n\
+tool_result: blocked\n\
+failure_kind: editable_validation_failure_blocker_rejected\n\
+next_valid_action: emit exactly one apply_patch action for the implementation artifact named by the failed validation evidence. For top-level Python IndentationError or SyntaxError, patch the whole affected file or block in one edit. Do not close validation as infrastructure-blocked and do not block for needing more inspection.\n\
 raw_output:\n{text}"
         );
     }
@@ -6352,6 +6374,41 @@ python: can't open file '/workspace/process.py': [Errno 2] No such file or direc
         assert!(joined.contains("failure_kind: validator_procedure_blocker_rejected"));
         assert!(joined.contains("progress_hint: A previous block_node action was rejected"));
         assert!(joined.contains("validator procedure or test-command setup"));
+        assert!(joined.contains("Next action must be apply_patch"));
+        assert!(!joined.contains("failure_kind: tool_execution_failed"));
+    }
+
+    #[test]
+    fn action_contract_prompt_structures_editable_validation_failure_blocker_rejection() {
+        let latest_active_projection = format!(
+            "{TASKSPACE_ACTIVE_PROFILE_MARKER}\n{TASKSPACE_ACTIVE_PROJECTION_MARKER}\nactive_objective: latest"
+        );
+        let items = vec![
+            message("user", "Continue the task"),
+            message("developer", &latest_active_projection),
+            ResponseItem::FunctionCallOutput {
+                call_id: "taskspace-action-contract-9-blocked".to_string(),
+                output: FunctionCallOutputPayload {
+                    body: FunctionCallOutputBody::Text(
+                        "TaskSpace implement_solution node `node-6` cannot be blocked for editable validation failure because dependency validation evidence already identifies a repairable implementation failure and this rework node has no successful edit. Next valid action: apply_patch the implementation artifact named by the failed validation evidence; for top-level Python IndentationError or SyntaxError, patch the whole affected file or block rather than blocking for inspection. Block only with a specific external blocker that makes editing impossible."
+                            .to_string(),
+                    ),
+                    success: Some(false),
+                },
+            },
+        ];
+
+        let prepared = prepare_taskspace_action_contract_prompt_items_for_node(
+            items,
+            Some("implement_solution"),
+        );
+        let joined = item_texts(&prepared).join("\n");
+
+        assert!(joined.contains(TASKSPACE_TOOL_FEEDBACK_MARKER));
+        assert!(joined.contains("failure_kind: editable_validation_failure_blocker_rejected"));
+        assert!(joined.contains("progress_hint: A previous block_node action was rejected"));
+        assert!(joined.contains("IndentationError"));
+        assert!(joined.contains("patch the whole affected file"));
         assert!(joined.contains("Next action must be apply_patch"));
         assert!(!joined.contains("failure_kind: tool_execution_failed"));
     }

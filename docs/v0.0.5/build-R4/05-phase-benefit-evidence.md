@@ -1658,3 +1658,57 @@ CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core inspect_missing_fact_so
 
 状态：该 projection-layer feedback class 已 focused fixed；R4-G utility 仍需再次 keyed rerun 验证 TaskSpace 是否会读取
 `projects.csv` 并进入 implement，或暴露下一层 long-flow 问题。
+
+## 5.23 2026-07-04 editable validation failure misblock
+
+projection fact-source guard 修复后的 keyed rerun：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260703h-projection-factsource/runs/terminal_bench__organization-json-generator/20260704-004643-993
+reported_evidence_level: E1
+outcome_standard: wrong
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 10
+nodes: 6
+edges: 5
+open_leaf_nodes: 0
+```
+
+关键观察：
+
+| Signal | 结论 |
+|---|---|
+| TaskSpace 读了 `schema.json`、`departments.csv`、`employees.csv`、`projects.csv` | 上一轮 projection/fact-source blocker 已越过 |
+| TaskSpace 创建 `generate_organization.py` 并执行 `python generate_organization.py` | 已进入 implement/validation 链路 |
+| validation 先后报 `IndentationError` line 2 / line 3 | 这是可编辑实现错误，不是 validator infra |
+| rework 节点接受 `block_node`，最终 blocked reason 写入 `closed validation state prevents further editing` / `infra-evidence-unresolved-indentation` | control/feedback 层把实现错误错误升级成 terminal blocker |
+| public validation 报 `/app/organization.json does not exist` | 目标输出 artifact contract 未满足 |
+
+本轮新增并 focused 修复的新问题类型：
+
+| Case | Before | After | Evidence |
+|---|---|---|---|
+| `implementation-editable-validation-failure-misblocked` | implement rework 的依赖 validation 已明确指向 `IndentationError` / `SyntaxError` / `KeyError` 等可编辑实现失败，但 `block_node` 可把它说成 infra/closed validation，导致不再继续 patch | `block_main_node` 在 rework node 无 successful edit 且依赖 validation evidence 是可编辑失败时拒绝 block；action-contract recent feedback 输出 `editable_validation_failure_blocker_rejected`，下一步必须 patch 失败 artifact，Python 顶层缩进/语法错误按文件或块整体修 | `validation_rework_rejects_editable_validation_failure_blocker_before_edit`; `action_contract_prompt_structures_editable_validation_failure_blocker_rejection` |
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core validation_rework_rejects_editable_validation_failure_blocker_before_edit --lib
+  PASS
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core action_contract_prompt_structures_editable_validation_failure_blocker_rejection --lib
+  PASS
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core validation_rework_rejects_validator_procedure_blocker_before_edit --lib
+  PASS
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core validation_rework_rejects_missing_current_artifact_visibility_blocker --lib
+  PASS
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core implement_recovery_prioritizes_validation_failure_and_inspected_fields --lib
+  PASS
+```
+
+状态：该 control/feedback class 已 focused fixed；R4-G utility 仍需再次 keyed rerun 验证 TaskSpace 是否会继续 patch
+`generate_organization.py`，生成 `organization.json`，并通过 public validation。

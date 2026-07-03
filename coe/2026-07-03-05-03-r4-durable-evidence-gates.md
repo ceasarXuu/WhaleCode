@@ -571,3 +571,59 @@
   - Existing normal projection behavior still permits inspect-to-implement when no declared fact-source artifact is missing.
   - Existing duplicate/manual/forced finish fact-source guards remain passing.
 - Interpretation: The new `inspect-projection-finish-before-fact-source-coverage` class is focused-fixed. Real utility validation still requires another keyed rerun to see whether TaskSpace now reads `projects.csv` and moves into implementation, or exposes the next long-flow blocker.
+
+# Hypothesis H-013: implementation rework can misblock editable validation failures as closed infrastructure
+
+- Claim: After H-012, `organization-json-generator` moves past inspect fact-source coverage and into implementation/validation, but a deterministic editable Python failure can still be accepted as a terminal blocker. Specifically, an implement rework node with dependency validation evidence for `IndentationError` can call `block_node` with a reason like "need to inspect file state"; runtime accepts it, leaves no active rework path, and the final response says validation is closed as blocked by local infrastructure even though the failure is implementation code syntax.
+- Prediction: A keyed rerun after H-012 will read all fact sources, create `generate_organization.py`, run validation, see `IndentationError`, then accept `block_node` instead of forcing another implementation edit. Source inspection will show `block_main_node` has guards for validator procedure/missing source/internal policy blockers, but not for editable validation failures presented as a blocker. Fix validation requires focused runtime and action-contract prompt tests for rejecting this blocker with a structured `editable_validation_failure_blocker_rejected` feedback kind.
+- Diagnostic evidence plan: Inspect the H-012 rerun pair report, validation logs, final action, and `whale-exec.jsonl`; inspect `block_main_node` and recent tool feedback classification; validate with focused runtime/session tests plus adjacent rework-blocker regressions.
+- Status: confirmed.
+
+# Evidence E-032: keyed rerun progresses past projection guard and exposes editable failure misblock
+
+- Prediction tested: H-013 predicts the previous projection/fact-source blocker is gone and the next failure is a rework closeout error.
+- Real rerun:
+  ```text
+  RunDir: target/r4-org-json-real-keyed-20260703h-projection-factsource/runs/terminal_bench__organization-json-generator/20260704-004643-993
+  PairReport: pair-001/pair-report.md
+  reported_evidence_level: E1
+  outcome_standard: wrong
+  outcome_taskspace: engineering_unclean
+  right_exec_timed_out: False
+  right_tool_call_count: 10
+  ```
+- Matched trace signals:
+  - TaskSpace read `schema.json`, `departments.csv`, `employees.csv`, and `projects.csv`.
+  - TaskSpace created `generate_organization.py` and ran `python generate_organization.py`.
+  - Validation failed first with `IndentationError` on line 2, then after a one-line patch failed again on line 3.
+  - The next implement rework node emitted `taskspace_control(action=block_node)` with rationale "Need to inspect file state to fix remaining indentation errors."
+  - The final action was `blocked` with reason "closed validation state prevents further editing or testing" and `infra-evidence-unresolved-indentation`.
+  - Public validation failed because `/app/organization.json` did not exist.
+- Interpretation: H-012 fixed the projection fact-source issue in the real run. The remaining failure is a control/feedback misclassification: source-code `IndentationError` is repairable implementation evidence, not local infrastructure evidence and not a terminal blocker.
+
+# Evidence E-033: editable validation failure blockers are now rejected and structured
+
+- Prediction tested: H-013 requires `block_node` to be rejected when the current implement rework node has dependency validation evidence for an editable code failure and no successful edit.
+- Repair artifacts:
+  - `third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs`
+  - `third_party/codex-cli/codex-rs/core/src/session/turn.rs`
+- Focused commands:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core validation_rework_rejects_editable_validation_failure_blocker_before_edit --lib
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core action_contract_prompt_structures_editable_validation_failure_blocker_rejection --lib
+  ```
+- Result: passed.
+- Matched test signals:
+  - Runtime now rejects `block_node` with `cannot be blocked for editable validation failure` and tells the model to `apply_patch` the failed validation artifact.
+  - Session recent-feedback classifies the rejection as `failure_kind: editable_validation_failure_blocker_rejected`, not generic `tool_execution_failed`.
+  - The recovery text explicitly says top-level Python `IndentationError` / `SyntaxError` should be fixed across the whole affected file or block in one edit.
+- Adjacent regression commands:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core validation_rework_rejects_validator_procedure_blocker_before_edit --lib
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core validation_rework_rejects_missing_current_artifact_visibility_blocker --lib
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core implement_recovery_prioritizes_validation_failure_and_inspected_fields --lib
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core action_contract_prompt_structures_validator_procedure_blocker_rejection --lib
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core action_contract_prompt_structures_missing_source_blocker_rejection --lib
+  ```
+- Adjacent regression result: passed.
+- Interpretation: The new `implementation-editable-validation-failure-misblocked` class is focused-fixed. Real utility validation still requires another keyed rerun to see whether TaskSpace repairs the full indentation issue and creates `organization.json`.

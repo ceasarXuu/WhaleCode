@@ -5393,6 +5393,15 @@ preview:\n\
         }
         if node.kind == NodeKind::ImplementSolution
             && !node_has_successful_action(map, node, ActionClass::Edit)
+            && implement_node_has_dependency_validation_rework_evidence(map, node)
+            && blocker_claims_editable_validation_failure_as_blocker(blocker_summary)
+        {
+            return Err(format!(
+                "TaskSpace implement_solution node `{node_id}` cannot be blocked for editable validation failure because dependency validation evidence already identifies a repairable implementation failure and this rework node has no successful edit. Next valid action: apply_patch the implementation artifact named by the failed validation evidence; for top-level Python IndentationError or SyntaxError, patch the whole affected file or block rather than blocking for inspection. Block only with a specific external blocker that makes editing impossible."
+            ));
+        }
+        if node.kind == NodeKind::ImplementSolution
+            && !node_has_successful_action(map, node, ActionClass::Edit)
             && (implement_node_has_dependency_working_evidence(map, node)
                 || implement_node_has_dependency_validation_rework_evidence(map, node))
             && blocker_claims_internal_policy_instead_of_external_blocker(blocker_summary)
@@ -14737,6 +14746,35 @@ fn blocker_claims_validation_procedure_instead_of_implementation_fix(
         || lower.contains("cannot run recover.py")
         || lower.contains("run the script manually");
     validation_subject && procedure_claim
+}
+
+fn blocker_claims_editable_validation_failure_as_blocker(blocker_summary: &str) -> bool {
+    let lower = blocker_summary.to_ascii_lowercase();
+    let editable_failure = lower.contains("indentationerror")
+        || lower.contains("syntaxerror")
+        || lower.contains("keyerror")
+        || lower.contains("traceback")
+        || lower.contains("assertionerror")
+        || lower.contains("typeerror")
+        || lower.contains("valueerror");
+    let block_claim = lower.contains("need to inspect")
+        || lower.contains("need to read")
+        || lower.contains("file state")
+        || lower.contains("cannot execute")
+        || lower.contains("can't execute")
+        || lower.contains("implementation is incomplete")
+        || lower.contains("closed validation")
+        || lower.contains("blocked")
+        || lower.contains("infra");
+    let external_blocker = lower.contains("e_accessdenied")
+        || lower.contains("access denied")
+        || lower.contains("permission denied")
+        || lower.contains("sandbox")
+        || lower.contains("tool runtime bootstrap")
+        || lower.contains("network")
+        || lower.contains("service unavailable");
+
+    editable_failure && block_claim && !external_blocker
 }
 
 fn inspect_node_unread_referenced_scripts(map: &ActionMapInstance, node: &MapNode) -> Vec<String> {
@@ -30158,6 +30196,101 @@ summary: diagnostic payload for output reference smoke\n\
 
         assert!(error.contains("cannot be blocked for validator procedure"));
         assert!(error.contains("apply_patch"));
+    }
+
+    #[test]
+    fn validation_rework_rejects_editable_validation_failure_blocker_before_edit() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (_, _map_id, implement_node_id, _) = start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::ImplementSolution,
+            "Generate organization output",
+            "Create the generator script and output artifact.",
+            "Implement generator",
+            "Create generate_organization.py and organization.json.",
+            true,
+        );
+        let (edit_result_id, _) = state
+            .record_main_tool_result_with_class(
+                owner,
+                "edit-generator",
+                "apply_patch",
+                Some(ActionClass::Edit),
+                true,
+                "Success. Updated the following files:\nA generate_organization.py\n".to_string(),
+            )
+            .expect("edit result")
+            .expect("edit result id");
+        state
+            .mark_result_validity_for_main(
+                owner,
+                &edit_result_id,
+                "accepted",
+                "accepted implementation edit".to_string(),
+                vec![ActionMapCognitiveClaimInput {
+                    id: "claim-edit-generator".to_string(),
+                    statement: "Generator script was created.".to_string(),
+                    evidence_refs: vec![ActionMapEvidenceRefInput {
+                        result_id: Some(edit_result_id.clone()),
+                        ..Default::default()
+                    }],
+                }],
+                vec![ActionMapEvidenceRefInput {
+                    result_id: Some(edit_result_id.clone()),
+                    ..Default::default()
+                }],
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+            )
+            .expect("edit accepted");
+        let (handoff, _) = state
+            .finish_main_node_with_next(
+                owner,
+                &implement_node_id,
+                "Created generator script.".to_string(),
+                None,
+                Some(ActionMapNextNodeDraft {
+                    kind: NodeKind::SmokeTest,
+                    title: "Run generator validation".to_string(),
+                    context_summary: "Run validation that executes generate_organization.py."
+                        .to_string(),
+                    dependency_node_ids: vec![implement_node_id.clone()],
+                }),
+            )
+            .expect("finish implementation into validation");
+        let validation_node_id = handoff.next_node_id.expect("validation node id");
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "run-generator",
+                "shell_command",
+                Some(ActionClass::Test),
+                false,
+                "python generate_organization.py failed\n  File \"generate_organization.py\", line 3\n    import csv\nIndentationError: unexpected indent".to_string(),
+            )
+            .expect("failed validation should route rework")
+            .expect("validation result");
+        let rework_node_id = state
+            .current_main_node_id
+            .clone()
+            .expect("failed validation should bind rework");
+        assert_ne!(rework_node_id, validation_node_id);
+
+        let error = state
+            .block_main_node(
+                owner,
+                &rework_node_id,
+                "Test failed with IndentationError on line 3 after patch. Need to inspect file state to fix remaining indentation errors.".to_string(),
+            )
+            .expect_err("editable validation failure should require implementation patch");
+
+        assert!(error.contains("cannot be blocked for editable validation failure"));
+        assert!(error.contains("apply_patch"));
+        assert!(error.contains("whole affected file"));
     }
 
     #[test]
