@@ -154,6 +154,7 @@ const TASKSPACE_APPLY_PATCH_MISSING_TARGET_MARKER: &str =
     "TaskSpaceApplyPatchMissingTargetRecoveryV1:";
 const TASKSPACE_APPLY_PATCH_UNANCHORED_UPDATE_MARKER: &str =
     "TaskSpaceApplyPatchUnanchoredUpdateRecoveryV1:";
+const TASKSPACE_APPLY_PATCH_NATIVE_HUNK_MARKER: &str = "TaskSpaceApplyPatchNativeHunkRecoveryV1:";
 const TASKSPACE_PATCH_INTENT_FORMAT_MARKER: &str = "TaskSpacePatchIntentFormatRecoveryV1:";
 const TASKSPACE_VALIDATION_INFRA_RECOVERY_MARKER: &str = "TaskSpaceValidationInfraRecoveryV1:";
 const TASKSPACE_VALIDATION_NEEDS_TEST_MARKER: &str = "TaskSpaceValidationNeedsTestRecoveryV1:";
@@ -1786,6 +1787,33 @@ Current required behavior:\n\
     }
 }
 
+fn build_taskspace_apply_patch_native_hunk_recovery_item(targets: &str) -> ResponseItem {
+    let targets = targets.trim();
+    let targets = if targets.is_empty() {
+        "(unknown updated file)"
+    } else {
+        targets
+    };
+    let text = format!(
+        "{TASKSPACE_APPLY_PATCH_NATIVE_HUNK_MARKER}\n\
+The previous apply_patch mixed native apply_patch grammar with unified-diff/range/placeholder hunk syntax for: {targets}\n\
+Native apply_patch does not use `--- a/...`, `+++ b/...`, `@@ -old,+new @@`, or `@@ ... @@` placeholder headers inside `*** Update File` sections.\n\
+Current required behavior:\n\
+- Emit exactly one corrected apply_patch now.\n\
+- Use native `*** Update File: <relative/path>` with `@@` plus exact existing context and exact `-old` / `+new` lines.\n\
+- If the file is small or generated and the full intended contents are known, use `*** Delete File: <path>` followed by `*** Add File: <path>` with the complete corrected file.\n\
+- Do not call read_file, list_files, search, finish_node, or validation until this corrected edit succeeds."
+    );
+
+    ResponseItem::Message {
+        id: None,
+        role: "developer".to_string(),
+        content: vec![ContentItem::InputText { text }],
+        end_turn: None,
+        phase: None,
+    }
+}
+
 fn build_taskspace_patch_intent_format_recovery_item(
     evidence_summary: Option<&str>,
     raw_preview: Option<&str>,
@@ -2056,6 +2084,7 @@ fn is_taskspace_implement_needs_edit_recovery_item(item: &ResponseItem) -> bool 
         || response_item_text_contains(item, TASKSPACE_EDIT_FAILURE_MARKER)
         || response_item_text_contains(item, TASKSPACE_APPLY_PATCH_MISSING_TARGET_MARKER)
         || response_item_text_contains(item, TASKSPACE_APPLY_PATCH_UNANCHORED_UPDATE_MARKER)
+        || response_item_text_contains(item, TASKSPACE_APPLY_PATCH_NATIVE_HUNK_MARKER)
         || response_item_text_contains(item, TASKSPACE_PATCH_INTENT_FORMAT_MARKER)
 }
 
@@ -2070,6 +2099,8 @@ fn taskspace_special_recovery_warning_message(item: &ResponseItem) -> String {
         "TaskSpace inserted TaskSpaceApplyPatchMissingTargetRecoveryV1 after apply_patch tried to update a missing file. This guidance does not consume the no-action recovery allowance.".to_string()
     } else if response_item_text_contains(item, TASKSPACE_APPLY_PATCH_UNANCHORED_UPDATE_MARKER) {
         "TaskSpace inserted TaskSpaceApplyPatchUnanchoredUpdateRecoveryV1 after apply_patch used an unanchored Update File patch. This guidance does not consume the no-action recovery allowance.".to_string()
+    } else if response_item_text_contains(item, TASKSPACE_APPLY_PATCH_NATIVE_HUNK_MARKER) {
+        "TaskSpace inserted TaskSpaceApplyPatchNativeHunkRecoveryV1 after apply_patch mixed native grammar with unified/range/placeholder hunk syntax. This guidance does not consume the no-action recovery allowance.".to_string()
     } else if response_item_text_contains(item, TASKSPACE_EDIT_FAILURE_MARKER) {
         "TaskSpace inserted TaskSpaceEditFailureRecoveryV1 after an edit tool call failed. This guidance does not consume the no-action recovery allowance.".to_string()
     } else if response_item_text_contains(item, TASKSPACE_IMPLEMENT_NEEDS_EDIT_MARKER) {
@@ -2220,6 +2251,27 @@ fn taskspace_unanchored_update_targets_from_rejection(message: Option<&str>) -> 
         .unwrap_or(rest)
         .trim();
     (!targets.is_empty()).then(|| targets.to_string())
+}
+
+fn taskspace_native_hunk_targets_from_rejection(message: Option<&str>) -> Option<String> {
+    let message = message?;
+    for marker in [
+        "apply_patch_mixed_native_unified:",
+        "apply_patch_native_hunk_header:",
+    ] {
+        let Some((_, rest)) = message.split_once(marker) else {
+            continue;
+        };
+        let targets = rest
+            .split_once(". Return exactly")
+            .map(|(targets, _)| targets)
+            .unwrap_or(rest)
+            .trim();
+        if !targets.is_empty() {
+            return Some(targets.to_string());
+        }
+    }
+    None
 }
 
 fn taskspace_missing_update_targets_from_apply_patch_error(
@@ -3249,6 +3301,18 @@ tool_result: blocked\n\
 failure_kind: implementation_needs_edit\n\
 {repair_contract}\
 next_valid_action: emit exactly one apply_patch action with the smallest concrete implementation fix from already inspected evidence or failed validation output. If repair_contract is present, satisfy it exactly. Do not read_file, list_files, search, broad shell discovery, or validation from this implementation node before a successful edit is recorded.\n\
+raw_output:\n{text}"
+        );
+    }
+    if let Some(targets) = taskspace_native_hunk_targets_from_rejection(Some(text)) {
+        return format!(
+            "{TASKSPACE_TOOL_FEEDBACK_MARKER}\n\
+tool_source: action_contract_internal\n\
+tool_action: {action}\n\
+tool_result: blocked\n\
+failure_kind: apply_patch_native_hunk_header\n\
+target: {targets}\n\
+next_valid_action: emit exactly one corrected apply_patch using native apply_patch grammar. Do not mix `*** Update File` with `--- a/...` / `+++ b/...`, do not use `@@ -old,+new @@`, and do not use `@@ ... @@` placeholder hunks. Use exact context with `@@`, or replace the small/generated file with `*** Delete File: <path>` followed by `*** Add File: <path>` and complete contents.\n\
 raw_output:\n{text}"
         );
     }
@@ -5399,45 +5463,30 @@ Then I will inspect the file."#,
     }
 
     #[test]
-    fn taskspace_action_contract_apply_patch_normalizes_native_unified_update_hunk_headers() {
+    fn taskspace_action_contract_rejects_native_unified_update_hunk_headers() {
         let action = parse_taskspace_action_v1(
             r#"{"schema_version":"taskspace-action-v1","action":"apply_patch","node_id":"node-1","args":{"patch":"*** Begin Patch\n*** Update File: core/src/session/turn.rs\n@@ -1,1 +1,1 @@\n-old\n+new\n*** End Patch\n"}}"#,
         )
         .expect("valid json");
-        let call = taskspace_action_to_tool_call(&action, &provider_snapshot("implement_solution"))
-            .expect("policy ok")
-            .expect("tool call");
+        let err = taskspace_action_to_tool_call(&action, &provider_snapshot("implement_solution"))
+            .expect_err("native apply_patch must not use unified range hunks");
 
-        match call.payload {
-            ToolPayload::Custom { input } => {
-                assert!(input.contains("*** Update File: core/src/session/turn.rs"));
-                assert!(input.contains("\n@@\n"));
-                assert!(!input.contains("@@ -1,1 +1,1 @@"));
-            }
-            other => panic!("expected custom payload, got {other:?}"),
-        }
+        assert_eq!(
+            err,
+            "apply_patch_mixed_native_unified:core/src/session/turn.rs"
+        );
     }
 
     #[test]
-    fn taskspace_action_contract_apply_patch_drops_unified_hunk_header_from_add_file() {
+    fn taskspace_action_contract_rejects_unified_hunk_header_from_add_file() {
         let action = parse_taskspace_action_v1(
             r#"{"schema_version":"taskspace-action-v1","action":"apply_patch","node_id":"node-1","args":{"patch":"*** Begin Patch\n*** Add File: recover.py\n@@ -0,0 +1,2 @@\n+line 1\n+line 2\n*** End Patch\n"}}"#,
         )
         .expect("valid json");
-        let call = taskspace_action_to_tool_call(&action, &provider_snapshot("implement_solution"))
-            .expect("policy ok")
-            .expect("tool call");
+        let err = taskspace_action_to_tool_call(&action, &provider_snapshot("implement_solution"))
+            .expect_err("native add file must not use unified range hunks");
 
-        match call.payload {
-            ToolPayload::Custom { input } => {
-                assert!(input.contains("*** Add File: recover.py"));
-                assert!(input.contains("+line 1"));
-                assert!(input.contains("+line 2"));
-                assert!(!input.contains("@@ -0,0 +1,2 @@"));
-                assert!(!input.contains("\n@@\n"));
-            }
-            other => panic!("expected custom payload, got {other:?}"),
-        }
+        assert_eq!(err, "apply_patch_mixed_native_unified:recover.py");
     }
 
     #[test]
@@ -5531,6 +5580,44 @@ Then I will inspect the file."#,
     }
 
     #[test]
+    fn taskspace_action_contract_rejects_mixed_native_unified_patch() {
+        let raw = serde_json::json!({
+            "schema_version": "taskspace-action-v1",
+            "action": "apply_patch",
+            "node_id": "node-1",
+            "args": {
+                "patch": "*** Begin Patch\n*** Update File: recover.py\n--- a/recover.py\n+++ b/recover.py\n@@ -1,1 +1,1 @@\n-print('bad')\n+print('fixed')\n*** End Patch\n"
+            },
+        })
+        .to_string();
+        let action = parse_taskspace_action_v1(&raw).expect("valid json");
+
+        let err = taskspace_action_to_tool_call(&action, &provider_snapshot("implement_solution"))
+            .expect_err("mixed native/unified patch must be corrected before tool execution");
+
+        assert_eq!(err, "apply_patch_mixed_native_unified:recover.py");
+    }
+
+    #[test]
+    fn taskspace_action_contract_rejects_native_placeholder_hunk_patch() {
+        let raw = serde_json::json!({
+            "schema_version": "taskspace-action-v1",
+            "action": "apply_patch",
+            "node_id": "node-1",
+            "args": {
+                "patch": "*** Begin Patch\n*** Update File: recover.py\n@@ ... @@\n print('bad')\n+print('fixed')\n*** End Patch\n"
+            },
+        })
+        .to_string();
+        let action = parse_taskspace_action_v1(&raw).expect("valid json");
+
+        let err = taskspace_action_to_tool_call(&action, &provider_snapshot("implement_solution"))
+            .expect_err("placeholder hunk must be corrected before tool execution");
+
+        assert_eq!(err, "apply_patch_native_hunk_header:recover.py");
+    }
+
+    #[test]
     fn taskspace_action_contract_allows_anchored_update_patch() {
         let raw = serde_json::json!({
             "schema_version": "taskspace-action-v1",
@@ -5563,6 +5650,24 @@ Then I will inspect the file."#,
         assert!(text.contains(TASKSPACE_APPLY_PATCH_UNANCHORED_UPDATE_MARKER));
         assert!(text.contains("recover.py"));
         assert!(text.contains("`-old` / `+new`"));
+        assert!(text.contains("*** Delete File: <path>"));
+        assert!(!is_taskspace_no_action_recovery_item(&item));
+        assert!(is_taskspace_implement_needs_edit_recovery_item(&item));
+    }
+
+    #[test]
+    fn apply_patch_native_hunk_recovery_does_not_count_as_no_action_retry() {
+        let targets = taskspace_native_hunk_targets_from_rejection(Some(
+            "TaskSpaceActionV1 rejected: apply_patch_native_hunk_header:recover.py. Return exactly one valid taskspace-action-v1 JSON object.",
+        ))
+        .expect("target parsed");
+        let item = build_taskspace_apply_patch_native_hunk_recovery_item(&targets);
+        let text = item_text(item.clone());
+
+        assert_eq!(targets, "recover.py");
+        assert!(text.contains(TASKSPACE_APPLY_PATCH_NATIVE_HUNK_MARKER));
+        assert!(text.contains("recover.py"));
+        assert!(text.contains("Do not call read_file"));
         assert!(text.contains("*** Delete File: <path>"));
         assert!(!is_taskspace_no_action_recovery_item(&item));
         assert!(is_taskspace_implement_needs_edit_recovery_item(&item));
@@ -9434,6 +9539,55 @@ fn taskspace_apply_patch_declared_targets(patch: &str) -> Vec<String> {
     targets
 }
 
+fn taskspace_apply_patch_mixed_native_unified_targets(patch: &str) -> Vec<String> {
+    let has_native_target = patch
+        .lines()
+        .any(|line| line.starts_with("*** Update File: ") || line.starts_with("*** Add File: "));
+    if !has_native_target {
+        return Vec::new();
+    }
+    let has_unified_marker = patch.lines().any(|line| {
+        line.starts_with("--- ")
+            || line.starts_with("+++ ")
+            || line.starts_with("@@ -")
+            || line.starts_with("@@ +")
+    });
+    if !has_unified_marker {
+        return Vec::new();
+    }
+    taskspace_apply_patch_declared_targets(patch)
+}
+
+fn taskspace_apply_patch_native_hunk_header_targets(patch: &str) -> Vec<String> {
+    let mut targets = Vec::new();
+    let mut current_target: Option<String> = None;
+    for line in patch.lines() {
+        if let Some(target) = line
+            .strip_prefix("*** Update File: ")
+            .or_else(|| line.strip_prefix("*** Add File: "))
+            .map(str::trim)
+        {
+            current_target = (!target.is_empty()).then(|| target.to_string());
+            continue;
+        }
+        if line.starts_with("*** Delete File: ") || line.starts_with("*** End Patch") {
+            current_target = None;
+            continue;
+        }
+        let trimmed = line.trim();
+        let invalid_hunk = trimmed.starts_with("@@ -")
+            || trimmed.starts_with("@@ +")
+            || (trimmed.starts_with("@@") && trimmed.contains("..."));
+        if invalid_hunk
+            && let Some(target) = current_target.as_ref()
+            && !targets.iter().any(|existing| existing == target)
+        {
+            targets.push(target.clone());
+        }
+    }
+    targets
+}
+
 fn taskspace_apply_patch_unanchored_update_targets(patch: &str) -> Vec<String> {
     let mut targets = Vec::new();
     let mut current_target: Option<String> = None;
@@ -9704,8 +9858,32 @@ fn taskspace_action_to_tool_call(
                     existing_add_targets.join(",")
                 ));
             }
+            let mixed_native_unified_targets =
+                taskspace_apply_patch_mixed_native_unified_targets(&patch);
+            if !mixed_native_unified_targets.is_empty() {
+                return Err(format!(
+                    "apply_patch_mixed_native_unified:{}",
+                    mixed_native_unified_targets.join(",")
+                ));
+            }
+            let native_hunk_header_targets =
+                taskspace_apply_patch_native_hunk_header_targets(&patch);
+            if !native_hunk_header_targets.is_empty() {
+                return Err(format!(
+                    "apply_patch_native_hunk_header:{}",
+                    native_hunk_header_targets.join(",")
+                ));
+            }
             let patch = normalize_taskspace_unified_diff_patch(&patch)
                 .unwrap_or_else(|| normalize_taskspace_apply_patch(&patch));
+            let native_hunk_header_targets =
+                taskspace_apply_patch_native_hunk_header_targets(&patch);
+            if !native_hunk_header_targets.is_empty() {
+                return Err(format!(
+                    "apply_patch_native_hunk_header:{}",
+                    native_hunk_header_targets.join(",")
+                ));
+            }
             let unanchored_update_targets = taskspace_apply_patch_unanchored_update_targets(&patch);
             if !unanchored_update_targets.is_empty() {
                 return Err(format!(
@@ -11355,6 +11533,12 @@ async fn try_run_sampling_request(
                         last_agent_message.as_deref(),
                     ) {
                         Some(build_taskspace_apply_patch_format_recovery_item(&targets))
+                    } else if let Some(targets) =
+                        taskspace_native_hunk_targets_from_rejection(last_agent_message.as_deref())
+                    {
+                        Some(build_taskspace_apply_patch_native_hunk_recovery_item(
+                            &targets,
+                        ))
                     } else if let Some(targets) = taskspace_unanchored_update_targets_from_rejection(
                         last_agent_message.as_deref(),
                     ) {

@@ -2491,3 +2491,84 @@ CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/co
 状态：该 feedback-layer class 已 focused fixed；下一次 keyed rerun 应验证模型在 `node-4` 直接 patch
 `process_csv_to_json.py`，把 `member_ids` 输出修成 schema 需要的 `members`，并补齐 statistics 的 camelCase
 required 字段后重新进入 schema/public validation。
+
+## 5.37 2026-07-04 validator path target pollution and native patch grammar feedback
+
+`validation-schema-repair-contract-not-projected` 修复后的 keyed rerun 已经越过 schema contract 缺失：
+模型看到 repair contract 后进入 `process.py` 编辑，但暴露出新的 tools 链路问题。
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260703y-schema-contract/runs/terminal_bench__organization-json-generator/20260704-051107-000
+reported_evidence_level: E1
+outcome_standard: wrong
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 13
+right_open_leaf_nodes: 1
+public_validation_exit_code: 1
+hidden_oracle_exit_code: 0
+```
+
+关键观察：
+
+| Signal | 结论 |
+|---|---|
+| validation rework feedback 已携带 `validation_schema_repair_contract` | H-026 生效，schema repair 语义没有继续缺失 |
+| `node-4` 读 `process.py` 后尝试 `apply_patch` | provider 已进入编辑路径 |
+| projection 中出现 `/home/zhangxu/miniconda3/lib/python3.12/site-packages/jsonschema/__main__.py:4` | validator runtime 路径污染了 rework target 列表 |
+| patch 同时包含 `*** Update File: process.py`、`--- a/process.py`、`+++ b/process.py`、`@@ ... @@` | provider 混用了 native apply_patch grammar 和 unified/placeholder hunk |
+| edit tool 返回 `apply_patch verification failed: Failed to find expected lines` | 错误到达底层工具后才表现为泛化 expected-lines failure |
+| 最终 `provider_node_request_hard_limit_exceeded node_request_count=6/5` | feedback 没有把 patch 语法问题压成下一步唯一动作 |
+
+本轮新增并 focused 修复的问题类型：
+
+| Case | Before | After | Evidence |
+|---|---|---|---|
+| `validator-path-target-pollution-and-native-patch-grammar-feedback-gap` | validation failure 中的 jsonschema/Python runtime 路径可能被当作 rework artifact；native apply_patch 内混入 `---/+++`、`@@ -...` 或 `@@ ... @@` 时会落到底层 edit tool，失败语义退化成 expected-lines | runtime 过滤外部 validator/runtime 路径，只保留项目 artifact；action contract 在工具执行前拒绝 mixed native/unified 和 placeholder hunk，返回 `apply_patch_mixed_native_unified` / `apply_patch_native_hunk_header`；recovery 要求 exactly one corrected native patch 或 Delete/Add full file，且不计入 no-action retry | `validation_rework_projects_schema_repair_contract_from_schema_read`; `taskspace_action_contract_rejects_mixed_native_unified_patch`; `taskspace_action_contract_rejects_native_placeholder_hunk_patch`; `apply_patch_native_hunk_recovery_does_not_count_as_no_action_retry` |
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_rework_projects_schema_repair_contract_from_schema_read --locked
+  PASS：jsonschema runtime path 不再进入 schema repair contract / rework target
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core taskspace_action_contract_rejects_mixed_native_unified_patch --locked
+  PASS：`*** Update File` 混用 `---/+++` 或 range hunk 时，在 action contract 层拒绝
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core taskspace_action_contract_rejects_native_placeholder_hunk_patch --locked
+  PASS：`@@ ... @@` placeholder hunk 在 normalizer 前拒绝，避免被改写成看似合法 hunk
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core taskspace_action_contract_rejects_native_unified_update_hunk_headers --locked
+  PASS：native `*** Update File` 内的 `@@ -old,+new @@` range hunk 不再自动改写，而是反馈为混合语法错误
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core taskspace_action_contract_rejects_unified_hunk_header_from_add_file --locked
+  PASS：native `*** Add File` 内的 unified range hunk 不再静默删除，而是反馈为混合语法错误
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core apply_patch_native_hunk_recovery_does_not_count_as_no_action_retry --locked
+  PASS：`TaskSpaceApplyPatchNativeHunkRecoveryV1` 属于 edit recovery，不消耗 generic no-action retry
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_rework --locked
+  PASS：13 tests
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core implementation_needs_edit --locked
+  PASS：2 tests
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib apply_patch_ --locked
+  PASS：32 tests；旧的 mixed native/unified auto-normalization 预期已改为拒绝语义
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_ --locked
+  PASS：89 tests
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --all --check
+git diff --check
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-cli --bin whale --locked
+  PASS
+```
+
+执行经验：本地 Rust 测试如果不带 `CODEX_SKIP_VENDORED_BWRAP=1`，会触发 vendored bubblewrap 构建；当前环境缺
+`libcap.pc`，因此会在 `codex-linux-sandbox` build script 失败。R4 本地验证沿用
+`CODEX_SKIP_VENDORED_BWRAP=1`，除非先安装 libcap development metadata。
+
+状态：该 tools 链路 class 已在 unit/regression/build 层通过；下一次 keyed rerun 应验证模型在 schema repair contract
+存在时，用合法 native patch 修正 `process.py`，而不是把 patch 语法错误交给底层 edit tool 或把
+jsonschema runtime 路径当作可读 artifact。

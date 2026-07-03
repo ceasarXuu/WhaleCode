@@ -1393,3 +1393,71 @@
   - `critical_artifact_evidence` now includes `validation_rework_schema_repair signal=validation_schema_repair_contract`.
   - `next_valid_actions`, duplicate-read gate recovery, generic `implementation_needs_edit` recovery, and session `TaskSpaceActionContractRecentToolOutputsV1` now carry `repair_contract` and tell the provider to satisfy it exactly before validation rerun.
 - Interpretation: The new `validation-schema-repair-contract-not-projected` class is focused-fixed at unit/regression level. A new keyed rerun is required to verify that `organization-json-generator` now patches schema fields instead of rereading schema/target.
+
+# Hypothesis H-027: validator path pollution and native patch grammar errors are not treated as first-class tool feedback
+
+- Claim: After H-026, the schema repair contract is visible enough for the provider to attempt an edit, but two adjacent tool-link issues still drain the node budget. First, validation failure text can leak validator/runtime file paths such as `/site-packages/jsonschema/__main__.py:4` into rework target artifacts, diluting next valid actions with a non-project path. Second, malformed `apply_patch` payloads that mix native apply_patch grammar with unified diff or placeholder hunk syntax are passed to the edit tool, where they fail as generic expected-line errors instead of returning a precise action-contract correction before tool execution.
+- Prediction: A keyed rerun after H-026 will show `validation_schema_repair_contract` present and the provider attempting to patch `process.py`; projection may list a jsonschema runtime path as a target artifact; patch attempts will include `*** Update File` mixed with `--- a/...`, `+++ b/...`, `@@ -...`, or `@@ ... @@`, followed by failed edit results and provider-node hard stop. Repair should filter external validator paths from validation rework targets and reject mixed/placeholder native patch hunks in the action contract with a recovery item that does not consume no-action retry budget.
+- Diagnostic evidence plan: Inspect the post-H-026 keyed run trace and observability; add runtime tests proving jsonschema runtime paths are ignored as rework artifacts; add session tests proving mixed native/unified patch syntax and `@@ ... @@` placeholder hunks are rejected before tool execution and projected as edit recovery guidance.
+- Status: confirmed.
+
+# Evidence E-061: H-026 rerun reaches schema-contract edit but fails on target pollution and patch grammar
+
+- Prediction tested: H-027 predicts that the schema contract is no longer missing, and the next failure moves to capability/feedback handling around target extraction and edit syntax.
+- Real rerun:
+  ```text
+  RunDir: target/r4-org-json-real-keyed-20260703y-schema-contract/runs/terminal_bench__organization-json-generator/20260704-051107-000
+  PairReport: pair-001/pair-report.md
+  reported_evidence_level: E1
+  outcome_standard: wrong
+  outcome_taskspace: engineering_unclean
+  right_exec_timed_out: False
+  right_tool_call_count: 13
+  right_open_leaf_nodes: 1
+  public_validation_exit_code: 1
+  hidden_oracle_exit_code: 0
+  ```
+- Matched trace signals:
+  - H-026 was crossed: validation rework feedback carried `validation_schema_repair_contract`, and `node-4` stopped rereading schema before its first edit attempt.
+  - `node-4` read the target `process.py`, then attempted `apply_patch`.
+  - Projection still included a polluted target such as `/home/zhangxu/miniconda3/lib/python3.12/site-packages/jsonschema/__main__.py:4`, which is validator runtime output, not a project artifact.
+  - The first patch mixed native grammar and unified/placeholder hunk syntax: `*** Update File: process.py` plus `--- a/process.py`, `+++ b/process.py`, and `@@ ... @@`.
+  - The edit tool failed with `apply_patch verification failed: Failed to find expected lines`.
+  - A later patch again used stale or placeholder context and failed expected-line matching; the node then hit `TaskSpaceProviderBudgetHardStopV1 reason=provider_node_request_hard_limit_exceeded node_request_count=6/5`.
+- Interpretation: This is not a schema contract absence anymore. The feedback gap is that invalid edit syntax and external validator paths were not made first-class action-contract facts before the lower-level tool failure.
+
+# Evidence E-062: validator paths are filtered and native patch grammar is rejected before tool execution
+
+- Prediction tested: H-027 requires both capability-layer target filtering and feedback-layer patch grammar recovery.
+- Repair artifacts:
+  - `third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs`
+  - `third_party/codex-cli/codex-rs/core/src/session/turn.rs`
+- Focused commands:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_rework_projects_schema_repair_contract_from_schema_read --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core taskspace_action_contract_rejects_mixed_native_unified_patch --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core taskspace_action_contract_rejects_native_placeholder_hunk_patch --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core taskspace_action_contract_rejects_native_unified_update_hunk_headers --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core taskspace_action_contract_rejects_unified_hunk_header_from_add_file --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core apply_patch_native_hunk_recovery_does_not_count_as_no_action_retry --locked
+  ```
+- Adjacent regression and build commands:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_rework --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core implementation_needs_edit --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib apply_patch_ --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_ --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --all --check
+  git diff --check
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-cli --bin whale --locked
+  ```
+- Result: passed. `validation_rework` remains 13/13, `implementation_needs_edit` remains 2/2, lib-scoped `apply_patch_` is 32/32 after updating the old auto-normalization expectations to reject mixed native/unified syntax, and `validation_` remains 89/89.
+- Harness hygiene note:
+  - Running these tests without `CODEX_SKIP_VENDORED_BWRAP=1` triggered the vendored bubblewrap build and failed on missing local `libcap.pc`; this was an environment precondition failure, not a code regression. Continue using the established `CODEX_SKIP_VENDORED_BWRAP=1` gate for local R4 Rust verification unless libcap development metadata is installed.
+- Matched test signals:
+  - `validation_failure_text_artifact_refs` ignores external Python/jsonschema runtime paths while retaining real project artifacts such as `generate_org.py`.
+  - Mixed native/unified patch payloads are rejected as `apply_patch_mixed_native_unified:<target>` before invoking the edit tool.
+  - Native placeholder hunk payloads such as `@@ ... @@` are rejected as `apply_patch_native_hunk_header:<target>` before normalization can hide the bad syntax.
+  - `TaskSpaceApplyPatchNativeHunkRecoveryV1` tells the provider to emit exactly one corrected native `apply_patch` or a full Delete/Add replacement, and it does not consume the generic no-action recovery allowance.
+  - Pure unified diffs still normalize to native apply_patch; only mixed native/unified or placeholder native hunks are rejected.
+- Interpretation: The new `validator-path-target-pollution-and-native-patch-grammar-feedback-gap` class is fixed at unit/regression/build level. Binary attestation and another keyed rerun are required before claiming the external `organization-json-generator` case advances past this edit-syntax layer.

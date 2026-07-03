@@ -15704,6 +15704,9 @@ fn validation_failure_text_artifact_refs(text: &str) -> Vec<String> {
             continue;
         }
         let artifact_ref = normalize_failure_artifact_token(token);
+        if !validation_failure_artifact_ref_is_rework_target(&artifact_ref) {
+            continue;
+        }
         if !artifact_ref.is_empty() && !artifacts.iter().any(|existing| existing == &artifact_ref) {
             artifacts.push(artifact_ref);
         }
@@ -15718,6 +15721,25 @@ fn is_validation_failure_artifact_token(lower: &str) -> bool {
     ]
     .iter()
     .any(|suffix| lower.ends_with(suffix) || lower.contains(&format!("{suffix}:")))
+}
+
+fn validation_failure_artifact_ref_is_rework_target(artifact_ref: &str) -> bool {
+    let normalized = normalize_artifact_ref(artifact_ref);
+    let lower = normalized.to_ascii_lowercase();
+    if lower.is_empty()
+        || lower.contains("/site-packages/")
+        || lower.contains("/dist-packages/")
+        || lower.contains("/lib/python")
+        || lower.contains("/miniconda")
+        || lower.contains("/jsonschema/")
+        || lower.contains("/python3.")
+    {
+        return false;
+    }
+    if lower.starts_with('/') || lower.starts_with("~/") {
+        return false;
+    }
+    true
 }
 
 fn normalize_failure_artifact_token(token: &str) -> String {
@@ -32769,6 +32791,7 @@ raw_output:\n\
 tool: shell_command\n\
 command: python generate_org.py && python -m jsonschema -i organization.json schema.json\n\
 raw_output:\n\
+/home/user/miniconda3/lib/python3.12/site-packages/jsonschema/__main__.py:4: DeprecationWarning: The jsonschema CLI is deprecated\n\
 {'name': 'Madrid', 'member_ids': ['D001-E001']}: 'members' is a required property\n\
 {'total_departments': 5}: 'averageDepartmentBudget' is a required property\n"
                     .to_string(),
@@ -32829,6 +32852,7 @@ raw_output:\n\
             contract.contains("target_artifacts=generate_org.py"),
             "{contract}"
         );
+        assert!(!contract.contains("jsonschema"), "{contract}");
         let critical_evidence =
             projection_critical_artifact_evidence(map, Some(&rework_node_id), 4, 900);
         assert!(
