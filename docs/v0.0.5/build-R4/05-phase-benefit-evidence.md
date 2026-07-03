@@ -1571,3 +1571,43 @@ CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale --locked
 
 - `organization-json-generator` utility evidence：需要基于新二进制重跑 keyed sample，确认是否还会 900s timeout 或进入新的 failure class。
 - repeated no-action terminal policy：如果 hard budget stop 后仍在新 turn 或恢复路径形成无效循环，需要另建 case，把 repeated no-action recovery 超阈值升级为 bounded blocked-with-evidence。
+
+## 5.21 2026-07-04 implementation rework feedback evidence join
+
+adaptive inspect budget 后的 keyed rerun 继续把 `organization-json-generator` 推进到下一层 failure class：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260703f-adaptive-budget/runs/terminal_bench__organization-json-generator/20260704-001749-411
+reported_evidence_level: E1
+outcome_standard: wrong
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 16
+```
+
+关键观察：
+
+| Signal | 结论 |
+|---|---|
+| inspect 已读 `employees.csv`、`departments.csv`、`projects.csv` 和 schema | `provider-node-budget-premature-inspect-stop` 已越过真实 rerun 的 inspect blocker |
+| `generate_organization.py` 顶层整体带缩进，先后触发 line 1 / line 2 `IndentationError` | validation failure 可见，但 rework feedback 没有要求系统性修复整文件或整块缩进 |
+| replacement 使用未观察字段 `salary`，最终 `KeyError: 'salary'` | recovery 没有把上游 CSV/schema evidence 和 validation failure 合并成同一行动上下文 |
+| 最终 `TaskSpaceProviderBudgetHardStopV1 request_count=20/20` | hard stop 正常工作，但 request budget 被低质量 rework 消耗完 |
+
+本轮收录并 focused 修复的新问题类型：
+
+| Case | Before | After | Evidence |
+|---|---|---|---|
+| `implementation-rework-feedback-evidence-join` | rework node 能看到 validation failure，但 recovery summary 可能只保留直接依赖或单一 fallback，缺少上游 inspect 数据字段；模型逐行修 `IndentationError` 并凭空使用 `salary` | `current_main_working_evidence_summary()` 使用当前节点有界依赖闭包，合并 `validation_rework` 与 inspect data evidence；`TaskSpaceImplementNeedsEditRecoveryV1` 明确 validation failure 优先、Python 顶层缩进按文件/块整体修、`KeyError` 只能用已观察字段 | `validation_rework_summary_merges_transitive_inspect_evidence_and_failure`; `implement_recovery_prioritizes_validation_failure_and_inspected_fields` |
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core validation_rework_summary_merges_transitive_inspect_evidence_and_failure --lib
+  PASS
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core implement_recovery_prioritizes_validation_failure_and_inspected_fields --lib
+  PASS
+```
+
+状态：该 feedback-layer class 已 focused fixed；R4-G utility 仍未通过，需要再次 keyed rerun 验证是否越过 implement rework，或暴露下一层问题。

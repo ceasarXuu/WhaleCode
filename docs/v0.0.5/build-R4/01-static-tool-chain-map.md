@@ -267,6 +267,7 @@ cargo test -j1 -p codex-core taskspace_action_contract_tool_runtime_bootstrap_fa
 | `duplicate-inspect-premature-fact-source-convergence` | feedback + phase gate | 重复 read/search recovery 在只读了部分声明 fact sources 时强制进入 implement | duplicate gate 列出缺失 fact-source artifacts；manual/forced inspect finish 都要求覆盖声明 artifact | fixed by focused tests |
 | `provider-budget-advisory-runaway` | control loop + feedback | `request_count` 或单节点 `node_request_count` 到达 active budget 后仍可能继续发 provider 请求 | `gate_provider_request_pre_dispatch` 在 provider dispatch 前 hard stop；session 插入 `TaskSpaceProviderBudgetHardStopV1` 并结束当前 turn；保留一次明确 `budget_recovery` grace | focused fixed / real rerun pending |
 | `provider-node-budget-premature-inspect-stop` | control loop + phase gate | per-node hard limit 低于声明 fact-source evidence floor，导致 inspect 未读全 `employees.csv`/`projects.csv` 就 hard stop | inspect 节点的 effective `max_model_requests_per_node` 根据声明 fact-source artifacts 扩展；recovery item 到达边界时下一次请求标记为 `budget_recovery` | focused fixed / real rerun pending |
+| `implementation-rework-feedback-evidence-join` | feedback + dependency projection | validation rework 能看到失败，但 recovery 没把最新 validation failure 和上游 inspect 的 CSV/schema evidence 合并成同一行动上下文，导致逐行修 `IndentationError` 或凭空使用 `salary` 等未观察字段 | `current_main_working_evidence_summary` 使用当前节点的有界依赖闭包并合并 `validation_rework` 摘要；`TaskSpaceImplementNeedsEditRecoveryV1` 明确 validation failure 优先、Python 顶层缩进按文件/块整体修、`KeyError` 只能用已观察字段 | focused fixed / real rerun pending |
 
 其中 `duplicate-inspect-premature-fact-source-convergence` 是本次新增收录的 case。它不是工具原始失败，也不是单纯模型策略错误；
 raw evidence 存在，问题在 feedback/phase gate 语义缺失：runtime 把“重复读已成功”恢复成“inspect 可结束”，但没有检查
@@ -283,6 +284,11 @@ raw evidence 存在，问题在 feedback/phase gate 语义缺失：runtime 把�
 `employees.csv` 和 `projects.csv`。这说明预算硬门不能低于状态机的最低证据地板；否则 runtime 虽然没有超越
 状态机强行推进 phase，却会在 phase 完成条件可达前终止。
 
+再次 rerun `20260704-001749-411` 后，inspect 已越过 evidence floor 并读完 `employees.csv`、`departments.csv`、
+`projects.csv` 和 schema，但 implement rework 暴露 `implementation-rework-feedback-evidence-join`：第一次生成文件的顶层缩进
+系统性错误被逐行修复，后续 replacement 又使用了 CSV 中不存在的 `salary` 字段，最终 `KeyError: 'salary'`。
+这不是能力层工具不可用，而是 feedback 层没有把“最新 validation failure”和“已经读到的字段证据”合并为同一 next-action contract。
+
 对应 focused gate：
 
 ```text
@@ -290,5 +296,7 @@ CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core inspect_duplicate_read_
 CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core inspect_missing_fact_sources_block_manual_and_forced_finish_until_read --lib
 CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core taskspace_active_budget --lib
 CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core provider_budget --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core validation_rework_summary_merges_transitive_inspect_evidence_and_failure --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core implement_recovery_prioritizes_validation_failure_and_inspected_fields --lib
 CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale --locked
 ```

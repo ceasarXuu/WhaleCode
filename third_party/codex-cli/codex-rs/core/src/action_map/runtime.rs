@@ -6795,20 +6795,22 @@ preview:\n\
         let node_id = self.current_main_node_id.as_ref()?;
         let map = self.maps.get(map_id)?;
         let node = map.nodes.get(node_id)?;
-        let mut evidence_node_ids = map
-            .edges
-            .iter()
-            .filter(|edge| edge.to == node.id)
-            .map(|edge| edge.from.as_str())
-            .collect::<Vec<_>>();
-        evidence_node_ids.push(node.id.as_str());
+        let evidence_node_ids = working_evidence_node_ids_for_current_node(map, node);
         let summary = working_evidence_summary_for_nodes(map, &evidence_node_ids);
-        if summary.trim().is_empty() {
-            implement_node_dependency_validation_rework_summary(map, node)
-                .or_else(|| Some(single_line_preview(&node.context.summary, 480)))
-        } else {
-            Some(summary)
+        let rework_summary = implement_node_dependency_validation_rework_summary(map, node);
+        let mut parts = Vec::new();
+        if let Some(rework_summary) = rework_summary
+            && !rework_summary.trim().is_empty()
+        {
+            parts.push(format!("validation_rework: {rework_summary}"));
         }
+        if !summary.trim().is_empty() {
+            parts.push(summary);
+        }
+        if !parts.is_empty() {
+            return Some(parts.join(" | "));
+        }
+        Some(single_line_preview(&node.context.summary, 480))
     }
 
     fn inspect_node_has_successful_code_or_test_read(
@@ -15345,6 +15347,34 @@ fn inspect_code_or_test_read_summary(map: &ActionMapInstance, node: &MapNode) ->
     } else {
         summary
     }
+}
+
+fn working_evidence_node_ids_for_current_node<'a>(
+    map: &'a ActionMapInstance,
+    node: &'a MapNode,
+) -> Vec<&'a str> {
+    let mut ordered = Vec::new();
+    let mut stack = vec![node.id.as_str()];
+    let mut visited = HashSet::new();
+    while let Some(node_id) = stack.pop() {
+        if !visited.insert(node_id) {
+            continue;
+        }
+        ordered.push(node_id);
+        if let Some(origin_node_id) = map
+            .nodes
+            .get(node_id)
+            .and_then(|current| current.origin_node_id.as_deref())
+        {
+            stack.push(origin_node_id);
+        }
+        for edge in &map.edges {
+            if edge.to == node_id {
+                stack.push(edge.from.as_str());
+            }
+        }
+    }
+    ordered
 }
 
 fn working_evidence_summary_for_nodes(map: &ActionMapInstance, node_ids: &[&str]) -> String {
@@ -30526,6 +30556,149 @@ summary: diagnostic payload for output reference smoke\n\
                 ),
             )
             .expect("validation rework still allows edit");
+    }
+
+    #[test]
+    fn validation_rework_summary_merges_transitive_inspect_evidence_and_failure() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (_, _, inspect_node_id, _) = start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::InspectCodeContext,
+            "Generate organization JSON",
+            "Inspect schema and source CSV files before implementation.",
+            "Inspect source data",
+            "Read all declared source data files.",
+            true,
+        );
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "read-employees",
+                "shell_command",
+                Some(ActionClass::Read),
+                true,
+                "TaskSpaceToolInvocationV1:\n\
+tool: shell_command\n\
+command: cat data/employees.csv\n\
+raw_output:\n\
+employee_id,name,department_id,title\n\
+1,Ada,10,Engineer\n"
+                    .to_string(),
+            )
+            .expect("inspect data read records");
+        let (inspect_outcome, _) = state
+            .finish_main_node_with_next(
+                owner,
+                &inspect_node_id,
+                "Read employees.csv source fields.".to_string(),
+                None,
+                Some(ActionMapNextNodeDraft {
+                    kind: NodeKind::ImplementSolution,
+                    title: "Generate organization script".to_string(),
+                    context_summary: "Create generate_organization.py from inspected source data."
+                        .to_string(),
+                    dependency_node_ids: vec![inspect_node_id.clone()],
+                }),
+            )
+            .expect("inspect finishes into implement");
+        let implement_node_id = inspect_outcome
+            .next_node_id
+            .expect("implement node should be created");
+        let (edit_result_id, _) = state
+            .record_main_tool_result_with_class(
+                owner,
+                "edit-generator",
+                "apply_patch",
+                Some(ActionClass::Edit),
+                true,
+                "Success. Updated the following files:\n*** Add File: generate_organization.py\n"
+                    .to_string(),
+            )
+            .expect("implementation edit records")
+            .expect("edit result id");
+        state
+            .mark_result_validity_for_main(
+                owner,
+                &edit_result_id,
+                "accepted",
+                "accepted generated script".to_string(),
+                vec![ActionMapCognitiveClaimInput {
+                    id: "claim-generated-script".to_string(),
+                    statement: "Generator script was created.".to_string(),
+                    evidence_refs: vec![ActionMapEvidenceRefInput {
+                        artifact_ref: Some("generate_organization.py".to_string()),
+                        ..Default::default()
+                    }],
+                }],
+                vec![ActionMapEvidenceRefInput {
+                    artifact_ref: Some("generate_organization.py".to_string()),
+                    ..Default::default()
+                }],
+                vec!["generate_organization.py".to_string()],
+                Vec::new(),
+                Vec::new(),
+            )
+            .expect("implementation edit accepted");
+        let (implement_outcome, _) = state
+            .finish_main_node_with_next(
+                owner,
+                &implement_node_id,
+                "Created generator script.".to_string(),
+                None,
+                Some(ActionMapNextNodeDraft {
+                    kind: NodeKind::SmokeTest,
+                    title: "Run organization validation".to_string(),
+                    context_summary: "Run generated script and schema validation.".to_string(),
+                    dependency_node_ids: vec![implement_node_id.clone()],
+                }),
+            )
+            .expect("implement finishes into validation");
+        let validation_node_id = implement_outcome
+            .next_node_id
+            .expect("validation node should be created");
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "run-generator",
+                "shell_command",
+                Some(ActionClass::Test),
+                false,
+                "TaskSpaceToolInvocationV1:\n\
+tool: shell_command\n\
+command: python generate_organization.py\n\
+raw_output:\n\
+Traceback (most recent call last):\n\
+  File \"generate_organization.py\", line 42, in <module>\n\
+KeyError: 'salary'\n"
+                    .to_string(),
+            )
+            .expect("failed validation routes to rework");
+
+        let current = state
+            .current_main_node_id
+            .as_deref()
+            .expect("failed validation should bind rework");
+        let map = state.active_map().expect("active map");
+        let rework = map.nodes.get(current).expect("rework node");
+        assert_eq!(rework.kind, NodeKind::ImplementSolution);
+        assert_eq!(
+            rework.origin_node_id.as_deref(),
+            Some(validation_node_id.as_str())
+        );
+        let summary = state
+            .current_main_working_evidence_summary()
+            .expect("rework summary");
+        assert!(summary.contains("validation_rework"), "{summary}");
+        assert!(summary.contains("KeyError"), "{summary}");
+        assert!(summary.contains("salary"), "{summary}");
+        assert!(summary.contains("data/employees.csv"), "{summary}");
+        assert!(
+            summary.contains("employee_id,name,department_id,title"),
+            "{summary}"
+        );
     }
 
     #[test]

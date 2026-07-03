@@ -479,3 +479,48 @@
   - The hard-stop policy remains in place.
   - For inspect nodes, the effective node request hard limit now respects declared fact-source artifacts so the runtime does not stop before the minimum evidence floor is reachable.
   - Real utility validation still requires another keyed rerun.
+
+# Hypothesis H-011: implementation rework recovery loses the joint validation-failure plus inspected-data contract
+
+- Claim: After adaptive inspect budget lets TaskSpace read all declared fact-source artifacts, the next failure is a feedback-layer rework problem. The validation failure is routed to an implement_solution rework node, but the recovery summary does not reliably combine the latest validation failure with transitive inspect evidence from the original implementation chain. The model can therefore patch a systemic generated-file error line by line, then rewrite using invented fields such as `salary` instead of observed CSV headers.
+- Prediction: A keyed rerun after H-010 will read `employees.csv`, `departments.csv`, `projects.csv`, and schema before implementation, then fail during implement rework with visible validation errors such as `IndentationError` and `KeyError`. Source inspection will show implement recovery guidance lacks a failure-priority contract for whole-file indentation errors and missing fields, and working evidence summary needs dependency-chain coverage rather than only direct dependency fallback.
+- Diagnostic evidence plan: Inspect the adaptive-budget keyed rerun trace and pair report; inspect `current_main_working_evidence_summary` and `build_taskspace_implement_needs_edit_recovery_item`; fix validation requires focused tests that combine transitive inspect CSV evidence with a blocked validation failure and verify recovery text prioritizes validation failures, whole-file indentation repair, and observed field names.
+- Status: confirmed.
+
+# Evidence E-028: adaptive-budget rerun exposes implementation rework feedback loss
+
+- Prediction tested: H-011 predicts the next blocker appears after inspect succeeds, not before it.
+- Real rerun:
+  ```text
+  RunDir: target/r4-org-json-real-keyed-20260703f-adaptive-budget/runs/terminal_bench__organization-json-generator/20260704-001749-411
+  PairReport: pair-001/pair-report.md
+  reported_evidence_level: E1
+  outcome_standard: wrong
+  outcome_taskspace: engineering_unclean
+  right_exec_timed_out: False
+  right_tool_call_count: 16
+  ```
+- Matched trace signals:
+  - TaskSpace read `data/employees.csv`, `data/departments.csv`, `data/projects.csv`, and schema before implementation; H-010 no longer stopped inspect early.
+  - First generated `generate_organization.py` had top-level leading spaces and failed with `IndentationError: unexpected indent`.
+  - Recovery patched only the first line; the next validation failed with another `IndentationError` on the following line.
+  - A later patch attempt failed, then the replacement script referenced unobserved fields including `salary`.
+  - Final validation failed with `KeyError: 'salary'`, followed by `TaskSpaceProviderBudgetHardStopV1 reason=provider_request_hard_limit_exceeded request_count=20/20`.
+- Interpretation: The failure signal was not absent from the trace, but the implement rework feedback contract did not preserve the joint instruction "fix this validation failure using the already inspected source-data schema" strongly enough for the next action. This is a new R4-D feedback-layer problem type, not the earlier inspect coverage or provider-budget problem.
+
+# Evidence E-029: implementation rework recovery now joins failure evidence with transitive inspect data
+
+- Prediction tested: H-011 requires recovery feedback to preserve both latest validation failure and upstream data/schema evidence.
+- Repair artifacts:
+  - `third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs`
+  - `third_party/codex-cli/codex-rs/core/src/session/turn.rs`
+- Focused commands:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core validation_rework_summary_merges_transitive_inspect_evidence_and_failure --lib
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core implement_recovery_prioritizes_validation_failure_and_inspected_fields --lib
+  ```
+- Result: passed.
+- Matched test signals:
+  - `current_main_working_evidence_summary()` now includes `validation_rework`, `KeyError`, `salary`, `data/employees.csv`, and `employee_id,name,department_id,title` in the same recovery summary.
+  - `TaskSpaceImplementNeedsEditRecoveryV1` now tells the model to treat validation failure as the primary target, fix top-level Python `IndentationError` at whole-file/block scope, and use only observed schema/CSV/JSON field names for `KeyError` repairs.
+- Interpretation: The new `implementation-rework-feedback-evidence-join` class is focused-fixed. Real utility validation still requires another keyed rerun to see whether `organization-json-generator` moves past implement rework or exposes the next failure class.

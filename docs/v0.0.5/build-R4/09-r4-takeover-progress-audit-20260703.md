@@ -125,6 +125,7 @@ raw signal 存在但语义没有正确进入下一轮 tool contract：
 | `duplicate-inspect-premature-fact-source-convergence` | 本次新增收录 case；缺少 `employees.csv` / `projects.csv` 这类声明 fact sources 时，duplicate gate 不再给 `finish_node`，manual/forced finish 都会被 coverage guard 拦截 | focused fixed |
 | `provider-budget-advisory-runaway` | keyed rerun `20260703d` 证实 `request_count` 达到 `max_requests` 后仍继续 provider sampling；已升级为 pre-dispatch hard gate，插入 `TaskSpaceProviderBudgetHardStopV1` 并结束当前 turn，保留一次明确 budget recovery grace | focused fixed / real rerun pending |
 | `provider-node-budget-premature-inspect-stop` | keyed rerun `20260704-000713-854` 证实 hard stop 消除 timeout 后，固定 per-node limit 又在 fact-source evidence floor 前终止 inspect；已改为按声明 fact-source artifacts 扩展 inspect effective node limit，并在边界 recovery 时标记 `budget_recovery` | focused fixed / real rerun pending |
+| `implementation-rework-feedback-evidence-join` | keyed rerun `20260704-001749-411` 证实 inspect 已读全 fact sources 后，implement rework 仍逐行修 `IndentationError` 并凭空使用不存在的 `salary` 字段；已改为合并 validation failure 与上游 inspect CSV/schema evidence，并强化 recovery next-action contract | focused fixed / real rerun pending |
 
 新增关键判断：
 
@@ -167,6 +168,44 @@ TaskSpaceProviderBudgetHardStopV1 reason=provider_node_request_hard_limit_exceed
 
 当前状态：focused 修复已完成；仍需用新二进制重跑 `organization-json-generator` 验证真实 wrong 是否继续推进到 solved 或新的 failure class。
 
+### 3.9 implementation rework feedback evidence join
+
+adaptive budget 修复后的真实 rerun：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260703f-adaptive-budget/runs/terminal_bench__organization-json-generator/20260704-001749-411
+reported_evidence_level: E1
+outcome_standard: wrong
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 16
+```
+
+进展和新问题：
+
+| 层 | 结论 |
+|---|---|
+| inspect | 已读取 `employees.csv`、`departments.csv`、`projects.csv` 和 schema，说明 adaptive fact-source budget 越过了上一层 blocker |
+| validation rework | 失败信息进入 trace，但 recovery 没有把失败和上游 CSV/schema evidence 合并为同一 action contract |
+| failure shape | 先是整文件顶层缩进导致 line 1 / line 2 `IndentationError` 被逐行修，后续 replacement 又引用不存在的 `salary` 字段并触发 `KeyError: 'salary'` |
+| budget | provider hard stop 正常阻断在 `request_count=20/20`，但预算被低质量 rework 消耗完 |
+
+本轮修复：
+
+| 层 | 结论 |
+|---|---|
+| action map | `current_main_working_evidence_summary()` 使用当前节点的有界依赖闭包，并把 `validation_rework` summary 与上游 inspect working evidence 合并 |
+| session recovery | `TaskSpaceImplementNeedsEditRecoveryV1` 明确 validation failure 是 primary target；Python 顶层 `IndentationError` 需要按整文件/整块修；`KeyError` 只能使用已观察到的 schema/CSV/JSON 字段 |
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core validation_rework_summary_merges_transitive_inspect_evidence_and_failure --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core implement_recovery_prioritizes_validation_failure_and_inspected_fields --lib
+```
+
+当前状态：focused 修复已完成；仍需重跑 `organization-json-generator` 验证是否越过 implement rework，或者按新 trace 收录下一层 R4-D/R4-G blocker。
+
 ## 4. 本次验证
 
 | 验证项 | 命令 | 结果 |
@@ -205,6 +244,9 @@ TaskSpaceProviderBudgetHardStopV1 reason=provider_node_request_hard_limit_exceed
 | active budget hard gate suite | `CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core taskspace_active_budget --lib` | PASS：11 tests |
 | Whale build after hard gate | `CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale --locked` | PASS |
 | organization-json-generator hard-stop rerun | `run-taskspace-external-benchmark.ps1 ... -RunRoot target/r4-org-json-real-keyed-20260703e-hardgate` | DIAGNOSTIC: standard solved；TaskSpace wrong；timeout eliminated；new premature inspect hard stop exposed |
+| organization-json-generator adaptive-budget rerun | `run-taskspace-external-benchmark.ps1 ... -RunRoot target/r4-org-json-real-keyed-20260703f-adaptive-budget` | DIAGNOSTIC: inspect 已读全 fact sources；TaskSpace 进入 implement rework，暴露 `IndentationError` 逐行修复和 `KeyError: 'salary'` |
+| implementation rework evidence join | `CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core validation_rework_summary_merges_transitive_inspect_evidence_and_failure --lib` | PASS：rework summary 同时包含 validation failure 和上游 CSV 字段证据 |
+| implementation recovery action contract | `CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core implement_recovery_prioritizes_validation_failure_and_inspected_fields --lib` | PASS：recovery 明确 failure 优先、整文件缩进修复、字段不得发明 |
 | organization-json-generator direct validator | direct `external-validator.ps1` run on generated fixture | PASS：Docker build `classification=ok`; run reaches expected missing `organization.json` assertions |
 | Whitespace | `git diff --check` | PASS |
 
@@ -213,8 +255,8 @@ TaskSpaceProviderBudgetHardStopV1 reason=provider_node_request_hard_limit_exceed
 | 优先级 | 未完成项 | 当前证据 | 下一步 |
 |---:|---|---|---|
 | P0 | TaskSpace utility parity | public-10 closeout 中 TaskSpace 仅 3/10 solved；post-closeout 只证明 `heterogeneous-dates` 已改善；`sqlite-db-truncate` 已收敛到非 timeout wrong；keyed `organization-json-generator` 仍是 E1 diagnostic fail | 继续 R4 utility-convergence，不进入验收通过 |
-| P0 | Long-flow convergence | keyed `organization-json-generator` 的 900s timeout 已被 hard stop 消除，但 TaskSpace 仍 wrong；新的过早 inspect node hard stop 已 focused fixed，尚未 rerun | 重跑该样本；若仍 wrong，再按新 trace 建立下一层 tool/control case |
-| P0 | Provider budget hard stop real-run validation | hard gate 已真实生效；需要验证 adaptive fact-source node limit 后不再过早停在 inspect | 重跑 keyed sample，确认是否继续读取 `employees.csv` / `projects.csv` 并进入 implement/validation |
+| P0 | Long-flow convergence | keyed `organization-json-generator` 的 900s timeout 已被 hard stop 消除；adaptive fact-source budget 已让 inspect 读全输入；当前 focused fixed 到 implement rework feedback evidence join | 重跑该样本；若仍 wrong，再按新 trace 建立下一层 tool/control case |
+| P0 | Provider budget hard stop real-run validation | hard gate 已真实生效；adaptive fact-source node limit 的真实 rerun 已证明不再过早停在 inspect，但 implement rework 消耗完 rollout budget | 下一次 keyed rerun 同时验证 provider hard stop、adaptive inspect、rework evidence join 是否共同推进 utility |
 | P0 | Provider timeout usage flush | 报告层已能从 rollout token_count 恢复 timeout 前 partial usage，并标为 `recovered_from_rollout_trace`；如果进程被杀前没有任何 token_count/response.completed，exact usage 仍不可得 | 后续真实复验时检查 timeout 行是否有 rollout token_count；如无，再做 provider 退出/回收路径 |
 | P1 | 成本/token 放大 | `heterogeneous-dates` post-closeout 已改善，但 public-10 closeout 仍记录 6x-28x request amplification | 新二进制重跑 public-10 subset，更新 durable report snapshot |
 | P1 | Release evidence bundle | raw paired run artifacts 仍在外部 run cache，不在仓库内 | 设计 release artifact policy：保留 summary snapshot、压缩关键 evidence，还是外链 run cache |
@@ -225,5 +267,5 @@ TaskSpaceProviderBudgetHardStopV1 reason=provider_node_request_hard_limit_exceed
 2. 建立 R4 utility-convergence 继续工作入口，优先选择一个 public-10 负样本做 bug-killer 闭环。
 3. `sqlite-db-truncate` 当前适合作为已收敛工具链样本归档：状态是非 timeout、closed graph、`agent_patch_wrong`。
 4. `organization-json-generator` 当前下一步不再是 provider 前置；keyed run 已证明 provider preflight 通过，`bwrap` feedback-layer case 已收录并修复。
-5. 先重跑 `organization-json-generator` 验证 `tool-runtime-bootstrap-failure`、fact-source coverage、provider hard stop 和 adaptive inspect node limit 是否让 TaskSpace 越过 inspect；如仍 wrong，按新 trace 建立下一层 case。
+5. 先重跑 `organization-json-generator` 验证 `tool-runtime-bootstrap-failure`、fact-source coverage、provider hard stop、adaptive inspect node limit 和 implementation rework evidence join 是否让 TaskSpace 越过 implement/validation；如仍 wrong，按新 trace 建立下一层 case。
 6. 每完成一个样本，更新 public-10 snapshot 或生成新的 durable report artifact，避免再次依赖未提交 `target/` 缓存。

@@ -1967,6 +1967,9 @@ TaskSpace implement_solution has enough read/search evidence on the current node
 Current required behavior:\n\
 - Do not call read_file, list_files, search, broad shell discovery, or validation tests from this implementation node.\n\
 - Emit exactly one implementation action now: call apply_patch with the smallest concrete fix supported by the inspected evidence.\n\
+- If the evidence contains a validation failure, treat that failure as the primary target and patch the artifact named by that failure before making generic improvements.\n\
+- If the failure is a top-level Python `IndentationError` in a generated file, fix the whole affected file or block indentation in one patch rather than patching a single import or line at a time.\n\
+- If the failure is a `KeyError` or missing field, use only field names observed in the inspected schema/CSV/JSON evidence; do not invent unobserved columns.\n\
 - Use the file contents and failure clues already present in inspected evidence; do not rediscover them.\n\
 - If no safe edit can be made, return blocked with the exact missing evidence instead of reading the same files again."
     );
@@ -4364,6 +4367,25 @@ Then I will inspect the file."#,
         assert!(text.contains(TASKSPACE_IMPLEMENT_NEEDS_EDIT_MARKER));
         assert!(text.contains("recover.py"));
         assert!(text.contains("apply_patch"));
+        assert!(!is_taskspace_no_action_recovery_item(&item));
+        assert!(is_taskspace_implement_needs_edit_recovery_item(&item));
+    }
+
+    #[test]
+    fn implement_recovery_prioritizes_validation_failure_and_inspected_fields() {
+        let item = build_taskspace_implement_needs_edit_recovery_item(Some(
+            "validation_rework: SmokeTest `node-7` has blocked validation evidence `result-9`: KeyError: 'salary' in generate_organization.py | result-3 artifacts=data/employees.csv: employee_id,name,department_id,title",
+        ));
+        let text = item_text(item.clone());
+
+        assert!(text.contains(TASKSPACE_IMPLEMENT_NEEDS_EDIT_MARKER));
+        assert!(text.contains("validation failure"));
+        assert!(text.contains("primary target"));
+        assert!(text.contains("IndentationError"));
+        assert!(text.contains("whole affected file"));
+        assert!(text.contains("KeyError"));
+        assert!(text.contains("do not invent unobserved columns"));
+        assert!(text.contains("employee_id,name,department_id,title"));
         assert!(!is_taskspace_no_action_recovery_item(&item));
         assert!(is_taskspace_implement_needs_edit_recovery_item(&item));
     }
