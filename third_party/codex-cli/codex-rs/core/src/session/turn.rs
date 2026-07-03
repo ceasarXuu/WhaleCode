@@ -1773,8 +1773,8 @@ fn build_taskspace_apply_patch_native_hunk_recovery_item(targets: &str) -> Respo
     };
     let text = format!(
         "{TASKSPACE_APPLY_PATCH_NATIVE_HUNK_MARKER}\n\
-The previous apply_patch mixed native apply_patch grammar with unified-diff/range/placeholder hunk syntax for: {targets}\n\
-Native apply_patch does not use `--- Update File:`, `--- a/...`, `+++ b/...`, `@@ -old,+new @@`, or `@@ ... @@` placeholder headers inside `*** Update File` sections.\n\
+The previous apply_patch mixed native apply_patch grammar with unified-diff/range hunk syntax for: {targets}\n\
+Native apply_patch does not use `--- Update File:`, `--- a/...`, `+++ b/...`, or `@@ -old,+new @@` range headers inside `*** Update File` sections.\n\
 Current required behavior:\n\
 - Emit exactly one corrected apply_patch now.\n\
 - Use native `*** Update File: <relative/path>` with `@@` plus exact existing context and exact `-old` / `+new` lines.\n\
@@ -2045,7 +2045,7 @@ Previous blocked feedback:\n{previous_excerpt}\n\
 {failed_edit}\
 Current required behavior:\n\
 - Emit exactly one taskspace-action-v1 apply_patch action targeting `{artifact}` now, using the current contents already visible in `{previous_result}` and the failed validation evidence.\n\
-- Use native apply_patch grammar only: `*** Update File: <path>` with `@@` plus exact context and exact `-old` / `+new` lines, or `*** Delete File` followed by `*** Add File` for a complete small/generated rewrite. Do not include `--- Update File:`, `--- a/...`, `+++ b/...`, `@@ -old,+new @@`, or `@@ ... @@` placeholder headers.\n\
+- Use native apply_patch grammar only: `*** Update File: <path>` with `@@` plus exact context and exact `-old` / `+new` lines, or `*** Delete File` followed by `*** Add File` for a complete small/generated rewrite. Do not include `--- Update File:`, `--- a/...`, `+++ b/...`, or `@@ -old,+new @@` range headers.\n\
 - If the most recent failed edit feedback mentions `apply_patch_mixed_native_unified` or `apply_patch_native_hunk_header`, correct that patch grammar now; read_file/context refresh is not a valid recovery for that failure.\n\
 - If repair_contract is present, satisfy it exactly before rerunning validation.\n\
 - Do not call read_file, list_files, search, broad shell discovery, schema inspection, or validation from this implementation node before a successful edit is recorded.\n\
@@ -2175,7 +2175,7 @@ fn taskspace_implement_recovery_advisory_warning_message(
         )
     } else if response_item_text_contains(item, TASKSPACE_APPLY_PATCH_NATIVE_HUNK_MARKER) {
         format!(
-            "TaskSpace inserted TaskSpaceApplyPatchNativeHunkRecoveryV1 because apply_patch mixed native grammar with unified/range/placeholder hunk syntax and must be re-emitted in native apply_patch grammar. Advisory recovery attempt {attempt} is being used."
+            "TaskSpace inserted TaskSpaceApplyPatchNativeHunkRecoveryV1 because apply_patch mixed native grammar with unified/range hunk syntax and must be re-emitted in native apply_patch grammar. Advisory recovery attempt {attempt} is being used."
         )
     } else if response_item_text_contains(item, TASKSPACE_EDIT_FAILURE_MARKER) {
         format!(
@@ -2212,7 +2212,7 @@ fn taskspace_special_recovery_warning_message(item: &ResponseItem) -> String {
     } else if response_item_text_contains(item, TASKSPACE_APPLY_PATCH_UNANCHORED_UPDATE_MARKER) {
         "TaskSpace inserted TaskSpaceApplyPatchUnanchoredUpdateRecoveryV1 after apply_patch used an unanchored Update File patch. This guidance does not consume the no-action recovery allowance.".to_string()
     } else if response_item_text_contains(item, TASKSPACE_APPLY_PATCH_NATIVE_HUNK_MARKER) {
-        "TaskSpace inserted TaskSpaceApplyPatchNativeHunkRecoveryV1 after apply_patch mixed native grammar with unified/range/placeholder hunk syntax. This guidance does not consume the no-action recovery allowance.".to_string()
+        "TaskSpace inserted TaskSpaceApplyPatchNativeHunkRecoveryV1 after apply_patch mixed native grammar with unified/range hunk syntax. This guidance does not consume the no-action recovery allowance.".to_string()
     } else if response_item_text_contains(item, TASKSPACE_EDIT_FAILURE_MARKER) {
         "TaskSpace inserted TaskSpaceEditFailureRecoveryV1 after an edit tool call failed. This guidance does not consume the no-action recovery allowance.".to_string()
     } else if response_item_text_contains(item, TASKSPACE_VALIDATION_REWORK_DUPLICATE_READ_MARKER) {
@@ -3438,7 +3438,7 @@ tool_action: {action}\n\
 tool_result: blocked\n\
 failure_kind: apply_patch_native_hunk_header\n\
 target: {targets}\n\
-next_valid_action: emit exactly one corrected apply_patch using native apply_patch grammar. Do not mix `*** Update File` with `--- a/...` / `+++ b/...`, do not use `@@ -old,+new @@`, and do not use `@@ ... @@` placeholder hunks. Use exact context with `@@`, or replace the small/generated file with `*** Delete File: <path>` followed by `*** Add File: <path>` and complete contents.\n\
+next_valid_action: emit exactly one corrected apply_patch using native apply_patch grammar. Do not mix `*** Update File` with `--- a/...` / `+++ b/...`, and do not use `@@ -old,+new @@` range hunks. Use exact context with `@@`, or replace the small/generated file with `*** Delete File: <path>` followed by `*** Add File: <path>` and complete contents.\n\
 raw_output:\n{text}"
         );
     }
@@ -5961,7 +5961,7 @@ Then I will inspect the file."#,
     }
 
     #[test]
-    fn taskspace_action_contract_rejects_native_placeholder_hunk_patch() {
+    fn taskspace_action_contract_normalizes_native_placeholder_hunk_patch() {
         let raw = serde_json::json!({
             "schema_version": "taskspace-action-v1",
             "action": "apply_patch",
@@ -5973,10 +5973,49 @@ Then I will inspect the file."#,
         .to_string();
         let action = parse_taskspace_action_v1(&raw).expect("valid json");
 
-        let err = taskspace_action_to_tool_call(&action, &provider_snapshot("implement_solution"))
-            .expect_err("placeholder hunk must be corrected before tool execution");
+        let call = taskspace_action_to_tool_call(&action, &provider_snapshot("implement_solution"))
+            .expect("anchored placeholder hunk can be normalized")
+            .expect("tool call");
 
-        assert_eq!(err, "apply_patch_native_hunk_header:recover.py");
+        match call.payload {
+            ToolPayload::Custom { input } => {
+                assert!(input.contains("*** Update File: src/recover.py"));
+                assert!(input.contains("@@\n print('bad')\n+print('fixed')"));
+                assert!(!input.contains("@@ ... @@"));
+            }
+            other => panic!("expected custom payload, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn taskspace_action_contract_normalizes_live_mixed_placeholder_hunk_patch() {
+        let raw = serde_json::json!({
+            "schema_version": "taskspace-action-v1",
+            "action": "apply_patch",
+            "node_id": "node-1",
+            "args": {
+                "patch": "*** Update File: generate_json.py\n--- a/generate_json.py\n+++ b/generate_json.py\n@@ ... @@\n def build_organization(departments, employees, projects):\n+    for emp in employees:\n+        emp['skills'] = emp['skills'].split(';')\n     # index employees and projects by department_id\n"
+            },
+        })
+        .to_string();
+        let action = parse_taskspace_action_v1(&raw).expect("valid json");
+
+        let call = taskspace_action_to_tool_call(&action, &provider_snapshot("implement_solution"))
+            .expect("live mixed placeholder hunk can be normalized")
+            .expect("tool call");
+
+        match call.payload {
+            ToolPayload::Custom { input } => {
+                assert!(input.starts_with("*** Begin Patch\n"));
+                assert!(input.ends_with("*** End Patch\n"));
+                assert!(input.contains("generate_json.py"));
+                assert!(input.contains("@@\n def build_organization"));
+                assert!(!input.contains("--- a/generate_json.py"));
+                assert!(!input.contains("+++ b/generate_json.py"));
+                assert!(!input.contains("@@ ... @@"));
+            }
+            other => panic!("expected custom payload, got {other:?}"),
+        }
     }
 
     #[test]
@@ -10139,38 +10178,7 @@ fn taskspace_apply_patch_malformed_native_operation_targets(patch: &str) -> Vec<
 }
 
 fn taskspace_apply_patch_native_hunk_header_targets(patch: &str) -> Vec<String> {
-    let mut targets = Vec::new();
-    let mut current_target: Option<String> = None;
-    for line in patch.lines() {
-        if let Some(target) = taskspace_malformed_native_patch_operation_target(line) {
-            if !targets.iter().any(|existing| existing == &target) {
-                targets.push(target.clone());
-            }
-            current_target = Some(target);
-            continue;
-        }
-        if let Some(target) = line
-            .strip_prefix("*** Update File: ")
-            .or_else(|| line.strip_prefix("*** Add File: "))
-            .map(str::trim)
-        {
-            current_target = (!target.is_empty()).then(|| target.to_string());
-            continue;
-        }
-        if line.starts_with("*** Delete File: ") || line.starts_with("*** End Patch") {
-            current_target = None;
-            continue;
-        }
-        let trimmed = line.trim();
-        let invalid_hunk = trimmed.starts_with("@@") && trimmed.contains("...");
-        if invalid_hunk
-            && let Some(target) = current_target.as_ref()
-            && !targets.iter().any(|existing| existing == target)
-        {
-            targets.push(target.clone());
-        }
-    }
-    targets
+    taskspace_apply_patch_malformed_native_operation_targets(patch)
 }
 
 fn taskspace_malformed_native_patch_operation_target(line: &str) -> Option<String> {

@@ -2057,3 +2057,65 @@
   - Relative indentation is preserved by removing only one shared leading space, e.g. `+     print('ok')` becomes `+    print('ok')`.
   - Non-Python `*** Add File: notes.txt` keeps leading spaces unchanged.
 - Interpretation: The `python-add-file-common-indent-normalization-gap` class is focused-fixed at apply_patch normalization/build level. Commit/push, binary attestation, and another keyed rerun are required before claiming live convergence beyond this case.
+
+# Evidence E-083: H-037 rerun crosses Python Add File indentation and exposes anchored placeholder hunk rejection
+
+- Prediction tested: H-037 fix should prevent first-line Python `IndentationError` from common Add File indentation.
+- Real rerun:
+  ```text
+  RunDir: target/r4-org-json-real-keyed-20260703aj-python-add-indent/runs/terminal_bench__organization-json-generator/20260704-073958-389
+  PairReport: pair-001/pair-report.md
+  reported_evidence_level: E2-candidate
+  outcome_standard: solved
+  outcome_taskspace: engineering_unclean
+  right_exec_timed_out: False
+  right_tool_call_count: 14
+  right_open_leaf_nodes: 1
+  public_validation_exit_code: 1
+  hidden_oracle_exit_code: 0
+  preflight_git_head: a4abc1e199de8f1ab12ba7e9c18fe8552c14dbdf
+  build_attestation_status: pass
+  ```
+- Matched trace signals:
+  - No line-1 `IndentationError` appears. Line 57 shows `organization.json generated successfully.` before schema validation failures, proving the generated Python script executed.
+  - The remaining schema errors are semantic output mismatches: skills are strings rather than arrays, projects use `member_ids` instead of `members`, and statistics use snake_case / alternate names rather than required camelCase fields.
+  - Line 66 reads `generate_json.py` once and shows the file has no common top-level leading indentation, so H-037 crossed.
+  - Lines 76, 83, 90, and 97 still show duplicate-read recovery after repeated re-reads.
+  - Line 101 finally emits a targeted patch, but the hunk uses mixed native/unified headers plus `@@ ... @@` placeholder with a real anchor context line.
+  - Line 103 rejects it as `apply_patch_native_hunk_header:generate_json.py`, line 104 inserts `TaskSpaceApplyPatchNativeHunkRecoveryV1`, and line 105 immediately hard-stops.
+- Interpretation: H-037 is live-crossed. The next blocker is not Python file creation but over-strict rejection of an anchored placeholder hunk that is mechanically convertible to native `@@` and has enough context for unanchored detection to remain safe.
+
+# Hypothesis H-038: anchored placeholder hunks should normalize to native hunk headers
+
+- Claim: Native apply_patch can safely accept `@@` hunk headers. If a provider emits `@@ ... @@` in an update section but also includes concrete context or `-old` / `+new` lines, the placeholder marker is mechanically convertible to native `@@`. Current action-contract rejection treats all `@@ ... @@` as fatal, so a potentially valid patch can be rejected at the end of a budget-recovery window.
+- Prediction: The live line 101 patch shape should normalize by stripping `--- a/...` / `+++ b/...` and converting `@@ ... @@` to `@@`; a test should confirm the resulting payload contains the real context line and no placeholder marker. Add-only placeholder updates with no anchor should still be caught by `apply_patch_unanchored_update`.
+- Diagnostic evidence plan: Update placeholder hunk tests from reject to normalize; add a live mixed placeholder hunk test from the trace; run native_hunk, apply_patch, validation rework, and validation regression filters.
+- Status: confirmed.
+
+# Evidence E-084: anchored placeholder hunks now normalize before final action-contract checks
+
+- Prediction tested: H-038 requires placeholder hunk markers with real context to normalize to native `@@`, while malformed dash-native headers remain rejected and unanchored add-only updates remain blocked.
+- Repair artifact:
+  - `third_party/codex-cli/codex-rs/core/src/session/turn.rs`
+- Focused commands:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked placeholder_hunk
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked mixed_placeholder
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked native_hunk
+  ```
+- Adjacent regression/build commands:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked apply_patch_
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked validation_rework
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked validation_
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked duplicate_rework
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+  git diff --check
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-cli --bin whale --locked
+  ```
+- Result: passed. `placeholder_hunk` is 2/2, `mixed_placeholder` is 1/1, `native_hunk` is 3/3, `apply_patch_` is 35/35, `validation_rework` is 15/15, `validation_` is 92/92, and `duplicate_rework` is 2/2. `cargo fmt --check`, `git diff --check`, and the `whale` build passed.
+- Matched test signals:
+  - `@@ ... @@` with real context normalizes to native `@@`.
+  - The live mixed shape `*** Update File` + `--- a/...` / `+++ b/...` + `@@ ... @@` strips unified file headers and preserves the anchor context.
+  - `--- Update File:` malformed operation headers are still rejected by the dash-native test.
+- Interpretation: The `apply-patch-anchored-placeholder-hunk-normalization-gap` class is focused-fixed at action-contract normalization/build level. Commit/push, binary attestation, and another keyed rerun are required before claiming live convergence beyond this case.

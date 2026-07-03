@@ -3258,3 +3258,74 @@ CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/co
 状态：该 apply_patch capability normalization class 已 focused fixed，并通过本地回归、fmt、diff check 和 `whale` build；
 还需要 commit/push、binary attestation 和下一轮 keyed rerun。下一轮期望 line 29 这类 Python Add File 直接生成无共同前导空格的
 脚本，不再在第一轮 validation 出现 line 1 `IndentationError`。
+
+## 5.48 2026-07-04 anchored placeholder hunk normalization
+
+Python Add File common-indent 修复后的 keyed rerun 证明 H-037 已越过：`generate_json.py` 没有 line 1
+`IndentationError`，脚本成功运行并生成 `organization.json`。新的 blocker 是最后的 targeted patch 使用
+`@@ ... @@` placeholder hunk。该 patch 已带真实上下文行和新增代码，但 action contract 在 hard stop 前将其拒绝为
+`apply_patch_native_hunk_header:generate_json.py`。
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260703aj-python-add-indent/runs/terminal_bench__organization-json-generator/20260704-073958-389
+reported_evidence_level: E2-candidate
+outcome_standard: solved
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 14
+right_open_leaf_nodes: 1
+public_validation_exit_code: 1
+hidden_oracle_exit_code: 0
+preflight_git_head: a4abc1e199de8f1ab12ba7e9c18fe8552c14dbdf
+build_attestation_status: pass
+```
+
+关键观察：
+
+| Signal | 结论 |
+|---|---|
+| line 57 `organization.json generated successfully.` 后进入 `jsonschema` 错误 | H-037 越过，脚本已能执行 |
+| schema errors 指向 `skills` string、`member_ids`、statistics camelCase fields | 进入真实业务 rework，不再是 Python 语法问题 |
+| line 66 read `generate_json.py`，内容无统一前导空格 | Python Add File normalizer live 生效 |
+| line 101 patch 使用 `*** Update File` + `--- a/...` / `+++ b/...` + `@@ ... @@`，且有 `def build_organization...` anchor | payload 可机械转换为 native `@@` |
+| line 103 `apply_patch_native_hunk_header:generate_json.py`，line 104 NativeHunk recovery，line 105 hard stop | 过严拒绝发生在预算恢复末尾 |
+
+本轮新增并 focused 修复的问题类型：
+
+| Case | Before | After | Evidence |
+|---|---|---|---|
+| `apply-patch-anchored-placeholder-hunk-normalization-gap` | 所有 `@@ ... @@` placeholder hunk 都被硬拒绝，即使后面有真实上下文/变更行，导致可执行 patch 在 hard stop 前被丢弃 | anchored placeholder hunk 规范化为 native `@@`；随后仍经过 unanchored/context/missing-target 检查；malformed `--- Update File:` 仍拒绝 | `taskspace_action_contract_normalizes_native_placeholder_hunk_patch`; `taskspace_action_contract_normalizes_live_mixed_placeholder_hunk_patch` |
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked placeholder_hunk
+  PASS：2 tests
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked mixed_placeholder
+  PASS：1 test
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked native_hunk
+  PASS：3 tests
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked apply_patch_
+  PASS：35 tests
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked validation_rework
+  PASS：15 tests
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked validation_
+  PASS：92 tests
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked duplicate_rework
+  PASS：2 tests
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+git diff --check
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-cli --bin whale --locked
+  PASS
+```
+
+状态：该 action-contract normalization class 已 focused fixed，并通过本地回归、fmt、diff check 和 `whale` build；
+还需要 commit/push、binary attestation 和下一轮 keyed rerun。下一轮期望 line 101 这类 anchored placeholder patch 直接规范化并进入
+`apply_patch` 工具，不再在 hard stop 前被 `apply_patch_native_hunk_header` 丢弃。
