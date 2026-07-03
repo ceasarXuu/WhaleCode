@@ -1267,3 +1267,68 @@
   - `validation_` now covers 88 passing tests including the new required-property summary and feedback paths.
   - `cargo fmt --check`, `codex-cli --bin whale` build, `git diff --check`, and whale binary attestation all pass.
 - Interpretation: The new `validation-rework-duplicate-read-action-contract-feedback-gap` class is focused-fixed at the unit level. Real utility validation still requires another keyed rerun to verify the provider patches `process.py` instead of repeating rework reads.
+
+# Hypothesis H-025: failed edit context recovery is blocked by duplicate-read guard
+
+- Claim: After H-024, the provider no longer loops on rework reads and does attempt `apply_patch`, but a failed patch can make the current target context stale or insufficient. The duplicate-read guard still forbids reading the same validation rework target before a successful edit, while edit-failure recovery also says not to read. This turns an editable `IndentationError` into a false blocker: the model claims the source excerpt is truncated and cannot construct a patch.
+- Prediction: The post-H-024 keyed rerun will show no duplicate-read loop, at least one `apply_patch` attempt on the rework target, a failed patch such as `apply_patch_unanchored_update` or `Failed to find expected lines`, then a `blocked` result saying the read result was truncated / full file content is needed. Repair should allow a same-target context refresh after a failed edit, reject truncated-source blockers for editable validation failures, and keep unrelated read/search blocked.
+- Diagnostic evidence plan: Inspect the post-H-024 keyed rerun trace and observability; add runtime tests proving duplicate reads are blocked before failed edit but same-target refresh is allowed after failed edit, and session tests proving apply_patch expected-lines feedback allows a target context refresh.
+- Status: confirmed.
+
+# Evidence E-057: H-024 rerun reaches patch attempt but blocks on truncated source after failed edit
+
+- Harness hygiene note:
+  - First attempt under `target/r4-org-json-real-keyed-20260703v-rework-feedback` aborted at whale binary preflight because the binary was built before commit `c9a351f`; preflight correctly reported `whale_binary_stale_for_codex_source` and invalid attestation `codex_source_commit_mismatch`.
+  - Lesson recorded: after committing Codex-source changes, rebuild `whale` and rewrite attestation before a keyed benchmark rerun.
+- Real rerun after rebuild + attestation:
+  ```text
+  RunDir: target/r4-org-json-real-keyed-20260703w-rework-feedback/runs/terminal_bench__organization-json-generator/20260704-042850-855
+  PairReport: pair-001/pair-report.md
+  reported_evidence_level: E2-candidate
+  outcome_standard: solved
+  outcome_taskspace: engineering_unclean
+  right_exec_timed_out: False
+  right_tool_call_count: 10
+  right_open_leaf_nodes: 0
+  public_validation_exit_code: 1
+  hidden_oracle_exit_code: 0
+  rollout_trace_model_request_count: 18
+  ```
+- Matched trace signals:
+  - H-024 was crossed: `node-4` read `generate_org.py` once and then attempted `apply_patch`; there was no rework duplicate-read loop.
+  - The validation failure was a repairable top-level `IndentationError` from leading spaces in `generate_org.py`.
+  - First rework patch was rejected by action contract as `apply_patch_unanchored_update:generate_org.py`.
+  - The next patch reached the edit tool but failed with `apply_patch verification failed: Failed to find expected lines`.
+  - The model then blocked `node-4` with: existing read result was truncated at line 56, missing critical trailing content; full file content is needed to patch.
+  - Runtime accepted that blocker and closed `node-4` as blocked even though dependency validation evidence identified an editable implementation failure and no successful edit existed.
+- Interpretation: This is a new R4 feedback/capability-layer issue, not a regression in H-024. The system needs to distinguish no-progress duplicate reads from failed-edit context refresh reads.
+
+# Evidence E-058: failed edit can refresh same target context while unrelated reads remain blocked
+
+- Prediction tested: H-025 requires the duplicate-read guard to reset only after a failed edit on the same rework path, and it requires edit-failure feedback to expose that action.
+- Repair artifacts:
+  - `third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs`
+  - `third_party/codex-cli/codex-rs/core/src/session/turn.rs`
+- Focused commands:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core validation_rework_allows_changed_artifact_read_when_schema_failure_lacks_traceback -- --nocapture
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core apply_patch_expected_lines_feedback_allows_target_context_refresh -- --nocapture
+  ```
+- Adjacent regression and build commands:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core validation_rework -- --nocapture
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib apply_patch_ -- --nocapture
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core validation_ -- --nocapture
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-cli --bin whale --locked
+  git diff --check
+  ```
+- Result: passed.
+- Additional non-gating observation:
+  - `cargo test ... -p codex-core apply_patch_ -- --nocapture` reaches integration/shell-serialization tests whose existing expectations look for legacy `Exit code: 0 ... Output:` strings while the current harness emits structured JSON `{"output":...,"metadata":...}`. The lib-scoped `--lib apply_patch_` set passed 33/33 and is the relevant regression set for this code change.
+- Matched test signals:
+  - Before a failed edit, the same validation rework target duplicate read remains blocked.
+  - After a failed edit result, projection advertises `read_file validation rework target artifact ... once to refresh context after failed edit`, and action permission allows that same target read.
+  - Runtime rejects blockers claiming truncated/missing full file content for editable validation failures.
+  - Session feedback for `Failed to find expected lines` now says the next action may be one `read_file` of the same target only if context is truncated/stale, otherwise corrected `apply_patch`.
+- Interpretation: The new `failed-edit-context-refresh-blocked-by-duplicate-read-guard` class is focused-fixed at the unit level. Another keyed rerun is required to verify the provider refreshes context, patches indentation, and continues to schema validation.

@@ -2356,3 +2356,75 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/taskspace-benchmark/
 ```
 
 状态：该 feedback/action-contract class 已 focused fixed；下一次 keyed rerun 应验证模型在 `node-4` 读取 `process.py` 后直接 patch statistics camelCase / distribution 字段，并重新进入 schema/public validation。
+
+## 5.35 2026-07-04 failed edit context refresh after validation rework
+
+`validation-rework-duplicate-read-action-contract-feedback-gap` 修复后的 keyed rerun 已越过重复读 loop：模型读完
+rework target 后进入 `apply_patch`。但这暴露出新的 edit recovery 问题。
+
+先记录一次 harness 经验：`target/r4-org-json-real-keyed-20260703v-rework-feedback` 被 preflight 判为
+`invalid_harness`，原因是 `whale` 二进制早于 commit `c9a351f`，attestation hash 不匹配。以后 commit 影响
+`third_party/codex-cli` 后，必须先 rebuild `whale` 并重写 attestation，再跑 keyed benchmark。
+
+有效 rerun：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260703w-rework-feedback/runs/terminal_bench__organization-json-generator/20260704-042850-855
+reported_evidence_level: E2-candidate
+outcome_standard: solved
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 10
+right_open_leaf_nodes: 0
+public_validation_exit_code: 1
+hidden_oracle_exit_code: 0
+rollout_trace_model_request_count: 18
+```
+
+关键观察：
+
+| Signal | 结论 |
+|---|---|
+| `node-4` 读 `generate_org.py` 后尝试 `apply_patch` | H-024 生效，重复 read loop 已越过 |
+| validation failure 是 `IndentationError: unexpected indent` | 可编辑 implementation defect |
+| 第一次 patch 被 action contract 拒绝为 `apply_patch_unanchored_update:generate_org.py` | edit feedback 开始工作 |
+| 下一次 patch 进入工具但失败：`Failed to find expected lines` | patch context 不匹配，需要恢复目标上下文或改用正确 hunk |
+| 模型随后 blocked：read result 被截断、缺 full file content，无法构造 patch | 防重复读规则和 edit-failure recovery 共同压住了“失败 edit 后同目标刷新上下文” |
+| runtime 接受 blocker，node-4 blocked | 可编辑 validation failure 被错误关闭 |
+
+本轮新增并 focused 修复的问题类型：
+
+| Case | Before | After | Evidence |
+|---|---|---|---|
+| `failed-edit-context-refresh-blocked-by-duplicate-read-guard` | rework target 已读后禁止重复读；即使后续 apply_patch 失败，模型也不能刷新同一 target 上下文，最后把“source truncated / need full content”当作 blocker | duplicate-read guard 只拦截无进展重复读；失败 edit 后允许同一 validation rework target 一次 context refresh；unrelated read/search 仍 blocked；truncated-source blocker 会被拒绝；edit-failure feedback 明确允许同目标 read_file 或 corrected apply_patch | `validation_rework_allows_changed_artifact_read_when_schema_failure_lacks_traceback`; `apply_patch_expected_lines_feedback_allows_target_context_refresh` |
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core validation_rework_allows_changed_artifact_read_when_schema_failure_lacks_traceback -- --nocapture
+  PASS：失败 edit 前同目标重复读仍 blocked；失败 edit 后同目标 refresh read 允许；truncated-source blocker 被拒绝
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core apply_patch_expected_lines_feedback_allows_target_context_refresh -- --nocapture
+  PASS：`Failed to find expected lines` feedback 允许同目标 read_file 刷新上下文
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core validation_rework -- --nocapture
+  PASS：12 tests
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib apply_patch_ -- --nocapture
+  PASS：33 tests
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core validation_ -- --nocapture
+  PASS：88 tests
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-cli --bin whale --locked
+git diff --check
+  PASS
+```
+
+非门禁观察：`cargo test ... -p codex-core apply_patch_ -- --nocapture` 会跑到 integration/shell-serialization
+用例，这些用例当前期望 legacy `Exit code: 0 ... Output:` 文本，但 harness 实际输出结构化 JSON。
+本次变更使用 `--lib apply_patch_` 作为相关回归集。
+
+状态：该 feedback/runtime class 已 focused fixed；下一次 keyed rerun 应验证模型在 failed patch 后刷新 `generate_org.py`
+上下文或直接修正 patch，而不是把可编辑 `IndentationError` 关闭为 blocker。

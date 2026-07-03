@@ -2020,9 +2020,9 @@ The previous edit tool call failed. Treat the tool result exactly like standard 
 {evidence}\
 Current required behavior:\n\
 - Do not ignore the failed edit result.\n\
-- Do not call read_file, list_files, search, broad shell discovery, or validation before resolving the failed edit.\n\
-- Emit exactly one apply_patch action using the inspected existing artifact path and native apply_patch grammar, or return blocked with the exact reason the edit cannot be made.\n\
-- If the failure says `Failed to find expected lines`, do not repeat the same hunk. Use exact existing context if known; for a small/generated file whose full intended contents are known, replace it with `*** Delete File: <path>` followed by `*** Add File: <path>` and the complete corrected contents.\n\
+- Do not call list_files, search, broad shell discovery, unrelated read_file, or validation before resolving the failed edit.\n\
+- Emit exactly one recovery action now: a corrected apply_patch using the inspected existing artifact path and native apply_patch grammar, or one narrow read_file of the same failed target artifact only when the failed edit needs refreshed existing context.\n\
+- If the failure says `Failed to find expected lines`, do not repeat the same hunk. Use exact existing context if known; for a small/generated file whose full intended contents are known, replace it with `*** Delete File: <path>` followed by `*** Add File: <path>` and the complete corrected contents. If the available source excerpt is truncated or stale after the failed edit, read the same target artifact once to refresh context, then patch.\n\
 - If the failure says the target file is missing, use the already listed/read existing path when available."
     );
 
@@ -3076,7 +3076,7 @@ fn taskspace_action_contract_recent_tool_outputs_item(
     } else if validator_procedure_blocker_rejected_seen {
         "progress_hint: A previous block_node action was rejected because it blamed validator procedure or test-command setup while dependency validation evidence already identifies an implementation failure. Do not create tests, adjust validator commands, or block for pytest/cache procedure concerns. Next action must be apply_patch for the implementation artifact named by the failed validation evidence.\n"
     } else if missing_source_blocker_rejected_seen {
-        "progress_hint: A previous block_node action was rejected because implementation source evidence is already available. Do not create another inspect node and do not rerun diagnostics. Next action must be apply_patch; use the failed patch feedback to correct the target, function signature, or context lines.\n"
+        "progress_hint: A previous block_node action was rejected because implementation source evidence is already available. Do not create another inspect node and do not rerun diagnostics. Next action must be apply_patch; if a failed edit made the target context stale or truncated, one read_file of the same validation rework target is allowed to refresh context before patching.\n"
     } else if internal_policy_blocker_rejected_seen {
         "progress_hint: A previous block_node action was rejected because it described TaskSpace internal policy or a repeated diagnostic, not an external blocker. Do not create another inspect node and do not rerun the diagnostic. Next action must be apply_patch with the smallest concrete implementation fix from dependency evidence.\n"
     } else if implement_missing_edit_before_finish_seen {
@@ -3244,7 +3244,7 @@ tool_action: apply_patch\n\
 tool_result: failed\n\
 failure_kind: apply_patch_expected_lines_mismatch\n\
 target: {target}\n\
-next_valid_action: emit exactly one corrected apply_patch. Do not repeat the same context hunk. If the intended full contents are known or the file is small/generated, use `*** Delete File: {target}` followed by `*** Add File: {target}` with the complete corrected file contents; otherwise use an `*** Update File: {target}` hunk with exact existing context.\n\
+next_valid_action: emit exactly one corrected apply_patch, or one read_file of `{target}` only if the current target context is truncated/stale after this failed edit. Do not repeat the same context hunk. If the intended full contents are known or the file is small/generated, use `*** Delete File: {target}` followed by `*** Add File: {target}` with the complete corrected file contents; otherwise use an `*** Update File: {target}` hunk with exact existing context.\n\
 raw_output:\n{text}"
         );
     }
@@ -3258,7 +3258,7 @@ tool_action: apply_patch\n\
 tool_result: failed\n\
 failure_kind: apply_patch_context_mismatch\n\
 target: {target}\n\
-next_valid_action: emit exactly one corrected apply_patch. Do not repeat the same context hunk. If the failed hunk used a unified-diff header such as `@@ -1,1 +1,1 @@`, remove the range header and use native apply_patch `@@` grammar, or replace the small/generated file with `*** Delete File: {target}` followed by `*** Add File: {target}` and complete corrected contents.\n\
+next_valid_action: emit exactly one corrected apply_patch, or one read_file of `{target}` only if the current target context is truncated/stale after this failed edit. Do not repeat the same context hunk. If the failed hunk used a unified-diff header such as `@@ -1,1 +1,1 @@`, remove the range header and use native apply_patch `@@` grammar, or replace the small/generated file with `*** Delete File: {target}` followed by `*** Add File: {target}` and complete corrected contents.\n\
 raw_output:\n{text}"
         );
     }
@@ -4682,6 +4682,31 @@ Then I will inspect the file."#,
             ),
             None
         );
+    }
+
+    #[test]
+    fn apply_patch_expected_lines_feedback_allows_target_context_refresh() {
+        let summary = taskspace_action_contract_tool_feedback_summary(
+            "taskspace-action-contract-12-apply_patch",
+            "apply_patch verification failed: Failed to find expected lines in /app/generate_org.py:\n import csv",
+            Some(false),
+        );
+
+        assert!(summary.contains("failure_kind: apply_patch_expected_lines_mismatch"));
+        assert!(summary.contains("target: generate_org.py"));
+        assert!(summary.contains("one read_file of `generate_org.py`"));
+        assert!(summary.contains("current target context is truncated/stale"));
+
+        let recovery = build_taskspace_edit_failure_recovery_item(
+            Some(
+                "result-11: apply_patch verification failed: Failed to find expected lines in generate_org.py",
+            ),
+            Some("result-10 artifacts=generate_org.py excerpt truncated"),
+        );
+        let text = item_text(recovery);
+        assert!(text.contains(TASKSPACE_EDIT_FAILURE_MARKER));
+        assert!(text.contains("one narrow read_file of the same failed target artifact"));
+        assert!(text.contains("read the same target artifact once to refresh context"));
     }
 
     #[test]

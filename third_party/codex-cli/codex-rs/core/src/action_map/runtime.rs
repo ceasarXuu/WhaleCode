@@ -2365,6 +2365,13 @@ impl ActionMapRuntimeState {
                     node,
                     &validation_rework_artifacts,
                 );
+                let refresh_target_reads = visible_target_reads
+                    .iter()
+                    .filter(|(_, result_id)| {
+                        node_has_failed_edit_after_result(map, node, result_id)
+                    })
+                    .cloned()
+                    .collect::<Vec<_>>();
                 if visible_target_reads.is_empty() {
                     next_valid_actions.extend(validation_rework_artifacts.iter().take(4).map(
                         |artifact| {
@@ -2378,6 +2385,20 @@ impl ActionMapRuntimeState {
                             .iter()
                             .take(4)
                             .map(|artifact| format!("or call apply_patch for `{artifact}`")),
+                    );
+                } else if !refresh_target_reads.is_empty() {
+                    next_valid_actions.extend(refresh_target_reads.iter().take(4).map(
+                        |(artifact, result_id)| {
+                            format!(
+                                "read_file validation rework target artifact `{artifact}` once to refresh context after failed edit following read result `{result_id}`"
+                            )
+                        },
+                    ));
+                    next_valid_actions.extend(
+                        refresh_target_reads
+                            .iter()
+                            .take(4)
+                            .map(|(artifact, _)| format!("or call apply_patch for `{artifact}`")),
                     );
                 } else {
                     next_valid_actions.extend(visible_target_reads.iter().take(4).map(
@@ -5584,7 +5605,7 @@ preview:\n\
             && blocker_claims_missing_inspected_source_evidence(blocker_summary)
         {
             return Err(format!(
-                "TaskSpace implement_solution node `{node_id}` cannot be blocked for missing source visibility because dependency evidence already identifies the implementation artifact or validation rework target. Next valid action: retry apply_patch using the inspected source evidence and failed validation feedback, or block only with a specific external blocker that makes editing impossible."
+                "TaskSpace implement_solution node `{node_id}` cannot be blocked for missing source visibility because dependency evidence already identifies the implementation artifact or validation rework target. Next valid action: retry apply_patch using the inspected source evidence and failed validation feedback; if a failed edit made the visible target context stale or truncated, read_file the same validation rework target once to refresh context, then patch. Block only with a specific external blocker that makes editing impossible."
             ));
         }
         if node.kind == NodeKind::ImplementSolution
@@ -5602,7 +5623,7 @@ preview:\n\
             && blocker_claims_editable_validation_failure_as_blocker(blocker_summary)
         {
             return Err(format!(
-                "TaskSpace implement_solution node `{node_id}` cannot be blocked for editable validation failure because dependency validation evidence already identifies a repairable implementation failure and this rework node has no successful edit. Next valid action: apply_patch the implementation artifact named by the failed validation evidence; for top-level Python IndentationError or SyntaxError, patch the whole affected file or block rather than blocking for inspection. Block only with a specific external blocker that makes editing impossible."
+                "TaskSpace implement_solution node `{node_id}` cannot be blocked for editable validation failure because dependency validation evidence already identifies a repairable implementation failure and this rework node has no successful edit. Next valid action: apply_patch the implementation artifact named by the failed validation evidence; for top-level Python IndentationError or SyntaxError, patch the whole affected file or block rather than blocking for inspection. If a failed edit made the visible target context stale or truncated, read_file the same validation rework target once to refresh context, then patch. Block only with a specific external blocker that makes editing impossible."
             ));
         }
         if node.kind == NodeKind::ImplementSolution
@@ -11714,6 +11735,13 @@ fn projection_next_valid_actions(
                     node,
                     &validation_rework_artifacts,
                 );
+                let refresh_target_reads = visible_target_reads
+                    .iter()
+                    .filter(|(_, result_id)| {
+                        node_has_failed_edit_after_result(map, node, result_id)
+                    })
+                    .cloned()
+                    .collect::<Vec<_>>();
                 let mut actions = if visible_target_reads.is_empty() {
                     validation_rework_artifacts
                         .iter()
@@ -11721,6 +11749,16 @@ fn projection_next_valid_actions(
                         .map(|artifact| {
                             format!(
                                 "read_file validation rework target artifact `{artifact}` only if current contents are not visible"
+                            )
+                        })
+                        .collect::<Vec<_>>()
+                } else if !refresh_target_reads.is_empty() {
+                    refresh_target_reads
+                        .iter()
+                        .take(4)
+                        .map(|(artifact, result_id)| {
+                            format!(
+                                "read_file validation rework target artifact `{artifact}` once to refresh context after failed edit following read result `{result_id}`"
                             )
                         })
                         .collect::<Vec<_>>()
@@ -11737,6 +11775,11 @@ fn projection_next_valid_actions(
                 };
                 let patch_artifacts = if visible_target_reads.is_empty() {
                     validation_rework_artifacts.clone()
+                } else if !refresh_target_reads.is_empty() {
+                    refresh_target_reads
+                        .iter()
+                        .map(|(artifact, _)| artifact.clone())
+                        .collect::<Vec<_>>()
                 } else {
                     visible_target_reads
                         .iter()
@@ -11747,9 +11790,13 @@ fn projection_next_valid_actions(
                     "apply_patch validation rework target artifact(s): {}",
                     patch_artifacts.join(", ")
                 ));
-                if !visible_target_reads.is_empty() {
+                if !visible_target_reads.is_empty() && refresh_target_reads.is_empty() {
                     actions.push(
                         "read/search is no longer a valid next action on this validation rework node until a successful edit records progress".to_string(),
+                    );
+                } else if !refresh_target_reads.is_empty() {
+                    actions.push(
+                        "only the same validation rework target may be re-read to recover failed edit context; do not read unrelated files or search".to_string(),
                     );
                 }
                 actions.push(
@@ -11826,15 +11873,21 @@ fn projection_allowed_actions_for_node(map: &ActionMapInstance, node: &MapNode) 
     {
         let validation_rework_artifacts =
             implement_node_dependency_validation_rework_artifact_refs(map, node);
-        if !validation_rework_artifacts.is_empty()
-            && !implement_node_validation_rework_artifact_read_results(
+        if !validation_rework_artifacts.is_empty() {
+            let visible_target_reads = implement_node_validation_rework_artifact_read_results(
                 map,
                 node,
                 &validation_rework_artifacts,
-            )
-            .is_empty()
-        {
-            return "edit, control (read/search of already visible validation rework targets will be blocked until a successful edit)".to_string();
+            );
+            if !visible_target_reads.is_empty() {
+                if visible_target_reads
+                    .iter()
+                    .any(|(_, result_id)| node_has_failed_edit_after_result(map, node, result_id))
+                {
+                    return "read, edit, control (only same validation rework target refresh reads are allowed after a failed edit; unrelated read/search remains blocked)".to_string();
+                }
+                return "edit, control (read/search of already visible validation rework targets will be blocked until a successful edit)".to_string();
+            }
         }
     }
     compact_projection_allowed_actions_for_node(node.kind)
@@ -15684,6 +15737,29 @@ fn node_has_successful_action(
     })
 }
 
+fn node_has_failed_edit_after_result(
+    map: &ActionMapInstance,
+    node: &MapNode,
+    result_id: &str,
+) -> bool {
+    let mut after_result = false;
+    for result_ref in &node.result_context {
+        if after_result
+            && map.results.get(&result_ref.id).is_some_and(|result| {
+                result.kind == NodeResultKind::MainToolCall
+                    && result.action_class == Some(ActionClass::Edit)
+                    && result.tool_success == Some(false)
+            })
+        {
+            return true;
+        }
+        if result_ref.id == result_id {
+            after_result = true;
+        }
+    }
+    false
+}
+
 fn node_has_validation_tool_result(map: &ActionMapInstance, node: &MapNode) -> bool {
     node.result_context.iter().any(|result_ref| {
         let Some(result) = map.results.get(&result_ref.id) else {
@@ -15839,6 +15915,11 @@ fn blocker_claims_missing_inspected_source_evidence(blocker_summary: &str) -> bo
         || lower.contains("need to read")
         || lower.contains("need to inspect")
         || lower.contains("need source")
+        || lower.contains("need full file content")
+        || lower.contains("without full file content")
+        || lower.contains("missing critical trailing")
+        || lower.contains("truncated")
+        || lower.contains("cannot construct")
         || lower.contains("cannot read")
         || lower.contains("can't read")
         || lower.contains("lack visibility")
@@ -15879,6 +15960,11 @@ fn blocker_claims_editable_validation_failure_as_blocker(blocker_summary: &str) 
         || lower.contains("valueerror");
     let block_claim = lower.contains("need to inspect")
         || lower.contains("need to read")
+        || lower.contains("need full file content")
+        || lower.contains("without full file content")
+        || lower.contains("missing critical trailing")
+        || lower.contains("truncated")
+        || lower.contains("cannot construct")
         || lower.contains("cannot read")
         || lower.contains("can't read")
         || lower.contains("read actions are not allowed")
@@ -16014,9 +16100,13 @@ fn implement_node_duplicate_validation_rework_artifact_read(
         {
             return None;
         }
-        result_artifact_refs(result)
+        if !result_artifact_refs(result)
             .iter()
             .any(|existing| artifact_key(existing) == target_artifact_key)
+        {
+            return None;
+        }
+        (!node_has_failed_edit_after_result(map, node, &result.id))
             .then(|| (artifact_ref.clone(), result.id.clone()))
     })
 }
@@ -32467,6 +32557,63 @@ def build_organization():\n\
         );
         assert!(repeated_message.contains("generate_org.py"));
         assert!(repeated_message.contains("apply_patch"));
+
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "failed-context-patch",
+                "apply_patch",
+                Some(ActionClass::Edit),
+                false,
+                "apply_patch verification failed: Failed to find expected lines in generate_org.py:\n import csv\n"
+                    .to_string(),
+            )
+            .expect("failed edit result records");
+        let map = state.active_map().expect("active map after failed edit");
+        let actions_after_failed_edit =
+            projection_next_valid_actions(map, Some(&rework_node_id), None, &[]);
+        assert!(
+            actions_after_failed_edit.iter().any(|action| action.contains(
+                "read_file validation rework target artifact `generate_org.py` once to refresh context after failed edit"
+            )),
+            "{actions_after_failed_edit:?}"
+        );
+        let rework_node_after_failed_edit = map.nodes.get(&rework_node_id).expect("rework node");
+        let allowed_after_failed_edit =
+            projection_allowed_actions_for_node(map, rework_node_after_failed_edit);
+        assert!(
+            allowed_after_failed_edit.contains("target refresh reads are allowed"),
+            "{allowed_after_failed_edit}"
+        );
+        state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new(
+                    "shell_command",
+                    ActionClass::Read,
+                    serde_json::json!({
+                        "command": "sed -n '1,240p' -- generate_org.py"
+                    })
+                    .to_string(),
+                ),
+            )
+            .expect("same validation rework target read may refresh context after failed edit");
+        let truncated_blocker = state
+            .block_main_node(
+                owner,
+                &rework_node_id,
+                "Existing read_file result for generate_org.py was truncated at line 56, missing critical trailing content. Need full file content to fix the IndentationError."
+                    .to_string(),
+            )
+            .expect_err("truncated source blocker should be rejected after editable failure");
+        assert!(
+            truncated_blocker.contains("cannot be blocked"),
+            "{truncated_blocker}"
+        );
+        assert!(
+            truncated_blocker.contains("apply_patch") || truncated_blocker.contains("read_file"),
+            "{truncated_blocker}"
+        );
     }
 
     #[test]
