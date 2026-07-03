@@ -1084,6 +1084,13 @@ impl Session {
             .active_map_has_blocked_validation_result()
     }
 
+    pub(crate) async fn action_map_has_tool_runtime_bootstrap_failure(&self) -> bool {
+        let state = self.state.lock().await;
+        state
+            .action_map_runtime
+            .active_map_has_tool_runtime_bootstrap_failure()
+    }
+
     pub(crate) async fn action_map_has_ready_recovery_node(&self) -> bool {
         let state = self.state.lock().await;
         state

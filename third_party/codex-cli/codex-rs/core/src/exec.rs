@@ -727,6 +727,29 @@ pub(crate) fn is_likely_sandbox_denied(
         "failed to write file",
     ];
 
+    let has_sandbox_bootstrap_signature = [
+        &exec_output.stderr.text,
+        &exec_output.stdout.text,
+        &exec_output.aggregated_output.text,
+    ]
+    .into_iter()
+    .any(|section| {
+        let lower = section.to_lowercase();
+        let compact = lower
+            .chars()
+            .filter(|ch| ch.is_ascii_alphanumeric() || *ch == '_')
+            .collect::<String>();
+        (lower.contains("bwrap") || lower.contains("bubblewrap"))
+            && (lower.contains("loopback")
+                || lower.contains("rtm_newaddr")
+                || compact.contains("failedrtmnewaddr"))
+            && lower.contains("operation not permitted")
+    });
+
+    if has_sandbox_bootstrap_signature {
+        return true;
+    }
+
     let has_sandbox_keyword = [
         &exec_output.stderr.text,
         &exec_output.stdout.text,

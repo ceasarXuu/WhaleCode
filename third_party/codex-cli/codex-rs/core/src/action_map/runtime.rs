@@ -2578,6 +2578,13 @@ preview:\n\
             let (_, mut blocker_events) =
                 self.block_main_node(owner_session_id, &validation_node_id, blocker_summary)?;
             events.append(&mut blocker_events);
+        } else if !success && text_mentions_tool_runtime_bootstrap_failure(&body) {
+            let (_, mut blocker_events) = self.block_main_node(
+                owner_session_id,
+                &node_id,
+                tool_runtime_bootstrap_failure_blocker_summary(&body),
+            )?;
+            events.append(&mut blocker_events);
         } else if !success
             && matches!(
                 recorded_action_class,
@@ -6906,6 +6913,16 @@ preview:\n\
             return false;
         };
         map_has_blocked_validation_result(map)
+    }
+
+    pub(crate) fn active_map_has_tool_runtime_bootstrap_failure(&self) -> bool {
+        let Some(map_id) = self.active_map_id.as_deref() else {
+            return false;
+        };
+        let Some(map) = self.maps.get(map_id) else {
+            return false;
+        };
+        map_has_tool_runtime_bootstrap_failure(map)
     }
 
     pub(crate) fn active_map_has_ready_recovery_node(&self) -> bool {
@@ -12661,6 +12678,9 @@ fn trace_tags_for(
     } else {
         "tool_failure".to_string()
     });
+    if !success && text_mentions_tool_runtime_bootstrap_failure(body) {
+        tags.push("tool_runtime_bootstrap_failure".to_string());
+    }
     match action_class {
         Some(ActionClass::Build | ActionClass::Test) if is_local_validator_infra_failure(body) => {
             tags.push("validator_infra_failure".to_string());
@@ -15079,6 +15099,12 @@ fn node_result_is_local_validator_infra_failure(result: &NodeResult) -> bool {
         && is_local_validator_infra_failure(&result.body)
 }
 
+fn node_result_is_tool_runtime_bootstrap_failure(result: &NodeResult) -> bool {
+    result.kind == NodeResultKind::MainToolCall
+        && result.tool_success != Some(true)
+        && text_mentions_tool_runtime_bootstrap_failure(&result.body)
+}
+
 fn state_commit_has_validation_failure_rework(
     input: &ActionMapStateCommitInput,
     map: &ActionMapInstance,
@@ -15207,6 +15233,19 @@ fn map_has_blocked_validation_result(map: &ActionMapInstance) -> bool {
     })
 }
 
+fn map_has_tool_runtime_bootstrap_failure(map: &ActionMapInstance) -> bool {
+    map.nodes.values().any(|node| {
+        node.status == NodeStatus::Blocked
+            && node.result_context.iter().any(|result_ref| {
+                map.results.get(&result_ref.id).is_some_and(|result| {
+                    node_result_is_tool_runtime_bootstrap_failure(result)
+                        || result.kind == NodeResultKind::Blocker
+                            && text_mentions_tool_runtime_bootstrap_failure(&result.body)
+                })
+            })
+    })
+}
+
 fn map_has_ready_recovery_node(map: &ActionMapInstance) -> bool {
     map.nodes.values().any(|node| {
         node.status == NodeStatus::Ready
@@ -15242,6 +15281,26 @@ fn resolve_action_contract_call_result_id(map: &ActionMapInstance, value: &str) 
         .map(|result| result.id.clone())
 }
 
+fn text_mentions_tool_runtime_bootstrap_failure(text: &str) -> bool {
+    let lower = text.to_ascii_lowercase();
+    let compact = lower
+        .chars()
+        .filter(|ch| ch.is_ascii_alphanumeric() || *ch == '_')
+        .collect::<String>();
+    (lower.contains("bwrap") || lower.contains("bubblewrap"))
+        && (lower.contains("loopback")
+            || lower.contains("rtm_newaddr")
+            || compact.contains("failedrtmnewaddr"))
+        && lower.contains("operation not permitted")
+}
+
+fn tool_runtime_bootstrap_failure_blocker_summary(body: &str) -> String {
+    format!(
+        "Tool runtime bootstrap failed before TaskSpace could execute ordinary tools. failure_kind=sandbox_bootstrap_failed; task_level_blocker=true; no_create_node_after_terminal_infra=true. Failure preview: {}",
+        single_line_preview(body, 220)
+    )
+}
+
 fn text_mentions_local_validator_infra_failure(text: &str) -> bool {
     let text = text.to_ascii_lowercase();
     let compact = text
@@ -15261,6 +15320,7 @@ fn text_mentions_local_validator_infra_failure(text: &str) -> bool {
         || text.contains("wsl/service/e_accessdenied")
         || text.contains("e_accessdenied")
         || text.contains("invalidendofline")
+        || text_mentions_tool_runtime_bootstrap_failure(&text)
         || uv_cache_permission_failure
         || compact.contains("bashservicecreateinstanceeaccessdenied")
         || compact.contains("bashservicecreateinstancee_accessdenied")
@@ -28408,7 +28468,7 @@ summary: diagnostic payload for output reference smoke\n\
             NodeStatus::Blocked
         );
         let rework_node = map.nodes.get(rework_node_id).expect("rework node");
-        assert_eq!(rework_node.kind, NodeKind::ImplementSolution);
+        assert_eq!(rework_node.kind, NodeKind::SmokeTest);
         assert!(
             rework_node
                 .context
@@ -28493,8 +28553,19 @@ summary: diagnostic payload for output reference smoke\n\
                 &handoff.result_id,
                 "accepted",
                 "accepted implementation node finish".to_string(),
-                Vec::new(),
-                Vec::new(),
+                vec![ActionMapCognitiveClaimInput {
+                    id: "claim-implementation-finish".to_string(),
+                    statement: "Implementation node finish recorded before manual infra block."
+                        .to_string(),
+                    evidence_refs: vec![ActionMapEvidenceRefInput {
+                        result_id: Some(handoff.result_id.clone()),
+                        ..Default::default()
+                    }],
+                }],
+                vec![ActionMapEvidenceRefInput {
+                    result_id: Some(handoff.result_id.clone()),
+                    ..Default::default()
+                }],
                 Vec::new(),
                 Vec::new(),
                 Vec::new(),
@@ -28523,7 +28594,7 @@ summary: diagnostic payload for output reference smoke\n\
             NodeStatus::Blocked
         );
         let rework_node = map.nodes.get(rework_node_id).expect("rework node");
-        assert_eq!(rework_node.kind, NodeKind::ImplementSolution);
+        assert_eq!(rework_node.kind, NodeKind::SmokeTest);
         assert!(rework_node.context.summary.contains("recover.py"));
         assert!(
             rework_node
@@ -29847,6 +29918,118 @@ error: failed to open file `C:\\Users\\77585\\AppData\\Local\\uv\\cache\\sdists-
         let node = map.nodes.get(&node_id).expect("validation node");
         assert_eq!(node.status, NodeStatus::Blocked);
         assert!(state.active_map_has_blocked_validation_result());
+    }
+
+    #[test]
+    fn bwrap_bootstrap_failure_auto_blocks_validation_as_local_infra() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (_, map_id, node_id, _) = start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::SmokeTest,
+            "Validate sandboxed command",
+            "Run the validation suite.",
+            "Run smoke tests",
+            "Run python tests.",
+            true,
+        );
+
+        let (result_id, events) = state
+            .record_main_tool_result_with_class(
+                owner,
+                "taskspace-action-contract-7-run_test",
+                "shell_command",
+                Some(ActionClass::Test),
+                false,
+                "bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted".to_string(),
+            )
+            .expect("bwrap validation infra result records")
+            .expect("bwrap result id");
+
+        assert!(events.iter().any(|event| {
+            matches!(
+                event,
+                MapRuntimeEvent::ResultValidityChanged(changed)
+                    if changed.result_id == result_id && changed.validity == "invalid"
+            )
+        }));
+        assert!(state.taskspace_trace_events.iter().any(|event| {
+            event.result_id.as_deref() == Some(result_id.as_str())
+                && event
+                    .tags
+                    .iter()
+                    .any(|tag| tag == "tool_runtime_bootstrap_failure")
+        }));
+        let map = state.maps.get(&map_id).expect("active map");
+        let result = map.results.get(&result_id).expect("bwrap result");
+        assert!(node_result_is_local_validator_infra_failure(result));
+        assert!(node_result_is_tool_runtime_bootstrap_failure(result));
+        let node = map.nodes.get(&node_id).expect("validation node");
+        assert_eq!(node.status, NodeStatus::Blocked);
+        assert!(state.current_main_node_id.is_none());
+        assert!(state.active_map_has_blocked_validation_result());
+        assert!(state.active_map_has_tool_runtime_bootstrap_failure());
+        assert!(!state.active_map_has_ready_recovery_node());
+    }
+
+    #[test]
+    fn tool_runtime_bootstrap_failure_blocks_inspect_node() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (_, map_id, node_id, _) = start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::InspectCodeContext,
+            "Inspect project",
+            "Inspect files before implementation.",
+            "Inspect repository",
+            "List files and read relevant sources.",
+            true,
+        );
+
+        let (result_id, events) = state
+            .record_main_tool_result_with_class(
+                owner,
+                "taskspace-action-contract-1-list_files",
+                "shell_command",
+                Some(ActionClass::Read),
+                false,
+                "bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted".to_string(),
+            )
+            .expect("bwrap inspect result records")
+            .expect("bwrap inspect result id");
+
+        assert!(events.iter().any(|event| {
+            matches!(
+                event,
+                MapRuntimeEvent::NodeStatusChanged(changed)
+                    if changed.node_id == node_id
+                        && changed.current_status == NodeStatus::Blocked.as_str()
+            )
+        }));
+        let map = state.maps.get(&map_id).expect("active map");
+        let result = map.results.get(&result_id).expect("bwrap inspect result");
+        assert!(node_result_is_tool_runtime_bootstrap_failure(result));
+        let node = map.nodes.get(&node_id).expect("inspect node");
+        assert_eq!(node.status, NodeStatus::Blocked);
+        assert!(node.result_context.iter().any(|result_ref| {
+            map.results.get(&result_ref.id).is_some_and(|result| {
+                result.kind == NodeResultKind::Blocker
+                    && result
+                        .body
+                        .contains("failure_kind=sandbox_bootstrap_failed")
+                    && result
+                        .body
+                        .contains("no_create_node_after_terminal_infra=true")
+            })
+        }));
+        assert!(state.current_main_node_id.is_none());
+        assert!(state.current_main_lease_id.is_none());
+        assert!(state.active_map_has_tool_runtime_bootstrap_failure());
+        assert!(!state.active_map_has_ready_recovery_node());
     }
 
     #[test]

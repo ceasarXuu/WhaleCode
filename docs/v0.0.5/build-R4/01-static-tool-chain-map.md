@@ -217,3 +217,35 @@ non-direct tool 都强行写入 TaskSpace map，而是把“谁能看到什么�
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/taskspace-benchmark/test-r4-tool-path-coverage.ps1
 PASS: R4 tool path coverage gate passed: 10 paths
 ```
+
+## 1.10 2026-07-03 R4-D 工具运行时启动失败链路更新
+
+`organization-json-generator` keyed rerun 暴露出一类新的 P0 feedback-layer 问题：普通 action-contract
+tool 在真正执行业务命令前就因为 sandbox/tool runtime bootstrap 失败而不可用。现场 raw feedback 中有明确证据：
+
+```text
+bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted
+TaskSpaceNoActionRecoveryV1 ... Recovery attempt 32
+```
+
+该 case 的本质不是模型没看到任何错误，而是缺少终止语义：
+
+| Path | Symptom | Required Runtime Decision |
+|---|---|---|
+| `tool-runtime-bootstrap-failure` | `bwrap`/loopback/RTM_NEWADDR 启动失败被当成普通工具失败，node-level `blocked` 之后仍可继续 `create_node` 重试 | 标记 `failure_kind=sandbox_bootstrap_failed`，block 当前任务路径上的普通工具，下一轮只允许 `final_answer` 或 `blocked` |
+
+修复后的语义要求：
+
+1. 能力层识别 bwrap sandbox bootstrap signature，但 `SandboxType::None` 不误判。
+2. `ActionMapRuntime` 对任意普通工具节点识别 `tool_runtime_bootstrap_failure`，记录 blocker 并释放 current node。
+3. 验证节点里的同类失败继续归入 local validator infra invalidation，但不生成可重试 rework node。
+4. 无 active node 且已存在 runtime bootstrap blocker 时，action-contract payload 和 runtime rewrite 都禁止 `start_task`、`create_node`、`read_file`、`search`、`run_test`、`apply_patch`、`spawn_agent`。
+
+覆盖测试：
+
+```text
+cargo test -j1 -p codex-core sandbox_detection_identifies_bwrap_loopback_bootstrap_failure --lib
+cargo test -j1 -p codex-core bwrap_bootstrap_failure_auto_blocks_validation_as_local_infra --lib
+cargo test -j1 -p codex-core tool_runtime_bootstrap_failure_blocks_inspect_node --lib
+cargo test -j1 -p codex-core taskspace_action_contract_tool_runtime_bootstrap_failure_forbids_new_nodes --lib
+```

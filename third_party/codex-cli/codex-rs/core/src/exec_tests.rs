@@ -40,6 +40,19 @@ fn sandbox_detection_identifies_keyword_in_stderr() {
 }
 
 #[test]
+fn sandbox_detection_identifies_bwrap_loopback_bootstrap_failure() {
+    let output = make_exec_output(
+        /*exit_code*/ 1,
+        "",
+        "bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted",
+        "",
+    );
+
+    assert!(is_likely_sandbox_denied(SandboxType::LinuxSeccomp, &output));
+    assert!(!is_likely_sandbox_denied(SandboxType::None, &output));
+}
+
+#[test]
 fn sandbox_detection_respects_quick_reject_exit_codes() {
     let output = make_exec_output(/*exit_code*/ 127, "", "command not found", "");
     assert!(!is_likely_sandbox_denied(

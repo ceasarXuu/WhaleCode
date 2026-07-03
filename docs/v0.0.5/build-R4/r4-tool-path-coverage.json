@@ -209,6 +209,37 @@
       "coverage_test": "cargo test -j1 -p codex-core force_finish_validation_rejects --lib"
     },
     {
+      "id": "tool-runtime-bootstrap-failure",
+      "class": "tool_runtime_infra_failure",
+      "priority": "P0",
+      "status": "canonical",
+      "owner_phase": "R4-D",
+      "source_anchors": [
+        {
+          "file": "third_party/codex-cli/codex-rs/core/src/exec.rs",
+          "pattern": "has_sandbox_bootstrap_signature"
+        },
+        {
+          "file": "third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs",
+          "pattern": "tool_runtime_bootstrap_failure"
+        },
+        {
+          "file": "third_party/codex-cli/codex-rs/core/src/session/turn.rs",
+          "pattern": "TaskSpaceActionContractToolRuntimeBootstrapFailureV1"
+        }
+      ],
+      "required_semantics": [
+        "failure_kind",
+        "sandbox_bootstrap_signature",
+        "stderr_or_error_text",
+        "task_level_blocker",
+        "no_create_node_after_terminal_infra",
+        "next_payload_visibility"
+      ],
+      "required_evidence": "Sandbox/tool runtime bootstrap failures such as bwrap loopback RTM_NEWADDR denial are classified as terminal tool-runtime infrastructure blockers, recorded on the TaskSpace map, and narrow the next allowed action set to final_answer or blocked only.",
+      "coverage_test": "cargo test -j1 -p codex-core sandbox_detection_identifies_bwrap_loopback_bootstrap_failure --lib; cargo test -j1 -p codex-core bwrap_bootstrap_failure_auto_blocks_validation_as_local_infra --lib; cargo test -j1 -p codex-core tool_runtime_bootstrap_failure_blocks_inspect_node --lib; cargo test -j1 -p codex-core taskspace_action_contract_tool_runtime_bootstrap_failure_forbids_new_nodes --lib"
+    },
+    {
       "id": "codemode-nested-tool-result",
       "class": "nested_tool",
       "priority": "P2",

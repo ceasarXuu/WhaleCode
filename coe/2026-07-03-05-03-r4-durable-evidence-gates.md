@@ -230,3 +230,52 @@
   - `DEEPSEEK_API_KEY` is now correctly wired for the harness; provider preflight passed and the model was invoked.
   - R4 remains not accepted: this run is E1 diagnostic evidence only, not score-valid utility evidence.
   - The next blocker is TaskSpace convergence under sandbox/tool failures: the path exceeded provider request budget hints and timed out instead of producing a bounded blocked-with-evidence result.
+
+# Hypothesis H-007: sandbox/tool runtime bootstrap failures lack task-level terminal feedback semantics
+
+- Claim: When an action-contract ordinary tool fails before execution because the sandbox/tool runtime cannot bootstrap, TaskSpace records raw output on the current node but does not classify the failure as a terminal task-level infrastructure blocker. With no active node after a model-emitted `blocked`, the action contract still permits creating another node, so the agent converts a non-recoverable tool-runtime failure into repeated discovery/retry.
+- Prediction: The keyed run will show a specific sandbox bootstrap signature in tool feedback, repeated request/recovery events after the failure, and no runtime classification equivalent to `sandbox_bootstrap_failed` that forbids new ordinary tools after the closed node.
+- Diagnostic evidence plan: Inspect the keyed run JSONL and the TaskSpace runtime/session contract code. Confirm whether `bwrap` bootstrap failure is classified separately from ordinary validation failure and whether the no-active-node contract blocks `create_node` after this failure type.
+- Status: confirmed.
+
+# Evidence E-014: bwrap bootstrap failure is visible but not terminally classified before repair
+
+- Prediction tested: H-007 predicts raw sandbox bootstrap evidence exists while TaskSpace continues recovery.
+- Run root: `target/r4-org-json-real-keyed-20260703b/runs/terminal_bench__organization-json-generator/20260703-155610-406`
+- Matched run signals:
+  ```text
+  bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted
+  TaskSpaceProviderRequestBudgetEventV1 ... request_count=89->90 max=20 state=over_profile_hint
+  TaskSpaceNoActionRecoveryV1 ... Recovery attempt 32 ... advisory threshold 3
+  ```
+- Matched code signals before repair:
+  - `action_map/runtime.rs` only had local validator infrastructure classification for validation `Build`/`Test` results.
+  - `session/turn.rs` only had `TaskSpaceActionContractClosedValidationV1` for blocked validation with no active node.
+  - The generic no-active-node action contract still allowed `taskspace_control(create_node)`.
+- Interpretation:
+  - The failure semantic was missing, not merely distorted. The raw error text survived, but there was no durable `tool_runtime_bootstrap_failure` / `sandbox_bootstrap_failed` classification that changed the next allowed action set.
+  - This is an R4 feedback-layer P0 path because a non-recoverable ability-layer failure must be communicated as terminal tool unavailability, not as another inspect/search opportunity.
+
+# Evidence E-015: bwrap bootstrap failure now terminates ordinary TaskSpace tool retries
+
+- Prediction tested: H-007 predicts the repair must classify bwrap bootstrap failure as terminal tool-runtime infrastructure evidence and prevent new ordinary tool nodes after the closed node.
+- Repair artifacts:
+  - `third_party/codex-cli/codex-rs/core/src/exec.rs`
+  - `third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs`
+  - `third_party/codex-cli/codex-rs/core/src/session/mod.rs`
+  - `third_party/codex-cli/codex-rs/core/src/session/turn.rs`
+  - `docs/v0.0.5/build-R4/r4-tool-path-coverage.json`
+- Focused command: `CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core bootstrap_failure --lib`
+- Focused result: passed.
+- Matched test signals:
+  - `sandbox_detection_identifies_bwrap_loopback_bootstrap_failure`
+  - `bwrap_bootstrap_failure_auto_blocks_validation_as_local_infra`
+  - `tool_runtime_bootstrap_failure_blocks_inspect_node`
+  - `taskspace_action_contract_tool_runtime_bootstrap_failure_forbids_new_nodes`
+- Regression command: `CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core local_infra --lib`
+- Regression result: passed, `11 passed`.
+- R4 manifest command: `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/taskspace-benchmark/test-r4-tool-path-coverage.ps1`
+- R4 manifest result: passed, `11 paths`.
+- Interpretation:
+  - The current repair closes the feedback-layer semantic gap for the observed bwrap bootstrap case.
+  - It does not claim R4 utility acceptance; a real `organization-json-generator` rerun is still required to prove the long-flow timeout no longer occurs in the live benchmark path.

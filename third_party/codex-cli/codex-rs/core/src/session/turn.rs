@@ -1367,6 +1367,22 @@ The next response must summarize the exact validator infrastructure blocker and 
     }
 }
 
+fn taskspace_action_contract_tool_runtime_bootstrap_failure_item() -> ResponseItem {
+    let text = "TaskSpaceActionContractToolRuntimeBootstrapFailureV1:\n\
+Existing TaskSpace task has no active bound node because ordinary tools are blocked by sandbox/tool runtime bootstrap failure evidence.\n\
+Current request allowed actions are narrowed to final_answer or blocked only.\n\
+Do not call start_task, create_node, bind_node, list_files, read_file, search, apply_patch, run_test, or spawn_agent.\n\
+The next response must summarize the exact sandbox/tool runtime blocker and the tool failure evidence already recorded."
+        .to_string();
+    ResponseItem::Message {
+        id: None,
+        role: "developer".to_string(),
+        content: vec![ContentItem::InputText { text }],
+        end_turn: None,
+        phase: None,
+    }
+}
+
 fn taskspace_action_contract_inspect_unread_scripts_item(scripts: &[String]) -> ResponseItem {
     let mut text = String::from(
         "TaskSpaceActionContractInspectMissingScriptsV1:\n\
@@ -2329,6 +2345,10 @@ async fn run_sampling_request(
         {
             prompt_input.push(taskspace_action_contract_state_item(snapshot));
             if snapshot.node_id.is_none()
+                && sess.action_map_has_tool_runtime_bootstrap_failure().await
+            {
+                prompt_input.push(taskspace_action_contract_tool_runtime_bootstrap_failure_item());
+            } else if snapshot.node_id.is_none()
                 && sess.action_map_has_blocked_validation_result().await
                 && !sess.action_map_has_ready_recovery_node().await
             {
@@ -3693,6 +3713,17 @@ mod active_context_replacement_tests {
         assert!(text.contains("Do not call start_task"));
         assert!(text.contains("create_node"));
         assert!(text.contains("validator infrastructure blocker"));
+    }
+
+    #[test]
+    fn taskspace_action_contract_tool_runtime_bootstrap_failure_forbids_new_nodes() {
+        let text = item_text(taskspace_action_contract_tool_runtime_bootstrap_failure_item());
+
+        assert!(text.contains("TaskSpaceActionContractToolRuntimeBootstrapFailureV1"));
+        assert!(text.contains("final_answer or blocked only"));
+        assert!(text.contains("Do not call start_task"));
+        assert!(text.contains("create_node"));
+        assert!(text.contains("sandbox/tool runtime blocker"));
     }
 
     #[test]
@@ -7834,6 +7865,20 @@ async fn should_block_after_closed_validation_without_active_node(
         && !sess.action_map_has_ready_recovery_node().await
 }
 
+async fn should_block_after_tool_runtime_bootstrap_failure_without_active_node(
+    action: &TaskSpaceActionV1,
+    snapshot: &crate::action_map::ActionMapProviderRequestBudgetSnapshot,
+    sess: &Session,
+) -> bool {
+    if snapshot.node_id.is_some() {
+        return false;
+    }
+    if taskspace_action_final_message(action).is_some() {
+        return false;
+    }
+    sess.action_map_has_tool_runtime_bootstrap_failure().await
+}
+
 fn taskspace_action_is_finish_node_control(action: &TaskSpaceActionV1) -> bool {
     action.action == "taskspace_control"
         && taskspace_action_control_action(action) == Some("finish_node")
@@ -9872,6 +9917,17 @@ async fn try_run_sampling_request(
                             {
                                 taskspace_final_answer_action(
                                     "Validation passed; final result is ready.",
+                                )
+                            } else if let Some(snapshot) = provider_budget_snapshot.as_ref()
+                                && should_block_after_tool_runtime_bootstrap_failure_without_active_node(
+                                    &action,
+                                    snapshot,
+                                    sess.as_ref(),
+                                )
+                                .await
+                            {
+                                taskspace_blocked_final_action(
+                                    "TaskSpace ordinary tools are blocked by sandbox/tool runtime bootstrap failure evidence already recorded on the closed task path.",
                                 )
                             } else if let Some(snapshot) = provider_budget_snapshot.as_ref()
                                 && should_block_after_closed_validation_without_active_node(

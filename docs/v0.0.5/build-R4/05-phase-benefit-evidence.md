@@ -1481,3 +1481,46 @@ bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted
 2. R4 仍不能验收：该 run 是 E1 诊断证据，不进入 utility aggregate，也不满足 E3。
 3. 当前 P0 blocker 是 TaskSpace 在 sandbox/tool failure 后不能收敛到 bounded blocked-with-evidence，导致 request amplification 和 900s timeout。
 4. 下一步应优先做 request budget hard gate 或 repeated no-action recovery hard stop，再重跑 `organization-json-generator`。
+
+## 5.19 2026-07-03 tool-runtime bootstrap feedback 修复
+
+5.18 的 `bwrap` 现场被收录为 R4-D P0 path：`tool-runtime-bootstrap-failure`。根因判断是反馈层语义缺失：
+raw error 已经进入工具输出，但 TaskSpace 没有把它升级为 `sandbox_bootstrap_failed` 任务级 blocker，
+导致 node-level `blocked` 之后仍可继续 `create_node` 并重复 recovery。
+
+修复内容：
+
+| Layer | Change |
+|---|---|
+| ability detection | `exec.rs` 增加 bwrap loopback/RTM_NEWADDR bootstrap signature 测试，保持 `SandboxType::None` 不误判 |
+| map feedback | `ActionMapRuntime` 新增 `tool_runtime_bootstrap_failure` 分类、trace tag、task-level blocker summary |
+| validation path | bwrap validation failure 继续按 local validator infra invalidation 处理，但不生成可重试 rework node |
+| next-turn contract | 新增 `TaskSpaceActionContractToolRuntimeBootstrapFailureV1`，无 active node 时只允许 `final_answer` 或 `blocked` |
+| manifest | `r4-tool-path-coverage.json` 增加第 11 条 canonical path |
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core bootstrap_failure --lib
+4 passed
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core local_infra --lib
+11 passed
+
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/taskspace-benchmark/test-r4-tool-path-coverage.ps1
+R4 tool path coverage gate passed: 11 paths
+```
+
+同步轻量 gates：
+
+```text
+jq empty docs/v0.0.5/build-R4/r4-tool-path-coverage.json docs/v0.0.5/build-R4/r4-public-10-tool-stress-report.snapshot.json docs/v0.0.5/build-R4/r4-sample-evidence-ledger.json
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/taskspace-benchmark/test-r4-sample-ledger.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/taskspace-benchmark/test-r4-public-10-tool-stress-plan.ps1 -ReportPath docs/v0.0.5/build-R4/r4-public-10-tool-stress-report.snapshot.json
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/taskspace-benchmark/test-r4-public-10-usage-accounting-gate.ps1
+set -a; . ./.env.local; set +a; powershell -NoProfile -ExecutionPolicy Bypass -File scripts/taskspace-benchmark/test-r4-acceptance-readiness.ps1
+git diff --check
+```
+
+结论：该 case 的 feedback-layer 语义已修复并纳入 R4 coverage；R4 验收仍需真实 keyed rerun 证明
+`organization-json-generator` 不再在同类 tool-runtime failure 上 900s timeout。
