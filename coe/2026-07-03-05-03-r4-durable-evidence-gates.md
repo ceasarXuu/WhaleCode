@@ -2856,3 +2856,70 @@
   - The evidence summary retains `late_schema_repair_marker` placed beyond the old 1200-character compact preview.
   - The retained excerpt includes schema-required repair names such as `averageDepartmentBudget`.
 - Interpretation: H-049 is focused-fixed with R4-adjacent regression/build coverage. The remaining gate is attestation and another keyed rerun to see whether the rework node now patches instead of repeating target reads.
+
+# Evidence E-109: a625122 live rerun exposes non-forcing inspect duplicate-read recovery
+
+- Prediction tested: H-049 repair should let the live run move past validation rework duplicate target reads if it reaches that phase again.
+- Real rerun:
+  ```text
+  RunDir: target/r4-org-json-real-keyed-20260703av-rework-target-evidence/runs/terminal_bench__organization-json-generator/20260704-102918-033
+  PairReport: pair-001/pair-report.md
+  preflight current_git_head: a6251227d5a6c5204bcc8609fa499b1ba1a4c734
+  build_attestation_status: pass
+  outcome_standard: solved
+  outcome_taskspace: wrong
+  right_exec_timed_out: False
+  right_tool_call_count: 10
+  right_open_leaf_nodes: 1
+  right_public_validation_exit_code: 1
+  right_hidden_oracle_exit_code: 0
+  ```
+- Result: the run did not reach the validation rework phase; H-049 was not live-exercised by this sample.
+- New blocker signals:
+  - `start_task.initial_fact_sources` correctly listed `departments.csv`, `employees.csv`, `projects.csv`, and `schema.json`.
+  - Projection after reading `schema.json` correctly listed `read_file declared fact-source artifact departments.csv/employees.csv/projects.csv next`.
+  - `TaskSpaceDuplicateReadSearchInspectRecoveryV1` correctly said the duplicate `schema.json` read was not new evidence and listed missing fact-source artifacts.
+  - Despite that, the model repeated `read_file schema.json` seven times. The duplicate tool gate blocked those actions, but the provider loop kept consuming node requests.
+  - The model eventually read `departments.csv` at logical request 11, then hit `TaskSpaceProviderBudgetHardStopV1` with `node_request_count=11/10`; `employees.csv` and `projects.csv` remained unread.
+- Interpretation: The new problem type is `inspect-duplicate-read-recovery-nonforcing-budget-drain`. This is not artifact path loss and not missing next-action text; it is a control/feedback hardness gap where repeated blocked read/search actions can continue consuming provider budget even though the state machine already knows the bounded declared fact-source reads required next.
+
+# Hypothesis H-050: repeated inspect duplicate-read recovery must execute bounded missing fact-source reads
+
+- Claim: The existing recovery path only auto-bootstraps after repeated duplicate diagnostic actions. When the repeated blocked action is a duplicate read/search and declared fact sources are still missing, the runtime leaves recovery as advisory text. The model can ignore the advisory and drain provider/node budget without new evidence.
+- Prediction: When repeated blocked read/search evidence is detected on an `inspect_code_context` node and runtime can name missing required fact-source artifacts, automatically running a bounded read of those declared artifacts will update inspect evidence coverage and prevent another duplicate-read budget drain at the same point.
+- Diagnostic evidence plan: Add a focused regression proving bootstrap output with `===== employees.csv` / `===== projects.csv` sections is recorded as read evidence and clears `current_main_inspect_missing_required_fact_source_artifacts()`. Add a turn-layer regression proving the bootstrap command emits bounded `TaskSpaceReadFileSummaryV1` reads for declared artifacts.
+- Status: confirmed.
+
+# Evidence E-110: repeated duplicate inspect read now bootstraps missing declared fact sources
+
+- Prediction tested: H-050 predicts bounded fact-source bootstrap results must be recorded as inspect read evidence, not just appended to chat history.
+- Repair artifacts:
+  - `third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs`
+  - `third_party/codex-cli/codex-rs/core/src/session/mod.rs`
+  - `third_party/codex-cli/codex-rs/core/src/session/turn.rs`
+- Focused validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core missing_fact_source_bootstrap_command_reads_bounded_declared_artifacts --lib
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core inspect_missing_fact_sources_shrink_after_bootstrap_read_sections --lib
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core inspect_missing_fact_sources --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core duplicate_read_search --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core taskspace_active_budget --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core provider_budget --lib --locked
+  ```
+- R4-adjacent regression/build validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core taskspace_control --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core validation_ --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core validation_rework --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core local_infra --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core apply_patch_ --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --all --check
+  git diff --check
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build -j1 -p codex-cli --bin whale --locked
+  ```
+- Result: passed.
+- Matched test signals:
+  - `taskspace_missing_fact_source_bootstrap_command()` includes bounded read commands and `TaskSpaceReadFileSummaryV1`.
+  - A bootstrap shell result containing `===== employees.csv` and `===== projects.csv` clears the runtime missing fact-source list.
+  - Existing duplicate read/search and provider budget regressions still pass.
+- Interpretation: H-050 is focused-fixed with R4-adjacent regression/build coverage. The remaining gate is attestation and another keyed rerun to verify the live sample no longer drains inspect budget on repeated `schema.json`.

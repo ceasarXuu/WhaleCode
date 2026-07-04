@@ -7045,6 +7045,31 @@ preview:\n\
         inspect_node_unread_referenced_scripts(map, node)
     }
 
+    pub(crate) fn current_main_inspect_missing_required_fact_source_artifacts(
+        &self,
+    ) -> Vec<String> {
+        let Some(map_id) = self.active_map_id.as_ref() else {
+            return Vec::new();
+        };
+        let Some(node_id) = self.current_main_node_id.as_ref() else {
+            return Vec::new();
+        };
+        let Some(map) = self.maps.get(map_id) else {
+            return Vec::new();
+        };
+        let Some(node) = map.nodes.get(node_id) else {
+            return Vec::new();
+        };
+        if node.kind != NodeKind::InspectCodeContext {
+            return Vec::new();
+        }
+        map.task_id
+            .as_deref()
+            .and_then(|task_id| self.tasks.get(task_id))
+            .map(|task| inspect_missing_required_fact_source_artifacts(task, map, node))
+            .unwrap_or_default()
+    }
+
     pub(crate) fn current_main_implement_progress_needs_edit(&self) -> bool {
         let Some(map_id) = self.active_map_id.as_ref() else {
             return false;
@@ -23594,6 +23619,70 @@ def build_organization():\n\
 
         assert_eq!(forced_after_reads.0.next_node_id.as_deref(), Some("node-2"));
         assert_eq!(state.current_main_node_id.as_deref(), Some("node-2"));
+    }
+
+    #[test]
+    fn inspect_missing_fact_sources_shrink_after_bootstrap_read_sections() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::InspectCodeContext,
+            "Inspect organization data",
+            "Read schema and every CSV fact source before implementation.",
+            "Inspect organization data",
+            "Read schema and every CSV fact source before implementation.",
+            true,
+        );
+        record_required_fact_source_artifacts(
+            &mut state,
+            owner,
+            &[
+                "schema.json",
+                "departments.csv",
+                "employees.csv",
+                "projects.csv",
+            ],
+        );
+        record_successful_read_result(&mut state, owner, "schema", "schema.json");
+        record_successful_read_result(&mut state, owner, "departments", "departments.csv");
+
+        assert_eq!(
+            state.current_main_inspect_missing_required_fact_source_artifacts(),
+            vec!["employees.csv".to_string(), "projects.csv".to_string()]
+        );
+
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "fact-source-bootstrap",
+                "shell_command",
+                Some(ActionClass::Read),
+                true,
+                "TaskSpaceToolInvocationV1:\n\
+tool: shell_command\n\
+command: bounded fact-source bootstrap\n\
+raw_output:\n\
+===== employees.csv\n\
+id,department_id,name\n\
+E001,D001,Ada Lovelace\n\
+TaskSpaceReadFileSummaryV1: path=employees.csv lines_read=2 eof_reached=true max_lines=240\n\
+===== projects.csv\n\
+name,department_id,status\n\
+Platform,D001,In Progress\n\
+TaskSpaceReadFileSummaryV1: path=projects.csv lines_read=2 eof_reached=true max_lines=240\n"
+                    .to_string(),
+            )
+            .expect("bootstrap fact-source read records");
+
+        assert!(
+            state
+                .current_main_inspect_missing_required_fact_source_artifacts()
+                .is_empty(),
+            "bootstrap read sections should satisfy declared fact-source coverage"
+        );
     }
 
     #[test]

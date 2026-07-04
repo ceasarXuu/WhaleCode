@@ -140,6 +140,7 @@ raw signal 存在但语义没有正确进入下一轮 tool contract：
 | `validation-pytest-runner-dependency-misroute` | `python -m pytest` 本身缺 `pytest` module 时，raw failure 存在但被 runtime 误译成 implementation failure，创建 implement rework 并触发 needs-edit loop；已归入 local validator infra，并路由到 platform-compatible validation rerun | focused fixed / real rerun pending |
 | `fact-source-path-artifact-ref-loss` | `initial_fact_sources[].path` 被 taskspace_control 解析层丢弃，TaskState 只保留泛化 id/description 和 `artifactRef=user-request`，导致 adaptive inspect budget 看不到声明 fact-source artifacts 并仍按 5 次硬停；已把 `path`/`artifact_ref`/`artifact_path`/`source_path` 及数组 alias 归一化进 `evidence_refs[].artifact_ref` | focused fixed / real rerun pending |
 | `validation-rework-target-read-preview-truncation` | validation rework 已读目标文件后，duplicate-read recovery 声称可用 `result-*` 现有内容 patch，但 recovery 只带单行 compact preview，patch-relevant 下半段被 `...` 截断；已把 rework target read 加入 `current_main_working_evidence_summary()` 的 bounded multiline evidence | focused+regression fixed / real rerun pending |
+| `inspect-duplicate-read-recovery-nonforcing-budget-drain` | inspect duplicate-read recovery 已正确列出 missing fact sources，但同一 blocked read/search 可继续消耗 provider/node budget，直到 hard stop；已在 repeated blocked read/search 且 runtime 能命名缺失声明 fact-source 时，自动执行 bounded fact-source bootstrap 并记录为 read evidence | focused+regression fixed / real rerun pending |
 
 新增关键判断：
 
@@ -981,6 +982,79 @@ CODEX_SKIP_VENDORED_BWRAP=1 cargo build -j1 -p codex-cli --bin whale --locked
 
 当前状态：focused 修复和 R4-adjacent regression/build 已完成；仍需 attestation 和下一次 keyed rerun
 验证 rework 节点是否从重复读推进到 patch。
+
+### 3.24 inspect duplicate-read recovery non-forcing budget drain
+
+rework target evidence 修复后执行 keyed rerun：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260703av-rework-target-evidence/runs/terminal_bench__organization-json-generator/20260704-102918-033
+preflight current_git_head: a6251227d5a6c5204bcc8609fa499b1ba1a4c734
+build_attestation_status: pass
+outcome_standard: solved
+outcome_taskspace: wrong
+right_exec_timed_out: False
+right_tool_call_count: 10
+right_open_leaf_nodes: 1
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+```
+
+本次进展：
+
+| 层 | 结论 |
+|---|---|
+| binary preflight | attestation pass，二进制对应 `a625122` |
+| fact-source declaration | `start_task.initial_fact_sources` 正确包含 `departments.csv`、`employees.csv`、`projects.csv`、`schema.json` |
+| projection | 读完 `schema.json` 后，projection 明确要求 next 读取 `departments.csv` / `employees.csv` / `projects.csv` |
+| duplicate recovery | `TaskSpaceDuplicateReadSearchInspectRecoveryV1` 正确说明重复 `schema.json` 不是新证据，并列出 missing fact-source artifacts |
+
+新问题：
+
+| 层 | 结论 |
+|---|---|
+| loop shape | 模型连续重复 `read_file schema.json`，底层 gate 每次都正确拒绝 |
+| control hardness | recovery 是 advisory，未把缺失 fact-source read 转成强制执行或自动 bounded evidence |
+| budget | 第 11 次 node request 才读到 `departments.csv`，随后 `node_request_count=11/10` hard stop |
+| coverage gap | `employees.csv` 和 `projects.csv` 仍未读，未进入 implementation/rework 阶段 |
+
+根因判断：
+
+这不是 fact-source path 语义丢失，也不是 projection/recovery 缺少 next action；语义已经正确传达给模型。
+问题在反馈层缺少执行硬度：重复 blocked read/search 不应继续无限消耗 provider/node budget。runtime 已经知道
+哪些 declared fact sources 未读，且这些动作是只读、bounded、由状态机约束要求的事实源覆盖，因此可以在 repeated blocked
+之后自动执行缺失 fact-source bootstrap。
+
+本轮修复：
+
+| 层 | 结论 |
+|---|---|
+| runtime query | 新增 `current_main_inspect_missing_required_fact_source_artifacts()`，让 turn loop 从 runtime 结构化获取缺失 fact sources |
+| bootstrap | repeated duplicate inspect read/search 且存在缺失声明 fact-source 时，自动执行 bounded read，最多读取 4 个缺失 artifacts |
+| evidence recording | bootstrap 输出每个文件前带 `===== path`，并显式记录为 `ActionClass::Read` main tool result，使 coverage guard 能识别 |
+| boundary | 只在 repeated blocked read/search 后触发；只读声明 fact-source；不创建实现、不修改文件、不绕过 validation |
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core missing_fact_source_bootstrap_command_reads_bounded_declared_artifacts --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core inspect_missing_fact_sources_shrink_after_bootstrap_read_sections --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core inspect_missing_fact_sources --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core duplicate_read_search --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core taskspace_active_budget --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core provider_budget --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core taskspace_control --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core validation_ --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core validation_rework --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core local_infra --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core apply_patch_ --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --all --check
+git diff --check
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build -j1 -p codex-cli --bin whale --locked
+```
+
+当前状态：focused 修复和 R4-adjacent regression/build 已完成；仍需 attestation 和下一次 keyed rerun
+验证 live sample 是否越过 inspect duplicate-read budget drain，再继续打到 implementation / validation rework 阶段。
 
 ## 4. 本次验证
 

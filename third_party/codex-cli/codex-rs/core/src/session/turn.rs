@@ -167,6 +167,8 @@ const TASKSPACE_TOOL_FEEDBACK_MARKER: &str = "TaskSpaceToolFeedbackV1:";
 const TASKSPACE_INSPECT_BOOTSTRAP_CALL_ID: &str = "taskspace-inspect-bootstrap-rg-files";
 const TASKSPACE_REPEATED_BLOCKED_INSPECT_BOOTSTRAP_CALL_ID: &str =
     "taskspace-inspect-bootstrap-repeated-blocked-read";
+const TASKSPACE_MISSING_FACT_SOURCE_BOOTSTRAP_CALL_ID: &str =
+    "taskspace-inspect-bootstrap-missing-fact-source";
 const TASKSPACE_REPEATED_BLOCKED_INSPECT_BOOTSTRAP_COMMAND_WINDOWS: &str = "rg --files -g '*.py' -g '*.md' -g '*.txt' | Select-Object -First 8 | ForEach-Object { Write-Output ('===== ' + $_); Get-Content -LiteralPath $_ -TotalCount 120 }";
 const TASKSPACE_REPEATED_BLOCKED_INSPECT_BOOTSTRAP_COMMAND_UNIX: &str = "rg --files -g '*.py' -g '*.md' -g '*.txt' | head -n 8 | while IFS= read -r path; do printf '===== %s\\n' \"$path\"; sed -n '1,120p' -- \"$path\"; done";
 const TASKSPACE_INSPECT_TEST_BOOTSTRAP_CALL_ID: &str = "taskspace-inspect-bootstrap-pytest";
@@ -6945,6 +6947,26 @@ tax_calc.py\n\
     }
 
     #[test]
+    fn missing_fact_source_bootstrap_command_reads_bounded_declared_artifacts() {
+        let command = taskspace_missing_fact_source_bootstrap_command(&[
+            "employees.csv".to_string(),
+            "data/projects.csv".to_string(),
+        ]);
+        assert!(command.contains("employees.csv"));
+        assert!(command.contains("data/projects.csv"));
+        assert!(command.contains("TaskSpaceReadFileSummaryV1"));
+        if cfg!(windows) {
+            assert!(command.contains("Write-Output \"===== employees.csv\""));
+            assert!(command.contains("Get-Content -LiteralPath"));
+        } else {
+            assert!(command.contains("printf"));
+            assert!(command.contains("====="));
+            assert!(command.contains("%s"));
+            assert!(command.contains("sed -n"));
+        }
+    }
+
+    #[test]
     fn provider_budget_does_not_reduce_tools_for_implementation_request() {
         assert_eq!(
             taskspace_provider_tool_visibility_for_budget(
@@ -9400,6 +9422,90 @@ async fn run_taskspace_inspect_bootstrap(
     Ok(())
 }
 
+async fn run_taskspace_missing_fact_source_bootstrap(
+    tool_runtime: ToolCallRuntime,
+    sess: Arc<Session>,
+    turn_context: Arc<TurnContext>,
+    request_count: usize,
+    artifacts: &[String],
+    cancellation_token: CancellationToken,
+) -> CodexResult<()> {
+    let artifacts = artifacts.iter().take(4).cloned().collect::<Vec<_>>();
+    if artifacts.is_empty() {
+        return Ok(());
+    }
+    let command = taskspace_missing_fact_source_bootstrap_command(&artifacts);
+    let call_id = format!("{TASKSPACE_MISSING_FACT_SOURCE_BOOTSTRAP_CALL_ID}-{request_count}");
+    let arguments = serde_json::json!({
+        "command": command,
+        "timeout_ms": 10000,
+    })
+    .to_string();
+    let call_item = ResponseItem::FunctionCall {
+        id: None,
+        name: "shell_command".to_string(),
+        namespace: None,
+        arguments: arguments.clone(),
+        call_id: call_id.clone(),
+    };
+    record_completed_response_item(sess.as_ref(), turn_context.as_ref(), &call_item).await;
+    sess.send_event(
+        &turn_context,
+        EventMsg::Warning(WarningEvent {
+            message: format!(
+                "TaskSpaceMissingFactSourceBootstrapV1 read bounded declared fact-source artifact(s) after repeated duplicate inspect read: {}",
+                artifacts.join(", ")
+            ),
+        }),
+    )
+    .await;
+
+    let response_input = tool_runtime
+        .handle_tool_call(
+            ToolCall {
+                tool_name: ToolName::plain("shell_command"),
+                call_id: call_id.clone(),
+                payload: ToolPayload::Function { arguments },
+            },
+            cancellation_token,
+        )
+        .await?;
+    let response_item =
+        record_response_input_item(sess.as_ref(), turn_context.as_ref(), response_input).await;
+    let (success, output) =
+        taskspace_tool_output_success_and_text(&response_item).unwrap_or((false, String::new()));
+    let preview = format!(
+        "TaskSpaceToolInvocationV1:\n\
+tool: shell_command\n\
+command: {command}\n\
+raw_output:\n\
+{output}"
+    );
+    sess.record_action_map_main_tool_result(
+        &turn_context,
+        &call_id,
+        "shell_command",
+        Some(ActionClass::Read),
+        success,
+        preview,
+    )
+    .await;
+    let evidence_item = build_taskspace_inspect_bootstrap_evidence_item(&command, &response_item);
+    record_completed_response_item(sess.as_ref(), turn_context.as_ref(), &evidence_item).await;
+    Ok(())
+}
+
+fn taskspace_tool_output_success_and_text(item: &ResponseItem) -> Option<(bool, String)> {
+    match item {
+        ResponseItem::FunctionCallOutput { output, .. }
+        | ResponseItem::CustomToolCallOutput { output, .. } => Some((
+            output.success.unwrap_or(true),
+            function_call_output_body_text(&output.body),
+        )),
+        _ => None,
+    }
+}
+
 fn parse_taskspace_action_v1(text: &str) -> Result<TaskSpaceActionV1, String> {
     let trimmed = text.trim();
     if trimmed.is_empty() {
@@ -10878,6 +10984,38 @@ Write-Output \"TaskSpaceReadFileSummaryV1: path={summary_path} lines_read=$TaskS
             codex_shell_command::parse_command::shlex_join(&sed_args),
             codex_shell_command::parse_command::shlex_join(&awk_args)
         )
+    }
+}
+
+fn taskspace_missing_fact_source_bootstrap_command(artifacts: &[String]) -> String {
+    let commands = artifacts
+        .iter()
+        .take(4)
+        .map(|artifact| {
+            if cfg!(windows) {
+                format!(
+                    "Write-Output {:?}; {}",
+                    format!("===== {artifact}"),
+                    taskspace_read_file_command(artifact)
+                )
+            } else {
+                let header_command = codex_shell_command::parse_command::shlex_join(&[
+                    "printf".to_string(),
+                    "===== %s\\n".to_string(),
+                    artifact.to_string(),
+                ]);
+                format!(
+                    "{}; {}",
+                    header_command,
+                    taskspace_read_file_command(artifact)
+                )
+            }
+        })
+        .collect::<Vec<_>>();
+    if cfg!(windows) {
+        commands.join("; ")
+    } else {
+        commands.join("\n")
     }
 }
 
@@ -12504,6 +12642,63 @@ async fn try_run_sampling_request(
                             "inspect_duplicate_successful_read_or_search",
                         );
                         if taskspace_message_has_repeated_blocked_action(
+                            last_agent_message.as_deref(),
+                        ) && duplicate_read_search_gate
+                        {
+                            let missing_fact_sources = sess
+                                .action_map_current_inspect_missing_required_fact_source_artifacts()
+                                .await;
+                            if missing_fact_sources.is_empty() {
+                                let trigger =
+                                    taskspace_inspect_duplicate_successful_evidence_trigger(
+                                        last_agent_message.as_deref(),
+                                    );
+                                match sess
+                                    .force_finish_action_map_inspect_for_provider_budget(
+                                        &turn_context,
+                                        snapshot,
+                                        trigger,
+                                    )
+                                    .await
+                                {
+                                    Ok(true) => {
+                                        Some(build_taskspace_forced_inspect_transition_recovery_item())
+                                    }
+                                    Ok(false) => Some(
+                                        build_taskspace_duplicate_inspect_successful_evidence_recovery_item(
+                                            last_agent_message.as_deref(),
+                                        ),
+                                    ),
+                                    Err(error) => {
+                                        sess.send_event(
+                                            &turn_context,
+                                            EventMsg::Warning(WarningEvent {
+                                                message: format!(
+                                                    "TaskSpaceForcedInspectTransitionFailedV1 trigger={trigger} error={error}"
+                                                ),
+                                            }),
+                                        )
+                                        .await;
+                                        Some(
+                                            build_taskspace_duplicate_inspect_successful_evidence_recovery_item(
+                                                last_agent_message.as_deref(),
+                                            ),
+                                        )
+                                    }
+                                }
+                            } else {
+                                run_taskspace_missing_fact_source_bootstrap(
+                                    tool_runtime.clone(),
+                                    sess.clone(),
+                                    turn_context.clone(),
+                                    snapshot.request_count,
+                                    &missing_fact_sources,
+                                    cancellation_token.child_token(),
+                                )
+                                .await?;
+                                None
+                            }
+                        } else if taskspace_message_has_repeated_blocked_action(
                             last_agent_message.as_deref(),
                         ) && !duplicate_read_search_gate
                         {
