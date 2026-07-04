@@ -1171,3 +1171,17 @@ bootstrap 读完 canonical root CSV 后，`data/*.csv` 仍残留为 missing fact
 
 边界说明：该修复不是忽略 `data/` 目录，也不是把所有同名文件合并。它只作用于“泛化 CSV input”
 由文件发现派生出来的 required input set，避免同一业务输入的重复副本把反馈层变成无限 missing-source。
+
+## 2026-07-05 R4-D issue type addendum: read-summary path telemetry pollution
+
+`a808190` 安装后 keyed rerun 证明 H-122 的 duplicate basename overcoverage 已不再作为主 blocker：
+第一次 missing fact-source bootstrap 成功读取了 root-level `departments.csv`、`employees.csv`、`projects.csv`。
+新的 blocker 是 read-summary telemetry 被 artifact extractor 当成路径：`TaskSpaceReadFileSummaryV1: path=departments.csv`
+生成了 synthetic required artifact `path=departments.csv`，后续 bootstrap 读取 literal `path=*.csv` 失败。
+
+| Issue type | Layer | Symptom | Resolution contract | Evidence |
+|---|---|---|---|---|
+| `inspect-read-summary-path-telemetry-artifact-pollution` | tool semantic summary / artifact extraction / feedback coverage | 正确的 read summary `path=foo.csv` 被解释成新文件 `path=foo.csv`，导致 missing fact-source 和 bootstrap command 都读错路径 | 已实现：artifact ref normalization 剥离 telemetry 前缀 `path=`，让 `path=foo.csv` 等价于 `foo.csv`；generic CSV bootstrap 测试覆盖 summary path 字段 | keyed rerun `20260705-043055-329`; CoE H-123/E-249/E-250; focused tests `inspect_generic_csv_requirement_expands_discovered_csv_inputs`, `inspect_missing_fact_source`, `forced_inspect_transition` |
+
+边界说明：该修复不删除 `TaskSpaceReadFileSummaryV1`，也不降低 artifact coverage gate。它只把工具摘要中的
+`path=` 键值字段还原为真实 artifact ref，避免 telemetry 格式污染能力层。

@@ -7335,3 +7335,65 @@
     PASS
   ```
 - Interpretation: H-122 is focused-fixed. Remaining gates are commit/push, install/attest, and keyed rerun to verify the run can move past inspect bootstrap and re-test H-120 final closeout.
+
+# Evidence E-249: H-122 install rerun clears duplicate basename overcoverage but exposes read-summary path telemetry pollution
+
+- Real rerun:
+  ```text
+  RunDir: target/r4-org-json-real-keyed-20260705aq-generic-csv-dedupe-gate/runs/terminal_bench__organization-json-generator/20260705-043055-329
+  installed_whale_sha256: 1316e482116b3e3741bbca10b9c6e9b79ecceb6b1d507184952b64ada960127a
+  outcome_standard: solved
+  outcome_taskspace: wrong
+  right_exec_timed_out: False
+  right_tool_call_count: 17
+  right_public_validation_exit_code: 1
+  right_hidden_oracle_exit_code: 0
+  right_nodes: 1
+  right_open_leaf_nodes: 1
+  final_marker: TaskSpaceProviderBudgetHardStopV1 reason=provider_node_request_hard_limit_exceeded node_kind=inspect_code_context
+  ```
+- H-122 live status:
+  - Duplicate basename `data/*.csv` missing-source overcoverage did not recur as the primary blocker.
+  - The first missing fact-source bootstrap read `departments.csv`, `employees.csv`, and `projects.csv` successfully.
+- New blocker signals:
+  - After the successful bootstrap, subsequent feedback advertised missing artifacts as `path=departments.csv`, `path=employees.csv`, and `path=projects.csv`.
+  - Automatic bootstrap then attempted to read literal files named `path=departments.csv` etc. and failed with `sed: can't read ... No such file or directory`.
+  - The synthetic `path=` refs came from `TaskSpaceReadFileSummaryV1: path=departments.csv ...` telemetry lines being parsed as artifact-like tokens.
+  - Provider repeated read/schema/list actions until inspect node budget hard-stopped.
+- Interpretation: H-123 is a feedback-layer telemetry contamination issue. The tool result already contained correct file coverage, but artifact extraction treated telemetry key-value fields as new required paths.
+
+# Hypothesis H-123: read-summary path telemetry must normalize to artifact refs, not become synthetic paths
+
+- Claim: `extract_artifact_like_refs()` and related normalization allow `path=foo.csv` from `TaskSpaceReadFileSummaryV1` telemetry to enter required/observed artifact sets as a literal path. This creates synthetic missing fact-source artifacts and causes bootstrap to read impossible filenames.
+- Prediction: Normalizing artifact refs should strip the telemetry prefix `path=` so `path=departments.csv` is equivalent to `departments.csv`. Generic CSV bootstrap output containing `TaskSpaceReadFileSummaryV1: path=...` should satisfy coverage and not create synthetic missing artifacts.
+- Diagnostic evidence plan: Add/extend a generic CSV inspect regression using real bootstrap-style section output plus read-summary `path=` fields. Update normalization and run inspect missing fact-source, forced inspect, action-contract, fmt/check/build/diff gates.
+- Status: focused-fixed; live rerun pending.
+
+# Evidence E-250: read-summary path telemetry normalization is focused-fixed
+
+- Repair artifact:
+  - `third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs`
+- Repair behavior:
+  - `normalize_artifact_ref()` now strips a leading `path=` telemetry prefix before normal path normalization.
+  - Generic CSV bootstrap regression now records one bounded bootstrap result containing `===== departments.csv` sections and `TaskSpaceReadFileSummaryV1: path=...` lines, then asserts coverage is empty.
+  - This keeps read-summary telemetry useful as evidence without letting it create synthetic required paths.
+- Validation:
+  ```text
+  cargo fmt --check
+    PASS
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core inspect_generic_csv_requirement_expands_discovered_csv_inputs -- --nocapture
+    PASS: 1/1
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core inspect_missing_fact_source -- --nocapture
+    PASS: 4/4
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core forced_inspect_transition -- --nocapture
+    PASS: 6/6
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core action_contract_prompt -- --nocapture
+    PASS: 29/29
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo check -p codex-core
+    PASS
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
+    PASS
+  git diff --check
+    PASS
+  ```
+- Interpretation: H-123 is focused-fixed. Remaining gates are commit/push, install/attest, and keyed rerun to verify inspect can now transition after CSV bootstrap.

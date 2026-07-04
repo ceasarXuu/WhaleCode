@@ -16499,6 +16499,8 @@ fn extract_edit_changed_artifacts_from_tool_body(body: &str) -> Vec<String> {
 
 fn normalize_artifact_ref(path: &str) -> String {
     path.trim()
+        .strip_prefix("path=")
+        .unwrap_or(path.trim())
         .trim_start_matches("a/")
         .trim_start_matches("b/")
         .trim_start_matches("./")
@@ -24874,14 +24876,37 @@ data/projects.csv\n"
             "generic CSV input requirement must block forced transition until discovered CSV inputs are read"
         );
 
-        record_successful_read_result(&mut state, owner, "departments", "departments.csv");
-        record_successful_read_result(&mut state, owner, "employees", "employees.csv");
-        record_successful_read_result(&mut state, owner, "projects", "projects.csv");
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "generic-csv-bootstrap",
+                "shell_command",
+                Some(ActionClass::Read),
+                true,
+                "TaskSpaceToolInvocationV1:\n\
+tool: shell_command\n\
+command: bounded generic CSV bootstrap\n\
+raw_output:\n\
+===== departments.csv\n\
+id,name,budget\n\
+D001,Engineering,1500000\n\
+TaskSpaceReadFileSummaryV1: path=departments.csv lines_read=2 eof_reached=true max_lines=240\n\
+===== employees.csv\n\
+id,name,position,skills,years_of_service,department_id\n\
+D001-E001,Ada Lovelace,Engineer,Python,10,D001\n\
+TaskSpaceReadFileSummaryV1: path=employees.csv lines_read=2 eof_reached=true max_lines=240\n\
+===== projects.csv\n\
+name,status,member_ids,deadline,department_id\n\
+Platform,In Progress,D001-E001,2025-06-30,D001\n\
+TaskSpaceReadFileSummaryV1: path=projects.csv lines_read=2 eof_reached=true max_lines=240\n"
+                    .to_string(),
+            )
+            .expect("generic CSV bootstrap read records");
         assert!(
             state
                 .current_main_inspect_missing_required_fact_source_artifacts()
                 .is_empty(),
-            "reading the discovered CSV inputs should satisfy generic CSV coverage"
+            "bootstrap summaries with path= telemetry should not create synthetic missing CSV artifacts"
         );
     }
 

@@ -2477,6 +2477,24 @@ inspect node budget hard-stop。
 
 状态：focused fixed，待 commit/push、install/attest 和真实 keyed rerun。
 
+## 51. 2026-07-05 read-summary path telemetry artifact pollution
+
+`a808190` 安装后 keyed rerun 显示 H-122 的 duplicate basename overcoverage 已不再阻塞，但 inspect 仍卡住。
+第一次 missing fact-source bootstrap 成功读取了 root CSV；随后 coverage gate 从 `TaskSpaceReadFileSummaryV1: path=...`
+中抽出了 `path=departments.csv` 这类 synthetic artifact，后续 bootstrap 读取 literal `path=*.csv` 失败并耗尽
+inspect node budget。
+
+| 字段 | 内容 |
+|---|---|
+| case | `inspect-read-summary-path-telemetry-artifact-pollution` |
+| 层级 | tool semantic summary / artifact extraction / feedback coverage |
+| 本质 | read summary 的 `path=` 键值 telemetry 被当成真实文件路径，导致 missing fact-source 集合从 `departments.csv` 漂移成 `path=departments.csv` |
+| 非根因 | 不是 H-122 duplicate basename 复发；不是 CSV 未读；不是 validator 失败；不是 H-120 final closeout |
+| 修复 | `normalize_artifact_ref()` 剥离 leading `path=`；generic CSV bootstrap regression 覆盖 `TaskSpaceReadFileSummaryV1: path=file.csv` |
+| evidence | CoE H-123/E-249/E-250；keyed rerun `20260705-043055-329`; focused tests `inspect_generic_csv_requirement_expands_discovered_csv_inputs`, `inspect_missing_fact_source`, `forced_inspect_transition`, `action_contract_prompt`; fmt/check/build/diff |
+
+状态：focused fixed，待 commit/push、install/attest 和真实 keyed rerun。
+
 ## 40. 2026-07-05 replacement-required recovery marker distortion
 
 `b3d31ec` 安装后 keyed rerun：

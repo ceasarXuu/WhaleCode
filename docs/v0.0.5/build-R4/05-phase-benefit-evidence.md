@@ -1522,6 +1522,45 @@ set -a; . ./.env.local; set +a; powershell -NoProfile -ExecutionPolicy Bypass -F
 git diff --check
 ```
 
+## 5.101 2026-07-05 read-summary path telemetry artifact pollution
+
+`a808190` 安装后 keyed rerun 显示 H-122 的 duplicate basename overcoverage 已越过：第一次 bootstrap
+成功读取了 canonical root CSV；但随后 runtime 自己把 read summary 中的 `path=` 键值字段当成新 artifact：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260705aq-generic-csv-dedupe-gate/runs/terminal_bench__organization-json-generator/20260705-043055-329
+outcome_standard: solved
+outcome_taskspace: wrong
+right_exec_timed_out: False
+right_tool_call_count: 17
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+final_marker: TaskSpaceProviderBudgetHardStopV1 reason=provider_node_request_hard_limit_exceeded node_kind=inspect_code_context
+```
+
+收益判断：
+
+1. H-122 的收益已被 live 证据确认：`data/*.csv` duplicate basename 不再是 primary missing-source blocker。
+2. 新问题类型是 `inspect-read-summary-path-telemetry-artifact-pollution`：`TaskSpaceReadFileSummaryV1: path=departments.csv`
+   被 artifact parser 解释成 literal artifact `path=departments.csv`。
+3. 这不是工具读文件失败；第一次 bootstrap 已经成功读到正确 CSV。失败来自反馈层把工具摘要格式污染成新的 required input。
+4. focused fix 后，`normalize_artifact_ref()` 会剥离 leading `path=`，使 read-summary telemetry 与真实 artifact ref 对齐。
+5. generic CSV regression 已升级为 bootstrap-style output，覆盖 `===== file.csv` 和 `TaskSpaceReadFileSummaryV1: path=file.csv`
+   同时存在的真实形态。
+
+验证：
+
+```text
+cargo fmt --check
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core inspect_generic_csv_requirement_expands_discovered_csv_inputs -- --nocapture
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core inspect_missing_fact_source -- --nocapture
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core forced_inspect_transition -- --nocapture
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core action_contract_prompt -- --nocapture
+CODEX_SKIP_VENDORED_BWRAP=1 cargo check -p codex-core
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
+git diff --check
+```
+
 ## 5.100 2026-07-05 generic CSV duplicate basename overcoverage
 
 `6b7debf` 安装后 keyed rerun 证明 H-121 的相对路径 bootstrap 修复生效：`TaskSpaceMissingFactSourceBootstrapV1`
