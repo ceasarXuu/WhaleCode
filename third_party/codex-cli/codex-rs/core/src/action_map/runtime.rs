@@ -11687,7 +11687,7 @@ fn working_evidence_body_excerpt(body: &str, max_chars: usize) -> String {
 }
 
 fn read_file_summary_line(body: &str) -> Option<&str> {
-    body.lines().find_map(|line| {
+    body.lines().rev().find_map(|line| {
         let start = line.find("TaskSpaceReadFileSummaryV1:")?;
         Some(line[start..].trim())
     })
@@ -34005,6 +34005,29 @@ organization.json generated successfully\n\
             read_command_artifact_ref(command).as_deref(),
             Some("dir/schema file.json")
         );
+    }
+
+    #[test]
+    fn read_file_summary_prefers_actual_output_over_command_template() {
+        let body = "TaskSpaceToolInvocationV1:\n\
+tool: shell_command\n\
+command: sed -n '1,240p' -- generate_org.py && awk 'NR == 241 { truncated = 1; exit } { lines = NR } END { printf \"TaskSpaceReadFileSummaryV1: path=%s lines_read=%d eof_reached=%s max_lines=240\" }' generate_org.py\n\
+raw_output:\n\
+print('ok')\n\
+TaskSpaceReadFileSummaryV1: path=generate_org.py lines_read=108 eof_reached=true max_lines=240\n";
+
+        assert_eq!(
+            read_file_summary_line(body),
+            Some(
+                "TaskSpaceReadFileSummaryV1: path=generate_org.py lines_read=108 eof_reached=true max_lines=240"
+            )
+        );
+        assert_eq!(read_file_summary_eof_reached(body), Some(true));
+        let context = validation_rework_read_context_status(body).expect("read context");
+        assert!(
+            context.starts_with("complete_read; TaskSpaceReadFileSummaryV1: path=generate_org.py")
+        );
+        assert!(!context.contains("path=%s"), "{context}");
     }
 
     #[test]

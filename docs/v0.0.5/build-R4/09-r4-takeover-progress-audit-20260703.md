@@ -1629,6 +1629,89 @@ CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/co
 当前状态：focused 修复和 R4-adjacent regression/build 已完成；仍需提交推送、attestation 和下一次 keyed rerun 验证
 live sample 是否在新 blocker guard 后进入 `apply_patch`，或者暴露下一层 tools-chain blocker。
 
+### 3.32 read summary command template shadowing
+
+visible evidence blocker guard 修复、提交、推送并刷新 attestation 后执行 keyed rerun：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260704bd-visible-evidence-blocker/runs/terminal_bench__organization-json-generator/20260704-123716-651
+preflight current_git_head: 7bf148589386ff15b1bc61f9f1f79b7aab5e35bc
+build_attestation_status: pass
+reported_evidence_level: E2-candidate
+outcome_standard: solved
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 12
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+```
+
+本次进展：
+
+| 层 | 结论 |
+|---|---|
+| H-057 live gate | `Need to view full current ...` blocker 未复现，说明 visible-evidence blocker guard 已越过 |
+| inspect | 本轮读取了 `schema.json`、`departments.csv`、`employees.csv`、`projects.csv`，且均有 `eof_reached=true` |
+| initial patch | 生成了 `generate_org.py` 和 `organization.json`，进入真实 schema mismatch，而不是早期工具链失败 |
+| rework target read | `generate_org.py` 读取完整，真实 raw output 末尾为 `TaskSpaceReadFileSummaryV1: path=generate_org.py lines_read=108 eof_reached=true max_lines=240` |
+| bad feedback | provider prompt 中的 `read_context` 却显示 `read_summary; TaskSpaceReadFileSummaryV1: path=%s lines_read=%d eof_reached=%s...` |
+| bad action | 模型据此判断 “read summary is truncated / need full file”，重复 `read_file generate_org.py`，最终触发 `TaskSpaceValidationReworkDuplicateReadHardStopV1` |
+
+问题类型收录：
+
+| 字段 | 内容 |
+|---|---|
+| type | `read-summary-command-template-shadowing` |
+| layer | feedback layer / evidence summarization |
+| trigger | action-contract read_file shell command 的 awk `printf` 模板含 `TaskSpaceReadFileSummaryV1: path=%s...`，出现在 tool body 真实 raw output summary 之前 |
+| expected | read summary parser 应选择 raw output 末尾的真实 summary，并向 projection/recovery 输出 `complete_read` / `eof_reached=true` |
+| actual | `read_file_summary_line()` 从前向后扫描，先命中 command 模板，导致 `complete_read` 语义被扭曲成 `read_summary/path=%s` |
+
+根因判断：
+
+这不是模型缺少目标文件，也不是 duplicate-read guard 失效。完整文件内容和 `eof_reached=true` 已经在同一个 tool result 内。
+缺口是 evidence summarization 解析顺序错误：命令模板里的 marker 抢在 raw output summary 前被解析，导致反馈层把完整读错误表达为
+不完整/不确定读。
+
+本轮修复设计：
+
+| 层 | 结论 |
+|---|---|
+| parser | `read_file_summary_line()` 改为从后向前查找 marker，让 raw output 末尾追加的真实 summary 优先 |
+| regression | 新增 `read_file_summary_prefers_actual_output_over_command_template`，包含 `path=%s/%d/%s` 模板和真实 `path=generate_org.py ... eof_reached=true` |
+| expected projection | `validation_rework_read_context_status()` 应恢复 `complete_read; TaskSpaceReadFileSummaryV1: path=generate_org.py ... eof_reached=true`，不再泄漏 `path=%s` |
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core read_file_summary_prefers_actual_output_over_command_template --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core validation_rework_allows_changed_artifact_read_when_schema_failure_lacks_traceback --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core validation_rework --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core taskspace_control --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core implementation_needs_edit --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core action_contract_prompt --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core validation_ --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core provider_budget --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core taskspace_active_budget --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core apply_patch_ --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core local_infra --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core duplicate_read_search --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core missing_fact_source_bootstrap --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core inspect_missing_fact_sources --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+git diff --check
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-cli --bin whale --locked
+```
+
+结果：通过。`validation_rework` 19/19、`taskspace_control` 35/35、`implementation_needs_edit` 3/3、
+`action_contract_prompt` 28/28、`validation_` 98/98、`provider_budget` 23/23、`taskspace_active_budget`
+11/11、`apply_patch_` 35/35、`local_infra` 11/11、`duplicate_read_search` 3/3、
+`missing_fact_source_bootstrap` 1/1、`inspect_missing_fact_sources` 2/2 均通过。`cargo fmt --check`
+仍只输出项目既有 stable rustfmt `imports_granularity` 警告；`git diff --check` 和 `whale` build 通过。
+
+当前状态：focused 修复和 R4-adjacent regression/build 已完成；仍需提交推送、attestation 和下一次 keyed rerun 验证
+live prompt 不再出现 `read_context: read_summary; ... path=%s`，并观察是否进入 schema repair patch。
+
 ## 4. 本次验证
 
 | 验证项 | 命令 | 结果 |

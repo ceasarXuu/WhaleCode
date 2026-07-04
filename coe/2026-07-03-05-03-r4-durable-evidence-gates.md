@@ -3425,3 +3425,72 @@
   ```
 - Result: passed. `validation_rework` 19/19, `taskspace_control` 35/35, `implementation_needs_edit` 3/3, `action_contract_prompt` 28/28, `validation_` 98/98, `provider_budget` 23/23, `taskspace_active_budget` 11/11, `apply_patch_` 35/35, `local_infra` 11/11, `duplicate_read_search` 3/3, `missing_fact_source_bootstrap` 1/1, and `inspect_missing_fact_sources` 2/2 all passed. The fmt check still prints the known stable rustfmt `imports_granularity` warning. `git diff --check` and the `whale` build passed.
 - Interpretation: H-057 is focused-fixed. The remaining live gate is commit/push, binary attestation, and another keyed `organization-json-generator` rerun to see whether TaskSpace now patches after the patch-only recovery or exposes the next unresolved tools-chain case.
+
+# Evidence E-125: 7bf1485 live rerun clears visible-evidence blocker and exposes read-summary template shadowing
+
+- Prediction tested: H-057 should prevent the live post-target-read `block_node` from closing the rework node.
+- Real rerun:
+  ```text
+  RunDir: target/r4-org-json-real-keyed-20260704bd-visible-evidence-blocker/runs/terminal_bench__organization-json-generator/20260704-123716-651
+  PairReport: pair-001/pair-report.md
+  reported_evidence_level: E2-candidate
+  outcome_standard: solved
+  outcome_taskspace: engineering_unclean
+  right_exec_timed_out: False
+  right_tool_call_count: 12
+  right_public_validation_exit_code: 1
+  right_hidden_oracle_exit_code: 0
+  ```
+- Matched H-057 live signals:
+  - The previous `Need to view full current process.py...` blocker did not recur.
+  - TaskSpace progressed through all declared source data reads, generated `generate_org.py`, ran schema validation, entered rework, and preserved `TaskSpaceValidationReworkPatchOnlyRecoveryV1`.
+- New blocker signals:
+  - The first rework target read result contained the actual final summary `TaskSpaceReadFileSummaryV1: path=generate_org.py lines_read=108 eof_reached=true max_lines=240`.
+  - The provider prompt nevertheless rendered `read_context: read_summary; TaskSpaceReadFileSummaryV1: path=%s lines_read=%d eof_reached=%s max_lines=240...`, because the shell command field also contains an awk `printf` template with the same marker string.
+  - The model then reasoned that the current read summary was truncated and repeated `read_file generate_org.py` twice, ending at `TaskSpaceValidationReworkDuplicateReadHardStopV1`.
+- Interpretation: H-057 is live-cleared, and the next problem type is `read-summary-command-template-shadowing`. The runtime had complete file evidence, but read-summary extraction selected the command-template marker before the raw-output summary, changing `complete_read/eof_reached=true` into ambiguous `read_summary/path=%s`. This is a feedback-layer semantic distortion that directly explains the repeated target read.
+
+# Hypothesis H-058: read summary extraction must prefer raw-output summary over command templates
+
+- Claim: `read_file_summary_line()` scans a tool-result body from top to bottom. Action-contract `read_file` shell commands include an awk format string containing `TaskSpaceReadFileSummaryV1: path=%s lines_read=%d eof_reached=%s...`, so the parser can capture that template instead of the actual appended raw-output summary. That prevents `validation_rework_read_context_status()` from reporting `complete_read`, and the model keeps requesting a full file despite `eof_reached=true` being available later in the same result body.
+- Prediction:
+  1. A focused unit body containing both the command template marker and a final actual summary should currently classify as `read_summary` or include `path=%s`; after repair it must select the final actual summary and report `complete_read`.
+  2. Existing validation rework target-read tests should still show `complete_read`, `eof_reached=true`, no repeated target read next action, and the failed-edit refresh path unchanged.
+  3. R4-adjacent validation/session/build regressions should continue to pass.
+- Diagnostic evidence plan: Change summary extraction to prefer the last marker line in the body, add a focused parser regression for command-template shadowing, then rerun validation rework, validation/session/control, provider/budget, formatting, whitespace, and `whale` build checks. A later live rerun must verify the prompt no longer shows `path=%s` in `read_context`.
+- Status: confirmed.
+
+# Evidence E-126: read-summary command-template shadowing is focused-fixed
+
+- Prediction tested: H-058 predicts the read summary parser should prefer the raw-output summary appended at the end of the tool body over the command field's awk format template.
+- Repair artifact:
+  - `third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs`
+- Repair behavior:
+  - `read_file_summary_line()` now scans body lines from the end toward the beginning, so the actual appended summary wins over earlier command-template marker strings.
+  - Added `read_file_summary_prefers_actual_output_over_command_template`, which includes both `path=%s lines_read=%d eof_reached=%s` in the command field and `path=generate_org.py lines_read=108 eof_reached=true` in raw output.
+  - The focused regression asserts `read_file_summary_eof_reached()` returns `Some(true)` and `validation_rework_read_context_status()` starts with `complete_read`, with no `path=%s` leakage.
+- Focused validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core read_file_summary_prefers_actual_output_over_command_template --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core validation_rework_allows_changed_artifact_read_when_schema_failure_lacks_traceback --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core validation_rework --lib --locked
+  ```
+- R4-adjacent regression/build validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core taskspace_control --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core implementation_needs_edit --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core action_contract_prompt --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core validation_ --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core provider_budget --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core taskspace_active_budget --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core apply_patch_ --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core local_infra --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core duplicate_read_search --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core missing_fact_source_bootstrap --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core inspect_missing_fact_sources --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+  git diff --check
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-cli --bin whale --locked
+  ```
+- Result: passed. `validation_rework` 19/19, `taskspace_control` 35/35, `implementation_needs_edit` 3/3, `action_contract_prompt` 28/28, `validation_` 98/98, `provider_budget` 23/23, `taskspace_active_budget` 11/11, `apply_patch_` 35/35, `local_infra` 11/11, `duplicate_read_search` 3/3, `missing_fact_source_bootstrap` 1/1, and `inspect_missing_fact_sources` 2/2 all passed. The fmt check still prints the known stable rustfmt `imports_granularity` warning. `git diff --check` and the `whale` build passed.
+- Interpretation: H-058 is focused-fixed. The remaining live gate is commit/push, binary attestation, and another keyed `organization-json-generator` rerun to verify the provider prompt shows `complete_read` instead of `path=%s` and whether the sample advances to an edit.
