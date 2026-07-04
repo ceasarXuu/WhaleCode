@@ -3342,6 +3342,36 @@ final_marker: TaskSpaceValidationReworkPatchOnlyHardStopV1
 
 状态：focused 修复已编码并通过相关回归、fmt/check/build/diff-check。下一步是 commit/push、attestation、安装新 whale，再进行下一轮 keyed rerun。
 
+## 36. 2026-07-04 full-visible mixed native hunk recovery drift
+
+`39caa76` 后 keyed rerun 已 live-clear H-106：没有再接受 `without knowing schema` 这类 stale blocker。TaskSpace
+继续进入 validation rework patch 路径，但 provider 连续多次发 mixed native/unified patch，最终 hard-stop：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260705aa-schema-knowledge-blocker-gate/runs/terminal_bench__organization-json-generator/20260704-234927-306
+reported_evidence_level: E1
+outcome_standard: wrong
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 10
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+final_marker: TaskSpaceApplyPatchRecoveryHardStopV1
+```
+
+问题类型收录：
+
+| 字段 | 内容 |
+|---|---|
+| case | `apply-patch-full-visible-mixed-native-hunk-recovery-drift` |
+| 层级 | apply_patch grammar feedback / validation rework recovery actionability |
+| 本质 | full-visible target read 后，native-hunk recovery 仍给 `Update File + @@` 留主路径，DeepSeek 连续照着 mixed native/unified 形态重试 |
+| 非根因 | 不是 H-106 stale blocker；不是 action-contract 没拒绝 mixed grammar；不是 hard-stop 本身错误 |
+| 修复 | full-visible validation rework evidence 下，native-hunk recovery 强制 `Delete File + Add File` whole-file replacement，并禁止 `Update File` |
+| focused evidence | CoE H-107/E-219/E-220；`native_hunk_recovery` 2/2；`mixed_native_unified` 4/4；`apply_patch_recovery`；`action_contract_prompt` 29/29；`validation_rework` 29/29；`taskspace_apply_patch` 18/18；fmt-check；cargo check；whale build；diff-check |
+
+状态：focused 修复已编码并通过相关回归、fmt/check/build/diff-check。下一步是 commit/push、attestation、安装新 whale，再进行下一轮 keyed rerun。
+
 ## 28. 2026-07-04 natural-language slash fact-source extraction
 
 `3b6b269` 后的 keyed rerun 没有触发 no-action recovery，因此 H-098 尚未 live-clear。该轮暴露 inspect fact-source

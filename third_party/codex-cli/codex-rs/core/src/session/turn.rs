@@ -2018,24 +2018,40 @@ Current required behavior:\n\
     }
 }
 
-fn build_taskspace_apply_patch_native_hunk_recovery_item(targets: &str) -> ResponseItem {
+fn build_taskspace_apply_patch_native_hunk_recovery_item(
+    targets: &str,
+    force_complete_replacement: bool,
+) -> ResponseItem {
     let targets = targets.trim();
     let targets = if targets.is_empty() {
         "(unknown updated file)"
     } else {
         targets
     };
+    let recovery_mode = if force_complete_replacement {
+        "\
+Current required behavior:\n\
+- Emit exactly one corrected apply_patch now: a whole-file native replacement for the target above.\n\
+- Use `*** Delete File: <relative/path>` followed by `*** Add File: <relative/path>` with the complete corrected file contents.\n\
+- Prefix every added replacement line with `+`.\n\
+- Do not emit `*** Update File` for this recovery; the previous attempts already repeated invalid unified/range hunks inside native update sections.\n\
+- Do not put `--- a/...`, `+++ b/...`, or `@@ -old,+new @@` anywhere in the patch payload.\n\
+- Do not call read_file, list_files, search, finish_node, or validation until this corrected edit succeeds."
+    } else {
+        "\
+\tCurrent required behavior:\n\
+\t- Emit exactly one corrected apply_patch now.\n\
+\t- Use native `*** Update File: <relative/path>` with `@@` plus exact existing context and exact `-old` / `+new` lines.\n\
+\t- Do not put `--- a/...`, `+++ b/...`, or `@@ -old,+new @@` anywhere after `*** Update File`; those are unified-diff markers, not native apply_patch hunks.\n\
+\t- If you are unsure whether exact context still matches, prefer complete replacement with `*** Delete File: <path>` followed by `*** Add File: <path>` for small/generated files.\n\
+\t- If the file is small or generated and the full intended contents are known, use `*** Delete File: <path>` followed by `*** Add File: <path>` with the complete corrected file.\n\
+\t- Do not call read_file, list_files, search, finish_node, or validation until this corrected edit succeeds."
+    };
     let text = format!(
         "{TASKSPACE_APPLY_PATCH_NATIVE_HUNK_MARKER}\n\
 The previous apply_patch mixed native apply_patch grammar with unified-diff/range hunk syntax for: {targets}\n\
 Native apply_patch does not use `--- Update File:`, `--- a/...`, `+++ b/...`, or `@@ -old,+new @@` range headers inside `*** Update File` sections.\n\
-	Current required behavior:\n\
-	- Emit exactly one corrected apply_patch now.\n\
-	- Use native `*** Update File: <relative/path>` with `@@` plus exact existing context and exact `-old` / `+new` lines.\n\
-	- Do not put `--- a/...`, `+++ b/...`, or `@@ -old,+new @@` anywhere after `*** Update File`; those are unified-diff markers, not native apply_patch hunks.\n\
-	- If you are unsure whether exact context still matches, prefer complete replacement with `*** Delete File: <path>` followed by `*** Add File: <path>` for small/generated files.\n\
-	- If the file is small or generated and the full intended contents are known, use `*** Delete File: <path>` followed by `*** Add File: <path>` with the complete corrected file.\n\
-	- Do not call read_file, list_files, search, finish_node, or validation until this corrected edit succeeds."
+{recovery_mode}"
     );
 
     ResponseItem::Message {
@@ -7691,7 +7707,7 @@ Then I will inspect the file."#,
             "TaskSpaceActionV1 rejected: apply_patch_native_hunk_header:recover.py. Return exactly one valid taskspace-action-v1 JSON object.",
         ))
         .expect("target parsed");
-        let item = build_taskspace_apply_patch_native_hunk_recovery_item(&targets);
+        let item = build_taskspace_apply_patch_native_hunk_recovery_item(&targets, false);
         let text = item_text(item.clone());
 
         assert_eq!(targets, "recover.py");
@@ -7710,7 +7726,7 @@ Then I will inspect the file."#,
             "TaskSpaceActionV1 rejected: apply_patch_mixed_native_unified:generate_org.py. Return exactly one valid taskspace-action-v1 JSON object.",
         ))
         .expect("target parsed");
-        let item = build_taskspace_apply_patch_native_hunk_recovery_item(&targets);
+        let item = build_taskspace_apply_patch_native_hunk_recovery_item(&targets, false);
         let text = item_text(item.clone());
         let warning = taskspace_implement_recovery_advisory_warning_message(&item, 7);
 
@@ -7722,6 +7738,25 @@ Then I will inspect the file."#,
         assert!(warning.contains("TaskSpaceApplyPatchNativeHunkRecoveryV1"));
         assert!(!warning.contains("TaskSpaceImplementNeedsEditRecoveryV1"));
         assert!(!is_taskspace_no_action_recovery_item(&item));
+        assert!(is_taskspace_implement_needs_edit_recovery_item(&item));
+    }
+
+    #[test]
+    fn apply_patch_native_hunk_recovery_forces_complete_replacement_when_target_full_visible() {
+        let targets = taskspace_native_hunk_targets_from_rejection(Some(
+            "TaskSpaceActionV1 rejected: apply_patch_mixed_native_unified:process.py. Return exactly one valid taskspace-action-v1 JSON object.",
+        ))
+        .expect("target parsed");
+        let item = build_taskspace_apply_patch_native_hunk_recovery_item(&targets, true);
+        let text = item_text(item.clone());
+
+        assert_eq!(targets, "process.py");
+        assert!(text.contains(TASKSPACE_APPLY_PATCH_NATIVE_HUNK_MARKER));
+        assert!(text.contains("whole-file native replacement"));
+        assert!(text.contains("*** Delete File: <relative/path>"));
+        assert!(text.contains("*** Add File: <relative/path>"));
+        assert!(text.contains("Do not emit `*** Update File`"));
+        assert!(!text.contains("Use native `*** Update File"));
         assert!(is_taskspace_implement_needs_edit_recovery_item(&item));
     }
 
@@ -14978,8 +15013,15 @@ async fn try_run_sampling_request(
                     } else if let Some(targets) =
                         taskspace_native_hunk_targets_from_rejection(last_agent_message.as_deref())
                     {
+                        let evidence_summary =
+                            sess.action_map_current_working_evidence_summary().await;
+                        let force_complete_replacement =
+                            taskspace_evidence_has_full_visible_validation_rework_target_read(
+                                evidence_summary.as_deref(),
+                            );
                         Some(build_taskspace_apply_patch_native_hunk_recovery_item(
                             &targets,
+                            force_complete_replacement,
                         ))
                     } else if let Some(targets) = taskspace_unanchored_update_targets_from_rejection(
                         last_agent_message.as_deref(),

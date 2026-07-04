@@ -5290,3 +5290,46 @@ CODEX_SKIP_VENDORED_BWRAP=1 cargo check -p codex-core
 CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
 git diff --check
 ```
+
+## 5.93 2026-07-04 full-visible mixed native hunk recovery drift
+
+`39caa76` 后 keyed rerun 证明 H-106 已 live-clear：stale schema-knowledge blocker 不再复现。新的 failure 是
+full-visible validation rework 下，native-hunk recovery 仍允许 `Update File` 路径，导致 provider 连续重试
+mixed native/unified grammar：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260705aa-schema-knowledge-blocker-gate/runs/terminal_bench__organization-json-generator/20260704-234927-306
+reported_evidence_level: E1
+outcome_standard: wrong
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 10
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+final_marker: TaskSpaceApplyPatchRecoveryHardStopV1
+```
+
+收益判断：
+
+1. 新收录的 R4-D feedback 修复是 `apply-patch-full-visible-mixed-native-hunk-recovery-drift`：
+   action-contract 已正确拒绝 mixed grammar，但 recovery 仍把 `Update File + @@` 放在主路径，导致重复失败。
+2. 修复后，当 current working evidence 有 `validation_rework_target_read` 且 `content_visibility=full_content_visible`，
+   `TaskSpaceApplyPatchNativeHunkRecoveryV1` 强制 whole-file replacement。
+3. 强制模式要求 `*** Delete File` + `*** Add File`，明确禁止 `*** Update File`、`--- a/...`、`+++ b/...`、
+   `@@ -old,+new @@`。
+4. R4-G utility 仍未通过：需要下一次 keyed rerun 验证是否越过 repeated mixed patch hard-stop，并继续定位剩余 tools 链路问题。
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core native_hunk_recovery --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core mixed_native_unified --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core apply_patch_recovery --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core action_contract_prompt --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_rework --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core taskspace_apply_patch --lib
+cargo fmt --check
+CODEX_SKIP_VENDORED_BWRAP=1 cargo check -p codex-core
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
+git diff --check
+```

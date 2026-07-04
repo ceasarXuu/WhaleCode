@@ -964,3 +964,16 @@ target 保持为 `process.py`。新的 failure 是 blocker 语义覆盖不足：
 
 边界说明：该修复不允许 runtime 无条件忽略真实 schema 缺失。只有当 validation rework 已经有 dependency schema/fact-source
 evidence，并且当前 target 已完整读取时，才把这类 blocker 识别为 stale missing-source 语义并拒绝。
+
+## 2026-07-04 R4-D issue type addendum: full-visible mixed native hunk recovery drift
+
+`39caa76` 后 keyed rerun 已 live-clear H-106：stale schema-knowledge blocker 没有复现，模型继续进入 patch 路径。
+新的 failure 是 native-hunk recovery 的 actionability 不够闭合：在 `process.py` 已完整可见后，provider 连续多次把
+unified headers/range hunks 放进 native `*** Update File` section。
+
+| Issue type | Layer | Symptom | Resolution contract | Evidence |
+|---|---|---|---|---|
+| `apply-patch-full-visible-mixed-native-hunk-recovery-drift` | apply_patch grammar feedback / validation rework recovery actionability | full-visible target read 后，`TaskSpaceApplyPatchNativeHunkRecoveryV1` 仍允许 `Update File + @@` 作为主路径，模型重复 mixed native/unified grammar 到 hard-stop | full-visible validation rework target 下，native-hunk recovery 强制 whole-file replacement：`*** Delete File` + `*** Add File`；显式禁止 `*** Update File` 和 unified headers/range hunks | keyed rerun `20260704-234927-306`; CoE H-107/E-219/E-220; `native_hunk_recovery`; `mixed_native_unified`; `apply_patch_recovery`; `validation_rework`; `taskspace_apply_patch` |
+
+边界说明：该修复不把 malformed patch 当成功，也不重新允许 mixed grammar 进入工具层。它只在目标文件已完整可见时把反馈动作空间收窄为
+whole-file replacement，避免继续消耗请求预算在同一种 grammar 错误上。

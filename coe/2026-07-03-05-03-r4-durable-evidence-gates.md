@@ -6337,3 +6337,68 @@
     PASS
   ```
 - Interpretation: H-106 is focused-fixed at the blocker predicate level. Remaining gates are commit/push, binary attestation, install, and another keyed rerun.
+
+# Evidence E-219: H-106 rerun live-clears stale schema blocker and exposes repeated mixed native hunk recovery drift
+
+- Real rerun:
+  ```text
+  RunDir: target/r4-org-json-real-keyed-20260705aa-schema-knowledge-blocker-gate/runs/terminal_bench__organization-json-generator/20260704-234927-306
+  reported_evidence_level: E1
+  outcome_standard: wrong
+  outcome_taskspace: engineering_unclean
+  right_exec_timed_out: False
+  right_tool_call_count: 10
+  right_public_validation_exit_code: 1
+  right_hidden_oracle_exit_code: 0
+  right_open_leaf_nodes: 1
+  final_marker: TaskSpaceApplyPatchRecoveryHardStopV1
+  ```
+- H-106 live status:
+  - The stale schema-knowledge blocker did not recur.
+  - The run continued through validation rework and repeated `apply_patch` attempts.
+- New blocker signal:
+  - `apply_patch_mixed_native_unified:process.py` was correctly rejected before tool execution.
+  - The model repeatedly emitted native `*** Update File` patches containing `--- a/...`, `+++ b/...`, and `@@ -old,+new @@` range hunks after `TaskSpaceApplyPatchNativeHunkRecoveryV1`.
+  - Recovery text still allowed a native `*** Update File` hunk as the primary path and only suggested complete replacement as a fallback, despite full visible validation rework target evidence.
+  - Runtime correctly stopped with `TaskSpaceApplyPatchRecoveryHardStopV1` after repeated malformed patch recovery.
+- Interpretation: H-106 is live-cleared. The next issue is feedback actionability: when the target file is already fully visible and the model repeats unified/range hunks inside native update sections, recovery must remove the `Update File` option and require whole-file replacement.
+
+# Hypothesis H-107: full-visible mixed native hunk recovery must require whole-file replacement
+
+- Claim: In validation rework after complete target read, `apply_patch_mixed_native_unified` recovery should not continue to offer `*** Update File` hunk repair. The model repeatedly follows the wrong shape. The recovery contract should require `*** Delete File` + `*** Add File` whole-file replacement for that target.
+- Prediction: When current working evidence contains `validation_rework_target_read` with `content_visibility: full_content_visible`, the native-hunk recovery item should say `whole-file native replacement`, include `*** Delete File` and `*** Add File`, explicitly forbid `*** Update File`, and omit the generic `Use native *** Update File` instruction.
+- Diagnostic evidence plan: Add a focused recovery-builder regression for full-visible mixed native/unified failures; wire no-action recovery to compute full-visible validation rework evidence before building native hunk recovery; run native-hunk/mixed/apply_patch/action-contract/validation-rework regressions plus fmt/check/build/diff gates.
+- Status: confirmed.
+
+# Evidence E-220: native hunk recovery now forces whole-file replacement for full-visible rework targets
+
+- Repair artifact:
+  - `third_party/codex-cli/codex-rs/core/src/session/turn.rs`
+- Repair behavior:
+  - `build_taskspace_apply_patch_native_hunk_recovery_item()` now accepts a `force_complete_replacement` mode.
+  - No-action recovery enables that mode when current working evidence has a full-visible validation rework target read.
+  - Forced mode requires `*** Delete File` followed by `*** Add File`, forbids `*** Update File`, and removes the generic native hunk instruction that previously invited repeated mixed grammar.
+- Validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core native_hunk_recovery --lib
+    PASS: 2/2
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core mixed_native_unified --lib
+    PASS: 4/4
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core apply_patch_recovery --lib
+    PASS
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core action_contract_prompt --lib
+    PASS: 29/29
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_rework --lib
+    PASS: 29/29
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core taskspace_apply_patch --lib
+    PASS: 18/18
+  cargo fmt --check
+    PASS (stable rustfmt warns that imports_granularity is nightly-only)
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo check -p codex-core
+    PASS
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
+    PASS
+  git diff --check
+    PASS
+  ```
+- Interpretation: H-107 is focused-fixed. Remaining gates are commit/push, binary attestation, install, and another keyed rerun.
