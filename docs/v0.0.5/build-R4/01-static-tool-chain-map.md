@@ -1213,3 +1213,18 @@ bootstrap 读完 canonical root CSV 后，`data/*.csv` 仍残留为 missing fact
 
 边界说明：该修复不是放宽 final gate 对普通 unreviewed result 的要求。它只处理已被后续 accepted validation
 结果覆盖的旧 validation blocker，将其从“待 review 的活跃阻塞”转换为“被成功 rework 废止的失败证据”。
+
+## 2026-07-05 R4-D issue type addendum: validation rework schema rediscovery hard-stop timing gap
+
+`75de79f` 安装后 keyed rerun 未复现 H-125 的 stale final-gate blocker，但 validation rework 进入新的
+patch-only feedback timing gap：runtime 已把 schema 缺失字段、rename hints 和完整 target source 都放进 recovery；
+provider 仍尝试读取 `schema.json`，runtime 正确拒绝，却立即 hard-stop，模型没有下一轮消费“schema 已摘要、只能 patch”的
+更具体反馈。
+
+| Issue type | Layer | Symptom | Resolution contract | Evidence |
+|---|---|---|---|---|
+| `validation-rework-schema-rediscovery-patch-only-grace-gap` | validation rework feedback timing / patch-only hard-stop accounting | schema repair contract 已可见且 target 已读后，provider 重读 `schema.json` 被拒绝；patch-only hard-stop 立即触发，截断一次可行动反馈 | 已实现：schema repair synthesis 存在时 recovery 带 `schema_repair_rediscovery_grace=true`，并允许一次额外 recovery；普通无 schema repair 的 patch-only 路径仍一次后 hard-stop | keyed rerun `20260705-050333-167`; CoE H-126/E-255/E-256; focused tests `validation_rework_patch_only_schema_repair_gets_one_extra_recovery_before_hard_stop`, `validation_rework_patch_only_without_schema_repair_still_hard_stops_after_one_recovery`, `validation_rework`, `action_contract_prompt` |
+
+边界说明：这不是允许 validation rework 重新 discovery。`read_file/search schema.json` 仍然会被拒绝；区别只是当
+schema repair contract 已经完整投影时，拒绝本身会成为一次可消费的反馈，而不是直接进入 hard-stop。没有 schema repair
+synthesis 的 patch-only case 不获得这次 grace。

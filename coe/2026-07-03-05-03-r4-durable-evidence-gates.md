@@ -7532,3 +7532,67 @@
     PASS
   ```
 - Interpretation: H-125 is focused-fixed. Remaining gates are commit/push, install/attest, and keyed rerun to verify the live loop advances past stale final-gate rejection and exposes any remaining validator feedback.
+
+# Evidence E-255: H-125 rerun exposes schema rediscovery after patch-only repair contract
+
+- Real rerun:
+  ```text
+  RunDir: target/r4-org-json-real-keyed-20260705at-validation-blocker-supersession-gate/runs/terminal_bench__organization-json-generator/20260705-050333-167
+  outcome_standard: wrong
+  outcome_taskspace: engineering_unclean
+  right_exec_timed_out: False
+  right_tool_call_count: 10
+  right_public_validation_exit_code: 1
+  right_hidden_oracle_exit_code: 0
+  right_nodes: 4
+  right_edges: 3
+  right_open_leaf_nodes: 1
+  final_marker: TaskSpaceValidationReworkPatchOnlyHardStopV1
+  ```
+- H-125 live status:
+  - The stale final-gate rejection from `result-10 still unreviewed` did not recur in this run.
+  - The workflow reached validation rework and exposed a new feedback-layer blocker before successful closeout.
+- New blocker signals:
+  - Runtime correctly projected schema repair semantics into rework feedback:
+    `missing_required_properties=members, averageDepartmentBudget, totalEmployees, skillDistribution, departmentSizes, projectStatusDistribution, averageYearsOfService`.
+  - Runtime also projected rename hints: `member_ids->members`, `total_employees->totalEmployees`, `average_years_of_service_per_department->averageYearsOfService`.
+  - The provider successfully read target `generate_organization.py` and then attempted `read_file schema.json` to rediscover exact fields.
+  - Runtime rejected the read as `node_policy_violation:implement_solution:read_file:implementation_needs_edit`, then immediately emitted `TaskSpaceValidationReworkPatchOnlyHardStopV1`.
+  - The generated output still used old field shapes, and public validation failed with `KeyError: 'members'` and `KeyError: 'averageDepartmentBudget'`.
+- Interpretation: H-126 is a feedback/actionability timing gap. The semantic failure was not missing: schema repair hints and target source were visible. The gap is that schema rediscovery got a correct rejection but no additional turn to consume the more concrete patch-only feedback before hard-stop.
+
+# Hypothesis H-126: schema repair patch-only recovery needs one rediscovery rejection grace
+
+- Claim: When validation rework patch-only recovery contains schema repair synthesis, a single attempted `read_file/search schema.json` after target visibility should be treated like a new semantic rejection that deserves one more recovery turn. Without this grace, the hard-stop fires before the provider can consume the rejection that says schema fields are already summarized and only `apply_patch` is valid.
+- Prediction: Patch-only recovery items containing schema repair synthesis should carry an explicit internal marker, allow hard-stop only after the second recovery count, and explicitly say `schema.json` rediscovery is invalid because required fields are already summarized. Patch-only recovery without schema repair synthesis must still hard-stop after one recovery.
+- Diagnostic evidence plan: Add focused tests for schema-repair patch-only recovery hard-stop count, non-schema patch-only hard-stop count, schema type mismatch synthesis, array item mismatch synthesis, validation rework, action-contract prompt, fmt/check/build/diff gates.
+- Status: focused-fixed; install and keyed rerun pending.
+
+# Evidence E-256: schema rediscovery patch-only grace is focused-fixed
+
+- Repair artifact:
+  - `third_party/codex-cli/codex-rs/core/src/session/turn.rs`
+- Repair behavior:
+  - `TaskSpaceValidationReworkPatchOnlyRecoveryV1` now adds `schema_repair_rediscovery_grace=true` only when schema repair synthesis is present.
+  - The recovery text explicitly states that exact schema-required fields are already summarized and `read_file/search schema.json` is not a valid next step.
+  - `taskspace_validation_rework_patch_only_should_hard_stop()` allows one additional recovery count only for schema repair grace, closed-action rejection, or missing-source blocker rejection.
+  - Non-schema patch-only recovery still hard-stops after one recovery, preserving the state-machine boundary.
+- Regression:
+  - `validation_rework_patch_only_schema_repair_gets_one_extra_recovery_before_hard_stop` asserts schema repair recovery does not hard-stop at count 1 and does hard-stop at count 2.
+  - `validation_rework_patch_only_without_schema_repair_still_hard_stops_after_one_recovery` asserts the ordinary patch-only path remains strict.
+- Validation:
+  ```text
+  cargo fmt --check
+    PASS
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_rework -- --nocapture
+    PASS: 31/31
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core action_contract_prompt -- --nocapture
+    PASS: 29/29
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core implementation_recovery_synthesizes -- --nocapture
+    PASS: 2/2
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo check -p codex-core
+    PASS
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
+    PASS
+  ```
+- Interpretation: H-126 is focused-fixed. Remaining gates are `git diff --check`, commit/push, install/attest, and keyed rerun to verify schema rediscovery no longer truncates the live validation rework loop.

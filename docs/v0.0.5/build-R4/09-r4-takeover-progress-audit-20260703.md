@@ -2476,6 +2476,23 @@ current_git_head: 9f370ddfa3f12397ed1d966b321b5e1f0a86c3b2
 
 状态：focused fixed，待 commit/push、install/attest 和真实 keyed rerun。
 
+## 54. 2026-07-05 schema rediscovery patch-only hard-stop timing gap
+
+`75de79f` 安装后的 keyed rerun 未再命中 H-125 final-gate supersession blocker，流程进入 validation rework。
+runtime 已提供完整 schema repair synthesis 和 target source，但模型仍读 `schema.json`。该读被正确拒绝后，
+patch-only hard-stop 立即触发，没有留出一轮让模型消费“schema 已摘要、只能 patch”的反馈。
+
+| 字段 | 内容 |
+|---|---|
+| case | `validation-rework-schema-rediscovery-patch-only-grace-gap` |
+| 层级 | validation rework feedback timing / patch-only hard-stop accounting |
+| 本质 | schema repair 语义已经具备，但 rediscovery rejection 被算作普通重复 non-edit，导致反馈层在最有行动价值的一轮前终止 |
+| 非根因 | 不是 schema repair contract 缺失；不是 target 未读；不是 H-125 final gate 复发；不是要允许 rework 继续 discovery |
+| 修复 | schema repair synthesis 存在时添加 `schema_repair_rediscovery_grace=true`，允许一次额外 recovery；同时明确 `schema.json` 已摘要、下一步只能 patch/block |
+| evidence | CoE H-126/E-255/E-256；keyed rerun `20260705-050333-167`; focused tests `validation_rework_patch_only_schema_repair_gets_one_extra_recovery_before_hard_stop`, `validation_rework_patch_only_without_schema_repair_still_hard_stops_after_one_recovery`, `validation_rework`, `action_contract_prompt`, `implementation_recovery_synthesizes`; fmt/check/build |
+
+状态：focused fixed，待 `git diff --check`、commit/push、install/attest 和真实 keyed rerun。
+
 ## 50. 2026-07-05 generic CSV duplicate basename overcoverage
 
 `6b7debf` 安装后 keyed rerun 证明 H-121 的 bootstrap root-path 修复生效，但 inspect 仍未进入 implementation。

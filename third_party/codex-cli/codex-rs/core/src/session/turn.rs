@@ -2473,10 +2473,16 @@ fn build_taskspace_validation_rework_patch_only_recovery_item(
         evidence_summary,
         &target_artifact_label,
     );
+    let schema_repair_rediscovery_grace = if schema_repair_synthesis.is_empty() {
+        String::new()
+    } else {
+        "schema_repair_rediscovery_grace=true\n".to_string()
+    };
     let text = format!(
         "{TASKSPACE_VALIDATION_REWORK_PATCH_ONLY_MARKER}\n\
 failure_kind: validation_rework_patch_only_after_target_read\n\
 target_artifacts: {target_artifact_label}\n\
+{schema_repair_rediscovery_grace}\
 The previous action was blocked because this validation rework node already has the target file contents and validation repair contract needed for an edit.\n\
 Current required behavior:\n\
 - Emit exactly one taskspace-action-v1 apply_patch action targeting `{target_artifact_label}` now, or one taskspace_control block_node with the exact unsafe-edit reason.\n\
@@ -2491,6 +2497,7 @@ Patch construction scaffold:\n\
 - Patch only `{target_artifact_label}` using the complete target read already in evidence.\n\
 - For schema validation failures, convert `schema_property_rename_hints` into output key renames and convert each `missing_required_properties` entry into generated output fields derived from already-read fact sources.\n\
 - For traceback/test failures, patch the named failing symbol, file, or output construction path shown in the validation failure.\n\
+- When schema repair grace is declared above, the exact schema-required fields are already summarized here; a read_file/search for `schema.json` is not a valid next step.\n\
 - Use native apply_patch grammar only. For a narrow edit use `*** Begin Patch`, `*** Update File: <target>`, context lines with `+`/`-` edits, and `*** End Patch`. For a complete replacement use `*** Delete File: <target>` followed by `*** Add File: <target>`.\n\
 - Do not put markdown fences, shell commands, JSON generation scripts, or prose inside the patch payload.\n\
 {complete_target_replacement}\
@@ -2948,11 +2955,14 @@ fn taskspace_validation_rework_patch_only_should_hard_stop(
         item,
         "validation_rework_closed_action_space_read_disallowed",
     );
+    let schema_repair_rediscovery_grace =
+        response_item_text_contains(item, "schema_repair_rediscovery_grace=true");
     let rejected_missing_source_blocker = response_item_texts_contain(item, &|text| {
         text.contains("missing_source_visibility_blocker_rejected")
             || taskspace_text_mentions_missing_source_visibility_blocker_rejection(text)
     });
-    if closed_action_rejection || rejected_missing_source_blocker {
+    if closed_action_rejection || rejected_missing_source_blocker || schema_repair_rediscovery_grace
+    {
         previous_recovery_count > 1
     } else {
         previous_recovery_count > 0
@@ -6163,9 +6173,11 @@ Then I will inspect the file."#,
         assert!(text.contains("Patch construction scaffold:"));
         assert!(text.contains("convert `schema_property_rename_hints` into output key renames"));
         assert!(text.contains("Schema repair synthesis from current validation failure:"));
+        assert!(text.contains("schema_repair_rediscovery_grace=true"));
         assert!(text.contains("Missing required output properties"));
         assert!(text.contains("`members`"));
         assert!(text.contains("`averageDepartmentBudget`"));
+        assert!(text.contains("the exact schema-required fields are already summarized here"));
         assert!(text.contains("Use native apply_patch grammar only"));
         assert!(text.contains("Final action lock:"));
         assert!(text.contains("projection truncation is not a valid reason to read"));
@@ -6185,8 +6197,11 @@ Then I will inspect the file."#,
         assert!(!taskspace_validation_rework_patch_only_should_hard_stop(
             &item, 0
         ));
-        assert!(taskspace_validation_rework_patch_only_should_hard_stop(
+        assert!(!taskspace_validation_rework_patch_only_should_hard_stop(
             &item, 1
+        ));
+        assert!(taskspace_validation_rework_patch_only_should_hard_stop(
+            &item, 2
         ));
     }
 
@@ -6202,6 +6217,7 @@ Then I will inspect the file."#,
 
         assert!(text.contains(TASKSPACE_VALIDATION_REWORK_PATCH_ONLY_MARKER));
         assert!(text.contains("Schema repair synthesis from current validation failure:"));
+        assert!(text.contains("schema_repair_rediscovery_grace=true"));
         assert!(text.contains("`skillDistribution expected object`"));
         assert!(text.contains("emit a JSON object/map keyed by the natural name"));
         assert!(text.contains("target_artifacts: generate_organization.py"));
@@ -6222,6 +6238,7 @@ Then I will inspect the file."#,
 
         assert!(text.contains("`members expected string items`"));
         assert!(text.contains("emit an array of strings, not an array of objects"));
+        assert!(text.contains("schema_repair_rediscovery_grace=true"));
     }
 
     #[test]
@@ -6250,6 +6267,7 @@ Then I will inspect the file."#,
 
         assert!(text.contains(TASKSPACE_VALIDATION_REWORK_PATCH_ONLY_MARKER));
         assert!(text.contains("target_artifacts: generate_organization.py"));
+        assert!(text.contains("schema_repair_rediscovery_grace=true"));
         assert!(text.contains("Emit exactly one taskspace-action-v1 apply_patch"));
         assert!(text.contains("no additional file lines are hidden"));
         assert!(text.contains("Schema repair synthesis from current validation failure:"));
@@ -6324,7 +6342,7 @@ Then I will inspect the file."#,
     }
 
     #[test]
-    fn validation_rework_patch_only_hard_stops_after_one_recovery() {
+    fn validation_rework_patch_only_schema_repair_gets_one_extra_recovery_before_hard_stop() {
         let item = build_taskspace_validation_rework_patch_only_recovery_item(
             Some(
                 "TaskSpaceActionV1 rejected: node_policy_violation:implement_solution:read_file:implementation_needs_edit",
@@ -6349,11 +6367,14 @@ Then I will inspect the file."#,
         assert!(!taskspace_validation_rework_patch_only_should_hard_stop(
             &item, 0
         ));
-        assert!(taskspace_validation_rework_patch_only_should_hard_stop(
+        assert!(!taskspace_validation_rework_patch_only_should_hard_stop(
             &item, 1
         ));
+        assert!(taskspace_validation_rework_patch_only_should_hard_stop(
+            &item, 2
+        ));
 
-        let hard_stop = build_taskspace_validation_rework_patch_only_hard_stop_item(&item, 2);
+        let hard_stop = build_taskspace_validation_rework_patch_only_hard_stop_item(&item, 3);
         let text = item_text(hard_stop.clone());
 
         assert!(text.contains(TASKSPACE_VALIDATION_REWORK_PATCH_ONLY_HARD_STOP_MARKER));
@@ -6368,6 +6389,27 @@ Then I will inspect the file."#,
             taskspace_special_recovery_warning_message(&hard_stop)
                 .contains("TaskSpaceValidationReworkPatchOnlyHardStopV1")
         );
+    }
+
+    #[test]
+    fn validation_rework_patch_only_without_schema_repair_still_hard_stops_after_one_recovery() {
+        let item = build_taskspace_validation_rework_patch_only_recovery_item(
+            Some(
+                "TaskSpaceActionV1 rejected: node_policy_violation:implement_solution:read_file:implementation_needs_edit",
+            ),
+            Some("validation_rework_target_read result=result-12 artifact=generate_org.py"),
+            None,
+        );
+        let text = item_text(item.clone());
+
+        assert!(text.contains(TASKSPACE_VALIDATION_REWORK_PATCH_ONLY_MARKER));
+        assert!(!text.contains("schema_repair_rediscovery_grace=true"));
+        assert!(!taskspace_validation_rework_patch_only_should_hard_stop(
+            &item, 0
+        ));
+        assert!(taskspace_validation_rework_patch_only_should_hard_stop(
+            &item, 1
+        ));
     }
 
     #[test]

@@ -1610,6 +1610,49 @@ CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
 git diff --check
 ```
 
+## 5.104 2026-07-05 schema rediscovery patch-only hard-stop timing gap
+
+`75de79f` 安装后 keyed rerun 没有复现 H-125 的 stale validation blocker final gate；TaskSpace 到达 validation
+rework，并拿到了完整 schema repair contract。但 provider 在 target 已读后尝试重读 `schema.json`，runtime 正确拒绝后
+立即进入 patch-only hard-stop：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260705at-validation-blocker-supersession-gate/runs/terminal_bench__organization-json-generator/20260705-050333-167
+reported_evidence_level: E1
+outcome_standard: wrong
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 10
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+right_nodes: 4
+right_edges: 3
+right_open_leaf_nodes: 1
+final_marker: TaskSpaceValidationReworkPatchOnlyHardStopV1
+```
+
+收益判断：
+
+1. H-125 的直接 blocker 未复发，本轮继续暴露 validation rework feedback/actionability 问题。
+2. 新问题类型是 `validation-rework-schema-rediscovery-patch-only-grace-gap`：schema repair 语义没有缺失，
+   缺的是被拒绝 rediscovery 后的一次可消费反馈机会。
+3. focused fix 后，schema repair synthesis 存在时 recovery 显式声明 `schema_repair_rediscovery_grace=true`，并说明
+   `schema.json` 的 exact required fields 已摘要，下一步只能 `apply_patch` 或准确 `block_node`。
+4. patch-only hard-stop 的边界保持严格：没有 schema repair synthesis 的普通 patch-only recovery 仍在一次无效 recovery 后
+   hard-stop。
+
+验证：
+
+```text
+CoE: H-126/E-255/E-256
+cargo fmt --check
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_rework -- --nocapture
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core action_contract_prompt -- --nocapture
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core implementation_recovery_synthesizes -- --nocapture
+CODEX_SKIP_VENDORED_BWRAP=1 cargo check -p codex-core
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
+```
+
 ## 5.101 2026-07-05 read-summary path telemetry artifact pollution
 
 `a808190` 安装后 keyed rerun 显示 H-122 的 duplicate basename overcoverage 已越过：第一次 bootstrap
