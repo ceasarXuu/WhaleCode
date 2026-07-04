@@ -2331,6 +2331,17 @@ fn build_taskspace_validation_rework_patch_only_recovery_item(
         .filter(|value| !value.is_empty())
         .map(|value| format!("\nMost recent failed edit feedback to preserve:\n- {value}\n"))
         .unwrap_or_default();
+    let complete_target_replacement =
+        if taskspace_evidence_has_complete_validation_rework_target_read(evidence_summary) {
+            format!(
+                "\nComplete target-read direct replacement scaffold:\n\
+- The target file is already fully visible (complete_read/eof_reached=true), so a full replacement patch is safe when a narrow hunk would be fragile.\n\
+- For `{target_artifact_label}`, prefer one native apply_patch with `*** Delete File: {target_artifact_label}` followed by `*** Add File: {target_artifact_label}` when the repair changes multiple output construction fields.\n\
+- Every added replacement line must be prefixed with `+`; do not wrap the patch in markdown or a shell command.\n"
+            )
+        } else {
+            String::new()
+        };
     let schema_repair_synthesis = taskspace_validation_rework_schema_repair_synthesis(
         evidence_summary,
         &target_artifact_label,
@@ -2353,8 +2364,9 @@ Patch construction scaffold:\n\
 - Patch only `{target_artifact_label}` using the complete target read already in evidence.\n\
 - For schema validation failures, convert `schema_property_rename_hints` into output key renames and convert each `missing_required_properties` entry into generated output fields derived from already-read fact sources.\n\
 - For traceback/test failures, patch the named failing symbol, file, or output construction path shown in the validation failure.\n\
-- Use native apply_patch grammar only: `*** Begin Patch`, `*** Update File: <target>`, context lines with `+`/`-` edits, and `*** End Patch`.\n\
+- Use native apply_patch grammar only. For a narrow edit use `*** Begin Patch`, `*** Update File: <target>`, context lines with `+`/`-` edits, and `*** End Patch`. For a complete replacement use `*** Delete File: <target>` followed by `*** Add File: <target>`.\n\
 - Do not put markdown fences, shell commands, JSON generation scripts, or prose inside the patch payload.\n\
+{complete_target_replacement}\
 Previous blocked feedback:\n{previous_excerpt}\n\
 {failed_edit}\
 {evidence}\
@@ -5861,6 +5873,13 @@ Then I will inspect the file."#,
         assert!(text.contains("`member_ids->members`"));
         assert!(text.contains("This is a patch-construction requirement"));
         assert!(text.contains("Patch construction scaffold:"));
+        assert!(text.contains("Complete target-read direct replacement scaffold"));
+        assert!(text.contains("*** Delete File: generate_organization.py"));
+        assert!(text.contains("*** Add File: generate_organization.py"));
+        assert!(
+            text.find("Complete target-read direct replacement scaffold")
+                < text.find("Previous blocked feedback")
+        );
         assert!(text.contains("Do not put markdown fences"));
         assert!(!text.contains(TASKSPACE_IMPLEMENT_NEEDS_EDIT_MARKER));
         assert!(is_taskspace_validation_rework_patch_only_recovery_item(
