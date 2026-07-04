@@ -6865,3 +6865,80 @@
     PASS
   ```
 - Interpretation: H-114 is focused-fixed. Remaining gates are whale build completion, commit/push, install/attest, and keyed rerun to verify the live task converts `members` to an array of ids/strings instead of object records.
+
+# Evidence E-235: H-114 rerun exposes type-mismatch path pollution and placeholder range hunk leakage
+
+- Real rerun:
+  ```text
+  RunDir: target/r4-org-json-real-keyed-20260705aj-array-item-type-gate/runs/terminal_bench__organization-json-generator/20260705-025939-670
+  reported_evidence_level: E1
+  outcome_standard: wrong
+  outcome_taskspace: engineering_unclean
+  right_exec_timed_out: False
+  right_tool_call_count: 14
+  right_public_validation_exit_code: 1
+  right_hidden_oracle_exit_code: 0
+  right_open_leaf_nodes: 1
+  final_marker: TaskSpaceApplyPatchRecoveryHardStopV1
+  ```
+- H-114 live status:
+  - This run did not reach a clean `members expected string items` repair validation point because an earlier missing-field/statistics rework failed in patch recovery.
+- New blocker signals:
+  - Tool summary emitted `schema_type_mismatches: RedBull expected string, McLaren expected string, Mercedes', 'Hala expected string, United expected string`.
+  - Those names came from ordinary Python data values/lists in validator output, not from `schema[...]` or `instance[...]` jsonschema paths.
+  - After replacement-required feedback, the provider emitted another `*** Update File` with placeholder range hunks `@@ -... +... @@`.
+  - Runtime normalized that malformed placeholder range hunk into a native-looking hunk and sent it to `apply_patch`; the tool failed with expected-lines mismatch, consuming recovery and hard-stopping.
+- Interpretation: H-115 is type-mismatch path extraction pollution. H-116 is mechanically-actionable rework gating being too permissive for placeholder range hunks.
+
+# Hypothesis H-115: type mismatch path extraction must only parse jsonschema path lines
+
+- Claim: `last_bracket_path_segment()` treats any `['...']` fragment as a schema path, so ordinary data values such as project lists can become fake `schema_type_mismatches`. Path extraction should only parse lines that are actual jsonschema path lines, currently `schema[...]` or `instance[...]`.
+- Prediction: Tool formatter and validation failure excerpt tests should preserve real `schema['properties']...` / `instance[...]` type mismatches while not producing `RedBull expected string` or similar from raw data lists.
+- Diagnostic evidence plan: Restrict both tool-level and ActionMap-level bracket path extraction to lines containing `schema[` or `instance[`. Add focused tests and rerun type-mismatch/validation-rework/action-contract/apply-patch/fmt/check/build/diff gates.
+- Status: focused-fixed; live rerun pending.
+
+# Hypothesis H-116: placeholder range hunks are not mechanically actionable rework updates
+
+- Claim: `@@ -... +... @@` is a placeholder range hunk, not executable patch context. Allowing it through the mechanically-actionable rework update path converts a semantic rejection into a tool-level expected-lines failure loop.
+- Prediction: A focused rework-target patch with `@@ -... +... @@` should return `apply_patch_replacement_required:<target>` before normalization, while the previously supported mechanically-actionable concrete range hunk remains allowed.
+- Diagnostic evidence plan: Detect placeholder range hunks before normalization and after normalization; keep concrete rework range normalization allowed; run placeholder/rework-target/mixed-native/action-contract/apply-patch/validation-rework/fmt/check/build/diff gates.
+- Status: focused-fixed; live rerun pending.
+
+# Evidence E-236: path extraction and placeholder range gating are focused-fixed
+
+- Repair artifacts:
+  - `third_party/codex-cli/codex-rs/core/src/tools/mod.rs`
+  - `third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs`
+  - `third_party/codex-cli/codex-rs/core/src/session/turn.rs`
+- Repair behavior:
+  - Tool and ActionMap type-mismatch path extractors now ignore bracket fragments unless the line is a jsonschema `schema[...]` or `instance[...]` path.
+  - Active validation rework mechanically-actionable `Update File` detection now rejects raw and normalized placeholder range hunks containing `@@ -... +... @@`.
+  - Such patches return to replacement-required recovery instead of entering apply_patch as expected-lines failures.
+- Validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core data_lists --lib
+    PASS: 1/1
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core placeholder_range --lib
+    PASS: 1/1
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core type_mismatch --lib
+    PASS: 4/4
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core rework_target --lib
+    PASS: 7/7
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core mixed_native_unified --lib
+    PASS: 4/4
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_rework --lib
+    PASS: 29/29
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core action_contract_prompt --lib
+    PASS: 29/29
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core taskspace_apply_patch --lib
+    PASS: 18/18
+  cargo fmt --check
+    PASS (stable rustfmt warns that imports_granularity is nightly-only)
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo check -p codex-core
+    PASS
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
+    PASS
+  git diff --check
+    PASS
+  ```
+- Interpretation: H-115 and H-116 are focused-fixed. Remaining gates are commit/push, install/attest, and a keyed rerun to verify fake project-name type mismatches and placeholder-range expected-lines loops no longer occur live.

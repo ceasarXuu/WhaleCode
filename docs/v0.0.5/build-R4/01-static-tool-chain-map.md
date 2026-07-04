@@ -1070,3 +1070,17 @@ native hunk grammar 修复。
 
 边界说明：该修复不是 hard-code `members`。它只在已有 schema read 和 validation type mismatch 同时存在时，把未定位的 primitive item
 type failure 连接到 schema 中的 array field，作为下一轮 patch 构造事实。
+
+## 2026-07-05 R4-D issue type addendum: type mismatch path pollution and placeholder range leakage
+
+`e182c9b` 后 keyed rerun 未能验证 H-114 live-clear，因为更早的 validation rework patch recovery 失败。该轮暴露两个
+反馈/能力边界问题：type mismatch extractor 把普通数据 list 中的 `['RedBull']` 误当 schema path；rework update
+gate 又把 `@@ -... +... @@` placeholder range hunk 归一化后送进 apply_patch。
+
+| Issue type | Layer | Symptom | Resolution contract | Evidence |
+|---|---|---|---|---|
+| `validation-schema-type-mismatch-data-bracket-path-pollution` | tool semantic summary / validation failure excerpt | `schema_type_mismatches` 出现 `RedBull expected string` 等普通数据值，污染 repair contract | 已实现：bracket path 解析只接受 jsonschema 的 `schema[...]` / `instance[...]` 路径；普通 Python repr list 不再作为 schema path | keyed rerun `20260705-025939-670`; CoE H-115/E-235/E-236; focused tests `data_lists`, `type_mismatch` |
+| `apply-patch-rework-placeholder-range-hunk-leakage` | apply_patch action-contract / capability normalization | replacement-required 后，`@@ -... +... @@` placeholder hunk 被 normalize 成 native-looking hunk并进入 apply_patch，最终 expected-lines hard-stop | 已实现：mechanically actionable rework update 在 normalize 前后拒绝 placeholder range hunk，回到 `apply_patch_replacement_required:<target>` | keyed rerun `20260705-025939-670`; CoE H-116/E-235/E-236; focused tests `placeholder_range`, `rework_target`, `mixed_native_unified` |
+
+边界说明：该修复不撤销 H-112 的 actionable patch normalization。带具体行号和真实 old/new context 的 range hunk 仍可归一化执行；
+只有 `...` placeholder range 被视为不可执行。

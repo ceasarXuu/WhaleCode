@@ -11980,6 +11980,9 @@ fn validation_failure_unlocated_expected_types(text: &str) -> Vec<String> {
 }
 
 fn last_bracket_path_segment(line: &str) -> Option<String> {
+    if !line.contains("schema[") && !line.contains("instance[") {
+        return None;
+    }
     let mut rest = line;
     let mut last = None;
     while let Some(start) = rest.find("['") {
@@ -36070,6 +36073,26 @@ On instance['statistics']['skillDistribution']:\n\
             "{excerpt}"
         );
         assert!(excerpt.contains("is not of type 'object'"), "{excerpt}");
+    }
+
+    #[test]
+    fn validation_failure_excerpt_ignores_data_list_brackets_for_type_mismatch_path() {
+        let excerpt = validation_failure_body_excerpt(
+            "TaskSpaceToolInvocationV1:\n\
+tool: shell_command\n\
+raw_output:\n\
+{'projects': ['Madrid', 'Ferrari']}: 'id' is a required property\n\
+{'name': 'RedBull'}: {'name': 'RedBull'} is not of type 'string'\n\
+{'name': 'McLaren'}: {'name': 'McLaren'} is not of type 'string'\n",
+            420,
+        );
+
+        assert!(
+            excerpt.contains("missing_required_properties: id"),
+            "{excerpt}"
+        );
+        assert!(!excerpt.contains("RedBull expected string"), "{excerpt}");
+        assert!(!excerpt.contains("McLaren expected string"), "{excerpt}");
     }
 
     #[test]

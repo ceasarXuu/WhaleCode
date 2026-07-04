@@ -1694,6 +1694,51 @@ CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
 git diff --check
 ```
 
+## 5.101 2026-07-05 type mismatch path pollution and placeholder range leakage
+
+`e182c9b` 后 keyed rerun 没有验证到 H-114 live-clear；任务先在 validation rework patch recovery 中 hard-stop：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260705aj-array-item-type-gate/runs/terminal_bench__organization-json-generator/20260705-025939-670
+reported_evidence_level: E1
+outcome_standard: wrong
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 14
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+right_open_leaf_nodes: 1
+final_marker: TaskSpaceApplyPatchRecoveryHardStopV1
+```
+
+收益判断：
+
+1. 新收录的 R4-D feedback 修复一是 `validation-schema-type-mismatch-data-bracket-path-pollution`：
+   type mismatch extractor 只能从 `schema[...]` / `instance[...]` 这类 jsonschema path 中抽字段，不能把普通数据
+   `['RedBull']` 变成 `RedBull expected string`。
+2. 新收录的 R4-D ability/feedback 修复二是 `apply-patch-rework-placeholder-range-hunk-leakage`：`@@ -... +... @@`
+   是不可执行 placeholder，不应被 normalize 成 native-looking hunk 后送进 apply_patch。
+3. 修复后，普通数据 list 不再污染 `schema_type_mismatches`；placeholder range hunk 在 active validation rework target
+   中会返回 `apply_patch_replacement_required:<target>`。
+4. H-114 live-clear 仍需下一次 keyed rerun 验证，因为本轮更早停在 patch recovery。
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core data_lists --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core placeholder_range --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core type_mismatch --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core rework_target --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core mixed_native_unified --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_rework --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core action_contract_prompt --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core taskspace_apply_patch --lib
+cargo fmt --check
+CODEX_SKIP_VENDORED_BWRAP=1 cargo check -p codex-core
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
+git diff --check
+```
+
 ## 5.95 2026-07-05 terminal blocked observed fact-source contradiction
 
 `fc7cae1` keyed rerun 越过 H-108 的 replacement-only hard-stop，但右侧 TaskSpace 仍未生成 `organization.json`。

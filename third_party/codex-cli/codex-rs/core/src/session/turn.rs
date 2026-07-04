@@ -7548,6 +7548,27 @@ Then I will inspect the file."#,
     }
 
     #[test]
+    fn taskspace_action_contract_requires_replacement_for_rework_target_placeholder_range_hunk() {
+        let raw = serde_json::json!({
+            "schema_version": "taskspace-action-v1",
+            "action": "apply_patch",
+            "node_id": "node-1",
+            "args": {
+                "patch": "*** Begin Patch\n*** Update File: process.py\n@@ -... +... @@\n-old\n+new\n*** End Patch\n"
+            },
+        })
+        .to_string();
+        let action = parse_taskspace_action_v1(&raw).expect("valid json");
+        let mut snapshot = provider_snapshot("implement_solution");
+        snapshot.current_node_validation_rework_artifacts = vec!["process.py".to_string()];
+
+        let err = taskspace_action_to_tool_call(&action, &snapshot)
+            .expect_err("placeholder range hunks are not mechanically actionable");
+
+        assert_eq!(err, "apply_patch_replacement_required:process.py");
+    }
+
+    #[test]
     fn taskspace_action_contract_keeps_generic_unanchored_update_for_non_rework_target() {
         let raw = serde_json::json!({
             "schema_version": "taskspace-action-v1",
@@ -13055,17 +13076,42 @@ fn taskspace_validation_rework_update_file_mechanically_actionable_patch(
     if replacement_required_targets.is_empty() {
         return None;
     }
+    if !taskspace_apply_patch_placeholder_range_hunk_targets(patch).is_empty() {
+        return None;
+    }
 
     let normalized = normalize_taskspace_unified_diff_patch(patch)
         .unwrap_or_else(|| normalize_taskspace_apply_patch(patch));
     if taskspace_apply_patch_native_hunk_header_targets(&normalized).is_empty()
         && taskspace_apply_patch_mixed_native_unified_targets(&normalized).is_empty()
         && taskspace_apply_patch_unanchored_update_targets(&normalized).is_empty()
+        && taskspace_apply_patch_placeholder_range_hunk_targets(&normalized).is_empty()
     {
         Some(normalized)
     } else {
         None
     }
+}
+
+fn taskspace_apply_patch_placeholder_range_hunk_targets(patch: &str) -> Vec<String> {
+    let mut targets = Vec::new();
+    let mut current_target = None::<String>;
+    for line in patch.lines() {
+        if let Some(target) = line.strip_prefix("*** Update File: ").map(str::trim) {
+            current_target = (!target.is_empty()).then(|| target.to_string());
+            continue;
+        }
+        let trimmed = line.trim();
+        if trimmed.starts_with("@@")
+            && trimmed.contains("...")
+            && (trimmed.contains("-...") || trimmed.contains("+..."))
+            && let Some(target) = current_target.as_ref()
+            && !targets.iter().any(|existing| existing == target)
+        {
+            targets.push(target.clone());
+        }
+    }
+    targets
 }
 
 fn taskspace_apply_patch_malformed_native_operation_targets(patch: &str) -> Vec<String> {

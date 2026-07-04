@@ -3581,6 +3581,28 @@ statistics calculations 通过。新的 blocker 是 `members` 仍为对象数组
 
 状态：focused fixed，待 whale build、commit/push、install/attest 和真实 keyed rerun 确认 `members` array item type 能 live 修复。
 
+## 44. 2026-07-05 type mismatch path pollution and placeholder range leakage
+
+`e182c9b` 安装后 keyed rerun 未越过更早的 patch recovery，因此 H-114 尚未 live-clear。新暴露两个 tools 链路问题：
+
+| 字段 | 内容 |
+|---|---|
+| case | `validation-schema-type-mismatch-data-bracket-path-pollution` |
+| 层级 | tool semantic summary / validation failure excerpt |
+| 本质 | type mismatch path extractor 把普通数据值 `['RedBull']` 当成 schema path，生成假 `schema_type_mismatches` |
+| 修复 | bracket path extractor 只解析 `schema[...]` / `instance[...]` jsonschema path lines |
+| evidence | CoE H-115/E-235/E-236；keyed rerun `20260705-025939-670`; focused tests `data_lists`, `type_mismatch` |
+
+| 字段 | 内容 |
+|---|---|
+| case | `apply-patch-rework-placeholder-range-hunk-leakage` |
+| 层级 | apply_patch action-contract / capability normalization |
+| 本质 | `@@ -... +... @@` placeholder range hunk 被当作 mechanically actionable，进入 apply_patch 后变成 expected-lines failure loop |
+| 修复 | active validation rework update 在 normalize 前后拒绝 placeholder range hunk，返回 replacement-required |
+| evidence | CoE H-116/E-235/E-236；keyed rerun `20260705-025939-670`; focused tests `placeholder_range`, `rework_target`, `mixed_native_unified` |
+
+状态：focused fixed，待 commit/push、install/attest 和真实 keyed rerun。
+
 ## 28. 2026-07-04 natural-language slash fact-source extraction
 
 `3b6b269` 后的 keyed rerun 没有触发 no-action recovery，因此 H-098 尚未 live-clear。该轮暴露 inspect fact-source

@@ -299,6 +299,9 @@ fn taskspace_schema_type_mismatches_from_text(text: &str) -> Vec<String> {
 }
 
 fn taskspace_last_bracket_path_segment(line: &str) -> Option<String> {
+    if !line.contains("schema[") && !line.contains("instance[") {
+        return None;
+    }
     let mut rest = line;
     let mut last = None;
     while let Some(start) = rest.find("['") {
@@ -481,5 +484,34 @@ On instance['statistics']['skillDistribution']:
         assert!(formatted.starts_with("TaskSpaceToolSemanticSummaryV1"));
         assert!(formatted.contains("schema_type_mismatches: skillDistribution expected object"));
         assert!(!formatted.contains("missing_required_properties:"));
+    }
+
+    #[test]
+    fn exec_output_formatter_does_not_treat_data_lists_as_schema_paths() {
+        let raw_output = "\
+{'projects': ['Madrid', 'Ferrari']}: 'id' is a required property
+{'name': 'RedBull'}: {'name': 'RedBull'} is not of type 'string'
+{'name': 'McLaren'}: {'name': 'McLaren'} is not of type 'string'";
+        let exec_output = ExecToolCallOutput {
+            exit_code: 1,
+            stdout: StreamOutput::new(String::new()),
+            stderr: StreamOutput::new(String::new()),
+            aggregated_output: StreamOutput::new(raw_output.to_string()),
+            duration: Duration::from_millis(100),
+            timed_out: false,
+        };
+
+        let formatted =
+            format_exec_output_str_with_ref(&exec_output, TruncationPolicy::Bytes(512), None);
+
+        assert!(formatted.contains("missing_required_properties: id"));
+        assert!(
+            !formatted.contains("RedBull expected string"),
+            "{formatted}"
+        );
+        assert!(
+            !formatted.contains("McLaren expected string"),
+            "{formatted}"
+        );
     }
 }
