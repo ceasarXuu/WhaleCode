@@ -2833,6 +2833,14 @@ validation rework patch-only recovery 的尾部证据漂移：`process.py` 已 `
 
 状态：focused 修复已编码。下一步是 attestation + keyed rerun，验证 provider 是否进入 apply_patch 而不是再次 read_file。
 
+## 21. 2026-07-04 failed-edit fragile patch fallback
+
+`538c116` keyed rerun 进入 apply_patch，说明 H-084 有效，但 patch 失败后 provider 仍回到 read refresh/fragile hunk。
+已收录 `validation-rework-failed-edit-fragile-patch-fallback`：complete target read + failed expected-lines/context/mixed-hunk patch
+后，tail lock 要求 whole-file native replacement，继续禁止 read/search。
+
+状态：focused 修复已编码；focused test 与 `validation_rework` 25/25 通过。下一步是完整 check/build、提交、attestation、keyed rerun。
+
 ## 10. 2026-07-04 validation rework patch directive buried after evidence
 
 `431e0ee` 的 keyed rerun 没有复现 block-rejection wording path，说明 H-069 仍需下一次命中该分支才能 live-clear。该轮暴露

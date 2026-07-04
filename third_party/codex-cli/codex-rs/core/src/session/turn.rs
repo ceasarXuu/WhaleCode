@@ -2298,6 +2298,7 @@ Previous blocked feedback:\n{previous_excerpt}\n\
 {evidence}\
 Final action lock:\n\
 - The target read above is complete when it says complete_read or eof_reached=true; projection truncation is not a valid reason to read `{target_artifact_label}` again.\n\
+- If the most recent apply_patch failed with expected-lines, context-mismatch, or mixed unified/native hunk feedback, use a whole-file native replacement for `{target_artifact_label}` (`*** Delete File` then `*** Add File`) from the complete target read instead of another fragile ranged hunk.\n\
 - Emit apply_patch for `{target_artifact_label}` now, or block_node with the exact unsafe-edit reason. Do not emit read_file/list_files/search/schema inspection."
     );
 
@@ -5680,6 +5681,7 @@ Then I will inspect the file."#,
         assert!(text.contains("Use native apply_patch grammar only"));
         assert!(text.contains("Final action lock:"));
         assert!(text.contains("projection truncation is not a valid reason to read"));
+        assert!(text.contains("whole-file native replacement"));
         assert!(!text.contains(TASKSPACE_IMPLEMENT_NEEDS_EDIT_MARKER));
         assert!(is_taskspace_validation_rework_patch_only_recovery_item(
             &item

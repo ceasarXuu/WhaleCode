@@ -5153,3 +5153,49 @@
     PASS
   ```
 - Interpretation: H-084 is focused-fixed. Next gate is attestation plus keyed rerun to verify provider emits `apply_patch` rather than another `read_file` after patch-only recovery.
+
+# Evidence E-180: 538c116 rerun clears immediate read loop but exposes failed-edit fragile patch fallback
+
+- Real rerun:
+  ```text
+  RunDir: target/r4-org-json-real-keyed-20260704ce-patch-tail-lock/runs/terminal_bench__organization-json-generator/20260704-184541-992
+  reported_evidence_level: E2-candidate
+  outcome_standard: solved
+  outcome_taskspace: engineering_unclean
+  right_tool_call_count: 15
+  right_public_validation_exit_code: 1
+  final_hard_stop: TaskSpaceProviderBudgetHardStopV1 node_kind=implement_solution request_count=16/20 node_request_count=6/5
+  ```
+- H-084 partial live-clear signals:
+  - After patch-only recovery, provider emitted `apply_patch` actions instead of immediately repeating only `read_file`.
+- New blocker signals:
+  - The apply_patch attempts used mixed native/unified/ranged hunks and failed expected-line verification.
+  - After failed edit, provider again tried `read_file process.py` with rationale that projection excerpt was insufficient, despite complete target read evidence.
+  - Runtime continued to reject read/search and eventually hit implement_solution provider budget hard-stop.
+- Interpretation: H-084 improved actionability, but failed-edit recovery still needs to explicitly promote whole-file replacement after expected-lines/context/mixed-hunk failures.
+
+# Hypothesis H-085: failed patch after complete target read must tail-lock whole-file replacement
+
+- Claim: Once validation rework target is complete/eof and patch attempts fail due expected-lines/context/mixed unified-native hunks, recovery should end with a whole-file replacement instruction. Otherwise the provider alternates between fragile hunks and refresh-read rationales.
+- Prediction:
+  1. Patch-only recovery tail lock should mention whole-file native replacement using `*** Delete File` then `*** Add File`.
+  2. It should continue forbidding read_file/list_files/search/schema inspection.
+  3. Validation rework regressions should remain passing.
+- Status: confirmed.
+
+# Evidence E-181: H-085 focused fix upgrades patch-only tail lock after failed edit
+
+- Repair artifact:
+  - `third_party/codex-cli/codex-rs/core/src/session/turn.rs`
+- Repair behavior:
+  - Final action lock now says expected-lines/context/mixed-hunk apply_patch failure must use whole-file native replacement from complete target read rather than another fragile ranged hunk.
+- Validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core implementation_recovery_selects_patch_only_after_target_read_evidence --lib --locked
+    PASS
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core validation_rework --lib --locked
+    PASS: 25/25
+  cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all
+    PASS
+  ```
+- Interpretation: H-085 is focused-fixed; full build/diff checks and keyed rerun remain the next gate.

@@ -4744,3 +4744,11 @@ coverage gate 产出的 stricter exact command，并有固定 3-hop 上限；同
 | `validation-rework-patch-only-tail-truncation-drift` | patch-only recovery 顶部语义正确，但 evidence 尾部没有再次锁定动作；provider 受 truncated preview 影响继续 read_file | recovery 在 evidence 后追加 `Final action lock`，明确 complete/eof target 下 projection truncation 不是重读理由，只能 apply_patch 或 block_node | keyed rerun `20260704-183656-438`; CoE H-084/E-178/E-179; `implementation_recovery_selects_patch_only_after_target_read_evidence`; `validation_rework`; `action_contract_prompt` |
 
 验证：focused test PASS；`validation_rework` 25/25 PASS；`action_contract_prompt` 29/29 PASS；fmt/check/build PASS。
+
+## 5.75 2026-07-04 failed-edit whole-file replacement tail lock
+
+`538c116` keyed rerun 显示 H-084 已推动 provider 进入 apply_patch，但 failed edit 后仍回到 fragile hunk 和 refresh-read。
+
+| Case | Before | After | Evidence |
+|---|---|---|---|
+| `validation-rework-failed-edit-fragile-patch-fallback` | complete target read 后，expected-lines/mixed-hunk patch 失败仍导致 read refresh 或继续 ranged hunk | patch-only final action lock 明确要求 whole-file native replacement：`*** Delete File` + `*** Add File` | keyed rerun `20260704-184541-992`; CoE H-085/E-180/E-181; focused test; `validation_rework` 25/25 |

@@ -749,3 +749,12 @@ coverage gate 可以先给 `python transform.py`；执行后 output-contract gat
 | `validation-rework-patch-only-tail-truncation-drift` | validation rework recovery payload layout | recovery 顶部说 complete/eof、apply_patch only，但长证据尾部的 truncated preview 诱导 provider 再读 target | patch-only recovery 在 evidence 后追加 `Final action lock`，明确 projection truncation 不是 complete target 的重读理由；下一步只能 apply_patch 或 block_node | keyed rerun `20260704-183656-438`; CoE H-084/E-178/E-179; `implementation_recovery_selects_patch_only_after_target_read_evidence`; `validation_rework`; `action_contract_prompt` |
 
 边界说明：这不是放宽 repeated-read gate。runtime 继续拒绝 complete target re-read；修复只让反馈尾部也保持同一动作语义。
+
+## 2026-07-04 R4-D issue type addendum: failed-edit fragile patch fallback after complete read
+
+tail action lock 修复后的 keyed rerun 进入 apply_patch，但 patch 使用 mixed native/unified/ranged hunks 并因 expected-lines 失败；
+failed edit 后 provider 又以 projection excerpt insufficient 为理由 refresh read。
+
+| Issue type | Layer | Symptom | Resolution contract | Evidence |
+|---|---|---|---|---|
+| `validation-rework-failed-edit-fragile-patch-fallback` | validation rework failed-edit recovery | complete target read 后 failed patch 仍回到 fragile hunk/read refresh | patch-only final action lock 在 expected-lines/context/mixed-hunk 失败后升级为 whole-file native replacement：`*** Delete File` + `*** Add File`；继续禁止 read/search | keyed rerun `20260704-184541-992`; CoE H-085/E-180/E-181; focused test; `validation_rework` |
