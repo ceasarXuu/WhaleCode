@@ -2841,6 +2841,27 @@ validation rework patch-only recovery 的尾部证据漂移：`process.py` 已 `
 
 状态：focused 修复已编码；focused test 与 `validation_rework` 25/25 通过。下一步是完整 check/build、提交、attestation、keyed rerun。
 
+## 22. 2026-07-04 schema-context blocker wording drift
+
+`e0f8d3d` keyed rerun 进入 H-085 之后的真实 rework tail：nested validation bridge 执行 combined command，得到
+`KeyError: 'id'`，随后 `generate.py` 完整读取并触发 patch-only recovery。新问题是 provider block：
+`Need full content of schema.json to validate required output structure; current projection excerpt of generate.py is insufficient to determine correct edit.`。
+runtime 旧 recognizer 没覆盖该 schema-context/full-content/projection-excerpt wording，错误接受 blocker 并关闭 node，
+下一轮退化为 `provider_context_missing`，最终把真实代码错误扭曲成 local infrastructure unavailable。
+
+问题类型收录：
+
+| 字段 | 内容 |
+|---|---|
+| case | `validation-rework-schema-context-blocker-after-patch-only` |
+| 层级 | validation rework blocker classification / feedback continuity |
+| 本质 | 语义缺失导致后续扭曲：可恢复的缺源同义 blocker 没被识别，节点被关闭后才产生错误 infra 叙述 |
+| 非根因 | 不是 schema 未读取；不是 jsonschema/Python 基础设施不可用；不是 validation bridge 未执行 |
+| 修复 | missing-source blocker recognizer 覆盖 schema/output-structure/full-content/projection-excerpt-insufficient wording；complete target read 时拒绝 blocker 并保持 `apply_patch` 反馈 |
+| focused evidence | CoE H-086/E-182/E-183；`validation_rework_rejects_missing_current_artifact_visibility_blocker`; `validation_rework`; `action_contract_prompt`; fmt/check/build |
+
+状态：focused 修复已编码并通过聚焦/回归测试、fmt/diff/build。下一步是提交推送、attestation、keyed rerun。
+
 ## 10. 2026-07-04 validation rework patch directive buried after evidence
 
 `431e0ee` 的 keyed rerun 没有复现 block-rejection wording path，说明 H-069 仍需下一次命中该分支才能 live-clear。该轮暴露

@@ -16492,6 +16492,9 @@ fn blocker_claims_missing_inspected_source_evidence(blocker_summary: &str) -> bo
         || lower.contains(".py")
         || lower.contains(".js")
         || lower.contains(".sh")
+        || lower.contains(".json")
+        || lower.contains("schema")
+        || lower.contains("output structure")
         || lower.contains("file content")
         || lower.contains("current code");
     let missing_claim = lower.contains("unknown")
@@ -16504,9 +16507,20 @@ fn blocker_claims_missing_inspected_source_evidence(blocker_summary: &str) -> bo
         || lower.contains("need to inspect")
         || lower.contains("need to view")
         || lower.contains("need source")
+        || lower.contains("need full content")
         || lower.contains("need full file content")
+        || lower.contains("need full schema")
+        || lower.contains("need schema context")
+        || lower.contains("missing schema context")
+        || lower.contains("full schema context")
         || lower.contains("full content is needed")
+        || lower.contains("full content of")
         || lower.contains("insufficient file content visibility")
+        || lower.contains("current projection excerpt")
+        || lower.contains("projection excerpt")
+        || lower.contains("insufficient to determine")
+        || lower.contains("insufficient to construct")
+        || lower.contains("insufficient to apply")
         || lower.contains("view full")
         || lower.contains("read the full file")
         || lower.contains("ability to read the full file")
@@ -34933,6 +34947,28 @@ TaskSpaceReadFileSummaryV1: path=generate_org.py lines_read=210 eof_reached=true
         assert!(
             !partial_excerpt_blocker.contains("read_file the same validation rework target"),
             "{partial_excerpt_blocker}"
+        );
+        let schema_context_blocker = state
+            .block_main_node(
+                owner,
+                &rework_node_id,
+                "Need full content of schema.json to validate required output structure; current projection excerpt of generate_org.py is insufficient to determine correct edit."
+                    .to_string(),
+            )
+            .expect_err(
+                "schema-context visibility blocker should be rejected after complete target read",
+            );
+        assert!(
+            schema_context_blocker.contains("missing source visibility"),
+            "{schema_context_blocker}"
+        );
+        assert!(
+            schema_context_blocker.contains("complete_read/eof_reached=true"),
+            "{schema_context_blocker}"
+        );
+        assert!(
+            schema_context_blocker.contains("apply_patch"),
+            "{schema_context_blocker}"
         );
     }
 

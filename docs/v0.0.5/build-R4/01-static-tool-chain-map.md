@@ -758,3 +758,16 @@ failed edit 后 provider 又以 projection excerpt insufficient 为理由 refres
 | Issue type | Layer | Symptom | Resolution contract | Evidence |
 |---|---|---|---|---|
 | `validation-rework-failed-edit-fragile-patch-fallback` | validation rework failed-edit recovery | complete target read 后 failed patch 仍回到 fragile hunk/read refresh | patch-only final action lock 在 expected-lines/context/mixed-hunk 失败后升级为 whole-file native replacement：`*** Delete File` + `*** Add File`；继续禁止 read/search | keyed rerun `20260704-184541-992`; CoE H-085/E-180/E-181; focused test; `validation_rework` |
+
+## 2026-07-04 R4-D issue type addendum: schema-context blocker after patch-only recovery
+
+failed-edit tail lock 修复后的 keyed rerun 进入 complete target read + patch-only recovery，但 provider block 为需要
+`schema.json` 全量内容和 schema context，且称 current projection excerpt 不足。runtime 旧词表只覆盖一部分 `.py`/file content
+表达，没覆盖 schema/output-structure/full-content/projection-excerpt-insufficient wording，于是把可恢复缺源语义当作真 blocker。
+
+| Issue type | Layer | Symptom | Resolution contract | Evidence |
+|---|---|---|---|---|
+| `validation-rework-schema-context-blocker-after-patch-only` | validation rework blocker classification / feedback continuity | complete target read + repair contract 已存在时，full schema/schema context/projection excerpt insufficient blocker 被接受，node 关闭，后续扭曲为 local infra blocker | missing-source blocker recognizer 覆盖 schema/output-structure/full-content/projection-excerpt-insufficient wording；complete target read 时 rejection 明确保留 `complete_read/eof_reached=true` 和 `apply_patch` | keyed rerun `20260704-190021-739`; CoE H-086/E-182/E-183; `validation_rework_rejects_missing_current_artifact_visibility_blocker`; `validation_rework`; `action_contract_prompt` |
+
+边界说明：这里修的是反馈层同义词漏判，不是让 runtime 忽略真实外部 blocker。只要 blocker 指向的是“需要再看 schema/完整内容/投影不够”，且
+validation rework 已有完整 target read 与 repair contract，就必须保持节点 active 并把反馈导回 patch-only。

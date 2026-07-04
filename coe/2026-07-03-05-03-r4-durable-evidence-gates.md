@@ -5199,3 +5199,61 @@
     PASS
   ```
 - Interpretation: H-085 is focused-fixed; full build/diff checks and keyed rerun remain the next gate.
+
+# Evidence E-182: e0f8d3d rerun exposes schema-context blocker wording drift after patch-only recovery
+
+- Real rerun:
+  ```text
+  RunDir: target/r4-org-json-real-keyed-20260704cf-failed-patch-recovery/runs/terminal_bench__organization-json-generator/20260704-190021-739
+  reported_evidence_level: E1
+  outcome_standard: wrong
+  outcome_taskspace: engineering_unclean
+  right_tool_call_count: 10
+  right_public_validation_exit_code: 1
+  final_action: blocked
+  ```
+- H-083/H-084/H-085 retained signals:
+  - Trace shows `TaskSpaceValidationRequiredCommandBootstrapV1` then `TaskSpaceValidationRequiredCommandBootstrapChainedV1`.
+  - Bridge executed `python generate.py && python -m jsonschema -i organization.json schema.json`.
+  - The recorded validation failure was a real implementation traceback: `KeyError: 'id'` in `generate.py`, not an internal TaskSpace gate rejection.
+  - Validation rework read `generate.py` completely: `TaskSpaceReadFileSummaryV1: path=generate.py lines_read=87 eof_reached=true max_lines=240`.
+  - `TaskSpaceValidationReworkPatchOnlyRecoveryV1` was inserted after target read and repair contract evidence.
+- New blocker signal:
+  - Provider returned blocked: `Need full content of schema.json to validate required output structure; current projection excerpt of generate.py is insufficient to determine correct edit.`
+  - Runtime accepted the blocker, closed the rework node, then the next request had `provider_context_missing_reason:current_main_node_missing`.
+  - Final answer then distorted the cause into local infrastructure unavailable, although Python/jsonschema had already executed and produced a real traceback.
+- Interpretation: H-085 is live-partial because patch-only recovery is reached, but feedback continuity still has a blocker-classification gap. The schema-context/full-content wording is a missing-source blocker synonym and must be rejected while the rework node remains active.
+
+# Hypothesis H-086: schema-context blocker after complete target read must be rejected as missing-source wording
+
+- Claim: In validation rework, once dependency validation evidence plus complete target read evidence exist, a blocker asking for full `schema.json`, schema context, or claiming projection excerpt insufficiency is not an external blocker. It is a missing-source visibility synonym and should be returned to the provider as rejected feedback requiring `apply_patch`.
+- Prediction:
+  1. `blocker_claims_missing_inspected_source_evidence()` should cover schema/output-structure/full-content/projection-excerpt-insufficient wording.
+  2. `block_main_node()` should reject the exact H-086 blocker with `cannot be blocked for missing source visibility`.
+  3. Complete target-read rejection should preserve `complete_read/eof_reached=true` and `apply_patch` in feedback.
+  4. Validation rework and action-contract prompt regressions should remain passing.
+- Status: confirmed.
+
+# Evidence E-183: H-086 focused fix rejects schema-context blocker and preserves patch-only feedback
+
+- Repair artifact:
+  - `third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs`
+- Repair behavior:
+  - Missing-source blocker recognizer now covers `.json`, schema/output-structure subjects, and `need full content`, `full content of`, `need schema context`, `missing schema context`, `current projection excerpt`, `projection excerpt`, and `insufficient to determine/construct/apply` claims.
+  - `validation_rework_rejects_missing_current_artifact_visibility_blocker` now includes the H-086 real wording and asserts rejection includes missing source visibility, `complete_read/eof_reached=true`, and `apply_patch`.
+- Validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_rework_rejects_missing_current_artifact_visibility_blocker --lib --locked
+    PASS
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_rework --lib --locked
+    PASS: 25/25
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core action_contract_prompt --lib --locked
+    PASS: 29/29
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+    PASS
+  git diff --check
+    PASS
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-cli --bin whale --locked
+    PASS
+  ```
+- Interpretation: H-086 is focused-fixed. Remaining gate is commit/push, attestation, and another keyed rerun to prove the node no longer closes on schema-context blocker wording.

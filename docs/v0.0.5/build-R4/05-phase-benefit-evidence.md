@@ -4752,3 +4752,18 @@ coverage gate 产出的 stricter exact command，并有固定 3-hop 上限；同
 | Case | Before | After | Evidence |
 |---|---|---|---|
 | `validation-rework-failed-edit-fragile-patch-fallback` | complete target read 后，expected-lines/mixed-hunk patch 失败仍导致 read refresh 或继续 ranged hunk | patch-only final action lock 明确要求 whole-file native replacement：`*** Delete File` + `*** Add File` | keyed rerun `20260704-184541-992`; CoE H-085/E-180/E-181; focused test; `validation_rework` 25/25 |
+
+## 5.76 2026-07-04 schema-context blocker wording drift after patch-only recovery
+
+`e0f8d3d` keyed rerun 证明 validation bridge、nested gate bridge、complete target read、patch-only recovery 均已进入真实链路，
+但 provider 在 repairable rework node 上返回了新的 blocker：`Need full content of schema.json ... current projection excerpt ...
+insufficient`。runtime 接受该 blocker 后关闭 node，随后语义被扭曲为 local infrastructure unavailable；这不是 schema 缺失，
+也不是 Python/jsonschema 不可用，因为同轮已经执行 combined command 并得到 `KeyError: 'id'`。
+
+| Case | Before | After | Evidence |
+|---|---|---|---|
+| `validation-rework-schema-context-blocker-after-patch-only` | complete target read + repair contract 已存在时，full `schema.json` / schema context / projection excerpt insufficient blocker 被接受，节点关闭并退化为 `provider_context_missing` | missing-source blocker recognizer 覆盖 schema/output-structure/full-content/projection-excerpt-insufficient wording；complete target read 时拒绝 blocker，并要求使用 existing evidence `apply_patch` | keyed rerun `20260704-190021-739`; CoE H-086/E-182/E-183; `validation_rework_rejects_missing_current_artifact_visibility_blocker`; `validation_rework` 25/25; `action_contract_prompt` 29/29 |
+
+边界说明：这不是禁止所有 blocker。只有在 validation rework 已有 dependency validation evidence 且完整 target read/repair contract
+存在、且 blocker 本质是“还要看 schema/投影不够”的情况下，才归类为 missing-source visibility rejection。真正外部不可编辑原因仍可
+用 `block_node` 表达。
