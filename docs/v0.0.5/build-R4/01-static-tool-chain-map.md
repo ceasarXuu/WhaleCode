@@ -454,3 +454,19 @@ schema formatter 修复后的 keyed rerun 证明 required-property repair contra
 边界说明：该 case 不是工具失败语义完全缺失，也不是状态机允许了非法 finish。状态机已经正确拒绝 finish；缺口在
 projection 把“成功 edit 之后的下一步”当作当前候选动作展示，并没有把 failed edit 作为最高优先级反馈。修复保持
 runtime 底线不变，只收紧 provider-visible next action 语义。
+
+## 2026-07-04 R4-D issue type addendum: unanchored patch feedback loss after duplicate read
+
+failed-edit projection 修复后的 keyed rerun 继续推进到 `apply_patch` grammar 层：模型提交了没有 native hunk 的
+`*** Update File: generate.py` patch，action contract 正确拒绝为 `apply_patch_unanchored_update:generate.py`。随后模型重复
+`read_file generate.py`，duplicate-read recovery/hard-stop 正确阻止继续 context refresh，但 bounded hard-stop excerpt
+没有把 unanchored patch rejection 放到足够高优先级，模型最需要修复的 patch grammar 语义被 generic repair contract 稀释。
+
+| Issue type | Layer | Symptom | Resolution contract | Evidence |
+|---|---|---|---|---|
+| `validation-rework-duplicate-read-after-unanchored-patch-feedback-loss` | action-contract feedback + session recovery composition + control loop | action contract 已拒绝 `apply_patch_unanchored_update`，但 duplicate-read recovery 只把 `apply_patch_mixed_native_unified` / `apply_patch_native_hunk_header` 归类为 patch grammar recovery；hard-stop 摘要可能只保留 generic repair contract，模型继续重复 read/context refresh | duplicate-read recovery 将 `Most recent failed edit feedback to preserve` 提到 previous blocked feedback 之前；patch grammar preservation/advisory 覆盖 `apply_patch_unanchored_update`；当前 required behavior 明确要求立即重发 native apply_patch，并禁止 `read_file/context refresh` 作为该失败的 recovery | `validation_rework_duplicate_read_recovery_preserves_unanchored_patch_feedback`; `validation_rework_duplicate_read`; `validation_rework`; `validation_`; `apply_patch_`; CoE E-095/H-044/E-096 |
+
+边界说明：该 case 不是 `apply_patch` executor 没有失败，也不是失败语义完全没有传给 TaskSpace。失败语义已经由
+action contract 产生，但 recovery/hard-stop 的排序和分类让它在下一轮 provider-visible feedback 中不够稳定。修复不放宽
+patch grammar，也不让 malformed patch 进入 executor；它只保证 action-contract 的具体失败语义在后续 duplicate-read recovery
+中保持最高优先级。

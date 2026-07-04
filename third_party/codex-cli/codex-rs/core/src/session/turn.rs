@@ -2071,15 +2071,15 @@ failure_kind: validation_rework_duplicate_artifact_read\n\
 target_artifact: {artifact}\n\
 previous_read_result: {previous_result}\n\
 {repair_contract}\
+{failed_edit}\
 The previous action was blocked because this validation rework node already read the failure artifact and no successful edit has been recorded after that read.\n\
 Previous blocked feedback:\n{previous_excerpt}\n\
 {gate_recovery}\
 {evidence}\
-{failed_edit}\
 Current required behavior:\n\
 - Emit exactly one taskspace-action-v1 apply_patch action targeting `{artifact}` now, using the current contents already visible in `{previous_result}` and the failed validation evidence.\n\
 - Use native apply_patch grammar only: `*** Update File: <path>` with `@@` plus exact context and exact `-old` / `+new` lines, or `*** Delete File` followed by `*** Add File` for a complete small/generated rewrite. Do not include `--- Update File:`, `--- a/...`, `+++ b/...`, or `@@ -old,+new @@` range headers.\n\
-- If the most recent failed edit feedback mentions `apply_patch_mixed_native_unified` or `apply_patch_native_hunk_header`, correct that patch grammar now; read_file/context refresh is not a valid recovery for that failure.\n\
+- If the most recent failed edit feedback mentions `apply_patch_mixed_native_unified`, `apply_patch_native_hunk_header`, or `apply_patch_unanchored_update`, correct that patch grammar now; read_file/context refresh is not a valid recovery for that failure.\n\
 - If repair_contract is present, satisfy it exactly before rerunning validation.\n\
 - Do not call read_file, list_files, search, broad shell discovery, schema inspection, or validation from this implementation node before a successful edit is recorded.\n\
 - If no safe edit can be made from the already visible evidence, emit exactly one taskspace_control block_node with the exact missing evidence or unsafe-edit reason.\n\
@@ -2272,9 +2272,7 @@ fn taskspace_implement_recovery_advisory_warning_message(
             "TaskSpace inserted TaskSpaceEditFailureRecoveryV1 because the previous edit tool call failed and the model must use that tool feedback to retry or block. Advisory recovery attempt {attempt} is being used."
         )
     } else if response_item_text_contains(item, TASKSPACE_VALIDATION_REWORK_DUPLICATE_READ_MARKER)
-        && response_item_text_contains(item, "Most recent failed edit feedback to preserve")
-        && (response_item_text_contains(item, "apply_patch_mixed_native_unified")
-            || response_item_text_contains(item, "apply_patch_native_hunk_header"))
+        && taskspace_duplicate_read_recovery_preserves_patch_grammar_failure(item)
     {
         format!(
             "TaskSpace inserted TaskSpaceValidationReworkDuplicateReadAfterPatchGrammarRecoveryV1 because validation rework repeated an already-read artifact after a patch grammar failure, and the model must preserve the failed edit feedback while re-emitting native apply_patch grammar. Advisory recovery attempt {attempt} is being used."
@@ -2288,6 +2286,15 @@ fn taskspace_implement_recovery_advisory_warning_message(
             "TaskSpace inserted TaskSpaceImplementNeedsEditRecoveryV1 because implementation has enough read/search evidence and must edit or block. Advisory recovery attempt {attempt} is being used."
         )
     }
+}
+
+fn taskspace_duplicate_read_recovery_preserves_patch_grammar_failure(item: &ResponseItem) -> bool {
+    response_item_text_contains(item, "Most recent failed edit feedback to preserve")
+        && response_item_texts_contain(item, &|text| {
+            text.contains("apply_patch_mixed_native_unified")
+                || text.contains("apply_patch_native_hunk_header")
+                || text.contains("apply_patch_unanchored_update")
+        })
 }
 
 fn taskspace_special_recovery_warning_message(item: &ResponseItem) -> String {
@@ -4998,6 +5005,33 @@ Then I will inspect the file."#,
     }
 
     #[test]
+    fn validation_rework_duplicate_read_recovery_preserves_unanchored_patch_feedback() {
+        let last_message = "TaskSpace blocked this read because validation rework node `node-4` already read failure artifact `generate.py` in result `result-10` and no successful edit has been recorded after that read. TaskSpaceGateRecoveryV1: {\"reason\":\"validation_rework_duplicate_artifact_read\",\"next_valid_actions\":[\"call apply_patch for `generate.py`\"]}";
+        let failed_edit = "TaskSpaceActionV1 rejected: apply_patch_unanchored_update:generate.py. Return exactly one valid taskspace-action-v1 JSON object.";
+        let item = build_taskspace_validation_rework_duplicate_read_recovery_item(
+            Some(last_message),
+            Some("validation_rework result-10 artifacts=generate.py"),
+            Some(failed_edit),
+        );
+        let text = item_text(item.clone());
+
+        assert!(text.contains(TASKSPACE_VALIDATION_REWORK_DUPLICATE_READ_MARKER));
+        assert!(text.contains("Most recent failed edit feedback to preserve"));
+        assert!(text.contains("apply_patch_unanchored_update:generate.py"));
+        assert!(text.contains("correct that patch grammar now"));
+        assert!(text.contains("read_file/context refresh is not a valid recovery"));
+        assert!(
+            text.find("Most recent failed edit feedback to preserve")
+                < text.find("Previous blocked feedback")
+        );
+        assert!(
+            taskspace_implement_recovery_advisory_warning_message(&item, 6)
+                .contains("TaskSpaceValidationReworkDuplicateReadAfterPatchGrammarRecoveryV1")
+        );
+        assert!(is_taskspace_implement_needs_edit_recovery_item(&item));
+    }
+
+    #[test]
     fn implementation_recovery_prioritizes_duplicate_rework_read_feedback() {
         let last_message = "TaskSpace blocked this read because validation rework node `node-4` already read failure artifact `process.py` in result `result-10` and no successful edit has been recorded after that read. TaskSpaceGateRecoveryV1: {\"reason\":\"validation_rework_duplicate_artifact_read\",\"next_valid_actions\":[\"call apply_patch for `process.py`\"]}";
         let item = build_taskspace_implementation_recovery_item(
@@ -5018,12 +5052,12 @@ Then I will inspect the file."#,
         let item = build_taskspace_implementation_recovery_item(
             Some(last_message),
             Some("result-10 artifacts=generate_org.py"),
-            Some("TaskSpaceActionV1 rejected: apply_patch_native_hunk_header:generate_org.py"),
+            Some("TaskSpaceActionV1 rejected: apply_patch_unanchored_update:generate_org.py"),
         );
         let text = item_text(item);
 
         assert!(text.contains(TASKSPACE_VALIDATION_REWORK_DUPLICATE_READ_MARKER));
-        assert!(text.contains("apply_patch_native_hunk_header:generate_org.py"));
+        assert!(text.contains("apply_patch_unanchored_update:generate_org.py"));
         assert!(text.contains("correct that patch grammar now"));
         assert!(!text.contains(TASKSPACE_EDIT_FAILURE_MARKER));
     }

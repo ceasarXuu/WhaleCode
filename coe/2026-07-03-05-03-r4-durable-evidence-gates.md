@@ -2421,3 +2421,71 @@
   - After a failed edit, the same regression asserts `failed_edit_feedback` names the failed patch result and `projection_critical_artifact_evidence` includes `signal=latest_failed_edit`.
   - Allowed-action text now says `finish_node` is blocked until successful edit while preserving the one allowed same-target refresh read after a failed edit.
 - Interpretation: H-043 is focused-fixed at projection/feedback/build level. Commit/push, attestation, and live rerun are still required before claiming this downstream blocker is cleared.
+
+# Evidence E-095: 14e6aa2 live rerun crosses failed-edit projection and exposes unanchored patch feedback loss
+
+- Prediction tested: H-043 predicted that failed edit feedback should become projection-critical and premature `finish_node` should be blocked before a successful edit.
+- Real rerun:
+  ```text
+  RunDir: target/r4-org-json-real-keyed-20260703ap-failed-edit-projection/runs/terminal_bench__organization-json-generator/20260704-090416-015
+  PairReport: pair-001/pair-report.md
+  reported_evidence_level: E2-candidate
+  outcome_standard: solved
+  outcome_taskspace: engineering_unclean
+  right_exec_timed_out: False
+  right_tool_call_count: 11
+  right_open_leaf_nodes: 1
+  public_validation_exit_code: 1
+  hidden_oracle_exit_code: 0
+  preflight_git_head: 14e6aa21c291e95f4e89b745ad4743025ca9a44c
+  build_attestation_status: pass
+  ```
+- Result: supported the H-043 projection repair enough to move past the previous blocker, but exposed a related feedback-preservation gap.
+- Matched crossed signals:
+  - `whale-exec.stderr.log` still starts failed jsonschema output with `TaskSpaceToolSemanticSummaryV1` and `missing_required_properties: members, averageDepartmentBudget, totalEmployees, skillDistribution, departmentSizes, projectStatusDistribution, averageYearsOfService`.
+  - The run reached target inspection and attempted a patch instead of staying in the earlier failed-edit finish loop.
+  - Runtime rejected premature `finish_node` with `cannot be completed without a recorded successful edit action`, preserving the state-machine bottom line.
+- New blocker signals:
+  - The emitted patch was malformed native grammar:
+    ```text
+    *** Begin Patch
+    *** Update File: generate.py
+    import csv
+    ...
+    *** End Patch
+    ```
+    It had no `@@` hunk and no `-old` / `+new` lines.
+  - Action contract rejected before tool dispatch with `TaskSpaceActionV1 rejected: apply_patch_unanchored_update:generate.py. Return exactly one valid taskspace-action-v1 JSON object.`
+  - The model then repeated `read_file generate.py`; duplicate-read recovery and hard stop fired, but the hard-stop excerpt preserved the generic repair contract more strongly than the specific `apply_patch_unanchored_update` rejection.
+- Interpretation: The next active blocker is `validation-rework-duplicate-read-after-unanchored-patch-feedback-loss`. It is a feedback-layer semantic loss after a valid action-contract rejection, not a tool executor failure and not a state-machine permission breach.
+
+# Hypothesis H-044: duplicate-read recovery drops unanchored patch rejection semantics
+
+- Claim: `build_taskspace_validation_rework_duplicate_read_recovery_item` preserves failed edit/patch grammar feedback for some patch failures, but the recovery text and advisory classifier only treat `apply_patch_mixed_native_unified` and `apply_patch_native_hunk_header` as patch grammar failures. `apply_patch_unanchored_update` remains present only as a lower-priority failed-edit string and can be truncated out of the final hard-stop excerpt by previous blocked feedback and repair-contract text.
+- Prediction: A focused duplicate-read recovery test with `TaskSpaceActionV1 rejected: apply_patch_unanchored_update:generate.py` should show `Most recent failed edit feedback to preserve` before `Previous blocked feedback`, classify the recovery as `TaskSpaceValidationReworkDuplicateReadAfterPatchGrammarRecoveryV1`, instruct the model to correct patch grammar now, and explicitly say `read_file/context refresh is not a valid recovery`.
+- Diagnostic evidence plan: Move failed edit feedback above previous blocked feedback in duplicate-read recovery, include `apply_patch_unanchored_update` in patch grammar preservation and advisory classification, then run focused duplicate-read recovery tests plus `validation_rework`, `validation_`, `apply_patch_`, schema summary/tool preview, fmt/diff/build.
+- Status: confirmed.
+
+# Evidence E-096: unanchored patch grammar feedback now survives duplicate-read recovery
+
+- Prediction tested: H-044 predicts that duplicate-read recovery must carry `apply_patch_unanchored_update` as first-class failed patch grammar feedback.
+- Repair artifact:
+  - `third_party/codex-cli/codex-rs/core/src/session/turn.rs`
+- Focused validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked validation_rework_duplicate_read
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked validation_rework
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked validation_
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked apply_patch_
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked schema_summary
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked taskspace_preview_
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+  git diff --check
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-cli --bin whale --locked
+  ```
+- Result: passed. `validation_rework_duplicate_read` is 6/6, `validation_rework` is 18/18, `validation_` is 95/95, `apply_patch_` is 35/35, `schema_summary` is 2/2, `taskspace_preview_` is 2/2, fmt/diff checks pass, and the `whale` binary build passes.
+- Matched test signals:
+  - `validation_rework_duplicate_read_recovery_preserves_unanchored_patch_feedback` asserts the recovery contains `Most recent failed edit feedback to preserve`, `apply_patch_unanchored_update:generate.py`, `correct that patch grammar now`, and `read_file/context refresh is not a valid recovery`.
+  - The same test asserts failed edit feedback appears before `Previous blocked feedback`, so the bounded hard-stop excerpt keeps the concrete patch grammar rejection.
+  - Advisory warning classification now emits `TaskSpaceValidationReworkDuplicateReadAfterPatchGrammarRecoveryV1` for unanchored patch updates, matching mixed/native patch grammar failures.
+- Interpretation: H-044 is focused-fixed at session recovery/feedback level. Commit/push, attestation, and another live rerun are required to verify whether the real `organization-json-generator` case now moves past this blocker.

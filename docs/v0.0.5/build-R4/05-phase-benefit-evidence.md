@@ -3674,3 +3674,74 @@ CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/co
 状态：该 projection/feedback class 已 focused fixed，并通过 diff/build；还需要 commit/push、binary attestation
 和下一轮 keyed rerun。下一轮期望 failed edit 后 projection 明确显示 latest failed edit，且不会再把
 `finish_node` 作为当前 next action 暴露给模型。
+
+## 5.54 2026-07-04 unanchored patch feedback must survive duplicate-read recovery
+
+`14e6aa2` 的 keyed rerun 证明上一节 failed-edit projection 修复已经把流程推进到下一层：schema repair contract
+仍然完整，premature `finish_node` 被 runtime 拒绝，模型也开始读取目标文件并尝试 patch。新的失败不在工具执行层，而在
+action-contract rejection 到 duplicate-read recovery/hard-stop 的反馈保真路径。
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260703ap-failed-edit-projection/runs/terminal_bench__organization-json-generator/20260704-090416-015
+reported_evidence_level: E2-candidate
+outcome_standard: solved
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 11
+right_open_leaf_nodes: 1
+public_validation_exit_code: 1
+hidden_oracle_exit_code: 0
+preflight_git_head: 14e6aa21c291e95f4e89b745ad4743025ca9a44c
+build_attestation_status: pass
+```
+
+关键观察：
+
+| Signal | 结论 |
+|---|---|
+| failed validation stderr 仍以 `TaskSpaceToolSemanticSummaryV1` 开头，并包含 `members + six statistics required fields` | schema semantic summary 没有回退 |
+| model 在 validation failure 后读取 `generate.py` 并尝试 patch | 已越过上一轮 failed-edit projection dilution 主 blocker |
+| action contract 拒绝 `apply_patch_unanchored_update:generate.py` | 工具/合约层正确识别 malformed native patch，未让坏 patch 进入 executor |
+| 后续重复 `read_file generate.py` 触发 duplicate-read recovery/hard-stop | 状态机继续维护 patch-only gate |
+| hard-stop excerpt 未把 `apply_patch_unanchored_update` 拒绝语义放在足够高优先级 | 反馈层在 bounded recovery 摘要里丢失了最该纠正的 patch grammar failure |
+
+本轮新增并 focused 修复的问题类型：
+
+| Case | Before | After | Evidence |
+|---|---|---|---|
+| `validation-rework-duplicate-read-after-unanchored-patch-feedback-loss` | `apply_patch_unanchored_update` 被 action contract 正确拒绝，但 duplicate-read recovery 只把 mixed/native hunk 类失败当成 patch grammar recovery；unanchored rejection 容易被 previous blocked feedback / repair contract 挤出 hard-stop excerpt | duplicate-read recovery 将 `Most recent failed edit feedback to preserve` 提前到 previous blocked feedback 之前；patch grammar preservation/advisory 覆盖 `apply_patch_unanchored_update`；recovery 明确要求立即修正 patch grammar，且 `read_file/context refresh is not a valid recovery` | `validation_rework_duplicate_read_recovery_preserves_unanchored_patch_feedback`; `validation_rework_duplicate_read`; `validation_rework`; `validation_`; `apply_patch_`; CoE E-095/H-044/E-096 |
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked validation_rework_duplicate_read
+  PASS：6 tests
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked validation_rework
+  PASS：18 tests
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked validation_
+  PASS：95 tests
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked apply_patch_
+  PASS：35 tests
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked schema_summary
+  PASS：2 tests
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked taskspace_preview_
+  PASS：2 tests
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+  PASS
+
+git diff --check
+  PASS
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-cli --bin whale --locked
+  PASS
+```
+
+状态：该 feedback-preservation class 已 focused fixed，并通过 diff/build；还需要 commit/push、binary attestation
+和下一轮 keyed rerun。下一轮期望 unanchored patch rejection 后，duplicate-read recovery/hard-stop 明确展示
+`apply_patch_unanchored_update` 并要求修正 patch grammar，而不是让模型继续 context refresh。
