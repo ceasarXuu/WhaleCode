@@ -4425,4 +4425,28 @@
   2. Immediate hard-stop on the first closed-action rejection would reduce budget but still not create a patch.
   3. A utility-improving fix likely needs a stronger repair mode: model/profile escalation, deterministic repair-synthesis scaffold, or a structured patch-plan gate that converts schema repair evidence into concrete edit requirements before another provider sample.
 - Diagnostic evidence plan: Compare the live prompt/recovery context against feasible repair strategies and choose one that preserves TaskSpace state-machine boundaries. Do not implement a special-case schema patcher for `organization-json-generator`; the fix must generalize to validation rework tools feedback.
-- Status: investigating.
+- Status: focused-fixed; real keyed rerun pending.
+
+# Evidence E-157: patch-only recovery now includes a generic repair-synthesis scaffold
+
+- Prediction tested: H-073 predicts a useful fix should bridge complete repair evidence into concrete patch synthesis without reopening read/search or hard-coding `organization-json-generator`.
+- Repair artifact:
+  - `third_party/codex-cli/codex-rs/core/src/session/turn.rs`
+- Repair behavior:
+  - `TaskSpaceValidationReworkPatchOnlyRecoveryV1` now includes a `Patch construction scaffold`.
+  - The scaffold tells the model to patch only the named target artifact using the complete target read already in evidence.
+  - For schema validation failures, it explicitly maps `schema_property_rename_hints` to output key renames and `missing_required_properties` to generated output fields derived from already-read fact sources.
+  - For traceback/test failures, it directs the patch to the named failing symbol, file, or output construction path.
+  - It restates native apply_patch grammar and forbids markdown fences, shell commands, JSON generation scripts, or prose inside the patch payload.
+- Validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core implementation_recovery_selects_patch_only_after_target_read_evidence --lib
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core implementation_recovery_selects_patch_only_after_closed_action_space_read_reject --lib
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core validation_rework --lib
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core action_contract_prompt --lib
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+  git diff --check
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-cli --bin whale --locked
+  ```
+- Result: passed. Focused recovery tests passed after aligning the ordinary patch-only hard-stop assertion with the existing runtime policy; `validation_rework` and `action_contract_prompt` suites passed; formatting, whitespace, and `whale` build passed.
+- Interpretation: H-073 has a focused feedback-to-repair-synthesis fix. It still needs attestation and another keyed rerun to determine whether the scaffold moves the live model from repeated read to `apply_patch`, or whether model/profile escalation is required.

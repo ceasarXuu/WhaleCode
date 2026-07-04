@@ -4058,7 +4058,32 @@ right_hidden_oracle_exit_code: 0
 
 | Case | Observed | Implication |
 |---|---|---|
-| `validation-rework-post-patch-only-noncompliance` | validation rework 已有 complete target read、schema repair contract、patch-only recovery 和 closed-action rejection；provider 仍连续请求同一 target read，最终按 bounded hard-stop 退出 | 继续加提示词或把第一条 closed rejection 直接 hard-stop 只能减少预算，不会生成 patch；下一层需要设计更强 repair mode，例如模型/档位升级、结构化 patch-plan gate，或通用 repair-synthesis scaffold |
+| `validation-rework-post-patch-only-noncompliance` | validation rework 已有 complete target read、schema repair contract、patch-only recovery 和 closed-action rejection；provider 仍连续请求同一 target read，最终按 bounded hard-stop 退出 | 已先采用通用 repair-synthesis scaffold：patch-only recovery 将 schema rename hints / missing required properties / traceback signals 转成 patch construction steps，并再次约束 native apply_patch grammar；模型/profile escalation 仍保留为下一层候选 |
 
-结论：H-072 live-cleared；R4-G utility 仍未过。下一步不能把这个当成同一个 NoAction bug 继续打补丁，应收录为
-H-073，先做 repair synthesis 策略设计，再决定实现。
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core implementation_recovery_selects_patch_only_after_target_read_evidence --lib
+  PASS
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core implementation_recovery_selects_patch_only_after_closed_action_space_read_reject --lib
+  PASS
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core validation_rework --lib
+  PASS
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core action_contract_prompt --lib
+  PASS
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+  PASS
+
+git diff --check
+  PASS
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-cli --bin whale --locked
+  PASS
+```
+
+结论：H-072 live-cleared；H-073 focused-fixed，real rerun pending。R4-G utility 仍未过，下一轮 keyed rerun 要验证 scaffold
+是否让 live model 输出 `apply_patch`，否则再升级到模型/profile 或更强 patch-plan gate。

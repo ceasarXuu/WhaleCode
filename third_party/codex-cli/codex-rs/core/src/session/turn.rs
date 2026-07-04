@@ -2279,6 +2279,12 @@ Current required behavior:\n\
 - Do not move from the named target artifact to `schema.json` or another fact source; those facts are already present in evidence.\n\
 - If no safe edit can be made from the already visible evidence, block explicitly instead of requesting more reads.\n\
 - Use the evidence below only to construct the patch; do not treat it as permission to rediscover the same files.\n\
+Patch construction scaffold:\n\
+- Patch only `{target_artifact_label}` using the complete target read already in evidence.\n\
+- For schema validation failures, convert `schema_property_rename_hints` into output key renames and convert each `missing_required_properties` entry into generated output fields derived from already-read fact sources.\n\
+- For traceback/test failures, patch the named failing symbol, file, or output construction path shown in the validation failure.\n\
+- Use native apply_patch grammar only: `*** Begin Patch`, `*** Update File: <target>`, context lines with `+`/`-` edits, and `*** End Patch`.\n\
+- Do not put markdown fences, shell commands, JSON generation scripts, or prose inside the patch payload.\n\
 Previous blocked feedback:\n{previous_excerpt}\n\
 {failed_edit}\
 {evidence}"
@@ -5503,6 +5509,9 @@ Then I will inspect the file."#,
         assert!(text.contains("Do not move from the named target artifact to `schema.json`"));
         assert!(text.contains("no additional file lines are hidden"));
         assert!(text.contains("Emit exactly one taskspace-action-v1 apply_patch"));
+        assert!(text.contains("Patch construction scaffold:"));
+        assert!(text.contains("convert `schema_property_rename_hints` into output key renames"));
+        assert!(text.contains("Use native apply_patch grammar only"));
         assert!(!text.contains(TASKSPACE_IMPLEMENT_NEEDS_EDIT_MARKER));
         assert!(is_taskspace_validation_rework_patch_only_recovery_item(
             &item
@@ -5516,10 +5525,10 @@ Then I will inspect the file."#,
                 .contains("TaskSpaceValidationReworkPatchOnlyRecoveryV1")
         );
         assert!(!taskspace_validation_rework_patch_only_should_hard_stop(
-            &item, 1
+            &item, 0
         ));
         assert!(taskspace_validation_rework_patch_only_should_hard_stop(
-            &item, 2
+            &item, 1
         ));
     }
 
@@ -5540,6 +5549,8 @@ Then I will inspect the file."#,
         assert!(text.contains("target_artifacts: generate_organization.py"));
         assert!(text.contains("Emit exactly one taskspace-action-v1 apply_patch"));
         assert!(text.contains("no additional file lines are hidden"));
+        assert!(text.contains("Patch construction scaffold:"));
+        assert!(text.contains("Do not put markdown fences"));
         assert!(!text.contains(TASKSPACE_IMPLEMENT_NEEDS_EDIT_MARKER));
         assert!(is_taskspace_validation_rework_patch_only_recovery_item(
             &item

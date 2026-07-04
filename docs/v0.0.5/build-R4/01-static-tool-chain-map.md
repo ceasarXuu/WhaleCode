@@ -590,7 +590,7 @@ complete target read、schema repair contract、patch-only recovery 和 closed-a
 
 | Issue type | Layer | Symptom | Next design direction | Evidence |
 |---|---|---|---|---|
-| `validation-rework-post-patch-only-noncompliance` | repair synthesis / model routing / bounded control loop | repair evidence 已齐全且 action space 已闭合；provider 仍重复 `read_file process_csv.py`，最终 `TaskSpaceValidationReworkPatchOnlyHardStopV1` | 不应继续靠追加提示词；候选方向包括更强模型/profile escalation、结构化 patch-plan gate、或通用 repair-synthesis scaffold。直接把第一条 closed rejection hard-stop 只能省预算，不能提升 patch 成功率 | keyed rerun `20260704-160458-158`; CoE H-073/E-156 |
+| `validation-rework-post-patch-only-noncompliance` | repair synthesis / model routing / bounded control loop | repair evidence 已齐全且 action space 已闭合；provider 仍重复 `read_file process_csv.py`，最终 `TaskSpaceValidationReworkPatchOnlyHardStopV1` | 已先采用通用 repair-synthesis scaffold：patch-only recovery 将 `schema_property_rename_hints`、`missing_required_properties`、traceback/test signals 转成 patch construction steps，并明确 native apply_patch grammar；模型/profile escalation 和更强 patch-plan gate 保留为下一层候选 | keyed rerun `20260704-160458-158`; CoE H-073/E-156/E-157 |
 
 边界说明：该 case 已越过“工具反馈是否正确传递”的狭义层面，进入 repair synthesis 策略层。R4-D 负责确保失败语义不丢失、不扭曲、
-不降级；H-073 要评估的是当语义已经完整传递但模型仍不执行合法 edit 时，TaskSpace 是否应该升级执行模式。
+不降级；H-073 focused fix 不写任务特化 patcher，只把已存在的 repair evidence 结构化为通用 patch 构造步骤。
