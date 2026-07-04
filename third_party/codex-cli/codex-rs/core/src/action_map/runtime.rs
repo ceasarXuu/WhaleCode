@@ -15967,26 +15967,62 @@ fn artifact_like_token(token: &str) -> bool {
         return false;
     }
     let lower = token.to_ascii_lowercase();
-    lower.contains('/')
-        || lower.contains('\\')
-        || matches!(
-            lower.rsplit_once('.').map(|(_, ext)| ext),
-            Some(
-                "py" | "js"
-                    | "ts"
-                    | "rs"
-                    | "sh"
-                    | "json"
-                    | "jsonl"
-                    | "csv"
-                    | "tsv"
-                    | "txt"
-                    | "md"
-                    | "yaml"
-                    | "yml"
-                    | "toml"
-            )
+    if matches!(
+        lower.rsplit_once('.').map(|(_, ext)| ext),
+        Some(
+            "py" | "js"
+                | "ts"
+                | "rs"
+                | "sh"
+                | "json"
+                | "jsonl"
+                | "csv"
+                | "tsv"
+                | "txt"
+                | "md"
+                | "yaml"
+                | "yml"
+                | "toml"
         )
+    ) {
+        return true;
+    }
+    slash_artifact_like_token(&lower)
+}
+
+fn slash_artifact_like_token(token: &str) -> bool {
+    let normalized = token.replace('\\', "/");
+    if !normalized.contains('/') {
+        return false;
+    }
+    if normalized.ends_with('/')
+        || normalized.starts_with("./")
+        || normalized.starts_with("../")
+        || normalized.starts_with('/')
+        || normalized.starts_with("~/")
+    {
+        return true;
+    }
+    [
+        "src/",
+        "tests/",
+        "test/",
+        "data/",
+        "scripts/",
+        "script/",
+        "docs/",
+        "doc/",
+        "config/",
+        "configs/",
+        ".github/",
+        "third_party/",
+        "examples/",
+        "fixtures/",
+        "fixture/",
+        "benchmarks/",
+    ]
+    .iter()
+    .any(|marker| normalized.starts_with(marker) || normalized.contains(&format!("/{marker}")))
 }
 
 fn read_command_artifact_ref(command: &str) -> Option<String> {
@@ -24230,6 +24266,114 @@ def build_organization():\n\
                 .current_main_inspect_missing_required_fact_source_artifacts()
                 .is_empty(),
             "reading the three success-criterion CSV artifacts should satisfy inspect coverage"
+        );
+    }
+
+    #[test]
+    fn inspect_fact_source_extraction_ignores_natural_language_slash_relationships() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        state
+            .start_task_for_main_with_kind_and_criteria(
+                owner,
+                NodeKind::InspectCodeContext,
+                "TaskSpace task".to_string(),
+                "Create a JSON processor that transforms CSV data into organization.json following schema.json".to_string(),
+                vec![
+                    ActionMapSuccessCriterionInput {
+                        id: "criterion-1".to_string(),
+                        kind: "test".to_string(),
+                        description: "A working JSON processor script (e.g., process_csv.py) that reads given CSV files and schema.json.".to_string(),
+                        status: "open".to_string(),
+                        evidence_refs: vec![ActionMapEvidenceRefInput {
+                            artifact_ref: Some("user-request".to_string()),
+                            ..Default::default()
+                        }],
+                    },
+                    ActionMapSuccessCriterionInput {
+                        id: "criterion-2".to_string(),
+                        kind: "test".to_string(),
+                        description: "Generated organization.json matches schema and includes expected metadata, departments with employees/projects, and statistical calculations.".to_string(),
+                        status: "open".to_string(),
+                        evidence_refs: vec![ActionMapEvidenceRefInput {
+                            artifact_ref: Some("user-request".to_string()),
+                            ..Default::default()
+                        }],
+                    },
+                ],
+                vec![
+                    ActionMapStateCommitOutputContractInput {
+                        id: "output-contract-1".to_string(),
+                        kind: "artifact".to_string(),
+                        description: "Process script file (e.g., process_csv.py).".to_string(),
+                        evidence_refs: vec![ActionMapEvidenceRefInput {
+                            artifact_ref: Some("user-request".to_string()),
+                            ..Default::default()
+                        }],
+                    },
+                    ActionMapStateCommitOutputContractInput {
+                        id: "output-contract-2".to_string(),
+                        kind: "artifact".to_string(),
+                        description: "Generated organization.json file.".to_string(),
+                        evidence_refs: vec![ActionMapEvidenceRefInput {
+                            artifact_ref: Some("user-request".to_string()),
+                            ..Default::default()
+                        }],
+                    },
+                ],
+                vec![
+                    ActionMapStateCommitFactSourceInput {
+                        id: "fact-source-1".to_string(),
+                        provenance: "observed_from_environment".to_string(),
+                        description: "The CSV files: departments.csv, employees.csv, projects.csv"
+                            .to_string(),
+                        evidence_refs: vec![ActionMapEvidenceRefInput {
+                            artifact_ref: Some("user-request".to_string()),
+                            ..Default::default()
+                        }],
+                    },
+                    ActionMapStateCommitFactSourceInput {
+                        id: "fact-source-2".to_string(),
+                        provenance: "observed_from_environment".to_string(),
+                        description: "schema.json (should be in the workspace)".to_string(),
+                        evidence_refs: vec![ActionMapEvidenceRefInput {
+                            artifact_ref: Some("user-request".to_string()),
+                            ..Default::default()
+                        }],
+                    },
+                ],
+                "Inspect code context".to_string(),
+                "Inspect the repository context for the user request.".to_string(),
+                true,
+            )
+            .expect("task starts");
+
+        let missing = state.current_main_inspect_missing_required_fact_source_artifacts();
+        assert!(missing.contains(&"schema.json".to_string()), "{missing:?}");
+        assert!(
+            missing.contains(&"departments.csv".to_string()),
+            "{missing:?}"
+        );
+        assert!(
+            missing.contains(&"employees.csv".to_string()),
+            "{missing:?}"
+        );
+        assert!(missing.contains(&"projects.csv".to_string()), "{missing:?}");
+        assert!(
+            !missing.contains(&"employees/projects".to_string()),
+            "natural-language relationship must not become a required artifact: {missing:?}"
+        );
+
+        record_successful_read_result(&mut state, owner, "schema", "schema.json");
+        record_successful_read_result(&mut state, owner, "departments", "departments.csv");
+        record_successful_read_result(&mut state, owner, "employees", "employees.csv");
+        record_successful_read_result(&mut state, owner, "projects", "projects.csv");
+        assert!(
+            state
+                .current_main_inspect_missing_required_fact_source_artifacts()
+                .is_empty(),
+            "reading real CSV/schema fact sources should satisfy coverage"
         );
     }
 

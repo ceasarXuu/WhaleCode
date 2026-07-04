@@ -3123,6 +3123,37 @@ final_hard_stop: TaskSpaceProviderBudgetHardStopV1 node_kind=inspect_code_contex
 
 状态：focused 修复已编码并通过相关回归、fmt/diff/check/build。下一步是 commit/push、attestation、keyed rerun。
 
+## 28. 2026-07-04 natural-language slash fact-source extraction
+
+`3b6b269` 后的 keyed rerun 没有触发 no-action recovery，因此 H-098 尚未 live-clear。该轮暴露 inspect fact-source
+coverage 的自然语言 slash token false-positive：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260704cs-no-action-hardstop/runs/terminal_bench__organization-json-generator/20260704-215805-102
+reported_evidence_level: E1
+outcome_standard: wrong
+outcome_taskspace: wrong
+right_exec_timed_out: False
+right_tool_call_count: 19
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+right_open_leaf_nodes: 1
+final_hard_stop: TaskSpaceProviderBudgetHardStopV1 node_kind=inspect_code_context node_request_count=13/12
+```
+
+问题类型收录：
+
+| 字段 | 内容 |
+|---|---|
+| case | `inspect-natural-language-slash-fact-source-false-positive` |
+| 层级 | inspect fact-source artifact extraction / coverage gate |
+| 本质 | success criterion 里的 `employees/projects` 是关系描述，不是路径；旧 artifact parser 只因含 `/` 就纳入 required fact-source coverage |
+| 非根因 | 不是真实 CSV/schema 未读；不是 no-action hard-stop 失效；不是 provider budget 本身配置过低 |
+| 修复 | 已知扩展名继续识别为 artifact；无扩展 slash token 必须像真实路径/目录才识别；自然语言关系词不进入 coverage |
+| focused evidence | CoE H-099/E-203/E-204；`natural_language_slash`；`inspect_missing_fact_source` 3/3；`action_map::runtime::tests::inspect` 18/18；`action_contract_prompt` 29/29；fmt/check/build |
+
+状态：focused 修复已编码并通过相关回归、fmt/diff/check/build。下一步是 commit/push、attestation、keyed rerun。
+
 ## 10. 2026-07-04 validation rework patch directive buried after evidence
 
 `431e0ee` 的 keyed rerun 没有复现 block-rejection wording path，说明 H-069 仍需下一次命中该分支才能 live-clear。该轮暴露

@@ -878,3 +878,16 @@ runtime 已经识别 provider 没有产生有效 TaskSpace progress，并多次�
 
 边界说明：该修复不改变工具权限和状态机合法动作集合。它只把“provider 在 recovery 后仍无有效动作”的失败语义闭合在反馈层，
 避免被 provider budget 语义掩盖；下一 turn 只有 TaskSpace state 改变或 provider 发出 tool/control/block-with-evidence 才能继续推进。
+
+## 2026-07-04 R4-D issue type addendum: natural-language slash fact-source extraction
+
+`3b6b269` 后的 keyed rerun 没有触发 no-action recovery；新的 failure 发生在 inspect fact-source coverage。runtime
+已经读取了 `schema.json`、`departments.csv`、`employees.csv`、`projects.csv`，但 success criterion 中的自然语言
+`departments with employees/projects` 被误识别成 artifact `employees/projects`，导致 inspect node 无法 finish。
+
+| Issue type | Layer | Symptom | Resolution contract | Evidence |
+|---|---|---|---|---|
+| `inspect-natural-language-slash-fact-source-false-positive` | inspect fact-source artifact extraction / coverage gate | 已读完真实 CSV/schema 后仍要求读取不存在的 `employees/projects`，最终 inspect node provider budget hard-stop | 文件扩展名 token 继续算 artifact；无扩展 slash token 只有像真实路径/目录时才算 artifact；`employees/projects` 这类关系词不进入 required fact-source coverage | keyed rerun `20260704-215805-102`; CoE H-099/E-203/E-204; `natural_language_slash`; `inspect_missing_fact_source` |
+
+边界说明：该修复不降低“必须读取真实 fact sources 后才能进入 implementation”的约束。`schema.json`、`departments.csv`、
+`employees.csv`、`projects.csv` 仍会被要求；只移除自然语言关系词造成的假路径。

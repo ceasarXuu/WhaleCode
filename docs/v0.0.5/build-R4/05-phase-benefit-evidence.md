@@ -4964,3 +4964,42 @@ CODEX_SKIP_VENDORED_BWRAP=1 cargo check -p codex-core
 CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
 git diff --check
 ```
+
+## 5.85 2026-07-04 natural-language slash fact-source extraction
+
+`3b6b269` 后 rerun 没有命中 no-action recovery；新的 blocker 是 inspect fact-source coverage 误把自然语言
+`employees/projects` 识别为 required artifact：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260704cs-no-action-hardstop/runs/terminal_bench__organization-json-generator/20260704-215805-102
+reported_evidence_level: E1
+outcome_standard: wrong
+outcome_taskspace: wrong
+right_exec_timed_out: False
+right_tool_call_count: 19
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+right_open_leaf_nodes: 1
+final_marker: TaskSpaceProviderBudgetHardStopV1
+```
+
+收益判断：
+
+1. 新收录的 R4-D capability/feedback 修复是 `inspect-natural-language-slash-fact-source-false-positive`：真实 CSV/schema coverage 仍强制，但自然语言 slash 关系词不会阻塞 inspect finish。
+2. H-098 的 live 状态仍是 pending：本轮没有插入 `TaskSpaceNoActionRecoveryV1`。
+3. R4-G utility 仍未通过：TaskSpace 还没进入 implementation，下一轮必须验证 inspect 能否 transition 到 implementation。
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core natural_language_slash --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core inspect_missing_fact_source --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core inspect_requires_success_criteria_artifacts_when_fact_source_is_generic_directory --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core action_map::runtime::tests::inspect --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core no_action_recovery --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core action_contract_prompt --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --check
+CODEX_SKIP_VENDORED_BWRAP=1 cargo check -p codex-core
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
+git diff --check
+```

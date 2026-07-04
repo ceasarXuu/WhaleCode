@@ -5807,3 +5807,65 @@
     PASS
   ```
 - Remaining gate: commit/push, binary attestation, and keyed rerun to determine whether this issue is live-cleared or simply exposes the next R4-D feedback/capability blocker.
+
+# Evidence E-203: H-098 rerun is not reached and exposes natural-language slash fact-source extraction
+
+- Real rerun:
+  ```text
+  RunDir: target/r4-org-json-real-keyed-20260704cs-no-action-hardstop/runs/terminal_bench__organization-json-generator/20260704-215805-102
+  reported_evidence_level: E1
+  outcome_standard: wrong
+  outcome_taskspace: wrong
+  right_exec_timed_out: False
+  right_tool_call_count: 19
+  right_public_validation_exit_code: 1
+  right_hidden_oracle_exit_code: 0
+  right_open_leaf_nodes: 1
+  final_marker: TaskSpaceProviderBudgetHardStopV1
+  ```
+- H-098 live status: not reached. This run did not insert `TaskSpaceNoActionRecoveryV1`; therefore the new hard-stop was neither live-cleared nor contradicted.
+- New blocker signal:
+  - The active projection showed verified input evidence for `schema.json`, `employees.csv`, `departments.csv`, and `projects.csv`.
+  - Despite that, `next_valid_actions` still required `read_file declared fact-source artifact employees/projects`.
+  - The phrase `employees/projects` came from the natural-language success criterion `departments with employees/projects`, not from a real artifact path.
+  - The inspect node stayed open and exhausted provider node budget: `TaskSpaceProviderBudgetHardStopV1 reason=provider_node_request_hard_limit_exceeded node_kind=inspect_code_context node_request_count=13/12`.
+
+# Hypothesis H-099: slash-separated natural-language relationships are misclassified as fact-source artifacts
+
+- Claim: `extract_artifact_like_refs()` treats any token containing `/` as artifact-like. This incorrectly converts natural-language relationship text such as `employees/projects` into a required fact-source artifact, even when all real CSV/schema sources have been read.
+- Prediction: Filtering slash tokens without known file extensions unless they look like real paths/directories will remove `employees/projects` from required fact-source coverage while preserving real directories such as `tests/`, `src/...`, `data/...`, and files with extensions.
+- Diagnostic evidence plan: Add a live-shaped test with the exact success criterion text and fact sources from the rerun, prove the required coverage includes only `schema.json`, `departments.csv`, `employees.csv`, and `projects.csv`, then run inspect fact-source regressions plus fmt/check/build.
+- Status: confirmed.
+
+# Evidence E-204: natural-language slash relationships no longer block inspect fact-source coverage
+
+- Repair artifact:
+  - `third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs`
+- Repair behavior:
+  - `artifact_like_token()` still accepts known file extensions directly.
+  - Slash/backslash tokens without a known extension must now look like real paths/directories: trailing slash, relative/absolute prefix, home prefix, or known project directory markers such as `src/`, `tests/`, `data/`, `scripts/`, `docs/`, `.github/`, `third_party/`, `examples/`, `fixtures/`, or `benchmarks/`.
+  - Natural-language relationship tokens like `employees/projects` no longer become required fact-source artifacts.
+- Validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core natural_language_slash --lib
+    PASS
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core inspect_missing_fact_source --lib
+    PASS: 3/3
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core inspect_requires_success_criteria_artifacts_when_fact_source_is_generic_directory --lib
+    PASS
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core action_map::runtime::tests::inspect --lib
+    PASS: 18/18
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core no_action_recovery --lib
+    PASS: 4/4
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core action_contract_prompt --lib
+    PASS: 29/29
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --check
+    PASS
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo check -p codex-core
+    PASS
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
+    PASS
+  git diff --check
+    PASS
+  ```
+- Remaining gate: commit/push, binary attestation, and keyed rerun to see whether inspect now transitions to implementation or reveals the next R4-D blocker.
