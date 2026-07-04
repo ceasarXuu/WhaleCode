@@ -7014,3 +7014,64 @@
 - Note:
   - Initial Cargo runs without `CODEX_SKIP_VENDORED_BWRAP=1` failed because the local environment lacks `libcap.pc` for vendored bubblewrap. The project validation path uses `CODEX_SKIP_VENDORED_BWRAP=1` for this workspace.
 - Interpretation: H-117 is focused-fixed. Remaining gates are commit/push, install/attest, and a keyed rerun to verify taskspace transitions from inspect into implementation instead of exhausting provider budget on generated output reads.
+
+# Evidence E-239: H-117 rerun live-clears output-contract fact-source blocker and exposes missing-source blocker hard-stop overcount
+
+- Real rerun:
+  ```text
+  RunDir: target/r4-org-json-real-keyed-20260705al-output-factsource-gate/runs/terminal_bench__organization-json-generator/20260705-032858-986
+  installed_whale_sha256: 836f0d0d3ecbf62ed6ab53db09ad4a5e1c6b3f09e10616f19ddee311098363aa
+  reported_evidence_level: E1
+  outcome_standard: wrong
+  outcome_taskspace: engineering_unclean
+  right_exec_timed_out: False
+  right_tool_call_count: 14
+  right_public_validation_exit_code: 1
+  right_hidden_oracle_exit_code: 0
+  right_nodes: 6
+  right_open_leaf_nodes: 1
+  final_marker: TaskSpaceValidationReworkPatchOnlyHardStopV1
+  ```
+- H-117 live status:
+  - Inspect duplicate read feedback required only `departments.csv`, `employees.csv`, and `projects.csv`.
+  - No `missing_fact_source_artifact:organization.json` blocker appeared.
+  - TaskSpace entered `implement_solution`, added `generate_organization.py`, and reached validation rework.
+- New blocker signals:
+  - Validation failed with `KeyError: 'id'` while running `python generate_organization.py && python -m jsonschema -i organization.json schema.json`.
+  - Runtime correctly rejected the provider's later block_node: `cannot be blocked for missing source visibility because dependency evidence already identifies the implementation artifact or validation rework target`.
+  - Immediately after that rejected blocker, runtime inserted `TaskSpaceValidationReworkPatchOnlyHardStopV1`, so the provider did not get another chance to consume the stronger `missing_source_visibility_blocker_rejected` feedback.
+  - The normal patch-only recovery item preserved the target-read excerpt correctly; the hard-stop audit item also exposed a secondary evidence-format issue where the recovery excerpt copy was mangled, but the causal stop was the over-eager hard-stop count.
+- Interpretation: H-117 is live-cleared. H-118 is patch-only recovery accounting: a rejected missing-source blocker should be delivered as one stronger feedback round before hard-stop, not counted as an immediate repeated non-edit terminal condition.
+
+# Hypothesis H-118: missing-source blocker rejection needs one patch-only recovery grace before hard-stop
+
+- Claim: `taskspace_validation_rework_patch_only_should_hard_stop()` hard-stops after any second patch-only recovery. When the second recovery is caused by an explicit runtime rejection of a missing-source blocker, the rejection contains new actionable semantics and should be delivered once before terminal hard-stop.
+- Prediction: A patch-only recovery item that preserves `missing_source_visibility_blocker_rejected` should not hard-stop at previous count 1, but should still hard-stop at previous count 2 if the provider repeats the same invalid pattern after seeing the stronger feedback.
+- Diagnostic evidence plan: Add a focused session test for a validation rework target with `content_visibility: full_content_visible` and a missing-source block rejection. Run patch-only/action-contract/fmt/check/build/diff gates.
+- Status: focused-fixed; live rerun pending.
+
+# Evidence E-240: missing-source blocker rejection grace is focused-fixed
+
+- Repair artifact:
+  - `third_party/codex-cli/codex-rs/core/src/session/turn.rs`
+- Repair behavior:
+  - Patch-only hard-stop accounting now treats `missing_source_visibility_blocker_rejected` like closed-action-space rejection: first rejected missing-source blocker after patch-only recovery produces stronger recovery feedback; a repeated invalid pattern still hard-stops.
+  - The stronger feedback preserves the exact runtime rejection and instructs the provider to `apply_patch` using existing complete validation rework target evidence, not to block for missing source visibility.
+- Validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_rework_patch_only_allows_one_missing_source_blocker_rejection_recovery -- --nocapture
+    PASS: 1/1
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_rework_patch_only -- --nocapture
+    PASS: 3/3
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core action_contract_prompt -- --nocapture
+    PASS: 29/29
+  cargo fmt --check
+    PASS
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo check -p codex-core
+    PASS
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
+    PASS
+  git diff --check
+    PASS
+  ```
+- Interpretation: H-118 is focused-fixed. Remaining gates are commit/push, install/attest, and a keyed rerun to verify the provider receives and acts on the missing-source blocker rejection instead of terminal hard-stopping immediately.

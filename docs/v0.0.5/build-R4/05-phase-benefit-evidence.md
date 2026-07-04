@@ -1522,6 +1522,53 @@ set -a; . ./.env.local; set +a; powershell -NoProfile -ExecutionPolicy Bypass -F
 git diff --check
 ```
 
+## 5.96 2026-07-05 missing-source blocker rejection hard-stop overcount
+
+`f2c31e4` 安装后 keyed rerun 证明 H-117 live-clear：TaskSpace 已越过 inspect，进入 implementation 和
+validation rework；但该轮仍未成功：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260705al-output-factsource-gate/runs/terminal_bench__organization-json-generator/20260705-032858-986
+installed_whale_sha256: 836f0d0d3ecbf62ed6ab53db09ad4a5e1c6b3f09e10616f19ddee311098363aa
+reported_evidence_level: E1
+outcome_standard: wrong
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 14
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+right_nodes: 6
+right_open_leaf_nodes: 1
+final_marker: TaskSpaceValidationReworkPatchOnlyHardStopV1
+```
+
+收益判断：
+
+1. H-117 收益已被 live 证据确认：`organization.json` 不再作为 inspect fact-source blocker，任务进入实现阶段。
+2. 新收录问题是 `validation-rework-missing-source-blocker-rejection-hardstop-overcount`。
+3. 根因不是缺少 schema/target evidence；runtime 已读 `schema.json` 和完整 `generate_organization.py`，并明确拒绝 missing-source blocker。
+4. 问题在 recovery accounting：这条被拒绝的 block_node 带有新的强反馈，却被立即计入 patch-only hard-stop。
+5. 修复后，第一次 `missing_source_visibility_blocker_rejected` 会作为 recovery 反馈交给 provider；重复同类无效 blocker 仍 hard-stop。
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_rework_patch_only_allows_one_missing_source_blocker_rejection_recovery -- --nocapture
+  PASS: 1/1
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_rework_patch_only -- --nocapture
+  PASS: 3/3
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core action_contract_prompt -- --nocapture
+  PASS: 29/29
+cargo fmt --check
+  PASS
+CODEX_SKIP_VENDORED_BWRAP=1 cargo check -p codex-core
+  PASS
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
+  PASS
+git diff --check
+  PASS
+```
+
 ## 5.97 2026-07-05 replacement-required recovery marker distortion
 
 `b3d31ec` 后 keyed rerun 证明 H-110 已 live-clear：replacement-required 不再被不同 `Update File` 形态分流。

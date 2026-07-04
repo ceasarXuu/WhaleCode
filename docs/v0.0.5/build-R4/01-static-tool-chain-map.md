@@ -1098,3 +1098,17 @@ placeholder range hunk 也未进入 apply_patch。但该轮暴露更早的 inspe
 
 边界说明：该修复不放松 CSV/schema 输入读取要求。`departments.csv`、`employees.csv`、`projects.csv`、`schema.json`
 仍会作为 inspect coverage；只有已由 output contract 声明的生成物不再被要求在实现前读取。
+
+## 2026-07-05 R4-D issue type addendum: missing-source blocker rejection overcounts patch-only hard-stop
+
+`f2c31e4` 后 keyed rerun 证明 H-117 live-clear：inspect 不再要求读取生成物 `organization.json`，
+并进入 implementation / validation rework。新的 blocker 出现在 feedback accounting：provider 发出
+“缺 schema/source，无法修复”的 block_node，runtime 已正确拒绝为 `missing_source_visibility_blocker_rejected`，
+但随即计入 patch-only repeated non-edit hard-stop，导致模型没有机会消费这条更强反馈。
+
+| Issue type | Layer | Symptom | Resolution contract | Evidence |
+|---|---|---|---|---|
+| `validation-rework-missing-source-blocker-rejection-hardstop-overcount` | validation rework patch-only recovery accounting / feedback loop | runtime 拒绝 missing-source blocker 后立即 `TaskSpaceValidationReworkPatchOnlyHardStopV1`，没有给 provider 下一轮 apply_patch 机会 | 已实现：`missing_source_visibility_blocker_rejected` 与 closed-action rejection 一样有一次 patch-only recovery grace；重复无效 blocker 仍 hard-stop | keyed rerun `20260705-032858-986`; CoE H-118/E-239/E-240; focused tests `validation_rework_patch_only_allows_one_missing_source_blocker_rejection_recovery`, `validation_rework_patch_only`, `action_contract_prompt` |
+
+边界说明：该修复不是放宽 patch-only 约束。read/list/search/schema inspection 仍无效；只是把“被 runtime 反驳的 block_node”
+作为新的强语义反馈交给模型一次，要求下一步必须基于已读 target 和 validation failure 进行 apply_patch。

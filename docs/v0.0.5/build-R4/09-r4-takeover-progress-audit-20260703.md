@@ -3603,6 +3603,23 @@ statistics calculations 通过。新的 blocker 是 `members` 仍为对象数组
 
 状态：focused fixed，待 commit/push、install/attest 和真实 keyed rerun。
 
+## 46. 2026-07-05 missing-source blocker rejection hard-stop overcount
+
+`f2c31e4` 安装后 keyed rerun 证明 H-117 live-clear：TaskSpace 进入 implementation / validation rework。
+新的 blocker 是 provider 在完整 target-read 后发出“缺 schema/source visibility”的 block_node；runtime 已正确拒绝，
+但立即进入 patch-only hard-stop，没有给模型下一轮消费该拒绝反馈。
+
+| 字段 | 内容 |
+|---|---|
+| case | `validation-rework-missing-source-blocker-rejection-hardstop-overcount` |
+| 层级 | validation rework patch-only recovery accounting / feedback loop |
+| 本质 | `missing_source_visibility_blocker_rejected` 是新语义反馈，但 patch-only hard-stop 把它当作普通重复 non-edit |
+| 非根因 | 不是 schema 未读；不是 target 未读；不是 H-117 复发；不是 validator 未执行 |
+| 修复 | missing-source blocker rejection 获得一次 patch-only recovery grace；重复无效 blocker 仍 hard-stop |
+| evidence | CoE H-118/E-239/E-240；keyed rerun `20260705-032858-986`; focused tests `validation_rework_patch_only_allows_one_missing_source_blocker_rejection_recovery`, `validation_rework_patch_only`, `action_contract_prompt`; fmt/check/build/diff |
+
+状态：focused fixed，待 commit/push、install/attest 和真实 keyed rerun。
+
 ## 45. 2026-07-05 output-contract fact-source false positive
 
 `c78e8fc` 安装后 keyed rerun 证明 H-115/H-116 不再阻塞当前路径，但 TaskSpace 侧卡在 inspect：

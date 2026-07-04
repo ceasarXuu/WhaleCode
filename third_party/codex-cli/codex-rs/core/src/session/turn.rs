@@ -2934,7 +2934,11 @@ fn taskspace_validation_rework_patch_only_should_hard_stop(
         item,
         "validation_rework_closed_action_space_read_disallowed",
     );
-    if closed_action_rejection {
+    let rejected_missing_source_blocker = response_item_texts_contain(item, &|text| {
+        text.contains("missing_source_visibility_blocker_rejected")
+            || taskspace_text_mentions_missing_source_visibility_blocker_rejection(text)
+    });
+    if closed_action_rejection || rejected_missing_source_blocker {
         previous_recovery_count > 1
     } else {
         previous_recovery_count > 0
@@ -6326,6 +6330,41 @@ Then I will inspect the file."#,
         assert!(
             taskspace_special_recovery_warning_message(&hard_stop)
                 .contains("TaskSpaceValidationReworkPatchOnlyHardStopV1")
+        );
+    }
+
+    #[test]
+    fn validation_rework_patch_only_allows_one_missing_source_blocker_rejection_recovery() {
+        let item = build_taskspace_validation_rework_patch_only_recovery_item(
+            Some(
+                "TaskSpaceToolFeedbackV1:\n\
+tool_source: action_contract_internal\n\
+tool_action: block_node\n\
+tool_result: blocked\n\
+failure_kind: missing_source_visibility_blocker_rejected\n\
+next_valid_action: emit exactly one apply_patch action. Do not block for missing source visibility.\n\
+raw_output:\n\
+TaskSpace implement_solution node `node-6` cannot be blocked for missing source visibility because dependency evidence already identifies the implementation artifact or validation rework target. Next valid action: retry apply_patch using existing complete validation rework target evidence plus failed validation/tool feedback; do not block for source visibility and do not refresh read when complete_read/eof_reached=true.",
+            ),
+            Some(
+                "validation_rework_target_read result=result-16 artifact=generate_organization.py read_context: complete_read eof_reached=true content_visibility: full_content_visible | validation_rework: smoke_test `node-5` has blocked validation evidence `result-13`: KeyError: 'id'",
+            ),
+            None,
+        );
+        let text = item_text(item.clone());
+
+        assert!(text.contains(TASKSPACE_VALIDATION_REWORK_PATCH_ONLY_MARKER));
+        assert!(text.contains("missing_source_visibility_blocker_rejected"));
+        assert!(text.contains(
+            "retry apply_patch using existing complete validation rework target evidence"
+        ));
+        assert!(
+            !taskspace_validation_rework_patch_only_should_hard_stop(&item, 1),
+            "first missing-source blocker rejection should be delivered as stronger feedback, not immediately hard-stopped"
+        );
+        assert!(
+            taskspace_validation_rework_patch_only_should_hard_stop(&item, 2),
+            "a repeated missing-source blocker rejection after stronger feedback should still hard-stop"
         );
     }
 
