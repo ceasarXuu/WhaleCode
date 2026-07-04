@@ -2295,7 +2295,10 @@ Patch construction scaffold:\n\
 - Do not put markdown fences, shell commands, JSON generation scripts, or prose inside the patch payload.\n\
 Previous blocked feedback:\n{previous_excerpt}\n\
 {failed_edit}\
-{evidence}"
+{evidence}\
+Final action lock:\n\
+- The target read above is complete when it says complete_read or eof_reached=true; projection truncation is not a valid reason to read `{target_artifact_label}` again.\n\
+- Emit apply_patch for `{target_artifact_label}` now, or block_node with the exact unsafe-edit reason. Do not emit read_file/list_files/search/schema inspection."
     );
 
     ResponseItem::Message {
@@ -5675,6 +5678,8 @@ Then I will inspect the file."#,
         assert!(text.contains("`members`"));
         assert!(text.contains("`averageDepartmentBudget`"));
         assert!(text.contains("Use native apply_patch grammar only"));
+        assert!(text.contains("Final action lock:"));
+        assert!(text.contains("projection truncation is not a valid reason to read"));
         assert!(!text.contains(TASKSPACE_IMPLEMENT_NEEDS_EDIT_MARKER));
         assert!(is_taskspace_validation_rework_patch_only_recovery_item(
             &item

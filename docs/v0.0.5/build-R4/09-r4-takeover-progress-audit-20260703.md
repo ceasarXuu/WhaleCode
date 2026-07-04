@@ -2815,6 +2815,24 @@ final_hard_stop: provider_node_request_hard_limit_exceeded request_count=14/20 n
 状态：focused 修复已编码。下一步需要 attestation + keyed rerun，验证 trace 是否出现
 `TaskSpaceValidationRequiredCommandBootstrapChainedV1`，并确认 rework 不再从 first-hop gate rejection 开始。
 
+## 20. 2026-07-04 patch-only recovery tail truncation drift
+
+`2ab7a05` keyed rerun 已验证 H-083 live-clear：runtime 追到了 nested output-contract command。新的 blocker 是
+validation rework patch-only recovery 的尾部证据漂移：`process.py` 已 `eof_reached=true`，但 provider 仍以
+`current projection truncated` 为理由重读 target。
+
+问题类型收录：
+
+| 字段 | 内容 |
+|---|---|
+| case | `validation-rework-patch-only-tail-truncation-drift` |
+| 层级 | validation rework recovery payload layout |
+| 本质 | 顶部动作语义正确，长 evidence 尾部的压缩预览削弱了 complete-read 语义 |
+| 修复 | patch-only recovery 在 evidence 后追加 `Final action lock`，明确 projection truncation 不是重读理由，下一步只能 apply_patch 或 block_node |
+| focused evidence | CoE H-084/E-178/E-179；focused test；`validation_rework` 25/25；`action_contract_prompt` 29/29；fmt/check/build |
+
+状态：focused 修复已编码。下一步是 attestation + keyed rerun，验证 provider 是否进入 apply_patch 而不是再次 read_file。
+
 ## 10. 2026-07-04 validation rework patch directive buried after evidence
 
 `431e0ee` 的 keyed rerun 没有复现 block-rejection wording path，说明 H-069 仍需下一次命中该分支才能 live-clear。该轮暴露

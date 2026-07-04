@@ -737,3 +737,15 @@ coverage gate 可以先给 `python transform.py`；执行后 output-contract gat
 
 边界说明：链式 bridge 只追 TaskSpace gate 自己产出的 exact command，且要求新命令不同于上一条；不会对普通 shell/test
 失败做自动重试，也不会形成无限循环。
+
+## 2026-07-04 R4-D issue type addendum: patch-only recovery tail truncation drift
+
+链式 validation bridge 修复后的 keyed rerun 进入真实 validation rework。runtime 已完整读取 `process.py`
+（`eof_reached=true`），并发出 patch-only recovery；但长 evidence 尾部仍有压缩预览，provider 以 `current projection truncated`
+为理由再次 `read_file process.py`，最后触发 patch-only hard-stop。
+
+| Issue type | Layer | Symptom | Resolution contract | Evidence |
+|---|---|---|---|---|
+| `validation-rework-patch-only-tail-truncation-drift` | validation rework recovery payload layout | recovery 顶部说 complete/eof、apply_patch only，但长证据尾部的 truncated preview 诱导 provider 再读 target | patch-only recovery 在 evidence 后追加 `Final action lock`，明确 projection truncation 不是 complete target 的重读理由；下一步只能 apply_patch 或 block_node | keyed rerun `20260704-183656-438`; CoE H-084/E-178/E-179; `implementation_recovery_selects_patch_only_after_target_read_evidence`; `validation_rework`; `action_contract_prompt` |
+
+边界说明：这不是放宽 repeated-read gate。runtime 继续拒绝 complete target re-read；修复只让反馈尾部也保持同一动作语义。

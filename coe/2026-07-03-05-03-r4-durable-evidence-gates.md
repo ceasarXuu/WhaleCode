@@ -5097,3 +5097,59 @@
     PASS
   ```
 - Interpretation: H-083 is focused-fixed. Next gate is attestation plus another keyed rerun to verify live trace follows the nested output-contract command and no longer creates validation rework from the first-hop gate rejection.
+
+# Evidence E-178: 2ab7a05 rerun clears chained bridge and exposes patch-only recovery tail drift
+
+- Prediction tested: H-083 predicts nested validation gate commands should be followed before final Test recording.
+- Real rerun:
+  ```text
+  RunDir: target/r4-org-json-real-keyed-20260704cd-validation-chain/runs/terminal_bench__organization-json-generator/20260704-183656-438
+  reported_evidence_level: E2-candidate
+  outcome_standard: solved
+  outcome_taskspace: engineering_unclean
+  right_tool_call_count: 9
+  right_public_validation_exit_code: 1
+  final_hard_stop: TaskSpaceValidationReworkPatchOnlyHardStopV1
+  ```
+- H-083 live-clear signals:
+  - Trace contains `TaskSpaceValidationRequiredCommandBootstrapChainedV1 followed nested validation gate command after `python process.py`: python process.py && python -m jsonschema -i organization.json schema.json`.
+  - The final validation result is a real traceback from the combined command: `KeyError: 'id'` in `process.py`, not an internal coverage gate rejection.
+- New blocker signals:
+  - Validation rework read `process.py` completely: `TaskSpaceReadFileSummaryV1: path=process.py lines_read=85 eof_reached=true max_lines=240`.
+  - `TaskSpaceValidationReworkPatchOnlyRecoveryV1` correctly stated no additional lines are hidden, but its long evidence tail included compressed/truncated previews.
+  - The provider's final action was `read_file process.py` with rationale `current projection truncated`.
+  - Runtime correctly hard-stopped repeated non-edit after patch-only recovery.
+- Interpretation: H-083 is live-cleared. New blocker is H-084: patch-only recovery needs a tail-position action lock so truncated preview text at the end does not override complete-read semantics.
+
+# Hypothesis H-084: patch-only recovery needs a tail action lock after long evidence
+
+- Claim: When validation rework recovery includes long evidence, the provider can latch onto tail evidence truncation even though the top of the message says `complete_read` and `eof_reached=true`. The recovery payload should end with a compact final action lock restating that projection truncation is not a valid read reason.
+- Prediction:
+  1. `TaskSpaceValidationReworkPatchOnlyRecoveryV1` should end with `Final action lock`.
+  2. The lock should explicitly say projection truncation is not a valid reason to re-read the target when complete/eof evidence exists.
+  3. Existing validation rework and action-contract regressions should remain passing.
+- Status: confirmed.
+
+# Evidence E-179: H-084 focused fix adds tail action lock to patch-only recovery
+
+- Repair artifact:
+  - `third_party/codex-cli/codex-rs/core/src/session/turn.rs`
+- Repair behavior:
+  - `build_taskspace_validation_rework_patch_only_recovery_item()` now appends `Final action lock` after evidence.
+  - The lock restates that complete/eof target reads make projection truncation an invalid reason for another read, and narrows next action to `apply_patch` or `block_node`.
+- Validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core implementation_recovery_selects_patch_only_after_target_read_evidence --lib --locked
+    PASS
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core validation_rework --lib --locked
+    PASS: 25/25
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core action_contract_prompt --lib --locked
+    PASS: 29/29
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+    PASS
+  git diff --check
+    PASS
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-cli --bin whale --locked
+    PASS
+  ```
+- Interpretation: H-084 is focused-fixed. Next gate is attestation plus keyed rerun to verify provider emits `apply_patch` rather than another `read_file` after patch-only recovery.

@@ -4732,3 +4732,15 @@ CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/co
 
 边界说明：这仍不是执行任意模型建议命令。链式 bridge 只追 TaskSpace 自己的 changed-artifact/output-contract
 coverage gate 产出的 stricter exact command，并有固定 3-hop 上限；同一命令不会自循环。
+
+## 5.74 2026-07-04 patch-only recovery tail action lock
+
+`2ab7a05` keyed rerun 证明 H-083 live-clear：trace 出现 `TaskSpaceValidationRequiredCommandBootstrapChainedV1`，
+并执行 combined command。新的失败点进入 validation rework：目标文件已完整读取，patch-only recovery 已正确禁止 read/search，
+但长 evidence 尾部的压缩预览让 provider 以 `current projection truncated` 为理由再次读 target。
+
+| Case | Before | After | Evidence |
+|---|---|---|---|
+| `validation-rework-patch-only-tail-truncation-drift` | patch-only recovery 顶部语义正确，但 evidence 尾部没有再次锁定动作；provider 受 truncated preview 影响继续 read_file | recovery 在 evidence 后追加 `Final action lock`，明确 complete/eof target 下 projection truncation 不是重读理由，只能 apply_patch 或 block_node | keyed rerun `20260704-183656-438`; CoE H-084/E-178/E-179; `implementation_recovery_selects_patch_only_after_target_read_evidence`; `validation_rework`; `action_contract_prompt` |
+
+验证：focused test PASS；`validation_rework` 25/25 PASS；`action_contract_prompt` 29/29 PASS；fmt/check/build PASS。
