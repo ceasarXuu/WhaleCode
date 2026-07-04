@@ -7816,3 +7816,105 @@
     PASS
   ```
 - Interpretation: H-129 is focused-fixed. Remaining gates are commit/push, install/attest, and keyed rerun.
+
+# Evidence E-263: H-129 rerun clears missing-command blocker but exposes start-task alias semantic loss
+
+- Real rerun:
+  ```text
+  RunDir: target/r4-org-json-real-keyed-20260705ax-validation-command-blocker-gate/runs/terminal_bench__organization-json-generator/20260705-060117-936
+  reported_evidence_level: E2-candidate
+  outcome_standard: solved
+  outcome_taskspace: wrong
+  right_exec_timed_out: False
+  right_tool_call_count: 8
+  right_public_validation_exit_code: 1
+  right_hidden_oracle_exit_code: 0
+  right_nodes: 3
+  right_edges: 2
+  right_open_leaf_nodes: 0
+  ```
+- H-129 live status:
+  - The earlier `Lack of visibility into existing test harness` terminal blocker did not recur.
+  - Runtime rejected the provider's weak `run_test ls -la` and executed validation bootstrap from runtime recovery.
+- New blocker signals:
+  - The bootstrap command was only `python generate_organization.py`, and runtime accepted it as `validation-pass`.
+  - External public validation later failed with concrete output-contract errors:
+    missing `project["members"]` and missing `statistics["averageDepartmentBudget"]`.
+  - Action-map observability showed task objective collapsed to `TaskSpace task`; output contract collapsed to generic
+    `User-visible result satisfies the task objective: TaskSpace task`.
+  - The provider's first `start_task` payload used natural aliases:
+    `task_description`, `initial_criteria`, `initial_contracts`, `first_node_kind`, `first_node_description`.
+  - Those aliases were not normalized into canonical `task_objective`, `initial_success_criteria`,
+    `initial_output_contracts`, `node_kind`, and `node_context_summary`, so the downstream validation command could not
+    reconstruct `organization.json` + `schema.json` coverage.
+- Interpretation: H-130 is a capability/feedback boundary issue. The tool accepted a start-task action but silently
+  lost key requirement fields, which turned later validation feedback into a false generator-only success.
+
+# Hypothesis H-130: start-task natural aliases must preserve task objective and initial contracts
+
+- Claim: When `taskspace_control(start_task)` receives model-natural fields such as `task_description`,
+  `initial_criteria`, `initial_contracts`, `first_node_kind`, or a single-object initial section, the tool layer must
+  canonicalize them before parsing. Otherwise runtime seeds a generic task and downstream validation cannot derive
+  output/schema coverage, causing generator-only tests to be accepted as validation success.
+- Prediction:
+  - `task_description` normalizes to `task_objective`.
+  - `initial_criteria` normalizes to `initial_success_criteria`.
+  - `initial_contracts` normalizes to `initial_output_contracts`.
+  - `first_node_kind` and `initial_node_kind` normalize to `node_kind`.
+  - `first_node_description` and related aliases normalize to `node_context_summary`.
+  - string, array, and single-object initial sections parse without losing descriptions/evidence refs.
+  - Existing state_commit object-section normalization remains unchanged.
+- Diagnostic evidence plan: Add handler tests for the observed natural payload and single-object initial sections; add
+  session action-contract test for canonicalized start-task aliases; rerun taskspace_control, action_contract_prompt,
+  validation bootstrap, validation_rework, provider_budget, validation_closeout, fmt/check/build/diff gates.
+- Status: focused-fixed; install and keyed rerun pending.
+
+# Evidence E-264: start-task alias semantic preservation is focused-fixed
+
+- Repair artifacts:
+  - `third_party/codex-cli/codex-rs/core/src/tools/handlers/taskspace_control.rs`
+  - `third_party/codex-cli/codex-rs/core/src/session/turn.rs`
+- Repair behavior:
+  - Native `taskspace_control` start-task normalization now accepts `task_description`, `initial_criteria`,
+    `initial_contracts`, `first_node_kind`, `initial_node_kind`, `first_node_description`, and related aliases.
+  - Start-task `initial_*` sections now accept strings, arrays, and single objects; object sections receive safe default
+    descriptions/evidence when missing.
+  - Session action-contract normalization canonicalizes the same aliases before constructing the tool call.
+  - State-commit success-criteria description derivation remains unchanged after a regression boundary fix.
+- Regression:
+  - `start_task_accepts_natural_task_payload_aliases`
+  - `start_task_wraps_single_initial_section_objects`
+  - `taskspace_action_contract_canonicalizes_natural_start_task_aliases`
+- Validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core start_task_accepts_natural_task_payload_aliases -- --nocapture
+    PASS: 1/1
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core start_task_wraps_single_initial_section_objects -- --nocapture
+    PASS: 1/1
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core taskspace_action_contract_canonicalizes_natural_start_task_aliases -- --nocapture
+    PASS: 1/1
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_node_blocks_generator_only_command_for_schema_output_contract -- --nocapture
+    PASS: 1/1
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_node_requires_schema_fact_source_for_output_contract_check -- --nocapture
+    PASS: 1/1
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core taskspace_control -- --nocapture
+    PASS: 37/37
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core action_contract_prompt -- --nocapture
+    PASS: 29/29
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_rework -- --nocapture
+    PASS: 31/31
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core provider_budget -- --nocapture
+    PASS: 23/23
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_closeout -- --nocapture
+    PASS: 3/3
+  cargo fmt --check
+    PASS
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo check -p codex-core
+    PASS
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
+    PASS
+  git diff --check
+    PASS
+  ```
+- Interpretation: H-130 is focused-fixed. Remaining gates are commit/push, install/attest, and
+  keyed rerun to verify start-task semantic loss no longer causes generator-only validation closeout.

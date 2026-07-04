@@ -1268,5 +1268,22 @@ test harness”，runtime 接受后终态变成 false infrastructure blocker。
 不可用，且 runtime 已能推导确定命令时才拒绝；已经有具体 failed test/build result 或真实外部访问阻塞时仍按原 validation
 block/rework 规则处理。
 
+## 2026-07-05 R4-D issue type addendum: start-task alias semantic loss
+
+`f0d6c47` 后 keyed rerun 证明 H-129 live-clear：missing-command blocker 没有复发，runtime recovery 能执行验证命令。
+新的 blocker 是更早的 start_task 语义丢失：provider 发送 `task_description`、`initial_criteria`、
+`initial_contracts`、`first_node_kind`、`first_node_description` 等自然别名，但 tool/parser 没有完整 canonicalize，
+导致 action map 的 objective 退化成 `TaskSpace task`，output contract 退化成泛化用户请求。后续 bootstrap 只执行
+`python generate_organization.py`，把 generator exit=0 误记为 validation pass，外部 public validator 才暴露
+`members` 和 `averageDepartmentBudget` 缺失。
+
+| issue type | 层级 | 本质 | 修复 | 证据 |
+|---|---|---|---|---|
+| `start-task-natural-alias-semantic-loss` | taskspace_control capability layer / action-contract normalization / validation feedback precondition | 工具接受 start_task action，但关键需求字段因别名未归一化而静默丢失，后续 validation feedback 缺少 output/schema contract | 已实现：native handler 与 action-contract session 层共同接受 `task_description`、`initial_criteria`、`initial_contracts`、`first_node_kind/initial_node_kind`、`first_node_description` 等别名；start_task initial sections 支持 string/array/single-object | keyed rerun `20260705-060117-936`; CoE H-130/E-263/E-264; focused tests `start_task_accepts_natural_task_payload_aliases`, `start_task_wraps_single_initial_section_objects`, `taskspace_action_contract_canonicalizes_natural_start_task_aliases`, `taskspace_control` |
+
+边界说明：这不是把自然语言固定模板化，也不是降低状态机要求。修复只发生在工具参数正规化层：
+模型仍必须走 Agent/TaskSpace 路径；runtime 仍根据规范化后的 objective、output contracts、fact sources 和 validation
+results 执行原有 gate。
+
 边界说明：该修复不放宽 apply_patch grammar。相反，它把 replacement-only 从泛化建议强化为目标明确的 feedback
 和重复失败控制：第一次给模型可执行 replacement scaffold，第二次仍不遵守则用专门 hard-stop 暴露该工具链失败。

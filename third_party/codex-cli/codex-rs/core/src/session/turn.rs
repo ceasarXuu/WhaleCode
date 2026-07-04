@@ -5764,6 +5764,43 @@ mod active_context_replacement_tests {
     }
 
     #[test]
+    fn taskspace_action_contract_canonicalizes_natural_start_task_aliases() {
+        let start_task = parse_taskspace_action_v1(
+            r#"{"schema_version":"taskspace-action-v1","action":"taskspace_control","node_id":null,"args":{"action":"start_task","task_description":"Create a JSON processor that transforms CSV data into organization.json following schema.json.","initial_criteria":["Read schema.json","Verify organization.json structure matches schema"],"initial_contracts":["organization.json file with correct structure and data"],"initial_fact_sources":["schema.json","departments.csv"],"first_node_kind":"inspect_code_context","first_node_description":"Explore the provided CSV files and schema.json."},"rationale":"Start task and inspect inputs."}"#,
+        )
+        .expect("valid start task action");
+        let snapshot = provider_snapshot("inspect_code_context");
+        let call = taskspace_action_to_tool_call(&start_task, &snapshot)
+            .expect("start task normalizes")
+            .expect("tool call");
+
+        match call.payload {
+            ToolPayload::Function { arguments } => {
+                let value: serde_json::Value = serde_json::from_str(&arguments).expect("json");
+                assert_eq!(value["action"], "start_task");
+                assert_eq!(
+                    value["task_objective"],
+                    "Create a JSON processor that transforms CSV data into organization.json following schema.json."
+                );
+                assert_eq!(value["node_kind"], "inspect_code_context");
+                assert_eq!(
+                    value["node_context_summary"],
+                    "Explore the provided CSV files and schema.json."
+                );
+                assert!(value.get("task_description").is_none());
+                assert!(value.get("initial_criteria").is_none());
+                assert!(value.get("initial_contracts").is_none());
+                assert!(value.get("first_node_kind").is_none());
+                assert!(value.get("first_node_description").is_none());
+                assert!(value["initial_success_criteria"].is_array());
+                assert!(value["initial_output_contracts"].is_array());
+                assert!(value["initial_fact_sources"].is_array());
+            }
+            other => panic!("expected function payload, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn taskspace_action_contract_preserves_start_task_rationale_as_objective() {
         let start_task = parse_taskspace_action_v1(
             r#"{"schema_version":"taskspace-action-v1","action":"taskspace_control","node_id":null,"args":{"action":"start_task","initial_node_kind":"inspect_code_context","initial_success_criteria":["found schema.json"],"initial_output_contracts":["schema structure summary"],"initial_fact_sources":["schema.json at root"]},"rationale":"Build a CSV-to-JSON processor that produces organization.json following schema.json."}"#,
@@ -14067,6 +14104,27 @@ fn normalize_taskspace_action_contract_lifecycle_args(
 ) {
     let current_node_id = snapshot.and_then(|snapshot| snapshot.node_id.as_deref());
     match inner_action {
+        "start_task" => {
+            move_taskspace_json_alias(root, "task_name", "task_title");
+            move_taskspace_json_alias(root, "task_description", "task_objective");
+            move_taskspace_json_alias(root, "summary", "task_objective");
+            move_taskspace_json_alias(root, "first_node", "node_title");
+            move_taskspace_json_alias(root, "first_node_kind", "node_kind");
+            move_taskspace_json_alias(root, "initial_node_kind", "node_kind");
+            move_taskspace_json_alias(root, "first_node_id", "node_title");
+            move_taskspace_json_alias(root, "first_node_title", "node_title");
+            move_taskspace_json_alias(root, "first_node_description", "node_context_summary");
+            move_taskspace_json_alias(root, "first_node_context", "node_context_summary");
+            move_taskspace_json_alias(root, "initial_node_context", "node_context_summary");
+            move_taskspace_json_alias(root, "description", "node_context_summary");
+            move_taskspace_json_alias(root, "success_criteria", "initial_success_criteria");
+            move_taskspace_json_alias(root, "initial_criteria", "initial_success_criteria");
+            move_taskspace_json_alias(root, "criteria", "initial_success_criteria");
+            move_taskspace_json_alias(root, "output_contracts", "initial_output_contracts");
+            move_taskspace_json_alias(root, "initial_contracts", "initial_output_contracts");
+            move_taskspace_json_alias(root, "contracts", "initial_output_contracts");
+            move_taskspace_json_alias(root, "fact_sources", "initial_fact_sources");
+        }
         "create_node" => {
             move_taskspace_json_alias(root, "child_kind", "kind");
             move_taskspace_json_alias(root, "node_kind", "kind");

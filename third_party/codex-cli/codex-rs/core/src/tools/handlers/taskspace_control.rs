@@ -1107,12 +1107,23 @@ fn normalize_taskspace_argument_aliases(root: &mut serde_json::Map<String, JsonV
     match action.as_str() {
         "start_task" => {
             move_alias(root, "task_name", "task_title");
+            move_alias(root, "task_description", "task_objective");
+            move_alias(root, "summary", "task_objective");
             move_alias(root, "first_node", "node_title");
             move_alias(root, "first_node_kind", "node_kind");
+            move_alias(root, "initial_node_kind", "node_kind");
             move_alias(root, "first_node_id", "node_title");
+            move_alias(root, "first_node_title", "node_title");
+            move_alias(root, "first_node_description", "node_context_summary");
+            move_alias(root, "first_node_context", "node_context_summary");
+            move_alias(root, "initial_node_context", "node_context_summary");
             move_alias(root, "description", "node_context_summary");
             move_alias(root, "success_criteria", "initial_success_criteria");
+            move_alias(root, "initial_criteria", "initial_success_criteria");
+            move_alias(root, "criteria", "initial_success_criteria");
             move_alias(root, "output_contracts", "initial_output_contracts");
+            move_alias(root, "initial_contracts", "initial_output_contracts");
+            move_alias(root, "contracts", "initial_output_contracts");
             move_alias(root, "fact_sources", "initial_fact_sources");
             root.entry("node_kind".to_string())
                 .or_insert_with(|| JsonValue::String("inspect_code_context".to_string()));
@@ -1591,6 +1602,7 @@ fn normalize_start_task_initial_sections(root: &mut serde_json::Map<String, Json
     normalize_string_or_array_field(root, "initial_fact_sources");
     if let Some(criteria) = root.get_mut("initial_success_criteria") {
         normalize_success_criteria_value(criteria);
+        normalize_success_criteria_objects(criteria);
     }
     normalize_output_contract_array(root, "initial_output_contracts");
     normalize_fact_source_array(root, "initial_fact_sources");
@@ -1616,6 +1628,9 @@ fn normalize_string_or_array_field(root: &mut serde_json::Map<String, JsonValue>
         } else {
             JsonValue::Array(vec![JsonValue::String(text)])
         };
+    } else if value.is_object() {
+        let object = std::mem::replace(value, JsonValue::Null);
+        *value = JsonValue::Array(vec![object]);
     }
 }
 
@@ -1641,6 +1656,12 @@ fn normalize_output_contract_array(root: &mut serde_json::Map<String, JsonValue>
                 object
                     .entry("kind".to_string())
                     .or_insert_with(|| JsonValue::String("artifact".to_string()));
+                object.entry("description".to_string()).or_insert_with(|| {
+                    JsonValue::String(format!(
+                        "initial_output_contracts output-contract-{}",
+                        index + 1
+                    ))
+                });
                 let needs_default = match object.get("evidence_refs") {
                     Some(JsonValue::Array(existing)) => existing.is_empty(),
                     Some(_) => false,
@@ -1682,6 +1703,9 @@ fn normalize_fact_source_array(root: &mut serde_json::Map<String, JsonValue>, fi
                 object
                     .entry("provenance".to_string())
                     .or_insert_with(|| JsonValue::String("observed_from_environment".to_string()));
+                object.entry("description".to_string()).or_insert_with(|| {
+                    JsonValue::String(format!("initial_fact_sources fact-source-{}", index + 1))
+                });
                 normalize_fact_source_inline_artifact_refs(object);
                 let needs_default = match object.get("evidence_refs") {
                     Some(JsonValue::Array(existing)) => existing.is_empty(),
@@ -2516,6 +2540,108 @@ mod tests {
                 assert_eq!(node_title, "inspect_context");
                 assert_eq!(initial_success_criteria[0].id, "criterion-1");
                 assert_eq!(initial_fact_sources.len(), 3);
+            }
+            other => panic!("unexpected args: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn start_task_accepts_natural_task_payload_aliases() {
+        let raw = serde_json::json!({
+            "action": "start_task",
+            "task_description": "Create a JSON processor that transforms departments.csv, employees.csv, and projects.csv into organization.json following schema.json.",
+            "initial_criteria": [
+                "Read schema.json",
+                "Verify organization.json structure matches schema"
+            ],
+            "initial_contracts": [
+                "organization.json file with correct structure and data",
+                "Code for JSON processor that can reproduce the output"
+            ],
+            "initial_fact_sources": [
+                "schema.json",
+                "departments.csv",
+                "employees.csv",
+                "projects.csv"
+            ],
+            "first_node_kind": "inspect_code_context",
+            "first_node_description": "Explore the provided CSV files and schema.json."
+        });
+
+        let normalized = normalize_taskspace_arguments(&raw.to_string()).expect("normalize");
+        let value: JsonValue = serde_json::from_str(&normalized).expect("json");
+        assert_eq!(
+            value["task_objective"],
+            "Create a JSON processor that transforms departments.csv, employees.csv, and projects.csv into organization.json following schema.json."
+        );
+        assert!(value.get("task_description").is_none());
+        assert!(value.get("initial_criteria").is_none());
+        assert!(value.get("initial_contracts").is_none());
+        assert_eq!(value["node_kind"], "inspect_code_context");
+
+        let args: TaskSpaceControlArgs =
+            serde_json::from_str(&normalized).expect("natural start task aliases parse");
+        match args {
+            TaskSpaceControlArgs::StartTask {
+                task_objective,
+                node_kind,
+                initial_success_criteria,
+                initial_output_contracts,
+                initial_fact_sources,
+                node_context_summary,
+                ..
+            } => {
+                assert!(task_objective.contains("organization.json"));
+                assert_eq!(node_kind, "inspect_code_context");
+                assert_eq!(initial_success_criteria.len(), 2);
+                assert_eq!(initial_output_contracts.len(), 2);
+                assert_eq!(initial_fact_sources.len(), 4);
+                assert_eq!(initial_fact_sources[0].description, "schema.json");
+                assert!(node_context_summary.contains("CSV files"));
+            }
+            other => panic!("unexpected args: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn start_task_wraps_single_initial_section_objects() {
+        let raw = serde_json::json!({
+            "action": "start_task",
+            "task_description": "Validate organization.json with schema.json",
+            "initial_contracts": {
+                "description": "organization.json follows schema.json"
+            },
+            "initial_fact_sources": {
+                "path": "schema.json"
+            },
+            "first_node_kind": "inspect_code_context"
+        });
+
+        let normalized = normalize_taskspace_arguments(&raw.to_string()).expect("normalize");
+        let args: TaskSpaceControlArgs =
+            serde_json::from_str(&normalized).expect("single object sections parse");
+        match args {
+            TaskSpaceControlArgs::StartTask {
+                initial_output_contracts,
+                initial_fact_sources,
+                ..
+            } => {
+                assert_eq!(initial_output_contracts.len(), 1);
+                assert_eq!(
+                    initial_output_contracts[0].description,
+                    "organization.json follows schema.json"
+                );
+                assert_eq!(initial_fact_sources.len(), 1);
+                assert_eq!(
+                    initial_fact_sources[0].description,
+                    "initial_fact_sources fact-source-1"
+                );
+                assert_eq!(
+                    initial_fact_sources[0].evidence_refs[0]
+                        .artifact_ref
+                        .as_deref(),
+                    Some("schema.json")
+                );
             }
             other => panic!("unexpected args: {other:?}"),
         }

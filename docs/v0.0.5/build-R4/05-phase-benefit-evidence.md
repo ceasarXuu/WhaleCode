@@ -6256,3 +6256,48 @@ CODEX_SKIP_VENDORED_BWRAP=1 cargo check -p codex-core
 CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
 git diff --check
 ```
+
+## 5.95 2026-07-05 start_task 自然别名语义丢失
+
+`f0d6c47` 安装后 keyed rerun live-clear 了 validation missing-command blocker：TaskSpace 不再接受
+“缺少 test harness 可见性”的 false blocker，而是执行 runtime recovery validation。新的问题是 start_task
+入口语义丢失导致后续 validation feedback 失真。
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260705ax-validation-command-blocker-gate/runs/terminal_bench__organization-json-generator/20260705-060117-936
+reported_evidence_level: E2-candidate
+outcome_standard: solved
+outcome_taskspace: wrong
+right_exec_timed_out: False
+right_tool_call_count: 8
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+```
+
+收益判断：
+
+1. H-129 已 live-clear：缺少 validator/test command 可见性的 terminal blocker 未复发。
+2. 新收录的 R4-D/R4-C 交界问题是 `start-task-natural-alias-semantic-loss`：工具接受 action，但
+   `task_description`、`initial_criteria`、`initial_contracts`、`first_node_kind` 等自然字段没有被 canonicalize。
+3. 语义丢失的直接后果是 action map objective 退化为 `TaskSpace task`，output contract 退化为泛化用户请求；
+   validation bootstrap 只能生成 `python generate_organization.py`，无法拼出 `organization.json + schema.json` 校验。
+4. 修复后 native `taskspace_control` handler 和 session action-contract 层都接受这些别名；start_task initial sections
+   支持 string/array/single-object，避免 parse failure 或静默丢字段。
+5. R4-G utility 仍未通过：需要下一次 keyed rerun 验证 start_task 语义保真后，是否进入 schema-aware validation/rework
+   闭环，并继续定位剩余 tools 链路问题。
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core start_task_accepts_natural_task_payload_aliases -- --nocapture
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core start_task_wraps_single_initial_section_objects -- --nocapture
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core taskspace_action_contract_canonicalizes_natural_start_task_aliases -- --nocapture
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core taskspace_control -- --nocapture
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core action_contract_prompt -- --nocapture
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_rework -- --nocapture
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core provider_budget -- --nocapture
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_closeout -- --nocapture
+cargo fmt --check
+CODEX_SKIP_VENDORED_BWRAP=1 cargo check -p codex-core
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
+```

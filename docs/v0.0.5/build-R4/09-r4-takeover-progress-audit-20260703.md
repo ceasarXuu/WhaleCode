@@ -2518,6 +2518,34 @@ final_marker: blocked_by_taskspace_action_contract
 
 状态：focused 修复已编码并通过目标测试；仍需 fmt/check/build/diff、commit/push、install/attest 和真实 keyed rerun。
 
+## 58. 2026-07-05 start_task natural alias semantic loss
+
+`f0d6c47` 后 keyed rerun live-clear 了 H-129：missing-command blocker 没有复发，runtime recovery 执行了
+validation bootstrap。新的 blocker 是 start_task 入口字段语义被工具层吞掉：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260705ax-validation-command-blocker-gate/runs/terminal_bench__organization-json-generator/20260705-060117-936
+reported_evidence_level: E2-candidate
+outcome_standard: solved
+outcome_taskspace: wrong
+right_tool_call_count: 8
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+```
+
+问题类型收录：
+
+| 字段 | 内容 |
+|---|---|
+| case | `start-task-natural-alias-semantic-loss` |
+| 层级 | taskspace_control capability layer / action-contract normalization / validation feedback precondition |
+| 本质 | provider 发出 `task_description`、`initial_criteria`、`initial_contracts`、`first_node_kind` 等自然字段；工具接受 action 但未 canonicalize，导致 objective/output contract 退化为泛化默认值 |
+| 非根因 | 不是 validation command visibility blocker 复发；不是外部 validator 缺失；不是单纯模型业务代码写错 |
+| 修复 | native handler 与 session action-contract 层共同规范化 start_task 自然别名；initial sections 支持 string/array/single-object，避免 parse failure 和静默语义丢失 |
+| focused evidence | CoE H-130/E-263/E-264；`start_task_accepts_natural_task_payload_aliases`；`start_task_wraps_single_initial_section_objects`；`taskspace_action_contract_canonicalizes_natural_start_task_aliases`；`taskspace_control` 37/37；`action_contract_prompt` 29/29；`validation_rework` 31/31；`provider_budget` 23/23；`validation_closeout` 3/3 |
+
+状态：focused 修复已编码并通过 fmt/check/build/diff；仍需 commit/push、install/attest 和真实 keyed rerun。
+
 ## 53. 2026-07-05 validation blocker supersession final-gate gap
 
 `e0a17fc` 安装后的 keyed rerun 已越过 H-124 inspect hard-stop，进入 implementation、validation recovery
