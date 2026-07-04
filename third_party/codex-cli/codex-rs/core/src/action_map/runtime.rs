@@ -11687,10 +11687,26 @@ fn working_evidence_body_excerpt(body: &str, max_chars: usize) -> String {
 }
 
 fn read_file_summary_line(body: &str) -> Option<&str> {
-    body.lines().rev().find_map(|line| {
-        let start = line.find("TaskSpaceReadFileSummaryV1:")?;
-        Some(line[start..].trim())
-    })
+    let mut fallback = None;
+    for line in body.lines().rev() {
+        let Some(start) = line.find("TaskSpaceReadFileSummaryV1:") else {
+            continue;
+        };
+        let summary = line[start..].trim();
+        if fallback.is_none() {
+            fallback = Some(summary);
+        }
+        if read_file_summary_has_parseable_eof(summary) {
+            return Some(summary);
+        }
+    }
+    fallback
+}
+
+fn read_file_summary_has_parseable_eof(summary: &str) -> bool {
+    summary
+        .split_whitespace()
+        .any(|part| matches!(part, "eof_reached=true" | "eof_reached=false"))
 }
 
 fn read_file_summary_eof_reached(body: &str) -> Option<bool> {
@@ -34028,6 +34044,23 @@ TaskSpaceReadFileSummaryV1: path=generate_org.py lines_read=108 eof_reached=true
             context.starts_with("complete_read; TaskSpaceReadFileSummaryV1: path=generate_org.py")
         );
         assert!(!context.contains("path=%s"), "{context}");
+    }
+
+    #[test]
+    fn read_file_summary_prefers_parseable_output_over_later_command_template() {
+        let body = "TaskSpaceToolTailSentinelV1:\n\
+TaskSpaceReadFileSummaryV1: path=process_csv.py lines_read=92 eof_reached=true max_lines=240\n\
+TaskSpaceToolInvocationV1:\n\
+tool: shell_command\n\
+command: sed -n '1,240p' -- process_csv.py && awk 'END { printf \"TaskSpaceReadFileSummaryV1: path=%s lines_read=%d eof_reached=%s max_lines=240\" }' process_csv.py\n";
+
+        assert_eq!(
+            read_file_summary_line(body),
+            Some(
+                "TaskSpaceReadFileSummaryV1: path=process_csv.py lines_read=92 eof_reached=true max_lines=240"
+            )
+        );
+        assert_eq!(read_file_summary_eof_reached(body), Some(true));
     }
 
     #[test]

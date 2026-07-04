@@ -157,6 +157,23 @@ pub(crate) fn prepend_taskspace_semantic_summary(
     format!("{summary}\n{preview}")
 }
 
+pub(crate) fn append_taskspace_tool_tail_sentinels(preview: String, full_text: &str) -> String {
+    let Some(summary) = taskspace_read_file_summary_from_text(full_text) else {
+        return preview;
+    };
+    if preview.contains(&summary) {
+        return preview;
+    }
+
+    let mut output = preview;
+    if !output.is_empty() && !output.ends_with('\n') {
+        output.push('\n');
+    }
+    output.push_str("TaskSpaceToolTailSentinelV1:\n");
+    output.push_str(&summary);
+    output
+}
+
 pub(crate) fn taskspace_tool_semantic_summary(text: &str) -> Option<String> {
     let properties = taskspace_required_properties_from_text(text);
     if properties.is_empty() {
@@ -166,6 +183,23 @@ pub(crate) fn taskspace_tool_semantic_summary(text: &str) -> Option<String> {
         "TaskSpaceToolSemanticSummaryV1:\nmissing_required_properties: {}",
         properties.join(", ")
     ))
+}
+
+fn taskspace_read_file_summary_from_text(text: &str) -> Option<String> {
+    text.lines()
+        .rev()
+        .filter_map(|line| {
+            let start = line.find("TaskSpaceReadFileSummaryV1:")?;
+            let summary = line[start..].trim();
+            taskspace_read_file_summary_has_parseable_eof(summary).then(|| summary.to_string())
+        })
+        .next()
+}
+
+fn taskspace_read_file_summary_has_parseable_eof(summary: &str) -> bool {
+    summary
+        .split_whitespace()
+        .any(|part| matches!(part, "eof_reached=true" | "eof_reached=false"))
 }
 
 fn taskspace_required_properties_from_text(text: &str) -> Vec<String> {

@@ -1712,6 +1712,88 @@ CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/co
 当前状态：focused 修复和 R4-adjacent regression/build 已完成；仍需提交推送、attestation 和下一次 keyed rerun 验证
 live prompt 不再出现 `read_context: read_summary; ... path=%s`，并观察是否进入 schema repair patch。
 
+### 3.33 read summary preview tail loss
+
+`read-summary-command-template-shadowing` 修复、提交、推送并刷新 attestation 后执行 keyed rerun：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260704be-read-summary-template/runs/terminal_bench__organization-json-generator/20260704-124752-951
+preflight current_git_head: fd5c705b1eead3de69c7d06f5ebd85bb3fb9ab50
+build_attestation_status: pass
+reported_evidence_level: E1
+outcome_standard: wrong
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 11
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+```
+
+本次进展：
+
+| 层 | 结论 |
+|---|---|
+| H-058 focused gate | parser 已能在完整 body 内选择 raw output 末尾真实 summary |
+| live prompt | `read_context` 仍显示 `read_summary; TaskSpaceReadFileSummaryV1: path=%s lines_read=%d eof_reached=%s...` |
+| raw trace | `whale-exec.jsonl` 中真实工具输出包含 `TaskSpaceReadFileSummaryV1: path=process_csv.py lines_read=92 eof_reached=true max_lines=240` |
+| ActionMap result body | `result-10` 的 `preview:` 只有工具输出头部和 `[... telemetry preview truncated ...]`，真实尾部 summary 在进入 ActionMap 前已被裁掉 |
+| bad action | 模型再次请求 `read_file process_csv.py`，触发 duplicate-read recovery，最终进入 `TaskSpaceValidationReworkDuplicateReadHardStopV1` |
+
+问题类型收录：
+
+| 字段 | 内容 |
+|---|---|
+| type | `read-summary-preview-tail-loss` |
+| layer | feedback layer / tool preview persistence |
+| trigger | `tool_output_model_visible_preview()` 对模型可见工具输出做 telemetry head truncation；`TaskSpaceToolInvocationV1` 再把 shell command 放在 `raw_output` 前 |
+| expected | 结构化 `TaskSpaceReadFileSummaryV1` 作为读文件完成度哨兵，应在 preview 截断后仍进入 ActionMap result 和 recent feedback |
+| actual | 真实 `eof_reached=true` 在 preview 层丢失，ActionMap 只能看到 command 字段中的 awk `path=%s/%d/%s` 模板 |
+
+根因判断：
+
+H-058 的解析顺序修复是必要但不充分。live 失败不是 parser 仍选错，而是 parser 能看到的
+`result.body` 已经缺失真实 summary。也就是说，这次不是语义扭曲，而是反馈层关键语义字段在入库前缺失；
+缺失后才退化为命令模板 shadowing。
+
+本轮修复设计：
+
+| 层 | 结论 |
+|---|---|
+| preview | 新增 `append_taskspace_tool_tail_sentinels()`，从完整输出中提取最后一个带 `eof_reached=true/false` 的真实 `TaskSpaceReadFileSummaryV1`，在 preview 截断后追加 |
+| ActionMap input | `tool_output_model_visible_preview()` 和 `response_input_model_visible_preview()` 均追加 tail sentinel，确保 ActionMap 入库前不丢读文件完成度 |
+| recent feedback | `taskspace_action_contract_recent_tool_outputs_item()` 在 2400 字符截断后复用同一 helper，避免下一轮 prompt 的 recent output 再次丢 summary |
+| parser hardening | `read_file_summary_line()` 改为优先选择可解析 `eof_reached=true/false` 的 summary；即使未来真实 summary 在 command 模板前，也不再被 `%s/%d/%s` 覆盖 |
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core taskspace_preview_ --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core read_file_summary_ --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core validation_rework --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core taskspace_control --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core implementation_needs_edit --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core action_contract_prompt --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core validation_ --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core provider_budget --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core taskspace_active_budget --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core apply_patch_ --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core local_infra --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core duplicate_read_search --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core missing_fact_source_bootstrap --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core inspect_missing_fact_sources --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+git diff --check
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-cli --bin whale --locked
+```
+
+结果：通过。`taskspace_preview_` 3/3、`read_file_summary_` 3/3、`validation_rework` 19/19、`taskspace_control`
+35/35、`implementation_needs_edit` 3/3、`action_contract_prompt` 28/28、`validation_` 98/98、
+`provider_budget` 23/23、`taskspace_active_budget` 11/11、`apply_patch_` 35/35、`local_infra` 11/11、
+`duplicate_read_search` 3/3、`missing_fact_source_bootstrap` 1/1、`inspect_missing_fact_sources` 2/2 均通过。
+新增覆盖证明 telemetry preview 截断后仍追加 `TaskSpaceToolTailSentinelV1` 和真实 `TaskSpaceReadFileSummaryV1`；
+recent feedback 截断后也保留同一哨兵；runtime parser 不再把后置命令模板优先于真实可解析 summary。
+`cargo fmt --check` 仍只输出项目既有 stable rustfmt `imports_granularity` 警告；`git diff --check` 和 `whale` build 通过。
+
 ## 4. 本次验证
 
 | 验证项 | 命令 | 结果 |

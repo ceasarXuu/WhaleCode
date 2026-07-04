@@ -3494,3 +3494,83 @@
   ```
 - Result: passed. `validation_rework` 19/19, `taskspace_control` 35/35, `implementation_needs_edit` 3/3, `action_contract_prompt` 28/28, `validation_` 98/98, `provider_budget` 23/23, `taskspace_active_budget` 11/11, `apply_patch_` 35/35, `local_infra` 11/11, `duplicate_read_search` 3/3, `missing_fact_source_bootstrap` 1/1, and `inspect_missing_fact_sources` 2/2 all passed. The fmt check still prints the known stable rustfmt `imports_granularity` warning. `git diff --check` and the `whale` build passed.
 - Interpretation: H-058 is focused-fixed. The remaining live gate is commit/push, binary attestation, and another keyed `organization-json-generator` rerun to verify the provider prompt shows `complete_read` instead of `path=%s` and whether the sample advances to an edit.
+
+# Evidence E-127: fd5c705 live rerun shows read-summary parser fix was necessary but insufficient
+
+- Prediction tested: H-058 should make the live provider prompt use the actual raw-output read summary instead of the awk command template.
+- Real rerun:
+  ```text
+  RunDir: target/r4-org-json-real-keyed-20260704be-read-summary-template/runs/terminal_bench__organization-json-generator/20260704-124752-951
+  PairReport: pair-001/pair-report.md
+  reported_evidence_level: E1
+  outcome_standard: wrong
+  outcome_taskspace: engineering_unclean
+  right_exec_timed_out: False
+  right_tool_call_count: 11
+  right_public_validation_exit_code: 1
+  right_hidden_oracle_exit_code: 0
+  ```
+- Matched H-058 focused signal:
+  - The parser regression still passes when both command-template marker and actual raw-output summary are present in the same body.
+- New blocker signals:
+  - `whale-exec.jsonl` recorded the actual final summary `TaskSpaceReadFileSummaryV1: path=process_csv.py lines_read=92 eof_reached=true max_lines=240`.
+  - The active projection still rendered `read_context: read_summary; TaskSpaceReadFileSummaryV1: path=%s lines_read=%d eof_reached=%s max_lines=240...`.
+  - The stored ActionMap result body for the rework target read contained the shell command field and a truncated `preview:` ending at `[... telemetry preview truncated ...]`, but not the actual final summary line.
+  - The model repeated `read_file process_csv.py`, received duplicate-read recovery, and ultimately hit `TaskSpaceValidationReworkDuplicateReadHardStopV1`.
+- Interpretation: H-058 fixed the parser behavior for complete stored bodies, but live ActionMap persistence was already losing the real summary before the parser ran. The new problem type is `read-summary-preview-tail-loss`: a feedback-layer semantic field is missing, and the remaining command template becomes the only visible marker.
+
+# Hypothesis H-059: read_file preview truncation must preserve the structured read summary sentinel
+
+- Claim: `tool_output_model_visible_preview()` applies telemetry head truncation before `taskspace_tool_result_preview_with_invocation()` stores a TaskSpace tool result in ActionMap. For action-contract `read_file`, the shell command itself contains an awk `TaskSpaceReadFileSummaryV1: path=%s...` template near the top, while the actual `eof_reached=true/false` summary appears at the raw output tail. When telemetry truncation drops the tail, ActionMap records an ambiguous template-only result, so validation rework cannot prove the target file was completely read.
+- Prediction:
+  1. A focused exec-output preview test with a large body and a final `TaskSpaceReadFileSummaryV1: ... eof_reached=true` should preserve that exact summary after the telemetry truncation notice.
+  2. The action-contract recent tool output summarizer should preserve the same summary after its 2400-character truncation.
+  3. Runtime summary parsing should prefer any parseable `eof_reached=true/false` summary over later command-template markers.
+  4. Existing schema semantic summary preservation, validation rework target-read tests, and R4-adjacent suites should remain green.
+- Diagnostic evidence plan: Add a shared preview tail-sentinel helper that extracts only parseable read summaries, apply it to model-visible tool preview and recent feedback truncation, harden runtime parsing, then run focused preview/recent/parser tests plus R4-adjacent validation/session/build gates.
+- Status: confirmed.
+
+# Evidence E-128: read-summary preview tail loss is focused-fixed
+
+- Prediction tested: H-059 predicts telemetry/recent-output truncation must preserve the real read summary sentinel and ignore non-parseable command templates.
+- Repair artifacts:
+  - `third_party/codex-cli/codex-rs/core/src/tools/mod.rs`
+  - `third_party/codex-cli/codex-rs/core/src/tools/context.rs`
+  - `third_party/codex-cli/codex-rs/core/src/session/turn.rs`
+  - `third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs`
+- Repair behavior:
+  - Added `append_taskspace_tool_tail_sentinels()`, which extracts the last `TaskSpaceReadFileSummaryV1` line containing `eof_reached=true` or `eof_reached=false` and appends it after truncated previews as `TaskSpaceToolTailSentinelV1`.
+  - `tool_output_model_visible_preview()` and `response_input_model_visible_preview()` now preserve that sentinel before ActionMap records the result.
+  - `taskspace_action_contract_recent_tool_outputs_item()` now preserves the same sentinel after recent-output truncation.
+  - `read_file_summary_line()` now prefers parseable read summaries over non-parseable command templates.
+- Focused validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core taskspace_preview_preserves_read_file_summary_after_telemetry_truncation --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core action_contract_recent_output_preserves_truncated_read_summary --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core read_file_summary_prefers_parseable_output_over_later_command_template --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core read_file_summary_prefers_actual_output_over_command_template --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core taskspace_preview_preserves_required_properties_from_untruncated_exec_output --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core validation_rework_allows_changed_artifact_read_when_schema_failure_lacks_traceback --lib --locked
+  ```
+- R4-adjacent regression/build validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core taskspace_preview_ --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core read_file_summary_ --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core validation_rework --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core taskspace_control --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core implementation_needs_edit --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core action_contract_prompt --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core validation_ --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core provider_budget --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core taskspace_active_budget --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core apply_patch_ --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core local_infra --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core duplicate_read_search --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core missing_fact_source_bootstrap --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core inspect_missing_fact_sources --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+  git diff --check
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-cli --bin whale --locked
+  ```
+- Result: passed. `taskspace_preview_` 3/3, `read_file_summary_` 3/3, `validation_rework` 19/19, `taskspace_control` 35/35, `implementation_needs_edit` 3/3, `action_contract_prompt` 28/28, `validation_` 98/98, `provider_budget` 23/23, `taskspace_active_budget` 11/11, `apply_patch_` 35/35, `local_infra` 11/11, `duplicate_read_search` 3/3, `missing_fact_source_bootstrap` 1/1, and `inspect_missing_fact_sources` 2/2 all passed. The fmt check still prints the known stable rustfmt `imports_granularity` warning. `git diff --check` and the `whale` build passed.
+- Interpretation: H-059 is focused-fixed with R4-adjacent regression/build coverage. The remaining gate is commit/push, attestation, and keyed rerun to verify live prompts now retain `complete_read/eof_reached=true` and advance beyond duplicate re-read.

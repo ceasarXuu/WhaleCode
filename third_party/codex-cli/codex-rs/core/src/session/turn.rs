@@ -60,6 +60,7 @@ use crate::stream_events_utils::mark_thread_memory_mode_polluted_if_external_con
 use crate::stream_events_utils::raw_assistant_output_text_from_item;
 use crate::stream_events_utils::record_completed_response_item;
 use crate::tools::ToolRouter;
+use crate::tools::append_taskspace_tool_tail_sentinels;
 use crate::tools::context::SharedTurnDiffTracker;
 use crate::tools::context::ToolPayload;
 use crate::tools::parallel::ToolCallRuntime;
@@ -3724,6 +3725,7 @@ fn taskspace_action_contract_recent_tool_outputs_item(
         let mut output = text.chars().take(remaining_chars).collect::<String>();
         if char_count > remaining_chars {
             output.push_str("\n[truncated]");
+            output = append_taskspace_tool_tail_sentinels(output, &text);
             remaining_chars = 0;
         } else {
             remaining_chars = remaining_chars.saturating_sub(char_count);
@@ -7691,6 +7693,29 @@ next_valid_actions:\n\
         assert!(!joined.contains("call_id: taskspace-action-contract-9-apply_patch"));
         assert!(!joined.contains("Success. Updated the following files"));
         assert!(!joined.contains("A file edit already succeeded"));
+    }
+
+    #[test]
+    fn action_contract_recent_output_preserves_truncated_read_summary() {
+        let summary = "TaskSpaceReadFileSummaryV1: path=process_csv.py lines_read=92 eof_reached=true max_lines=240";
+        let response_item = tool_output_with_call_id(
+            "taskspace-action-contract-13-read_file",
+            &format!(
+                "def build_organization():\n{}\n{summary}",
+                "x".repeat(TASKSPACE_ACTION_CONTRACT_MAX_RECENT_TOOL_OUTPUT_CHARS + 256)
+            ),
+        );
+
+        let recent = taskspace_action_contract_recent_tool_outputs_item(
+            &[response_item],
+            Some("implement_solution"),
+        )
+        .expect("recent feedback should be produced");
+        let text = item_text(recent);
+
+        assert!(text.contains("[truncated]"));
+        assert!(text.contains("TaskSpaceToolTailSentinelV1"));
+        assert!(text.contains(summary));
     }
 
     #[test]

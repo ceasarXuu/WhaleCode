@@ -128,11 +128,14 @@ pub(crate) fn tool_output_model_visible_preview(
     let semantic_summary = output
         .taskspace_semantic_summary()
         .or_else(|| super::taskspace_tool_semantic_summary(&model_visible_text));
-    super::prepend_taskspace_semantic_summary(preview, semantic_summary)
+    let preview = super::prepend_taskspace_semantic_summary(preview, semantic_summary);
+    super::append_taskspace_tool_tail_sentinels(preview, &model_visible_text)
 }
 
 pub(crate) fn response_input_model_visible_preview(response: &ResponseInputItem) -> String {
-    bounded_model_visible_text_preview(&response_input_item_model_visible_text(response))
+    let model_visible_text = response_input_item_model_visible_text(response);
+    let preview = bounded_model_visible_text_preview(&model_visible_text);
+    super::append_taskspace_tool_tail_sentinels(preview, &model_visible_text)
 }
 
 pub(crate) fn bounded_model_visible_text_preview(content: &str) -> String {
