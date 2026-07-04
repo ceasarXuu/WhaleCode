@@ -2493,6 +2493,24 @@ patch-only hard-stop 立即触发，没有留出一轮让模型消费“schema �
 
 状态：focused fixed，待 `git diff --check`、commit/push、install/attest 和真实 keyed rerun。
 
+## 55. 2026-07-05 replacement-required recovery budget loop
+
+`efb0faf` 安装后的 keyed rerun 已越过 H-126 schema rediscovery hard-stop，进入 apply_patch 修复。
+新的 blocker 是 replacement-required recovery：target 已 full-visible，但模型重复发 `*** Update File` /
+`*** Context Lines` 风格 patch；action contract 正确拒绝为 `apply_patch_replacement_required:csv_to_json.py`，
+但 recovery 仍重复 advisory，最终被全局 provider budget hard-stop 覆盖。
+
+| 字段 | 内容 |
+|---|---|
+| case | `apply-patch-replacement-required-recovery-budget-loop` |
+| 层级 | apply_patch feedback / replacement-only enforcement / provider budget interaction |
+| 本质 | replacement-only 已进入 action-contract 强制层，但 feedback 没把 full-visible target 变成具体 replacement scaffold，也没有对重复不遵守做专门 hard-stop |
+| 非根因 | 不是 H-126 schema rediscovery 复发；不是 target 未读；不是 validator 未执行；不是要允许 `Update File` |
+| 修复 | replacement-required recovery 读取 working evidence，full-visible target 时输出具体 Delete/Add scaffold；同节点第二次 replacement-required rejection 触发 apply-patch recovery hard-stop |
+| evidence | CoE H-127/E-257/E-258；keyed rerun `20260705-051421-876`; focused tests `replacement_required`, `apply_patch_recovery`, `validation_rework`, `action_contract_prompt`; fmt/check/build |
+
+状态：focused fixed，待 `git diff --check`、commit/push、install/attest 和真实 keyed rerun。
+
 ## 50. 2026-07-05 generic CSV duplicate basename overcoverage
 
 `6b7debf` 安装后 keyed rerun 证明 H-121 的 bootstrap root-path 修复生效，但 inspect 仍未进入 implementation。

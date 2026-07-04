@@ -1228,3 +1228,17 @@ provider 仍尝试读取 `schema.json`，runtime 正确拒绝，却立即 hard-s
 边界说明：这不是允许 validation rework 重新 discovery。`read_file/search schema.json` 仍然会被拒绝；区别只是当
 schema repair contract 已经完整投影时，拒绝本身会成为一次可消费的反馈，而不是直接进入 hard-stop。没有 schema repair
 synthesis 的 patch-only case 不获得这次 grace。
+
+## 2026-07-05 R4-D issue type addendum: replacement-required recovery budget loop
+
+`efb0faf` 安装后 keyed rerun 证明 H-126 live-clear：schema rediscovery hard-stop 未复发，流程进入 apply_patch。
+新的 blocker 是 replacement-required feedback：目标文件已 full-visible，action contract 正确拒绝 `*** Update File`
+和 `*** Context Lines` 风格的伪 native patch，但 recovery 仍过于通用并反复 advisory，最终被全局 provider budget
+hard-stop 覆盖。
+
+| Issue type | Layer | Symptom | Resolution contract | Evidence |
+|---|---|---|---|---|
+| `apply-patch-replacement-required-recovery-budget-loop` | apply_patch feedback / replacement-only enforcement / provider budget interaction | `apply_patch_replacement_required:<target>` 重复出现；recovery 没有给具体 Delete/Add target scaffold，且重复非 replacement 未先 hard-stop | 已实现：replacement-required recovery 读取 working evidence；full-visible target 时输出具体 `Delete File`/`Add File` scaffold；重复同节点 replacement-required rejection 转为 apply-patch recovery hard-stop，不再落到 provider budget | keyed rerun `20260705-051421-876`; CoE H-127/E-257/E-258; focused tests `replacement_required`, `apply_patch_recovery`, `validation_rework`, `action_contract_prompt` |
+
+边界说明：该修复不放宽 apply_patch grammar。相反，它把 replacement-only 从泛化建议强化为目标明确的 feedback
+和重复失败控制：第一次给模型可执行 replacement scaffold，第二次仍不遵守则用专门 hard-stop 暴露该工具链失败。

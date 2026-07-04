@@ -7596,3 +7596,71 @@
     PASS
   ```
 - Interpretation: H-126 is focused-fixed. Remaining gates are `git diff --check`, commit/push, install/attest, and keyed rerun to verify schema rediscovery no longer truncates the live validation rework loop.
+
+# Evidence E-257: H-126 rerun clears schema rediscovery hard-stop but exposes replacement-required recovery budget loop
+
+- Real rerun:
+  ```text
+  RunDir: target/r4-org-json-real-keyed-20260705au-schema-rediscovery-grace-gate/runs/terminal_bench__organization-json-generator/20260705-051421-876
+  reported_evidence_level: E2-candidate
+  outcome_standard: solved
+  outcome_taskspace: engineering_unclean
+  right_exec_timed_out: False
+  right_tool_call_count: 20
+  right_failed_tool_call_count: 2
+  right_public_validation_exit_code: 1
+  right_hidden_oracle_exit_code: 0
+  right_nodes: 6
+  right_edges: 5
+  right_open_leaf_nodes: 1
+  final_marker: TaskSpaceProviderBudgetHardStopV1 request_count=20/20 node_kind=implement_solution
+  ```
+- H-126 live status:
+  - The previous `schema.json` rediscovery hard-stop did not recur.
+  - The run progressed into `apply_patch` attempts against the validation rework target.
+- New blocker signals:
+  - The first recovery edit failed with expected-lines/context mismatch against `csv_to_json.py`.
+  - A later edit introduced invalid Python syntax:
+    `SyntaxError: invalid syntax` at `skill_dist = {}` after an orphaned `org_data['statistics'] = {`.
+  - Runtime read the complete broken target as `validation_rework_target_read result=result-19 artifact=csv_to_json.py ... content_visibility=full_content_visible`.
+  - Provider then emitted a pseudo-native patch containing `*** Update File`, `*** Context Lines`, and `---` separators.
+  - Action contract rejected it as `apply_patch_replacement_required:csv_to_json.py`, but `TaskSpaceApplyPatchReplacementRequiredRecoveryV1` repeated until global provider budget hard-stop.
+- Interpretation: H-127 is a feedback/control gap in replacement-required recovery. The tool failure was correctly classified, but replacement-required feedback stayed too advisory and too generic for a full-visible target, then global budget hard-stop obscured the more specific recovery failure.
+
+# Hypothesis H-127: replacement-required recovery must be target-specific and hard-stop repeated non-replacement
+
+- Claim: Once validation rework has a full-visible target read and action contract rejects `*** Update File` with `apply_patch_replacement_required:<target>`, the recovery must force a concrete whole-file replacement scaffold for that exact target and treat a repeated replacement-required rejection on the same node as an apply-patch recovery hard-stop. Otherwise the model can loop on pseudo-native hunks until the provider request budget masks the tool-chain failure.
+- Prediction: Replacement-required recovery can read current working evidence, include a target-specific `*** Delete File: <target>` / `*** Add File: <target>` scaffold when `content_visibility=full_content_visible`, ban `*** Context Lines`, and hard-stop the second same-node replacement-required recovery. Existing generic apply_patch recovery, validation rework, and action-contract tests should remain green.
+- Diagnostic evidence plan: Add tests for full-visible replacement-required scaffold and repeated replacement-required hard-stop. Run replacement_required, apply_patch_recovery, validation_rework, action_contract_prompt, fmt/check/build/diff gates.
+- Status: focused-fixed; install and keyed rerun pending.
+
+# Evidence E-258: replacement-required recovery is focused-fixed
+
+- Repair artifact:
+  - `third_party/codex-cli/codex-rs/core/src/session/turn.rs`
+- Repair behavior:
+  - `TaskSpaceApplyPatchReplacementRequiredRecoveryV1` now receives current working evidence.
+  - When the evidence includes a full-visible validation rework target read, the recovery emits a concrete scaffold with `*** Delete File: <target>` followed by `*** Add File: <target>`.
+  - The recovery explicitly bans `*** Context Lines` in addition to unified/range hunk markers and `*** Update File`.
+  - Replacement-required recovery now has its own per-node counter; the first rejection is delivered as recovery, and a repeated same-node replacement-required rejection hard-stops as apply-patch recovery instead of falling through to provider-budget hard-stop.
+- Regression:
+  - `apply_patch_replacement_required_recovery_uses_full_visible_target_scaffold`
+  - `apply_patch_replacement_required_recovery_preserves_replacement_semantics`
+- Validation:
+  ```text
+  cargo fmt --check
+    PASS
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core replacement_required -- --nocapture
+    PASS: 2/2
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core apply_patch_recovery -- --nocapture
+    PASS: 1/1
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_rework -- --nocapture
+    PASS: 31/31
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core action_contract_prompt -- --nocapture
+    PASS: 29/29
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo check -p codex-core
+    PASS
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
+    PASS
+  ```
+- Interpretation: H-127 is focused-fixed. Remaining gates are `git diff --check`, commit/push, install/attest, and keyed rerun to verify replacement-required recovery no longer loops into global provider budget.

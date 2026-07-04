@@ -498,6 +498,8 @@ pub(crate) async fn run_turn(
     let mut taskspace_implement_needs_edit_recovery_key: Option<String> = None;
     let mut taskspace_apply_patch_recovery_count = 0usize;
     let mut taskspace_apply_patch_recovery_key: Option<String> = None;
+    let mut taskspace_apply_patch_replacement_required_recovery_count = 0usize;
+    let mut taskspace_apply_patch_replacement_required_recovery_key: Option<String> = None;
     let mut taskspace_validation_rework_duplicate_read_recovery_count = 0usize;
     let mut taskspace_validation_rework_duplicate_read_recovery_key: Option<String> = None;
     let mut taskspace_validation_rework_patch_only_recovery_count = 0usize;
@@ -636,10 +638,19 @@ pub(crate) async fn run_turn(
                         is_taskspace_validation_rework_patch_only_recovery_item(&recovery_item);
                     let is_apply_patch_recovery =
                         is_taskspace_apply_patch_recovery_item(&recovery_item);
+                    let is_apply_patch_replacement_required_recovery =
+                        is_taskspace_apply_patch_replacement_required_recovery_item(&recovery_item);
                     if is_apply_patch_recovery {
                         taskspace_reset_recovery_count_for_snapshot_node(
                             &mut taskspace_apply_patch_recovery_key,
                             &mut taskspace_apply_patch_recovery_count,
+                            current_recovery_snapshot.as_ref(),
+                        );
+                    }
+                    if is_apply_patch_replacement_required_recovery {
+                        taskspace_reset_recovery_count_for_snapshot_node(
+                            &mut taskspace_apply_patch_replacement_required_recovery_key,
+                            &mut taskspace_apply_patch_replacement_required_recovery_count,
                             current_recovery_snapshot.as_ref(),
                         );
                     }
@@ -671,6 +682,11 @@ pub(crate) async fn run_turn(
                         taskspace_apply_patch_recovery_should_hard_stop(
                             &recovery_item,
                             taskspace_apply_patch_recovery_count,
+                        );
+                    let apply_patch_replacement_required_hard_stop =
+                        taskspace_apply_patch_replacement_required_should_hard_stop(
+                            &recovery_item,
+                            taskspace_apply_patch_replacement_required_recovery_count,
                         );
                     let no_action_recovery_cap = current_recovery_snapshot
                         .as_ref()
@@ -711,6 +727,9 @@ pub(crate) async fn run_turn(
                     if is_apply_patch_recovery {
                         taskspace_apply_patch_recovery_count += 1;
                     }
+                    if is_apply_patch_replacement_required_recovery {
+                        taskspace_apply_patch_replacement_required_recovery_count += 1;
+                    }
                     if is_validation_rework_duplicate_read_recovery {
                         taskspace_validation_rework_duplicate_read_recovery_count += 1;
                     }
@@ -743,7 +762,8 @@ pub(crate) async fn run_turn(
                         );
                         break;
                     }
-                    if apply_patch_recovery_hard_stop {
+                    if apply_patch_recovery_hard_stop || apply_patch_replacement_required_hard_stop
+                    {
                         let hard_stop_item = build_taskspace_apply_patch_recovery_hard_stop_item(
                             &recovery_item,
                             taskspace_apply_patch_recovery_count,
@@ -2079,13 +2099,28 @@ Native apply_patch does not use `--- Update File:`, `--- a/...`, `+++ b/...`, or
     }
 }
 
-fn build_taskspace_apply_patch_replacement_required_recovery_item(targets: &str) -> ResponseItem {
+fn build_taskspace_apply_patch_replacement_required_recovery_item(
+    targets: &str,
+    evidence_summary: Option<&str>,
+) -> ResponseItem {
     let targets = targets.trim();
     let targets = if targets.is_empty() {
         "(unknown replacement target)"
     } else {
         targets
     };
+    let complete_target_replacement =
+        if taskspace_evidence_has_full_visible_validation_rework_target_read(evidence_summary) {
+            format!(
+                "\nComplete target-read replacement scaffold:\n\
+- The validation rework target has full visible content (content_visibility=full_content_visible); do not refresh context.\n\
+- Start the patch exactly with `*** Begin Patch`, `*** Delete File: {targets}`, then `*** Add File: {targets}`.\n\
+- Reconstruct the complete corrected file from the visible target read plus validation failure; prefix every replacement file line with `+`.\n\
+- End with `*** End Patch`.\n"
+            )
+        } else {
+            String::new()
+        };
     let text = format!(
         "{TASKSPACE_APPLY_PATCH_REPLACEMENT_REQUIRED_MARKER}\n\
 The previous apply_patch used `*** Update File` for: {targets}\n\
@@ -2095,8 +2130,9 @@ Current required behavior:\n\
 - Use `*** Delete File: <relative/path>` followed by `*** Add File: <relative/path>` with the complete corrected file contents.\n\
 - Prefix every added replacement line with `+`.\n\
 - Do not emit `*** Update File` for this recovery; TaskSpace will reject Update File for this target until replacement succeeds.\n\
-- Do not put `--- a/...`, `+++ b/...`, `--- Update File:`, or `@@ -old,+new @@` anywhere in the patch payload.\n\
-- Do not call read_file, list_files, search, finish_node, or validation until this corrected replacement edit succeeds."
+- Do not put `*** Context Lines`, `---`, `--- a/...`, `+++ b/...`, `--- Update File:`, or `@@ -old,+new @@` anywhere in the patch payload.\n\
+- Do not call read_file, list_files, search, finish_node, or validation until this corrected replacement edit succeeds.\
+{complete_target_replacement}"
     );
 
     ResponseItem::Message {
@@ -2934,6 +2970,10 @@ fn is_taskspace_apply_patch_recovery_item(item: &ResponseItem) -> bool {
         || response_item_text_contains(item, TASKSPACE_PATCH_INTENT_FORMAT_MARKER)
 }
 
+fn is_taskspace_apply_patch_replacement_required_recovery_item(item: &ResponseItem) -> bool {
+    response_item_text_contains(item, TASKSPACE_APPLY_PATCH_REPLACEMENT_REQUIRED_MARKER)
+}
+
 fn taskspace_validation_rework_duplicate_read_should_hard_stop(
     item: &ResponseItem,
     previous_recovery_count: usize,
@@ -2974,6 +3014,13 @@ fn taskspace_apply_patch_recovery_should_hard_stop(
     previous_recovery_count: usize,
 ) -> bool {
     is_taskspace_apply_patch_recovery_item(item) && previous_recovery_count >= 3
+}
+
+fn taskspace_apply_patch_replacement_required_should_hard_stop(
+    item: &ResponseItem,
+    previous_recovery_count: usize,
+) -> bool {
+    is_taskspace_apply_patch_replacement_required_recovery_item(item) && previous_recovery_count > 0
 }
 
 fn taskspace_no_action_recovery_should_hard_stop(
@@ -8080,7 +8127,7 @@ TaskSpace implement_solution node `node-6` cannot be blocked for missing source 
             "TaskSpaceActionV1 rejected: apply_patch_replacement_required:generate_organization.py. Return exactly one valid taskspace-action-v1 JSON object.",
         ))
         .expect("target parsed");
-        let item = build_taskspace_apply_patch_replacement_required_recovery_item(&targets);
+        let item = build_taskspace_apply_patch_replacement_required_recovery_item(&targets, None);
         let text = item_text(item.clone());
         let warning = taskspace_implement_recovery_advisory_warning_message(&item, 4);
         let special_warning = taskspace_special_recovery_warning_message(&item);
@@ -8093,6 +8140,7 @@ TaskSpace implement_solution node `node-6` cannot be blocked for missing source 
         assert!(text.contains("*** Delete File: <relative/path>"));
         assert!(text.contains("*** Add File: <relative/path>"));
         assert!(text.contains("TaskSpace will reject Update File"));
+        assert!(text.contains("Do not put `*** Context Lines`"));
         assert!(!text.contains(TASKSPACE_APPLY_PATCH_NATIVE_HUNK_MARKER));
         assert!(warning.contains("TaskSpaceApplyPatchReplacementRequiredRecoveryV1"));
         assert!(!warning.contains("TaskSpaceApplyPatchNativeHunkRecoveryV1"));
@@ -8101,6 +8149,31 @@ TaskSpace implement_solution node `node-6` cannot be blocked for missing source 
         assert!(!hard_stop_text.contains("TaskSpaceApplyPatchNativeHunkRecoveryV1"));
         assert!(is_taskspace_apply_patch_recovery_item(&item));
         assert!(is_taskspace_implement_needs_edit_recovery_item(&item));
+        assert!(!taskspace_apply_patch_replacement_required_should_hard_stop(&item, 0));
+        assert!(taskspace_apply_patch_replacement_required_should_hard_stop(
+            &item, 1
+        ));
+    }
+
+    #[test]
+    fn apply_patch_replacement_required_recovery_uses_full_visible_target_scaffold() {
+        let targets = taskspace_replacement_required_targets_from_rejection(Some(
+            "TaskSpaceActionV1 rejected: apply_patch_replacement_required:csv_to_json.py. Return exactly one valid taskspace-action-v1 JSON object.",
+        ))
+        .expect("target parsed");
+        let item = build_taskspace_apply_patch_replacement_required_recovery_item(
+            &targets,
+            Some(
+                "validation_rework_target_read result=result-19 artifact=csv_to_json.py read_context: complete_read eof_reached=true content_visibility: full_content_visible",
+            ),
+        );
+        let text = item_text(item);
+
+        assert!(text.contains("Complete target-read replacement scaffold"));
+        assert!(text.contains("*** Delete File: csv_to_json.py"));
+        assert!(text.contains("*** Add File: csv_to_json.py"));
+        assert!(text.contains("do not refresh context"));
+        assert!(text.contains("Reconstruct the complete corrected file"));
     }
 
     #[test]
@@ -15589,9 +15662,12 @@ async fn try_run_sampling_request(
                             last_agent_message.as_deref(),
                         )
                     {
+                        let evidence_summary =
+                            sess.action_map_current_working_evidence_summary().await;
                         Some(
                             build_taskspace_apply_patch_replacement_required_recovery_item(
                                 &targets,
+                                evidence_summary.as_deref(),
                             ),
                         )
                     } else if let Some(targets) =

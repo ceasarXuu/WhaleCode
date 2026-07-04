@@ -1653,6 +1653,50 @@ CODEX_SKIP_VENDORED_BWRAP=1 cargo check -p codex-core
 CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
 ```
 
+## 5.105 2026-07-05 replacement-required recovery budget loop
+
+`efb0faf` 安装后 keyed rerun 证明 H-126 的 schema rediscovery hard-stop 已 live-clear：TaskSpace 不再停在
+`schema.json` 重读，而是进入 apply_patch 修复。新的失败发生在 replacement-required recovery：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260705au-schema-rediscovery-grace-gate/runs/terminal_bench__organization-json-generator/20260705-051421-876
+reported_evidence_level: E2-candidate
+outcome_standard: solved
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 20
+right_failed_tool_call_count: 2
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+right_nodes: 6
+right_edges: 5
+right_open_leaf_nodes: 1
+final_marker: TaskSpaceProviderBudgetHardStopV1 request_count=20/20 node_kind=implement_solution
+```
+
+收益判断：
+
+1. H-126 的收益已被 live 证据确认：schema rediscovery rejection 不再直接 hard-stop。
+2. 新问题类型是 `apply-patch-replacement-required-recovery-budget-loop`：runtime 已拒绝 `*** Update File`，
+   但 replacement-required recovery 没有把 full-visible target 转成具体 Delete/Add scaffold，也没有在重复不遵守时先 hard-stop。
+3. focused fix 后，replacement-required recovery 会读取当前 working evidence；若 `content_visibility=full_content_visible`，
+   则输出具体 `*** Delete File: <target>` / `*** Add File: <target>` scaffold。
+4. 同节点第二次 `apply_patch_replacement_required` 会变成 `TaskSpaceApplyPatchRecoveryHardStopV1`，避免全局 provider budget
+   覆盖更具体的工具链失败语义。
+
+验证：
+
+```text
+CoE: H-127/E-257/E-258
+cargo fmt --check
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core replacement_required -- --nocapture
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core apply_patch_recovery -- --nocapture
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_rework -- --nocapture
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core action_contract_prompt -- --nocapture
+CODEX_SKIP_VENDORED_BWRAP=1 cargo check -p codex-core
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
+```
+
 ## 5.101 2026-07-05 read-summary path telemetry artifact pollution
 
 `a808190` 安装后 keyed rerun 显示 H-122 的 duplicate basename overcoverage 已越过：第一次 bootstrap
