@@ -2459,6 +2459,47 @@ current_git_head: 9f370ddfa3f12397ed1d966b321b5e1f0a86c3b2
 
 状态：focused 修复已编码；仍需 focused/regression、fmt/build、commit/push、attestation、keyed rerun。
 
+## 12. 2026-07-04 validation rework failed-edit refresh reopens complete read
+
+`c8a2d16` 的 attested keyed rerun 证明 H-075 静态 contract 修复已经把 live path 推进到 `apply_patch`。新的失败点不是
+read 语义未传递，而是 patch hunk 失败后的 refresh 例外重新打开了已经完整关闭的 read。
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260704bv-static-read-override/runs/terminal_bench__organization-json-generator/20260704-164819-131
+reported_evidence_level: E1
+outcome_standard: wrong
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 14
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+current_git_head: c8a2d1681e44dd1e19edf303bd6e180bffd5630d
+whale_binary_sha256: 136008edf014e6ab1bfc86ae6c0188623723b5089de322a65bfe6348f9dd2eef
+```
+
+关键观察：
+
+| Signal | 结论 |
+|---|---|
+| provider 在完整 target read 和 patch-only recovery 后发出 `apply_patch` | H-075 已 live 推进到 patch 分支 |
+| `apply_patch verification failed: Failed to find expected lines` | 新问题进入 failed-edit recovery |
+| `process.py` 已完整读取，`TaskSpaceReadFileSummaryV1 ... eof_reached=true` | 不存在“再读能看到更多行”的事实基础 |
+| projection 写出 `only same validation rework target refresh reads are allowed after a failed edit` | refresh 例外没有继承 complete-read closure |
+| 后续 `read_file process.py` 被 `validation_rework_closed_action_space_read_disallowed` 拒绝，最终 provider budget hard-stop | projection 与实际 gate 语义不一致，引导了无效 retry |
+
+问题类型收录：
+
+| 字段 | 内容 |
+|---|---|
+| case | `validation-rework-failed-edit-refresh-reopens-complete-read` |
+| 层级 | validation rework failed-edit recovery / projection-gate consistency |
+| 本质 | failed-edit refresh 例外没有区分 truncated read 与 complete read；完整 read 后仍被提示可 refresh |
+| 非根因 | 不是工具失败语义缺失；不是 closed read rejection routing；不是 static action contract 冲突 |
+| 修复 | `validation_rework_target_read_can_refresh_after_failed_edit` 只允许 failed edit 后刷新非 complete target read；complete read 后 duplicate read 仍拒绝并要求修正 `apply_patch` |
+| focused evidence | `validation_rework_allows_changed_artifact_read_when_schema_failure_lacks_traceback`; `validation_rework` 24/24; `action_contract_prompt` 29/29; fmt/check/build |
+
+状态：focused 修复已编码并通过 focused/regression、fmt/check/build。仍需 commit/push、attestation、keyed rerun。
+
 ## 11. 2026-07-04 validation rework closed action-space noncompliance
 
 `41b1cf6` 的 keyed rerun 证明 H-070 的 recovery ordering 已进入 live path，但仍未让 TaskSpace 完成 public validation。

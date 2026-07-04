@@ -2412,7 +2412,9 @@ impl ActionMapRuntimeState {
                 let refresh_target_reads = visible_target_reads
                     .iter()
                     .filter(|(_, result_id)| {
-                        node_has_failed_edit_after_result(map, node, result_id)
+                        validation_rework_target_read_can_refresh_after_failed_edit(
+                            map, node, result_id,
+                        )
                     })
                     .cloned()
                     .collect::<Vec<_>>();
@@ -12065,7 +12067,9 @@ fn projection_next_valid_actions(
                 let refresh_target_reads = visible_target_reads
                     .iter()
                     .filter(|(_, result_id)| {
-                        node_has_failed_edit_after_result(map, node, result_id)
+                        validation_rework_target_read_can_refresh_after_failed_edit(
+                            map, node, result_id,
+                        )
                     })
                     .cloned()
                     .collect::<Vec<_>>();
@@ -12073,9 +12077,15 @@ fn projection_next_valid_actions(
                 if let Some(failed_edit) =
                     node_recent_failed_action_summary(map, node, ActionClass::Edit)
                 {
-                    actions.push(format!(
-                        "failed_edit_feedback: {failed_edit}; next action must correct that apply_patch or refresh only the same target context if the failed hunk was stale/truncated"
-                    ));
+                    if refresh_target_reads.is_empty() {
+                        actions.push(format!(
+                            "failed_edit_feedback: {failed_edit}; next action must correct that apply_patch using existing complete target-read evidence; do not refresh read when complete_read/eof_reached=true"
+                        ));
+                    } else {
+                        actions.push(format!(
+                            "failed_edit_feedback: {failed_edit}; next action must correct that apply_patch or refresh only the same target context if the failed hunk was stale/truncated"
+                        ));
+                    }
                 }
                 actions.extend(if visible_target_reads.is_empty() {
                     validation_rework_artifacts
@@ -12228,10 +12238,11 @@ fn projection_allowed_actions_for_node(map: &ActionMapInstance, node: &MapNode) 
                 &validation_rework_artifacts,
             );
             if !visible_target_reads.is_empty() {
-                if visible_target_reads
-                    .iter()
-                    .any(|(_, result_id)| node_has_failed_edit_after_result(map, node, result_id))
-                {
+                if visible_target_reads.iter().any(|(_, result_id)| {
+                    validation_rework_target_read_can_refresh_after_failed_edit(
+                        map, node, result_id,
+                    )
+                }) {
                     return "read, edit, control(block_node only; finish_node blocked until successful edit; only same validation rework target refresh reads are allowed after a failed edit)".to_string();
                 }
                 return "edit, control(block_node only; finish_node blocked until successful edit; read/search of already visible validation rework targets will be blocked)".to_string();
@@ -16311,6 +16322,19 @@ fn node_has_failed_edit_after_result(
     false
 }
 
+fn validation_rework_target_read_can_refresh_after_failed_edit(
+    map: &ActionMapInstance,
+    node: &MapNode,
+    result_id: &str,
+) -> bool {
+    node_has_failed_edit_after_result(map, node, result_id)
+        && map
+            .results
+            .get(result_id)
+            .and_then(|result| read_file_summary_eof_reached(&result.body))
+            != Some(true)
+}
+
 fn node_has_validation_tool_result(map: &ActionMapInstance, node: &MapNode) -> bool {
     node.result_context.iter().any(|result_ref| {
         let Some(result) = map.results.get(&result_ref.id) else {
@@ -16663,7 +16687,9 @@ fn implement_node_duplicate_validation_rework_artifact_read(
         {
             return None;
         }
-        (!node_has_failed_edit_after_result(map, node, &result.id))
+        let failed_edit_after_read = node_has_failed_edit_after_result(map, node, &result.id);
+        let complete_read = read_file_summary_eof_reached(&result.body) == Some(true);
+        (!failed_edit_after_read || complete_read)
             .then(|| (artifact_ref.clone(), result.id.clone()))
     })
 }
@@ -34593,13 +34619,27 @@ TaskSpaceReadFileSummaryV1: path=generate_org.py lines_read=210 eof_reached=true
                 .iter()
                 .any(|action| action.contains("failed_edit_feedback")
                     && action.contains("failed-context-patch")
-                    && action.contains("apply_patch")),
+                    && action.contains("apply_patch")
+                    && action.contains("existing complete target-read evidence")
+                    && action.contains("eof_reached=true")),
             "{actions_after_failed_edit:?}"
         );
         assert!(
-            actions_after_failed_edit.iter().any(|action| action.contains(
+            !actions_after_failed_edit.iter().any(|action| action.contains(
                 "read_file validation rework target artifact `generate_org.py` once to refresh context after failed edit"
             )),
+            "{actions_after_failed_edit:?}"
+        );
+        assert!(
+            actions_after_failed_edit.iter().any(|action| action
+                .contains("use existing validation rework target read result")
+                && action.contains("generate_org.py")),
+            "{actions_after_failed_edit:?}"
+        );
+        assert!(
+            actions_after_failed_edit
+                .iter()
+                .any(|action| action.contains("read/search is no longer a valid next action")),
             "{actions_after_failed_edit:?}"
         );
         assert!(
@@ -34627,11 +34667,16 @@ TaskSpaceReadFileSummaryV1: path=generate_org.py lines_read=210 eof_reached=true
         let rework_node_after_failed_edit = map.nodes.get(&rework_node_id).expect("rework node");
         let allowed_after_failed_edit =
             projection_allowed_actions_for_node(map, rework_node_after_failed_edit);
+        assert!(allowed_after_failed_edit.contains("edit, control"));
         assert!(
-            allowed_after_failed_edit.contains("target refresh reads are allowed"),
+            allowed_after_failed_edit.contains("read/search"),
             "{allowed_after_failed_edit}"
         );
-        state
+        assert!(
+            allowed_after_failed_edit.contains("will be blocked"),
+            "{allowed_after_failed_edit}"
+        );
+        let repeated_read_after_failed_edit_error = state
             .prepare_main_tool_call(
                 owner,
                 ToolActionDescriptor::new(
@@ -34643,7 +34688,28 @@ TaskSpaceReadFileSummaryV1: path=generate_org.py lines_read=210 eof_reached=true
                     .to_string(),
                 ),
             )
-            .expect("same validation rework target read may refresh context after failed edit");
+            .expect_err(
+                "complete validation rework target read should not refresh after failed edit",
+            );
+        let repeated_read_after_failed_edit_message =
+            repeated_read_after_failed_edit_error.to_string();
+        assert!(
+            repeated_read_after_failed_edit_message
+                .contains("validation_rework_duplicate_artifact_read"),
+            "{repeated_read_after_failed_edit_message}"
+        );
+        assert!(
+            repeated_read_after_failed_edit_message.contains("complete read_file context"),
+            "{repeated_read_after_failed_edit_message}"
+        );
+        assert!(
+            repeated_read_after_failed_edit_message.contains("eof_reached=true"),
+            "{repeated_read_after_failed_edit_message}"
+        );
+        assert!(
+            repeated_read_after_failed_edit_message.contains("apply_patch"),
+            "{repeated_read_after_failed_edit_message}"
+        );
         let truncated_blocker = state
             .block_main_node(
                 owner,

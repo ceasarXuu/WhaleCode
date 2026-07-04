@@ -4213,3 +4213,65 @@ CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/co
 边界说明：该 fix 不禁止 validation rework 的第一次 target read；它只关闭 complete-read 之后的重复 read 例外。下一轮 keyed
 rerun 要验证静态/dynamic contract 不再冲突后，provider 是否转向 `apply_patch`，否则再升级到 native-tool transport /
 模型 profile / patch-plan gate。
+
+## 5.66 2026-07-04 failed-edit refresh reopens complete validation rework read
+
+`c8a2d16` attested keyed rerun 证明 5.65 的静态 contract 冲突已经清除到下一层：provider 在完整 target read 和 patch-only
+recovery 之后首次进入了 `apply_patch`。但 patch hunk 因上下文不匹配失败后，runtime/projection 又把 same-target refresh read
+作为合法下一步暴露出来，即使 `process.py` 已经完整读取且 `eof_reached=true`。
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260704bv-static-read-override/runs/terminal_bench__organization-json-generator/20260704-164819-131
+reported_evidence_level: E1
+outcome_standard: wrong
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 14
+right_wall_time_ms: 206321
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+current_git_head: c8a2d1681e44dd1e19edf303bd6e180bffd5630d
+whale_binary_sha256: 136008edf014e6ab1bfc86ae6c0188623723b5089de322a65bfe6348f9dd2eef
+```
+
+关键观察：
+
+| Signal | 结论 |
+|---|---|
+| provider 在 patch-only recovery 后调用 `apply_patch` | H-075 live-cleared 到 patch branch |
+| `apply_patch verification failed: Failed to find expected lines` | 新 blocker 是 failed-edit recovery，不是 read refusal 本身 |
+| validation rework target `process.py` 完整读取，`eof_reached=true` | 没有隐藏行需要 refresh |
+| projection 暴露 `only same validation rework target refresh reads are allowed after a failed edit` | failed-edit refresh 例外缺少 complete-read 边界 |
+| 后续 repeated `read_file process.py` 被 closed action-space gate 拒绝并进入 budget hard-stop | projection 和 gate 的反馈语义不一致 |
+
+本轮新增并 focused 修复的问题类型：
+
+| Case | Before | After | Evidence |
+|---|---|---|---|
+| `validation-rework-failed-edit-refresh-reopens-complete-read` | failed `apply_patch` 后，same-target refresh-read 例外对完整 read 也生效；projection 说可 refresh，runtime closed gate 又拒绝 read，导致 provider 继续 retry | refresh-read 例外只在 failed edit 之后且先前 target read 不是 `eof_reached=true` 时开放；完整 read 后失败 patch 仍保持 read/search closed，只能修正 `apply_patch` 或 block_node | keyed rerun `20260704-164819-131`; CoE H-076/E-162/E-163; `validation_rework_allows_changed_artifact_read_when_schema_failure_lacks_traceback`; `validation_rework` 24/24 |
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core action_map::runtime::tests::validation_rework_allows_changed_artifact_read_when_schema_failure_lacks_traceback --locked
+  PASS
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_rework --locked
+  PASS: 24/24
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core action_contract_prompt --locked
+  PASS: 29/29
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+  PASS
+
+git diff --check
+  PASS
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-cli --bin whale --locked
+  PASS
+```
+
+边界说明：该 case 不是 tool execution failure，也不是 failure marker 缺失。失败 patch 的语义已经存在，问题是 failed-edit
+refresh policy 把“可能因为截断/陈旧导致 hunk 失败”的例外错误套用到 `complete_read/eof_reached=true`。修复保留 bounded/truncated
+read 的 refresh 逃生口，但完整读取后仍强制沿 patch 修正路径前进。

@@ -4575,3 +4575,65 @@
   ```
 - Result: passed. New focused test passed; patch-only recovery tests passed; `action_contract_prompt` passed 29/29; `validation_rework` passed 24/24; formatting, whitespace, and `whale` build passed.
 - Interpretation: H-075 is focused-fixed. It needs commit/push, binary attestation, and another keyed rerun to verify whether the provider now emits `apply_patch` after complete target read and patch-only scaffold, or exposes a deeper model/profile repair-synthesis issue.
+
+# Evidence E-162: c8a2d16 rerun reaches apply_patch then reopens complete target read after failed edit
+
+- Prediction tested: H-075 predicts the static contract no longer advertises complete validation rework reads, so the provider should move past the repeated closed read loop.
+- Real rerun:
+  ```text
+  RunDir: target/r4-org-json-real-keyed-20260704bv-static-read-override/runs/terminal_bench__organization-json-generator/20260704-164819-131
+  PairReport: pair-001/pair-report.md
+  reported_evidence_level: E1
+  outcome_standard: wrong
+  outcome_taskspace: engineering_unclean
+  right_exec_timed_out: False
+  right_tool_call_count: 14
+  right_wall_time_ms: 206321
+  right_public_validation_exit_code: 1
+  right_hidden_oracle_exit_code: 0
+  current_git_head: c8a2d1681e44dd1e19edf303bd6e180bffd5630d
+  whale_binary_sha256: 136008edf014e6ab1bfc86ae6c0188623723b5089de322a65bfe6348f9dd2eef
+  ```
+- Matched H-075 signals:
+  - The provider moved from complete target read and patch-only recovery to `apply_patch`.
+  - The repeated closed-read loop was cleared for the first post-H-075 branch.
+- New/remaining blocker signals:
+  - The initial implementation used a nonexistent `emp['email']`, so validation failed with `KeyError`.
+  - Validation rework read `process.py` completely: `TaskSpaceReadFileSummaryV1: path=process.py lines_read=127 eof_reached=true max_lines=240`.
+  - The provider emitted `apply_patch`, but the hunk failed with `apply_patch verification failed: Failed to find expected lines`.
+  - After the failed edit, projection reintroduced a same-target refresh-read exception: `only same validation rework target refresh reads are allowed after a failed edit`.
+  - The provider repeatedly called `read_file process.py`; runtime rejected it with `validation_rework_closed_action_space_read_disallowed`, then reached `TaskSpaceProviderBudgetHardStopV1`.
+- Interpretation: H-075 is live-cleared enough to prove the provider can reach `apply_patch`. The next blocker is H-076: failed-edit refresh policy lacks a complete-read boundary. This is not a new tool failure and not a missing rejection marker; it is a feedback/control projection gap that reopens an already closed read after a failed patch.
+
+# Hypothesis H-076: failed-edit refresh exception must not reopen complete validation rework reads
+
+- Claim: The validation rework failed-edit recovery path correctly allows a bounded same-target refresh when the previous read was truncated or stale. It incorrectly applies the same exception to `complete_read/eof_reached=true` reads where no file lines are hidden. That makes projection say read is allowed while the closed action-space gate still rejects read, causing retry loops.
+- Prediction:
+  1. `projection_next_valid_actions` should advertise same-target refresh reads after failed edit only when the previous target read was not complete.
+  2. `projection_allowed_actions_for_node` should keep complete-read validation rework nodes at `edit, control(... read/search will be blocked)` even after a failed edit.
+  3. `implement_node_duplicate_validation_rework_artifact_read` should continue rejecting duplicate target reads after failed edit when the previous read summary says `eof_reached=true`.
+  4. Existing validation rework first-read, closed-read, and action-contract prompt tests should remain passing.
+- Diagnostic evidence plan: Add a focused regression to the existing validation rework schema-failure path: complete target read, failed `apply_patch`, then repeat read. Expected result is duplicate-read rejection with complete-context feedback and `apply_patch` next action.
+- Status: confirmed.
+
+# Evidence E-163: failed-edit refresh now respects complete-read closure
+
+- Prediction tested: H-076 predicts a failed patch must not reopen `read_file` when validation rework target evidence is already complete.
+- Repair artifact:
+  - `third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs`
+- Repair behavior:
+  - Added `validation_rework_target_read_can_refresh_after_failed_edit()`: failed-edit refresh is available only when there is a failed edit after the target read and that read summary is not `eof_reached=true`.
+  - Runtime recovery next actions and projection allowed-actions use that helper instead of treating every failed edit after a read as refresh-ready.
+  - Duplicate validation rework artifact reads remain blocked after failed edit when the prior target read was complete; bounded/truncated reads still retain the refresh escape hatch.
+  - The focused regression now asserts that after a failed patch on a complete target read, projection says to reuse existing evidence and `read/search is no longer a valid next action`, and repeated `read_file` is rejected with `validation_rework_duplicate_artifact_read`, complete-context feedback, `eof_reached=true`, and `apply_patch`.
+- Validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core action_map::runtime::tests::validation_rework_allows_changed_artifact_read_when_schema_failure_lacks_traceback --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_rework --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core action_contract_prompt --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+  git diff --check
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-cli --bin whale --locked
+  ```
+- Result: passed. Focused runtime regression passed; `validation_rework` passed 24/24; `action_contract_prompt` passed 29/29; formatting, whitespace, and `whale` build passed.
+- Interpretation: H-076 is focused-fixed in runtime/projection. It still needs commit/push, binary attestation, and another keyed rerun to verify whether the live path now recovers from failed patch by correcting the patch instead of returning to read.

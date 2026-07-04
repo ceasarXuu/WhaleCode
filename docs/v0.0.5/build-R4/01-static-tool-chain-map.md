@@ -624,3 +624,18 @@ attested keyed rerun 证明 output/schema contract enforcement 已生效，但 v
 
 边界说明：这不是放宽 runtime，也不是把第一次 validation rework target read 禁掉；第一次 target read 仍由现有测试覆盖为合法。修复仅消除
 complete-read 之后的静态/动态 contract 冲突。
+
+## 2026-07-04 R4-D issue type addendum: failed-edit refresh reopens complete validation rework read
+
+static read exception 修复后的 attested keyed rerun 进入了更深一层：provider 不再停在重复 read，而是在 complete target read
+之后发出了 `apply_patch`。但 patch hunk verification failed 后，projection 把 same-target refresh-read 作为 failed-edit 后的合法
+恢复动作重新开放。该例外对 truncated/stale read 是合理的；对 `TaskSpaceReadFileSummaryV1 eof_reached=true` 的完整 read
+不合理，因为 runtime 已确认没有隐藏行。
+
+| Issue type | Layer | Symptom | Resolution contract | Evidence |
+|---|---|---|---|---|
+| `validation-rework-failed-edit-refresh-reopens-complete-read` | validation rework failed-edit recovery / projection-gate consistency | complete target read 后 patch 失败，projection 暴露 same-target refresh read；closed action gate 又拒绝 read，provider 在相互冲突的反馈中继续 retry | refresh-read 例外必须同时满足“失败 edit 在该 read 之后发生”以及“该 read 未证明 `eof_reached=true`”；完整 read 后 duplicate target read 仍拒绝，并反馈 `complete read_file context`、`eof_reached=true`、`apply_patch` | keyed rerun `20260704-164819-131`; CoE H-076/E-162/E-163; `validation_rework_allows_changed_artifact_read_when_schema_failure_lacks_traceback`; `validation_rework`; `action_contract_prompt` |
+
+边界说明：这是反馈/控制投影的语义边界缺失，不是语义扭曲。runtime 对 repeated read 的拒绝仍是正确的；错误在于上游 projection
+把完整读取后的 failed patch 当成可 refresh 的截断/陈旧上下文处理。修复不取消 failed-edit refresh，只把它限制在未完整读取的 target
+read 上。
