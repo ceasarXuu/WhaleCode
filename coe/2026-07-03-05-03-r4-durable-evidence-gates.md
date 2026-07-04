@@ -3648,3 +3648,74 @@
   ```
 - Result: passed. Pre-format regression tests passed through `validation_rework_duplicate_read` 7/7, `validation_rework` 20/20, `taskspace_control` 35/35, `implementation_needs_edit` 3/3, `action_contract_prompt` 28/28, `validation_` 99/99, `provider_budget` 23/23, `taskspace_active_budget` 11/11, `apply_patch_` 35/35, `local_infra` 11/11, `duplicate_read_search` 3/3, `missing_fact_source_bootstrap` 1/1, and `inspect_missing_fact_sources` 2/2. The first full command stopped only because `cargo fmt --check` required a one-line rustfmt reflow. After running `cargo fmt`, the focused complete-context test, `cargo fmt --check`, `git diff --check`, and `whale` build all passed. The fmt command still prints the known stable rustfmt `imports_granularity` warning.
 - Interpretation: H-060 is focused-fixed with R4-adjacent regression/build coverage. The remaining live gate is commit/push, binary attestation, and another keyed `organization-json-generator` rerun to verify the turn now stops immediately on complete-read duplicate requests and to expose the next unresolved tools-chain blocker.
+
+# Evidence E-131: 6b0cb51 live rerun clears duplicate advisory but exposes complete-read content truncation
+
+- Prediction tested: H-060 should make a complete-read duplicate validation-rework read stop immediately instead of giving the model another advisory round.
+- Real rerun:
+  ```text
+  RunDir: target/r4-org-json-real-keyed-20260704bg-complete-read-hardstop/runs/terminal_bench__organization-json-generator/20260704-132354-931
+  PairReport: pair-001/pair-report.md
+  reported_evidence_level: E2-candidate
+  included_in_utility_aggregate: False
+  outcome_standard: solved
+  outcome_taskspace: engineering_unclean
+  right_exec_timed_out: False
+  right_tool_call_count: 11
+  right_public_validation_exit_code: 1
+  right_hidden_oracle_exit_code: 0
+  current_git_head: 6b0cb516c419a0fb0be609f934bc8665349002fb
+  ```
+- Matched H-060 live signals:
+  - The provider-visible patch-only recovery contained the new line: `If the validation_rework_target_read evidence says complete_read or eof_reached=true, no additional file lines are hidden`.
+  - The model still emitted a duplicate `read_file generate_organization.py`.
+  - Runtime produced `TaskSpaceValidationReworkDuplicateReadHardStopV1` with `attempt_count: 1`, proving the first complete-read duplicate stopped the turn instead of issuing another model advisory request.
+- New blocker signals:
+  - ActionMap `result-10.body` for `generate_organization.py` contained a complete summary: `TaskSpaceReadFileSummaryV1: path=generate_organization.py lines_read=95 eof_reached=true max_lines=240`.
+  - The same stored body truncated the file content at `total_departments = len(departments_csv)` and then inserted `[... telemetry preview truncated ...]`.
+  - Provider-visible projection showed `read_context: complete_read` but the visible `excerpt:` block ended with `...`.
+  - The patch-only recovery also included `TaskSpaceToolTailSentinelV1`, but only the summary tail was restored; the patch-relevant lower half of the source file was not visible.
+- Interpretation: H-060 is live-cleared. The next problem type is `complete-read-content-preview-truncation`: the read summary is correct about the tool execution, but provider-visible feedback overclaims usable source visibility because ActionMap persists only a telemetry preview plus summary sentinel, not the full content of a bounded complete read.
+
+# Hypothesis H-061: complete read_file results must preserve bounded full content, not only summary tails
+
+- Claim: `tool_output_model_visible_preview()` stores ActionMap tool results through `bounded_model_visible_text_preview()`, which uses the 2KiB telemetry preview limit. For action-contract `read_file`, the shell command already bounds output to `sed -n '1,240p'`, and `TaskSpaceReadFileSummaryV1 eof_reached=true` proves the whole file was captured. Persisting only the telemetry head plus `TaskSpaceToolTailSentinelV1` leaves `read_context: complete_read` in the prompt while hiding patch-relevant lower lines, so the model has a legitimate reason to ask for full content.
+- Prediction:
+  1. A focused tool preview test with a complete `read_file` output over the 2KiB telemetry threshold but under a bounded full-read cap should preserve late file lines and should not include `[... telemetry preview truncated ...]`.
+  2. The existing summary-tail truncation test should still pass for incomplete reads (`eof_reached=false`) or oversized reads.
+  3. Validation rework target-read evidence should then be able to show the complete small source file when `eof_reached=true`, making the `complete_read/no hidden lines` feedback true at the provider-visible level.
+  4. R4-adjacent preview, validation rework, action contract, formatting, whitespace, and `whale` build checks should pass.
+- Diagnostic evidence plan: Add a bounded complete-read preview preservation path before telemetry truncation, keep non-complete/oversized reads on the truncating path with tail sentinels, add focused tests, then rerun R4-adjacent checks and a keyed `organization-json-generator` rerun.
+- Status: confirmed.
+
+# Evidence E-132: complete read_file content preview is focused-fixed
+
+- Prediction tested: H-061 predicts complete read_file output should bypass the 2KiB telemetry preview when it is bounded, while incomplete reads should still truncate and preserve only the summary sentinel.
+- Repair artifacts:
+  - `third_party/codex-cli/codex-rs/core/src/tools/context.rs`
+  - `third_party/codex-cli/codex-rs/core/src/tools/context_tests.rs`
+- Repair behavior:
+  - `bounded_model_visible_text_preview()` now preserves the full model-visible text for complete read_file output when the result has a parseable `TaskSpaceReadFileSummaryV1` with `eof_reached=true`, is at most 64 KiB, and is at most 320 lines.
+  - Incomplete reads (`eof_reached=false`) and oversized reads still use telemetry preview truncation plus `TaskSpaceToolTailSentinelV1`.
+  - Added `taskspace_preview_preserves_complete_read_file_content_beyond_telemetry_limit`; adjusted `taskspace_preview_preserves_read_file_summary_after_telemetry_truncation` to cover incomplete reads.
+- Focused validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core taskspace_preview_ --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core read_file_summary_ --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core validation_rework --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core action_contract_prompt --lib --locked
+  ```
+- R4-adjacent regression/build validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core validation_ --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core taskspace_control --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core provider_budget --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core taskspace_active_budget --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core apply_patch_ --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core local_infra --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+  git diff --check
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-cli --bin whale --locked
+  ```
+- Result: passed. `taskspace_preview_` 4/4, `read_file_summary_` 3/3, `validation_rework` 20/20, `action_contract_prompt` 28/28, `validation_` 99/99, `taskspace_control` 35/35, `provider_budget` 23/23, `taskspace_active_budget` 11/11, `apply_patch_` 35/35, and `local_infra` 11/11 all passed. `cargo fmt --check` still prints the known stable rustfmt `imports_granularity` warning; `git diff --check` and `whale` build passed.
+- Interpretation: H-061 is focused-fixed. The remaining gate is commit/push, attestation, and a keyed rerun to verify the patch-only recovery now exposes the complete small rework target content instead of a telemetry-truncated head.

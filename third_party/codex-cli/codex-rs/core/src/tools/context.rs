@@ -32,6 +32,9 @@ use tokio_util::sync::CancellationToken;
 
 pub type SharedTurnDiffTracker = Arc<Mutex<TurnDiffTracker>>;
 
+const TASKSPACE_COMPLETE_READ_PREVIEW_MAX_BYTES: usize = 64 * 1024;
+const TASKSPACE_COMPLETE_READ_PREVIEW_MAX_LINES: usize = 320;
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ToolCallSource {
     Direct,
@@ -139,7 +142,21 @@ pub(crate) fn response_input_model_visible_preview(response: &ResponseInputItem)
 }
 
 pub(crate) fn bounded_model_visible_text_preview(content: &str) -> String {
+    if taskspace_should_preserve_complete_read_preview(content) {
+        return content.to_string();
+    }
     telemetry_preview(content)
+}
+
+fn taskspace_should_preserve_complete_read_preview(content: &str) -> bool {
+    if content.len() > TASKSPACE_COMPLETE_READ_PREVIEW_MAX_BYTES {
+        return false;
+    }
+    if content.lines().count() > TASKSPACE_COMPLETE_READ_PREVIEW_MAX_LINES {
+        return false;
+    }
+    super::taskspace_read_file_summary_from_text(content)
+        .is_some_and(|summary| summary.contains("eof_reached=true"))
 }
 
 fn response_input_item_model_visible_text(response: &ResponseInputItem) -> String {

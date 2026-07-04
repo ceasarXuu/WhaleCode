@@ -148,6 +148,7 @@ raw signal 存在但语义没有正确进入下一轮 tool contract：
 | `inspect-duplicate-list-files-data-bootstrap-gap` | keyed rerun `20260704-115228-006` 证实第一次 `list_files` 已列出 `schema.json` 和 CSV fact sources，但模型重复 `list_files` 后只收到 duplicate recovery，没有触发 bounded data artifact bootstrap，最终烧到 `TaskSpaceProviderBudgetHardStopV1`；已让 repeated duplicate read/search 在 force-finish 不安全时触发 bounded source/test/data artifact bootstrap | focused+regression fixed / real rerun pending |
 | `validation-rework-patch-only-after-target-read-feedback` | keyed rerun `20260704-120401-124` 证实 schema repair contract、`validation_rework_target_read` 和禁止 schema inspection 的 patch-only 契约都已出现在 provider prompt，但下一次 `read_file schema.json` 仍被包装成泛化 `implementation_needs_edit` hard-stop；已新增 post-target-read patch-only 专用 recovery/hard-stop 语义 | focused+regression fixed / real rerun pending |
 | `validation-rework-complete-read-duplicate-read-nonforcing` | keyed rerun `20260704-130600-674` 证实 `read_context: complete_read`、`eof_reached=true` 和 `no additional file lines are hidden` 已正确传给模型，但模型仍声称 projected excerpt 不足并重复 `read_file process.py`；已把 complete-read duplicate rework read 从 advisory recovery 升级为 immediate hard-stop，并强化 patch-only recovery 文案 | focused+regression fixed / real rerun pending |
+| `complete-read-content-preview-truncation` | keyed rerun `20260704-132354-931` 证实 H-060 已 live-cleared：complete-read duplicate read 直接 `attempt_count: 1` hard-stop；但 ActionMap `result-10.body` 仍在 `eof_reached=true` 的完整读取中只持久化 2KiB telemetry head + summary tail，provider-visible source 在 patch-relevant 下半段前被截断；已对 bounded complete read_file preview 保留完整 model-visible text | focused+regression fixed / real rerun pending |
 
 新增关键判断：
 
@@ -1881,6 +1882,79 @@ CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/co
 `missing_fact_source_bootstrap` 1/1、`inspect_missing_fact_sources` 2/2 均通过。第一次收尾停在
 `cargo fmt --check` 要求 rustfmt reflow；执行 `cargo fmt` 后 focused test、`cargo fmt --check`、`git diff --check`
 和 `whale` build 通过。fmt 仍只输出项目既有 stable rustfmt `imports_granularity` warning。
+
+### 3.35 complete-read content preview truncation
+
+complete-read hard-stop 修复提交、push 并刷新 attestation 后执行 keyed rerun：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260704bg-complete-read-hardstop/runs/terminal_bench__organization-json-generator/20260704-132354-931
+PairReport: pair-001/pair-report.md
+reported_evidence_level: E2-candidate
+included_in_utility_aggregate: False
+outcome_standard: solved
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 11
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+```
+
+H-060 已 live-cleared：
+
+| evidence | 观察 |
+|---|---|
+| hard-stop | `TaskSpaceValidationReworkDuplicateReadHardStopV1 attempt_count: 1` |
+| target | `target_artifact: generate_organization.py`，`previous_read_result: result-10` |
+| prompt wording | patch-only recovery 已包含 `complete_read/eof_reached=true` 表示无隐藏行 |
+
+但同一个 trace 暴露 H-061：
+
+```text
+read_context: complete_read; TaskSpaceReadFileSummaryV1: path=generate_organization.py lines_read=95 eof_reached=true max_lines=240
+...
+total_departments = len(departments_csv)
+[... telemetry preview truncated ...]
+TaskSpaceToolTailSentinelV1:
+TaskSpaceReadFileSummaryV1: path=generate_organization.py lines_read=95 eof_reached=true max_lines=240
+```
+
+这说明 summary 语义已经正确，但完整内容没有进入 ActionMap/recent feedback。模型看到的是“complete_read + 可见 excerpt 已截断”，因此继续要求 full content 的根因不是工具执行失败，而是 provider-visible feedback 的内容持久化不完整。
+
+问题类型收录：
+
+| field | value |
+|---|---|
+| case | `complete-read-content-preview-truncation` |
+| layer | feedback layer / tool preview persistence |
+| trigger | action-contract `read_file` 输出超过 2KiB telemetry preview，但 `TaskSpaceReadFileSummaryV1 eof_reached=true` 证明文件完整读取且行数在 240 内 |
+| expected | bounded complete read_file 应保留完整 model-visible text，使 `complete_read/no hidden lines` 在 provider-visible 层也为真 |
+| actual | ActionMap result body 只保留 telemetry head 和 summary tail，patch-relevant lower file content 丢失 |
+| classification | 语义正确但证据内容缺失，导致完整性语义对模型可见上下文过度承诺 |
+| fix | `bounded_model_visible_text_preview()` 对 `eof_reached=true`、<=64KiB、<=320 行的 complete read_file 结果绕过 2KiB telemetry preview；incomplete/oversized read 仍截断并保留 summary sentinel |
+
+本地 focused 和 R4-adjacent 验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core taskspace_preview_ --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core read_file_summary_ --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core validation_rework --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core action_contract_prompt --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core validation_ --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core taskspace_control --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core provider_budget --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core taskspace_active_budget --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core apply_patch_ --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core local_infra --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+git diff --check
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-cli --bin whale --locked
+```
+
+结果：通过。`taskspace_preview_` 4/4、`read_file_summary_` 3/3、`validation_rework` 20/20、
+`action_contract_prompt` 28/28、`validation_` 99/99、`taskspace_control` 35/35、`provider_budget` 23/23、
+`taskspace_active_budget` 11/11、`apply_patch_` 35/35、`local_infra` 11/11 均通过。`cargo fmt --check`
+仍只输出项目既有 stable rustfmt `imports_granularity` warning；`git diff --check` 和 `whale` build 通过。
 
 ## 4. 本次验证
 

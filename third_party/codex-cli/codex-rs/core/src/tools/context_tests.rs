@@ -474,7 +474,7 @@ fn taskspace_preview_preserves_required_properties_from_untruncated_exec_output(
 
 #[test]
 fn taskspace_preview_preserves_read_file_summary_after_telemetry_truncation() {
-    let summary = "TaskSpaceReadFileSummaryV1: path=process_csv.py lines_read=92 eof_reached=true max_lines=240";
+    let summary = "TaskSpaceReadFileSummaryV1: path=process_csv.py lines_read=240 eof_reached=false max_lines=240";
     let raw_output = format!(
         "import csv\n{}\n{summary}\n",
         "x".repeat(TELEMETRY_PREVIEW_MAX_BYTES + 256)
@@ -509,6 +509,47 @@ fn taskspace_preview_preserves_read_file_summary_after_telemetry_truncation() {
                 .find(TELEMETRY_PREVIEW_TRUNCATION_NOTICE)
                 .expect("truncation present")
     );
+}
+
+#[test]
+fn taskspace_preview_preserves_complete_read_file_content_beyond_telemetry_limit() {
+    let summary = "TaskSpaceReadFileSummaryV1: path=generate_organization.py lines_read=95 eof_reached=true max_lines=240";
+    let body = (0..90)
+        .map(|idx| {
+            format!(
+                "line_{idx:02} = 'schema repair context averageDepartmentBudget members projects'"
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    let late_line = "line_94 = 'late project members and averageDepartmentBudget fix target'";
+    let raw_output = format!("{body}\n{late_line}\n{summary}\n");
+    assert!(raw_output.len() > TELEMETRY_PREVIEW_MAX_BYTES);
+    let output = ExecCommandToolOutput {
+        event_call_id: "event-1".to_string(),
+        chunk_id: "chunk-1".to_string(),
+        wall_time: std::time::Duration::from_millis(200),
+        raw_output: raw_output.into_bytes(),
+        artifact_ref: None,
+        max_output_tokens: None,
+        process_id: None,
+        exit_code: Some(0),
+        original_token_count: None,
+        hook_command: None,
+    };
+    let payload = ToolPayload::Function {
+        arguments: serde_json::json!({
+            "command": "sed -n '1,240p' -- generate_organization.py && awk '{ printf \"TaskSpaceReadFileSummaryV1\" }' generate_organization.py"
+        })
+        .to_string(),
+    };
+
+    let preview = tool_output_model_visible_preview(&output, "call-1", &payload);
+
+    assert!(!preview.contains(TELEMETRY_PREVIEW_TRUNCATION_NOTICE));
+    assert!(preview.contains("line_00 = 'schema repair context"));
+    assert!(preview.contains(late_line));
+    assert!(preview.contains(summary));
 }
 
 #[test]
