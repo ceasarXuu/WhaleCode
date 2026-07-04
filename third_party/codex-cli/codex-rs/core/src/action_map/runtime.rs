@@ -11950,6 +11950,35 @@ fn validation_failure_type_mismatches(text: &str) -> Vec<String> {
     mismatches
 }
 
+fn validation_failure_unlocated_expected_types(text: &str) -> Vec<String> {
+    let lines = text.lines().collect::<Vec<_>>();
+    let mut expected_types = Vec::new();
+    for (index, line) in lines.iter().enumerate() {
+        let lower = line.to_ascii_lowercase();
+        let Some(marker_start) = lower.find(" is not of type ") else {
+            continue;
+        };
+        if lines
+            .iter()
+            .skip(index + 1)
+            .take(8)
+            .any(|candidate| last_bracket_path_segment(candidate).is_some())
+        {
+            continue;
+        }
+        let observed = &line[..marker_start];
+        if !observed.contains('{') && !observed.contains('[') {
+            continue;
+        }
+        let expected =
+            quoted_suffix_value(&line[marker_start..]).unwrap_or_else(|| "unknown".to_string());
+        if !expected_types.iter().any(|existing| existing == &expected) {
+            expected_types.push(expected);
+        }
+    }
+    expected_types
+}
+
 fn last_bracket_path_segment(line: &str) -> Option<String> {
     let mut rest = line;
     let mut last = None;
@@ -11984,6 +12013,14 @@ struct SchemaRequiredGroup {
     required: Vec<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct SchemaArrayItemTypeExpectation {
+    source_artifact: String,
+    path: String,
+    property: String,
+    expected_item_type: String,
+}
+
 fn schema_required_groups_from_tool_result(result: &NodeResult) -> Vec<SchemaRequiredGroup> {
     let mut artifacts = result_visible_artifact_refs(result);
     if let Some(command) = result_body_command(result)
@@ -12004,6 +12041,35 @@ fn schema_required_groups_from_tool_result(result: &NodeResult) -> Vec<SchemaReq
     let mut groups = Vec::new();
     collect_schema_required_groups(&value, &source_artifact, &mut Vec::new(), &mut groups);
     groups
+}
+
+fn schema_array_item_type_expectations_from_tool_result(
+    result: &NodeResult,
+) -> Vec<SchemaArrayItemTypeExpectation> {
+    let mut artifacts = result_visible_artifact_refs(result);
+    if let Some(command) = result_body_command(result)
+        && let Some(artifact) = read_command_artifact_ref(&command)
+        && !artifacts.iter().any(|existing| existing == &artifact)
+    {
+        artifacts.push(artifact);
+    }
+    let Some(source_artifact) = artifacts.into_iter().find(|artifact| {
+        let lower = artifact_key(artifact);
+        lower == "schema.json" || lower.ends_with("/schema.json")
+    }) else {
+        return Vec::new();
+    };
+    let Some(value) = json_document_from_tool_body(&result.body) else {
+        return Vec::new();
+    };
+    let mut expectations = Vec::new();
+    collect_schema_array_item_type_expectations(
+        &value,
+        &source_artifact,
+        &mut Vec::new(),
+        &mut expectations,
+    );
+    expectations
 }
 
 fn json_document_from_tool_body(body: &str) -> Option<serde_json::Value> {
@@ -12064,6 +12130,74 @@ fn collect_schema_required_groups(
         }
         _ => {}
     }
+}
+
+fn collect_schema_array_item_type_expectations(
+    value: &serde_json::Value,
+    source_artifact: &str,
+    path: &mut Vec<String>,
+    expectations: &mut Vec<SchemaArrayItemTypeExpectation>,
+) {
+    match value {
+        serde_json::Value::Object(object) => {
+            let is_array = object.get("type").and_then(serde_json::Value::as_str) == Some("array");
+            let expected_item_type = object
+                .get("items")
+                .and_then(serde_json::Value::as_object)
+                .and_then(|items| items.get("type"))
+                .and_then(serde_json::Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty());
+            if is_array
+                && let Some(expected_item_type) = expected_item_type
+                && let Some(property) = schema_path_last_property(path)
+            {
+                expectations.push(SchemaArrayItemTypeExpectation {
+                    source_artifact: source_artifact.to_string(),
+                    path: if path.is_empty() {
+                        "root".to_string()
+                    } else {
+                        path.join(".")
+                    },
+                    property,
+                    expected_item_type: expected_item_type.to_string(),
+                });
+            }
+            for (key, child) in object {
+                path.push(key.clone());
+                collect_schema_array_item_type_expectations(
+                    child,
+                    source_artifact,
+                    path,
+                    expectations,
+                );
+                path.pop();
+            }
+        }
+        serde_json::Value::Array(items) => {
+            for item in items {
+                collect_schema_array_item_type_expectations(
+                    item,
+                    source_artifact,
+                    path,
+                    expectations,
+                );
+            }
+        }
+        _ => {}
+    }
+}
+
+fn schema_path_last_property(path: &[String]) -> Option<String> {
+    path.iter()
+        .rev()
+        .find(|segment| {
+            !matches!(
+                segment.as_str(),
+                "properties" | "items" | "required" | "additionalProperties"
+            )
+        })
+        .cloned()
 }
 
 fn quoted_suffix_value(text: &str) -> Option<String> {
@@ -17128,7 +17262,15 @@ fn implement_node_dependency_validation_rework_repair_contract(
     }
     let missing_required_properties =
         implement_node_dependency_validation_rework_missing_required_properties(map, node);
-    let type_mismatches = implement_node_dependency_validation_rework_type_mismatches(map, node);
+    let mut type_mismatches =
+        implement_node_dependency_validation_rework_type_mismatches(map, node);
+    for mismatch in
+        implement_node_dependency_validation_rework_schema_item_type_mismatches(map, node)
+    {
+        if !type_mismatches.iter().any(|existing| existing == &mismatch) {
+            type_mismatches.push(mismatch);
+        }
+    }
     if missing_required_properties.is_empty() && type_mismatches.is_empty() {
         return None;
     }
@@ -17247,6 +17389,84 @@ fn implement_node_dependency_validation_rework_type_mismatches(
             for mismatch in validation_failure_type_mismatches(&result.body) {
                 if !mismatches.iter().any(|existing| existing == &mismatch) {
                     mismatches.push(mismatch);
+                }
+            }
+        }
+    }
+    mismatches
+}
+
+fn implement_node_dependency_validation_rework_schema_item_type_mismatches(
+    map: &ActionMapInstance,
+    node: &MapNode,
+) -> Vec<String> {
+    let mut expected_types = HashSet::new();
+    for dependency_node_id in implement_node_validation_rework_dependency_node_ids(map, node) {
+        let Some(dependency) = map.nodes.get(&dependency_node_id) else {
+            continue;
+        };
+        if !matches!(
+            dependency.kind,
+            NodeKind::SmokeTest | NodeKind::RegressionTest
+        ) || dependency.status != NodeStatus::Blocked
+        {
+            continue;
+        }
+        for result_ref in &dependency.result_context {
+            let Some(result) = map.results.get(&result_ref.id) else {
+                continue;
+            };
+            if result.kind != NodeResultKind::MainToolCall && result.kind != NodeResultKind::Blocker
+            {
+                continue;
+            }
+            for expected_type in validation_failure_unlocated_expected_types(&result.body) {
+                expected_types.insert(expected_type);
+            }
+        }
+    }
+    if expected_types.is_empty() {
+        return Vec::new();
+    }
+
+    let mut mismatches = Vec::new();
+    let mut seen = HashSet::new();
+    for dependency_node_id in implement_node_transitive_dependency_node_ids(map, node) {
+        let Some(dependency) = map.nodes.get(&dependency_node_id) else {
+            continue;
+        };
+        for result_ref in &dependency.result_context {
+            let Some(result) = map.results.get(&result_ref.id) else {
+                continue;
+            };
+            if result.kind != NodeResultKind::MainToolCall
+                || result.tool_success != Some(true)
+                || !matches!(
+                    result.action_class,
+                    Some(ActionClass::Read | ActionClass::Search)
+                )
+            {
+                continue;
+            }
+            for expectation in schema_array_item_type_expectations_from_tool_result(result) {
+                if !expected_types.contains(&expectation.expected_item_type) {
+                    continue;
+                }
+                let key = format!(
+                    "{}:{}:{}:{}",
+                    expectation.source_artifact,
+                    expectation.path,
+                    expectation.property,
+                    expectation.expected_item_type
+                );
+                if seen.insert(key) {
+                    mismatches.push(format!(
+                        "{} expected {} items",
+                        expectation.property, expectation.expected_item_type
+                    ));
+                }
+                if mismatches.len() >= 6 {
+                    return mismatches;
                 }
             }
         }
@@ -34955,7 +35175,10 @@ raw_output:\n\
                 \"type\": \"array\",\n\
                 \"items\": {\n\
                   \"type\": \"object\",\n\
-                  \"required\": [\"name\", \"status\", \"members\", \"deadline\"]\n\
+                  \"required\": [\"name\", \"status\", \"members\", \"deadline\"],\n\
+                  \"properties\": {\n\
+                    \"members\": { \"type\": \"array\", \"items\": { \"type\": \"string\" } }\n\
+                  }\n\
                 }\n\
               }\n\
             }\n\
@@ -35057,6 +35280,7 @@ command: python generate_org.py && python -m jsonschema -i organization.json sch
 raw_output:\n\
 /home/user/miniconda3/lib/python3.12/site-packages/jsonschema/__main__.py:4: DeprecationWarning: The jsonschema CLI is deprecated\n\
 {'name': 'Madrid', 'member_ids': ['D001-E001']}: 'members' is a required property\n\
+{'id': 'D001-E001', 'name': 'Cristiano Ronaldo', 'position': 'Manager'}: {'id': 'D001-E001', 'name': 'Cristiano Ronaldo', 'position': 'Manager'} is not of type 'string'\n\
 {'total_employees': 12, 'total_departments': 5, 'total_budget': 5300000}: 'totalEmployees' is a required property\n\
 {'average_department_budget': 1060000.0, 'average_employee_tenure_years': 7.25}: 'averageDepartmentBudget' is a required property\n\
 [... telemetry preview truncated ...]\n"
@@ -35110,6 +35334,10 @@ raw_output:\n\
             .expect("schema repair contract");
         assert!(
             contract.contains("missing_required_properties=members, averageDepartmentBudget"),
+            "{contract}"
+        );
+        assert!(
+            contract.contains("schema_type_mismatches=members expected string items"),
             "{contract}"
         );
         assert!(contract.contains("projectStatusDistribution"), "{contract}");

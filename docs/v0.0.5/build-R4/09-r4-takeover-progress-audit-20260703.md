@@ -3565,6 +3565,22 @@ schema validation，却被 replacement-required gate 无条件拦截。
 
 状态：focused fixed，待 commit/push、install/attest 和真实 keyed rerun 确认 schema type mismatch 能 live 修复。
 
+## 43. 2026-07-05 unlocated array item type mismatch repair gap
+
+`8451089` 安装后 keyed rerun 证明 H-113 live-clear：statistics object-map repair 生效，public validator 的
+statistics calculations 通过。新的 blocker 是 `members` 仍为对象数组，而 schema 和 public validator 要求字符串 id 数组。
+
+| 字段 | 内容 |
+|---|---|
+| case | `validation-schema-array-item-type-mismatch-repair-gap` |
+| 层级 | validation rework repair contract / schema-backed feedback synthesis |
+| 本质 | `jsonschema` CLI 只输出 dict value `is not of type 'string'`，没有 path；runtime 未结合已读 schema 推导 `members expected string items` |
+| 非根因 | 不是 statistics object-map 修复失败；不是 validator 不可用；不是 schema 未读；不是 apply_patch 不能执行 |
+| 修复 | schema read 中抽取 array item type expectations；unlocated type mismatch 与 schema array field 合并为 `schema_type_mismatches=members expected string items`；recovery 明确输出 string array |
+| evidence | CoE H-114/E-233/E-234；keyed rerun `20260705-024255-572`；focused tests `validation_rework_projects_schema_repair_contract_from_schema_read`, `array_item_type`, `type_mismatch`, `validation_rework`, `action_contract_prompt`, `taskspace_apply_patch`, `replacement_required`; fmt/check/diff |
+
+状态：focused fixed，待 whale build、commit/push、install/attest 和真实 keyed rerun 确认 `members` array item type 能 live 修复。
+
 ## 28. 2026-07-04 natural-language slash fact-source extraction
 
 `3b6b269` 后的 keyed rerun 没有触发 no-action recovery，因此 H-098 尚未 live-clear。该轮暴露 inspect fact-source

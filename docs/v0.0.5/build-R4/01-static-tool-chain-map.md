@@ -1056,3 +1056,17 @@ native hunk grammar 修复。
 
 边界说明：该修复不绕过 validator，也不凭空改 schema。它只把 validator 已经输出的类型事实保真传给下一轮 patch 构造，
 避免“类型不匹配”被压缩成普通失败文本后丢失操作语义。
+
+## 2026-07-05 R4-D issue type addendum: unlocated array item type mismatch repair gap
+
+`8451089` 后 keyed rerun 证明 H-113 对 statistics object-map 的修复已 live-clear：`skillDistribution`、
+`departmentSizes`、`projectStatusDistribution` 均生成 object map，public validator 的 statistics test 通过。新的 failure
+来自 `members`：schema 要求 `members` 是 string array，但 validator 只输出多个 dict value
+`is not of type 'string'`，没有 bracket path，runtime 没有把它映射回 `members.items.type=string`。
+
+| Issue type | Layer | Symptom | Resolution contract | Evidence |
+|---|---|---|---|---|
+| `validation-schema-array-item-type-mismatch-repair-gap` | validation rework repair contract / schema-backed feedback synthesis | validator 输出 unlocated object-not-string item failures；provider 未收到 `members expected string items`，误判成排序问题并写坏缩进 | 已实现：从已读 schema 抽取 array item type expectations；将 unlocated type mismatch 与 schema array item 定义合并为 `schema_type_mismatches=members expected string items`；recovery 明确 expected string items 要输出 string array | keyed rerun `20260705-024255-572`; CoE H-114/E-233/E-234; focused tests `validation_rework_projects_schema_repair_contract_from_schema_read`, `array_item_type`, `type_mismatch`, `validation_rework` |
+
+边界说明：该修复不是 hard-code `members`。它只在已有 schema read 和 validation type mismatch 同时存在时，把未定位的 primitive item
+type failure 连接到 schema 中的 array field，作为下一轮 patch 构造事实。

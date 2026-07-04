@@ -2556,7 +2556,7 @@ fn taskspace_validation_rework_schema_repair_synthesis(
         "Schema repair synthesis from current validation failure:\n\
 - Missing required output properties to implement in `{target_artifact_label}` now: {missing_label}.\n\
 - Apply captured output-key rename hints exactly when present: {rename_label}.\n\
-- Fix schema type mismatches exactly when present: {type_mismatch_label}; for `expected object`, emit a JSON object/map keyed by the natural name rather than an array of objects.\n\
+- Fix schema type mismatches exactly when present: {type_mismatch_label}; for `expected object`, emit a JSON object/map keyed by the natural name rather than an array of objects; for `expected string items`, emit an array of strings, not an array of objects.\n\
 - For every missing property without a rename hint, add a generated output field with the exact schema spelling and derive its value from already-read CSV/schema evidence.\n\
 - This is a patch-construction requirement, not a reason to read schema/data/target files again.\n"
     )
@@ -6167,6 +6167,20 @@ Then I will inspect the file."#,
         assert!(is_taskspace_validation_rework_patch_only_recovery_item(
             &item
         ));
+    }
+
+    #[test]
+    fn implementation_recovery_synthesizes_array_item_type_repairs() {
+        let last_message = "TaskSpaceActionV1 rejected: node_policy_violation:implement_solution:read_file:implementation_needs_edit. Return exactly one valid taskspace-action-v1 JSON object.";
+        let evidence = "validation_rework: smoke_test `node-5` failed result `result-14`: schema_type_mismatches=members expected string items \
+| validation_rework_target_read result=result-16 artifact=generate_organization.py read_context: complete_read eof_reached=true content_visibility: full_content_visible \
+| validation_schema_repair_contract: schema_type_mismatches=members expected string items | target_artifacts=generate_organization.py";
+        let item =
+            build_taskspace_implementation_recovery_item(Some(last_message), Some(evidence), None);
+        let text = item_text(item);
+
+        assert!(text.contains("`members expected string items`"));
+        assert!(text.contains("emit an array of strings, not an array of objects"));
     }
 
     #[test]

@@ -6796,3 +6796,72 @@
     PASS
   ```
 - Interpretation: H-113 is focused-fixed. Remaining gates are commit/push, install/attest, and a keyed rerun to verify the live task converts schema type mismatch evidence into the correct statistics object-map repair.
+
+# Evidence E-233: H-113 rerun clears statistics object-map repair and exposes array item type gap
+
+- Real rerun:
+  ```text
+  RunDir: target/r4-org-json-real-keyed-20260705ai-schema-type-mismatch-gate/runs/terminal_bench__organization-json-generator/20260705-024255-572
+  reported_evidence_level: E2-candidate
+  outcome_standard: solved
+  outcome_taskspace: engineering_unclean
+  right_exec_timed_out: False
+  right_tool_call_count: 23
+  right_public_validation_exit_code: 1
+  right_hidden_oracle_exit_code: 0
+  right_open_leaf_nodes: 1
+  ```
+- H-113 live status:
+  - The initial validation output contained missing statistics properties and type failures.
+  - The later generated `statistics` object emitted `totalEmployees`, `averageDepartmentBudget`, `averageYearsOfService`, `departmentSizes`, `skillDistribution`, and `projectStatusDistribution`.
+  - `skillDistribution`, `departmentSizes`, and `projectStatusDistribution` were object maps, not arrays of objects.
+  - The final public validator passed `test_statistics_calculations`.
+- New blocker signal:
+  - Schema defines `organization.departments[].projects[].members` as an array whose `items.type` is `string`.
+  - The generated output still used arrays of member objects such as `{"id": "D001-E001", "name": "...", "position": "..."}`.
+  - Public validator failed `test_relationships_integrity` with `TypeError: unhashable type: 'dict'` while iterating `for member_id in project["members"]`.
+  - The local `jsonschema` CLI repeatedly printed object values "is not of type 'string'", but without bracket-path context. Runtime did not map that unlocated item-type failure back to the `members` schema field.
+  - The provider then misread the failure as ordering/determinism and produced an indentation-broken patch.
+- Interpretation: H-113 is live-cleared for object-map statistics repair. H-114 is a feedback-layer omission for unlocated schema array item type mismatches.
+
+# Hypothesis H-114: unlocated array item type mismatches need schema-backed repair hints
+
+- Claim: Some validators emit repeated value-level messages such as `{'id': ...} is not of type 'string'` without a schema path. When a schema read is already available, runtime should join that failure with schema array item type definitions and surface repair facts such as `members expected string items`.
+- Prediction: Focused tests should show validation repair contract includes `schema_type_mismatches=members expected string items` when validation output has object-not-string item failures and the read schema defines `members.items.type=string`; implementation recovery should instruct that `expected string items` means an array of strings, not objects.
+- Diagnostic evidence plan: Add schema array item type expectation extraction from schema reads; detect unlocated object/list type mismatch lines in validation failure output; join expected primitive types to schema array item expectations in validation rework repair contract; update recovery synthesis wording and tests. Run focused tests plus validation-rework/type-mismatch/action-contract/apply-patch/replacement-required/fmt/check/build/diff gates.
+- Status: focused-fixed; real keyed rerun pending.
+
+# Evidence E-234: array item type mismatches are now preserved as schema-backed repair facts
+
+- Repair artifacts:
+  - `third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs`
+  - `third_party/codex-cli/codex-rs/core/src/session/turn.rs`
+- Repair behavior:
+  - Added schema array item type extraction for read `schema.json` evidence, including fields such as `members` with `items.type=string`.
+  - Added unlocated validation type mismatch extraction for lines like object values `is not of type 'string'`.
+  - Validation rework repair contracts now join those signals and emit `schema_type_mismatches=members expected string items`.
+  - Implementation recovery synthesis now explains `expected string items` as "emit an array of strings, not an array of objects."
+- Validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_rework_projects_schema_repair_contract_from_schema_read --lib
+    PASS: 1/1
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core array_item_type --lib
+    PASS: 1/1
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core type_mismatch --lib
+    PASS: 3/3
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_rework --lib
+    PASS: 29/29
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core action_contract_prompt --lib
+    PASS: 29/29
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core taskspace_apply_patch --lib
+    PASS: 18/18
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core replacement_required --lib
+    PASS: 1/1
+  cargo fmt --check
+    PASS (stable rustfmt warns that imports_granularity is nightly-only)
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo check -p codex-core
+    PASS
+  git diff --check
+    PASS
+  ```
+- Interpretation: H-114 is focused-fixed. Remaining gates are whale build completion, commit/push, install/attest, and keyed rerun to verify the live task converts `members` to an array of ids/strings instead of object records.
