@@ -14188,10 +14188,14 @@ fn provider_request_budget_pressure_active_for_node(
 }
 
 fn provider_request_budget_snapshot_pressure_active_for_node(
-    _snapshot: &ActionMapProviderRequestBudgetSnapshot,
+    snapshot: &ActionMapProviderRequestBudgetSnapshot,
     _node_kind: NodeKind,
 ) -> bool {
-    false
+    let rollout_limit_reached =
+        snapshot.max_requests > 0 && snapshot.request_count >= snapshot.max_requests;
+    let node_limit_reached = snapshot.max_model_requests_per_node > 0
+        && snapshot.node_request_count >= snapshot.max_model_requests_per_node;
+    rollout_limit_reached || node_limit_reached
 }
 
 fn effective_provider_node_request_limit(
@@ -29221,7 +29225,7 @@ fi\n"
     }
 
     #[test]
-    fn provider_budget_follow_up_does_not_force_finish_implementation_into_smoke_test_after_edit() {
+    fn provider_budget_node_limit_force_finishes_implementation_into_smoke_test_after_edit() {
         let mut state = ActionMapRuntimeState::default();
         let owner = ThreadId::new();
         state.set_mode(MapRuntimeMode::Experiment);
@@ -29280,9 +29284,96 @@ fi\n"
             .force_finish_implement_for_provider_budget(
                 owner,
                 &snapshot,
-                "budget_pressure_follow_up_intent",
+                "implement_observed_edit_after_tool_drain",
             )
             .expect("profile hint follow-up should not error");
+
+        let (outcome, events) =
+            forced.expect("successful edit at node limit should force validation");
+        let next_node_id = outcome
+            .next_node_id
+            .as_deref()
+            .expect("forced implementation transition should create validation node");
+        let map = state.active_map().expect("active map");
+        let implement_node = map.nodes.get(&node_id).expect("implement node");
+        assert_eq!(implement_node.status, NodeStatus::Completed);
+        let validation_node = map
+            .nodes
+            .get(next_node_id)
+            .expect("validation node should exist");
+        assert_eq!(validation_node.kind, NodeKind::SmokeTest);
+        assert_eq!(validation_node.status, NodeStatus::Running);
+        assert_eq!(state.current_main_node_id.as_deref(), Some(next_node_id));
+        assert!(events.iter().any(|event| matches!(
+            event,
+            MapRuntimeEvent::TaskspaceTraceEventRecorded(recorded)
+                if recorded.kind == "forced_implement_transition"
+        )));
+    }
+
+    #[test]
+    fn provider_budget_below_node_limit_does_not_force_finish_implementation_after_edit() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (_, map_id, node_id, _) = start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::ImplementSolution,
+            "Budget pressure implementation",
+            "Provider response follow-up should not converge before the node limit.",
+            "Budget pressure implementation",
+            "Provider response follow-up should not converge before the node limit.",
+            true,
+        );
+        state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new("apply_patch", ActionClass::Edit, "patch")
+                    .with_call_id("edit-1"),
+            )
+            .expect("edit should be allowed");
+        state
+            .record_main_tool_result(
+                owner,
+                "edit-1",
+                "apply_patch",
+                true,
+                "fixed src/tax_calc.py rounding precision".to_string(),
+            )
+            .expect("edit result records");
+        state.provider_request_count = 4;
+        let snapshot = ActionMapProviderRequestBudgetSnapshot {
+            task_id: state.active_task_id.clone(),
+            map_id: map_id.clone(),
+            node_id: Some(node_id.clone()),
+            node_kind: Some(NodeKind::ImplementSolution.as_str().to_string()),
+            current_node_progress_signature: None,
+            current_node_has_successful_edit: true,
+            current_node_has_dependency_working_evidence: false,
+            current_node_has_uncovered_mandatory_evidence: false,
+            current_node_uncovered_mandatory_evidence: Vec::new(),
+            current_node_validation_rework_artifacts: Vec::new(),
+            route_mode: Some("thin".to_string()),
+            profile_name: Some("taskspace-v005-thin".to_string()),
+            request_phase: Some("model_sampling".to_string()),
+            provider_request_context_missing_reason: None,
+            request_count: 4,
+            max_requests: 10,
+            node_request_count: 2,
+            max_model_requests_per_node: 3,
+            post_budget_grace_requests: 1,
+            post_budget_grace_request_count: 0,
+            budget_state: "warned".to_string(),
+        };
+
+        let forced = state
+            .force_finish_implement_for_provider_budget(
+                owner,
+                &snapshot,
+                "implement_observed_edit_after_tool_drain",
+            )
+            .expect("below-limit follow-up should not error");
 
         assert!(forced.is_none());
         let map = state.active_map().expect("active map");

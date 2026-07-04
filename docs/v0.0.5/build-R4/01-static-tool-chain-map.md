@@ -410,3 +410,17 @@ CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale --locked
 边界说明：该 case 不是 tool executor 吞掉错误，也不是 feedback 语义缺失。失败语义已经通过
 `TaskSpaceValidationReworkDuplicateReadRecoveryV1`、`TaskSpaceGateRecoveryV1` 和 active projection 正确传达；缺口是 runtime
 把重复违反同一 patch-only gate 继续当成 advisory retry。修复只停止重复采样，不代替模型生成补丁，也不把节点伪装成业务外部 blocker。
+
+## 2026-07-04 R4-D issue type addendum: post-edit transition gap
+
+duplicate-read advisory loop 修复后的 keyed rerun 又暴露一个相邻 control/feedback case：模型已经产出成功
+`apply_patch`，action map 也记录了 `MainToolCall actionClass=edit toolSuccess=true`，但 implement node 没有在预算边界
+收束到 validation，下一轮 provider pre-dispatch 才被 hard stop 截断。
+
+| Issue type | Layer | Symptom | Resolution contract | Evidence |
+|---|---|---|---|---|
+| `post-edit-forced-validation-transition-gap` | runtime control loop / feedback layer | successful edit 已进入 action map，且 `node_request_count == max_model_requests_per_node`；runtime 未触发 `forced_implement_transition`，导致 validation 没有运行，open leaf 最终由 `TaskSpaceProviderBudgetHardStopV1` 截断 | snapshot budget pressure 采用真实 hard-limit 判断；成功 edit + node/profile 边界时强制 finish implement 并创建 smoke validation；未到边界不抢跑，未成功 edit 时仍由原 hard gate/feedback 处理 | `provider_budget_node_limit_force_finishes_implementation_into_smoke_test_after_edit`; `provider_budget_below_node_limit_does_not_force_finish_implementation_after_edit`; CoE E-087/E-088 |
+
+边界说明：该 case 不是 edit feedback 缺失。工具成功语义、artifact refs 和 action map result 都存在；缺口在成功工具执行后的
+phase transition guard。runtime 的职责边界仍然是状态机底线：只有在 implement node 已有成功 edit，且 provider/node
+预算已经到 hard-limit 边界时，才自动桥接到 validation，避免下一次 provider 请求被硬停吞掉验证机会。

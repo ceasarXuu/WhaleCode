@@ -3401,3 +3401,74 @@ CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/co
 状态：该 runtime recovery-loop class 已 focused fixed；还需要 commit/push、binary attestation 和下一轮 keyed rerun。下一轮期望不再出现
 `TaskSpaceProviderBudgetHardStopV1 reason=provider_node_request_hard_limit_exceeded` 的重复 read_file 预算耗尽形态；若模型仍不 patch，
 应以 `TaskSpaceValidationReworkDuplicateReadHardStopV1` 明确暴露，而不是继续 advisory loop。
+
+## 5.50 2026-07-04 post-edit forced validation transition
+
+duplicate-read advisory hard stop 修复、commit/push、binary attestation 后的 keyed rerun 证明 H-039 不再是当前 blocker：
+模型没有第二次重复读取同一 validation rework target，而是在第一条 duplicate-read recovery 后尝试 `apply_patch`。
+新的断点出现在成功 edit 之后：action map 已经记录 `generate_organization.py` 的成功修改，但 runtime 没有把
+implement rework 节点收束到 validation，下一次 provider dispatch 前才被 node budget hard stop 截断。
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260703al-duplicate-read-hard-stop/runs/terminal_bench__organization-json-generator/20260704-080713-106
+reported_evidence_level: E1
+outcome_standard: wrong
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 14
+right_open_leaf_nodes: 1
+public_validation_exit_code: 1
+hidden_oracle_exit_code: 0
+preflight_git_head: 23d20b5cd547ffdaed19725a38f70919af8cf672
+build_attestation_status: pass
+```
+
+关键观察：
+
+| Signal | 结论 |
+|---|---|
+| trace 中没有第二条同类 duplicate-read recovery | H-039 没有被触发；模型已经推进到 patch 尝试 |
+| `trace-208 kind=main_tool_result nodeId=node-4 resultId=result-14 callId=taskspace-action-contract-15-apply_patch actionClass=edit toolSuccess=true artifactRefs=["generate_organization.py"]` | 成功 edit 语义已经进入 action map |
+| 同一 provider request 记录 `node_request_count=5` / `max_model_requests_per_node=5` / `runtime_budget_state=thin_downgraded` | edit 发生在 implement node 请求边界 |
+| 后续没有 `TaskSpaceForcedImplementTransitionV1` / `forced_implement_transition` | post-tool-drain 收束没有执行 |
+| `whale-exec.jsonl` 以 `TaskSpaceProviderBudgetHardStopV1 ... node_request_count=5/5` 结束 | 下一轮 pre-dispatch hard stop 兜底截断，validation 没机会运行 |
+
+代码证据显示 `provider_request_budget_snapshot_pressure_active_for_node` 固定返回 `false`，导致
+`force_finish_implement_for_provider_budget` 即使看到成功 edit，也无法在 node/profile hard-limit 边界触发。
+
+本轮新增并 focused 修复的问题类型：
+
+| Case | Before | After | Evidence |
+|---|---|---|---|
+| `post-edit-forced-validation-transition-gap` | implement node 已记录成功 edit，且已到 node request hard-limit 边界；runtime 没有强制 finish 到 validation，下一次 provider request 被 `TaskSpaceProviderBudgetHardStopV1` 截断，留下 open leaf | snapshot budget-pressure predicate 使用真实 hard-limit 判断：`request_count >= max_requests` 或 `node_request_count >= max_model_requests_per_node`；成功 edit + 压力边界会触发 `forced_implement_transition` 到 smoke validation；低于边界仍不抢跑 | `provider_budget_node_limit_force_finishes_implementation_into_smoke_test_after_edit`; `provider_budget_below_node_limit_does_not_force_finish_implementation_after_edit` |
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked provider_budget
+  PASS：23 tests
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked taskspace_active_budget
+  PASS：11 tests
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked validation_rework
+  PASS：17 tests
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked validation_
+  PASS：94 tests
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked apply_patch_
+  PASS：35 tests
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked duplicate_rework
+  PASS：2 tests
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+git diff --check
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-cli --bin whale --locked
+  PASS
+```
+
+状态：该 control/feedback class 已 focused fixed；还需要 commit/push、binary attestation 和下一轮 keyed rerun。下一轮期望
+`result-14` 这类 successful edit 后出现 `TaskSpaceForcedImplementTransitionV1 trigger=implement_observed_edit_after_tool_drain`
+或等价 forced transition trace，随后进入 schema validation，而不是以 implement node hard stop 结束。

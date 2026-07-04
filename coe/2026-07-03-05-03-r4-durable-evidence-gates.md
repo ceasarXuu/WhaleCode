@@ -2178,3 +2178,62 @@
   - A recovery that already carries `repeated_blocked_action` hard-stops immediately.
   - The hard-stop item is not counted as `TaskSpaceNoActionRecoveryV1` or `TaskSpaceImplementNeedsEditRecoveryV1`.
 - Interpretation: The `validation-rework-duplicate-read-advisory-loop` class is focused-fixed at runtime recovery-loop level. This does not auto-generate the missing code patch; it prevents a correct patch-only tool failure from being diluted into repeated model retries and budget hard stop. Commit/push, binary attestation, and another keyed rerun are required before claiming live behavior.
+
+# Evidence E-087: H-039 rerun crosses duplicate-read escalation and exposes post-edit transition gap
+
+- Prediction tested: H-039 should stop repeated validation rework duplicate reads from draining the node. A rerun can still expose a different downstream tools-chain problem once the model emits a patch.
+- Real rerun:
+  ```text
+  RunDir: target/r4-org-json-real-keyed-20260703al-duplicate-read-hard-stop/runs/terminal_bench__organization-json-generator/20260704-080713-106
+  PairReport: pair-001/pair-report.md
+  reported_evidence_level: E1
+  outcome_standard: wrong
+  outcome_taskspace: engineering_unclean
+  right_exec_timed_out: False
+  right_tool_call_count: 14
+  right_open_leaf_nodes: 1
+  public_validation_exit_code: 1
+  hidden_oracle_exit_code: 0
+  preflight_git_head: 23d20b5cd547ffdaed19725a38f70919af8cf672
+  build_attestation_status: pass
+  ```
+- Matched trace signals:
+  - The trace does not repeat the same duplicate-read recovery twice; after the first duplicate-read recovery, the model attempts `apply_patch`, so H-039's hard stop is not the active blocker in this run.
+  - `rollout.jsonl` records `trace-208` as `kind=main_tool_result`, `nodeId=node-4`, `resultId=result-14`, `callId=taskspace-action-contract-15-apply_patch`, `actionClass=edit`, `toolSuccess=true`, and `artifactRefs=["generate_organization.py"]`.
+  - The same provider request records `node_request_count=5`, `max_model_requests_per_node=5`, and `runtime_budget_state=thin_downgraded`.
+  - The next actionability trace is still `response_actionability:actionable`, `recovery_action:none`, with no `TaskSpaceForcedImplementTransitionV1` / `forced_implement_transition` before the turn stops.
+  - `whale-exec.jsonl` then ends with `TaskSpaceProviderBudgetHardStopV1 reason=provider_node_request_hard_limit_exceeded request_count=15/20 node_request_count=5/5`.
+- Interpretation: The edit result semantics are present in the action map; the missing behavior is the post-edit runtime transition into validation. This is a control/feedback boundary bug after successful tool execution, not an absent or malformed edit feedback case.
+
+# Hypothesis H-040: successful implement edit at node budget boundary is not forced into validation
+
+- Claim: `force_finish_implement_for_provider_budget` is designed to close an implement node and open validation after a successful edit under provider-budget pressure, but the budget-pressure predicate is currently inert. Because `provider_request_budget_snapshot_pressure_active_for_node` returns `false`, the post-tool-drain path sees a successful edit but cannot perform the forced transition. The following provider request reaches the pre-dispatch hard stop, leaving the implement node open.
+- Prediction: Code inspection should show the pressure predicate is fixed `false`. A focused runtime test should reproduce a successful edit at `node_request_count == max_model_requests_per_node` and fail to transition before the fix. Repair should make node/profile pressure active at the hard-limit boundary and preserve the existing pre-dispatch hard stop for cases without a successful edit.
+- Diagnostic evidence plan: Replace the inert predicate with a real boundary check over node request count and profile request budget, add focused tests for implement forced transition at node hard limit and no transition below pressure, then run provider budget, taskspace active budget, validation rework, and build regressions.
+- Status: confirmed.
+
+# Evidence E-088: successful implement edit at node limit now forces validation transition
+
+- Prediction tested: H-040 requires a successful edit at the node request hard-limit boundary to close the implement node and open a validation node before the next provider pre-dispatch hard stop.
+- Repair artifact:
+  - `third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs`
+- Focused commands:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked provider_budget
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked taskspace_active_budget
+  ```
+- Adjacent regression/build commands:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked validation_rework
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked validation_
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked apply_patch_
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked duplicate_rework
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+  git diff --check
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-cli --bin whale --locked
+  ```
+- Result: passed. `provider_budget` is 23/23, `taskspace_active_budget` is 11/11, `validation_rework` is 17/17, `validation_` is 94/94, `apply_patch_` is 35/35, and `duplicate_rework` is 2/2. `cargo fmt --check` passed with existing stable rustfmt `imports_granularity` warnings; `git diff --check` and the `whale` build passed.
+- Matched test signals:
+  - `provider_budget_node_limit_force_finishes_implementation_into_smoke_test_after_edit` records an edit, builds a snapshot with `node_request_count == max_model_requests_per_node`, then observes a completed implement node, a running `SmokeTest` node, and a `forced_implement_transition` trace event.
+  - `provider_budget_below_node_limit_does_not_force_finish_implementation_after_edit` records the same successful edit below the node limit and leaves the implement node running.
+- Interpretation: The `post-edit-forced-validation-transition-gap` class is focused-fixed at runtime control/feedback level. A binary attestation and another keyed rerun are required to prove the external sample now proceeds from the successful `apply_patch` into schema validation instead of ending at `TaskSpaceProviderBudgetHardStopV1`.
