@@ -1287,3 +1287,19 @@ results 执行原有 gate。
 
 边界说明：该修复不放宽 apply_patch grammar。相反，它把 replacement-only 从泛化建议强化为目标明确的 feedback
 和重复失败控制：第一次给模型可执行 replacement scaffold，第二次仍不遵守则用专门 hard-stop 暴露该工具链失败。
+
+## 2026-07-05 R4-D issue type addendum: validation rework patch feedback budget cliff
+
+`933085f` 安装后 keyed rerun 证明 H-130 的关键下游后果已清除：runtime 不再只跑
+`python generate_organization.py`，而是执行了 `python generate_organization.py && python -m jsonschema -i organization.json schema.json`。
+新的 blocker 出现在 validation rework 恢复反馈的送达边界：runtime 已经插入
+`TaskSpaceValidationReworkPatchOnlyRecoveryV1`，但全局 provider request 已到 `20/20`，下一轮直接
+`TaskSpaceProviderBudgetHardStopV1`，模型没有机会消费“只能 patch/block”的反馈。
+
+| issue type | 层级 | 本质 | 修复 | 证据 |
+|---|---|---|---|---|
+| `validation-rework-patch-feedback-budget-cliff` | provider budget gate / validation rework feedback delivery / runtime capability boundary | runtime 生成的 patch-only feedback 被插入在普通 budget grace 已消耗之后，语义存在但无法送达模型 | 已实现：pre-dispatch gate 增加窄条件 `provider_validation_rework_patch_feedback_grace`；仅 validation rework implement 节点、目标 artifact 已知、无成功 edit、全局预算耗尽、普通 grace 已用、节点请求数恰为 1 且节点预算未耗尽时允许一次 | keyed rerun `20260705-061558-109`; CoE H-131/E-265/E-266; focused test `taskspace_active_budget_allows_validation_rework_patch_feedback_grace`; regressions `provider_budget`, `validation_rework` |
+
+边界说明：这不是提高普通 provider budget，也不是让状态机放宽 hard-stop。状态机仍提供事实：
+当前是否 validation rework、目标 artifact 是否已知、是否已有 edit；runtime 只在这些事实满足时允许一次“反馈送达”
+请求，第二次同节点请求或缺少 validation rework artifact 仍按原 hard-stop。

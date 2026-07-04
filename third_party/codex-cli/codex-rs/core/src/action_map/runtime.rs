@@ -1257,7 +1257,12 @@ impl ActionMapRuntimeState {
             < snapshot.post_budget_grace_requests
             && snapshot.request_phase.as_deref()
                 == Some(TaskSpaceProviderRequestPhase::BudgetRecovery.as_str());
-        if (rollout_limit_exceeded || node_limit_exceeded) && !grace_remaining {
+        let validation_rework_patch_feedback_grace =
+            Self::taskspace_validation_rework_patch_feedback_grace_available(snapshot);
+        if (rollout_limit_exceeded || node_limit_exceeded)
+            && !grace_remaining
+            && !validation_rework_patch_feedback_grace
+        {
             let reason = if node_limit_exceeded {
                 "provider_node_request_hard_limit_exceeded"
             } else {
@@ -1302,7 +1307,9 @@ impl ActionMapRuntimeState {
         TaskSpaceBudgetGateDecision {
             allowed: true,
             budget_state: self.budget_state,
-            reason: if snapshot.request_count < snapshot.max_requests
+            reason: if validation_rework_patch_feedback_grace {
+                "provider_validation_rework_patch_feedback_grace".to_string()
+            } else if snapshot.request_count < snapshot.max_requests
                 && snapshot.node_request_count < snapshot.max_model_requests_per_node
             {
                 "provider_request_budget_available".to_string()
@@ -1372,6 +1379,23 @@ impl ActionMapRuntimeState {
             recovery_request_phase: None,
             quality_impact_required: false,
         }
+    }
+
+    fn taskspace_validation_rework_patch_feedback_grace_available(
+        snapshot: &ActionMapProviderRequestBudgetSnapshot,
+    ) -> bool {
+        snapshot.request_phase.as_deref()
+            == Some(TaskSpaceProviderRequestPhase::BudgetRecovery.as_str())
+            && snapshot.node_kind.as_deref() == Some(NodeKind::ImplementSolution.as_str())
+            && snapshot.max_requests > 0
+            && snapshot.request_count >= snapshot.max_requests
+            && snapshot.max_model_requests_per_node > 0
+            && snapshot.node_request_count == 1
+            && snapshot.node_request_count < snapshot.max_model_requests_per_node
+            && snapshot.post_budget_grace_request_count >= snapshot.post_budget_grace_requests
+            && !snapshot.current_node_has_successful_edit
+            && snapshot.current_node_has_dependency_working_evidence
+            && !snapshot.current_node_validation_rework_artifacts.is_empty()
     }
 
     fn reconstruct_budget_state_from_trace_events(&mut self) {
@@ -20182,6 +20206,58 @@ mod tests {
                 .iter()
                 .any(|item| item == "post_budget_grace:1/1")
         );
+    }
+
+    #[test]
+    fn taskspace_active_budget_allows_validation_rework_patch_feedback_grace() {
+        let mut state = ActionMapRuntimeState::default();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let mut snapshot = ActionMapProviderRequestBudgetSnapshot {
+            task_id: None,
+            map_id: "map-1".to_string(),
+            node_id: Some("node-rework".to_string()),
+            node_kind: Some(NodeKind::ImplementSolution.as_str().to_string()),
+            current_node_progress_signature: Some(4),
+            current_node_has_successful_edit: false,
+            current_node_has_dependency_working_evidence: true,
+            current_node_has_uncovered_mandatory_evidence: false,
+            current_node_uncovered_mandatory_evidence: Vec::new(),
+            current_node_validation_rework_artifacts: vec!["generate_organization.py".to_string()],
+            route_mode: Some(TaskSpaceRouteMode::Deep.as_str().to_string()),
+            profile_name: Some("taskspace-v005-deep".to_string()),
+            request_phase: Some(
+                TaskSpaceProviderRequestPhase::BudgetRecovery
+                    .as_str()
+                    .to_string(),
+            ),
+            provider_request_context_missing_reason: None,
+            request_count: 20,
+            max_requests: 20,
+            node_request_count: 1,
+            max_model_requests_per_node: 5,
+            post_budget_grace_requests: 1,
+            post_budget_grace_request_count: 1,
+            budget_state: TaskSpaceBudgetState::OverProfileHint.as_str().to_string(),
+        };
+
+        let decision = state.gate_provider_request_pre_dispatch(&snapshot);
+
+        assert!(decision.allowed);
+        assert_eq!(
+            decision.reason,
+            "provider_validation_rework_patch_feedback_grace"
+        );
+
+        snapshot.node_request_count = 2;
+        let decision = state.gate_provider_request_pre_dispatch(&snapshot);
+        assert!(!decision.allowed);
+        assert_eq!(decision.reason, "provider_request_hard_limit_exceeded");
+
+        snapshot.node_request_count = 1;
+        snapshot.current_node_validation_rework_artifacts.clear();
+        let decision = state.gate_provider_request_pre_dispatch(&snapshot);
+        assert!(!decision.allowed);
+        assert_eq!(decision.reason, "provider_request_hard_limit_exceeded");
     }
 
     #[test]

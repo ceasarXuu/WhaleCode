@@ -7918,3 +7918,94 @@
   ```
 - Interpretation: H-130 is focused-fixed. Remaining gates are commit/push, install/attest, and
   keyed rerun to verify start-task semantic loss no longer causes generator-only validation closeout.
+
+# Evidence E-265: H-130 rerun clears generator-only validation but exposes patch-feedback budget cliff
+
+- Real rerun:
+  ```text
+  RunDir: target/r4-org-json-real-keyed-20260705ay-start-task-alias-gate/runs/terminal_bench__organization-json-generator/20260705-061558-109
+  reported_evidence_level: E1
+  outcome_standard: wrong
+  outcome_taskspace: engineering_unclean
+  right_exec_timed_out: False
+  right_tool_call_count: 21
+  right_public_validation_exit_code: 1
+  right_hidden_oracle_exit_code: 0
+  right_nodes: 8
+  right_edges: 7
+  right_open_leaf_nodes: 1
+  ```
+- H-130 live status:
+  - The harmful generator-only validation consequence cleared.
+  - Runtime preserved `organization.json` output contract and `departments.csv`, `employees.csv`, `projects.csv`,
+    `schema.json` fact sources.
+  - Runtime recovery executed the coverage-correct command
+    `python generate_organization.py && python -m jsonschema -i organization.json schema.json`.
+  - The command failed with concrete implementation feedback:
+    `ValueError: invalid literal for int() with base 10: 'D001-E001'`.
+- New blocker signals:
+  - After the validation failure, runtime created an `implement_solution` rework node and inserted
+    `TaskSpaceImplementNeedsEditRecoveryV1`.
+  - Provider request `19->20` consumed the remaining budget-recovery request by reading
+    `generate_organization.py`.
+  - The read was successful and complete:
+    `TaskSpaceReadFileSummaryV1: path=generate_organization.py lines_read=116 eof_reached=true max_lines=240`.
+  - Runtime then inserted `TaskSpaceValidationReworkPatchOnlyRecoveryV1` because the target file contents and repair
+    contract were available, but the next pre-dispatch immediately hard-stopped:
+    `TaskSpaceProviderBudgetHardStopV1 reason=provider_request_hard_limit_exceeded request_count=20/20
+    node_request_count=1/5 state=over_profile_hint node_kind=implement_solution phase=budget_recovery`.
+- Interpretation: H-131 is a feedback-delivery budget gap. Runtime generated the correct patch-only feedback, but the
+  feedback was inserted after the only generic budget grace had already been consumed by the target read, so the model
+  never had a chance to apply the repair.
+
+# Hypothesis H-131: validation rework patch-only feedback needs one bounded delivery grace at the budget cliff
+
+- Claim: When validation rework reaches the provider budget cliff after a single rework-node request that successfully
+  reads the target artifact, runtime must allow exactly one additional provider request to consume its own patch-only
+  recovery feedback. Otherwise a correct feedback item is semantically present in history but operationally undeliverable.
+- Prediction:
+  - The pre-dispatch provider budget gate should allow a request with reason
+    `provider_validation_rework_patch_feedback_grace` only when all of these are true:
+    current phase is `budget_recovery`, current node is `implement_solution`, rollout budget is exhausted, generic
+    post-budget grace is already consumed, node request count is exactly `1`, node limit is not exceeded, no successful
+    edit is recorded, dependency validation rework evidence exists, and validation rework target artifacts are known.
+  - The same gate must still hard-stop when the rework node has already consumed more than one request.
+  - The same gate must still hard-stop when no validation rework artifact is known.
+  - Existing provider-budget, validation-rework, fmt/check/build gates must continue to pass.
+- Diagnostic evidence plan: Add a focused runtime budget-gate test for the exact exhausted-budget snapshot and its
+  negative boundaries; rerun provider_budget, validation_rework, fmt/check/build/diff gates.
+- Status: focused-fixed; install and keyed rerun pending.
+
+# Evidence E-266: validation rework patch-feedback delivery grace is focused-fixed
+
+- Repair artifact:
+  - `third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs`
+- Repair behavior:
+  - Provider pre-dispatch budget gate now recognizes a narrow
+    `provider_validation_rework_patch_feedback_grace` condition.
+  - The allowance is limited to validation rework `implement_solution` nodes with known target artifacts, no successful
+    edit, exhausted rollout budget, consumed generic grace, node request count exactly `1`, and remaining per-node
+    budget.
+  - Ordinary exhausted-budget cases, second rework-node requests, missing rework artifacts, and node-limit exhaustion
+    still hard-stop.
+- Regression:
+  - `taskspace_active_budget_allows_validation_rework_patch_feedback_grace`
+- Validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core taskspace_active_budget_allows_validation_rework_patch_feedback_grace -- --nocapture
+    PASS: 1/1
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core provider_budget -- --nocapture
+    PASS: 23/23
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_rework -- --nocapture
+    PASS: 32/32
+  cargo fmt --check
+    PASS
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo check -p codex-core
+    PASS
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
+    PASS
+  git diff --check
+    PASS
+  ```
+- Interpretation: H-131 is focused-fixed. Remaining gates are commit/push, install/attest, and keyed rerun to verify
+  that patch-only feedback is actually consumed rather than ending in provider budget hard-stop.

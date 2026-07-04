@@ -1732,6 +1732,50 @@ CODEX_SKIP_VENDORED_BWRAP=1 cargo check -p codex-core
 CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
 ```
 
+## 5.96 2026-07-05 validation rework patch-only 反馈预算悬崖
+
+`933085f` 安装后 keyed rerun live-clear 了 H-130 的主要风险：start_task initial contracts/fact sources 被保留，
+runtime recovery 能执行 schema-aware validation，而不是 generator-only 验证。
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260705ay-start-task-alias-gate/runs/terminal_bench__organization-json-generator/20260705-061558-109
+reported_evidence_level: E1
+outcome_standard: wrong
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 21
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+right_nodes: 8
+right_edges: 7
+right_open_leaf_nodes: 1
+```
+
+收益判断：
+
+1. H-130 的 harmful downstream consequence 已清除：`organization.json` output contract 与 `schema.json`
+   fact source 存在，runtime recovery 执行 `python generate_organization.py && python -m jsonschema -i organization.json schema.json`。
+2. 新收录的 R4-D 反馈层问题是 `validation-rework-patch-feedback-budget-cliff`：验证失败后 runtime
+   成功创建 rework node，provider 用最后一次 budget recovery 读取完整 target file，runtime 随后插入 patch-only recovery，
+   但下一轮 provider request 因 `20/20` hard-stop 无法消费该反馈。
+3. 修复后 provider pre-dispatch gate 只在 validation rework implement 节点、目标 artifact 已知、无成功 edit、
+   普通 post-budget grace 已消耗、节点请求数恰为 1 且节点预算未耗尽时，允许一次
+   `provider_validation_rework_patch_feedback_grace`。
+4. R4-G utility 仍未通过：需要下一次 keyed rerun 验证模型是否能消费 patch-only feedback 并进入实际 patch/validation
+   闭环。
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core taskspace_active_budget_allows_validation_rework_patch_feedback_grace -- --nocapture
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core provider_budget -- --nocapture
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_rework -- --nocapture
+cargo fmt --check
+CODEX_SKIP_VENDORED_BWRAP=1 cargo check -p codex-core
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
+git diff --check
+```
+
 ## 5.105 2026-07-05 replacement-required recovery budget loop
 
 `efb0faf` 安装后 keyed rerun 证明 H-126 的 schema rediscovery hard-stop 已 live-clear：TaskSpace 不再停在

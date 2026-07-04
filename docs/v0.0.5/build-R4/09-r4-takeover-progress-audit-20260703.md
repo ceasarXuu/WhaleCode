@@ -2459,6 +2459,39 @@ current_git_head: 9f370ddfa3f12397ed1d966b321b5e1f0a86c3b2
 
 状态：focused 修复已编码；仍需 focused/regression、fmt/build、commit/push、attestation、keyed rerun。
 
+## 59. 2026-07-05 validation rework patch feedback budget cliff
+
+`933085f` 后的 keyed rerun 说明 R4 已推进到更深的 feedback-delivery 边界：validation command 现在能真实运行，
+失败也能生成 rework node，但 runtime 自己插入的 patch-only feedback 没有获得一次可消费的 provider request。
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260705ay-start-task-alias-gate/runs/terminal_bench__organization-json-generator/20260705-061558-109
+reported_evidence_level: E1
+outcome_standard: wrong
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 21
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+right_nodes: 8
+right_edges: 7
+right_open_leaf_nodes: 1
+```
+
+问题类型收录：
+
+| 字段 | 内容 |
+|---|---|
+| case | `validation-rework-patch-feedback-budget-cliff` |
+| 层级 | provider budget gate / validation rework feedback delivery |
+| 本质 | `TaskSpaceValidationReworkPatchOnlyRecoveryV1` 在普通 budget grace 已被 rework target read 消耗后才插入，下一轮直接 hard-stop，反馈无法送达模型 |
+| 非根因 | 不是 validation command 缺失；不是 start_task contracts/fact sources 丢失；不是 patch-only recovery 文案缺失；不是简单预算不足 |
+| 修复 | provider pre-dispatch gate 增加窄条件 `provider_validation_rework_patch_feedback_grace`，只给 validation rework implement 节点一次反馈送达机会 |
+| focused evidence | CoE H-131/E-265/E-266；`taskspace_active_budget_allows_validation_rework_patch_feedback_grace`；`provider_budget` 23/23；`validation_rework` 32/32；fmt/check/build/diff |
+
+状态：focused 修复已编码并通过相关回归、fmt/diff/check/build。下一步是 commit/push、install/attest、keyed rerun，
+验证 patch-only feedback 是否能被模型消费并进入实际修复闭环。
+
 ## 56. 2026-07-05 validation node provider-budget bootstrap
 
 `d37a7f1` 后 keyed rerun 证明 H-127 replacement-required recovery loop 已 live-clear。新的 blocker 是 validation 节点
