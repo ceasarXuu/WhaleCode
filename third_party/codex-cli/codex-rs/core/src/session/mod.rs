@@ -1774,6 +1774,16 @@ impl Session {
         Ok(result_id)
     }
 
+    pub(crate) async fn validate_action_map_terminal_blocker(
+        &self,
+        blocker_summary: &str,
+    ) -> Result<(), String> {
+        let state = self.state.lock().await;
+        state
+            .action_map_runtime
+            .validate_terminal_blocker(blocker_summary)
+    }
+
     pub(crate) async fn record_action_map_success_criteria(
         &self,
         turn_context: &TurnContext,

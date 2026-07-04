@@ -1522,6 +1522,43 @@ set -a; . ./.env.local; set +a; powershell -NoProfile -ExecutionPolicy Bypass -F
 git diff --check
 ```
 
+## 5.95 2026-07-05 terminal blocked observed fact-source contradiction
+
+`fc7cae1` keyed rerun 越过 H-108 的 replacement-only hard-stop，但右侧 TaskSpace 仍未生成 `organization.json`。
+关键证据不是工具读取失败，而是反馈层语义反转：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260705ac-replacement-required-gate/runs/terminal_bench__organization-json-generator/20260705-002052-730
+reported_evidence_level: E2-candidate
+outcome_standard: solved
+outcome_taskspace: engineering_unclean
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+right_open_leaf_nodes: 0
+```
+
+收益判断：
+
+1. H-108 live-crossed：`TaskSpaceApplyPatchRecoveryHardStopV1` replacement-only loop 未复现。
+2. 新问题是 `terminal-blocked-observed-fact-source-contradiction`：terminal `blocked node_id:null` 绕过普通 `block_node`
+   证据矛盾校验，把已观察到的 CSV/schema 声明成“不存在”。
+3. focused fix 已让 terminal `blocked` 接入 observed required fact-source gate；矛盾 blocker 会变成 follow-up feedback，
+   不再直接结束任务。
+4. R4-G utility 仍未通过，需真实 keyed rerun 验证 live 闭环。
+
+验证：
+
+```text
+CoE: H-109/E-223/E-224
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core terminal_blocker_rejects_missing_fact_sources_after_bootstrap_read --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core missing_fact_source --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core missing_source_blocker --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core action_contract_prompt --lib
+cargo fmt --check
+CODEX_SKIP_VENDORED_BWRAP=1 cargo check -p codex-core
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
+```
+
 结论：该 case 的 feedback-layer 语义已修复并纳入 R4 coverage；R4 验收仍需真实 keyed rerun 证明
 `organization-json-generator` 不再在同类 tool-runtime failure 上 900s timeout。
 

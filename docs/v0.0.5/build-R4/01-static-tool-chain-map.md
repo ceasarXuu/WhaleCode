@@ -990,3 +990,16 @@ hard-stop excerpt 明确包含 `whole-file native replacement`、`Delete File + 
 
 边界说明：该问题不是 H-107 文案未到达模型，而是文案到达后缺少状态化强制。当前 focused fix 已把 recovery-state
 落到 action-contract 约束；真实 keyed rerun 仍需确认 live 链路是否完全闭合。
+
+## 2026-07-05 R4-D issue type addendum: terminal blocked fact-source contradiction
+
+`fc7cae1` 后 keyed rerun 越过 replacement-only hard-stop，但暴露新的反馈层问题：系统已通过 `rg --files`、
+`read_file schema.json` 和 missing fact-source bootstrap 读取 CSV/schema，最终 terminal `blocked` 却声称这些文件不在
+workspace，导致任务以 false local infrastructure blocker 结束。
+
+| Issue type | Layer | Symptom | Resolution contract | Evidence |
+|---|---|---|---|---|
+| `terminal-blocked-observed-fact-source-contradiction` | terminal blocked gate / feedback truthfulness | 已观察 required fact sources 后，`blocked node_id:null` 仍可声明这些文件缺失并终止任务 | 已实现：terminal `blocked` 接入 observed required fact-source gate；若 blocker 声称已观察文件 missing/not present/not found，则拒绝并反馈继续基于现有证据推进 | keyed rerun `20260705-002052-730`; CoE H-109/E-223/E-224; focused tests `terminal_blocker_rejects_missing_fact_sources_after_bootstrap_read`, `missing_fact_source`, `missing_source_blocker`, `action_contract_prompt` |
+
+边界说明：这不是文件工具失败，也不是 runner 没提供 CSV/schema；日志证明文件已列出并读取。问题是 terminal blocker
+路径绕过了普通 `block_node` 的证据矛盾校验。

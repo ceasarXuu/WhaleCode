@@ -3403,6 +3403,34 @@ final_marker: TaskSpaceApplyPatchRecoveryHardStopV1
 
 状态：focused fixed，待 install/attest 和真实 keyed rerun 确认 live 闭环。
 
+## 38. 2026-07-05 terminal blocked fact-source contradiction
+
+`fc7cae1` 安装后 keyed rerun：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260705ac-replacement-required-gate/runs/terminal_bench__organization-json-generator/20260705-002052-730
+reported_evidence_level: E2-candidate
+outcome_standard: solved
+outcome_taskspace: engineering_unclean
+right_tool_call_count: 10
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+right_open_leaf_nodes: 0
+```
+
+H-108 的 replacement-only hard-stop 未复现，但出现新问题：
+
+| 字段 | 内容 |
+|---|---|
+| case | `terminal-blocked-observed-fact-source-contradiction` |
+| 层级 | terminal blocked gate / feedback truthfulness |
+| 本质 | `rg --files`、`read_file schema.json`、missing fact-source bootstrap 已证明 CSV/schema 存在，terminal `blocked node_id:null` 仍声明它们不在 workspace |
+| 非根因 | 不是文件工具失败；不是 runner 未提供输入文件；不是 replacement-required patch recovery |
+| 修复 | terminal `blocked` 现在调用 observed required fact-source gate；若 blocker 声称已观察的 required fact-source missing/not present/not found，则拒绝为 follow-up |
+| evidence | CoE H-109/E-223/E-224；keyed rerun `20260705-002052-730`；focused tests `terminal_blocker_rejects_missing_fact_sources_after_bootstrap_read`, `missing_fact_source`, `missing_source_blocker`, `action_contract_prompt`；fmt/check/build |
+
+状态：focused fixed，待 install/attest 和真实 keyed rerun 确认 false local-infra blocker 不再终止任务。
+
 ## 28. 2026-07-04 natural-language slash fact-source extraction
 
 `3b6b269` 后的 keyed rerun 没有触发 no-action recovery，因此 H-098 尚未 live-clear。该轮暴露 inspect fact-source

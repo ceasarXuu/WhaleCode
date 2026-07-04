@@ -5803,6 +5803,31 @@ preview:\n\
         Ok((blocker_result_id, events))
     }
 
+    pub(crate) fn validate_terminal_blocker(&self, blocker_summary: &str) -> Result<(), String> {
+        let Some(map_id) = self.active_map_id.as_deref() else {
+            return Ok(());
+        };
+        let Some(task_id) = self.active_task_id.as_deref() else {
+            return Ok(());
+        };
+        let Some(map) = self.maps.get(map_id) else {
+            return Ok(());
+        };
+        let Some(task) = self.tasks.get(task_id) else {
+            return Ok(());
+        };
+        let observed_required = observed_required_fact_source_artifacts(task, map);
+        let contradicted =
+            blocker_missing_observed_fact_source_artifacts(blocker_summary, &observed_required);
+        if contradicted.is_empty() {
+            return Ok(());
+        }
+        Err(format!(
+            "TaskSpace terminal blocked response cannot claim required fact-source artifact(s) are missing because inspect evidence already observed them: {}. Next valid action: continue from the existing evidence, create or route to an implementation/validation node if needed, run the processor/validator, and block only for a specific external blocker not contradicted by recorded evidence.",
+            contradicted.join(", ")
+        ))
+    }
+
     pub(crate) fn record_output_contract_for_main(
         &mut self,
         owner_session_id: ThreadId,
@@ -15860,6 +15885,31 @@ fn inspect_missing_required_fact_source_artifacts(
         .collect()
 }
 
+fn observed_required_fact_source_artifacts(
+    task: &TaskState,
+    map: &ActionMapInstance,
+) -> Vec<String> {
+    let required = task_required_fact_source_artifact_refs(task);
+    if required.is_empty() {
+        return Vec::new();
+    }
+    let mut observed = Vec::new();
+    for node in map.nodes.values() {
+        if node.kind != NodeKind::InspectCodeContext {
+            continue;
+        }
+        for artifact in inspect_node_observed_artifact_refs(map, node) {
+            if required
+                .iter()
+                .any(|required| artifact_refs_match(required, &artifact))
+            {
+                push_unique_artifact_ref(&mut observed, artifact);
+            }
+        }
+    }
+    observed
+}
+
 fn inspect_node_observed_artifact_refs(map: &ActionMapInstance, node: &MapNode) -> Vec<String> {
     let mut artifact_refs = Vec::new();
     for result_ref in &node.result_context {
@@ -16600,6 +16650,40 @@ fn blocker_claims_missing_inspected_source_evidence(blocker_summary: &str) -> bo
         || lower.contains("lacks visibility")
         || lower.contains("cannot guess");
     source_subject && missing_claim
+}
+
+fn blocker_missing_observed_fact_source_artifacts(
+    blocker_summary: &str,
+    observed_artifacts: &[String],
+) -> Vec<String> {
+    let lower = blocker_summary.to_ascii_lowercase();
+    let absence_claim = lower.contains("missing")
+        || lower.contains("not present")
+        || lower.contains("not available")
+        || lower.contains("not provided")
+        || lower.contains("not found")
+        || lower.contains("does not exist")
+        || lower.contains("cannot be found")
+        || lower.contains("cannot access")
+        || lower.contains("cannot read")
+        || lower.contains("without these files")
+        || lower.contains("without required input");
+    if !absence_claim {
+        return Vec::new();
+    }
+    let mut contradicted = Vec::new();
+    for artifact in observed_artifacts {
+        let normalized = normalize_artifact_ref(artifact);
+        let lower_artifact = normalized.to_ascii_lowercase();
+        let basename = lower_artifact
+            .rsplit('/')
+            .next()
+            .unwrap_or(lower_artifact.as_str());
+        if lower.contains(&lower_artifact) || lower.contains(basename) {
+            push_unique_artifact_ref(&mut contradicted, normalized);
+        }
+    }
+    contradicted
 }
 
 fn blocker_claims_validation_procedure_instead_of_implementation_fix(
@@ -29705,6 +29789,16 @@ def normalize_status(value: str) -> str:\n\
             "Inspect schema.json and CSV input data.",
             true,
         );
+        record_required_fact_source_artifacts(
+            &mut state,
+            owner,
+            &[
+                "schema.json",
+                "departments.csv",
+                "employees.csv",
+                "projects.csv",
+            ],
+        );
         state
             .record_main_tool_result_with_class(
                 owner,
@@ -29790,6 +29884,93 @@ Madrid,In Progress,D001-E001,2025-06-30,D001\n"
 
         assert!(error.contains("missing source visibility"), "{error}");
         assert!(error.contains("apply_patch"), "{error}");
+    }
+
+    #[test]
+    fn terminal_blocker_rejects_missing_fact_sources_after_bootstrap_read() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (_, map_id, node_id, _) = start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::InspectCodeContext,
+            "Generate organization output",
+            "Read CSV files and schema before implementation.",
+            "Inspect schema and CSV inputs",
+            "Inspect schema.json and CSV input data.",
+            true,
+        );
+        record_required_fact_source_artifacts(
+            &mut state,
+            owner,
+            &[
+                "schema.json",
+                "departments.csv",
+                "employees.csv",
+                "projects.csv",
+            ],
+        );
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "list-files",
+                "shell_command",
+                Some(ActionClass::Read),
+                true,
+                "raw_output:\n\
+schema.json\n\
+departments.csv\n\
+employees.csv\n\
+projects.csv\n"
+                    .to_string(),
+            )
+            .expect("listing records");
+        record_successful_read_result(&mut state, owner, "schema", "schema.json");
+        record_successful_read_result(&mut state, owner, "departments", "departments.csv");
+        record_successful_read_result(&mut state, owner, "employees", "employees.csv");
+        record_successful_read_result(&mut state, owner, "projects", "projects.csv");
+        let snapshot = ActionMapProviderRequestBudgetSnapshot {
+            task_id: state.active_task_id.clone(),
+            map_id,
+            node_id: Some(node_id),
+            node_kind: Some(NodeKind::InspectCodeContext.as_str().to_string()),
+            current_node_progress_signature: None,
+            current_node_has_successful_edit: false,
+            current_node_has_dependency_working_evidence: false,
+            current_node_has_uncovered_mandatory_evidence: false,
+            current_node_uncovered_mandatory_evidence: Vec::new(),
+            current_node_validation_rework_artifacts: Vec::new(),
+            route_mode: Some("thin".to_string()),
+            profile_name: Some("taskspace-v005-thin".to_string()),
+            request_phase: Some("model_sampling".to_string()),
+            provider_request_context_missing_reason: None,
+            request_count: 3,
+            max_requests: 20,
+            node_request_count: 3,
+            max_model_requests_per_node: 5,
+            post_budget_grace_requests: 1,
+            post_budget_grace_request_count: 0,
+            budget_state: "normal".to_string(),
+        };
+        state
+            .force_finish_inspect_for_provider_budget(
+                owner,
+                &snapshot,
+                "inspect_missing_fact_source_bootstrap_complete",
+            )
+            .expect("force finish should not error")
+            .expect("force finish should create implement node");
+
+        let error = state
+            .validate_terminal_blocker(
+                "Local infrastructure blocker: The required CSV input files (departments.csv, employees.csv, projects.csv) and schema.json are not present in the workspace. Without these files, the processor cannot be executed.",
+            )
+            .expect_err("terminal blocker must not contradict observed fact-source evidence");
+
+        assert!(error.contains("terminal blocked response"), "{error}");
+        assert!(error.contains("departments.csv"), "{error}");
+        assert!(error.contains("schema.json"), "{error}");
     }
 
     #[test]

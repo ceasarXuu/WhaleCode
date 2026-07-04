@@ -14257,6 +14257,13 @@ Continue the same task; do not treat the previous response as final. Correct the
     )
 }
 
+fn taskspace_blocked_gate_rejection_followup(error: &str) -> String {
+    format!(
+        "TaskSpace blocked response rejected by terminal blocker gate. Rejection reason: {error}\n\
+Continue the same task; do not treat the previous response as final blocked. Correct the specific rejection reason before emitting blocked again."
+    )
+}
+
 async fn record_taskspace_observed_implement_edit(
     sess: &Arc<Session>,
     turn_context: &Arc<TurnContext>,
@@ -14804,7 +14811,7 @@ async fn try_run_sampling_request(
                             }
                         }
                         Ok((action, Some(final_message), None)) => {
-                            let final_answer_gate_error = if action.action == "final_answer" {
+                            let terminal_gate_error = if action.action == "final_answer" {
                                 match sess
                                     .record_action_map_main_final_response(
                                         &turn_context,
@@ -14815,14 +14822,25 @@ async fn try_run_sampling_request(
                                     Ok(_) => None,
                                     Err(error) => Some(error),
                                 }
+                            } else if action.action == "blocked" {
+                                match sess
+                                    .validate_action_map_terminal_blocker(&final_message)
+                                    .await
+                                {
+                                    Ok(_) => None,
+                                    Err(error) => Some(error),
+                                }
                             } else {
                                 None
                             };
-                            if let Some(error) = final_answer_gate_error {
+                            if let Some(error) = terminal_gate_error {
                                 needs_follow_up = true;
                                 saw_actionable_output = true;
-                                last_agent_message =
-                                    Some(taskspace_final_answer_gate_rejection_followup(&error));
+                                last_agent_message = Some(if action.action == "blocked" {
+                                    taskspace_blocked_gate_rejection_followup(&error)
+                                } else {
+                                    taskspace_final_answer_gate_rejection_followup(&error)
+                                });
                             } else {
                                 apply_taskspace_terminal_action_message(
                                     &mut needs_follow_up,

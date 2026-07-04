@@ -6470,3 +6470,63 @@
     PASS
   ```
 - Interpretation: H-108 is focused-fixed. The next gate is install/attest and a keyed rerun to determine whether replacement-required feedback closes the live loop or exposes the next tools-chain issue.
+
+# Evidence E-223: H-108 rerun crosses replacement-required hard-stop and exposes terminal blocker contradiction
+
+- Real rerun:
+  ```text
+  RunDir: target/r4-org-json-real-keyed-20260705ac-replacement-required-gate/runs/terminal_bench__organization-json-generator/20260705-002052-730
+  reported_evidence_level: E2-candidate
+  outcome_standard: solved
+  outcome_taskspace: engineering_unclean
+  right_exec_timed_out: False
+  right_tool_call_count: 10
+  right_public_validation_exit_code: 1
+  right_hidden_oracle_exit_code: 0
+  right_open_leaf_nodes: 0
+  ```
+- H-108 live status:
+  - The previous `TaskSpaceApplyPatchRecoveryHardStopV1` loop did not recur.
+  - The run progressed through implementation and validation; final failure was public validation missing `/app/organization.json`, not replacement-only patch grammar.
+- New blocker signal:
+  - `whale-exec.jsonl` recorded `rg --files .` returning `schema.json`, `departments.csv`, `employees.csv`, and `projects.csv`.
+  - `read_file schema.json` succeeded with `TaskSpaceReadFileSummaryV1`.
+  - `TaskSpaceMissingFactSourceBootstrapV1` read the three CSV files successfully after duplicate inspect reads.
+  - The final terminal action was still `blocked_by_taskspace_action_contract` claiming those same required CSV files and `schema.json` were not present in the workspace.
+- Interpretation: H-108 is live-crossed. The next issue is a feedback-layer terminal blocker gate gap: a final `blocked` action with `node_id:null` bypasses the same evidence contradiction checks that reject invalid `block_node` blockers.
+
+# Hypothesis H-109: terminal blocked must reject missing fact-source claims contradicted by inspect evidence
+
+- Claim: A TaskSpace terminal `blocked` response must not claim required fact-source artifacts are absent when task evidence already observed those artifacts through `list_files`, `read_file`, or missing-fact-source bootstrap reads. Otherwise final synthesis can turn present evidence into a false local infrastructure blocker and end the task without producing required artifacts.
+- Prediction: A focused test should record required fact sources, record successful inspect reads for schema/CSV artifacts, force transition beyond inspect, then validate a terminal blocker that claims those artifacts are not present. The terminal blocker gate should reject it and instruct the agent to continue from existing evidence.
+- Diagnostic evidence plan: Add a runtime terminal blocker validator scoped to observed required fact sources, wire `blocked` terminal actions through it in the turn loop, run focused missing-fact-source and terminal-blocker tests plus missing-source/action-contract regressions and fmt/check/build/diff gates.
+- Status: focused-fixed; real keyed rerun pending.
+
+# Evidence E-224: terminal blocked now rejects observed fact-source absence contradictions
+
+- Repair artifacts:
+  - `third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs`
+  - `third_party/codex-cli/codex-rs/core/src/session/mod.rs`
+  - `third_party/codex-cli/codex-rs/core/src/session/turn.rs`
+- Repair behavior:
+  - Runtime now computes required fact-source artifacts that have already been observed by inspect evidence.
+  - Terminal `blocked` messages are rejected when they claim those observed required artifacts are missing/not present/not found/unavailable.
+  - The turn loop applies this gate before accepting `blocked` as a terminal action; rejected blockers become provider-visible follow-up feedback instead of ending the task.
+- Validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core terminal_blocker_rejects_missing_fact_sources_after_bootstrap_read --lib
+    PASS: 1/1
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core missing_fact_source --lib
+    PASS: 7/7
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core missing_source_blocker --lib
+    PASS: 3/3
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core action_contract_prompt --lib
+    PASS: 29/29
+  cargo fmt --check
+    PASS (stable rustfmt warns that imports_granularity is nightly-only)
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo check -p codex-core
+    PASS
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
+    PASS
+  ```
+- Interpretation: H-109 is focused-fixed. Remaining gates are `git diff --check`, commit/push, install/attest, and a keyed rerun to verify the false local-infrastructure blocker no longer terminates the live task.
