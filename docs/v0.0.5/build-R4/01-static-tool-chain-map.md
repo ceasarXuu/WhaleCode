@@ -525,3 +525,18 @@ success-criteria fact-source 修复后的 keyed rerun 证明输入覆盖已经�
 
 边界说明：该 case 不是状态机放宽重复读，也不是要无限重试。runtime 仍拒绝重复读；区别是第一次拒绝产生的强语义需要被发送给
 provider 一轮，随后仍不 patch 才终止。
+
+## 2026-07-04 R4-D issue type addendum: validation rework block rejection wording drift
+
+complete-read recovery 修复后的 keyed rerun 证明第一层 hard-stop timing 已清除，但暴露了下一层反馈语义漂移。
+runtime 正确拒绝了 validation rework 中的 `"action":"blocked"`，错误理由是“还需要读 `schema.json` / test expectations 才能修
+`process.py`”；runtime 返回的新句式是 `dependency evidence already identifies the implementation artifact or validation rework target`。
+session 旧识别只匹配 `already recorded implementation source evidence`，导致这条正确 rejection 没被结构化为
+`missing_source_visibility_blocker_rejected`，后续退回 patch-only hard-stop。
+
+| Issue type | Layer | Symptom | Resolution contract | Evidence |
+|---|---|---|---|---|
+| `validation-rework-block-rejection-wording-drift` | action-contract feedback classification / validation rework recovery | runtime 已拒绝 missing-source blocker，但 session 未识别新 wording，provider 没收到结构化 `block_node rejected -> apply_patch` 反馈 | old/new missing-source rejection wording 共用 recognizer；actionable output、recent-output progress hint、tool-output summary 全部复用 | CoE H-069/E-146; `action_contract_prompt_structures_validation_rework_missing_source_blocker_rejection` |
+
+边界说明：这不是允许 block，也不是放宽 patch-only hard-stop；正确行为是保留 hard-stop 上限，但在 hard-stop 前先把 runtime 的
+block rejection 以结构化反馈传给 provider。

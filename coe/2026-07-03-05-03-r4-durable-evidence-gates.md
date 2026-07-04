@@ -4136,3 +4136,70 @@
   ```
 - Result: passed. `cargo fmt --check` exits 0 with the known stable rustfmt `imports_granularity` warnings; `git diff --check` exits 0; `whale` dev build finished successfully.
 - Interpretation: H-068 is ready for commit/push and attestation before live keyed rerun.
+
+# Evidence E-146: 9f370dd live rerun clears complete-read duplicate timing and exposes block rejection wording drift
+
+- Prediction tested: H-068 should prevent the first complete-read duplicate feedback from being immediately hard-stopped.
+- Real rerun:
+  ```text
+  RunDir: target/r4-org-json-real-keyed-20260704bn-complete-read-recovery/runs/terminal_bench__organization-json-generator/20260704-150817-545
+  PairReport: pair-001/pair-report.md
+  reported_evidence_level: E2-candidate
+  outcome_standard: solved
+  outcome_taskspace: engineering_unclean
+  right_exec_timed_out: False
+  right_tool_call_count: 14
+  right_public_validation_exit_code: 1
+  right_hidden_oracle_exit_code: 0
+  current_git_head: 9f370ddfa3f12397ed1d966b321b5e1f0a86c3b2
+  whale_binary_sha256: 06a7a8e3bb0b00540066f5ca62687650f4ef7e66eb4d7894ad8545a4c426cbcb
+  ```
+- Matched H-068 live signal:
+  - The run did not stop with `TaskSpaceValidationReworkDuplicateReadHardStopV1` after a first complete target read.
+  - The model received a provider turn after validation rework and read the target `process.py` completely as `result-15` (`TaskSpaceReadFileSummaryV1 eof_reached=true`).
+- New blocker signals:
+  - The provider then emitted action-contract JSON `{"action":"blocked","reason":"Need to read schema.json to understand required output structure and check test expectations before fixing process.py..."}`.
+  - Runtime correctly rejected that block in `whale-exec.stderr.log`: `cannot be blocked for missing source visibility because dependency evidence already identifies the implementation artifact or validation rework target`.
+  - Session did not structure this newer runtime wording as `missing_source_visibility_blocker_rejected`; it fell back into `TaskSpaceValidationReworkPatchOnlyHardStopV1`.
+- Interpretation: H-068 is live-cleared. New issue type is `validation-rework-block-rejection-wording-drift`: the feedback layer recognized the old missing-source block rejection wording but missed the newer validation-rework wording, so a correct runtime rejection was not semantically carried into the next provider prompt.
+
+# Hypothesis H-069: missing-source block rejection wording drift hides repair feedback after validation rework
+
+- Claim: session prompt preparation only recognized missing-source block rejection when the tool output contained `already recorded implementation source evidence`. Runtime now emits the validation-rework-specific wording `dependency evidence already identifies the implementation artifact or validation rework target`. Because that wording was not classified as actionable gate feedback, the provider did not receive the structured `missing_source_visibility_blocker_rejected` feedback and the turn escalated to patch-only hard-stop.
+- Prediction:
+  1. A focused action-contract prompt test using the live runtime wording should produce `failure_kind: missing_source_visibility_blocker_rejected`.
+  2. The prepared prompt should include the progress hint that the previous block_node action was rejected and the next action must be `apply_patch`.
+  3. Adjacent `action_contract_prompt` and `validation_rework` tests should pass.
+- Diagnostic evidence plan: Add a shared recognizer for both old and new missing-source block rejection wording, use it in actionable output detection, recent-output progress hints, and tool-output summary structuring, then run focused suites.
+- Status: confirmed.
+
+# Evidence E-147: validation-rework missing-source block rejection wording now structures as apply_patch feedback
+
+- Prediction tested: H-069 predicts the live runtime wording `dependency evidence already identifies the implementation artifact or validation rework target` is actionable missing-source block rejection feedback.
+- Repair artifact:
+  - `third_party/codex-cli/codex-rs/core/src/session/turn.rs`
+- Repair behavior:
+  - Added `taskspace_text_mentions_missing_source_visibility_blocker_rejection()` for both old and new missing-source block rejection wording.
+  - Reused it in actionable gate feedback detection, recent-output progress hint selection, and action-contract tool-output summary structuring.
+  - Added `action_contract_prompt_structures_validation_rework_missing_source_blocker_rejection` using the exact validation-rework wording from the live rerun.
+- Focused validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core action_contract_prompt_structures_validation_rework_missing_source_blocker_rejection -- --nocapture
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core action_contract_prompt -- --nocapture
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_rework -- --nocapture
+  ```
+- Result: passed. Focused test passed 1/1; `action_contract_prompt` passed 29/29; `validation_rework` passed 21/21.
+- Interpretation: H-069 is focused-fixed. Remaining gates are formatting/build, commit/push, attestation, and another keyed rerun to verify the block rejection reaches the provider as structured feedback before patch-only hard-stop.
+
+# Evidence E-148: H-069 formatting and build gates passed before commit
+
+- Prediction tested: H-069 feedback-classification repair should not break repository formatting, whitespace checks, or the `whale` dev build.
+- Validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+  git diff --check
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-cli --bin whale --locked
+  ```
+- Result: passed. `cargo fmt` and `cargo fmt --check` exit 0 with the known stable rustfmt `imports_granularity` warnings; `git diff --check` exits 0; `whale` dev build finished successfully.
+- Interpretation: H-069 is ready for commit/push and attestation before live keyed rerun.

@@ -3927,3 +3927,17 @@ right_hidden_oracle_exit_code: 0
 
 结论：这是 R4-D control/feedback focused 修复，不是 utility acceptance。下一轮 keyed rerun 要验证模型是否在收到 complete-read duplicate
 feedback 后发出 `apply_patch`，或暴露下一层 repair-contract/actionability 问题。
+
+## 5.59 2026-07-04 validation rework block rejection wording drift
+
+`9f370dd` 的 keyed rerun 证明 5.58 的 complete-read hard-stop timing 已 live-cleared：第一次完整 target read 后没有再直接
+`TaskSpaceValidationReworkDuplicateReadHardStopV1`。新的 blocker 是 block rejection 的反馈分类漂移。
+
+本轮新增的问题类型：
+
+| Case | Before | After | Evidence |
+|---|---|---|---|
+| `validation-rework-block-rejection-wording-drift` | runtime 正确拒绝 `"Need to read schema.json ... before fixing process.py"`，但 session 只识别旧 wording `already recorded implementation source evidence`；新 wording `dependency evidence already identifies the implementation artifact or validation rework target` 没被结构化，导致 provider 没收到 `missing_source_visibility_blocker_rejected` | old/new missing-source block rejection 共用 recognizer；结构化 feedback、progress hint 和 actionability 候选统一识别，并要求下一步 `apply_patch` | keyed rerun `20260704-150817-545`; CoE H-069/E-146; `action_contract_prompt_structures_validation_rework_missing_source_blocker_rejection` |
+
+结论：这是 R4-D feedback classification 修复，不是 utility acceptance。下一轮 keyed rerun 要验证 runtime block rejection 是否被发送为
+结构化 tool feedback，并观察模型是否转向 `apply_patch`，或暴露下一层 patch synthesis 问题。

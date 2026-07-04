@@ -3586,6 +3586,14 @@ fn is_taskspace_action_contract_latest_tool_output_candidate(item: &ResponseItem
             || is_actionable_taskspace_gate_feedback_output(item))
 }
 
+fn taskspace_text_mentions_missing_source_visibility_blocker_rejection(text: &str) -> bool {
+    text.contains("cannot be blocked for missing source visibility")
+        && (text.contains("already recorded implementation source evidence")
+            || text.contains(
+                "dependency evidence already identifies the implementation artifact or validation rework target",
+            ))
+}
+
 fn is_actionable_taskspace_gate_feedback_output(item: &ResponseItem) -> bool {
     (response_item_text_contains(item, "high-signal inspected evidence")
         && response_item_text_contains(item, "uncovered"))
@@ -3612,8 +3620,9 @@ fn is_actionable_taskspace_gate_feedback_output(item: &ResponseItem) -> bool {
                 item,
                 "inspected implementation evidence is already available",
             ))
-        || (response_item_text_contains(item, "cannot be blocked for missing source visibility")
-            && response_item_text_contains(item, "already recorded implementation source evidence"))
+        || response_item_texts_contain(item, &|text| {
+            taskspace_text_mentions_missing_source_visibility_blocker_rejection(text)
+        })
         || (response_item_text_contains(item, "cannot be blocked for validator procedure")
             && response_item_text_contains(item, "implementation failure"))
         || (response_item_text_contains(item, "cannot be blocked for editable validation failure")
@@ -3702,8 +3711,7 @@ fn taskspace_action_contract_recent_tool_outputs_item(
     });
     let missing_source_blocker_rejected_seen = summaries.iter().any(|(_, text)| {
         text.contains("missing_source_visibility_blocker_rejected")
-            || (text.contains("cannot be blocked for missing source visibility")
-                && text.contains("already recorded implementation source evidence"))
+            || taskspace_text_mentions_missing_source_visibility_blocker_rejection(text)
     });
     let validator_procedure_blocker_rejected_seen = summaries.iter().any(|(_, text)| {
         text.contains("validator_procedure_blocker_rejected")
@@ -4077,9 +4085,7 @@ next_valid_action: emit exactly one apply_patch action with the smallest concret
 raw_output:\n{text}"
         );
     }
-    if text.contains("cannot be blocked for missing source visibility")
-        && text.contains("already recorded implementation source evidence")
-    {
+    if taskspace_text_mentions_missing_source_visibility_blocker_rejection(text) {
         return format!(
             "{TASKSPACE_TOOL_FEEDBACK_MARKER}\n\
 tool_source: action_contract_internal\n\
@@ -8204,6 +8210,40 @@ python: can't open file '/workspace/process.py': [Errno 2] No such file or direc
         assert!(joined.contains("progress_hint: A previous block_node action was rejected"));
         assert!(joined.contains("Next action must be apply_patch"));
         assert!(joined.contains("failed patch feedback"));
+        assert!(!joined.contains("failure_kind: tool_execution_failed"));
+    }
+
+    #[test]
+    fn action_contract_prompt_structures_validation_rework_missing_source_blocker_rejection() {
+        let latest_active_projection = format!(
+            "{TASKSPACE_ACTIVE_PROFILE_MARKER}\n{TASKSPACE_ACTIVE_PROJECTION_MARKER}\nactive_objective: latest"
+        );
+        let items = vec![
+            message("user", "Continue the task"),
+            message("developer", &latest_active_projection),
+            ResponseItem::FunctionCallOutput {
+                call_id: "taskspace-action-contract-14-blocked".to_string(),
+                output: FunctionCallOutputPayload {
+                    body: FunctionCallOutputBody::Text(
+                        "TaskSpace implement_solution node `node-5` cannot be blocked for missing source visibility because dependency evidence already identifies the implementation artifact or validation rework target. Next valid action: retry apply_patch using the inspected source evidence and failed validation feedback; if a failed edit made the visible target context stale or truncated, read_file the same validation rework target once to refresh context, then patch. Block only with a specific external blocker that makes editing impossible."
+                            .to_string(),
+                    ),
+                    success: Some(false),
+                },
+            },
+        ];
+
+        let prepared = prepare_taskspace_action_contract_prompt_items_for_node(
+            items,
+            Some("implement_solution"),
+        );
+        let joined = item_texts(&prepared).join("\n");
+
+        assert!(joined.contains(TASKSPACE_TOOL_FEEDBACK_MARKER));
+        assert!(joined.contains("failure_kind: missing_source_visibility_blocker_rejected"));
+        assert!(joined.contains("progress_hint: A previous block_node action was rejected"));
+        assert!(joined.contains("Next action must be apply_patch"));
+        assert!(joined.contains("failed validation feedback"));
         assert!(!joined.contains("failure_kind: tool_execution_failed"));
     }
 

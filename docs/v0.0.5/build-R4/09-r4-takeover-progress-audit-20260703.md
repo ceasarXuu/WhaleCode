@@ -156,6 +156,7 @@ raw signal 存在但语义没有正确进入下一轮 tool contract：
 | `validation-schema-repair-rename-hint-gap` | keyed rerun `20260704-143221-395` 证实 local-infra command genericity 已清除，并进入真实 schema validation；validator output 已显示 `member_ids` vs `members`、`total_employees` vs `totalEmployees` 等 rename 线索，但 repair contract 只列 missing required names，模型继续读 schema 到 patch-only hard-stop；已从 validator offending object keys 生成 `schema_property_rename_hints` | focused+regression fixed / real rerun pending |
 | `generic-fact-source-success-criteria-artifact-gap` | keyed rerun `20260704-144300-806` 证实 schema validation path 可达，但 start_task 的 fact source 只有泛化“repository root containing schema.json and CSV files”，而 success criteria 已点名 `departments.csv/employees.csv/projects.csv`；runtime 未从 success criteria 提取这些输入工件，导致只读 schema 就实现并猜错 CSV 字段；已把 success criteria 中的 concrete input artifacts 纳入 inspect fact-source gate，并排除 generated output `organization.json` | focused fixed / real rerun pending |
 | `validation-rework-complete-read-duplicate-hardstop-too-early` | keyed rerun `20260704-145742-157` 证实 H-067 已 live-cleared，模型实现前读取了 schema 和三个 CSV；validation rework 也完整读取了 `generate_organization.py`，但第一次 duplicate-read feedback 刚产生完整读取/无隐藏行语义时就被 hard-stop，模型没有机会响应该强反馈；已把 complete-read duplicate read 改为先给一次 recoverable feedback，第二次重复或 repeated-blocked-action 才 hard-stop | focused fixed / real rerun pending |
+| `validation-rework-block-rejection-wording-drift` | keyed rerun `20260704-150817-545` 证实 complete-read hard-stop timing 已 live-cleared；runtime 正确拒绝了 validation rework 中“还要读 schema/test expectations”的 blocker，但 session 只识别旧 missing-source rejection wording，未把新 wording 结构化为 `missing_source_visibility_blocker_rejected`，随后进入 patch-only hard-stop；已把 old/new missing-source block rejection wording 合并识别 | focused fixed / real rerun pending |
 
 新增关键判断：
 
@@ -2410,3 +2411,42 @@ current_git_head: 77e8e46a3a1435ddef0c8b1a8c674488e308d62a
 | focused evidence | `validation_rework_duplicate_read_complete_context_gets_one_recovery_before_hard_stop`; `validation_rework_duplicate_read` 7/7; `validation_rework` 20/20 |
 
 状态：focused 修复完成；仍需 fmt/build、commit/push、attestation，并再次 keyed rerun 验证模型是否在收到 complete-read duplicate feedback 后转向 `apply_patch`。
+
+## 9. 2026-07-04 validation rework block rejection wording drift
+
+`9f370dd` 的 keyed rerun 证明 complete-read duplicate hard-stop timing 已进入 live path，但仍未完成 TaskSpace 侧 public validation。
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260704bn-complete-read-recovery/runs/terminal_bench__organization-json-generator/20260704-150817-545
+reported_evidence_level: E2-candidate
+outcome_standard: solved
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 14
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+current_git_head: 9f370ddfa3f12397ed1d966b321b5e1f0a86c3b2
+```
+
+关键观察：
+
+| Signal | 结论 |
+|---|---|
+| run 未出现 `TaskSpaceValidationReworkDuplicateReadHardStopV1` | H-068 live-cleared |
+| validation rework 完整读取 `process.py`，`eof_reached=true` | target artifact 已可 patch |
+| 模型随后输出 `blocked`：需要读 `schema.json` / test expectations 才能修 `process.py` | 模型仍试图从 patch-only 转回 inspect |
+| `whale-exec.stderr.log` 记录 runtime 正确拒绝：`cannot be blocked for missing source visibility because dependency evidence already identifies the implementation artifact or validation rework target` | runtime gate 正确 |
+| session 未把该新 wording 结构化为 `missing_source_visibility_blocker_rejected`，而是退回 `TaskSpaceValidationReworkPatchOnlyHardStopV1` | feedback classification 漂移 |
+
+问题类型收录：
+
+| 字段 | 内容 |
+|---|---|
+| case | `validation-rework-block-rejection-wording-drift` |
+| 层级 | action-contract feedback classification / validation rework recovery |
+| 本质 | 正确 runtime rejection 的新 wording 没进入结构化 feedback，因此语义在 feedback 层丢失 |
+| 非根因 | 不是 runtime 未拒绝 blocker；不是 complete-read hard-stop timing；不是 fact-source coverage |
+| 修复 | old/new missing-source block rejection wording 共用 recognizer，并用于 actionable output、recent-output progress hint、tool-output summary |
+| focused evidence | `action_contract_prompt_structures_validation_rework_missing_source_blocker_rejection` |
+
+状态：focused 修复已编码；仍需 focused/regression、fmt/build、commit/push、attestation、keyed rerun。
