@@ -5939,3 +5939,74 @@
     PASS
   ```
 - Interpretation: The R4 issue type is focused-fixed. It is a semantic distortion case, not a missing feedback case: a malformed targetless patch was already rejected, but the rejection named a fake file and therefore sent recovery toward the wrong object.
+
+# Evidence E-207: H-100 rerun live-clears fake target and exposes separator patch intent normalization gap
+
+- Real rerun:
+  ```text
+  RunDir: target/r4-org-json-real-keyed-20260704cu-targetless-header/runs/terminal_bench__organization-json-generator/20260704-222503-663
+  reported_evidence_level: E1
+  outcome_standard: wrong
+  outcome_taskspace: engineering_unclean
+  right_exec_timed_out: False
+  right_tool_call_count: 15
+  right_public_validation_exit_code: 1
+  right_hidden_oracle_exit_code: 0
+  right_open_leaf_nodes: 1
+  final_marker: TaskSpaceApplyPatchRecoveryHardStopV1
+  ```
+- H-100 live status:
+  - The trace no longer contains `src/---`.
+  - The run progressed through inspect, implementation, schema validation, target read, and repeated validation rework patches.
+- New blocker signal:
+  - The provider repeatedly ignored complete-target replacement guidance and emitted fragile `Update File` hunks that failed with `Failed to find expected lines`.
+  - The final apply_patch intent was nearly one valid JSON object but had a single trailing `"` suffix, producing `action_contract_output_not_strict_json:apply_patch_intent`.
+  - Inside the patch payload, the model used a mechanically understandable but non-native shape:
+    ```text
+    *** Update File: process.py
+    <old block>
+    ---
+    <new block>
+    *** Update File: process.py
+    <old block>
+    ---
+    <new block>
+    ```
+- Interpretation: H-100 is live-cleared. The next R4 tools-chain issue is an ability-layer normalization gap for separator-style old/new update sections, plus a narrow provider formatting artifact of one trailing quote after an otherwise valid apply_patch JSON object.
+
+# Hypothesis H-101: separator old/new update sections should normalize before apply_patch recovery hard-stop
+
+- Claim: In validation rework, DeepSeek can emit an apply_patch payload that expresses old/new replacements as `old block` / separator-only `---` / `new block` inside `*** Update File` sections. This is not native apply_patch grammar, but it is a deterministic edit intent and can be converted to native `@@` hunks. The same live response may add exactly one stray trailing `"` after a complete JSON object.
+- Prediction: A focused test with the live-shaped trailing-quote JSON plus two separator update sections should parse as apply_patch and normalize into native `@@`, `-old`, `+new` hunks without retaining separator-only `---`.
+- Diagnostic evidence plan: Add narrowly scoped parsing tolerance for a single trailing quote only on apply_patch actions; add a normalizer for update sections that have no existing hunk/diff markers and exactly one separator-only `---`; run focused tests plus apply_patch/action-contract/fmt/check/build.
+- Status: confirmed.
+
+# Evidence E-208: separator update sections and single trailing quote now normalize
+
+- Prediction tested: H-101 predicts live-shaped separator update sections normalize into native apply_patch payloads.
+- Repair artifact:
+  - `third_party/codex-cli/codex-rs/core/src/session/turn.rs`
+- Repair behavior:
+  - `parse_taskspace_action_v1()` tolerates exactly one trailing `"` only when the leading JSON object parsed as an `apply_patch` action; other suffixes remain rejected.
+  - `normalize_taskspace_separator_update_sections()` converts `*** Update File` sections with exactly one separator-only `---` and no existing diff/hunk markers into native `@@` hunks with `-old` and `+new` lines.
+  - Existing mixed native/unified, unanchored update, placeholder hunk, and targetless header checks still run after normalization.
+- Validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core separator_update_sections --lib
+    PASS
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core trailing_quote --lib
+    PASS
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core apply_patch_ --lib
+    PASS: 37/37
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core action_contract_prompt --lib
+    PASS: 29/29
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --check
+    PASS
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo check -p codex-core
+    PASS
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
+    PASS
+  git diff --check
+    PASS
+  ```
+- Interpretation: H-101 is focused-fixed. Real utility validation still requires commit/push, attestation, and another keyed rerun to see whether the separator-style patch now applies or exposes the next validation rework blocker.

@@ -7326,6 +7326,60 @@ Then I will inspect the file."#,
     }
 
     #[test]
+    fn taskspace_action_contract_accepts_apply_patch_json_with_single_trailing_quote() {
+        let raw = serde_json::json!({
+            "schema_version": "taskspace-action-v1",
+            "action": "apply_patch",
+            "node_id": "node-1",
+            "args": {
+                "patch": "*** Update File: process.py\nold\n---\nnew\n"
+            },
+            "rationale": "patch a file"
+        })
+        .to_string()
+            + "\"";
+
+        let action = parse_taskspace_action_v1(&raw).expect("trailing quote tolerated");
+
+        assert_eq!(action.action, "apply_patch");
+    }
+
+    #[test]
+    fn taskspace_action_contract_normalizes_separator_update_sections() {
+        let raw = serde_json::json!({
+            "schema_version": "taskspace-action-v1",
+            "action": "apply_patch",
+            "node_id": "node-1",
+            "args": {
+                "patch": "*** Update File: process.py\n    'member_ids': [m.strip() for m in p['member_ids'].split(';')],\n---\n    'members': [m.strip() for m in p['member_ids'].split(';')],\n*** Update File: process.py\n    'total_employees': total_employees,\n---\n    'totalEmployees': total_employees,\n"
+            },
+            "rationale": "fix schema keys"
+        })
+        .to_string()
+            + "\"";
+        let action = parse_taskspace_action_v1(&raw).expect("valid json with trailing quote");
+
+        let call = taskspace_action_to_tool_call(&action, &provider_snapshot("implement_solution"))
+            .expect("separator update sections normalize")
+            .expect("tool call");
+
+        match call.payload {
+            ToolPayload::Custom { input } => {
+                assert!(input.starts_with("*** Begin Patch\n"));
+                assert!(input.ends_with("*** End Patch\n"));
+                assert_eq!(input.matches("*** Update File: ").count(), 2);
+                assert!(input.contains("process.py"));
+                assert!(input.contains("@@\n-    'member_ids':"));
+                assert!(input.contains("+    'members':"));
+                assert!(input.contains("@@\n-    'total_employees':"));
+                assert!(input.contains("+    'totalEmployees':"));
+                assert!(!input.contains("\n---\n"));
+            }
+            other => panic!("expected custom payload, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn taskspace_action_contract_normalizes_duplicate_unwrapped_update_wrapper() {
         let raw = serde_json::json!({
             "schema_version": "taskspace-action-v1",
@@ -11272,7 +11326,10 @@ fn parse_taskspace_action_v1(text: &str) -> Result<TaskSpaceActionV1, String> {
     let action = serde_json::from_str::<TaskSpaceActionV1>(&trimmed[..json_end])
         .map_err(|err| format!("malformed_action_json:{err}"))?;
     let suffix = trimmed[json_end..].trim();
-    if !suffix.is_empty() && !suffix.contains("DSML") {
+    if !suffix.is_empty()
+        && !suffix.contains("DSML")
+        && !(suffix == "\"" && action.action == "apply_patch")
+    {
         return Err("action_contract_output_not_strict_json".to_string());
     }
     if action.schema_version != "taskspace-action-v1" {
@@ -11798,6 +11855,7 @@ fn normalize_taskspace_apply_patch(patch: &str) -> String {
 
 fn normalize_taskspace_native_patch_payloads(patch: &str) -> String {
     let patch = normalize_taskspace_duplicate_empty_update_sections(patch);
+    let patch = normalize_taskspace_separator_update_sections(&patch);
     normalize_taskspace_python_add_file_common_indent(&normalize_taskspace_native_hunk_headers(
         &patch,
     ))
@@ -11842,6 +11900,93 @@ fn normalize_taskspace_duplicate_empty_update_sections(patch: &str) -> String {
     } else {
         patch.to_string()
     }
+}
+
+fn normalize_taskspace_separator_update_sections(patch: &str) -> String {
+    let source_lines = patch.lines().collect::<Vec<_>>();
+    let mut changed = false;
+    let mut lines = Vec::with_capacity(source_lines.len());
+    let mut index = 0usize;
+    while index < source_lines.len() {
+        let line = source_lines[index];
+        let Some(_target) = line.strip_prefix("*** Update File: ").map(str::trim) else {
+            lines.push(line.to_string());
+            index += 1;
+            continue;
+        };
+
+        lines.push(line.to_string());
+        index += 1;
+
+        let mut section = Vec::new();
+        while index < source_lines.len() {
+            let next = source_lines[index];
+            if next == "*** End Patch"
+                || next.starts_with("*** Add File: ")
+                || next.starts_with("*** Update File: ")
+                || next.starts_with("*** Delete File: ")
+            {
+                break;
+            }
+            section.push(next);
+            index += 1;
+        }
+
+        if let Some(rewritten) = normalize_taskspace_separator_update_section(&section) {
+            changed = true;
+            lines.extend(rewritten);
+        } else {
+            lines.extend(section.into_iter().map(str::to_string));
+        }
+    }
+
+    if changed {
+        lines.join("\n") + "\n"
+    } else {
+        patch.to_string()
+    }
+}
+
+fn normalize_taskspace_separator_update_section(section: &[&str]) -> Option<Vec<String>> {
+    if section.is_empty()
+        || section.iter().any(|line| line.starts_with("@@"))
+        || section
+            .iter()
+            .any(|line| line.starts_with('+') && !line.starts_with("+++"))
+        || section
+            .iter()
+            .any(|line| line.starts_with('-') && !line.starts_with("---"))
+    {
+        return None;
+    }
+    let separators = section
+        .iter()
+        .enumerate()
+        .filter_map(|(index, line)| (line.trim() == "---").then_some(index))
+        .collect::<Vec<_>>();
+    let separator = match separators.as_slice() {
+        [separator] => *separator,
+        _ => return None,
+    };
+    let old_lines = section[..separator]
+        .iter()
+        .copied()
+        .filter(|line| !line.trim().is_empty())
+        .collect::<Vec<_>>();
+    let new_lines = section[separator + 1..]
+        .iter()
+        .copied()
+        .filter(|line| !line.trim().is_empty())
+        .collect::<Vec<_>>();
+    if old_lines.is_empty() || new_lines.is_empty() {
+        return None;
+    }
+
+    let mut rewritten = Vec::with_capacity(old_lines.len() + new_lines.len() + 1);
+    rewritten.push("@@".to_string());
+    rewritten.extend(old_lines.into_iter().map(|line| format!("-{line}")));
+    rewritten.extend(new_lines.into_iter().map(|line| format!("+{line}")));
+    Some(rewritten)
 }
 
 fn normalize_taskspace_native_hunk_headers(patch: &str) -> String {

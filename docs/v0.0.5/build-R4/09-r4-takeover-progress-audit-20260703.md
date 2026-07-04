@@ -3154,6 +3154,37 @@ final_marker: TaskSpaceApplyPatchRecoveryHardStopV1
 
 状态：focused 修复已编码并通过相关回归、fmt/diff/check/build。下一步是 commit/push、attestation、keyed rerun，验证该伪目标反馈不再出现并继续暴露下一个 R4 tools 链路 blocker。
 
+## 30. 2026-07-04 separator update section apply_patch normalization
+
+`60d5257` 后的 keyed rerun 已 live-clear H-100：trace 不再出现 `src/---`，并推进到更深的 validation rework。
+新的 blocker 是 provider 输出了可机械理解但非 native apply_patch grammar 的 separator old/new section：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260704cu-targetless-header/runs/terminal_bench__organization-json-generator/20260704-222503-663
+reported_evidence_level: E1
+outcome_standard: wrong
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 15
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+right_open_leaf_nodes: 1
+final_marker: TaskSpaceApplyPatchRecoveryHardStopV1
+```
+
+问题类型收录：
+
+| 字段 | 内容 |
+|---|---|
+| case | `apply-patch-separator-update-section-normalization-gap` |
+| 层级 | apply_patch capability normalization / action-contract parsing |
+| 本质 | provider 用 `<old block>` / `---` / `<new block>` 表达替换，并在完整 apply_patch JSON 后追加一个多余 `"`；runtime 只给 strict JSON / edit-failure recovery，未吸收可确定编辑意图 |
+| 非根因 | 不是 H-100 伪目标；不是 target read 没传到模型；不是 provider 未收到 full replacement 指令 |
+| 修复 | 仅对 apply_patch action 容忍单个尾随 `"`；Update File section 内无已有 hunk/diff marker 且恰有一个 separator-only `---` 时，转换为 native `@@`、`-old`、`+new` hunk |
+| focused evidence | CoE H-101/E-207/E-208；`separator_update_sections`；`trailing_quote`；`apply_patch_` 37/37；`action_contract_prompt` 29/29；fmt/check/build/diff-check |
+
+状态：focused 修复已编码并通过相关回归、fmt/diff/check/build。下一步是 commit/push、attestation、keyed rerun，验证 separator patch 是否能真正应用，或继续暴露下一层 validation rework blocker。
+
 ## 28. 2026-07-04 natural-language slash fact-source extraction
 
 `3b6b269` 后的 keyed rerun 没有触发 no-action recovery，因此 H-098 尚未 live-clear。该轮暴露 inspect fact-source

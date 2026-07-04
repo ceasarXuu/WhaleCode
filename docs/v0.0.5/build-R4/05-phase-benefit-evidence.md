@@ -5042,3 +5042,41 @@ CODEX_SKIP_VENDORED_BWRAP=1 cargo check -p codex-core
 CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
 git diff --check
 ```
+
+## 5.87 2026-07-04 separator update section apply_patch normalization
+
+`60d5257` 后 rerun live-clear 了 H-100：`src/---` 伪目标不再出现。TaskSpace 进入 schema validation rework，
+但最终停在 separator-style patch intent：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260704cu-targetless-header/runs/terminal_bench__organization-json-generator/20260704-222503-663
+reported_evidence_level: E1
+outcome_standard: wrong
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 15
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+final_marker: TaskSpaceApplyPatchRecoveryHardStopV1
+```
+
+收益判断：
+
+1. 新收录的 R4-D ability/feedback 修复是 `apply-patch-separator-update-section-normalization-gap`：
+   `<old block>` / `---` / `<new block>` 现在能转换成 native apply_patch hunk。
+2. 该 case 是能力层和反馈层交界问题：模型已经表达了具体编辑意图，但 runtime 只把它当 malformed intent/recovery 处理。
+3. 这不是放宽自然语言输出通道；只容忍 apply_patch JSON 后单个尾随 `"`，其他非严格 suffix 仍拒绝。
+4. R4-G utility 仍未通过：需要下一次 keyed rerun 验证该 patch shape 是否实际应用，或者定位后续 validation rework failure。
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core separator_update_sections --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core trailing_quote --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core apply_patch_ --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core action_contract_prompt --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --check
+CODEX_SKIP_VENDORED_BWRAP=1 cargo check -p codex-core
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
+git diff --check
+```
