@@ -138,6 +138,7 @@ raw signal 存在但语义没有正确进入下一轮 tool contract：
 | `validation-stale-failure-block-without-current-test` | 新 validation node 未运行当前 test/build 就复用旧失败 blocker 关闭 graph；已要求声称 validation/test failure 前必须有同节点验证 tool result，infra blocker 例外 | focused fixed / real rerun pending |
 | `validation-rework-duplicate-read-projection-loop` | rework target 已读且 duplicate gate 已生效，但 projection 仍广告 read/search、未展示 target read result，模型重复读到 node hard stop；已把 target read result 作为 critical evidence 并将 next action 收窄到 apply_patch | focused fixed / real rerun pending |
 | `validation-pytest-runner-dependency-misroute` | `python -m pytest` 本身缺 `pytest` module 时，raw failure 存在但被 runtime 误译成 implementation failure，创建 implement rework 并触发 needs-edit loop；已归入 local validator infra，并路由到 platform-compatible validation rerun | focused fixed / real rerun pending |
+| `fact-source-path-artifact-ref-loss` | `initial_fact_sources[].path` 被 taskspace_control 解析层丢弃，TaskState 只保留泛化 id/description 和 `artifactRef=user-request`，导致 adaptive inspect budget 看不到声明 fact-source artifacts 并仍按 5 次硬停；已把 `path`/`artifact_ref`/`artifact_path`/`source_path` 及数组 alias 归一化进 `evidence_refs[].artifact_ref` | focused fixed / real rerun pending |
 
 新增关键判断：
 
@@ -851,8 +852,68 @@ CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core state_commit_accepts_fa
 CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core validation_missing_jsonschema_dependency_stays_on_validation_with_cli_recovery --lib
 ```
 
-当前状态：focused 修复和 R4-adjacent regression/build 已完成；仍需 commit/push、attestation 和下一次 keyed rerun 验证
-live path 是否越过 pytest runner dependency misroute，并继续暴露下一层 tools/control 问题。
+当前状态：focused 修复、R4-adjacent regression/build、commit/push 和 attestation 已完成。后续 keyed rerun 没有到达
+pytest runner dependency case，而是在更早的 inspect budget/fact-source path 层暴露新问题，见 3.22。
+
+### 3.22 fact source path artifact ref loss
+
+pytest runner dependency 修复后执行 keyed rerun：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260703at-pytest-infra/runs/terminal_bench__organization-json-generator/20260704-095934-702
+preflight_git_head: 878248bb9d7fd4232189788dc7ad3fe8e345820f
+reported_evidence_level: E2-candidate
+outcome_standard: solved
+outcome_taskspace: wrong
+right_tool_call_count: 6
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+```
+
+本次进展和新问题：
+
+| 层 | 结论 |
+|---|---|
+| start_task | 模型明确声明 `initial_fact_sources` 四个 path：`schema.json`、`departments.csv`、`employees.csv`、`projects.csv` |
+| runtime state | observability 中 fact sources 只剩 `fact-source-1..4`、自然语言 description 和 `artifactRef=user-request`，没有四个 path |
+| budget symptom | 只读了 `schema.json` 和 `departments.csv`；三次重复读 `schema.json` 被 duplicate gate 拦截后，inspect 节点在 `node_request_count=6/5` 被 `TaskSpaceProviderBudgetHardStopV1` 终止 |
+| semantic loss | `path` 语义在 taskspace_control normalization / serde parse 入口被丢弃，`task_required_fact_source_artifact_refs()` 提取不到 required artifacts，既无法扩容 inspect node limit，也无法投影缺失 `employees.csv` / `projects.csv` |
+
+根因判断：
+
+这是能力层到状态层的语义缺失。模型已经给出工具链需要的 path，但 `TaskSpaceFactSourceArgs` 没有承载该字段，
+`normalize_fact_source_array()` 也没有把 inline path 折叠到 `evidence_refs[].artifact_ref`，serde 默认忽略 unknown `path`。
+因此 runtime 后续预算和 fact-source guard 都只看到泛化 user request，而看不到真实文件。
+
+本轮修复：
+
+| 层 | 结论 |
+|---|---|
+| parser | `record_fact_source`、`state_commit.fact_sources`、`start_task.initial_fact_sources` 都支持 inline `path` / `artifact_ref` / `artifact_path` / `source_path` |
+| alias arrays | 同时支持 `paths` / `artifact_refs` / `artifact_paths` / `source_paths` 数组 |
+| state contract | inline path 会进入 `evidence_refs[].artifact_ref`，让 `task_required_fact_source_artifact_refs()`、inspect coverage guard 和 adaptive node budget 使用同一份 artifact 语义 |
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core fact_source_path_normalizes_to_artifact_ref --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core taskspace_active_budget_expands_inspect_node_limit_for_fact_sources --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core taskspace_control --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core inspect_missing_fact_sources --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core provider_request_budget --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core taskspace_active_budget --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core validation_ --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core local_infra --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core validation_rework --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core apply_patch_ --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core provider_budget --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --all --check
+git diff --check
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build -j1 -p codex-cli --bin whale --locked
+```
+
+当前状态：focused 修复和 R4-adjacent regression/build 已完成；后续证据门是 attestation 和下一次 keyed rerun，
+验证 live path 是否真正越过 adaptive inspect budget，并继续打到后续 validation/utility 层。
 
 ## 4. 本次验证
 
@@ -931,8 +992,8 @@ live path 是否越过 pytest runner dependency misroute，并继续暴露下一
 | 优先级 | 未完成项 | 当前证据 | 下一步 |
 |---:|---|---|---|
 | P0 | TaskSpace utility parity | public-10 closeout 中 TaskSpace 仅 3/10 solved；post-closeout 只证明 `heterogeneous-dates` 已改善；`sqlite-db-truncate` 已收敛到非 timeout wrong；keyed `organization-json-generator` 仍是 E1 diagnostic fail | 继续 R4 utility-convergence，不进入验收通过 |
-| P0 | Long-flow convergence | keyed `organization-json-generator` 的 900s timeout 已被 hard stop 消除；最新真实进展已越过 fact-source projection、editable blocker、generator-only closeout、schema fact-source weak validation、recovery projection dilution、validation rework target artifact read gap、jsonschema module recovery、sed read artifact attribution、manual validation rework origin、stale validation block guard、target-read projection guard、read summary portability，并 focused fixed 到 pytest runner dependency misroute | 重跑该样本；若仍 wrong，再按新 trace 建立下一层 tool/control case |
-| P0 | Provider budget hard stop real-run validation | hard gate 已真实生效；adaptive fact-source node limit 的真实 rerun 已越过固定 5-request stopper；当前失败从 target-read projection loop 推进到“pytest runner 缺依赖被误路由到 implement rework” | 下一次 keyed rerun 同时验证 provider hard stop、adaptive inspect、rework evidence join、projection fact-source guard、editable validation blocker guard、output contract coverage guard、schema fact-source guard、recovery projection guard、validation rework target artifact read guard、jsonschema module recovery、sed read artifact attribution、manual rework origin、stale validation block guard、target-read projection guard、read summary portability、pytest runner infra classification 是否共同推进 utility |
+| P0 | Long-flow convergence | keyed `organization-json-generator` 的 900s timeout 已被 hard stop 消除；最新真实进展已越过 fact-source projection、editable blocker、generator-only closeout、schema fact-source weak validation、recovery projection dilution、validation rework target artifact read gap、jsonschema module recovery、sed read artifact attribution、manual validation rework origin、stale validation block guard、target-read projection guard、read summary portability；pytest runner dependency misroute 和 fact-source path artifact-ref loss 均已 focused fixed | 重跑该样本；若仍 wrong，再按新 trace 建立下一层 tool/control case |
+| P0 | Provider budget hard stop real-run validation | hard gate 已真实生效；adaptive fact-source node limit 的规则 focused 通过，但最新真实 rerun 证明 `initial_fact_sources[].path` 没进入 TaskState，导致扩容规则拿不到 artifacts 并仍按 5 次硬停；解析层已修复 path -> artifact_ref normalization | 下一次 keyed rerun 同时验证 provider hard stop、fact-source path retention、adaptive inspect、rework evidence join、projection fact-source guard、editable validation blocker guard、output contract coverage guard、schema fact-source guard、recovery projection guard、validation rework target artifact read guard、jsonschema module recovery、sed read artifact attribution、manual rework origin、stale validation block guard、target-read projection guard、read summary portability、pytest runner infra classification 是否共同推进 utility |
 | P0 | Provider timeout usage flush | 报告层已能从 rollout token_count 恢复 timeout 前 partial usage，并标为 `recovered_from_rollout_trace`；如果进程被杀前没有任何 token_count/response.completed，exact usage 仍不可得 | 后续真实复验时检查 timeout 行是否有 rollout token_count；如无，再做 provider 退出/回收路径 |
 | P1 | 成本/token 放大 | `heterogeneous-dates` post-closeout 已改善，但 public-10 closeout 仍记录 6x-28x request amplification | 新二进制重跑 public-10 subset，更新 durable report snapshot |
 | P1 | Release evidence bundle | raw paired run artifacts 仍在外部 run cache，不在仓库内 | 设计 release artifact policy：保留 summary snapshot、压缩关键 evidence，还是外链 run cache |
@@ -943,5 +1004,5 @@ live path 是否越过 pytest runner dependency misroute，并继续暴露下一
 2. 建立 R4 utility-convergence 继续工作入口，优先选择一个 public-10 负样本做 bug-killer 闭环。
 3. `sqlite-db-truncate` 当前适合作为已收敛工具链样本归档：状态是非 timeout、closed graph、`agent_patch_wrong`。
 4. `organization-json-generator` 当前下一步不再是 provider 前置；keyed run 已证明 provider preflight 通过，`bwrap` feedback-layer case 已收录并修复。
-5. 先重跑 `organization-json-generator` 验证 `tool-runtime-bootstrap-failure`、fact-source coverage、provider hard stop、adaptive inspect node limit、implementation rework evidence join、inspect projection fact-source guard、editable validation blocker guard、output contract coverage guard、schema fact-source guard、recovery projection guard、validation rework target artifact read guard、jsonschema module recovery、sed read artifact attribution、manual validation rework origin、stale validation block guard、target-read projection guard、read summary portability 和 pytest runner infra classification 是否让 TaskSpace 生成 schema/public-test 正确的 `organization.json`；如仍 wrong，按新 trace 建立下一层 case。
+5. 先重跑 `organization-json-generator` 验证 `tool-runtime-bootstrap-failure`、fact-source coverage、provider hard stop、fact-source path retention、adaptive inspect node limit、implementation rework evidence join、inspect projection fact-source guard、editable validation blocker guard、output contract coverage guard、schema fact-source guard、recovery projection guard、validation rework target artifact read guard、jsonschema module recovery、sed read artifact attribution、manual validation rework origin、stale validation block guard、target-read projection guard、read summary portability 和 pytest runner infra classification 是否让 TaskSpace 生成 schema/public-test 正确的 `organization.json`；如仍 wrong，按新 trace 建立下一层 case。
 6. 每完成一个样本，更新 public-10 snapshot 或生成新的 durable report artifact，避免再次依赖未提交 `target/` 缓存。

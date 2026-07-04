@@ -2705,3 +2705,89 @@
   - `taskspace_active_budget`: 11/11.
   - fmt check, whitespace check, and `whale` build pass. The fmt command still prints the known stable rustfmt warning for `imports_granularity`.
 - Interpretation: The H-047 repair is regression-clean at focused/build level. The remaining evidence gate is commit/push, build attestation, and a live keyed `organization-json-generator` rerun.
+
+# Evidence E-104: 878248b live rerun exposes fact-source path artifact-ref loss before pytest routing
+
+- Prediction tested: H-047 focused repair should let the live run proceed past pytest runner dependency misrouting if it reaches that validation phase.
+- Real rerun:
+  ```text
+  RunDir: target/r4-org-json-real-keyed-20260703at-pytest-infra/runs/terminal_bench__organization-json-generator/20260704-095934-702
+  PairReport: pair-001/pair-report.md
+  preflight_git_head: 878248bb9d7fd4232189788dc7ad3fe8e345820f
+  build_attestation_status: pass
+  reported_evidence_level: E2-candidate
+  outcome_standard: solved
+  outcome_taskspace: wrong
+  right_tool_call_count: 6
+  right_public_validation_exit_code: 1
+  right_hidden_oracle_exit_code: 0
+  ```
+- Result: the run did not reach the pytest dependency case. It stopped earlier in `inspect_code_context`.
+- Matched signals:
+  - The model's `start_task` payload declared four fact-source paths: `schema.json`, `departments.csv`, `employees.csv`, and `projects.csv`.
+  - Runtime observability retained four fact sources, but each had only a generated id, natural-language description, and `artifactRef=user-request`; none retained the declared path.
+  - The node read `schema.json`, retried the same read three times, then read `departments.csv`.
+  - Duplicate read recovery correctly blocked the repeated `schema.json` command, but the inspect node still hit `TaskSpaceProviderBudgetHardStopV1` at `node_request_count=6/5`.
+- Interpretation: The adaptive inspect budget rule was not wrong, but its input was missing. Because path artifacts were lost at normalization/parse time, `task_required_fact_source_artifact_refs()` found zero required artifacts and `effective_provider_node_request_limit()` stayed at the base limit of 5.
+
+# Hypothesis H-048: inline fact-source path is discarded before runtime state
+
+- Claim: `taskspace_control` accepts fact-source objects with inline `path`, but `TaskSpaceFactSourceArgs` and normalization do not carry that field into `evidence_refs[].artifact_ref`. Serde ignores the unknown field, so TaskState loses the artifact identity required by inspect coverage guards and adaptive provider node budgets.
+- Prediction: Normalizing inline `path`, `artifact_ref`, `artifact_path`, and `source_path` fields, plus their array aliases, into `evidence_refs[].artifact_ref` should preserve required fact-source artifacts for `start_task`, `state_commit`, and `record_fact_source`.
+- Diagnostic evidence plan: Add parser tests for `start_task.initial_fact_sources[].path` and `state_commit.fact_sources[].path`, then rerun `taskspace_control`, inspect missing fact-source, provider budget, and adaptive inspect budget tests.
+- Status: confirmed.
+
+# Evidence E-105: fact-source path normalization preserves artifact refs for parser and budget gates
+
+- Prediction tested: H-048 predicts that inline path fields should become canonical evidence artifact refs before runtime records fact sources.
+- Repair artifact:
+  - `third_party/codex-cli/codex-rs/core/src/tools/handlers/taskspace_control.rs`
+- Focused validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core fact_source_path_normalizes_to_artifact_ref --lib
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core taskspace_active_budget_expands_inspect_node_limit_for_fact_sources --lib
+  ```
+- Adjacent validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core taskspace_control --lib
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core inspect_missing_fact_sources --lib
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core provider_request_budget --lib
+  ```
+- Result: passed.
+- Matched test signals:
+  - `start_task_fact_source_path_normalizes_to_artifact_ref` confirms `initial_fact_sources[].path` becomes `evidence_refs[].artifact_ref`.
+  - `state_commit_fact_source_path_normalizes_to_artifact_ref` confirms mid-task fact-source updates preserve inline path artifacts.
+  - Existing adaptive inspect budget test still expands a four-artifact inspect node limit from 5 to 10.
+- Interpretation: H-048 is focused-fixed at the parser/contract boundary. Full R4-adjacent regression/build evidence is recorded in E-106; the remaining gate is attestation and a live keyed rerun to confirm the AT `node_request_count=6/5` stopper is crossed.
+
+# Evidence E-106: fact-source path normalization passes R4-adjacent regression and build gates
+
+- Prediction tested: H-048 repair should not regress TaskSpace control aliases, validation feedback, validation rework, patch recovery, provider budget, or active budget behavior.
+- Commands:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core taskspace_control --lib
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core inspect_missing_fact_sources --lib
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core provider_request_budget --lib
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core taskspace_active_budget --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core validation_ --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core local_infra --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core validation_rework --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core apply_patch_ --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core provider_budget --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --all --check
+  git diff --check
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build -j1 -p codex-cli --bin whale --locked
+  ```
+- Result: passed.
+- Matched counts:
+  - `taskspace_control`: 35/35.
+  - `inspect_missing_fact_sources`: 1/1.
+  - `provider_request_budget`: 10/10.
+  - `taskspace_active_budget`: 11/11.
+  - `validation_`: 96/96.
+  - `local_infra`: 11/11.
+  - `validation_rework`: 18/18.
+  - `apply_patch_`: 35/35.
+  - `provider_budget`: 23/23.
+  - fmt check, whitespace check, and `whale` build pass. The fmt command still prints the known stable rustfmt warning for `imports_granularity`.
+- Interpretation: H-048 is regression-clean at focused/build level. The remaining evidence gate is build attestation and a live keyed rerun.

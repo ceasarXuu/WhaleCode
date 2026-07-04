@@ -1178,6 +1178,7 @@ fn normalize_taskspace_argument_aliases(root: &mut serde_json::Map<String, JsonV
             }
             normalize_fact_source_provenance(root);
             normalize_evidence_refs(root);
+            normalize_fact_source_inline_artifact_refs(root);
         }
         "state_commit" => {
             normalize_state_commit_sections(root);
@@ -1293,6 +1294,7 @@ fn normalize_state_commit_sections(root: &mut serde_json::Map<String, JsonValue>
     normalize_state_commit_decisions(root);
     normalize_state_commit_facts(root);
     normalize_state_commit_evidence_array(root, "output_contracts");
+    normalize_fact_source_array_inline_artifact_refs(root, "fact_sources");
     normalize_state_commit_evidence_array(root, "fact_sources");
     normalize_state_commit_described_objects(root, "output_contracts", "artifact");
     normalize_state_commit_described_objects(root, "fact_sources", "observed_from_environment");
@@ -1598,6 +1600,7 @@ fn normalize_start_task_initial_sections(root: &mut serde_json::Map<String, Json
                 continue;
             };
             normalize_fact_source_provenance(object);
+            normalize_fact_source_inline_artifact_refs(object);
         }
     }
 }
@@ -1679,6 +1682,7 @@ fn normalize_fact_source_array(root: &mut serde_json::Map<String, JsonValue>, fi
                 object
                     .entry("provenance".to_string())
                     .or_insert_with(|| JsonValue::String("observed_from_environment".to_string()));
+                normalize_fact_source_inline_artifact_refs(object);
                 let needs_default = match object.get("evidence_refs") {
                     Some(JsonValue::Array(existing)) => existing.is_empty(),
                     Some(_) => false,
@@ -1720,6 +1724,79 @@ fn normalize_state_commit_evidence_array(
                 JsonValue::Array(vec![serde_json::json!({ "artifact_ref": "user-request" })]),
             );
         }
+    }
+}
+
+fn normalize_fact_source_array_inline_artifact_refs(
+    root: &mut serde_json::Map<String, JsonValue>,
+    field: &str,
+) {
+    let Some(JsonValue::Array(items)) = root.get_mut(field) else {
+        return;
+    };
+    for item in items {
+        let JsonValue::Object(object) = item else {
+            continue;
+        };
+        normalize_fact_source_inline_artifact_refs(object);
+    }
+}
+
+fn normalize_fact_source_inline_artifact_refs(object: &mut serde_json::Map<String, JsonValue>) {
+    let artifact_refs = inline_fact_source_artifact_refs(object);
+    if artifact_refs.is_empty() {
+        return;
+    }
+    let entry = object
+        .entry("evidence_refs".to_string())
+        .or_insert_with(|| JsonValue::Array(Vec::new()));
+    let JsonValue::Array(evidence_refs) = entry else {
+        return;
+    };
+    for artifact_ref in artifact_refs {
+        let already_present = evidence_refs.iter().any(|evidence_ref| {
+            evidence_ref
+                .get("artifact_ref")
+                .and_then(JsonValue::as_str)
+                .is_some_and(|existing| existing == artifact_ref)
+        });
+        if !already_present {
+            evidence_refs.push(serde_json::json!({ "artifact_ref": artifact_ref }));
+        }
+    }
+}
+
+fn inline_fact_source_artifact_refs(object: &serde_json::Map<String, JsonValue>) -> Vec<String> {
+    let mut artifact_refs = Vec::new();
+    for key in ["path", "artifact_ref", "artifact_path", "source_path"] {
+        push_inline_artifact_ref(object.get(key), &mut artifact_refs);
+    }
+    for key in ["paths", "artifact_refs", "artifact_paths", "source_paths"] {
+        push_inline_artifact_refs(object.get(key), &mut artifact_refs);
+    }
+    artifact_refs
+}
+
+fn push_inline_artifact_ref(value: Option<&JsonValue>, artifact_refs: &mut Vec<String>) {
+    let Some(artifact_ref) = value.and_then(JsonValue::as_str).map(str::trim) else {
+        return;
+    };
+    if artifact_ref.is_empty()
+        || artifact_refs
+            .iter()
+            .any(|existing| existing == artifact_ref)
+    {
+        return;
+    }
+    artifact_refs.push(artifact_ref.to_string());
+}
+
+fn push_inline_artifact_refs(value: Option<&JsonValue>, artifact_refs: &mut Vec<String>) {
+    let Some(JsonValue::Array(items)) = value else {
+        return;
+    };
+    for item in items {
+        push_inline_artifact_ref(Some(item), artifact_refs);
     }
 }
 
@@ -2247,6 +2324,36 @@ mod tests {
     }
 
     #[test]
+    fn state_commit_fact_source_path_normalizes_to_artifact_ref() {
+        let raw = serde_json::json!({
+            "action": "state_commit",
+            "commit_id": "commit-1",
+            "schema_version": "taskspace-state-commit-v1",
+            "fact_sources": [{
+                "path": "projects.csv",
+                "description": "Input CSV with project data"
+            }]
+        });
+
+        let normalized = normalize_taskspace_arguments(&raw.to_string()).expect("normalize");
+        let args: TaskSpaceControlArgs =
+            serde_json::from_str(&normalized).expect("state_commit fact-source paths parse");
+
+        match args {
+            TaskSpaceControlArgs::StateCommit { fact_sources, .. } => {
+                assert_eq!(fact_sources.len(), 1);
+                assert_eq!(fact_sources[0].id, "fact-sources-1");
+                assert_eq!(fact_sources[0].provenance, "observed_from_environment");
+                assert_eq!(
+                    fact_sources[0].evidence_refs[0].artifact_ref.as_deref(),
+                    Some("projects.csv")
+                );
+            }
+            other => panic!("unexpected args: {other:?}"),
+        }
+    }
+
+    #[test]
     fn active_profile_rejects_direct_legacy_state_action() {
         let raw = serde_json::json!({
             "action": "record_fact",
@@ -2409,6 +2516,48 @@ mod tests {
                 assert_eq!(node_title, "inspect_context");
                 assert_eq!(initial_success_criteria[0].id, "criterion-1");
                 assert_eq!(initial_fact_sources.len(), 3);
+            }
+            other => panic!("unexpected args: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn start_task_fact_source_path_normalizes_to_artifact_ref() {
+        let raw = serde_json::json!({
+            "action": "start_task",
+            "node_kind": "inspect_code_context",
+            "initial_fact_sources": [{
+                "path": "schema.json",
+                "description": "Defines the expected organization.json schema"
+            }, {
+                "path": "employees.csv",
+                "description": "Input CSV with employee data"
+            }]
+        });
+
+        let normalized = normalize_taskspace_arguments(&raw.to_string()).expect("normalize");
+        let args: TaskSpaceControlArgs =
+            serde_json::from_str(&normalized).expect("start_task fact-source paths parse");
+
+        match args {
+            TaskSpaceControlArgs::StartTask {
+                initial_fact_sources,
+                ..
+            } => {
+                assert_eq!(initial_fact_sources.len(), 2);
+                assert_eq!(initial_fact_sources[0].id, "fact-source-1");
+                assert_eq!(
+                    initial_fact_sources[0].evidence_refs[0]
+                        .artifact_ref
+                        .as_deref(),
+                    Some("schema.json")
+                );
+                assert_eq!(
+                    initial_fact_sources[1].evidence_refs[0]
+                        .artifact_ref
+                        .as_deref(),
+                    Some("employees.csv")
+                );
             }
             other => panic!("unexpected args: {other:?}"),
         }
