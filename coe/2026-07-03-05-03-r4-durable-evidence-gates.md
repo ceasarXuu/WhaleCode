@@ -4328,3 +4328,63 @@
   ```
 - Result: passed. The new focused tests prove first validation target read remains allowed, closed target re-read is rejected at action-contract schema/control level, and closed-action rejection routes to patch-only recovery instead of shell read. Regression suites `validation_rework_duplicate_read` 7/7, `validation_rework` 23/23, and `action_contract_prompt` 29/29 passed.
 - Interpretation: H-071 has a focused control-layer fix. It still needs a real keyed `organization-json-generator` rerun to determine whether the model now emits `apply_patch`, or whether the next unresolved tools-chain issue is deeper than action-contract narrowing.
+
+# Evidence E-154: H-071 live rerun proves closed read rejection works but is downgraded to NoAction recovery
+
+- Prediction tested: H-071 action-contract narrowing should reject a closed validation rework target re-read before it becomes an ordinary shell read.
+- Real rerun:
+  ```text
+  RunDir: target/r4-org-json-real-keyed-20260704bq-closed-action-narrowing/runs/terminal_bench__organization-json-generator/20260704-154904-391
+  PairReport: pair-001/pair-report.md
+  reported_evidence_level: E1
+  outcome_standard: wrong
+  outcome_taskspace: engineering_unclean
+  right_exec_timed_out: False
+  right_tool_call_count: 13
+  right_public_validation_exit_code: 1
+  right_hidden_oracle_exit_code: 0
+  current_git_head: 26d991c4a9957c2cc9c6438cb3936758cb383a48
+  whale_binary_sha256: 53ff46c380e498245dfd3627ef26f341a979600e33dde70b90e2d7b4ad53d748
+  ```
+- Matched H-071 live signal:
+  - The provider emitted `read_file generate_organization.py` after the target artifact was already visible and the projection required `apply_patch`.
+  - Action-contract conversion rejected it as `TaskSpaceActionV1 rejected: validation_rework_closed_action_space_read_disallowed:read_file`.
+  - The read did not become an ordinary shell command.
+- New blocker signals:
+  - The rejection was not classified as implementation-needs-edit feedback in the session recovery path.
+  - The next provider-visible recovery became generic `TaskSpaceNoActionRecoveryV1`, not `TaskSpaceValidationReworkPatchOnlyRecoveryV1`.
+  - The provider retried the same illegal `read_file generate_organization.py` several more times and eventually hit `TaskSpaceProviderBudgetHardStopV1 reason=provider_node_request_hard_limit_exceeded`.
+- Interpretation: H-071's schema narrowing is live-cleared, but a new feedback-layer problem remains: `validation_rework_closed_action_space_read_disallowed` is a repair-actionability rejection and must route to patch-only recovery. Downgrading it to NoAction loses the "must patch now" semantics and makes the agent think retrying the read is still a valid recovery path.
+
+# Hypothesis H-072: closed action-space rejections are semantically downgraded when routed through generic NoAction recovery
+
+- Claim: `taskspace_message_hit_implementation_needs_edit()` did not recognize `validation_rework_closed_action_space_read_disallowed`. As a result, a closed-action rejection produced by the schema/control layer fell through to `TaskSpaceNoActionRecoveryV1`, which is too generic for validation rework repair and does not carry the patch-only next-action contract.
+- Prediction:
+  1. The live rejection text should be classified as implementation-needs-edit feedback.
+  2. The recovery builder should choose `TaskSpaceValidationReworkPatchOnlyRecoveryV1`, not `TaskSpaceNoActionRecoveryV1`.
+  3. Recent tool output progress hints should treat the closed-action rejection like validation rework duplicate-read feedback and require `apply_patch`.
+  4. The first closed-action rejection should get one patch-only recovery chance; a second closed-action rejection should hard-stop to avoid budget drain.
+- Diagnostic evidence plan: Add the closed-action rejection marker to implementation-needs-edit classification and recent-output progress hints, then update focused tests to assert patch-only routing and bounded hard-stop behavior.
+- Status: confirmed.
+
+# Evidence E-155: closed action-space rejection now routes to patch-only recovery with bounded hard-stop
+
+- Prediction tested: H-072 predicts `validation_rework_closed_action_space_read_disallowed` should preserve repair semantics instead of falling to NoAction recovery.
+- Repair artifact:
+  - `third_party/codex-cli/codex-rs/core/src/session/turn.rs`
+- Repair behavior:
+  - `taskspace_message_hit_implementation_needs_edit()` now recognizes `validation_rework_closed_action_space_read_disallowed`.
+  - Recent action-contract output hints classify the same marker as validation rework closed-action feedback and say the next action must be `apply_patch`.
+  - `taskspace_validation_rework_patch_only_should_hard_stop()` gives the first schema-level closed-action rejection one patch-only recovery turn, then hard-stops on the second closed-action rejection.
+  - `implementation_recovery_selects_patch_only_after_closed_action_space_read_reject` asserts patch-only recovery is selected, NoAction recovery is not selected, and the hard-stop threshold is bounded.
+- Focused validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core implementation_recovery_selects_patch_only_after_closed_action_space_read_reject --lib
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core validation_rework --lib
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core action_contract_prompt --lib
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+  git diff --check
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-cli --bin whale --locked
+  ```
+- Result: passed. Focused closed-action routing test passed; `validation_rework` passed 23/23; `action_contract_prompt` passed 29/29; formatting, whitespace, and `whale` build gates passed.
+- Interpretation: H-072 is focused-fixed. A new keyed rerun is required to verify the live model now receives `TaskSpaceValidationReworkPatchOnlyRecoveryV1` after the first closed-action read rejection and either emits `apply_patch` or exposes the next tools-chain blocker.

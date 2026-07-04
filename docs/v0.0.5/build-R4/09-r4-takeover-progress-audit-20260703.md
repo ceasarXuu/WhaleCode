@@ -159,10 +159,11 @@ raw signal 存在但语义没有正确进入下一轮 tool contract：
 | `validation-rework-block-rejection-wording-drift` | keyed rerun `20260704-150817-545` 证实 complete-read hard-stop timing 已 live-cleared；runtime 正确拒绝了 validation rework 中“还要读 schema/test expectations”的 blocker，但 session 只识别旧 missing-source rejection wording，未把新 wording 结构化为 `missing_source_visibility_blocker_rejected`，随后进入 patch-only hard-stop；已把 old/new missing-source block rejection wording 合并识别 | focused fixed / real rerun pending |
 | `validation-rework-patch-directive-buried-after-evidence` | keyed rerun `20260704-151923-804` 未复现 H-069 block path，但进入完整 schema validation rework；repair contract、complete target read、schema/CSV evidence 均已可见，provider 仍连续重复读 `process.py`；root cause 是 patch-only/duplicate-read recovery 把 `Current required behavior` 放在长 evidence 后；已把动作指令前置 | focused fixed / real rerun pending |
 | `validation-rework-closed-action-space-noncompliance` | keyed rerun `20260704-153051-437` 证实 patch directive 已前置、complete-read 语义已显式保留、projection 已将 next_valid_actions 收窄到 `apply_patch generate_organization.py`，current node contract 也只允许 edit/control；provider 仍输出非法 `read_file generate_organization.py` 并触发 duplicate-read hard-stop；已在 action-contract schema 转换前拒绝 closed target re-read | focused fixed / real rerun pending |
+| `validation-rework-closed-action-rejection-noaction-downgrade` | keyed rerun `20260704-154904-391` 证实 schema/control 层已把非法 `read_file generate_organization.py` 拒绝为 `validation_rework_closed_action_space_read_disallowed:read_file`，但 session recovery 将其降级为泛化 `TaskSpaceNoActionRecoveryV1`，provider 因而继续重复同一非法 read 直到 provider-node hard stop；已把该 marker 归入 implementation-needs-edit / patch-only recovery，并保留一次 recoverable patch-only turn、第二次 hard-stop | focused fixed / real rerun pending |
 
 新增关键判断：
 
-- R4 tools feedback 问题要拆成两类：一类是语义缺失，原始失败/证据信号进入 trace 或 tool output，但缺少 failure kind、required command、missing artifact 或 phase completion guard；另一类是语义扭曲，AX2 已证明旧节点 edit success 会污染新节点 recent feedback。
+- R4 tools feedback 问题要拆成三类：一类是语义缺失，原始失败/证据信号进入 trace 或 tool output，但缺少 failure kind、required command、missing artifact 或 phase completion guard；第二类是语义扭曲，AX2 已证明旧节点 edit success 会污染新节点 recent feedback；第三类是语义降级，底层 rejection 已正确产生，但进入 session recovery 时被降成错误通道，例如 closed-action rejection 被路由到 `TaskSpaceNoActionRecoveryV1`。
 - `taskspace runtime` 可以负责工具反馈分类和 phase gate，但不能超越状态机底线把“重复证据”解释成“inspect 已完成”。
 - R4 当前实际进行位置：phase 流程已到 R4-H/post-closeout；工程上继续在 R4-D feedback layer 和 R4-G utility-convergence 做回补，不应重新标记 R4 已验收。
 

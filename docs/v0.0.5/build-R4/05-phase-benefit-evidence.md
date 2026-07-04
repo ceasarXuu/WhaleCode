@@ -3969,3 +3969,61 @@ repair action space 下输出非法 `read_file`。
 
 结论：H-070 live-applied but insufficient；H-071 已有 focused control-layer fix。下一步需要 keyed rerun 验证该 schema narrowing
 是否让模型进入 `apply_patch`，或暴露更深层的 patch synthesis/repair quality 问题。
+
+## 5.62 2026-07-04 closed action rejection must not downgrade to NoAction
+
+`26d991c` 的 keyed rerun 证明 H-071 schema narrowing 已进入 live path：非法 target re-read 没有再变成普通 shell
+`read_file`，而是在 action-contract schema 转换前被拒绝。但新的 blocker 是 feedback routing：正确 rejection 被 session
+降级成泛化 NoAction recovery，丢失了 validation rework 的 patch-only 语义。
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260704bq-closed-action-narrowing/runs/terminal_bench__organization-json-generator/20260704-154904-391
+reported_evidence_level: E1
+outcome_standard: wrong
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 13
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+```
+
+关键观察：
+
+| Signal | 结论 |
+|---|---|
+| `TaskSpaceActionV1 rejected: validation_rework_closed_action_space_read_disallowed:read_file` | H-071 的 schema/control 层拒绝 live 生效，非法 read 没有进入 ordinary shell tool |
+| 后续插入 `TaskSpaceNoActionRecoveryV1` | rejection 语义在 session recovery 层被降级，未进入 patch-only repair path |
+| provider 多次重复 `read_file generate_organization.py` | NoAction recovery 没有传达“已闭合 action space，下一步只能 patch”的语义 |
+| 最终 `TaskSpaceProviderBudgetHardStopV1 reason=provider_node_request_hard_limit_exceeded` | 错误 recovery 通道继续烧 provider/node budget |
+
+本轮新增并 focused 修复的问题类型：
+
+| Case | Before | After | Evidence |
+|---|---|---|---|
+| `validation-rework-closed-action-rejection-noaction-downgrade` | closed target re-read 已被 action-contract 拒绝，但 rejection marker 未被识别为 implementation-needs-edit，recovery 降级为泛化 `TaskSpaceNoActionRecoveryV1` | `validation_rework_closed_action_space_read_disallowed` 归入 implementation-needs-edit、recent-output patch-only hint 和 validation rework patch-only recovery；第一条 closed schema rejection 给一次 patch-only recovery，第二次同类 rejection hard-stop | keyed rerun `20260704-154904-391`; CoE H-072/E-154/E-155; `implementation_recovery_selects_patch_only_after_closed_action_space_read_reject`; `validation_rework` 23/23; `action_contract_prompt` 29/29 |
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core implementation_recovery_selects_patch_only_after_closed_action_space_read_reject --lib
+  PASS
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core validation_rework --lib
+  PASS: 23/23
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core action_contract_prompt --lib
+  PASS: 29/29
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+  PASS
+
+git diff --check
+  PASS
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-cli --bin whale --locked
+  PASS
+```
+
+边界说明：该 case 不是工具失败没有传给 runtime，也不是 H-071 schema narrowing 失败。底层 rejection 已正确产生；缺陷发生在
+session feedback routing，把 repair-actionability rejection 降级成 NoAction。修复不允许继续读，也不扩大重试空间，只保证
+closed-action rejection 进入 patch-only recovery 并有 bounded hard-stop。

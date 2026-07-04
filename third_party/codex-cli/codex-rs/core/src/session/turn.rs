@@ -2473,7 +2473,18 @@ fn taskspace_validation_rework_patch_only_should_hard_stop(
     item: &ResponseItem,
     previous_recovery_count: usize,
 ) -> bool {
-    is_taskspace_validation_rework_patch_only_recovery_item(item) && previous_recovery_count > 0
+    if !is_taskspace_validation_rework_patch_only_recovery_item(item) {
+        return false;
+    }
+    let closed_action_rejection = response_item_text_contains(
+        item,
+        "validation_rework_closed_action_space_read_disallowed",
+    );
+    if closed_action_rejection {
+        previous_recovery_count > 1
+    } else {
+        previous_recovery_count > 0
+    }
 }
 
 fn taskspace_implementation_needs_edit_should_hard_stop(
@@ -2618,6 +2629,7 @@ fn taskspace_message_hit_implementation_needs_edit(message: Option<&str>) -> boo
     message.is_some_and(|message| {
         message.contains("implementation_needs_edit")
             || message.contains("validation_rework_patch_only_after_target_read")
+            || message.contains("validation_rework_closed_action_space_read_disallowed")
             || taskspace_text_mentions_validation_rework_duplicate_artifact_read(message)
             || message.contains("has enough read/search evidence and no successful edit")
     })
@@ -3709,6 +3721,9 @@ fn taskspace_action_contract_recent_tool_outputs_item(
     let validation_rework_duplicate_read_seen = summaries
         .iter()
         .any(|(_, text)| taskspace_text_mentions_validation_rework_duplicate_artifact_read(text));
+    let validation_rework_closed_action_space_read_seen = summaries
+        .iter()
+        .any(|(_, text)| text.contains("validation_rework_closed_action_space_read_disallowed"));
     let implementation_needs_edit_seen = summaries.iter().any(|(_, text)| {
         text.contains("failure_kind: implementation_needs_edit")
             || text.contains("implementation_needs_edit")
@@ -3767,7 +3782,9 @@ fn taskspace_action_contract_recent_tool_outputs_item(
         "progress_hint: A previous block_node action was rejected because it described TaskSpace internal policy or a repeated diagnostic, not an external blocker. Do not create another inspect node and do not rerun the diagnostic. Next action must be apply_patch with the smallest concrete implementation fix from dependency evidence.\n"
     } else if implement_missing_edit_before_finish_seen {
         "progress_hint: A previous finish_node action was rejected because the implement_solution node has no successful edit. Do not finish, block, create another inspect node, or rerun diagnostics. Next action must be apply_patch with the smallest concrete implementation fix from dependency evidence.\n"
-    } else if validation_rework_duplicate_read_seen {
+    } else if validation_rework_duplicate_read_seen
+        || validation_rework_closed_action_space_read_seen
+    {
         "progress_hint: A previous read/search was blocked because this validation rework node already has the target artifact contents visible and no successful edit has happened yet. Do not read_file, list_files, search, inspect schema again, or run validation from this implementation node. Next action must be apply_patch for the already-read validation rework artifact, or blocked only with a concrete external reason editing is impossible.\n"
     } else if implementation_needs_edit_seen {
         "progress_hint: A previous read/search/control action was blocked because this implement_solution node already has enough evidence and no successful edit has happened yet. Do not read_file, list_files, search, broad shell discovery, or validation from this implementation node. Next action must be apply_patch with the smallest concrete fix from the existing evidence, or blocked only with a concrete external reason editing is impossible.\n"
@@ -5498,11 +5515,20 @@ Then I will inspect the file."#,
             taskspace_implement_recovery_advisory_warning_message(&item, 4)
                 .contains("TaskSpaceValidationReworkPatchOnlyRecoveryV1")
         );
+        assert!(!taskspace_validation_rework_patch_only_should_hard_stop(
+            &item, 1
+        ));
+        assert!(taskspace_validation_rework_patch_only_should_hard_stop(
+            &item, 2
+        ));
     }
 
     #[test]
     fn implementation_recovery_selects_patch_only_after_closed_action_space_read_reject() {
         let last_message = "TaskSpaceActionV1 rejected: validation_rework_closed_action_space_read_disallowed:read_file. Return exactly one valid taskspace-action-v1 JSON object.";
+        assert!(taskspace_message_hit_implementation_needs_edit(Some(
+            last_message
+        )));
         let evidence = "validation_rework: smoke_test `node-3` failed result `result-10`: missing_required_properties: members, averageDepartmentBudget \
 | validation_rework_target_read result=result-12 artifact=generate_organization.py read_context: complete_read excerpt: member_ids -> members \
 | validation_schema_repair_contract: missing_required_properties=members,averageDepartmentBudget";
@@ -5518,6 +5544,11 @@ Then I will inspect the file."#,
         assert!(is_taskspace_validation_rework_patch_only_recovery_item(
             &item
         ));
+        assert!(!is_taskspace_no_action_recovery_item(&item));
+        assert!(
+            taskspace_implement_recovery_advisory_warning_message(&item, 4)
+                .contains("TaskSpaceValidationReworkPatchOnlyRecoveryV1")
+        );
     }
 
     #[test]

@@ -567,3 +567,17 @@ patch directive 前置后的 keyed rerun 证明动作指令已经 live 可见：
 
 边界说明：该 case 不是语义缺失，也不是语义扭曲；是语义已正确传递后，模型仍不服从闭合动作空间。本轮修复点在能力/控制层：
 非法 read 不再先落到普通 shell 工具再由 runtime gate 拒绝，而是在 action-contract schema 转换前被挡住。
+
+## 2026-07-04 R4-D issue type addendum: closed action rejection NoAction downgrade
+
+closed action-space narrowing 的 live rerun 证明 schema/control 层已经能阻止非法 read 进入普通 shell 工具，但同时暴露了
+feedback routing 语义降级：`validation_rework_closed_action_space_read_disallowed:read_file` 是 repair-actionability rejection，
+session 却把它送入泛化 `TaskSpaceNoActionRecoveryV1`。结果 provider 没收到 patch-only contract，继续重复同一非法 read，
+直到 provider-node hard stop。
+
+| Issue type | Layer | Symptom | Resolution contract | Evidence |
+|---|---|---|---|---|
+| `validation-rework-closed-action-rejection-noaction-downgrade` | session recovery classification / feedback routing | action-contract 已拒绝 closed target re-read，但 rejection marker 没被识别为 implementation-needs-edit；provider-visible recovery 降成 `TaskSpaceNoActionRecoveryV1`，丢失 `apply_patch` next-action 语义 | `validation_rework_closed_action_space_read_disallowed` 归入 implementation-needs-edit、recent-output patch-only progress hint 和 validation rework patch-only recovery；第一条 closed schema rejection 保留一次 patch-only recovery，第二条同类 rejection hard-stop | keyed rerun `20260704-154904-391`; CoE H-072/E-154/E-155; `implementation_recovery_selects_patch_only_after_closed_action_space_read_reject`; `validation_rework`; `action_contract_prompt` |
+
+边界说明：该 case 是反馈层“语义降级”，不是底层工具失败语义缺失。runtime 已经知道 read 非法；问题是这个语义进入错误 recovery
+通道后不再驱动 patch。修复保持 action space 闭合，不把 read 重新放开，只把 rejection 路由到正确的 patch-only recovery。
