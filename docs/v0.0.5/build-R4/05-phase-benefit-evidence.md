@@ -1522,6 +1522,47 @@ set -a; . ./.env.local; set +a; powershell -NoProfile -ExecutionPolicy Bypass -F
 git diff --check
 ```
 
+## 5.97 2026-07-05 replacement-required recovery marker distortion
+
+`b3d31ec` 后 keyed rerun 证明 H-110 已 live-clear：replacement-required 不再被不同 `Update File` 形态分流。
+但 run 仍在 patch recovery hard-stop，原因变成 feedback marker 语义扭曲：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260705ae-sticky-replacement-gate/runs/terminal_bench__organization-json-generator/20260705-005608-072
+reported_evidence_level: E1
+outcome_taskspace: engineering_unclean
+right_tool_call_count: 11
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+final_marker: TaskSpaceApplyPatchRecoveryHardStopV1
+```
+
+收益判断：
+
+1. H-110 的收益已被 live 证据确认：后续 `Update File generate_organization.py` 全部被拒绝为
+   `apply_patch_replacement_required:generate_organization.py`。
+2. 新问题是 `apply-patch-replacement-required-recovery-marker-distortion`：反馈层把 replacement-required
+   重新标成 `TaskSpaceApplyPatchNativeHunkRecoveryV1`，导致 provider-visible recovery 和 hard-stop audit 名称不保真。
+3. focused fix 新增 `TaskSpaceApplyPatchReplacementRequiredRecoveryV1`，并接入 warning、recovery accounting、
+   duplicate-read preserve 和 hard-stop excerpt。
+4. R4-G utility 仍未通过，需下一次 keyed rerun 验证 live 链路是否越过 replacement-required recovery marker 问题。
+
+验证：
+
+```text
+keyed rerun: 20260705-005608-072
+CoE: H-111/E-227/E-228
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core replacement_required --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core native_hunk_recovery --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core unanchored_update --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core action_contract_prompt --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_rework --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core taskspace_apply_patch --lib
+cargo fmt --check
+CODEX_SKIP_VENDORED_BWRAP=1 cargo check -p codex-core
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
+```
+
 ## 5.95 2026-07-05 terminal blocked observed fact-source contradiction
 
 `fc7cae1` keyed rerun 越过 H-108 的 replacement-only hard-stop，但右侧 TaskSpace 仍未生成 `organization.json`。

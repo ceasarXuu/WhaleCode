@@ -167,6 +167,8 @@ const TASKSPACE_APPLY_PATCH_MISSING_TARGET_MARKER: &str =
 const TASKSPACE_APPLY_PATCH_UNANCHORED_UPDATE_MARKER: &str =
     "TaskSpaceApplyPatchUnanchoredUpdateRecoveryV1:";
 const TASKSPACE_APPLY_PATCH_NATIVE_HUNK_MARKER: &str = "TaskSpaceApplyPatchNativeHunkRecoveryV1:";
+const TASKSPACE_APPLY_PATCH_REPLACEMENT_REQUIRED_MARKER: &str =
+    "TaskSpaceApplyPatchReplacementRequiredRecoveryV1:";
 const TASKSPACE_APPLY_PATCH_RECOVERY_HARD_STOP_MARKER: &str =
     "TaskSpaceApplyPatchRecoveryHardStopV1:";
 const TASKSPACE_PATCH_INTENT_FORMAT_MARKER: &str = "TaskSpacePatchIntentFormatRecoveryV1:";
@@ -2064,7 +2066,32 @@ Native apply_patch does not use `--- Update File:`, `--- a/...`, `+++ b/...`, or
 }
 
 fn build_taskspace_apply_patch_replacement_required_recovery_item(targets: &str) -> ResponseItem {
-    build_taskspace_apply_patch_native_hunk_recovery_item(targets, true)
+    let targets = targets.trim();
+    let targets = if targets.is_empty() {
+        "(unknown replacement target)"
+    } else {
+        targets
+    };
+    let text = format!(
+        "{TASKSPACE_APPLY_PATCH_REPLACEMENT_REQUIRED_MARKER}\n\
+The previous apply_patch used `*** Update File` for: {targets}\n\
+The active validation rework state already requires a whole-file native replacement for this target.\n\
+Current required behavior:\n\
+- Emit exactly one corrected apply_patch now: a whole-file native replacement for the target above.\n\
+- Use `*** Delete File: <relative/path>` followed by `*** Add File: <relative/path>` with the complete corrected file contents.\n\
+- Prefix every added replacement line with `+`.\n\
+- Do not emit `*** Update File` for this recovery; TaskSpace will reject Update File for this target until replacement succeeds.\n\
+- Do not put `--- a/...`, `+++ b/...`, `--- Update File:`, or `@@ -old,+new @@` anywhere in the patch payload.\n\
+- Do not call read_file, list_files, search, finish_node, or validation until this corrected replacement edit succeeds."
+    );
+
+    ResponseItem::Message {
+        id: None,
+        role: "developer".to_string(),
+        content: vec![ContentItem::InputText { text }],
+        end_turn: None,
+        phase: None,
+    }
 }
 
 fn build_taskspace_patch_intent_format_recovery_item(
@@ -2864,6 +2891,7 @@ fn is_taskspace_apply_patch_recovery_item(item: &ResponseItem) -> bool {
         || response_item_text_contains(item, TASKSPACE_APPLY_PATCH_FORMAT_MARKER)
         || response_item_text_contains(item, TASKSPACE_APPLY_PATCH_MISSING_TARGET_MARKER)
         || response_item_text_contains(item, TASKSPACE_APPLY_PATCH_UNANCHORED_UPDATE_MARKER)
+        || response_item_text_contains(item, TASKSPACE_APPLY_PATCH_REPLACEMENT_REQUIRED_MARKER)
         || response_item_text_contains(item, TASKSPACE_APPLY_PATCH_NATIVE_HUNK_MARKER)
         || response_item_text_contains(item, TASKSPACE_PATCH_INTENT_FORMAT_MARKER)
 }
@@ -2969,6 +2997,7 @@ fn is_taskspace_implement_needs_edit_recovery_item(item: &ResponseItem) -> bool 
         || response_item_text_contains(item, TASKSPACE_EDIT_FAILURE_MARKER)
         || response_item_text_contains(item, TASKSPACE_APPLY_PATCH_MISSING_TARGET_MARKER)
         || response_item_text_contains(item, TASKSPACE_APPLY_PATCH_UNANCHORED_UPDATE_MARKER)
+        || response_item_text_contains(item, TASKSPACE_APPLY_PATCH_REPLACEMENT_REQUIRED_MARKER)
         || response_item_text_contains(item, TASKSPACE_APPLY_PATCH_NATIVE_HUNK_MARKER)
         || response_item_text_contains(item, TASKSPACE_PATCH_INTENT_FORMAT_MARKER)
 }
@@ -2992,6 +3021,10 @@ fn taskspace_implement_recovery_advisory_warning_message(
     } else if response_item_text_contains(item, TASKSPACE_APPLY_PATCH_UNANCHORED_UPDATE_MARKER) {
         format!(
             "TaskSpace inserted TaskSpaceApplyPatchUnanchoredUpdateRecoveryV1 because apply_patch used an unanchored Update File patch and must be re-emitted with exact context. Advisory recovery attempt {attempt} is being used."
+        )
+    } else if response_item_text_contains(item, TASKSPACE_APPLY_PATCH_REPLACEMENT_REQUIRED_MARKER) {
+        format!(
+            "TaskSpace inserted TaskSpaceApplyPatchReplacementRequiredRecoveryV1 because active validation rework requires whole-file replacement and `*** Update File` is no longer valid for this target. Advisory recovery attempt {attempt} is being used."
         )
     } else if response_item_text_contains(item, TASKSPACE_APPLY_PATCH_NATIVE_HUNK_MARKER) {
         format!(
@@ -3028,6 +3061,7 @@ fn taskspace_duplicate_read_recovery_preserves_patch_grammar_failure(item: &Resp
             text.contains("apply_patch_mixed_native_unified")
                 || text.contains("apply_patch_native_hunk_header")
                 || text.contains("apply_patch_unanchored_update")
+                || text.contains("apply_patch_replacement_required")
         })
 }
 
@@ -3052,6 +3086,8 @@ fn taskspace_special_recovery_warning_message(item: &ResponseItem) -> String {
         "TaskSpace inserted TaskSpaceApplyPatchMissingTargetRecoveryV1 after apply_patch tried to update a missing file. This guidance does not consume the no-action recovery allowance.".to_string()
     } else if response_item_text_contains(item, TASKSPACE_APPLY_PATCH_UNANCHORED_UPDATE_MARKER) {
         "TaskSpace inserted TaskSpaceApplyPatchUnanchoredUpdateRecoveryV1 after apply_patch used an unanchored Update File patch. This guidance does not consume the no-action recovery allowance.".to_string()
+    } else if response_item_text_contains(item, TASKSPACE_APPLY_PATCH_REPLACEMENT_REQUIRED_MARKER) {
+        "TaskSpace inserted TaskSpaceApplyPatchReplacementRequiredRecoveryV1 after apply_patch used `*** Update File` where active validation rework requires whole-file replacement. This guidance does not consume the no-action recovery allowance.".to_string()
     } else if response_item_text_contains(item, TASKSPACE_APPLY_PATCH_NATIVE_HUNK_MARKER) {
         "TaskSpace inserted TaskSpaceApplyPatchNativeHunkRecoveryV1 after apply_patch mixed native grammar with unified/range hunk syntax. This guidance does not consume the no-action recovery allowance.".to_string()
     } else if response_item_text_contains(item, TASKSPACE_EDIT_FAILURE_MARKER) {
@@ -7835,6 +7871,35 @@ Then I will inspect the file."#,
         assert!(text.contains("*** Add File: <relative/path>"));
         assert!(text.contains("Do not emit `*** Update File`"));
         assert!(!text.contains("Use native `*** Update File"));
+        assert!(is_taskspace_implement_needs_edit_recovery_item(&item));
+    }
+
+    #[test]
+    fn apply_patch_replacement_required_recovery_preserves_replacement_semantics() {
+        let targets = taskspace_replacement_required_targets_from_rejection(Some(
+            "TaskSpaceActionV1 rejected: apply_patch_replacement_required:generate_organization.py. Return exactly one valid taskspace-action-v1 JSON object.",
+        ))
+        .expect("target parsed");
+        let item = build_taskspace_apply_patch_replacement_required_recovery_item(&targets);
+        let text = item_text(item.clone());
+        let warning = taskspace_implement_recovery_advisory_warning_message(&item, 4);
+        let special_warning = taskspace_special_recovery_warning_message(&item);
+        let hard_stop = build_taskspace_apply_patch_recovery_hard_stop_item(&item, 4);
+        let hard_stop_text = item_text(hard_stop);
+
+        assert_eq!(targets, "generate_organization.py");
+        assert!(text.contains(TASKSPACE_APPLY_PATCH_REPLACEMENT_REQUIRED_MARKER));
+        assert!(text.contains("whole-file native replacement"));
+        assert!(text.contains("*** Delete File: <relative/path>"));
+        assert!(text.contains("*** Add File: <relative/path>"));
+        assert!(text.contains("TaskSpace will reject Update File"));
+        assert!(!text.contains(TASKSPACE_APPLY_PATCH_NATIVE_HUNK_MARKER));
+        assert!(warning.contains("TaskSpaceApplyPatchReplacementRequiredRecoveryV1"));
+        assert!(!warning.contains("TaskSpaceApplyPatchNativeHunkRecoveryV1"));
+        assert!(special_warning.contains("TaskSpaceApplyPatchReplacementRequiredRecoveryV1"));
+        assert!(hard_stop_text.contains("TaskSpaceApplyPatchReplacementRequiredRecoveryV1"));
+        assert!(!hard_stop_text.contains("TaskSpaceApplyPatchNativeHunkRecoveryV1"));
+        assert!(is_taskspace_apply_patch_recovery_item(&item));
         assert!(is_taskspace_implement_needs_edit_recovery_item(&item));
     }
 

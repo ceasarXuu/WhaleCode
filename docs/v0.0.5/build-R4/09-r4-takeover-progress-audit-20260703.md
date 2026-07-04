@@ -2459,6 +2459,36 @@ current_git_head: 9f370ddfa3f12397ed1d966b321b5e1f0a86c3b2
 
 状态：focused 修复已编码；仍需 focused/regression、fmt/build、commit/push、attestation、keyed rerun。
 
+## 40. 2026-07-05 replacement-required recovery marker distortion
+
+`b3d31ec` 安装后 keyed rerun：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260705ae-sticky-replacement-gate/runs/terminal_bench__organization-json-generator/20260705-005608-072
+reported_evidence_level: E1
+outcome_standard: wrong
+outcome_taskspace: engineering_unclean
+right_tool_call_count: 11
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+right_open_leaf_nodes: 1
+final_marker: TaskSpaceApplyPatchRecoveryHardStopV1
+```
+
+H-110 live-clear：replacement-required sticky 分类生效，后续四次 `Update File generate_organization.py`
+均拒绝为 `apply_patch_replacement_required:generate_organization.py`。新问题：
+
+| 字段 | 内容 |
+|---|---|
+| case | `apply-patch-replacement-required-recovery-marker-distortion` |
+| 层级 | feedback recovery marker / observability / hard-stop audit |
+| 本质 | action classifier 语义正确，但 recovery marker、warning、hard-stop excerpt 把 replacement-required 改名成 `TaskSpaceApplyPatchNativeHunkRecoveryV1` |
+| 非根因 | 不是 H-110 sticky 失败；不是 H-109 false terminal blocker；不是 `apply_patch` 工具静默成功或失败丢失 |
+| 修复 | 新增 `TaskSpaceApplyPatchReplacementRequiredRecoveryV1`；replacement-required recovery 不再 alias native-hunk；warning、recovery accounting、duplicate-read preserve、hard-stop excerpt 全链路保留该 marker |
+| evidence | CoE H-111/E-227/E-228；keyed rerun `20260705-005608-072`；focused tests `replacement_required`, `native_hunk_recovery`, `unanchored_update`, `action_contract_prompt`, `validation_rework`, `taskspace_apply_patch`；fmt/check/build |
+
+状态：focused fixed，待 install/attest 和真实 keyed rerun 确认 live recovery 不再把 replacement-required 标成 native-hunk。
+
 ## 27. 2026-07-04 validation rework schema feedback chain
 
 本轮把 `organization-json-generator` 的 schema validation rework 继续拆成连续 tools 链路问题类型。它们都属于

@@ -6595,3 +6595,65 @@
     PASS
   ```
 - Interpretation: H-110 is focused-fixed. Remaining gates are `git diff --check`, commit/push, install/attest, and another keyed rerun.
+
+# Evidence E-227: H-110 rerun keeps replacement-required sticky but exposes recovery marker distortion
+
+- Real rerun:
+  ```text
+  RunDir: target/r4-org-json-real-keyed-20260705ae-sticky-replacement-gate/runs/terminal_bench__organization-json-generator/20260705-005608-072
+  reported_evidence_level: E1
+  outcome_standard: wrong
+  outcome_taskspace: engineering_unclean
+  right_exec_timed_out: False
+  right_tool_call_count: 11
+  right_public_validation_exit_code: 1
+  right_hidden_oracle_exit_code: 0
+  right_open_leaf_nodes: 1
+  final_marker: TaskSpaceApplyPatchRecoveryHardStopV1
+  ```
+- H-110 live status:
+  - The previous non-sticky split did not recur: four later `*** Update File: generate_organization.py` attempts were all rejected as `apply_patch_replacement_required:generate_organization.py`.
+  - The false terminal blocker from H-109 did not recur.
+- New blocker signal:
+  - `whale-exec.jsonl` item_51, item_58, item_65, and item_72 all report `TaskSpaceActionV1 rejected: apply_patch_replacement_required:generate_organization.py`.
+  - Immediately after those rejections, item_52, item_59, and item_66 inserted `TaskSpaceApplyPatchNativeHunkRecoveryV1`.
+  - The hard-stop excerpt preserved `TaskSpaceApplyPatchNativeHunkRecoveryV1`, even though the rejected semantic error was `apply_patch_replacement_required`.
+- Interpretation: H-110 is live-cleared for sticky action-contract classification. H-111 is a feedback-layer semantic distortion: the classifier returns replacement-required, but the recovery marker/warning/hard-stop audit surface recasts it as native-hunk recovery.
+
+# Hypothesis H-111: replacement-required recovery needs its own marker and warning semantics
+
+- Claim: Reusing `TaskSpaceApplyPatchNativeHunkRecoveryV1` for `apply_patch_replacement_required:<target>` blurs two distinct failures. Native-hunk means "fix grammar inside update hunks"; replacement-required means "`Update File` is no longer allowed for this active rework target." This naming drift can steer the model back to hunk repair and makes hard-stop audit evidence mislabel the real failure.
+- Prediction: A focused test should construct an `apply_patch_replacement_required:<target>` rejection, build the recovery item, and verify the item text, advisory warning, special warning, and hard-stop excerpt all contain `TaskSpaceApplyPatchReplacementRequiredRecoveryV1` and do not contain `TaskSpaceApplyPatchNativeHunkRecoveryV1`.
+- Diagnostic evidence plan: Add a dedicated replacement-required recovery marker and builder text, register it in apply-patch recovery classification, implement-needs-edit recovery classification, advisory warnings, special warnings, and duplicate-read preserved patch feedback matching. Run replacement/native/unanchored focused tests plus action-contract, validation-rework, taskspace-apply-patch, fmt/check/build/diff gates.
+- Status: focused-fixed; real keyed rerun pending.
+
+# Evidence E-228: replacement-required recovery now preserves its semantic marker end to end
+
+- Repair artifact:
+  - `third_party/codex-cli/codex-rs/core/src/session/turn.rs`
+- Repair behavior:
+  - Added `TaskSpaceApplyPatchReplacementRequiredRecoveryV1`.
+  - `build_taskspace_apply_patch_replacement_required_recovery_item()` no longer aliases native-hunk recovery. It now states that active validation rework requires whole-file replacement, `*** Update File` will keep being rejected for the target, and the only valid next edit is `*** Delete File` plus `*** Add File`.
+  - Advisory warning, special warning, apply-patch recovery accounting, implement-needs-edit accounting, duplicate-read feedback preservation, and hard-stop excerpt handling now recognize the replacement-required marker.
+- Validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core replacement_required --lib
+    PASS: 1/1
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core native_hunk_recovery --lib
+    PASS: 2/2
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core unanchored_update --lib
+    PASS: 3/3
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core action_contract_prompt --lib
+    PASS: 29/29
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_rework --lib
+    PASS: 29/29
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core taskspace_apply_patch --lib
+    PASS: 18/18
+  cargo fmt --check
+    PASS (stable rustfmt warns that imports_granularity is nightly-only)
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo check -p codex-core
+    PASS
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
+    PASS
+  ```
+- Interpretation: H-111 is focused-fixed. Remaining gates are `git diff --check`, commit/push, install/attest, and a keyed rerun to verify live recovery no longer labels replacement-required failures as native-hunk recovery.

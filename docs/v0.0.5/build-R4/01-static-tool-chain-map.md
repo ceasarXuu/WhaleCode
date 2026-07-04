@@ -1013,3 +1013,18 @@ workspace，导致任务以 false local infrastructure blocker 结束。
 | Issue type | Layer | Symptom | Resolution contract | Evidence |
 |---|---|---|---|---|
 | `apply-patch-replacement-required-non-sticky-update-file` | apply_patch action-contract / replacement-required state | active rework target 已 replacement-required，但后续 `*** Update File` old/new、unanchored、normalized update 仍走 generic recovery 并 hard-stop | 已实现：active validation rework target 的任何 `*** Update File` 在 normalize 前后都优先返回 `apply_patch_replacement_required:<target>`；非 rework target 保持 generic feedback | keyed rerun `20260705-003821-682`; CoE H-110/E-225/E-226; focused tests `requires_replacement`, `keeps_generic_unanchored`, `mixed_native_unified`, `unanchored_update`, `validation_rework`, `taskspace_apply_patch` |
+
+## 2026-07-05 R4-D issue type addendum: replacement-required recovery marker distortion
+
+`b3d31ec` 后 keyed rerun 证明 H-110 action-contract sticky 状态已生效：同一 active rework target 的后续
+`*** Update File` 都被拒绝为 `apply_patch_replacement_required:generate_organization.py`。但 feedback 层又暴露
+语义扭曲：这些 replacement-required rejection 之后插入的 recovery marker 和 hard-stop excerpt 仍显示
+`TaskSpaceApplyPatchNativeHunkRecoveryV1`，把“禁止 Update File，必须 whole-file replacement”的状态语义重新包装成
+native hunk grammar 修复。
+
+| Issue type | Layer | Symptom | Resolution contract | Evidence |
+|---|---|---|---|---|
+| `apply-patch-replacement-required-recovery-marker-distortion` | feedback recovery marker / observability / hard-stop audit | classifier 已返回 `apply_patch_replacement_required:<target>`，但 provider-visible recovery、warning 和 hard-stop excerpt 仍标为 `TaskSpaceApplyPatchNativeHunkRecoveryV1` | 已实现：新增 `TaskSpaceApplyPatchReplacementRequiredRecoveryV1`；replacement-required recovery 不再 alias native-hunk marker；advisory/special warning、apply-patch recovery accounting、implement recovery accounting、duplicate-read preserve 和 hard-stop excerpt 全链路识别该 marker | keyed rerun `20260705-005608-072`; CoE H-111/E-227/E-228; focused tests `replacement_required`, `native_hunk_recovery`, `unanchored_update`, `action_contract_prompt`, `validation_rework`, `taskspace_apply_patch` |
+
+边界说明：该修复不放宽 `apply_patch` 工具，也不把 malformed patch 当成功。它只保证已存在的
+`apply_patch_replacement_required` 失败语义在反馈层、恢复计数和审计摘要中不再被改名为 native-hunk recovery。
