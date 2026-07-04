@@ -5891,6 +5891,9 @@ Then I will inspect the file."#,
         assert!(text.contains(TASKSPACE_EDIT_FAILURE_MARKER));
         assert!(text.contains("Failed to find expected lines"));
         assert!(text.contains("do not repeat the same hunk"));
+        assert!(text.contains("Complete target-read recovery override"));
+        assert!(text.contains("*** Delete File"));
+        assert!(text.contains("*** Add File"));
         assert!(text.contains("one narrow read_file of the same failed target artifact"));
         assert!(!text.contains(TASKSPACE_VALIDATION_REWORK_PATCH_ONLY_MARKER));
         assert!(!is_taskspace_validation_rework_patch_only_recovery_item(

@@ -7136,11 +7136,6 @@ preview:\n\
         let summary = working_evidence_summary_for_nodes(map, &evidence_node_ids);
         let rework_summary = implement_node_dependency_validation_rework_summary(map, node);
         let mut parts = Vec::new();
-        if let Some(rework_summary) = rework_summary
-            && !rework_summary.trim().is_empty()
-        {
-            parts.push(format!("validation_rework: {rework_summary}"));
-        }
         let rework_target_summary = validation_rework_target_read_evidence_summary(
             map,
             node,
@@ -7149,6 +7144,11 @@ preview:\n\
         );
         if !rework_target_summary.trim().is_empty() {
             parts.push(rework_target_summary);
+        }
+        if let Some(rework_summary) = rework_summary
+            && !rework_summary.trim().is_empty()
+        {
+            parts.push(format!("validation_rework: {rework_summary}"));
         }
         if !summary.trim().is_empty() {
             parts.push(summary);
@@ -34988,6 +34988,21 @@ TaskSpaceReadFileSummaryV1: path=generate_org.py lines_read=210 eof_reached=true
                     && evidence.contains("failed-context-patch")
                     && evidence.contains("apply_patch verification failed")),
             "{critical_after_failed_edit:?}"
+        );
+        let working_summary_after_failed_edit = state
+            .current_main_working_evidence_summary()
+            .expect("working evidence summary after failed edit");
+        assert!(
+            working_summary_after_failed_edit.contains("validation_rework_target_read")
+                && working_summary_after_failed_edit.contains("generate_org.py")
+                && working_summary_after_failed_edit.contains("complete_read")
+                && working_summary_after_failed_edit.contains("eof_reached=true"),
+            "{working_summary_after_failed_edit}"
+        );
+        assert!(
+            working_summary_after_failed_edit.find("validation_rework_target_read")
+                < working_summary_after_failed_edit.find("validation_rework:"),
+            "{working_summary_after_failed_edit}"
         );
         let rework_node_after_failed_edit = map.nodes.get(&rework_node_id).expect("rework node");
         let allowed_after_failed_edit =
