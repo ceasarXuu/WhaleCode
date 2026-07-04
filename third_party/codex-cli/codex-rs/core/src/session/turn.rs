@@ -148,6 +148,8 @@ const TASKSPACE_FORCED_IMPLEMENT_TRANSITION_MARKER: &str =
 const TASKSPACE_FORCED_VALIDATION_CLOSEOUT_MARKER: &str =
     "TaskSpaceForcedValidationCloseoutRecoveryV1:";
 const TASKSPACE_IMPLEMENT_NEEDS_EDIT_MARKER: &str = "TaskSpaceImplementNeedsEditRecoveryV1:";
+const TASKSPACE_IMPLEMENT_NEEDS_EDIT_HARD_STOP_MARKER: &str =
+    "TaskSpaceImplementationNeedsEditHardStopV1:";
 const TASKSPACE_VALIDATION_REWORK_DUPLICATE_READ_MARKER: &str =
     "TaskSpaceValidationReworkDuplicateReadRecoveryV1:";
 const TASKSPACE_VALIDATION_REWORK_DUPLICATE_READ_HARD_STOP_MARKER: &str =
@@ -480,6 +482,7 @@ pub(crate) async fn run_turn(
     let mut stop_hook_active = false;
     let mut taskspace_no_action_recovery_count = 0usize;
     let mut taskspace_implement_needs_edit_recovery_count = 0usize;
+    let mut taskspace_implement_needs_edit_recovery_key: Option<String> = None;
     let mut taskspace_validation_rework_duplicate_read_recovery_count = 0usize;
     // Although from the perspective of codex.rs, TurnDiffTracker has the lifecycle of a Task which contains
     // many turns, from the perspective of the user, it is a single turn.
@@ -596,21 +599,24 @@ pub(crate) async fn run_turn(
                 } = sampling_request_output;
                 can_drain_pending_input = true;
                 if let Some(recovery_item) = taskspace_no_action_recovery_item {
+                    let current_recovery_snapshot =
+                        sess.action_map_provider_request_budget_snapshot().await;
                     let is_provider_budget_hard_stop =
                         is_taskspace_provider_budget_hard_stop_item(&recovery_item);
                     let counts_against_no_action_cap =
                         is_taskspace_no_action_recovery_item(&recovery_item);
                     let counts_against_implement_needs_edit_cap =
                         is_taskspace_implement_needs_edit_recovery_item(&recovery_item);
+                    let counts_against_plain_implement_needs_edit_cap =
+                        is_taskspace_plain_implement_needs_edit_recovery_item(&recovery_item);
                     let validation_rework_duplicate_read_hard_stop =
                         taskspace_validation_rework_duplicate_read_should_hard_stop(
                             &recovery_item,
                             taskspace_validation_rework_duplicate_read_recovery_count,
                         );
-                    let no_action_recovery_cap = sess
-                        .action_map_provider_request_budget_snapshot()
-                        .await
-                        .and_then(|snapshot| snapshot.node_kind)
+                    let no_action_recovery_cap = current_recovery_snapshot
+                        .as_ref()
+                        .and_then(|snapshot| snapshot.node_kind.clone())
                         .as_deref()
                         .map(taskspace_no_action_recovery_cap_for_node_kind)
                         .unwrap_or(1usize);
@@ -620,10 +626,47 @@ pub(crate) async fn run_turn(
                         taskspace_no_action_recovery_count += 1;
                     }
                     if counts_against_implement_needs_edit_cap {
+                        let recovery_key = current_recovery_snapshot
+                            .as_ref()
+                            .and_then(|snapshot| snapshot.node_id.as_deref())
+                            .map(str::to_string)
+                            .unwrap_or_else(|| "unknown-node".to_string());
+                        if taskspace_implement_needs_edit_recovery_key.as_deref()
+                            != Some(recovery_key.as_str())
+                        {
+                            taskspace_implement_needs_edit_recovery_key = Some(recovery_key);
+                            taskspace_implement_needs_edit_recovery_count = 0;
+                        }
                         taskspace_implement_needs_edit_recovery_count += 1;
                     }
                     if is_taskspace_validation_rework_duplicate_read_recovery_item(&recovery_item) {
                         taskspace_validation_rework_duplicate_read_recovery_count += 1;
+                    }
+                    if taskspace_implementation_needs_edit_should_hard_stop(
+                        &recovery_item,
+                        taskspace_implement_needs_edit_recovery_count,
+                    ) && counts_against_plain_implement_needs_edit_cap
+                    {
+                        let hard_stop_item =
+                            build_taskspace_implementation_needs_edit_hard_stop_item(
+                                &recovery_item,
+                                taskspace_implement_needs_edit_recovery_count,
+                            );
+                        sess.send_event(
+                            &turn_context,
+                            EventMsg::Warning(WarningEvent {
+                                message: taskspace_special_recovery_warning_message(
+                                    &hard_stop_item,
+                                ),
+                            }),
+                        )
+                        .await;
+                        sess.record_conversation_items(&turn_context, &[hard_stop_item])
+                            .await;
+                        last_agent_message = Some(
+                            "TaskSpace implementation needs-edit hard stop: repeated_finish_without_successful_edit".to_string(),
+                        );
+                        break;
                     }
                     if validation_rework_duplicate_read_hard_stop {
                         let hard_stop_item =
@@ -673,8 +716,8 @@ pub(crate) async fn run_turn(
                         last_agent_message = sampling_request_last_agent_message;
                         break;
                     }
-                    if let Some(snapshot) = sess.action_map_provider_request_budget_snapshot().await
-                        && taskspace_provider_budget_limit_reached(&snapshot)
+                    if let Some(snapshot) = current_recovery_snapshot.as_ref()
+                        && taskspace_provider_budget_limit_reached(snapshot)
                     {
                         sess.action_map_mark_next_provider_request_budget_recovery(
                             &turn_context,
@@ -2130,6 +2173,33 @@ Last recovery contract excerpt:\n{recovery_excerpt}"
     }
 }
 
+fn build_taskspace_implementation_needs_edit_hard_stop_item(
+    recovery_item: &ResponseItem,
+    attempt: usize,
+) -> ResponseItem {
+    let recovery_text = response_item_text(recovery_item).unwrap_or_default();
+    let recovery_excerpt = recovery_text.chars().take(1800).collect::<String>();
+    let text = format!(
+        "{TASKSPACE_IMPLEMENT_NEEDS_EDIT_HARD_STOP_MARKER}\n\
+reason: repeated_finish_without_successful_edit\n\
+attempt_count: {attempt}\n\
+The current implement_solution node repeatedly tried to finish or otherwise continue after TaskSpace said a successful edit result is required.\n\
+Runtime decision:\n\
+- Stop provider sampling for this turn instead of issuing another advisory recovery request.\n\
+- Preserve the bounded evidence and the last apply_patch-or-block recovery contract for audit.\n\
+- A later turn may continue only after TaskSpace state changes or the provider emits the required apply_patch/block_node action.\n\
+Last recovery contract excerpt:\n{recovery_excerpt}"
+    );
+
+    ResponseItem::Message {
+        id: None,
+        role: "developer".to_string(),
+        content: vec![ContentItem::InputText { text }],
+        end_turn: None,
+        phase: None,
+    }
+}
+
 fn build_taskspace_implementation_recovery_item(
     last_agent_message: Option<&str>,
     evidence_summary: Option<&str>,
@@ -2214,6 +2284,10 @@ fn is_taskspace_validation_rework_duplicate_read_hard_stop_item(item: &ResponseI
     )
 }
 
+fn is_taskspace_implementation_needs_edit_hard_stop_item(item: &ResponseItem) -> bool {
+    response_item_text_contains(item, TASKSPACE_IMPLEMENT_NEEDS_EDIT_HARD_STOP_MARKER)
+}
+
 fn taskspace_validation_rework_duplicate_read_should_hard_stop(
     item: &ResponseItem,
     previous_recovery_count: usize,
@@ -2224,6 +2298,13 @@ fn taskspace_validation_rework_duplicate_read_should_hard_stop(
             || response_item_text_contains(item, "repeated_blocked_action:"))
 }
 
+fn taskspace_implementation_needs_edit_should_hard_stop(
+    item: &ResponseItem,
+    current_node_recovery_count: usize,
+) -> bool {
+    is_taskspace_plain_implement_needs_edit_recovery_item(item) && current_node_recovery_count >= 3
+}
+
 fn taskspace_provider_budget_limit_reached(
     snapshot: &crate::action_map::ActionMapProviderRequestBudgetSnapshot,
 ) -> bool {
@@ -2232,8 +2313,18 @@ fn taskspace_provider_budget_limit_reached(
             && snapshot.node_request_count >= snapshot.max_model_requests_per_node)
 }
 
+fn is_taskspace_plain_implement_needs_edit_recovery_item(item: &ResponseItem) -> bool {
+    if is_taskspace_implementation_needs_edit_hard_stop_item(item) {
+        return false;
+    }
+    response_item_text_contains(item, TASKSPACE_IMPLEMENT_NEEDS_EDIT_MARKER)
+}
+
 fn is_taskspace_implement_needs_edit_recovery_item(item: &ResponseItem) -> bool {
     if is_taskspace_validation_rework_duplicate_read_hard_stop_item(item) {
+        return false;
+    }
+    if is_taskspace_implementation_needs_edit_hard_stop_item(item) {
         return false;
     }
     response_item_text_contains(item, TASKSPACE_IMPLEMENT_NEEDS_EDIT_MARKER)
@@ -2304,6 +2395,8 @@ fn taskspace_special_recovery_warning_message(item: &ResponseItem) -> String {
         "TaskSpace inserted TaskSpaceProviderBudgetHardStopV1 because provider request budget was exhausted before dispatch. The current turn will stop without another model request.".to_string()
     } else if is_taskspace_validation_rework_duplicate_read_hard_stop_item(item) {
         "TaskSpace inserted TaskSpaceValidationReworkDuplicateReadHardStopV1 because validation rework repeated an already-blocked artifact read after patch-only recovery. The current turn will stop without another model request.".to_string()
+    } else if is_taskspace_implementation_needs_edit_hard_stop_item(item) {
+        "TaskSpace inserted TaskSpaceImplementationNeedsEditHardStopV1 because implementation repeatedly tried to finish without a successful edit after apply_patch-or-block recovery. The current turn will stop without another model request.".to_string()
     } else if response_item_text_contains(item, TASKSPACE_FORCED_IMPLEMENT_TRANSITION_MARKER) {
         "TaskSpace inserted TaskSpaceForcedImplementTransitionRecoveryV1 after a provider-budget forced implement transition. This guidance does not consume the no-action recovery allowance.".to_string()
     } else if response_item_text_contains(item, TASKSPACE_APPLY_PATCH_FORMAT_MARKER) {
@@ -4932,6 +5025,37 @@ Then I will inspect the file."#,
         assert!(response_item_text_contains(&item, "call apply_patch"));
         assert!(response_item_text_contains(&item, "do not rediscover"));
         assert!(response_item_text_contains(&item, "#!/bin/nonexistent"));
+    }
+
+    #[test]
+    fn implementation_needs_edit_hard_stop_triggers_on_third_plain_recovery() {
+        let item = build_taskspace_implement_needs_edit_recovery_item(Some(
+            "validation_schema_repair_contract: target_artifacts=generate_organization.py",
+        ));
+
+        assert!(is_taskspace_plain_implement_needs_edit_recovery_item(&item));
+        assert!(!taskspace_implementation_needs_edit_should_hard_stop(
+            &item, 2
+        ));
+        assert!(taskspace_implementation_needs_edit_should_hard_stop(
+            &item, 3
+        ));
+
+        let hard_stop = build_taskspace_implementation_needs_edit_hard_stop_item(&item, 3);
+        let text = item_text(hard_stop.clone());
+
+        assert!(text.contains(TASKSPACE_IMPLEMENT_NEEDS_EDIT_HARD_STOP_MARKER));
+        assert!(text.contains("repeated_finish_without_successful_edit"));
+        assert!(text.contains("attempt_count: 3"));
+        assert!(text.contains("apply_patch-or-block recovery contract"));
+        assert!(!is_taskspace_plain_implement_needs_edit_recovery_item(
+            &hard_stop
+        ));
+        assert!(!is_taskspace_implement_needs_edit_recovery_item(&hard_stop));
+        assert!(
+            taskspace_special_recovery_warning_message(&hard_stop)
+                .contains("TaskSpaceImplementationNeedsEditHardStopV1")
+        );
     }
 
     #[test]

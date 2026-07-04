@@ -2923,3 +2923,71 @@
   - A bootstrap shell result containing `===== employees.csv` and `===== projects.csv` clears the runtime missing fact-source list.
   - Existing duplicate read/search and provider budget regressions still pass.
 - Interpretation: H-050 is focused-fixed with R4-adjacent regression/build coverage. The remaining gate is attestation and another keyed rerun to verify the live sample no longer drains inspect budget on repeated `schema.json`.
+
+# Evidence E-111: cd00f0c live rerun crosses inspect drain and exposes implementation finish-without-edit drain
+
+- Prediction tested: H-050 repair should let the live sample move beyond repeated `schema.json` inspect duplicate-read budget drain.
+- Real rerun:
+  ```text
+  RunDir: target/r4-org-json-real-keyed-20260703aw-missing-fact-bootstrap/runs/terminal_bench__organization-json-generator/20260704-104628-266
+  PairReport: pair-001/pair-report.md
+  preflight current_git_head: cd00f0c2a87ef93f9536ce35d843b7be31cd90cf
+  build_attestation_status: pass
+  outcome_standard: wrong
+  outcome_taskspace: engineering_unclean
+  right_exec_timed_out: False
+  right_tool_call_count: 7
+  right_open_leaf_nodes: 1
+  right_public_validation_exit_code: 1
+  right_hidden_oracle_exit_code: 0
+  ```
+- Result: supported the inspect-side H-050 live gate, but exposed a new implementation rework blocker.
+- Matched signals:
+  - TaskSpace read all declared fact-source artifacts directly: `schema.json`, `departments.csv`, `employees.csv`, and `projects.csv`.
+  - The correct schema validation command ran: `python generate_organization.py && python -m jsonschema -i organization.json schema.json`.
+  - The validation failure was real implementation/schema mismatch: `statistics` used snake_case keys and missed required camelCase keys such as `averageDepartmentBudget`, `totalEmployees`, `skillDistribution`, `departmentSizes`, `projectStatusDistribution`, and `averageYearsOfService`.
+  - The rework projection for `node-4` exposed `validation_schema_repair_contract`, named `generate_organization.py`, and said `do not taskspace_control(action=finish_node) until this node records a successful edit result`.
+  - `whale-exec.jsonl` then showed repeated `taskspace_control finish_node` messages claiming the patch had succeeded, while no post-validation `apply_patch` action occurred.
+  - The session inserted `TaskSpaceImplementNeedsEditRecoveryV1` attempts 2 through 8, then stopped only at `TaskSpaceProviderBudgetHardStopV1 node_request_count=6/5`.
+- Interpretation: The new problem type is `implementation-rework-finish-without-edit-budget-drain`. The schema failure and next action were not missing. The semantics were present but not terminally enforced; the model converted its own rationale ("patch applied successfully") into a false fact, and the runtime kept issuing advisory recovery until the provider-node budget hard stop.
+
+# Hypothesis H-051: implementation needs-edit recovery must hard-stop repeated finish attempts per node
+
+- Claim: `TaskSpaceImplementNeedsEditRecoveryV1` currently remains advisory on an `implement_solution` node. If the provider repeatedly emits `finish_node` or equivalent progress claims without any successful edit result, the turn loop can keep sampling until the provider/node budget hard stop instead of producing bounded terminal feedback.
+- Prediction: Source inspection will show that validation rework duplicate-read recovery already has a hard-stop path, while plain implementation needs-edit recovery only increments a counter and continues. A focused test can prove a per-node third plain needs-edit recovery produces a terminal `TaskSpaceImplementationNeedsEditHardStopV1` item that is not reclassified as another recovery item.
+- Diagnostic evidence plan: Add a session-layer hard-stop item for repeated plain implementation needs-edit recovery, count attempts per current node so an earlier legitimate implement recovery does not poison later rework nodes, and validate with focused recovery tests plus R4-adjacent validation/rework/patch/budget regressions and a `whale` build.
+- Status: confirmed.
+
+# Evidence E-112: repeated implementation finish-without-edit now hard-stops before provider budget drain
+
+- Prediction tested: H-051 predicts repeated plain implementation needs-edit recovery should terminate before another advisory sampling loop drains node budget.
+- Repair artifact:
+  - `third_party/codex-cli/codex-rs/core/src/session/turn.rs`
+- Repair behavior:
+  - Added `TaskSpaceImplementationNeedsEditHardStopV1`.
+  - Counts plain implementation needs-edit recovery per current node id.
+  - On the third plain needs-edit recovery for the same implementation node, records bounded terminal recovery and stops provider sampling for the turn.
+  - Leaves validation rework duplicate-read, failed edit, and patch grammar recovery paths intact.
+- Focused validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core implementation_needs_edit_hard_stop_triggers_on_third_plain_recovery --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core implementation_needs_edit --lib --locked
+  ```
+- R4-adjacent regression/build validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core validation_rework --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core provider_budget --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core taskspace_active_budget --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core validation_ --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core apply_patch_ --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core duplicate_read_search --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core missing_fact_source_bootstrap --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core inspect_missing_fact_sources --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core taskspace_control --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core local_infra --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+  git diff --check
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-cli --bin whale --locked
+  ```
+- Result: passed. `validation_rework` 18/18, `provider_budget` 23/23, `taskspace_active_budget` 11/11, `validation_` 96/96, `apply_patch_` 35/35, `taskspace_control` 35/35, and `local_infra` 11/11 all passed.
+- Interpretation: H-051 is focused-fixed with regression/build coverage. The remaining live gate is attestation plus another keyed `organization-json-generator` rerun to see whether TaskSpace now patches `generate_organization.py` or exposes the next R4 tools-chain blocker.
