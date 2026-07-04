@@ -3719,3 +3719,88 @@
   ```
 - Result: passed. `taskspace_preview_` 4/4, `read_file_summary_` 3/3, `validation_rework` 20/20, `action_contract_prompt` 28/28, `validation_` 99/99, `taskspace_control` 35/35, `provider_budget` 23/23, `taskspace_active_budget` 11/11, `apply_patch_` 35/35, and `local_infra` 11/11 all passed. `cargo fmt --check` still prints the known stable rustfmt `imports_granularity` warning; `git diff --check` and `whale` build passed.
 - Interpretation: H-061 is focused-fixed. The remaining gate is commit/push, attestation, and a keyed rerun to verify the patch-only recovery now exposes the complete small rework target content instead of a telemetry-truncated head.
+
+# Evidence E-133: bd93d5d live rerun exposes optional fact-source hardening loop
+
+- Prediction tested: H-061 should let the provider see complete bounded read_file content instead of a telemetry-truncated head.
+- Real rerun:
+  ```text
+  RunDir: target/r4-org-json-real-keyed-20260704bh-complete-read-preview/runs/terminal_bench__organization-json-generator/20260704-133520-535
+  PairReport: pair-001/pair-report.md
+  reported_evidence_level: E1
+  outcome_standard: wrong
+  outcome_taskspace: wrong
+  right_exec_timed_out: False
+  right_tool_call_count: 18
+  right_public_validation_exit_code: 1
+  right_hidden_oracle_exit_code: 0
+  current_git_head: bd93d5d3b80a6263f96ffeadd81f916d6ed15e92
+  ```
+- New blocker signals:
+  - The initial TaskSpace start request declared `initial_fact_sources`: `schema.json`, `departments.csv`, `employees.csv`, `projects.csv`, and `package.json or any config files (if present)`.
+  - `rg --files` listed the workspace inputs and did not include `package.json`.
+  - Reads of the required `schema.json`, `departments.csv`, `employees.csv`, and `projects.csv` succeeded.
+  - The model attempted `read_file package.json`; the shell returned `sed: can't read package.json: No such file or directory`.
+  - The provider-visible projection still advertised `read_file declared fact-source artifact package.json next` and `do not finish inspect_code_context until declared fact-source artifacts are read`.
+  - Duplicate inspect-read recovery repeatedly reported `missing_fact_source_artifact:package.json`; the turn ended at `TaskSpaceProviderBudgetHardStopV1` with `node_request_count: 13/12`.
+- Interpretation: H-061 is not live-verified because an earlier inspect feedback-layer issue blocked the run. The new problem type is `optional-fact-source-required-loop`: runtime converted a conditional source phrase into a hard inspect gate and did not use absence evidence from file discovery to let the task proceed.
+
+# Hypothesis H-062: optional fact-source descriptions must not become hard inspect gates
+
+- Claim: `task_required_fact_source_artifact_refs()` extracts artifact-like tokens from every fact-source `id` and `description` without preserving optionality. A description such as `package.json or any config files (if present)` therefore becomes a required `package.json` artifact, and `inspect_missing_required_fact_source_artifacts()` cannot clear it because failed reads are not successful read/search evidence.
+- Prediction:
+  1. A focused inspect test with required schema/CSV fact sources plus optional `package.json or any config files (if present)` should report no missing required fact-source artifacts after the required files are read and `rg --files` shows no `package.json`.
+  2. The projection should advertise `finish_node` into `implement_solution`, not `read_file declared fact-source artifact package.json next`.
+  3. Duplicate inspect read/search recovery should not contain `missing_fact_source_artifact:package.json` for that optional source.
+  4. Existing hard-required fact-source tests for missing `employees.csv` and `projects.csv` should still block finish until those artifacts are read.
+- Diagnostic evidence plan: Add optional fact-source detection to the required-artifact extraction path, cover the live conditional phrase with focused tests for missing-artifacts and projection behavior, then run inspect missing-source, duplicate-read/search, TaskSpace control, validation, formatting, whitespace, and `whale` build gates.
+- Status: confirmed.
+
+# Hypothesis H-063: generated missing-source bootstrap shell commands must classify as read
+
+- Claim: `run_taskspace_missing_fact_source_bootstrap()` generates a shell command like `printf ...; sed -n ... && awk ...` without a `taskspace-action-contract-*` call id. The shell classifier does not recognize bounded `sed -n` read commands, so preflight/gate classification can conservatively route the generated bootstrap through a non-read path before the session later records the result as `ActionClass::Read`.
+- Prediction:
+  1. `classify_shell_text()` should classify a bounded `sed -n ... && awk ...` read command as `ActionClass::Read`.
+  2. The same command with a `printf` section header prefix, matching missing-source bootstrap, should also classify as `ActionClass::Read`.
+  3. Mutating `sed -i`, redirection, formatter, and existing edit/test/build/search classifications should remain unchanged.
+- Diagnostic evidence plan: Add focused classifier tests for bounded `sed -n` and `printf; sed -n` bootstrap forms, then extend read classification narrowly enough that existing shell action classification tests still pass.
+- Status: confirmed.
+
+# Evidence E-134: optional fact-source and bootstrap read classification are focused-fixed
+
+- Prediction tested: H-062 predicts optional fact-source descriptions must not become hard inspect gates; H-063 predicts generated missing-source bootstrap read commands must classify as read before tool execution.
+- Repair artifacts:
+  - `third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs`
+  - `third_party/codex-cli/codex-rs/core/src/tools/parallel.rs`
+- Repair behavior:
+  - `task_required_fact_source_artifact_refs()` now skips fact-source records whose id or description contains conditional/optional markers such as `if present`, `if available`, `when present`, or `optional`.
+  - Fact-source-derived output schema/validator requirements use the same optional-source guard, so optional absent schemas/config files do not become validation hard gates.
+  - Added `inspect_optional_fact_source_absence_does_not_block_finish`, covering the live phrase `package.json or any config files (if present)`, absence evidence from `rg --files`, successful reads of required schema/CSV files, projection `finish_node`, and duplicate `rg --files` recovery without `missing_fact_source_artifact:package.json`.
+  - `classify_shell_text()` now treats bounded `sed -n` read commands as `ActionClass::Read`; existing edit classification still runs first, so `sed -i`, redirection, formatter writes, and other mutating commands remain edit-classified.
+  - `shell_action_classifier_identifies_core_taskspace_classes` now covers both `sed -n ... && awk ...` and missing-source bootstrap's `printf ...; sed -n ... && awk ...` shape.
+- Focused validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core inspect_optional_fact_source_absence_does_not_block_finish --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core shell_action_classifier_identifies_core_taskspace_classes --lib --locked
+  ```
+- R4-adjacent regression/build validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core inspect_missing_fact_sources --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core missing_fact_source_bootstrap --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core duplicate_read_search --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core output_contract --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core taskspace_control --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core action_contract_prompt --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core validation_ --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core provider_budget --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core taskspace_active_budget --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core apply_patch_ --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core local_infra --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core taskspace_preview_ --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core read_file_summary_ --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+  git diff --check
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-cli --bin whale --locked
+  ```
+- Result: passed. Focused H-062 and H-063 tests passed. Regression suites passed through `inspect_missing_fact_sources` 2/2, `missing_fact_source_bootstrap` 1/1, `duplicate_read_search` 3/3, `output_contract` 8/8, `taskspace_control` 35/35, `action_contract_prompt` 28/28, `validation_` 99/99, `provider_budget` 23/23, `taskspace_active_budget` 11/11, `apply_patch_` 35/35, `local_infra` 11/11, `taskspace_preview_` 4/4, and `read_file_summary_` 3/3. `cargo fmt --check` still prints the known stable rustfmt `imports_granularity` warning but exits 0 after formatting. `git diff --check` and the `whale` build passed.
+- Interpretation: H-062 and H-063 are focused-fixed with R4-adjacent regression/build coverage. The remaining live gate is commit/push, attestation, and another keyed `organization-json-generator` rerun to verify the run advances past optional config inspection and any missing-source bootstrap remains read-classified.

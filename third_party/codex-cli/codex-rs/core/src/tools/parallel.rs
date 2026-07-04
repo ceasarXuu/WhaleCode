@@ -621,19 +621,19 @@ fn classify_shell_text(command: &str) -> ActionClass {
             "search",
         ],
     ) || lower.contains("rg.exe");
-    let has_read_action =
-        contains_any(
-            &lower,
-            &[
-                "get-content",
-                "get-childitem",
-                "get-location",
-                "git diff",
-                "git status",
-                "git log",
-                "git show",
-            ],
-        ) || contains_shell_token(&command_words, &["ls", "dir", "cat", "type", "pwd"]);
+    let has_read_action = contains_any(
+        &lower,
+        &[
+            "get-content",
+            "get-childitem",
+            "get-location",
+            "git diff",
+            "git status",
+            "git log",
+            "git show",
+        ],
+    ) || has_bounded_sed_read_command(trimmed, &command_words)
+        || contains_shell_token(&command_words, &["ls", "dir", "cat", "type", "pwd"]);
     if has_edit_action {
         return ActionClass::Edit;
     }
@@ -673,6 +673,10 @@ fn has_common_build_command(command: &str, words: &str) -> bool {
 fn has_mutating_formatter_command(command: &str, words: &str) -> bool {
     (command.contains("cargo fmt") && !command.contains("--check"))
         || (contains_shell_token(words, &["rustfmt"]) && !command.contains("--check"))
+}
+
+fn has_bounded_sed_read_command(command: &str, words: &str) -> bool {
+    contains_shell_token(words, &["sed"]) && command.contains("sed -n")
 }
 
 fn runs_python_test_file(words: &str) -> bool {
@@ -859,6 +863,18 @@ mod tests {
         assert_eq!(classify_shell_text("ls"), ActionClass::Read);
         assert_eq!(classify_shell_text("dir src"), ActionClass::Read);
         assert_eq!(classify_shell_text("Get-Location"), ActionClass::Read);
+        assert_eq!(
+            classify_shell_text(
+                "sed -n '1,240p' -- package.json && awk 'NR == 241 { exit }' package.json"
+            ),
+            ActionClass::Read
+        );
+        assert_eq!(
+            classify_shell_text(
+                "printf '===== %s\\n' package.json; sed -n '1,240p' -- package.json && awk 'NR == 241 { exit }' package.json"
+            ),
+            ActionClass::Read
+        );
         assert_eq!(
             classify_shell_text("cmd /c \"dir /s /b repo\\*.py\""),
             ActionClass::Read

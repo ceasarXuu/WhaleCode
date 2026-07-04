@@ -14767,6 +14767,9 @@ fn task_output_contract_validation_requirements(
         push_success_criterion_validation_requirements(&mut requirements, criterion, &[]);
     }
     for source in &task.cognitive_state.fact_sources {
+        if fact_source_is_optional(source) {
+            continue;
+        }
         for value in [&source.id, &source.description] {
             for artifact in extract_artifact_like_refs(value) {
                 push_output_contract_schema_or_validator_requirement(&mut requirements, &artifact);
@@ -15610,6 +15613,9 @@ fn task_output_contract_artifact_targets(task: &TaskState) -> Vec<String> {
 fn task_required_fact_source_artifact_refs(task: &TaskState) -> Vec<String> {
     let mut artifact_refs = Vec::new();
     for source in &task.cognitive_state.fact_sources {
+        if fact_source_is_optional(source) {
+            continue;
+        }
         for value in [&source.id, &source.description] {
             for artifact in extract_artifact_like_refs(value) {
                 push_required_fact_source_artifact_ref(&mut artifact_refs, artifact);
@@ -15625,6 +15631,32 @@ fn task_required_fact_source_artifact_refs(task: &TaskState) -> Vec<String> {
         }
     }
     artifact_refs
+}
+
+fn fact_source_is_optional(source: &FactSource) -> bool {
+    fact_source_text_is_optional(&source.id) || fact_source_text_is_optional(&source.description)
+}
+
+fn fact_source_text_is_optional(text: &str) -> bool {
+    let lower = text.to_ascii_lowercase();
+    [
+        "if present",
+        "if available",
+        "if any",
+        "if provided",
+        "if supplied",
+        "if it exists",
+        "if they exist",
+        "when present",
+        "when available",
+        "where present",
+        "where available",
+        "as available",
+        "optional",
+        "optionally",
+    ]
+    .iter()
+    .any(|marker| lower.contains(marker))
 }
 
 fn push_required_fact_source_artifact_ref(artifact_refs: &mut Vec<String>, artifact_ref: String) {
@@ -23548,6 +23580,103 @@ def build_organization():\n\
                         && blocked.action_class == "read"
             )
         }));
+    }
+
+    #[test]
+    fn inspect_optional_fact_source_absence_does_not_block_finish() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::InspectCodeContext,
+            "Inspect organization data",
+            "Read required CSV and schema fact sources before implementation.",
+            "Inspect organization data",
+            "Read required CSV and schema fact sources before implementation.",
+            true,
+        );
+        record_required_fact_source_artifacts(
+            &mut state,
+            owner,
+            &[
+                "schema.json",
+                "departments.csv",
+                "employees.csv",
+                "projects.csv",
+            ],
+        );
+        state
+            .record_fact_source_for_main(
+                owner,
+                "source-optional-config",
+                "observed_from_environment",
+                "package.json or any config files (if present)".to_string(),
+                vec![ActionMapEvidenceRefInput {
+                    artifact_ref: Some("user-request".to_string()),
+                    ..Default::default()
+                }],
+            )
+            .expect("optional config fact source records");
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "list-files",
+                "shell_command",
+                Some(ActionClass::Search),
+                true,
+                "TaskSpaceToolInvocationV1:\n\
+tool: shell_command\n\
+command: rg --files\n\
+raw_output:\n\
+schema.json\n\
+departments.csv\n\
+employees.csv\n\
+projects.csv\n"
+                    .to_string(),
+            )
+            .expect("list_files evidence records");
+        record_successful_read_result(&mut state, owner, "schema", "schema.json");
+        record_successful_read_result(&mut state, owner, "departments", "departments.csv");
+        record_successful_read_result(&mut state, owner, "employees", "employees.csv");
+        record_successful_read_result(&mut state, owner, "projects", "projects.csv");
+
+        assert!(
+            state
+                .current_main_inspect_missing_required_fact_source_artifacts()
+                .is_empty(),
+            "optional package.json must not become a required missing fact source"
+        );
+
+        let task_id = state.active_task_id.clone().expect("active task");
+        let map = state.maps.get("map-1").expect("map");
+        let task = state.tasks.get(&task_id).expect("task");
+        let actions = projection_next_valid_actions(map, Some("node-1"), Some(task), &[]);
+        assert!(
+            actions
+                .iter()
+                .any(|action| action.contains("next_node_kind=\"implement_solution\"")),
+            "{actions:?}"
+        );
+        assert!(
+            !actions.iter().any(|action| action.contains("package.json")),
+            "optional absent package.json must not be advertised as next required read: {actions:?}"
+        );
+
+        let duplicate_list_files = ToolActionDescriptor::new(
+            "shell_command",
+            ActionClass::Search,
+            r#"{"command":"rg --files","timeout_ms":10000}"#,
+        );
+        let error = state
+            .prepare_main_tool_call(owner, duplicate_list_files)
+            .expect_err("duplicate list_files should be blocked with finish recovery");
+        let (message, _) = error.into_parts();
+        assert!(message.contains("inspect_duplicate_successful_read_or_search"));
+        assert!(message.contains("taskspace_control(action=finish_node"));
+        assert!(!message.contains("missing_fact_source_artifact:package.json"));
+        assert!(!message.contains("declared fact-source artifact `package.json`"));
     }
 
     #[test]

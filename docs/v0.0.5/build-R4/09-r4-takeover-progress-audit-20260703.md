@@ -149,6 +149,8 @@ raw signal 存在但语义没有正确进入下一轮 tool contract：
 | `validation-rework-patch-only-after-target-read-feedback` | keyed rerun `20260704-120401-124` 证实 schema repair contract、`validation_rework_target_read` 和禁止 schema inspection 的 patch-only 契约都已出现在 provider prompt，但下一次 `read_file schema.json` 仍被包装成泛化 `implementation_needs_edit` hard-stop；已新增 post-target-read patch-only 专用 recovery/hard-stop 语义 | focused+regression fixed / real rerun pending |
 | `validation-rework-complete-read-duplicate-read-nonforcing` | keyed rerun `20260704-130600-674` 证实 `read_context: complete_read`、`eof_reached=true` 和 `no additional file lines are hidden` 已正确传给模型，但模型仍声称 projected excerpt 不足并重复 `read_file process.py`；已把 complete-read duplicate rework read 从 advisory recovery 升级为 immediate hard-stop，并强化 patch-only recovery 文案 | focused+regression fixed / real rerun pending |
 | `complete-read-content-preview-truncation` | keyed rerun `20260704-132354-931` 证实 H-060 已 live-cleared：complete-read duplicate read 直接 `attempt_count: 1` hard-stop；但 ActionMap `result-10.body` 仍在 `eof_reached=true` 的完整读取中只持久化 2KiB telemetry head + summary tail，provider-visible source 在 patch-relevant 下半段前被截断；已对 bounded complete read_file preview 保留完整 model-visible text | focused+regression fixed / real rerun pending |
+| `optional-fact-source-required-loop` | keyed rerun `20260704-133520-535` 证实 `package.json or any config files (if present)` 被 runtime 抽取成硬性 `package.json` fact-source gate；即使 `rg --files` 证明文件不存在且 schema/CSV 已读完，projection 仍要求 `read_file package.json` 并烧到 provider node hard-stop；已让条件性/可选 fact-source 描述不生成硬 inspect/validation gate | focused+regression fixed / real rerun pending |
+| `missing-fact-source-bootstrap-read-classification` | 同一 trace 中自动 missing-source bootstrap 生成 `printf ...; sed -n ... && awk ...` 读命令，但 preflight/gate 可将该非 action-contract shell 命令误入非 read 路径；已把 bounded `sed -n` read 形态纳入 shell action classifier，覆盖 bootstrap header 组合，同时保留 `sed -i`/重定向等 edit 判定 | focused+regression fixed / real rerun pending |
 
 新增关键判断：
 
@@ -1954,6 +1956,86 @@ CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/co
 结果：通过。`taskspace_preview_` 4/4、`read_file_summary_` 3/3、`validation_rework` 20/20、
 `action_contract_prompt` 28/28、`validation_` 99/99、`taskspace_control` 35/35、`provider_budget` 23/23、
 `taskspace_active_budget` 11/11、`apply_patch_` 35/35、`local_infra` 11/11 均通过。`cargo fmt --check`
+仍只输出项目既有 stable rustfmt `imports_granularity` warning；`git diff --check` 和 `whale` build 通过。
+
+### 3.36 optional fact-source required loop
+
+complete-read preview 修复提交、push 并刷新 attestation 后执行 keyed rerun：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260704bh-complete-read-preview/runs/terminal_bench__organization-json-generator/20260704-133520-535
+PairReport: pair-001/pair-report.md
+reported_evidence_level: E1
+outcome_standard: wrong
+outcome_taskspace: wrong
+right_exec_timed_out: False
+right_tool_call_count: 18
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+```
+
+H-061 的 live 验证被更早的 inspect 层问题挡住。新的 trace 显示：
+
+| evidence | 观察 |
+|---|---|
+| start_task | `initial_fact_sources` 包含 `schema.json`、`departments.csv`、`employees.csv`、`projects.csv`、`package.json or any config files (if present)` |
+| absence evidence | `rg --files` 列出 schema/CSV/task/docker/Dockerfile，但没有 `package.json` |
+| required coverage | `schema.json`、`departments.csv`、`employees.csv`、`projects.csv` 均已有 successful read evidence |
+| wrong next action | projection 仍输出 `read_file declared fact-source artifact package.json next`，并禁止 `finish_node` |
+| failure loop | 两次 `read_file package.json` 都返回 `sed: can't read package.json: No such file or directory`；重复 `rg --files` 后 recovery 继续给 `missing_fact_source_artifact:package.json` |
+| hard stop | 最终进入 `TaskSpaceProviderBudgetHardStopV1 node_request_count: 13/12` |
+
+问题类型收录：
+
+| field | value |
+|---|---|
+| case | `optional-fact-source-required-loop` |
+| layer | feedback layer / fact-source coverage semantics |
+| trigger | fact-source 描述包含 artifact-like token，同时带 `if present` / optional 条件语义 |
+| expected | 条件性 fact-source 可被 inspect/read 作为有用上下文，但不能在 absence evidence 下成为硬性 completion gate |
+| actual | `task_required_fact_source_artifact_refs()` 从 description 中抽取 `package.json`，丢失 `if present` 语义，并让 projection/recovery 强制读取不存在的文件 |
+| classification | 语义扭曲：用户/模型声明的是可选上下文，runtime 强化为必读事实源 |
+| fix | 对 fact-source id/description 增加 optional marker 检测；可选 source 不再生成 inspect required artifacts，也不再生成 fact-source-derived schema/validator validation hard gate |
+
+同一 trace 还暴露一个能力层相邻问题：
+
+| field | value |
+|---|---|
+| case | `missing-fact-source-bootstrap-read-classification` |
+| layer | capability layer / shell action classification |
+| trigger | session 自动生成 `printf ...; sed -n ... && awk ...` missing-source bootstrap；该 call id 不是 `taskspace-action-contract-*`，无法走 action-contract read override |
+| expected | bounded `sed -n` read bootstrap 在 preflight/gate 前分类为 `ActionClass::Read` |
+| actual | classifier 不识别 `sed -n` read 形态，live raw output 中出现 `TaskSpace blocked this edit` |
+| classification | 能力层分类缺口：命令只读，但工具权限分类可能进入非 read 路径 |
+| fix | shell action classifier 增加 bounded `sed -n` read 检测；edit 判定仍优先，`sed -i`、重定向和 mutating formatter 不受影响 |
+
+本地 focused 和 R4-adjacent 验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core inspect_optional_fact_source_absence_does_not_block_finish --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core shell_action_classifier_identifies_core_taskspace_classes --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core inspect_missing_fact_sources --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core missing_fact_source_bootstrap --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core duplicate_read_search --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core output_contract --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core taskspace_control --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core action_contract_prompt --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core validation_ --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core provider_budget --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core taskspace_active_budget --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core apply_patch_ --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core local_infra --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core taskspace_preview_ --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core read_file_summary_ --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+git diff --check
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-cli --bin whale --locked
+```
+
+结果：通过。focused H-062/H-063 测试通过；`inspect_missing_fact_sources` 2/2、`missing_fact_source_bootstrap` 1/1、
+`duplicate_read_search` 3/3、`output_contract` 8/8、`taskspace_control` 35/35、`action_contract_prompt` 28/28、
+`validation_` 99/99、`provider_budget` 23/23、`taskspace_active_budget` 11/11、`apply_patch_` 35/35、
+`local_infra` 11/11、`taskspace_preview_` 4/4、`read_file_summary_` 3/3 均通过。`cargo fmt --check`
 仍只输出项目既有 stable rustfmt `imports_granularity` warning；`git diff --check` 和 `whale` build 通过。
 
 ## 4. 本次验证
