@@ -1566,6 +1566,41 @@ CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core provider_budget -- --nocapt
 CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_closeout -- --nocapture
 ```
 
+## 5.107 2026-07-05 validation missing-command blocker false positive
+
+`5ee9b5c` 后 keyed rerun 未命中 H-128 的 provider-budget hard-stop，而是在 request `10/20` 前暴露新的 validation
+feedback 问题：fresh `smoke_test` 节点被 provider 以“缺少 validator command / test harness 不可见”为由 block。
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260705aw-validation-budget-bootstrap-gate/runs/terminal_bench__organization-json-generator/20260705-055257-224
+reported_evidence_level: E1
+outcome_standard: wrong
+outcome_taskspace: wrong
+right_exec_timed_out: False
+right_tool_call_count: 7
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+final_marker: blocked_by_taskspace_action_contract
+```
+
+收益判断：
+
+1. 新收录的 R4-D feedback 修复是 `validation-missing-command-visibility-blocker-false-positive`。
+2. 根因不是 shell 不可用：同一 run 已成功执行 read/search 和 apply_patch shell 工具。
+3. 根因是 validation block gate 只拒绝“无 test result 却声称验证失败”的 blocker，没有拒绝“无 test result 且声称不知道怎么验证”的 blocker。
+4. 修复后，fresh validation node 若已有 deterministic bootstrap command，会拒绝 missing-command visibility blocker，并返回 exact
+   `run_test` command。
+5. R4-G utility 仍需下一次 keyed rerun 验证是否进入实际 validation/rework，而不是 false infrastructure blocked。
+
+验证：
+
+```text
+keyed rerun: 20260705-055257-224
+CoE: H-129/E-261/E-262
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_node_blocks_generator_only_command_for_schema_output_contract -- --nocapture
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core block_validation_node -- --nocapture
+```
+
 ## 5.102 2026-07-05 inspect hard-stop transition attempt guard gap
 
 `601bc74` 安装后 keyed rerun 证明 H-123 live-clear：没有再出现 `path=*.csv` synthetic missing artifact。

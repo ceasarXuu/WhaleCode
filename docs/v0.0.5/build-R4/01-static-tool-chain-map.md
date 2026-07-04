@@ -1254,5 +1254,19 @@ pre-dispatch 直接 `TaskSpaceProviderBudgetHardStopV1`，导致 fresh validatio
 `smoke_test/regression_test`、且 runtime 能从已知 local validator 或 changed artifact + output contract 推导出确定命令时运行。
 没有确定命令或节点已有 test/build 证据时仍按原 provider hard-stop/validation closeout 逻辑处理。
 
+## 2026-07-05 R4-D issue type addendum: validation missing-command blocker false positive
+
+`5ee9b5c` 后 keyed rerun 没有命中 fresh validation provider-budget hard-stop，而是在更早阶段暴露 validation blocker
+语义漏洞：实现 edit 已成功，`smoke_test` 节点已创建，但 provider 用 `blocked` 声称“没有 validator command / 需要 inspect
+test harness”，runtime 接受后终态变成 false infrastructure blocker。
+
+| issue type | 层级 | 本质 | 修复 | 证据 |
+|---|---|---|---|---|
+| `validation-missing-command-visibility-blocker-false-positive` | validation blocker gate / feedback actionability / action-map evidence | fresh validation node 无 test/build result，且 runtime 可从 changed artifact + output contract 推导命令时，仍接受“缺少 validator/test command 可见性”的 blocker | 已实现：`block_main_node` 在 fresh validation node 上先查 deterministic bootstrap command；命中时拒绝 missing-command visibility blocker，并返回 exact `run_test` 命令；真实 access/sandbox/network 外部 blocker 不被改写 | keyed rerun `20260705-055257-224`; CoE H-129/E-261/E-262; focused tests `validation_node_blocks_generator_only_command_for_schema_output_contract`, `block_validation_node` |
+
+边界说明：这不是禁止 validation node block。只有当 blocker 的理由是 validator/test command 不可见、不可发现或伪 shell
+不可用，且 runtime 已能推导确定命令时才拒绝；已经有具体 failed test/build result 或真实外部访问阻塞时仍按原 validation
+block/rework 规则处理。
+
 边界说明：该修复不放宽 apply_patch grammar。相反，它把 replacement-only 从泛化建议强化为目标明确的 feedback
 和重复失败控制：第一次给模型可执行 replacement scaffold，第二次仍不遵守则用专门 hard-stop 暴露该工具链失败。

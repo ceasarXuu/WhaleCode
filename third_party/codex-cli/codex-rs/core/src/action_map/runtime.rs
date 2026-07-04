@@ -5727,6 +5727,20 @@ preview:\n\
         }
         if matches!(node.kind, NodeKind::SmokeTest | NodeKind::RegressionTest)
             && !node_has_validation_tool_result(map, node)
+            && let Some(task) = map
+                .task_id
+                .as_ref()
+                .and_then(|task_id| self.tasks.get(task_id))
+            && let Some(command) = validation_node_bootstrap_command(map, node, task)
+            && blocker_claims_missing_validation_command_visibility(blocker_summary)
+        {
+            return Err(format!(
+                "TaskSpace {} node `{node_id}` cannot be blocked for missing validator/test command visibility because runtime can derive the required validation command from changed artifacts and output contracts. Next valid action: run_test with command `{command}`.",
+                node.kind.as_str()
+            ));
+        }
+        if matches!(node.kind, NodeKind::SmokeTest | NodeKind::RegressionTest)
+            && !node_has_validation_tool_result(map, node)
             && blocker_claims_validation_failure_without_current_result(blocker_summary)
         {
             return Err(format!(
@@ -17052,6 +17066,42 @@ fn blocker_claims_validation_failure_without_current_result(blocker_summary: &st
     validation_subject && failure_claim && !external_blocker
 }
 
+fn blocker_claims_missing_validation_command_visibility(blocker_summary: &str) -> bool {
+    let lower = blocker_summary.to_ascii_lowercase();
+    let validation_subject = lower.contains("validation")
+        || lower.contains("validator")
+        || lower.contains("test")
+        || lower.contains("test harness")
+        || lower.contains("run_test")
+        || lower.contains("shell command");
+    let missing_visibility = lower.contains("no validator command")
+        || lower.contains("validator command is named")
+        || lower.contains("validation command")
+        || lower.contains("test command")
+        || lower.contains("test harness")
+        || lower.contains("cannot discover")
+        || lower.contains("need to inspect")
+        || lower.contains("lack of visibility")
+        || lower.contains("not visible")
+        || lower.contains("not named")
+        || lower.contains("shell commands are unavailable")
+        || lower.contains("does not support executing")
+        || lower.contains("cannot proceed because")
+        || lower.contains("cannot verify");
+    let external_access_blocker = lower.contains("e_accessdenied")
+        || lower.contains("access denied")
+        || lower.contains("permission denied")
+        || lower.contains("sandbox")
+        || lower.contains("network")
+        || lower.contains("service unavailable")
+        || lower.contains("local validator infrastructure failed")
+        || lower.contains("cannot execute test commands")
+        || lower.contains("cannot run test commands")
+        || lower.contains("unable to execute test commands")
+        || lower.contains("invalidendofline");
+    validation_subject && missing_visibility && !external_access_blocker
+}
+
 fn blocker_claims_missing_inspected_source_evidence(blocker_summary: &str) -> bool {
     let lower = blocker_summary.to_ascii_lowercase();
     let source_subject = lower.contains("implementation")
@@ -26734,6 +26784,24 @@ def normalize_status(value: str) -> str:\n\
             Some(
                 "python generate_json.py && python -m jsonschema -i organization.json schema.json"
             )
+        );
+        let missing_validator_blocker = state
+            .block_main_node(
+                owner,
+                &validation_node_id,
+                "Lack of visibility into existing test harness. No validator command is named in the projection or recent feedback; smoke_test requires test command but cannot discover it without inspecting project structure.".to_string(),
+            )
+            .expect_err("fresh validation node should not block when runtime can derive command");
+        assert!(
+            missing_validator_blocker
+                .contains("cannot be blocked for missing validator/test command visibility"),
+            "{missing_validator_blocker}"
+        );
+        assert!(
+            missing_validator_blocker.contains(
+                "python generate_json.py && python -m jsonschema -i organization.json schema.json"
+            ),
+            "{missing_validator_blocker}"
         );
 
         let generator_only = serde_json::json!({

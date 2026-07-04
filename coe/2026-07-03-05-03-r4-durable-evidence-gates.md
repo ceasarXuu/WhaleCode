@@ -7744,3 +7744,75 @@
     PASS
   ```
 - Interpretation: H-128 is focused-fixed. Remaining gates are commit/push, install/attest, and keyed rerun to verify a fresh validation node no longer hard-stops without validation evidence.
+
+# Evidence E-261: H-128 rerun did not hit budget hard-stop but exposed validation command-visibility blocker
+
+- Real rerun:
+  ```text
+  RunDir: target/r4-org-json-real-keyed-20260705aw-validation-budget-bootstrap-gate/runs/terminal_bench__organization-json-generator/20260705-055257-224
+  reported_evidence_level: E1
+  outcome_standard: wrong
+  outcome_taskspace: wrong
+  right_exec_timed_out: False
+  right_tool_call_count: 7
+  right_public_validation_exit_code: 1
+  right_hidden_oracle_exit_code: 0
+  right_nodes: 3
+  right_edges: 2
+  right_open_leaf_nodes: 0
+  final_marker: blocked_by_taskspace_action_contract
+  ```
+- H-128 live status:
+  - This run did not reproduce provider request hard-stop on a fresh validation node; it stopped earlier at request count `10/20`.
+  - The H-128 bootstrap code therefore remains focused-fixed but not live-cleared by this run.
+- New blocker signals:
+  - The first `taskspace_control(start_task)` attempt failed tool argument parsing with `invalid type: map, expected a sequence` for `initial_fact_sources`; a later array-shaped start-task succeeded, so this was noisy but not terminal.
+  - After a successful implementation edit, runtime created `node-3 kind=smoke_test`.
+  - The provider emitted `blocked` on `node-3` with reason `Lack of visibility into existing test harness. Need to inspect project files to determine the correct validation command.`
+  - Runtime accepted that blocker, leaving no same-node test/build result and no validation rework evidence.
+  - A later terminal blocked response claimed validation could not proceed because shell commands were unavailable, contradicting the earlier successful read/apply_patch shell tool usage.
+- Interpretation: H-129 is a validation feedback gate gap. Runtime already has enough information to derive a validation command from changed artifact plus output contract, but `block_main_node` only rejected “validation failed without test result” blockers, not “validator/test command is not visible” blockers.
+
+# Hypothesis H-129: validation blocker gate must reject missing-command visibility blockers when runtime can derive command
+
+- Claim: Fresh `smoke_test/regression_test` nodes with no test/build result must not accept a blocker that says the validator command, test harness, or shell execution is unavailable when runtime can derive a deterministic validation command from the action map. Accepting such a blocker converts a runnable validation obligation into false terminal infrastructure failure.
+- Prediction:
+  - `block_main_node` should reject missing validator/test command visibility blockers when `validation_node_bootstrap_command()` returns a command.
+  - The rejection should include the exact derived `run_test` command.
+  - Existing validation failure blocker semantics must remain unchanged: a validation node may still block after a concrete failed test/build result, and genuine external access/sandbox blockers should not be rewritten as runnable validation.
+- Diagnostic evidence plan: Extend schema output-contract validation test to attempt the observed missing-validator blocker before any test result; run block_validation_node, validation_rework, action_contract_prompt, provider_budget, validation_closeout, fmt/check/build/diff gates.
+- Status: focused-fixed; install and keyed rerun pending.
+
+# Evidence E-262: validation command-visibility blocker is focused-fixed
+
+- Repair artifact:
+  - `third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs`
+- Repair behavior:
+  - `block_main_node` now checks fresh validation nodes for a derived bootstrap command before accepting missing validator/test command visibility blockers.
+  - Blockers that claim `No validator command`, `test harness` invisibility, `cannot discover`, or similar non-external visibility failures are rejected with the exact `run_test` command.
+  - The check excludes concrete external access blockers such as access denied, sandbox, network, and service unavailable.
+- Regression:
+  - `validation_node_blocks_generator_only_command_for_schema_output_contract` now asserts the observed missing-validator blocker is rejected and includes `python generate_json.py && python -m jsonschema -i organization.json schema.json`.
+  - Existing `block_validation_node_*` tests still pass.
+- Validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_node_blocks_generator_only_command_for_schema_output_contract -- --nocapture
+    PASS: 1/1
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core block_validation_node -- --nocapture
+    PASS: 3/3
+  cargo fmt --check
+    PASS
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_rework -- --nocapture
+    PASS: 31/31
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core action_contract_prompt -- --nocapture
+    PASS: 29/29
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core provider_budget -- --nocapture
+    PASS: 23/23
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo check -p codex-core
+    PASS
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
+    PASS
+  git diff --check
+    PASS
+  ```
+- Interpretation: H-129 is focused-fixed. Remaining gates are commit/push, install/attest, and keyed rerun.

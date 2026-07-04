@@ -2489,6 +2489,35 @@ final_marker: TaskSpaceProviderBudgetHardStopV1 request_count=20/20 node_kind=sm
 
 状态：focused 修复已编码并通过相关单测；仍需 check/build/diff、commit/push、install/attest 和真实 keyed rerun。
 
+## 57. 2026-07-05 validation missing-command blocker false positive
+
+`5ee9b5c` 后 keyed rerun 未能 live-clear H-128，因为该轮没有触发 provider request hard-stop；新的 blocker
+更早发生在 validation blocker gate：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260705aw-validation-budget-bootstrap-gate/runs/terminal_bench__organization-json-generator/20260705-055257-224
+reported_evidence_level: E1
+outcome_standard: wrong
+outcome_taskspace: wrong
+right_tool_call_count: 7
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+final_marker: blocked_by_taskspace_action_contract
+```
+
+问题类型收录：
+
+| 字段 | 内容 |
+|---|---|
+| case | `validation-missing-command-visibility-blocker-false-positive` |
+| 层级 | validation blocker gate / feedback actionability / action-map evidence |
+| 本质 | fresh validation node 无 test/build result，runtime 已能推导验证命令，但接受了“缺少 validator/test command 可见性”的 blocker |
+| 非根因 | 不是 shell 工具不可用；不是 provider budget hard-stop；不是真实外部 sandbox/access-denied blocker |
+| 修复 | `block_main_node` 查询 deterministic validation bootstrap command；命中时拒绝 missing-command visibility blocker，并返回 exact `run_test` command |
+| focused evidence | CoE H-129/E-261/E-262；`validation_node_blocks_generator_only_command_for_schema_output_contract`；`block_validation_node` 3/3 |
+
+状态：focused 修复已编码并通过目标测试；仍需 fmt/check/build/diff、commit/push、install/attest 和真实 keyed rerun。
+
 ## 53. 2026-07-05 validation blocker supersession final-gate gap
 
 `e0a17fc` 安装后的 keyed rerun 已越过 H-124 inspect hard-stop，进入 implementation、validation recovery
