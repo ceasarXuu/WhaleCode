@@ -4388,3 +4388,41 @@
   ```
 - Result: passed. Focused closed-action routing test passed; `validation_rework` passed 23/23; `action_contract_prompt` passed 29/29; formatting, whitespace, and `whale` build gates passed.
 - Interpretation: H-072 is focused-fixed. A new keyed rerun is required to verify the live model now receives `TaskSpaceValidationReworkPatchOnlyRecoveryV1` after the first closed-action read rejection and either emits `apply_patch` or exposes the next tools-chain blocker.
+
+# Evidence E-156: d61186a live rerun clears NoAction downgrade and exposes post-patch-only noncompliance
+
+- Prediction tested: H-072 predicts a closed-action read rejection should route to `TaskSpaceValidationReworkPatchOnlyRecoveryV1`, not `TaskSpaceNoActionRecoveryV1`.
+- Real rerun:
+  ```text
+  RunDir: target/r4-org-json-real-keyed-20260704br-closed-reject-patch-recovery/runs/terminal_bench__organization-json-generator/20260704-160458-158
+  PairReport: pair-001/pair-report.md
+  reported_evidence_level: E1
+  outcome_standard: wrong
+  outcome_taskspace: engineering_unclean
+  right_exec_timed_out: False
+  right_tool_call_count: 15
+  right_public_validation_exit_code: 1
+  right_hidden_oracle_exit_code: 0
+  right_wall_time_ms: 281902
+  current_git_head: d61186add0bf79d4264ee856f852aa0b15ce4b5d
+  whale_binary_sha256: 57164df42e474217ecbc31300c788ba9aabfdffd15ba7c42343e8bece5dbe933
+  ```
+- Matched H-072 live signals:
+  - No `TaskSpaceNoActionRecoveryV1` appears after closed-action rejection.
+  - The first `validation_rework_closed_action_space_read_disallowed:read_file` rejection is followed by `TaskSpaceValidationReworkPatchOnlyRecoveryV1`.
+  - The second closed-action read rejection is followed by `TaskSpaceValidationReworkPatchOnlyHardStopV1`, bounding the loop.
+- New blocker signals:
+  - The run progressed to a real implementation edit, a coverage-correct schema validation command, and a complete schema failure summary.
+  - Validation rework read `process_csv.py` completely (`TaskSpaceReadFileSummaryV1 eof_reached=true`) and had a repair contract.
+  - After `TaskSpaceValidationReworkPatchOnlyRecoveryV1`, the provider still emitted `read_file process_csv.py` twice instead of `apply_patch`.
+- Interpretation: H-072 is live-cleared. The remaining blocker is not NoAction downgrade; it is post-patch-only noncompliance after all repair evidence is visible. This needs a new H-073 design decision: stronger termination, model/profile escalation, or a repair-synthesis mode.
+
+# Hypothesis H-073: validation rework needs a stronger post-patch-only repair synthesis strategy after repeated closed-action noncompliance
+
+- Claim: Once validation rework has complete target contents, a schema repair contract, and one provider-visible patch-only recovery, a subsequent closed-action `read_file` rejection shows the model is not using available repair evidence to synthesize a patch. The current bounded hard-stop prevents runaway, but does not improve utility success.
+- Prediction:
+  1. More advisory wording is unlikely to solve this class; the live trace already includes complete target contents, schema failure details, patch-only recovery, and closed-action rejection.
+  2. Immediate hard-stop on the first closed-action rejection would reduce budget but still not create a patch.
+  3. A utility-improving fix likely needs a stronger repair mode: model/profile escalation, deterministic repair-synthesis scaffold, or a structured patch-plan gate that converts schema repair evidence into concrete edit requirements before another provider sample.
+- Diagnostic evidence plan: Compare the live prompt/recovery context against feasible repair strategies and choose one that preserves TaskSpace state-machine boundaries. Do not implement a special-case schema patcher for `organization-json-generator`; the fix must generalize to validation rework tools feedback.
+- Status: investigating.

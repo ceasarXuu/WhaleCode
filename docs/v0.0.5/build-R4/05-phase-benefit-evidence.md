@@ -4027,3 +4027,38 @@ CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/co
 边界说明：该 case 不是工具失败没有传给 runtime，也不是 H-071 schema narrowing 失败。底层 rejection 已正确产生；缺陷发生在
 session feedback routing，把 repair-actionability rejection 降级成 NoAction。修复不允许继续读，也不扩大重试空间，只保证
 closed-action rejection 进入 patch-only recovery 并有 bounded hard-stop。
+
+## 5.63 2026-07-04 post patch-only noncompliance remains a utility blocker
+
+`d61186a` 的 keyed rerun 证明 5.62 已 live-cleared：closed-action rejection 没有再降级到
+`TaskSpaceNoActionRecoveryV1`，而是进入 `TaskSpaceValidationReworkPatchOnlyRecoveryV1`。但 utility 仍未成功。
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260704br-closed-reject-patch-recovery/runs/terminal_bench__organization-json-generator/20260704-160458-158
+reported_evidence_level: E1
+outcome_standard: wrong
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 15
+right_wall_time_ms: 281902
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+```
+
+关键观察：
+
+| Signal | 结论 |
+|---|---|
+| closed-action rejection 后插入 `TaskSpaceValidationReworkPatchOnlyRecoveryV1` | H-072 的 NoAction downgrade 已 live-cleared |
+| 第二次 closed-action rejection 后插入 `TaskSpaceValidationReworkPatchOnlyHardStopV1` | loop 已 bounded，不再继续烧到 provider-node hard stop |
+| run 已推进到 successful edit、coverage-correct schema validation、完整 required-property failure summary | 前置 inspect/validation feedback 链路继续有效 |
+| `process_csv.py` 已完整读取，`eof_reached=true`，repair contract 已存在，但 provider 仍重复 `read_file process_csv.py` | 新 blocker 是 patch-only 反馈后的 repair synthesis/模型服从问题，不是 NoAction routing |
+
+本轮新增未解问题类型：
+
+| Case | Observed | Implication |
+|---|---|---|
+| `validation-rework-post-patch-only-noncompliance` | validation rework 已有 complete target read、schema repair contract、patch-only recovery 和 closed-action rejection；provider 仍连续请求同一 target read，最终按 bounded hard-stop 退出 | 继续加提示词或把第一条 closed rejection 直接 hard-stop 只能减少预算，不会生成 patch；下一层需要设计更强 repair mode，例如模型/档位升级、结构化 patch-plan gate，或通用 repair-synthesis scaffold |
+
+结论：H-072 live-cleared；R4-G utility 仍未过。下一步不能把这个当成同一个 NoAction bug 继续打补丁，应收录为
+H-073，先做 repair synthesis 策略设计，再决定实现。

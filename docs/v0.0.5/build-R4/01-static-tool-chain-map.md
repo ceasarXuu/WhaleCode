@@ -581,3 +581,16 @@ session 却把它送入泛化 `TaskSpaceNoActionRecoveryV1`。结果 provider �
 
 边界说明：该 case 是反馈层“语义降级”，不是底层工具失败语义缺失。runtime 已经知道 read 非法；问题是这个语义进入错误 recovery
 通道后不再驱动 patch。修复保持 action space 闭合，不把 read 重新放开，只把 rejection 路由到正确的 patch-only recovery。
+
+## 2026-07-04 R4-D unresolved issue type: post patch-only noncompliance
+
+closed-action rejection routing 修复后的 live rerun 证明 `validation_rework_closed_action_space_read_disallowed` 已正确进入
+`TaskSpaceValidationReworkPatchOnlyRecoveryV1`，并在第二次同类非法 read 后 bounded hard-stop。新的 blocker 是：模型在
+complete target read、schema repair contract、patch-only recovery 和 closed-action rejection 都可见后，仍不生成 patch。
+
+| Issue type | Layer | Symptom | Next design direction | Evidence |
+|---|---|---|---|---|
+| `validation-rework-post-patch-only-noncompliance` | repair synthesis / model routing / bounded control loop | repair evidence 已齐全且 action space 已闭合；provider 仍重复 `read_file process_csv.py`，最终 `TaskSpaceValidationReworkPatchOnlyHardStopV1` | 不应继续靠追加提示词；候选方向包括更强模型/profile escalation、结构化 patch-plan gate、或通用 repair-synthesis scaffold。直接把第一条 closed rejection hard-stop 只能省预算，不能提升 patch 成功率 | keyed rerun `20260704-160458-158`; CoE H-073/E-156 |
+
+边界说明：该 case 已越过“工具反馈是否正确传递”的狭义层面，进入 repair synthesis 策略层。R4-D 负责确保失败语义不丢失、不扭曲、
+不降级；H-073 要评估的是当语义已经完整传递但模型仍不执行合法 edit 时，TaskSpace 是否应该升级执行模式。
