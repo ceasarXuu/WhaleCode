@@ -3254,12 +3254,12 @@ fn prepare_taskspace_action_contract_prompt_items_for_node(
     current_node_kind: Option<&str>,
 ) -> Vec<ResponseItem> {
     let mut latest_user_input: Option<(usize, ResponseItem)> = None;
-    let mut latest_taskspace_context: Option<ResponseItem> = None;
+    let mut latest_taskspace_context: Option<(usize, ResponseItem)> = None;
     let mut tool_outputs: Vec<(usize, ResponseItem)> = Vec::new();
 
     for (index, item) in items.into_iter().enumerate() {
         if is_taskspace_active_context_item(&item) {
-            latest_taskspace_context = Some(compile_taskspace_context_item(item));
+            latest_taskspace_context = Some((index, compile_taskspace_context_item(item)));
         } else if is_protected_user_input(&item) {
             latest_user_input = Some((index, item));
         } else if is_taskspace_action_contract_latest_tool_output_candidate(&item) {
@@ -3275,13 +3275,18 @@ fn prepare_taskspace_action_contract_prompt_items_for_node(
     if let Some((_, item)) = latest_user_input {
         prepared.push(item);
     }
-    if let Some(item) = latest_taskspace_context {
+    let latest_context_index = latest_taskspace_context
+        .as_ref()
+        .map(|(index, _)| *index)
+        .unwrap_or(latest_user_index);
+    if let Some((_, item)) = latest_taskspace_context {
         prepared.push(item);
     }
-    let post_user_outputs = tool_outputs
+    let recent_tool_output_floor = latest_user_index.max(latest_context_index);
+    let recent_tool_outputs = tool_outputs
         .into_iter()
         .filter_map(|(index, item)| {
-            if index > latest_user_index {
+            if index > recent_tool_output_floor {
                 Some(item)
             } else {
                 None
@@ -3289,7 +3294,7 @@ fn prepare_taskspace_action_contract_prompt_items_for_node(
         })
         .collect::<Vec<_>>();
     if let Some(item) =
-        taskspace_action_contract_recent_tool_outputs_item(&post_user_outputs, current_node_kind)
+        taskspace_action_contract_recent_tool_outputs_item(&recent_tool_outputs, current_node_kind)
     {
         prepared.push(item);
     }
@@ -7222,6 +7227,38 @@ tax_calc.py\n\
         assert!(joined.contains("call_id: call-1"));
         assert!(joined.contains("CA tax rate is 7.25%"));
         assert!(joined.contains("call_id: call-2"));
+    }
+
+    #[test]
+    fn action_contract_recent_outputs_are_scoped_after_latest_active_context() {
+        let old_active_projection = format!(
+            "{TASKSPACE_ACTIVE_PROFILE_MARKER}\n{TASKSPACE_ACTIVE_PROJECTION_MARKER}\ncurrent_node: node-2 kind=implement_solution"
+        );
+        let latest_active_projection = format!(
+            "{TASKSPACE_ACTIVE_PROFILE_MARKER}\n{TASKSPACE_ACTIVE_PROJECTION_MARKER}\ncurrent_node: node-4 kind=implement_solution"
+        );
+        let items = vec![
+            message("user", "Continue the task"),
+            message("developer", &old_active_projection),
+            tool_output_with_call_id(
+                "taskspace-action-contract-9-apply_patch",
+                "Success. Updated the following files:\nA generate_org_json.py",
+            ),
+            message("developer", &latest_active_projection),
+        ];
+
+        let prepared = prepare_taskspace_action_contract_prompt_items_for_node(
+            items,
+            Some("implement_solution"),
+        );
+        let joined = item_texts(&prepared).join("\n");
+
+        assert_eq!(prepared.len(), 2);
+        assert!(joined.contains("current_node: node-4"));
+        assert!(!joined.contains("current_node: node-2"));
+        assert!(!joined.contains("TaskSpaceActionContractRecentToolOutputsV1"));
+        assert!(!joined.contains("Success. Updated the following files"));
+        assert!(!joined.contains("A file edit already succeeded"));
     }
 
     #[test]

@@ -2991,3 +2991,70 @@
   ```
 - Result: passed. `validation_rework` 18/18, `provider_budget` 23/23, `taskspace_active_budget` 11/11, `validation_` 96/96, `apply_patch_` 35/35, `taskspace_control` 35/35, and `local_infra` 11/11 all passed.
 - Interpretation: H-051 is focused-fixed with regression/build coverage. The remaining live gate is attestation plus another keyed `organization-json-generator` rerun to see whether TaskSpace now patches `generate_organization.py` or exposes the next R4 tools-chain blocker.
+
+# Hypothesis H-052: action-contract recent tool outputs must be scoped after latest active TaskSpace context
+
+- Claim: In cache-optimized action-contract transport, `TaskSpaceActionContractRecentToolOutputsV1` currently selects tool outputs after the latest user message. A single long TaskSpace turn can cross multiple nodes under the same user message, so a successful edit from an earlier `implement_solution` node can remain provider-visible after a later validation rework node is active. This stale success can override the current node's `implementation_needs_edit` state and make the model reasonably choose `finish_node`.
+- Prediction: In the AX2 live rerun, the current node will be `node-4`, `node-4` will have no successful edit, but model reasoning will cite a prior `apply_patch` success (`A generate_org_json.py`) and the progress hint "A file edit already succeeded" before trying to finish `node-4`.
+- Diagnostic evidence plan: Inspect AX2 `rollout.jsonl` and `whale-exec.jsonl` for the current node, recent-output hint, assistant rationale, and runtime rejection. Then add a session-layer regression where an older active projection is followed by an apply_patch success, then a newer active projection; the prepared action-contract prompt must not include the stale success output.
+- Status: confirmed.
+
+# Evidence E-113: AX2 rerun shows stale prior-node edit success pollutes current implementation rework prompt
+
+- Prediction tested: H-052 predicts the remaining live failure after E-112 is semantic distortion from stale recent-output scope, not missing gate semantics.
+- Real rerun:
+  ```text
+  RunDir: target/r4-org-json-real-keyed-20260703ax2-implement-needs-edit-hard-stop/runs/terminal_bench__organization-json-generator/20260704-110832-426
+  PairReport: pair-001/pair-report.md
+  preflight current_git_head: 212a1c27e64e737a35f8afd845209b0c49e3024b
+  build_attestation_status: pass
+  outcome_standard: solved
+  outcome_taskspace: engineering_unclean
+  right_exec_timed_out: False
+  right_tool_call_count: 12
+  right_public_validation_exit_code: 1
+  right_hidden_oracle_exit_code: 0
+  ```
+- Matched signals:
+  - The run crossed the previous inspect and validation routing blockers, then reached `node-4` as a validation rework `implement_solution` node.
+  - `node-4` read `generate_org_json.py`, but no successful edit was recorded on `node-4`.
+  - Before the final `finish_node`, model reasoning said the current node was `node-4` while also citing a recent `apply_patch` success: `Success. Updated the following files: A generate_org_json.py`.
+  - The same reasoning followed the progress hint `A file edit already succeeded. Do not repeat apply_patch, read_file, or search. Next action must be taskspace_control with action=finish_node`.
+  - Runtime correctly rejected that action with `TaskSpace implement_solution node node-4 cannot be completed without a recorded successful edit action`.
+  - The new `TaskSpaceImplementationNeedsEditHardStopV1` from E-112 then stopped the turn before provider/node budget drain.
+- Interpretation: The exact answer to the user question is: the current failure is semantic distortion, not pure missing semantics. The runtime gate correctly knows `node-4` has no edit, but the provider-visible recent-output aggregator leaks an older node's edit success into the current node, making the next-action hint wrong for the active node. The repair should scope recent tool outputs after the latest active TaskSpace context/projection, not merely after the latest user input.
+
+# Evidence E-114: action-contract recent outputs are now scoped to the latest active context
+
+- Prediction tested: H-052 predicts stale prior-node tool outputs should be excluded when a newer active TaskSpace context/projection appears after them.
+- Repair artifact:
+  - `third_party/codex-cli/codex-rs/core/src/session/turn.rs`
+- Repair behavior:
+  - `prepare_taskspace_action_contract_prompt_items_for_node()` now tracks the index of the latest active TaskSpace context.
+  - `TaskSpaceActionContractRecentToolOutputsV1` uses `max(latest_user_index, latest_active_context_index)` as the lower bound for included tool outputs.
+  - Tool outputs after the latest active context remain visible, preserving normal same-node feedback behavior.
+- Focused validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core action_contract_recent_outputs_are_scoped_after_latest_active_context --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core action_contract_prompt_includes_recent_post_user_tool_output_summaries --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core action_contract_prompt --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core implementation_needs_edit --lib --locked
+  ```
+- R4-adjacent regression/build validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core validation_rework --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core provider_budget --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core taskspace_active_budget --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core validation_ --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core apply_patch_ --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core duplicate_read_search --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core missing_fact_source_bootstrap --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core inspect_missing_fact_sources --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core taskspace_control --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core local_infra --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+  git diff --check
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-cli --bin whale --locked
+  ```
+- Result: passed. `action_contract_prompt` 28/28, `implementation_needs_edit` 3/3, `validation_rework` 18/18, `provider_budget` 23/23, `taskspace_active_budget` 11/11, `validation_` 96/96, `apply_patch_` 35/35, `duplicate_read_search` 2/2, `inspect_missing_fact_sources` 2/2, `taskspace_control` 35/35, and `local_infra` 11/11 all passed. The fmt check still prints the known stable rustfmt `imports_granularity` warning.
+- Interpretation: H-052 is focused-fixed with regression/build coverage. The remaining live gate is a new keyed `organization-json-generator` rerun to verify that `node-4` no longer receives stale prior-node edit-success guidance and either patches the schema mismatch or exposes the next R4 tools-chain blocker.
