@@ -2791,3 +2791,68 @@
   - `provider_budget`: 23/23.
   - fmt check, whitespace check, and `whale` build pass. The fmt command still prints the known stable rustfmt warning for `imports_granularity`.
 - Interpretation: H-048 is regression-clean at focused/build level. The remaining evidence gate is build attestation and a live keyed rerun.
+
+# Evidence E-107: c9e49ec live rerun crosses inspect fact-source budget and exposes rework target preview truncation
+
+- Prediction tested: H-048 repair plus existing artifact extraction should let the live run move beyond the AT `node_request_count=6/5` inspect stopper.
+- Real rerun:
+  ```text
+  RunDir: target/r4-org-json-real-keyed-20260703au-fact-source-path/runs/terminal_bench__organization-json-generator/20260704-101310-657
+  PairReport: pair-001/pair-report.md
+  preflight current_git_head: c9e49ec0df3f00acc37d64fb5ebace0834ae6e4d
+  build_attestation_status: pass
+  outcome_standard: solved
+  outcome_taskspace: engineering_unclean
+  right_exec_timed_out: False
+  right_tool_call_count: 13
+  right_public_validation_exit_code: 1
+  right_hidden_oracle_exit_code: 0
+  ```
+- Result: the previous inspect budget stopper is crossed.
+- Matched crossed signals:
+  - The model used string fact sources, including `Expected files: schema.json, departments.csv, employees.csv, projects.csv`; this did not directly exercise object-form `path`, but it did preserve artifact extraction from fact-source descriptions.
+  - Provider budget trace for `node-1` reported `max_model_requests_per_node:10`, not the prior base 5.
+  - `schema.json`, `departments.csv`, `employees.csv`, and `projects.csv` were all read successfully with `TaskSpaceReadFileSummaryV1`.
+  - After all fact sources were read, a duplicate `schema.json` read triggered `TaskSpaceForcedInspectTransitionV1` into implementation rather than hard-stopping at `6/5`.
+- New blocker signals:
+  - Validation failed on schema-required fields: project `members` plus statistics `averageDepartmentBudget`, `totalEmployees`, `skillDistribution`, `departmentSizes`, `projectStatusDistribution`, and `averageYearsOfService`.
+  - Runtime routed to validation rework and allowed one `process.py` target read (`result-12`).
+  - Duplicate-read recovery included `result-12 artifacts=process.py`, but only as a single-line compact preview; the patch-relevant lower half of the file was truncated to `...`.
+  - The model repeated `read_file process.py`, hit `TaskSpaceValidationReworkDuplicateReadRecoveryV1`, repeated again, then hit `TaskSpaceValidationReworkDuplicateReadHardStopV1`.
+- Interpretation: The new problem type is `validation-rework-target-read-preview-truncation`. The feedback says the target contents are already visible, but the recovery evidence is not self-sufficient for patching because it carries only a compact single-line preview.
+
+# Hypothesis H-049: duplicate-read recovery needs multiline target excerpt, not only result id / compact preview
+
+- Claim: When a validation rework node has already read the target artifact, duplicate-read recovery depends on `current_main_working_evidence_summary()`. That summary flattens working evidence through `single_line_preview(..., 1200)`, so patch-relevant target context can be truncated even though recovery says the current contents are already visible.
+- Prediction: Adding a dedicated `validation_rework_target_read` evidence summary with a bounded multiline excerpt should make duplicate-read recovery self-sufficient for patch generation and reduce repeated target reads.
+- Diagnostic evidence plan: Add a runtime regression where the patch-relevant marker is beyond the old 1200-char compact preview but below the new bounded target excerpt. The test must assert `current_main_working_evidence_summary()` includes `validation_rework_target_read`, `late_schema_repair_marker`, and the schema-required field names.
+- Status: confirmed.
+
+# Evidence E-108: validation rework target read now appears as bounded multiline evidence
+
+- Prediction tested: H-049 predicts that current rework target contents must be available as a multiline evidence block, not only a result id or compact preview.
+- Repair artifact:
+  - `third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs`
+- Focused validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core validation_rework_projects_schema_repair_contract_from_schema_read --lib
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core validation_rework_duplicate --lib
+  ```
+- R4-adjacent regression/build validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core validation_rework --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core validation_ --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core provider_budget --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core taskspace_active_budget --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core local_infra --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core apply_patch_ --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --all --check
+  git diff --check
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build -j1 -p codex-cli --bin whale --locked
+  ```
+- Result: passed.
+- Matched test signals:
+  - `current_main_working_evidence_summary()` includes `validation_rework_target_read`.
+  - The evidence summary retains `late_schema_repair_marker` placed beyond the old 1200-character compact preview.
+  - The retained excerpt includes schema-required repair names such as `averageDepartmentBudget`.
+- Interpretation: H-049 is focused-fixed with R4-adjacent regression/build coverage. The remaining gate is attestation and another keyed rerun to see whether the rework node now patches instead of repeating target reads.

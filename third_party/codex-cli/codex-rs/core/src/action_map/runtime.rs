@@ -7099,6 +7099,15 @@ preview:\n\
         {
             parts.push(format!("validation_rework: {rework_summary}"));
         }
+        let rework_target_summary = validation_rework_target_read_evidence_summary(
+            map,
+            node,
+            2,
+            TASKSPACE_VALIDATION_REWORK_TARGET_READ_SUMMARY_MAX_CHARS,
+        );
+        if !rework_target_summary.trim().is_empty() {
+            parts.push(rework_target_summary);
+        }
         if !summary.trim().is_empty() {
             parts.push(summary);
         }
@@ -17202,6 +17211,7 @@ fn code_or_test_read_body_has_content_signal(body: &str) -> bool {
 
 const TASKSPACE_WORKING_EVIDENCE_SUMMARY_MAX_RESULTS: usize = 8;
 const TASKSPACE_WORKING_EVIDENCE_SUMMARY_MAX_CHARS: usize = 1200;
+const TASKSPACE_VALIDATION_REWORK_TARGET_READ_SUMMARY_MAX_CHARS: usize = 6000;
 
 fn inspect_code_or_test_read_summary(map: &ActionMapInstance, node: &MapNode) -> String {
     let summary = working_evidence_summary_for_nodes(map, &[node.id.as_str()]);
@@ -17289,6 +17299,41 @@ fn working_evidence_summary_for_nodes(map: &ActionMapInstance, node_ids: &[&str]
         .map(|(_, _, summary)| summary)
         .collect::<Vec<_>>()
         .join(" | ")
+}
+
+fn validation_rework_target_read_evidence_summary(
+    map: &ActionMapInstance,
+    node: &MapNode,
+    max_results: usize,
+    max_excerpt_chars: usize,
+) -> String {
+    if node.kind != NodeKind::ImplementSolution {
+        return String::new();
+    }
+    let validation_rework_artifacts =
+        implement_node_dependency_validation_rework_artifact_refs(map, node);
+    if validation_rework_artifacts.is_empty() {
+        return String::new();
+    }
+    implement_node_validation_rework_artifact_read_results(
+        map,
+        node,
+        &validation_rework_artifacts,
+    )
+    .into_iter()
+    .take(max_results)
+    .filter_map(|(artifact, result_id)| {
+        let result = map.results.get(&result_id)?;
+        let read_context = validation_rework_read_context_status(&result.body)
+            .map(|status| format!("\nread_context: {status}"))
+            .unwrap_or_default();
+        Some(format!(
+            "validation_rework_target_read result={result_id} artifact={artifact}{read_context}\nexcerpt:\n{}",
+            working_evidence_body_excerpt(&result.body, max_excerpt_chars)
+        ))
+    })
+    .collect::<Vec<_>>()
+    .join("\n")
 }
 
 fn working_evidence_priority(body: &str) -> usize {
@@ -33572,6 +33617,20 @@ projects.append({'name': row['name'], 'member_ids': row['member_ids'].split(';')
                 .with_call_id("read-generator"),
             )
             .expect("validation rework may read dependency changed artifact before editing");
+        let long_rework_read_output = format!(
+            "TaskSpaceToolInvocationV1:\n\
+tool: shell_command\n\
+command: sed -n '1,240p' -- generate_org.py\n\
+raw_output:\n\
+def build_organization():\n\
+    return {{}}\n\
+{}\n\
+def late_schema_repair_marker():\n\
+    return 'members averageDepartmentBudget totalEmployees skillDistribution'\n\
+TaskSpaceReadFileSummaryV1: path=generate_org.py lines_read=210 eof_reached=true max_lines=240\n",
+            "# filler line that pushes patch-relevant schema context past the old compact summary limit\n"
+                .repeat(30)
+        );
         let (read_result_id, _) = state
             .record_main_tool_result_with_class(
                 owner,
@@ -33579,14 +33638,7 @@ projects.append({'name': row['name'], 'member_ids': row['member_ids'].split(';')
                 "shell_command",
                 Some(ActionClass::Read),
                 true,
-                "TaskSpaceToolInvocationV1:\n\
-tool: shell_command\n\
-command: sed -n '1,240p' -- generate_org.py\n\
-raw_output:\n\
-def build_organization():\n\
-    return {}\n\
-TaskSpaceReadFileSummaryV1: path=generate_org.py lines_read=2 eof_reached=true max_lines=240\n"
-                    .to_string(),
+                long_rework_read_output,
             )
             .expect("targeted rework read records")
             .expect("targeted rework read result id");
@@ -33641,6 +33693,21 @@ TaskSpaceReadFileSummaryV1: path=generate_org.py lines_read=2 eof_reached=true m
                 && evidence.contains("eof_reached=true")
                 && evidence.contains("def build_organization")),
             "{critical_evidence:?}"
+        );
+        let working_summary = state
+            .current_main_working_evidence_summary()
+            .expect("working evidence summary after target read");
+        assert!(
+            working_summary.contains("validation_rework_target_read"),
+            "{working_summary}"
+        );
+        assert!(
+            working_summary.contains("late_schema_repair_marker"),
+            "{working_summary}"
+        );
+        assert!(
+            working_summary.contains("averageDepartmentBudget"),
+            "{working_summary}"
         );
         let rework_node_after_read = map.nodes.get(&rework_node_id).expect("rework node");
         let allowed_actions = projection_allowed_actions_for_node(map, rework_node_after_read);
