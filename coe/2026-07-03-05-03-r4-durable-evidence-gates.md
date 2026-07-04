@@ -5748,3 +5748,62 @@
     PASS
   ```
 - Remaining gate: commit/push, binary attestation, and another keyed rerun to see whether validation rework now applies the schema patch and reaches H-096/final gate or public relationship oracle.
+
+# Evidence E-201: H-097 rerun exposes no-action recovery budget drain
+
+- Real rerun:
+  ```text
+  RunDir: target/r4-org-json-real-keyed-20260704cr-duplicate-wrapper-normalized/runs/terminal_bench__organization-json-generator/20260704-214746-740
+  reported_evidence_level: E1
+  outcome_standard: wrong
+  outcome_taskspace: wrong
+  right_exec_timed_out: False
+  right_tool_call_count: 10
+  right_public_validation_exit_code: 1
+  right_hidden_oracle_exit_code: 0
+  right_open_leaf_nodes: 1
+  final_marker: TaskSpaceProviderBudgetHardStopV1
+  ```
+- H-097 live status: not reached. The trace did not hit the duplicate-wrapper patch shape.
+- New blocker signal:
+  - Runtime inserted `TaskSpaceForcedInspectTransitionRecoveryV1`, then `TaskSpaceImplementNeedsEditRecoveryV1`, then repeated `TaskSpaceNoActionRecoveryV1`.
+  - The no-action recovery reached and exceeded the advisory threshold, but the loop kept sampling until generic provider node budget exhausted:
+    `TaskSpaceProviderBudgetHardStopV1 reason=provider_node_request_hard_limit_exceeded node_request_count=6/5 state=warned`.
+- Interpretation:
+  - This is a feedback-layer control failure, not a capability parser failure.
+  - The failure semantics were not distorted inside the tool. They were incomplete at the session recovery lifecycle: repeated no-action had only advisory text and no terminal marker, so the eventual observable failure became provider budget exhaustion.
+
+# Hypothesis H-098: no-action recovery over advisory threshold needs a dedicated hard-stop
+
+- Claim: `TaskSpaceNoActionRecoveryV1` already identifies that the provider emitted follow-up-only text or recoverable non-progress output, but the recovery loop treats the cap as advisory only. After the cap is exceeded, the runtime should stop the turn with a specific `TaskSpaceNoActionRecoveryHardStopV1` instead of spending the remaining node budget and ending with `TaskSpaceProviderBudgetHardStopV1`.
+- Prediction: Adding a node-scoped no-action recovery counter and a dedicated hard-stop marker will preserve the precise feedback-layer failure semantics. Focused tests should prove the hard-stop triggers only after the advisory threshold and is not classified as ordinary no-action recovery even though it preserves the previous recovery excerpt.
+- Diagnostic evidence plan: Add a focused builder/classification test, run no-action/action-contract/apply_patch regressions plus fmt/check/build, then rerun the keyed sample to see whether the same trace ends in `TaskSpaceNoActionRecoveryHardStopV1` or progresses to the next tool-chain blocker.
+- Status: confirmed.
+
+# Evidence E-202: no-action recovery now hard-stops with preserved failure semantics
+
+- Repair artifact:
+  - `third_party/codex-cli/codex-rs/core/src/session/turn.rs`
+- Repair behavior:
+  - Added `TaskSpaceNoActionRecoveryHardStopV1`.
+  - Converted no-action recovery counting to snapshot-node-scoped counting before threshold checks.
+  - When `TaskSpaceNoActionRecoveryV1` exceeds its node-kind advisory cap, the loop records the dedicated hard-stop and stops the turn instead of continuing to provider budget exhaustion.
+  - Excluded hard-stop items from ordinary no-action recovery classification, because the hard-stop preserves the previous recovery contract excerpt for audit.
+- Validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core no_action_recovery --lib
+    PASS: 4/4
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core action_contract_prompt --lib
+    PASS: 29/29
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core apply_patch_ --lib
+    PASS: 36/36
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --check
+    PASS
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo check -p codex-core
+    PASS
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
+    PASS
+  git diff --check
+    PASS
+  ```
+- Remaining gate: commit/push, binary attestation, and keyed rerun to determine whether this issue is live-cleared or simply exposes the next R4-D feedback/capability blocker.

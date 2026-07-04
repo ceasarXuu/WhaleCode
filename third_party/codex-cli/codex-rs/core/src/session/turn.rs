@@ -141,6 +141,7 @@ const TASKSPACE_ACTION_CONTRACT_MAX_RECENT_TOOL_OUTPUT_CHARS: usize = 2400;
 const TASKSPACE_DEEPSEEK_CACHE_ANCHOR_LINES: usize = 4200;
 const TASKSPACE_IMPLEMENT_PROGRESS_BEFORE_EDIT_HINT: usize = 10;
 const TASKSPACE_NO_ACTION_RECOVERY_MARKER: &str = "TaskSpaceNoActionRecoveryV1:";
+const TASKSPACE_NO_ACTION_RECOVERY_HARD_STOP_MARKER: &str = "TaskSpaceNoActionRecoveryHardStopV1:";
 const TASKSPACE_GATE_RECOVERY_MARKER: &str = "TaskSpaceGateRecoveryV1:";
 const TASKSPACE_FORCED_INSPECT_TRANSITION_MARKER: &str =
     "TaskSpaceForcedInspectTransitionRecoveryV1:";
@@ -490,6 +491,7 @@ pub(crate) async fn run_turn(
     let mut last_agent_message: Option<String> = None;
     let mut stop_hook_active = false;
     let mut taskspace_no_action_recovery_count = 0usize;
+    let mut taskspace_no_action_recovery_key: Option<String> = None;
     let mut taskspace_implement_needs_edit_recovery_count = 0usize;
     let mut taskspace_implement_needs_edit_recovery_key: Option<String> = None;
     let mut taskspace_apply_patch_recovery_count = 0usize;
@@ -674,11 +676,22 @@ pub(crate) async fn run_turn(
                         .as_deref()
                         .map(taskspace_no_action_recovery_cap_for_node_kind)
                         .unwrap_or(1usize);
-                    let no_action_recovery_over_advisory = counts_against_no_action_cap
-                        && taskspace_no_action_recovery_count >= no_action_recovery_cap;
                     if counts_against_no_action_cap {
+                        taskspace_reset_recovery_count_for_snapshot_node(
+                            &mut taskspace_no_action_recovery_key,
+                            &mut taskspace_no_action_recovery_count,
+                            current_recovery_snapshot.as_ref(),
+                        );
                         taskspace_no_action_recovery_count += 1;
                     }
+                    let no_action_recovery_over_advisory = counts_against_no_action_cap
+                        && taskspace_no_action_recovery_count > no_action_recovery_cap;
+                    let no_action_recovery_hard_stop =
+                        taskspace_no_action_recovery_should_hard_stop(
+                            &recovery_item,
+                            taskspace_no_action_recovery_count,
+                            no_action_recovery_cap,
+                        );
                     if counts_against_implement_needs_edit_cap {
                         let recovery_key = current_recovery_snapshot
                             .as_ref()
@@ -790,6 +803,28 @@ pub(crate) async fn run_turn(
                             .await;
                         last_agent_message = Some(
                             "TaskSpace validation rework duplicate-read hard stop: repeated_validation_rework_duplicate_artifact_read".to_string(),
+                        );
+                        break;
+                    }
+                    if no_action_recovery_hard_stop {
+                        let hard_stop_item = build_taskspace_no_action_recovery_hard_stop_item(
+                            &recovery_item,
+                            taskspace_no_action_recovery_count,
+                            no_action_recovery_cap,
+                        );
+                        sess.send_event(
+                            &turn_context,
+                            EventMsg::Warning(WarningEvent {
+                                message: taskspace_special_recovery_warning_message(
+                                    &hard_stop_item,
+                                ),
+                            }),
+                        )
+                        .await;
+                        sess.record_conversation_items(&turn_context, &[hard_stop_item])
+                            .await;
+                        last_agent_message = Some(
+                            "TaskSpace no-action recovery hard stop: repeated_no_action_after_recovery_threshold".to_string(),
                         );
                         break;
                     }
@@ -1692,6 +1727,35 @@ Required behavior for the next response:\n\
 - If inspect evidence is sufficient, finish the inspect node into implement_solution before more environment probing.\n\
 - If a tool was blocked, follow the most recent TaskSpaceGateRecoveryV1 recovery instructions instead of repeating the same blocked action.\n\
 - If a concrete file edit is identified, call apply_patch now before any further validation."
+    );
+
+    ResponseItem::Message {
+        id: None,
+        role: "developer".to_string(),
+        content: vec![ContentItem::InputText { text }],
+        end_turn: None,
+        phase: None,
+    }
+}
+
+fn build_taskspace_no_action_recovery_hard_stop_item(
+    recovery_item: &ResponseItem,
+    attempt: usize,
+    advisory_cap: usize,
+) -> ResponseItem {
+    let recovery_text = response_item_text(recovery_item).unwrap_or_default();
+    let recovery_excerpt = recovery_text.chars().take(1800).collect::<String>();
+    let text = format!(
+        "{TASKSPACE_NO_ACTION_RECOVERY_HARD_STOP_MARKER}\n\
+reason: repeated_no_action_after_recovery_threshold\n\
+attempt_count: {attempt}\n\
+advisory_threshold: {advisory_cap}\n\
+The provider repeatedly returned follow-up-only text or recoverable action-contract output without producing effective TaskSpace progress.\n\
+Runtime decision:\n\
+- Stop provider sampling for this turn instead of spending the remaining provider budget on another generic no-action recovery request.\n\
+- Preserve the last no-action recovery contract for audit.\n\
+- A later turn may continue only after TaskSpace state changes or the provider emits a tool call, taskspace_control transition, or blocked-with-evidence result.\n\
+Last recovery contract excerpt:\n{recovery_excerpt}"
     );
 
     ResponseItem::Message {
@@ -2662,7 +2726,14 @@ fn taskspace_evidence_has_full_visible_validation_rework_target_read(
 }
 
 fn is_taskspace_no_action_recovery_item(item: &ResponseItem) -> bool {
+    if is_taskspace_no_action_recovery_hard_stop_item(item) {
+        return false;
+    }
     response_item_text_contains(item, TASKSPACE_NO_ACTION_RECOVERY_MARKER)
+}
+
+fn is_taskspace_no_action_recovery_hard_stop_item(item: &ResponseItem) -> bool {
+    response_item_text_contains(item, TASKSPACE_NO_ACTION_RECOVERY_HARD_STOP_MARKER)
 }
 
 fn is_taskspace_provider_budget_hard_stop_item(item: &ResponseItem) -> bool {
@@ -2741,6 +2812,14 @@ fn taskspace_apply_patch_recovery_should_hard_stop(
     previous_recovery_count: usize,
 ) -> bool {
     is_taskspace_apply_patch_recovery_item(item) && previous_recovery_count >= 3
+}
+
+fn taskspace_no_action_recovery_should_hard_stop(
+    item: &ResponseItem,
+    current_recovery_count: usize,
+    advisory_cap: usize,
+) -> bool {
+    is_taskspace_no_action_recovery_item(item) && current_recovery_count > advisory_cap
 }
 
 fn taskspace_recovery_snapshot_node_key(
@@ -2866,6 +2945,8 @@ fn taskspace_duplicate_read_recovery_preserves_patch_grammar_failure(item: &Resp
 fn taskspace_special_recovery_warning_message(item: &ResponseItem) -> String {
     if response_item_text_contains(item, TASKSPACE_PROVIDER_BUDGET_HARD_STOP_MARKER) {
         "TaskSpace inserted TaskSpaceProviderBudgetHardStopV1 because provider request budget was exhausted before dispatch. The current turn will stop without another model request.".to_string()
+    } else if is_taskspace_no_action_recovery_hard_stop_item(item) {
+        "TaskSpace inserted TaskSpaceNoActionRecoveryHardStopV1 because no-action recovery exceeded its advisory threshold without effective TaskSpace progress. The current turn will stop without another model request.".to_string()
     } else if is_taskspace_validation_rework_duplicate_read_hard_stop_item(item) {
         "TaskSpace inserted TaskSpaceValidationReworkDuplicateReadHardStopV1 because validation rework repeated an already-blocked artifact read after patch-only recovery. The current turn will stop without another model request.".to_string()
     } else if is_taskspace_validation_rework_patch_only_hard_stop_item(item) {
@@ -9406,6 +9487,30 @@ TaskSpaceGateRecoveryV1: {\"schema_version\":\"TaskSpaceGateRecoveryV1\",\"allow
         assert!(text.contains(TASKSPACE_GATE_RECOVERY_MARKER));
         assert!(text.contains("run_test with command `python recover_logs.py`"));
         assert!(text.contains("obey the `next_valid_actions`"));
+    }
+
+    #[test]
+    fn no_action_recovery_hard_stops_after_advisory_threshold() {
+        let item = build_taskspace_no_action_recovery_item(Some("Let me inspect that next."));
+
+        assert!(is_taskspace_no_action_recovery_item(&item));
+        assert!(!taskspace_no_action_recovery_should_hard_stop(&item, 3, 3));
+        assert!(taskspace_no_action_recovery_should_hard_stop(&item, 4, 3));
+
+        let hard_stop = build_taskspace_no_action_recovery_hard_stop_item(&item, 4, 3);
+        let text = item_text(hard_stop.clone());
+
+        assert!(text.contains(TASKSPACE_NO_ACTION_RECOVERY_HARD_STOP_MARKER));
+        assert!(text.contains("reason: repeated_no_action_after_recovery_threshold"));
+        assert!(text.contains("attempt_count: 4"));
+        assert!(text.contains("advisory_threshold: 3"));
+        assert!(text.contains("Stop provider sampling for this turn"));
+        assert!(is_taskspace_no_action_recovery_hard_stop_item(&hard_stop));
+        assert!(!is_taskspace_no_action_recovery_item(&hard_stop));
+        assert!(
+            taskspace_special_recovery_warning_message(&hard_stop)
+                .contains("TaskSpaceNoActionRecoveryHardStopV1")
+        );
     }
 
     #[test]

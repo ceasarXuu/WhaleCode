@@ -3093,6 +3093,36 @@ H-089 live 结论：已越过 generic provider budget hard-stop。新的 blocker
 
 状态：focused 修复已编码并通过相关回归、fmt/diff/build。下一步是 commit/push、attestation、keyed rerun。
 
+## 27. 2026-07-04 no-action recovery hard-stop semantics
+
+`af95784` 后的 keyed rerun 没有复现 duplicate empty `Update File` wrapper，而是在更早的 feedback-control path 停住：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260704cr-duplicate-wrapper-normalized/runs/terminal_bench__organization-json-generator/20260704-214746-740
+reported_evidence_level: E1
+outcome_standard: wrong
+outcome_taskspace: wrong
+right_exec_timed_out: False
+right_tool_call_count: 10
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+right_open_leaf_nodes: 1
+final_hard_stop: TaskSpaceProviderBudgetHardStopV1 node_kind=inspect_code_context node_request_count=6/5
+```
+
+问题类型收录：
+
+| 字段 | 内容 |
+|---|---|
+| case | `no-action-recovery-budget-drain` |
+| 层级 | no-action recovery escalation / feedback-control lifecycle |
+| 本质 | failure semantics 已识别为 no-action recovery，但超过 advisory threshold 后仍继续采样，最终被 generic provider budget hard-stop 覆盖 |
+| 非根因 | 不是 duplicate wrapper normalizer 未生效；不是 apply_patch capability failure；不是 tool 权限放宽问题 |
+| 修复 | 新增 node-scoped no-action recovery counter；超过 node-kind cap 后写入 `TaskSpaceNoActionRecoveryHardStopV1` 并停止本 turn |
+| focused evidence | CoE H-098/E-201/E-202；`no_action_recovery` 4/4；`action_contract_prompt` 29/29；`apply_patch_` 36/36；fmt/check/build/diff-check |
+
+状态：focused 修复已编码并通过相关回归、fmt/diff/check/build。下一步是 commit/push、attestation、keyed rerun。
+
 ## 10. 2026-07-04 validation rework patch directive buried after evidence
 
 `431e0ee` 的 keyed rerun 没有复现 block-rejection wording path，说明 H-069 仍需下一次命中该分支才能 live-clear。该轮暴露

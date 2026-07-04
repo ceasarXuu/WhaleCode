@@ -4929,3 +4929,38 @@ CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --check
 CODEX_SKIP_VENDORED_BWRAP=1 cargo check -p codex-core
 CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
 ```
+
+## 5.84 2026-07-04 no-action recovery hard-stop semantics
+
+`af95784` 后 rerun 证明 H-097 没有被当前样本命中；新的 blocker 是 no-action recovery 的 terminal semantics：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260704cr-duplicate-wrapper-normalized/runs/terminal_bench__organization-json-generator/20260704-214746-740
+reported_evidence_level: E1
+outcome_standard: wrong
+outcome_taskspace: wrong
+right_exec_timed_out: False
+right_tool_call_count: 10
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+right_open_leaf_nodes: 1
+final_marker: TaskSpaceProviderBudgetHardStopV1
+```
+
+收益判断：
+
+1. 新收录的 R4-D feedback 修复是 `no-action-recovery-budget-drain`：超过 no-action advisory threshold 后不再继续消耗 provider budget，而是记录专用 `TaskSpaceNoActionRecoveryHardStopV1`。
+2. 这是“失败语义缺失”而不是“失败语义扭曲”：runtime 已知道是 no-action recovery，但缺少 terminal marker，最终可见结论被 budget hard-stop 覆盖。
+3. R4-G utility 仍未通过：本轮 public validation 失败，且 no-action hard-stop 需要 keyed rerun 才能 live-clear。
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core no_action_recovery --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core action_contract_prompt --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core apply_patch_ --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --check
+CODEX_SKIP_VENDORED_BWRAP=1 cargo check -p codex-core
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
+git diff --check
+```

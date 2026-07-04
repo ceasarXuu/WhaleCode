@@ -865,3 +865,16 @@ provider-visible recovery，避免从“最终回答文案/证据 gate 不满足
 
 边界说明：该修复不接受任意空 patch，也不忽略目标文件。只有“当前 section 没有内容，且下一个非空 section 是同一路径的
 `*** Update File`”才会折叠。
+
+## 2026-07-04 R4-D issue type addendum: no-action recovery budget drain
+
+`af95784` 后的 keyed rerun 未命中 duplicate wrapper，而是暴露 session recovery lifecycle 的另一类反馈层问题：
+runtime 已经识别 provider 没有产生有效 TaskSpace progress，并多次插入 `TaskSpaceNoActionRecoveryV1`，但该 recovery
+只有 advisory 阈值，没有专用 terminal marker。结果最终 failure 被 generic provider budget hard-stop 覆盖。
+
+| Issue type | Layer | Symptom | Resolution contract | Evidence |
+|---|---|---|---|---|
+| `no-action-recovery-budget-drain` | no-action recovery escalation / feedback-control lifecycle | `TaskSpaceNoActionRecoveryV1` 超过 advisory threshold 后仍继续 provider sampling，最后表现为 `TaskSpaceProviderBudgetHardStopV1` | no-action recovery 改为 snapshot-node-scoped counter；超过 node-kind cap 后记录 `TaskSpaceNoActionRecoveryHardStopV1` 并停止本 turn；hard-stop 保留上一条 recovery excerpt 但不再被分类为普通 no-action recovery | keyed rerun `20260704-214746-740`; CoE H-098/E-201/E-202; `no_action_recovery`; `action_contract_prompt`; `apply_patch_` |
+
+边界说明：该修复不改变工具权限和状态机合法动作集合。它只把“provider 在 recovery 后仍无有效动作”的失败语义闭合在反馈层，
+避免被 provider budget 语义掩盖；下一 turn 只有 TaskSpace state 改变或 provider 发出 tool/control/block-with-evidence 才能继续推进。
