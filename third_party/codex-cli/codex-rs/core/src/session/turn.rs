@@ -2585,9 +2585,18 @@ fn build_taskspace_edit_failure_recovery_item(
     let should_force_complete_rewrite = taskspace_failure_expected_lines_mismatch(failure_summary)
         && taskspace_evidence_has_full_visible_validation_rework_target_read(evidence_summary);
     let complete_rewrite = if should_force_complete_rewrite {
-        "\nComplete target-read recovery override:\n- The validation rework target already has full visible target content (content_visibility=full_content_visible), so do not refresh read for context.\n- Because the previous apply_patch failed to find expected lines, stop using fragile Update File range/context hunks for this generated/small repair target.\n- Emit exactly one native apply_patch that replaces the target file with complete corrected contents: `*** Delete File: <path>` followed by `*** Add File: <path>` and every new file line prefixed with `+`.\n"
+        "\nComplete target-read recovery override:\n- The validation rework target already has full visible target content (content_visibility=full_content_visible), so do not refresh read for context.\n- Because the previous apply_patch failed to find expected lines, stop using fragile Update File range/context hunks for this generated/small repair target.\n- Emit exactly one native apply_patch that replaces the target file with complete corrected contents: `*** Delete File: <path>` followed by `*** Add File: <path>` and every new file line prefixed with `+`.\n- Do not emit `*** Update File` for this recovery. Do not emit read_file/list_files/search/validation.\n"
     } else {
         ""
+    };
+    let recovery_action = if should_force_complete_rewrite {
+        "- Emit exactly one recovery action now: a native apply_patch whole-file replacement for the failed target (`*** Delete File` followed by `*** Add File`). Do not call read_file; the full target content is already visible in evidence.\n\
+- do not repeat the same hunk. The previous context/range hunk already failed against the real file.\n\
+- If you cannot safely construct the complete replacement from the visible evidence, emit one taskspace_control block_node with the specific non-source-visibility blocker.\n\
+- Do not use `*** Update File`, unified/range hunk headers (`@@ -...`), placeholder hunk headers, markdown fences, shell commands, or prose inside the patch payload.\n"
+    } else {
+        "- Emit exactly one recovery action now: a corrected apply_patch using the inspected existing artifact path and native apply_patch grammar, or one narrow read_file of the same failed target artifact only when the failed edit needs refreshed existing context.\n\
+- If the failure says `Failed to find expected lines`, do not repeat the same hunk. Use exact existing context if known; for a small/generated file whose full intended contents are known, replace it with `*** Delete File: <path>` followed by `*** Add File: <path>` and the complete corrected contents. If the available source excerpt is truncated or stale after the failed edit, read the same target artifact once to refresh context, then patch.\n"
     };
     let failure = failure_summary
         .map(str::trim)
@@ -2617,8 +2626,7 @@ The previous edit tool call failed. Treat the tool result exactly like standard 
 Current required behavior:\n\
 - Do not ignore the failed edit result.\n\
 - Do not call list_files, search, broad shell discovery, unrelated read_file, or validation before resolving the failed edit.\n\
-- Emit exactly one recovery action now: a corrected apply_patch using the inspected existing artifact path and native apply_patch grammar, or one narrow read_file of the same failed target artifact only when the failed edit needs refreshed existing context.\n\
-- If the failure says `Failed to find expected lines`, do not repeat the same hunk. Use exact existing context if known; for a small/generated file whose full intended contents are known, replace it with `*** Delete File: <path>` followed by `*** Add File: <path>` and the complete corrected contents. If the available source excerpt is truncated or stale after the failed edit, read the same target artifact once to refresh context, then patch.\n\
+{recovery_action}\
 - If the failure says the target file is missing, use the already listed/read existing path when available."
     );
 
@@ -5914,7 +5922,9 @@ Then I will inspect the file."#,
         assert!(text.contains("Complete target-read recovery override"));
         assert!(text.contains("*** Delete File"));
         assert!(text.contains("*** Add File"));
-        assert!(text.contains("one narrow read_file of the same failed target artifact"));
+        assert!(text.contains("Do not emit `*** Update File`"));
+        assert!(text.contains("Do not call read_file"));
+        assert!(!text.contains("one narrow read_file of the same failed target artifact"));
         assert!(!text.contains(TASKSPACE_VALIDATION_REWORK_PATCH_ONLY_MARKER));
         assert!(!is_taskspace_validation_rework_patch_only_recovery_item(
             &item
@@ -6210,6 +6220,8 @@ Then I will inspect the file."#,
         assert!(text.contains("*** Delete File: <path>"));
         assert!(text.contains("*** Add File: <path>"));
         assert!(text.contains("do not refresh read"));
+        assert!(text.contains("Do not emit `*** Update File`"));
+        assert!(!text.contains("one narrow read_file of the same failed target artifact"));
     }
 
     #[test]
