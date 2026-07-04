@@ -1587,6 +1587,20 @@ The next response must summarize the exact validator infrastructure blocker and 
     }
 }
 
+fn taskspace_closed_validation_blocker_applies(
+    has_blocked_validation_result: bool,
+    has_accepted_successful_validation_result: bool,
+    has_ready_recovery_node: bool,
+) -> bool {
+    has_blocked_validation_result
+        && !has_accepted_successful_validation_result
+        && !has_ready_recovery_node
+}
+
+fn taskspace_completed_task_action_should_force_final_answer(action: &TaskSpaceActionV1) -> bool {
+    action.action != "final_answer"
+}
+
 fn taskspace_action_contract_tool_runtime_bootstrap_failure_item() -> ResponseItem {
     let text = "TaskSpaceActionContractToolRuntimeBootstrapFailureV1:\n\
 Existing TaskSpace task has no active bound node because ordinary tools are blocked by sandbox/tool runtime bootstrap failure evidence.\n\
@@ -3765,15 +3779,22 @@ async fn run_sampling_request(
             && transport_mode == TaskspaceProviderTransportMode::CacheOptimizedActionContract
         {
             prompt_input.push(taskspace_action_contract_state_item(snapshot));
-            if snapshot.node_id.is_none()
-                && sess.action_map_has_tool_runtime_bootstrap_failure().await
-            {
-                prompt_input.push(taskspace_action_contract_tool_runtime_bootstrap_failure_item());
-            } else if snapshot.node_id.is_none()
-                && sess.action_map_has_blocked_validation_result().await
-                && !sess.action_map_has_ready_recovery_node().await
-            {
-                prompt_input.push(taskspace_action_contract_closed_validation_item());
+            if snapshot.node_id.is_none() {
+                let has_successful_validation = sess
+                    .action_map_has_accepted_successful_validation_result()
+                    .await;
+                if !has_successful_validation
+                    && sess.action_map_has_tool_runtime_bootstrap_failure().await
+                {
+                    prompt_input
+                        .push(taskspace_action_contract_tool_runtime_bootstrap_failure_item());
+                } else if taskspace_closed_validation_blocker_applies(
+                    sess.action_map_has_blocked_validation_result().await,
+                    has_successful_validation,
+                    sess.action_map_has_ready_recovery_node().await,
+                ) {
+                    prompt_input.push(taskspace_action_contract_closed_validation_item());
+                }
             }
             if snapshot.node_kind.as_deref() == Some("inspect_code_context") {
                 let unread_scripts = sess
@@ -5507,6 +5528,22 @@ mod active_context_replacement_tests {
         assert!(text.contains("Do not call start_task"));
         assert!(text.contains("create_node"));
         assert!(text.contains("validator infrastructure blocker"));
+    }
+
+    #[test]
+    fn closed_validation_blocker_is_suppressed_after_successful_validation() {
+        assert!(taskspace_closed_validation_blocker_applies(
+            true, false, false
+        ));
+        assert!(!taskspace_closed_validation_blocker_applies(
+            true, true, false
+        ));
+        assert!(!taskspace_closed_validation_blocker_applies(
+            true, false, true
+        ));
+        assert!(!taskspace_closed_validation_blocker_applies(
+            false, false, false
+        ));
     }
 
     #[test]
@@ -8428,6 +8465,22 @@ tax_calc.py\n\
             taskspace_action_final_message(&final_action).as_deref(),
             Some("done")
         );
+    }
+
+    #[test]
+    fn completed_task_final_answer_conversion_includes_blocked_action() {
+        let blocked_action = parse_taskspace_action_v1(
+            r#"{"schema_version":"taskspace-action-v1","action":"blocked","args":{"reason":"stale local validator infrastructure blocker"}}"#,
+        )
+        .expect("valid blocked action");
+        let final_action = taskspace_final_answer_action("Validation passed.");
+
+        assert!(taskspace_completed_task_action_should_force_final_answer(
+            &blocked_action
+        ));
+        assert!(!taskspace_completed_task_action_should_force_final_answer(
+            &final_action
+        ));
     }
 
     #[test]
@@ -12002,7 +12055,7 @@ async fn should_answer_after_completed_task_without_active_node(
     if snapshot.node_id.is_some() {
         return false;
     }
-    if taskspace_action_final_message(action).is_some() {
+    if !taskspace_completed_task_action_should_force_final_answer(action) {
         return false;
     }
     sess.action_map_has_accepted_successful_validation_result()
@@ -12020,8 +12073,12 @@ async fn should_block_after_closed_validation_without_active_node(
     if taskspace_action_final_message(action).is_some() {
         return false;
     }
-    sess.action_map_has_blocked_validation_result().await
-        && !sess.action_map_has_ready_recovery_node().await
+    taskspace_closed_validation_blocker_applies(
+        sess.action_map_has_blocked_validation_result().await,
+        sess.action_map_has_accepted_successful_validation_result()
+            .await,
+        sess.action_map_has_ready_recovery_node().await,
+    )
 }
 
 async fn should_block_after_tool_runtime_bootstrap_failure_without_active_node(
@@ -15043,6 +15100,17 @@ async fn try_run_sampling_request(
                                         "Validation passed; final result is ready.",
                                     )
                                 } else if let Some(snapshot) = provider_budget_snapshot.as_ref()
+                                    && should_answer_after_completed_task_without_active_node(
+                                        &action,
+                                        snapshot,
+                                        sess.as_ref(),
+                                    )
+                                    .await
+                                {
+                                    taskspace_final_answer_action(
+                                        "Validation passed; final result is ready.",
+                                    )
+                                } else if let Some(snapshot) = provider_budget_snapshot.as_ref()
                                     && should_block_after_tool_runtime_bootstrap_failure_without_active_node(
                                         &action,
                                         snapshot,
@@ -15063,17 +15131,6 @@ async fn try_run_sampling_request(
                                 {
                                     taskspace_blocked_final_action(
                                         "TaskSpace validation is blocked by local validator infrastructure evidence already recorded on the closed validation node.",
-                                    )
-                                } else if let Some(snapshot) = provider_budget_snapshot.as_ref()
-                                    && should_answer_after_completed_task_without_active_node(
-                                        &action,
-                                        snapshot,
-                                        sess.as_ref(),
-                                    )
-                                    .await
-                                {
-                                    taskspace_final_answer_action(
-                                        "Validation passed; final result is ready.",
                                     )
                                 } else if taskspace_action_control_creates_final_synthesis(&action) {
                                     taskspace_final_answer_action(

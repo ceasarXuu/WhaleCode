@@ -3603,6 +3603,23 @@ statistics calculations 通过。新的 blocker 是 `members` 仍为对象数组
 
 状态：focused fixed，待 commit/push、install/attest 和真实 keyed rerun。
 
+## 48. 2026-07-05 successful validation closeout reported as blocked
+
+`1b1ddf9` 安装后 keyed rerun 证明 H-119 live-clear：TaskSpace 按要求读取了 schema 和三个 CSV 输入，
+最终 public validation / hidden oracle 均通过，open leaf nodes 为 0。新的问题只剩反馈终态：
+最后一条用户可见消息误报 terminal `blocked`，把已经通过的 schema validation 说成 local infrastructure blocker。
+
+| 字段 | 内容 |
+|---|---|
+| case | `closed-validation-success-final-blocked-false-positive` |
+| 层级 | terminal closeout feedback / successful validation priority / no-active-node action conversion |
+| 本质 | 旧 blocked validation/local infra evidence 与新 accepted successful validation evidence 并存时，feedback 层缺少成功优先级 |
+| 非根因 | 不是工具执行失败；不是 schema validation 失败；不是 H-119 复发；不是业务结果错误 |
+| 修复 | successful validation 抑制 closed-validation/tool-runtime blocker contract；无 active node 且任务已完成验证时，terminal `blocked` 转成 `final_answer` |
+| evidence | CoE H-120/E-243/E-244；keyed rerun `20260705-035754-438`; focused tests `closed_validation_blocker_is_suppressed_after_successful_validation`, `completed_task_final_answer_conversion_includes_blocked_action`, `action_contract_prompt`, `forced_validation_closeout`, `terminal_blocker`; fmt/check/build/diff |
+
+状态：focused fixed，待 commit/push、install/attest 和真实 keyed rerun。
+
 ## 46. 2026-07-05 missing-source blocker rejection hard-stop overcount
 
 `f2c31e4` 安装后 keyed rerun 证明 H-117 live-clear：TaskSpace 进入 implementation / validation rework。

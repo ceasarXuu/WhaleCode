@@ -291,6 +291,7 @@ cargo test -j1 -p codex-core taskspace_action_contract_tool_runtime_bootstrap_fa
 | `apply-patch-anchored-placeholder-hunk-normalization-gap` | ability + action contract + control loop | provider 在预算恢复末尾终于输出目标 patch，但 hunk 是 `@@ ... @@` placeholder，且带有真实上下文行；runtime 将所有 placeholder hunk 硬拒绝为 `apply_patch_native_hunk_header:<target>`，NativeHunk recovery 出现后立即 hard stop | 带上下文/变更行的 `@@ ... @@` 规范化为 native `@@`，再交给 unanchored/context/missing-target 检查兜底；malformed `--- Update File:` 仍拒绝 | focused fixed / local regression passed / real rerun pending |
 | `apply-patch-targetless-unified-header-fake-target` | feedback + action contract normalization | provider 输出 targetless `---` / `+++` unified-like patch；bare-file normalizer 把 separator-only `---` 当文件名并 fallback 成 `src/---`，recovery 看到的是伪目标而不是缺目标 | `normalize_taskspace_bare_file_patch` 禁止 `---` / `+++` 作为 bare path；action contract 在 dispatch 前识别 targetless unified headers，拒绝为 `apply_patch_mixed_native_unified:(missing patch target)`，不再生成 `src/---` | focused fixed / local regression passed / real rerun pending |
 | `apply-patch-separator-update-section-normalization-gap` | ability + action contract normalization | provider 在 `*** Update File` section 内用 `<old block>` / separator-only `---` / `<new block>` 表达替换，并可能在完整 apply_patch JSON 后多输出一个 `"`；runtime 只能进入 strict JSON / edit-failure recovery hard-stop | 仅对 apply_patch action 容忍单个尾随 `"`；无已有 hunk/diff marker 且恰有一个 separator-only `---` 的 Update File section 机械转成 native `@@`、`-old`、`+new` hunk | focused fixed / local regression passed / real rerun pending |
+| `closed-validation-success-final-blocked-false-positive` | feedback + terminal closeout | schema validation 已通过并 forced closeout，但旧 blocked validation / local infra evidence 仍可能注入 blocker contract 或接受 terminal `blocked` | successful validation final readiness 优先于旧 blocker；无 active node 且已有 accepted validation 时不再注入 blocker contract，并把 terminal `blocked` 转为 `final_answer` | focused fixed / real rerun pending |
 
 其中 `duplicate-inspect-premature-fact-source-convergence` 是本次新增收录的 case。它不是工具原始失败，也不是单纯模型策略错误；
 raw evidence 存在，问题在 feedback/phase gate 语义缺失：runtime 把“重复读已成功”恢复成“inspect 可结束”，但没有检查
@@ -1127,3 +1128,18 @@ provider 随后凭猜测写 `process.py`，在 `projects.csv` 上触发 `KeyErro
 
 边界说明：该修复不把所有 repo CSV 都无条件变成任务输入。只有任务要求中出现 CSV input/data/files/source 语义，
 且 inspect 已发现具体 `.csv` 文件时，才把这些具体输入加入必读 fact-source coverage；生成输出过滤仍保留。
+
+## 2026-07-05 R4-D issue type addendum: successful validation closeout reported as blocked
+
+`1b1ddf9` 安装后 keyed rerun 证明 H-119 live-clear：TaskSpace 在 inspect 中读取了
+`schema.json`、`departments.csv`、`employees.csv`、`projects.csv`，随后生成并修复 `organization.json`，
+public validation 和 hidden oracle 都通过。但最终用户可见消息仍是 terminal `blocked`，理由声称 schema
+validation 被 local infrastructure 阻塞。
+
+| Issue type | Layer | Symptom | Resolution contract | Evidence |
+|---|---|---|---|---|
+| `closed-validation-success-final-blocked-false-positive` | feedback + terminal closeout / state priority | `TaskSpaceForcedValidationCloseoutRecoveryV1` 已要求 final_answer，且验证结果已成功；旧 blocked validation/local infra evidence 仍驱动 provider 输出 `blocked` | 已实现：successful validation evidence 优先于旧 blocker evidence；成功后不再注入 closed-validation/tool-runtime blocker contract；无 active node 且任务已验证完成时，terminal `blocked` 被转换为 `final_answer` | keyed rerun `20260705-035754-438`; CoE H-120/E-243/E-244; focused tests `closed_validation_blocker_is_suppressed_after_successful_validation`, `completed_task_final_answer_conversion_includes_blocked_action`, `action_contract_prompt`, `forced_validation_closeout` |
+
+边界说明：旧 blocker evidence 不会被删除，仍保留在 replayable state 和 evidence trail 中。但一旦同一 active
+map 已有 accepted successful validation result，终态反馈必须表达“验证已通过，可以 final_answer”，不能再把旧 blocker
+提升为用户可见 blocked。

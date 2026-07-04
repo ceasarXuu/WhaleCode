@@ -7140,3 +7140,69 @@
     PASS
   ```
 - Interpretation: H-119 is focused-fixed. Remaining gates are commit/push, install/attest, and keyed rerun to verify inspect now reads concrete CSV inputs before implementation instead of producing a `KeyError: 'id'` from guessed columns.
+
+# Evidence E-243: H-119 rerun live-clears generic CSV fact-source coverage and exposes final blocked feedback after success
+
+- Real rerun:
+  ```text
+  RunDir: target/r4-org-json-real-keyed-20260705an-generic-csv-factsource-gate/runs/terminal_bench__organization-json-generator/20260705-035754-438
+  installed_whale_sha256: cf7306107ed768b648faceb5f7cfa2e84500fbe65b30cd9423d027b211671c40
+  reported_evidence_level: E2-candidate
+  outcome_standard: solved
+  outcome_taskspace: solved
+  right_exec_timed_out: False
+  right_tool_call_count: 15
+  right_public_validation_exit_code: 0
+  right_hidden_oracle_exit_code: 0
+  right_nodes: 5
+  right_open_leaf_nodes: 0
+  ```
+- H-119 live status:
+  - TaskSpace initial fact-source coverage explicitly included `departments.csv`, `employees.csv`, `projects.csv`, and `schema.json`.
+  - Inspect read `schema.json`, `departments.csv`, `employees.csv`, and `projects.csv` before forced implementation transition.
+  - The final required validation command executed successfully: `python processor.py && python -m jsonschema -i organization.json schema.json`.
+  - External terminal-bench validator passed all 4 tests.
+- New blocker signals:
+  - Runtime inserted `TaskSpaceForcedValidationCloseoutRecoveryV1` after successful validation, instructing the provider to emit exactly one `final_answer`.
+  - The final user-visible last message was terminal `blocked`, claiming validation was blocked by local infrastructure.
+  - The message contradicted accepted successful validation evidence and the zero open leaf node state.
+- Interpretation: H-119 is live-cleared for the current sample. H-120 is a feedback-layer terminal closeout priority issue: old blocked validation/local infra evidence can still distort final user feedback after successful validation has already completed the task.
+
+# Hypothesis H-120: successful validation closeout must override old terminal blocker semantics
+
+- Claim: When a TaskSpace map has both older blocked validation/local-infra evidence and later accepted successful validation evidence, session feedback still injects or accepts blocker terminal semantics in no-active-node state. The successful validation evidence should dominate final readiness; old blockers may remain in evidence but must not produce the user-visible terminal answer.
+- Prediction: In a no-active-node action-contract request with accepted successful validation, closed-validation/tool-runtime blocker contracts should not be injected. If the provider emits terminal `blocked`, the session should convert it to `final_answer` instead of validating it through the terminal blocker gate.
+- Diagnostic evidence plan: Add focused session tests for closed-validation blocker applicability after success and completed-task conversion of `blocked`. Update prompt injection and action conversion priority. Run action-contract, forced-validation-closeout, terminal-blocker, fmt/check/build/diff gates.
+- Status: focused-fixed; live rerun pending.
+
+# Evidence E-244: successful validation final feedback priority is focused-fixed
+
+- Repair artifact:
+  - `third_party/codex-cli/codex-rs/core/src/session/turn.rs`
+- Repair behavior:
+  - Added `taskspace_closed_validation_blocker_applies()` so closed-validation blocker semantics require blocked evidence, no accepted successful validation, and no ready recovery node.
+  - No-active-node action-contract prompt injection now suppresses both closed-validation and tool-runtime blocker contracts when accepted successful validation evidence exists.
+  - Completed-task no-active-node conversion now treats terminal `blocked` as an action that should be forced to `final_answer`; only an already-correct `final_answer` is left unchanged.
+  - The conversion order now checks successful validation final readiness before tool-runtime/bootstrap or closed-validation blocker paths.
+- Validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core closed_validation_blocker_is_suppressed_after_successful_validation -- --nocapture
+    PASS: 1/1
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core completed_task_final_answer_conversion_includes_blocked_action -- --nocapture
+    PASS: 1/1
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core action_contract_prompt -- --nocapture
+    PASS: 29/29
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core forced_validation_closeout -- --nocapture
+    PASS: 2/2
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core terminal_blocker -- --nocapture
+    PASS: 1/1
+  cargo fmt --check
+    PASS
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo check -p codex-core
+    PASS
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
+    PASS
+  git diff --check
+    PASS
+  ```
+- Interpretation: H-120 is focused-fixed. Remaining gates are commit/push, install/attest, and keyed rerun to verify the final user-visible message becomes `final_answer` after successful validation.

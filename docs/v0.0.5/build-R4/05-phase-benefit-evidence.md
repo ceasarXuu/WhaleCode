@@ -1702,6 +1702,81 @@ CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
 git diff --check
 ```
 
+## 5.95 2026-07-05 generic CSV input fact-source coverage
+
+`c8d2359` 后 keyed rerun 证明 H-118 live-clear，但 inspect 阶段没有把泛化 `CSV files` 要求扩展成具体 CSV
+输入读取要求，导致 implementation 凭空假设 `projects.csv` 有 `id` / `budget` 列并触发 `KeyError: 'id'`。
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260705am-missing-source-recovery-gate/runs/terminal_bench__organization-json-generator/20260705-034521-738
+reported_evidence_level: E2-candidate
+outcome_standard: solved
+outcome_taskspace: engineering_unclean
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+final_marker: TaskSpaceValidationReworkPatchOnlyHardStopV1 reason=repeated_non_edit_after_validation_rework_target_read
+```
+
+收益判断：
+
+1. 新问题类型是 `inspect-generic-csv-input-fact-source-undercoverage`：泛化 CSV 输入需求没有覆盖 list_files 已发现的具体 CSV。
+2. focused fix 后，generic CSV requirement 会把发现的具体 `.csv` 输入加入 required fact-source coverage；`*.csv`
+   glob 不会变成 impossible artifact。
+3. keyed rerun `20260705-035754-438` 已证明 TaskSpace 会先读取 `departments.csv`、`employees.csv`、
+   `projects.csv` 内容再进入 implementation，并最终通过 public validation 和 hidden oracle。
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core inspect_generic_csv_requirement_expands_discovered_csv_inputs -- --nocapture
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core inspect_missing_fact_source -- --nocapture
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core forced_inspect_transition -- --nocapture
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core action_contract_prompt -- --nocapture
+cargo fmt --check
+CODEX_SKIP_VENDORED_BWRAP=1 cargo check -p codex-core
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
+git diff --check
+```
+
+## 5.96 2026-07-05 successful validation closeout final feedback priority
+
+`1b1ddf9` 后 keyed rerun 证明 H-119 live-clear：TaskSpace 侧 business result 已 solved，public validation 和 hidden oracle
+均通过。但 final user-visible message 错误输出 terminal `blocked`，声称 validation 被 local infrastructure 阻塞。
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260705an-generic-csv-factsource-gate/runs/terminal_bench__organization-json-generator/20260705-035754-438
+reported_evidence_level: E2-candidate
+outcome_standard: solved
+outcome_taskspace: solved
+right_public_validation_exit_code: 0
+right_hidden_oracle_exit_code: 0
+right_open_leaf_nodes: 0
+last_message: blocked_by_taskspace_action_contract ... Validation execution blocked by local infrastructure
+```
+
+收益判断：
+
+1. 新问题类型是 `closed-validation-success-final-blocked-false-positive`：旧 blocked validation/local infra evidence 与新
+   accepted successful validation evidence 并存时，反馈层缺少成功优先级。
+2. focused fix 后，successful validation evidence 会抑制 closed-validation/tool-runtime blocker contract 注入。
+3. 无 active node 且任务已验证完成时，即使 provider 误发 terminal `blocked`，session 也会转成 `final_answer`，
+   保证用户可见终态与 validated business state 一致。
+4. 该修复不删除旧 blocker evidence；只修复终态反馈优先级。
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core closed_validation_blocker_is_suppressed_after_successful_validation -- --nocapture
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core completed_task_final_answer_conversion_includes_blocked_action -- --nocapture
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core action_contract_prompt -- --nocapture
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core forced_validation_closeout -- --nocapture
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core terminal_blocker -- --nocapture
+cargo fmt --check
+CODEX_SKIP_VENDORED_BWRAP=1 cargo check -p codex-core
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
+git diff --check
+```
+
 ## 5.95 2026-07-05 output-contract fact-source false positive
 
 `c78e8fc` 后 keyed rerun 证明 H-115/H-116 已越过旧 blocker，但 TaskSpace 侧在 inspect 阶段耗尽
