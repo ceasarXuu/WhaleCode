@@ -17674,6 +17674,7 @@ fn text_mentions_local_validator_infra_failure(text: &str) -> bool {
         || text.contains("e_accessdenied")
         || text.contains("invalidendofline")
         || text_mentions_tool_runtime_bootstrap_failure(&text)
+        || text_mentions_missing_pytest_runner_dependency(&text)
         || uv_cache_permission_failure
         || compact.contains("bashservicecreateinstanceeaccessdenied")
         || compact.contains("bashservicecreateinstancee_accessdenied")
@@ -17691,6 +17692,7 @@ fn local_validator_infra_failure_can_rework_command(text: &str) -> bool {
         .filter(|ch| ch.is_ascii_alphanumeric() || *ch == '_')
         .collect::<String>();
     text.contains("invalidendofline")
+        || text_mentions_missing_pytest_runner_dependency(&text)
         || text.contains("not a valid statement separator")
         || compact.contains("invalidendofline")
         || (text.contains("e_accessdenied")
@@ -17698,6 +17700,20 @@ fn local_validator_infra_failure_can_rework_command(text: &str) -> bool {
                 || text.contains("bash setup-")
                 || text.contains("bash run-")
                 || text.contains("bash -lc")))
+}
+
+fn text_mentions_missing_pytest_runner_dependency(text: &str) -> bool {
+    let lower = text.to_ascii_lowercase();
+    let command_mentions_pytest_runner = lower.contains("command: python -m pytest")
+        || lower.contains("command: pytest")
+        || lower.contains("command: uv run pytest")
+        || lower.contains("command: python3 -m pytest")
+        || lower.contains("python -m pytest");
+    let missing_pytest = lower.contains("no module named pytest")
+        || lower.contains("no module named 'pytest'")
+        || lower.contains("no module named \"pytest\"")
+        || (lower.contains("modulenotfounderror") && lower.contains("pytest"));
+    command_mentions_pytest_runner && missing_pytest
 }
 
 fn map_has_accepted_implementation_result(map: &ActionMapInstance) -> bool {
@@ -35100,6 +35116,128 @@ error: failed to open file `C:\\Users\\77585\\AppData\\Local\\uv\\cache\\sdists-
         let node = map.nodes.get(&node_id).expect("validation node");
         assert_eq!(node.status, NodeStatus::Blocked);
         assert!(state.active_map_has_blocked_validation_result());
+    }
+
+    #[test]
+    fn missing_pytest_runner_dependency_routes_to_validation_rerun_not_implementation() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (_, map_id, implement_node_id, _) = start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::ImplementSolution,
+            "Generate organization output",
+            "Create the generator script and output artifact.",
+            "Implement generator",
+            "Create process.py.",
+            true,
+        );
+        let (edit_result_id, _) = state
+            .record_main_tool_result_with_class(
+                owner,
+                "edit-process",
+                "apply_patch",
+                Some(ActionClass::Edit),
+                true,
+                "Success. Updated the following files:\nA process.py\n".to_string(),
+            )
+            .expect("edit result records")
+            .expect("edit result id");
+        state
+            .mark_result_validity_for_main(
+                owner,
+                &edit_result_id,
+                "accepted",
+                "accepted process.py edit".to_string(),
+                vec![ActionMapCognitiveClaimInput {
+                    id: "claim-process-edit".to_string(),
+                    statement: "process.py was created.".to_string(),
+                    evidence_refs: vec![ActionMapEvidenceRefInput {
+                        result_id: Some(edit_result_id.clone()),
+                        ..Default::default()
+                    }],
+                }],
+                vec![ActionMapEvidenceRefInput {
+                    result_id: Some(edit_result_id.clone()),
+                    ..Default::default()
+                }],
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+            )
+            .expect("edit accepted");
+        let (handoff, _) = state
+            .finish_main_node_with_next(
+                owner,
+                &implement_node_id,
+                "Created process.py.".to_string(),
+                None,
+                Some(ActionMapNextNodeDraft {
+                    kind: NodeKind::SmokeTest,
+                    title: "Run focused validation".to_string(),
+                    context_summary: "Run validation that exercises process.py.".to_string(),
+                    dependency_node_ids: vec![implement_node_id.clone()],
+                }),
+            )
+            .expect("implementation finishes into validation");
+        let validation_node_id = handoff.next_node_id.expect("validation node id");
+        let body = "TaskSpaceToolInvocationV1:\n\
+tool: shell_command\n\
+command: python -m pytest\n\
+raw_output:\n\
+Exit code: 1\n\
+Output:\n\
+/home/zhangxu/miniconda3/bin/python: No module named pytest\n";
+        let (result_id, events) = state
+            .record_main_tool_result_with_class(
+                owner,
+                "taskspace-action-contract-9-run_test",
+                "shell_command",
+                Some(ActionClass::Test),
+                false,
+                body.to_string(),
+            )
+            .expect("missing pytest validation result records")
+            .expect("validation result id");
+
+        assert!(events.iter().any(|event| {
+            matches!(
+                event,
+                MapRuntimeEvent::ResultValidityChanged(changed)
+                    if changed.result_id == result_id && changed.validity == "invalid"
+            )
+        }));
+        let rerun_node_id = state
+            .current_main_node_id
+            .as_deref()
+            .expect("runtime should bind validation rerun after missing pytest")
+            .to_string();
+        let map = state.maps.get(&map_id).expect("active map");
+        let result = map.results.get(&result_id).expect("pytest infra result");
+        assert!(node_result_is_local_validator_infra_failure(result));
+        let validation_node = map.nodes.get(&validation_node_id).expect("validation node");
+        assert_eq!(validation_node.status, NodeStatus::Blocked);
+        let rerun_node = map.nodes.get(&rerun_node_id).expect("rerun node");
+        assert_eq!(rerun_node.kind, NodeKind::SmokeTest);
+        assert_eq!(
+            rerun_node.origin_node_id.as_deref(),
+            Some(validation_node_id.as_str())
+        );
+        assert!(
+            rerun_node
+                .context
+                .summary
+                .contains("local validator infrastructure failed"),
+            "{}",
+            rerun_node.context.summary
+        );
+        assert!(
+            rerun_node.context.summary.contains("process.py"),
+            "{}",
+            rerun_node.context.summary
+        );
+        assert!(!state.current_main_implement_progress_needs_edit());
     }
 
     #[test]

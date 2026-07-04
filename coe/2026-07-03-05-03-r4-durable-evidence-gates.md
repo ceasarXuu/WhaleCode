@@ -2619,3 +2619,89 @@
   ```
 - Result: passed. Focused tests are 1/1 each, `validation_rework` is 18/18, `validation_` is 95/95, `apply_patch_` is 35/35, fmt/diff checks pass, and the `whale` binary build passes.
 - Interpretation: H-046 is focused-fixed. Commit/push, attestation, and another live rerun are required to validate H-045's intended read completeness behavior in the real benchmark path.
+
+# Evidence E-101: 184defa live rerun crosses read summary portability and exposes pytest runner dependency misroute
+
+- Prediction tested: H-046 predicted that the live `read_file` summary command would avoid the `awk --` portability failure and produce `TaskSpaceReadFileSummaryV1` with exit 0.
+- Real rerun:
+  ```text
+  RunDir: target/r4-org-json-real-keyed-20260703as-read-summary-portable/runs/terminal_bench__organization-json-generator/20260704-094153-058
+  PairReport: pair-001/pair-report.md
+  reported_evidence_level: E2-candidate
+  outcome_standard: solved
+  outcome_taskspace: engineering_unclean
+  right_exec_timed_out: False
+  right_tool_call_count: 8
+  right_open_leaf_nodes: 1
+  public_validation_exit_code: 1
+  hidden_oracle_exit_code: 0
+  preflight_git_head: 184defa960f3bef835de79efee7af06e9c7eb462
+  build_attestation_status: pass
+  ```
+- Result: supported H-046 and the live half of H-045 for initial fact-source reads, but exposed a new feedback-layer misclassification.
+- Matched crossed signals:
+  - `schema.json`, `departments.csv`, `employees.csv`, and `projects.csv` reads all ended with `TaskSpaceReadFileSummaryV1` and `exit_code=0`.
+  - The earlier `awk: cannot open "--"` signature did not recur.
+- New blocker signals:
+  - The model created `process.py`, then attempted a smoke command that would have generated `organization.json`, but TaskSpace routed validation to `python -m pytest`.
+  - The host command failed with:
+    ```text
+    /home/zhangxu/miniconda3/bin/python: No module named pytest
+    ```
+  - Runtime recorded `result-9` as a validator failure, then auto-created `node-4` with kind `implement_solution` and context `Fix the implementation artifact(s)`.
+  - The model repeatedly called `taskspace_control(action=finish_node)` on `node-4`; runtime kept injecting `TaskSpaceImplementNeedsEditRecoveryV1` because `node-4` had no successful edit, and the turn ended at `TaskSpaceProviderBudgetHardStopV1`.
+- Interpretation: This is semantic distortion, not semantic loss. The raw failure was visible, but runtime translated a validator runner dependency failure into an implementation repair task. The problem type is `validation-pytest-runner-dependency-misroute`.
+
+# Hypothesis H-047: missing pytest runner dependency is misclassified as implementation failure
+
+- Claim: When a validation node runs `python -m pytest` and the Python environment itself lacks pytest, `text_mentions_local_validator_infra_failure` does not classify the result as local validator infrastructure. The generic failed-validation path then creates an `implement_solution` rework node, which has no concrete code edit to apply and enters an implement-needs-edit recovery loop.
+- Prediction: Classifying `No module named pytest` under a pytest runner command as local validator infrastructure, and allowing a platform-compatible validation rerun, should mark the failed result invalid, block the original validation node, and bind a new `smoke_test` rerun node instead of an `implement_solution` rework node.
+- Diagnostic evidence plan: Add a focused runtime test using the AS failure shape (`command: python -m pytest`, `/home/.../python: No module named pytest`) after an accepted `process.py` edit. The test must assert `ResultValidity::Invalid`, original validation node blocked, new current node kind `smoke_test`, and no `current_main_implement_progress_needs_edit`.
+- Status: confirmed.
+
+# Evidence E-102: missing pytest runner dependency now routes to validation rerun, not implement rework
+
+- Prediction tested: H-047 predicts that pytest runner dependency failures must stay in the validation/infra path.
+- Repair artifact:
+  - `third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs`
+- Focused validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core missing_pytest_runner_dependency_routes_to_validation_rerun_not_implementation --lib
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core local_infra_tool_result_auto_blocks_validation_node --lib
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core state_commit_accepts_failed_validation_result_after_runtime_rework_transition --lib
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 -p codex-core validation_missing_jsonschema_dependency_stays_on_validation_with_cli_recovery --lib
+  ```
+- Result: passed. The new focused test is 1/1 and the three adjacent regression tests are 1/1 each.
+- Matched test signals:
+  - `node_result_is_local_validator_infra_failure(result)` is true for `command: python -m pytest` plus `No module named pytest`.
+  - The failed validation result is marked invalid.
+  - The original validation node is blocked.
+  - The newly bound rerun node is `smoke_test` and its context names local validator infrastructure plus `process.py`.
+  - `current_main_implement_progress_needs_edit()` is false, so the AS `TaskSpaceImplementNeedsEditRecoveryV1` loop is not reproduced.
+- Interpretation: H-047 is focused-fixed at runtime classification level. Commit/push, full R4 regression/build checks, attestation, and another live rerun are still required before claiming the live `organization-json-generator` path crossed this case.
+
+# Evidence E-103: pytest runner dependency repair passes R4-adjacent regression and build gates
+
+- Prediction tested: H-047 repair should not regress adjacent validation, validation rework, patch recovery, or provider budget behavior.
+- Commands:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core local_infra --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core validation_ --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core validation_rework --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core apply_patch_ --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core provider_budget --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core taskspace_active_budget --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+  git diff --check
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-cli --bin whale --locked
+  ```
+- Result: passed.
+- Matched counts:
+  - `local_infra`: 11/11.
+  - `validation_`: 96/96, including `missing_pytest_runner_dependency_routes_to_validation_rerun_not_implementation`.
+  - `validation_rework`: 18/18.
+  - `apply_patch_`: 35/35.
+  - `provider_budget`: 23/23.
+  - `taskspace_active_budget`: 11/11.
+  - fmt check, whitespace check, and `whale` build pass. The fmt command still prints the known stable rustfmt warning for `imports_granularity`.
+- Interpretation: The H-047 repair is regression-clean at focused/build level. The remaining evidence gate is commit/push, build attestation, and a live keyed `organization-json-generator` rerun.
