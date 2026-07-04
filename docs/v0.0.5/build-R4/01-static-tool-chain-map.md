@@ -909,3 +909,16 @@ feedback 的另一类语义扭曲：coverage-correct required command 已经是
 边界说明：该修复不把所有 `node ... && python ...` 都归为 test，只识别明确 schema validator invocation；也不否认真实
 validator infrastructure failure。它只防止在已有 schema/rework evidence 的情况下，把可编辑 schema failure 重新解释成“未读
 schema”或“validator 不可用”。
+
+## 2026-07-04 R4-D issue type addendum: forced inspect bridge fact-source evidence
+
+`9ebb998` 后的 keyed rerun 已越过 H-102，但在更早的 forced inspect transition 后停住。runtime 已接受 inspect
+bridge result，且 bridge body 包含 schema/CSV evidence；implement node 仍接受“需要读取 schema/csv”的 blocker，
+随后因无 active node 进入 `TaskSpaceNoActionRecoveryHardStopV1`。
+
+| Issue type | Layer | Symptom | Resolution contract | Evidence |
+|---|---|---|---|---|
+| `forced-inspect-bridge-fact-source-evidence-gap` | forced inspect transition / blocker evidence bridge | accepted bridge result 包含 `schema.json`、CSV 内容，但 implementation blocker 仍声称 context projection 不含这些文件 | forced inspect bridge 的 inline `artifacts=...` 进入 visible artifact refs；implementation missing-source blocker guard 计入 dependency fact-source evidence，并拒绝 stale reread blocker | keyed rerun `20260704-225618-467`; CoE H-103/E-211/E-212; `forced_inspect_transition_rejects_missing_fact_source_blocker`; `missing_source_blocker`; `action_map::runtime::tests::inspect` |
+
+边界说明：该修复不允许 implementation 在没有 inspect 证据时跳过读取。只有 dependency inspect 或 forced-transition
+bridge 已有真实 fact-source artifact 内容时，才阻止 provider 把“已读事实源”重新包装成 blocker。

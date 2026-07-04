@@ -4965,6 +4965,45 @@ CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
 git diff --check
 ```
 
+## 5.89 2026-07-04 forced inspect bridge fact-source evidence
+
+`9ebb998` 后 rerun 没有再出现 H-102 的 schema validator unavailable / unknown-class failure。新的 failure 发生在
+forced inspect transition 之后：accepted bridge result 已带 schema/csv evidence，但 implementation node 仍被允许
+block 为“需要读取 schema/csv”，随后无 active node 触发 no-action hard-stop。
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260704cw-schema-validator-feedback/runs/terminal_bench__organization-json-generator/20260704-225618-467
+reported_evidence_level: E2-candidate
+outcome_standard: solved
+outcome_taskspace: wrong
+right_exec_timed_out: False
+right_tool_call_count: 4
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+final_marker: TaskSpaceNoActionRecoveryHardStopV1
+```
+
+收益判断：
+
+1. 新收录的 R4-D feedback 修复是 `forced-inspect-bridge-fact-source-evidence-gap`：forced inspect bridge 的 fact-source
+   evidence 现在能阻止 stale missing-source blocker。
+2. 本轮 `TaskSpaceNoActionRecoveryHardStopV1` 本身是正确保护；根因是 implementation node 被错误 block 后失去 active node。
+3. 修复仍保持状态机边界：没有 dependency fact-source evidence 时，implementation blocker 仍可成立。
+4. R4-G utility 仍未通过：需要下一次 keyed rerun 验证 forced inspect 后能否进入 apply_patch implementation。
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core forced_inspect_transition_rejects_missing_fact_source_blocker --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core missing_source_blocker --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core action_map::runtime::tests::inspect --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core action_contract_prompt --lib
+cargo fmt --check
+CODEX_SKIP_VENDORED_BWRAP=1 cargo check -p codex-core
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
+git diff --check
+```
+
 ## 5.85 2026-07-04 natural-language slash fact-source extraction
 
 `3b6b269` 后 rerun 没有命中 no-action recovery；新的 blocker 是 inspect fact-source coverage 误把自然语言

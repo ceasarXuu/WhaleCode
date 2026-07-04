@@ -5668,6 +5668,7 @@ preview:\n\
         if node.kind == NodeKind::ImplementSolution
             && !node_has_successful_action(map, node, ActionClass::Edit)
             && (implement_node_has_dependency_implementation_source_evidence(map, node)
+                || implement_node_has_dependency_inspected_fact_source_evidence(map, node)
                 || implement_node_has_dependency_validation_rework_evidence(map, node))
             && blocker_claims_missing_inspected_source_evidence(blocker_summary)
         {
@@ -17307,6 +17308,47 @@ fn implement_node_has_dependency_implementation_source_evidence(
     })
 }
 
+fn implement_node_has_dependency_inspected_fact_source_evidence(
+    map: &ActionMapInstance,
+    node: &MapNode,
+) -> bool {
+    map.edges.iter().any(|edge| {
+        if edge.to != node.id {
+            return false;
+        }
+        let Some(dependency) = map.nodes.get(&edge.from) else {
+            return false;
+        };
+        if dependency.kind != NodeKind::InspectCodeContext {
+            return false;
+        }
+        dependency.result_context.iter().any(|result_ref| {
+            map.results
+                .get(&result_ref.id)
+                .is_some_and(|result| inspect_result_or_bridge_has_fact_source_evidence(result))
+        })
+    })
+}
+
+fn inspect_result_or_bridge_has_fact_source_evidence(result: &NodeResult) -> bool {
+    let inspect_tool_result = successful_inspect_result_has_working_evidence(result);
+    let inspect_bridge_result = result.kind == NodeResultKind::Result
+        && result.evidence_package.validity == ResultValidity::Accepted
+        && result
+            .body
+            .contains("Inspect evidence supported convergence");
+    if !inspect_tool_result && !inspect_bridge_result {
+        return false;
+    }
+    result_visible_artifact_refs(result).iter().any(|artifact| {
+        let artifact = artifact.to_ascii_lowercase();
+        matches!(
+            artifact.rsplit_once('.').map(|(_, ext)| ext),
+            Some("csv" | "json" | "yaml" | "yml" | "toml" | "txt")
+        )
+    })
+}
+
 fn is_inspected_implementation_source_ref(artifact_ref: &str) -> bool {
     let normalized = normalize_artifact_ref(artifact_ref).to_ascii_lowercase();
     if normalized.starts_with("scripts/")
@@ -17431,6 +17473,27 @@ fn result_visible_artifact_refs(result: &NodeResult) -> Vec<String> {
     for artifact_ref in result_body_section_artifact_refs(&result.body) {
         if !artifact_ref.is_empty() && !artifacts.iter().any(|existing| existing == &artifact_ref) {
             artifacts.push(artifact_ref);
+        }
+    }
+    for artifact_ref in result_body_inline_artifact_refs(&result.body) {
+        if !artifact_ref.is_empty() && !artifacts.iter().any(|existing| existing == &artifact_ref) {
+            artifacts.push(artifact_ref);
+        }
+    }
+    artifacts
+}
+
+fn result_body_inline_artifact_refs(body: &str) -> Vec<String> {
+    let mut artifacts = Vec::new();
+    for segment in body.split("artifacts=").skip(1) {
+        let value = segment.split([':', '|', ';']).next().unwrap_or("").trim();
+        for raw_artifact in value.split(',') {
+            let artifact_ref = normalize_artifact_ref(raw_artifact.trim());
+            if !artifact_ref.is_empty()
+                && !artifacts.iter().any(|existing| existing == &artifact_ref)
+            {
+                artifacts.push(artifact_ref);
+            }
         }
     }
     artifacts
@@ -29620,6 +29683,108 @@ def normalize_status(value: str) -> str:\n\
 
         assert!(error.contains("missing source visibility"));
         assert!(error.contains("retry apply_patch"));
+    }
+
+    #[test]
+    fn forced_inspect_transition_rejects_missing_fact_source_blocker() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (_, map_id, node_id, _) = start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::InspectCodeContext,
+            "Generate organization output",
+            "Read CSV files and schema before implementation.",
+            "Inspect schema and CSV inputs",
+            "Inspect schema.json and CSV input data.",
+            true,
+        );
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "list-files",
+                "shell_command",
+                Some(ActionClass::Read),
+                true,
+                "TaskSpaceToolInvocationV1:\n\
+tool: shell_command\n\
+command: rg --files .\n\
+raw_output:\n\
+schema.json\n\
+departments.csv\n\
+employees.csv\n\
+projects.csv\n"
+                    .to_string(),
+            )
+            .expect("listing records");
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "bootstrap-read",
+                "shell_command",
+                Some(ActionClass::Read),
+                true,
+                "TaskSpaceToolInvocationV1:\n\
+tool: shell_command\n\
+command: rg --files -g '*.json' -g '*.csv' | head -n 12 | while read path; do sed -n '1,120p' -- \"$path\"; done\n\
+raw_output:\n\
+===== schema.json\n\
+{\"required\":[\"metadata\",\"organization\",\"statistics\"]}\n\
+===== departments.csv\n\
+id,name,budget\n\
+D001,Engineering,1500000\n\
+===== employees.csv\n\
+id,name,department_id\n\
+D001-E001,Cristiano Ronaldo,D001\n\
+===== projects.csv\n\
+name,status,member_ids,deadline,department_id\n\
+Madrid,In Progress,D001-E001,2025-06-30,D001\n"
+                    .to_string(),
+            )
+            .expect("fact-source bootstrap read records");
+        let snapshot = ActionMapProviderRequestBudgetSnapshot {
+            task_id: state.active_task_id.clone(),
+            map_id,
+            node_id: Some(node_id),
+            node_kind: Some(NodeKind::InspectCodeContext.as_str().to_string()),
+            current_node_progress_signature: None,
+            current_node_has_successful_edit: false,
+            current_node_has_dependency_working_evidence: false,
+            current_node_has_uncovered_mandatory_evidence: false,
+            current_node_uncovered_mandatory_evidence: Vec::new(),
+            current_node_validation_rework_artifacts: Vec::new(),
+            route_mode: Some("thin".to_string()),
+            profile_name: Some("taskspace-v005-thin".to_string()),
+            request_phase: Some("model_sampling".to_string()),
+            provider_request_context_missing_reason: None,
+            request_count: 3,
+            max_requests: 20,
+            node_request_count: 3,
+            max_model_requests_per_node: 5,
+            post_budget_grace_requests: 1,
+            post_budget_grace_request_count: 0,
+            budget_state: "normal".to_string(),
+        };
+        state
+            .force_finish_inspect_for_provider_budget(
+                owner,
+                &snapshot,
+                "inspect_duplicate_read_search_bootstrap_complete",
+            )
+            .expect("force finish should not error")
+            .expect("force finish should create implement node");
+
+        let error = state
+            .block_main_node(
+                owner,
+                "node-2",
+                "Need to read schema.json and departments.csv, projects.csv to understand the output structure before implementing the JSON processor. The context projection does not include content from these files.".to_string(),
+            )
+            .expect_err("forced inspect evidence already contains schema and CSV facts");
+
+        assert!(error.contains("missing source visibility"), "{error}");
+        assert!(error.contains("apply_patch"), "{error}");
     }
 
     #[test]

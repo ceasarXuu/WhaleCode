@@ -3215,6 +3215,35 @@ right_open_leaf_nodes: 0
 
 状态：focused 修复已编码并通过相关回归、fmt/check/build/diff-check。下一步是 commit/push、attestation、keyed rerun，验证 required schema validator 是否真正执行并继续定位剩余 blocker。
 
+## 32. 2026-07-04 forced inspect bridge fact-source evidence
+
+`9ebb998` 后 keyed rerun 已 live-clear H-102，但暴露 forced inspect transition 后的 evidence bridge gap：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260704cw-schema-validator-feedback/runs/terminal_bench__organization-json-generator/20260704-225618-467
+reported_evidence_level: E2-candidate
+outcome_standard: solved
+outcome_taskspace: wrong
+right_exec_timed_out: False
+right_tool_call_count: 4
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+final_marker: TaskSpaceNoActionRecoveryHardStopV1
+```
+
+问题类型收录：
+
+| 字段 | 内容 |
+|---|---|
+| case | `forced-inspect-bridge-fact-source-evidence-gap` |
+| 层级 | forced inspect transition / blocker evidence bridge |
+| 本质 | forced transition 的 accepted bridge result 已包含 schema/csv evidence，但 implementation missing-source blocker guard 没把 bridge evidence 算入 dependency fact-source evidence |
+| 非根因 | 不是 H-102 schema validator command 分类失败；不是 no-action hard-stop 错误触发；不是真实 schema/csv 未读 |
+| 修复 | forced bridge summary 中的 inline `artifacts=...` 纳入 visible artifact refs；implementation blocker guard 识别 dependency fact-source evidence，拒绝 stale reread blocker |
+| focused evidence | CoE H-103/E-211/E-212；`forced_inspect_transition_rejects_missing_fact_source_blocker`；`missing_source_blocker` 3/3；`action_map::runtime::tests::inspect` 18/18；`action_contract_prompt` 29/29；fmt/check/build/diff-check |
+
+状态：focused 修复已编码并通过相关回归、fmt/check/build/diff-check。下一步是 commit/push、attestation、keyed rerun，验证 forced inspect 后是否进入 apply_patch implementation。
+
 ## 28. 2026-07-04 natural-language slash fact-source extraction
 
 `3b6b269` 后的 keyed rerun 没有触发 no-action recovery，因此 H-098 尚未 live-clear。该轮暴露 inspect fact-source

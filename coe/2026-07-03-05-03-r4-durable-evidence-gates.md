@@ -6070,3 +6070,64 @@
     PASS
   ```
 - Interpretation: H-102 is focused-fixed. It is a semantic distortion case: evidence existed, but the action class and blocker filters let the provider-visible failure drift from "run/patch against schema evidence" to "validator unavailable". Remaining gates are commit/push, binary attestation, and keyed rerun.
+
+# Evidence E-211: H-102 rerun live-clears schema-validator distortion and exposes forced-inspect bridge evidence gap
+
+- Real rerun:
+  ```text
+  RunDir: target/r4-org-json-real-keyed-20260704cw-schema-validator-feedback/runs/terminal_bench__organization-json-generator/20260704-225618-467
+  reported_evidence_level: E2-candidate
+  outcome_standard: solved
+  outcome_taskspace: wrong
+  right_exec_timed_out: False
+  right_tool_call_count: 4
+  right_public_validation_exit_code: 1
+  right_hidden_oracle_exit_code: 0
+  right_open_leaf_nodes: 0
+  final_marker: TaskSpaceNoActionRecoveryHardStopV1
+  ```
+- H-102 live status:
+  - The trace no longer contains `schema validator tool is unavailable`, `smoke_test does not allow unknown`, or `python -m jsonschema` unknown-class rejection.
+  - The run stopped earlier, immediately after forced inspect transition into implementation.
+- New blocker signal:
+  - Runtime forced inspect transition after repeated duplicate list-files recovery and accepted bridge result `result-4`.
+  - `result-4` body contained the inspected schema/CSV evidence summary, including `schema.json`, `departments.csv`, `employees.csv`, and `projects.csv`.
+  - The implementation node accepted a blocker: `Need to read schema.json and departments.csv, projects.csv... The context projection does not include content from these files.`
+  - After node-2 became blocked, the provider had no active node and repeatedly emitted `list_files` with `node_id:null`, which correctly ended in `TaskSpaceNoActionRecoveryHardStopV1`.
+- Interpretation: H-102 is live-cleared. The new issue is feedback-layer evidence bridging: forced inspect transition evidence was accepted as a bridge result, but missing-source blocker guards did not count it as dependency fact-source evidence.
+
+# Hypothesis H-103: forced inspect transition bridge evidence must reject stale fact-source blockers
+
+- Claim: When runtime force-finishes inspect into implementation using accepted inspected evidence, the bridge result must count as dependency fact-source evidence for blocker validation. Otherwise the implement node may be blocked for missing schema/CSV content that is already present in the accepted bridge.
+- Prediction: A focused runtime test with forced inspect transition and live-shaped `Need to read schema.json and departments.csv...` blocker will fail before the repair and be rejected after repair with missing-source/apply_patch guidance.
+- Diagnostic evidence plan: Add a bridge/fact-source evidence predicate for implementation nodes, parse inline `artifacts=...` bridge summaries, and run focused, missing-source, inspect, action-contract, fmt/check/build/diff validations.
+- Status: confirmed.
+
+# Evidence E-212: forced inspect bridge fact-source evidence now rejects stale missing-source blockers
+
+- Repair artifact:
+  - `third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs`
+- Repair behavior:
+  - `result_visible_artifact_refs()` now includes inline `artifacts=...` refs emitted by forced inspect bridge summaries, not only `=====` section headers and explicit evidence refs.
+  - `implement_node_has_dependency_inspected_fact_source_evidence()` recognizes accepted forced inspect bridge results and successful inspect reads/searches that contain fact-source artifacts such as CSV/JSON/YAML/TOML/TXT.
+  - `block_main_node()` uses that fact-source evidence alongside source-file and validation-rework evidence to reject stale implementation blockers that ask to reread already inspected schema/data files.
+- Validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core forced_inspect_transition_rejects_missing_fact_source_blocker --lib
+    PASS
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core missing_source_blocker --lib
+    PASS: 3/3
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core action_map::runtime::tests::inspect --lib
+    PASS: 18/18
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core action_contract_prompt --lib
+    PASS: 29/29
+  cargo fmt --check
+    PASS
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo check -p codex-core
+    PASS
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
+    PASS
+  git diff --check
+    PASS
+  ```
+- Interpretation: H-103 is focused-fixed. The prior hard-stop itself was correct; the bug was the stale blocker that closed the implementation node before any edit could occur. Remaining gates are commit/push, binary attestation, and keyed rerun.
