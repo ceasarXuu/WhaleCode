@@ -563,7 +563,7 @@ patch directive 前置后的 keyed rerun 证明动作指令已经 live 可见：
 
 | Issue type | Layer | Symptom | Resolution contract | Evidence |
 |---|---|---|---|---|
-| `validation-rework-closed-action-space-noncompliance` | capability/control layer beyond advisory feedback | action space 已闭合且反馈已前置，模型仍选择非法 read_file；runtime 只会 reject/hard-stop，不能推动 patch 产生 | 需要结构性设计，不应继续叠提示词；候选方向包括 closed-action noncompliance 后模型升级、repair synthesis/patch-plan gate、或更强 action schema narrowing | CoE H-071/E-152; keyed rerun `20260704-153051-437` |
+| `validation-rework-closed-action-space-noncompliance` | capability/control layer beyond advisory feedback | action space 已闭合且反馈已前置，模型仍选择非法 read_file；runtime 只会 reject/hard-stop，不能推动 patch 产生 | 已采用 action schema narrowing：当 runtime 确认 validation rework target read 已可见且无 successful edit 时，taskspace-action-v1 `read_file` 在转换成 shell read 前被拒绝为 `validation_rework_closed_action_space_read_disallowed:read_file`，并进入 patch-only recovery；real keyed rerun pending | CoE H-071/E-152/E-153; keyed rerun `20260704-153051-437`; focused tests |
 
-边界说明：该 case 不是语义缺失，也不是语义扭曲；是语义已正确传递后，模型仍不服从闭合动作空间。R4 后续需要在能力层处理，
-不能只继续增强 feedback 文案。
+边界说明：该 case 不是语义缺失，也不是语义扭曲；是语义已正确传递后，模型仍不服从闭合动作空间。本轮修复点在能力/控制层：
+非法 read 不再先落到普通 shell 工具再由 runtime gate 拒绝，而是在 action-contract schema 转换前被挡住。

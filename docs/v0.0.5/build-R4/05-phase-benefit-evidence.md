@@ -3965,7 +3965,7 @@ repair action space 下输出非法 `read_file`。
 
 | Case | Observed | Implication |
 |---|---|---|
-| `validation-rework-closed-action-space-noncompliance` | active projection 明确 `next_valid_actions` 为使用完整 read result、不要 read/search、`apply_patch generate_organization.py`；current node contract 明确 `allowed action classes: edit, control(...)` 且 read/search 会被 blocked；provider 仍输出 `read_file generate_organization.py`，最终 duplicate-read hard-stop | 这已不是 feedback 文字缺失/顺序问题，而是 action-space 闭合后模型仍可选择非法动作；需要能力/控制层设计，例如模型升级、repair synthesis/patch-plan gate 或更强 action schema narrowing |
+| `validation-rework-closed-action-space-noncompliance` | active projection 明确 `next_valid_actions` 为使用完整 read result、不要 read/search、`apply_patch generate_organization.py`；current node contract 明确 `allowed action classes: edit, control(...)` 且 read/search 会被 blocked；provider 仍输出 `read_file generate_organization.py`，最终 duplicate-read hard-stop | 这已不是 feedback 文字缺失/顺序问题，而是 action-space 闭合后模型仍可选择非法动作；本轮采用 action schema narrowing：已有 visible validation rework target read 后，taskspace-action-v1 `read_file` 在转换为 shell read 前直接拒绝，并路由到 patch-only recovery |
 
-结论：H-070 live-applied but insufficient。继续叠加提示词收益有限，下一步应先做设计决策：closed-action noncompliance 后到底由
-runtime 触发强模型修复、进入结构化 patch-plan、还是收紧 action schema。
+结论：H-070 live-applied but insufficient；H-071 已有 focused control-layer fix。下一步需要 keyed rerun 验证该 schema narrowing
+是否让模型进入 `apply_patch`，或暴露更深层的 patch synthesis/repair quality 问题。

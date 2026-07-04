@@ -1019,6 +1019,15 @@ impl Session {
             .current_main_node_has_successful_action(action_class)
     }
 
+    pub(crate) async fn action_map_current_main_node_has_visible_validation_rework_target_read(
+        &self,
+    ) -> bool {
+        let state = self.state.lock().await;
+        state
+            .action_map_runtime
+            .current_main_node_has_visible_validation_rework_target_read()
+    }
+
     pub(crate) async fn action_map_current_main_inspect_has_successful_diagnostic_and_working_evidence(
         &self,
     ) -> bool {

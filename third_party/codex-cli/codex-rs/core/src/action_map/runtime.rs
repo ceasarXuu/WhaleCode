@@ -7198,6 +7198,30 @@ preview:\n\
         node_has_successful_action(map, node, action_class)
     }
 
+    pub(crate) fn current_main_node_has_visible_validation_rework_target_read(&self) -> bool {
+        let Some(map_id) = self.active_map_id.as_deref() else {
+            return false;
+        };
+        let Some(node_id) = self.current_main_node_id.as_deref() else {
+            return false;
+        };
+        let Some(map) = self.maps.get(map_id) else {
+            return false;
+        };
+        let Some(node) = map.nodes.get(node_id) else {
+            return false;
+        };
+        if node.kind != NodeKind::ImplementSolution
+            || node_has_successful_action(map, node, ActionClass::Edit)
+        {
+            return false;
+        }
+        let artifact_refs = implement_node_dependency_validation_rework_artifact_refs(map, node);
+        !artifact_refs.is_empty()
+            && !implement_node_validation_rework_artifact_read_results(map, node, &artifact_refs)
+                .is_empty()
+    }
+
     pub(crate) fn active_map_has_successful_edit_artifacts(&self) -> bool {
         let Some(map_id) = self.active_map_id.as_deref() else {
             return false;

@@ -158,7 +158,7 @@ raw signal 存在但语义没有正确进入下一轮 tool contract：
 | `validation-rework-complete-read-duplicate-hardstop-too-early` | keyed rerun `20260704-145742-157` 证实 H-067 已 live-cleared，模型实现前读取了 schema 和三个 CSV；validation rework 也完整读取了 `generate_organization.py`，但第一次 duplicate-read feedback 刚产生完整读取/无隐藏行语义时就被 hard-stop，模型没有机会响应该强反馈；已把 complete-read duplicate read 改为先给一次 recoverable feedback，第二次重复或 repeated-blocked-action 才 hard-stop | focused fixed / real rerun pending |
 | `validation-rework-block-rejection-wording-drift` | keyed rerun `20260704-150817-545` 证实 complete-read hard-stop timing 已 live-cleared；runtime 正确拒绝了 validation rework 中“还要读 schema/test expectations”的 blocker，但 session 只识别旧 missing-source rejection wording，未把新 wording 结构化为 `missing_source_visibility_blocker_rejected`，随后进入 patch-only hard-stop；已把 old/new missing-source block rejection wording 合并识别 | focused fixed / real rerun pending |
 | `validation-rework-patch-directive-buried-after-evidence` | keyed rerun `20260704-151923-804` 未复现 H-069 block path，但进入完整 schema validation rework；repair contract、complete target read、schema/CSV evidence 均已可见，provider 仍连续重复读 `process.py`；root cause 是 patch-only/duplicate-read recovery 把 `Current required behavior` 放在长 evidence 后；已把动作指令前置 | focused fixed / real rerun pending |
-| `validation-rework-closed-action-space-noncompliance` | keyed rerun `20260704-153051-437` 证实 patch directive 已前置、complete-read 语义已显式保留、projection 已将 next_valid_actions 收窄到 `apply_patch generate_organization.py`，current node contract 也只允许 edit/control；provider 仍输出非法 `read_file generate_organization.py` 并触发 duplicate-read hard-stop | open / design required |
+| `validation-rework-closed-action-space-noncompliance` | keyed rerun `20260704-153051-437` 证实 patch directive 已前置、complete-read 语义已显式保留、projection 已将 next_valid_actions 收窄到 `apply_patch generate_organization.py`，current node contract 也只允许 edit/control；provider 仍输出非法 `read_file generate_organization.py` 并触发 duplicate-read hard-stop；已在 action-contract schema 转换前拒绝 closed target re-read | focused fixed / real rerun pending |
 
 新增关键判断：
 
@@ -2488,10 +2488,11 @@ whale_binary_sha256: d2c17206bbc8f6958603c7ba20d040d9192ca2a38a8880fc309c5eb69b9
 | 层级 | capability/control layer beyond advisory feedback |
 | 本质 | 语义已正确传递后，模型仍选择非法 read action；runtime 可以 reject/hard-stop，但不能强制产出 patch |
 | 非根因 | 不是语义缺失；不是语义扭曲；不是 complete-read context 丢失；不是 patch directive 排序问题 |
-| 候选修复方向 | closed-action noncompliance 后模型升级、进入 repair-synthesis/patch-plan gate、或通过更强 action schema narrowing 禁止非法 read action |
-| focused evidence | CoE H-071/E-152；keyed rerun `20260704-153051-437` |
+| 修复 | action schema narrowing：runtime 暴露当前 validation rework target read 是否已可见；session 在 taskspace-action-v1 转工具前拒绝 closed target `read_file`，reason 为 `validation_rework_closed_action_space_read_disallowed:read_file`；随后按 patch-only recovery 继续 |
+| focused evidence | CoE H-071/E-152/E-153；keyed rerun `20260704-153051-437`；`validation_rework` / `validation_rework_duplicate_read` / `action_contract_prompt` |
 
-状态：open。下一步不能继续叠 feedback 文案，应先做 action-space/control 设计决策，再进入实现与 keyed rerun。
+状态：focused 修复已完成。下一步需要重新 build attestation 并 keyed rerun `organization-json-generator`，验证 provider 是否进入
+`apply_patch`，或继续暴露 patch synthesis / repair quality 的下一层问题。
 
 ## 10. 2026-07-04 validation rework patch directive buried after evidence
 

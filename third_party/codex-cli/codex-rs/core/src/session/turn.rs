@@ -5501,6 +5501,26 @@ Then I will inspect the file."#,
     }
 
     #[test]
+    fn implementation_recovery_selects_patch_only_after_closed_action_space_read_reject() {
+        let last_message = "TaskSpaceActionV1 rejected: validation_rework_closed_action_space_read_disallowed:read_file. Return exactly one valid taskspace-action-v1 JSON object.";
+        let evidence = "validation_rework: smoke_test `node-3` failed result `result-10`: missing_required_properties: members, averageDepartmentBudget \
+| validation_rework_target_read result=result-12 artifact=generate_organization.py read_context: complete_read excerpt: member_ids -> members \
+| validation_schema_repair_contract: missing_required_properties=members,averageDepartmentBudget";
+        let item =
+            build_taskspace_implementation_recovery_item(Some(last_message), Some(evidence), None);
+        let text = item_text(item.clone());
+
+        assert!(text.contains(TASKSPACE_VALIDATION_REWORK_PATCH_ONLY_MARKER));
+        assert!(text.contains("target_artifacts: generate_organization.py"));
+        assert!(text.contains("Emit exactly one taskspace-action-v1 apply_patch"));
+        assert!(text.contains("no additional file lines are hidden"));
+        assert!(!text.contains(TASKSPACE_IMPLEMENT_NEEDS_EDIT_MARKER));
+        assert!(is_taskspace_validation_rework_patch_only_recovery_item(
+            &item
+        ));
+    }
+
+    #[test]
     fn implementation_recovery_prioritizes_failed_edit_over_patch_only_after_target_read() {
         let last_message =
             "TaskSpace inserted TaskSpaceImplementNeedsEditRecoveryV1 after failed edit.";
@@ -7165,6 +7185,47 @@ tax_calc.py\n\
 
         assert!(taskspace_action_allowed_for_node("blocked", None));
         assert!(!taskspace_action_allowed_for_node("read_file", None));
+    }
+
+    #[test]
+    fn taskspace_action_contract_allows_first_validation_rework_target_read() {
+        let mut snapshot = provider_snapshot("implement_solution");
+        snapshot.current_node_validation_rework_artifacts =
+            vec!["generate_organization.py".to_string()];
+        let action = parse_taskspace_action_v1(
+            r#"{"schema_version":"taskspace-action-v1","action":"read_file","node_id":"node-1","args":{"path":"generate_organization.py"}}"#,
+        )
+        .expect("valid action");
+
+        assert!(
+            taskspace_closed_validation_rework_read_reject_reason(&action, &snapshot, false)
+                .is_none()
+        );
+        let call = taskspace_action_to_tool_call(&action, &snapshot)
+            .expect("first target read should be allowed")
+            .expect("read_file maps to shell command");
+
+        assert_eq!(call.tool_name.name, "shell_command");
+    }
+
+    #[test]
+    fn taskspace_action_contract_rejects_closed_validation_rework_target_read() {
+        let mut snapshot = provider_snapshot("implement_solution");
+        snapshot.current_node_validation_rework_artifacts =
+            vec!["generate_organization.py".to_string()];
+        let action = parse_taskspace_action_v1(
+            r#"{"schema_version":"taskspace-action-v1","action":"read_file","node_id":"node-1","args":{"path":"generate_organization.py"}}"#,
+        )
+        .expect("valid action");
+
+        let reason =
+            taskspace_closed_validation_rework_read_reject_reason(&action, &snapshot, true)
+                .expect("closed rework read should be rejected");
+
+        assert_eq!(
+            reason,
+            "validation_rework_closed_action_space_read_disallowed:read_file"
+        );
     }
 
     #[test]
@@ -11698,6 +11759,26 @@ fn taskspace_action_reads_validation_rework_artifact(
         })
 }
 
+fn taskspace_closed_validation_rework_read_reject_reason(
+    action: &TaskSpaceActionV1,
+    snapshot: &crate::action_map::ActionMapProviderRequestBudgetSnapshot,
+    visible_validation_rework_target_read: bool,
+) -> Option<String> {
+    if !visible_validation_rework_target_read {
+        return None;
+    }
+    if snapshot.node_kind.as_deref() != Some("implement_solution")
+        || snapshot.current_node_has_successful_edit
+        || !taskspace_action_reads_validation_rework_artifact(action, snapshot)
+    {
+        return None;
+    }
+    Some(format!(
+        "validation_rework_closed_action_space_read_disallowed:{}",
+        action.action
+    ))
+}
+
 fn taskspace_read_file_command(path: &str) -> String {
     const MAX_LINES: usize = 240;
     if cfg!(windows) {
@@ -12906,83 +12987,101 @@ async fn try_run_sampling_request(
                     };
                     let action_result = match parsed_action {
                         Ok(action) => {
-                            let action = if let Some(snapshot) = provider_budget_snapshot.as_ref()
-                                && should_finish_node_after_successful_required_action(
-                                    &action,
-                                    snapshot,
-                                    sess.as_ref(),
-                                )
-                                .await
+                            let closed_rework_read_reject = if let Some(snapshot) =
+                                provider_budget_snapshot.as_ref()
                             {
-                                if snapshot.node_kind.as_deref() == Some("inspect_code_context") {
-                                    taskspace_finish_inspect_to_implementation_action(
-                                        snapshot.node_id.as_deref(),
+                                taskspace_closed_validation_rework_read_reject_reason(
+                                        &action,
+                                        snapshot,
+                                        sess.action_map_current_main_node_has_visible_validation_rework_target_read()
+                                            .await,
                                     )
-                                } else {
-                                    taskspace_finish_current_node_action(
-                                        snapshot.node_id.as_deref(),
-                                        "Required node work already succeeded; finishing node.",
-                                    )
-                                }
-                            } else if let Some(snapshot) = provider_budget_snapshot.as_ref()
-                                && should_answer_after_successful_validation_redundant_node(
-                                    &action,
-                                    snapshot,
-                                    sess.as_ref(),
-                                )
-                                .await
-                            {
-                                taskspace_final_answer_action(
-                                    "Validation passed; final result is ready.",
-                                )
-                            } else if let Some(snapshot) = provider_budget_snapshot.as_ref()
-                                && should_block_after_tool_runtime_bootstrap_failure_without_active_node(
-                                    &action,
-                                    snapshot,
-                                    sess.as_ref(),
-                                )
-                                .await
-                            {
-                                taskspace_blocked_final_action(
-                                    "TaskSpace ordinary tools are blocked by sandbox/tool runtime bootstrap failure evidence already recorded on the closed task path.",
-                                )
-                            } else if let Some(snapshot) = provider_budget_snapshot.as_ref()
-                                && should_block_after_closed_validation_without_active_node(
-                                    &action,
-                                    snapshot,
-                                    sess.as_ref(),
-                                )
-                                .await
-                            {
-                                taskspace_blocked_final_action(
-                                    "TaskSpace validation is blocked by local validator infrastructure evidence already recorded on the closed validation node.",
-                                )
-                            } else if let Some(snapshot) = provider_budget_snapshot.as_ref()
-                                && should_answer_after_completed_task_without_active_node(
-                                    &action,
-                                    snapshot,
-                                    sess.as_ref(),
-                                )
-                                .await
-                            {
-                                taskspace_final_answer_action(
-                                    "Validation passed; final result is ready.",
-                                )
-                            } else if taskspace_action_control_creates_final_synthesis(&action) {
-                                taskspace_final_answer_action(
-                                    "Validation passed; final result is ready.",
-                                )
                             } else {
-                                action
+                                None
                             };
-                            let final_message = taskspace_action_final_message(&action);
-                            let tool_call =
-                                if let Some(snapshot) = provider_budget_snapshot.as_ref() {
-                                    taskspace_action_to_tool_call(&action, snapshot)
+                            if let Some(reason) = closed_rework_read_reject {
+                                Err(reason)
+                            } else {
+                                let action = if let Some(snapshot) =
+                                    provider_budget_snapshot.as_ref()
+                                    && should_finish_node_after_successful_required_action(
+                                        &action,
+                                        snapshot,
+                                        sess.as_ref(),
+                                    )
+                                    .await
+                                {
+                                    if snapshot.node_kind.as_deref() == Some("inspect_code_context")
+                                    {
+                                        taskspace_finish_inspect_to_implementation_action(
+                                            snapshot.node_id.as_deref(),
+                                        )
+                                    } else {
+                                        taskspace_finish_current_node_action(
+                                            snapshot.node_id.as_deref(),
+                                            "Required node work already succeeded; finishing node.",
+                                        )
+                                    }
+                                } else if let Some(snapshot) = provider_budget_snapshot.as_ref()
+                                    && should_answer_after_successful_validation_redundant_node(
+                                        &action,
+                                        snapshot,
+                                        sess.as_ref(),
+                                    )
+                                    .await
+                                {
+                                    taskspace_final_answer_action(
+                                        "Validation passed; final result is ready.",
+                                    )
+                                } else if let Some(snapshot) = provider_budget_snapshot.as_ref()
+                                    && should_block_after_tool_runtime_bootstrap_failure_without_active_node(
+                                        &action,
+                                        snapshot,
+                                        sess.as_ref(),
+                                    )
+                                    .await
+                                {
+                                    taskspace_blocked_final_action(
+                                        "TaskSpace ordinary tools are blocked by sandbox/tool runtime bootstrap failure evidence already recorded on the closed task path.",
+                                    )
+                                } else if let Some(snapshot) = provider_budget_snapshot.as_ref()
+                                    && should_block_after_closed_validation_without_active_node(
+                                        &action,
+                                        snapshot,
+                                        sess.as_ref(),
+                                    )
+                                    .await
+                                {
+                                    taskspace_blocked_final_action(
+                                        "TaskSpace validation is blocked by local validator infrastructure evidence already recorded on the closed validation node.",
+                                    )
+                                } else if let Some(snapshot) = provider_budget_snapshot.as_ref()
+                                    && should_answer_after_completed_task_without_active_node(
+                                        &action,
+                                        snapshot,
+                                        sess.as_ref(),
+                                    )
+                                    .await
+                                {
+                                    taskspace_final_answer_action(
+                                        "Validation passed; final result is ready.",
+                                    )
+                                } else if taskspace_action_control_creates_final_synthesis(&action) {
+                                    taskspace_final_answer_action(
+                                        "Validation passed; final result is ready.",
+                                    )
                                 } else {
-                                    taskspace_bootstrap_action_to_tool_call(&action)
+                                    action
                                 };
-                            tool_call.map(|tool_call| (action, final_message, tool_call))
+                                let final_message = taskspace_action_final_message(&action);
+                                let tool_call =
+                                    if let Some(snapshot) = provider_budget_snapshot.as_ref() {
+                                        taskspace_action_to_tool_call(&action, snapshot)
+                                    } else {
+                                        taskspace_bootstrap_action_to_tool_call(&action)
+                                    };
+                                tool_call.map(|tool_call| (action, final_message, tool_call))
+                            }
                         }
                         Err(reason) => Err(reason),
                     };

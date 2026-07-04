@@ -4305,4 +4305,26 @@
   2. A durable fix should change the capability/control layer, not only append another advisory sentence.
   3. Candidate fixes must be designed separately because they affect model routing, action-contract enforcement, and validation rework recovery policy.
 - Diagnostic evidence plan: Compare possible capability-layer designs: (a) escalate validation rework closed-action noncompliance to stronger model/profile, (b) require a structured patch-plan artifact before allowing further read-like actions, (c) turn the second duplicate read into an explicit repair-synthesis node rather than another provider retry, or (d) tighten the action schema so invalid read actions in closed repair state are impossible to emit. Need design review before implementation.
-- Status: open.
+- Status: focused-fixed; real keyed rerun pending.
+
+# Evidence E-153: H-071 action-contract narrowing focused fix validates closed rework read rejection
+
+- Prediction tested: H-071 says a durable fix should change the capability/control layer rather than adding more advisory wording.
+- Repair implemented:
+  - `ActionMapRuntime::current_main_node_has_visible_validation_rework_target_read()` exposes whether the active implement rework node already has a visible validation rework target read and no successful edit.
+  - `Session::action_map_current_main_node_has_visible_validation_rework_target_read()` exposes that state to the action-contract turn loop.
+  - `taskspace_closed_validation_rework_read_reject_reason()` rejects a taskspace-action-v1 `read_file` for the already visible validation rework target before it can become a shell read tool call.
+  - The rejection reason is `validation_rework_closed_action_space_read_disallowed:read_file`, and the normal recovery builder maps it to patch-only recovery when validation rework target evidence is present.
+- Verification:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core taskspace_action_contract_rejects_closed_validation_rework_target_read --lib
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core implementation_recovery_selects_patch_only_after_closed_action_space_read_reject --lib
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core validation_rework_duplicate_read --lib
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core validation_rework --lib
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core action_contract_prompt --lib
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+  git diff --check
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-cli --bin whale --locked
+  ```
+- Result: passed. The new focused tests prove first validation target read remains allowed, closed target re-read is rejected at action-contract schema/control level, and closed-action rejection routes to patch-only recovery instead of shell read. Regression suites `validation_rework_duplicate_read` 7/7, `validation_rework` 23/23, and `action_contract_prompt` 29/29 passed.
+- Interpretation: H-071 has a focused control-layer fix. It still needs a real keyed `organization-json-generator` rerun to determine whether the model now emits `apply_patch`, or whether the next unresolved tools-chain issue is deeper than action-contract narrowing.
