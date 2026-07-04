@@ -4403,3 +4403,66 @@ CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/co
 边界说明：该 case 是 tools 能力层和反馈层交叉问题。工具执行失败语义存在，grammar recovery 也存在；缺口是完整 target read
 下仍让 provider 走脆弱 hunk patch，而不是升级为整文件 rewrite。非 `--lib` 的 `cargo test -p codex-core apply_patch --locked`
 在通过 47 个 lib apply_patch tests 后继续跑 `tests/all.rs` 并触发既有 stack overflow，因此本轮使用 `--lib` 作为 scoped gate。
+
+## 5.69 2026-07-04 patch-only schema synthesis too weak
+
+`0b8e5a1` keyed rerun 证明 5.68 的 repeated malformed patch hard-stop 已消失：本轮没有进入
+`Failed to find expected lines` 循环，也没有 `apply_patch_mixed_native_unified` 或 provider-node budget hard-stop。但任务仍未
+通过，新的 blocker 是 patch-only recovery 的 schema repair synthesis 不够可执行。
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260704by-full-rewrite-after-patch-mismatch/runs/terminal_bench__organization-json-generator/20260704-173608-346
+reported_evidence_level: E1
+outcome_standard: wrong
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 11
+right_wall_time_ms: 174600
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+current_git_head: 0b8e5a1802f6aa59018715fe3ddf3219b042b289
+```
+
+关键观察：
+
+| Signal | 结论 |
+|---|---|
+| validation semantic summary: `missing_required_properties: members, averageDepartmentBudget, totalEmployees, skillDistribution, departmentSizes, projectStatusDistribution, averageYearsOfService` | validator 已给出可直接修复的字段集合 |
+| provider 完整读取 `generate_organization.py`，`TaskSpaceReadFileSummaryV1: lines_read=87 eof_reached=true` | target source 已完整可见 |
+| runtime 插入 `TaskSpaceValidationReworkPatchOnlyRecoveryV1` | patch-only recovery 路由正确 |
+| provider 随后两次输出 `read_file generate_organization.py`，理由是 `Need full content` / `Read the full content` | 模型仍把 repair synthesis 理解为需要 discovery |
+| 两次 read 均被 `validation_rework_closed_action_space_read_disallowed:read_file` 拒绝，最后 `TaskSpaceValidationReworkPatchOnlyHardStopV1` | runtime/control 层正确，缺口在反馈 actionability |
+
+本轮新增并 focused 修复的问题类型：
+
+| Case | Before | After | Evidence |
+|---|---|---|---|
+| `validation-rework-patch-only-schema-synthesis-too-weak` | patch-only recovery 泛化提示使用 validation failure / repair contract，但没有把 missing fields 和 rename hints 前置成直接 patch plan；provider 继续 closed read | recovery 增加 `Schema repair synthesis from current validation failure`，列出 exact missing properties、rename hints、exact schema spelling，并说明这是 patch-construction requirement，不是再次读取理由 | keyed rerun `20260704-173608-346`; CoE H-079/E-168/E-169; focused tests |
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core implementation_recovery_selects_patch_only_after_target_read_evidence --lib --locked
+  PASS
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core implementation_recovery_selects_patch_only_after_closed_action_space_read_reject --lib --locked
+  PASS
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_rework --lib --locked
+  PASS: 25/25
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core action_contract_prompt --lib --locked
+  PASS: 29/29
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+  PASS
+
+git diff --check
+  PASS
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-cli --bin whale --locked
+  PASS
+```
+
+边界说明：该 case 不是 H-072 的 recovery routing 降级，也不是 H-075/H-076 的 action-space 冲突。`read_file` 已被正确拒绝；
+问题是反馈没有把 validator 的字段级失败语义转译成足够明确的 patch 合成任务。

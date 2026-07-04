@@ -2267,6 +2267,10 @@ fn build_taskspace_validation_rework_patch_only_recovery_item(
         .filter(|value| !value.is_empty())
         .map(|value| format!("\nMost recent failed edit feedback to preserve:\n- {value}\n"))
         .unwrap_or_default();
+    let schema_repair_synthesis = taskspace_validation_rework_schema_repair_synthesis(
+        evidence_summary,
+        &target_artifact_label,
+    );
     let text = format!(
         "{TASKSPACE_VALIDATION_REWORK_PATCH_ONLY_MARKER}\n\
 failure_kind: validation_rework_patch_only_after_target_read\n\
@@ -2280,6 +2284,7 @@ Current required behavior:\n\
 - Do not move from the named target artifact to `schema.json` or another fact source; those facts are already present in evidence.\n\
 - If no safe edit can be made from the already visible evidence, block explicitly instead of requesting more reads.\n\
 - Use the evidence below only to construct the patch; do not treat it as permission to rediscover the same files.\n\
+{schema_repair_synthesis}\
 Patch construction scaffold:\n\
 - Patch only `{target_artifact_label}` using the complete target read already in evidence.\n\
 - For schema validation failures, convert `schema_property_rename_hints` into output key renames and convert each `missing_required_properties` entry into generated output fields derived from already-read fact sources.\n\
@@ -2298,6 +2303,84 @@ Previous blocked feedback:\n{previous_excerpt}\n\
         end_turn: None,
         phase: None,
     }
+}
+
+fn taskspace_validation_rework_schema_repair_synthesis(
+    evidence_summary: Option<&str>,
+    target_artifact_label: &str,
+) -> String {
+    let Some(evidence_summary) = evidence_summary else {
+        return String::new();
+    };
+    let missing = taskspace_schema_repair_values(evidence_summary, "missing_required_properties=");
+    let missing = if missing.is_empty() {
+        taskspace_schema_repair_values(evidence_summary, "missing_required_properties:")
+    } else {
+        missing
+    };
+    let rename_hints =
+        taskspace_schema_repair_values(evidence_summary, "schema_property_rename_hints=");
+    if missing.is_empty() && rename_hints.is_empty() {
+        return String::new();
+    }
+
+    let missing_label = if missing.is_empty() {
+        "(none captured)".to_string()
+    } else {
+        missing
+            .iter()
+            .map(|property| format!("`{property}`"))
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    let rename_label = if rename_hints.is_empty() {
+        "no explicit rename hints were captured; infer the generated output location from the validation failure and complete target read".to_string()
+    } else {
+        rename_hints
+            .iter()
+            .map(|hint| format!("`{hint}`"))
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+
+    format!(
+        "Schema repair synthesis from current validation failure:\n\
+- Missing required output properties to implement in `{target_artifact_label}` now: {missing_label}.\n\
+- Apply captured output-key rename hints exactly when present: {rename_label}.\n\
+- For every missing property without a rename hint, add a generated output field with the exact schema spelling and derive its value from already-read CSV/schema evidence.\n\
+- This is a patch-construction requirement, not a reason to read schema/data/target files again.\n"
+    )
+}
+
+fn taskspace_schema_repair_values(text: &str, marker: &str) -> Vec<String> {
+    let mut values = Vec::new();
+    for segment in text.split(['\n', '|']) {
+        let Some((_, rest)) = segment.split_once(marker) else {
+            continue;
+        };
+        let rest = rest
+            .split(" schema_")
+            .next()
+            .unwrap_or(rest)
+            .split(" target_artifacts")
+            .next()
+            .unwrap_or(rest)
+            .split(" patch_requirement")
+            .next()
+            .unwrap_or(rest);
+        for value in rest.split(',') {
+            let value = value
+                .trim()
+                .trim_matches(|ch| matches!(ch, '`' | '"' | '\'' | '[' | ']' | '.' | ';'));
+            if value.is_empty() || value.len() > 96 {
+                continue;
+            }
+            if !values.iter().any(|existing| existing == value) {
+                values.push(value.to_string());
+            }
+        }
+    }
+    values
 }
 
 fn build_taskspace_validation_rework_patch_only_hard_stop_item(
@@ -5564,6 +5647,10 @@ Then I will inspect the file."#,
         assert!(text.contains("Emit exactly one taskspace-action-v1 apply_patch"));
         assert!(text.contains("Patch construction scaffold:"));
         assert!(text.contains("convert `schema_property_rename_hints` into output key renames"));
+        assert!(text.contains("Schema repair synthesis from current validation failure:"));
+        assert!(text.contains("Missing required output properties"));
+        assert!(text.contains("`members`"));
+        assert!(text.contains("`averageDepartmentBudget`"));
         assert!(text.contains("Use native apply_patch grammar only"));
         assert!(!text.contains(TASKSPACE_IMPLEMENT_NEEDS_EDIT_MARKER));
         assert!(is_taskspace_validation_rework_patch_only_recovery_item(
@@ -5592,8 +5679,8 @@ Then I will inspect the file."#,
             last_message
         )));
         let evidence = "validation_rework: smoke_test `node-3` failed result `result-10`: missing_required_properties: members, averageDepartmentBudget \
-| validation_rework_target_read result=result-12 artifact=generate_organization.py read_context: complete_read excerpt: member_ids -> members \
-| validation_schema_repair_contract: missing_required_properties=members,averageDepartmentBudget";
+| validation_rework_target_read result=result-12 artifact=generate_organization.py read_context: complete_read eof_reached=true excerpt: member_ids -> members \
+| validation_schema_repair_contract: missing_required_properties=members, averageDepartmentBudget, totalEmployees, skillDistribution, departmentSizes, projectStatusDistribution, averageYearsOfService | schema_property_rename_hints=member_ids->members";
         let item =
             build_taskspace_implementation_recovery_item(Some(last_message), Some(evidence), None);
         let text = item_text(item.clone());
@@ -5602,6 +5689,11 @@ Then I will inspect the file."#,
         assert!(text.contains("target_artifacts: generate_organization.py"));
         assert!(text.contains("Emit exactly one taskspace-action-v1 apply_patch"));
         assert!(text.contains("no additional file lines are hidden"));
+        assert!(text.contains("Schema repair synthesis from current validation failure:"));
+        assert!(text.contains("`members`"));
+        assert!(text.contains("`averageYearsOfService`"));
+        assert!(text.contains("`member_ids->members`"));
+        assert!(text.contains("This is a patch-construction requirement"));
         assert!(text.contains("Patch construction scaffold:"));
         assert!(text.contains("Do not put markdown fences"));
         assert!(!text.contains(TASKSPACE_IMPLEMENT_NEEDS_EDIT_MARKER));

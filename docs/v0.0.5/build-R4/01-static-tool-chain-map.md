@@ -666,3 +666,18 @@ partial-excerpt blocker 修复后的 keyed rerun 进入更深 patch recovery：�
 
 边界说明：这不是要放宽 patch grammar，也不是无限增加预算。修复仍要求 native apply_patch，只是在完整目标文件已可见且 context hunk 多次失败时，
 把合法下一步从“再试一个 hunk”升级为“整文件替换”，并补齐 live wrapper 正规化能力。
+
+## 2026-07-04 R4-D issue type addendum: patch-only schema synthesis too weak
+
+full-rewrite recovery 修复后的 keyed rerun 没有再进入 repeated malformed patch hard-stop，但暴露了更直接的反馈层缺口：
+validation 已经明确列出缺失字段，`generate_organization.py` 也完整读取，runtime 正确关闭 read/search action space；provider
+仍以“需要完整内容”为理由重复 `read_file generate_organization.py`。这说明闭合语义正确，但 repair synthesis 没把缺失字段和
+rename hints 提升为足够可执行的 patch 任务。
+
+| Issue type | Layer | Symptom | Resolution contract | Evidence |
+|---|---|---|---|---|
+| `validation-rework-patch-only-schema-synthesis-too-weak` | validation rework feedback / repair synthesis | complete target read + schema repair contract 已齐全，patch-only recovery 仍只泛化提示“用证据 patch”；provider 重复 closed `read_file` 并 hard-stop | patch-only recovery 在 generic scaffold 前加入 `Schema repair synthesis from current validation failure`：列出 exact `missing_required_properties`、exact `schema_property_rename_hints`，要求按 schema spelling 生成输出字段，并明确这不是再次读取理由 | keyed rerun `20260704-173608-346`; CoE H-079/E-168/E-169; `implementation_recovery_selects_patch_only_after_target_read_evidence`; `implementation_recovery_selects_patch_only_after_closed_action_space_read_reject` |
+
+边界说明：这不是 permission 层问题，也不是 `read_file` 没有被挡住。runtime 已正确拒绝
+`validation_rework_closed_action_space_read_disallowed:read_file` 并 bounded hard-stop；修复点是让反馈层把 schema 失败语义转成
+可执行 patch plan，降低模型继续 discovery 的概率。

@@ -2459,6 +2459,47 @@ current_git_head: 9f370ddfa3f12397ed1d966b321b5e1f0a86c3b2
 
 状态：focused 修复已编码；仍需 focused/regression、fmt/build、commit/push、attestation、keyed rerun。
 
+## 15. 2026-07-04 validation rework patch-only schema synthesis too weak
+
+`0b8e5a1` 的 keyed rerun 证明 H-078 的 repeated malformed patch / expected-lines hard-stop 已清除，但新问题推进到
+patch-only recovery 的字段级修复合成。
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260704by-full-rewrite-after-patch-mismatch/runs/terminal_bench__organization-json-generator/20260704-173608-346
+reported_evidence_level: E1
+outcome_standard: wrong
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 11
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+current_git_head: 0b8e5a1802f6aa59018715fe3ddf3219b042b289
+```
+
+关键观察：
+
+| Signal | 结论 |
+|---|---|
+| 未再出现 `Failed to find expected lines` 循环、mixed native/unified patch rejection 或 provider-node budget hard-stop | H-078 live-cleared |
+| validator summary 明确列出 `members`、`averageDepartmentBudget`、`totalEmployees`、`skillDistribution`、`departmentSizes`、`projectStatusDistribution`、`averageYearsOfService` | failure semantic 已足够用于 patch |
+| `generate_organization.py` 完整读取，`lines_read=87 eof_reached=true` | target source 不需要再次读取 |
+| `TaskSpaceValidationReworkPatchOnlyRecoveryV1` 已触发，后续 closed read 被 `validation_rework_closed_action_space_read_disallowed:read_file` 拒绝 | routing/control 层正确 |
+| provider 仍两次声称需要 full content 并重复 read，最后 `TaskSpaceValidationReworkPatchOnlyHardStopV1` | patch-only feedback 的 repair synthesis 仍不够可执行 |
+
+问题类型收录：
+
+| 字段 | 内容 |
+|---|---|
+| case | `validation-rework-patch-only-schema-synthesis-too-weak` |
+| 层级 | validation rework feedback / repair synthesis |
+| 本质 | 完整 target read 和 validation repair contract 已齐全，但 recovery 没把字段级 schema 失败前置成直接 patch 计划，模型继续 discovery |
+| 非根因 | 不是 permission 层放行；不是 closed-action rejection routing 降级；不是 patch grammar normalization；不是 CSV/schema 真的缺失 |
+| 修复 | patch-only recovery 增加 `Schema repair synthesis from current validation failure`，列出 exact missing properties、exact rename hints、exact schema spelling，并明确这是 patch-construction requirement，不是再次读取理由 |
+| focused evidence | CoE H-079/E-168/E-169；`implementation_recovery_selects_patch_only_after_target_read_evidence`; `implementation_recovery_selects_patch_only_after_closed_action_space_read_reject` |
+
+状态：focused 修复已编码；targeted tests、`validation_rework` 25/25、`action_contract_prompt` 29/29、fmt/check/build 均通过。
+仍需 commit/push、attestation、keyed rerun。
+
 ## 12. 2026-07-04 validation rework failed-edit refresh reopens complete read
 
 `c8a2d16` 的 attested keyed rerun 证明 H-075 静态 contract 修复已经把 live path 推进到 `apply_patch`。新的失败点不是

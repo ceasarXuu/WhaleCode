@@ -4759,3 +4759,66 @@
   ```
 - Result: passed. A non-`--lib` `cargo test -p codex-core apply_patch --locked` also passed all 47 lib apply_patch tests but then continued into `tests/all.rs` and hit an unrelated stack overflow; the scoped `--lib` command is the valid gate for this change. Formatting, whitespace, and `whale` build passed.
 - Interpretation: H-078 is focused-fixed. It needs commit/push, attestation, and keyed rerun.
+
+# Evidence E-168: 0b8e5a1 rerun clears patch mismatch hard stop but repeats closed read after weak schema synthesis
+
+- Prediction tested: H-078 predicts complete-read expected-lines failures should no longer drain budget through repeated malformed patch hunks.
+- Real rerun:
+  ```text
+  RunDir: target/r4-org-json-real-keyed-20260704by-full-rewrite-after-patch-mismatch/runs/terminal_bench__organization-json-generator/20260704-173608-346
+  PairReport: pair-001/pair-report.md
+  reported_evidence_level: E1
+  outcome_standard: wrong
+  outcome_taskspace: engineering_unclean
+  right_exec_timed_out: False
+  right_tool_call_count: 11
+  right_wall_time_ms: 174600
+  right_public_validation_exit_code: 1
+  right_hidden_oracle_exit_code: 0
+  current_git_head: 0b8e5a1802f6aa59018715fe3ddf3219b042b289
+  ```
+- Matched H-078 signals:
+  - The live path did not reach repeated `Failed to find expected lines`, `apply_patch_mixed_native_unified`, or provider-node budget hard stop.
+  - Tool-call count dropped from 14 to 11, and the previous malformed-patch failure mode was not the terminal blocker.
+- New/remaining blocker signals:
+  - Public validation failed with concrete schema signals: `missing_required_properties: members, averageDepartmentBudget, totalEmployees, skillDistribution, departmentSizes, projectStatusDistribution, averageYearsOfService`.
+  - The provider then read `generate_organization.py` once; the read was complete (`lines_read=87 eof_reached=true`).
+  - Runtime inserted `TaskSpaceValidationReworkPatchOnlyRecoveryV1` because target contents plus repair contract were already available.
+  - The provider still emitted `read_file generate_organization.py` twice with rationale `Need full content...` / `Read the full content...`, each rejected as `validation_rework_closed_action_space_read_disallowed:read_file`.
+  - The turn ended at `TaskSpaceValidationReworkPatchOnlyHardStopV1`, leaving open leaf `node-4`.
+- Interpretation: H-078 is live-cleared for the previous patch mismatch hard stop. New blocker is H-079: patch-only recovery carries correct closure semantics, but its schema repair synthesis is too weak; it does not elevate the exact missing output fields and rename hints into an immediately executable patch plan at the top of the recovery.
+
+# Hypothesis H-079: patch-only recovery must synthesize schema-required edits before repeating closed-read guidance
+
+- Claim: In validation rework, when target source has already been completely read and validation failure exposes `missing_required_properties` / `schema_property_rename_hints`, patch-only recovery must present those fields as concrete patch-construction requirements. Generic "use visible validation failure and repair contract" guidance is not actionable enough for DeepSeek V4 Flash; the model repeats closed reads even though runtime correctly rejects them.
+- Prediction:
+  1. `TaskSpaceValidationReworkPatchOnlyRecoveryV1` should include a `Schema repair synthesis from current validation failure` block before the generic patch scaffold.
+  2. That synthesis should list exact missing properties such as `members`, `averageDepartmentBudget`, `totalEmployees`, `skillDistribution`, `departmentSizes`, `projectStatusDistribution`, and `averageYearsOfService`.
+  3. If `schema_property_rename_hints` are present, they should be surfaced as exact output-key rename requirements, for example `member_ids->members`.
+  4. The same block must explicitly say this is a patch-construction requirement, not a reason to read schema/data/target files again.
+  5. Existing patch-only recovery selection and closed-action rejection routing tests should remain passing.
+- Diagnostic evidence plan: Extend the session focused tests for patch-only recovery after target read and closed-action read rejection with the live missing-property set and rename hint. Expected output is the schema synthesis block plus existing apply_patch-only closure.
+- Status: confirmed.
+
+# Evidence E-169: patch-only recovery now elevates missing schema fields into repair synthesis
+
+- Prediction tested: H-079 predicts patch-only recovery should turn validation failure fields into explicit patch requirements instead of relying on generic evidence replay.
+- Repair artifact:
+  - `third_party/codex-cli/codex-rs/core/src/session/turn.rs`
+- Repair behavior:
+  - Added `taskspace_validation_rework_schema_repair_synthesis()` and `taskspace_schema_repair_values()`.
+  - Patch-only recovery now parses `missing_required_properties=` / `missing_required_properties:` and `schema_property_rename_hints=`.
+  - The recovery text now adds `Schema repair synthesis from current validation failure` before the generic patch construction scaffold.
+  - The synthesis lists exact required output property names, exact rename hints, requires exact schema spelling, and states the information is for patch construction rather than another read.
+- Validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core implementation_recovery_selects_patch_only_after_target_read_evidence --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core implementation_recovery_selects_patch_only_after_closed_action_space_read_reject --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_rework --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core action_contract_prompt --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+  git diff --check
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-cli --bin whale --locked
+  ```
+- Result: passed. Focused tests passed; `validation_rework` passed 25/25; `action_contract_prompt` passed 29/29; formatting, whitespace, and `whale` build passed.
+- Interpretation: H-079 is focused-fixed. It needs commit/push, attestation, and keyed rerun.
