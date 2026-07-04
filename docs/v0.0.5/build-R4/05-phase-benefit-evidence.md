@@ -5333,3 +5333,36 @@ CODEX_SKIP_VENDORED_BWRAP=1 cargo check -p codex-core
 CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
 git diff --check
 ```
+
+## 5.94 2026-07-05 replacement-only recovery enforcement gap
+
+`7409c30` 后 keyed rerun 证明 H-107 recovery 文案已可见：`TaskSpaceApplyPatchNativeHunkRecoveryV1`
+明确要求 whole-file native replacement，并禁止 `*** Update File`。但 provider 继续发 `Update File` mixed patch，
+最后仍进入 `TaskSpaceApplyPatchRecoveryHardStopV1`。
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260705ab-full-visible-replacement-gate/runs/terminal_bench__organization-json-generator/20260705-000330-979
+reported_evidence_level: E1
+outcome_standard: wrong
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 12
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+final_marker: TaskSpaceApplyPatchRecoveryHardStopV1
+```
+
+收益判断：
+
+1. H-107 的收益已被 live 证据确认：forced replacement recovery 文案确实进入 provider-visible feedback。
+2. 新问题是 `apply-patch-replacement-only-recovery-enforcement-gap`：recovery-state 仍停留在提示层，没有进入 action-contract
+   强制层。
+3. R4-D 下一步不应继续加提示词，而应把 replacement-only 状态变成工具调用前的语义拒绝：`apply_patch_replacement_required:<target>`。
+4. R4-G utility 仍未通过。
+
+验证：
+
+```text
+keyed rerun: 20260705-000330-979
+CoE: H-108/E-221
+```

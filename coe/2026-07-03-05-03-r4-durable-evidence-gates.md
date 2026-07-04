@@ -6402,3 +6402,37 @@
     PASS
   ```
 - Interpretation: H-107 is focused-fixed. Remaining gates are commit/push, binary attestation, install, and another keyed rerun.
+
+# Evidence E-221: H-107 rerun shows forced replacement recovery is visible but not enforced
+
+- Real rerun:
+  ```text
+  RunDir: target/r4-org-json-real-keyed-20260705ab-full-visible-replacement-gate/runs/terminal_bench__organization-json-generator/20260705-000330-979
+  reported_evidence_level: E1
+  outcome_standard: wrong
+  outcome_taskspace: engineering_unclean
+  right_exec_timed_out: False
+  right_tool_call_count: 12
+  right_public_validation_exit_code: 1
+  right_hidden_oracle_exit_code: 0
+  right_open_leaf_nodes: 1
+  final_marker: TaskSpaceApplyPatchRecoveryHardStopV1
+  ```
+- H-107 live status:
+  - The hard-stop excerpt contains the new forced replacement recovery text:
+    - `whole-file native replacement`
+    - `Use *** Delete File ... followed by *** Add File ...`
+    - `Do not emit *** Update File`
+  - This confirms the H-107 recovery builder and full-visible evidence routing are live.
+- New blocker signal:
+  - Despite the forced replacement recovery, the provider repeatedly emitted `*** Update File` sections containing `--- a/...`, `+++ b/...`, and `@@ -old,+new @@`.
+  - Runtime kept classifying those actions as `apply_patch_mixed_native_unified:<target>` and eventually hard-stopped.
+  - The feedback layer is now clear, but the action-contract layer does not enforce the replacement-only state. The model can ignore the instruction and consume recovery budget with the same forbidden action shape.
+- Interpretation: H-107 is live-cleared as feedback text, but the next issue is enforcement: once full-visible replacement-only recovery is active, `*** Update File` should be rejected as `apply_patch_replacement_required:<target>` or equivalent, not recycled through generic native-hunk recovery.
+
+# Hypothesis H-108: replacement-only recovery needs action-contract enforcement
+
+- Claim: When the current validation rework state has full-visible target evidence and the recovery contract requires whole-file replacement, subsequent `apply_patch` attempts using `*** Update File` should be rejected with a replacement-required semantic error. Reusing generic `apply_patch_mixed_native_unified` feedback lets the provider repeat the same forbidden shape.
+- Prediction: A focused test should build a full-visible validation rework snapshot, submit a mixed `*** Update File` patch, and receive a replacement-required rejection that names the target and forbids `Update File` before another generic native-hunk recovery is generated.
+- Diagnostic evidence plan: Add an action-contract state/snapshot predicate for replacement-only validation rework recovery, reject `Update File` attempts against the target as replacement-required, add recovery text/tests, then run native-hunk/mixed/apply_patch/action-contract/validation-rework regressions plus fmt/check/build/diff gates.
+- Status: open.

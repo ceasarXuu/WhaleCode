@@ -3372,6 +3372,37 @@ final_marker: TaskSpaceApplyPatchRecoveryHardStopV1
 
 状态：focused 修复已编码并通过相关回归、fmt/check/build/diff-check。下一步是 commit/push、attestation、安装新 whale，再进行下一轮 keyed rerun。
 
+## 37. 2026-07-05 replacement-only recovery enforcement gap
+
+`7409c30` 后 keyed rerun 显示 H-107 的 forced replacement recovery 已 live-clear 到 provider-visible feedback：
+hard-stop excerpt 明确要求 whole-file replacement，并禁止 `*** Update File`。但 provider 仍连续发 `Update File`
+mixed native/unified patch：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260705ab-full-visible-replacement-gate/runs/terminal_bench__organization-json-generator/20260705-000330-979
+reported_evidence_level: E1
+outcome_standard: wrong
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 12
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+final_marker: TaskSpaceApplyPatchRecoveryHardStopV1
+```
+
+问题类型收录：
+
+| 字段 | 内容 |
+|---|---|
+| case | `apply-patch-replacement-only-recovery-enforcement-gap` |
+| 层级 | apply_patch action-contract enforcement / recovery-state semantics |
+| 本质 | replacement-only recovery 文案已经到达模型，但 action-contract 没有把该状态变成强约束；`Update File` mixed patch 仍按 generic native-hunk rejection 循环 |
+| 非根因 | 不是 H-107 recovery 文案缺失；不是 hard-stop 错误；不是 schema/blocker 问题 |
+| 下一步 | 在 full-visible replacement-only recovery 激活后，对目标文件的 `*** Update File` 直接返回 replacement-required 语义，要求 `Delete File + Add File` |
+| evidence | CoE H-108/E-221；keyed rerun `20260705-000330-979` |
+
+状态：已收录，未修复。下一步应实现 replacement-only recovery state 的 action-contract enforcement。
+
 ## 28. 2026-07-04 natural-language slash fact-source extraction
 
 `3b6b269` 后的 keyed rerun 没有触发 no-action recovery，因此 H-098 尚未 live-clear。该轮暴露 inspect fact-source

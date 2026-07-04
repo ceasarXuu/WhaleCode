@@ -977,3 +977,16 @@ unified headers/range hunks 放进 native `*** Update File` section。
 
 边界说明：该修复不把 malformed patch 当成功，也不重新允许 mixed grammar 进入工具层。它只在目标文件已完整可见时把反馈动作空间收窄为
 whole-file replacement，避免继续消耗请求预算在同一种 grammar 错误上。
+
+## 2026-07-05 R4-D issue type addendum: replacement-only recovery enforcement gap
+
+`7409c30` 后 keyed rerun 证明 H-107 的 forced replacement recovery 已进入 provider-visible feedback：
+hard-stop excerpt 明确包含 `whole-file native replacement`、`Delete File + Add File`、`Do not emit Update File`。
+但 provider 仍连续发 `Update File` mixed native/unified patch，说明仅靠文案不足，需要 action-contract enforcement。
+
+| Issue type | Layer | Symptom | Resolution contract | Evidence |
+|---|---|---|---|---|
+| `apply-patch-replacement-only-recovery-enforcement-gap` | apply_patch action-contract enforcement / recovery-state semantics | replacement-only recovery 已可见，provider 仍发 `*** Update File` + unified headers/range hunks，runtime 继续走 generic `apply_patch_mixed_native_unified` 到 hard-stop | full-visible replacement-only recovery 激活后，针对该 target 的 `*** Update File` 直接拒绝为 replacement-required 语义，要求 `*** Delete File` + `*** Add File` | keyed rerun `20260705-000330-979`; CoE H-108/E-221 |
+
+边界说明：该问题不是 H-107 文案未到达模型，而是文案到达后缺少状态化强制。下一步应把 recovery-state 变成 action-contract
+约束，而不是继续增加提示词。
