@@ -723,3 +723,17 @@ generator-only command，并在 `TaskSpaceGateRecoveryV1.next_valid_actions` 中
 
 边界说明：这是反馈层“正确语义未进入控制语义”的缺口，不是 validation gate 缺失。修复不会允许 generator-only command
 绕过 output contract，也不会根据文件名猜测测试；只执行 gate 自己产出的 exact legal command。
+
+## 2026-07-04 R4-D issue type addendum: validation required-command bridge one-hop only
+
+validation required-command bridge 的首次 keyed rerun 证明 bridge 已进入 runtime，但 staged gate 链仍有缺口。changed-artifact
+coverage gate 可以先给 `python transform.py`；执行后 output-contract gate 再给更严格的
+`python transform.py && python -m jsonschema -i organization.json schema.json`。旧 bridge 只执行第一跳，并把第二跳 gate rejection
+当作 failed Test，导致 rework 从内部 gate rejection 而非真实 validator result 开始。
+
+| Issue type | Layer | Symptom | Resolution contract | Evidence |
+|---|---|---|---|---|
+| `validation-required-command-bridge-one-hop-only` | validation runtime bridge / gate-to-gate command chain | bridge 执行 first-hop changed-artifact command 后不追 nested output-contract command；中间 gate rejection 被记录为 final Test failure | bridge 在固定 3-hop 上限内追 changed-artifact/output-contract gate 产出的 stricter exact command；中间 gate output 留在 transcript，但只把最终命令结果写回 `ActionClass::Test` | keyed rerun `20260704-182700-317`; CoE H-083/E-176/E-177; `validation_required_command_bridge`; `validation_needs_test`; `action_contract_prompt`; `validation_rework` |
+
+边界说明：链式 bridge 只追 TaskSpace gate 自己产出的 exact command，且要求新命令不同于上一条；不会对普通 shell/test
+失败做自动重试，也不会形成无限循环。

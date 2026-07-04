@@ -5031,3 +5031,69 @@
     PASS
   ```
 - Interpretation: H-082 is focused-fixed. The next gate is attestation and keyed rerun to verify whether the live path executes `TaskSpaceValidationRequiredCommandBootstrapV1` instead of burning provider requests on ignored validation recovery guidance.
+
+# Evidence E-176: 37ebc22 rerun executes validation bridge but stops after one gate hop
+
+- Prediction tested: H-082 predicts runtime should execute exact validation gate commands instead of relying on provider retry.
+- Real rerun:
+  ```text
+  RunDir: target/r4-org-json-real-keyed-20260704cc-validation-bridge/runs/terminal_bench__organization-json-generator/20260704-182700-317
+  PairReport: pair-001/pair-report.md
+  reported_evidence_level: E2-candidate
+  valid_pair: True
+  outcome_standard: solved
+  outcome_taskspace: engineering_unclean
+  right_tool_call_count: 10
+  right_wall_time_ms: 255505
+  right_public_validation_exit_code: 1
+  final_hard_stop: provider_node_request_hard_limit_exceeded request_count=14/20 node_kind=implement_solution node_request_count=6/5
+  ```
+- H-082 partial live-clear signals:
+  - Trace contains `TaskSpaceValidationRequiredCommandBootstrapV1 executed coverage-correct validation command after a rejected validation run_test: python transform.py`.
+  - The smoke_test request budget was no longer the terminal failure; the run moved into validation rework.
+- New blocker signals:
+  - The bridged command was the first-hop changed-artifact command `python transform.py`.
+  - That command was then rejected by the output-contract gate, which returned a stricter next command: `python transform.py && python -m jsonschema -i organization.json schema.json`.
+  - The bridge recorded the first-hop gate rejection as a failed `ActionClass::Test` result instead of following the nested gate command.
+  - Runtime then created validation rework from an internal gate rejection rather than from a real validator result, and eventually hard-stopped on a repeated closed `read_file` in implement_solution.
+- Interpretation: H-082's advisory-to-runtime bridge exists, but it is only one-hop. New blocker is H-083: required-command bridge must chase bounded gate-to-gate command chains before recording a final Test result.
+
+# Hypothesis H-083: validation required-command bridge must chase bounded gate-to-gate command chains
+
+- Claim: A validation gate can legally return a staged command chain: first run the changed artifact, then validate output contracts. If the bridge executes the first command and receives another TaskSpace coverage gate with a stricter exact command, it should follow that nested command before recording the final test result.
+- Prediction:
+  1. `taskspace_validation_chained_required_command(previous, output)` should extract a stricter changed-artifact/output-contract command from bridge output when it differs from the previous command.
+  2. The bridge should follow nested gate commands for a small bounded count and emit `TaskSpaceValidationRequiredCommandBootstrapChainedV1`.
+  3. Intermediate TaskSpace gate rejections should stay visible in transcript but should not be recorded as the final `ActionClass::Test` result that triggers validation rework.
+  4. The final command result should be recorded as `ActionClass::Test`, preserving existing validation closeout/rework logic.
+  5. Existing validation recovery, action-contract prompt, validation rework, formatting, whitespace, and whale build regressions should remain passing.
+- Diagnostic evidence plan: Add helper test for output-contract chaining and same-command loop rejection; rerun validation bridge focused tests, validation recovery/action-contract/rework regressions, fmt/check/build.
+- Status: confirmed.
+
+# Evidence E-177: H-083 focused fix follows nested validation gate commands before final Test recording
+
+- Prediction tested: H-083 predicts the bridge can follow `python transform.py` -> `python transform.py && jsonschema` without treating the first gate rejection as final test evidence.
+- Repair artifact:
+  - `third_party/codex-cli/codex-rs/core/src/session/turn.rs`
+- Repair behavior:
+  - Added `taskspace_validation_chained_required_command()` to extract a stricter nested command only when it differs from the previous command.
+  - `run_taskspace_validation_required_command_bootstrap()` now loops up to three bridge attempts, emits `TaskSpaceValidationRequiredCommandBootstrapChainedV1` for nested gates, and records only the final attempt into ActionMap as `ActionClass::Test`.
+  - Intermediate gate outputs remain in the transcript as tool outputs, but no longer create a false validation failure result by themselves.
+- Validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core validation_required_command_bridge --lib --locked
+    PASS: 3/3
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core validation_needs_test --lib --locked
+    PASS: 1/1
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core action_contract_prompt --lib --locked
+    PASS: 29/29
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core validation_rework --lib --locked
+    PASS: 25/25
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+    PASS
+  git diff --check
+    PASS
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-cli --bin whale --locked
+    PASS
+  ```
+- Interpretation: H-083 is focused-fixed. Next gate is attestation plus another keyed rerun to verify live trace follows the nested output-contract command and no longer creates validation rework from the first-hop gate rejection.

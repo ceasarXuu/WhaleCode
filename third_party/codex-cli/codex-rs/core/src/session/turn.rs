@@ -4302,6 +4302,14 @@ fn taskspace_validation_required_command_from_gate_recovery(text: Option<&str>) 
     taskspace_validation_changed_artifact_required_command(text)
 }
 
+fn taskspace_validation_chained_required_command(
+    previous_command: &str,
+    output: &str,
+) -> Option<String> {
+    let next_command = taskspace_validation_required_command_from_gate_recovery(Some(output))?;
+    (next_command != previous_command.trim()).then_some(next_command)
+}
+
 fn taskspace_missing_command_script_from_text(text: &str) -> Option<String> {
     let lower = text.replace('\\', "/").to_ascii_lowercase();
     if !lower.contains("can't open file") && !lower.contains("cannot open file") {
@@ -9451,6 +9459,24 @@ raw_output:\npytest: command not found";
     }
 
     #[test]
+    fn validation_required_command_bridge_chains_output_contract_gate() {
+        let output = "TaskSpace blocked this validation command because current node `node-3` kind: smoke_test has declared output contract artifact(s): organization.json, schema.json, but requested command `python transform.py` does not validate those output contract(s).\n\
+TaskSpaceGateRecoveryV1: {\"schema_version\":\"TaskSpaceGateRecoveryV1\",\"allowed\":false,\"reason\":\"validation_test_missing_output_contract_coverage\",\"next_valid_actions\":[\"run_test with command `python transform.py && python -m jsonschema -i organization.json schema.json` to execute the changed artifact and validate declared output contract(s)\"]}";
+
+        assert_eq!(
+            taskspace_validation_chained_required_command("python transform.py", output).as_deref(),
+            Some("python transform.py && python -m jsonschema -i organization.json schema.json")
+        );
+        assert_eq!(
+            taskspace_validation_chained_required_command(
+                "python transform.py && python -m jsonschema -i organization.json schema.json",
+                output,
+            ),
+            None
+        );
+    }
+
+    #[test]
     fn apply_patch_format_recovery_does_not_count_as_no_action_retry() {
         let targets = taskspace_existing_file_add_targets_from_rejection(Some(
             "TaskSpaceActionV1 rejected: apply_patch_existing_file_as_add:generate_report.sh. Return exactly one valid taskspace-action-v1 JSON object.",
@@ -10625,61 +10651,83 @@ async fn run_taskspace_validation_required_command_bootstrap(
     command: &str,
     cancellation_token: CancellationToken,
 ) -> CodexResult<()> {
-    let call_id =
-        format!("{TASKSPACE_VALIDATION_REQUIRED_COMMAND_BOOTSTRAP_CALL_ID}-{request_count}");
-    let arguments = serde_json::json!({
-        "command": command,
-        "timeout_ms": 120000,
-    })
-    .to_string();
-    let call_item = ResponseItem::FunctionCall {
-        id: None,
-        name: "shell_command".to_string(),
-        namespace: None,
-        arguments: arguments.clone(),
-        call_id: call_id.clone(),
-    };
-    record_completed_response_item(sess.as_ref(), turn_context.as_ref(), &call_item).await;
-    sess.send_event(
-        &turn_context,
-        EventMsg::Warning(WarningEvent {
-            message: format!(
-                "TaskSpaceValidationRequiredCommandBootstrapV1 executed coverage-correct validation command after a rejected validation run_test: {command}"
-            ),
-        }),
-    )
-    .await;
-
-    let response_input = tool_runtime
-        .handle_tool_call(
-            ToolCall {
-                tool_name: ToolName::plain("shell_command"),
-                call_id: call_id.clone(),
-                payload: ToolPayload::Function { arguments },
-            },
-            cancellation_token,
+    let mut current_command = command.trim().to_string();
+    for attempt in 1..=3 {
+        let call_id = format!(
+            "{TASKSPACE_VALIDATION_REQUIRED_COMMAND_BOOTSTRAP_CALL_ID}-{request_count}-{attempt}"
+        );
+        let arguments = serde_json::json!({
+            "command": current_command,
+            "timeout_ms": 120000,
+        })
+        .to_string();
+        let call_item = ResponseItem::FunctionCall {
+            id: None,
+            name: "shell_command".to_string(),
+            namespace: None,
+            arguments: arguments.clone(),
+            call_id: call_id.clone(),
+        };
+        record_completed_response_item(sess.as_ref(), turn_context.as_ref(), &call_item).await;
+        sess.send_event(
+            &turn_context,
+            EventMsg::Warning(WarningEvent {
+                message: format!(
+                    "TaskSpaceValidationRequiredCommandBootstrapV1 executed coverage-correct validation command after a rejected validation run_test: {current_command}"
+                ),
+            }),
         )
-        .await?;
-    let response_item =
-        record_response_input_item(sess.as_ref(), turn_context.as_ref(), response_input).await;
-    let (success, output) =
-        taskspace_tool_output_success_and_text(&response_item).unwrap_or((false, String::new()));
-    let preview = format!(
-        "TaskSpaceToolInvocationV1:\n\
+        .await;
+
+        let response_input = tool_runtime
+            .clone()
+            .handle_tool_call(
+                ToolCall {
+                    tool_name: ToolName::plain("shell_command"),
+                    call_id: call_id.clone(),
+                    payload: ToolPayload::Function { arguments },
+                },
+                cancellation_token.child_token(),
+            )
+            .await?;
+        let response_item =
+            record_response_input_item(sess.as_ref(), turn_context.as_ref(), response_input).await;
+        let (success, output) = taskspace_tool_output_success_and_text(&response_item)
+            .unwrap_or((false, String::new()));
+        if !success
+            && let Some(next_command) =
+                taskspace_validation_chained_required_command(&current_command, &output)
+        {
+            sess.send_event(
+                &turn_context,
+                EventMsg::Warning(WarningEvent {
+                    message: format!(
+                        "TaskSpaceValidationRequiredCommandBootstrapChainedV1 followed nested validation gate command after `{current_command}`: {next_command}"
+                    ),
+                }),
+            )
+            .await;
+            current_command = next_command;
+            continue;
+        }
+        let preview = format!(
+            "TaskSpaceToolInvocationV1:\n\
 tool: shell_command\n\
-command: {command}\n\
+command: {current_command}\n\
 raw_output:\n\
 {output}"
-    );
-    sess.record_action_map_main_tool_result(
-        &turn_context,
-        &call_id,
-        "shell_command",
-        Some(ActionClass::Test),
-        success,
-        preview,
-    )
-    .await;
+        );
+        sess.record_action_map_main_tool_result(
+            &turn_context,
+            &call_id,
+            "shell_command",
+            Some(ActionClass::Test),
+            success,
+            preview,
+        )
+        .await;
+        break;
+    }
     Ok(())
 }
 

@@ -4681,3 +4681,54 @@ CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/co
 边界说明：这不是放宽 validation gate，也不是让 runtime 猜测任意测试命令。bridge 只接受
 `TaskSpaceGateRecoveryV1` 中 changed-artifact/output-contract coverage gate 已明确给出的 exact command；普通 pytest 失败、
 local validator coverage gate、无 gate 的失败都不会自动执行。
+
+## 5.73 2026-07-04 validation required-command chained gate bridge
+
+`37ebc22` keyed rerun 证明 validation bridge 已 live-trigger，但也暴露了 staged validation gate 的第二层缺口。bridge
+执行了 first-hop changed-artifact command `python transform.py`，该命令随后被 output-contract gate 拒绝，并返回更严格的
+combined command `python transform.py && python -m jsonschema -i organization.json schema.json`。旧 bridge 没继续追这条 nested
+gate command，而是把 first-hop gate rejection 记录成 failed Test，导致 runtime 从内部 gate rejection 创建 validation rework。
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260704cc-validation-bridge/runs/terminal_bench__organization-json-generator/20260704-182700-317
+reported_evidence_level: E2-candidate
+outcome_standard: solved
+outcome_taskspace: engineering_unclean
+right_tool_call_count: 10
+right_public_validation_exit_code: 1
+final_hard_stop: provider_node_request_hard_limit_exceeded request_count=14/20 node_kind=implement_solution node_request_count=6/5
+```
+
+本轮新增并 focused 修复的问题类型：
+
+| Case | Before | After | Evidence |
+|---|---|---|---|
+| `validation-required-command-bridge-one-hop-only` | bridge 执行 first-hop `python transform.py` 后，把 output-contract gate rejection 记录为 failed Test，并提前进入 validation rework | bridge 最多追 3 次 changed-artifact/output-contract gate 链；nested gate 使用 `TaskSpaceValidationRequiredCommandBootstrapChainedV1` 记录；只把最终命令结果写入 `ActionClass::Test` | keyed rerun `20260704-182700-317`; CoE H-083/E-176/E-177; `validation_required_command_bridge`; `validation_needs_test`; `action_contract_prompt`; `validation_rework` |
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core validation_required_command_bridge --lib --locked
+  PASS: 3/3
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core validation_needs_test --lib --locked
+  PASS: 1/1
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core action_contract_prompt --lib --locked
+  PASS: 29/29
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core validation_rework --lib --locked
+  PASS: 25/25
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+  PASS
+
+git diff --check
+  PASS
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-cli --bin whale --locked
+  PASS
+```
+
+边界说明：这仍不是执行任意模型建议命令。链式 bridge 只追 TaskSpace 自己的 changed-artifact/output-contract
+coverage gate 产出的 stricter exact command，并有固定 3-hop 上限；同一命令不会自循环。

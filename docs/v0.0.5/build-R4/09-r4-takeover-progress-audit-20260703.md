@@ -2785,6 +2785,36 @@ final_hard_stop: provider_request_hard_limit_exceeded request_count=20/20 node_k
 `organization-json-generator`，确认 live trace 是否出现 `TaskSpaceValidationRequiredCommandBootstrapV1` 且不再在 smoke_test
 因 ignored recovery guidance 耗尽预算。
 
+## 19. 2026-07-04 validation bridge one-hop chained gate gap
+
+`37ebc22` keyed rerun 证明 validation bridge 已触发，但还只处理了一跳。它执行了 changed-artifact gate 给出的
+`python transform.py`，随后 output-contract gate 给出更严格的 combined command。旧 bridge 没继续追第二跳，直接把第一跳
+gate rejection 记录为 failed Test。
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260704cc-validation-bridge/runs/terminal_bench__organization-json-generator/20260704-182700-317
+reported_evidence_level: E2-candidate
+outcome_standard: solved
+outcome_taskspace: engineering_unclean
+right_tool_call_count: 10
+right_public_validation_exit_code: 1
+final_hard_stop: provider_node_request_hard_limit_exceeded request_count=14/20 node_kind=implement_solution node_request_count=6/5
+```
+
+问题类型收录：
+
+| 字段 | 内容 |
+|---|---|
+| case | `validation-required-command-bridge-one-hop-only` |
+| 层级 | validation runtime bridge / gate-to-gate command chain |
+| 本质 | runtime bridge 只执行 first-hop exact command，未追 nested output-contract gate 的 stricter command |
+| 非根因 | 不是 bridge 没触发；不是 output-contract gate 错；不是真实 validator 已失败 |
+| 修复 | bridge 在 3-hop 上限内追 changed-artifact/output-contract gate 链；中间 gate output 留在 transcript，但只把最终命令结果写成 `ActionClass::Test` |
+| focused evidence | CoE H-083/E-176/E-177；`validation_required_command_bridge` 3/3；`validation_needs_test`; `action_contract_prompt`; `validation_rework`; fmt/check/build |
+
+状态：focused 修复已编码。下一步需要 attestation + keyed rerun，验证 trace 是否出现
+`TaskSpaceValidationRequiredCommandBootstrapChainedV1`，并确认 rework 不再从 first-hop gate rejection 开始。
+
 ## 10. 2026-07-04 validation rework patch directive buried after evidence
 
 `431e0ee` 的 keyed rerun 没有复现 block-rejection wording path，说明 H-069 仍需下一次命中该分支才能 live-clear。该轮暴露
