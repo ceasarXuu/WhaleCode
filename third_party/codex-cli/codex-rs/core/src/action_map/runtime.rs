@@ -11487,6 +11487,16 @@ fn projection_critical_artifact_evidence(
                 return evidence;
             }
         }
+        if let Some(failed_edit) =
+            node_recent_failed_action_summary(map, current_node, ActionClass::Edit)
+        {
+            evidence.push(format!(
+                "failed_edit_feedback signal=latest_failed_edit\n{failed_edit}\nnext_action=correct the failed apply_patch; do not finish_node until a successful edit result is recorded"
+            ));
+            if evidence.len() >= max_results {
+                return evidence;
+            }
+        }
         for (artifact, result_id) in implement_node_validation_rework_artifact_read_results(
             map,
             current_node,
@@ -11894,7 +11904,15 @@ fn projection_next_valid_actions(
                     })
                     .cloned()
                     .collect::<Vec<_>>();
-                let mut actions = if visible_target_reads.is_empty() {
+                let mut actions = Vec::new();
+                if let Some(failed_edit) =
+                    node_recent_failed_action_summary(map, node, ActionClass::Edit)
+                {
+                    actions.push(format!(
+                        "failed_edit_feedback: {failed_edit}; next action must correct that apply_patch or refresh only the same target context if the failed hunk was stale/truncated"
+                    ));
+                }
+                actions.extend(if visible_target_reads.is_empty() {
                     validation_rework_artifacts
                         .iter()
                         .take(4)
@@ -11924,7 +11942,7 @@ fn projection_next_valid_actions(
                             )
                         })
                         .collect::<Vec<_>>()
-                };
+                });
                 let patch_artifacts = if visible_target_reads.is_empty() {
                     validation_rework_artifacts.clone()
                 } else if !refresh_target_reads.is_empty() {
@@ -11957,7 +11975,7 @@ fn projection_next_valid_actions(
                     );
                 }
                 actions.push(
-                    "taskspace_control(action=finish_node) into smoke_test/regression_test after successful edit"
+                    "do not taskspace_control(action=finish_node) until this node records a successful edit result"
                         .to_string(),
                 );
                 return actions;
@@ -12041,9 +12059,9 @@ fn projection_allowed_actions_for_node(map: &ActionMapInstance, node: &MapNode) 
                     .iter()
                     .any(|(_, result_id)| node_has_failed_edit_after_result(map, node, result_id))
                 {
-                    return "read, edit, control (only same validation rework target refresh reads are allowed after a failed edit; unrelated read/search remains blocked)".to_string();
+                    return "read, edit, control(block_node only; finish_node blocked until successful edit; only same validation rework target refresh reads are allowed after a failed edit)".to_string();
                 }
-                return "edit, control (read/search of already visible validation rework targets will be blocked until a successful edit)".to_string();
+                return "edit, control(block_node only; finish_node blocked until successful edit; read/search of already visible validation rework targets will be blocked)".to_string();
             }
         }
     }
@@ -33475,6 +33493,18 @@ def build_organization():\n\
                 .any(|action| action.contains("apply_patch") && action.contains("generate_org.py")),
             "{actions_after_read:?}"
         );
+        assert!(
+            actions_after_read
+                .iter()
+                .any(|action| action.contains("do not taskspace_control(action=finish_node)")),
+            "{actions_after_read:?}"
+        );
+        assert!(
+            !actions_after_read
+                .iter()
+                .any(|action| action.starts_with("taskspace_control(action=finish_node)")),
+            "{actions_after_read:?}"
+        );
         let critical_evidence =
             projection_critical_artifact_evidence(map, Some(&rework_node_id), 4, 240);
         assert!(
@@ -33554,10 +33584,40 @@ def build_organization():\n\
         let actions_after_failed_edit =
             projection_next_valid_actions(map, Some(&rework_node_id), None, &[]);
         assert!(
+            actions_after_failed_edit
+                .iter()
+                .any(|action| action.contains("failed_edit_feedback")
+                    && action.contains("failed-context-patch")
+                    && action.contains("apply_patch")),
+            "{actions_after_failed_edit:?}"
+        );
+        assert!(
             actions_after_failed_edit.iter().any(|action| action.contains(
                 "read_file validation rework target artifact `generate_org.py` once to refresh context after failed edit"
             )),
             "{actions_after_failed_edit:?}"
+        );
+        assert!(
+            actions_after_failed_edit
+                .iter()
+                .any(|action| action.contains("do not taskspace_control(action=finish_node)")),
+            "{actions_after_failed_edit:?}"
+        );
+        assert!(
+            !actions_after_failed_edit
+                .iter()
+                .any(|action| action.starts_with("taskspace_control(action=finish_node)")),
+            "{actions_after_failed_edit:?}"
+        );
+        let critical_after_failed_edit =
+            projection_critical_artifact_evidence(map, Some(&rework_node_id), 4, 240);
+        assert!(
+            critical_after_failed_edit
+                .iter()
+                .any(|evidence| evidence.contains("signal=latest_failed_edit")
+                    && evidence.contains("failed-context-patch")
+                    && evidence.contains("apply_patch verification failed")),
+            "{critical_after_failed_edit:?}"
         );
         let rework_node_after_failed_edit = map.nodes.get(&rework_node_id).expect("rework node");
         let allowed_after_failed_edit =

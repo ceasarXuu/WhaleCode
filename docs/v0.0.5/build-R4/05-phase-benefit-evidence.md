@@ -3605,3 +3605,72 @@ CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/co
 状态：该 formatter-level feedback semantic class 已 focused fixed，并通过 fmt/diff/build；还需要 commit/push、binary attestation
 和下一轮 keyed rerun。下一轮期望 `result-8` 或等价 failed validation result body 明确包含
 `TaskSpaceToolSemanticSummaryV1`，且 downstream `repair_contract` 包含全部 six statistics required fields。
+
+## 5.53 2026-07-04 failed edit feedback must be projection-critical
+
+`ed3252a` 的 keyed rerun 证明上一节 formatter-level schema summary 已进入 live path：失败 validation 输出和 active
+projection 都包含完整的 `members + six statistics required fields` repair contract。该 run 没有再卡在 schema
+语义截断，而是暴露下一层 feedback/projection 问题。
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260703ao-exec-summary/runs/terminal_bench__organization-json-generator/20260704-085030-109
+reported_evidence_level: E2-candidate
+outcome_standard: solved
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 11
+right_open_leaf_nodes: 1
+public_validation_exit_code: 1
+hidden_oracle_exit_code: 0
+preflight_git_head: ed3252a9db7d09b5e9e76e31fe7e56c59e464d13
+build_attestation_status: pass
+```
+
+关键观察：
+
+| Signal | 结论 |
+|---|---|
+| `whale-exec.stderr.log` 中 failed jsonschema output 以 `TaskSpaceToolSemanticSummaryV1` 开头 | exec formatter summary 已在真实 shell path 生效 |
+| projection 中 `validation_rework_schema_repair` 包含 `members, averageDepartmentBudget, totalEmployees, skillDistribution, departmentSizes, projectStatusDistribution, averageYearsOfService` | repair contract 完整传给 TaskSpace |
+| 后续 `apply_patch` 失败为 `Failed to find expected lines`，hunk 引用了不存在的 `return { ... }` block | 新 blocker 转为 patch feedback/recovery |
+| runtime 两次拒绝 `finish_node`：`cannot be completed without a recorded successful edit action` | 状态机底线正确 |
+| active projection 仍在 no-successful-edit 状态暴露 `taskspace_control(action=finish_node) ... after successful edit` | provider-visible `next_valid_actions` 混入条件性未来动作，模型把它当成立即合法 |
+| failed edit 只在 recovery 文本 / hidden refs 中出现，未进入 `critical_artifact_evidence` | failed edit 反馈可见性不够硬，导致 repeated finish/budget drain |
+
+本轮新增并 focused 修复的问题类型：
+
+| Case | Before | After | Evidence |
+|---|---|---|---|
+| `failed-edit-projection-recovery-dilution` | failed `apply_patch` 结果存在，但 active projection 没有把它列为 critical evidence；`next_valid_actions` 同时展示 corrected patch 和条件性 future finish，模型继续声明 edit succeeded 并 finish | `projection_critical_artifact_evidence` 增加 `failed_edit_feedback signal=latest_failed_edit`；validation rework 在无成功 edit 前不再暴露 immediate `finish_node` next action；allowed-actions 文本明确 `finish_node` blocked until successful edit，仍保留必要的同目标 refresh read | `validation_rework_allows_changed_artifact_read_when_schema_failure_lacks_traceback`; `validation_rework`; `validation_`; `apply_patch_` |
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked validation_rework
+  PASS：17 tests
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked validation_
+  PASS：94 tests
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked apply_patch_
+  PASS：35 tests
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked schema_summary
+  PASS：2 tests
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked taskspace_preview_
+  PASS：2 tests
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+  PASS
+
+git diff --check
+  PASS
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-cli --bin whale --locked
+  PASS
+```
+
+状态：该 projection/feedback class 已 focused fixed，并通过 diff/build；还需要 commit/push、binary attestation
+和下一轮 keyed rerun。下一轮期望 failed edit 后 projection 明确显示 latest failed edit，且不会再把
+`finish_node` 作为当前 next action 暴露给模型。

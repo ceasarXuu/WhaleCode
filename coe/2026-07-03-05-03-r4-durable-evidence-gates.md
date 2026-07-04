@@ -2362,3 +2362,62 @@
   - `taskspace_preview_` still preserves ToolOutput-level semantics and avoids adding schema summaries to plain output.
   - `validation_rework_projects_schema_repair_contract_from_schema_read` still parses the semantic summary into the repair contract.
 - Interpretation: H-042 is focused-fixed at the formatter/build level. Commit/push, attestation, and another live rerun are still required before claiming the live `shell_command` path is fixed.
+
+# Evidence E-093: ed3252a live rerun validates schema summary and exposes failed-edit projection dilution
+
+- Prediction tested: H-042 predicted that moving the schema summary to the exec formatter would make the live `shell_command` path carry complete schema required-property semantics into ActionMap/projection.
+- Real rerun:
+  ```text
+  RunDir: target/r4-org-json-real-keyed-20260703ao-exec-summary/runs/terminal_bench__organization-json-generator/20260704-085030-109
+  PairReport: pair-001/pair-report.md
+  reported_evidence_level: E2-candidate
+  outcome_standard: solved
+  outcome_taskspace: engineering_unclean
+  right_exec_timed_out: False
+  right_tool_call_count: 11
+  right_open_leaf_nodes: 1
+  public_validation_exit_code: 1
+  hidden_oracle_exit_code: 0
+  preflight_git_head: ed3252a9db7d09b5e9e76e31fe7e56c59e464d13
+  build_attestation_status: pass
+  ```
+- Result: supported H-042 for the live shell path, but revealed a new downstream feedback/projection failure.
+- Matched schema-summary signals:
+  - `whale-exec.stderr.log` starts the failed jsonschema output with `TaskSpaceToolSemanticSummaryV1` and `missing_required_properties: members, averageDepartmentBudget, totalEmployees, skillDistribution, departmentSizes, projectStatusDistribution, averageYearsOfService`.
+  - `rollout.jsonl` active projection includes `validation_rework_schema_repair` with the same full repair contract and `target_artifacts=build_organization.py, build_organization.py:68`.
+- New blocker signals:
+  - `apply_patch` failed with `Failed to find expected lines in .../build_organization.py` because the submitted hunk referenced a non-existent `return { ... }` block.
+  - `TaskSpaceEditFailureRecoveryV1` preserved the failed edit feedback, and runtime rejected repeated `finish_node` attempts with `cannot be completed without a recorded successful edit action`.
+  - The active projection still exposed conditional/future guidance as `taskspace_control(action=finish_node) ... after successful edit`, and failed edit feedback was only available through recovery text / hidden refs rather than as `critical_artifact_evidence`.
+  - The run ended on `TaskSpaceProviderBudgetHardStopV1 reason=provider_node_request_hard_limit_exceeded` after the model continued claiming the edit had already succeeded.
+- Interpretation: The schema semantic truncation class is live-fixed. The active blocker is now `failed-edit-projection-recovery-dilution`: the failed edit result is present but not strong enough in provider-visible projection semantics, and `next_valid_actions` contains a conditional future finish action that the model treats as immediately valid.
+
+# Hypothesis H-043: failed edit feedback is not promoted into provider-visible projection constraints
+
+- Claim: In validation rework after a failed `apply_patch`, `TaskSpaceEditFailureRecoveryV1` carries the failure text, but `ContextProjectionV1` does not promote the failed edit into `critical_artifact_evidence`; `next_valid_actions` also advertises `finish_node` as a conditional future action before a successful edit exists. This dilutes the state-machine guard: runtime rejects premature `finish_node`, but each rejection consumes another provider turn until budget hard stop.
+- Prediction: A focused projection regression should show that after a failed edit on a validation rework node, projection contains `failed_edit_feedback signal=latest_failed_edit`, `next_valid_actions` contains the failed edit / corrected apply_patch instruction, and no `taskspace_control(action=finish_node)` next action is exposed until a successful edit result exists.
+- Diagnostic evidence plan: Update `projection_critical_artifact_evidence`, `projection_next_valid_actions`, and the compact allowed-actions text; run `validation_rework`, `validation_`, `apply_patch_`, schema-summary/tool-preview tests, fmt/diff/build, then commit/attest/rerun.
+- Status: confirmed.
+
+# Evidence E-094: failed edit projection now makes repair immediate and hides premature finish
+
+- Prediction tested: H-043 predicts the failed edit must become provider-visible projection evidence and that `finish_node` must not be listed as a current next action before a successful edit.
+- Repair artifact:
+  - `third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs`
+- Focused validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked validation_rework
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked validation_
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked apply_patch_
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked schema_summary
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked taskspace_preview_
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+  git diff --check
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-cli --bin whale --locked
+  ```
+- Result: passed. `validation_rework` is 17/17, `validation_` is 94/94, `apply_patch_` is 35/35, `schema_summary` is 2/2, `taskspace_preview_` is 2/2, fmt/diff checks pass, and the `whale` binary build passes.
+- Matched test signals:
+  - `validation_rework_allows_changed_artifact_read_when_schema_failure_lacks_traceback` now asserts that after a validation rework target read, projection contains `do not taskspace_control(action=finish_node)` and no immediate `taskspace_control(action=finish_node)` next action.
+  - After a failed edit, the same regression asserts `failed_edit_feedback` names the failed patch result and `projection_critical_artifact_evidence` includes `signal=latest_failed_edit`.
+  - Allowed-action text now says `finish_node` is blocked until successful edit while preserving the one allowed same-target refresh read after a failed edit.
+- Interpretation: H-043 is focused-fixed at projection/feedback/build level. Commit/push, attestation, and live rerun are still required before claiming this downstream blocker is cleared.

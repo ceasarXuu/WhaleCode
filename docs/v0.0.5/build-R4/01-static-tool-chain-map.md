@@ -440,3 +440,17 @@ feedback-layer 语义保真问题：真实 `jsonschema` 输出包含所有缺失
 边界说明：该 case 是“语义缺失”，不是模型不服从，也不是 validation gate 判断错误。完整失败语义在 shell command
 原始输出中存在，但进入 FunctionToolOutput / ActionMap 的 body 已经被 exec formatter / telemetry preview 截断。修复只提升结构化
 failure summary，不扩大 raw output 窗口，也不把任意长输出直接暴露给 provider/map。
+
+## 2026-07-04 R4-D issue type addendum: failed-edit projection dilution
+
+schema formatter 修复后的 keyed rerun 证明 required-property repair contract 已完整进入 live projection，但下一层
+`apply_patch` context mismatch 失败后，模型仍反复声明 edit 已成功并尝试 finish。runtime guard 正确拒绝 finish，
+但 provider-visible projection 没有把 failed edit 作为当前最重要的 critical evidence。
+
+| Issue type | Layer | Symptom | Resolution contract | Evidence |
+|---|---|---|---|---|
+| `failed-edit-projection-recovery-dilution` | feedback + provider projection + control loop | failed `apply_patch` 结果存在，`TaskSpaceEditFailureRecoveryV1` 也保留失败文本，但 active projection 仍把条件性 future `finish_node after successful edit` 混进 `next_valid_actions`；failed edit 仅在 hidden refs / recovery 文本里，模型继续 `finish_node` 到 node budget hard stop | failed edit 晋升为 `critical_artifact_evidence` 的 `failed_edit_feedback signal=latest_failed_edit`；validation rework 在无成功 edit 前不暴露 immediate `taskspace_control(action=finish_node)`；allowed-actions 明确 finish blocked until successful edit，同时保留必要的同目标 refresh read | `validation_rework_allows_changed_artifact_read_when_schema_failure_lacks_traceback`; `validation_rework`; `validation_`; `apply_patch_`; CoE E-093/H-043/E-094 |
+
+边界说明：该 case 不是工具失败语义完全缺失，也不是状态机允许了非法 finish。状态机已经正确拒绝 finish；缺口在
+projection 把“成功 edit 之后的下一步”当作当前候选动作展示，并没有把 failed edit 作为最高优先级反馈。修复保持
+runtime 底线不变，只收紧 provider-visible next action 语义。
