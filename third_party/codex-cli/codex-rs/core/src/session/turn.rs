@@ -8856,6 +8856,21 @@ tax_calc.py\n\
     }
 
     #[test]
+    fn missing_fact_source_bootstrap_command_uses_workspace_relative_paths() {
+        let command = taskspace_missing_fact_source_bootstrap_command(&[
+            "/employees.csv".to_string(),
+            "/data/projects.csv".to_string(),
+        ]);
+
+        assert!(command.contains("employees.csv"));
+        assert!(command.contains("data/projects.csv"));
+        assert!(!command.contains(" /employees.csv"));
+        assert!(!command.contains(" /data/projects.csv"));
+        assert!(!command.contains("-- /employees.csv"));
+        assert!(!command.contains("-- /data/projects.csv"));
+    }
+
+    #[test]
     fn provider_budget_does_not_reduce_tools_for_implementation_request() {
         assert_eq!(
             taskspace_provider_tool_visibility_for_budget(
@@ -11576,24 +11591,44 @@ async fn run_taskspace_duplicate_read_search_bootstrap_then_force(
     snapshot: crate::action_map::ActionMapProviderRequestBudgetSnapshot,
     cancellation_token: CancellationToken,
 ) -> CodexResult<Option<ResponseItem>> {
+    run_taskspace_inspect_bootstrap_then_force(
+        tool_runtime,
+        sess,
+        turn_context,
+        snapshot,
+        TASKSPACE_REPEATED_BLOCKED_INSPECT_BOOTSTRAP_CALL_ID,
+        taskspace_repeated_blocked_inspect_bootstrap_command(),
+        "TaskSpaceRepeatedBlockedInspectBootstrapV1 executed bounded source/test/data artifact reads after repeated duplicate inspect read/search.",
+        "inspect_duplicate_read_search_bootstrap_complete",
+        cancellation_token,
+    )
+    .await
+}
+
+async fn run_taskspace_inspect_bootstrap_then_force(
+    tool_runtime: ToolCallRuntime,
+    sess: Arc<Session>,
+    turn_context: Arc<TurnContext>,
+    snapshot: crate::action_map::ActionMapProviderRequestBudgetSnapshot,
+    call_id_prefix: &str,
+    command: &str,
+    event_message: &str,
+    trigger: &str,
+    cancellation_token: CancellationToken,
+) -> CodexResult<Option<ResponseItem>> {
     run_taskspace_inspect_bootstrap(
         tool_runtime,
         sess.clone(),
         turn_context.clone(),
         snapshot.request_count,
-        TASKSPACE_REPEATED_BLOCKED_INSPECT_BOOTSTRAP_CALL_ID,
-        taskspace_repeated_blocked_inspect_bootstrap_command(),
-        "TaskSpaceRepeatedBlockedInspectBootstrapV1 executed bounded source/test/data artifact reads after repeated duplicate inspect read/search.",
+        call_id_prefix,
+        command,
+        event_message,
         cancellation_token,
     )
     .await?;
-
     match sess
-        .force_finish_action_map_inspect_for_provider_budget(
-            &turn_context,
-            snapshot,
-            "inspect_duplicate_read_search_bootstrap_complete",
-        )
+        .force_finish_action_map_inspect_for_provider_budget(&turn_context, snapshot, trigger)
         .await
     {
         Ok(true) => Ok(Some(
@@ -11605,7 +11640,7 @@ async fn run_taskspace_duplicate_read_search_bootstrap_then_force(
                 &turn_context,
                 EventMsg::Warning(WarningEvent {
                     message: format!(
-                        "TaskSpaceForcedInspectTransitionFailedV1 trigger=inspect_duplicate_read_search_bootstrap_complete error={error}"
+                        "TaskSpaceForcedInspectTransitionFailedV1 trigger={trigger} error={error}"
                     ),
                 }),
             )
@@ -13789,22 +13824,23 @@ fn taskspace_missing_fact_source_bootstrap_command(artifacts: &[String]) -> Stri
         .iter()
         .take(4)
         .map(|artifact| {
+            let read_path = taskspace_fact_source_bootstrap_read_path(artifact);
             if cfg!(windows) {
                 format!(
                     "Write-Output {:?}; {}",
-                    format!("===== {artifact}"),
-                    taskspace_read_file_command(artifact)
+                    format!("===== {read_path}"),
+                    taskspace_read_file_command(&read_path)
                 )
             } else {
                 let header_command = codex_shell_command::parse_command::shlex_join(&[
                     "printf".to_string(),
                     "===== %s\\n".to_string(),
-                    artifact.to_string(),
+                    read_path.clone(),
                 ]);
                 format!(
                     "{}; {}",
                     header_command,
-                    taskspace_read_file_command(artifact)
+                    taskspace_read_file_command(&read_path)
                 )
             }
         })
@@ -13814,6 +13850,21 @@ fn taskspace_missing_fact_source_bootstrap_command(artifacts: &[String]) -> Stri
     } else {
         commands.join("\n")
     }
+}
+
+fn taskspace_fact_source_bootstrap_read_path(artifact: &str) -> String {
+    let normalized = artifact.trim().replace('\\', "/");
+    let normalized = normalized.trim_start_matches("./");
+    if cfg!(windows) {
+        return normalized.to_string();
+    }
+    if normalized.starts_with('/') && !normalized.starts_with("//") {
+        let relative = normalized.trim_start_matches('/');
+        if !relative.is_empty() {
+            return relative.to_string();
+        }
+    }
+    normalized.to_string()
 }
 
 fn taskspace_repeated_blocked_inspect_bootstrap_command() -> &'static str {
@@ -15708,18 +15759,18 @@ async fn try_run_sampling_request(
                                     Some(build_taskspace_forced_inspect_transition_recovery_item())
                                 }
                                 Ok(false) => {
-                                    run_taskspace_inspect_bootstrap(
+                                    run_taskspace_inspect_bootstrap_then_force(
                                         tool_runtime.clone(),
                                         sess.clone(),
                                         turn_context.clone(),
-                                    snapshot.request_count,
-                                    TASKSPACE_REPEATED_BLOCKED_INSPECT_BOOTSTRAP_CALL_ID,
-                                    taskspace_repeated_blocked_inspect_bootstrap_command(),
-                                    "TaskSpaceRepeatedBlockedInspectBootstrapV1 executed bounded source/test reads after an inspect_code_context action repeated an already-blocked diagnostic command.",
-                                    cancellation_token.child_token(),
-                                )
-                                    .await?;
-                                    None
+                                        snapshot,
+                                        TASKSPACE_REPEATED_BLOCKED_INSPECT_BOOTSTRAP_CALL_ID,
+                                        taskspace_repeated_blocked_inspect_bootstrap_command(),
+                                        "TaskSpaceRepeatedBlockedInspectBootstrapV1 executed bounded source/test reads after an inspect_code_context action repeated an already-blocked diagnostic command.",
+                                        "inspect_repeated_blocked_action_bootstrap_complete",
+                                        cancellation_token.child_token(),
+                                    )
+                                    .await?
                                 }
                                 Err(error) => {
                                     sess.send_event(
@@ -16211,18 +16262,25 @@ async fn try_run_sampling_request(
                                 forced_transition = true;
                             }
                             Ok(false) => {
-                                run_taskspace_inspect_bootstrap(
+                                if let Some(forced_item) =
+                                    run_taskspace_inspect_bootstrap_then_force(
                                     tool_runtime.clone(),
                                     sess.clone(),
                                     turn_context.clone(),
-                                    snapshot.request_count,
-                                    TASKSPACE_REPEATED_BLOCKED_INSPECT_BOOTSTRAP_CALL_ID,
-                                    taskspace_repeated_blocked_inspect_bootstrap_command(),
-                                    "TaskSpaceRepeatedBlockedInspectBootstrapV1 executed bounded source/test reads after progress stayed unchanged on a repeated blocked diagnostic command.",
-                                    cancellation_token.child_token(),
-                                )
-                                .await?;
-                                repeated_block_bootstrap = true;
+                                        snapshot.clone(),
+                                        TASKSPACE_REPEATED_BLOCKED_INSPECT_BOOTSTRAP_CALL_ID,
+                                        taskspace_repeated_blocked_inspect_bootstrap_command(),
+                                        "TaskSpaceRepeatedBlockedInspectBootstrapV1 executed bounded source/test reads after progress stayed unchanged on a repeated blocked diagnostic command.",
+                                        "inspect_repeated_blocked_action_bootstrap_complete",
+                                        cancellation_token.child_token(),
+                                    )
+                                    .await?
+                                {
+                                    result.taskspace_no_action_recovery_item = Some(forced_item);
+                                    forced_transition = true;
+                                } else {
+                                    repeated_block_bootstrap = true;
+                                }
                             }
                             Err(error) => {
                                 sess.send_event(

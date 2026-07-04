@@ -1143,3 +1143,17 @@ validation 被 local infrastructure 阻塞。
 边界说明：旧 blocker evidence 不会被删除，仍保留在 replayable state 和 evidence trail 中。但一旦同一 active
 map 已有 accepted successful validation result，终态反馈必须表达“验证已通过，可以 final_answer”，不能再把旧 blocker
 提升为用户可见 blocked。
+
+## 2026-07-05 R4-D issue type addendum: missing fact-source bootstrap root path and fallback transition gap
+
+`fc5c7a8` 安装后 keyed rerun 未能再次到达 H-120 final closeout，而是在 inspect 早期 hard-stop：
+runtime 试图自动读取缺失 CSV fact sources，但把 `/employees.csv`、`/departments.csv`、`/data/projects.csv`
+当作 shell 绝对路径执行，导致读失败。后续 fallback 虽然读到了相对 CSV sections，但没有立即 forced transition，
+provider 又重复 schema/list 直到 node budget hard stop。
+
+| Issue type | Layer | Symptom | Resolution contract | Evidence |
+|---|---|---|---|---|
+| `inspect-bootstrap-root-path-transition-gap` | feedback + capability + phase gate | missing fact-source bootstrap 用 `/employees.csv` 绝对路径读失败；fallback 读到 CSV sections 后仍未进入 implementation | 已实现：bootstrap read path 将 workspace-root-style `/...` 归一化为相对路径；relative `=====` sections 可满足 root-style required refs；fallback bootstrap 读完后立即尝试 forced inspect transition | keyed rerun `20260705-041253-955`; CoE H-121/E-245/E-246; focused tests `missing_fact_source_bootstrap_command_uses_workspace_relative_paths`, `inspect_missing_fact_sources_accept_relative_sections_for_root_refs`, `inspect_missing_fact_source`, `forced_inspect_transition` |
+
+边界说明：该修复不把任意宿主绝对路径开放给工具。TaskSpace artifact ref 在 benchmark sandbox 中是工作区相对语义；
+自动 bootstrap 只把这种 root-style workspace artifact 转成相对读取命令，仍通过普通 sandboxed shell 读取。

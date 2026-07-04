@@ -1702,6 +1702,48 @@ CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
 git diff --check
 ```
 
+## 5.97 2026-07-05 inspect bootstrap root path and fallback transition
+
+`fc5c7a8` 安装后 keyed rerun 没有再次走到 successful validation closeout；新的 failure 提前出现在 inspect：
+missing fact-source bootstrap 用 `/employees.csv`、`/departments.csv`、`/data/projects.csv` 作为 shell 绝对路径，
+在 sandbox 工作目录内读失败。后续 repeated-blocked fallback 读到了 CSV sections，但没有立即 forced transition，
+provider 重复 `read_file schema.json` / `list_files` 后触发 inspect node budget hard-stop。
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260705ao-success-closeout-final-gate/runs/terminal_bench__organization-json-generator/20260705-041253-955
+reported_evidence_level: E1
+outcome_standard: wrong
+outcome_taskspace: wrong
+right_tool_call_count: 8
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+right_nodes: 1
+right_open_leaf_nodes: 1
+final_marker: TaskSpaceProviderBudgetHardStopV1 reason=provider_node_request_hard_limit_exceeded node_kind=inspect_code_context
+```
+
+收益判断：
+
+1. 新问题类型是 `inspect-bootstrap-root-path-transition-gap`：bootstrap 能力层把 workspace-root artifact ref
+   当成宿主绝对路径；反馈/控制层没有在 fallback evidence 后立即推进阶段。
+2. focused fix 后，missing fact-source bootstrap 读取相对路径 `employees.csv` / `data/projects.csv`。
+3. runtime 覆盖匹配接受 relative `=====` section headers 满足 root-style required fact-source refs。
+4. repeated-blocked fallback bootstrap 改为读完后立即尝试 forced inspect transition，减少下一轮模型继续重复 discovery 的机会。
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core missing_fact_source_bootstrap_command_uses_workspace_relative_paths -- --nocapture
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core inspect_missing_fact_sources_accept_relative_sections_for_root_refs -- --nocapture
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core inspect_missing_fact_source -- --nocapture
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core forced_inspect_transition -- --nocapture
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core action_contract_prompt -- --nocapture
+cargo fmt --check
+CODEX_SKIP_VENDORED_BWRAP=1 cargo check -p codex-core
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
+git diff --check
+```
+
 ## 5.95 2026-07-05 generic CSV input fact-source coverage
 
 `c8d2359` 后 keyed rerun 证明 H-118 live-clear，但 inspect 阶段没有把泛化 `CSV files` 要求扩展成具体 CSV

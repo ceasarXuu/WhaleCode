@@ -25450,6 +25450,59 @@ TaskSpaceReadFileSummaryV1: path=projects.csv lines_read=2 eof_reached=true max_
     }
 
     #[test]
+    fn inspect_missing_fact_sources_accept_relative_sections_for_root_refs() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::InspectCodeContext,
+            "Inspect organization data",
+            "Read every CSV fact source before implementation.",
+            "Inspect organization data",
+            "Read every CSV fact source before implementation.",
+            true,
+        );
+        record_required_fact_source_artifacts(
+            &mut state,
+            owner,
+            &["/employees.csv", "/departments.csv", "/data/projects.csv"],
+        );
+
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "fallback-bootstrap",
+                "shell_command",
+                Some(ActionClass::Read),
+                true,
+                "TaskSpaceToolInvocationV1:\n\
+tool: shell_command\n\
+command: fallback section read\n\
+raw_output:\n\
+===== employees.csv\n\
+id,department_id,name\n\
+E001,D001,Ada Lovelace\n\
+===== departments.csv\n\
+id,name,budget\n\
+D001,Engineering,1500000\n\
+===== data/projects.csv\n\
+name,status,department_id\n\
+Platform,In Progress,D001\n"
+                    .to_string(),
+            )
+            .expect("fallback bootstrap fact-source read records");
+
+        assert!(
+            state
+                .current_main_inspect_missing_required_fact_source_artifacts()
+                .is_empty(),
+            "relative section headers should satisfy root-style fact-source refs"
+        );
+    }
+
+    #[test]
     fn inspect_missing_fact_source_bootstrap_complete_forces_transition_after_coverage() {
         let mut state = ActionMapRuntimeState::default();
         let owner = ThreadId::new();

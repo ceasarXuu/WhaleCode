@@ -7206,3 +7206,69 @@
     PASS
   ```
 - Interpretation: H-120 is focused-fixed. Remaining gates are commit/push, install/attest, and keyed rerun to verify the final user-visible message becomes `final_answer` after successful validation.
+
+# Evidence E-245: H-120 install rerun is blocked before final closeout by inspect bootstrap path/transition failures
+
+- Real rerun:
+  ```text
+  RunDir: target/r4-org-json-real-keyed-20260705ao-success-closeout-final-gate/runs/terminal_bench__organization-json-generator/20260705-041253-955
+  installed_whale_sha256: 98233b9792f2c7a901f8d0073e72ab4280b527930a2632f03c2e3ec2996869fb
+  reported_evidence_level: E1
+  outcome_standard: wrong
+  outcome_taskspace: wrong
+  right_exec_timed_out: False
+  right_tool_call_count: 8
+  right_public_validation_exit_code: 1
+  right_hidden_oracle_exit_code: 0
+  right_nodes: 1
+  right_open_leaf_nodes: 1
+  final_marker: TaskSpaceProviderBudgetHardStopV1 reason=provider_node_request_hard_limit_exceeded node_kind=inspect_code_context
+  ```
+- H-120 live status:
+  - This run did not reach successful validation closeout, so it does not validate or refute H-120 live behavior.
+- New blocker signals:
+  - The model repeated `read_file schema.json`; runtime attempted `TaskSpaceMissingFactSourceBootstrapV1`.
+  - The bootstrap command used `/employees.csv`, `/departments.csv`, and `/data/projects.csv`, causing `sed: can't read ... No such file or directory` inside the sandbox workdir.
+  - A later repeated-blocked fallback command did read `employees.csv`, `departments.csv`, `projects.csv`, and data copies through `=====` sections, but the recovery branch did not immediately force inspect transition after that fallback.
+  - The provider then repeated `read_file schema.json` / `list_files` until inspect node budget hard-stopped.
+- Interpretation: H-121 is an inspect bootstrap feedback/control issue. Missing fact-source bootstrap must use workspace-relative read paths, and repeated-blocked fallback bootstrap must immediately attempt forced inspect transition after recording bounded evidence.
+
+# Hypothesis H-121: inspect bootstrap must normalize fact-source read paths and force transition after fallback evidence
+
+- Claim: `taskspace_missing_fact_source_bootstrap_command()` treats root-style artifact refs such as `/employees.csv` as shell absolute paths, causing automatic fact-source reads to fail. Separately, repeated-blocked fallback bootstrap can record bounded CSV sections but leave transition to a later model request, allowing duplicate actions to drain the inspect node budget.
+- Prediction: A missing fact-source bootstrap command generated for `/employees.csv` and `/data/projects.csv` should read `employees.csv` and `data/projects.csv` relative to workspace. Required root-style fact sources should be satisfied by relative `=====` section headers. After fallback bootstrap records coverage, session should call forced inspect transition immediately.
+- Diagnostic evidence plan: Add session command-generation regression for root-style artifact refs and runtime coverage regression for root-style required refs plus relative section headers. Refactor inspect bootstrap fallback to run bootstrap then force finish. Run inspect missing fact-source, forced inspect, action-contract, fmt/check/build/diff gates.
+- Status: focused-fixed; live rerun pending.
+
+# Evidence E-246: inspect bootstrap path normalization and fallback transition are focused-fixed
+
+- Repair artifacts:
+  - `third_party/codex-cli/codex-rs/core/src/session/turn.rs`
+  - `third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs`
+- Repair behavior:
+  - `taskspace_fact_source_bootstrap_read_path()` strips workspace-root-style leading `/` from bootstrap read paths on Unix while preserving normal relative paths.
+  - Missing fact-source bootstrap now emits relative shell reads such as `employees.csv` and `data/projects.csv`, not `/employees.csv`.
+  - Repeated-blocked inspect fallback now uses a shared bootstrap-then-force path, so after bounded source/data reads it immediately attempts `force_finish_action_map_inspect_for_provider_budget`.
+  - Runtime coverage accepts relative `=====` section headers for root-style required fact-source refs.
+- Validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core missing_fact_source_bootstrap_command_uses_workspace_relative_paths -- --nocapture
+    PASS: 1/1
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core inspect_missing_fact_sources_accept_relative_sections_for_root_refs -- --nocapture
+    PASS: 1/1
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core inspect_missing_fact_source -- --nocapture
+    PASS: 4/4
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core forced_inspect_transition -- --nocapture
+    PASS: 6/6
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core action_contract_prompt -- --nocapture
+    PASS: 29/29
+  cargo fmt --check
+    PASS
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo check -p codex-core
+    PASS
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
+    PASS
+  git diff --check
+    PASS
+  ```
+- Interpretation: H-121 is focused-fixed. Remaining gates are commit/push, install/attest, and keyed rerun to see whether the run reaches H-120 final closeout again.

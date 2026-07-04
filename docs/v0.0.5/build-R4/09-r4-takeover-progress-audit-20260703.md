@@ -3603,7 +3603,27 @@ statistics calculations 通过。新的 blocker 是 `members` 仍为对象数组
 
 状态：focused fixed，待 commit/push、install/attest 和真实 keyed rerun。
 
+## 49. 2026-07-05 inspect bootstrap root path and fallback transition gap
+
+`fc5c7a8` 安装后 keyed rerun 没有复现 H-120 final closeout 场景，而是在 inspect 阶段提前失败。
+TaskSpace 自动 bootstrap 缺失 CSV fact sources 时用了 `/employees.csv` 这类绝对路径，导致 shell 读失败；
+fallback 后虽然读到了 CSV sections，但没有立即 forced transition，最终 inspect node budget hard-stop。
+
+| 字段 | 内容 |
+|---|---|
+| case | `inspect-bootstrap-root-path-transition-gap` |
+| 层级 | inspect bootstrap capability / fact-source feedback / phase transition control |
+| 本质 | workspace-root-style artifact ref 被当成 shell 绝对路径；fallback evidence 写入后没有立即推进 inspect -> implement |
+| 非根因 | 不是 H-119 generic CSV coverage 失效；不是 H-120 final feedback 修复回退；不是业务 validator 失败 |
+| 修复 | bootstrap read path 归一化为 workspace-relative；relative section headers 满足 root-style fact-source refs；fallback bootstrap 后立即尝试 forced inspect transition |
+| evidence | CoE H-121/E-245/E-246；keyed rerun `20260705-041253-955`; focused tests `missing_fact_source_bootstrap_command_uses_workspace_relative_paths`, `inspect_missing_fact_sources_accept_relative_sections_for_root_refs`, `inspect_missing_fact_source`, `forced_inspect_transition`, `action_contract_prompt`; fmt/check/build/diff |
+
+状态：focused fixed，待 commit/push、install/attest 和真实 keyed rerun。
+
 ## 48. 2026-07-05 successful validation closeout reported as blocked
+
+`fc5c7a8` 后补充状态：H-120 已 focused fixed 并提交，但安装后的 keyed rerun `20260705-041253-955`
+未到达 successful validation closeout，因此尚未完成 live-clear；该轮暴露 H-121。
 
 `1b1ddf9` 安装后 keyed rerun 证明 H-119 live-clear：TaskSpace 按要求读取了 schema 和三个 CSV 输入，
 最终 public validation / hidden oracle 均通过，open leaf nodes 为 0。新的问题只剩反馈终态：
