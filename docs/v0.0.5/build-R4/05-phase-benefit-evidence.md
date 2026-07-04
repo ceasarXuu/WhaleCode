@@ -4780,3 +4780,18 @@ insufficient`。runtime 接受该 blocker 后关闭 node，随后语义被扭曲
 
 边界说明：路径列表本身仍不算 implementation evidence；只有 bounded bootstrap 读取到具体 `.json/.csv/...` 文件内容后，才允许
 inspect 收敛。若显式 missing fact-source 未读完，既有 guard 仍阻止 forced finish。
+
+## 5.78 2026-07-04 validation rework recovery counter cross-node leak
+
+`f934ceb` keyed rerun 已越过 inspect duplicate list_files bootstrap，进入 validation rework。runtime 执行了 combined
+schema validation command，得到真实 schema failure：root output 缺少 `metadata` 和 `organization`。随后 `node-6`
+第一次完整读取 `processor.py` 后，runtime 直接发出 `TaskSpaceValidationReworkPatchOnlyHardStopV1 attempt_count=3`，
+而不是先给该 rework node 一次 patch-only recovery。trace 证明 `node-4` 之前已消耗两次 patch-only recovery，
+旧计数器把这些次数带到了新的 `node-6`。
+
+| Case | Before | After | Evidence |
+|---|---|---|---|
+| `validation-rework-recovery-counter-cross-node-leak` | validation rework duplicate-read/patch-only recovery 计数是 turn-global；新 rework node 可能继承旧节点次数并在首次 target read 后 hard-stop | duplicate-read 与 patch-only recovery 计数按当前 provider snapshot `node_id` 重置；同节点重复违规仍 hard-stop，跨节点不继承 | keyed rerun `20260704-192256-883`; CoE H-088/E-186/E-187; `validation_rework_recovery_count_resets_when_rework_node_changes`; `validation_rework` 26/26; `action_contract_prompt` 29/29 |
+
+边界说明：这不是放松 patch-only hard-stop。runtime 仍会在同一个 validation rework node 内把重复 read/search/discovery
+升级为 hard-stop；修复只防止旧 node 的恢复次数污染新 node。

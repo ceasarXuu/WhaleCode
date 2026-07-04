@@ -784,3 +784,16 @@ schema-context blocker 修复后的 keyed rerun 没有到 validation rework，�
 
 边界说明：路径列表仍只是 discovery，不直接允许 implementation；只有 bootstrap 读取到具体文件内容并通过 working-evidence 判定后，才会
 让 inspect 进入 implementation。
+
+## 2026-07-04 R4-D issue type addendum: validation rework recovery counter cross-node leak
+
+duplicate list_files bootstrap 修复后的 keyed rerun 已进入 validation rework。新的 failure 不是工具失败、不是 validation bridge
+失败，也不是 patch-only 语义缺失；它是 runtime feedback escalation 的状态作用域错误。`node-4` 已经消耗两次
+patch-only recovery，后续新的 `node-6` 第一次完整读取 `processor.py` 后直接被算作第 3 次并 hard-stop。
+
+| Issue type | Layer | Symptom | Resolution contract | Evidence |
+|---|---|---|---|---|
+| `validation-rework-recovery-counter-cross-node-leak` | validation rework recovery escalation / feedback-control lifecycle | 新 validation rework node 继承旧 node 的 patch-only/duplicate-read recovery count，首次 target read 后可能直接 hard-stop | validation rework duplicate-read 与 patch-only recovery counters 以当前 provider snapshot `node_id` 为 key；换 node reset，同 node 重复违规继续 hard-stop | keyed rerun `20260704-192256-883`; CoE H-088/E-186/E-187; `validation_rework_recovery_count_resets_when_rework_node_changes`; `validation_rework` 26/26 |
+
+边界说明：该修复不降低 repeated-read 约束。它只把 escalation lifecycle 从 turn-global 改成 node-scoped，确保新 rework
+node 先收到正确 patch-only recovery，再按同节点重复违规升级。

@@ -5326,3 +5326,65 @@
     PASS
   ```
 - Interpretation: H-087 is focused-fixed. Remaining gate is commit/push, attestation, and another keyed rerun.
+
+# Evidence E-186: H-087 rerun crosses inspect bootstrap and exposes cross-node validation rework recovery counter leak
+
+- Real rerun:
+  ```text
+  RunDir: target/r4-org-json-real-keyed-20260704ch-duplicate-list-bootstrap/runs/terminal_bench__organization-json-generator/20260704-192256-883
+  reported_evidence_level: E2-candidate
+  outcome_standard: solved
+  outcome_taskspace: engineering_unclean
+  right_tool_call_count: 16
+  right_public_validation_exit_code: 1
+  right_hidden_oracle_exit_code: 0
+  final_hard_stop: TaskSpaceValidationReworkPatchOnlyHardStopV1 reason=repeated_non_edit_after_validation_rework_target_read attempt_count=3
+  ```
+- H-087 live status:
+  - Live-cleared for this sample. The run did not stop in inspect; it advanced through inspect, implementation, validation, and validation rework.
+- New blocker signal:
+  - Validation bridge executed the required combined command: `python processor.py && python -m jsonschema -i organization.json schema.json`.
+  - The command failed with real schema errors: missing root `metadata` and `organization`.
+  - Runtime created validation rework node `node-6` and allowed the first target read of `processor.py`; the read was complete: `TaskSpaceReadFileSummaryV1: path=processor.py lines_read=100 eof_reached=true max_lines=240`.
+  - Immediately after that first `node-6` target read, runtime emitted `TaskSpaceValidationReworkPatchOnlyHardStopV1 attempt_count=3` instead of an advisory `TaskSpaceValidationReworkPatchOnlyRecoveryV1`.
+  - Earlier `node-4` had already consumed two patch-only recovery attempts. Those attempts leaked into `node-6`.
+- Interpretation: The failure semantic is present and correct inside a node: after complete target read, further read/search should escalate. The bug is recovery lifecycle scope. The hard-stop counter is turn-global, so a fresh validation rework node inherits an old node's recovery count and loses its first patch-only recovery opportunity.
+
+# Hypothesis H-088: validation rework recovery counters must be scoped by current node
+
+- Claim: Validation rework duplicate-read and patch-only recovery counters are escalation state for a current rework node, not global turn state. When the active TaskSpace node changes, these counters must reset. Otherwise, a later validation rework node can hard-stop on its first target read/recovery because an earlier node already consumed attempts.
+- Prediction:
+  1. Runtime should maintain node keys for validation rework duplicate-read and patch-only recovery counters.
+  2. Before deciding hard-stop for either recovery type, runtime should reset the relevant counter if the current provider budget snapshot has a different `node_id`.
+  3. Same-node repeated duplicate read/search or patch-only violations should still hard-stop.
+  4. A focused unit test should prove the counter resets on `node_id` changes.
+  5. `validation_rework` and `action_contract_prompt` regressions should remain passing.
+- Status: confirmed.
+
+# Evidence E-187: H-088 focused fix scopes validation rework recovery counters by node
+
+- Repair artifact:
+  - `third_party/codex-cli/codex-rs/core/src/session/turn.rs`
+- Repair behavior:
+  - Added node-key state for `taskspace_validation_rework_duplicate_read_recovery_count`.
+  - Added node-key state for `taskspace_validation_rework_patch_only_recovery_count`.
+  - Added `taskspace_reset_recovery_count_for_snapshot_node()` and invoked it before hard-stop decisions for both recovery types.
+  - Same-node counters remain cumulative; only node changes reset the escalation count.
+- Validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_rework_recovery_count_resets_when_rework_node_changes --lib --locked
+    PASS
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_rework_patch_only_hard_stops_after_one_recovery --lib --locked
+    PASS
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_rework --lib --locked
+    PASS: 26/26
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core action_contract_prompt --lib --locked
+    PASS: 29/29
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+    PASS
+  git diff --check
+    PASS
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-cli --bin whale --locked
+    PASS
+  ```
+- Interpretation: H-088 is focused-fixed. Remaining gates are commit/push, attestation, and another keyed rerun to confirm `node-6` receives patch-only recovery instead of inheriting `node-4` hard-stop count.

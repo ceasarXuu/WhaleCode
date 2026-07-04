@@ -2882,6 +2882,45 @@ runtime 拒绝 duplicate search，却只给 developer recovery，未执行 bound
 
 状态：focused 修复已编码并通过 inspect/R4 相关回归、fmt/diff/build。下一步是提交推送、attestation、keyed rerun。
 
+## 24. 2026-07-04 validation rework recovery counter cross-node leak
+
+`f934ceb` keyed rerun 证明 H-087 已 live 推进：`organization-json-generator` 不再卡在 inspect duplicate `list_files`，
+而是进入 implementation、validation bridge 和 validation rework。新的 blocker 出现在 validation rework feedback/control
+计数生命周期：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260704ch-duplicate-list-bootstrap/runs/terminal_bench__organization-json-generator/20260704-192256-883
+reported_evidence_level: E2-candidate
+outcome_standard: solved
+outcome_taskspace: engineering_unclean
+right_tool_call_count: 16
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+final_hard_stop: TaskSpaceValidationReworkPatchOnlyHardStopV1 attempt_count=3
+```
+
+关键观察：
+
+| Signal | 结论 |
+|---|---|
+| `TaskSpaceValidationRequiredCommandBootstrapV1` 执行 `python processor.py && python -m jsonschema -i organization.json schema.json` | validation bridge 正确运行 |
+| validation failure 明确缺 root `metadata`、`organization` | 这是可修代码失败，不是 infra failure |
+| `node-6` 第一次 read `processor.py`，`eof_reached=true` | 新 validation rework node 获得完整 target evidence |
+| 紧接着 hard-stop `attempt_count=3` | node-4 的 patch-only recovery 次数泄漏到 node-6 |
+
+问题类型收录：
+
+| 字段 | 内容 |
+|---|---|
+| case | `validation-rework-recovery-counter-cross-node-leak` |
+| 层级 | validation rework recovery escalation / feedback-control lifecycle |
+| 本质 | 反馈语义没有丢，也没有扭曲；错误在 escalation counter 的作用域，turn-global 计数污染了新的 rework node |
+| 非根因 | 不是 patch-only hard-stop 规则本身错误；不是 target read gate 错；不是 validation bridge 或 schema repair contract 缺失 |
+| 修复 | duplicate-read 与 patch-only recovery counter 都按当前 provider snapshot `node_id` 重置；hard-stop 判断发生在 reset 之后 |
+| focused evidence | CoE H-088/E-186/E-187；`validation_rework_recovery_count_resets_when_rework_node_changes`; `validation_rework_patch_only_hard_stops_after_one_recovery`; `validation_rework` 26/26; `action_contract_prompt` 29/29；fmt/check/build |
+
+状态：focused 修复已编码并通过聚焦/相关回归测试、fmt/diff/build。下一步是提交推送、attestation、keyed rerun。
+
 ## 10. 2026-07-04 validation rework patch directive buried after evidence
 
 `431e0ee` 的 keyed rerun 没有复现 block-rejection wording path，说明 H-069 仍需下一次命中该分支才能 live-clear。该轮暴露

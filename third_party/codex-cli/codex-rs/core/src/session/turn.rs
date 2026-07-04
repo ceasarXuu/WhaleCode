@@ -491,7 +491,9 @@ pub(crate) async fn run_turn(
     let mut taskspace_implement_needs_edit_recovery_count = 0usize;
     let mut taskspace_implement_needs_edit_recovery_key: Option<String> = None;
     let mut taskspace_validation_rework_duplicate_read_recovery_count = 0usize;
+    let mut taskspace_validation_rework_duplicate_read_recovery_key: Option<String> = None;
     let mut taskspace_validation_rework_patch_only_recovery_count = 0usize;
+    let mut taskspace_validation_rework_patch_only_recovery_key: Option<String> = None;
     // Although from the perspective of codex.rs, TurnDiffTracker has the lifecycle of a Task which contains
     // many turns, from the perspective of the user, it is a single turn.
     let turn_diff_tracker = Arc::new(tokio::sync::Mutex::new(TurnDiffTracker::new()));
@@ -620,6 +622,24 @@ pub(crate) async fn run_turn(
                             );
                     let counts_against_plain_implement_needs_edit_cap =
                         is_taskspace_plain_implement_needs_edit_recovery_item(&recovery_item);
+                    let is_validation_rework_duplicate_read_recovery =
+                        is_taskspace_validation_rework_duplicate_read_recovery_item(&recovery_item);
+                    let is_validation_rework_patch_only_recovery =
+                        is_taskspace_validation_rework_patch_only_recovery_item(&recovery_item);
+                    if is_validation_rework_duplicate_read_recovery {
+                        taskspace_reset_recovery_count_for_snapshot_node(
+                            &mut taskspace_validation_rework_duplicate_read_recovery_key,
+                            &mut taskspace_validation_rework_duplicate_read_recovery_count,
+                            current_recovery_snapshot.as_ref(),
+                        );
+                    }
+                    if is_validation_rework_patch_only_recovery {
+                        taskspace_reset_recovery_count_for_snapshot_node(
+                            &mut taskspace_validation_rework_patch_only_recovery_key,
+                            &mut taskspace_validation_rework_patch_only_recovery_count,
+                            current_recovery_snapshot.as_ref(),
+                        );
+                    }
                     let validation_rework_duplicate_read_hard_stop =
                         taskspace_validation_rework_duplicate_read_should_hard_stop(
                             &recovery_item,
@@ -655,10 +675,10 @@ pub(crate) async fn run_turn(
                         }
                         taskspace_implement_needs_edit_recovery_count += 1;
                     }
-                    if is_taskspace_validation_rework_duplicate_read_recovery_item(&recovery_item) {
+                    if is_validation_rework_duplicate_read_recovery {
                         taskspace_validation_rework_duplicate_read_recovery_count += 1;
                     }
-                    if is_taskspace_validation_rework_patch_only_recovery_item(&recovery_item) {
+                    if is_validation_rework_patch_only_recovery {
                         taskspace_validation_rework_patch_only_recovery_count += 1;
                     }
                     if taskspace_implementation_needs_edit_should_hard_stop(
@@ -2609,6 +2629,27 @@ fn taskspace_validation_rework_patch_only_should_hard_stop(
         previous_recovery_count > 1
     } else {
         previous_recovery_count > 0
+    }
+}
+
+fn taskspace_recovery_snapshot_node_key(
+    snapshot: Option<&crate::action_map::ActionMapProviderRequestBudgetSnapshot>,
+) -> String {
+    snapshot
+        .and_then(|snapshot| snapshot.node_id.as_deref())
+        .unwrap_or("unknown-node")
+        .to_string()
+}
+
+fn taskspace_reset_recovery_count_for_snapshot_node(
+    current_key: &mut Option<String>,
+    recovery_count: &mut usize,
+    snapshot: Option<&crate::action_map::ActionMapProviderRequestBudgetSnapshot>,
+) {
+    let recovery_key = taskspace_recovery_snapshot_node_key(snapshot);
+    if current_key.as_deref() != Some(recovery_key.as_str()) {
+        *current_key = Some(recovery_key);
+        *recovery_count = 0;
     }
 }
 
@@ -5807,6 +5848,34 @@ Then I will inspect the file."#,
             taskspace_special_recovery_warning_message(&hard_stop)
                 .contains("TaskSpaceValidationReworkPatchOnlyHardStopV1")
         );
+    }
+
+    #[test]
+    fn validation_rework_recovery_count_resets_when_rework_node_changes() {
+        let mut key = None;
+        let mut count = 2usize;
+        let mut node_4 = provider_snapshot("implement_solution");
+        node_4.node_id = Some("node-4".to_string());
+        let mut node_6 = provider_snapshot("implement_solution");
+        node_6.node_id = Some("node-6".to_string());
+
+        taskspace_reset_recovery_count_for_snapshot_node(&mut key, &mut count, Some(&node_4));
+        assert_eq!(key.as_deref(), Some("node-4"));
+        assert_eq!(count, 0);
+
+        count = 1;
+        taskspace_reset_recovery_count_for_snapshot_node(&mut key, &mut count, Some(&node_4));
+        assert_eq!(key.as_deref(), Some("node-4"));
+        assert_eq!(count, 1);
+
+        taskspace_reset_recovery_count_for_snapshot_node(&mut key, &mut count, Some(&node_6));
+        assert_eq!(key.as_deref(), Some("node-6"));
+        assert_eq!(count, 0);
+
+        count = 3;
+        taskspace_reset_recovery_count_for_snapshot_node(&mut key, &mut count, None);
+        assert_eq!(key.as_deref(), Some("unknown-node"));
+        assert_eq!(count, 0);
     }
 
     #[test]
