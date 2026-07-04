@@ -10564,7 +10564,7 @@ async fn run_taskspace_inspect_bootstrap(
         .handle_tool_call(
             ToolCall {
                 tool_name: ToolName::plain("shell_command"),
-                call_id,
+                call_id: call_id.clone(),
                 payload: ToolPayload::Function { arguments },
             },
             cancellation_token,
@@ -10572,9 +10572,73 @@ async fn run_taskspace_inspect_bootstrap(
         .await?;
     let response_item =
         record_response_input_item(sess.as_ref(), turn_context.as_ref(), response_input).await;
+    let (success, output) =
+        taskspace_tool_output_success_and_text(&response_item).unwrap_or((false, String::new()));
+    let preview = format!(
+        "TaskSpaceToolInvocationV1:\n\
+tool: shell_command\n\
+command: {command}\n\
+raw_output:\n\
+{output}"
+    );
+    sess.record_action_map_main_tool_result(
+        &turn_context,
+        &call_id,
+        "shell_command",
+        Some(ActionClass::Read),
+        success,
+        preview,
+    )
+    .await;
     let evidence_item = build_taskspace_inspect_bootstrap_evidence_item(command, &response_item);
     record_completed_response_item(sess.as_ref(), turn_context.as_ref(), &evidence_item).await;
     Ok(())
+}
+
+async fn run_taskspace_duplicate_read_search_bootstrap_then_force(
+    tool_runtime: ToolCallRuntime,
+    sess: Arc<Session>,
+    turn_context: Arc<TurnContext>,
+    snapshot: crate::action_map::ActionMapProviderRequestBudgetSnapshot,
+    cancellation_token: CancellationToken,
+) -> CodexResult<Option<ResponseItem>> {
+    run_taskspace_inspect_bootstrap(
+        tool_runtime,
+        sess.clone(),
+        turn_context.clone(),
+        snapshot.request_count,
+        TASKSPACE_REPEATED_BLOCKED_INSPECT_BOOTSTRAP_CALL_ID,
+        taskspace_repeated_blocked_inspect_bootstrap_command(),
+        "TaskSpaceRepeatedBlockedInspectBootstrapV1 executed bounded source/test/data artifact reads after repeated duplicate inspect read/search.",
+        cancellation_token,
+    )
+    .await?;
+
+    match sess
+        .force_finish_action_map_inspect_for_provider_budget(
+            &turn_context,
+            snapshot,
+            "inspect_duplicate_read_search_bootstrap_complete",
+        )
+        .await
+    {
+        Ok(true) => Ok(Some(
+            build_taskspace_forced_inspect_transition_recovery_item(),
+        )),
+        Ok(false) => Ok(None),
+        Err(error) => {
+            sess.send_event(
+                &turn_context,
+                EventMsg::Warning(WarningEvent {
+                    message: format!(
+                        "TaskSpaceForcedInspectTransitionFailedV1 trigger=inspect_duplicate_read_search_bootstrap_complete error={error}"
+                    ),
+                }),
+            )
+            .await;
+            Ok(None)
+        }
+    }
 }
 
 async fn run_taskspace_missing_fact_source_bootstrap(
@@ -14022,19 +14086,34 @@ async fn try_run_sampling_request(
                                 match sess
                                     .force_finish_action_map_inspect_for_provider_budget(
                                         &turn_context,
-                                        snapshot,
+                                        snapshot.clone(),
                                         trigger,
                                     )
                                     .await
                                 {
-                                    Ok(true) => {
-                                        Some(build_taskspace_forced_inspect_transition_recovery_item())
-                                    }
-                                    Ok(false) => Some(
-                                        build_taskspace_duplicate_inspect_successful_evidence_recovery_item(
-                                            last_agent_message.as_deref(),
-                                        ),
+                                    Ok(true) => Some(
+                                        build_taskspace_forced_inspect_transition_recovery_item(),
                                     ),
+                                    Ok(false) => {
+                                        if let Some(forced_item) =
+                                            run_taskspace_duplicate_read_search_bootstrap_then_force(
+                                                tool_runtime.clone(),
+                                                sess.clone(),
+                                                turn_context.clone(),
+                                                snapshot,
+                                                cancellation_token.child_token(),
+                                            )
+                                            .await?
+                                        {
+                                            Some(forced_item)
+                                        } else {
+                                            Some(
+                                                build_taskspace_duplicate_inspect_successful_evidence_recovery_item(
+                                                    last_agent_message.as_deref(),
+                                                ),
+                                            )
+                                        }
+                                    }
                                     Err(error) => {
                                         sess.send_event(
                                             &turn_context,
@@ -14661,17 +14740,20 @@ async fn try_run_sampling_request(
                                 if taskspace_repeated_duplicate_read_search_should_bootstrap(
                                     result.last_agent_message.as_deref(),
                                 ) {
-                                    run_taskspace_inspect_bootstrap(
-                                        tool_runtime.clone(),
-                                        sess.clone(),
-                                        turn_context.clone(),
-                                        snapshot.request_count,
-                                        TASKSPACE_REPEATED_BLOCKED_INSPECT_BOOTSTRAP_CALL_ID,
-                                        taskspace_repeated_blocked_inspect_bootstrap_command(),
-                                        "TaskSpaceRepeatedBlockedInspectBootstrapV1 executed bounded source/test/data artifact reads after progress stayed unchanged on a repeated blocked inspect read/search command.",
-                                        cancellation_token.child_token(),
-                                    )
-                                    .await?;
+                                    if let Some(forced_item) =
+                                        run_taskspace_duplicate_read_search_bootstrap_then_force(
+                                            tool_runtime.clone(),
+                                            sess.clone(),
+                                            turn_context.clone(),
+                                            snapshot.clone(),
+                                            cancellation_token.child_token(),
+                                        )
+                                        .await?
+                                    {
+                                        result.taskspace_no_action_recovery_item =
+                                            Some(forced_item);
+                                        forced_transition = true;
+                                    }
                                     repeated_block_bootstrap = true;
                                 }
                             }
@@ -14711,16 +14793,16 @@ async fn try_run_sampling_request(
             {
                 if taskspace_message_requests_validation(result.last_agent_message.as_deref()) {
                     run_taskspace_inspect_bootstrap(
-                            tool_runtime.clone(),
-                            sess.clone(),
-                            turn_context.clone(),
-                            snapshot.request_count,
-                            TASKSPACE_INSPECT_TEST_BOOTSTRAP_CALL_ID,
-                            "python -m pytest -q",
-                            "TaskSpaceInspectTestBootstrapV1 executed `python -m pytest -q` after inspect_code_context requested validation but produced no tool call.",
-                            cancellation_token.child_token(),
-                        )
-                        .await?;
+                        tool_runtime.clone(),
+                        sess.clone(),
+                        turn_context.clone(),
+                        snapshot.request_count,
+                        TASKSPACE_INSPECT_TEST_BOOTSTRAP_CALL_ID,
+                        "python -m pytest -q",
+                        "TaskSpaceInspectTestBootstrapV1 executed `python -m pytest -q` after inspect_code_context requested validation but produced no tool call.",
+                        cancellation_token.child_token(),
+                    )
+                    .await?;
                 } else {
                     let forced_transition = match sess
                         .force_finish_action_map_inspect_for_provider_budget(

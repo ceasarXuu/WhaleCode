@@ -5257,3 +5257,72 @@
     PASS
   ```
 - Interpretation: H-086 is focused-fixed. Remaining gate is commit/push, attestation, and another keyed rerun to prove the node no longer closes on schema-context blocker wording.
+
+# Evidence E-184: 1fde25d rerun does not hit H-086 and exposes duplicate list_files inspect loop
+
+- Real rerun:
+  ```text
+  RunDir: target/r4-org-json-real-keyed-20260704cg-schema-context-blocker/runs/terminal_bench__organization-json-generator/20260704-191110-654
+  reported_evidence_level: E2-candidate
+  outcome_standard: solved
+  outcome_taskspace: wrong
+  right_tool_call_count: 6
+  right_public_validation_exit_code: 1
+  final_hard_stop: TaskSpaceProviderBudgetHardStopV1 node_kind=inspect_code_context request_count=6/20 node_request_count=6/5
+  ```
+- H-086 live status:
+  - Not hit. The run never reached implementation or validation rework.
+- New blocker signal:
+  - First inspect action succeeded: `list_files` -> `rg --files .`, returning `schema.json`, `departments.csv`, `employees.csv`, `projects.csv`, and `data/...`.
+  - Provider repeated the same `list_files` action five more times.
+  - Runtime rejected each duplicate with `inspect_duplicate_successful_read_or_search`, but only inserted advisory duplicate-read recovery.
+  - No `TaskSpaceRepeatedBlockedInspectBootstrapV1`, no fact-source bootstrap, and no forced transition occurred.
+  - Graph ended with only one open inspect node, one result, zero edges.
+- Interpretation: H-086 remains focused-fixed but live-unverified. H-087 is a new R4 feedback/control issue in inspect: duplicate list/search feedback is visible but not reliably converted into bounded bootstrap evidence and forced transition.
+
+# Hypothesis H-087: repeated duplicate list_files must bootstrap bounded data/source reads before node hard-stop
+
+- Claim: When an inspect node repeatedly requests the same successful `list_files`/search command, runtime should not keep sending advisory recovery until node budget hard-stop. If explicit missing fact-source targets are absent, repeated duplicate read/search should execute the existing bounded inspect bootstrap, record the bootstrap output into ActionMap as read evidence, and immediately try forced inspect transition.
+- Prediction:
+  1. Generic inspect bootstrap output should be recorded as an ActionMap `ActionClass::Read` result, not only as conversation context.
+  2. Bootstrap outputs with `=====` section headers and file contents should not be classified as path-listing-only evidence.
+  3. Section artifact refs such as `schema.json` and `departments.csv` should count as input-data working evidence.
+  4. A new trigger `inspect_duplicate_read_search_bootstrap_complete` should allow forced transition after the bootstrap records working evidence.
+  5. Existing inspect bootstrap, missing fact-source, forced transition, validation rework, action-contract, formatting, whitespace, and whale build regressions should remain passing.
+- Status: confirmed.
+
+# Evidence E-185: H-087 focused fix records bootstrap evidence and forces inspect transition
+
+- Repair artifacts:
+  - `third_party/codex-cli/codex-rs/core/src/session/turn.rs`
+  - `third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs`
+- Repair behavior:
+  - `run_taskspace_inspect_bootstrap()` now records the bootstrap shell output into ActionMap as `ActionClass::Read`.
+  - Repeated duplicate read/search recovery now runs `TaskSpaceRepeatedBlockedInspectBootstrapV1` and then immediately tries `inspect_duplicate_read_search_bootstrap_complete`.
+  - `read_result_body_is_path_listing_only()` treats `=====` sectioned bootstrap output as content, not as a pure path list.
+  - `result_input_data_artifact_refs()` now includes section-visible artifact refs so schema/csv sections count as working evidence.
+  - Runtime accepts `inspect_duplicate_read_search_bootstrap_complete` as a forced inspect transition trigger.
+- Validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core inspect_duplicate_list_files_bootstrap_forces_transition_after_data_reads --lib --locked
+    PASS
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core inspect_data_artifact_read_counts_as_working_evidence --lib --locked
+    PASS
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core inspect_bootstrap --lib --locked
+    PASS: 3/3
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core forced_inspect_transition --lib --locked
+    PASS: 5/5
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core inspect_missing_fact_sources --lib --locked
+    PASS: 2/2
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core action_contract_prompt --lib --locked
+    PASS: 29/29
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_rework --lib --locked
+    PASS: 25/25
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+    PASS
+  git diff --check
+    PASS
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-cli --bin whale --locked
+    PASS
+  ```
+- Interpretation: H-087 is focused-fixed. Remaining gate is commit/push, attestation, and another keyed rerun.

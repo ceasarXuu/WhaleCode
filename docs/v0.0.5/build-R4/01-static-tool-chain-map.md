@@ -771,3 +771,16 @@ failed-edit tail lock 修复后的 keyed rerun 进入 complete target read + pat
 
 边界说明：这里修的是反馈层同义词漏判，不是让 runtime 忽略真实外部 blocker。只要 blocker 指向的是“需要再看 schema/完整内容/投影不够”，且
 validation rework 已有完整 target read 与 repair contract，就必须保持节点 active 并把反馈导回 patch-only。
+
+## 2026-07-04 R4-D issue type addendum: repeated duplicate list_files no bootstrap transition
+
+schema-context blocker 修复后的 keyed rerun 没有到 validation rework，而是在 inspect node 重复 `list_files`。第一次
+`rg --files .` 已成功返回 schema/csv 文件清单；后续重复被 duplicate read/search gate 拦截，但 feedback 没进入 bootstrap control，
+最终 inspect node request hard-stop。
+
+| Issue type | Layer | Symptom | Resolution contract | Evidence |
+|---|---|---|---|---|
+| `inspect-duplicate-list-files-no-bootstrap-transition` | inspect duplicate read/search feedback-control bridge | successful `list_files` 后重复同一 list/search，只收到 advisory duplicate recovery；没有 bounded content bootstrap，也没有 forced transition | repeated duplicate read/search 执行 `TaskSpaceRepeatedBlockedInspectBootstrapV1` 并把输出写入 ActionMap；`=====` sectioned schema/csv content 计为 input-data working evidence；bootstrap complete 后 forced transition | keyed rerun `20260704-191110-654`; CoE H-087/E-184/E-185; `inspect_duplicate_list_files_bootstrap_forces_transition_after_data_reads`; `inspect_bootstrap`; `forced_inspect_transition`; `inspect_missing_fact_sources` |
+
+边界说明：路径列表仍只是 discovery，不直接允许 implementation；只有 bootstrap 读取到具体文件内容并通过 working-evidence 判定后，才会
+让 inspect 进入 implementation。

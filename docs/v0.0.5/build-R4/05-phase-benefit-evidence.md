@@ -4767,3 +4767,16 @@ insufficient`。runtime 接受该 blocker 后关闭 node，随后语义被扭曲
 边界说明：这不是禁止所有 blocker。只有在 validation rework 已有 dependency validation evidence 且完整 target read/repair contract
 存在、且 blocker 本质是“还要看 schema/投影不够”的情况下，才归类为 missing-source visibility rejection。真正外部不可编辑原因仍可
 用 `block_node` 表达。
+
+## 5.77 2026-07-04 repeated duplicate list_files inspect bootstrap gap
+
+`1fde25d` keyed rerun 没有命中 H-086；run 在更早 inspect 阶段耗尽 node budget。首个 `list_files` 成功返回
+`schema.json` 与 CSV 文件清单，provider 随后连续重复同一 `list_files`。runtime 每次都正确拒绝 duplicate read/search，
+但只给 advisory recovery，没有执行 bounded bootstrap 或 forced transition。
+
+| Case | Before | After | Evidence |
+|---|---|---|---|
+| `inspect-duplicate-list-files-no-bootstrap-transition` | repeated duplicate `list_files` 只产生 advisory recovery，直到 inspect node hard-stop；path listing 不算 working evidence，generic bootstrap 也未写入 ActionMap | repeated duplicate read/search 触发 `TaskSpaceRepeatedBlockedInspectBootstrapV1`，bootstrap 输出写入 ActionMap `Read`；带 `=====` section 的 schema/csv 内容计为 input-data working evidence；随后用 `inspect_duplicate_read_search_bootstrap_complete` forced transition | keyed rerun `20260704-191110-654`; CoE H-087/E-184/E-185; focused test; `inspect_bootstrap` 3/3; `forced_inspect_transition` 5/5; `inspect_missing_fact_sources` 2/2 |
+
+边界说明：路径列表本身仍不算 implementation evidence；只有 bounded bootstrap 读取到具体 `.json/.csv/...` 文件内容后，才允许
+inspect 收敛。若显式 missing fact-source 未读完，既有 guard 仍阻止 forced finish。

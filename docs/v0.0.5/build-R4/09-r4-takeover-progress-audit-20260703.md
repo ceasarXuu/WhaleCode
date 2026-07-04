@@ -2862,6 +2862,26 @@ runtime 旧 recognizer 没覆盖该 schema-context/full-content/projection-excer
 
 状态：focused 修复已编码并通过聚焦/回归测试、fmt/diff/build。下一步是提交推送、attestation、keyed rerun。
 
+## 23. 2026-07-04 repeated duplicate list_files inspect bootstrap gap
+
+`1fde25d` keyed rerun 没有进入 H-086 validation rework；它卡在 inspect node。首个 `list_files` 成功返回
+`schema.json`、`departments.csv`、`employees.csv`、`projects.csv`，但 provider 后续连续重复相同 `list_files`。
+runtime 拒绝 duplicate search，却只给 developer recovery，未执行 bounded bootstrap，最终
+`TaskSpaceProviderBudgetHardStopV1 node_kind=inspect_code_context node_request_count=6/5`。
+
+问题类型收录：
+
+| 字段 | 内容 |
+|---|---|
+| case | `inspect-duplicate-list-files-no-bootstrap-transition` |
+| 层级 | inspect duplicate read/search feedback-control bridge |
+| 本质 | 反馈正确但控制缺失：duplicate list/search gate 已明确，runtime 没把重复失败升级为 bounded content bootstrap |
+| 非根因 | 不是 list_files gate 错；不是 fact-source guard 要放宽；不是 validation/rework 层问题 |
+| 修复 | repeated duplicate read/search 触发 generic inspect bootstrap 并写入 ActionMap `Read`；sectioned schema/csv 输出计入 working evidence；随后以 `inspect_duplicate_read_search_bootstrap_complete` forced transition |
+| focused evidence | CoE H-087/E-184/E-185；`inspect_duplicate_list_files_bootstrap_forces_transition_after_data_reads`; `inspect_bootstrap`; `forced_inspect_transition`; `inspect_missing_fact_sources`; `action_contract_prompt`; `validation_rework`; fmt/check/build |
+
+状态：focused 修复已编码并通过 inspect/R4 相关回归、fmt/diff/build。下一步是提交推送、attestation、keyed rerun。
+
 ## 10. 2026-07-04 validation rework patch directive buried after evidence
 
 `431e0ee` 的 keyed rerun 没有复现 block-rejection wording path，说明 H-069 仍需下一次命中该分支才能 live-clear。该轮暴露

@@ -3862,6 +3862,8 @@ preview:\n\
         let missing_fact_source_bootstrap_complete =
             trigger == "inspect_missing_fact_source_bootstrap_complete";
         let hard_stop_progress_convergence = trigger == "inspect_hard_stop_progress_convergence";
+        let duplicate_read_search_bootstrap_complete =
+            trigger == "inspect_duplicate_read_search_bootstrap_complete";
         let repeated_blocked_gate_recovery =
             trigger == "inspect_repeated_blocked_action_with_evidence";
         if !evidence_driven_no_action_recovery
@@ -3870,6 +3872,7 @@ preview:\n\
             && !duplicate_read_search_gate_recovery
             && !missing_fact_source_bootstrap_complete
             && !hard_stop_progress_convergence
+            && !duplicate_read_search_bootstrap_complete
             && !repeated_blocked_gate_recovery
             && !provider_request_budget_pressure_active_for_node(
                 snapshot.request_count,
@@ -17462,6 +17465,12 @@ fn read_result_body_is_path_listing_only(body: &str) -> bool {
     {
         return false;
     }
+    if body
+        .lines()
+        .any(|line| line.trim_start().starts_with("====="))
+    {
+        return false;
+    }
     if lower.contains("command: rg --files")
         || lower.contains("command: get-childitem")
         || lower.contains("command: dir ")
@@ -17555,7 +17564,7 @@ fn is_probable_path_listing_line(line: &str) -> bool {
 }
 
 fn result_input_data_artifact_refs(result: &NodeResult) -> Vec<String> {
-    let mut artifacts = result_artifact_refs(result)
+    let mut artifacts = result_visible_artifact_refs(result)
         .into_iter()
         .filter(|artifact| is_input_data_artifact_ref(artifact))
         .collect::<Vec<_>>();
@@ -28472,6 +28481,117 @@ D001,Engineering,1500000"
             .current_main_working_evidence_summary()
             .expect("working evidence summary");
         assert!(summary.contains("schema.json") || summary.contains("departments.csv"));
+    }
+
+    #[test]
+    fn inspect_duplicate_list_files_bootstrap_forces_transition_after_data_reads() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (_, map_id, node_id, _) = start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::InspectCodeContext,
+            "Inspect data inputs",
+            "Read schema and CSV data before implementation.",
+            "Inspect data inputs",
+            "Read schema and CSV data before implementation.",
+            true,
+        );
+
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "list-files",
+                "shell_command",
+                Some(ActionClass::Search),
+                true,
+                "TaskSpaceToolInvocationV1:\n\
+tool: shell_command\n\
+command: rg --files .\n\
+raw_output:\n\
+schema.json\n\
+departments.csv\n\
+employees.csv\n\
+projects.csv\n"
+                    .to_string(),
+            )
+            .expect("path listing records");
+        assert!(
+            !state
+                .inspect_node_has_successful_code_or_test_read(&map_id, &node_id)
+                .expect("inspect node should exist"),
+            "path listing alone must not count as inspect working evidence"
+        );
+
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "repeated-block-bootstrap",
+                "shell_command",
+                Some(ActionClass::Read),
+                true,
+                "TaskSpaceToolInvocationV1:\n\
+tool: shell_command\n\
+command: rg --files -g '*.json' -g '*.csv' | head -n 12 | while IFS= read -r path; do printf '===== %s\\n' \"$path\"; sed -n '1,120p' -- \"$path\"; done\n\
+raw_output:\n\
+===== schema.json\n\
+{\"type\":\"object\",\"required\":[\"metadata\",\"organization\",\"statistics\"]}\n\
+===== departments.csv\n\
+id,name,budget\n\
+D001,Engineering,1500000\n"
+                    .to_string(),
+            )
+            .expect("bootstrap data reads record");
+        assert!(
+            state
+                .inspect_node_has_successful_code_or_test_read(&map_id, &node_id)
+                .expect("inspect node should exist"),
+            "bootstrap sections with schema/csv content should count as inspect working evidence"
+        );
+
+        let snapshot = ActionMapProviderRequestBudgetSnapshot {
+            task_id: state.active_task_id.clone(),
+            map_id,
+            node_id: Some(node_id),
+            node_kind: Some(NodeKind::InspectCodeContext.as_str().to_string()),
+            current_node_progress_signature: None,
+            current_node_has_successful_edit: false,
+            current_node_has_dependency_working_evidence: false,
+            current_node_has_uncovered_mandatory_evidence: false,
+            current_node_uncovered_mandatory_evidence: Vec::new(),
+            current_node_validation_rework_artifacts: Vec::new(),
+            route_mode: Some("thin".to_string()),
+            profile_name: Some("taskspace-v005-thin".to_string()),
+            request_phase: Some("budget_recovery".to_string()),
+            provider_request_context_missing_reason: None,
+            request_count: 6,
+            max_requests: 20,
+            node_request_count: 6,
+            max_model_requests_per_node: 5,
+            post_budget_grace_requests: 1,
+            post_budget_grace_request_count: 1,
+            budget_state: "normal".to_string(),
+        };
+        let forced = state
+            .force_finish_inspect_for_provider_budget(
+                owner,
+                &snapshot,
+                "inspect_duplicate_read_search_bootstrap_complete",
+            )
+            .expect("duplicate-read-search bootstrap complete trigger should not error")
+            .expect("bootstrap data evidence should force inspect transition");
+
+        assert_eq!(forced.0.next_node_id.as_deref(), Some("node-2"));
+        assert_eq!(state.current_main_node_id.as_deref(), Some("node-2"));
+        assert!(forced.1.iter().any(|event| {
+            matches!(
+                event,
+                MapRuntimeEvent::TaskspaceTraceEventRecorded(recorded)
+                    if recorded.kind == "forced_inspect_transition"
+                        && recorded.tags.iter().any(|tag| tag == "trigger:inspect_duplicate_read_search_bootstrap_complete")
+            )
+        }));
     }
 
     #[test]
