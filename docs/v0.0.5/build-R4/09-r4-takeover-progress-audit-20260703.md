@@ -2522,7 +2522,21 @@ right_open_leaf_nodes: 1
 | 修复 | placeholder hunk detector 纳入 `@@ ... @@` / `@@...@@`；validation rework target 上返回 `apply_patch_replacement_required:<target>` |
 | focused evidence | CoE H-132/E-267/E-268；`taskspace_action_contract_requires_replacement_for_rework_target_placeholder_ellipsis_hunk`；`action_contract_prompt` 29/29；`validation_rework` 32/32；`taskspace_apply_patch` 18/18；fmt/check/build/diff |
 
-状态：focused 修复已编码并通过相关回归、fmt/diff/check/build。下一步是 commit/push、install/attest、keyed rerun。
+状态：已 live-cleared。`a97db68` 安装后 keyed rerun：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260705ba-placeholder-hunk-gate/runs/terminal_bench__organization-json-generator/20260705-064634-577
+reported_evidence_level: E2-candidate
+outcome_standard: solved
+outcome_taskspace: solved
+right_business_success: True
+right_public_validation_exit_code: 0
+right_hidden_oracle_exit_code: 0
+right_open_leaf_nodes: 0
+```
+
+剩余不是本 case 的工具链失败，而是 E3 证据 gate：当前 harness 尚未满足 Terminal-Bench official runner 等价、
+validator source isolation 和人工审查要求。
 
 ## 56. 2026-07-05 validation node provider-budget bootstrap
 

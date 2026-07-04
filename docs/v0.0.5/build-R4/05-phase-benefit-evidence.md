@@ -1668,6 +1668,10 @@ right_open_leaf_nodes: 1
 3. 这属于失败语义扭曲：应该传递 `apply_patch_replacement_required:process.py`，实际先变成了 tool_failure/edit-failure。
 4. 修复后 `@@ ... @@` / `@@...@@` 会和既有 `@@ -... +... @@` 一样被认定为 placeholder hunk；
    validation rework target 上会在工具前返回 replacement-required。
+5. `a97db68` 安装后 keyed rerun `20260705-064634-577` 已 live-clear：TaskSpace side
+   `outcome_taskspace: solved`，`right_public_validation_exit_code: 0`，`right_hidden_oracle_exit_code: 0`，
+   `right_open_leaf_nodes: 0`。该轮仍是 E2-candidate，原因是外部 Terminal-Bench 等价/隔离/人工审查 gate 未满足，
+   不是业务失败。
 
 验证：
 
@@ -1681,6 +1685,19 @@ cargo fmt --check
 CODEX_SKIP_VENDORED_BWRAP=1 cargo check -p codex-core
 CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
 git diff --check
+```
+
+Live 验证：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260705ba-placeholder-hunk-gate/runs/terminal_bench__organization-json-generator/20260705-064634-577
+reported_evidence_level: E2-candidate
+outcome_standard: solved
+outcome_taskspace: solved
+right_business_success: True
+right_public_validation_exit_code: 0
+right_hidden_oracle_exit_code: 0
+right_open_leaf_nodes: 0
 ```
 
 ## 5.103 2026-07-05 validation blocker supersession final-gate gap

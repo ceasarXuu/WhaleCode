@@ -8092,3 +8092,33 @@
   ```
 - Interpretation: H-132 is focused-fixed. Remaining gates are commit/push, install/attest, and keyed rerun to verify
   that live placeholder ellipsis patches no longer reach the edit tool as generic failures.
+
+# Evidence E-269: H-132 rerun solves the taskspace side without placeholder-hunk leakage
+
+- Real rerun after installing `a97db68`:
+  ```text
+  RunDir: target/r4-org-json-real-keyed-20260705ba-placeholder-hunk-gate/runs/terminal_bench__organization-json-generator/20260705-064634-577
+  reported_evidence_level: E2-candidate
+  outcome_standard: solved
+  outcome_taskspace: solved
+  right_business_success: True
+  right_exec_timed_out: False
+  right_tool_call_count: 13
+  right_public_validation_exit_code: 0
+  right_hidden_oracle_exit_code: 0
+  right_nodes: 5
+  right_edges: 4
+  right_open_leaf_nodes: 0
+  ```
+- H-132 live status:
+  - The previous `@@ ... @@` placeholder hunk leakage did not recur.
+  - `TaskSpaceValidationReworkPatchOnlyRecoveryV1` was inserted after target read and repair contract.
+  - Provider emitted a mechanically usable replacement-style patch against `organization.json`; runtime recorded a
+    successful edit and created a validation node.
+  - Runtime rejected a weak validation command and executed coverage-correct bootstrap:
+    `python -m jsonschema -i organization.json schema.json`.
+  - Bootstrap validation exited `0`, then `TaskSpaceForcedValidationCloseoutV1` completed the validation node.
+  - External public validation and hidden oracle both exited `0`.
+- Interpretation: H-132 is live-cleared for this benchmark path. The run remains `E2-candidate` rather than E3 because
+  official Terminal-Bench runner equivalence/source-isolation/human-review gates are not satisfied in the current
+  harness configuration, not because the taskspace side failed.
