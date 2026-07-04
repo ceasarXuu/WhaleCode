@@ -2454,15 +2454,8 @@ fn taskspace_validation_rework_duplicate_read_should_hard_stop(
 ) -> bool {
     is_taskspace_validation_rework_duplicate_read_recovery_item(item)
         && (previous_recovery_count > 0
-            || taskspace_validation_rework_duplicate_read_has_complete_context(item)
             || response_item_text_contains(item, "\"repeated_blocked_action\"")
             || response_item_text_contains(item, "repeated_blocked_action:"))
-}
-
-fn taskspace_validation_rework_duplicate_read_has_complete_context(item: &ResponseItem) -> bool {
-    response_item_texts_contain(item, &|text| {
-        text.contains("complete read_file context") || text.contains("read_context: complete_read")
-    })
 }
 
 fn taskspace_validation_rework_patch_only_should_hard_stop(
@@ -8778,7 +8771,7 @@ TaskSpaceGateRecoveryV1: {\"schema_version\":\"TaskSpaceGateRecoveryV1\",\"allow
     }
 
     #[test]
-    fn validation_rework_duplicate_read_complete_context_hard_stops_immediately() {
+    fn validation_rework_duplicate_read_complete_context_gets_one_recovery_before_hard_stop() {
         let last_message = "TaskSpace blocked this read because validation rework node `node-4` already read failure artifact `process.py` in result `result-11` and no successful edit has been recorded after that read. Result `result-11` is a complete read_file context (TaskSpaceReadFileSummaryV1 eof_reached=true; no additional file lines are hidden). Use the existing file contents from that result and apply the smallest fix with apply_patch, or return blocked with the exact reason no safe edit can be made. Validation repair contract: missing_required_properties=id, members, averageDepartmentBudget | target_artifacts=process.py\nTaskSpaceGateRecoveryV1: {\"schema_version\":\"TaskSpaceGateRecoveryV1\",\"allowed\":false,\"reason\":\"validation_rework_duplicate_artifact_read\",\"next_valid_actions\":[\"call apply_patch for `process.py`\",\"use complete read_file result result-11; do not request the full file again\"]}";
         let recovery = build_taskspace_validation_rework_duplicate_read_recovery_item(
             Some(last_message),
@@ -8788,12 +8781,13 @@ TaskSpaceGateRecoveryV1: {\"schema_version\":\"TaskSpaceGateRecoveryV1\",\"allow
             None,
         );
 
+        assert!(!taskspace_validation_rework_duplicate_read_should_hard_stop(&recovery, 0));
         assert!(taskspace_validation_rework_duplicate_read_should_hard_stop(
-            &recovery, 0
+            &recovery, 1
         ));
 
         let hard_stop =
-            build_taskspace_validation_rework_duplicate_read_hard_stop_item(&recovery, 1);
+            build_taskspace_validation_rework_duplicate_read_hard_stop_item(&recovery, 2);
         let text = item_text(hard_stop);
 
         assert!(text.contains(TASKSPACE_VALIDATION_REWORK_DUPLICATE_READ_HARD_STOP_MARKER));

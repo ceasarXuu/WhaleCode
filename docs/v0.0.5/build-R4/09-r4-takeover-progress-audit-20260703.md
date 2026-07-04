@@ -155,6 +155,7 @@ raw signal 存在但语义没有正确进入下一轮 tool contract：
 | `validation-local-infra-retry-command-generic` | keyed rerun `20260704-141543-156` 证实 H-064 path 未复现，但裸 `pytest -v` command-not-found 被正确路由到 local-infra validation retry 后，retry context 明知 changed artifact 是 `process.py`，却仍给泛化 `python recover.py` 示例；已从 changed script artifact 生成 exact platform-compatible command hint，如 `python process.py` | focused+regression fixed / real rerun pending |
 | `validation-schema-repair-rename-hint-gap` | keyed rerun `20260704-143221-395` 证实 local-infra command genericity 已清除，并进入真实 schema validation；validator output 已显示 `member_ids` vs `members`、`total_employees` vs `totalEmployees` 等 rename 线索，但 repair contract 只列 missing required names，模型继续读 schema 到 patch-only hard-stop；已从 validator offending object keys 生成 `schema_property_rename_hints` | focused+regression fixed / real rerun pending |
 | `generic-fact-source-success-criteria-artifact-gap` | keyed rerun `20260704-144300-806` 证实 schema validation path 可达，但 start_task 的 fact source 只有泛化“repository root containing schema.json and CSV files”，而 success criteria 已点名 `departments.csv/employees.csv/projects.csv`；runtime 未从 success criteria 提取这些输入工件，导致只读 schema 就实现并猜错 CSV 字段；已把 success criteria 中的 concrete input artifacts 纳入 inspect fact-source gate，并排除 generated output `organization.json` | focused fixed / real rerun pending |
+| `validation-rework-complete-read-duplicate-hardstop-too-early` | keyed rerun `20260704-145742-157` 证实 H-067 已 live-cleared，模型实现前读取了 schema 和三个 CSV；validation rework 也完整读取了 `generate_organization.py`，但第一次 duplicate-read feedback 刚产生完整读取/无隐藏行语义时就被 hard-stop，模型没有机会响应该强反馈；已把 complete-read duplicate read 改为先给一次 recoverable feedback，第二次重复或 repeated-blocked-action 才 hard-stop | focused fixed / real rerun pending |
 
 新增关键判断：
 
@@ -2369,3 +2370,43 @@ CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core inspect_ -- --nocapture
 状态：focused 修复和 R4-adjacent regression/build 已完成；仍需 commit/push、attestation，并再次 keyed rerun
 `organization-json-generator`，确认模型在实现前读取 `departments.csv/employees.csv/projects.csv`，或者继续暴露下一层
 tools/control case。
+
+## 8. 2026-07-04 complete-read duplicate hard-stop too early
+
+`77e8e46` 的 keyed rerun 证明 success-criteria fact-source 修复进入 live path：TaskSpace 在实现前读取了 `schema.json`、
+`departments.csv`、`employees.csv`、`projects.csv`。新的 blocker 出现在 validation rework 的重复读控制上。
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260704bm-criteria-fact-sources/runs/terminal_bench__organization-json-generator/20260704-145742-157
+reported_evidence_level: E2-candidate
+outcome_standard: solved
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 16
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+current_git_head: 77e8e46a3a1435ddef0c8b1a8c674488e308d62a
+```
+
+关键观察：
+
+| Signal | 结论 |
+|---|---|
+| inspect projection 要求 `/app/schema.json`、`/app/departments.csv`、`/app/employees.csv`、`/app/projects.csv` | H-067 fact-source gate 已进入 provider-visible path |
+| 模型最终读取相对路径 `schema.json`、`departments.csv`、`employees.csv`、`projects.csv` | 实现前输入证据覆盖完成 |
+| validation repair contract 包含 missing required properties 和 `schema_property_rename_hints=member_ids->members` | H-066 repair contract 未丢失 |
+| `result-14` 完整读取 `generate_organization.py`，`eof_reached=true` | target artifact 已可 patch |
+| 第一次 duplicate-read recovery 立即升级为 hard-stop | 强反馈刚生成即终止，模型没有机会响应“完整读取/无隐藏行/必须 apply_patch” |
+
+问题类型收录：
+
+| 字段 | 内容 |
+|---|---|
+| case | `validation-rework-complete-read-duplicate-hardstop-too-early` |
+| 层级 | validation rework duplicate-read feedback / control loop |
+| 本质 | 控制过早终止：第一次 duplicate-read rejection 才携带最强完整性语义，不能同轮直接 hard-stop |
+| 非根因 | 不是 fact-source coverage；不是 rename hint 缺失；不是状态机允许重复读 |
+| 修复 | complete-read duplicate-read recovery 先给一次 provider recovery；第二次重复或 gate 已有 repeated-blocked-action 时 hard-stop |
+| focused evidence | `validation_rework_duplicate_read_complete_context_gets_one_recovery_before_hard_stop`; `validation_rework_duplicate_read` 7/7; `validation_rework` 20/20 |
+
+状态：focused 修复完成；仍需 fmt/build、commit/push、attestation，并再次 keyed rerun 验证模型是否在收到 complete-read duplicate feedback 后转向 `apply_patch`。

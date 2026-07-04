@@ -3913,3 +3913,17 @@ right_hidden_oracle_exit_code: 0
 
 结论：这是 R4-D feedback/coverage focused 修复，不是 R4-G utility acceptance。下一轮 keyed rerun 应首先验证模型是否在实现前读取
 三个 CSV；如果仍 wrong，继续按新 trace 收录下一层 tools/control case。
+
+## 5.58 2026-07-04 complete-read duplicate hard-stop timing
+
+`77e8e46` 的 keyed rerun 证明 5.57 的 fact-source gate 已 live-cleared：TaskSpace 在实现前读取了 schema 和三个 CSV。
+新的 blocker 是 validation rework duplicate-read recovery 的 hard-stop timing。
+
+本轮新增并 focused 修复的问题类型：
+
+| Case | Before | After | Evidence |
+|---|---|---|---|
+| `validation-rework-complete-read-duplicate-hardstop-too-early` | 第一次 duplicate-read rejection 刚产生 `complete read_file context` / `eof_reached=true` / `no additional file lines are hidden` 强反馈，就立即升级 hard-stop，模型没有机会用这条反馈转向 patch | complete-read duplicate-read recovery 先给一次 provider recovery；第二次重复或已有 repeated-blocked-action 证据才 hard-stop | `validation_rework_duplicate_read_complete_context_gets_one_recovery_before_hard_stop`; `validation_rework_duplicate_read` 7/7 PASS; `validation_rework` 20/20 PASS; CoE H-068/E-143/E-144 |
+
+结论：这是 R4-D control/feedback focused 修复，不是 utility acceptance。下一轮 keyed rerun 要验证模型是否在收到 complete-read duplicate
+feedback 后发出 `apply_patch`，或暴露下一层 repair-contract/actionability 问题。

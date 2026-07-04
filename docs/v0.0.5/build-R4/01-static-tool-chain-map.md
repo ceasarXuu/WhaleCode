@@ -511,3 +511,17 @@ inspect coverage 缺口：`start_task` 的 `initial_fact_sources` 写成泛化�
 
 边界说明：该 case 是反馈层“语义缺失”，不是 validation repair 语义扭曲。runtime 不应该在 implementation node 成功 edit
 之后再允许补做输入 inspect；正确做法是在 inspect 阶段把 success criteria 中的 concrete input artifacts 纳入硬 gate。
+
+## 2026-07-04 R4-D issue type addendum: complete-read duplicate hard-stop timing
+
+success-criteria fact-source 修复后的 keyed rerun 证明输入覆盖已经进入 live path，但 validation rework 仍在重复读控制上过早终止。
+模型第一次重复读取已经完整可见的 target artifact 时，duplicate-read rejection 才第一次明确携带：
+`complete read_file context`、`eof_reached=true`、`no additional file lines are hidden`、以及 repair contract。旧策略在这条强反馈生成后
+立刻 hard-stop，本轮没有给 provider 响应该反馈并改为 `apply_patch` 的机会。
+
+| Issue type | Layer | Symptom | Resolution contract | Evidence |
+|---|---|---|---|---|
+| `validation-rework-complete-read-duplicate-hardstop-too-early` | validation rework duplicate-read feedback / control loop | 完整 target read 后第一次 duplicate-read 被立即 hard-stop；强反馈没有下一轮可执行机会 | complete-read duplicate-read recovery 可恢复一次；第二次仍重复或 gate 已报告 `repeated_blocked_action` 时 hard-stop；保持重复循环上限 | `validation_rework_duplicate_read_complete_context_gets_one_recovery_before_hard_stop`; `validation_rework_duplicate_read` 7/7; `validation_rework` 20/20; CoE H-068/E-143/E-144 |
+
+边界说明：该 case 不是状态机放宽重复读，也不是要无限重试。runtime 仍拒绝重复读；区别是第一次拒绝产生的强语义需要被发送给
+provider 一轮，随后仍不 patch 才终止。

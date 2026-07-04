@@ -4069,3 +4069,70 @@
   ```
 - Result: passed. Focused inspect suite passed `62/62`, including the new H-067 test plus adjacent inspect, duplicate-read, missing fact-source, projection, and provider-budget inspect tests. Regression suites passed through `output_contract` 8/8, `validation_rework` 20/20, `action_contract_prompt` 28/28, and `provider_budget` 23/23. `cargo fmt --check` exits 0 with only the known stable rustfmt `imports_granularity` warnings. `git diff --check` and the `whale` build passed.
 - Interpretation: H-067 is focused-fixed with R4-adjacent regression/build coverage. Remaining gates are commit/push, attestation, and another keyed rerun to verify the live model now reads CSV source files before implementation.
+
+# Evidence E-143: 77e8e46 live rerun clears success-criteria fact-source gate but stops after first complete-read duplicate recovery
+
+- Prediction tested: H-067 should force concrete CSV fact-source reads before implementation.
+- Real rerun:
+  ```text
+  RunDir: target/r4-org-json-real-keyed-20260704bm-criteria-fact-sources/runs/terminal_bench__organization-json-generator/20260704-145742-157
+  PairReport: pair-001/pair-report.md
+  reported_evidence_level: E2-candidate
+  outcome_standard: solved
+  outcome_taskspace: engineering_unclean
+  right_exec_timed_out: False
+  right_tool_call_count: 16
+  right_public_validation_exit_code: 1
+  right_hidden_oracle_exit_code: 0
+  current_git_head: 77e8e46a3a1435ddef0c8b1a8c674488e308d62a
+  ```
+- Matched H-067 live signals:
+  - The provider-visible projection listed `/app/schema.json`, `/app/departments.csv`, `/app/employees.csv`, and `/app/projects.csv` as declared fact-source artifacts.
+  - After `/app/...` paths failed, TaskSpace recovered through `rg --files` and the model read `schema.json`, `departments.csv`, `employees.csv`, and `projects.csv` before implementation.
+  - The implementation used real CSV fields such as `position`, `skills`, `years_of_service`, `member_ids`, and `deadline` instead of hallucinated `email`, `role`, or `salary`.
+- New blocker signals:
+  - The schema repair contract reached the provider and included `missing_required_properties=members, averageDepartmentBudget, totalEmployees, skillDistribution, departmentSizes, projectStatusDistribution, averageYearsOfService` and `schema_property_rename_hints=member_ids->members`.
+  - Validation rework read `generate_organization.py` completely as `result-14` with `TaskSpaceReadFileSummaryV1 eof_reached=true`.
+  - The model repeated `read_file generate_organization.py` instead of applying a patch.
+  - Runtime generated the stronger duplicate-read feedback saying `result-14` is a complete read_file context and no additional file lines are hidden, but immediately converted that first duplicate-read recovery into `TaskSpaceValidationReworkDuplicateReadHardStopV1`; the model never received a chance to act on the stronger duplicate-read feedback.
+- Interpretation: H-067 is live-cleared. The new feedback/control problem type is `validation-rework-complete-read-duplicate-hardstop-too-early`: first duplicate-read recovery after complete target visibility should be one recoverable provider turn, with hard-stop reserved for a second duplicate or explicit repeated-blocked-action evidence.
+
+# Hypothesis H-068: complete-read duplicate rework feedback needs one recoverable turn before hard-stop
+
+- Claim: `taskspace_validation_rework_duplicate_read_should_hard_stop()` treated any duplicate-read recovery containing `complete read_file context` / `read_context: complete_read` as an immediate hard-stop even when no previous duplicate-read recovery had been delivered. This prevents the model from responding to the first feedback that explicitly says the target read was complete and no file lines are hidden.
+- Prediction:
+  1. A focused complete-read duplicate-read test should not hard-stop at previous recovery count `0`.
+  2. The same complete-read duplicate-read recovery should hard-stop when previous recovery count is `1`.
+  3. Repeated-blocked-action evidence should still hard-stop immediately.
+  4. Existing validation rework duplicate-read and validation rework suites should pass.
+- Diagnostic evidence plan: Remove `complete_read` from the immediate hard-stop predicate, keep hard-stop for previous recovery count and repeated-blocked-action markers, then update focused tests.
+- Status: confirmed.
+
+# Evidence E-144: complete-read duplicate rework feedback now gets one provider recovery turn
+
+- Prediction tested: H-068 predicts complete-read duplicate-read feedback is recoverable once, while true repeats still hard-stop.
+- Repair artifact:
+  - `third_party/codex-cli/codex-rs/core/src/session/turn.rs`
+- Repair behavior:
+  - `taskspace_validation_rework_duplicate_read_should_hard_stop()` no longer treats `complete_read` as sufficient for immediate hard-stop.
+  - `validation_rework_duplicate_read_complete_context_gets_one_recovery_before_hard_stop` asserts previous count `0` does not hard-stop and previous count `1` does.
+  - `validation_rework_duplicate_read_repeated_gate_hard_stops_immediately` preserves immediate hard-stop when the gate already reports repeated blocked action.
+- Focused validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_rework_duplicate_read -- --nocapture
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_rework -- --nocapture
+  ```
+- Result: passed. `validation_rework_duplicate_read` passed 7/7; `validation_rework` passed 20/20.
+- Interpretation: H-068 is focused-fixed. Remaining gates are formatting/build, commit/push, attestation, and another keyed rerun to verify whether the provider patches after receiving the complete-read duplicate feedback.
+
+# Evidence E-145: H-068 formatting and build gates passed before commit
+
+- Prediction tested: H-068 focused repair should not break repository formatting, whitespace checks, or the `whale` dev build.
+- Validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+  git diff --check
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-cli --bin whale --locked
+  ```
+- Result: passed. `cargo fmt --check` exits 0 with the known stable rustfmt `imports_granularity` warnings; `git diff --check` exits 0; `whale` dev build finished successfully.
+- Interpretation: H-068 is ready for commit/push and attestation before live keyed rerun.
