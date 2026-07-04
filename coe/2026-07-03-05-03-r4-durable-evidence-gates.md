@@ -6435,4 +6435,38 @@
 - Claim: When the current validation rework state has full-visible target evidence and the recovery contract requires whole-file replacement, subsequent `apply_patch` attempts using `*** Update File` should be rejected with a replacement-required semantic error. Reusing generic `apply_patch_mixed_native_unified` feedback lets the provider repeat the same forbidden shape.
 - Prediction: A focused test should build a full-visible validation rework snapshot, submit a mixed `*** Update File` patch, and receive a replacement-required rejection that names the target and forbids `Update File` before another generic native-hunk recovery is generated.
 - Diagnostic evidence plan: Add an action-contract state/snapshot predicate for replacement-only validation rework recovery, reject `Update File` attempts against the target as replacement-required, add recovery text/tests, then run native-hunk/mixed/apply_patch/action-contract/validation-rework regressions plus fmt/check/build/diff gates.
-- Status: open.
+- Status: focused-fixed; real keyed rerun pending.
+
+# Evidence E-222: replacement-only recovery is now enforced by action contract
+
+- Repair artifact:
+  - `third_party/codex-cli/codex-rs/core/src/session/turn.rs`
+- Repair behavior:
+  - `taskspace_action_to_tool_call()` now checks native `*** Update File` patches containing unified headers/range hunks against current validation rework target artifacts before generic mixed-native/unified rejection.
+  - If the forbidden patch targets the active validation rework artifact, the action contract returns `apply_patch_replacement_required:<target>`.
+  - No-action recovery parses that semantic rejection and reuses the forced whole-file replacement recovery item, requiring `*** Delete File` followed by `*** Add File` and forbidding `*** Update File`.
+  - Generic `apply_patch_mixed_native_unified:<target>` remains available for non-rework targets, so the enforcement is scoped to the replacement-only validation rework state.
+- Validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core requires_replacement --lib
+    PASS: 1/1
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core mixed_native_unified --lib
+    PASS: 4/4
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core native_hunk_recovery --lib
+    PASS: 2/2
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core action_contract_prompt --lib
+    PASS: 29/29
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_rework --lib
+    PASS: 29/29
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core taskspace_apply_patch --lib
+    PASS: 18/18
+  cargo fmt --check
+    PASS (stable rustfmt warns that imports_granularity is nightly-only)
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo check -p codex-core
+    PASS
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
+    PASS
+  git diff --check
+    PASS
+  ```
+- Interpretation: H-108 is focused-fixed. The next gate is install/attest and a keyed rerun to determine whether replacement-required feedback closes the live loop or exposes the next tools-chain issue.

@@ -3398,10 +3398,10 @@ final_marker: TaskSpaceApplyPatchRecoveryHardStopV1
 | 层级 | apply_patch action-contract enforcement / recovery-state semantics |
 | 本质 | replacement-only recovery 文案已经到达模型，但 action-contract 没有把该状态变成强约束；`Update File` mixed patch 仍按 generic native-hunk rejection 循环 |
 | 非根因 | 不是 H-107 recovery 文案缺失；不是 hard-stop 错误；不是 schema/blocker 问题 |
-| 下一步 | 在 full-visible replacement-only recovery 激活后，对目标文件的 `*** Update File` 直接返回 replacement-required 语义，要求 `Delete File + Add File` |
-| evidence | CoE H-108/E-221；keyed rerun `20260705-000330-979` |
+| 修复 | 已在 action contract 中对 active validation rework target 的 mixed `*** Update File` 返回 `apply_patch_replacement_required:<target>`，并路由到强制 `Delete File + Add File` recovery |
+| evidence | CoE H-108/E-221/E-222；keyed rerun `20260705-000330-979`；focused tests `requires_replacement`, `mixed_native_unified`, `native_hunk_recovery`, `validation_rework`, `taskspace_apply_patch`；fmt/check/build/diff |
 
-状态：已收录，未修复。下一步应实现 replacement-only recovery state 的 action-contract enforcement。
+状态：focused fixed，待 install/attest 和真实 keyed rerun 确认 live 闭环。
 
 ## 28. 2026-07-04 natural-language slash fact-source extraction
 

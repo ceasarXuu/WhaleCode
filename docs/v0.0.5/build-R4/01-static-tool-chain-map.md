@@ -986,7 +986,7 @@ hard-stop excerpt 明确包含 `whole-file native replacement`、`Delete File + 
 
 | Issue type | Layer | Symptom | Resolution contract | Evidence |
 |---|---|---|---|---|
-| `apply-patch-replacement-only-recovery-enforcement-gap` | apply_patch action-contract enforcement / recovery-state semantics | replacement-only recovery 已可见，provider 仍发 `*** Update File` + unified headers/range hunks，runtime 继续走 generic `apply_patch_mixed_native_unified` 到 hard-stop | full-visible replacement-only recovery 激活后，针对该 target 的 `*** Update File` 直接拒绝为 replacement-required 语义，要求 `*** Delete File` + `*** Add File` | keyed rerun `20260705-000330-979`; CoE H-108/E-221 |
+| `apply-patch-replacement-only-recovery-enforcement-gap` | apply_patch action-contract enforcement / recovery-state semantics | replacement-only recovery 已可见，provider 仍发 `*** Update File` + unified headers/range hunks，runtime 继续走 generic `apply_patch_mixed_native_unified` 到 hard-stop | 已实现：full-visible replacement-only recovery 激活后，针对 active validation rework target 的 `*** Update File` 直接拒绝为 `apply_patch_replacement_required:<target>`，并回到强制 `*** Delete File` + `*** Add File` recovery | keyed rerun `20260705-000330-979`; CoE H-108/E-221/E-222; focused tests `requires_replacement`, `mixed_native_unified`, `native_hunk_recovery`, `validation_rework`, `taskspace_apply_patch` |
 
-边界说明：该问题不是 H-107 文案未到达模型，而是文案到达后缺少状态化强制。下一步应把 recovery-state 变成 action-contract
-约束，而不是继续增加提示词。
+边界说明：该问题不是 H-107 文案未到达模型，而是文案到达后缺少状态化强制。当前 focused fix 已把 recovery-state
+落到 action-contract 约束；真实 keyed rerun 仍需确认 live 链路是否完全闭合。

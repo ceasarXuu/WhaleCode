@@ -2063,6 +2063,10 @@ Native apply_patch does not use `--- Update File:`, `--- a/...`, `+++ b/...`, or
     }
 }
 
+fn build_taskspace_apply_patch_replacement_required_recovery_item(targets: &str) -> ResponseItem {
+    build_taskspace_apply_patch_native_hunk_recovery_item(targets, true)
+}
+
 fn build_taskspace_patch_intent_format_recovery_item(
     evidence_summary: Option<&str>,
     raw_preview: Option<&str>,
@@ -3294,6 +3298,17 @@ fn taskspace_native_hunk_targets_from_rejection(message: Option<&str>) -> Option
         }
     }
     None
+}
+
+fn taskspace_replacement_required_targets_from_rejection(message: Option<&str>) -> Option<String> {
+    let message = message?;
+    let (_, rest) = message.split_once("apply_patch_replacement_required:")?;
+    let targets = rest
+        .split_once(". Return exactly")
+        .map(|(targets, _)| targets)
+        .unwrap_or(rest)
+        .trim();
+    (!targets.is_empty()).then(|| targets.to_string())
 }
 
 fn taskspace_missing_update_targets_from_apply_patch_error(
@@ -7389,6 +7404,28 @@ Then I will inspect the file."#,
             .expect_err("mixed native/unified patch must be rejected before tool execution");
 
         assert_eq!(err, "apply_patch_mixed_native_unified:recover.py");
+    }
+
+    #[test]
+    fn taskspace_action_contract_requires_replacement_for_rework_target_mixed_patch() {
+        let raw = serde_json::json!({
+            "schema_version": "taskspace-action-v1",
+            "action": "apply_patch",
+            "node_id": "node-1",
+            "args": {
+                "patch": "*** Begin Patch\n*** Update File: process_csv.py\n--- a/process_csv.py\n+++ b/process_csv.py\n@@ -1,1 +1,1 @@\n-print('bad')\n+print('fixed')\n*** End Patch\n"
+            },
+        })
+        .to_string();
+        let action = parse_taskspace_action_v1(&raw).expect("valid json");
+        let mut snapshot = provider_snapshot("implement_solution");
+        snapshot.current_node_validation_rework_artifacts = vec!["process_csv.py".to_string()];
+
+        let err = taskspace_action_to_tool_call(&action, &snapshot).expect_err(
+            "rework target mixed patch must be converted to replacement-required feedback",
+        );
+
+        assert_eq!(err, "apply_patch_replacement_required:process_csv.py");
     }
 
     #[test]
@@ -12806,6 +12843,27 @@ fn taskspace_apply_patch_native_update_with_unified_file_header_targets(
     targets
 }
 
+fn taskspace_validation_rework_replacement_required_targets(
+    targets: &[String],
+    snapshot: &crate::action_map::ActionMapProviderRequestBudgetSnapshot,
+) -> Vec<String> {
+    if snapshot.node_kind.as_deref() != Some("implement_solution")
+        || snapshot.current_node_validation_rework_artifacts.is_empty()
+    {
+        return Vec::new();
+    }
+    targets
+        .iter()
+        .filter(|target| {
+            snapshot
+                .current_node_validation_rework_artifacts
+                .iter()
+                .any(|artifact| artifact == *target)
+        })
+        .cloned()
+        .collect()
+}
+
 fn taskspace_apply_patch_malformed_native_operation_targets(patch: &str) -> Vec<String> {
     let mut targets = Vec::new();
     for line in patch.lines() {
@@ -13138,6 +13196,17 @@ fn taskspace_action_to_tool_call(
             let native_update_unified_header_targets =
                 taskspace_apply_patch_native_update_with_unified_file_header_targets(&patch);
             if !native_update_unified_header_targets.is_empty() {
+                let replacement_required_targets =
+                    taskspace_validation_rework_replacement_required_targets(
+                        &native_update_unified_header_targets,
+                        snapshot,
+                    );
+                if !replacement_required_targets.is_empty() {
+                    return Err(format!(
+                        "apply_patch_replacement_required:{}",
+                        replacement_required_targets.join(",")
+                    ));
+                }
                 return Err(format!(
                     "apply_patch_mixed_native_unified:{}",
                     native_update_unified_header_targets.join(",")
@@ -15010,6 +15079,16 @@ async fn try_run_sampling_request(
                         last_agent_message.as_deref(),
                     ) {
                         Some(build_taskspace_apply_patch_format_recovery_item(&targets))
+                    } else if let Some(targets) =
+                        taskspace_replacement_required_targets_from_rejection(
+                            last_agent_message.as_deref(),
+                        )
+                    {
+                        Some(
+                            build_taskspace_apply_patch_replacement_required_recovery_item(
+                                &targets,
+                            ),
+                        )
                     } else if let Some(targets) =
                         taskspace_native_hunk_targets_from_rejection(last_agent_message.as_deref())
                     {

@@ -5357,12 +5357,23 @@ final_marker: TaskSpaceApplyPatchRecoveryHardStopV1
 1. H-107 的收益已被 live 证据确认：forced replacement recovery 文案确实进入 provider-visible feedback。
 2. 新问题是 `apply-patch-replacement-only-recovery-enforcement-gap`：recovery-state 仍停留在提示层，没有进入 action-contract
    强制层。
-3. R4-D 下一步不应继续加提示词，而应把 replacement-only 状态变成工具调用前的语义拒绝：`apply_patch_replacement_required:<target>`。
-4. R4-G utility 仍未通过。
+3. focused fix 已把 replacement-only 状态变成工具调用前的语义拒绝：active validation rework target 再发 mixed `*** Update File`
+   时返回 `apply_patch_replacement_required:<target>`，并重新给出强制 `Delete File + Add File` recovery。
+4. R4-G utility 仍未通过，需真实 keyed rerun 验证 live 闭环。
 
 验证：
 
 ```text
 keyed rerun: 20260705-000330-979
-CoE: H-108/E-221
+CoE: H-108/E-221/E-222
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core requires_replacement --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core mixed_native_unified --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core native_hunk_recovery --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core action_contract_prompt --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_rework --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core taskspace_apply_patch --lib
+cargo fmt --check
+CODEX_SKIP_VENDORED_BWRAP=1 cargo check -p codex-core
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
+git diff --check
 ```
