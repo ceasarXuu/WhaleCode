@@ -540,3 +540,16 @@ session 旧识别只匹配 `already recorded implementation source evidence`，�
 
 边界说明：这不是允许 block，也不是放宽 patch-only hard-stop；正确行为是保留 hard-stop 上限，但在 hard-stop 前先把 runtime 的
 block rejection 以结构化反馈传给 provider。
+
+## 2026-07-04 R4-D issue type addendum: validation rework patch directive buried after evidence
+
+block-rejection wording 修复后的 keyed rerun 没有复现 block path，而是进入完整 schema validation rework。runtime 已给出：
+完整 `process.py` read、schema/CSV 输入证据、`missing_required_properties`、`schema_required_groups`、`member_ids->members` rename hint
+和禁止重复读。但 `TaskSpaceValidationReworkPatchOnlyRecoveryV1` 把 `Current required behavior` 放在长 evidence 之后，
+provider 连续两次选择 `read_file process.py`，最终按设计 hard-stop。
+
+| Issue type | Layer | Symptom | Resolution contract | Evidence |
+|---|---|---|---|---|
+| `validation-rework-patch-directive-buried-after-evidence` | validation rework recovery payload layout / actionability | 正确事实齐全，但“现在必须 apply_patch，不要 read_file”的动作指令位于长证据块后，模型在 repair loop 中继续重复读 | patch-only 和 duplicate-read recovery 均先给 `Current required behavior`，再给 previous feedback 和 evidence；保持 repair contract、complete-read evidence 和 hard-stop 上限 | CoE H-070/E-149; recovery ordering tests |
+
+边界说明：这不是删减证据，也不是放宽 repeated read；而是把动作优先级显式前置，让模型先看到合法下一步，再用下面证据构造 patch。

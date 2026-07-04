@@ -4203,3 +4203,70 @@
   ```
 - Result: passed. `cargo fmt` and `cargo fmt --check` exit 0 with the known stable rustfmt `imports_granularity` warnings; `git diff --check` exits 0; `whale` dev build finished successfully.
 - Interpretation: H-069 is ready for commit/push and attestation before live keyed rerun.
+
+# Evidence E-149: 431e0ee rerun diverges past block rejection and exposes buried patch directive in long validation rework evidence
+
+- Prediction tested: H-069 should structure the validation-rework missing-source block rejection if that path recurs.
+- Real rerun:
+  ```text
+  RunDir: target/r4-org-json-real-keyed-20260704bo-block-rejection-feedback/runs/terminal_bench__organization-json-generator/20260704-151923-804
+  PairReport: pair-001/pair-report.md
+  reported_evidence_level: E1
+  outcome_standard: wrong
+  outcome_taskspace: engineering_unclean
+  right_exec_timed_out: False
+  right_tool_call_count: 18
+  right_public_validation_exit_code: 1
+  right_hidden_oracle_exit_code: 0
+  current_git_head: 431e0eebd1e94425287173393a381851c50485ce
+  whale_binary_sha256: 5f56624a255f52abbe450345f01e0f2518fe61a717426fd7d15093ececeed912
+  ```
+- Result: H-069 path did not recur in this rerun, so H-069 remains focused-fixed but not live-cleared.
+- New blocker signals:
+  - Runtime reached schema validation and generated a repair contract with `missing_required_properties=members, averageDepartmentBudget, totalEmployees, skillDistribution, departmentSizes, projectStatusDistribution, averageYearsOfService`, `schema_required_groups`, and `schema_property_rename_hints=member_ids->members`.
+  - The model read `process.py` completely as `result-14` (`TaskSpaceReadFileSummaryV1 eof_reached=true`).
+  - `TaskSpaceValidationReworkPatchOnlyRecoveryV1` contained the full repair contract, complete target read, schema/CSV evidence, and prohibition on `read_file`, but its `Current required behavior` section appeared after a long evidence block.
+  - The provider repeated `read_file process.py`, received `TaskSpaceValidationReworkDuplicateReadRecoveryV1`, then repeated `read_file process.py` again and hit `TaskSpaceValidationReworkDuplicateReadHardStopV1`.
+- Interpretation: New issue type is `validation-rework-patch-directive-buried-after-evidence`: the feedback contained the right facts, but the operative patch directive was placed after a long evidence section, weakening actionability for DeepSeek V4 Flash in repair loops.
+
+# Hypothesis H-070: validation rework recovery should put patch directive before long evidence
+
+- Claim: `TaskSpaceValidationReworkPatchOnlyRecoveryV1` and `TaskSpaceValidationReworkDuplicateReadRecoveryV1` placed `Current required behavior` after long repair/evidence excerpts. In live rerun `20260704-151923-804`, the model had all required evidence but still repeated `read_file`, indicating the immediate action directive was too late in the feedback payload.
+- Prediction:
+  1. Focused tests should assert both patch-only and duplicate-read validation rework recoveries put `Current required behavior` before `Already inspected evidence available to use now`.
+  2. Existing `validation_rework_duplicate_read`, `validation_rework`, and `action_contract_prompt` suites should still pass.
+  3. The next keyed rerun should either patch after the first complete-read recovery or expose a lower-level patch synthesis failure.
+- Diagnostic evidence plan: Reorder validation rework recovery payloads so the action directive appears before previous feedback and long evidence, while preserving repair contract, complete-read evidence, schema/CSV excerpts, and hard-stop bounds.
+- Status: confirmed.
+
+# Evidence E-150: validation rework patch directive now precedes long evidence without dropping complete-read audit semantics
+
+- Prediction tested: H-070 predicts validation rework recovery payloads should put the operative patch directive before long evidence, while preserving existing duplicate-read and action-contract behavior.
+- Repair artifact:
+  - `third_party/codex-cli/codex-rs/core/src/session/turn.rs`
+- Repair behavior:
+  - `TaskSpaceValidationReworkPatchOnlyRecoveryV1` now emits `Current required behavior` before previous feedback and long evidence.
+  - `TaskSpaceValidationReworkDuplicateReadRecoveryV1` now emits `Current required behavior` before previous feedback, gate context, and long evidence.
+  - `TaskSpaceValidationReworkDuplicateReadHardStopV1` explicitly preserves `read_context: complete_read` when the recovery text contains complete-read signals, so moving the directive forward does not hide the audit marker behind excerpt truncation.
+  - Focused tests assert the patch directive precedes `Already inspected evidence available to use now`.
+- Validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_rework_duplicate_read -- --nocapture
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_rework -- --nocapture
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core action_contract_prompt -- --nocapture
+  ```
+- Result: passed. `validation_rework_duplicate_read` passed 7/7; `validation_rework` passed 21/21; `action_contract_prompt` passed 29/29.
+- Interpretation: H-070 is focused-fixed. Remaining gates are formatting/build, commit/push, attestation, and another keyed rerun.
+
+# Evidence E-151: H-070 formatting and build gates passed before commit
+
+- Prediction tested: H-070 recovery-layout repair should not break repository formatting, whitespace checks, or the `whale` dev build.
+- Validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+  git diff --check
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-cli --bin whale --locked
+  ```
+- Result: passed. `cargo fmt` and `cargo fmt --check` exit 0 with the known stable rustfmt `imports_granularity` warnings; `git diff --check` exits 0; `whale` dev build finished successfully.
+- Interpretation: H-070 is ready for commit/push and attestation before live keyed rerun.

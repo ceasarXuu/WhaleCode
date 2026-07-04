@@ -3941,3 +3941,17 @@ feedback 后发出 `apply_patch`，或暴露下一层 repair-contract/actionabil
 
 结论：这是 R4-D feedback classification 修复，不是 utility acceptance。下一轮 keyed rerun 要验证 runtime block rejection 是否被发送为
 结构化 tool feedback，并观察模型是否转向 `apply_patch`，或暴露下一层 patch synthesis 问题。
+
+## 5.60 2026-07-04 validation rework patch directive buried after evidence
+
+`431e0ee` 的 keyed rerun 没有复现 5.59 的 block-rejection path，因此 H-069 仍是 focused-fixed、live pending。该轮进入了
+schema validation rework，并暴露新的反馈布局问题：事实齐全，但动作指令太靠后。
+
+本轮新增的问题类型：
+
+| Case | Before | After | Evidence |
+|---|---|---|---|
+| `validation-rework-patch-directive-buried-after-evidence` | `TaskSpaceValidationReworkPatchOnlyRecoveryV1` / `DuplicateReadRecoveryV1` 先输出长 repair/evidence，再输出 `Current required behavior`；模型在完整 `process.py` 和 repair contract 已可见时仍重复读 | recovery payload 先输出 patch/block action directive，再输出 previous feedback 和 long evidence；明确 evidence 只用于构造 patch，不是重复 discovery 许可 | keyed rerun `20260704-151923-804`; CoE H-070/E-149; ordering tests |
+
+结论：这是 R4-D recovery actionability/layout 修复，不是 utility acceptance。下一轮 keyed rerun 要验证模型是否在 first complete-read
+recovery 后转向 `apply_patch`，或进入更低层的 patch synthesis/validation failure。

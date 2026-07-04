@@ -2165,9 +2165,6 @@ previous_read_result: {previous_result}\n\
 {repair_contract}\
 {failed_edit}\
 The previous action was blocked because this validation rework node already read the failure artifact and no successful edit has been recorded after that read.\n\
-Previous blocked feedback:\n{previous_excerpt}\n\
-{gate_recovery}\
-{evidence}\
 Current required behavior:\n\
 - Emit exactly one taskspace-action-v1 apply_patch action targeting `{artifact}` now, using the current contents already visible in `{previous_result}` and the failed validation evidence.\n\
 - Use native apply_patch grammar only: `*** Update File: <path>` with `@@` plus exact context and exact `-old` / `+new` lines, or `*** Delete File` followed by `*** Add File` for a complete small/generated rewrite. Do not include `--- Update File:`, `--- a/...`, `+++ b/...`, or `@@ -old,+new @@` range headers.\n\
@@ -2175,7 +2172,11 @@ Current required behavior:\n\
 - If repair_contract is present, satisfy it exactly before rerunning validation.\n\
 - Do not call read_file, list_files, search, broad shell discovery, schema inspection, or validation from this implementation node before a successful edit is recorded.\n\
 - If no safe edit can be made from the already visible evidence, emit exactly one taskspace_control block_node with the exact missing evidence or unsafe-edit reason.\n\
-- Do not repeat the blocked read under a different rationale."
+- Do not repeat the blocked read under a different rationale.\n\
+- Use the evidence below only to construct the patch; do not treat it as permission to rediscover the same files.\n\
+Previous blocked feedback:\n{previous_excerpt}\n\
+{gate_recovery}\
+{evidence}"
     );
 
     ResponseItem::Message {
@@ -2196,6 +2197,14 @@ fn build_taskspace_validation_rework_duplicate_read_hard_stop_item(
         .unwrap_or_else(|| "already-read validation rework artifact".to_string());
     let previous_result = taskspace_validation_rework_duplicate_previous_result(&recovery_text)
         .unwrap_or_else(|| "previous read result".to_string());
+    let read_context = if recovery_text.contains("complete read_file context")
+        || recovery_text.contains("read_context: complete_read")
+        || recovery_text.contains("eof_reached=true")
+    {
+        "read_context: complete_read; complete read_file context already visible; no additional file lines are hidden\n"
+    } else {
+        ""
+    };
     let recovery_excerpt = recovery_text.chars().take(1800).collect::<String>();
     let text = format!(
         "{TASKSPACE_VALIDATION_REWORK_DUPLICATE_READ_HARD_STOP_MARKER}\n\
@@ -2203,6 +2212,7 @@ reason: repeated_validation_rework_duplicate_artifact_read\n\
 attempt_count: {attempt}\n\
 target_artifact: {artifact}\n\
 previous_read_result: {previous_result}\n\
+{read_context}\
 The current validation rework node repeatedly requested the same already-visible failure artifact after TaskSpace provided an apply_patch-or-block recovery contract.\n\
 Runtime decision:\n\
 - Stop provider sampling for this turn instead of issuing another advisory recovery request.\n\
@@ -2261,16 +2271,17 @@ fn build_taskspace_validation_rework_patch_only_recovery_item(
 failure_kind: validation_rework_patch_only_after_target_read\n\
 target_artifacts: {target_artifact_label}\n\
 The previous action was blocked because this validation rework node already has the target file contents and validation repair contract needed for an edit.\n\
-Previous blocked feedback:\n{previous_excerpt}\n\
-{failed_edit}\
-{evidence}\
 Current required behavior:\n\
 - Emit exactly one taskspace-action-v1 apply_patch action targeting `{target_artifact_label}` now, or one taskspace_control block_node with the exact unsafe-edit reason.\n\
 - Use the visible validation failure, schema repair contract, and validation_rework_target_read evidence already shown in context.\n\
 - If the validation_rework_target_read evidence says complete_read or eof_reached=true, no additional file lines are hidden; do not treat the displayed target-read excerpt as partial evidence.\n\
 - Do not call read_file, list_files, search, broad shell discovery, schema inspection, or validation before a successful edit is recorded.\n\
 - Do not move from the named target artifact to `schema.json` or another fact source; those facts are already present in evidence.\n\
-- If no safe edit can be made from the already visible evidence, block explicitly instead of requesting more reads."
+- If no safe edit can be made from the already visible evidence, block explicitly instead of requesting more reads.\n\
+- Use the evidence below only to construct the patch; do not treat it as permission to rediscover the same files.\n\
+Previous blocked feedback:\n{previous_excerpt}\n\
+{failed_edit}\
+{evidence}"
     );
 
     ResponseItem::Message {
@@ -5378,6 +5389,16 @@ Then I will inspect the file."#,
         assert!(text.contains("`--- a/...`"));
         assert!(text.contains("Do not call read_file"));
         assert!(text.contains("Do not repeat the blocked read"));
+        let required_behavior_pos = text
+            .find("Current required behavior:")
+            .expect("required behavior heading");
+        let evidence_pos = text
+            .find("Already inspected evidence available to use now:")
+            .expect("evidence heading");
+        assert!(
+            required_behavior_pos < evidence_pos,
+            "patch directive must precede long evidence block:\n{text}"
+        );
         assert!(is_taskspace_implement_needs_edit_recovery_item(&item));
         assert!(!is_taskspace_no_action_recovery_item(&item));
     }
@@ -5514,6 +5535,17 @@ Then I will inspect the file."#,
                 "validation_rework_target_read result=result-12 artifact=generate_org.py | validation_schema_repair_contract: missing_required_properties=members",
             ),
             None,
+        );
+        let recovery_text = item_text(item.clone());
+        let required_behavior_pos = recovery_text
+            .find("Current required behavior:")
+            .expect("required behavior heading");
+        let evidence_pos = recovery_text
+            .find("Already inspected evidence available to use now:")
+            .expect("evidence heading");
+        assert!(
+            required_behavior_pos < evidence_pos,
+            "patch directive must precede long evidence block:\n{recovery_text}"
         );
 
         assert!(!taskspace_validation_rework_patch_only_should_hard_stop(
