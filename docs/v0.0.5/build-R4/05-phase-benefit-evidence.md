@@ -5247,3 +5247,46 @@ CODEX_SKIP_VENDORED_BWRAP=1 cargo check -p codex-core
 CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
 git diff --check
 ```
+
+## 5.92 2026-07-04 validation rework stale schema-knowledge blocker wording
+
+`42d9777` 后 keyed rerun 显示 H-105 的 mixed patch gate 已 live-clear：`apply_patch_mixed_native_unified:process.py`
+在 action-contract 层出现，未再落到工具层 expected-lines failure。新的 failure 是 validation rework blocker wording
+覆盖不足：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260704cz-expected-lines-recovery-gate/runs/terminal_bench__organization-json-generator/20260704-233803-895
+reported_evidence_level: E1
+outcome_standard: wrong
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 10
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+final_marker: TaskSpaceValidationReworkPatchOnlyHardStopV1
+```
+
+收益判断：
+
+1. 新收录的 R4-D feedback 修复是 `validation-rework-stale-schema-knowledge-blocker`：已有 schema/fact-source evidence
+   和 complete target read 后，`without knowing schema` 等价说法不应绕过 missing-source blocker guard。
+2. 修复后 `Cannot apply a valid patch without knowing the schema definition` 会被归入 missing-source/schema visibility
+   stale blocker，并在 complete target read 后要求继续 `apply_patch`。
+3. 这不是放宽状态机：validation rework target complete read 后，继续读 schema/list/search 仍被禁止；真实缺 schema evidence 的
+   case 不会被这条规则吞掉。
+4. R4-G utility 仍未通过：需要下一次 keyed rerun 验证 stale schema-knowledge blocker 是否 live-clear，并继续定位剩余 tools
+   链路问题。
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_rework_rejects_missing_current_artifact_visibility_blocker --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_rework_rejects_stale_schema_and_validator_unavailable_blockers --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_rework --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core missing_source_blocker --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core action_contract_prompt --lib
+cargo fmt --check
+CODEX_SKIP_VENDORED_BWRAP=1 cargo check -p codex-core
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
+git diff --check
+```

@@ -6273,3 +6273,67 @@
     PASS
   ```
 - Interpretation: H-105 is focused-fixed. Remaining gates are commit/push, binary attestation, install, and keyed rerun to verify whether the live expected-lines recovery hard-stop is cleared or whether the next unresolved R4 tool-chain issue appears.
+
+# Evidence E-217: H-105 rerun live-clears mixed patch pre-execution rejection and exposes schema-knowledge blocker wording gap
+
+- Real rerun:
+  ```text
+  RunDir: target/r4-org-json-real-keyed-20260704cz-expected-lines-recovery-gate/runs/terminal_bench__organization-json-generator/20260704-233803-895
+  reported_evidence_level: E1
+  outcome_standard: wrong
+  outcome_taskspace: engineering_unclean
+  right_exec_timed_out: False
+  right_tool_call_count: 10
+  right_public_validation_exit_code: 1
+  right_hidden_oracle_exit_code: 0
+  right_open_leaf_nodes: 1
+  final_marker: TaskSpaceValidationReworkPatchOnlyHardStopV1
+  ```
+- H-105 live status:
+  - Mixed native/unified patch was rejected before tool execution: `TaskSpaceActionV1 rejected: apply_patch_mixed_native_unified:process.py`.
+  - Patch-only recovery identified only `target_artifacts: process.py`; schema/CSV refs remained evidence, not patch targets.
+  - This run did not reproduce the exact flattened expected-lines target pollution branch; that branch remains focused-covered by E-216.
+- New blocker signal:
+  - Runtime rejected a non-coverage validation command and executed required commands: `python process.py` and `python process.py && python -m jsonschema -i organization.json schema.json`.
+  - Validation failed on an editable implementation problem: `KeyError: 'role'` in `process.py`; public validator later failed because `/app/organization.json` did not exist.
+  - The rework node read `process.py` completely with `content_visibility: full_content_visible`.
+  - After a mixed patch was rejected correctly, the provider emitted `block_node` with reason/rationale equivalent to needing schema knowledge: `Cannot apply a valid patch without knowing the schema definition`.
+  - Existing missing-source/schema blocker guard did not recognize the `without knowing schema` wording, so the stale blocker was accepted and then surfaced through `TaskSpaceValidationReworkPatchOnlyHardStopV1`.
+- Interpretation: H-105's mixed grammar pre-execution guard is live-cleared. The next issue is another feedback-layer stale blocker wording gap: schema/fact-source evidence is present, but semantically equivalent wording bypasses the blocker rejection predicate.
+
+# Hypothesis H-106: validation rework must reject schema-knowledge blockers after complete target read
+
+- Claim: When validation rework has dependency schema/fact-source evidence and a complete target read, blockers equivalent to "cannot patch without knowing schema" must be rejected the same way as "need to read schema.json" or "need full schema context". Otherwise the provider can close the rework node with a stale missing-source claim instead of applying a patch.
+- Prediction: A live-shaped blocker string `Cannot apply a valid patch without knowing the schema definition` should be rejected after a complete validation rework target read with an error that cites missing source visibility and directs the next action to `apply_patch`.
+- Diagnostic evidence plan: Extend the missing-source blocker predicate for `without knowing` / schema-knowledge wording, add a live-shaped regression to the validation rework target-read test, and run focused validation-rework/blocker regressions plus fmt/check/build/diff gates.
+- Status: confirmed.
+
+# Evidence E-218: schema-knowledge blocker wording is covered after complete target read
+
+- Repair artifact:
+  - `third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs`
+- Repair behavior:
+  - `blocker_claims_missing_inspected_source_evidence()` now treats `without knowing`, `without schema knowledge`, `lack schema knowledge`, `lacking schema knowledge`, and `need schema definition` as missing-source/schema-visibility claims.
+  - The live-shaped blocker `Cannot apply a valid patch without knowing the schema definition` is rejected after complete validation rework target evidence is available.
+- Validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_rework_rejects_missing_current_artifact_visibility_blocker --lib
+    PASS
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_rework_rejects_stale_schema_and_validator_unavailable_blockers --lib
+    PASS
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_rework --lib
+    PASS: 29/29
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core missing_source_blocker --lib
+    PASS: 3/3
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core action_contract_prompt --lib
+    PASS: 29/29
+  cargo fmt --check
+    PASS (stable rustfmt warns that imports_granularity is nightly-only)
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo check -p codex-core
+    PASS
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
+    PASS
+  git diff --check
+    PASS
+  ```
+- Interpretation: H-106 is focused-fixed at the blocker predicate level. Remaining gates are commit/push, binary attestation, install, and another keyed rerun.

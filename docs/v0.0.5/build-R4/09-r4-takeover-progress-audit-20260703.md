@@ -3311,6 +3311,37 @@ final_marker: TaskSpaceApplyPatchRecoveryHardStopV1
 
 状态：focused 修复已编码并通过相关回归、fmt/check/build/diff-check。下一步是 commit/push、attestation、安装新 whale，再跑 keyed rerun，确认该 expected-lines recovery hard-stop 是否 live-clear，或继续收录下一类 tools 链路问题。
 
+## 35. 2026-07-04 validation rework stale schema-knowledge blocker wording
+
+`42d9777` 后 keyed rerun 已 live-clear H-105 的一部分关键路径：mixed native/unified patch 没有再进入 tool execution，
+而是在 action-contract 层被拒绝为 `apply_patch_mixed_native_unified:process.py`；patch-only recovery 的 target
+也保持为 `process.py`。新 failure 是 stale blocker wording 覆盖不足：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260704cz-expected-lines-recovery-gate/runs/terminal_bench__organization-json-generator/20260704-233803-895
+reported_evidence_level: E1
+outcome_standard: wrong
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 10
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+final_marker: TaskSpaceValidationReworkPatchOnlyHardStopV1
+```
+
+问题类型收录：
+
+| 字段 | 内容 |
+|---|---|
+| case | `validation-rework-stale-schema-knowledge-blocker` |
+| 层级 | validation rework blocker semantics / feedback predicate coverage |
+| 本质 | `process.py` 已完整读取、schema/CSV evidence 已存在，但 provider 用 `Cannot apply a valid patch without knowing the schema definition` 这种等价说法绕过了 missing-source blocker guard |
+| 非根因 | 不是 mixed native/unified pre-execution gate 失效；不是 patch-only target artifacts 污染；不是状态机应该允许继续读 schema |
+| 修复 | missing-source/schema blocker predicate 增加 `without knowing`、`without schema knowledge`、`lack/lacking schema knowledge`、`need schema definition` 等 live wording |
+| focused evidence | CoE H-106/E-217/E-218；`validation_rework_rejects_missing_current_artifact_visibility_blocker`；`validation_rework_rejects_stale_schema_and_validator_unavailable_blockers`；`validation_rework` 29/29；`missing_source_blocker` 3/3；`action_contract_prompt` 29/29；fmt-check；cargo check；whale build；diff-check |
+
+状态：focused 修复已编码并通过相关回归、fmt/check/build/diff-check。下一步是 commit/push、attestation、安装新 whale，再进行下一轮 keyed rerun。
+
 ## 28. 2026-07-04 natural-language slash fact-source extraction
 
 `3b6b269` 后的 keyed rerun 没有触发 no-action recovery，因此 H-098 尚未 live-clear。该轮暴露 inspect fact-source

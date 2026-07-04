@@ -950,3 +950,17 @@ failure 上 hard-stop。关键差异是：失败语义已经存在，后续恢�
 边界说明：该修复不提升模型 patch 能力本身，也不把 failed patch 当成功。它只保证 feedback 层把同一个失败事实继续以正确目标、
 正确 artifact 集合和正确 grammar 错误类别传回模型，避免恢复链把 `generate.py` 扭成带源码片段的伪路径，或把 schema/CSV
 输入误当成可 patch 目标。
+
+## 2026-07-04 R4-D issue type addendum: validation rework stale schema-knowledge blocker wording
+
+`42d9777` 后的 keyed rerun 已证明 mixed native/unified patch 在 action-contract 层提前拒绝，且 patch-only recovery
+target 保持为 `process.py`。新的 failure 是 blocker 语义覆盖不足：validation rework 已有 schema/CSV evidence 和
+`process.py` complete target read，provider 仍用 `Cannot apply a valid patch without knowing the schema definition`
+这类等价说法关闭 rework。
+
+| Issue type | Layer | Symptom | Resolution contract | Evidence |
+|---|---|---|---|---|
+| `validation-rework-stale-schema-knowledge-blocker` | validation rework blocker semantics / feedback predicate coverage | 已有 schema/fact-source evidence 和 complete target read 后，`without knowing schema` 这类 blocker 绕过 missing-source guard，被接受后触发 patch-only hard-stop | missing-source/schema blocker predicate 覆盖 `without knowing`、`without schema knowledge`、`lack/lacking schema knowledge`、`need schema definition`；complete target read 后拒绝该 blocker 并要求 `apply_patch` | keyed rerun `20260704-233803-895`; CoE H-106/E-217/E-218; `validation_rework_rejects_missing_current_artifact_visibility_blocker`; `validation_rework_rejects_stale_schema_and_validator_unavailable_blockers` |
+
+边界说明：该修复不允许 runtime 无条件忽略真实 schema 缺失。只有当 validation rework 已经有 dependency schema/fact-source
+evidence，并且当前 target 已完整读取时，才把这类 blocker 识别为 stale missing-source 语义并拒绝。

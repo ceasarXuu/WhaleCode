@@ -16564,6 +16564,11 @@ fn blocker_claims_missing_inspected_source_evidence(blocker_summary: &str) -> bo
         || lower.contains("need full file content")
         || lower.contains("need full schema")
         || lower.contains("need schema context")
+        || lower.contains("without knowing")
+        || lower.contains("without schema knowledge")
+        || lower.contains("lack schema knowledge")
+        || lower.contains("lacking schema knowledge")
+        || lower.contains("need schema definition")
         || lower.contains("have not read")
         || lower.contains("has not read")
         || lower.contains("not read")
@@ -35468,6 +35473,21 @@ TaskSpaceReadFileSummaryV1: path=generate_org.py lines_read=210 eof_reached=true
         assert!(
             schema_context_blocker.contains("apply_patch"),
             "{schema_context_blocker}"
+        );
+        let live_schema_knowledge_blocker = state
+            .block_main_node(
+                owner,
+                &rework_node_id,
+                "Cannot apply a valid patch without knowing the schema definition".to_string(),
+            )
+            .expect_err("schema-knowledge blocker should be rejected after complete target read");
+        assert!(
+            live_schema_knowledge_blocker.contains("missing source visibility"),
+            "{live_schema_knowledge_blocker}"
+        );
+        assert!(
+            live_schema_knowledge_blocker.contains("apply_patch"),
+            "{live_schema_knowledge_blocker}"
         );
     }
 
