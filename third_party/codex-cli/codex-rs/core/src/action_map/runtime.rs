@@ -16297,12 +16297,18 @@ fn blocker_claims_missing_inspected_source_evidence(blocker_summary: &str) -> bo
         || lower.contains("not shown")
         || lower.contains("need to read")
         || lower.contains("need to inspect")
+        || lower.contains("need to view")
         || lower.contains("need source")
         || lower.contains("need full file content")
+        || lower.contains("view full")
+        || lower.contains("full current")
         || lower.contains("without full file content")
+        || lower.contains("without seeing")
         || lower.contains("missing critical trailing")
         || lower.contains("truncated")
         || lower.contains("cannot construct")
+        || lower.contains("remaining code")
+        || lower.contains("request read access")
         || lower.contains("cannot read")
         || lower.contains("can't read")
         || lower.contains("lack visibility")
@@ -33860,6 +33866,23 @@ TaskSpaceReadFileSummaryV1: path=generate_org.py lines_read=210 eof_reached=true
         assert!(repeated_message.contains("complete read_file context"));
         assert!(repeated_message.contains("eof_reached=true"));
         assert!(repeated_message.contains("no additional file lines are hidden"));
+
+        let missing_visibility_blocker = state
+            .block_main_node(
+                owner,
+                &rework_node_id,
+                "Need to view full current generate_org.py content and schema.json to apply correct fix for smoke test failure"
+                    .to_string(),
+            )
+            .expect_err("post-target-read validation rework must patch instead of blocking for read access");
+        assert!(
+            missing_visibility_blocker.contains("missing source visibility"),
+            "{missing_visibility_blocker}"
+        );
+        assert!(
+            missing_visibility_blocker.contains("apply_patch"),
+            "{missing_visibility_blocker}"
+        );
 
         state
             .record_main_tool_result_with_class(

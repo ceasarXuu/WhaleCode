@@ -1548,6 +1548,87 @@ CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/co
 当前状态：focused 修复和 R4-adjacent regression/build 已完成；仍需 attestation 和下一次 keyed rerun 验证 live sample
 是否在新 patch-only recovery 后直接 patch schema mismatch，或者暴露下一层 tools-chain blocker。
 
+### 3.31 validation rework visible evidence blocker accepted
+
+patch-only feedback 修复提交并 attestation 后执行 keyed rerun：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260704bc-patch-only-feedback/runs/terminal_bench__organization-json-generator/20260704-122254-562
+preflight current_git_head: f5ba9ede38e1f74c1f90d0d553848b862ad50c6e
+build_attestation_status: pass
+reported_evidence_level: E1
+outcome_standard: wrong
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 6
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+```
+
+本次进展：
+
+| 层 | 结论 |
+|---|---|
+| patch-only recovery | `TaskSpaceValidationReworkPatchOnlyRecoveryV1` 已在 live trace 中出现，H-056 的专用反馈语义生效 |
+| target read | `process.py` 读取完整，`TaskSpaceReadFileSummaryV1` 显示 `lines_read=83 eof_reached=true max_lines=240` |
+| visible evidence | provider prompt 同时包含 `validation_rework_target_read result=result-7 artifact=process.py`、`schema.json` 证据和 `apply_patch process.py` next-valid-action |
+| bad action | 模型改为调用 `taskspace_control block_node`，理由是 `Need to view full current process.py content and schema.json...` |
+| runtime gap | `block_main_node()` 接受了这个 blocker，导致 `current_main_node_missing`，最后退化为 `blocked_by_taskspace_action_contract` |
+
+问题类型收录：
+
+| 字段 | 内容 |
+|---|---|
+| type | `validation-rework-visible-evidence-blocker-accepted` |
+| layer | feedback layer / control guard |
+| trigger | validation rework 已有完整 target read 和 schema repair context，但模型用“需要查看完整当前文件 / remaining code / read access”阻断 |
+| expected | runtime 应拒绝该 blocker，反馈 `missing source visibility`，要求继续 `apply_patch`；只有真实外部 blocker 或 failed edit 后同 target refresh 才允许离开 patch-only 路径 |
+| actual | `blocker_claims_missing_inspected_source_evidence()` 没识别 `need to view full current...` 等等价缺证据语义 |
+
+根因判断：
+
+这仍然不是修复信息缺失。BC trace 中目标文件、schema 证据、validation failure 和 patch-only contract 都已经在上下文内。
+缺口是 blocker 分类器的语义覆盖不足：R4 feedback layer 对 `need to read/inspect` 有 guard，但没有把 `need to view full current...`
+归入相同的 missing-visibility blocker，因此错误接受了一个与可见证据矛盾的 `block_node`。
+
+本轮修复设计：
+
+| 层 | 结论 |
+|---|---|
+| classifier | 扩展 `blocker_claims_missing_inspected_source_evidence()`，覆盖 `need to view`、`view full`、`full current`、`without seeing`、`remaining code`、`request read access` |
+| runtime guard | 复用既有 `block_main_node()` guard：当 dependency evidence 已识别 implementation artifact / validation rework target 且尚未成功 edit 时，拒绝 missing source visibility blocker |
+| regression | 在 post-target-read validation rework 测试中加入 live blocker reason，断言返回 `missing source visibility` 和 `apply_patch` |
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core validation_rework_allows_changed_artifact_read_when_schema_failure_lacks_traceback --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core validation_rework --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core taskspace_control --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core implementation_needs_edit --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core action_contract_prompt --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core validation_ --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core provider_budget --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core taskspace_active_budget --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core apply_patch_ --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core local_infra --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core duplicate_read_search --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core missing_fact_source_bootstrap --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core inspect_missing_fact_sources --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+git diff --check
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-cli --bin whale --locked
+```
+
+结果：通过。`validation_rework` 19/19、`taskspace_control` 35/35、`implementation_needs_edit` 3/3、
+`action_contract_prompt` 28/28、`validation_` 98/98、`provider_budget` 23/23、`taskspace_active_budget`
+11/11、`apply_patch_` 35/35、`local_infra` 11/11、`duplicate_read_search` 3/3、
+`missing_fact_source_bootstrap` 1/1、`inspect_missing_fact_sources` 2/2 均通过。`cargo fmt --check`
+仍只输出项目既有 stable rustfmt `imports_granularity` 警告；`git diff --check` 和 `whale` build 通过。
+
+当前状态：focused 修复和 R4-adjacent regression/build 已完成；仍需提交推送、attestation 和下一次 keyed rerun 验证
+live sample 是否在新 blocker guard 后进入 `apply_patch`，或者暴露下一层 tools-chain blocker。
+
 ## 4. 本次验证
 
 | 验证项 | 命令 | 结果 |

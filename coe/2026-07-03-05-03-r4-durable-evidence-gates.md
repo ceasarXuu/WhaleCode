@@ -3356,3 +3356,72 @@
   ```
 - Result: passed. `implementation_recovery` 5/5, `implementation_needs_edit` 3/3, `validation_rework_duplicate_read` 6/6, `validation_rework` 19/19, `action_contract_prompt` 28/28, `validation_` 98/98, `provider_budget` 23/23, `taskspace_active_budget` 11/11, `duplicate_read_search` 3/3, `missing_fact_source_bootstrap` 1/1, `inspect_missing_fact_sources` 2/2, `local_infra` 11/11, `apply_patch_` 35/35, and `taskspace_control` 35/35 all passed. The fmt check still prints the known stable rustfmt `imports_granularity` warning. `git diff --check` and the `whale` build passed.
 - Interpretation: H-056 is focused-fixed with R4-adjacent regression/build coverage. The remaining live gate is commit/push, binary attestation, and another keyed `organization-json-generator` rerun to verify whether the model patches after the new patch-only recovery or exposes the next tools-chain blocker.
+
+# Evidence E-123: f5ba9ed live rerun exposes accepted blocker despite visible validation rework evidence
+
+- Prediction tested: H-056 should preserve the patch-only semantic in a live keyed `organization-json-generator` rerun and either force an edit or expose the next tools-chain blocker.
+- Real rerun:
+  ```text
+  RunDir: target/r4-org-json-real-keyed-20260704bc-patch-only-feedback/runs/terminal_bench__organization-json-generator/20260704-122254-562
+  PairReport: pair-001/pair-report.md
+  reported_evidence_level: E1
+  outcome_standard: wrong
+  outcome_taskspace: engineering_unclean
+  right_exec_timed_out: False
+  right_tool_call_count: 6
+  right_public_validation_exit_code: 1
+  right_hidden_oracle_exit_code: 0
+  ```
+- Matched H-056 live signals:
+  - `whale-exec.jsonl` recorded `TaskSpaceValidationReworkPatchOnlyRecoveryV1`, so the specialized post-target-read recovery was emitted.
+  - `whale-exec.jsonl` recorded `TaskSpaceReadFileSummaryV1: path=process.py lines_read=83 eof_reached=true max_lines=240`.
+  - The provider prompt contained `validation_rework_target_read result=result-7 artifact=process.py`, schema evidence from `result-1 artifacts=schema.json`, and next-valid-action text requiring `apply_patch process.py`.
+- New blocker signal:
+  - The model emitted `taskspace_control block_node` with reason `Need to view full current process.py content and schema.json to apply correct fix for smoke test failure`.
+  - Its rationale claimed the current projection excerpt was incomplete and that it could not construct an accurate patch without seeing remaining code and schema definition.
+  - Runtime accepted the blocker, leaving `provider_request_context_missing_reason:current_main_node_missing`, then the final message became `blocked_by_taskspace_action_contract: local infrastructure evidence prevents execution...`.
+- Interpretation: This is a feedback-layer semantic recognition gap, not a model-context loss. The required source/schema evidence and patch-only contract were present, but `blocker_claims_missing_inspected_source_evidence()` did not classify `need to view full current ...` / `remaining code` / `request read access` as a missing-visibility blocker, so `block_main_node()` accepted a blocker that contradicted already-visible evidence.
+
+# Hypothesis H-057: validation rework must reject missing-visibility block_node wording after target read
+
+- Claim: `blocker_claims_missing_inspected_source_evidence()` recognizes missing-source blocker wording such as `need to read`, `need to inspect`, `not visible`, and `cannot construct`, but misses equivalent live wording such as `need to view full current <target>`, `without seeing remaining code`, and `request read access`. In validation rework nodes with dependency repair evidence and no successful edit, that leak lets the model close the node instead of applying the required patch.
+- Prediction:
+  1. A focused runtime test in the post-target-read validation rework state should currently accept the live blocker reason `Need to view full current generate_org.py content and schema.json...`; after repair it must return an error containing `missing source visibility` and `apply_patch`.
+  2. Extending the missing-visibility classifier with these equivalent phrases should not change the legitimate failed-edit refresh path, where the same target may be read once after a failed edit made context stale.
+  3. `validation_rework`, `taskspace_control`, and R4-adjacent suites should continue to pass.
+- Diagnostic evidence plan: Add the live wording to the existing validation rework target-read test before the failed-edit branch, extend the blocker classifier phrase set, then run focused validation rework and taskspace-control regressions plus adjacent action-contract, provider/budget, apply-patch, formatting, whitespace, and `whale` build checks.
+- Status: confirmed.
+
+# Evidence E-124: visible-evidence blocker guard is focused-fixed with R4 regression coverage
+
+- Prediction tested: H-057 predicts the live post-target-read blocker wording must be rejected as missing source visibility, while existing validation rework and failed-edit refresh behavior remains intact.
+- Repair artifact:
+  - `third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs`
+- Repair behavior:
+  - `blocker_claims_missing_inspected_source_evidence()` now treats `need to view`, `view full`, `full current`, `without seeing`, `remaining code`, and `request read access` as equivalent missing-visibility blocker claims.
+  - `validation_rework_allows_changed_artifact_read_when_schema_failure_lacks_traceback` now includes the live-style blocker reason `Need to view full current generate_org.py content and schema.json...` after a complete target read and before any successful edit.
+  - The focused regression asserts the blocker is rejected with `missing source visibility` and `apply_patch`.
+- Focused validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core validation_rework_allows_changed_artifact_read_when_schema_failure_lacks_traceback --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core validation_rework --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core taskspace_control --lib --locked
+  ```
+- R4-adjacent regression/build validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core implementation_needs_edit --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core action_contract_prompt --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core validation_ --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core provider_budget --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core taskspace_active_budget --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core apply_patch_ --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core local_infra --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core duplicate_read_search --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core missing_fact_source_bootstrap --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core inspect_missing_fact_sources --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+  git diff --check
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-cli --bin whale --locked
+  ```
+- Result: passed. `validation_rework` 19/19, `taskspace_control` 35/35, `implementation_needs_edit` 3/3, `action_contract_prompt` 28/28, `validation_` 98/98, `provider_budget` 23/23, `taskspace_active_budget` 11/11, `apply_patch_` 35/35, `local_infra` 11/11, `duplicate_read_search` 3/3, `missing_fact_source_bootstrap` 1/1, and `inspect_missing_fact_sources` 2/2 all passed. The fmt check still prints the known stable rustfmt `imports_granularity` warning. `git diff --check` and the `whale` build passed.
+- Interpretation: H-057 is focused-fixed. The remaining live gate is commit/push, binary attestation, and another keyed `organization-json-generator` rerun to see whether TaskSpace now patches after the patch-only recovery or exposes the next unresolved tools-chain case.
