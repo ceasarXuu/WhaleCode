@@ -4510,3 +4510,68 @@
   ```
 - Result: passed. Focused transport/runtime tests passed; generator-only closeout and schema-target derivation regressions passed; action-contract prompt suite passed; formatting, whitespace, and `whale` build gates passed.
 - Interpretation: H-074 is focused-fixed. It needs commit/push, attestation, and a keyed rerun to verify the live `organization-json-generator` path no longer accepts generator-only validation as satisfying the task's output/schema contract.
+
+# Evidence E-160: 72ffe01 attested rerun enforces output/schema validation but returns to closed rework read loop
+
+- Prediction tested: H-074 predicts validation should require the generated output and schema contract, not accept generator-only success.
+- Harness note:
+  - First attempted run root `target/r4-org-json-real-keyed-20260704bt-start-task-contracts` aborted before sampling with `invalid_harness` because the binary preflight detected stale binary mtime and no matching attestation.
+  - The binary was rebuilt and attested with `write-whale-binary-attestation.ps1`; the successful run's `whale-binary-preflight-health.json` reports `status=pass`, `run_validity=valid`, HEAD `72ffe01c218a1b5e659a8defe9bac21272f45a2d`, and whale sha `5895318ca496ff4da368ad1a48f82612b29b8f07561f558402b58d58d322ab46`.
+- Real rerun:
+  ```text
+  RunDir: target/r4-org-json-real-keyed-20260704bu-start-task-contracts-attested/runs/terminal_bench__organization-json-generator/20260704-163615-799
+  PairReport: pair-001/pair-report.md
+  reported_evidence_level: E2-candidate
+  outcome_standard: solved
+  outcome_taskspace: engineering_unclean
+  right_exec_timed_out: False
+  right_tool_call_count: 13
+  right_wall_time_ms: 254407
+  right_public_validation_exit_code: 1
+  right_hidden_oracle_exit_code: 0
+  current_git_head: 72ffe01c218a1b5e659a8defe9bac21272f45a2d
+  whale_binary_sha256: 5895318ca496ff4da368ad1a48f82612b29b8f07561f558402b58d58d322ab46
+  ```
+- Matched H-074 signals:
+  - Runtime rejected `python generate_org.py` because the validation node had declared output contract artifacts `organization.json, schema.json`.
+  - The next accepted validation command was `python generate_org.py && python -m jsonschema -i organization.json schema.json`.
+  - The run did not close validation on generator-only success.
+- New/remaining blocker signals:
+  - Schema validation produced actionable missing required property summary: `id, members, averageDepartmentBudget, totalEmployees, skillDistribution, departmentSizes, projectStatusDistribution, averageYearsOfService`.
+  - Validation rework read `generate_org.py` completely (`eof_reached=true`, `lines_read=106`) and patch-only recovery included the H-073 `Patch construction scaffold`.
+  - The provider still emitted closed `read_file generate_org.py` twice, hit `validation_rework_closed_action_space_read_disallowed:read_file`, then ended at `TaskSpaceValidationReworkPatchOnlyHardStopV1`.
+  - Static action-contract instructions still said that after `implementation_needs_edit`, `read_file` targeting a named validation rework artifact can be valid. That conflicts with patch-only recovery once the target artifact has already been completely read.
+- Interpretation: H-074 is live-cleared for the validation closeout path exercised in this run; the weak-start-task branch remains focused-covered but not live-reproduced. H-073 scaffold is live-visible but insufficient because H-075 creates a conflicting static action contract.
+
+# Hypothesis H-075: static action-contract read exception conflicts with closed validation rework patch-only state
+
+- Claim: The static `TaskSpaceActionContractV1` implement-solution rule allows `read_file` when it targets a named validation rework artifact. After a complete target read and patch-only recovery, the dynamic recovery closes that action space, but the static rule still presents the same target read as valid. This semantic conflict explains why the provider keeps choosing `read_file generate_org.py` after the patch-only scaffold.
+- Prediction:
+  1. The static action-contract text should explicitly bound the validation-rework read exception to targets that have not yet been completely read.
+  2. It should define an override for `validation_rework_patch_only_after_target_read`, `complete_read` / `eof_reached=true`, and `validation_rework_closed_action_space_read_disallowed`: read/list/search/schema inspection are invalid; only `apply_patch` or `block_node` is valid.
+  3. Existing first-read validation rework tests must still pass, because the initial target read before complete evidence remains valid.
+  4. Existing closed-read rejection and patch-only recovery tests must still pass.
+- Diagnostic evidence plan: Update only the static contract text and add a focused test that asserts the override is present. Run focused recovery tests plus `action_contract_prompt`, `validation_rework`, formatting, whitespace, and `whale` build.
+- Status: confirmed.
+
+# Evidence E-161: static action contract now closes complete validation rework reads
+
+- Prediction tested: H-075 predicts the static action contract must stop advertising validation rework target reads after complete-read patch-only state.
+- Repair artifact:
+  - `third_party/codex-cli/codex-rs/core/src/session/turn.rs`
+- Repair behavior:
+  - The implement-solution rule now says validation rework target reads are valid only while that target has not yet been read completely.
+  - A new `validation rework override` states that if state/projection/recent feedback says `validation_rework_patch_only_after_target_read`, `complete_read` / `eof_reached=true`, or `validation_rework_closed_action_space_read_disallowed`, then `read_file/list_files/search/schema inspection` are invalid and the provider must emit `apply_patch` for the named target artifact or `taskspace_control block_node`.
+- Validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core taskspace_static_contract_closes_complete_validation_rework_reads --lib
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core implementation_recovery_selects_patch_only_after_target_read_evidence --lib
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core implementation_recovery_selects_patch_only_after_closed_action_space_read_reject --lib
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core action_contract_prompt --lib
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core validation_rework --lib
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+  git diff --check
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-cli --bin whale --locked
+  ```
+- Result: passed. New focused test passed; patch-only recovery tests passed; `action_contract_prompt` passed 29/29; `validation_rework` passed 24/24; formatting, whitespace, and `whale` build passed.
+- Interpretation: H-075 is focused-fixed. It needs commit/push, binary attestation, and another keyed rerun to verify whether the provider now emits `apply_patch` after complete target read and patch-only scaffold, or exposes a deeper model/profile repair-synthesis issue.

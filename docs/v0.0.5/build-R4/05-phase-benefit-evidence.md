@@ -4145,3 +4145,71 @@ CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/co
 边界说明：该 case 是 capability/contract 层问题，不是普通 tool execution failure。raw 工具成功存在，但成功含义被弱
 start-task contract 误解释成任务成功。修复原则是让 runtime 恢复 objective-level output/schema obligations，而不是给
 `organization-json-generator` 写专用 validator。
+
+## 5.65 2026-07-04 validation rework read exception conflicts with patch-only closure
+
+`72ffe01` attested keyed rerun 证明 5.64 的 output/schema contract enforcement 已进入 live path：TaskSpace 拒绝了单独
+`python generate_org.py`，要求 `python generate_org.py && python -m jsonschema -i organization.json schema.json`。但该轮仍
+没有成功，原因回到 validation rework patch-only 分支。
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260704bu-start-task-contracts-attested/runs/terminal_bench__organization-json-generator/20260704-163615-799
+reported_evidence_level: E2-candidate
+outcome_standard: solved
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 13
+right_wall_time_ms: 254407
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+current_git_head: 72ffe01c218a1b5e659a8defe9bac21272f45a2d
+whale_binary_sha256: 5895318ca496ff4da368ad1a48f82612b29b8f07561f558402b58d58d322ab46
+```
+
+关键观察：
+
+| Signal | 结论 |
+|---|---|
+| `python generate_org.py` 被 validation coverage gate 拒绝 | H-074 的 output/schema contract enforcement live 生效 |
+| `python generate_org.py && python -m jsonschema -i organization.json schema.json` 执行，输出 `missing_required_properties` | validation failure 语义进入工具反馈 |
+| `generate_org.py` 完整读取，`eof_reached=true`，随后出现 `TaskSpaceValidationReworkPatchOnlyRecoveryV1` 和 `Patch construction scaffold` | H-073 scaffold live 可见 |
+| provider 仍重复 `read_file generate_org.py`，被 `validation_rework_closed_action_space_read_disallowed:read_file` 拒绝，最后 hard-stop | 闭合 action space 仍未收敛到 patch |
+| 静态 `TaskSpaceActionContractV1` 同时写着 named validation rework artifact 的 `read_file` 可有效 | 静态 contract 与动态 patch-only recovery 存在语义冲突 |
+
+本轮新增并 focused 修复的问题类型：
+
+| Case | Before | After | Evidence |
+|---|---|---|---|
+| `validation-rework-static-read-exception-conflicts-with-patch-only` | 静态 action contract 允许 `read_file` targeting named validation rework artifact；动态 recovery 在 complete target read 后又说 read 已闭合，只能 patch/block；provider 选择了静态例外路径 | 静态 implement rule 明确：validation rework target read 只在尚未 complete-read 前有效；若 state/projection/recent feedback 出现 `validation_rework_patch_only_after_target_read`、`complete_read/eof_reached=true` 或 `validation_rework_closed_action_space_read_disallowed`，read/list/search/schema inspection 均无效，只能 apply_patch 或 block_node | keyed rerun `20260704-163615-799`; CoE H-075/E-160/E-161; `taskspace_static_contract_closes_complete_validation_rework_reads`; `validation_rework` 24/24 |
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core taskspace_static_contract_closes_complete_validation_rework_reads --lib
+  PASS
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core implementation_recovery_selects_patch_only_after_target_read_evidence --lib
+  PASS
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core implementation_recovery_selects_patch_only_after_closed_action_space_read_reject --lib
+  PASS
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core action_contract_prompt --lib
+  PASS: 29/29
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core validation_rework --lib
+  PASS: 24/24
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+  PASS
+
+git diff --check
+  PASS
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-cli --bin whale --locked
+  PASS
+```
+
+边界说明：该 fix 不禁止 validation rework 的第一次 target read；它只关闭 complete-read 之后的重复 read 例外。下一轮 keyed
+rerun 要验证静态/dynamic contract 不再冲突后，provider 是否转向 `apply_patch`，否则再升级到 native-tool transport /
+模型 profile / patch-plan gate。

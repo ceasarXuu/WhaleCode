@@ -610,3 +610,17 @@ contract downgrade。provider 的顶层 rationale 仍包含 `organization.json` 
 边界说明：这是 capability/contract 层的 feedback 前置问题。工具没有“失败但没传递”；相反，工具成功被过窄的 start-task
 contract 重新解释成了错误成功。R4 修复点是让状态机恢复用户目标中的产物/schema 义务，而不是允许 runtime 越过状态机直接假设所有
 JSON 生成任务都必须跑某个固定 validator。
+
+## 2026-07-04 R4-D issue type addendum: validation rework static read exception conflicts with patch-only closure
+
+attested keyed rerun 证明 output/schema contract enforcement 已生效，但 validation rework 仍在 closed read loop 中终止。该轮
+`TaskSpaceValidationReworkPatchOnlyRecoveryV1` 已包含 patch construction scaffold，`generate_org.py` 也完整读取并标记
+`eof_reached=true`。provider 仍输出 `read_file generate_org.py`，其中一个原因是静态 `TaskSpaceActionContractV1`
+仍保留泛化例外：“named validation rework artifact 的 read_file 可以有效”。该例外与动态 patch-only closure 冲突。
+
+| Issue type | Layer | Symptom | Resolution contract | Evidence |
+|---|---|---|---|---|
+| `validation-rework-static-read-exception-conflicts-with-patch-only` | static action-contract instruction vs dynamic recovery contract | static contract 允许 named validation rework artifact read；dynamic recovery 在 complete target read 后关闭 read/search/schema inspection；provider 继续选择 closed read | 静态 implement rule 限定 named validation rework target read 只在 target 未完整读取前有效；当 state/projection/recent feedback 提到 patch-only after target read、complete_read/eof_reached=true 或 closed-action read rejection 时，只允许 apply_patch 或 block_node | keyed rerun `20260704-163615-799`; CoE H-075/E-160/E-161; `taskspace_static_contract_closes_complete_validation_rework_reads`; `validation_rework` |
+
+边界说明：这不是放宽 runtime，也不是把第一次 validation rework target read 禁掉；第一次 target read 仍由现有测试覆盖为合法。修复仅消除
+complete-read 之后的静态/动态 contract 冲突。

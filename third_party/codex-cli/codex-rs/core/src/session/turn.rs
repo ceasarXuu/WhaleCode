@@ -1365,7 +1365,8 @@ Allowed actions by active node kind:
 - bootstrap/no active task: taskspace_control, blocked
 - existing task with no active node: final_answer, taskspace_control, blocked
 - inspect_code_context: list_files, search, read_file, run_test, taskspace_control, blocked; use run_test only for pre-edit diagnostic or baseline evidence, not final validation closeout
-- implement_solution: list_files, search, read_file, apply_patch, taskspace_control, blocked before implementation_needs_edit; once TaskSpaceActionContractStateV1 says implementation_needs_edit, only apply_patch, taskspace_control, blocked, or a read_file explicitly targeting a validation rework artifact named in TaskSpaceActionContractStateV1/projection/recent feedback are valid
+- implement_solution: list_files, search, read_file, apply_patch, taskspace_control, blocked before implementation_needs_edit; once TaskSpaceActionContractStateV1 says implementation_needs_edit, only apply_patch, taskspace_control, blocked, or a read_file explicitly targeting a validation rework artifact named in TaskSpaceActionContractStateV1/projection/recent feedback are valid while that rework target has not yet been read completely
+- validation rework override: if TaskSpaceActionContractStateV1, projection, or recent feedback says validation_rework_patch_only_after_target_read, complete_read/eof_reached=true, or validation_rework_closed_action_space_read_disallowed, read_file/list_files/search/schema inspection are not valid; emit apply_patch for the named target artifact or taskspace_control block_node only
 - smoke_test/regression_test: run_test, taskspace_control, blocked
 - final_synthesis: final_answer, taskspace_control, blocked
 Action argument rules:
@@ -7166,6 +7167,25 @@ tax_calc.py\n\
             taskspace_provider_transport_mode_for_request(false, ""),
             TaskspaceProviderTransportMode::NativeTools
         );
+    }
+
+    #[test]
+    fn taskspace_static_contract_closes_complete_validation_rework_reads() {
+        let instructions = taskspace_static_action_contract_instructions();
+
+        assert!(
+            instructions
+                .contains("valid while that rework target has not yet been read completely")
+        );
+        assert!(instructions.contains("validation rework override"));
+        assert!(instructions.contains("validation_rework_patch_only_after_target_read"));
+        assert!(instructions.contains("validation_rework_closed_action_space_read_disallowed"));
+        assert!(
+            instructions.contains("read_file/list_files/search/schema inspection are not valid")
+        );
+        assert!(instructions.contains(
+            "emit apply_patch for the named target artifact or taskspace_control block_node only"
+        ));
     }
 
     #[test]
