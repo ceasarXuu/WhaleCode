@@ -5161,3 +5161,43 @@ CODEX_SKIP_VENDORED_BWRAP=1 cargo check -p codex-core
 CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
 git diff --check
 ```
+
+## 5.90 2026-07-04 failed apply_patch recovery-critical semantics
+
+`b2ec9b0` 后 rerun 证明 H-103 已 live-clear：forced inspect bridge 中的 schema/CSV evidence 不再被忽略，TaskSpace
+进入 required validator 和 validation rework。新的 failure 是 apply_patch feedback recovery 不够结构化：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260704cx-forced-inspect-fact-bridge/runs/terminal_bench__organization-json-generator/20260704-230322-342
+reported_evidence_level: E1
+outcome_standard: wrong
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 13
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+final_marker: TaskSpaceApplyPatchRecoveryHardStopV1
+```
+
+收益判断：
+
+1. 新收录的 R4-D feedback 修复是 `failed-apply-patch-recovery-critical-semantics`：失败语义不是没有传回，而是缺少
+   recovery-critical 结构化字段，导致模型继续试同类坏 patch。
+2. 修复后 edit-failure recovery 会显式携带 `failure_kind`、`failed_target`、`mandatory_next_action`，并把
+   terminal-bench 常见的 `b/app/...`、`/app/app/...` 修正为 app cwd 下真实相对路径。
+3. native apply_patch 反馈现在明确禁止把 `--- a/...`、`+++ b/...`、`@@ -old,+new @@` 放在 `*** Update File`
+   section 内，减少 mixed native/unified 重试。
+4. R4-G utility 仍未通过：需要下一次 keyed rerun 验证该 hard-stop 是否 live-clear；如果继续失败，应继续按同一方式收录下一类
+   tools 链路问题。
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core edit_failure_recovery --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core taskspace_apply_patch --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core action_contract_prompt --lib
+cargo fmt --check
+CODEX_SKIP_VENDORED_BWRAP=1 cargo check -p codex-core
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
+git diff --check
+```

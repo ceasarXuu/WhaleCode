@@ -922,3 +922,17 @@ bridge result，且 bridge body 包含 schema/CSV evidence；implement node 仍�
 
 边界说明：该修复不允许 implementation 在没有 inspect 证据时跳过读取。只有 dependency inspect 或 forced-transition
 bridge 已有真实 fact-source artifact 内容时，才阻止 provider 把“已读事实源”重新包装成 blocker。
+
+## 2026-07-04 R4-D issue type addendum: failed apply_patch recovery semantics
+
+`b2ec9b0` 后的 keyed rerun 已 live-clear forced inspect bridge stale blocker，但 validation rework 进入新的
+`apply_patch` recovery failure：工具失败语义确实传回了模型，不过 recovery 文案没有强制保留失败类型、修正目标路径和下一步动作，
+导致模型连续提交 mixed native/unified、expected-lines mismatch、`app/app/process.py` 目标错误，最终进入
+`TaskSpaceApplyPatchRecoveryHardStopV1`。
+
+| Issue type | Layer | Symptom | Resolution contract | Evidence |
+|---|---|---|---|---|
+| `failed-apply-patch-recovery-critical-semantics` | apply_patch feedback recovery / path normalization | apply_patch failure 已返回，但 provider 反复重试同类错误 patch：`--- a/...`/`+++ b/...` 混入 native update、expected-lines hunk 失配、`app/app/process.py` 双 app-root | edit-failure recovery 输出 `failure_kind`、`failed_target`、`mandatory_next_action`；`b/app/...` 这类 benchmark header 在 app cwd 下规范到真实相对路径；native hunk recovery 显式禁止 unified markers | keyed rerun `20260704-230322-342`; CoE H-104/E-213/E-214; `edit_failure_recovery`; `taskspace_apply_patch`; `action_contract_prompt` |
+
+边界说明：该修复不放宽状态机，不把失败 patch 当成功，也不静默吞掉工具错误。它只把已存在的失败反馈转成 provider
+下一轮必须遵守的结构化恢复合同，并修正 terminal-bench app-root 路径前缀。

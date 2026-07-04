@@ -3244,6 +3244,43 @@ final_marker: TaskSpaceNoActionRecoveryHardStopV1
 
 状态：focused 修复已编码并通过相关回归、fmt/check/build/diff-check。下一步是 commit/push、attestation、keyed rerun，验证 forced inspect 后是否进入 apply_patch implementation。
 
+## 33. 2026-07-04 failed apply_patch recovery-critical semantics
+
+`b2ec9b0` 后 keyed rerun 已 live-clear H-103：forced inspect bridge 后不再接受 `Need to read schema.json...`
+这类 stale fact-source blocker。新 failure 发生在 validation rework 的 apply_patch 恢复链：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260704cx-forced-inspect-fact-bridge/runs/terminal_bench__organization-json-generator/20260704-230322-342
+reported_evidence_level: E1
+outcome_standard: wrong
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 13
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+final_marker: TaskSpaceApplyPatchRecoveryHardStopV1
+```
+
+问题类型收录：
+
+| 字段 | 内容 |
+|---|---|
+| case | `failed-apply-patch-recovery-critical-semantics` |
+| 层级 | apply_patch feedback recovery / path normalization |
+| 本质 | 不是工具失败语义完全缺失；失败已返回，但 recent recovery 没把 `failure_kind`、`failed_target`、路径修正和 mandatory next action 变成强合同 |
+| 非根因 | 不是 H-103 forced inspect bridge；不是 schema validator command 未执行；不是 hard-stop 本身错误 |
+| 修复 | edit-failure recovery 结构化失败类型和目标；`b/app/...` / `/app/app/...` 规范为 app cwd 下真实相对路径；native hunk recovery 明确禁止 unified markers |
+| focused evidence | CoE H-104/E-213/E-214；`edit_failure_recovery` 2/2；`taskspace_apply_patch` 18/18；`action_contract_prompt` 29/29；fmt-check；cargo check；whale build；diff-check |
+
+操作经验落地：
+
+| 场景 | 记录 |
+|---|---|
+| Rust workspace 命令 | `cargo test/check/build` 需要在 `third_party/codex-cli/codex-rs` 下执行；repo 根没有 `Cargo.toml`，从根执行会直接失败 |
+| rustfmt warning | 当前 stable rustfmt 会提示 `imports_granularity = Item` 是 nightly-only，但命令退出码为 0；这不是本轮阻塞 |
+
+状态：focused 修复已编码并通过相关回归、fmt/check/build/diff-check。下一步是 commit/push、attestation、安装新 whale，再跑 keyed rerun，验证 `TaskSpaceApplyPatchRecoveryHardStopV1` 是否 live-clear。
+
 ## 28. 2026-07-04 natural-language slash fact-source extraction
 
 `3b6b269` 后的 keyed rerun 没有触发 no-action recovery，因此 H-098 尚未 live-clear。该轮暴露 inspect fact-source

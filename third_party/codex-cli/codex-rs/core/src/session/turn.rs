@@ -2029,11 +2029,13 @@ fn build_taskspace_apply_patch_native_hunk_recovery_item(targets: &str) -> Respo
         "{TASKSPACE_APPLY_PATCH_NATIVE_HUNK_MARKER}\n\
 The previous apply_patch mixed native apply_patch grammar with unified-diff/range hunk syntax for: {targets}\n\
 Native apply_patch does not use `--- Update File:`, `--- a/...`, `+++ b/...`, or `@@ -old,+new @@` range headers inside `*** Update File` sections.\n\
-Current required behavior:\n\
-- Emit exactly one corrected apply_patch now.\n\
-- Use native `*** Update File: <relative/path>` with `@@` plus exact existing context and exact `-old` / `+new` lines.\n\
-- If the file is small or generated and the full intended contents are known, use `*** Delete File: <path>` followed by `*** Add File: <path>` with the complete corrected file.\n\
-- Do not call read_file, list_files, search, finish_node, or validation until this corrected edit succeeds."
+	Current required behavior:\n\
+	- Emit exactly one corrected apply_patch now.\n\
+	- Use native `*** Update File: <relative/path>` with `@@` plus exact existing context and exact `-old` / `+new` lines.\n\
+	- Do not put `--- a/...`, `+++ b/...`, or `@@ -old,+new @@` anywhere after `*** Update File`; those are unified-diff markers, not native apply_patch hunks.\n\
+	- If you are unsure whether exact context still matches, prefer complete replacement with `*** Delete File: <path>` followed by `*** Add File: <path>` for small/generated files.\n\
+	- If the file is small or generated and the full intended contents are known, use `*** Delete File: <path>` followed by `*** Add File: <path>` with the complete corrected file.\n\
+	- Do not call read_file, list_files, search, finish_node, or validation until this corrected edit succeeds."
     );
 
     ResponseItem::Message {
@@ -2667,6 +2669,7 @@ fn build_taskspace_edit_failure_recovery_item(
         .filter(|value| !value.is_empty())
         .map(|value| format!("\nMost recent failed edit feedback:\n- {value}\n"))
         .unwrap_or_default();
+    let structured_failure = taskspace_edit_failure_recovery_contract(failure_summary);
     let evidence = evidence_summary
         .map(str::trim)
         .filter(|value| !value.is_empty())
@@ -2683,15 +2686,16 @@ fn build_taskspace_edit_failure_recovery_item(
         .unwrap_or_default();
     let text = format!(
         "{TASKSPACE_EDIT_FAILURE_MARKER}\n\
-The previous edit tool call failed. Treat the tool result exactly like standard mode feedback: inspect the failure text, correct the patch target/grammar/context, and retry the edit if the intended change is still valid.\n\
-{failure}\
-{evidence}\
-{complete_rewrite}\
-Current required behavior:\n\
+	The previous edit tool call failed. Treat the tool result exactly like standard mode feedback: inspect the failure text, correct the patch target/grammar/context, and retry the edit if the intended change is still valid.\n\
+	{failure}\
+	{structured_failure}\
+	{evidence}\
+	{complete_rewrite}\
+	Current required behavior:\n\
 - Do not ignore the failed edit result.\n\
 - Do not call list_files, search, broad shell discovery, unrelated read_file, or validation before resolving the failed edit.\n\
 {recovery_action}\
-- If the failure says the target file is missing, use the already listed/read existing path when available."
+	- If the failure says the target file is missing, use the already listed/read existing path when available."
     );
 
     ResponseItem::Message {
@@ -2701,6 +2705,71 @@ Current required behavior:\n\
         end_turn: None,
         phase: None,
     }
+}
+
+fn taskspace_edit_failure_recovery_contract(failure_summary: Option<&str>) -> String {
+    let Some(text) = failure_summary
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    else {
+        return String::new();
+    };
+    let mut lines = Vec::new();
+    if let Some(kind) = taskspace_tool_feedback_field(text, "failure_kind") {
+        lines.push(format!("failure_kind: {kind}"));
+    }
+    if let Some(target) = taskspace_tool_feedback_field(text, "target") {
+        lines.push(format!(
+            "failed_target: {}",
+            taskspace_normalize_apply_patch_target(&target)
+        ));
+    } else if let Some(target) = taskspace_expected_lines_target_from_apply_patch_text(text) {
+        lines.push("failure_kind: apply_patch_expected_lines_mismatch".to_string());
+        lines.push(format!("failed_target: {target}"));
+    } else if let Some(target) = taskspace_context_mismatch_target_from_apply_patch_text(text) {
+        lines.push("failure_kind: apply_patch_context_mismatch".to_string());
+        lines.push(format!("failed_target: {target}"));
+    } else if let Some(target) = taskspace_missing_update_targets_from_apply_patch_text(text) {
+        lines.push("failure_kind: apply_patch_missing_update_target".to_string());
+        lines.push(format!("failed_target: {target}"));
+        if target.starts_with("app/") {
+            let corrected = target.trim_start_matches("app/").to_string();
+            if !corrected.is_empty() {
+                lines.push(format!(
+                    "path_correction: use `{corrected}`, not `{target}`"
+                ));
+            }
+        }
+    } else if let Some(targets) = taskspace_native_hunk_targets_from_rejection(Some(text)) {
+        lines.push("failure_kind: apply_patch_native_hunk_header".to_string());
+        lines.push(format!("failed_target: {targets}"));
+    } else if taskspace_apply_patch_invalid_hunk_looks_unified(text) {
+        lines.push("failure_kind: apply_patch_unified_hunk_header_in_native_patch".to_string());
+    }
+    if lines.is_empty() {
+        return String::new();
+    }
+    if lines.iter().any(|line| {
+        line.contains("apply_patch_expected_lines_mismatch")
+            || line.contains("apply_patch_context_mismatch")
+    }) {
+        lines.push("mandatory_next_action: do not repeat the failed hunk; use exact current context or a complete native Delete File/Add File replacement for a small/generated target".to_string());
+    }
+    if lines.iter().any(|line| {
+        line.contains("apply_patch_native_hunk_header")
+            || line.contains("apply_patch_unified_hunk_header_in_native_patch")
+    }) {
+        lines.push("mandatory_next_action: remove all unified-diff markers (`--- a/...`, `+++ b/...`, `@@ -old,+new @@`) from native apply_patch".to_string());
+    }
+    format!("\nStructured failed-edit contract:\n{}\n", lines.join("\n"))
+}
+
+fn taskspace_tool_feedback_field(text: &str, field: &str) -> Option<String> {
+    let prefix = format!("{field}:");
+    text.lines().find_map(|line| {
+        let value = line.trim().strip_prefix(&prefix)?.trim();
+        (!value.is_empty()).then(|| value.to_string())
+    })
 }
 
 fn taskspace_failure_expected_lines_mismatch(failure_summary: Option<&str>) -> bool {
@@ -3257,12 +3326,20 @@ fn taskspace_normalize_apply_patch_target(target: &str) -> String {
         return relative.trim_matches('/').to_string();
     }
     if let Some((_, relative)) = normalized.split_once("/app/") {
-        return relative.trim_matches('/').to_string();
+        return taskspace_strip_common_workspace_patch_prefix(relative.trim_matches('/'))
+            .to_string();
     }
     if let Some((_, relative)) = normalized.split_once("/workspace/") {
-        return relative.trim_matches('/').to_string();
+        return taskspace_strip_common_workspace_patch_prefix(relative.trim_matches('/'))
+            .to_string();
     }
-    normalized.trim_matches('/').to_string()
+    taskspace_strip_common_workspace_patch_prefix(normalized.trim_matches('/')).to_string()
+}
+
+fn taskspace_strip_common_workspace_patch_prefix(path: &str) -> &str {
+    path.strip_prefix("app/")
+        .or_else(|| path.strip_prefix("./app/"))
+        .unwrap_or(path)
 }
 
 fn taskspace_snapshot_requires_implementation_edit(
@@ -5999,6 +6076,10 @@ Then I will inspect the file."#,
 
         assert!(text.contains(TASKSPACE_EDIT_FAILURE_MARKER));
         assert!(text.contains("Failed to find expected lines"));
+        assert!(text.contains("Structured failed-edit contract"));
+        assert!(text.contains("failure_kind: apply_patch_expected_lines_mismatch"));
+        assert!(text.contains("failed_target: process.py"));
+        assert!(text.contains("mandatory_next_action: do not repeat the failed hunk"));
         assert!(text.contains("do not repeat the same hunk"));
         assert!(text.contains("Complete target-read recovery override"));
         assert!(text.contains("*** Delete File"));
@@ -6010,6 +6091,18 @@ Then I will inspect the file."#,
         assert!(!is_taskspace_validation_rework_patch_only_recovery_item(
             &item
         ));
+    }
+
+    #[test]
+    fn edit_failure_recovery_normalizes_double_app_missing_target() {
+        let failed_edit = "result-15: apply_patch verification failed: Failed to read file to update /tmp/run/right/app/app/process.py: No such file or directory (os error 2)";
+        let item = build_taskspace_edit_failure_recovery_item(Some(failed_edit), None);
+        let text = item_text(item);
+
+        assert!(text.contains(TASKSPACE_EDIT_FAILURE_MARKER));
+        assert!(text.contains("failure_kind: apply_patch_missing_update_target"));
+        assert!(text.contains("failed_target: process.py"));
+        assert!(!text.contains("failed_target: app/process.py"));
     }
 
     #[test]
@@ -8059,6 +8152,17 @@ tax_calc.py\n\
         let resolved = resolve_unique_existing_relative_path_from(temp.path(), "tax_calc.py");
 
         assert_eq!(resolved.as_deref(), Some("src/tax_calc.py"));
+    }
+
+    #[test]
+    fn taskspace_apply_patch_strips_b_app_header_for_app_cwd() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        fs::write(temp.path().join("process.py"), "old").expect("write");
+
+        let resolved =
+            normalize_taskspace_relative_patch_path_from(temp.path(), "b/app/process.py");
+
+        assert_eq!(resolved, "process.py");
     }
 
     #[test]
@@ -12250,8 +12354,7 @@ fn normalize_taskspace_bare_file_patch(patch: &str) -> Option<String> {
     {
         return None;
     }
-    let path =
-        resolve_unique_existing_relative_path(raw_path).unwrap_or_else(|| raw_path.to_string());
+    let path = normalize_taskspace_relative_patch_path(raw_path);
     let mut rewritten = Vec::with_capacity(lines.len() + 1);
     rewritten.push("*** Begin Patch".to_string());
     rewritten.push(format!("*** Update File: {path}"));
@@ -12295,8 +12398,7 @@ fn normalize_taskspace_unwrapped_apply_patch(patch: &str) -> Option<String> {
         }
         if let Some(path) = line.strip_prefix("*** Update File: ") {
             let path = path.trim();
-            let path =
-                resolve_unique_existing_relative_path(path).unwrap_or_else(|| path.to_string());
+            let path = normalize_taskspace_relative_patch_path(path);
             rewritten.push(format!("*** Update File: {path}"));
         } else {
             rewritten.push(line.to_string());
@@ -12331,7 +12433,7 @@ fn normalize_taskspace_unified_diff_patch(patch: &str) -> Option<String> {
             return None;
         }
         let path = taskspace_unified_diff_new_path(new_line)?;
-        let path = resolve_unique_existing_relative_path(path).unwrap_or_else(|| path.to_string());
+        let path = normalize_taskspace_relative_patch_path(path);
         rewritten.push(format!("*** Update File: {path}"));
         index += 2;
 
@@ -12370,6 +12472,36 @@ fn taskspace_unified_diff_new_path(line: &str) -> Option<&str> {
     } else {
         Some(path)
     }
+}
+
+fn normalize_taskspace_relative_patch_path(path: &str) -> String {
+    normalize_taskspace_relative_patch_path_from(Path::new("."), path)
+}
+
+fn normalize_taskspace_relative_patch_path_from(root: &Path, path: &str) -> String {
+    let normalized = path.trim().replace('\\', "/");
+    let normalized = normalized
+        .strip_prefix("b/")
+        .or_else(|| normalized.strip_prefix("a/"))
+        .unwrap_or(&normalized)
+        .trim_matches('/');
+    if normalized.is_empty() {
+        return normalized.to_string();
+    }
+    if root.join(normalized).exists() {
+        return normalized.to_string();
+    }
+    let workspace_stripped = taskspace_strip_common_workspace_patch_prefix(normalized);
+    if workspace_stripped != normalized && root.join(workspace_stripped).exists() {
+        return workspace_stripped.to_string();
+    }
+    resolve_unique_existing_relative_path_from(root, normalized)
+        .or_else(|| {
+            (workspace_stripped != normalized)
+                .then(|| resolve_unique_existing_relative_path_from(root, workspace_stripped))
+                .flatten()
+        })
+        .unwrap_or_else(|| workspace_stripped.to_string())
 }
 
 fn normalize_taskspace_unified_hunk_line(line: &str) -> String {
@@ -12462,8 +12594,8 @@ fn rewrite_taskspace_apply_patch_unique_update_paths(patch: &str) -> String {
             rewritten.push(line.to_string());
             continue;
         };
-        let candidate = resolve_unique_existing_relative_path(path.trim());
-        if let Some(candidate) = candidate {
+        let candidate = normalize_taskspace_relative_patch_path(path.trim());
+        if candidate != path.trim() {
             rewritten.push(format!("*** Update File: {candidate}"));
             changed = true;
         } else {
@@ -12672,10 +12804,6 @@ fn normalize_taskspace_patch_target_key(target: &str) -> String {
 
 fn taskspace_patch_target_covers_required(patch_target: &str, required: &str) -> bool {
     patch_target == required || patch_target.ends_with(&format!("/{required}"))
-}
-
-fn resolve_unique_existing_relative_path(path: &str) -> Option<String> {
-    resolve_unique_existing_relative_path_from(Path::new("."), path)
 }
 
 fn resolve_unique_existing_relative_path_from(root: &Path, path: &str) -> Option<String> {

@@ -6131,3 +6131,75 @@
     PASS
   ```
 - Interpretation: H-103 is focused-fixed. The prior hard-stop itself was correct; the bug was the stale blocker that closed the implementation node before any edit could occur. Remaining gates are commit/push, binary attestation, and keyed rerun.
+
+# Evidence E-213: H-103 rerun live-clears stale fact-source blocker and exposes apply_patch feedback recovery gap
+
+- Real rerun:
+  ```text
+  RunDir: target/r4-org-json-real-keyed-20260704cx-forced-inspect-fact-bridge/runs/terminal_bench__organization-json-generator/20260704-230322-342
+  reported_evidence_level: E1
+  outcome_standard: wrong
+  outcome_taskspace: engineering_unclean
+  right_exec_timed_out: False
+  right_tool_call_count: 13
+  right_public_validation_exit_code: 1
+  right_hidden_oracle_exit_code: 0
+  final_marker: TaskSpaceApplyPatchRecoveryHardStopV1
+  ```
+- H-103 live status:
+  - The trace no longer contains the stale blocker `Need to read schema.json and departments.csv, projects.csv...`.
+  - The run progressed through forced inspect transition, implementation, required schema validator execution, validation rework target read, and repeated apply_patch attempts.
+- New blocker signal:
+  - Required command ran: `python process.py && python -m jsonschema -i organization.json schema.json`.
+  - Validation produced concrete schema repair feedback: missing `members`, `averageDepartmentBudget`, `totalEmployees`, `skillDistribution`, `departmentSizes`, `projectStatusDistribution`, `averageYearsOfService`.
+  - Provider then emitted malformed or stale-context patch attempts:
+    - `apply_patch_mixed_native_unified:process.py`.
+    - `Failed to find expected lines in .../right/app/process.py`.
+    - `Failed to read file to update .../right/app/app/process.py`.
+  - Runtime correctly hard-stopped repeated edit recovery with `TaskSpaceApplyPatchRecoveryHardStopV1`, but the recovery contract did not strongly preserve failure kind, corrected target, and mandatory next action.
+- Interpretation: H-103 is live-cleared. The new issue is feedback-layer recovery specificity for failed `apply_patch`: the tool failure is present, but provider-visible recovery leaves too much room to repeat unified/native grammar errors or path-prefix mistakes.
+
+# Hypothesis H-104: failed apply_patch feedback must preserve recovery-critical semantics
+
+- Claim: After `apply_patch` fails on an implementation rework node, TaskSpace recovery must preserve structured failure kind, failed target, corrected benchmark-relative target, and mandatory next action. Without that, the model may keep retrying unified diff markers inside native `apply_patch`, fragile expected-lines hunks, or `app/app/...` targets until hard-stop.
+- Prediction: Focused tests should show:
+  - `b/app/process.py` unified-diff headers normalize to `process.py` when the working directory is already the task app root.
+  - failed edit recovery emits `failure_kind`, `failed_target`, and `mandatory_next_action` for expected-lines and missing-target failures.
+  - native hunk recovery explicitly forbids `--- a/...`, `+++ b/...`, and `@@ -old,+new @@` after `*** Update File`.
+- Diagnostic evidence plan: Patch action-contract normalization and edit-failure recovery text, then run focused edit-failure/apply_patch/action-contract regressions plus fmt/check/build/diff gates.
+- Status: confirmed.
+
+# Evidence E-214: failed apply_patch recovery now carries structured semantics
+
+- Repair artifact:
+  - `third_party/codex-cli/codex-rs/core/src/session/turn.rs`
+- Repair behavior:
+  - `normalize_taskspace_relative_patch_path_from()` strips common benchmark container prefixes such as `b/app/` when the current working directory already contains the target file, preventing `app/app/process.py` updates.
+  - `taskspace_edit_failure_recovery_contract()` derives structured recovery fields from raw or already structured tool feedback:
+    - `failure_kind: apply_patch_expected_lines_mismatch`
+    - `failure_kind: apply_patch_context_mismatch`
+    - `failure_kind: apply_patch_missing_update_target`
+    - `failed_target: <normalized path>`
+    - `mandatory_next_action: ...`
+  - `TaskSpaceApplyPatchNativeHunkRecoveryV1` now explicitly says not to put `--- a/...`, `+++ b/...`, or `@@ -old,+new @@` after `*** Update File`.
+  - Double app-root failures such as `/right/app/app/process.py` are normalized back to `process.py` in failed-edit recovery.
+- Validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core edit_failure_recovery --lib
+    PASS: 2/2
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core taskspace_apply_patch --lib
+    PASS: 18/18
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core action_contract_prompt --lib
+    PASS: 29/29
+  cargo fmt --check
+    PASS (stable rustfmt warns that imports_granularity is nightly-only)
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo check -p codex-core
+    PASS
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
+    PASS
+  git diff --check
+    PASS
+  ```
+- Operational note:
+  - Rust workspace commands must be run from `third_party/codex-cli/codex-rs`; running `cargo test ...` from the repository root fails because the root has no `Cargo.toml`.
+- Interpretation: H-104 is focused-fixed. Remaining gates are commit/push, binary attestation, install, and keyed rerun to verify whether the live `TaskSpaceApplyPatchRecoveryHardStopV1` path is cleared or exposes the next unresolved R4 tool-chain issue.
