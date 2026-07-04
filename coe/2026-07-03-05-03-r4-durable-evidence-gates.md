@@ -6203,3 +6203,73 @@
 - Operational note:
   - Rust workspace commands must be run from `third_party/codex-cli/codex-rs`; running `cargo test ...` from the repository root fails because the root has no `Cargo.toml`.
 - Interpretation: H-104 is focused-fixed. Remaining gates are commit/push, binary attestation, install, and keyed rerun to verify whether the live `TaskSpaceApplyPatchRecoveryHardStopV1` path is cleared or exposes the next unresolved R4 tool-chain issue.
+
+# Evidence E-215: H-104 rerun live-clears app-root path drift but exposes expected-lines recovery target pollution
+
+- Real rerun:
+  ```text
+  RunDir: target/r4-org-json-real-keyed-20260704cy-structured-apply-patch-feedback/runs/terminal_bench__organization-json-generator/20260704-231827-396
+  reported_evidence_level: E1
+  outcome_standard: wrong
+  outcome_taskspace: engineering_unclean
+  right_exec_timed_out: False
+  right_tool_call_count: 16
+  right_public_validation_exit_code: 1
+  right_hidden_oracle_exit_code: 0
+  right_open_leaf_nodes: 1
+  final_marker: TaskSpaceApplyPatchRecoveryHardStopV1
+  ```
+- H-104 live status:
+  - The trace no longer shows the prior `app/app/process.py` style path drift.
+  - Structured failed-edit recovery reached provider-visible rollout; the provider saw the new recovery contract.
+  - The required schema validation command ran: `python generate.py && python -m jsonschema -i organization.json schema.json`.
+- New blocker signal:
+  - Validation identified concrete missing required properties: `members`, `averageDepartmentBudget`, `totalEmployees`, `skillDistribution`, `departmentSizes`, `projectStatusDistribution`, `averageYearsOfService`.
+  - The target file `generate.py` was fully read with `eof_reached=true` and `content_visibility: full_content_visible`.
+  - Repeated expected-lines patch failures were flattened into one-line summaries, so recovery parsed the target as `generate.py: total_projects = len(projects) ...` instead of just `generate.py`.
+  - Patch-only target artifact extraction also polluted the target list with `schema.json`, `departments.csv`, `employees.csv`, and `projects.csv` refs from validation evidence.
+  - Native `*** Update File` sections containing `--- a/...` and `+++ b/...` headers were normalized toward tool execution instead of being rejected before execution as mixed grammar.
+- Interpretation: H-104 is partially live-cleared, but the next failure is a feedback-layer target semantics pollution case. The failure semantics are present, but target parsing and patch-only artifact extraction distort them before the next recovery instruction is formed.
+
+# Hypothesis H-105: validation rework expected-lines recovery must keep target and patch grammar semantics unpolluted
+
+- Claim: During validation rework, expected-lines/context/missing-target edit failures must recover the benchmark-relative file target without including flattened line content, and patch-only recovery must prefer explicit `target_artifacts` over incidental schema/input artifact mentions. Mixed native apply_patch sections containing unified file headers must be rejected before tool execution so the provider sees an action-contract feedback error instead of another tool-level expected-lines failure.
+- Prediction: Focused tests should show:
+  - A flattened expected-lines message ending in `/right/app/generate.py: total_projects = ...` resolves `failed_target` to `generate.py`.
+  - `target_artifacts=generate.py` is preferred over later `artifacts=schema.json` / CSV validation refs.
+  - Native `*** Update File` sections containing `--- a/...` / `+++ b/...` are rejected as `apply_patch_mixed_native_unified:<target>` before normalization and tool execution.
+- Diagnostic evidence plan: Add parser and action-contract regressions for the live-shaped flattened expected-lines message, explicit target artifact extraction, and mixed native/unified headers; run focused apply_patch/action-contract/validation-rework regressions plus fmt/check/build/diff gates.
+- Status: confirmed.
+
+# Evidence E-216: expected-lines recovery target pollution and mixed patch grammar are covered
+
+- Repair artifact:
+  - `third_party/codex-cli/codex-rs/core/src/session/turn.rs`
+- Repair behavior:
+  - `taskspace_expected_lines_target_from_apply_patch_text()`, missing-target parsing, and context-mismatch parsing trim flattened messages at known source-file extensions before normalizing the benchmark-relative target.
+  - `taskspace_validation_rework_patch_only_artifacts()` first consumes explicit `target_artifacts=...` / `target_artifacts:...`; validation schema and CSV refs no longer override the actual rework target when a target artifact is present.
+  - `taskspace_action_to_tool_call()` rejects native `*** Update File` sections that contain unified file headers before apply_patch normalization and execution, returning `apply_patch_mixed_native_unified:<target>`.
+- Validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_rework_patch_only_prefers_explicit_target_artifacts --lib
+    PASS
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core mixed_native_unified --lib
+    PASS: 4/4
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core expected_lines_target --lib
+    PASS
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core taskspace_apply_patch --lib
+    PASS: 18/18
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core action_contract_prompt --lib
+    PASS: 29/29
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_rework_patch_only --lib
+    PASS: 2/2
+  cargo fmt --check
+    PASS (stable rustfmt warns that imports_granularity is nightly-only)
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo check -p codex-core
+    PASS
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
+    PASS
+  git diff --check
+    PASS
+  ```
+- Interpretation: H-105 is focused-fixed. Remaining gates are commit/push, binary attestation, install, and keyed rerun to verify whether the live expected-lines recovery hard-stop is cleared or whether the next unresolved R4 tool-chain issue appears.

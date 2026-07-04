@@ -936,3 +936,17 @@ bridge 已有真实 fact-source artifact 内容时，才阻止 provider 把“�
 
 边界说明：该修复不放宽状态机，不把失败 patch 当成功，也不静默吞掉工具错误。它只把已存在的失败反馈转成 provider
 下一轮必须遵守的结构化恢复合同，并修正 terminal-bench app-root 路径前缀。
+
+## 2026-07-04 R4-D issue type addendum: validation rework expected-lines target pollution
+
+`4e897ff` 后的 keyed rerun 证明 H-104 部分 live-clear：`app/app/process.py` 路径漂移消失，结构化 failed-edit
+contract 已进入 provider-visible rollout。但新 run 仍在 validation rework 的 repeated `apply_patch` expected-lines
+failure 上 hard-stop。关键差异是：失败语义已经存在，后续恢复链在解析失败目标和 patch-only artifact 时发生污染。
+
+| Issue type | Layer | Symptom | Resolution contract | Evidence |
+|---|---|---|---|---|
+| `validation-rework-expected-lines-target-pollution` | apply_patch feedback recovery / validation rework target extraction | flattened expected-lines message 把 `generate.py: total_projects = ...` 当成 failed target；patch-only target list 被 schema/CSV refs 污染；mixed native/unified headers 过晚进入工具层 | expected-lines/context/missing-target parser 在源码扩展名处截断目标；显式 `target_artifacts` 优先于 validation artifact refs；native `*** Update File` 中出现 `--- a/...`/`+++ b/...` 时在 action contract 层拒绝为 `apply_patch_mixed_native_unified:<target>` | keyed rerun `20260704-231827-396`; CoE H-105/E-215/E-216; `validation_rework_patch_only_prefers_explicit_target_artifacts`; `mixed_native_unified`; `expected_lines_target`; `taskspace_apply_patch`; `action_contract_prompt` |
+
+边界说明：该修复不提升模型 patch 能力本身，也不把 failed patch 当成功。它只保证 feedback 层把同一个失败事实继续以正确目标、
+正确 artifact 集合和正确 grammar 错误类别传回模型，避免恢复链把 `generate.py` 扭成带源码片段的伪路径，或把 schema/CSV
+输入误当成可 patch 目标。

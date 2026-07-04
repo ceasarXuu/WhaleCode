@@ -3072,26 +3072,24 @@ fn taskspace_evidence_has_validation_rework_target_read(evidence_summary: Option
 }
 
 fn taskspace_validation_rework_patch_only_artifacts(text: &str) -> Vec<String> {
+    let explicit_targets = taskspace_validation_rework_explicit_target_artifacts(text);
+    if !explicit_targets.is_empty() {
+        return explicit_targets;
+    }
+
     let mut artifacts = Vec::new();
     let mut seen = HashSet::new();
     for line in text.lines() {
-        if !line.contains("validation_rework_target_read")
-            && !line.contains("target_artifacts=")
-            && !line.contains("target_artifacts:")
-        {
+        if !line.contains("validation_rework_target_read") {
             continue;
         }
         for part in line.split_whitespace() {
             let value = part
                 .strip_prefix("artifact=")
-                .or_else(|| part.strip_prefix("artifacts="))
-                .or_else(|| part.strip_prefix("target_artifacts="))
-                .or_else(|| part.strip_prefix("target_artifacts:"));
+                .or_else(|| part.strip_prefix("artifacts="));
             if let Some(value) = value {
                 for artifact in value.split(',') {
-                    let artifact = artifact
-                        .trim_matches(|ch| matches!(ch, ',' | ';' | '`' | '\'' | '"' | '[' | ']'))
-                        .to_string();
+                    let artifact = taskspace_clean_artifact_token(artifact);
                     if !artifact.is_empty() && seen.insert(artifact.clone()) {
                         artifacts.push(artifact);
                     }
@@ -3100,6 +3098,40 @@ fn taskspace_validation_rework_patch_only_artifacts(text: &str) -> Vec<String> {
         }
     }
     artifacts
+}
+
+fn taskspace_validation_rework_explicit_target_artifacts(text: &str) -> Vec<String> {
+    let mut artifacts = Vec::new();
+    let mut seen = HashSet::new();
+    for marker in ["target_artifacts=", "target_artifacts:"] {
+        for segment in text.split('|') {
+            let Some((_, rest)) = segment.split_once(marker) else {
+                continue;
+            };
+            let rest = rest
+                .split(" patch_requirement")
+                .next()
+                .unwrap_or(rest)
+                .split(" schema_")
+                .next()
+                .unwrap_or(rest);
+            for artifact in rest.split(',') {
+                let artifact = taskspace_clean_artifact_token(artifact);
+                if !artifact.is_empty() && seen.insert(artifact.clone()) {
+                    artifacts.push(artifact);
+                }
+            }
+        }
+    }
+    artifacts
+}
+
+fn taskspace_clean_artifact_token(value: &str) -> String {
+    value
+        .trim()
+        .trim_matches(|ch| matches!(ch, ',' | ';' | ':' | '`' | '\'' | '"' | '[' | ']'))
+        .trim()
+        .to_string()
 }
 
 fn taskspace_text_mentions_validation_rework_duplicate_artifact_read(text: &str) -> bool {
@@ -3275,6 +3307,7 @@ fn taskspace_missing_update_targets_from_apply_patch_text(message: &str) -> Opti
         .map(|(target, _)| target)
         .unwrap_or(rest)
         .trim();
+    let target = taskspace_trim_apply_patch_error_target(target);
     let target = taskspace_normalize_apply_patch_target(target);
     (!target.is_empty()).then_some(target)
 }
@@ -3292,6 +3325,7 @@ fn taskspace_expected_lines_target_from_apply_patch_text(message: &str) -> Optio
         .unwrap_or(rest)
         .trim()
         .trim_end_matches(':');
+    let target = taskspace_trim_apply_patch_error_target(target);
     let target = taskspace_normalize_apply_patch_target(target);
     (!target.is_empty()).then_some(target)
 }
@@ -3310,6 +3344,7 @@ fn taskspace_context_mismatch_target_from_apply_patch_text(message: &str) -> Opt
         .unwrap_or(rest)
         .trim()
         .trim_end_matches(':');
+    let target = taskspace_trim_apply_patch_error_target(target);
     let target = taskspace_normalize_apply_patch_target(target);
     (!target.is_empty()).then_some(target)
 }
@@ -3334,6 +3369,19 @@ fn taskspace_normalize_apply_patch_target(target: &str) -> String {
             .to_string();
     }
     taskspace_strip_common_workspace_patch_prefix(normalized.trim_matches('/')).to_string()
+}
+
+fn taskspace_trim_apply_patch_error_target(target: &str) -> &str {
+    let trimmed = target.trim();
+    for ext in [
+        ".py", ".js", ".ts", ".tsx", ".jsx", ".json", ".toml", ".yaml", ".yml", ".sh",
+    ] {
+        let marker = format!("{ext}:");
+        if let Some(index) = trimmed.find(&marker) {
+            return &trimmed[..index + ext.len()];
+        }
+    }
+    trimmed
 }
 
 fn taskspace_strip_common_workspace_patch_prefix(path: &str) -> &str {
@@ -6018,6 +6066,17 @@ Then I will inspect the file."#,
     }
 
     #[test]
+    fn validation_rework_patch_only_prefers_explicit_target_artifacts() {
+        let evidence = "validation_rework_target_read result=result-12 artifact=generate.py \
+| validation_schema_repair_contract: missing_required_properties=members | target_artifacts=generate.py | patch_requirement=update generated output \
+| result-2 artifacts=schema.json: required members | result-3 artifacts=departments.csv:";
+
+        let artifacts = taskspace_validation_rework_patch_only_artifacts(evidence);
+
+        assert_eq!(artifacts, vec!["generate.py".to_string()]);
+    }
+
+    #[test]
     fn implementation_recovery_selects_patch_only_after_closed_action_space_read_reject() {
         let last_message = "TaskSpaceActionV1 rejected: validation_rework_closed_action_space_read_disallowed:read_file. Return exactly one valid taskspace-action-v1 JSON object.";
         assert!(taskspace_message_hit_implementation_needs_edit(Some(
@@ -6313,6 +6372,7 @@ Then I will inspect the file."#,
     fn taskspace_apply_patch_expected_lines_target_is_detected() {
         let windows_message = "apply_patch verification failed: Failed to find expected lines in V:\\app\\convert.py:\n    import pandas as pd";
         let unix_message = "apply_patch verification failed: Failed to find expected lines in /app/src/recover_accuracy.py:\n    def recover";
+        let flattened_message = "result-16: apply_patch verification failed: Failed to find expected lines in /tmp/run/right/app/generate.py: total_projects = len(projects) budgets = [int(d['budget']) for d in departments]";
 
         assert_eq!(
             taskspace_expected_lines_target_from_apply_patch_text(windows_message),
@@ -6321,6 +6381,10 @@ Then I will inspect the file."#,
         assert_eq!(
             taskspace_expected_lines_target_from_apply_patch_text(unix_message),
             Some("recover_accuracy.py".to_string())
+        );
+        assert_eq!(
+            taskspace_expected_lines_target_from_apply_patch_text(flattened_message),
+            Some("generate.py".to_string())
         );
         assert_eq!(
             taskspace_expected_lines_target_from_apply_patch_text(
@@ -7293,7 +7357,7 @@ Then I will inspect the file."#,
     }
 
     #[test]
-    fn taskspace_action_contract_normalizes_mixed_native_unified_patch() {
+    fn taskspace_action_contract_rejects_mixed_native_unified_patch() {
         let raw = serde_json::json!({
             "schema_version": "taskspace-action-v1",
             "action": "apply_patch",
@@ -7305,24 +7369,14 @@ Then I will inspect the file."#,
         .to_string();
         let action = parse_taskspace_action_v1(&raw).expect("valid json");
 
-        let call = taskspace_action_to_tool_call(&action, &provider_snapshot("implement_solution"))
-            .expect("safe mixed native/unified patch can be normalized")
-            .expect("tool call");
+        let err = taskspace_action_to_tool_call(&action, &provider_snapshot("implement_solution"))
+            .expect_err("mixed native/unified patch must be rejected before tool execution");
 
-        match call.payload {
-            ToolPayload::Custom { input } => {
-                assert!(input.contains("*** Update File: src/recover.py"));
-                assert!(input.contains("@@\n-print('bad')\n+print('fixed')"));
-                assert!(!input.contains("--- a/recover.py"));
-                assert!(!input.contains("+++ b/recover.py"));
-                assert!(!input.contains("@@ -1,1 +1,1 @@"));
-            }
-            other => panic!("expected custom payload, got {other:?}"),
-        }
+        assert_eq!(err, "apply_patch_mixed_native_unified:recover.py");
     }
 
     #[test]
-    fn taskspace_action_contract_normalizes_live_wrapped_mixed_native_unified_patch() {
+    fn taskspace_action_contract_rejects_live_wrapped_mixed_native_unified_patch() {
         let raw = serde_json::json!({
             "schema_version": "taskspace-action-v1",
             "action": "apply_patch",
@@ -7335,27 +7389,14 @@ Then I will inspect the file."#,
         .to_string();
         let action = parse_taskspace_action_v1(&raw).expect("valid json");
 
-        let call = taskspace_action_to_tool_call(&action, &provider_snapshot("implement_solution"))
-            .expect("live mixed patch can be normalized")
-            .expect("tool call");
+        let err = taskspace_action_to_tool_call(&action, &provider_snapshot("implement_solution"))
+            .expect_err("live mixed native/unified patch must be rejected before tool execution");
 
-        match call.payload {
-            ToolPayload::Custom { input } => {
-                assert!(input.starts_with("*** Begin Patch\n"));
-                assert!(input.ends_with("*** End Patch\n"));
-                assert_eq!(input.matches("*** Update File: ").count(), 1);
-                assert!(input.contains("csv2json.py"));
-                assert!(input.contains("@@\n #!/usr/bin/env python3"));
-                assert!(!input.contains("--- a/csv2json.py"));
-                assert!(!input.contains("+++ b/csv2json.py"));
-                assert!(!input.contains("@@ -1,2 +1,2 @@"));
-            }
-            other => panic!("expected custom payload, got {other:?}"),
-        }
+        assert_eq!(err, "apply_patch_mixed_native_unified:csv2json.py");
     }
 
     #[test]
-    fn taskspace_action_contract_normalizes_live_unwrapped_mixed_native_unified_patch() {
+    fn taskspace_action_contract_rejects_live_unwrapped_mixed_native_unified_patch() {
         let raw = serde_json::json!({
             "schema_version": "taskspace-action-v1",
             "action": "apply_patch",
@@ -7368,23 +7409,10 @@ Then I will inspect the file."#,
         .to_string();
         let action = parse_taskspace_action_v1(&raw).expect("valid json");
 
-        let call = taskspace_action_to_tool_call(&action, &provider_snapshot("implement_solution"))
-            .expect("live unwrapped mixed patch can be normalized")
-            .expect("tool call");
+        let err = taskspace_action_to_tool_call(&action, &provider_snapshot("implement_solution"))
+            .expect_err("live unwrapped mixed patch must be rejected before tool execution");
 
-        match call.payload {
-            ToolPayload::Custom { input } => {
-                assert!(input.starts_with("*** Begin Patch\n"));
-                assert!(input.ends_with("*** End Patch\n"));
-                assert_eq!(input.matches("*** Update File: ").count(), 1);
-                assert!(input.contains("csv2json.py"));
-                assert!(input.contains("@@\n- #!/usr/bin/env python3\n+#!/usr/bin/env python3"));
-                assert!(!input.contains("--- a/csv2json.py"));
-                assert!(!input.contains("+++ b/csv2json.py"));
-                assert!(!input.contains("@@ -1,2 +1,2 @@"));
-            }
-            other => panic!("expected custom payload, got {other:?}"),
-        }
+        assert_eq!(err, "apply_patch_mixed_native_unified:csv2json.py");
     }
 
     #[test]
@@ -12686,6 +12714,63 @@ fn taskspace_apply_patch_mixed_native_unified_targets(patch: &str) -> Vec<String
     taskspace_apply_patch_declared_targets(patch)
 }
 
+fn taskspace_apply_patch_native_update_with_unified_file_header_targets(
+    patch: &str,
+) -> Vec<String> {
+    let mut targets = Vec::new();
+    let mut current_target: Option<String> = None;
+    let mut current_has_unified_file_header = false;
+
+    let finish_section = |targets: &mut Vec<String>,
+                          current_target: &mut Option<String>,
+                          current_has_unified_file_header: &mut bool| {
+        if *current_has_unified_file_header
+            && let Some(target) = current_target.take()
+            && !targets.iter().any(|existing| existing == &target)
+        {
+            targets.push(target);
+        } else {
+            current_target.take();
+        }
+        *current_has_unified_file_header = false;
+    };
+
+    for line in patch.lines() {
+        if line == "*** End Patch"
+            || line.starts_with("*** Add File: ")
+            || line.starts_with("*** Delete File: ")
+        {
+            finish_section(
+                &mut targets,
+                &mut current_target,
+                &mut current_has_unified_file_header,
+            );
+            continue;
+        }
+        if let Some(target) = line.strip_prefix("*** Update File: ") {
+            finish_section(
+                &mut targets,
+                &mut current_target,
+                &mut current_has_unified_file_header,
+            );
+            current_target = Some(target.trim().to_string());
+            continue;
+        }
+        if current_target.is_some()
+            && (taskspace_line_looks_unified_old_file_header(line)
+                || taskspace_line_looks_unified_new_file_header(line))
+        {
+            current_has_unified_file_header = true;
+        }
+    }
+    finish_section(
+        &mut targets,
+        &mut current_target,
+        &mut current_has_unified_file_header,
+    );
+    targets
+}
+
 fn taskspace_apply_patch_malformed_native_operation_targets(patch: &str) -> Vec<String> {
     let mut targets = Vec::new();
     for line in patch.lines() {
@@ -13013,6 +13098,14 @@ fn taskspace_action_to_tool_call(
                 return Err(format!(
                     "apply_patch_native_hunk_header:{}",
                     native_hunk_header_targets.join(",")
+                ));
+            }
+            let native_update_unified_header_targets =
+                taskspace_apply_patch_native_update_with_unified_file_header_targets(&patch);
+            if !native_update_unified_header_targets.is_empty() {
+                return Err(format!(
+                    "apply_patch_mixed_native_unified:{}",
+                    native_update_unified_header_targets.join(",")
                 ));
             }
             let patch = normalize_taskspace_unified_diff_patch(&patch)

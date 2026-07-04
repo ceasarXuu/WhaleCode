@@ -3281,6 +3281,36 @@ final_marker: TaskSpaceApplyPatchRecoveryHardStopV1
 
 状态：focused 修复已编码并通过相关回归、fmt/check/build/diff-check。下一步是 commit/push、attestation、安装新 whale，再跑 keyed rerun，验证 `TaskSpaceApplyPatchRecoveryHardStopV1` 是否 live-clear。
 
+## 34. 2026-07-04 validation rework expected-lines target pollution
+
+`4e897ff` 后 keyed rerun 证明 H-104 部分 live-clear：结构化 failed-edit contract 已可见，`app/app/process.py`
+路径漂移未再出现；但 validation rework 仍在 repeated expected-lines patch failure 后进入 hard-stop：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260704cy-structured-apply-patch-feedback/runs/terminal_bench__organization-json-generator/20260704-231827-396
+reported_evidence_level: E1
+outcome_standard: wrong
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 16
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+final_marker: TaskSpaceApplyPatchRecoveryHardStopV1
+```
+
+问题类型收录：
+
+| 字段 | 内容 |
+|---|---|
+| case | `validation-rework-expected-lines-target-pollution` |
+| 层级 | apply_patch feedback recovery / validation rework target extraction |
+| 本质 | 失败语义不是缺失；structured failed-edit feedback 已进 rollout，但 flattened expected-lines message 把失败目标污染成 `generate.py: <源码片段>`，patch-only target artifacts 又被 schema/CSV validation refs 污染 |
+| 非根因 | 不是 H-104 路径规范化完全失效；不是 schema validator 未执行；不是缺少 `generate.py` 完整读取 |
+| 修复 | failed-target parser 在源码扩展名处截断；`target_artifacts` 优先于 schema/CSV refs；native `Update File` 内的 unified file headers 在 tool execution 前被 action contract 拒绝 |
+| focused evidence | CoE H-105/E-215/E-216；`validation_rework_patch_only_prefers_explicit_target_artifacts`；`mixed_native_unified` 4/4；`expected_lines_target`；`taskspace_apply_patch` 18/18；`action_contract_prompt` 29/29；`validation_rework_patch_only` 2/2；fmt-check；cargo check；whale build；diff-check |
+
+状态：focused 修复已编码并通过相关回归、fmt/check/build/diff-check。下一步是 commit/push、attestation、安装新 whale，再跑 keyed rerun，确认该 expected-lines recovery hard-stop 是否 live-clear，或继续收录下一类 tools 链路问题。
+
 ## 28. 2026-07-04 natural-language slash fact-source extraction
 
 `3b6b269` 后的 keyed rerun 没有触发 no-action recovery，因此 H-098 尚未 live-clear。该轮暴露 inspect fact-source

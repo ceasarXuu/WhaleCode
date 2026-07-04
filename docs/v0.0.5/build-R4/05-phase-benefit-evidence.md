@@ -5201,3 +5201,49 @@ CODEX_SKIP_VENDORED_BWRAP=1 cargo check -p codex-core
 CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
 git diff --check
 ```
+
+## 5.91 2026-07-04 validation rework expected-lines target pollution
+
+`4e897ff` 后 rerun 证明 H-104 的结构化 failed-edit feedback 已进入 provider-visible rollout，且 prior
+`app/app/process.py` 路径漂移未再出现。新的 failure 仍是 `TaskSpaceApplyPatchRecoveryHardStopV1`，但根因变为
+recovery target/artifact 语义污染：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260704cy-structured-apply-patch-feedback/runs/terminal_bench__organization-json-generator/20260704-231827-396
+reported_evidence_level: E1
+outcome_standard: wrong
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 16
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+final_marker: TaskSpaceApplyPatchRecoveryHardStopV1
+```
+
+收益判断：
+
+1. 新收录的 R4-D feedback 修复是 `validation-rework-expected-lines-target-pollution`：失败语义已传回，但恢复链把
+   failed target 和 patch-only target artifacts 污染，导致下一轮恢复合同继续偏离 `generate.py`。
+2. 修复后 flattened expected-lines/context/missing-target message 会在源码扩展名处截断，`generate.py: total_projects = ...`
+   不再被当成伪路径。
+3. validation rework patch-only recovery 会优先使用显式 `target_artifacts=generate.py`，不会被 schema/CSV evidence 中的
+   `artifacts=schema.json` 等引用覆盖。
+4. native `*** Update File` 中包含 `--- a/...` / `+++ b/...` 会在 action contract 层以
+   `apply_patch_mixed_native_unified:<target>` 拒绝，避免错误继续落到 tool-level expected-lines failure。
+5. R4-G utility 仍未通过：需要下一次 keyed rerun 验证 expected-lines recovery hard-stop 是否 live-clear；如果继续失败，
+   继续按 R4 tools 链路问题类型收录下一层 ability/feedback issue。
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_rework_patch_only_prefers_explicit_target_artifacts --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core mixed_native_unified --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core expected_lines_target --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core taskspace_apply_patch --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core action_contract_prompt --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_rework_patch_only --lib
+cargo fmt --check
+CODEX_SKIP_VENDORED_BWRAP=1 cargo check -p codex-core
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
+git diff --check
+```
