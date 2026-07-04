@@ -1522,6 +1522,46 @@ set -a; . ./.env.local; set +a; powershell -NoProfile -ExecutionPolicy Bypass -F
 git diff --check
 ```
 
+## 5.100 2026-07-05 generic CSV duplicate basename overcoverage
+
+`6b7debf` 安装后 keyed rerun 证明 H-121 的相对路径 bootstrap 修复生效：`TaskSpaceMissingFactSourceBootstrapV1`
+实际读取了 `schema.json`、`departments.csv`、`employees.csv` 和 `projects.csv`，没有再出现 `/employees.csv`
+绝对路径读失败。新的 failure 是泛化 CSV fact-source expansion 过覆盖：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260705ap-inspect-bootstrap-rootpath-gate/runs/terminal_bench__organization-json-generator/20260705-042157-236
+outcome_standard: wrong
+outcome_taskspace: wrong
+right_exec_timed_out: False
+right_tool_call_count: 14
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+final_marker: TaskSpaceProviderBudgetHardStopV1 reason=provider_node_request_hard_limit_exceeded node_kind=inspect_code_context
+```
+
+收益判断：
+
+1. H-121 live 部分通过：bootstrap path 已从 shell 绝对路径恢复成 workspace-relative 读取。
+2. 新问题类型是 `inspect-generic-csv-duplicate-basename-overcoverage`：generic `CSV files` 需求根据
+   `list_files` 扩展时，把 `departments.csv` 与 `data/departments.csv` 这类同 basename 副本都当成必须读取的输入。
+3. 这属于反馈层覆盖过宽，不是 validator 失败，也不是模型没有读 CSV；canonical root CSV 已读，但 duplicate required set
+   仍阻止 inspect -> implement。
+4. focused fix 后，仅 discovery-derived generic inputs 按 basename canonicalize，并优先保留 shallower/root-level path。
+5. 显式 concrete fact-source refs 不参与这条去重规则，避免真实要求读取 `data/foo.csv` 的任务被错误降级。
+
+验证：
+
+```text
+cargo fmt --check
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core inspect_generic_csv_requirement_expands_discovered_csv_inputs -- --nocapture
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core inspect_missing_fact_source -- --nocapture
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core forced_inspect_transition -- --nocapture
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core action_contract_prompt -- --nocapture
+CODEX_SKIP_VENDORED_BWRAP=1 cargo check -p codex-core
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
+git diff --check
+```
+
 ## 5.96 2026-07-05 missing-source blocker rejection hard-stop overcount
 
 `f2c31e4` 安装后 keyed rerun 证明 H-117 live-clear：TaskSpace 已越过 inspect，进入 implementation 和

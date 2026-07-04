@@ -1157,3 +1157,17 @@ provider 又重复 schema/list 直到 node budget hard stop。
 
 边界说明：该修复不把任意宿主绝对路径开放给工具。TaskSpace artifact ref 在 benchmark sandbox 中是工作区相对语义；
 自动 bootstrap 只把这种 root-style workspace artifact 转成相对读取命令，仍通过普通 sandboxed shell 读取。
+
+## 2026-07-05 R4-D issue type addendum: generic CSV duplicate basename overcoverage
+
+`6b7debf` 安装后 keyed rerun 证明 H-121 的 root-path bootstrap failure 已 live-clear：自动 bootstrap
+读取了相对路径 `schema.json`、`departments.csv`、`employees.csv`、`projects.csv`。新的 blocker 是
+generic CSV discovery 同时把 root CSV 与 `data/` 下同 basename 副本都升级成 required fact sources；bounded
+bootstrap 读完 canonical root CSV 后，`data/*.csv` 仍残留为 missing fact-source，导致 inspect 重复到 node budget hard stop。
+
+| Issue type | Layer | Symptom | Resolution contract | Evidence |
+|---|---|---|---|---|
+| `inspect-generic-csv-duplicate-basename-overcoverage` | inspect fact-source expansion / feedback coverage / phase gate | generic `CSV files` 需求下，同 basename root/data CSV 副本都被要求读取，canonical root CSV 已读仍无法 forced transition | 已实现：仅对 discovery-derived generic input refs 按 basename canonicalize，优先保留 shallower/root-level path；显式 concrete fact-source refs 不被静默去重 | keyed rerun `20260705-042157-236`; CoE H-122/E-247/E-248; focused tests `inspect_generic_csv_requirement_expands_discovered_csv_inputs`, `inspect_missing_fact_source`, `forced_inspect_transition` |
+
+边界说明：该修复不是忽略 `data/` 目录，也不是把所有同名文件合并。它只作用于“泛化 CSV input”
+由文件发现派生出来的 required input set，避免同一业务输入的重复副本把反馈层变成无限 missing-source。

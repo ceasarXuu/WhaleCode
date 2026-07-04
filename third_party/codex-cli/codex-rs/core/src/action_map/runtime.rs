@@ -16133,7 +16133,7 @@ fn inspect_node_discovered_required_input_artifact_refs(
             }
         }
     }
-    artifacts
+    canonicalize_discovered_required_input_artifacts(artifacts)
 }
 
 fn task_required_generic_input_extensions(task: &TaskState) -> Vec<&'static str> {
@@ -16166,6 +16166,33 @@ fn task_requirement_texts(task: &TaskState) -> Vec<&str> {
         texts.push(criterion.as_str());
     }
     texts
+}
+
+fn canonicalize_discovered_required_input_artifacts(artifacts: Vec<String>) -> Vec<String> {
+    let mut canonical: Vec<String> = Vec::new();
+    for artifact in artifacts {
+        let key = artifact_file_key(&artifact);
+        if let Some(existing_index) = canonical
+            .iter()
+            .position(|existing| artifact_file_key(existing) == key)
+        {
+            if discovered_input_artifact_preferred(&artifact, &canonical[existing_index]) {
+                canonical[existing_index] = artifact;
+            }
+        } else {
+            canonical.push(artifact);
+        }
+    }
+    canonical
+}
+
+fn discovered_input_artifact_preferred(candidate: &str, current: &str) -> bool {
+    let candidate = normalize_artifact_ref(candidate);
+    let current = normalize_artifact_ref(current);
+    let candidate_depth = candidate.matches('/').count();
+    let current_depth = current.matches('/').count();
+    candidate_depth < current_depth
+        || (candidate_depth == current_depth && candidate.len() < current.len())
 }
 
 fn artifact_has_any_extension(artifact: &str, extensions: &[&str]) -> bool {
@@ -24783,7 +24810,10 @@ raw_output:\n\
 schema.json\n\
 departments.csv\n\
 employees.csv\n\
-projects.csv\n"
+projects.csv\n\
+data/departments.csv\n\
+data/employees.csv\n\
+data/projects.csv\n"
                     .to_string(),
             )
             .expect("listing records");
@@ -24798,6 +24828,12 @@ projects.csv\n"
             "{missing:?}"
         );
         assert!(missing.contains(&"projects.csv".to_string()), "{missing:?}");
+        assert!(
+            !missing.contains(&"data/departments.csv".to_string())
+                && !missing.contains(&"data/employees.csv".to_string())
+                && !missing.contains(&"data/projects.csv".to_string()),
+            "generic CSV discovery should prefer root-level duplicates: {missing:?}"
+        );
         assert!(
             !missing.contains(&"organization.json".to_string()),
             "generated output target must not become a required input fact source: {missing:?}"

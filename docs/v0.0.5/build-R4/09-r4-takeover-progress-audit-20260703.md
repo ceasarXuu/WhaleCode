@@ -2459,6 +2459,24 @@ current_git_head: 9f370ddfa3f12397ed1d966b321b5e1f0a86c3b2
 
 状态：focused 修复已编码；仍需 focused/regression、fmt/build、commit/push、attestation、keyed rerun。
 
+## 50. 2026-07-05 generic CSV duplicate basename overcoverage
+
+`6b7debf` 安装后 keyed rerun 证明 H-121 的 bootstrap root-path 修复生效，但 inspect 仍未进入 implementation。
+原因是 generic CSV discovery 在 `list_files` 同时看到 root CSV 和 `data/` 下同 basename CSV 副本时，把两组都升级成
+required fact-source。bounded bootstrap 已读 canonical root CSV 后，duplicate `data/*.csv` 仍残留为 missing，最终
+inspect node budget hard-stop。
+
+| 字段 | 内容 |
+|---|---|
+| case | `inspect-generic-csv-duplicate-basename-overcoverage` |
+| 层级 | inspect fact-source expansion / feedback coverage / phase gate |
+| 本质 | 泛化 `CSV files` 需求扩展成 discovered inputs 时，同 basename 副本被重复纳入 required coverage，导致已读 root CSV 后仍无法 forced transition |
+| 非根因 | 不是 H-121 path normalization 回退；不是 validator 失败；不是 H-120 final closeout 问题；不是显式 `data/*.csv` fact source 被忽略 |
+| 修复 | discovery-derived generic input refs 按 basename canonicalize，优先 shallower/root-level path；显式 concrete fact-source refs 不去重 |
+| evidence | CoE H-122/E-247/E-248；keyed rerun `20260705-042157-236`; focused tests `inspect_generic_csv_requirement_expands_discovered_csv_inputs`, `inspect_missing_fact_source`, `forced_inspect_transition`, `action_contract_prompt`; fmt/check/build/diff |
+
+状态：focused fixed，待 commit/push、install/attest 和真实 keyed rerun。
+
 ## 40. 2026-07-05 replacement-required recovery marker distortion
 
 `b3d31ec` 安装后 keyed rerun：

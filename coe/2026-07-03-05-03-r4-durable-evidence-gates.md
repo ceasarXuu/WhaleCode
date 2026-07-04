@@ -7272,3 +7272,66 @@
     PASS
   ```
 - Interpretation: H-121 is focused-fixed. Remaining gates are commit/push, install/attest, and keyed rerun to see whether the run reaches H-120 final closeout again.
+
+# Evidence E-247: H-121 install rerun clears root-path bootstrap but exposes generic CSV duplicate overcoverage
+
+- Real rerun:
+  ```text
+  RunDir: target/r4-org-json-real-keyed-20260705ap-inspect-bootstrap-rootpath-gate/runs/terminal_bench__organization-json-generator/20260705-042157-236
+  installed_whale_sha256: 42332bed0c3fb3af449c460279f5cba97a80e5f3c815d41ba89c11b875985b9f
+  outcome_standard: wrong
+  outcome_taskspace: wrong
+  right_exec_timed_out: False
+  right_tool_call_count: 14
+  right_public_validation_exit_code: 1
+  right_hidden_oracle_exit_code: 0
+  right_nodes: 1
+  right_open_leaf_nodes: 1
+  final_marker: TaskSpaceProviderBudgetHardStopV1 reason=provider_node_request_hard_limit_exceeded node_kind=inspect_code_context
+  ```
+- H-121 live status:
+  - Missing fact-source bootstrap now read relative paths including `schema.json`, `departments.csv`, `employees.csv`, and `projects.csv`.
+  - The previous `/employees.csv` absolute shell path failure did not recur.
+- New blocker signals:
+  - The task requested CSV data generically and `list_files` discovered both root CSV files and duplicate basename copies under `data/`.
+  - Generic CSV discovery promoted both `departments.csv` and `data/departments.csv` style duplicates into required fact-source artifacts.
+  - The bounded bootstrap only read the first root-level CSV set, leaving duplicate `data/` copies marked missing.
+  - The provider then repeated schema/list/read actions until inspect node budget hard-stopped.
+- Interpretation: H-122 is a feedback-layer overcoverage issue in generic input expansion. The missing-source signal is not semantically wrong for explicitly named files, but it is over-broad for discovery-derived generic CSV requirements with duplicate basenames.
+
+# Hypothesis H-122: generic CSV discovery must canonicalize duplicate basename input refs
+
+- Claim: When a task declares generic CSV input/data/files/source requirements, runtime expansion from discovered files can overcount duplicate basename paths such as `employees.csv` and `data/employees.csv`. This makes the feedback layer demand redundant fact-source reads and blocks inspect transition even after the canonical root-level inputs were read.
+- Prediction: For generic discovery-derived input artifacts, duplicate basenames should collapse to one canonical path, preferring shallower/root-level refs. Explicit concrete fact-source refs should remain intact and not be silently removed.
+- Diagnostic evidence plan: Add a focused runtime regression where generic CSV discovery sees both root CSVs and `data/` duplicate basenames; assert only the preferred canonical root refs remain missing. Re-run inspect missing fact-source, forced inspect transition, action-contract, fmt/check/build/diff gates.
+- Status: focused-fixed; live rerun pending.
+
+# Evidence E-248: generic CSV duplicate basename discovery overcoverage is focused-fixed
+
+- Repair artifact:
+  - `third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs`
+- Repair behavior:
+  - Added canonicalization for `inspect_node_discovered_required_input_artifact_refs()` output.
+  - Discovery-derived generic input artifacts now collapse duplicate basenames using `artifact_file_key()`.
+  - Shallower/root-level paths are preferred over deeper duplicate paths, so `employees.csv` wins over `data/employees.csv`.
+  - The change is limited to generic discovery expansion; explicitly declared concrete fact-source refs keep their existing coverage behavior.
+- Validation:
+  ```text
+  cargo fmt --check
+    PASS
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core inspect_generic_csv_requirement_expands_discovered_csv_inputs -- --nocapture
+    PASS: 1/1
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core inspect_missing_fact_source -- --nocapture
+    PASS: 4/4
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core forced_inspect_transition -- --nocapture
+    PASS: 6/6
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core action_contract_prompt -- --nocapture
+    PASS: 29/29
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo check -p codex-core
+    PASS
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
+    PASS
+  git diff --check
+    PASS
+  ```
+- Interpretation: H-122 is focused-fixed. Remaining gates are commit/push, install/attest, and keyed rerun to verify the run can move past inspect bootstrap and re-test H-120 final closeout.
