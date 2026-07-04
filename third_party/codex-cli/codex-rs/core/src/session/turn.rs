@@ -14802,11 +14802,7 @@ async fn try_run_sampling_request(
             .action_map_gate_provider_request_pre_dispatch(snapshot)
             .await;
         if !gate.allowed {
-            if snapshot.node_kind.as_deref() == Some("inspect_code_context")
-                && sess
-                    .action_map_current_inspect_progress_ready_for_transition()
-                    .await
-            {
+            if snapshot.node_kind.as_deref() == Some("inspect_code_context") {
                 match sess
                     .force_finish_action_map_inspect_for_provider_budget(
                         &turn_context,

@@ -2477,6 +2477,24 @@ inspect node budget hard-stop。
 
 状态：focused fixed，待 commit/push、install/attest 和真实 keyed rerun。
 
+## 52. 2026-07-05 inspect hard-stop transition attempt guard gap
+
+`601bc74` 安装后 keyed rerun 证明 H-123 live-clear，但 inspect 仍在 `node_request_count=5/5` hard-stop。
+这轮没有 failed tool call，且已成功读取 `departments.csv`、`schema.json`、`employees.csv`、`projects.csv`。
+问题是 session hard-stop 分支在调用 runtime forced transition 前额外检查 progress-threshold readiness；该 predicate
+未覆盖“required fact-source coverage 已完整”的场景。
+
+| 字段 | 内容 |
+|---|---|
+| case | `inspect-hard-stop-transition-attempt-guard-gap` |
+| 层级 | session provider-budget control / phase transition bridge |
+| 本质 | hard-stop 前的 session guard 过窄，runtime 已具备的 complete fact-source convergence 没机会执行 |
+| 非根因 | 不是 H-123 path telemetry 复发；不是 CSV/schema 未读；不是工具失败；不是 provider budget 太低本身 |
+| 修复 | inspect node pre-dispatch hard-stop 先尝试 runtime `inspect_hard_stop_progress_convergence`；runtime 仍负责证据不足时返回 false |
+| evidence | CoE H-124/E-251/E-252；keyed rerun `20260705-043735-552`; focused tests `inspect_hard_stop_progress_convergence_forces_transition_after_coverage`, `provider_budget`, `forced_inspect_transition`, `inspect_missing_fact_source`, `action_contract_prompt`; fmt/check/build/diff |
+
+状态：focused fixed，待 commit/push、install/attest 和真实 keyed rerun。
+
 ## 51. 2026-07-05 read-summary path telemetry artifact pollution
 
 `a808190` 安装后 keyed rerun 显示 H-122 的 duplicate basename overcoverage 已不再阻塞，但 inspect 仍卡住。

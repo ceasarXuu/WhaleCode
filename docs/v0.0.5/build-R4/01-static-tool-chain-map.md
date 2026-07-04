@@ -1185,3 +1185,17 @@ bootstrap 读完 canonical root CSV 后，`data/*.csv` 仍残留为 missing fact
 
 边界说明：该修复不删除 `TaskSpaceReadFileSummaryV1`，也不降低 artifact coverage gate。它只把工具摘要中的
 `path=` 键值字段还原为真实 artifact ref，避免 telemetry 格式污染能力层。
+
+## 2026-07-05 R4-D issue type addendum: inspect hard-stop transition attempt guard gap
+
+`601bc74` 安装后 keyed rerun 证明 H-123 已 live-clear：`path=*.csv` synthetic artifact 不再出现。
+新的 blocker 是 session control：inspect 已成功读取 `departments.csv`、`schema.json`、`employees.csv`、
+`projects.csv`，但 `node_request_count=5/5` 时直接 provider budget hard-stop，没有先让 runtime 尝试
+`inspect_hard_stop_progress_convergence`。
+
+| Issue type | Layer | Symptom | Resolution contract | Evidence |
+|---|---|---|---|---|
+| `inspect-hard-stop-transition-attempt-guard-gap` | session provider-budget control / phase transition bridge | required fact-source coverage 已完整，hard-stop 前仍未进入 implement；session 额外 readiness predicate 阻止 runtime convergence 判断 | 已实现：inspect node pre-dispatch hard-stop 先调用 runtime forced transition；runtime 仍负责拒绝 missing fact-source 或弱 evidence，不满足才继续 terminal hard-stop | keyed rerun `20260705-043735-552`; CoE H-124/E-251/E-252; focused tests `inspect_hard_stop_progress_convergence_forces_transition_after_coverage`, `provider_budget`, `forced_inspect_transition`, `inspect_missing_fact_source` |
+
+边界说明：这不是提高 provider budget，也不是无条件从 inspect 跳 implement。session 只移除过窄的前置判断；
+是否可 transition 仍由 ActionMap runtime 根据成功 read/search、unread scripts、missing fact-source 等 gate 决定。

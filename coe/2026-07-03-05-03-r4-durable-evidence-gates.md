@@ -7397,3 +7397,70 @@
     PASS
   ```
 - Interpretation: H-123 is focused-fixed. Remaining gates are commit/push, install/attest, and keyed rerun to verify inspect can now transition after CSV bootstrap.
+
+# Evidence E-251: H-123 install rerun clears path telemetry pollution but exposes hard-stop transition guard gap
+
+- Real rerun:
+  ```text
+  RunDir: target/r4-org-json-real-keyed-20260705ar-read-summary-path-gate/runs/terminal_bench__organization-json-generator/20260705-043735-552
+  installed_whale_sha256: 57b29f3f55f0ee7108b295560af0ac4e8ec3f95ecf1695f8ecfada093a10f691
+  outcome_standard: solved
+  outcome_taskspace: wrong
+  right_exec_timed_out: False
+  right_tool_call_count: 5
+  right_public_validation_exit_code: 1
+  right_hidden_oracle_exit_code: 0
+  right_nodes: 1
+  right_open_leaf_nodes: 1
+  final_marker: TaskSpaceProviderBudgetHardStopV1 reason=provider_node_request_hard_limit_exceeded node_kind=inspect_code_context
+  ```
+- H-123 live status:
+  - No synthetic `path=departments.csv` missing artifacts appeared.
+  - All read-summary `path=` telemetry remained attached to the real artifact refs.
+- New blocker signals:
+  - Inspect read `departments.csv`, `schema.json`, `employees.csv`, and `projects.csv` successfully.
+  - There were no failed tool calls and no missing fact-source bootstrap failure.
+  - At `node_request_count=5/5`, session emitted `TaskSpaceProviderBudgetHardStopV1` instead of attempting `inspect_hard_stop_progress_convergence`.
+  - Runtime already has a forced inspect transition path that accepts complete fact-source coverage, but session only called it when the separate progress-threshold readiness predicate was true.
+- Interpretation: H-124 is a session control-layer guard gap. The runtime capability exists, but the hard-stop pre-dispatch path over-gates the attempt and can stop before asking runtime whether complete fact-source evidence is sufficient.
+
+# Hypothesis H-124: inspect hard-stop must attempt runtime forced transition before terminal budget stop
+
+- Claim: In pre-dispatch provider budget hard-stop for inspect nodes, session requires `current_main_inspect_progress_ready_for_transition()` before calling runtime forced transition. This readiness predicate can be false even when required fact-source coverage is complete, so session terminal hard-stop bypasses the runtime convergence capability.
+- Prediction: Session should call `force_finish_action_map_inspect_for_provider_budget(..., "inspect_hard_stop_progress_convergence")` for inspect hard-stop candidates and let runtime return false if evidence is insufficient. Existing provider-budget tests should still pass because runtime guards missing reads and weak evidence.
+- Diagnostic evidence plan: Remove the extra session readiness precondition in the hard-stop branch. Run generic CSV, missing fact-source, hard-stop convergence, forced inspect transition, provider-budget, action-contract, fmt/check/build/diff gates.
+- Status: focused-fixed; live rerun pending.
+
+# Evidence E-252: inspect hard-stop forced transition attempt is focused-fixed
+
+- Repair artifacts:
+  - `third_party/codex-cli/codex-rs/core/src/session/turn.rs`
+  - `third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs`
+- Repair behavior:
+  - Session hard-stop pre-dispatch now attempts `inspect_hard_stop_progress_convergence` for inspect nodes before emitting terminal provider-budget hard-stop.
+  - Runtime remains the authority on whether evidence is sufficient; if missing fact sources or weak inspect evidence remain, it returns `None` and the hard-stop behavior continues.
+  - The H-123 regression keeps read-summary `path=` telemetry normalized to real artifact refs.
+- Validation:
+  ```text
+  cargo fmt --check
+    PASS
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core inspect_generic_csv_requirement_expands_discovered_csv_inputs -- --nocapture
+    PASS: 1/1
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core inspect_missing_fact_source -- --nocapture
+    PASS: 4/4
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core inspect_hard_stop_progress_convergence_forces_transition_after_coverage -- --nocapture
+    PASS: 1/1
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core forced_inspect_transition -- --nocapture
+    PASS: 6/6
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core provider_budget -- --nocapture
+    PASS: 23/23
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core action_contract_prompt -- --nocapture
+    PASS: 29/29
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo check -p codex-core
+    PASS
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
+    PASS
+  git diff --check
+    PASS
+  ```
+- Interpretation: H-124 is focused-fixed. Remaining gates are commit/push, install/attest, and keyed rerun to verify inspect now transitions before budget hard-stop.

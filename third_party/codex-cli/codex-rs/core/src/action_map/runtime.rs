@@ -16083,18 +16083,36 @@ fn inspect_missing_required_fact_source_artifacts(
     map: &ActionMapInstance,
     node: &MapNode,
 ) -> Vec<String> {
+    let required = inspect_required_fact_source_artifacts(task, map, node);
+    inspect_missing_required_fact_source_artifacts_from_required(&required, map, node)
+}
+
+fn inspect_required_fact_source_artifacts(
+    task: &TaskState,
+    map: &ActionMapInstance,
+    node: &MapNode,
+) -> Vec<String> {
     let mut required = task_required_fact_source_artifact_refs(task);
     for artifact in inspect_node_discovered_required_input_artifact_refs(task, map, node) {
         push_required_fact_source_artifact_ref(&mut required, artifact);
     }
+    required
+}
+
+fn inspect_missing_required_fact_source_artifacts_from_required(
+    required: &[String],
+    map: &ActionMapInstance,
+    node: &MapNode,
+) -> Vec<String> {
     let observed_artifacts = inspect_node_observed_artifact_refs(map, node);
     required
-        .into_iter()
+        .iter()
         .filter(|required| {
             !observed_artifacts
                 .iter()
                 .any(|observed| artifact_refs_match(required, observed))
         })
+        .cloned()
         .collect()
 }
 
@@ -24843,8 +24861,8 @@ data/projects.csv\n"
 
         let snapshot = ActionMapProviderRequestBudgetSnapshot {
             task_id: state.active_task_id.clone(),
-            map_id,
-            node_id: Some(node_id),
+            map_id: map_id.clone(),
+            node_id: Some(node_id.clone()),
             node_kind: Some(NodeKind::InspectCodeContext.as_str().to_string()),
             current_node_progress_signature: None,
             current_node_has_successful_edit: false,

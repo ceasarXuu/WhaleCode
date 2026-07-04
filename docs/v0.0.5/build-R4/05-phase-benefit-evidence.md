@@ -1522,6 +1522,46 @@ set -a; . ./.env.local; set +a; powershell -NoProfile -ExecutionPolicy Bypass -F
 git diff --check
 ```
 
+## 5.102 2026-07-05 inspect hard-stop transition attempt guard gap
+
+`601bc74` 安装后 keyed rerun 证明 H-123 live-clear：没有再出现 `path=*.csv` synthetic missing artifact。
+TaskSpace 成功读取四个关键输入，但在 inspect node request limit 处直接 hard-stop：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260705ar-read-summary-path-gate/runs/terminal_bench__organization-json-generator/20260705-043735-552
+outcome_standard: solved
+outcome_taskspace: wrong
+right_exec_timed_out: False
+right_tool_call_count: 5
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+final_marker: TaskSpaceProviderBudgetHardStopV1 reason=provider_node_request_hard_limit_exceeded node_kind=inspect_code_context
+```
+
+收益判断：
+
+1. H-123 的收益已被 live 证据确认：read-summary `path=` telemetry 未再污染 missing fact-source。
+2. 新问题类型是 `inspect-hard-stop-transition-attempt-guard-gap`：runtime 已有 forced inspect transition 能力，但
+   session hard-stop 分支先用 progress-threshold readiness 过滤，导致 complete fact-source coverage 没机会被 runtime 接受。
+3. focused fix 后，inspect hard-stop pre-dispatch 总是先尝试 `inspect_hard_stop_progress_convergence`；runtime 若发现
+   missing fact-source、unread script 或弱 evidence，仍返回 false 并继续 hard-stop。
+4. 这个修复把控制权放回状态机，不是提示词层修补，也不是增加预算。
+
+验证：
+
+```text
+cargo fmt --check
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core inspect_generic_csv_requirement_expands_discovered_csv_inputs -- --nocapture
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core inspect_missing_fact_source -- --nocapture
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core inspect_hard_stop_progress_convergence_forces_transition_after_coverage -- --nocapture
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core forced_inspect_transition -- --nocapture
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core provider_budget -- --nocapture
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core action_contract_prompt -- --nocapture
+CODEX_SKIP_VENDORED_BWRAP=1 cargo check -p codex-core
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
+git diff --check
+```
+
 ## 5.101 2026-07-05 read-summary path telemetry artifact pollution
 
 `a808190` 安装后 keyed rerun 显示 H-122 的 duplicate basename overcoverage 已越过：第一次 bootstrap
