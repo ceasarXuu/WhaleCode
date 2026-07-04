@@ -3262,7 +3262,7 @@ fn prepare_taskspace_action_contract_prompt_items_for_node(
             latest_taskspace_context = Some((index, compile_taskspace_context_item(item)));
         } else if is_protected_user_input(&item) {
             latest_user_input = Some((index, item));
-        } else if is_taskspace_action_contract_latest_tool_output_candidate(&item) {
+        } else if is_tool_output_item(&item) {
             tool_outputs.push((index, item));
         }
     }
@@ -3279,6 +3279,10 @@ fn prepare_taskspace_action_contract_prompt_items_for_node(
         .as_ref()
         .map(|(index, _)| *index)
         .unwrap_or(latest_user_index);
+    let validation_rework_target_reads = latest_taskspace_context
+        .as_ref()
+        .map(|(_, item)| taskspace_validation_rework_target_read_artifacts_from_item(item))
+        .unwrap_or_default();
     if let Some((_, item)) = latest_taskspace_context {
         prepared.push(item);
     }
@@ -3286,7 +3290,17 @@ fn prepare_taskspace_action_contract_prompt_items_for_node(
     let recent_tool_outputs = tool_outputs
         .into_iter()
         .filter_map(|(index, item)| {
-            if index > recent_tool_output_floor {
+            let is_recent_candidate =
+                is_taskspace_action_contract_latest_tool_output_candidate(&item);
+            let is_current_rework_target_read = index > latest_user_index
+                && !validation_rework_target_reads.is_empty()
+                && is_taskspace_validation_rework_target_read_output(
+                    &item,
+                    &validation_rework_target_reads,
+                );
+            if (index > recent_tool_output_floor && is_recent_candidate)
+                || is_current_rework_target_read
+            {
                 Some(item)
             } else {
                 None
@@ -3301,6 +3315,43 @@ fn prepare_taskspace_action_contract_prompt_items_for_node(
     prepared
 }
 
+fn taskspace_validation_rework_target_read_artifacts_from_item(
+    item: &ResponseItem,
+) -> HashSet<String> {
+    response_item_text(item)
+        .map(|text| taskspace_validation_rework_target_read_artifacts_from_text(&text))
+        .unwrap_or_default()
+}
+
+fn taskspace_validation_rework_target_read_artifacts_from_text(text: &str) -> HashSet<String> {
+    text.lines()
+        .filter(|line| line.contains("validation_rework_target_read"))
+        .flat_map(|line| line.split_whitespace())
+        .filter_map(|part| part.strip_prefix("artifact="))
+        .map(|artifact| {
+            artifact
+                .trim_matches(|ch| ch == ',' || ch == ';')
+                .to_string()
+        })
+        .filter(|artifact| !artifact.is_empty())
+        .collect()
+}
+
+fn is_taskspace_validation_rework_target_read_output(
+    item: &ResponseItem,
+    artifacts: &HashSet<String>,
+) -> bool {
+    response_item_texts_contain(item, &|text| {
+        let normalized_text = text.replace('\\', "/");
+        artifacts.iter().any(|artifact| {
+            let normalized_artifact = artifact.replace('\\', "/");
+            normalized_text.contains(&format!(
+                "TaskSpaceReadFileSummaryV1: path={normalized_artifact}"
+            ))
+        })
+    })
+}
+
 fn is_taskspace_active_context_item(item: &ResponseItem) -> bool {
     is_active_context_projection_item(item)
         || response_item_text_contains(item, TASKSPACE_ACTIVE_PROFILE_MARKER)
@@ -3311,12 +3362,15 @@ fn prompt_contains_taskspace_active_context(prompt: &Prompt) -> bool {
     prompt.input.iter().any(is_taskspace_active_context_item)
 }
 
-fn is_taskspace_action_contract_latest_tool_output_candidate(item: &ResponseItem) -> bool {
-    let is_tool_output = matches!(
+fn is_tool_output_item(item: &ResponseItem) -> bool {
+    matches!(
         item,
         ResponseItem::FunctionCallOutput { .. } | ResponseItem::CustomToolCallOutput { .. }
-    );
-    is_tool_output
+    )
+}
+
+fn is_taskspace_action_contract_latest_tool_output_candidate(item: &ResponseItem) -> bool {
+    is_tool_output_item(item)
         && (!is_legacy_taskspace_tool_output(item)
             || is_actionable_taskspace_gate_feedback_output(item))
 }
@@ -7257,6 +7311,50 @@ tax_calc.py\n\
         assert!(joined.contains("current_node: node-4"));
         assert!(!joined.contains("current_node: node-2"));
         assert!(!joined.contains("TaskSpaceActionContractRecentToolOutputsV1"));
+        assert!(!joined.contains("Success. Updated the following files"));
+        assert!(!joined.contains("A file edit already succeeded"));
+    }
+
+    #[test]
+    fn action_contract_keeps_current_rework_target_read_across_latest_context() {
+        let old_active_projection = format!(
+            "{TASKSPACE_ACTIVE_PROFILE_MARKER}\n{TASKSPACE_ACTIVE_PROJECTION_MARKER}\ncurrent_node: node-2 kind=implement_solution"
+        );
+        let latest_active_projection = format!(
+            "{TASKSPACE_ACTIVE_PROFILE_MARKER}\n{TASKSPACE_ACTIVE_PROJECTION_MARKER}\n\
+current_node: node-4 kind=implement_solution\n\
+critical_artifact_evidence:\n\
+- validation_rework_target_read result=result-11 artifact=generate_org.py\n\
+next_valid_actions:\n\
+- apply_patch for generate_org.py"
+        );
+        let items = vec![
+            message("user", "Continue the task"),
+            message("developer", &old_active_projection),
+            tool_output_with_call_id(
+                "taskspace-action-contract-9-apply_patch",
+                "Success. Updated the following files:\nA generate_org.py",
+            ),
+            tool_output_with_call_id(
+                "taskspace-action-contract-13-read_file",
+                "def build_organization():\n    proj_by_dept.setdefault(p[\"department_id\"], []).append({\"member_ids\": []})\nTaskSpaceReadFileSummaryV1: path=generate_org.py lines_read=84 eof_reached=true max_lines=240",
+            ),
+            message("developer", &latest_active_projection),
+        ];
+
+        let prepared = prepare_taskspace_action_contract_prompt_items_for_node(
+            items,
+            Some("implement_solution"),
+        );
+        let joined = item_texts(&prepared).join("\n");
+
+        assert_eq!(prepared.len(), 3);
+        assert!(joined.contains("current_node: node-4"));
+        assert!(joined.contains("TaskSpaceActionContractRecentToolOutputsV1"));
+        assert!(joined.contains("call_id: taskspace-action-contract-13-read_file"));
+        assert!(joined.contains("TaskSpaceReadFileSummaryV1: path=generate_org.py"));
+        assert!(joined.contains("member_ids"));
+        assert!(!joined.contains("call_id: taskspace-action-contract-9-apply_patch"));
         assert!(!joined.contains("Success. Updated the following files"));
         assert!(!joined.contains("A file edit already succeeded"));
     }

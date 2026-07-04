@@ -3058,3 +3058,73 @@
   ```
 - Result: passed. `action_contract_prompt` 28/28, `implementation_needs_edit` 3/3, `validation_rework` 18/18, `provider_budget` 23/23, `taskspace_active_budget` 11/11, `validation_` 96/96, `apply_patch_` 35/35, `duplicate_read_search` 2/2, `inspect_missing_fact_sources` 2/2, `taskspace_control` 35/35, and `local_infra` 11/11 all passed. The fmt check still prints the known stable rustfmt `imports_granularity` warning.
 - Interpretation: H-052 is focused-fixed with regression/build coverage. The remaining live gate is a new keyed `organization-json-generator` rerun to verify that `node-4` no longer receives stale prior-node edit-success guidance and either patches the schema mismatch or exposes the next R4 tools-chain blocker.
+
+# Evidence E-115: 25e3fcb live rerun removes stale edit success and exposes current rework target read loss
+
+- Prediction tested: H-052 predicts `node-4` should no longer receive stale prior-node edit-success guidance after scoping recent outputs to latest active context.
+- Real rerun:
+  ```text
+  RunDir: target/r4-org-json-real-keyed-20260704ay-stale-recent-output-scope/runs/terminal_bench__organization-json-generator/20260704-112438-158
+  PairReport: pair-001/pair-report.md
+  preflight current_git_head: 25e3fcb8fca885146a939ca8a0868c2ea1877609
+  build_attestation_status: pass
+  outcome_standard: solved
+  outcome_taskspace: engineering_unclean
+  right_exec_timed_out: False
+  right_tool_call_count: 15
+  right_public_validation_exit_code: 1
+  right_hidden_oracle_exit_code: 0
+  ```
+- Matched H-052 signals:
+  - `whale-exec.jsonl` no longer contains `A file edit already succeeded`.
+  - It no longer contains `TaskSpaceImplementationNeedsEditHardStopV1`.
+  - The run reached validation rework `node-4`, read `generate_org.py`, and did not claim an edit succeeded on that node.
+- New blocker signals:
+  - After `node-4` read `generate_org.py`, the next model request did not receive the full read output as a recent tool output because the new latest active context was after the read output.
+  - The active projection did contain `validation_rework_target_read result=result-11 artifact=generate_org.py`, but only as compact projected evidence.
+  - Model reasoning said the result was only a summary and requested `read_file generate_org.py` again.
+  - Runtime correctly blocked the duplicate read with `validation_rework_duplicate_artifact_read` and finally emitted `TaskSpaceValidationReworkDuplicateReadHardStopV1`.
+- Interpretation: H-052 is live-supported, but the first repair was too broad at the feedback-retention boundary. The next root-cause candidate is that current-node rework target read outputs must be retained across active context replacement when the latest projection explicitly references that target read.
+
+# Hypothesis H-053: current validation rework target read output must survive active-context replacement
+
+- Claim: Scoping all recent tool outputs after the latest active TaskSpace context prevents stale cross-node edit-success leakage, but it also drops the full read output for the current validation rework target when an active projection is recorded immediately after the read. The projection may name `validation_rework_target_read result=* artifact=*`, yet still provide only compact evidence, so the model asks to read the same target again.
+- Prediction: A focused prompt-composition regression with `node-2 apply_patch success`, `node-4 generate_org.py read output`, and a latest `node-4` active projection naming `validation_rework_target_read result=result-11 artifact=generate_org.py` should keep the `generate_org.py` read output but exclude the stale `node-2` apply_patch success.
+- Diagnostic evidence plan: Collect all tool outputs, then include only normal action-contract candidates after the latest active context plus whitelisted validation rework target read outputs referenced by the latest active context. Validate that stale edit-success progress hints stay absent.
+- Status: confirmed.
+
+# Evidence E-116: current rework target read outputs are retained while stale edit success remains excluded
+
+- Prediction tested: H-053 predicts the prompt composer must preserve the current validation rework target read output across active context replacement, without reintroducing stale prior-node apply_patch success.
+- Repair artifact:
+  - `third_party/codex-cli/codex-rs/core/src/session/turn.rs`
+- Repair behavior:
+  - Prompt composition now collects all tool outputs initially.
+  - Normal recent tool output summaries still require the existing action-contract candidate filter and latest active-context floor.
+  - A narrow exception includes tool outputs whose text contains `TaskSpaceReadFileSummaryV1: path=<artifact>` when the latest active context explicitly names `validation_rework_target_read ... artifact=<artifact>`.
+  - Stale apply_patch success from an older active context is still excluded and cannot generate `A file edit already succeeded`.
+- Focused validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core action_contract_keeps_current_rework_target_read_across_latest_context --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core action_contract_recent_outputs_are_scoped_after_latest_active_context --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core action_contract_prompt --lib --locked
+  ```
+- R4-adjacent regression/build validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core validation_rework --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core implementation_needs_edit --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core provider_budget --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core validation_ --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core taskspace_active_budget --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core apply_patch_ --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core duplicate_read_search --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core inspect_missing_fact_sources --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core missing_fact_source_bootstrap --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core taskspace_control --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core local_infra --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+  git diff --check
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-cli --bin whale --locked
+  ```
+- Result: passed. `action_contract_prompt` 28/28, `validation_rework` 18/18, `validation_` 96/96, `provider_budget` 23/23, `taskspace_active_budget` 11/11, `apply_patch_` 35/35, `taskspace_control` 35/35, and `local_infra` 11/11 all passed. The fmt command still prints the known stable rustfmt warning for `imports_granularity`.
+- Interpretation: H-053 is focused-fixed with regression/build coverage. The remaining live gate is another keyed rerun to see whether TaskSpace now patches `generate_org.py` instead of repeatedly reading it.
