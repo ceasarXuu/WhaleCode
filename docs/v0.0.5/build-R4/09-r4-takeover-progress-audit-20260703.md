@@ -2492,6 +2492,38 @@ right_open_leaf_nodes: 1
 状态：focused 修复已编码并通过相关回归、fmt/diff/check/build。下一步是 commit/push、install/attest、keyed rerun，
 验证 patch-only feedback 是否能被模型消费并进入实际修复闭环。
 
+## 60. 2026-07-05 apply_patch placeholder ellipsis hunk leakage
+
+`6a4ec2e` 后的 keyed rerun 说明 H-131 的预算 hard-stop 症状没有复发，validation rework feedback 已进入后续
+模型轮次。新的失败点在 apply_patch grammar gate：runtime 未在工具前识别 `@@ ... @@` 占位 hunk。
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260705az-patch-feedback-budget-gate/runs/terminal_bench__organization-json-generator/20260705-063230-012
+reported_evidence_level: E1
+outcome_standard: wrong
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 13
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+right_nodes: 4
+right_edges: 3
+right_open_leaf_nodes: 1
+```
+
+问题类型收录：
+
+| 字段 | 内容 |
+|---|---|
+| case | `apply-patch-placeholder-ellipsis-hunk-leakage` |
+| 层级 | action-contract apply_patch grammar gate / validation rework feedback |
+| 本质 | `@@ ... @@` 是占位 hunk，不可机械应用；旧检测只覆盖 `@@ -... +... @@`，导致无效 patch 进入 edit tool |
+| 非根因 | 不是 schema repair contract 缺失；不是 patch-only feedback 未送达；不是 provider budget hard-stop；不是单纯模型不愿编辑 |
+| 修复 | placeholder hunk detector 纳入 `@@ ... @@` / `@@...@@`；validation rework target 上返回 `apply_patch_replacement_required:<target>` |
+| focused evidence | CoE H-132/E-267/E-268；`taskspace_action_contract_requires_replacement_for_rework_target_placeholder_ellipsis_hunk`；`action_contract_prompt` 29/29；`validation_rework` 32/32；`taskspace_apply_patch` 18/18；fmt/check/build/diff |
+
+状态：focused 修复已编码并通过相关回归、fmt/diff/check/build。下一步是 commit/push、install/attest、keyed rerun。
+
 ## 56. 2026-07-05 validation node provider-budget bootstrap
 
 `d37a7f1` 后 keyed rerun 证明 H-127 replacement-required recovery loop 已 live-clear。新的 blocker 是 validation 节点

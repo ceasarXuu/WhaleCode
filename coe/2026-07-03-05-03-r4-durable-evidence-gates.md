@@ -8009,3 +8009,86 @@
   ```
 - Interpretation: H-131 is focused-fixed. Remaining gates are commit/push, install/attest, and keyed rerun to verify
   that patch-only feedback is actually consumed rather than ending in provider budget hard-stop.
+
+# Evidence E-267: H-131 rerun consumes patch-only feedback and exposes placeholder ellipsis patch gap
+
+- Real rerun:
+  ```text
+  RunDir: target/r4-org-json-real-keyed-20260705az-patch-feedback-budget-gate/runs/terminal_bench__organization-json-generator/20260705-063230-012
+  reported_evidence_level: E1
+  outcome_standard: wrong
+  outcome_taskspace: engineering_unclean
+  right_exec_timed_out: False
+  right_tool_call_count: 13
+  right_public_validation_exit_code: 1
+  right_hidden_oracle_exit_code: 0
+  right_nodes: 4
+  right_edges: 3
+  right_open_leaf_nodes: 1
+  ```
+- H-131 live status:
+  - The exact budget-cliff grace branch did not re-trigger because this run reached validation rework at lower
+    request counts.
+  - The terminal provider-budget hard-stop symptom did not recur.
+  - `TaskSpaceValidationReworkPatchOnlyRecoveryV1` was inserted and the provider consumed it in later requests.
+- New blocker signals:
+  - After complete target read, provider emitted apply_patch payloads with non-native/unmechanical hunks.
+  - One payload used placeholder ellipsis native hunk syntax:
+    `*** Update File: process.py` followed by `@@ ... @@`.
+  - Runtime treated that response as actionable and recorded a failed edit (`result-14 tool_failure`) instead of
+    rejecting it before tool execution as `apply_patch_replacement_required:process.py`.
+  - A later payload using `<<<`/`===`/`>>>` replacement syntax finally triggered
+    `apply_patch_replacement_required:process.py`, and the turn hard-stopped with
+    `TaskSpaceApplyPatchRecoveryHardStopV1`.
+- Interpretation: H-132 is a feedback-layer gap. The action contract already rejects placeholder range hunks like
+  `@@ -... +... @@`, but did not recognize the live `@@ ... @@` placeholder. That allowed an unmechanical patch to
+  reach the edit tool and converted a deterministic grammar problem into generic edit-failure recovery.
+
+# Hypothesis H-132: placeholder ellipsis hunks must be rejected before apply_patch execution
+
+- Claim: In validation rework, a patch containing `*** Update File: <target>` plus placeholder hunk `@@ ... @@` or
+  `@@...@@` is not mechanically actionable and must be rejected by the action contract before tool execution. If the
+  target is a validation rework artifact, the rejection must preserve replacement-required semantics.
+- Prediction:
+  - `taskspace_apply_patch_placeholder_range_hunk_targets` should include `@@ ... @@` / `@@...@@`.
+  - The live-shaped patch should return `apply_patch_replacement_required:process.py` for a validation rework target.
+  - Existing placeholder range, action_contract_prompt, validation_rework, taskspace_apply_patch, fmt/check/build/diff
+    gates must continue to pass.
+- Diagnostic evidence plan: Add a focused action-contract test for the live `@@ ... @@` hunk; rerun existing
+  placeholder range, action_contract_prompt, validation_rework, taskspace_apply_patch, fmt/check/build/diff gates.
+- Status: focused-fixed; install and keyed rerun pending.
+
+# Evidence E-268: placeholder ellipsis patch rejection is focused-fixed
+
+- Repair artifact:
+  - `third_party/codex-cli/codex-rs/core/src/session/turn.rs`
+- Repair behavior:
+  - Placeholder hunk detection now includes `@@ ... @@` and `@@...@@`.
+  - Validation rework `Update File` patches with those placeholder hunks are not treated as mechanically actionable.
+  - For validation rework target artifacts, action-contract rejection returns
+    `apply_patch_replacement_required:<target>` before the edit tool runs.
+- Regression:
+  - `taskspace_action_contract_requires_replacement_for_rework_target_placeholder_ellipsis_hunk`
+- Validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core taskspace_action_contract_requires_replacement_for_rework_target_placeholder_ellipsis_hunk -- --nocapture
+    PASS: 1/1
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core placeholder_range_hunk -- --nocapture
+    PASS: 1/1
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core action_contract_prompt -- --nocapture
+    PASS: 29/29
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_rework -- --nocapture
+    PASS: 32/32
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core taskspace_apply_patch -- --nocapture
+    PASS: 18/18
+  cargo fmt --check
+    PASS
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo check -p codex-core
+    PASS
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
+    PASS
+  git diff --check
+    PASS
+  ```
+- Interpretation: H-132 is focused-fixed. Remaining gates are commit/push, install/attest, and keyed rerun to verify
+  that live placeholder ellipsis patches no longer reach the edit tool as generic failures.

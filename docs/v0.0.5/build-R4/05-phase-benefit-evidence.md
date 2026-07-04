@@ -1641,6 +1641,48 @@ CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
 git diff --check
 ```
 
+## 5.97 2026-07-05 apply_patch 占位 ellipsis hunk 泄漏
+
+`6a4ec2e` 安装后 keyed rerun 未复发 H-131 的 provider budget hard-stop；patch-only recovery 已进入后续模型轮次。
+但 validation rework 随后暴露 apply_patch grammar feedback 的新漏洞。
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260705az-patch-feedback-budget-gate/runs/terminal_bench__organization-json-generator/20260705-063230-012
+reported_evidence_level: E1
+outcome_standard: wrong
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 13
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+right_nodes: 4
+right_edges: 3
+right_open_leaf_nodes: 1
+```
+
+收益判断：
+
+1. H-131 的终端症状没有复发：`TaskSpaceValidationReworkPatchOnlyRecoveryV1` 后仍有模型请求继续处理。
+2. 新收录问题是 `apply-patch-placeholder-ellipsis-hunk-leakage`：`@@ ... @@` 占位 hunk 未被 action contract
+   拦截，导致无效 patch 被执行并记录 generic edit failure。
+3. 这属于失败语义扭曲：应该传递 `apply_patch_replacement_required:process.py`，实际先变成了 tool_failure/edit-failure。
+4. 修复后 `@@ ... @@` / `@@...@@` 会和既有 `@@ -... +... @@` 一样被认定为 placeholder hunk；
+   validation rework target 上会在工具前返回 replacement-required。
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core taskspace_action_contract_requires_replacement_for_rework_target_placeholder_ellipsis_hunk -- --nocapture
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core placeholder_range_hunk -- --nocapture
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core action_contract_prompt -- --nocapture
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_rework -- --nocapture
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core taskspace_apply_patch -- --nocapture
+cargo fmt --check
+CODEX_SKIP_VENDORED_BWRAP=1 cargo check -p codex-core
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
+git diff --check
+```
+
 ## 5.103 2026-07-05 validation blocker supersession final-gate gap
 
 `e0a17fc` 安装后 keyed rerun 证明 H-124 的 inspect hard-stop transition 已 live-clear：TaskSpace

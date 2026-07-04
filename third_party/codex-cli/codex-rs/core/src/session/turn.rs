@@ -7771,6 +7771,28 @@ TaskSpace implement_solution node `node-6` cannot be blocked for missing source 
     }
 
     #[test]
+    fn taskspace_action_contract_requires_replacement_for_rework_target_placeholder_ellipsis_hunk()
+    {
+        let raw = serde_json::json!({
+            "schema_version": "taskspace-action-v1",
+            "action": "apply_patch",
+            "node_id": "node-1",
+            "args": {
+                "patch": "*** Begin Patch\n*** Update File: process.py\n@@ ... @@\n-old\n+new\n*** End Patch\n"
+            },
+        })
+        .to_string();
+        let action = parse_taskspace_action_v1(&raw).expect("valid json");
+        let mut snapshot = provider_snapshot("implement_solution");
+        snapshot.current_node_validation_rework_artifacts = vec!["process.py".to_string()];
+
+        let err = taskspace_action_to_tool_call(&action, &snapshot)
+            .expect_err("placeholder ellipsis hunks are not mechanically actionable");
+
+        assert_eq!(err, "apply_patch_replacement_required:process.py");
+    }
+
+    #[test]
     fn taskspace_action_contract_keeps_generic_unanchored_update_for_non_rework_target() {
         let raw = serde_json::json!({
             "schema_version": "taskspace-action-v1",
@@ -13387,7 +13409,10 @@ fn taskspace_apply_patch_placeholder_range_hunk_targets(patch: &str) -> Vec<Stri
         let trimmed = line.trim();
         if trimmed.starts_with("@@")
             && trimmed.contains("...")
-            && (trimmed.contains("-...") || trimmed.contains("+..."))
+            && (trimmed.contains("-...")
+                || trimmed.contains("+...")
+                || trimmed == "@@ ... @@"
+                || trimmed == "@@...@@")
             && let Some(target) = current_target.as_ref()
             && !targets.iter().any(|existing| existing == target)
         {

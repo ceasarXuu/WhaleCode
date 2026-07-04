@@ -1303,3 +1303,17 @@ results 执行原有 gate。
 边界说明：这不是提高普通 provider budget，也不是让状态机放宽 hard-stop。状态机仍提供事实：
 当前是否 validation rework、目标 artifact 是否已知、是否已有 edit；runtime 只在这些事实满足时允许一次“反馈送达”
 请求，第二次同节点请求或缺少 validation rework artifact 仍按原 hard-stop。
+
+## 2026-07-05 R4-D issue type addendum: apply_patch placeholder ellipsis hunk leakage
+
+`6a4ec2e` 安装后 keyed rerun 没有复发 provider budget hard-stop，patch-only feedback 已能被模型消费。
+新的 blocker 是 apply_patch 语法反馈层：provider 在 validation rework 中发出 `*** Update File: process.py`
+加 `@@ ... @@` 占位 hunk；旧检测只覆盖 `@@ -... +... @@`，导致该 patch 进入 edit tool 并记录泛化
+`tool_failure`，而不是在 action contract 层返回 replacement-required。
+
+| issue type | 层级 | 本质 | 修复 | 证据 |
+|---|---|---|---|---|
+| `apply-patch-placeholder-ellipsis-hunk-leakage` | action-contract apply_patch grammar gate / validation rework feedback | `@@ ... @@` 占位 hunk 不是可机械应用 patch，但未被 placeholder detector 识别，失败语义从 grammar/replacement 扭成 generic edit failure | 已实现：placeholder hunk detector 纳入 `@@ ... @@` / `@@...@@`；validation rework target 上返回 `apply_patch_replacement_required:<target>`，不再执行 edit tool | keyed rerun `20260705-063230-012`; CoE H-132/E-267/E-268; focused test `taskspace_action_contract_requires_replacement_for_rework_target_placeholder_ellipsis_hunk`; regressions `action_contract_prompt`, `validation_rework`, `taskspace_apply_patch` |
+
+边界说明：这不是禁止所有含 `...` 的文件内容。检测只在 patch hunk header 行本身是 `@@ ... @@`/`@@...@@`
+或已有 placeholder range hunk 时触发；普通文件内容里的 `...` 仍按原 patch normalization 处理。
