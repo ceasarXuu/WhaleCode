@@ -4795,3 +4795,17 @@ schema validation command，得到真实 schema failure：root output 缺少 `me
 
 边界说明：这不是放松 patch-only hard-stop。runtime 仍会在同一个 validation rework node 内把重复 read/search/discovery
 升级为 hard-stop；修复只防止旧 node 的恢复次数污染新 node。
+
+## 5.79 2026-07-04 apply_patch recovery budget drain after H-088
+
+`851bf3c` keyed rerun 证明 H-088 live-clear：新的 validation rework node 不再继承旧 node 的 patch-only recovery
+计数，trace 越过上一层并进入多次 `apply_patch`。新的 blocker 是 patch/edit-failure recovery 自身没有 hard-stop escalation：
+runtime 已给出 `TaskSpaceEditFailureRecoveryV1` 和 `TaskSpaceApplyPatchUnanchoredUpdateRecoveryV1`，但 repeated malformed/stale-context
+patch 继续消耗 provider node budget，最后退化为 `TaskSpaceProviderBudgetHardStopV1`。
+
+| Case | Before | After | Evidence |
+|---|---|---|---|
+| `apply-patch-recovery-budget-drain-after-validation-rework` | 同一 implement/rework node 内多次 context mismatch、closed read、unanchored update recovery 后，仍继续 provider sampling，直到 node request budget hard-stop | 新增 `TaskSpaceApplyPatchRecoveryHardStopV1`；apply_patch/edit-failure recovery 计数按 node scoped，第四次 repeated recovery 直接 hard-stop 并保留最后 recovery contract | keyed rerun `20260704-193906-178`; CoE H-089/E-188/E-189; `apply_patch_recovery_hard_stops_after_repeated_same_node_failures`; `apply_patch_` 36/36; `validation_rework` 26/26 |
+
+边界说明：这不是让 malformed patch 成功，也不是自动生成代码补丁；它把“同节点持续无法按 patch feedback 修正”的循环从 generic
+provider budget hard-stop 改成专用、可审计的 apply_patch recovery hard-stop。

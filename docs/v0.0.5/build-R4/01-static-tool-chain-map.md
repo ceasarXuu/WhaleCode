@@ -797,3 +797,16 @@ patch-only recovery，后续新的 `node-6` 第一次完整读取 `processor.py`
 
 边界说明：该修复不降低 repeated-read 约束。它只把 escalation lifecycle 从 turn-global 改成 node-scoped，确保新 rework
 node 先收到正确 patch-only recovery，再按同节点重复违规升级。
+
+## 2026-07-04 R4-D issue type addendum: apply_patch recovery budget drain after validation rework
+
+H-088 修复后的 keyed rerun 已经越过 validation rework counter leak，进入真实 patch 失败路径。runtime 能保留
+`TaskSpaceEditFailureRecoveryV1`、拒绝 closed read，并识别 `apply_patch_unanchored_update`，但 repeated recovery 没有自己的
+hard-stop escalation，最终被 generic provider node budget 截断。
+
+| Issue type | Layer | Symptom | Resolution contract | Evidence |
+|---|---|---|---|---|
+| `apply-patch-recovery-budget-drain-after-validation-rework` | apply_patch/edit failure recovery escalation / feedback-control lifecycle | 同一 node 内多次 edit failure / malformed patch recovery 后继续 provider sampling，最终 `TaskSpaceProviderBudgetHardStopV1` | 新增 node-scoped apply_patch recovery counter；`TaskSpaceEditFailureRecoveryV1`、patch format/missing target/unanchored/native-hunk/intent recovery 第 4 次触发 `TaskSpaceApplyPatchRecoveryHardStopV1` | keyed rerun `20260704-193906-178`; CoE H-089/E-188/E-189; `apply_patch_recovery_hard_stops_after_repeated_same_node_failures`; `apply_patch_` 36/36 |
+
+边界说明：该 hard-stop 是反馈层可审计收敛，不代表 patch 已修好；它防止具体 patch feedback 被 generic provider budget
+hard-stop 掩盖，为后续继续优化 patch quality / rewrite strategy 留出清晰边界。

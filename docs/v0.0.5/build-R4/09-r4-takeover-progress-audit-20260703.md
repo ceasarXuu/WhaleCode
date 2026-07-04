@@ -2921,6 +2921,49 @@ final_hard_stop: TaskSpaceValidationReworkPatchOnlyHardStopV1 attempt_count=3
 
 状态：focused 修复已编码并通过聚焦/相关回归测试、fmt/diff/build。下一步是提交推送、attestation、keyed rerun。
 
+## 25. 2026-07-04 apply_patch recovery budget drain after H-088
+
+`851bf3c` keyed rerun 使用 attested binary：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260704ci-counter-scope/runs/terminal_bench__organization-json-generator/20260704-193906-178
+current_git_head: 851bf3cb0677834a9432a3dcad8659d9d6266ac6
+whale_binary_sha256: c25b2f3621474fc6066eac04b0cb93080468019a05a7d3c31e0faa2c3005b1be
+build_attestation_status: pass
+reported_evidence_level: E2-candidate
+outcome_standard: solved
+outcome_taskspace: engineering_unclean
+right_tool_call_count: 13
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+final_hard_stop: TaskSpaceProviderBudgetHardStopV1 node_kind=implement_solution node_request_count=6/5
+```
+
+H-088 live 结论：已越过。trace 没有再在新 rework node 首次 target read 后触发
+`TaskSpaceValidationReworkPatchOnlyHardStopV1 attempt_count=3`，而是进入 patch-only recovery 和 apply_patch attempts。
+
+新的 blocker：
+
+| Signal | 结论 |
+|---|---|
+| first rework patch 进入 edit tool，但 `apply_patch verification failed` | patch 质量/上下文失败已被工具语义捕获 |
+| 后续 `read_file generate_organization.py` 被拒绝为 `validation_rework_closed_action_space_read_disallowed:read_file` | closed action-space gate 正确 |
+| 后续多次 `TaskSpaceEditFailureRecoveryV1`，最后 `TaskSpaceApplyPatchUnanchoredUpdateRecoveryV1` | recovery 语义存在，但没有升级 |
+| final `TaskSpaceProviderBudgetHardStopV1` | repeated patch/edit recovery 被 generic provider budget 截断 |
+
+问题类型收录：
+
+| 字段 | 内容 |
+|---|---|
+| case | `apply-patch-recovery-budget-drain-after-validation-rework` |
+| 层级 | apply_patch/edit failure recovery escalation / feedback-control lifecycle |
+| 本质 | 反馈语义存在但缺少专用 hard-stop；同一 node 多次 malformed/stale-context patch recovery 后仍继续采样 |
+| 非根因 | 不是 H-088 counter leak；不是 validation bridge 失败；不是 closed read gate 放宽问题 |
+| 修复 | 新增 node-scoped apply_patch recovery counter；第 4 次 repeated `TaskSpaceEditFailureRecoveryV1` / patch grammar recovery 触发 `TaskSpaceApplyPatchRecoveryHardStopV1` |
+| focused evidence | CoE H-089/E-188/E-189；`apply_patch_recovery_hard_stops_after_repeated_same_node_failures`; `apply_patch_` 36/36; `validation_rework` 26/26; `action_contract_prompt` 29/29；fmt/check/build |
+
+状态：focused 修复已编码并通过相关回归、fmt/diff/build。下一步是 commit/push、attestation、keyed rerun。
+
 ## 10. 2026-07-04 validation rework patch directive buried after evidence
 
 `431e0ee` 的 keyed rerun 没有复现 block-rejection wording path，说明 H-069 仍需下一次命中该分支才能 live-clear。该轮暴露

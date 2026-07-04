@@ -166,6 +166,8 @@ const TASKSPACE_APPLY_PATCH_MISSING_TARGET_MARKER: &str =
 const TASKSPACE_APPLY_PATCH_UNANCHORED_UPDATE_MARKER: &str =
     "TaskSpaceApplyPatchUnanchoredUpdateRecoveryV1:";
 const TASKSPACE_APPLY_PATCH_NATIVE_HUNK_MARKER: &str = "TaskSpaceApplyPatchNativeHunkRecoveryV1:";
+const TASKSPACE_APPLY_PATCH_RECOVERY_HARD_STOP_MARKER: &str =
+    "TaskSpaceApplyPatchRecoveryHardStopV1:";
 const TASKSPACE_PATCH_INTENT_FORMAT_MARKER: &str = "TaskSpacePatchIntentFormatRecoveryV1:";
 const TASKSPACE_VALIDATION_INFRA_RECOVERY_MARKER: &str = "TaskSpaceValidationInfraRecoveryV1:";
 const TASKSPACE_VALIDATION_NEEDS_TEST_MARKER: &str = "TaskSpaceValidationNeedsTestRecoveryV1:";
@@ -490,6 +492,8 @@ pub(crate) async fn run_turn(
     let mut taskspace_no_action_recovery_count = 0usize;
     let mut taskspace_implement_needs_edit_recovery_count = 0usize;
     let mut taskspace_implement_needs_edit_recovery_key: Option<String> = None;
+    let mut taskspace_apply_patch_recovery_count = 0usize;
+    let mut taskspace_apply_patch_recovery_key: Option<String> = None;
     let mut taskspace_validation_rework_duplicate_read_recovery_count = 0usize;
     let mut taskspace_validation_rework_duplicate_read_recovery_key: Option<String> = None;
     let mut taskspace_validation_rework_patch_only_recovery_count = 0usize;
@@ -626,6 +630,15 @@ pub(crate) async fn run_turn(
                         is_taskspace_validation_rework_duplicate_read_recovery_item(&recovery_item);
                     let is_validation_rework_patch_only_recovery =
                         is_taskspace_validation_rework_patch_only_recovery_item(&recovery_item);
+                    let is_apply_patch_recovery =
+                        is_taskspace_apply_patch_recovery_item(&recovery_item);
+                    if is_apply_patch_recovery {
+                        taskspace_reset_recovery_count_for_snapshot_node(
+                            &mut taskspace_apply_patch_recovery_key,
+                            &mut taskspace_apply_patch_recovery_count,
+                            current_recovery_snapshot.as_ref(),
+                        );
+                    }
                     if is_validation_rework_duplicate_read_recovery {
                         taskspace_reset_recovery_count_for_snapshot_node(
                             &mut taskspace_validation_rework_duplicate_read_recovery_key,
@@ -649,6 +662,11 @@ pub(crate) async fn run_turn(
                         taskspace_validation_rework_patch_only_should_hard_stop(
                             &recovery_item,
                             taskspace_validation_rework_patch_only_recovery_count,
+                        );
+                    let apply_patch_recovery_hard_stop =
+                        taskspace_apply_patch_recovery_should_hard_stop(
+                            &recovery_item,
+                            taskspace_apply_patch_recovery_count,
                         );
                     let no_action_recovery_cap = current_recovery_snapshot
                         .as_ref()
@@ -674,6 +692,9 @@ pub(crate) async fn run_turn(
                             taskspace_implement_needs_edit_recovery_count = 0;
                         }
                         taskspace_implement_needs_edit_recovery_count += 1;
+                    }
+                    if is_apply_patch_recovery {
+                        taskspace_apply_patch_recovery_count += 1;
                     }
                     if is_validation_rework_duplicate_read_recovery {
                         taskspace_validation_rework_duplicate_read_recovery_count += 1;
@@ -704,6 +725,27 @@ pub(crate) async fn run_turn(
                             .await;
                         last_agent_message = Some(
                             "TaskSpace implementation needs-edit hard stop: repeated_finish_without_successful_edit".to_string(),
+                        );
+                        break;
+                    }
+                    if apply_patch_recovery_hard_stop {
+                        let hard_stop_item = build_taskspace_apply_patch_recovery_hard_stop_item(
+                            &recovery_item,
+                            taskspace_apply_patch_recovery_count,
+                        );
+                        sess.send_event(
+                            &turn_context,
+                            EventMsg::Warning(WarningEvent {
+                                message: taskspace_special_recovery_warning_message(
+                                    &hard_stop_item,
+                                ),
+                            }),
+                        )
+                        .await;
+                        sess.record_conversation_items(&turn_context, &[hard_stop_item])
+                            .await;
+                        last_agent_message = Some(
+                            "TaskSpace apply_patch recovery hard stop: repeated_failed_or_malformed_patch".to_string(),
                         );
                         break;
                     }
@@ -2470,6 +2512,34 @@ Last recovery contract excerpt:\n{recovery_excerpt}"
     }
 }
 
+fn build_taskspace_apply_patch_recovery_hard_stop_item(
+    recovery_item: &ResponseItem,
+    attempt: usize,
+) -> ResponseItem {
+    let recovery_text = response_item_text(recovery_item).unwrap_or_default();
+    let recovery_excerpt = recovery_text.chars().take(1800).collect::<String>();
+    let text = format!(
+        "{TASKSPACE_APPLY_PATCH_RECOVERY_HARD_STOP_MARKER}\n\
+reason: repeated_failed_or_malformed_patch\n\
+attempt_count: {attempt}\n\
+The current implementation node repeatedly failed to recover from apply_patch grammar/context/tool feedback before recording a successful edit.\n\
+Runtime decision:\n\
+- Stop provider sampling for this turn instead of spending the remaining node budget on more malformed or stale-context patches.\n\
+- Preserve the most recent apply_patch/edit-failure recovery contract for audit.\n\
+- A later turn may continue only after TaskSpace state changes or the provider emits a valid native apply_patch/block_node action.\n\
+Last recovery contract excerpt:\n\
+{recovery_excerpt}"
+    );
+
+    ResponseItem::Message {
+        id: None,
+        role: "developer".to_string(),
+        content: vec![ContentItem::InputText { text }],
+        end_turn: None,
+        phase: None,
+    }
+}
+
 fn build_taskspace_implementation_recovery_item(
     last_agent_message: Option<&str>,
     evidence_summary: Option<&str>,
@@ -2604,6 +2674,19 @@ fn is_taskspace_implementation_needs_edit_hard_stop_item(item: &ResponseItem) ->
     response_item_text_contains(item, TASKSPACE_IMPLEMENT_NEEDS_EDIT_HARD_STOP_MARKER)
 }
 
+fn is_taskspace_apply_patch_recovery_hard_stop_item(item: &ResponseItem) -> bool {
+    response_item_text_contains(item, TASKSPACE_APPLY_PATCH_RECOVERY_HARD_STOP_MARKER)
+}
+
+fn is_taskspace_apply_patch_recovery_item(item: &ResponseItem) -> bool {
+    response_item_text_contains(item, TASKSPACE_EDIT_FAILURE_MARKER)
+        || response_item_text_contains(item, TASKSPACE_APPLY_PATCH_FORMAT_MARKER)
+        || response_item_text_contains(item, TASKSPACE_APPLY_PATCH_MISSING_TARGET_MARKER)
+        || response_item_text_contains(item, TASKSPACE_APPLY_PATCH_UNANCHORED_UPDATE_MARKER)
+        || response_item_text_contains(item, TASKSPACE_APPLY_PATCH_NATIVE_HUNK_MARKER)
+        || response_item_text_contains(item, TASKSPACE_PATCH_INTENT_FORMAT_MARKER)
+}
+
 fn taskspace_validation_rework_duplicate_read_should_hard_stop(
     item: &ResponseItem,
     previous_recovery_count: usize,
@@ -2630,6 +2713,13 @@ fn taskspace_validation_rework_patch_only_should_hard_stop(
     } else {
         previous_recovery_count > 0
     }
+}
+
+fn taskspace_apply_patch_recovery_should_hard_stop(
+    item: &ResponseItem,
+    previous_recovery_count: usize,
+) -> bool {
+    is_taskspace_apply_patch_recovery_item(item) && previous_recovery_count >= 3
 }
 
 fn taskspace_recovery_snapshot_node_key(
@@ -2676,6 +2766,9 @@ fn is_taskspace_plain_implement_needs_edit_recovery_item(item: &ResponseItem) ->
 }
 
 fn is_taskspace_implement_needs_edit_recovery_item(item: &ResponseItem) -> bool {
+    if is_taskspace_apply_patch_recovery_hard_stop_item(item) {
+        return false;
+    }
     if is_taskspace_validation_rework_duplicate_read_hard_stop_item(item) {
         return false;
     }
@@ -2758,6 +2851,8 @@ fn taskspace_special_recovery_warning_message(item: &ResponseItem) -> String {
         "TaskSpace inserted TaskSpaceValidationReworkPatchOnlyHardStopV1 because validation rework repeated read/search/discovery after target contents were already visible and only apply_patch/block was valid. The current turn will stop without another model request.".to_string()
     } else if is_taskspace_implementation_needs_edit_hard_stop_item(item) {
         "TaskSpace inserted TaskSpaceImplementationNeedsEditHardStopV1 because implementation repeatedly tried to finish without a successful edit after apply_patch-or-block recovery. The current turn will stop without another model request.".to_string()
+    } else if is_taskspace_apply_patch_recovery_hard_stop_item(item) {
+        "TaskSpace inserted TaskSpaceApplyPatchRecoveryHardStopV1 because apply_patch/edit-failure recovery repeated without a successful edit. The current turn will stop without another model request.".to_string()
     } else if response_item_text_contains(item, TASKSPACE_FORCED_IMPLEMENT_TRANSITION_MARKER) {
         "TaskSpace inserted TaskSpaceForcedImplementTransitionRecoveryV1 after a provider-budget forced implement transition. This guidance does not consume the no-action recovery allowance.".to_string()
     } else if response_item_text_contains(item, TASKSPACE_APPLY_PATCH_FORMAT_MARKER) {
@@ -7228,6 +7323,29 @@ Then I will inspect the file."#,
         assert!(!warning.contains("TaskSpaceImplementNeedsEditRecoveryV1"));
         assert!(!is_taskspace_no_action_recovery_item(&item));
         assert!(is_taskspace_implement_needs_edit_recovery_item(&item));
+    }
+
+    #[test]
+    fn apply_patch_recovery_hard_stops_after_repeated_same_node_failures() {
+        let item = build_taskspace_apply_patch_unanchored_update_recovery_item("recover.py");
+
+        assert!(is_taskspace_apply_patch_recovery_item(&item));
+        assert!(!taskspace_apply_patch_recovery_should_hard_stop(&item, 2));
+        assert!(taskspace_apply_patch_recovery_should_hard_stop(&item, 3));
+
+        let hard_stop = build_taskspace_apply_patch_recovery_hard_stop_item(&item, 4);
+        let text = item_text(hard_stop.clone());
+
+        assert!(text.contains(TASKSPACE_APPLY_PATCH_RECOVERY_HARD_STOP_MARKER));
+        assert!(text.contains("reason: repeated_failed_or_malformed_patch"));
+        assert!(text.contains("attempt_count: 4"));
+        assert!(text.contains("TaskSpaceApplyPatchUnanchoredUpdateRecoveryV1"));
+        assert!(is_taskspace_apply_patch_recovery_hard_stop_item(&hard_stop));
+        assert!(!is_taskspace_implement_needs_edit_recovery_item(&hard_stop));
+        assert!(
+            taskspace_special_recovery_warning_message(&hard_stop)
+                .contains("TaskSpaceApplyPatchRecoveryHardStopV1")
+        );
     }
 
     #[test]

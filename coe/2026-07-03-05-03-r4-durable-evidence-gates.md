@@ -5388,3 +5388,70 @@
     PASS
   ```
 - Interpretation: H-088 is focused-fixed. Remaining gates are commit/push, attestation, and another keyed rerun to confirm `node-6` receives patch-only recovery instead of inheriting `node-4` hard-stop count.
+
+# Evidence E-188: 851bf3c rerun live-clears H-088 and exposes repeated apply_patch recovery budget drain
+
+- Real rerun:
+  ```text
+  RunDir: target/r4-org-json-real-keyed-20260704ci-counter-scope/runs/terminal_bench__organization-json-generator/20260704-193906-178
+  reported_evidence_level: E2-candidate
+  outcome_standard: solved
+  outcome_taskspace: engineering_unclean
+  right_tool_call_count: 13
+  right_public_validation_exit_code: 1
+  right_hidden_oracle_exit_code: 0
+  final_hard_stop: TaskSpaceProviderBudgetHardStopV1 reason=provider_node_request_hard_limit_exceeded node_kind=implement_solution node_request_count=6/5
+  current_git_head: 851bf3cb0677834a9432a3dcad8659d9d6266ac6
+  whale_binary_sha256: c25b2f3621474fc6066eac04b0cb93080468019a05a7d3c31e0faa2c3005b1be
+  build_attestation_status: pass
+  ```
+- H-088 live status:
+  - Live-cleared for this sample. The trace no longer shows `TaskSpaceValidationReworkPatchOnlyHardStopV1 attempt_count=3` after a fresh validation rework target read.
+  - The run advanced into `TaskSpaceValidationReworkPatchOnlyRecoveryV1`, then multiple `apply_patch` attempts.
+- New blocker signal:
+  - First validation rework patch reached the edit tool but failed with context mismatch.
+  - The model then attempted a forbidden same-target read; runtime rejected it with `validation_rework_closed_action_space_read_disallowed:read_file`.
+  - The model emitted more malformed or stale-context patches, including unanchored `*** Update File` payloads.
+  - Runtime produced `TaskSpaceEditFailureRecoveryV1` and later `TaskSpaceApplyPatchUnanchoredUpdateRecoveryV1`, but there was no dedicated repeated apply_patch recovery hard-stop before provider node budget was exhausted.
+- Interpretation: H-088 is live-fixed. H-089 is the next feedback/control gap: patch/edit failure recovery is semantically present, but repeated failures are allowed to drain node budget and collapse into generic provider hard-stop.
+
+# Hypothesis H-089: repeated apply_patch/edit-failure recovery needs a dedicated hard-stop before provider budget exhaustion
+
+- Claim: Once an implementation/validation rework node repeatedly receives apply_patch grammar, context, or edit-tool failure recovery without a successful edit, continuing provider sampling becomes a feedback-control loop. Runtime should stop with a stable apply_patch recovery hard-stop marker before the generic provider node budget hard-stop.
+- Prediction:
+  1. Apply patch recovery counters should be node-scoped.
+  2. `TaskSpaceEditFailureRecoveryV1`, patch format/missing target/unanchored/native-hunk recovery, and patch-intent format recovery should count toward this specific escalation.
+  3. Same-node repeated apply_patch recovery should hard-stop on the fourth recovery item.
+  4. The hard-stop item should preserve the last concrete recovery contract for audit and not be classified as ordinary implement-needs-edit recovery.
+  5. `apply_patch_`, `validation_rework`, and `action_contract_prompt` regressions should remain passing.
+- Status: confirmed.
+
+# Evidence E-189: H-089 focused fix adds apply_patch recovery hard-stop
+
+- Repair artifact:
+  - `third_party/codex-cli/codex-rs/core/src/session/turn.rs`
+- Repair behavior:
+  - Added `TaskSpaceApplyPatchRecoveryHardStopV1`.
+  - Added node-scoped `taskspace_apply_patch_recovery_count`.
+  - The counter includes `TaskSpaceEditFailureRecoveryV1`, `TaskSpaceApplyPatchFormatRecoveryV1`, `TaskSpaceApplyPatchMissingTargetRecoveryV1`, `TaskSpaceApplyPatchUnanchoredUpdateRecoveryV1`, `TaskSpaceApplyPatchNativeHunkRecoveryV1`, and `TaskSpacePatchIntentFormatRecoveryV1`.
+  - Runtime now stops same-node repeated apply_patch/edit-failure recovery before it falls through to `TaskSpaceProviderBudgetHardStopV1`.
+- Validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core apply_patch_recovery_hard_stops_after_repeated_same_node_failures --lib --locked
+    PASS
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_rework_recovery_count_resets_when_rework_node_changes --lib --locked
+    PASS
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core apply_patch_ --lib --locked
+    PASS: 36/36
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_rework --lib --locked
+    PASS: 26/26
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core action_contract_prompt --lib --locked
+    PASS: 29/29
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+    PASS
+  git diff --check
+    PASS
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-cli --bin whale --locked
+    PASS
+  ```
+- Interpretation: H-089 is focused-fixed. Remaining gates are commit/push, attestation, and another keyed rerun to confirm the live trace now stops with `TaskSpaceApplyPatchRecoveryHardStopV1` or advances to a successful edit instead of generic provider budget hard-stop.
