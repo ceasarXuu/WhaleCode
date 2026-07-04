@@ -852,3 +852,16 @@ runtime 可以拒绝重复 read/search 并进入 hard-stop；但不能凭空制�
 
 边界说明：该修复不改变 final readiness gate 的判定，也不放宽 success criteria。它只保证 gate 已经产生的失败语义进入下一轮
 provider-visible recovery，避免从“最终回答文案/证据 gate 不满足”扭曲成“工具不可用”。
+
+## 2026-07-04 R4-D issue type addendum: duplicate empty Update File wrapper
+
+`b5f2ee2` 后的 keyed rerun 没有到达 final gate，而是在 validation rework patch grammar 层停住。新增 live payload
+形态是：缺少 `*** Begin Patch`，先给一个空的 `*** Update File: <path>` section，随后重复同一路径的 `*** Update File`
+并夹 unified headers/hunk。
+
+| Issue type | Layer | Symptom | Resolution contract | Evidence |
+|---|---|---|---|---|
+| `apply-patch-duplicate-empty-update-wrapper-normalization-gap` | apply_patch capability normalization | 空 `Update File` wrapper 被包进 native patch，最终 apply_patch 报 `Update file hunk ... is empty`，消耗 recovery budget 到 hard-stop | normalizer 只删除 empty same-target duplicate `Update File` section；真实 hunk 继续走 unified/native hunk normalization 和后续 rejection checks | keyed rerun `20260704-213755-290`; CoE H-097/E-199/E-200; `duplicate_unwrapped_update_wrapper`; `apply_patch_` |
+
+边界说明：该修复不接受任意空 patch，也不忽略目标文件。只有“当前 section 没有内容，且下一个非空 section 是同一路径的
+`*** Update File`”才会折叠。

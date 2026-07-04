@@ -7214,6 +7214,39 @@ Then I will inspect the file."#,
     }
 
     #[test]
+    fn taskspace_action_contract_normalizes_duplicate_unwrapped_update_wrapper() {
+        let raw = serde_json::json!({
+            "schema_version": "taskspace-action-v1",
+            "action": "apply_patch",
+            "node_id": "node-1",
+            "args": {
+                "patch": "*** Update File: process_csv_to_json.py\n\n*** Update File: process_csv_to_json.py\n--- \n+++ \n@@ -38,7 +38,7 @@\n def build_organization():\n     for p in projs:\n-        'member_ids': [m.strip() for m in p['member_ids'].split(';') if m],\n+        'members': [m.strip() for m in p['member_ids'].split(';') if m],\n"
+            },
+            "rationale": "fix schema members"
+        })
+        .to_string();
+        let action = parse_taskspace_action_v1(&raw).expect("valid json");
+
+        let call = taskspace_action_to_tool_call(&action, &provider_snapshot("implement_solution"))
+            .expect("duplicate empty Update File wrapper can be normalized")
+            .expect("tool call");
+
+        match call.payload {
+            ToolPayload::Custom { input } => {
+                assert!(input.starts_with("*** Begin Patch\n"));
+                assert!(input.ends_with("*** End Patch\n"));
+                assert_eq!(input.matches("*** Update File: ").count(), 1);
+                assert!(input.contains("process_csv_to_json.py"));
+                assert!(input.contains("@@\n def build_organization():"));
+                assert!(input.contains("-        'member_ids':"));
+                assert!(input.contains("+        'members':"));
+                assert!(!input.contains("--- \n+++ "));
+            }
+            other => panic!("expected custom payload, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn taskspace_action_contract_normalizes_misordered_begin_update_mixed_patch() {
         let raw = serde_json::json!({
             "schema_version": "taskspace-action-v1",
@@ -11628,9 +11661,51 @@ fn normalize_taskspace_apply_patch(patch: &str) -> String {
 }
 
 fn normalize_taskspace_native_patch_payloads(patch: &str) -> String {
+    let patch = normalize_taskspace_duplicate_empty_update_sections(patch);
     normalize_taskspace_python_add_file_common_indent(&normalize_taskspace_native_hunk_headers(
-        patch,
+        &patch,
     ))
+}
+
+fn normalize_taskspace_duplicate_empty_update_sections(patch: &str) -> String {
+    let source_lines = patch.lines().collect::<Vec<_>>();
+    let mut changed = false;
+    let mut lines = Vec::with_capacity(source_lines.len());
+    let mut index = 0usize;
+    while index < source_lines.len() {
+        let line = source_lines[index];
+        let Some(target) = line.strip_prefix("*** Update File: ").map(str::trim) else {
+            lines.push(line.to_string());
+            index += 1;
+            continue;
+        };
+
+        let mut next = index + 1;
+        while source_lines
+            .get(next)
+            .is_some_and(|candidate| candidate.trim().is_empty())
+        {
+            next += 1;
+        }
+        let duplicate_target = source_lines
+            .get(next)
+            .and_then(|candidate| candidate.strip_prefix("*** Update File: "))
+            .map(str::trim);
+        if duplicate_target == Some(target) {
+            changed = true;
+            index = next;
+            continue;
+        }
+
+        lines.push(line.to_string());
+        index += 1;
+    }
+
+    if changed {
+        lines.join("\n") + "\n"
+    } else {
+        patch.to_string()
+    }
 }
 
 fn normalize_taskspace_native_hunk_headers(patch: &str) -> String {

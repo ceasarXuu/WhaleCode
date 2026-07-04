@@ -2526,6 +2526,35 @@ right_open_leaf_nodes: 0
 2. H-095 的 replacement-only 行为仍需继续收敛：真实 trace 还出现 `Update File` 和 placeholder hunk。
 3. utility 层还有 public relationship oracle 差距：schema validation pass 不等于 Terminal-Bench public tests pass。
 
+### 27.2 2026-07-04 duplicate Update File wrapper normalization
+
+`b5f2ee2` 后 rerun 没有命中 H-096 final gate，因为更早在 validation rework patch grammar 层 hard-stop：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260704cq-final-gate-reason/runs/terminal_bench__organization-json-generator/20260704-213755-290
+reported_evidence_level: E1
+outcome_standard: wrong
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 15
+right_public_validation_exit_code: 1
+right_open_leaf_nodes: 1
+final_marker: TaskSpaceApplyPatchRecoveryHardStopV1
+```
+
+问题类型收录：
+
+| 字段 | 内容 |
+|---|---|
+| case | `apply-patch-duplicate-empty-update-wrapper-normalization-gap` |
+| 层级 | apply_patch capability normalization / action-contract grammar |
+| 本质 | provider 输出缺 `Begin Patch`、重复同一 `Update File` 且第一个 section 为空；后一个 section 才包含真实 hunk |
+| 非根因 | 不是 final gate 修复失效；本轮没有到 final_answer；不是 validator unavailable |
+| 修复 | 仅删除“空的重复 same-target `Update File` wrapper”，随后仍走已有 unified/native hunk normalization 与拒绝检查 |
+| focused evidence | CoE H-097/E-199/E-200；`duplicate_unwrapped_update_wrapper`; `apply_patch_` 36/36; `action_contract_prompt` 29/29; fmt/check/build |
+
+状态：focused 修复完成；仍需 commit/push、attestation、keyed rerun。
+
 ## 15. 2026-07-04 validation rework patch-only schema synthesis too weak
 
 `0b8e5a1` 的 keyed rerun 证明 H-078 的 repeated malformed patch / expected-lines hard-stop 已清除，但新问题推进到

@@ -5689,3 +5689,62 @@
   CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core final_response --lib
   ```
   fails in existing `final_response_completes_running_final_synthesis_node` because final readiness now requires success criteria/output contract evidence for that test fixture. This was not introduced by H-096, but it remains a related runtime test debt.
+
+# Evidence E-199: H-096 rerun is blocked earlier by duplicate unwrapped Update File wrapper
+
+- Real rerun:
+  ```text
+  RunDir: target/r4-org-json-real-keyed-20260704cq-final-gate-reason/runs/terminal_bench__organization-json-generator/20260704-213755-290
+  reported_evidence_level: E1
+  outcome_standard: wrong
+  outcome_taskspace: engineering_unclean
+  right_exec_timed_out: False
+  right_tool_call_count: 15
+  right_public_validation_exit_code: 1
+  right_hidden_oracle_exit_code: 0
+  right_open_leaf_nodes: 1
+  final_marker: TaskSpaceApplyPatchRecoveryHardStopV1
+  ```
+- H-096 live status: not reached. This run did not get to final-answer rejection; it hard-stopped earlier in validation rework patch recovery.
+- New blocker signal:
+  ```text
+  *** Update File: process_csv_to_json.py
+
+  *** Update File: process_csv_to_json.py
+  ---
+  +++
+  @@ -38,7 +38,7 @@
+  ```
+  The payload lacks `*** Begin Patch`, repeats the same `*** Update File` wrapper with an empty first section, then embeds unified file/hunk syntax. Existing normalizers handled several adjacent live wrappers, but not this duplicate-empty wrapper shape, leaving apply_patch to fail with `Update file hunk ... is empty`.
+
+# Hypothesis H-097: duplicate empty Update File wrapper should normalize before native patch execution
+
+- Claim: A live provider can emit an unwrapped patch that starts with an empty `*** Update File: <path>` section and immediately repeats the same `*** Update File: <path>` before the real hunk. This is a mechanically recoverable wrapper error and should be normalized before native apply_patch, instead of consuming recovery budget.
+- Prediction: Removing only empty duplicate same-target `Update File` wrappers before native hunk normalization will convert the live shape into one valid native update hunk while preserving rejection for genuinely unanchored or command payloads.
+- Diagnostic evidence plan: Add a focused test with the exact duplicate wrapper shape, then run apply_patch/action-contract/fmt/check/build.
+- Status: confirmed.
+
+# Evidence E-200: duplicate empty Update File wrappers normalize before native hunk checks
+
+- Repair artifact:
+  - `third_party/codex-cli/codex-rs/core/src/session/turn.rs`
+- Repair behavior:
+  - Added `normalize_taskspace_duplicate_empty_update_sections()`.
+  - The normalizer only drops an empty `*** Update File: same_path` section when the next nonblank section is another `*** Update File: same_path`.
+  - The remaining hunk still flows through existing unified/native hunk normalization and later rejection checks.
+- Validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core duplicate_unwrapped_update_wrapper --lib
+    PASS
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core apply_patch_ --lib
+    PASS: 36/36
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core action_contract_prompt --lib
+    PASS: 29/29
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --check
+    PASS
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo check -p codex-core
+    PASS
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
+    PASS
+  ```
+- Remaining gate: commit/push, binary attestation, and another keyed rerun to see whether validation rework now applies the schema patch and reaches H-096/final gate or public relationship oracle.

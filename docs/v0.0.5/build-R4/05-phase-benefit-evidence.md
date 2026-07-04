@@ -4896,3 +4896,36 @@ CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core final_response --lib
 当前失败在既有 `final_response_completes_running_final_synthesis_node`：该 fixture 期望 running final_synthesis 可直接 final response，
 但当前 final readiness gate 要求 success criteria/output contract evidence。该失败不是本次 H-096 改动引入，但属于同一 final gate
 区域，需要后续单独收敛。
+
+## 5.83 2026-07-04 duplicate empty Update File wrapper normalization
+
+`b5f2ee2` 后 rerun 证明 H-096 的 live 验证被更早的 patch grammar 层挡住：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260704cq-final-gate-reason/runs/terminal_bench__organization-json-generator/20260704-213755-290
+reported_evidence_level: E1
+outcome_standard: wrong
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 15
+right_public_validation_exit_code: 1
+right_open_leaf_nodes: 1
+final_marker: TaskSpaceApplyPatchRecoveryHardStopV1
+```
+
+收益判断：
+
+1. H-096 focused fix 仍有效但 live pending：本轮没有到 final_answer gate。
+2. 新的 focused 修复是 H-097：重复空 `Update File` wrapper 现在会在 native hunk 检查前被折叠。
+3. R4-G utility 仍未通过：run 停在 validation rework patch recovery hard-stop，public validation 失败。
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core duplicate_unwrapped_update_wrapper --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core apply_patch_ --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core action_contract_prompt --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --check
+CODEX_SKIP_VENDORED_BWRAP=1 cargo check -p codex-core
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
+```
