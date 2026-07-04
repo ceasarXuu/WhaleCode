@@ -1199,3 +1199,17 @@ bootstrap 读完 canonical root CSV 后，`data/*.csv` 仍残留为 missing fact
 
 边界说明：这不是提高 provider budget，也不是无条件从 inspect 跳 implement。session 只移除过窄的前置判断；
 是否可 transition 仍由 ActionMap runtime 根据成功 read/search、unread scripts、missing fact-source 等 gate 决定。
+
+## 2026-07-05 R4-D issue type addendum: validation blocker supersession gap
+
+`e0a17fc` 安装后 keyed rerun 证明 H-124 已 live-clear：inspect 不再停在 hard-stop，而是进入 implementation
+和 validation。新的 blocker 是 final readiness feedback：第一次 validation 失败生成 `result-10` blocker，
+后续 rework 和 validation closeout 已完成，但 final gate 仍以 `result-10 still unreviewed` 拒绝 final answer，
+导致 provider 在 `phase=unknown/node_kind=unknown` 下重开 inspect，直到 provider budget hard-stop。
+
+| Issue type | Layer | Symptom | Resolution contract | Evidence |
+|---|---|---|---|---|
+| `validation-blocker-supersession-final-gate-gap` | validation recovery lifecycle / final readiness feedback | downstream rework validation 成功后，旧 validation blocker 仍作为 unresolved unreviewed result 阻断 final；provider 收到错误 next action 语义后重试/重开 inspect | 已实现：successful validation closeout 沿 dependency/origin rework chain 找到被覆盖的 blocked validation blocker，并标记为 `invalid`；active rework 期间旧 blocker 仍允许保持 unreviewed | keyed rerun `20260705-044510-605`; CoE H-125/E-253/E-254; focused tests `validation_closeout_invalidates_superseded_rework_blocker_for_final_answer`, `validation_closeout`, `validation_rework`, `action_contract_prompt` |
+
+边界说明：该修复不是放宽 final gate 对普通 unreviewed result 的要求。它只处理已被后续 accepted validation
+结果覆盖的旧 validation blocker，将其从“待 review 的活跃阻塞”转换为“被成功 rework 废止的失败证据”。

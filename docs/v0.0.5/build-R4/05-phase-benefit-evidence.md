@@ -1562,6 +1562,54 @@ CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
 git diff --check
 ```
 
+## 5.103 2026-07-05 validation blocker supersession final-gate gap
+
+`e0a17fc` 安装后 keyed rerun 证明 H-124 的 inspect hard-stop transition 已 live-clear：TaskSpace
+从 inspect 进入 implementation 和 validation，且完成了 forced validation closeout。新的收益点来自 feedback 层终态语义：
+旧 validation blocker 在 downstream rework 成功验证后仍保持 `unreviewed`，final gate 反复拒绝 final answer，
+把 provider 引向 `phase=unknown/node_kind=unknown` 下的无效 retry。
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260705as-hardstop-transition-gate/runs/terminal_bench__organization-json-generator/20260705-044510-605
+reported_evidence_level: E2-candidate
+outcome_standard: solved
+outcome_taskspace: wrong
+right_exec_timed_out: False
+right_tool_call_count: 16
+right_failed_tool_call_count: 1
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+right_nodes: 5
+right_edges: 4
+right_open_leaf_nodes: 0
+final_marker: TaskSpaceProviderBudgetHardStopV1 request_count=20/20 node_kind=unknown
+```
+
+收益判断：
+
+1. H-124 的收益已被 live 证据确认：inspect 已越过 hard-stop，并实际创建/修改目标产物。
+2. 新问题类型是 `validation-blocker-supersession-final-gate-gap`：旧 validation blocker 作为 rework input 是正确的，
+   但 successful downstream validation closeout 后仍作为 final blocker 是错误状态。
+3. 修复后，forced validation closeout 会沿 dependency/origin rework chain 找到被覆盖的旧 blocked validation blocker，
+   并将其标记为 `invalid`，证据指向 accepted validation result。
+4. 该修复不放宽普通 final readiness；active rework 期间旧 blocker 仍可保持 unreviewed，以支持修复链路继续执行。
+5. 当前 live 产物仍有业务 validator 失败：`departmentSizes` 使用部门 ID，而公共测试期待部门名称。该失败应在 H-125
+   后的 keyed rerun 中作为真实 validation feedback 继续暴露，而不是被 stale final-gate blocker 截断。
+
+验证：
+
+```text
+CoE: H-125/E-253/E-254
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_closeout -- --nocapture
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_rework -- --nocapture
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core forced_validation_closeout -- --nocapture
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core action_contract_prompt -- --nocapture
+cargo fmt --check
+CODEX_SKIP_VENDORED_BWRAP=1 cargo check -p codex-core
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
+git diff --check
+```
+
 ## 5.101 2026-07-05 read-summary path telemetry artifact pollution
 
 `a808190` 安装后 keyed rerun 显示 H-122 的 duplicate basename overcoverage 已越过：第一次 bootstrap

@@ -7464,3 +7464,71 @@
     PASS
   ```
 - Interpretation: H-124 is focused-fixed. Remaining gates are commit/push, install/attest, and keyed rerun to verify inspect now transitions before budget hard-stop.
+
+# Evidence E-253: H-124 rerun clears inspect hard-stop but exposes superseded validation blocker final-gate loop
+
+- Real rerun:
+  ```text
+  RunDir: target/r4-org-json-real-keyed-20260705as-hardstop-transition-gate/runs/terminal_bench__organization-json-generator/20260705-044510-605
+  installed_whale_sha256: 314a5610d1ba82b07b9128034d431c1335095e6af4c160a793ac9a506f043e0a
+  outcome_standard: solved
+  outcome_taskspace: wrong
+  right_exec_timed_out: False
+  right_tool_call_count: 16
+  right_failed_tool_call_count: 1
+  right_nodes: 5
+  right_edges: 4
+  right_open_leaf_nodes: 0
+  right_public_validation_exit_code: 1
+  right_hidden_oracle_exit_code: 0
+  final_hard_stop: TaskSpaceProviderBudgetHardStopV1 request_count=20/20 node_kind=unknown
+  ```
+- H-124 live status:
+  - Inspect no longer ends at provider-budget hard-stop.
+  - Runtime forced transition moves from inspect to implementation and validation.
+  - The session reaches generated artifacts: `generate_organization.py` and `organization.json`.
+- New blocker signals:
+  - Validation recovery created `node-4`, then `node-5`, and `TaskSpaceForcedValidationCloseoutV1` closed successful validation result `result-17`.
+  - The next `final_answer` was rejected repeatedly: `TaskSpace result result-10 on node node-3 is still unreviewed`.
+  - `result-10` is the old validation blocker created from the first failed validation result. It was useful as rework input, but after accepted validation closeout it should no longer block final readiness.
+  - The provider then tried `taskspace_control(create_node kind=inspect_code_context)` in `phase=unknown/node_kind=unknown`, showing feedback semantics had drifted from the real next action.
+- Interpretation: H-125 is a feedback-layer lifecycle gap. The runtime can carry an unreviewed blocker during active rework, but it lacks the closeout state transition that marks that blocker superseded once downstream validation succeeds.
+
+# Hypothesis H-125: validation closeout must invalidate superseded rework blockers before final readiness
+
+- Claim: A validation blocker that spawned an implementation rework node is no longer an unresolved final blocker once a downstream validation node, depending on that rework chain, has an accepted successful validation result. Leaving that blocker as `unreviewed` makes final readiness reject correct closeout and causes provider retry loops in an unknown phase.
+- Prediction: During forced validation closeout, runtime can traverse the dependency/origin chain from the successful validation node to prior blocked validation nodes and mark their unreviewed blocker results `invalid` with evidence pointing to the accepted validation result. Existing rework gates must still allow old blockers to remain unreviewed while rework is active.
+- Diagnostic evidence plan: Add a unit test for failed validation -> rework edit -> validation rerun success -> forced closeout -> final answer. Run validation closeout, validation rework, action-contract, fmt/check/build/diff gates.
+- Status: focused-fixed; install and keyed rerun pending.
+
+# Evidence E-254: superseded validation blockers are invalidated at closeout
+
+- Repair artifact:
+  - `third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs`
+- Repair behavior:
+  - `force_finish_validation_after_successful_tool()` now calls `invalidate_superseded_validation_blockers_for_closeout()` after accepting the validation closeout result.
+  - The new collector walks dependency edges and `origin_node_id` links from the successful validation node to implementation rework nodes and prior blocked validation nodes.
+  - Only unreviewed `NodeResultKind::Blocker` results on superseded blocked validation nodes are marked `invalid`.
+  - Active rework behavior is unchanged: old blocker results may remain unreviewed while an implementation or validation rerun is still running.
+- Regression:
+  - `validation_closeout_invalidates_superseded_rework_blocker_for_final_answer` reproduces the H-125 chain and asserts final answer readiness passes after closeout.
+- Validation:
+  ```text
+  cargo fmt --check
+    PASS
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_closeout -- --nocapture
+    PASS: 3/3
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_rework -- --nocapture
+    PASS: 30/30
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core forced_validation_closeout -- --nocapture
+    PASS: 2/2
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core action_contract_prompt -- --nocapture
+    PASS: 29/29
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo check -p codex-core
+    PASS
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
+    PASS
+  git diff --check
+    PASS
+  ```
+- Interpretation: H-125 is focused-fixed. Remaining gates are commit/push, install/attest, and keyed rerun to verify the live loop advances past stale final-gate rejection and exposes any remaining validator feedback.

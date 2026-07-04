@@ -2459,6 +2459,23 @@ current_git_head: 9f370ddfa3f12397ed1d966b321b5e1f0a86c3b2
 
 状态：focused 修复已编码；仍需 focused/regression、fmt/build、commit/push、attestation、keyed rerun。
 
+## 53. 2026-07-05 validation blocker supersession final-gate gap
+
+`e0a17fc` 安装后的 keyed rerun 已越过 H-124 inspect hard-stop，进入 implementation、validation recovery
+和 forced validation closeout。但 closeout 后 final gate 仍反复拒绝 final answer，理由是第一次 failed validation
+生成的 `result-10` blocker 仍 `unreviewed`。这使模型在没有 active node 的状态下重开 inspect，最终耗尽 provider budget。
+
+| 字段 | 内容 |
+|---|---|
+| case | `validation-blocker-supersession-final-gate-gap` |
+| 层级 | validation recovery lifecycle / final readiness feedback |
+| 本质 | 旧 validation blocker 在 active rework 期间可作为输入证据，但 downstream validation 成功 closeout 后应转为 superseded/invalid；否则 final gate 把已解决失败当成仍未 review 的活跃阻塞 |
+| 非根因 | 不是 H-124 inspect transition 复发；不是简单提高 provider budget；不是放宽所有 unreviewed result 的 final gate |
+| 修复 | forced validation closeout 沿 dependency/origin rework chain 收集被覆盖的 blocked validation blocker，并标记为 `invalid`，证据指向 accepted validation result |
+| evidence | CoE H-125/E-253/E-254；keyed rerun `20260705-044510-605`; focused tests `validation_closeout_invalidates_superseded_rework_blocker_for_final_answer`, `validation_closeout`, `validation_rework`, `forced_validation_closeout`, `action_contract_prompt`; fmt/check/build/diff |
+
+状态：focused fixed，待 commit/push、install/attest 和真实 keyed rerun。
+
 ## 50. 2026-07-05 generic CSV duplicate basename overcoverage
 
 `6b7debf` 安装后 keyed rerun 证明 H-121 的 bootstrap root-path 修复生效，但 inspect 仍未进入 implementation。

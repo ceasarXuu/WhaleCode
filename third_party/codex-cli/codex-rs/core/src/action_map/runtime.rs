@@ -4207,6 +4207,8 @@ preview:\n\
         )? {
             events.push(event);
         }
+        events
+            .extend(self.invalidate_superseded_validation_blockers_for_closeout(&map_id, node_id)?);
         events.extend(self.satisfy_closeout_success_criteria(
             owner_session_id,
             &map_id,
@@ -4313,6 +4315,81 @@ preview:\n\
             )? {
                 events.push(event);
             }
+        }
+        Ok(events)
+    }
+
+    fn invalidate_superseded_validation_blockers_for_closeout(
+        &mut self,
+        map_id: &str,
+        validation_node_id: &str,
+    ) -> Result<Vec<MapRuntimeEvent>, String> {
+        let Some((task_id, validation_result_id, blocker_result_ids)) =
+            self.maps.get(map_id).and_then(|map| {
+                let validation_node = map.nodes.get(validation_node_id)?;
+                let validation_result_id =
+                    latest_accepted_successful_validation_result_id(map, validation_node)?;
+                let blocker_result_ids =
+                    superseded_validation_blocker_result_ids(map, validation_node_id);
+                Some((
+                    map.task_id.clone(),
+                    validation_result_id,
+                    blocker_result_ids,
+                ))
+            })
+        else {
+            return Ok(Vec::new());
+        };
+        let Some(map) = self.maps.get_mut(map_id) else {
+            return Ok(Vec::new());
+        };
+        let mut events = Vec::new();
+        for result_id in blocker_result_ids {
+            let Some(result) = map.results.get_mut(&result_id) else {
+                continue;
+            };
+            if result.evidence_package.validity != ResultValidity::Unreviewed {
+                continue;
+            }
+            let mut adoption = NodeResultAdoption::default();
+            adoption.refresh_state(ResultValidity::Invalid);
+            let blocker_ref = EvidenceRef {
+                result_id: Some(result_id.clone()),
+                claim_id: None,
+                fact_source_id: None,
+                trace_event_id: None,
+                artifact_ref: None,
+                validator_ref: None,
+            };
+            let validation_ref = EvidenceRef {
+                result_id: Some(validation_result_id.clone()),
+                claim_id: None,
+                fact_source_id: None,
+                trace_event_id: None,
+                artifact_ref: None,
+                validator_ref: Some("validation_closeout".to_string()),
+            };
+            result.evidence_package = NodeResultEvidencePackage {
+                claims: Vec::new(),
+                evidence_refs: vec![blocker_ref, validation_ref],
+                changed_artifacts: Vec::new(),
+                validator_refs: vec!["validation_closeout".to_string()],
+                remaining_uncertainty: Vec::new(),
+                validity: ResultValidity::Invalid,
+                validity_reason: format!(
+                    "Runtime marked this failed validation blocker superseded by accepted validation result `{validation_result_id}` after rework closeout."
+                ),
+                adoption,
+            };
+            events.push(MapRuntimeEvent::ResultValidityChanged(
+                MapRuntimeResultValidityChangedEvent {
+                    task_id: task_id.clone(),
+                    map_id: map_id.to_string(),
+                    node_id: result.node_id.clone(),
+                    result_id,
+                    validity: ResultValidity::Invalid.as_str().to_string(),
+                },
+            ));
         }
         Ok(events)
     }
@@ -18710,6 +18787,63 @@ fn dependency_implementation_result_ids(
             };
             if include_result(result) {
                 result_ids.push(result_ref.id.clone());
+            }
+        }
+    }
+    result_ids.sort();
+    result_ids.dedup();
+    result_ids
+}
+
+fn superseded_validation_blocker_result_ids(
+    map: &ActionMapInstance,
+    validation_node_id: &str,
+) -> Vec<NodeResultId> {
+    let mut stack = map
+        .edges
+        .iter()
+        .filter(|edge| edge.to == validation_node_id)
+        .map(|edge| edge.from.clone())
+        .collect::<Vec<_>>();
+    if let Some(origin_node_id) = map
+        .nodes
+        .get(validation_node_id)
+        .and_then(|node| node.origin_node_id.clone())
+    {
+        stack.push(origin_node_id);
+    }
+    let mut visited = HashSet::new();
+    let mut result_ids = Vec::new();
+    while let Some(node_id) = stack.pop() {
+        if !visited.insert(node_id.clone()) {
+            continue;
+        }
+        let Some(node) = map.nodes.get(&node_id) else {
+            continue;
+        };
+        if node.kind == NodeKind::ImplementSolution
+            && let Some(origin_node_id) = node.origin_node_id.as_deref()
+            && let Some(origin) = map.nodes.get(origin_node_id)
+        {
+            if matches!(origin.kind, NodeKind::SmokeTest | NodeKind::RegressionTest)
+                && origin.status == NodeStatus::Blocked
+            {
+                for result_ref in &origin.result_context {
+                    let Some(result) = map.results.get(&result_ref.id) else {
+                        continue;
+                    };
+                    if result.kind == NodeResultKind::Blocker
+                        && result.evidence_package.validity == ResultValidity::Unreviewed
+                    {
+                        result_ids.push(result_ref.id.clone());
+                    }
+                }
+            }
+            stack.push(origin_node_id.to_string());
+        }
+        for edge in &map.edges {
+            if edge.to == node_id {
+                stack.push(edge.from.clone());
             }
         }
     }
@@ -37668,6 +37802,141 @@ KeyError: 'salary'\n"
                 ToolActionDescriptor::new("shell_command", ActionClass::Test, "python -m pytest"),
             )
             .expect("validation after rework should not be blocked by the origin blocker result");
+    }
+
+    #[test]
+    fn validation_closeout_invalidates_superseded_rework_blocker_for_final_answer() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (_, map_id, validation_node_id, _) = start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::SmokeTest,
+            "Validate generated organization output",
+            "Run the validation suite.",
+            "Run smoke tests",
+            "Run organization validator.",
+            true,
+        );
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "call-test-fail",
+                "shell_command",
+                Some(ActionClass::Test),
+                false,
+                "KeyError: 'Engineering' in statistics.departmentSizes".to_string(),
+            )
+            .expect("failed validation records and routes to rework");
+        let rework_node_id = state
+            .current_main_node_id
+            .as_deref()
+            .expect("failed validation should bind rework")
+            .to_string();
+        let blocker_result_id = {
+            let map = state.maps.get(&map_id).expect("active map");
+            map.nodes
+                .get(&validation_node_id)
+                .expect("validation node")
+                .result_context
+                .iter()
+                .find(|result_ref| result_ref.kind == NodeResultKind::Blocker)
+                .expect("validation blocker result")
+                .id
+                .clone()
+        };
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "call-edit-rework",
+                "apply_patch",
+                Some(ActionClass::Edit),
+                true,
+                "Success. Updated the following files:\nM generate_organization.py\n".to_string(),
+            )
+            .expect("rework edit records");
+        let rerun_draft = ActionMapNextNodeDraft {
+            kind: NodeKind::SmokeTest,
+            title: "Run focused validation".to_string(),
+            context_summary: "Run the organization validator after rework.".to_string(),
+            dependency_node_ids: vec![rework_node_id.clone()],
+        };
+        state
+            .finish_main_node_with_next(
+                owner,
+                &rework_node_id,
+                "Reworked departmentSizes keys.".to_string(),
+                None,
+                Some(rerun_draft),
+            )
+            .expect("rework finishes into validation rerun");
+        let rerun_validation_node_id = state
+            .current_main_node_id
+            .as_deref()
+            .expect("validation rerun should be bound")
+            .to_string();
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "call-test-pass",
+                "shell_command",
+                Some(ActionClass::Test),
+                true,
+                "pytest passed: 4 passed".to_string(),
+            )
+            .expect("successful validation records");
+        let snapshot = ActionMapProviderRequestBudgetSnapshot {
+            task_id: state.active_task_id.clone(),
+            map_id: map_id.clone(),
+            node_id: Some(rerun_validation_node_id.clone()),
+            node_kind: Some(NodeKind::SmokeTest.as_str().to_string()),
+            current_node_progress_signature: None,
+            current_node_has_successful_edit: false,
+            current_node_has_dependency_working_evidence: false,
+            current_node_has_uncovered_mandatory_evidence: false,
+            current_node_uncovered_mandatory_evidence: Vec::new(),
+            current_node_validation_rework_artifacts: Vec::new(),
+            route_mode: Some("deep".to_string()),
+            profile_name: Some("taskspace-v005-deep".to_string()),
+            request_phase: Some("validation_recovery".to_string()),
+            provider_request_context_missing_reason: None,
+            request_count: 16,
+            max_requests: 20,
+            node_request_count: 1,
+            max_model_requests_per_node: 5,
+            post_budget_grace_requests: 1,
+            post_budget_grace_request_count: 0,
+            budget_state: "normal".to_string(),
+        };
+        let (_, events) = state
+            .force_finish_validation_after_successful_tool(
+                owner,
+                &snapshot,
+                "validation_success_after_tool_drain",
+            )
+            .expect("forced closeout should run")
+            .expect("successful validation should close out");
+
+        assert!(events.iter().any(|event| {
+            matches!(
+                event,
+                MapRuntimeEvent::ResultValidityChanged(changed)
+                    if changed.result_id == blocker_result_id && changed.validity == "invalid"
+            )
+        }));
+        let map = state.maps.get(&map_id).expect("active map");
+        assert_eq!(
+            map.results
+                .get(&blocker_result_id)
+                .expect("superseded blocker")
+                .evidence_package
+                .validity,
+            ResultValidity::Invalid
+        );
+        state
+            .record_main_final_response(owner, "Validation passed; the output is ready.")
+            .expect("superseded blocker must not block final answer");
     }
 
     #[test]
