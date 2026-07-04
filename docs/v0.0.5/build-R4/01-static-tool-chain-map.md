@@ -822,3 +822,20 @@ Python 文件正文，实际想做 whole-file replacement。旧 action contract 
 
 边界说明：只转换明显源码整文件替换；不会把 `python3 -c`、shell command、JSON transformation command 或任意无差异文本作为
 apply_patch 执行。
+
+## 2026-07-04 R4-D issue type addendum: validation schema feedback chain
+
+whole Python replacement normalization 后，`organization-json-generator` 继续暴露 schema validation rework 的反馈链条问题。
+这组 case 的共同点是：底层工具或 runtime 往往已经有信号，但信号进入 provider-visible recovery 时缺少字段、顺序、可见性或闭合动作。
+
+| Issue type | Layer | Symptom | Resolution contract | Evidence |
+|---|---|---|---|---|
+| `validation-schema-repair-rename-hint-gap` | validation semantic summary / feedback extraction | jsonschema 报告缺 required fields，同时 raw output 暴露旧 key；feedback 只列 missing required properties，未给 rename hints | validation summary 从 offending object keys 推导 `schema_property_rename_hints`，和 missing required properties 一起进入 rework feedback | keyed rerun `20260704-201836-345`; CoE H-091/E-192; `a93391e` |
+| `validation-rework-target-read-evidence-order` | ActionMap working evidence ordering | complete target read 已存在，但排在长 validation failure 后，next action 语义被稀释 | `current_main_working_evidence_summary()` 优先输出 validation rework target read，再输出长 validation failure | CoE H-092/E-193; `697ec6c`; focused tests |
+| `validation-rework-complete-target-replacement-scaffold` | validation rework patch-only recovery payload | complete target read 后 recovery 仍偏向 narrow `Update File` grammar，模型可继续 discovery | complete target read 时 patch-only recovery 直接提供 whole-file replacement scaffold，允许 native `Delete File + Add File` | keyed rerun `20260704-205001-147`; CoE H-093/E-194; `7c7c892` |
+| `validation-rework-complete-read-content-visibility` | target-read evidence projection / recovery truthfulness | runtime 标记 complete/eof，但 provider-visible 内容只是 compact excerpt；模型认为 full content 不可见 | rework target read evidence 增加 `content_visibility`，只有 `full_content_visible` 时才强制 full replacement；summary-only 不伪装成 full context | keyed rerun `20260704-210512-809`; CoE H-094/E-195; `44938a3` |
+| `validation-rework-full-visible-patch-mismatch-recovery` | failed edit recovery / apply_patch recovery closure | full-visible target 的 expected-lines/context mismatch 后，recovery 仍允许 read refresh 或 fragile `Update File` hunk | full-visible mismatch 后 recovery replacement-only：`Delete File + Add File`，禁止 read/search/validation、`Update File` 和 placeholder hunk | CoE H-095/E-196; `dde7173`; real rerun pending |
+
+边界说明：这不是把控制权从状态机交给 runtime。状态机仍定义 action legality；runtime/session 只负责把已发生的 tool
+result、validation failure、target read 和 edit failure 转成下一轮 provider 必须看到的强语义。若语义已完整且动作空间已闭合，
+runtime 可以拒绝重复 read/search 并进入 hard-stop；但不能凭空制造未执行的 edit 或把真实外部 blocker 忽略为成功。

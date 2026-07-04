@@ -5519,3 +5519,113 @@
     PASS
   ```
 - Interpretation: H-090 is focused-fixed. Remaining gates are commit/push, attestation, and another keyed rerun to confirm live TaskSpace can execute whole-file replacement attempts instead of hard-stopping on patch grammar.
+
+# Hypothesis H-091: schema validation rename hints were missing from validation rework feedback
+
+- Claim: `organization-json-generator` schema validation output contained offending object keys such as `member_ids`, `total_employees`, and `average_years_of_service`, but TaskSpace only forwarded missing required property names. The model therefore kept rediscovering schema context instead of applying key renames.
+- Prediction: A real keyed rerun before repair shows validator output with rename evidence, then a post-validation schema read or patch-only stall; after repair, provider-visible feedback contains `schema_property_rename_hints`.
+- Diagnostic evidence plan: Run the keyed sample, inspect `whale-exec.stderr.log` and action-contract recovery events, then add focused extraction coverage.
+- Status: confirmed.
+
+# Evidence E-192: schema rename hints are surfaced in real validation feedback
+
+- Prediction tested: H-091 predicts real validation feedback includes rename hints after repair.
+- Repair commit: `a93391e R4 surface schema rename hints`
+- Real run: `target/r4-org-json-real-keyed-20260704cl-schema-rename-hints/runs/terminal_bench__organization-json-generator/20260704-201836-345`
+- Matched signal:
+  ```text
+  TaskSpaceToolSemanticSummaryV1:
+  missing_required_properties: members, averageDepartmentBudget, totalEmployees, ...
+  schema_property_rename_hints=member_ids->members, total_employees->totalEmployees, average_years_of_service->averageYearsOfService
+  ```
+- Result: H-091 live-cleared, but the same run exposed H-092: failed patch recovery still did not use complete target-read evidence reliably.
+
+# Hypothesis H-092: validation rework target-read evidence was ordered behind long validation summaries
+
+- Claim: Complete target-read evidence existed, but `current_main_working_evidence_summary()` put long validation failure text before `validation_rework_target_read`, making the recovery prompt less likely to trigger full-target repair behavior.
+- Prediction: Reordering target-read evidence before validation failure preserves `complete_read/eof_reached=true` early in the working summary and focused tests can assert ordering.
+- Diagnostic evidence plan: Add a focused runtime test around schema repair rework, then run validation rework/action-contract/apply_patch regressions.
+- Status: confirmed.
+
+# Evidence E-193: target-read evidence is now front-loaded before validation failure text
+
+- Prediction tested: H-092 predicts working evidence order changes without broad action-map regressions.
+- Repair commit: `697ec6c R4 prioritize rework target evidence`
+- Focused tests:
+  ```text
+  cargo test -p codex-core validation_rework_projects_schema_repair_contract_from_schema_read --lib
+  cargo test -p codex-core implementation_recovery_prioritizes_failed_edit_over_patch_only_after_target_read --lib
+  cargo test -p codex-core validation_rework --lib
+  cargo test -p codex-core action_contract_prompt --lib
+  cargo test -p codex-core apply_patch_ --lib
+  cargo check -p codex-core
+  cargo build -p codex-cli --bin whale
+  ```
+- Result: focused fix passed. Real rerun exposed H-093: before any failed edit, patch-only recovery still let the model choose repeat reads or fragile update hunks.
+
+# Hypothesis H-093: complete target-read patch-only recovery did not provide a direct replacement scaffold
+
+- Claim: After complete target read but before a failed edit, `TaskSpaceValidationReworkPatchOnlyRecoveryV1` said "apply_patch or block" but emphasized `Update File` grammar and only mentioned whole-file replacement after an edit failure. The model could still repeat reads or emit fragile hunks.
+- Prediction: Adding a direct replacement scaffold when the target is fully visible should make the model issue an edit instead of repeated reads in the next keyed run.
+- Diagnostic evidence plan: Strengthen recovery text, test for `*** Delete File` / `*** Add File` in complete target-read patch-only recovery, rerun the keyed sample.
+- Status: confirmed.
+
+# Evidence E-194: patch-only recovery now drives an edit instead of repeated target reads
+
+- Prediction tested: H-093 predicts real run moves past `TaskSpaceValidationReworkPatchOnlyHardStopV1`.
+- Repair commit: `7c7c892 R4 strengthen complete target patch recovery`
+- Real run: `target/r4-org-json-real-keyed-20260704cn-complete-target-replacement/runs/terminal_bench__organization-json-generator/20260704-205001-147`
+- Matched signal:
+  ```text
+  TaskSpaceValidationReworkPatchOnlyRecoveryV1
+  item_37 action=apply_patch node_id=node-4
+  ```
+- Result: H-093 live-cleared for "repeat read -> no edit"; run then exposed H-094/H-095 around visible content and failed patch recovery.
+
+# Hypothesis H-094: complete-read status was present but full target content was not carried in recovery evidence
+
+- Claim: Runtime marked a target read as `complete_read/eof_reached=true`, but recovery summaries only carried compact excerpts. The model's statement that full content was not visible was accurate in some projections.
+- Prediction: Target-read evidence must distinguish `full_content_visible` from `summary_excerpt_only`, and full replacement should only be forced when full content is actually visible.
+- Diagnostic evidence plan: Add target-read content visibility to ActionMap critical evidence and working summary, raise only validation-rework target read budget, and test both positive and negative recovery cases.
+- Status: confirmed.
+
+# Evidence E-195: target-read content visibility is explicit and full-visible content is carried
+
+- Prediction tested: H-094 predicts focused tests can prove both state and content are present.
+- Repair commit: `44938a3 R4 carry full target read visibility`
+- Focused tests:
+  ```text
+  cargo test -p codex-core validation_rework_projects_schema_repair_contract_from_schema_read --lib
+  cargo test -p codex-core implementation_recovery --lib
+  cargo test -p codex-core complete_validation_rework --lib
+  cargo test -p codex-core validation_rework --lib
+  cargo test -p codex-core action_contract_prompt --lib
+  cargo test -p codex-core apply_patch_ --lib
+  cargo check -p codex-core
+  cargo build -p codex-cli --bin whale
+  ```
+- Matched repair signal: `content_visibility: full_content_visible` is now attached to validation rework target evidence when the complete read fits the target-read visibility budget.
+- Real run: `target/r4-org-json-real-keyed-20260704co-full-target-visibility/runs/terminal_bench__organization-json-generator/20260704-210512-809`
+- Result: run progressed through target read, patch-only recovery, an applied patch, and validation. Remaining failure moved to H-095: repeated failed patch/context recovery consumed budget.
+
+# Hypothesis H-095: failed patch recovery still allowed reads and fragile update hunks after full-visible target mismatch
+
+- Claim: After an expected-lines/context mismatch on a full-visible validation target, edit-failure recovery still offered a narrow `read_file` refresh and did not force whole-file replacement strongly enough. The model repeatedly emitted invalid or stale `Update File` hunks, ending in `TaskSpaceApplyPatchRecoveryHardStopV1`.
+- Prediction: For full-visible targets plus expected-lines/context mismatch, recovery must be replacement-only: `Delete File` + `Add File`, no read/search/validation, no `Update File`, no placeholder hunk.
+- Diagnostic evidence plan: Tighten `TaskSpaceEditFailureRecoveryV1` and add tests that full-visible mismatch removes narrow-read recovery while summary-only mismatch still allows it.
+- Status: confirmed.
+
+# Evidence E-196: full-visible patch mismatch recovery is now replacement-only
+
+- Prediction tested: H-095 predicts focused recovery text no longer advertises read refresh or `Update File` for full-visible mismatch.
+- Repair commit: `dde7173 R4 force full replacement after visible patch mismatch`
+- Focused tests:
+  ```text
+  cargo test -p codex-core implementation_recovery --lib
+  cargo test -p codex-core complete_validation_rework --lib
+  cargo test -p codex-core apply_patch_ --lib
+  cargo fmt --check
+  cargo check -p codex-core
+  cargo build -p codex-cli --bin whale
+  ```
+- Result: focused repair is complete. Real keyed rerun is still pending for this exact commit; prior run `20260704-210512-809` remains negative evidence for the pre-repair H-095 path.

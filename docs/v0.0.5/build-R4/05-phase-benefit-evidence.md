@@ -4823,3 +4823,33 @@ budget hard-stop。新的问题进入 capability layer：provider 多次表达�
 | `apply-patch-whole-python-update-replacement-normalization-gap` | 完整 Python 源码正文放在 `*** Update File` 下会被拒绝为 unanchored update，最后进入 patch recovery hard-stop | 单一 `.py/.pyw` Update File、无 hunk/diff/change marker、首个非空行像 Python source 时，normalize 为 `*** Delete File` + `*** Add File`；命令 payload 继续拒绝 | keyed rerun `20260704-195220-438`; CoE H-090/E-190/E-191; `taskspace_action_contract_normalizes_whole_python_update_replacement`; `taskspace_action_contract_rejects_non_diff_update_payload`; `apply_patch_` 36/36 |
 
 边界说明：该能力层修复只接受明显源码整文件替换，不把任意文本、shell/Python 命令、JSON transformation command 当成 patch。
+
+## 5.81 2026-07-04 validation schema feedback chain
+
+H-090 后继续 keyed rerun，`organization-json-generator` 未进入 utility success，而是暴露 schema validation rework 反馈链条的下一组问题。
+本节只记录 R4-D 工程收益和未闭环项，不把 R4-G 标记为通过。
+
+| Case | Before | After | Evidence |
+|---|---|---|---|
+| `validation-schema-repair-rename-hint-gap` | validation feedback 只包含 missing required properties，模型需要猜 `member_ids` 等旧 key 应改成什么 | validator summary 提供 `schema_property_rename_hints=member_ids->members, total_employees->totalEmployees, average_years_of_service->averageYearsOfService` | keyed rerun `20260704-201836-345`; CoE H-091/E-192; `a93391e` |
+| `validation-rework-target-read-evidence-order` | complete target-read evidence 被长 validation output 淹没 | target-read evidence 前置，repair context 更早进入 working summary | CoE H-092/E-193; `697ec6c`; focused validation/action-contract/apply_patch tests |
+| `validation-rework-complete-target-replacement-scaffold` | complete target read 后 patch-only recovery 没有直接 full replacement scaffold，模型仍可重复读 | recovery 提供 `Delete File + Add File` scaffold；真实 run 越过 repeat-read/no-edit | keyed rerun `20260704-205001-147`; CoE H-093/E-194; `7c7c892` |
+| `validation-rework-complete-read-content-visibility` | runtime 有 complete/eof 状态，但 provider-visible 内容可能只是 excerpt，full replacement directive 缺少事实基础 | evidence 显式区分 `full_content_visible` / `summary_excerpt_only`；full-visible 时携带更大 target context | keyed rerun `20260704-210512-809`; CoE H-094/E-195; `44938a3` |
+| `validation-rework-full-visible-patch-mismatch-recovery` | full-visible target patch mismatch 后仍允许 read refresh 和 fragile `Update File` | focused recovery 已改成 replacement-only，禁止 read/search/validation、`Update File`、placeholder hunk | CoE H-095/E-196; `dde7173`; real keyed rerun pending |
+
+最新验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core implementation_recovery --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core complete_validation_rework --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core apply_patch_ --lib
+cargo fmt --check
+CODEX_SKIP_VENDORED_BWRAP=1 cargo check -p codex-core
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
+```
+
+收益判断：
+
+1. R4-D feedback layer 的收益是局部成立的：schema rename hint、target-read visibility、patch-only scaffold、failed-edit recovery closure 都已有 focused 或 live-cross evidence。
+2. R4-G utility 仍未通过：`20260704-210512-809` 在 `dde7173` 前仍以 public validation exit 1 / `TaskSpaceApplyPatchRecoveryHardStopV1` 收尾。
+3. 下一轮必须对 `dde7173` 重新 attestation + keyed rerun；若仍失败，按新 trace 收录下一层 patch synthesis、schema repair quality 或 validation coverage issue type。

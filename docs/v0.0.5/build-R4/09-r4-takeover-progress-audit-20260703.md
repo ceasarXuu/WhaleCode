@@ -2459,6 +2459,32 @@ current_git_head: 9f370ddfa3f12397ed1d966b321b5e1f0a86c3b2
 
 状态：focused 修复已编码；仍需 focused/regression、fmt/build、commit/push、attestation、keyed rerun。
 
+## 27. 2026-07-04 validation rework schema feedback chain
+
+本轮把 `organization-json-generator` 的 schema validation rework 继续拆成连续 tools 链路问题类型。它们都属于
+R4-D feedback/capability 回补，不代表 R4-G utility 已通过；最新真实 run 仍未达到 public validation success。
+
+| Case | 现场 | 根因类型 | 修复/证据 | 当前状态 |
+|---|---|---|---|---|
+| `validation-schema-repair-rename-hint-gap` | `20260704-201836-345` | 语义缺失：validator raw output 中已有 `member_ids`/`total_employees`/`average_years_of_service`，但 rework feedback 只传 missing required properties | `a93391e`; `schema_property_rename_hints=member_ids->members, total_employees->totalEmployees, average_years_of_service->averageYearsOfService` | live-cleared for hint visibility |
+| `validation-rework-target-read-evidence-order` | `20260704-201836-345` | 反馈排序问题：complete target read 存在，但排在长 validation failure 后，下一步 full-target repair 不够显眼 | `697ec6c`; target-read evidence front-loaded | focused fixed |
+| `validation-rework-complete-target-replacement-scaffold` | `20260704-204016-800` | patch-only recovery 动作合同不足：完整 target 已读但 recovery 没直接给 full replacement scaffold，模型继续读/search | `7c7c892`; complete target read 后给 `Delete File + Add File` scaffold | `20260704-205001-147` live-cleared repeat-read-to-no-edit |
+| `validation-rework-complete-read-content-visibility` | `20260704-205001-147` | 语义不自足：runtime 有 `complete_read/eof_reached=true`，但 provider-visible recovery 只有 compact excerpt，模型说 full content 不可见并非幻觉 | `44938a3`; target-read evidence 标记 `content_visibility=full_content_visible` / `summary_excerpt_only` | `20260704-210512-809` 越过 target-read/patch-only recovery |
+| `validation-rework-full-visible-patch-mismatch-recovery` | `20260704-210512-809` | failed-edit recovery 不够闭合：full-visible target 的 expected-lines/context mismatch 后仍允许 read refresh 和 fragile `Update File` hunks | `dde7173`; full-visible mismatch 后 replacement-only：禁止 read/search/validation/`Update File`/placeholder hunk | focused fixed；real keyed rerun pending |
+
+问题类型收录：
+
+| 字段 | 内容 |
+|---|---|
+| case family | `validation-rework-schema-feedback-chain` |
+| 层级 | validation feedback / target-read evidence projection / apply_patch recovery capability |
+| 本质 | 不是一个单点“模型不听话”问题，而是 schema validator 语义、目标文件可见性、patch-only next action 和 failed-edit recovery 在不同环节逐步丢硬度 |
+| 非根因 | 不是状态机允许任意读写；不是 runtime 应越权替模型改代码；不是 DeepSeek API key 或 provider 调用失败 |
+| runtime 边界 | 状态机仍控制合法 action；runtime/session 的职责是把已存在的 tool/result/validation/edit failure 语义转换成 provider-visible、可审计、闭合的下一步合同 |
+| 最新未闭环 | `dde7173` 后还缺 attestation + keyed rerun；若仍失败，应收录下一层 patch synthesis 或 validation coverage 问题 |
+
+状态：R4 实际位置仍是 R4-H/post-closeout 回补；R4-D tools feedback 继续收敛，R4-G utility parity 仍未通过。
+
 ## 15. 2026-07-04 validation rework patch-only schema synthesis too weak
 
 `0b8e5a1` 的 keyed rerun 证明 H-078 的 repeated malformed patch / expected-lines hard-stop 已清除，但新问题推进到
