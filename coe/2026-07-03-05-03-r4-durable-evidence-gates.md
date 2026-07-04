@@ -5629,3 +5629,63 @@
   cargo build -p codex-cli --bin whale
   ```
 - Result: focused repair is complete. Real keyed rerun is still pending for this exact commit; prior run `20260704-210512-809` remains negative evidence for the pre-repair H-095 path.
+
+# Evidence E-197: H-095 rerun crosses apply_patch hard-stop but exposes final-gate feedback loss
+
+- Real rerun:
+  ```text
+  RunDir: target/r4-org-json-real-keyed-20260704cp-visible-mismatch-replacement/runs/terminal_bench__organization-json-generator/20260704-212411-195
+  reported_evidence_level: E2-candidate
+  outcome_standard: solved
+  outcome_taskspace: wrong
+  right_exec_timed_out: False
+  right_tool_call_count: 20
+  right_public_validation_exit_code: 1
+  right_hidden_oracle_exit_code: 0
+  right_open_leaf_nodes: 0
+  ```
+- Crossed H-095 signals:
+  - Run no longer ended in `TaskSpaceApplyPatchRecoveryHardStopV1`.
+  - Validation rework read `process.py`, got `eof_reached=true`, attempted patches, applied a later patch to `process.py`, and then ran `python process.py && python -m jsonschema -i organization.json schema.json` with exit code 0.
+- Still-not-cleared signals:
+  - After an expected-lines mismatch, the live trace still emitted fragile `Update File` hunks, including a path-polluted `--- a/app/process.py` / `+++ b/app/process.py` attempt and a placeholder `@@ ... @@` attempt.
+  - Therefore H-095 is live-crossed but not fully live-cleared as a replacement-only behavior.
+- New blocker signals:
+  - Public validator failed `test_relationships_integrity`: project `members` used employee names such as `Cristiano Ronaldo`, while tests expected employee ids such as `D001-E001`.
+  - After local schema validation succeeded, `final_answer` was rejected by the final readiness gate, but the session follow-up only said `TaskSpace final_answer rejected by final readiness gate...` and did not surface the concrete rejection reason.
+  - The next provider response incorrectly switched to a blocked claim: `Validation infrastructure blocker... required schema validator tool ... is not available`, even though the combined jsonschema command had just completed with exit code 0.
+
+# Hypothesis H-096: final-answer gate rejection reason is lost in session follow-up
+
+- Claim: `record_main_final_response()` returns a concrete rejection reason, and `Session::record_action_map_main_final_response()` records a detailed developer message, but `turn.rs` collapses the same error into a boolean and sets `last_agent_message` to a generic fixed string. The next provider-visible actionability context loses whether the problem was hidden orchestration wording, unresolved criteria, or another final-readiness reason.
+- Prediction: Preserve the `Err(error)` string in both taskspace-action `final_answer` and ordinary assistant final-response paths, and use it as the follow-up message. Focused tests should prove the reason appears in the recovery text.
+- Diagnostic evidence plan: Add a helper-level test for the follow-up text, run action-contract/final-readiness related tests, and rerun the keyed sample later to confirm the model corrects the final answer instead of inventing local-infra blocker semantics.
+- Status: confirmed.
+
+# Evidence E-198: final-answer gate rejection follow-up now preserves the specific reason
+
+- Repair artifact:
+  - `third_party/codex-cli/codex-rs/core/src/session/turn.rs`
+- Repair behavior:
+  - Replaced `.is_err()` boolean handling with `match ... { Err(error) => ... }` in both `taskspace-action-v1 final_answer` handling and ordinary assistant final-response handling.
+  - Added `taskspace_final_answer_gate_rejection_followup()` so provider-visible follow-up includes `Rejection reason: ...`.
+- Validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core final_answer_gate_rejection_followup_preserves_specific_reason --lib
+    PASS
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core action_contract_prompt --lib
+    PASS: 29/29
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core final_readiness --lib
+    PASS
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --check
+    PASS
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo check -p codex-core
+    PASS
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
+    PASS
+  ```
+- Known related failing test:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core final_response --lib
+  ```
+  fails in existing `final_response_completes_running_final_synthesis_node` because final readiness now requires success criteria/output contract evidence for that test fixture. This was not introduced by H-096, but it remains a related runtime test debt.

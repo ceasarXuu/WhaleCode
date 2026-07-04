@@ -11514,6 +11514,18 @@ fn taskspace_blocked_final_action(reason: &str) -> TaskSpaceActionV1 {
     }
 }
 
+#[cfg(test)]
+#[test]
+fn final_answer_gate_rejection_followup_preserves_specific_reason() {
+    let message = taskspace_final_answer_gate_rejection_followup(
+        "TaskSpace final answer gate rejected hidden orchestration term `taskspace`.",
+    );
+
+    assert!(message.contains("Rejection reason:"));
+    assert!(message.contains("hidden orchestration term `taskspace`"));
+    assert!(message.contains("Correct the specific rejection reason before final_answer"));
+}
+
 fn taskspace_finish_current_node_action(
     node_id: Option<&str>,
     result_summary: &str,
@@ -13523,6 +13535,13 @@ fn apply_taskspace_terminal_action_message(
     *last_agent_message = Some(final_message);
 }
 
+fn taskspace_final_answer_gate_rejection_followup(error: &str) -> String {
+    format!(
+        "TaskSpace final_answer rejected by final readiness gate. Rejection reason: {error}\n\
+Continue the same task; do not treat the previous response as final. Correct the specific rejection reason before final_answer."
+    )
+}
+
 async fn record_taskspace_observed_implement_edit(
     sess: &Arc<Session>,
     turn_context: &Arc<TurnContext>,
@@ -14070,21 +14089,25 @@ async fn try_run_sampling_request(
                             }
                         }
                         Ok((action, Some(final_message), None)) => {
-                            let final_answer_rejected = action.action == "final_answer"
-                                && sess
+                            let final_answer_gate_error = if action.action == "final_answer" {
+                                match sess
                                     .record_action_map_main_final_response(
                                         &turn_context,
                                         &final_message,
                                     )
                                     .await
-                                    .is_err();
-                            if final_answer_rejected {
+                                {
+                                    Ok(_) => None,
+                                    Err(error) => Some(error),
+                                }
+                            } else {
+                                None
+                            };
+                            if let Some(error) = final_answer_gate_error {
                                 needs_follow_up = true;
                                 saw_actionable_output = true;
-                                last_agent_message = Some(
-                                    "TaskSpace final_answer rejected by final readiness gate. Continue the same task and clear the gate before final_answer."
-                                        .to_string(),
-                                );
+                                last_agent_message =
+                                    Some(taskspace_final_answer_gate_rejection_followup(&error));
                             } else {
                                 apply_taskspace_terminal_action_message(
                                     &mut needs_follow_up,
@@ -14273,13 +14296,19 @@ async fn try_run_sampling_request(
                 if !taskspace_terminal_action_observed_in_request
                     && !needs_follow_up
                     && let Some(message) = last_agent_message.as_deref()
-                    && sess
+                {
+                    match sess
                         .record_action_map_main_final_response(&turn_context, message)
                         .await
-                        .is_err()
-                {
-                    needs_follow_up = true;
-                    final_response_rejected = true;
+                    {
+                        Ok(_) => {}
+                        Err(error) => {
+                            needs_follow_up = true;
+                            final_response_rejected = true;
+                            last_agent_message =
+                                Some(taskspace_final_answer_gate_rejection_followup(&error));
+                        }
+                    }
                 }
                 let current_budget_snapshot =
                     sess.action_map_provider_request_budget_snapshot().await;

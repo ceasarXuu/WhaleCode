@@ -839,3 +839,16 @@ whole Python replacement normalization 后，`organization-json-generator` 继�
 边界说明：这不是把控制权从状态机交给 runtime。状态机仍定义 action legality；runtime/session 只负责把已发生的 tool
 result、validation failure、target read 和 edit failure 转成下一轮 provider 必须看到的强语义。若语义已完整且动作空间已闭合，
 runtime 可以拒绝重复 read/search 并进入 hard-stop；但不能凭空制造未执行的 edit 或把真实外部 blocker 忽略为成功。
+
+## 2026-07-04 R4-D issue type addendum: final gate rejection reason loss
+
+`20260704-212411-195` 的真实 run 已越过本地 schema validation，但 final response 阶段暴露 session feedback 丢语义：
+`record_main_final_response()` 已返回具体 final readiness rejection reason，`Session` 也把详细 developer message 写入历史，
+但 `turn.rs` 的 actionability path 用 `.is_err()` 将其压成 boolean，`last_agent_message` 只剩固定泛化句子。
+
+| Issue type | Layer | Symptom | Resolution contract | Evidence |
+|---|---|---|---|---|
+| `final-answer-gate-rejection-reason-loss` | session final-response feedback / provider actionability | final_answer 被 gate 拒绝后，下一轮不知道具体是 hidden orchestration wording、criteria 未满足还是 validation-after-edit 缺失；provider 转而编造 validator unavailable blocker | `taskspace-action-v1 final_answer` 和普通 assistant final-response 路径都保留 `Err(error)`；follow-up 文案包含 `Rejection reason: ...` 并要求修正具体原因后再 final_answer | keyed rerun `20260704-212411-195`; CoE H-096/E-197/E-198; focused test; `action_contract_prompt`; `final_readiness` |
+
+边界说明：该修复不改变 final readiness gate 的判定，也不放宽 success criteria。它只保证 gate 已经产生的失败语义进入下一轮
+provider-visible recovery，避免从“最终回答文案/证据 gate 不满足”扭曲成“工具不可用”。

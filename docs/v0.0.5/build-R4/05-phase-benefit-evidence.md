@@ -4853,3 +4853,46 @@ CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
 1. R4-D feedback layer 的收益是局部成立的：schema rename hint、target-read visibility、patch-only scaffold、failed-edit recovery closure 都已有 focused 或 live-cross evidence。
 2. R4-G utility 仍未通过：`20260704-210512-809` 在 `dde7173` 前仍以 public validation exit 1 / `TaskSpaceApplyPatchRecoveryHardStopV1` 收尾。
 3. 下一轮必须对 `dde7173` 重新 attestation + keyed rerun；若仍失败，按新 trace 收录下一层 patch synthesis、schema repair quality 或 validation coverage issue type。
+
+## 5.82 2026-07-04 final gate rejection reason preservation
+
+`dde7173` 后的 keyed rerun 已执行：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260704cp-visible-mismatch-replacement/runs/terminal_bench__organization-json-generator/20260704-212411-195
+reported_evidence_level: E2-candidate
+outcome_standard: solved
+outcome_taskspace: wrong
+right_exec_timed_out: False
+right_tool_call_count: 20
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+right_open_leaf_nodes: 0
+```
+
+收益判断：
+
+1. H-095 有进展但未完全 live-clear：旧 `TaskSpaceApplyPatchRecoveryHardStopV1` 不再是结尾，rework 进入了 successful local schema validation；但 live trace 仍有 fragile `Update File` / placeholder hunk。
+2. 新的 R4-D feedback 修复是 `final-answer-gate-rejection-reason-loss`：final readiness gate 的具体错误现在会保留给下一轮 provider，而不是被 boolean `.is_err()` 降级成泛化提示。
+3. R4-G utility 仍未通过：public validator 因 `project.members` 使用员工姓名而非员工 id 失败；这属于 schema validation 不覆盖 public relationship oracle 的质量差距。
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core final_answer_gate_rejection_followup_preserves_specific_reason --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core action_contract_prompt --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core final_readiness --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --check
+CODEX_SKIP_VENDORED_BWRAP=1 cargo check -p codex-core
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
+```
+
+已知相关测试债：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core final_response --lib
+```
+
+当前失败在既有 `final_response_completes_running_final_synthesis_node`：该 fixture 期望 running final_synthesis 可直接 final response，
+但当前 final readiness gate 要求 success criteria/output contract evidence。该失败不是本次 H-096 改动引入，但属于同一 final gate
+区域，需要后续单独收敛。

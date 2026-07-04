@@ -2485,6 +2485,47 @@ R4-D feedback/capability 回补，不代表 R4-G utility 已通过；最新真�
 
 状态：R4 实际位置仍是 R4-H/post-closeout 回补；R4-D tools feedback 继续收敛，R4-G utility parity 仍未通过。
 
+### 27.1 2026-07-04 H-095 rerun and final gate feedback loss
+
+`dde7173` 后的 keyed rerun：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260704cp-visible-mismatch-replacement/runs/terminal_bench__organization-json-generator/20260704-212411-195
+reported_evidence_level: E2-candidate
+outcome_standard: solved
+outcome_taskspace: wrong
+right_exec_timed_out: False
+right_tool_call_count: 20
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+right_open_leaf_nodes: 0
+```
+
+结论：
+
+| 项 | 判断 |
+|---|---|
+| H-095 | 已越过旧 `TaskSpaceApplyPatchRecoveryHardStopV1`，并进入本地 schema validation success；但 live trace 仍出现 fragile `Update File`、`app/process.py` path pollution 和 placeholder hunk，因此不能声称 replacement-only live-cleared |
+| public validator | 失败在 `test_relationships_integrity`：`project.members` 输出 employee names，public tests 期望 employee ids；这是 schema 未覆盖的业务关系 oracle，不是本地 jsonschema 工具失败 |
+| final gate | 本地 `python process.py && python -m jsonschema -i organization.json schema.json` exit 0 后，模型 final answer 仍声称 validator unavailable；final readiness gate 拒绝后，session follow-up 丢失具体 rejection reason，下一轮退化成错误 blocked |
+
+问题类型收录：
+
+| 字段 | 内容 |
+|---|---|
+| case | `final-answer-gate-rejection-reason-loss` |
+| 层级 | session feedback / final readiness gate recovery |
+| 本质 | runtime 已有具体 final gate rejection reason，但 `turn.rs` 用 `.is_err()` 把它压成 boolean，provider-visible follow-up 只剩泛化提示 |
+| 非根因 | 不是 validator 不可用；不是 graph open leaf；不是 API key / provider 失败 |
+| 修复 | `taskspace-action-v1 final_answer` 和普通 assistant final-response 两个入口都保留 `Err(error)`，follow-up 文案包含 `Rejection reason: ...` |
+| focused evidence | CoE H-096/E-198；`final_answer_gate_rejection_followup_preserves_specific_reason`; `action_contract_prompt` 29/29; `final_readiness`; fmt/check/build |
+
+剩余未闭环：
+
+1. 需要重跑 keyed sample 验证 final gate rejection reason 是否让模型改正 final answer，而不是再声称 local infra blocker。
+2. H-095 的 replacement-only 行为仍需继续收敛：真实 trace 还出现 `Update File` 和 placeholder hunk。
+3. utility 层还有 public relationship oracle 差距：schema validation pass 不等于 Terminal-Bench public tests pass。
+
 ## 15. 2026-07-04 validation rework patch-only schema synthesis too weak
 
 `0b8e5a1` 的 keyed rerun 证明 H-078 的 repeated malformed patch / expected-lines hard-stop 已清除，但新问题推进到
