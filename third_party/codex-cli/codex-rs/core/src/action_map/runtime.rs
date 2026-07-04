@@ -17782,6 +17782,11 @@ fn text_mentions_missing_pytest_runner_dependency(text: &str) -> bool {
     let missing_pytest = lower.contains("no module named pytest")
         || lower.contains("no module named 'pytest'")
         || lower.contains("no module named \"pytest\"")
+        || lower.contains("pytest: command not found")
+        || lower.contains("pytest: not found")
+        || lower.contains("command not found: pytest")
+        || lower.contains("pytest' is not recognized")
+        || lower.contains("\"pytest\" is not recognized")
         || (lower.contains("modulenotfounderror") && lower.contains("pytest"));
     command_mentions_pytest_runner && missing_pytest
 }
@@ -35274,8 +35279,9 @@ error: failed to open file `C:\\Users\\77585\\AppData\\Local\\uv\\cache\\sdists-
         assert!(state.active_map_has_blocked_validation_result());
     }
 
-    #[test]
-    fn missing_pytest_runner_dependency_routes_to_validation_rerun_not_implementation() {
+    fn assert_missing_pytest_runner_dependency_routes_to_validation_rerun_not_implementation(
+        body: &str,
+    ) {
         let mut state = ActionMapRuntimeState::default();
         let owner = ThreadId::new();
         state.set_mode(MapRuntimeMode::Experiment);
@@ -35338,13 +35344,6 @@ error: failed to open file `C:\\Users\\77585\\AppData\\Local\\uv\\cache\\sdists-
             )
             .expect("implementation finishes into validation");
         let validation_node_id = handoff.next_node_id.expect("validation node id");
-        let body = "TaskSpaceToolInvocationV1:\n\
-tool: shell_command\n\
-command: python -m pytest\n\
-raw_output:\n\
-Exit code: 1\n\
-Output:\n\
-/home/zhangxu/miniconda3/bin/python: No module named pytest\n";
         let (result_id, events) = state
             .record_main_tool_result_with_class(
                 owner,
@@ -35394,6 +35393,32 @@ Output:\n\
             rerun_node.context.summary
         );
         assert!(!state.current_main_implement_progress_needs_edit());
+    }
+
+    #[test]
+    fn missing_pytest_runner_dependency_routes_to_validation_rerun_not_implementation() {
+        assert_missing_pytest_runner_dependency_routes_to_validation_rerun_not_implementation(
+            "TaskSpaceToolInvocationV1:\n\
+tool: shell_command\n\
+command: python -m pytest\n\
+raw_output:\n\
+Exit code: 1\n\
+Output:\n\
+/home/zhangxu/miniconda3/bin/python: No module named pytest\n",
+        );
+    }
+
+    #[test]
+    fn bare_pytest_command_not_found_routes_to_validation_rerun_not_implementation() {
+        assert_missing_pytest_runner_dependency_routes_to_validation_rerun_not_implementation(
+            "TaskSpaceToolInvocationV1:\n\
+tool: shell_command\n\
+command: pytest tests/test_organization.py -v\n\
+raw_output:\n\
+Exit code: 127\n\
+Output:\n\
+/bin/bash: line 1: pytest: command not found\n",
+        );
     }
 
     #[test]

@@ -138,6 +138,7 @@ raw signal 存在但语义没有正确进入下一轮 tool contract：
 | `validation-stale-failure-block-without-current-test` | 新 validation node 未运行当前 test/build 就复用旧失败 blocker 关闭 graph；已要求声称 validation/test failure 前必须有同节点验证 tool result，infra blocker 例外 | focused fixed / real rerun pending |
 | `validation-rework-duplicate-read-projection-loop` | rework target 已读且 duplicate gate 已生效，但 projection 仍广告 read/search、未展示 target read result，模型重复读到 node hard stop；已把 target read result 作为 critical evidence 并将 next action 收窄到 apply_patch | focused fixed / real rerun pending |
 | `validation-pytest-runner-dependency-misroute` | `python -m pytest` 本身缺 `pytest` module 时，raw failure 存在但被 runtime 误译成 implementation failure，创建 implement rework 并触发 needs-edit loop；已归入 local validator infra，并路由到 platform-compatible validation rerun | focused fixed / real rerun pending |
+| `validation-pytest-command-normalization-and-runner-misroute` | keyed rerun `20260704-113802-241` 证实 action-contract 把 `python -m pytest test_organization.py -v` 归一化成裸 `pytest tests/test_organization.py -v`，随后 shell `pytest: command not found` 未按 local validator infra 处理，而是进入 implementation rework/needs-edit hard-stop；已保留 pytest runner 前缀并把裸 pytest command-not-found 归入 local validator infra validation rerun | focused+regression fixed / real rerun pending |
 | `fact-source-path-artifact-ref-loss` | `initial_fact_sources[].path` 被 taskspace_control 解析层丢弃，TaskState 只保留泛化 id/description 和 `artifactRef=user-request`，导致 adaptive inspect budget 看不到声明 fact-source artifacts 并仍按 5 次硬停；已把 `path`/`artifact_ref`/`artifact_path`/`source_path` 及数组 alias 归一化进 `evidence_refs[].artifact_ref` | focused fixed / real rerun pending |
 | `validation-rework-target-read-preview-truncation` | validation rework 已读目标文件后，duplicate-read recovery 声称可用 `result-*` 现有内容 patch，但 recovery 只带单行 compact preview，patch-relevant 下半段被 `...` 截断；已把 rework target read 加入 `current_main_working_evidence_summary()` 的 bounded multiline evidence | focused+regression fixed / real rerun pending |
 | `inspect-duplicate-read-recovery-nonforcing-budget-drain` | inspect duplicate-read recovery 已正确列出 missing fact sources，但同一 blocked read/search 可继续消耗 provider/node budget，直到 hard stop；已在 repeated blocked read/search 且 runtime 能命名缺失声明 fact-source 时，自动执行 bounded fact-source bootstrap 并记录为 read evidence | focused+regression fixed / real rerun pending |
@@ -1293,6 +1294,89 @@ CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/co
 当前状态：focused 修复和 R4-adjacent regression/build 已完成；仍需 attestation 和下一次 keyed rerun 验证
 live sample 是否从 duplicate target read 推进到 apply_patch schema repair。
 
+### 3.28 validation pytest command normalization and runner misroute
+
+rework target read output retention 修复后执行 keyed rerun：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260704az-rework-target-read-retained/runs/terminal_bench__organization-json-generator/20260704-113802-241
+preflight current_git_head: 9d0be484b6638d9dd66b07f2435b63d8d4170aa4
+build_attestation_status: pass
+outcome_standard: solved
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 13
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+```
+
+本次进展：
+
+| 层 | 结论 |
+|---|---|
+| duplicate target read | 不再触发 `TaskSpaceValidationReworkDuplicateReadHardStopV1`，说明 3.27 修复的 full read output retention 已在 live trace 生效 |
+| validation | flow 继续推进到后续 validation node，标准侧已 solved，TaskSpace 侧仍 engineering_unclean |
+| timeout | 仍未回到 900s timeout，provider/node budget hard-stop 系列修复保持有效 |
+
+新问题：
+
+| 层 | 结论 |
+|---|---|
+| command ability | assistant 请求 `run_test` command=`python -m pytest test_organization.py -v` |
+| command normalization | action-contract 实际执行 `/bin/bash -lc 'pytest tests/test_organization.py -v'`，丢失 `python -m` runner 前缀 |
+| runner feedback | shell 返回 `/bin/bash: line 1: pytest: command not found` |
+| semantic route | runtime 未把裸 `pytest` runner 缺失识别成 local validator infra，而是插入 `TaskSpaceImplementNeedsEditRecoveryV1`，引导实现返工 |
+| terminal symptom | 后续 rework 读取 `generate_organization.py`，又读不存在的 `tests/test_organization.py`，最终进入 `TaskSpaceImplementationNeedsEditHardStopV1` |
+
+根因判断：
+
+这是 tools 链路的能力层和反馈层组合问题，不是模型单纯解题错误。能力层上，`run_test` 命令归一化可以补路径，
+但不能把用户/模型选择的 runner 从 `python -m pytest` 降级为裸 `pytest`。反馈层上，裸 `pytest: command not found`
+与 `python -m pytest` 的 `No module named pytest` 属于同一类本地 validator runner 依赖缺失，应该留在 validation
+恢复路径，而不是转换成 implementation needs-edit。
+
+本轮修复：
+
+| 层 | 结论 |
+|---|---|
+| command normalization | `normalize_taskspace_action_contract_test_command()` 继续补 `tests/<file>` 路径，但使用匹配到的 pytest runner prefix 重建命令；`python -m pytest test_tax_calc.py -v` 归一化为 `python -m pytest tests/test_tax_calc.py -v` |
+| bare pytest behavior | 原有裸 `pytest test_tax_calc.py -v` 仍归一化为 `pytest tests/test_tax_calc.py -v` |
+| runner infra feedback | `text_mentions_missing_pytest_runner_dependency()` 增加 `pytest: command not found`、`pytest: not found`、`command not found: pytest`、Windows `pytest is not recognized` 变体 |
+| route invariant | 命令本身必须含 pytest runner 才会触发该分类；命中后 result 标记 invalid/local validator infra，并从 failed validation node 创建 smoke_test rerun，不创建 implementation rework |
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core taskspace_action_contract_run_test_preserves_python_m_pytest_prefix --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core bare_pytest_command_not_found_routes_to_validation_rerun_not_implementation --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core taskspace_action_contract_run_test --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core pytest_runner_dependency --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core local_infra --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core action_contract_prompt --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core validation_rework --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core validation_ --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core provider_budget --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core taskspace_active_budget --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core implementation_needs_edit --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core apply_patch_ --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core duplicate_read_search --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core missing_fact_source_bootstrap --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core inspect_missing_fact_sources --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core taskspace_control --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+git diff --check
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-cli --bin whale --locked
+```
+
+结果：通过。`taskspace_action_contract_run_test` 5/5、`local_infra` 11/11、`action_contract_prompt` 28/28、
+`validation_rework` 18/18、`validation_` 97/97、`provider_budget` 23/23、`taskspace_active_budget` 11/11、
+`implementation_needs_edit` 3/3、`apply_patch_` 35/35、`duplicate_read_search` 2/2、`missing_fact_source_bootstrap`
+1/1、`inspect_missing_fact_sources` 2/2、`taskspace_control` 35/35 均通过。`cargo fmt --check` 仍只输出项目既有
+stable rustfmt `imports_granularity` 警告；`git diff --check` 和 `whale` build 通过。
+
+当前状态：focused 修复和 R4-adjacent regression/build 已完成；仍需下一次 keyed rerun 验证 live sample 是否越过 pytest
+runner infra 层并继续推进到 schema/public-test 正确的 `organization.json`。
+
 ## 4. 本次验证
 
 | 验证项 | 命令 | 结果 |
@@ -1362,6 +1446,8 @@ live sample 是否从 duplicate target read 推进到 apply_patch schema repair�
 | local infra regression | `CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core local_infra --locked` | PASS：11 tests |
 | validation aggregate regression | `CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_ --locked` | PASS：96 tests |
 | latest R4-D fix build | `cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check`; `CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-cli --bin whale --locked`; `git diff --check` | PASS：format/build/whitespace 通过；仅有已知 stable rustfmt config warning |
+| pytest command normalization focused regression | `taskspace_action_contract_run_test_preserves_python_m_pytest_prefix`; `bare_pytest_command_not_found_routes_to_validation_rerun_not_implementation`; `taskspace_action_contract_run_test`; `pytest_runner_dependency` | PASS：保留 `python -m pytest` runner；裸 pytest command-not-found 路由到 validation rerun；run_test 小套件 5/5 |
+| pytest command normalization R4-adjacent regression | `local_infra`; `action_contract_prompt`; `validation_rework`; `validation_`; `provider_budget`; `taskspace_active_budget`; `implementation_needs_edit`; `apply_patch_`; `duplicate_read_search`; `missing_fact_source_bootstrap`; `inspect_missing_fact_sources`; `taskspace_control`; fmt check；`git diff --check`; `whale` build | PASS：`validation_` 97/97；其余套件通过；仅有已知 stable rustfmt config warning |
 | organization-json-generator direct validator | direct `external-validator.ps1` run on generated fixture | PASS：Docker build `classification=ok`; run reaches expected missing `organization.json` assertions |
 | Whitespace | `git diff --check` | PASS |
 
@@ -1370,8 +1456,8 @@ live sample 是否从 duplicate target read 推进到 apply_patch schema repair�
 | 优先级 | 未完成项 | 当前证据 | 下一步 |
 |---:|---|---|---|
 | P0 | TaskSpace utility parity | public-10 closeout 中 TaskSpace 仅 3/10 solved；post-closeout 只证明 `heterogeneous-dates` 已改善；`sqlite-db-truncate` 已收敛到非 timeout wrong；keyed `organization-json-generator` 仍是 E1 diagnostic fail | 继续 R4 utility-convergence，不进入验收通过 |
-| P0 | Long-flow convergence | keyed `organization-json-generator` 的 900s timeout 已被 hard stop 消除；最新真实进展已越过 fact-source projection、editable blocker、generator-only closeout、schema fact-source weak validation、recovery projection dilution、validation rework target artifact read gap、jsonschema module recovery、sed read artifact attribution、manual validation rework origin、stale validation block guard、target-read projection guard、read summary portability、fact-source inspect budget、inspect duplicate-read bootstrap；pytest runner dependency misroute、fact-source path artifact-ref loss、rework target read preview truncation、implementation finish-without-edit hard-stop、stale edit-success feedback scoping、rework target read output retention 均已 focused fixed | 重跑该样本；若仍 wrong，再按新 trace 建立下一层 tool/control case |
-| P0 | Provider budget hard stop real-run validation | hard gate 已真实生效；最新 rerun 显示 TaskSpace 已读完四个 fact-source artifacts、执行 schema validation 并进入 implementation rework；hard-stop 已避免 finish-without-edit budget drain；旧节点 edit success 污染和当前 rework target read output 丢失均已 focused fixed | 下一次 keyed rerun 同时验证 provider hard stop、fact-source path retention、adaptive inspect、rework evidence join、projection fact-source guard、editable validation blocker guard、output contract coverage guard、schema fact-source guard、recovery projection guard、validation rework target artifact read guard、jsonschema module recovery、sed read artifact attribution、manual rework origin、stale validation block guard、target-read projection guard、read summary portability、pytest runner infra classification、rework target multiline evidence、implementation needs-edit hard-stop、recent-output active-context scoping、rework target read output retention 是否共同推进 utility |
+| P0 | Long-flow convergence | keyed `organization-json-generator` 的 900s timeout 已被 hard stop 消除；最新真实进展已越过 fact-source projection、editable blocker、generator-only closeout、schema fact-source weak validation、recovery projection dilution、validation rework target artifact read gap、jsonschema module recovery、sed read artifact attribution、manual validation rework origin、stale validation block guard、target-read projection guard、read summary portability、fact-source inspect budget、inspect duplicate-read bootstrap；pytest runner dependency misroute、fact-source path artifact-ref loss、rework target read preview truncation、implementation finish-without-edit hard-stop、stale edit-success feedback scoping、rework target read output retention、pytest command normalization/bare runner feedback 均已 focused fixed | 重跑该样本；若仍 wrong，再按新 trace 建立下一层 tool/control case |
+| P0 | Provider budget hard stop real-run validation | hard gate 已真实生效；最新 rerun 显示 TaskSpace 已越过 rework target duplicate read，但在 pytest command normalization/runner feedback 上误入 implementation rework；该 case 已 focused fixed，仍待 live rerun 验证 | 下一次 keyed rerun 同时验证 provider hard stop、fact-source path retention、adaptive inspect、rework evidence join、projection fact-source guard、editable validation blocker guard、output contract coverage guard、schema fact-source guard、recovery projection guard、validation rework target artifact read guard、jsonschema module recovery、sed read artifact attribution、manual rework origin、stale validation block guard、target-read projection guard、read summary portability、pytest runner infra classification、rework target multiline evidence、implementation needs-edit hard-stop、recent-output active-context scoping、rework target read output retention、pytest command normalization 是否共同推进 utility |
 | P0 | Provider timeout usage flush | 报告层已能从 rollout token_count 恢复 timeout 前 partial usage，并标为 `recovered_from_rollout_trace`；如果进程被杀前没有任何 token_count/response.completed，exact usage 仍不可得 | 后续真实复验时检查 timeout 行是否有 rollout token_count；如无，再做 provider 退出/回收路径 |
 | P1 | 成本/token 放大 | `heterogeneous-dates` post-closeout 已改善，但 public-10 closeout 仍记录 6x-28x request amplification | 新二进制重跑 public-10 subset，更新 durable report snapshot |
 | P1 | Release evidence bundle | raw paired run artifacts 仍在外部 run cache，不在仓库内 | 设计 release artifact policy：保留 summary snapshot、压缩关键 evidence，还是外链 run cache |
@@ -1382,5 +1468,5 @@ live sample 是否从 duplicate target read 推进到 apply_patch schema repair�
 2. 建立 R4 utility-convergence 继续工作入口，优先选择一个 public-10 负样本做 bug-killer 闭环。
 3. `sqlite-db-truncate` 当前适合作为已收敛工具链样本归档：状态是非 timeout、closed graph、`agent_patch_wrong`。
 4. `organization-json-generator` 当前下一步不再是 provider 前置；keyed run 已证明 provider preflight 通过，`bwrap` feedback-layer case 已收录并修复。
-5. 先重跑 `organization-json-generator` 验证 `tool-runtime-bootstrap-failure`、fact-source coverage、provider hard stop、fact-source path retention、adaptive inspect node limit、implementation rework evidence join、inspect projection fact-source guard、editable validation blocker guard、output contract coverage guard、schema fact-source guard、recovery projection guard、validation rework target artifact read guard、jsonschema module recovery、sed read artifact attribution、manual validation rework origin、stale validation block guard、target-read projection guard、read summary portability、pytest runner infra classification、rework target multiline evidence、implementation needs-edit hard-stop、recent-output active-context scoping 和 rework target read output retention 是否让 TaskSpace 生成 schema/public-test 正确的 `organization.json`；如仍 wrong，按新 trace 建立下一层 case。
+5. 重跑 `organization-json-generator` 验证 `tool-runtime-bootstrap-failure`、fact-source coverage、provider hard stop、fact-source path retention、adaptive inspect node limit、implementation rework evidence join、inspect projection fact-source guard、editable validation blocker guard、output contract coverage guard、schema fact-source guard、recovery projection guard、validation rework target artifact read guard、jsonschema module recovery、sed read artifact attribution、manual validation rework origin、stale validation block guard、target-read projection guard、read summary portability、pytest runner infra classification、rework target multiline evidence、implementation needs-edit hard-stop、recent-output active-context scoping、rework target read output retention 和 pytest command normalization 是否让 TaskSpace 生成 schema/public-test 正确的 `organization.json`；如仍 wrong，按新 trace 建立下一层 case。
 6. 每完成一个样本，更新 public-10 snapshot 或生成新的 durable report artifact，避免再次依赖未提交 `target/` 缓存。

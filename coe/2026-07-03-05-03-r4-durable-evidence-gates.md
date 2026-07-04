@@ -3128,3 +3128,77 @@
   ```
 - Result: passed. `action_contract_prompt` 28/28, `validation_rework` 18/18, `validation_` 96/96, `provider_budget` 23/23, `taskspace_active_budget` 11/11, `apply_patch_` 35/35, `taskspace_control` 35/35, and `local_infra` 11/11 all passed. The fmt command still prints the known stable rustfmt warning for `imports_granularity`.
 - Interpretation: H-053 is focused-fixed with regression/build coverage. The remaining live gate is another keyed rerun to see whether TaskSpace now patches `generate_org.py` instead of repeatedly reading it.
+
+# Evidence E-117: 9d0be48 live rerun clears target-read loss and exposes pytest command normalization / runner misroute
+
+- Prediction tested: H-053 predicts the live sample should stop repeating the current validation rework target read after full target read output is retained.
+- Real rerun:
+  ```text
+  RunDir: target/r4-org-json-real-keyed-20260704az-rework-target-read-retained/runs/terminal_bench__organization-json-generator/20260704-113802-241
+  PairReport: pair-001/pair-report.md
+  preflight current_git_head: 9d0be484b6638d9dd66b07f2435b63d8d4170aa4
+  build_attestation_status: pass
+  outcome_standard: solved
+  outcome_taskspace: engineering_unclean
+  right_exec_timed_out: False
+  right_tool_call_count: 13
+  right_public_validation_exit_code: 1
+  right_hidden_oracle_exit_code: 0
+  ```
+- Matched H-053 signals:
+  - The live trace did not recur into `TaskSpaceValidationReworkDuplicateReadHardStopV1`.
+  - The run advanced past the prior repeated target-read failure and reached a later validation path.
+- New blocker signals:
+  - The assistant emitted `run_test` with command `python -m pytest test_organization.py -v`.
+  - Action-contract normalization executed `/bin/bash -lc 'pytest tests/test_organization.py -v'`, dropping the `python -m` runner prefix while adding the `tests/` path.
+  - The shell returned `/bin/bash: line 1: pytest: command not found`.
+  - Runtime did not classify the bare pytest runner failure as local validator infrastructure. It inserted `TaskSpaceImplementNeedsEditRecoveryV1`, then the rework path read `generate_organization.py`, tried to read missing `tests/test_organization.py`, and finally hit `TaskSpaceImplementationNeedsEditHardStopV1`.
+- Interpretation: H-053 is live-supported, and the next problem type is `validation-pytest-command-normalization-and-runner-misroute`. This is a combined ability-layer and feedback-layer issue: command normalization must preserve the selected pytest runner, and bare `pytest: command not found` must route like the already-fixed `python -m pytest` missing-module runner dependency instead of implementation rework.
+
+# Hypothesis H-054: pytest command normalization must preserve runner prefix and bare pytest missing runner must remain validation infra
+
+- Claim: `normalize_taskspace_action_contract_test_command()` currently recognizes `python -m pytest` and `cd src && python -m pytest`, but reconstructs every normalized test-file command as bare `pytest ...`. When bare pytest is unavailable, `text_mentions_missing_pytest_runner_dependency()` does not recognize shell `pytest: command not found`, so the failure is treated as a validator/test failure that can create implementation rework.
+- Prediction:
+  1. A focused action-contract test with command `python -m pytest test_tax_calc.py -v` should currently normalize to bare `pytest tests/test_tax_calc.py -v`; after repair it must normalize to `python -m pytest tests/test_tax_calc.py -v`.
+  2. A runtime test with body `command: pytest tests/test_organization.py -v` and output `/bin/bash: line 1: pytest: command not found` should currently create implementation rework or avoid local-infra invalidation; after repair it must mark the result invalid/local validator infra and create a smoke-test rerun whose origin is the failed validation node.
+- Diagnostic evidence plan: Repair the command normalizer to rebuild the command with its matched runner prefix, then extend missing-pytest runner dependency detection to shell command-not-found variants. Validate with focused tests plus `validation_`, `local_infra`, `validation_rework`, `action_contract_prompt`, provider/budget regressions, format, whitespace, and `whale` build.
+- Status: confirmed.
+
+# Evidence E-118: pytest command normalization and bare runner infra routing are focused-fixed
+
+- Prediction tested: H-054 predicts pytest test-file path normalization should not change the runner prefix, and shell `pytest: command not found` should route as local validator infrastructure rather than implementation rework.
+- Repair artifacts:
+  - `third_party/codex-cli/codex-rs/core/src/session/turn.rs`
+  - `third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs`
+- Repair behavior:
+  - `normalize_taskspace_action_contract_test_command()` now rebuilds normalized pytest commands with the matched prefix (`pytest`, `python -m pytest`, or `cd src && python -m pytest`) while still resolving missing bare test-file paths to `tests/<file>`.
+  - Added a focused action-contract test proving `python -m pytest test_tax_calc.py -v` becomes `python -m pytest tests/test_tax_calc.py -v`.
+  - `text_mentions_missing_pytest_runner_dependency()` now recognizes shell runner-missing forms such as `pytest: command not found`, `pytest: not found`, `command not found: pytest`, and Windows `pytest is not recognized`, gated by an explicit pytest runner command mention.
+  - Added a runtime regression proving `command: pytest tests/test_organization.py -v` plus `/bin/bash: line 1: pytest: command not found` marks the result invalid/local validator infra, blocks the failed validation node, creates a smoke-test rerun with the validation node as origin, and does not set implementation needs-edit.
+- Focused validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core taskspace_action_contract_run_test_preserves_python_m_pytest_prefix --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core bare_pytest_command_not_found_routes_to_validation_rerun_not_implementation --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core taskspace_action_contract_run_test --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core pytest_runner_dependency --lib --locked
+  ```
+- R4-adjacent regression/build validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core local_infra --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core action_contract_prompt --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core validation_rework --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core validation_ --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core provider_budget --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core taskspace_active_budget --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core implementation_needs_edit --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core apply_patch_ --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core duplicate_read_search --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core missing_fact_source_bootstrap --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core inspect_missing_fact_sources --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core taskspace_control --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+  git diff --check
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-cli --bin whale --locked
+  ```
+- Result: passed. `taskspace_action_contract_run_test` 5/5, `local_infra` 11/11, `action_contract_prompt` 28/28, `validation_rework` 18/18, `validation_` 97/97, `provider_budget` 23/23, `taskspace_active_budget` 11/11, `implementation_needs_edit` 3/3, `apply_patch_` 35/35, `duplicate_read_search` 2/2, `missing_fact_source_bootstrap` 1/1, `inspect_missing_fact_sources` 2/2, and `taskspace_control` 35/35 all passed. The fmt check still prints the known stable rustfmt `imports_granularity` warning.
+- Interpretation: H-054 is focused-fixed with regression/build coverage. The remaining live gate is another keyed `organization-json-generator` rerun to verify the sample moves beyond pytest runner infra and either reaches a schema-correct `organization.json` or exposes the next R4 tools-chain blocker.

@@ -5726,6 +5726,28 @@ Then I will inspect the file."#,
     }
 
     #[test]
+    fn taskspace_action_contract_run_test_preserves_python_m_pytest_prefix() {
+        let action = parse_taskspace_action_v1(
+            r#"{"schema_version":"taskspace-action-v1","action":"run_test","node_id":"node-1","args":{"command":"python -m pytest test_tax_calc.py -v"}}"#,
+        )
+        .expect("valid json");
+        let call = taskspace_action_to_tool_call(&action, &provider_snapshot("smoke_test"))
+            .expect("policy ok")
+            .expect("tool call");
+
+        match call.payload {
+            ToolPayload::Function { arguments } => {
+                let value: serde_json::Value = serde_json::from_str(&arguments).expect("json");
+                assert_eq!(
+                    value["command"],
+                    "python -m pytest tests/test_tax_calc.py -v"
+                );
+            }
+            other => panic!("expected function payload, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn taskspace_action_contract_run_test_prefixes_bare_shell_script() {
         let cases = [
             ("./run_pipeline.sh", "bash run_pipeline.sh"),
@@ -11771,9 +11793,9 @@ fn normalize_taskspace_action_contract_test_command(command: &str) -> String {
         if file.ends_with(".py") && !file.contains('/') && !file.contains('\\') {
             let suffix = suffix.trim();
             let normalized = if suffix.is_empty() {
-                format!("pytest tests/{file}")
+                format!("{} tests/{file}", prefix.trim())
             } else {
-                format!("pytest tests/{file} {suffix}")
+                format!("{} tests/{file} {suffix}", prefix.trim())
             };
             return normalize_taskspace_host_shell_test_command(&normalized);
         }
@@ -11783,9 +11805,9 @@ fn normalize_taskspace_action_contract_test_command(command: &str) -> String {
         {
             let suffix = suffix.trim();
             let normalized = if suffix.is_empty() {
-                format!("pytest {resolved}")
+                format!("{} {resolved}", prefix.trim())
             } else {
-                format!("pytest {resolved} {suffix}")
+                format!("{} {resolved} {suffix}", prefix.trim())
             };
             return normalize_taskspace_host_shell_test_command(&normalized);
         }
