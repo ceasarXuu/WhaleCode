@@ -470,3 +470,18 @@ failed-edit projection 修复后的 keyed rerun 继续推进到 `apply_patch` gr
 action contract 产生，但 recovery/hard-stop 的排序和分类让它在下一轮 provider-visible feedback 中不够稳定。修复不放宽
 patch grammar，也不让 malformed patch 进入 executor；它只保证 action-contract 的具体失败语义在后续 duplicate-read recovery
 中保持最高优先级。
+
+## 2026-07-04 R4-D issue type addendum: read_file completeness ambiguity
+
+unanchored patch recovery 修复后的 keyed rerun 又暴露出成功 read 反馈语义不足：validation rework 已经得到精确
+`NameError: projects_by_dept is not defined` traceback，并首次读取了 `generate_organization.py`，但工具输出只是
+`sed -n '1,240p'` 的正文，没有结构化说明是否已经到达 EOF。模型随后连续以 `Need full file` 为理由重复读取同一文件，
+最终被 duplicate-read hard stop 截断。
+
+| Issue type | Layer | Symptom | Resolution contract | Evidence |
+|---|---|---|---|---|
+| `validation-rework-read-file-completeness-ambiguity` | read_file tool feedback + ActionMap projection + duplicate-read recovery | 成功 read 的正文存在，但 provider-visible feedback 无法区分完整小文件与截断 first-window；模型把已读结果当成可能不完整，重复 `read_file` 而不是 patch | `read_file` 保持原有 `sed -n 1,240p` / `Get-Content -TotalCount 240` bounded read 行为，同时追加 `TaskSpaceReadFileSummaryV1`，包含 `lines_read`、`eof_reached`、`max_lines`；projection/recovery 保留该 summary，`eof_reached=true` 明确 no hidden lines，`eof_reached=false` 明确 bounded_read，不放宽重复读 | `action_contract_read_file_uses_host_platform_command`; `sed_read_command_artifact_ref_ignores_read_summary_suffix`; `working_evidence_excerpt_preserves_bounded_read_summary`; `validation_rework_allows_changed_artifact_read_when_schema_failure_lacks_traceback`; CoE E-097/H-045/E-098 |
+
+边界说明：该 case 不是 validation failure 丢失，也不是状态机允许重复读。失败 traceback 和目标文件内容都存在，runtime 也能
+hard stop 重复读；缺口在成功 read 的“完整性”没有被结构化传回模型。修复不扩大 raw file window，不把长文件伪装成完整，
+只让 bounded read 明确声明 `eof_reached=true/false`。

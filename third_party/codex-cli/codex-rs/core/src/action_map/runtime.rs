@@ -2278,12 +2278,28 @@ impl ActionMapRuntimeState {
                 .as_ref()
                 .map(|contract| format!(" Validation repair contract: {contract}"))
                 .unwrap_or_default();
+            let read_completeness_message = map
+                .results
+                .get(&previous_result_id)
+                .and_then(validation_rework_read_completeness_feedback)
+                .map(|feedback| format!(" {feedback}"))
+                .unwrap_or_default();
+            let read_summary = map
+                .results
+                .get(&previous_result_id)
+                .and_then(|result| read_file_summary_line(&result.body))
+                .map(str::to_string);
+            let read_next_action = map
+                .results
+                .get(&previous_result_id)
+                .and_then(validation_rework_read_next_action_feedback);
             let message = format!(
-                "TaskSpace blocked this {} because validation rework node `{}` already read failure artifact `{}` in result `{}` and no successful edit has been recorded after that read. Use the existing file contents from that result and apply the smallest fix with apply_patch, or return blocked with the exact reason no safe edit can be made.{}",
+                "TaskSpace blocked this {} because validation rework node `{}` already read failure artifact `{}` in result `{}` and no successful edit has been recorded after that read.{} Use the existing file contents from that result and apply the smallest fix with apply_patch, or return blocked with the exact reason no safe edit can be made.{}",
                 descriptor.action_class.as_str(),
                 node.id,
                 artifact_ref,
                 previous_result_id,
+                read_completeness_message,
                 contract_message
             );
             let current_node_item = format!("current_node:{}:{}", node.id, node.kind.as_str());
@@ -2303,7 +2319,13 @@ impl ActionMapRuntimeState {
             if let Some(contract) = repair_contract.as_ref() {
                 blocking_items.push(format!("validation_rework_contract:{contract}"));
             }
+            if let Some(read_summary) = read_summary {
+                blocking_items.push(format!("previous_read_summary:{read_summary}"));
+            }
             let mut next_valid_actions = vec![format!("call apply_patch for `{artifact_ref}`")];
+            if let Some(feedback) = read_next_action {
+                next_valid_actions.push(feedback);
+            }
             if let Some(contract) = repair_contract.as_ref() {
                 next_valid_actions.push(format!(
                     "satisfy validation_schema_repair_contract: {contract}"
@@ -11509,8 +11531,11 @@ fn projection_critical_artifact_evidence(
             if !seen.insert(key) {
                 continue;
             }
+            let read_context = validation_rework_read_context_status(&result.body)
+                .map(|status| format!("\nread_context: {status}"))
+                .unwrap_or_default();
             evidence.push(format!(
-                "{result_id} artifacts={artifact} signal=validation_rework_target_read\nexcerpt:\n{}",
+                "{result_id} artifacts={artifact} signal=validation_rework_target_read{read_context}\nexcerpt:\n{}",
                 working_evidence_body_excerpt(&result.body, max_excerpt_chars)
             ));
             if evidence.len() >= max_results {
@@ -11582,6 +11607,14 @@ fn working_evidence_body_excerpt(body: &str, max_chars: usize) -> String {
         .unwrap_or(body);
     let mut output = String::new();
     let mut count = 0usize;
+    if let Some(summary) = read_file_summary_line(focused) {
+        let summary_chars = summary.chars().count() + 1;
+        if summary_chars <= max_chars {
+            output.push_str(summary);
+            output.push('\n');
+            count += summary_chars;
+        }
+    }
     for line in focused.lines() {
         let trimmed = line.trim();
         let lower = trimmed.to_ascii_lowercase();
@@ -11597,6 +11630,7 @@ fn working_evidence_body_excerpt(body: &str, max_chars: usize) -> String {
             || lower.starts_with("success:")
             || lower.starts_with("call_id:")
             || lower.starts_with("action_class:")
+            || lower.starts_with("taskspacereadfilesummaryv1:")
         {
             continue;
         }
@@ -11615,6 +11649,63 @@ fn working_evidence_body_excerpt(body: &str, max_chars: usize) -> String {
         bounded_line_preserving_excerpt(body, max_chars)
     } else {
         output.to_string()
+    }
+}
+
+fn read_file_summary_line(body: &str) -> Option<&str> {
+    body.lines().find_map(|line| {
+        let start = line.find("TaskSpaceReadFileSummaryV1:")?;
+        Some(line[start..].trim())
+    })
+}
+
+fn read_file_summary_eof_reached(body: &str) -> Option<bool> {
+    let line = read_file_summary_line(body)?.to_ascii_lowercase();
+    if line.contains("eof_reached=true") {
+        Some(true)
+    } else if line.contains("eof_reached=false") {
+        Some(false)
+    } else {
+        None
+    }
+}
+
+fn validation_rework_read_context_status(body: &str) -> Option<String> {
+    let summary = read_file_summary_line(body)?;
+    let eof_reached = read_file_summary_eof_reached(body);
+    let prefix = match eof_reached {
+        Some(true) => "complete_read",
+        Some(false) => "bounded_read",
+        None => "read_summary",
+    };
+    Some(format!("{prefix}; {summary}"))
+}
+
+fn validation_rework_read_completeness_feedback(result: &NodeResult) -> Option<String> {
+    match read_file_summary_eof_reached(&result.body) {
+        Some(true) => Some(format!(
+            "Result `{}` is a complete read_file context (TaskSpaceReadFileSummaryV1 eof_reached=true; no additional file lines are hidden).",
+            result.id
+        )),
+        Some(false) => Some(format!(
+            "Result `{}` is a bounded first-window read_file context (TaskSpaceReadFileSummaryV1 eof_reached=false); repeating the same read_file command will not reveal additional lines.",
+            result.id
+        )),
+        None => None,
+    }
+}
+
+fn validation_rework_read_next_action_feedback(result: &NodeResult) -> Option<String> {
+    match read_file_summary_eof_reached(&result.body) {
+        Some(true) => Some(format!(
+            "use complete read_file result `{}`; do not request the full file again",
+            result.id
+        )),
+        Some(false) => Some(format!(
+            "do not repeat the same bounded read_file result `{}`; apply a visible fix or block with the exact missing trailing-line evidence",
+            result.id
+        )),
+        None => None,
     }
 }
 
@@ -11937,8 +12028,16 @@ fn projection_next_valid_actions(
                         .iter()
                         .take(4)
                         .map(|(artifact, result_id)| {
+                            let read_context = map
+                                .results
+                                .get(result_id)
+                                .and_then(|result| {
+                                    validation_rework_read_context_status(&result.body)
+                                })
+                                .map(|status| format!(" ({status})"))
+                                .unwrap_or_default();
                             format!(
-                                "use existing validation rework target read result `{result_id}` for `{artifact}`; do not read/search it again before edit"
+                                "use existing validation rework target read result `{result_id}` for `{artifact}`{read_context}; do not read/search it again before edit"
                             )
                         })
                         .collect::<Vec<_>>()
@@ -15675,6 +15774,9 @@ fn sed_read_command_artifact_ref(command: &str) -> Option<String> {
     let mut tokens = tokens.iter().skip(1).peekable();
     let mut after_double_dash = false;
     while let Some(token) = tokens.next() {
+        if matches!(token.as_str(), "&&" | ";" | "||") {
+            break;
+        }
         if after_double_dash {
             paths.push(token.as_str());
             continue;
@@ -33466,20 +33568,28 @@ tool: shell_command\n\
 command: sed -n '1,240p' -- generate_org.py\n\
 raw_output:\n\
 def build_organization():\n\
-    return {}\n"
+    return {}\n\
+TaskSpaceReadFileSummaryV1: path=generate_org.py lines_read=2 eof_reached=true max_lines=240\n"
                     .to_string(),
             )
             .expect("targeted rework read records")
             .expect("targeted rework read result id");
         let map = state.active_map().expect("active map after target read");
         let read_result = map.results.get(&read_result_id).expect("read result");
+        assert!(
+            read_result.body.contains("TaskSpaceReadFileSummaryV1"),
+            "{}",
+            read_result.body
+        );
         assert_eq!(result_artifact_refs(read_result), vec!["generate_org.py"]);
         let actions_after_read =
             projection_next_valid_actions(map, Some(&rework_node_id), None, &[]);
         assert!(
             actions_after_read.iter().any(|action| action
                 .contains("use existing validation rework target read result")
-                && action.contains("generate_org.py")),
+                && action.contains("generate_org.py")
+                && action.contains("complete_read")
+                && action.contains("eof_reached=true")),
             "{actions_after_read:?}"
         );
         assert!(
@@ -33511,6 +33621,8 @@ def build_organization():\n\
             critical_evidence.iter().any(|evidence| evidence
                 .contains("signal=validation_rework_target_read")
                 && evidence.contains("generate_org.py")
+                && evidence.contains("read_context: complete_read")
+                && evidence.contains("eof_reached=true")
                 && evidence.contains("def build_organization")),
             "{critical_evidence:?}"
         );
@@ -33568,6 +33680,9 @@ def build_organization():\n\
         );
         assert!(repeated_message.contains("generate_org.py"));
         assert!(repeated_message.contains("apply_patch"));
+        assert!(repeated_message.contains("complete read_file context"));
+        assert!(repeated_message.contains("eof_reached=true"));
+        assert!(repeated_message.contains("no additional file lines are hidden"));
 
         state
             .record_main_tool_result_with_class(
@@ -33680,6 +33795,36 @@ organization.json generated successfully\n\
             excerpt.contains("'averageDepartmentBudget' is a required property"),
             "{excerpt}"
         );
+    }
+
+    #[test]
+    fn sed_read_command_artifact_ref_ignores_read_summary_suffix() {
+        let command = "sed -n '1,240p' -- 'dir/schema file.json' && awk 'NR == 241 { truncated = 1; exit } { lines = NR } END { printf \"TaskSpaceReadFileSummaryV1\" }' -- 'dir/schema file.json'";
+
+        assert_eq!(
+            read_command_artifact_ref(command).as_deref(),
+            Some("dir/schema file.json")
+        );
+    }
+
+    #[test]
+    fn working_evidence_excerpt_preserves_bounded_read_summary() {
+        let excerpt = working_evidence_body_excerpt(
+            "TaskSpaceToolInvocationV1:\n\
+tool: shell_command\n\
+command: sed -n '1,240p' -- long.py\n\
+raw_output:\n\
+def first_line(): pass\n\
+TaskSpaceReadFileSummaryV1: path=long.py lines_read=240 eof_reached=false max_lines=240\n",
+            160,
+        );
+
+        assert!(
+            excerpt.starts_with("TaskSpaceReadFileSummaryV1:"),
+            "{excerpt}"
+        );
+        assert!(excerpt.contains("eof_reached=false"), "{excerpt}");
+        assert!(excerpt.contains("def first_line"), "{excerpt}");
     }
 
     #[test]

@@ -2489,3 +2489,66 @@
   - The same test asserts failed edit feedback appears before `Previous blocked feedback`, so the bounded hard-stop excerpt keeps the concrete patch grammar rejection.
   - Advisory warning classification now emits `TaskSpaceValidationReworkDuplicateReadAfterPatchGrammarRecoveryV1` for unanchored patch updates, matching mixed/native patch grammar failures.
 - Interpretation: H-044 is focused-fixed at session recovery/feedback level. Commit/push, attestation, and another live rerun are required to verify whether the real `organization-json-generator` case now moves past this blocker.
+
+# Evidence E-097: f9ab63f live rerun crosses unanchored patch feedback and exposes read completeness ambiguity
+
+- Prediction tested: H-044 predicted that `apply_patch_unanchored_update` rejection semantics would survive duplicate-read recovery/hard-stop.
+- Real rerun:
+  ```text
+  RunDir: target/r4-org-json-real-keyed-20260703aq-unanchored-recovery/runs/terminal_bench__organization-json-generator/20260704-091714-857
+  PairReport: pair-001/pair-report.md
+  reported_evidence_level: E2-candidate
+  outcome_standard: solved
+  outcome_taskspace: engineering_unclean
+  right_exec_timed_out: False
+  right_tool_call_count: 11
+  right_open_leaf_nodes: 1
+  public_validation_exit_code: 1
+  hidden_oracle_exit_code: 0
+  preflight_git_head: f9ab63f733ccc488c470211a56375d6a068c944e
+  build_attestation_status: pass
+  ```
+- Result: supported H-044 by crossing the unanchored patch grammar blocker; the trace contains no `apply_patch_unanchored_update` recurrence.
+- New blocker signals:
+  - Initial validation ran the correct contract command: `python generate_organization.py && python -m jsonschema -i organization.json schema.json`.
+  - The validation failed with a precise editable traceback:
+    ```text
+    NameError: name 'projects_by_dept' is not defined
+    ```
+  - Validation rework read `generate_organization.py` once and received the relevant code, including `compute_project_budget` and the later `projects_by_dept` construction.
+  - The provider then repeated `read_file generate_organization.py` twice with rationales like `Need full file to fix undefined projects_by_dept`, and runtime stopped at `TaskSpaceValidationReworkDuplicateReadHardStopV1`.
+- Interpretation: The active blocker moved to `validation-rework-read-file-completeness-ambiguity`: the successful read content existed, but the read feedback did not explicitly mark whether the bounded `sed -n '1,240p'` output reached EOF or was truncated. The model treated the visible result as possibly incomplete and kept asking for the full file.
+
+# Hypothesis H-045: successful read_file results lack completeness semantics in validation rework feedback
+
+- Claim: `taskspace_read_file_command` emits a bounded first-240-line command without a structured completion summary. Projection and duplicate-read recovery can say `result-10` is visible, but cannot distinguish a complete small file from a truncated large file. In traceback-driven validation rework, this ambiguity lets the model justify repeated reads with `Need full file` even when the previous result contains the whole file.
+- Prediction: A focused test should show that read_file commands append `TaskSpaceReadFileSummaryV1` with `lines_read`, `eof_reached`, and `max_lines`; ActionMap should preserve this summary in working evidence excerpts, projection `critical_artifact_evidence`, `next_valid_actions`, and duplicate-read gate feedback. `eof_reached=true` should say no additional lines are hidden; `eof_reached=false` should remain a bounded read and must not be mislabeled complete.
+- Diagnostic evidence plan: Keep the existing `sed -n '1,240p'` prefix for artifact parsing, append a bounded `awk`/PowerShell summary, update `sed_read_command_artifact_ref` to ignore the summary suffix, parse the summary from multiline or preview-shaped result bodies, and run focused read/projection tests plus `validation_rework`, `validation_`, `apply_patch_`, fmt/diff/build.
+- Status: confirmed.
+
+# Evidence E-098: read_file completeness summary is preserved through projection and duplicate-read gates
+
+- Prediction tested: H-045 predicts that read_file completeness must be explicit and must survive ActionMap projection/recovery.
+- Repair artifacts:
+  - `third_party/codex-cli/codex-rs/core/src/session/turn.rs`
+  - `third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs`
+- Focused validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked action_contract_read_file_uses_host_platform_command
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked sed_read_command_artifact_ref_ignores_read_summary_suffix
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked working_evidence_excerpt_preserves_bounded_read_summary
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked validation_rework_allows_changed_artifact_read_when_schema_failure_lacks_traceback
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked validation_rework
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked validation_
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked apply_patch_
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+  git diff --check
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-cli --bin whale --locked
+  ```
+- Result: passed. The four focused tests are 1/1 each, `validation_rework` is 18/18, `validation_` is 95/95, `apply_patch_` is 35/35, fmt/diff checks pass, and the `whale` binary build passes.
+- Matched test signals:
+  - `action_contract_read_file_uses_host_platform_command` keeps the Unix command starting with `sed -n 1,240p` and appends `TaskSpaceReadFileSummaryV1`; Windows keeps `Get-Content -TotalCount 240` and appends the same summary.
+  - `sed_read_command_artifact_ref_ignores_read_summary_suffix` proves `sed ... && awk ...` still resolves the original artifact path.
+  - `working_evidence_excerpt_preserves_bounded_read_summary` proves `eof_reached=false` is preserved as bounded context.
+  - `validation_rework_allows_changed_artifact_read_when_schema_failure_lacks_traceback` now asserts projection includes `read_context: complete_read`, `eof_reached=true`, and duplicate-read gate feedback says no additional file lines are hidden.
+- Interpretation: H-045 is focused-fixed at read feedback/projection/recovery level. Commit/push, attestation, and another live rerun are required to verify whether `organization-json-generator` now moves past the repeated `Need full file` loop.

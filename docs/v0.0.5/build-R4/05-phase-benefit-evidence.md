@@ -3745,3 +3745,78 @@ CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/co
 状态：该 feedback-preservation class 已 focused fixed，并通过 diff/build；还需要 commit/push、binary attestation
 和下一轮 keyed rerun。下一轮期望 unanchored patch rejection 后，duplicate-read recovery/hard-stop 明确展示
 `apply_patch_unanchored_update` 并要求修正 patch grammar，而不是让模型继续 context refresh。
+
+## 5.55 2026-07-04 read_file completeness must be explicit in validation rework
+
+`f9ab63f` 的 keyed rerun 没有复现 `apply_patch_unanchored_update`，说明上一节的 unanchored patch feedback case
+已被越过。新的失败点发生在 traceback-driven validation rework：工具返回了可编辑失败和目标文件内容，但 read 成功结果没有告诉模型
+这是不是完整文件，模型连续以 “Need full file” 为理由重复读取同一文件。
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260703aq-unanchored-recovery/runs/terminal_bench__organization-json-generator/20260704-091714-857
+reported_evidence_level: E2-candidate
+outcome_standard: solved
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 11
+right_open_leaf_nodes: 1
+public_validation_exit_code: 1
+hidden_oracle_exit_code: 0
+preflight_git_head: f9ab63f733ccc488c470211a56375d6a068c944e
+build_attestation_status: pass
+```
+
+关键观察：
+
+| Signal | 结论 |
+|---|---|
+| trace 中没有 `apply_patch_unanchored_update` | H-044 的 unanchored patch recovery blocker 已越过 |
+| validation 命令为 `python generate_organization.py && python -m jsonschema -i organization.json schema.json` | validation coverage 仍保持正确 |
+| failed validation 为 `NameError: name 'projects_by_dept' is not defined` | 新失败是可编辑实现错误，不是 schema summary 缺失 |
+| rework 第一次 `read_file generate_organization.py` 已返回 `compute_project_budget` 和 `projects_by_dept` 相关代码 | 目标文件内容已经进入反馈链路 |
+| 后续 provider 两次重复 `read_file generate_organization.py`，rationale 是 `Need full file` | 成功 read 的完整性语义不明确，模型把 `sed -n 1,240p` 当成可能截断 |
+| runtime 最后触发 `TaskSpaceValidationReworkDuplicateReadHardStopV1` | 状态机仍能阻断重复读，但没有帮助模型从“需要完整文件”转向 patch |
+
+本轮新增并 focused 修复的问题类型：
+
+| Case | Before | After | Evidence |
+|---|---|---|---|
+| `validation-rework-read-file-completeness-ambiguity` | `read_file` 输出是 bounded first-window 内容，没有结构化说明是否到达 EOF；projection 只能说已有 `result-10`，不能区分完整小文件与截断大文件 | `read_file` 保持 `sed -n 1,240p` 前缀并追加 `TaskSpaceReadFileSummaryV1: lines_read/eof_reached/max_lines`；ActionMap 解析该 summary，并在 working evidence、critical artifact evidence、next actions、duplicate-read gate 中前置；`eof_reached=true` 明确 no additional lines hidden，`false` 保持 bounded_read | `action_contract_read_file_uses_host_platform_command`; `sed_read_command_artifact_ref_ignores_read_summary_suffix`; `working_evidence_excerpt_preserves_bounded_read_summary`; `validation_rework_allows_changed_artifact_read_when_schema_failure_lacks_traceback`; CoE E-097/H-045/E-098 |
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked action_contract_read_file_uses_host_platform_command
+  PASS：1 test
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked sed_read_command_artifact_ref_ignores_read_summary_suffix
+  PASS：1 test
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked working_evidence_excerpt_preserves_bounded_read_summary
+  PASS：1 test
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked validation_rework_allows_changed_artifact_read_when_schema_failure_lacks_traceback
+  PASS：1 test
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked validation_rework
+  PASS：18 tests
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked validation_
+  PASS：95 tests
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked apply_patch_
+  PASS：35 tests
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+  PASS
+
+git diff --check
+  PASS
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-cli --bin whale --locked
+  PASS
+```
+
+状态：该 read feedback completeness class 已 focused fixed，并通过 diff/build；还需要 commit/push、binary attestation
+和下一轮 keyed rerun。下一轮期望 `generate_organization.py` 首次 read 后 projection 显示 `complete_read` /
+`eof_reached=true`，重复 full-file read 被明确反馈为无隐藏行，应推动模型转向 `apply_patch`。

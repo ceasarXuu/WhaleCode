@@ -6916,11 +6916,16 @@ tax_calc.py\n\
         if cfg!(windows) {
             assert!(command.starts_with("Get-Content -LiteralPath "));
             assert!(command.contains("-TotalCount 240"));
+            assert!(command.contains("TaskSpaceReadFileSummaryV1"));
+            assert!(command.contains("eof_reached=$TaskSpaceReadEof"));
         } else {
             assert!(command.starts_with("sed -n "));
             assert!(command.contains("1,240p"));
             assert!(command.contains(" -- "));
             assert!(command.contains("'dir/schema file.json'"));
+            assert!(command.contains("&& awk "));
+            assert!(command.contains("TaskSpaceReadFileSummaryV1"));
+            assert!(command.contains("eof_reached=%s"));
             assert!(!command.contains("Get-Content"));
         }
     }
@@ -10844,17 +10849,40 @@ fn taskspace_action_reads_validation_rework_artifact(
 }
 
 fn taskspace_read_file_command(path: &str) -> String {
+    const MAX_LINES: usize = 240;
     if cfg!(windows) {
-        format!("Get-Content -LiteralPath {path:?} -TotalCount 240")
+        let summary_path = path.replace('"', "`\"");
+        format!(
+            "Get-Content -LiteralPath {path:?} -TotalCount {MAX_LINES}; \
+$TaskSpaceReadCount = @(Get-Content -LiteralPath {path:?} -TotalCount {}).Count; \
+$TaskSpaceReadLines = [Math]::Min($TaskSpaceReadCount, {MAX_LINES}); \
+$TaskSpaceReadEof = if ($TaskSpaceReadCount -le {MAX_LINES}) {{ 'true' }} else {{ 'false' }}; \
+Write-Output \"TaskSpaceReadFileSummaryV1: path={summary_path} lines_read=$TaskSpaceReadLines eof_reached=$TaskSpaceReadEof max_lines={MAX_LINES}\"",
+            MAX_LINES + 1,
+        )
     } else {
-        let args = vec![
+        let sed_args = vec![
             "sed".to_string(),
             "-n".to_string(),
-            "1,240p".to_string(),
+            format!("1,{MAX_LINES}p"),
             "--".to_string(),
             path.to_string(),
         ];
-        codex_shell_command::parse_command::shlex_join(&args)
+        let summary_script = format!(
+            "NR == {} {{ truncated = 1; exit }} {{ lines = NR }} END {{ eof = truncated ? \"false\" : \"true\"; if (lines > {MAX_LINES}) lines = {MAX_LINES}; printf \"\\nTaskSpaceReadFileSummaryV1: path=%s lines_read=%d eof_reached=%s max_lines={MAX_LINES}\\n\", FILENAME, lines + 0, eof }}",
+            MAX_LINES + 1,
+        );
+        let awk_args = vec![
+            "awk".to_string(),
+            summary_script,
+            "--".to_string(),
+            path.to_string(),
+        ];
+        format!(
+            "{} && {}",
+            codex_shell_command::parse_command::shlex_join(&sed_args),
+            codex_shell_command::parse_command::shlex_join(&awk_args)
+        )
     }
 }
 
