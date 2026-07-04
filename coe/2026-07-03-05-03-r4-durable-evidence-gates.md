@@ -6010,3 +6010,63 @@
     PASS
   ```
 - Interpretation: H-101 is focused-fixed. Real utility validation still requires commit/push, attestation, and another keyed rerun to see whether the separator-style patch now applies or exposes the next validation rework blocker.
+
+# Evidence E-209: H-101 rerun live-clears separator intent and exposes required-validator feedback distortion
+
+- Real rerun:
+  ```text
+  RunDir: target/r4-org-json-real-keyed-20260704cv-separator-update/runs/terminal_bench__organization-json-generator/20260704-223925-994
+  reported_evidence_level: E2-candidate
+  outcome_standard: solved
+  outcome_taskspace: engineering_unclean
+  right_exec_timed_out: False
+  right_tool_call_count: 11
+  right_public_validation_exit_code: 1
+  right_hidden_oracle_exit_code: 0
+  right_open_leaf_nodes: 0
+  ```
+- H-101 live status:
+  - The trace no longer contains `action_contract_output_not_strict_json`, `TaskSpaceApplyPatchRecoveryHardStopV1`, or targetless `src/---` feedback.
+  - The run progressed through inspect, implementation, schema validation, validation rework target read, and failed edit feedback.
+- New blocker signal:
+  - The validation gate produced a coverage-correct command: `node process.js && python -m jsonschema -i organization.json schema.json`.
+  - The raw shell classifier treated that command as `ActionClass::Unknown`, so the smoke_test node blocked the bootstrap execution as `smoke_test does not allow unknown`.
+  - Earlier `python -m pytest -v` failure was classified as local validator infrastructure failure, and the final provider answer distorted available evidence into `JSON schema validator tool is unavailable`, despite `schema.json` having been read and the required `jsonschema` command having been named.
+- Interpretation: H-101 is live-cleared. The next R4 issue is feedback-layer semantic distortion caused by a capability classification gap: a schema validator command was not classified as test, and stale blocker wording was accepted after schema/rework evidence already existed.
+
+# Hypothesis H-102: required schema validator commands and stale schema blockers need closed feedback semantics
+
+- Claim: TaskSpace must classify `python -m jsonschema` commands as validation/test actions, including when chained after a generator command. During validation rework, blockers claiming `schema.json` was not read or the schema validator is unavailable must be rejected when dependency evidence already contains schema/rework failure evidence and a concrete implementation target.
+- Prediction: After repair, `node process.js && python -m jsonschema -i organization.json schema.json` is classified as `ActionClass::Test`; live-shaped blockers containing `We have not read schema.json` or `JSON schema validator tool is unavailable` are rejected on implementation rework nodes with `apply_patch` guidance.
+- Diagnostic evidence plan: Add a shell classifier regression for the exact chained validator command and a runtime regression that builds a schema validation rework node, then attempts the two stale blocker reasons from the live trace.
+- Status: confirmed.
+
+# Evidence E-210: schema validator command classification and stale blocker rejection are covered
+
+- Repair artifacts:
+  - `third_party/codex-cli/codex-rs/core/src/tools/parallel.rs`
+  - `third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs`
+- Repair behavior:
+  - `classify_shell_text()` now treats `python -m jsonschema`, `python3 -m jsonschema`, and `py -m jsonschema` as test actions, so chained commands such as `node process.js && python -m jsonschema -i organization.json schema.json` can pass validation-node action gating.
+  - `blocker_claims_missing_inspected_source_evidence()` now catches live stale-source wording such as `have not read`, `not read`, and `not readable`.
+  - `blocker_claims_validation_procedure_instead_of_implementation_fix()` now catches stale validator-tool blockers such as `schema validator tool is unavailable` when dependency validation evidence already identifies an editable schema failure.
+- Validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_rework_rejects_stale_schema_and_validator_unavailable_blockers --lib
+    PASS
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core shell_action_classifier_identifies_core_taskspace_classes --lib
+    PASS
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_rework --lib
+    PASS: 28/28
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core action_contract_prompt --lib
+    PASS: 29/29
+  cargo fmt --check
+    PASS
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo check -p codex-core
+    PASS
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
+    PASS
+  git diff --check
+    PASS
+  ```
+- Interpretation: H-102 is focused-fixed. It is a semantic distortion case: evidence existed, but the action class and blocker filters let the provider-visible failure drift from "run/patch against schema evidence" to "validator unavailable". Remaining gates are commit/push, binary attestation, and keyed rerun.

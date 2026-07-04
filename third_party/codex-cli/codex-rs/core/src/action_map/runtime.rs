@@ -16563,6 +16563,10 @@ fn blocker_claims_missing_inspected_source_evidence(blocker_summary: &str) -> bo
         || lower.contains("need full file content")
         || lower.contains("need full schema")
         || lower.contains("need schema context")
+        || lower.contains("have not read")
+        || lower.contains("has not read")
+        || lower.contains("not read")
+        || lower.contains("not readable")
         || lower.contains("missing schema context")
         || lower.contains("full schema context")
         || lower.contains("full content is needed")
@@ -16608,6 +16612,10 @@ fn blocker_claims_validation_procedure_instead_of_implementation_fix(
         || lower.contains("no tests discovered")
         || lower.contains("cache permission")
         || lower.contains("test infrastructure")
+        || lower.contains("validator tool is unavailable")
+        || lower.contains("validation tooling")
+        || lower.contains("validation tool is unavailable")
+        || lower.contains("schema validator tool is unavailable")
         || lower.contains("cannot run recover.py")
         || lower.contains("run the script manually");
     validation_subject && procedure_claim
@@ -35511,6 +35519,131 @@ TaskSpaceReadFileSummaryV1: path=long.py lines_read=240 eof_reached=false max_li
 
         assert!(error.contains("cannot be blocked for validator procedure"));
         assert!(error.contains("apply_patch"));
+    }
+
+    #[test]
+    fn validation_rework_rejects_stale_schema_and_validator_unavailable_blockers() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (_, _map_id, implement_node_id, _) = start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::ImplementSolution,
+            "Generate organization output",
+            "Create a JSON processor that satisfies schema.json.",
+            "Implement generator",
+            "Create process.js and organization.json.",
+            true,
+        );
+        state
+            .record_fact_source_for_main(
+                owner,
+                "fs-schema-json",
+                "observed_from_environment",
+                "schema.json defines target JSON structure".to_string(),
+                vec![ActionMapEvidenceRefInput {
+                    artifact_ref: Some("schema.json".to_string()),
+                    ..Default::default()
+                }],
+            )
+            .expect("schema fact source records");
+        let (edit_result_id, _) = state
+            .record_main_tool_result_with_class(
+                owner,
+                "edit-process-js",
+                "apply_patch",
+                Some(ActionClass::Edit),
+                true,
+                "Success. Updated the following files:\nA process.js\n".to_string(),
+            )
+            .expect("edit result")
+            .expect("edit result id");
+        state
+            .mark_result_validity_for_main(
+                owner,
+                &edit_result_id,
+                "accepted",
+                "accepted implementation edit".to_string(),
+                vec![ActionMapCognitiveClaimInput {
+                    id: "claim-edit-process-js".to_string(),
+                    statement: "Processor script was created.".to_string(),
+                    evidence_refs: vec![ActionMapEvidenceRefInput {
+                        result_id: Some(edit_result_id.clone()),
+                        ..Default::default()
+                    }],
+                }],
+                vec![ActionMapEvidenceRefInput {
+                    result_id: Some(edit_result_id.clone()),
+                    ..Default::default()
+                }],
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+            )
+            .expect("edit accepted");
+        let (handoff, _) = state
+            .finish_main_node_with_next(
+                owner,
+                &implement_node_id,
+                "Created process.js.".to_string(),
+                None,
+                Some(ActionMapNextNodeDraft {
+                    kind: NodeKind::SmokeTest,
+                    title: "Run schema validation".to_string(),
+                    context_summary:
+                        "Run process.js and validate organization.json against schema.json."
+                            .to_string(),
+                    dependency_node_ids: vec![implement_node_id.clone()],
+                }),
+            )
+            .expect("finish implementation into validation");
+        let validation_node_id = handoff.next_node_id.expect("validation node id");
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "run-schema-validation",
+                "shell_command",
+                Some(ActionClass::Test),
+                false,
+                "node process.js && python -m jsonschema -i organization.json schema.json\n\
+{'memberIds': ['D001-E001']}: 'members' is a required property\n\
+{'employeesPerDepartment': []}: 'averageDepartmentBudget' is a required property\n"
+                    .to_string(),
+            )
+            .expect("failed schema validation should route rework")
+            .expect("validation result");
+        let rework_node_id = state
+            .current_main_node_id
+            .clone()
+            .expect("failed validation should bind rework");
+        assert_ne!(rework_node_id, validation_node_id);
+
+        let stale_schema_block = state
+            .block_main_node(
+                owner,
+                &rework_node_id,
+                "The generated output structure in process.js may not match schema.json. We have not read schema.json, so we cannot validate the required fields. Previous patch failed, and further patching without schema knowledge risks repeated failure.".to_string(),
+            )
+            .expect_err("schema evidence is already available through validation rework");
+        assert!(
+            stale_schema_block.contains("cannot be blocked for missing source visibility"),
+            "{stale_schema_block}"
+        );
+        assert!(stale_schema_block.contains("apply_patch"));
+
+        let stale_validator_block = state
+            .block_main_node(
+                owner,
+                &rework_node_id,
+                "Local infrastructure evidence: JSON schema validator tool is unavailable in this environment, preventing validation of organization.json against schema.json.".to_string(),
+            )
+            .expect_err("validator-unavailable claim cannot replace editable schema failure");
+        assert!(
+            stale_validator_block.contains("cannot be blocked for validator procedure"),
+            "{stale_validator_block}"
+        );
+        assert!(stale_validator_block.contains("apply_patch"));
     }
 
     #[test]

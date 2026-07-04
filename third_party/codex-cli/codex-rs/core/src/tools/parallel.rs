@@ -523,6 +523,9 @@ fn classify_shell_text(command: &str) -> ActionClass {
             "mvn test",
             "connecteddebugandroidtest",
             "python -m unittest",
+            "python -m jsonschema",
+            "python3 -m jsonschema",
+            "py -m jsonschema",
         ],
     ) || has_common_test_command(&command_words)
         || runs_python_test_file(&command_words)
@@ -893,6 +896,12 @@ mod tests {
         assert_eq!(classify_shell_text("pytest -q"), ActionClass::Test);
         assert_eq!(
             classify_shell_text("python -m pytest tests/ -v 2>&1"),
+            ActionClass::Test
+        );
+        assert_eq!(
+            classify_shell_text(
+                "node process.js && python -m jsonschema -i organization.json schema.json"
+            ),
             ActionClass::Test
         );
         assert_eq!(

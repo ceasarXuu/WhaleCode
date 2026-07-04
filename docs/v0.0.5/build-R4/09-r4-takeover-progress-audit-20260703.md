@@ -3185,6 +3185,36 @@ final_marker: TaskSpaceApplyPatchRecoveryHardStopV1
 
 状态：focused 修复已编码并通过相关回归、fmt/diff/check/build。下一步是 commit/push、attestation、keyed rerun，验证 separator patch 是否能真正应用，或继续暴露下一层 validation rework blocker。
 
+## 31. 2026-07-04 required schema validator feedback distortion
+
+`439b4e1` 后的 keyed rerun 已 live-clear H-101：strict JSON/trailing quote、separator update section、`src/---` 伪目标和
+apply_patch recovery hard-stop 均未再出现。新的 blocker 是 validation required command 与 blocker 语义链路：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260704cv-separator-update/runs/terminal_bench__organization-json-generator/20260704-223925-994
+reported_evidence_level: E2-candidate
+outcome_standard: solved
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 11
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+right_open_leaf_nodes: 0
+```
+
+问题类型收录：
+
+| 字段 | 内容 |
+|---|---|
+| case | `required-schema-validator-command-classification-and-stale-blocker` |
+| 层级 | tool action classification / validation rework blocker semantics |
+| 本质 | required validator command `node process.js && python -m jsonschema -i organization.json schema.json` 未被归类为 test，bootstrap 被 smoke_test gate 拒绝；随后 provider 把已读 schema 和已命名 validator 扭成 validator unavailable |
+| 非根因 | 不是 `schema.json` 未读；不是 `python -m jsonschema` 未被命名；不是 separator patch normalization 未生效 |
+| 修复 | schema validator command 分类为 `ActionClass::Test`；validation rework 中 `have not read schema.json`、`not readable`、`schema validator tool is unavailable` 这类 stale blocker 在已有 rework evidence 时被拒绝并要求 `apply_patch` |
+| focused evidence | CoE H-102/E-209/E-210；`shell_action_classifier_identifies_core_taskspace_classes`；`validation_rework_rejects_stale_schema_and_validator_unavailable_blockers`；`validation_rework` 28/28；`action_contract_prompt` 29/29；fmt-check；cargo check；whale build；diff-check |
+
+状态：focused 修复已编码并通过相关回归、fmt/check/build/diff-check。下一步是 commit/push、attestation、keyed rerun，验证 required schema validator 是否真正执行并继续定位剩余 blocker。
+
 ## 28. 2026-07-04 natural-language slash fact-source extraction
 
 `3b6b269` 后的 keyed rerun 没有触发 no-action recovery，因此 H-098 尚未 live-clear。该轮暴露 inspect fact-source

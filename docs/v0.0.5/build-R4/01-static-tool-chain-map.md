@@ -893,3 +893,19 @@ runtime 已经识别 provider 没有产生有效 TaskSpace progress，并多次�
 
 边界说明：该修复不降低“必须读取真实 fact sources 后才能进入 implementation”的约束。`schema.json`、`departments.csv`、
 `employees.csv`、`projects.csv` 仍会被要求；只移除自然语言关系词造成的假路径。
+
+## 2026-07-04 R4-D issue type addendum: required schema validator feedback distortion
+
+`439b4e1` 后的 keyed rerun live-clear 了 separator update section 和 trailing quote 问题，但暴露 validation
+feedback 的另一类语义扭曲：coverage-correct required command 已经是
+`node process.js && python -m jsonschema -i organization.json schema.json`，raw shell classifier 却把它归为
+`unknown`，导致 smoke_test gate 拒绝执行；随后 provider 将已读 `schema.json` 和已命名的 schema validator
+扭成 `JSON schema validator tool is unavailable`。
+
+| Issue type | Layer | Symptom | Resolution contract | Evidence |
+|---|---|---|---|---|
+| `required-schema-validator-command-classification-and-stale-blocker` | tool action classification / validation rework blocker semantics | schema validator command 被 `smoke_test does not allow unknown` 拦截；rework block 声称未读 schema 或 validator unavailable，即使 schema/rework evidence 已存在 | `python -m jsonschema`/`python3 -m jsonschema`/`py -m jsonschema` 分类为 test；validation rework 中 stale schema visibility 和 validator unavailable blocker 被拒绝并要求 `apply_patch` | keyed rerun `20260704-223925-994`; CoE H-102/E-209/E-210; `shell_action_classifier_identifies_core_taskspace_classes`; `validation_rework_rejects_stale_schema_and_validator_unavailable_blockers`; `validation_rework` |
+
+边界说明：该修复不把所有 `node ... && python ...` 都归为 test，只识别明确 schema validator invocation；也不否认真实
+validator infrastructure failure。它只防止在已有 schema/rework evidence 的情况下，把可编辑 schema failure 重新解释成“未读
+schema”或“validator 不可用”。

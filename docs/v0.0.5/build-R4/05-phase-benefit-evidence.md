@@ -5080,3 +5080,45 @@ CODEX_SKIP_VENDORED_BWRAP=1 cargo check -p codex-core
 CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
 git diff --check
 ```
+
+## 5.88 2026-07-04 required schema validator feedback distortion
+
+`439b4e1` 后 rerun 证明 H-101 已 live-clear：separator-style patch、单尾随 quote、targetless `src/---` 和
+apply_patch recovery hard-stop 未再出现。新的 failure 是 required schema validator command 被分类为 unknown，并进一步造成
+stale blocker：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260704cv-separator-update/runs/terminal_bench__organization-json-generator/20260704-223925-994
+reported_evidence_level: E2-candidate
+outcome_standard: solved
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 11
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+final_marker: blocked_by_taskspace_action_contract: JSON schema validator tool is unavailable
+```
+
+收益判断：
+
+1. 新收录的 R4-D ability/feedback 修复是 `required-schema-validator-command-classification-and-stale-blocker`：
+   schema validator command 现在能作为 validation/test action 进入 smoke_test gate。
+2. 该 case 是“失败语义扭曲”：schema evidence 和 required command 已存在，但最终反馈被扭成“未读 schema / validator
+   不可用”。
+3. blocker 拒绝仍受状态机边界约束：只有在 validation rework 已有 dependency evidence 且没有成功 edit 时，才把 stale
+   schema/validator blocker 改写回 `apply_patch` 要求。
+4. R4-G utility 仍未通过：需要下一次 keyed rerun 验证 required validator 是否实际执行，并继续定位剩余 validation
+   rework 或 final gate blocker。
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_rework_rejects_stale_schema_and_validator_unavailable_blockers --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core shell_action_classifier_identifies_core_taskspace_classes --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_rework --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core action_contract_prompt --lib
+cargo fmt --check
+CODEX_SKIP_VENDORED_BWRAP=1 cargo check -p codex-core
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
+git diff --check
+```
