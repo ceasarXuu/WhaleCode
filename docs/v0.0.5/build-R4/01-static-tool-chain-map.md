@@ -594,3 +594,19 @@ complete target read、schema repair contract、patch-only recovery 和 closed-a
 
 边界说明：该 case 已越过“工具反馈是否正确传递”的狭义层面，进入 repair synthesis 策略层。R4-D 负责确保失败语义不丢失、不扭曲、
 不降级；H-073 focused fix 不写任务特化 patcher，只把已存在的 repair evidence 结构化为通用 patch 构造步骤。
+
+## 2026-07-04 R4-D issue type addendum: start_task output contract downgrade
+
+repair-synthesis scaffold 修复后的 keyed rerun 没有命中 H-073 分支，而是在更早的 start-task contract 建立阶段暴露
+contract downgrade。provider 的顶层 rationale 仍包含 `organization.json` / `schema.json` 任务目标，但
+`taskspace_control.start_task` args 把 success criteria 和 output contracts 写成 inspect-style discovery summary。runtime
+接受该弱 contract 后，后续 `python process.py` generator-only 成功被 validation closeout 解释成任务 validation success，
+即使 public validator 仍失败。
+
+| Issue type | Layer | Symptom | Resolution contract | Evidence |
+|---|---|---|---|---|
+| `start-task-output-contract-downgrade` | capability/contract bootstrap before tool validation | provider-supplied `start_task` args 可把 objective-level generated output/schema obligations 降级成 schema/file summary；工具成功语义因此被错误解释为任务成功 | action-contract transport 将 top-level rationale 合并进 start_task objective；runtime 从 objective、success criteria、evidence refs 推导 generated JSON output targets 和 schema/validator targets，generator-only validation closeout 不再满足弱 contract | keyed rerun `20260704-161809-385`; CoE H-074/E-158/E-159; `taskspace_action_contract_preserves_start_task_rationale_as_objective`; `start_task_derives_output_contracts_from_objective_when_model_records_inspect_outputs` |
+
+边界说明：这是 capability/contract 层的 feedback 前置问题。工具没有“失败但没传递”；相反，工具成功被过窄的 start-task
+contract 重新解释成了错误成功。R4 修复点是让状态机恢复用户目标中的产物/schema 义务，而不是允许 runtime 越过状态机直接假设所有
+JSON 生成任务都必须跑某个固定 validator。

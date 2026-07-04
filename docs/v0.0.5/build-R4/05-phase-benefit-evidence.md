@@ -4087,3 +4087,61 @@ CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/co
 
 结论：H-072 live-cleared；H-073 focused-fixed，real rerun pending。R4-G utility 仍未过，下一轮 keyed rerun 要验证 scaffold
 是否让 live model 输出 `apply_patch`，否则再升级到模型/profile 或更强 patch-plan gate。
+
+## 5.64 2026-07-04 start_task output contract downgrade
+
+`d07644c` 的 keyed rerun 没有验证到 5.63 的 repair-synthesis scaffold，因为路径更早分叉。provider 的顶层 rationale
+仍写明要产出 `organization.json` 并符合 `schema.json`，但 `start_task` args 把 `initial_success_criteria` /
+`initial_output_contracts` 降级成 inspect-style 文件发现和 schema summary。runtime 接受了该弱 contract，后续把
+`python process.py` 这种 generator-only 成功通过 `TaskSpaceForcedValidationCloseoutV1 trigger=validation_success_after_tool_drain`
+关掉 validation node，未强制同一次 validation 覆盖 `organization.json` 和 `schema.json`。
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260704bs-repair-synthesis-scaffold/runs/terminal_bench__organization-json-generator/20260704-161809-385
+reported_evidence_level: E1
+outcome_standard: wrong
+outcome_taskspace: wrong
+right_exec_timed_out: False
+right_tool_call_count: 8
+right_wall_time_ms: 106910
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+```
+
+本轮新增并 focused 修复的问题类型：
+
+| Case | Before | After | Evidence |
+|---|---|---|---|
+| `start-task-output-contract-downgrade` | 顶层 rationale/用户目标包含 generated output 和 schema obligations，但 provider-supplied `start_task` args 可把 output contract 写窄成 inspect summary；validation closeout 因而接受 generator-only tool success | `taskspace_control.start_task` transport 将 top-level rationale 合并进 objective；runtime 从 objective、success criteria 和 evidence refs 推导 generated JSON output contract 与 schema/validator contract，且不重复已有显式 contract | keyed rerun `20260704-161809-385`; CoE H-074/E-158/E-159; `taskspace_action_contract_preserves_start_task_rationale_as_objective`; `start_task_derives_output_contracts_from_objective_when_model_records_inspect_outputs`; generator-only closeout regressions |
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core taskspace_action_contract_preserves_start_task_rationale_as_objective --lib
+  PASS
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core start_task_derives_output_contracts_from_objective_when_model_records_inspect_outputs --lib
+  PASS
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core force_finish_validation_rejects_generator_only_output_contract_success --lib
+  PASS
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core validation_node_derives_output_target_from_success_criteria_for_schema_check --lib
+  PASS
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core action_contract_prompt --lib
+  PASS
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+  PASS
+
+git diff --check
+  PASS
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-cli --bin whale --locked
+  PASS
+```
+
+边界说明：该 case 是 capability/contract 层问题，不是普通 tool execution failure。raw 工具成功存在，但成功含义被弱
+start-task contract 误解释成任务成功。修复原则是让 runtime 恢复 objective-level output/schema obligations，而不是给
+`organization-json-generator` 写专用 validator。

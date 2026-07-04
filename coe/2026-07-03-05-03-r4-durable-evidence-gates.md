@@ -4450,3 +4450,63 @@
   ```
 - Result: passed. Focused recovery tests passed after aligning the ordinary patch-only hard-stop assertion with the existing runtime policy; `validation_rework` and `action_contract_prompt` suites passed; formatting, whitespace, and `whale` build passed.
 - Interpretation: H-073 has a focused feedback-to-repair-synthesis fix. It still needs attestation and another keyed rerun to determine whether the scaffold moves the live model from repeated read to `apply_patch`, or whether model/profile escalation is required.
+
+# Evidence E-158: d07644c rerun exposes start-task output contract downgrade before H-073 can be validated
+
+- Prediction tested: H-073 repair-synthesis scaffold should become live-visible when the run reaches validation rework patch-only recovery.
+- Real rerun:
+  ```text
+  RunDir: target/r4-org-json-real-keyed-20260704bs-repair-synthesis-scaffold/runs/terminal_bench__organization-json-generator/20260704-161809-385
+  PairReport: pair-001/pair-report.md
+  reported_evidence_level: E1
+  outcome_standard: wrong
+  outcome_taskspace: wrong
+  right_exec_timed_out: False
+  right_tool_call_count: 8
+  right_wall_time_ms: 106910
+  right_public_validation_exit_code: 1
+  right_hidden_oracle_exit_code: 0
+  current_git_head: d07644cb25e3601935989592124d67bcc87c9ac8
+  whale_binary_sha256: 606fee74357a782388ffd30d3e4212ba31a1564a7eacc7b0beb1720cf46df45a
+  ```
+- Matched signals:
+  - This run did not reach the H-073 patch-only scaffold branch; it diverged earlier.
+  - The provider's top-level rationale said to produce `organization.json`, but `start_task` args narrowed `initial_success_criteria` and `initial_output_contracts` to inspect-style discoveries such as schema/file summaries.
+  - Runtime accepted the narrowed start-task contract, then later accepted `python process.py` generator execution as validation success through `TaskSpaceForcedValidationCloseoutV1 trigger=validation_success_after_tool_drain`.
+  - No same-validation coverage required `organization.json` plus `schema.json`, so public validation still failed while TaskSpace closed the validation node.
+- Interpretation: H-073 remains focused-fixed but live-unvalidated. New blocker is H-074: `start-task-output-contract-downgrade`. The root issue is not missing tool output; it is a start-task contract normalization gap that lets provider-supplied args narrow away the user-visible objective and generated-output/schema validation contract.
+
+# Hypothesis H-074: start_task contract normalization must preserve objective-level output/schema obligations
+
+- Claim: When a provider emits `start_task` with weak or inspect-only `initial_output_contracts`, the runtime currently trusts those args too much. If the top-level action rationale or success criteria still name generated output and schema artifacts, those obligations must be recovered into the TaskState output contract before validation/closeout gates can use them.
+- Prediction:
+  1. The action-contract transport should preserve top-level `rationale` as `objective` or merge it into an existing objective for `taskspace_control.start_task`.
+  2. Runtime scaffold seeding should derive output-contract validation requirements from objective text, success criteria descriptions, and success-criteria evidence refs, not only from model-supplied `initial_output_contracts`.
+  3. Generated JSON outputs such as `organization.json` should become artifact validation targets, and schema/validator artifacts such as `schema.json` should become schema validation targets.
+  4. Existing generator-only closeout regression tests should remain passing.
+- Diagnostic evidence plan: Add focused action-contract and runtime tests that reproduce the exact downgrade: rationale mentions `organization.json`/`schema.json`, but args only record schema/file inspection summaries. The tests must show the objective survives transport and the runtime derives output/schema validation requirements before validation closeout.
+- Status: confirmed.
+
+# Evidence E-159: start_task rationale and derived output contracts now survive weak provider args
+
+- Prediction tested: H-074 predicts objective-level output/schema obligations should be restored even when provider `start_task` args are inspect-only.
+- Repair artifacts:
+  - `third_party/codex-cli/codex-rs/core/src/session/turn.rs`
+  - `third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs`
+- Repair behavior:
+  - `taskspace_action_to_tool_call()` now merges a `taskspace_control.start_task` top-level rationale into `objective`/`task_objective` before normalizing tool-call args.
+  - `seed_missing_start_task_scaffold()` now derives output contracts from the objective, success criteria descriptions, and success-criteria artifact refs.
+  - Derived generated JSON artifacts become output validation targets; schema/validator artifacts become schema validation targets; existing explicit contracts are not duplicated.
+- Validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core taskspace_action_contract_preserves_start_task_rationale_as_objective --lib
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core start_task_derives_output_contracts_from_objective_when_model_records_inspect_outputs --lib
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core force_finish_validation_rejects_generator_only_output_contract_success --lib
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core validation_node_derives_output_target_from_success_criteria_for_schema_check --lib
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -j1 --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core action_contract_prompt --lib
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+  git diff --check
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-cli --bin whale --locked
+  ```
+- Result: passed. Focused transport/runtime tests passed; generator-only closeout and schema-target derivation regressions passed; action-contract prompt suite passed; formatting, whitespace, and `whale` build gates passed.
+- Interpretation: H-074 is focused-fixed. It needs commit/push, attestation, and a keyed rerun to verify the live `organization-json-generator` path no longer accepts generator-only validation as satisfying the task's output/schema contract.

@@ -18325,6 +18325,97 @@ fn seed_missing_start_task_scaffold(
             evidence_refs: user_request_evidence(),
         });
     }
+    seed_start_task_derived_output_contracts(
+        &objective,
+        success_criteria,
+        output_contracts,
+        user_request_evidence(),
+    );
+}
+
+fn seed_start_task_derived_output_contracts(
+    objective: &str,
+    success_criteria: &[ActionMapSuccessCriterionInput],
+    output_contracts: &mut Vec<ActionMapStateCommitOutputContractInput>,
+    evidence_refs: Vec<ActionMapEvidenceRefInput>,
+) {
+    let mut artifacts = Vec::new();
+    for artifact in extract_artifact_like_refs(objective) {
+        push_unique_artifact_ref(&mut artifacts, artifact);
+    }
+    for criterion in success_criteria {
+        for artifact in extract_artifact_like_refs(&criterion.description) {
+            push_unique_artifact_ref(&mut artifacts, artifact);
+        }
+        for evidence in &criterion.evidence_refs {
+            if let Some(artifact_ref) = evidence.artifact_ref.as_deref() {
+                push_unique_artifact_ref(&mut artifacts, normalize_artifact_ref(artifact_ref));
+            }
+        }
+    }
+    for artifact in artifacts {
+        if output_contract_artifact_ref_looks_like_generated_json_output(&artifact) {
+            push_derived_start_task_output_contract(
+                output_contracts,
+                &artifact,
+                "artifact",
+                format!("Generated output artifact `{artifact}` required by the task objective."),
+                evidence_refs.clone(),
+            );
+        } else if output_contract_artifact_ref_looks_like_schema_or_validator(&artifact) {
+            push_derived_start_task_output_contract(
+                output_contracts,
+                &artifact,
+                "schema",
+                format!(
+                    "Schema or validator artifact `{artifact}` must validate the generated output contract."
+                ),
+                evidence_refs.clone(),
+            );
+        }
+    }
+}
+
+fn push_derived_start_task_output_contract(
+    output_contracts: &mut Vec<ActionMapStateCommitOutputContractInput>,
+    artifact: &str,
+    kind: &str,
+    description: String,
+    evidence_refs: Vec<ActionMapEvidenceRefInput>,
+) {
+    if output_contracts.iter().any(|contract| {
+        [&contract.id, &contract.description]
+            .iter()
+            .flat_map(|value| extract_artifact_like_refs(value))
+            .any(|existing| artifact_refs_match(&existing, artifact))
+            || contract.evidence_refs.iter().any(|evidence| {
+                evidence
+                    .artifact_ref
+                    .as_deref()
+                    .is_some_and(|existing| artifact_refs_match(existing, artifact))
+            })
+    }) {
+        return;
+    }
+    output_contracts.push(ActionMapStateCommitOutputContractInput {
+        id: format!(
+            "oc-derived-{}",
+            artifact
+                .chars()
+                .map(|ch| {
+                    if ch.is_ascii_alphanumeric() {
+                        ch.to_ascii_lowercase()
+                    } else {
+                        '-'
+                    }
+                })
+                .collect::<String>()
+                .trim_matches('-')
+        ),
+        kind: kind.to_string(),
+        description,
+        evidence_refs,
+    });
 }
 
 fn transition_notice(previous_mode: MapRuntimeMode, current_mode: MapRuntimeMode) -> String {
@@ -23830,6 +23921,70 @@ def build_organization():\n\
                         && blocked.action_class == "read"
             )
         }));
+    }
+
+    #[test]
+    fn start_task_derives_output_contracts_from_objective_when_model_records_inspect_outputs() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (task_id, _, _, _) = state
+            .start_task_for_main_with_kind_and_criteria(
+                owner,
+                NodeKind::InspectCodeContext,
+                "Inspect input files".to_string(),
+                "Build a CSV-to-JSON processor that produces organization.json following schema.json."
+                    .to_string(),
+                vec![ActionMapSuccessCriterionInput {
+                    id: "sc-inspect".to_string(),
+                    kind: "artifact".to_string(),
+                    description: "found schema.json".to_string(),
+                    status: "open".to_string(),
+                    evidence_refs: vec![ActionMapEvidenceRefInput {
+                        artifact_ref: Some("user-request".to_string()),
+                        ..Default::default()
+                    }],
+                }],
+                vec![ActionMapStateCommitOutputContractInput {
+                    id: "oc-schema-summary".to_string(),
+                    kind: "artifact".to_string(),
+                    description: "schema structure summary".to_string(),
+                    evidence_refs: vec![ActionMapEvidenceRefInput {
+                        artifact_ref: Some("user-request".to_string()),
+                        ..Default::default()
+                    }],
+                }],
+                vec![ActionMapStateCommitFactSourceInput {
+                    id: "fs-schema".to_string(),
+                    provenance: "provided_by_user".to_string(),
+                    description: "schema.json at root".to_string(),
+                    evidence_refs: vec![ActionMapEvidenceRefInput {
+                        artifact_ref: Some("schema.json".to_string()),
+                        ..Default::default()
+                    }],
+                }],
+                "Inspect input files".to_string(),
+                "Read schema and CSV inputs.".to_string(),
+                true,
+            )
+            .expect("task starts");
+
+        let task = state.tasks.get(&task_id).expect("task");
+        let requirements = task_output_contract_validation_requirements(task);
+        assert!(
+            requirements
+                .targets
+                .iter()
+                .any(|target| target == "organization.json"),
+            "{requirements:?}"
+        );
+        assert!(
+            requirements
+                .schema_targets
+                .iter()
+                .any(|target| target == "schema.json"),
+            "{requirements:?}"
+        );
     }
 
     #[test]

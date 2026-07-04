@@ -5079,6 +5079,29 @@ mod active_context_replacement_tests {
     }
 
     #[test]
+    fn taskspace_action_contract_preserves_start_task_rationale_as_objective() {
+        let start_task = parse_taskspace_action_v1(
+            r#"{"schema_version":"taskspace-action-v1","action":"taskspace_control","node_id":null,"args":{"action":"start_task","initial_node_kind":"inspect_code_context","initial_success_criteria":["found schema.json"],"initial_output_contracts":["schema structure summary"],"initial_fact_sources":["schema.json at root"]},"rationale":"Build a CSV-to-JSON processor that produces organization.json following schema.json."}"#,
+        )
+        .expect("valid start task action");
+        let snapshot = provider_snapshot("inspect_code_context");
+        let call = taskspace_action_to_tool_call(&start_task, &snapshot)
+            .expect("start task normalizes")
+            .expect("tool call");
+
+        match call.payload {
+            ToolPayload::Function { arguments } => {
+                let value: serde_json::Value = serde_json::from_str(&arguments).expect("json");
+                assert_eq!(value["action"], "start_task");
+                let objective = value["objective"].as_str().unwrap_or_default();
+                assert!(objective.contains("organization.json"), "{objective}");
+                assert!(objective.contains("schema.json"), "{objective}");
+            }
+            other => panic!("expected function payload, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn taskspace_action_contract_transport_preserves_existing_budget_limits() {
         let snapshot = provider_snapshot("inspect_code_context");
         let limits = taskspace_transport_budget_limits(&snapshot);
@@ -11748,7 +11771,12 @@ fn taskspace_action_to_tool_call(
                 }
                 normalized
             } else {
-                args.clone()
+                let mut normalized = args.clone();
+                normalize_taskspace_start_task_rationale_into_objective(
+                    &mut normalized,
+                    action.rationale.as_deref(),
+                );
+                normalized
             };
             let arguments =
                 normalize_taskspace_action_contract_control_args(&args, Some(snapshot))?
@@ -11921,6 +11949,47 @@ fn normalize_taskspace_action_contract_control_args(
     }
     normalize_taskspace_action_contract_lifecycle_args(root, &inner_action, snapshot);
     Ok(normalized)
+}
+
+fn normalize_taskspace_start_task_rationale_into_objective(
+    args: &mut serde_json::Value,
+    rationale: Option<&str>,
+) {
+    let Some(rationale) = rationale.map(str::trim).filter(|value| !value.is_empty()) else {
+        return;
+    };
+    let Some(root) = args.as_object_mut() else {
+        return;
+    };
+    if taskspace_control_action_from_root(root) != Some("start_task") {
+        return;
+    }
+    let objective_key = if root.contains_key("objective") {
+        "objective"
+    } else if root.contains_key("task_objective") {
+        "task_objective"
+    } else {
+        "objective"
+    };
+    match root.get_mut(objective_key) {
+        Some(serde_json::Value::String(existing)) => {
+            if !existing.contains(rationale) {
+                let merged = if existing.trim().is_empty() {
+                    rationale.to_string()
+                } else {
+                    format!("{} Rationale: {}", existing.trim(), rationale)
+                };
+                *existing = merged;
+            }
+        }
+        Some(_) => {}
+        None => {
+            root.insert(
+                objective_key.to_string(),
+                serde_json::Value::String(rationale.to_string()),
+            );
+        }
+    }
 }
 
 fn normalize_taskspace_action_contract_lifecycle_args(
