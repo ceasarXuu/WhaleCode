@@ -3472,3 +3472,68 @@ CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/co
 状态：该 control/feedback class 已 focused fixed；还需要 commit/push、binary attestation 和下一轮 keyed rerun。下一轮期望
 `result-14` 这类 successful edit 后出现 `TaskSpaceForcedImplementTransitionV1 trigger=implement_observed_edit_after_tool_drain`
 或等价 forced transition trace，随后进入 schema validation，而不是以 implement node hard stop 结束。
+
+## 5.51 2026-07-04 schema required-property semantic summary before ActionMap truncation
+
+post-edit forced validation transition 修复、commit/push、binary attestation 后的 keyed rerun 证明 H-039/H-040 不再是当前 blocker：
+本轮 trace 没有 `TaskSpaceProviderBudgetHardStopV1`，重复 validation rework read 最终以
+`TaskSpaceValidationReworkDuplicateReadHardStopV1` 明确暴露。但真实 schema validation 失败后，repair contract 只包含
+`members`，未包含 statistics camelCase required fields。
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260703am-post-edit-transition/runs/terminal_bench__organization-json-generator/20260704-082204-387
+reported_evidence_level: E2-candidate
+outcome_standard: solved
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 12
+right_open_leaf_nodes: 1
+public_validation_exit_code: 1
+hidden_oracle_exit_code: 0
+preflight_git_head: c7d5ba971c03b595bca73bf6a3a111d4a75b0834
+build_attestation_status: pass
+```
+
+关键观察：
+
+| Signal | 结论 |
+|---|---|
+| `whale-exec.jsonl` line 43 的 command output 包含 `members`、`averageDepartmentBudget`、`totalEmployees`、`skillDistribution`、`departmentSizes`、`projectStatusDistribution`、`averageYearsOfService` | 工具原始失败语义完整 |
+| `rollout.jsonl` `result-9` body 截断在 `average_years_of_servic` | ActionMap 存储的是 telemetry preview，不是完整 raw output |
+| `result-10` blocker 只含 `missing_required_properties: members` | blocker summary 已经继承截断后的残缺语义 |
+| 后续 repair contract 为 `missing_required_properties=members | target_artifacts=generate_org.py...` | rework patch contract 丢失 statistics required fields |
+
+本轮新增并 focused 修复的问题类型：
+
+| Case | Before | After | Evidence |
+|---|---|---|---|
+| `validation-schema-required-property-summary-truncated-before-action-map` | validator raw output 有完整 required-property 失败；进入 ActionMap 的 `MainToolCall` preview 被 telemetry 截断，repair contract 只能解析出 `members` | `ToolOutput` 在完整 raw output 阶段抽取 `TaskSpaceToolSemanticSummaryV1`，前置 `missing_required_properties:` 摘要；bounded raw preview 仍可截断，非 schema 输出不添加摘要 | `taskspace_preview_preserves_required_properties_from_untruncated_exec_output`; `taskspace_preview_does_not_add_schema_summary_for_plain_exec_output`; `validation_rework_projects_schema_repair_contract_from_schema_read` |
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked taskspace_preview_
+  PASS：2 tests
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked validation_rework_projects_schema_repair_contract_from_schema_read
+  PASS：1 test
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked validation_rework
+  PASS：17 tests
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked validation_
+  PASS：94 tests
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked apply_patch_
+  PASS：35 tests
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+git diff --check
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-cli --bin whale --locked
+  PASS
+```
+
+状态：该 feedback-layer semantic-preservation class 已 focused fixed；本地 focused/regression、fmt、diff check 和 `whale`
+build 已通过。还需要 commit/push、binary attestation 和下一轮 keyed rerun。
+下一轮期望 validation rework recovery / duplicate-read hard stop 中的 `repair_contract` 至少包含
+`members` 与 statistics camelCase required fields，而不是只剩 `members`。

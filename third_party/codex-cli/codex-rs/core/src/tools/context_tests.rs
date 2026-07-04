@@ -431,6 +431,77 @@ fn model_visible_preview_uses_response_item_not_log_preview() {
 }
 
 #[test]
+fn taskspace_preview_preserves_required_properties_from_untruncated_exec_output() {
+    let raw_output = format!(
+        "{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}",
+        "{'name': 'Madrid', 'member_ids': ['E001']}: 'members' is a required property",
+        "{'name': 'Ferrari', 'member_ids': ['E002']}: 'members' is a required property",
+        "x".repeat(TELEMETRY_PREVIEW_MAX_BYTES + 256),
+        "{'statistics': {}}: 'averageDepartmentBudget' is a required property",
+        "{'statistics': {}}: 'totalEmployees' is a required property",
+        "{'statistics': {}}: 'skillDistribution' is a required property",
+        "{'statistics': {}}: 'departmentSizes' is a required property",
+        "{'statistics': {}}: 'projectStatusDistribution' is a required property",
+        "{'statistics': {}}: 'averageYearsOfService' is a required property",
+    );
+    let output = ExecCommandToolOutput {
+        event_call_id: "event-1".to_string(),
+        chunk_id: "chunk-1".to_string(),
+        wall_time: std::time::Duration::from_millis(200),
+        raw_output: raw_output.into_bytes(),
+        artifact_ref: None,
+        max_output_tokens: None,
+        process_id: None,
+        exit_code: Some(1),
+        original_token_count: None,
+        hook_command: None,
+    };
+    let payload = ToolPayload::Function {
+        arguments: serde_json::json!({
+            "command": "python generate_org.py && python -m jsonschema -i organization.json schema.json"
+        })
+        .to_string(),
+    };
+
+    let preview = tool_output_model_visible_preview(&output, "call-1", &payload);
+
+    assert!(preview.starts_with("TaskSpaceToolSemanticSummaryV1"));
+    assert!(preview.contains(
+        "missing_required_properties: members, averageDepartmentBudget, totalEmployees, skillDistribution, departmentSizes, projectStatusDistribution, averageYearsOfService"
+    ));
+    assert!(preview.contains(TELEMETRY_PREVIEW_TRUNCATION_NOTICE));
+}
+
+#[test]
+fn taskspace_preview_does_not_add_schema_summary_for_plain_exec_output() {
+    let output = ExecCommandToolOutput {
+        event_call_id: "event-1".to_string(),
+        chunk_id: "chunk-1".to_string(),
+        wall_time: std::time::Duration::from_millis(200),
+        raw_output: format!(
+            "ordinary failure\n{}",
+            "x".repeat(TELEMETRY_PREVIEW_MAX_BYTES + 32)
+        )
+        .into_bytes(),
+        artifact_ref: None,
+        max_output_tokens: None,
+        process_id: None,
+        exit_code: Some(1),
+        original_token_count: None,
+        hook_command: None,
+    };
+    let payload = ToolPayload::Function {
+        arguments: serde_json::json!({ "command": "pytest" }).to_string(),
+    };
+
+    let preview = tool_output_model_visible_preview(&output, "call-1", &payload);
+
+    assert!(!preview.contains("TaskSpaceToolSemanticSummaryV1"));
+    assert!(!preview.contains("missing_required_properties:"));
+    assert!(preview.contains("ordinary failure"));
+}
+
+#[test]
 fn telemetry_preview_returns_original_within_limits() {
     let content = "short output";
     assert_eq!(telemetry_preview(content), content);

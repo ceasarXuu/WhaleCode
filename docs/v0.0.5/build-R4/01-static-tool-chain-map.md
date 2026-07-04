@@ -424,3 +424,19 @@ duplicate-read advisory loop 修复后的 keyed rerun 又暴露一个相邻 cont
 边界说明：该 case 不是 edit feedback 缺失。工具成功语义、artifact refs 和 action map result 都存在；缺口在成功工具执行后的
 phase transition guard。runtime 的职责边界仍然是状态机底线：只有在 implement node 已有成功 edit，且 provider/node
 预算已经到 hard-limit 边界时，才自动桥接到 validation，避免下一次 provider 请求被硬停吞掉验证机会。
+
+## 2026-07-04 R4-D issue type addendum: schema failure semantic truncation
+
+post-edit transition 修复后的 keyed rerun 证明 provider/node hard stop 不再吞掉成功 edit 后的验证机会，但暴露出更细的
+feedback-layer 语义保真问题：真实 `jsonschema` 输出包含所有缺失 required properties，ActionMap 中用于 rework 的
+`result-9` body 却只保留 telemetry preview，截断在 statistics 错误行之前。后续 blocker 和 repair contract 因此只看到
+`members`，丢失 `averageDepartmentBudget`、`totalEmployees`、`skillDistribution`、`departmentSizes`、
+`projectStatusDistribution`、`averageYearsOfService`。
+
+| Issue type | Layer | Symptom | Resolution contract | Evidence |
+|---|---|---|---|---|
+| `validation-schema-required-property-summary-truncated-before-action-map` | tool result preview / feedback layer | validator raw output 完整，但 ActionMap 只记录截断后的 model-visible preview；下游 `validation_schema_repair_contract` 只能解析出截断前的第一批 required-property 失败 | 在 `ToolOutput` 仍持有完整 raw output 时抽取 `TaskSpaceToolSemanticSummaryV1`，把 `missing_required_properties:` 摘要前置到 ActionMap preview；bounded raw preview 仍保持截断，普通非 schema 输出不新增摘要 | `taskspace_preview_preserves_required_properties_from_untruncated_exec_output`; `taskspace_preview_does_not_add_schema_summary_for_plain_exec_output`; `validation_rework_projects_schema_repair_contract_from_schema_read`; CoE E-089/H-041 |
+
+边界说明：该 case 是“语义缺失”，不是模型不服从，也不是 validation gate 判断错误。完整失败语义在 shell command
+原始输出中存在，但进入 ActionMap 的 body 已经被 telemetry preview 截断。修复只提升结构化 failure summary，不扩大 raw output
+窗口，也不把任意长输出直接暴露给 provider/map。

@@ -2237,3 +2237,65 @@
   - `provider_budget_node_limit_force_finishes_implementation_into_smoke_test_after_edit` records an edit, builds a snapshot with `node_request_count == max_model_requests_per_node`, then observes a completed implement node, a running `SmokeTest` node, and a `forced_implement_transition` trace event.
   - `provider_budget_below_node_limit_does_not_force_finish_implementation_after_edit` records the same successful edit below the node limit and leaves the implement node running.
 - Interpretation: The `post-edit-forced-validation-transition-gap` class is focused-fixed at runtime control/feedback level. A binary attestation and another keyed rerun are required to prove the external sample now proceeds from the successful `apply_patch` into schema validation instead of ending at `TaskSpaceProviderBudgetHardStopV1`.
+
+# Evidence E-089: H-040 rerun crosses provider budget hard stop and exposes schema failure semantic truncation
+
+- Prediction tested: H-040 should prevent a successful edit at the provider/node budget edge from ending as `TaskSpaceProviderBudgetHardStopV1`.
+- Real rerun:
+  ```text
+  RunDir: target/r4-org-json-real-keyed-20260703am-post-edit-transition/runs/terminal_bench__organization-json-generator/20260704-082204-387
+  PairReport: pair-001/pair-report.md
+  reported_evidence_level: E2-candidate
+  outcome_standard: solved
+  outcome_taskspace: engineering_unclean
+  right_exec_timed_out: False
+  right_tool_call_count: 12
+  right_open_leaf_nodes: 1
+  public_validation_exit_code: 1
+  hidden_oracle_exit_code: 0
+  preflight_git_head: c7d5ba971c03b595bca73bf6a3a111d4a75b0834
+  build_attestation_status: pass
+  ```
+- Matched crossed signals:
+  - `whale-exec.jsonl` contains `TaskSpaceValidationReworkDuplicateReadHardStopV1` and does not contain `TaskSpaceProviderBudgetHardStopV1`, so H-039/H-040's provider-budget-drain blocker is no longer the active failure in this run.
+  - The exact validation command ran: `python generate_org.py && python -m jsonschema -i organization.json schema.json`.
+  - The full command output includes all jsonschema missing-required-property lines: `members`, `averageDepartmentBudget`, `totalEmployees`, `skillDistribution`, `departmentSizes`, `projectStatusDistribution`, and `averageYearsOfService`.
+- New blocker signal:
+  - `rollout.jsonl` result `result-9` stores only a telemetry preview in the ActionMap body. It is truncated at `average_years_of_servic` before the later statistics required-property lines can be parsed.
+  - The derived blocker `result-10` and subsequent rework repair contract only contain `missing_required_properties=members`, so the provider-visible patch contract loses the statistics fields even though the raw tool output had them.
+- Interpretation: The next failure class is feedback-layer semantic truncation before ActionMap storage. The validation tool did fail with complete, actionable schema semantics; TaskSpace stored a bounded preview that preserved only the first repeated `members` field and dropped the remaining required properties used by the repair contract.
+
+# Hypothesis H-041: validation schema required-property semantics are truncated before ActionMap storage
+
+- Claim: For ordinary shell-like validation tools, `tools/parallel.rs` records only `tool_output_model_visible_preview(...)` into `record_action_map_main_tool_result`. For exec output this preview is already bounded by telemetry limits, so downstream ActionMap repair-contract parsing reads truncated text and cannot recover required-property failures that appear after the preview cutoff.
+- Prediction: Code inspection should show the preview is built from the model-visible response item, while `ExecCommandToolOutput` still has raw output before truncation. A focused test should fail before repair when a long jsonschema output contains later required properties beyond the preview cutoff, and should pass after repair by preserving a `missing_required_properties:` summary at the top of the ActionMap preview.
+- Diagnostic evidence plan: Add a semantic-summary extraction step at the tool-result preview boundary using complete raw output where available; add tests for long jsonschema output and for non-schema output; run tool preview, validation rework, validation, fmt, diff check, and `whale` build regressions.
+- Status: confirmed.
+
+# Evidence E-090: schema required-property summary is preserved before telemetry preview truncation
+
+- Prediction tested: H-041 predicts that extracting a semantic summary from complete raw output before telemetry preview truncation will let ActionMap repair contracts recover required properties that are absent from the truncated raw preview.
+- Repair artifacts:
+  - `third_party/codex-cli/codex-rs/core/src/tools/context.rs`
+  - `third_party/codex-cli/codex-rs/core/src/tools/context_tests.rs`
+  - `third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs`
+- Focused commands:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked taskspace_preview_
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked validation_rework_projects_schema_repair_contract_from_schema_read
+  ```
+- Adjacent regression/build commands:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked validation_rework
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked validation_
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked apply_patch_
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+  git diff --check
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-cli --bin whale --locked
+  ```
+- Result: passed. `taskspace_preview_` is 2/2, `validation_rework_projects_schema_repair_contract_from_schema_read` is 1/1, `validation_rework` is 17/17, `validation_` is 94/94, and `apply_patch_` is 35/35. `cargo fmt --check` passed with existing stable rustfmt `imports_granularity` warnings; `git diff --check` and the `whale` build passed.
+- Matched test signals:
+  - `taskspace_preview_preserves_required_properties_from_untruncated_exec_output` builds a long exec output where later jsonschema required-property lines fall beyond the telemetry preview cutoff; the ActionMap preview starts with `TaskSpaceToolSemanticSummaryV1` and includes all required fields.
+  - `taskspace_preview_does_not_add_schema_summary_for_plain_exec_output` keeps ordinary long exec output free of `missing_required_properties`.
+  - `validation_rework_projects_schema_repair_contract_from_schema_read` now simulates a truncated raw validation preview plus complete semantic summary, and still produces a repair contract containing `members`, the statistics camelCase fields, and the schema required sibling group.
+- Interpretation: The `validation-schema-required-property-summary-truncated-before-action-map` class is focused-fixed at tool-result preview and ActionMap repair-contract levels. Commit/push, binary attestation, and another keyed rerun are still required to prove live `organization-json-generator` rework feedback now carries the full schema repair contract.

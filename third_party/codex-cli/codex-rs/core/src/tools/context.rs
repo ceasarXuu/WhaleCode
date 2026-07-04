@@ -111,6 +111,10 @@ pub trait ToolOutput: Send {
     fn code_mode_result(&self, payload: &ToolPayload) -> JsonValue {
         response_input_to_code_mode_result(self.to_response_item("", payload))
     }
+
+    fn taskspace_semantic_summary(&self) -> Option<String> {
+        None
+    }
 }
 
 pub(crate) fn tool_output_model_visible_preview(
@@ -119,7 +123,12 @@ pub(crate) fn tool_output_model_visible_preview(
     payload: &ToolPayload,
 ) -> String {
     let response = output.to_response_item(call_id, payload);
-    response_input_model_visible_preview(&response)
+    let model_visible_text = response_input_item_model_visible_text(&response);
+    let preview = bounded_model_visible_text_preview(&model_visible_text);
+    let semantic_summary = output
+        .taskspace_semantic_summary()
+        .or_else(|| taskspace_tool_semantic_summary(&model_visible_text));
+    prepend_taskspace_semantic_summary(preview, semantic_summary)
 }
 
 pub(crate) fn response_input_model_visible_preview(response: &ResponseInputItem) -> String {
@@ -501,6 +510,11 @@ impl ToolOutput for ExecCommandToolOutput {
             JsonValue::String(format!("failed to serialize exec result: {err}"))
         })
     }
+
+    fn taskspace_semantic_summary(&self) -> Option<String> {
+        let text = String::from_utf8_lossy(&self.raw_output);
+        taskspace_tool_semantic_summary(&text)
+    }
 }
 
 impl ExecCommandToolOutput {
@@ -671,6 +685,80 @@ fn telemetry_preview(content: &str) -> String {
     preview.push_str(TELEMETRY_PREVIEW_TRUNCATION_NOTICE);
 
     preview
+}
+
+fn prepend_taskspace_semantic_summary(preview: String, semantic_summary: Option<String>) -> String {
+    let Some(summary) = semantic_summary else {
+        return preview;
+    };
+    let summary = summary.trim();
+    if summary.is_empty() || preview.contains(summary) {
+        return preview;
+    }
+    format!("{summary}\n{preview}")
+}
+
+fn taskspace_tool_semantic_summary(text: &str) -> Option<String> {
+    let properties = taskspace_required_properties_from_text(text);
+    if properties.is_empty() {
+        return None;
+    }
+    Some(format!(
+        "TaskSpaceToolSemanticSummaryV1:\nmissing_required_properties: {}",
+        properties.join(", ")
+    ))
+}
+
+fn taskspace_required_properties_from_text(text: &str) -> Vec<String> {
+    let mut properties = Vec::new();
+    for line in text.lines() {
+        if let Some((_, rest)) = line.split_once("missing_required_properties:") {
+            let required_part = rest.split('|').next().unwrap_or(rest);
+            for property in required_part
+                .split(',')
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+            {
+                push_unique_taskspace_required_property(&mut properties, property.to_string());
+            }
+        }
+
+        let lower = line.to_ascii_lowercase();
+        if !lower.contains("is a required property") {
+            continue;
+        }
+        let Some(marker_start) = lower.find("is a required property") else {
+            continue;
+        };
+        let before = &line[..marker_start];
+        if let Some(property) = taskspace_quoted_suffix_value(before) {
+            push_unique_taskspace_required_property(&mut properties, property);
+        }
+    }
+    properties
+}
+
+fn push_unique_taskspace_required_property(properties: &mut Vec<String>, property: String) {
+    let property = property.trim().to_string();
+    if property.is_empty() {
+        return;
+    }
+    if !properties.iter().any(|existing| existing == &property) {
+        properties.push(property);
+    }
+}
+
+fn taskspace_quoted_suffix_value(text: &str) -> Option<String> {
+    taskspace_quoted_suffix_value_with(text, '\'')
+        .or_else(|| taskspace_quoted_suffix_value_with(text, '"'))
+}
+
+fn taskspace_quoted_suffix_value_with(text: &str, quote: char) -> Option<String> {
+    let end = text.rfind(quote)?;
+    let before_end = &text[..end];
+    let start = before_end.rfind(quote)?;
+    let value = before_end[start + quote.len_utf8()..].trim();
+    (!value.is_empty()).then(|| value.to_string())
 }
 
 #[cfg(test)]

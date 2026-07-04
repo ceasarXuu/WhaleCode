@@ -33103,13 +33103,16 @@ raw_output:\n\
                 "shell_command",
                 Some(ActionClass::Test),
                 false,
-                "TaskSpaceToolInvocationV1:\n\
+                "TaskSpaceToolSemanticSummaryV1:\n\
+missing_required_properties: members, averageDepartmentBudget, totalEmployees, skillDistribution, departmentSizes, projectStatusDistribution, averageYearsOfService\n\
+TaskSpaceToolInvocationV1:\n\
 tool: shell_command\n\
 command: python generate_org.py && python -m jsonschema -i organization.json schema.json\n\
 raw_output:\n\
 /home/user/miniconda3/lib/python3.12/site-packages/jsonschema/__main__.py:4: DeprecationWarning: The jsonschema CLI is deprecated\n\
 {'name': 'Madrid', 'member_ids': ['D001-E001']}: 'members' is a required property\n\
-{'total_departments': 5}: 'averageDepartmentBudget' is a required property\n"
+{'total_employees': 12, 'total_departments': 5, 'total_budget': 5300000, 'average_years_of_servic\n\
+[... telemetry preview truncated ...]\n"
                     .to_string(),
             )
             .expect("failed schema validation routes to rework");
