@@ -653,3 +653,16 @@ failed-edit refresh 修复后的 keyed rerun 进入 patch grammar recovery，但
 
 边界说明：这不是 CSV/schema 真的缺失，也不是允许模型 block。正确行为是保持 validation rework node active，把该 blocker 转回
 patch-only recovery，直到生成合法 patch、真实外部 blocker，或达到 bounded hard-stop。
+
+## 2026-07-04 R4-D issue type addendum: repeated malformed patch hunks after complete read
+
+partial-excerpt blocker 修复后的 keyed rerun 进入更深 patch recovery：当前 node 没被错误关闭，但 provider 连续输出 fragile
+`Update File` hunks，多次因 expected-lines mismatch 失败，随后继续混合 native wrapper 和 unified/range hunk syntax，最后触发
+`apply_patch_mixed_native_unified:process.py` 与 node request hard-stop。
+
+| Issue type | Layer | Symptom | Resolution contract | Evidence |
+|---|---|---|---|---|
+| `validation-rework-repeated-malformed-patch-hunks-after-complete-read` | apply_patch capability normalization / edit-failure recovery actionability | complete target read 后 repeated expected-lines mismatch 仍回到 fragile update hunks；live malformed wrapper 未被 normalization 覆盖；预算耗尽前没有收敛到合法 patch | complete target read + expected-lines/context mismatch 强制整文件 rewrite contract：`*** Delete File` + `*** Add File`；normalizer 跳过 misplaced `*** Begin Patch`，支持 `*** Update File` 在 wrapper 前的 live 变体 | keyed rerun `20260704-171735-273`; CoE H-078/E-166/E-167; `complete_validation_rework_expected_lines_failure_forces_full_rewrite`; `taskspace_action_contract_normalizes_misordered_begin_update_mixed_patch`; `apply_patch --lib` |
+
+边界说明：这不是要放宽 patch grammar，也不是无限增加预算。修复仍要求 native apply_patch，只是在完整目标文件已可见且 context hunk 多次失败时，
+把合法下一步从“再试一个 hunk”升级为“整文件替换”，并补齐 live wrapper 正规化能力。

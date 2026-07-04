@@ -2500,6 +2500,47 @@ whale_binary_sha256: 136008edf014e6ab1bfc86ae6c0188623723b5089de322a65bfe6348f9d
 
 状态：focused 修复已编码并通过 focused/regression、fmt/check/build。仍需 commit/push、attestation、keyed rerun。
 
+## 14. 2026-07-04 validation rework repeated malformed patch hunks
+
+`42feaee` 的 keyed rerun 证明 H-077 已 live-cleared：partial-excerpt blocker 没有被接受，当前 node 没有退化到
+`provider-context-missing`。新的失败点是 patch recovery 本身。
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260704bx-partial-excerpt-blocker-reject/runs/terminal_bench__organization-json-generator/20260704-171735-273
+reported_evidence_level: E2-candidate
+outcome_standard: solved
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 14
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+current_git_head: 42feaeea93f88d717ca4f48d838af2152ee6fe94
+whale_binary_sha256: 5a699fafb8d844b47c579e895a4cec71bd020bd4c94dbf9d98d134fa4ac7b88f
+```
+
+关键观察：
+
+| Signal | 结论 |
+|---|---|
+| current node 保持 `node-4` implement_solution，open_leaf_nodes=1 | H-077 没再错误关闭 node |
+| 多次 `apply_patch verification failed: Failed to find expected lines` | 普通 hunk context strategy 不稳定 |
+| 最后 action 被 `apply_patch_mixed_native_unified:process.py` 拒绝 | grammar recovery 没收敛 |
+| live patch 出现 `*** Update File` 在 `*** Begin Patch` 前 | normalizer 缺少 wrapper 变体 |
+| `TaskSpaceProviderBudgetHardStopV1 reason=provider_node_request_hard_limit_exceeded` | request budget 被 patch grammar/context retry 耗尽 |
+
+问题类型收录：
+
+| 字段 | 内容 |
+|---|---|
+| case | `validation-rework-repeated-malformed-patch-hunks-after-complete-read` |
+| 层级 | apply_patch capability normalization / edit-failure recovery actionability |
+| 本质 | complete target read 后 repeated hunk mismatch 仍走 fragile Update File；live malformed wrapper 未覆盖；最终预算耗尽 |
+| 非根因 | 不是 partial-excerpt blocker；不是 closed read loop；不是 output/schema contract |
+| 修复 | complete-read + expected-lines/context mismatch 时强制 full rewrite recovery；normalizer 跳过 misplaced `*** Begin Patch`，支持 `Update File` 在 wrapper 前的 mixed patch |
+| focused evidence | `complete_validation_rework_expected_lines_failure_forces_full_rewrite`; `taskspace_action_contract_normalizes_misordered_begin_update_mixed_patch`; `apply_patch --lib` 47/47; `action_contract_prompt --lib` 29/29; `validation_rework --lib` 25/25; fmt/check/build |
+
+状态：focused 修复已编码并通过 focused/regression、fmt/check/build。仍需 commit/push、attestation、keyed rerun。
+
 ## 13. 2026-07-04 validation rework partial-excerpt blocker wording drift
 
 `dc2a986` 的 keyed rerun 证明 H-076 已把 failed-edit refresh loop 清掉，但新的 live blocker 出现在 patch grammar recovery 之后。

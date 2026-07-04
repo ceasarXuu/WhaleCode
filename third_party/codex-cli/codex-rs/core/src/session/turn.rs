@@ -2391,6 +2391,13 @@ fn build_taskspace_edit_failure_recovery_item(
     failure_summary: Option<&str>,
     evidence_summary: Option<&str>,
 ) -> ResponseItem {
+    let should_force_complete_rewrite = taskspace_failure_expected_lines_mismatch(failure_summary)
+        && taskspace_evidence_has_complete_validation_rework_target_read(evidence_summary);
+    let complete_rewrite = if should_force_complete_rewrite {
+        "\nComplete target-read recovery override:\n- The validation rework target already has complete read_file evidence (complete_read/eof_reached=true), so do not refresh read for context.\n- Because the previous apply_patch failed to find expected lines, stop using fragile Update File range/context hunks for this generated/small repair target.\n- Emit exactly one native apply_patch that replaces the target file with complete corrected contents: `*** Delete File: <path>` followed by `*** Add File: <path>` and every new file line prefixed with `+`.\n"
+    } else {
+        ""
+    };
     let failure = failure_summary
         .map(str::trim)
         .filter(|value| !value.is_empty())
@@ -2415,6 +2422,7 @@ fn build_taskspace_edit_failure_recovery_item(
 The previous edit tool call failed. Treat the tool result exactly like standard mode feedback: inspect the failure text, correct the patch target/grammar/context, and retry the edit if the intended change is still valid.\n\
 {failure}\
 {evidence}\
+{complete_rewrite}\
 Current required behavior:\n\
 - Do not ignore the failed edit result.\n\
 - Do not call list_files, search, broad shell discovery, unrelated read_file, or validation before resolving the failed edit.\n\
@@ -2430,6 +2438,27 @@ Current required behavior:\n\
         end_turn: None,
         phase: None,
     }
+}
+
+fn taskspace_failure_expected_lines_mismatch(failure_summary: Option<&str>) -> bool {
+    failure_summary
+        .map(|value| value.to_ascii_lowercase())
+        .is_some_and(|value| {
+            value.contains("failed to find expected lines")
+                || value.contains("apply_patch_expected_lines_mismatch")
+                || value.contains("apply_patch_context_mismatch")
+        })
+}
+
+fn taskspace_evidence_has_complete_validation_rework_target_read(
+    evidence_summary: Option<&str>,
+) -> bool {
+    evidence_summary
+        .map(|value| value.to_ascii_lowercase())
+        .is_some_and(|value| {
+            value.contains("validation_rework_target_read")
+                && (value.contains("complete_read") || value.contains("eof_reached=true"))
+        })
 }
 
 fn is_taskspace_no_action_recovery_item(item: &ResponseItem) -> bool {
@@ -5855,6 +5884,26 @@ Then I will inspect the file."#,
     }
 
     #[test]
+    fn complete_validation_rework_expected_lines_failure_forces_full_rewrite() {
+        let recovery = build_taskspace_edit_failure_recovery_item(
+            Some(
+                "result-14: apply_patch verification failed: Failed to find expected lines in process.py",
+            ),
+            Some(
+                "validation_rework_target_read result-12 artifacts=process.py read_context: complete_read eof_reached=true | missing_required_properties=id, members",
+            ),
+        );
+        let text = item_text(recovery);
+
+        assert!(text.contains(TASKSPACE_EDIT_FAILURE_MARKER));
+        assert!(text.contains("Complete target-read recovery override"));
+        assert!(text.contains("complete_read/eof_reached=true"));
+        assert!(text.contains("*** Delete File: <path>"));
+        assert!(text.contains("*** Add File: <path>"));
+        assert!(text.contains("do not refresh read"));
+    }
+
+    #[test]
     fn taskspace_apply_patch_missing_target_recovery_forces_add_file_grammar() {
         let targets = taskspace_missing_update_targets_from_apply_patch_error(Some(
             "TaskSpace tool call failed: apply_patch verification failed: Failed to read file to update W:\\app\\src\\recover_accuracy.py: 系统找不到指定的路径。 (os error 3)",
@@ -6787,6 +6836,40 @@ Then I will inspect the file."#,
             ToolPayload::Custom { input } => {
                 assert!(input.starts_with("*** Begin Patch\n"));
                 assert!(input.ends_with("*** End Patch\n"));
+                assert_eq!(input.matches("*** Update File: ").count(), 1);
+                assert!(input.contains("csv2json.py"));
+                assert!(input.contains("@@\n- #!/usr/bin/env python3\n+#!/usr/bin/env python3"));
+                assert!(!input.contains("--- a/csv2json.py"));
+                assert!(!input.contains("+++ b/csv2json.py"));
+                assert!(!input.contains("@@ -1,2 +1,2 @@"));
+            }
+            other => panic!("expected custom payload, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn taskspace_action_contract_normalizes_misordered_begin_update_mixed_patch() {
+        let raw = serde_json::json!({
+            "schema_version": "taskspace-action-v1",
+            "action": "apply_patch",
+            "node_id": "node-1",
+            "args": {
+                "patch": "*** Update File: csv2json.py\n*** Begin Patch\n--- a/csv2json.py\n+++ b/csv2json.py\n@@ -1,2 +1,2 @@\n- #!/usr/bin/env python3\n+#!/usr/bin/env python3\n \"\"\"CSV to JSON processor.\"\"\"\n*** End Patch"
+            },
+            "rationale": "fix indentation"
+        })
+        .to_string();
+        let action = parse_taskspace_action_v1(&raw).expect("valid json");
+
+        let call = taskspace_action_to_tool_call(&action, &provider_snapshot("implement_solution"))
+            .expect("misordered wrapper can be normalized")
+            .expect("tool call");
+
+        match call.payload {
+            ToolPayload::Custom { input } => {
+                assert!(input.starts_with("*** Begin Patch\n"));
+                assert!(input.ends_with("*** End Patch\n"));
+                assert_eq!(input.matches("*** Begin Patch").count(), 1);
                 assert_eq!(input.matches("*** Update File: ").count(), 1);
                 assert!(input.contains("csv2json.py"));
                 assert!(input.contains("@@\n- #!/usr/bin/env python3\n+#!/usr/bin/env python3"));
@@ -11163,7 +11246,7 @@ fn normalize_taskspace_unwrapped_apply_patch(patch: &str) -> Option<String> {
     let mut rewritten = Vec::with_capacity(lines.len() + 2);
     rewritten.push("*** Begin Patch".to_string());
     for line in lines {
-        if line == "*** End Patch" {
+        if line == "*** Begin Patch" || line == "*** End Patch" {
             continue;
         }
         if let Some(path) = line.strip_prefix("*** Update File: ") {

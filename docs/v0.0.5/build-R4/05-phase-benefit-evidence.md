@@ -4336,3 +4336,70 @@ CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/co
 
 边界说明：该 case 和 H-069 同属 missing-source blocker feedback classification，但触发点不同。H-069 是 runtime 新 rejection wording
 没有被 session 识别；H-077 是 provider 的 blocker wording 没被 runtime recognizer 拒绝，导致当前节点被关闭。
+
+## 5.68 2026-07-04 repeated malformed patch hunks after complete target read
+
+`42feaee` keyed rerun 证明 5.67 的 partial-excerpt blocker 已清除：run 没有接受 blocker，也没有进入
+`provider-context-missing`。但 validation rework 仍未通过，新的 blocker 是反复生成 fragile/malformed `apply_patch`。
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260704bx-partial-excerpt-blocker-reject/runs/terminal_bench__organization-json-generator/20260704-171735-273
+reported_evidence_level: E2-candidate
+outcome_standard: solved
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 14
+right_wall_time_ms: 512227
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+current_git_head: 42feaeea93f88d717ca4f48d838af2152ee6fe94
+whale_binary_sha256: 5a699fafb8d844b47c579e895a4cec71bd020bd4c94dbf9d98d134fa4ac7b88f
+```
+
+关键观察：
+
+| Signal | 结论 |
+|---|---|
+| run 未进入 `provider-context-missing`，仍停留在 `node-4` implement_solution | H-077 live-cleared |
+| 多次 `apply_patch` 失败为 `Failed to find expected lines` | patch context/hunk strategy 不稳定 |
+| 后续 patch 继续混合 native wrapper 与 unified/range hunk syntax | apply_patch grammar recovery actionability 不足 |
+| 出现 live malformed wrapper：`*** Update File: process.py` 在 `*** Begin Patch` 前 | normalizer 缺少该 wrapper 变体 |
+| 最后 `apply_patch_mixed_native_unified:process.py` 后触发 `TaskSpaceProviderBudgetHardStopV1` | 未能在 node request budget 内收敛到合法 patch |
+
+本轮新增并 focused 修复的问题类型：
+
+| Case | Before | After | Evidence |
+|---|---|---|---|
+| `validation-rework-repeated-malformed-patch-hunks-after-complete-read` | complete target read 后多次 expected-lines mismatch，recovery 仍允许 fragile Update File hunks；live malformed wrapper 未被正规化，最终 mixed-native-unified rejection + node budget hard-stop | complete target read + expected-lines/context mismatch 时，edit-failure recovery 强制 full rewrite：`*** Delete File` + `*** Add File`；normalizer 支持 `Update File` 在 `Begin Patch` 前的 live wrapper | keyed rerun `20260704-171735-273`; CoE H-078/E-166/E-167; focused tests; `apply_patch --lib` 47/47 |
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core complete_validation_rework_expected_lines_failure_forces_full_rewrite --locked
+  PASS
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core taskspace_action_contract_normalizes_misordered_begin_update_mixed_patch --locked
+  PASS
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core apply_patch --lib --locked
+  PASS: 47/47
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core action_contract_prompt --lib --locked
+  PASS: 29/29
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_rework --lib --locked
+  PASS: 25/25
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+  PASS
+
+git diff --check
+  PASS
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-cli --bin whale --locked
+  PASS
+```
+
+边界说明：该 case 是 tools 能力层和反馈层交叉问题。工具执行失败语义存在，grammar recovery 也存在；缺口是完整 target read
+下仍让 provider 走脆弱 hunk patch，而不是升级为整文件 rewrite。非 `--lib` 的 `cargo test -p codex-core apply_patch --locked`
+在通过 47 个 lib apply_patch tests 后继续跑 `tests/all.rs` 并触发既有 stack overflow，因此本轮使用 `--lib` 作为 scoped gate。

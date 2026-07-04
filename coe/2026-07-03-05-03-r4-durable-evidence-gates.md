@@ -4697,3 +4697,65 @@
   ```
 - Result: passed. Focused runtime regression passed; `validation_rework` passed 24/24; `action_contract_prompt` passed 29/29; formatting, whitespace, and `whale` build passed.
 - Interpretation: H-077 is focused-fixed. It needs commit/push, attestation, and keyed rerun. It should keep the validation rework implement node active after malformed patch attempts instead of falling through to `provider-context-missing`.
+
+# Evidence E-166: 42feaee rerun clears partial-excerpt blocker but exhausts budget on repeated malformed patch hunks
+
+- Prediction tested: H-077 predicts partial-excerpt/full-content blockers should be rejected and the validation rework node should remain active.
+- Real rerun:
+  ```text
+  RunDir: target/r4-org-json-real-keyed-20260704bx-partial-excerpt-blocker-reject/runs/terminal_bench__organization-json-generator/20260704-171735-273
+  PairReport: pair-001/pair-report.md
+  reported_evidence_level: E2-candidate
+  outcome_standard: solved
+  outcome_taskspace: engineering_unclean
+  right_exec_timed_out: False
+  right_tool_call_count: 14
+  right_wall_time_ms: 512227
+  right_public_validation_exit_code: 1
+  right_hidden_oracle_exit_code: 0
+  current_git_head: 42feaeea93f88d717ca4f48d838af2152ee6fe94
+  whale_binary_sha256: 5a699fafb8d844b47c579e895a4cec71bd020bd4c94dbf9d98d134fa4ac7b88f
+  ```
+- Matched H-077 signals:
+  - The run did not accept the partial-excerpt blocker and did not fall through to `provider-context-missing`.
+  - It stayed on validation rework node `node-4` through multiple edit recovery attempts.
+- New/remaining blocker signals:
+  - The provider emitted several `apply_patch` attempts for `process.py`.
+  - Repeated `Update File` hunks failed with `Failed to find expected lines`.
+  - The provider continued to mix native wrapper syntax with unified/range hunk syntax, including a live malformed wrapper where `*** Update File: process.py` appeared before `*** Begin Patch`.
+  - The last rejected action was `apply_patch_mixed_native_unified:process.py`, followed by `TaskSpaceApplyPatchNativeHunkRecoveryV1`, then `TaskSpaceProviderBudgetHardStopV1 reason=provider_node_request_hard_limit_exceeded`.
+- Interpretation: H-077 is live-cleared. New blocker is H-078: repeated patch grammar/context mismatch on a complete validation rework target. Feedback was present, but recovery did not escalate strongly enough from fragile `Update File` hunks to a complete `Delete File` + `Add File` rewrite for a small generated script.
+
+# Hypothesis H-078: repeated complete-target patch context failures should force full-file rewrite and normalize live malformed wrappers
+
+- Claim: When validation rework has complete target evidence and `apply_patch` repeatedly fails with expected-lines/context mismatch, continuing to suggest ordinary update hunks lets the provider burn node budget on fragile context. The recovery contract should force a full target rewrite, and the action-contract normalizer should handle live malformed wrappers that place `*** Update File` before `*** Begin Patch`.
+- Prediction:
+  1. Edit-failure recovery should add a complete-target-read override when failure text says expected-lines/context mismatch and evidence includes `validation_rework_target_read complete_read/eof_reached=true`.
+  2. That override should forbid refresh read and require native `*** Delete File: <path>` followed by `*** Add File: <path>` with complete corrected contents.
+  3. `normalize_taskspace_unwrapped_apply_patch()` should ignore misplaced `*** Begin Patch` lines when wrapping an unwrapped native patch, preventing nested Begin/End wrappers.
+  4. Existing apply_patch normalization, validation rework, and action-contract prompt regressions should remain passing.
+- Diagnostic evidence plan: Add focused tests for complete-read expected-lines failure forcing full rewrite, and live misordered Begin/Update mixed patch normalization.
+- Status: confirmed.
+
+# Evidence E-167: complete-read edit failure recovery now forces full-file rewrite and normalizes misordered patch wrappers
+
+- Prediction tested: H-078 predicts the recovery layer and normalizer must push the provider away from repeated fragile update hunks.
+- Repair artifact:
+  - `third_party/codex-cli/codex-rs/core/src/session/turn.rs`
+- Repair behavior:
+  - `build_taskspace_edit_failure_recovery_item()` now detects expected-lines/context mismatch plus complete validation rework target evidence and emits `Complete target-read recovery override`.
+  - The override says complete read evidence means no refresh read, and requires native full rewrite: `*** Delete File: <path>` followed by `*** Add File: <path>` with all new file lines prefixed by `+`.
+  - `normalize_taskspace_unwrapped_apply_patch()` now drops misplaced `*** Begin Patch` lines while wrapping unwrapped native patches, so live `*** Update File` before `*** Begin Patch` mixed wrappers normalize to a single valid native patch wrapper.
+- Validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core complete_validation_rework_expected_lines_failure_forces_full_rewrite --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core taskspace_action_contract_normalizes_misordered_begin_update_mixed_patch --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core apply_patch --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core action_contract_prompt --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_rework --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+  git diff --check
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-cli --bin whale --locked
+  ```
+- Result: passed. A non-`--lib` `cargo test -p codex-core apply_patch --locked` also passed all 47 lib apply_patch tests but then continued into `tests/all.rs` and hit an unrelated stack overflow; the scoped `--lib` command is the valid gate for this change. Formatting, whitespace, and `whale` build passed.
+- Interpretation: H-078 is focused-fixed. It needs commit/push, attestation, and keyed rerun.
