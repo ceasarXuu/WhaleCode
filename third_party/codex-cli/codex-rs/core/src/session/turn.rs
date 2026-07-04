@@ -2267,6 +2267,7 @@ Previous blocked feedback:\n{previous_excerpt}\n\
 Current required behavior:\n\
 - Emit exactly one taskspace-action-v1 apply_patch action targeting `{target_artifact_label}` now, or one taskspace_control block_node with the exact unsafe-edit reason.\n\
 - Use the visible validation failure, schema repair contract, and validation_rework_target_read evidence already shown in context.\n\
+- If the validation_rework_target_read evidence says complete_read or eof_reached=true, no additional file lines are hidden; do not treat the displayed target-read excerpt as partial evidence.\n\
 - Do not call read_file, list_files, search, broad shell discovery, schema inspection, or validation before a successful edit is recorded.\n\
 - Do not move from the named target artifact to `schema.json` or another fact source; those facts are already present in evidence.\n\
 - If no safe edit can be made from the already visible evidence, block explicitly instead of requesting more reads."
@@ -2453,8 +2454,15 @@ fn taskspace_validation_rework_duplicate_read_should_hard_stop(
 ) -> bool {
     is_taskspace_validation_rework_duplicate_read_recovery_item(item)
         && (previous_recovery_count > 0
+            || taskspace_validation_rework_duplicate_read_has_complete_context(item)
             || response_item_text_contains(item, "\"repeated_blocked_action\"")
             || response_item_text_contains(item, "repeated_blocked_action:"))
+}
+
+fn taskspace_validation_rework_duplicate_read_has_complete_context(item: &ResponseItem) -> bool {
+    response_item_texts_contain(item, &|text| {
+        text.contains("complete read_file context") || text.contains("read_context: complete_read")
+    })
 }
 
 fn taskspace_validation_rework_patch_only_should_hard_stop(
@@ -5456,6 +5464,7 @@ Then I will inspect the file."#,
         assert!(text.contains("failure_kind: validation_rework_patch_only_after_target_read"));
         assert!(text.contains("target_artifacts: generate_org.py"));
         assert!(text.contains("Do not move from the named target artifact to `schema.json`"));
+        assert!(text.contains("no additional file lines are hidden"));
         assert!(text.contains("Emit exactly one taskspace-action-v1 apply_patch"));
         assert!(!text.contains(TASKSPACE_IMPLEMENT_NEEDS_EDIT_MARKER));
         assert!(is_taskspace_validation_rework_patch_only_recovery_item(
@@ -8741,6 +8750,32 @@ TaskSpaceGateRecoveryV1: {\"schema_version\":\"TaskSpaceGateRecoveryV1\",\"allow
             taskspace_special_recovery_warning_message(&hard_stop)
                 .contains("current turn will stop without another model request")
         );
+    }
+
+    #[test]
+    fn validation_rework_duplicate_read_complete_context_hard_stops_immediately() {
+        let last_message = "TaskSpace blocked this read because validation rework node `node-4` already read failure artifact `process.py` in result `result-11` and no successful edit has been recorded after that read. Result `result-11` is a complete read_file context (TaskSpaceReadFileSummaryV1 eof_reached=true; no additional file lines are hidden). Use the existing file contents from that result and apply the smallest fix with apply_patch, or return blocked with the exact reason no safe edit can be made. Validation repair contract: missing_required_properties=id, members, averageDepartmentBudget | target_artifacts=process.py\nTaskSpaceGateRecoveryV1: {\"schema_version\":\"TaskSpaceGateRecoveryV1\",\"allowed\":false,\"reason\":\"validation_rework_duplicate_artifact_read\",\"next_valid_actions\":[\"call apply_patch for `process.py`\",\"use complete read_file result result-11; do not request the full file again\"]}";
+        let recovery = build_taskspace_validation_rework_duplicate_read_recovery_item(
+            Some(last_message),
+            Some(
+                "validation_rework_target_read result=result-11 artifact=process.py | read_context: complete_read; TaskSpaceReadFileSummaryV1: path=process.py lines_read=97 eof_reached=true max_lines=240",
+            ),
+            None,
+        );
+
+        assert!(taskspace_validation_rework_duplicate_read_should_hard_stop(
+            &recovery, 0
+        ));
+
+        let hard_stop =
+            build_taskspace_validation_rework_duplicate_read_hard_stop_item(&recovery, 1);
+        let text = item_text(hard_stop);
+
+        assert!(text.contains(TASKSPACE_VALIDATION_REWORK_DUPLICATE_READ_HARD_STOP_MARKER));
+        assert!(text.contains("reason: repeated_validation_rework_duplicate_artifact_read"));
+        assert!(text.contains("target_artifact: process.py"));
+        assert!(text.contains("previous_read_result: result-11"));
+        assert!(text.contains("complete read_file context"));
     }
 
     #[test]

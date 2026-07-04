@@ -3574,3 +3574,77 @@
   ```
 - Result: passed. `taskspace_preview_` 3/3, `read_file_summary_` 3/3, `validation_rework` 19/19, `taskspace_control` 35/35, `implementation_needs_edit` 3/3, `action_contract_prompt` 28/28, `validation_` 98/98, `provider_budget` 23/23, `taskspace_active_budget` 11/11, `apply_patch_` 35/35, `local_infra` 11/11, `duplicate_read_search` 3/3, `missing_fact_source_bootstrap` 1/1, and `inspect_missing_fact_sources` 2/2 all passed. The fmt check still prints the known stable rustfmt `imports_granularity` warning. `git diff --check` and the `whale` build passed.
 - Interpretation: H-059 is focused-fixed with R4-adjacent regression/build coverage. The remaining gate is commit/push, attestation, and keyed rerun to verify live prompts now retain `complete_read/eof_reached=true` and advance beyond duplicate re-read.
+
+# Evidence E-129: e70aeed live rerun clears read-summary tail loss but exposes non-forcing complete-read recovery
+
+- Prediction tested: H-059 should make live prompts retain the real target-read summary after preview truncation and prevent `path=%s` template shadowing.
+- Real rerun:
+  ```text
+  RunDir: target/r4-org-json-real-keyed-20260704bf-preview-tail-sentinel/runs/terminal_bench__organization-json-generator/20260704-130600-674
+  PairReport: pair-001/pair-report.md
+  reported_evidence_level: E2-candidate
+  included_in_utility_aggregate: False
+  outcome_standard: solved
+  outcome_taskspace: engineering_unclean
+  right_exec_timed_out: False
+  right_tool_call_count: 13
+  right_public_validation_exit_code: 1
+  right_hidden_oracle_exit_code: 0
+  ```
+- Matched H-059 live signals:
+  - Provider-visible developer context contained `validation_rework_target_read result=result-11 artifact=process.py`.
+  - The same context contained `read_context: complete_read; TaskSpaceReadFileSummaryV1: path=process.py lines_read=97 eof_reached=true max_lines=240`.
+  - The schema read ActionMap result also retained `TaskSpaceToolTailSentinelV1` after telemetry preview truncation.
+- New blocker signals:
+  - After `TaskSpaceValidationReworkPatchOnlyRecoveryV1` required exactly one `apply_patch` or precise `block_node`, the model still emitted `read_file process.py`.
+  - `TaskSpaceValidationReworkDuplicateReadRecoveryV1` correctly reported `Result result-11 is a complete read_file context (TaskSpaceReadFileSummaryV1 eof_reached=true; no additional file lines are hidden)` and repeated the repair contract.
+  - The next model action repeated `read_file process.py` with rationale `Need full content of process.py to construct an accurate patch for adding missing schema properties; the projected excerpt is insufficient.`
+  - The turn ended at `TaskSpaceValidationReworkDuplicateReadHardStopV1`.
+- Interpretation: H-059 is live-cleared. The next problem type is `validation-rework-complete-read-duplicate-read-nonforcing`: complete-read feedback is now semantically correct and visible, but session recovery still gives the model another advisory round before hard-stop, so an already-invalid duplicate read can consume one more provider request and delay the required edit/block action.
+
+# Hypothesis H-060: complete-read duplicate validation-rework reads must hard-stop immediately
+
+- Claim: In validation rework, once the target artifact has a complete read summary (`TaskSpaceReadFileSummaryV1 eof_reached=true`) and no successful edit has been recorded, a repeated `read_file` for the same artifact has no valid information gain. Treating the first duplicate complete read as advisory recovery lets the model reinterpret the visible `excerpt` label as partial evidence and retry, even though runtime already knows no additional file lines are hidden.
+- Prediction:
+  1. A focused session test with duplicate-read recovery text containing `complete read_file context` / `eof_reached=true` should hard-stop immediately at previous duplicate recovery count `0`.
+  2. The existing generic duplicate-read behavior without complete-read evidence should still allow one advisory recovery before hard-stop.
+  3. Patch-only recovery text should explicitly state that `complete_read` / `eof_reached=true` means no hidden lines remain, so the model must not treat the displayed target-read excerpt as partial evidence.
+  4. Validation rework, action contract, taskspace control, provider/budget, apply-patch, formatting, whitespace, and `whale` build regressions should continue to pass.
+- Diagnostic evidence plan: Add complete-read detection to session duplicate-read hard-stop classification, add focused tests for immediate hard-stop and patch-only wording, then rerun R4-adjacent regressions and a keyed `organization-json-generator` rerun.
+- Status: confirmed.
+
+# Evidence E-130: complete-read duplicate recovery is focused-fixed with R4 regression coverage
+
+- Prediction tested: H-060 predicts complete-read duplicate validation-rework reads should hard-stop immediately, while generic duplicate-read recovery and failed-edit refresh behavior remain intact.
+- Repair artifact:
+  - `third_party/codex-cli/codex-rs/core/src/session/turn.rs`
+- Repair behavior:
+  - `taskspace_validation_rework_duplicate_read_should_hard_stop()` now treats duplicate-read recovery containing `complete read_file context` or `read_context: complete_read` as terminal even when duplicate recovery count is still `0`.
+  - `TaskSpaceValidationReworkPatchOnlyRecoveryV1` now explicitly says `complete_read` / `eof_reached=true` means no additional file lines are hidden and the displayed target-read excerpt must not be treated as partial evidence.
+  - Added `validation_rework_duplicate_read_complete_context_hard_stops_immediately`.
+- Focused validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core validation_rework_duplicate_read_complete_context_hard_stops_immediately --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core validation_rework_duplicate_read --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core validation_rework --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core validation_rework_allows_changed_artifact_read_when_schema_failure_lacks_traceback --lib --locked
+  ```
+- R4-adjacent regression/build validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core taskspace_control --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core implementation_needs_edit --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core action_contract_prompt --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core validation_ --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core provider_budget --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core taskspace_active_budget --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core apply_patch_ --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core local_infra --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core duplicate_read_search --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core missing_fact_source_bootstrap --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core inspect_missing_fact_sources --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+  git diff --check
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-cli --bin whale --locked
+  ```
+- Result: passed. Pre-format regression tests passed through `validation_rework_duplicate_read` 7/7, `validation_rework` 20/20, `taskspace_control` 35/35, `implementation_needs_edit` 3/3, `action_contract_prompt` 28/28, `validation_` 99/99, `provider_budget` 23/23, `taskspace_active_budget` 11/11, `apply_patch_` 35/35, `local_infra` 11/11, `duplicate_read_search` 3/3, `missing_fact_source_bootstrap` 1/1, and `inspect_missing_fact_sources` 2/2. The first full command stopped only because `cargo fmt --check` required a one-line rustfmt reflow. After running `cargo fmt`, the focused complete-context test, `cargo fmt --check`, `git diff --check`, and `whale` build all passed. The fmt command still prints the known stable rustfmt `imports_granularity` warning.
+- Interpretation: H-060 is focused-fixed with R4-adjacent regression/build coverage. The remaining live gate is commit/push, binary attestation, and another keyed `organization-json-generator` rerun to verify the turn now stops immediately on complete-read duplicate requests and to expose the next unresolved tools-chain blocker.

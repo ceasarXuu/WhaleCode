@@ -147,6 +147,7 @@ raw signal 存在但语义没有正确进入下一轮 tool contract：
 | `validation-rework-target-read-output-context-loss` | latest active context scoping 修复了跨节点 stale edit success，但也误丢当前 rework target 的完整 read output，只剩 projection compact excerpt，模型又重复读 `generate_org.py`；已对 latest projection 明确引用的 `validation_rework_target_read artifact=*` 回补对应 read output，同时继续排除旧 apply_patch success | focused+regression fixed / real rerun pending |
 | `inspect-duplicate-list-files-data-bootstrap-gap` | keyed rerun `20260704-115228-006` 证实第一次 `list_files` 已列出 `schema.json` 和 CSV fact sources，但模型重复 `list_files` 后只收到 duplicate recovery，没有触发 bounded data artifact bootstrap，最终烧到 `TaskSpaceProviderBudgetHardStopV1`；已让 repeated duplicate read/search 在 force-finish 不安全时触发 bounded source/test/data artifact bootstrap | focused+regression fixed / real rerun pending |
 | `validation-rework-patch-only-after-target-read-feedback` | keyed rerun `20260704-120401-124` 证实 schema repair contract、`validation_rework_target_read` 和禁止 schema inspection 的 patch-only 契约都已出现在 provider prompt，但下一次 `read_file schema.json` 仍被包装成泛化 `implementation_needs_edit` hard-stop；已新增 post-target-read patch-only 专用 recovery/hard-stop 语义 | focused+regression fixed / real rerun pending |
+| `validation-rework-complete-read-duplicate-read-nonforcing` | keyed rerun `20260704-130600-674` 证实 `read_context: complete_read`、`eof_reached=true` 和 `no additional file lines are hidden` 已正确传给模型，但模型仍声称 projected excerpt 不足并重复 `read_file process.py`；已把 complete-read duplicate rework read 从 advisory recovery 升级为 immediate hard-stop，并强化 patch-only recovery 文案 | focused+regression fixed / real rerun pending |
 
 新增关键判断：
 
@@ -1793,6 +1794,93 @@ CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/co
 新增覆盖证明 telemetry preview 截断后仍追加 `TaskSpaceToolTailSentinelV1` 和真实 `TaskSpaceReadFileSummaryV1`；
 recent feedback 截断后也保留同一哨兵；runtime parser 不再把后置命令模板优先于真实可解析 summary。
 `cargo fmt --check` 仍只输出项目既有 stable rustfmt `imports_granularity` 警告；`git diff --check` 和 `whale` build 通过。
+
+### 3.34 complete-read duplicate read recovery non-forcing
+
+read-summary tail sentinel 修复提交并 attestation 后执行 keyed rerun：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260704bf-preview-tail-sentinel/runs/terminal_bench__organization-json-generator/20260704-130600-674
+PairReport: pair-001/pair-report.md
+reported_evidence_level: E2-candidate
+included_in_utility_aggregate: False
+outcome_standard: solved
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 13
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+```
+
+这次 H-059 已 live-cleared：
+
+| evidence | 观察 |
+|---|---|
+| target read | provider-visible context 出现 `validation_rework_target_read result=result-11 artifact=process.py` |
+| read completeness | 同一 context 出现 `read_context: complete_read; TaskSpaceReadFileSummaryV1: path=process.py lines_read=97 eof_reached=true max_lines=240` |
+| truncation sentinel | schema/read result 在 telemetry preview truncation 后保留 `TaskSpaceToolTailSentinelV1` 和真实 summary |
+
+新的问题不是语义缺失，也不是语义扭曲。runtime 已经把完整读取语义正确传给 provider：
+
+```text
+Result result-11 is a complete read_file context (TaskSpaceReadFileSummaryV1 eof_reached=true; no additional file lines are hidden).
+```
+
+但模型仍重复：
+
+```json
+{"action":"read_file","node_id":"node-4","args":{"path":"process.py"},"rationale":"Need full content of process.py to construct an accurate patch for adding missing schema properties; the projected excerpt is insufficient."}
+```
+
+问题类型收录：
+
+| field | value |
+|---|---|
+| case | `validation-rework-complete-read-duplicate-read-nonforcing` |
+| layer | feedback layer / control forcing |
+| trigger | validation rework 已有 target artifact 完整读取，且无 successful edit |
+| expected | `complete_read/eof_reached=true` 后，同一 artifact 的 duplicate read 不再进入另一轮 advisory；当前 turn 应立即停止或只接受 apply_patch/block_node |
+| actual | patch-only recovery 后，第一次 duplicate read 仍得到 `TaskSpaceValidationReworkDuplicateReadRecoveryV1` advisory；模型又重复同一 `read_file` 才 hard-stop |
+| classification | 语义正确传递但控制级别不足 |
+| fix | `taskspace_validation_rework_duplicate_read_should_hard_stop()` 识别 complete-read duplicate recovery，previous count 为 0 时也 hard-stop；patch-only recovery 明确 `complete_read/eof_reached=true` 表示无隐藏行 |
+
+本地 focused 验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core validation_rework_duplicate_read_complete_context_hard_stops_immediately --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core validation_rework_duplicate_read --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core validation_rework_patch_only --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core validation_rework_allows_changed_artifact_read_when_schema_failure_lacks_traceback --lib --locked
+```
+
+结果：通过。新增覆盖证明 complete-read duplicate recovery 会 immediate hard-stop；不带 complete-read 证据的旧 duplicate-read 仍保持一次 advisory 后 hard-stop；failed-edit 后允许目标 artifact refresh read 的 runtime 测试保持通过。
+
+R4-adjacent 回归和构建验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core validation_rework --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core taskspace_control --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core implementation_needs_edit --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core action_contract_prompt --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core validation_ --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core provider_budget --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core taskspace_active_budget --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core apply_patch_ --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core local_infra --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core duplicate_read_search --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core missing_fact_source_bootstrap --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core inspect_missing_fact_sources --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+git diff --check
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-cli --bin whale --locked
+```
+
+结果：通过。`validation_rework_duplicate_read` 7/7、`validation_rework` 20/20、`taskspace_control` 35/35、
+`implementation_needs_edit` 3/3、`action_contract_prompt` 28/28、`validation_` 99/99、`provider_budget` 23/23、
+`taskspace_active_budget` 11/11、`apply_patch_` 35/35、`local_infra` 11/11、`duplicate_read_search` 3/3、
+`missing_fact_source_bootstrap` 1/1、`inspect_missing_fact_sources` 2/2 均通过。第一次收尾停在
+`cargo fmt --check` 要求 rustfmt reflow；执行 `cargo fmt` 后 focused test、`cargo fmt --check`、`git diff --check`
+和 `whale` build 通过。fmt 仍只输出项目既有 stable rustfmt `imports_granularity` warning。
 
 ## 4. 本次验证
 
