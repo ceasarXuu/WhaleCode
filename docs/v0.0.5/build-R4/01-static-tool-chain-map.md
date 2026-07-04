@@ -553,3 +553,17 @@ provider 连续两次选择 `read_file process.py`，最终按设计 hard-stop�
 | `validation-rework-patch-directive-buried-after-evidence` | validation rework recovery payload layout / actionability | 正确事实齐全，但“现在必须 apply_patch，不要 read_file”的动作指令位于长证据块后，模型在 repair loop 中继续重复读 | patch-only 和 duplicate-read recovery 均先给 `Current required behavior`，再给 previous feedback 和 evidence；保持 repair contract、complete-read evidence 和 hard-stop 上限 | CoE H-070/E-149; recovery ordering tests |
 
 边界说明：这不是删减证据，也不是放宽 repeated read；而是把动作优先级显式前置，让模型先看到合法下一步，再用下面证据构造 patch。
+
+## 2026-07-04 R4-D unresolved issue type: closed action-space noncompliance
+
+patch directive 前置后的 keyed rerun 证明动作指令已经 live 可见：hard-stop excerpt 中 `Current required behavior` 出现在长 evidence
+前，active projection 也明确 `next_valid_actions` 是使用完整 read result、不要重复 read/search、对 `generate_organization.py`
+执行 `apply_patch`。同时 current node contract 已写明 allowed action classes 为 `edit, control(...)`，且 read/search 会被 blocked。
+模型仍输出 `read_file generate_organization.py`，runtime 只能阻断并 hard-stop。
+
+| Issue type | Layer | Symptom | Resolution contract | Evidence |
+|---|---|---|---|---|
+| `validation-rework-closed-action-space-noncompliance` | capability/control layer beyond advisory feedback | action space 已闭合且反馈已前置，模型仍选择非法 read_file；runtime 只会 reject/hard-stop，不能推动 patch 产生 | 需要结构性设计，不应继续叠提示词；候选方向包括 closed-action noncompliance 后模型升级、repair synthesis/patch-plan gate、或更强 action schema narrowing | CoE H-071/E-152; keyed rerun `20260704-153051-437` |
+
+边界说明：该 case 不是语义缺失，也不是语义扭曲；是语义已正确传递后，模型仍不服从闭合动作空间。R4 后续需要在能力层处理，
+不能只继续增强 feedback 文案。

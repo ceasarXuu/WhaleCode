@@ -158,6 +158,7 @@ raw signal 存在但语义没有正确进入下一轮 tool contract：
 | `validation-rework-complete-read-duplicate-hardstop-too-early` | keyed rerun `20260704-145742-157` 证实 H-067 已 live-cleared，模型实现前读取了 schema 和三个 CSV；validation rework 也完整读取了 `generate_organization.py`，但第一次 duplicate-read feedback 刚产生完整读取/无隐藏行语义时就被 hard-stop，模型没有机会响应该强反馈；已把 complete-read duplicate read 改为先给一次 recoverable feedback，第二次重复或 repeated-blocked-action 才 hard-stop | focused fixed / real rerun pending |
 | `validation-rework-block-rejection-wording-drift` | keyed rerun `20260704-150817-545` 证实 complete-read hard-stop timing 已 live-cleared；runtime 正确拒绝了 validation rework 中“还要读 schema/test expectations”的 blocker，但 session 只识别旧 missing-source rejection wording，未把新 wording 结构化为 `missing_source_visibility_blocker_rejected`，随后进入 patch-only hard-stop；已把 old/new missing-source block rejection wording 合并识别 | focused fixed / real rerun pending |
 | `validation-rework-patch-directive-buried-after-evidence` | keyed rerun `20260704-151923-804` 未复现 H-069 block path，但进入完整 schema validation rework；repair contract、complete target read、schema/CSV evidence 均已可见，provider 仍连续重复读 `process.py`；root cause 是 patch-only/duplicate-read recovery 把 `Current required behavior` 放在长 evidence 后；已把动作指令前置 | focused fixed / real rerun pending |
+| `validation-rework-closed-action-space-noncompliance` | keyed rerun `20260704-153051-437` 证实 patch directive 已前置、complete-read 语义已显式保留、projection 已将 next_valid_actions 收窄到 `apply_patch generate_organization.py`，current node contract 也只允许 edit/control；provider 仍输出非法 `read_file generate_organization.py` 并触发 duplicate-read hard-stop | open / design required |
 
 新增关键判断：
 
@@ -2451,6 +2452,46 @@ current_git_head: 9f370ddfa3f12397ed1d966b321b5e1f0a86c3b2
 | focused evidence | `action_contract_prompt_structures_validation_rework_missing_source_blocker_rejection` |
 
 状态：focused 修复已编码；仍需 focused/regression、fmt/build、commit/push、attestation、keyed rerun。
+
+## 11. 2026-07-04 validation rework closed action-space noncompliance
+
+`41b1cf6` 的 keyed rerun 证明 H-070 的 recovery ordering 已进入 live path，但仍未让 TaskSpace 完成 public validation。
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260704bp-frontloaded-rework-guidance/runs/terminal_bench__organization-json-generator/20260704-153051-437
+reported_evidence_level: E2-candidate
+outcome_standard: solved
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 17
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+current_git_head: 41b1cf63f051f3d0e674c4fb712735000ffa576c
+whale_binary_sha256: d2c17206bbc8f6958603c7ba20d040d9192ca2a38a8880fc309c5eb69b9ef561
+```
+
+关键观察：
+
+| Signal | 结论 |
+|---|---|
+| `TaskSpaceValidationReworkDuplicateReadHardStopV1` excerpt 中 `Current required behavior` 出现在 long evidence 前 | H-070 live-applied |
+| hard-stop 显式保留 `read_context: complete_read`、`complete read_file context already visible`、`no additional file lines are hidden` | 完整读取语义没有缺失 |
+| active projection 的 `next_valid_actions` 是使用现有 `result-13`、不要 read/search、对 `generate_organization.py` 执行 `apply_patch` | 合法下一步已明确 |
+| current node contract 写明 allowed action classes 为 `edit, control(block_node only; finish_node blocked until successful edit; read/search ... will be blocked)` | 动作空间已经闭合 |
+| provider 仍输出 `read_file generate_organization.py`，被拒绝后再次重复，最终 duplicate-read hard-stop | 剩余问题不再是 feedback wording，而是闭合动作空间下的 action compliance/control 问题 |
+
+问题类型收录：
+
+| 字段 | 内容 |
+|---|---|
+| case | `validation-rework-closed-action-space-noncompliance` |
+| 层级 | capability/control layer beyond advisory feedback |
+| 本质 | 语义已正确传递后，模型仍选择非法 read action；runtime 可以 reject/hard-stop，但不能强制产出 patch |
+| 非根因 | 不是语义缺失；不是语义扭曲；不是 complete-read context 丢失；不是 patch directive 排序问题 |
+| 候选修复方向 | closed-action noncompliance 后模型升级、进入 repair-synthesis/patch-plan gate、或通过更强 action schema narrowing 禁止非法 read action |
+| focused evidence | CoE H-071/E-152；keyed rerun `20260704-153051-437` |
+
+状态：open。下一步不能继续叠 feedback 文案，应先做 action-space/control 设计决策，再进入实现与 keyed rerun。
 
 ## 10. 2026-07-04 validation rework patch directive buried after evidence
 

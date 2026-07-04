@@ -3955,3 +3955,17 @@ schema validation rework，并暴露新的反馈布局问题：事实齐全，�
 
 结论：这是 R4-D recovery actionability/layout 修复，不是 utility acceptance。下一轮 keyed rerun 要验证模型是否在 first complete-read
 recovery 后转向 `apply_patch`，或进入更低层的 patch synthesis/validation failure。
+
+## 5.61 2026-07-04 closed action-space noncompliance
+
+`41b1cf6` 的 keyed rerun 证明 5.60 的 recovery ordering 已进入 live path，但没有解决终局问题。模型仍在 closed
+repair action space 下输出非法 `read_file`。
+
+本轮新增未解问题类型：
+
+| Case | Observed | Implication |
+|---|---|---|
+| `validation-rework-closed-action-space-noncompliance` | active projection 明确 `next_valid_actions` 为使用完整 read result、不要 read/search、`apply_patch generate_organization.py`；current node contract 明确 `allowed action classes: edit, control(...)` 且 read/search 会被 blocked；provider 仍输出 `read_file generate_organization.py`，最终 duplicate-read hard-stop | 这已不是 feedback 文字缺失/顺序问题，而是 action-space 闭合后模型仍可选择非法动作；需要能力/控制层设计，例如模型升级、repair synthesis/patch-plan gate 或更强 action schema narrowing |
+
+结论：H-070 live-applied but insufficient。继续叠加提示词收益有限，下一步应先做设计决策：closed-action noncompliance 后到底由
+runtime 触发强模型修复、进入结构化 patch-plan、还是收紧 action schema。

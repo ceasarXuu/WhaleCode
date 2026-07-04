@@ -4270,3 +4270,39 @@
   ```
 - Result: passed. `cargo fmt` and `cargo fmt --check` exit 0 with the known stable rustfmt `imports_granularity` warnings; `git diff --check` exits 0; `whale` dev build finished successfully.
 - Interpretation: H-070 is ready for commit/push and attestation before live keyed rerun.
+
+# Evidence E-152: 41b1cf6 rerun shows front-loaded patch directive is live but insufficient
+
+- Prediction tested: H-070 should make the validation rework patch directive provider-visible before long evidence.
+- Real rerun:
+  ```text
+  RunDir: target/r4-org-json-real-keyed-20260704bp-frontloaded-rework-guidance/runs/terminal_bench__organization-json-generator/20260704-153051-437
+  PairReport: pair-001/pair-report.md
+  reported_evidence_level: E2-candidate
+  outcome_standard: solved
+  outcome_taskspace: engineering_unclean
+  right_exec_timed_out: False
+  right_tool_call_count: 17
+  right_public_validation_exit_code: 1
+  right_hidden_oracle_exit_code: 0
+  current_git_head: 41b1cf63f051f3d0e674c4fb712735000ffa576c
+  whale_binary_sha256: d2c17206bbc8f6958603c7ba20d040d9192ca2a38a8880fc309c5eb69b9ef561
+  ```
+- Matched H-070 live signals:
+  - The `TaskSpaceValidationReworkDuplicateReadHardStopV1` excerpt shows `Current required behavior` before the recovery evidence.
+  - The hard-stop explicitly preserves `read_context: complete_read; complete read_file context already visible; no additional file lines are hidden`.
+- New blocker signals:
+  - The active projection before final duplicate read listed `next_valid_actions`: use existing complete read result `result-13`, do not read/search again before edit, apply_patch target `generate_organization.py`, and read/search no longer valid.
+  - The current node contract said `allowed action classes: edit, control(block_node only; finish_node blocked until successful edit; read/search of already visible validation rework targets will be blocked)`.
+  - Despite both the front-loaded recovery and the closed action contract, the provider emitted another `read_file generate_organization.py` action and hit `TaskSpaceValidationReworkDuplicateReadHardStopV1`.
+- Interpretation: H-070 is live-applied but not sufficient. New unresolved issue type is `validation-rework-closed-action-space-noncompliance`: feedback semantics are no longer missing or buried; the remaining problem is that the model can still emit an invalid action after the action space is closed, and runtime can only reject/hard-stop rather than force a patch-producing action.
+
+# Hypothesis H-071: validation rework needs a stronger action-space transition after closed-action noncompliance
+
+- Claim: Once validation rework has a complete target read, repair contract, and projection contract that says read/search is blocked, another `read_file` is not a feedback wording problem. It indicates the tool-free action loop lacks a stronger transition for closed action space noncompliance, such as model escalation, alternate repair mode, or a deterministic patch-plan gate before any more provider sampling.
+- Prediction:
+  1. More prompt wording alone is unlikely to reliably fix the case, because the live payload already included the directive, complete-read evidence, next_valid_actions, and allowed-action contract.
+  2. A durable fix should change the capability/control layer, not only append another advisory sentence.
+  3. Candidate fixes must be designed separately because they affect model routing, action-contract enforcement, and validation rework recovery policy.
+- Diagnostic evidence plan: Compare possible capability-layer designs: (a) escalate validation rework closed-action noncompliance to stronger model/profile, (b) require a structured patch-plan artifact before allowing further read-like actions, (c) turn the second duplicate read into an explicit repair-synthesis node rather than another provider retry, or (d) tighten the action schema so invalid read actions in closed repair state are impossible to emit. Need design review before implementation.
+- Status: open.
