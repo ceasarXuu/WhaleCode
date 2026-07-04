@@ -1240,5 +1240,19 @@ hard-stop 覆盖。
 |---|---|---|---|---|
 | `apply-patch-replacement-required-recovery-budget-loop` | apply_patch feedback / replacement-only enforcement / provider budget interaction | `apply_patch_replacement_required:<target>` 重复出现；recovery 没有给具体 Delete/Add target scaffold，且重复非 replacement 未先 hard-stop | 已实现：replacement-required recovery 读取 working evidence；full-visible target 时输出具体 `Delete File`/`Add File` scaffold；重复同节点 replacement-required rejection 转为 apply-patch recovery hard-stop，不再落到 provider budget | keyed rerun `20260705-051421-876`; CoE H-127/E-257/E-258; focused tests `replacement_required`, `apply_patch_recovery`, `validation_rework`, `action_contract_prompt` |
 
+## 2026-07-05 R4-D issue type addendum: validation node budget bootstrap gap
+
+`d37a7f1` 后 keyed rerun live-clear 了 replacement-required loop，但暴露 provider budget 与 validation feedback 的交界问题：
+successful implementation edit 后 runtime 创建了 `node-7 kind=smoke_test`，此时总 provider request 已到 `20/20`，下一次
+pre-dispatch 直接 `TaskSpaceProviderBudgetHardStopV1`，导致 fresh validation node 没有任何 test/build 证据。
+
+| issue type | 层级 | 本质 | 修复 | 证据 |
+|---|---|---|---|---|
+| `validation-node-provider-budget-bootstrap-gap` | session provider-budget control / validation feedback bootstrap / action-map evidence | coverage-correct validation command 已可由 runtime 确定，但 fresh validation node 在 provider hard-stop 前未执行 test，反馈停在 budget hard-stop 而非验证结果 | 已实现：runtime 暴露 fresh validation bootstrap command；session pre-dispatch hard-stop 前运行本地 validation bootstrap；成功则 forced validation closeout，失败则记录 Test 失败证据；已有 test/build result 后不再 bootstrap | keyed rerun `20260705-053314-639`; CoE H-128/E-259/E-260; focused tests `validation_node_blocks_generator_only_command_for_schema_output_contract`, `validation_required_command_bridge`, `provider_budget`, `validation_closeout` |
+
+边界说明：这不是提高 provider budget，也不是绕过状态机。bootstrap 只在 provider 已拒绝下一次模型请求、当前节点是
+`smoke_test/regression_test`、且 runtime 能从已知 local validator 或 changed artifact + output contract 推导出确定命令时运行。
+没有确定命令或节点已有 test/build 证据时仍按原 provider hard-stop/validation closeout 逻辑处理。
+
 边界说明：该修复不放宽 apply_patch grammar。相反，它把 replacement-only 从泛化建议强化为目标明确的 feedback
 和重复失败控制：第一次给模型可执行 replacement scaffold，第二次仍不遵守则用专门 hard-stop 暴露该工具链失败。

@@ -1437,6 +1437,13 @@ impl Session {
             .current_main_working_evidence_summary()
     }
 
+    pub(crate) async fn action_map_current_validation_bootstrap_command(&self) -> Option<String> {
+        let state = self.state.lock().await;
+        state
+            .action_map_runtime
+            .current_main_validation_bootstrap_command()
+    }
+
     pub(crate) async fn force_finish_action_map_implement_for_provider_budget(
         &self,
         turn_context: &TurnContext,

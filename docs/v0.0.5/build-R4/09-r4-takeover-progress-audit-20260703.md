@@ -2459,6 +2459,36 @@ current_git_head: 9f370ddfa3f12397ed1d966b321b5e1f0a86c3b2
 
 状态：focused 修复已编码；仍需 focused/regression、fmt/build、commit/push、attestation、keyed rerun。
 
+## 56. 2026-07-05 validation node provider-budget bootstrap
+
+`d37a7f1` 后 keyed rerun 证明 H-127 replacement-required recovery loop 已 live-clear。新的 blocker 是 validation 节点
+刚创建就遇到 provider request `20/20`：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260705av-replacement-required-gate/runs/terminal_bench__organization-json-generator/20260705-053314-639
+reported_evidence_level: E1
+outcome_standard: wrong
+outcome_taskspace: engineering_unclean
+right_tool_call_count: 20
+right_failed_tool_call_count: 2
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+final_marker: TaskSpaceProviderBudgetHardStopV1 request_count=20/20 node_kind=smoke_test
+```
+
+问题类型收录：
+
+| 字段 | 内容 |
+|---|---|
+| case | `validation-node-provider-budget-bootstrap-gap` |
+| 层级 | session provider-budget control / validation feedback bootstrap / action-map evidence |
+| 本质 | runtime 已能确定 coverage-correct validation command，但 fresh validation node 在 hard-stop 前没有 test/build 证据 |
+| 非根因 | 不是单纯 provider budget 太低；不是模型缺失 schema validation 语义；不是 replacement-required recovery 复发 |
+| 修复 | runtime 暴露 fresh validation bootstrap command；session pre-dispatch hard-stop 前执行本地 validation bootstrap；成功 forced closeout，失败记录 Test 证据 |
+| focused evidence | CoE H-128/E-259/E-260；`validation_node_blocks_generator_only_command_for_schema_output_contract`；`validation_required_command_bridge`；`validation_rework` 31/31；`action_contract_prompt` 29/29；`provider_budget` 23/23；`validation_closeout` 3/3 |
+
+状态：focused 修复已编码并通过相关单测；仍需 check/build/diff、commit/push、install/attest 和真实 keyed rerun。
+
 ## 53. 2026-07-05 validation blocker supersession final-gate gap
 
 `e0a17fc` 安装后的 keyed rerun 已越过 H-124 inspect hard-stop，进入 implementation、validation recovery

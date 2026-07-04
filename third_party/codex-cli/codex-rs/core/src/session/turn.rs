@@ -11845,7 +11845,7 @@ async fn run_taskspace_validation_required_command_bootstrap(
     request_count: usize,
     command: &str,
     cancellation_token: CancellationToken,
-) -> CodexResult<()> {
+) -> CodexResult<bool> {
     let mut current_command = command.trim().to_string();
     for attempt in 1..=3 {
         let call_id = format!(
@@ -11868,7 +11868,7 @@ async fn run_taskspace_validation_required_command_bootstrap(
             &turn_context,
             EventMsg::Warning(WarningEvent {
                 message: format!(
-                    "TaskSpaceValidationRequiredCommandBootstrapV1 executed coverage-correct validation command after a rejected validation run_test: {current_command}"
+                    "TaskSpaceValidationRequiredCommandBootstrapV1 executed coverage-correct validation command from runtime recovery: {current_command}"
                 ),
             }),
         )
@@ -11921,9 +11921,9 @@ raw_output:\n\
             preview,
         )
         .await;
-        break;
+        return Ok(success);
     }
-    Ok(())
+    Ok(false)
 }
 
 fn taskspace_tool_output_success_and_text(item: &ResponseItem) -> Option<(bool, String)> {
@@ -14917,6 +14917,70 @@ async fn try_run_sampling_request(
             .action_map_gate_provider_request_pre_dispatch(snapshot)
             .await;
         if !gate.allowed {
+            if matches!(
+                snapshot.node_kind.as_deref(),
+                Some("smoke_test" | "regression_test")
+            ) && let Some(command) = sess.action_map_current_validation_bootstrap_command().await
+            {
+                let validation_success = run_taskspace_validation_required_command_bootstrap(
+                    tool_runtime.clone(),
+                    sess.clone(),
+                    turn_context.clone(),
+                    snapshot.request_count,
+                    &command,
+                    cancellation_token.child_token(),
+                )
+                .await?;
+                let mut recovery_item = None;
+                if validation_success
+                    && let Some(closeout_snapshot) =
+                        sess.action_map_provider_request_budget_snapshot().await
+                    && matches!(
+                        closeout_snapshot.node_kind.as_deref(),
+                        Some("smoke_test" | "regression_test")
+                    )
+                {
+                    match sess
+                        .force_finish_action_map_validation_after_successful_tool(
+                            &turn_context,
+                            closeout_snapshot,
+                            "validation_budget_bootstrap_success",
+                        )
+                        .await
+                    {
+                        Ok(true) => {
+                            recovery_item =
+                                Some(build_taskspace_forced_validation_closeout_recovery_item());
+                        }
+                        Ok(false) => {}
+                        Err(error) => {
+                            sess.send_event(
+                                &turn_context,
+                                EventMsg::Warning(WarningEvent {
+                                    message: format!(
+                                        "TaskSpaceForcedValidationCloseoutFailedV1 trigger=validation_budget_bootstrap_success error={error}"
+                                    ),
+                                }),
+                            )
+                            .await;
+                        }
+                    }
+                }
+                let latest_snapshot = sess
+                    .action_map_provider_request_budget_snapshot()
+                    .await
+                    .unwrap_or_else(|| snapshot.clone());
+                let recovery_item = recovery_item.unwrap_or_else(|| {
+                    build_taskspace_provider_budget_hard_stop_item(&latest_snapshot, &gate)
+                });
+                return Ok(SamplingRequestResult {
+                    needs_follow_up: false,
+                    last_agent_message: Some(format!(
+                        "TaskSpace ran validation bootstrap before provider budget hard stop: {command}"
+                    )),
+                    taskspace_no_action_recovery_item: Some(recovery_item),
+                });
+            }
             if snapshot.node_kind.as_deref() == Some("inspect_code_context") {
                 match sess
                     .force_finish_action_map_inspect_for_provider_budget(

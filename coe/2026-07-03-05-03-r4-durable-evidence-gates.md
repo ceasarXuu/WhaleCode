@@ -7664,3 +7664,83 @@
     PASS
   ```
 - Interpretation: H-127 is focused-fixed. Remaining gates are `git diff --check`, commit/push, install/attest, and keyed rerun to verify replacement-required recovery no longer loops into global provider budget.
+
+# Evidence E-259: H-127 rerun clears replacement-required loop but exposes validation-node budget bootstrap gap
+
+- Real rerun:
+  ```text
+  RunDir: target/r4-org-json-real-keyed-20260705av-replacement-required-gate/runs/terminal_bench__organization-json-generator/20260705-053314-639
+  reported_evidence_level: E1
+  outcome_standard: wrong
+  outcome_taskspace: engineering_unclean
+  right_exec_timed_out: False
+  right_tool_call_count: 20
+  right_failed_tool_call_count: 2
+  right_public_validation_exit_code: 1
+  right_hidden_oracle_exit_code: 0
+  right_nodes: 7
+  right_edges: 6
+  right_open_leaf_nodes: 1
+  final_marker: TaskSpaceProviderBudgetHardStopV1 request_count=20/20 node_kind=smoke_test
+  ```
+- H-127 live status:
+  - The previous `apply_patch_replacement_required` recovery loop did not recur.
+  - The run progressed through a successful implementation edit and runtime-created `node-7 kind=smoke_test`.
+- New blocker signals:
+  - Earlier validation recovery had already derived and executed the coverage-correct command:
+    `python generate_org.py && python -m jsonschema -i organization.json schema.json`.
+  - At the end, rollout created `node-7` at request count `20/20`; node request count was `0/5`.
+  - Final projection said current node `node-7 kind=smoke_test` allowed `run validator/test command`.
+  - The next provider dispatch was blocked by `provider_request_hard_limit_exceeded` before any test/build result could be recorded for `node-7`.
+- Interpretation: H-128 is a control/feedback gap, not missing validation semantics. The correct command was known from TaskSpace validation gates; the failure was that provider-budget hard-stop could leave a fresh validation node untested instead of running a bounded runtime bootstrap.
+
+# Hypothesis H-128: validation provider-budget hard-stop must run deterministic bootstrap before terminal stop
+
+- Claim: When provider pre-dispatch budget rejects another model request on a fresh `smoke_test` or `regression_test` node, and runtime can deterministically derive a validation command from known local validator evidence or changed artifact plus output contract, the session must run that local validation bootstrap before returning a provider-budget hard-stop. Otherwise the map records a running validation node with no test evidence, and the final feedback incorrectly describes a budget stop rather than the actual validation result.
+- Prediction:
+  - Runtime can expose `current_main_validation_bootstrap_command()` only for validation nodes that have no same-node test/build result.
+  - For schema-backed output contracts, the command should combine changed artifact execution and schema validation, for example `python generate_json.py && python -m jsonschema -i organization.json schema.json`.
+  - Session pre-dispatch hard-stop should run the bootstrap without consuming another provider request; on success it should force validation closeout, and on failure it should leave concrete test failure evidence for existing validation rework routing.
+  - Once a test/build result exists on the validation node, bootstrap should return `None` and never rerun.
+- Diagnostic evidence plan: Add runtime unit coverage for validation bootstrap command derivation and non-rerun after test result; reuse existing validation required command bridge tests; run validation_rework, action_contract_prompt, provider_budget, validation_closeout, fmt/check/build/diff gates.
+- Status: focused-fixed; install and keyed rerun pending.
+
+# Evidence E-260: validation-node budget bootstrap is focused-fixed
+
+- Repair artifacts:
+  - `third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs`
+  - `third_party/codex-cli/codex-rs/core/src/session/mod.rs`
+  - `third_party/codex-cli/codex-rs/core/src/session/turn.rs`
+- Repair behavior:
+  - Runtime now exposes `current_main_validation_bootstrap_command()` for fresh validation nodes with no test/build result.
+  - The command derivation reuses existing validation coverage semantics: discovered local validator first, otherwise changed script plus output-contract/schema check when available.
+  - Provider-budget pre-dispatch now tries this deterministic bootstrap before returning `TaskSpaceProviderBudgetHardStopV1` for validation nodes.
+  - The bootstrap records a real `ActionClass::Test` tool result. Successful bootstrap can trigger forced validation closeout; failed bootstrap remains concrete validation evidence for existing rework routing.
+  - The bootstrap returns no command after a validation node already has a test/build result, preventing hidden repeated test loops.
+- Regression:
+  - `validation_node_blocks_generator_only_command_for_schema_output_contract` now asserts the derived bootstrap command and asserts it disappears after a test result is recorded.
+  - `validation_required_command_bridge_*` still covers gate-derived command extraction and chaining.
+- Validation:
+  ```text
+  cargo fmt --check
+    PASS
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_node_blocks_generator_only_command_for_schema_output_contract -- --nocapture
+    PASS: 1/1
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_required_command_bridge -- --nocapture
+    PASS: 3/3
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_rework -- --nocapture
+    PASS: 31/31
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core action_contract_prompt -- --nocapture
+    PASS: 29/29
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core provider_budget -- --nocapture
+    PASS: 23/23
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_closeout -- --nocapture
+    PASS: 3/3
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo check -p codex-core
+    PASS
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
+    PASS
+  git diff --check
+    PASS
+  ```
+- Interpretation: H-128 is focused-fixed. Remaining gates are commit/push, install/attest, and keyed rerun to verify a fresh validation node no longer hard-stops without validation evidence.

@@ -7262,6 +7262,15 @@ preview:\n\
         Some(single_line_preview(&node.context.summary, 480))
     }
 
+    pub(crate) fn current_main_validation_bootstrap_command(&self) -> Option<String> {
+        let map_id = self.active_map_id.as_ref()?;
+        let node_id = self.current_main_node_id.as_ref()?;
+        let map = self.maps.get(map_id)?;
+        let node = map.nodes.get(node_id)?;
+        let task = self.tasks.get(map.task_id.as_ref()?)?;
+        validation_node_bootstrap_command(map, node, task)
+    }
+
     fn inspect_node_has_successful_code_or_test_read(
         &self,
         map_id: &str,
@@ -15422,6 +15431,49 @@ fn validation_output_contract_next_actions(
             .to_string(),
     );
     actions
+}
+
+fn validation_node_bootstrap_command(
+    map: &ActionMapInstance,
+    node: &MapNode,
+    task: &TaskState,
+) -> Option<String> {
+    if !matches!(node.kind, NodeKind::SmokeTest | NodeKind::RegressionTest) {
+        return None;
+    }
+    if node.result_context.iter().any(|result_ref| {
+        map.results.get(&result_ref.id).is_some_and(|result| {
+            matches!(
+                result.action_class,
+                Some(ActionClass::Build | ActionClass::Test)
+            )
+        })
+    }) {
+        return None;
+    }
+    if let Some(command) = discovered_required_local_validator_commands(map)
+        .into_iter()
+        .next()
+    {
+        return Some(command);
+    }
+    let changed_artifacts = validation_dependency_changed_artifacts(map, node);
+    let requirements = task_output_contract_validation_requirements(task);
+    let requirements =
+        output_contract_requirements_for_validation_command(&requirements, &changed_artifacts);
+    let script_command = changed_artifacts
+        .iter()
+        .find(|artifact| script_artifact_token(artifact))
+        .map(|artifact| validation_changed_artifact_command(artifact));
+    let contract_check = validation_output_contract_check_command(&requirements);
+    match (script_command, contract_check) {
+        (Some(script_command), Some(contract_check)) => {
+            Some(format!("{script_command} && {contract_check}"))
+        }
+        (Some(script_command), None) => Some(script_command),
+        (None, Some(contract_check)) => Some(contract_check),
+        (None, None) => None,
+    }
 }
 
 fn validation_output_contract_check_command(
@@ -26677,6 +26729,13 @@ def normalize_status(value: str) -> str:\n\
             )
             .expect("handoff accepted");
 
+        assert_eq!(
+            state.current_main_validation_bootstrap_command().as_deref(),
+            Some(
+                "python generate_json.py && python -m jsonschema -i organization.json schema.json"
+            )
+        );
+
         let generator_only = serde_json::json!({
             "command": "python generate_json.py",
             "timeout_ms": 30000
@@ -26712,6 +26771,25 @@ def normalize_status(value: str) -> str:\n\
                 ToolActionDescriptor::new("shell_command", ActionClass::Test, combined),
             )
             .expect("combined generation and schema validation should be allowed");
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "test-combined",
+                "shell_command",
+                Some(ActionClass::Test),
+                true,
+                "TaskSpaceToolInvocationV1:\n\
+tool: shell_command\n\
+command: python generate_json.py && python -m jsonschema -i organization.json schema.json\n\
+raw_output:\n\
+organization.json generated successfully\n"
+                    .to_string(),
+            )
+            .expect("successful validation records");
+        assert!(
+            state.current_main_validation_bootstrap_command().is_none(),
+            "validation bootstrap must not rerun after a test/build result exists"
+        );
 
         let map = state.maps.get("map-1").expect("map");
         assert_eq!(

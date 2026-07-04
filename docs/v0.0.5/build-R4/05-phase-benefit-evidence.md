@@ -1522,6 +1522,50 @@ set -a; . ./.env.local; set +a; powershell -NoProfile -ExecutionPolicy Bypass -F
 git diff --check
 ```
 
+## 5.106 2026-07-05 validation node budget bootstrap gap
+
+`d37a7f1` 后 keyed rerun live-clear 了 replacement-required recovery loop，但 successful implementation edit 后创建的
+fresh `smoke_test` 节点在 provider request `20/20` 时没有机会运行 validation，最终直接
+`TaskSpaceProviderBudgetHardStopV1`。
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260705av-replacement-required-gate/runs/terminal_bench__organization-json-generator/20260705-053314-639
+reported_evidence_level: E1
+outcome_standard: wrong
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 20
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+final_marker: TaskSpaceProviderBudgetHardStopV1 request_count=20/20 node_kind=smoke_test
+```
+
+收益判断：
+
+1. 新收录的 R4-D feedback/control 修复是 `validation-node-provider-budget-bootstrap-gap`。
+2. 根因不是模型缺失 validation 语义：同一 run 早前已经 derivation 并执行过
+   `python generate_org.py && python -m jsonschema -i organization.json schema.json`。
+3. 修复后，runtime 为 fresh validation node 暴露确定性 bootstrap command；session 在 provider pre-dispatch
+   hard-stop 前先运行本地 validation bootstrap。
+4. 成功 bootstrap 会触发 forced validation closeout；失败 bootstrap 会记录真实 Test 失败证据，由既有 validation
+   rework 路由处理；已有 test/build result 后不会重复 bootstrap。
+5. R4-G utility 仍待下一次 keyed rerun 验证：目标是 final 不再停在“未测试的 validation node + provider budget
+   hard-stop”。
+
+验证：
+
+```text
+keyed rerun: 20260705-053314-639
+CoE: H-128/E-259/E-260
+cargo fmt --check
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_node_blocks_generator_only_command_for_schema_output_contract -- --nocapture
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_required_command_bridge -- --nocapture
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_rework -- --nocapture
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core action_contract_prompt -- --nocapture
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core provider_budget -- --nocapture
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_closeout -- --nocapture
+```
+
 ## 5.102 2026-07-05 inspect hard-stop transition attempt guard gap
 
 `601bc74` 安装后 keyed rerun 证明 H-123 live-clear：没有再出现 `path=*.csv` synthetic missing artifact。
