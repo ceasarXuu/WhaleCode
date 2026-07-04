@@ -694,3 +694,17 @@ json/csv/yaml bootstrap，但没有把 inspect node 强制结束进入 implement
 
 边界说明：这不是要跳过 fact-source guard。缺失事实源未读完时，既有 guard 仍阻止 forced finish；修复只覆盖 bootstrap 已把缺口补齐后的
 bridge，不再让模型继续消耗 inspect node budget。
+
+## 2026-07-04 R4-D issue type addendum: bootstrap read classification and hard-stop convergence
+
+missing fact-source bootstrap transition 修复后的 keyed rerun 证明同一 inspect path 仍有两个相邻 tools 链路缺口。第一，内部
+bootstrap read 命令由于 awk summary 中含 `>` 被 shell action classifier 误判为 edit，导致 read-only inspect gate 拦截；第二，
+当模型后续手动完成全部 fact-source 读取后，runtime 只把 `finish_node` 暴露为 next valid action，仍允许下一次 provider request
+走到 node hard-stop，而不是在 pre-dispatch 阶段强制 transition。
+
+| Issue type | Layer | Symptom | Resolution contract | Evidence |
+|---|---|---|---|---|
+| `inspect-bootstrap-read-classification-and-hard-stop-transition-gap` | capability action classification / inspect feedback-control bridge | `TaskSpaceMissingFactSourceBootstrapV1` 的 read-only shell command 被判为 edit；完整 fact-source evidence 已存在时仍 `provider_node_request_hard_limit_exceeded node_request_count=10/10` | Unix bounded read summary 不再生成 `>`，真实 bootstrap command 分类为 `ActionClass::Read`；provider pre-dispatch hard-stop 前若 inspect progress ready，以 `inspect_hard_stop_progress_convergence` forced transition 到 implementation | keyed rerun `20260704-175447-182`; CoE H-081/E-172/E-173; `missing_fact_source_bootstrap_command_reads_bounded_declared_artifacts`; `shell_action_classifier_identifies_core_taskspace_classes`; `inspect_hard_stop_progress_convergence_forces_transition_after_coverage` |
+
+边界说明：该修复不削弱 read-only gate。误判修复只让内部 bounded read 留在 read class；hard-stop bridge 仍依赖 inspect progress
+ready，missing fact-source 或 unread referenced script 未完成时不会 forced finish。

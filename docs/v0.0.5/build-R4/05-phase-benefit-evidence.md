@@ -4537,3 +4537,78 @@ CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/co
 
 边界说明：这不是允许未读完 fact-source 时提前进入 implementation。既有 `inspect_missing_fact_sources_block_manual_and_forced_finish_until_read`
 仍通过；修复只处理 bootstrap 已补齐覆盖后的自动过渡。
+
+## 5.71 2026-07-04 bootstrap read classification and hard-stop convergence bridge
+
+`5b9bdc4` keyed rerun 证明 5.70 的修复仍未 live-clear。它暴露了两个相邻缺口：missing fact-source bootstrap
+本身生成的 read-only shell command 被能力层误判为 edit；而在模型后续手动读完整事实源之后，runtime 仍在 pre-dispatch hard-stop
+前没有强制完成 inspect transition。
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260704ca-bootstrap-transition/runs/terminal_bench__organization-json-generator/20260704-175447-182
+reported_evidence_level: E1
+outcome_standard: wrong
+outcome_taskspace: wrong
+right_exec_timed_out: False
+right_tool_call_count: 13
+right_wall_time_ms: 39757
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+current_git_head: 5b9bdc4
+```
+
+关键观察：
+
+| Signal | 结论 |
+|---|---|
+| `TaskSpaceMissingFactSourceBootstrapV1` 生成 `printf ...; sed -n ... && awk ...` 读取 CSV | runtime 已尝试补 fact-source |
+| bootstrap result 被 inspect gate 拦截为 `Requested tool shell_command action class: edit` | 内部 read-only 命令被 shell action classifier 误判 |
+| 误判根因是 awk summary 中 `if (lines > 240)` 命中 `>` redirection/edit heuristic | 这是 capability-layer classification 问题 |
+| 后续手动 reads 形成 verified evidence：`schema.json`、`departments.csv`、`projects.csv`、`employees.csv` | inspect coverage 最终已经完整 |
+| active projection 明确给出 `finish_node -> implement_solution` 为 next valid action，但下一步仍是 `TaskSpaceProviderBudgetHardStopV1 node_request_count=10/10` | feedback/control bridge 在 hard-stop 前缺失 |
+
+本轮新增并 focused 修复的问题类型：
+
+| Case | Before | After | Evidence |
+|---|---|---|---|
+| `inspect-bootstrap-read-classification-and-hard-stop-transition-gap` | missing fact-source bootstrap 的 read-only shell command 被误判为 edit；即使后续 inspect evidence 完整，node hard-stop 前也只提示模型 finish_node，没有 runtime forced transition | Unix bounded read summary 避免生成 `>`，真实 bootstrap 命令分类锁为 `ActionClass::Read`；pre-dispatch hard-stop 前若 inspect progress ready，则以 `inspect_hard_stop_progress_convergence` 强制 transition；runtime 接受该 trigger | keyed rerun `20260704-175447-182`; CoE H-081/E-172/E-173; focused tests |
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core missing_fact_source_bootstrap_command_reads_bounded_declared_artifacts --lib --locked
+  PASS
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core shell_action_classifier_identifies_core_taskspace_classes --lib --locked
+  PASS
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core inspect_hard_stop_progress_convergence_forces_transition_after_coverage --lib --locked
+  PASS
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core inspect_missing_fact_sources --lib --locked
+  PASS: 2/2
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core forced_inspect_transition --lib --locked
+  PASS: 5/5
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core inspect_bootstrap --lib --locked
+  PASS: 3/3
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core action_contract_prompt --lib --locked
+  PASS: 29/29
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core validation_rework --lib --locked
+  PASS: 25/25
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+  PASS
+
+git diff --check
+  PASS
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-cli --bin whale --locked
+  PASS
+```
+
+边界说明：这不是放宽 inspect read-only gate。bootstrap 命令仍是普通 bounded read，并通过 classifier/read tests 锁定；
+hard-stop bridge 也仍依赖 `action_map_current_inspect_progress_ready_for_transition()`，不会绕过 missing fact-source 或 unread script guard。

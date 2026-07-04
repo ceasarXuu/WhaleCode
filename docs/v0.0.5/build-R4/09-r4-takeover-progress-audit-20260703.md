@@ -2703,6 +2703,48 @@ whale_binary_sha256: d2c17206bbc8f6958603c7ba20d040d9192ca2a38a8880fc309c5eb69b9
 状态：focused 修复已完成。下一步需要重新 build attestation 并 keyed rerun `organization-json-generator`，验证 provider 是否进入
 `apply_patch`，或继续暴露 patch synthesis / repair quality 的下一层问题。
 
+## 17. 2026-07-04 bootstrap read classification and hard-stop convergence bridge
+
+`5b9bdc4` 的 keyed rerun 证明 H-080 没有 live-clear。runtime 的 missing fact-source bootstrap 被触发，但内部 read command
+被能力层误判为 edit；后续模型手动完成 fact-source 读取后，pre-dispatch hard-stop 仍没有把完整 inspect coverage 转成 forced
+transition。
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260704ca-bootstrap-transition/runs/terminal_bench__organization-json-generator/20260704-175447-182
+reported_evidence_level: E1
+outcome_standard: wrong
+outcome_taskspace: wrong
+right_exec_timed_out: False
+right_tool_call_count: 13
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+current_git_head: 5b9bdc4
+```
+
+关键观察：
+
+| Signal | 结论 |
+|---|---|
+| `TaskSpaceMissingFactSourceBootstrapV1` 生成 bounded CSV read command | runtime 已尝试自动补齐 fact-source |
+| bootstrap tool output 是 `TaskSpace blocked this edit... inspect_code_context is read-only` | command 被 action classifier 误判为 edit |
+| 误判来自 awk summary 中的 `if (lines > 240)` | `>` 被文件重定向 heuristic 当作 edit risk |
+| final active projection 中 verified input evidence 覆盖 `schema.json`、`departments.csv`、`projects.csv`、`employees.csv` | inspect coverage 后续已完整 |
+| projection 给出 `finish_node -> implement_solution`，但下一步仍 hard-stop | runtime 没在 hard-stop 前把完整证据转为 phase transition |
+
+问题类型收录：
+
+| 字段 | 内容 |
+|---|---|
+| case | `inspect-bootstrap-read-classification-and-hard-stop-transition-gap` |
+| 层级 | capability action classification / inspect feedback-control bridge |
+| 本质 | 内部 bootstrap read 被误分类为 edit；完整 inspect evidence 已存在时，hard-stop 前仍把控制权交给 stuck model |
+| 非根因 | 不是 H-080 trigger allowlist 本身；不是 missing fact-source guard 过严；不是 schema/data 文件缺失 |
+| 修复 | Unix bounded read summary 改用 `if (240 < lines)` 避免 `>`；真实 bootstrap command 由 classifier 测试锁为 read；pre-dispatch hard-stop 前若 inspect progress ready，触发 `inspect_hard_stop_progress_convergence` forced transition |
+| focused evidence | CoE H-081/E-172/E-173；`missing_fact_source_bootstrap_command_reads_bounded_declared_artifacts`; `shell_action_classifier_identifies_core_taskspace_classes`; `inspect_hard_stop_progress_convergence_forces_transition_after_coverage` |
+
+状态：focused 修复已编码；`inspect_missing_fact_sources` 2/2、`forced_inspect_transition` 5/5、`inspect_bootstrap` 3/3、
+`action_contract_prompt` 29/29、`validation_rework` 25/25、fmt/check/build 均通过。后续 gate 是 attestation 和 keyed rerun。
+
 ## 10. 2026-07-04 validation rework patch directive buried after evidence
 
 `431e0ee` 的 keyed rerun 没有复现 block-rejection wording path，说明 H-069 仍需下一次命中该分支才能 live-clear。该轮暴露

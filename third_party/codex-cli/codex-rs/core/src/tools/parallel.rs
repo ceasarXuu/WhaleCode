@@ -876,6 +876,12 @@ mod tests {
             ActionClass::Read
         );
         assert_eq!(
+            classify_shell_text(
+                "printf '===== %s\\n' employees.csv; sed -n '1,240p' -- employees.csv && awk 'NR == 241 { truncated = 1; exit } { lines = NR } END { eof = truncated ? \"false\" : \"true\"; if (240 < lines) lines = 240; printf \"\\nTaskSpaceReadFileSummaryV1: path=%s lines_read=%d eof_reached=%s max_lines=240\\n\", FILENAME, lines + 0, eof }' employees.csv"
+            ),
+            ActionClass::Read
+        );
+        assert_eq!(
             classify_shell_text("cmd /c \"dir /s /b repo\\*.py\""),
             ActionClass::Read
         );

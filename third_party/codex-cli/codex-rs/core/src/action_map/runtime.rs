@@ -3861,6 +3861,7 @@ preview:\n\
             trigger == "inspect_duplicate_read_search_gate_recovery";
         let missing_fact_source_bootstrap_complete =
             trigger == "inspect_missing_fact_source_bootstrap_complete";
+        let hard_stop_progress_convergence = trigger == "inspect_hard_stop_progress_convergence";
         let repeated_blocked_gate_recovery =
             trigger == "inspect_repeated_blocked_action_with_evidence";
         if !evidence_driven_no_action_recovery
@@ -3868,6 +3869,7 @@ preview:\n\
             && !duplicate_diagnostic_gate_recovery
             && !duplicate_read_search_gate_recovery
             && !missing_fact_source_bootstrap_complete
+            && !hard_stop_progress_convergence
             && !repeated_blocked_gate_recovery
             && !provider_request_budget_pressure_active_for_node(
                 snapshot.request_count,
@@ -24499,6 +24501,81 @@ TaskSpaceReadFileSummaryV1: path=projects.csv lines_read=2 eof_reached=true max_
                 MapRuntimeEvent::TaskspaceTraceEventRecorded(recorded)
                     if recorded.kind == "forced_inspect_transition"
                         && recorded.tags.iter().any(|tag| tag == "trigger:inspect_missing_fact_source_bootstrap_complete")
+            )
+        }));
+    }
+
+    #[test]
+    fn inspect_hard_stop_progress_convergence_forces_transition_after_coverage() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (_, map_id, node_id, _) = start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::InspectCodeContext,
+            "Inspect organization data",
+            "Read schema and every CSV fact source before implementation.",
+            "Inspect organization data",
+            "Read schema and every CSV fact source before implementation.",
+            true,
+        );
+        record_required_fact_source_artifacts(
+            &mut state,
+            owner,
+            &[
+                "schema.json",
+                "departments.csv",
+                "employees.csv",
+                "projects.csv",
+            ],
+        );
+        record_successful_read_result(&mut state, owner, "schema", "schema.json");
+        record_successful_read_result(&mut state, owner, "departments", "departments.csv");
+        record_successful_read_result(&mut state, owner, "employees", "employees.csv");
+        record_successful_read_result(&mut state, owner, "projects", "projects.csv");
+
+        let snapshot = ActionMapProviderRequestBudgetSnapshot {
+            task_id: state.active_task_id.clone(),
+            map_id,
+            node_id: Some(node_id),
+            node_kind: Some(NodeKind::InspectCodeContext.as_str().to_string()),
+            current_node_progress_signature: None,
+            current_node_has_successful_edit: false,
+            current_node_has_dependency_working_evidence: false,
+            current_node_has_uncovered_mandatory_evidence: false,
+            current_node_uncovered_mandatory_evidence: Vec::new(),
+            current_node_validation_rework_artifacts: Vec::new(),
+            route_mode: Some("deep".to_string()),
+            profile_name: Some("taskspace-v005-deep".to_string()),
+            request_phase: Some("model_sampling".to_string()),
+            provider_request_context_missing_reason: None,
+            request_count: 10,
+            max_requests: 20,
+            node_request_count: 10,
+            max_model_requests_per_node: 10,
+            post_budget_grace_requests: 1,
+            post_budget_grace_request_count: 0,
+            budget_state: "warned".to_string(),
+        };
+
+        let forced = state
+            .force_finish_inspect_for_provider_budget(
+                owner,
+                &snapshot,
+                "inspect_hard_stop_progress_convergence",
+            )
+            .expect("hard-stop convergence trigger should not error")
+            .expect("hard-stop convergence trigger should force inspect transition");
+
+        assert_eq!(forced.0.next_node_id.as_deref(), Some("node-2"));
+        assert_eq!(state.current_main_node_id.as_deref(), Some("node-2"));
+        assert!(forced.1.iter().any(|event| {
+            matches!(
+                event,
+                MapRuntimeEvent::TaskspaceTraceEventRecorded(recorded)
+                    if recorded.kind == "forced_inspect_transition"
+                        && recorded.tags.iter().any(|tag| tag == "trigger:inspect_hard_stop_progress_convergence")
             )
         }));
     }

@@ -4886,3 +4886,72 @@
   ```
 - Result: passed. Focused test passed; `inspect_missing_fact_sources` passed 2/2; `forced_inspect_transition` passed 5/5; `inspect_bootstrap` passed 3/3; `validation_rework` passed 25/25; `action_contract_prompt` passed 29/29; formatting, whitespace, and `whale` build passed.
 - Interpretation: H-080 is focused-fixed and should allow the next keyed run to reach implementation instead of hard-stopping inside inspect.
+
+# Evidence E-172: 5b9bdc4 rerun shows bootstrap read command misclassified as edit and final inspect coverage hard-stops before transition
+
+- Prediction tested: H-080 predicts missing fact-source bootstrap completion should force inspect to implementation.
+- Real rerun:
+  ```text
+  RunDir: target/r4-org-json-real-keyed-20260704ca-bootstrap-transition/runs/terminal_bench__organization-json-generator/20260704-175447-182
+  PairReport: pair-001/pair-report.md
+  reported_evidence_level: E1
+  outcome_standard: wrong
+  outcome_taskspace: wrong
+  right_exec_timed_out: False
+  right_tool_call_count: 13
+  right_wall_time_ms: 39757
+  right_public_validation_exit_code: 1
+  right_hidden_oracle_exit_code: 0
+  current_git_head: 5b9bdc4
+  ```
+- Matched/neutral H-080 signals:
+  - The live path still did not reach implementation, so H-080 is not live-cleared.
+  - The final active projection showed verified input evidence for `schema.json`, `departments.csv`, `projects.csv`, and `employees.csv`, and listed `taskspace_control(action=finish_node, node_id="node-1", next_node_kind="implement_solution")` as a valid next action.
+- New/remaining blocker signals:
+  - `TaskSpaceMissingFactSourceBootstrapV1` attempted to read `departments.csv`, `employees.csv`, and `projects.csv`, but the generated `shell_command` was blocked as `action class: edit` on an `inspect_code_context` node.
+  - The command was a read-only bounded file read, but its awk summary contained `if (lines > 240)`, which tripped the shell redirection/edit heuristic.
+  - Because bootstrap outputs were blocked, result rows `result-3` and `result-5` had no artifact refs and did not satisfy missing fact-source coverage.
+  - After manual successful reads eventually completed all fact-source coverage, the next request still reached `TaskSpaceProviderBudgetHardStopV1 reason=provider_node_request_hard_limit_exceeded request_count=10/20 node_request_count=10/10` before runtime forced transition.
+- Interpretation: New blocker is H-081. It has two coupled tools-chain defects: an internal bootstrap read command is misclassified by the capability layer, and the feedback/control layer lacks a final pre-dispatch forced-transition bridge when inspect evidence is complete but node request budget is exhausted.
+
+# Hypothesis H-081: read-only bootstrap commands must stay read-classified and complete inspect coverage must transition before hard-stop
+
+- Claim: R4 feedback recovery cannot rely on the provider to recover once inspect coverage is complete. First, internal bootstrap commands must be generated so the tool action classifier records them as `read`, not `edit`. Second, if an inspect node has complete successful read/search evidence and no missing required fact sources at pre-dispatch hard-stop time, runtime should force inspect-to-implementation instead of inserting a terminal provider hard-stop.
+- Prediction:
+  1. `taskspace_missing_fact_source_bootstrap_command()` should not generate `>` characters in Unix read-only commands, preventing the shell redirection edit heuristic from blocking bounded file reads.
+  2. The shell action classifier should classify the realistic `printf + sed + awk summary` bootstrap command as `ActionClass::Read`.
+  3. When `gate_provider_request_pre_dispatch()` would hard-stop an inspect node but `action_map_current_inspect_progress_ready_for_transition()` is true, session should call `force_finish_action_map_inspect_for_provider_budget(..., "inspect_hard_stop_progress_convergence")` and insert `TaskSpaceForcedInspectTransitionRecoveryV1`.
+  4. Runtime should accept `inspect_hard_stop_progress_convergence` as an evidence-driven forced transition trigger while preserving existing guards for missing fact sources and unread referenced scripts.
+  5. Existing inspect bootstrap, missing fact-source, validation rework, and action-contract prompt regressions should remain passing.
+- Diagnostic evidence plan: Add focused tests for the bootstrap command shape, shell action classification, and hard-stop convergence trigger; rerun R4-adjacent inspect/bootstrap/validation/action-contract regressions plus formatting, whitespace, and `whale` build.
+- Status: confirmed.
+
+# Evidence E-173: H-081 focused fix keeps bootstrap reads in read class and bridges hard-stop convergence to implementation
+
+- Prediction tested: H-081 predicts both capability-layer classification and feedback/control bridge must be repaired.
+- Repair artifacts:
+  - `third_party/codex-cli/codex-rs/core/src/session/turn.rs`
+  - `third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs`
+  - `third_party/codex-cli/codex-rs/core/src/tools/parallel.rs`
+- Repair behavior:
+  - Unix `taskspace_read_file_command()` now emits awk summary logic as `if (240 < lines)` instead of `if (lines > 240)`, avoiding the classifier's file-redirection edit heuristic while preserving the same bounded read summary.
+  - `missing_fact_source_bootstrap_command_reads_bounded_declared_artifacts` now asserts read-only bootstrap commands do not contain `>`.
+  - `shell_action_classifier_identifies_core_taskspace_classes` now covers the realistic bootstrap `printf + sed + awk TaskSpaceReadFileSummaryV1` command and requires `ActionClass::Read`.
+  - `try_run_sampling_request()` now checks inspect progress before returning a provider budget hard stop. If progress is transition-ready, it calls `force_finish_action_map_inspect_for_provider_budget(..., "inspect_hard_stop_progress_convergence")` and returns forced-transition recovery.
+  - Runtime now accepts `inspect_hard_stop_progress_convergence` as a forced inspect transition trigger.
+- Validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core missing_fact_source_bootstrap_command_reads_bounded_declared_artifacts --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core shell_action_classifier_identifies_core_taskspace_classes --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core inspect_hard_stop_progress_convergence_forces_transition_after_coverage --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core inspect_missing_fact_sources --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core forced_inspect_transition --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core inspect_bootstrap --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core action_contract_prompt --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core validation_rework --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+  git diff --check
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-cli --bin whale --locked
+  ```
+- Result: passed. Focused tests passed; `inspect_missing_fact_sources` passed 2/2; `forced_inspect_transition` passed 5/5; `inspect_bootstrap` passed 3/3; `action_contract_prompt` passed 29/29; `validation_rework` passed 25/25; formatting, whitespace, and `whale` build passed.
+- Interpretation: H-081 is focused-fixed. After this patch lands, the remaining gates are attestation and a new keyed `organization-json-generator` rerun to verify whether the live path now crosses inspect and reaches implementation.

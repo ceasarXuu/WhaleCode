@@ -7868,6 +7868,10 @@ tax_calc.py\n\
             assert!(command.contains("====="));
             assert!(command.contains("%s"));
             assert!(command.contains("sed -n"));
+            assert!(
+                !command.contains('>'),
+                "read-only bootstrap command must not trip shell redirection edit classification: {command}"
+            );
         }
     }
 
@@ -12065,7 +12069,7 @@ Write-Output \"TaskSpaceReadFileSummaryV1: path={summary_path} lines_read=$TaskS
             path.to_string(),
         ];
         let summary_script = format!(
-            "NR == {} {{ truncated = 1; exit }} {{ lines = NR }} END {{ eof = truncated ? \"false\" : \"true\"; if (lines > {MAX_LINES}) lines = {MAX_LINES}; printf \"\\nTaskSpaceReadFileSummaryV1: path=%s lines_read=%d eof_reached=%s max_lines={MAX_LINES}\\n\", FILENAME, lines + 0, eof }}",
+            "NR == {} {{ truncated = 1; exit }} {{ lines = NR }} END {{ eof = truncated ? \"false\" : \"true\"; if ({MAX_LINES} < lines) lines = {MAX_LINES}; printf \"\\nTaskSpaceReadFileSummaryV1: path=%s lines_read=%d eof_reached=%s max_lines={MAX_LINES}\\n\", FILENAME, lines + 0, eof }}",
             MAX_LINES + 1,
         );
         let awk_args = vec!["awk".to_string(), summary_script, path.to_string()];
@@ -13030,6 +13034,45 @@ async fn try_run_sampling_request(
             .action_map_gate_provider_request_pre_dispatch(snapshot)
             .await;
         if !gate.allowed {
+            if snapshot.node_kind.as_deref() == Some("inspect_code_context")
+                && sess
+                    .action_map_current_inspect_progress_ready_for_transition()
+                    .await
+            {
+                match sess
+                    .force_finish_action_map_inspect_for_provider_budget(
+                        &turn_context,
+                        snapshot.clone(),
+                        "inspect_hard_stop_progress_convergence",
+                    )
+                    .await
+                {
+                    Ok(true) => {
+                        return Ok(SamplingRequestResult {
+                            needs_follow_up: true,
+                            last_agent_message: Some(
+                                "TaskSpace forced inspect transition before provider budget hard stop."
+                                    .to_string(),
+                            ),
+                            taskspace_no_action_recovery_item: Some(
+                                build_taskspace_forced_inspect_transition_recovery_item(),
+                            ),
+                        });
+                    }
+                    Ok(false) => {}
+                    Err(error) => {
+                        sess.send_event(
+                            &turn_context,
+                            EventMsg::Warning(WarningEvent {
+                                message: format!(
+                                    "TaskSpaceForcedInspectTransitionFailedV1 trigger=inspect_hard_stop_progress_convergence error={error}"
+                                ),
+                            }),
+                        )
+                        .await;
+                    }
+                }
+            }
             sess.send_event(
                 &turn_context,
                 EventMsg::Warning(WarningEvent {
