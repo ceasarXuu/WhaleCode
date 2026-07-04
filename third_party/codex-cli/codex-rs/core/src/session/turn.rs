@@ -2332,10 +2332,10 @@ fn build_taskspace_validation_rework_patch_only_recovery_item(
         .map(|value| format!("\nMost recent failed edit feedback to preserve:\n- {value}\n"))
         .unwrap_or_default();
     let complete_target_replacement =
-        if taskspace_evidence_has_complete_validation_rework_target_read(evidence_summary) {
+        if taskspace_evidence_has_full_visible_validation_rework_target_read(evidence_summary) {
             format!(
                 "\nComplete target-read direct replacement scaffold:\n\
-- The target file is already fully visible (complete_read/eof_reached=true), so a full replacement patch is safe when a narrow hunk would be fragile.\n\
+- The target file is already fully visible (content_visibility=full_content_visible), so a full replacement patch is safe when a narrow hunk would be fragile.\n\
 - For `{target_artifact_label}`, prefer one native apply_patch with `*** Delete File: {target_artifact_label}` followed by `*** Add File: {target_artifact_label}` when the repair changes multiple output construction fields.\n\
 - Every added replacement line must be prefixed with `+`; do not wrap the patch in markdown or a shell command.\n"
             )
@@ -2354,7 +2354,7 @@ The previous action was blocked because this validation rework node already has 
 Current required behavior:\n\
 - Emit exactly one taskspace-action-v1 apply_patch action targeting `{target_artifact_label}` now, or one taskspace_control block_node with the exact unsafe-edit reason.\n\
 - Use the visible validation failure, schema repair contract, and validation_rework_target_read evidence already shown in context.\n\
-- If the validation_rework_target_read evidence says complete_read or eof_reached=true, no additional file lines are hidden; do not treat the displayed target-read excerpt as partial evidence.\n\
+- If the validation_rework_target_read evidence says content_visibility=full_content_visible, no additional file lines are hidden in the current projection; do not treat the displayed target-read excerpt as partial evidence.\n\
 - Do not call read_file, list_files, search, broad shell discovery, schema inspection, or validation before a successful edit is recorded.\n\
 - Do not move from the named target artifact to `schema.json` or another fact source; those facts are already present in evidence.\n\
 - If no safe edit can be made from the already visible evidence, block explicitly instead of requesting more reads.\n\
@@ -2372,7 +2372,7 @@ Previous blocked feedback:\n{previous_excerpt}\n\
 {evidence}\
 Final action lock:\n\
 - The target read above is complete when it says complete_read or eof_reached=true; projection truncation is not a valid reason to read `{target_artifact_label}` again.\n\
-- If the most recent apply_patch failed with expected-lines, context-mismatch, or mixed unified/native hunk feedback, use a whole-file native replacement for `{target_artifact_label}` (`*** Delete File` then `*** Add File`) from the complete target read instead of another fragile ranged hunk.\n\
+- If the most recent apply_patch failed with expected-lines, context-mismatch, or mixed unified/native hunk feedback and content_visibility=full_content_visible, use a whole-file native replacement for `{target_artifact_label}` (`*** Delete File` then `*** Add File`) from the visible target read instead of another fragile ranged hunk.\n\
 - Emit apply_patch for `{target_artifact_label}` now, or block_node with the exact unsafe-edit reason. Do not emit read_file/list_files/search/schema inspection."
     );
 
@@ -2583,9 +2583,9 @@ fn build_taskspace_edit_failure_recovery_item(
     evidence_summary: Option<&str>,
 ) -> ResponseItem {
     let should_force_complete_rewrite = taskspace_failure_expected_lines_mismatch(failure_summary)
-        && taskspace_evidence_has_complete_validation_rework_target_read(evidence_summary);
+        && taskspace_evidence_has_full_visible_validation_rework_target_read(evidence_summary);
     let complete_rewrite = if should_force_complete_rewrite {
-        "\nComplete target-read recovery override:\n- The validation rework target already has complete read_file evidence (complete_read/eof_reached=true), so do not refresh read for context.\n- Because the previous apply_patch failed to find expected lines, stop using fragile Update File range/context hunks for this generated/small repair target.\n- Emit exactly one native apply_patch that replaces the target file with complete corrected contents: `*** Delete File: <path>` followed by `*** Add File: <path>` and every new file line prefixed with `+`.\n"
+        "\nComplete target-read recovery override:\n- The validation rework target already has full visible target content (content_visibility=full_content_visible), so do not refresh read for context.\n- Because the previous apply_patch failed to find expected lines, stop using fragile Update File range/context hunks for this generated/small repair target.\n- Emit exactly one native apply_patch that replaces the target file with complete corrected contents: `*** Delete File: <path>` followed by `*** Add File: <path>` and every new file line prefixed with `+`.\n"
     } else {
         ""
     };
@@ -2641,14 +2641,15 @@ fn taskspace_failure_expected_lines_mismatch(failure_summary: Option<&str>) -> b
         })
 }
 
-fn taskspace_evidence_has_complete_validation_rework_target_read(
+fn taskspace_evidence_has_full_visible_validation_rework_target_read(
     evidence_summary: Option<&str>,
 ) -> bool {
     evidence_summary
         .map(|value| value.to_ascii_lowercase())
         .is_some_and(|value| {
             value.contains("validation_rework_target_read")
-                && (value.contains("complete_read") || value.contains("eof_reached=true"))
+                && value.contains("content_visibility")
+                && value.contains("full_content_visible")
         })
 }
 
@@ -5857,7 +5858,7 @@ Then I will inspect the file."#,
             last_message
         )));
         let evidence = "validation_rework: smoke_test `node-3` failed result `result-10`: missing_required_properties: members, averageDepartmentBudget \
-| validation_rework_target_read result=result-12 artifact=generate_organization.py read_context: complete_read eof_reached=true excerpt: member_ids -> members \
+| validation_rework_target_read result=result-12 artifact=generate_organization.py read_context: complete_read eof_reached=true content_visibility: full_content_visible excerpt: member_ids -> members \
 | validation_schema_repair_contract: missing_required_properties=members, averageDepartmentBudget, totalEmployees, skillDistribution, departmentSizes, projectStatusDistribution, averageYearsOfService | schema_property_rename_hints=member_ids->members";
         let item =
             build_taskspace_implementation_recovery_item(Some(last_message), Some(evidence), None);
@@ -5896,7 +5897,7 @@ Then I will inspect the file."#,
     fn implementation_recovery_prioritizes_failed_edit_over_patch_only_after_target_read() {
         let last_message =
             "TaskSpace inserted TaskSpaceImplementNeedsEditRecoveryV1 after failed edit.";
-        let evidence = "validation_rework_target_read result=result-12 artifact=process.py excerpt: complete_read \
+        let evidence = "validation_rework_target_read result=result-12 artifact=process.py read_context: complete_read eof_reached=true content_visibility: full_content_visible excerpt: \
 | validation_schema_repair_contract: missing_required_properties=members,totalEmployees";
         let failed_edit = "result-13: apply_patch verification failed: Failed to find expected lines in process.py:\nimport csv";
 
@@ -6198,17 +6199,34 @@ Then I will inspect the file."#,
                 "result-14: apply_patch verification failed: Failed to find expected lines in process.py",
             ),
             Some(
-                "validation_rework_target_read result-12 artifacts=process.py read_context: complete_read eof_reached=true | missing_required_properties=id, members",
+                "validation_rework_target_read result-12 artifacts=process.py read_context: complete_read eof_reached=true content_visibility: full_content_visible | missing_required_properties=id, members",
             ),
         );
         let text = item_text(recovery);
 
         assert!(text.contains(TASKSPACE_EDIT_FAILURE_MARKER));
         assert!(text.contains("Complete target-read recovery override"));
-        assert!(text.contains("complete_read/eof_reached=true"));
+        assert!(text.contains("content_visibility=full_content_visible"));
         assert!(text.contains("*** Delete File: <path>"));
         assert!(text.contains("*** Add File: <path>"));
         assert!(text.contains("do not refresh read"));
+    }
+
+    #[test]
+    fn complete_validation_rework_summary_only_does_not_force_full_rewrite() {
+        let recovery = build_taskspace_edit_failure_recovery_item(
+            Some(
+                "result-14: apply_patch verification failed: Failed to find expected lines in process.py",
+            ),
+            Some(
+                "validation_rework_target_read result-12 artifacts=process.py read_context: complete_read eof_reached=true content_visibility: summary_excerpt_only | missing_required_properties=id, members",
+            ),
+        );
+        let text = item_text(recovery);
+
+        assert!(text.contains(TASKSPACE_EDIT_FAILURE_MARKER));
+        assert!(!text.contains("Complete target-read recovery override"));
+        assert!(text.contains("one narrow read_file of the same failed target artifact"));
     }
 
     #[test]

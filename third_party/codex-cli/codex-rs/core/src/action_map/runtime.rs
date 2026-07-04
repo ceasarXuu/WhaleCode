@@ -11609,9 +11609,13 @@ fn projection_critical_artifact_evidence(
             let read_context = validation_rework_read_context_status(&result.body)
                 .map(|status| format!("\nread_context: {status}"))
                 .unwrap_or_default();
+            let (target_excerpt, content_visibility) =
+                validation_rework_target_read_excerpt_and_visibility(
+                    &result.body,
+                    max_excerpt_chars,
+                );
             evidence.push(format!(
-                "{result_id} artifacts={artifact} signal=validation_rework_target_read{read_context}\nexcerpt:\n{}",
-                working_evidence_body_excerpt(&result.body, max_excerpt_chars)
+                "{result_id} artifacts={artifact} signal=validation_rework_target_read{read_context}\ncontent_visibility: {content_visibility}\nexcerpt:\n{target_excerpt}"
             ));
             if evidence.len() >= max_results {
                 return evidence;
@@ -17630,6 +17634,7 @@ fn code_or_test_read_body_has_content_signal(body: &str) -> bool {
 
 const TASKSPACE_WORKING_EVIDENCE_SUMMARY_MAX_RESULTS: usize = 8;
 const TASKSPACE_WORKING_EVIDENCE_SUMMARY_MAX_CHARS: usize = 1200;
+const TASKSPACE_VALIDATION_REWORK_TARGET_READ_MAX_CHARS: usize = 16_000;
 const TASKSPACE_VALIDATION_REWORK_TARGET_READ_SUMMARY_MAX_CHARS: usize = 6000;
 
 fn inspect_code_or_test_read_summary(map: &ActionMapInstance, node: &MapNode) -> String {
@@ -17746,13 +17751,38 @@ fn validation_rework_target_read_evidence_summary(
         let read_context = validation_rework_read_context_status(&result.body)
             .map(|status| format!("\nread_context: {status}"))
             .unwrap_or_default();
+        let (target_excerpt, content_visibility) =
+            validation_rework_target_read_excerpt_and_visibility(&result.body, max_excerpt_chars);
         Some(format!(
-            "validation_rework_target_read result={result_id} artifact={artifact}{read_context}\nexcerpt:\n{}",
-            working_evidence_body_excerpt(&result.body, max_excerpt_chars)
+            "validation_rework_target_read result={result_id} artifact={artifact}{read_context}\ncontent_visibility: {content_visibility}\nexcerpt:\n{target_excerpt}"
         ))
     })
     .collect::<Vec<_>>()
     .join("\n")
+}
+
+fn validation_rework_target_read_excerpt_and_visibility(
+    result_body: &str,
+    max_excerpt_chars: usize,
+) -> (String, &'static str) {
+    let read_context = validation_rework_read_context_status(result_body).unwrap_or_default();
+    let complete_read =
+        read_context.contains("complete_read") || read_context.contains("eof_reached=true");
+    let max_chars = if complete_read {
+        max_excerpt_chars.max(TASKSPACE_VALIDATION_REWORK_TARGET_READ_MAX_CHARS)
+    } else {
+        max_excerpt_chars
+    };
+    let excerpt = working_evidence_body_excerpt(result_body, max_chars);
+    let truncated_by_budget = excerpt.trim_end().ends_with("...");
+    let visibility = if complete_read && !truncated_by_budget {
+        "full_content_visible"
+    } else if complete_read {
+        "summary_excerpt_only"
+    } else {
+        "partial_read_excerpt"
+    };
+    (excerpt, visibility)
 }
 
 fn working_evidence_priority(body: &str) -> usize {
@@ -34831,6 +34861,7 @@ TaskSpaceReadFileSummaryV1: path=generate_org.py lines_read=210 eof_reached=true
                 .contains("signal=validation_rework_target_read")
                 && evidence.contains("generate_org.py")
                 && evidence.contains("read_context: complete_read")
+                && evidence.contains("content_visibility: full_content_visible")
                 && evidence.contains("eof_reached=true")
                 && evidence.contains("def build_organization")),
             "{critical_evidence:?}"
@@ -34840,6 +34871,10 @@ TaskSpaceReadFileSummaryV1: path=generate_org.py lines_read=210 eof_reached=true
             .expect("working evidence summary after target read");
         assert!(
             working_summary.contains("validation_rework_target_read"),
+            "{working_summary}"
+        );
+        assert!(
+            working_summary.contains("content_visibility: full_content_visible"),
             "{working_summary}"
         );
         assert!(
@@ -34996,7 +35031,10 @@ TaskSpaceReadFileSummaryV1: path=generate_org.py lines_read=210 eof_reached=true
             working_summary_after_failed_edit.contains("validation_rework_target_read")
                 && working_summary_after_failed_edit.contains("generate_org.py")
                 && working_summary_after_failed_edit.contains("complete_read")
-                && working_summary_after_failed_edit.contains("eof_reached=true"),
+                && working_summary_after_failed_edit.contains("eof_reached=true")
+                && working_summary_after_failed_edit
+                    .contains("content_visibility: full_content_visible")
+                && working_summary_after_failed_edit.contains("late_schema_repair_marker"),
             "{working_summary_after_failed_edit}"
         );
         assert!(
