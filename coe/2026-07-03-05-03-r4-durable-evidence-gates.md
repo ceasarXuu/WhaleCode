@@ -2552,3 +2552,70 @@
   - `working_evidence_excerpt_preserves_bounded_read_summary` proves `eof_reached=false` is preserved as bounded context.
   - `validation_rework_allows_changed_artifact_read_when_schema_failure_lacks_traceback` now asserts projection includes `read_context: complete_read`, `eof_reached=true`, and duplicate-read gate feedback says no additional file lines are hidden.
 - Interpretation: H-045 is focused-fixed at read feedback/projection/recovery level. Commit/push, attestation, and another live rerun are required to verify whether `organization-json-generator` now moves past the repeated `Need full file` loop.
+
+# Evidence E-099: 1a9eb0c live rerun exposes Unix awk double-dash portability failure
+
+- Prediction tested: H-045 predicted that live `read_file` results would carry `TaskSpaceReadFileSummaryV1`.
+- Real rerun:
+  ```text
+  RunDir: target/r4-org-json-real-keyed-20260703ar-read-completeness/runs/terminal_bench__organization-json-generator/20260704-093439-320
+  PairReport: pair-001/pair-report.md
+  reported_evidence_level: E1
+  outcome_standard: wrong
+  outcome_taskspace: wrong
+  right_exec_timed_out: False
+  right_tool_call_count: 16
+  right_open_leaf_nodes: 1
+  public_validation_exit_code: 1
+  hidden_oracle_exit_code: 0
+  preflight_git_head: 1a9eb0ceb509b0b505fb3ba78f0dd9ddc933d2e8
+  build_attestation_status: pass
+  ```
+- Result: did not validate H-045 live behavior because the new summary command failed before producing `TaskSpaceReadFileSummaryV1`.
+- New blocker signals:
+  - Each `read_file` command used `sed -n '1,240p' -- <path> && awk ... -- <path>`.
+  - In the benchmark container, `awk` failed with:
+    ```text
+    awk: cannot open "--" (No such file or directory)
+    ```
+  - The `sed` prefix printed file contents, but the combined command exited 2, so TaskSpace treated the read as failed and the model entered inspect recovery/budget drain.
+- Interpretation: The summary design is correct at the feedback contract level, but the Unix command used a non-portable `awk --` separator. This is a capability-layer command construction bug introduced by H-045's repair.
+
+# Hypothesis H-046: read_file summary command must avoid awk double-dash for POSIX portability
+
+- Claim: Some benchmark environments use an `awk` implementation that does not accept `--` as an option terminator. Since `sed` already safely uses `--` for the actual content read and ActionMap artifact parsing keys off the `sed` prefix, the summary `awk` call should pass the path directly as an operand instead of `-- <path>`.
+- Prediction: A direct shell smoke should produce file contents plus `TaskSpaceReadFileSummaryV1` with exit 0. Focused command generation and artifact parser tests should still pass, and validation/apply_patch/build regressions should remain green.
+- Diagnostic evidence plan: Remove `--` only from the appended `awk` summary command, update the parser regression fixture, run a direct shell smoke, focused read command/parser tests, `validation_rework`, `validation_`, `apply_patch_`, fmt/diff/build.
+- Status: confirmed.
+
+# Evidence E-100: read_file summary command now works without awk double-dash
+
+- Prediction tested: H-046 predicts that removing `--` from `awk` preserves summary output and avoids the benchmark container failure.
+- Repair artifacts:
+  - `third_party/codex-cli/codex-rs/core/src/session/turn.rs`
+  - `third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs`
+- Direct smoke:
+  ```text
+  printf 'a\nb\n' > target/read-summary-smoke.txt
+  sed -n '1,240p' -- target/read-summary-smoke.txt && awk '...' target/read-summary-smoke.txt
+  ```
+- Direct smoke result:
+  ```text
+  a
+  b
+
+  TaskSpaceReadFileSummaryV1: path=target/read-summary-smoke.txt lines_read=2 eof_reached=true max_lines=240
+  ```
+- Focused and regression commands:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked action_contract_read_file_uses_host_platform_command
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked sed_read_command_artifact_ref_ignores_read_summary_suffix
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked validation_rework
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked validation_
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked apply_patch_
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+  git diff --check
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-cli --bin whale --locked
+  ```
+- Result: passed. Focused tests are 1/1 each, `validation_rework` is 18/18, `validation_` is 95/95, `apply_patch_` is 35/35, fmt/diff checks pass, and the `whale` binary build passes.
+- Interpretation: H-046 is focused-fixed. Commit/push, attestation, and another live rerun are required to validate H-045's intended read completeness behavior in the real benchmark path.

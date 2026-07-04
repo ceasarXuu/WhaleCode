@@ -485,3 +485,15 @@ unanchored patch recovery 修复后的 keyed rerun 又暴露出成功 read 反�
 边界说明：该 case 不是 validation failure 丢失，也不是状态机允许重复读。失败 traceback 和目标文件内容都存在，runtime 也能
 hard stop 重复读；缺口在成功 read 的“完整性”没有被结构化传回模型。修复不扩大 raw file window，不把长文件伪装成完整，
 只让 bounded read 明确声明 `eof_reached=true/false`。
+
+## 2026-07-04 R4-D issue type addendum: read summary awk portability
+
+read completeness 修复后的首轮 keyed rerun 暴露命令构造的 portability bug：Unix `read_file` summary 阶段使用
+`awk ... -- <path>`，在 benchmark 容器的 awk 实现中 `--` 被当作文件名，导致每次 read 在打印正文后以 exit 2 失败。
+
+| Issue type | Layer | Symptom | Resolution contract | Evidence |
+|---|---|---|---|---|
+| `read-file-summary-awk-double-dash-portability` | read_file command construction / tool capability layer | `sed` 正文输出成功，但 appended `awk -- <path>` 报 `awk: cannot open "--"`，使 read_file 成功语义变成失败结果 | 保留 `sed -n 1,240p -- <path>` 作为实际读取和 artifact parser 前缀；summary 命令改为 `awk <script> <path>`；parser 忽略 `&& awk ...` suffix 后仍解析原始 artifact | direct shell smoke; `action_contract_read_file_uses_host_platform_command`; `sed_read_command_artifact_ref_ignores_read_summary_suffix`; `validation_rework`; `validation_`; CoE E-099/H-046/E-100 |
+
+边界说明：该 case 是工具能力层命令构造错误，不是模型行为问题，也不是 read completeness contract 本身错误。修复只移除
+summary `awk` 的非 portable `--`，不改变 read 窗口、不改变状态机权限。

@@ -10872,12 +10872,7 @@ Write-Output \"TaskSpaceReadFileSummaryV1: path={summary_path} lines_read=$TaskS
             "NR == {} {{ truncated = 1; exit }} {{ lines = NR }} END {{ eof = truncated ? \"false\" : \"true\"; if (lines > {MAX_LINES}) lines = {MAX_LINES}; printf \"\\nTaskSpaceReadFileSummaryV1: path=%s lines_read=%d eof_reached=%s max_lines={MAX_LINES}\\n\", FILENAME, lines + 0, eof }}",
             MAX_LINES + 1,
         );
-        let awk_args = vec![
-            "awk".to_string(),
-            summary_script,
-            "--".to_string(),
-            path.to_string(),
-        ];
+        let awk_args = vec!["awk".to_string(), summary_script, path.to_string()];
         format!(
             "{} && {}",
             codex_shell_command::parse_command::shlex_join(&sed_args),

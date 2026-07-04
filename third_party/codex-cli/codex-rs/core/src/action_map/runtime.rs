@@ -33799,7 +33799,7 @@ organization.json generated successfully\n\
 
     #[test]
     fn sed_read_command_artifact_ref_ignores_read_summary_suffix() {
-        let command = "sed -n '1,240p' -- 'dir/schema file.json' && awk 'NR == 241 { truncated = 1; exit } { lines = NR } END { printf \"TaskSpaceReadFileSummaryV1\" }' -- 'dir/schema file.json'";
+        let command = "sed -n '1,240p' -- 'dir/schema file.json' && awk 'NR == 241 { truncated = 1; exit } { lines = NR } END { printf \"TaskSpaceReadFileSummaryV1\" }' 'dir/schema file.json'";
 
         assert_eq!(
             read_command_artifact_ref(command).as_deref(),

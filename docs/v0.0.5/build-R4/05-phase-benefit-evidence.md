@@ -3820,3 +3820,72 @@ CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/co
 状态：该 read feedback completeness class 已 focused fixed，并通过 diff/build；还需要 commit/push、binary attestation
 和下一轮 keyed rerun。下一轮期望 `generate_organization.py` 首次 read 后 projection 显示 `complete_read` /
 `eof_reached=true`，重复 full-file read 被明确反馈为无隐藏行，应推动模型转向 `apply_patch`。
+
+## 5.56 2026-07-04 read_file summary command must be awk-portable
+
+`1a9eb0c` 的 keyed rerun 没有验证到上一节的 `read_file` completeness 语义，因为新 summary 命令自身在 benchmark
+容器里失败了。`sed` 前半段已经输出文件内容，但追加的 `awk ... -- <path>` 在该环境中把 `--` 当作文件名处理：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260703ar-read-completeness/runs/terminal_bench__organization-json-generator/20260704-093439-320
+reported_evidence_level: E1
+outcome_standard: wrong
+outcome_taskspace: wrong
+right_exec_timed_out: False
+right_tool_call_count: 16
+right_open_leaf_nodes: 1
+public_validation_exit_code: 1
+hidden_oracle_exit_code: 0
+preflight_git_head: 1a9eb0ceb509b0b505fb3ba78f0dd9ddc933d2e8
+build_attestation_status: pass
+```
+
+关键观察：
+
+| Signal | 结论 |
+|---|---|
+| `read_file` command 形如 `sed -n '1,240p' -- schema.json && awk ... -- schema.json` | summary 命令已进入 live path |
+| stderr/output 出现 `awk: cannot open "--" (No such file or directory)` | benchmark 环境 awk 不接受 `--` option terminator |
+| `sed` 已打印文件正文，但整体 exit 2 | 成功 read 被误记录为失败 read |
+| TaskSpace 后续进入 inspect recovery / node budget drain | H-045 无法在该 run 中验证 |
+
+本轮新增并 focused 修复的问题类型：
+
+| Case | Before | After | Evidence |
+|---|---|---|---|
+| `read-file-summary-awk-double-dash-portability` | Unix read summary 使用 `awk ... -- <path>`，在部分 awk 实现中 `--` 被当作输入文件，导致 every read_file exit 2 | 保留 `sed -- <path>` 作为实际读取和 artifact 解析前缀；仅 summary `awk` 改为 `awk <script> <path>`；parser regression 仍证明 `sed ... && awk ...` 能解析原始 artifact | direct shell smoke; `action_contract_read_file_uses_host_platform_command`; `sed_read_command_artifact_ref_ignores_read_summary_suffix`; CoE E-099/H-046/E-100 |
+
+验证：
+
+```text
+printf 'a\nb\n' > target/read-summary-smoke.txt
+sed -n '1,240p' -- target/read-summary-smoke.txt && awk '...' target/read-summary-smoke.txt
+  PASS：输出 TaskSpaceReadFileSummaryV1 ... eof_reached=true
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked action_contract_read_file_uses_host_platform_command
+  PASS：1 test
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked sed_read_command_artifact_ref_ignores_read_summary_suffix
+  PASS：1 test
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked validation_rework
+  PASS：18 tests
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked validation_
+  PASS：95 tests
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked apply_patch_
+  PASS：35 tests
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+  PASS
+
+git diff --check
+  PASS
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-cli --bin whale --locked
+  PASS
+```
+
+状态：该 portability class 已 focused fixed，并通过 diff/build；还需要 commit/push、binary attestation 和下一轮 keyed
+rerun。下一轮重新验证 5.55 的目标：`read_file` 成功、summary 出现、`eof_reached` 进入 projection/recovery。
