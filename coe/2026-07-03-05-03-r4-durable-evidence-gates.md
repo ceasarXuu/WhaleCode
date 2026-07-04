@@ -6657,3 +6657,71 @@
     PASS
   ```
 - Interpretation: H-111 is focused-fixed. Remaining gates are `git diff --check`, commit/push, install/attest, and a keyed rerun to verify live recovery no longer labels replacement-required failures as native-hunk recovery.
+
+# Evidence E-229: H-111 rerun clears recovery marker distortion and exposes over-strict replacement gate
+
+- Real rerun:
+  ```text
+  RunDir: target/r4-org-json-real-keyed-20260705af-replacement-marker-gate/runs/terminal_bench__organization-json-generator/20260705-011054-226
+  reported_evidence_level: E2-candidate
+  outcome_standard: solved
+  outcome_taskspace: engineering_unclean
+  right_exec_timed_out: False
+  right_tool_call_count: 12
+  right_public_validation_exit_code: 1
+  right_hidden_oracle_exit_code: 0
+  right_open_leaf_nodes: 1
+  final_marker: TaskSpaceApplyPatchRecoveryHardStopV1
+  ```
+- H-111 live status:
+  - item_53, item_60, item_67, and item_74 report `apply_patch_replacement_required:generate_org.py`.
+  - item_54, item_61, and item_68 now insert `TaskSpaceApplyPatchReplacementRequiredRecoveryV1`.
+  - The NativeHunk marker distortion did not recur.
+- New blocker signal:
+  - item_58 was rejected as replacement-required even though it contained concrete old/new lines and unified headers/range inside `*** Update File`.
+  - Diagnostic copy `target/r4-h112-patch-diagnostic/item_58` showed the same patch becomes applicable after stripping unified file headers and normalizing range hunks to native `@@`.
+  - After applying the normalized patch, `python generate_org.py && python -m jsonschema -i organization.json schema.json` exited `0`.
+- Interpretation: H-111 is live-cleared. H-112 is an ability/feedback boundary issue: replacement-required enforcement is too broad when a rework target patch is mechanically normalizable and schema-valid.
+
+# Hypothesis H-112: replacement-required gate must allow mechanically actionable rework updates
+
+- Claim: Active validation rework should not reject every `*** Update File` for the target. If the proposed update can be normalized into native apply_patch grammar without malformed headers, mixed markers, or unanchored sections, it should execute. Replacement-required feedback should be reserved for non-actionable update shapes.
+- Prediction: Focused tests should allow a rework-target mixed native/unified patch after normalization into apply_patch payload, while still rejecting unanchored rework `Update File` as `apply_patch_replacement_required:<target>`.
+- Diagnostic evidence plan: Add a helper that detects mechanically actionable rework update patches after normalization; wire apply_patch dispatch to use the normalized payload when safe; keep replacement-required for unanchored/malformed cases. Run rework-target, replacement-required, mixed-native/unified, unanchored, validation-rework, taskspace-apply-patch, action-contract, fmt/check/build/diff gates.
+- Status: focused-fixed; real keyed rerun pending.
+
+# Evidence E-230: mechanically actionable rework updates now dispatch to apply_patch
+
+- Repair artifact:
+  - `third_party/codex-cli/codex-rs/core/src/session/turn.rs`
+- Repair behavior:
+  - Added `taskspace_validation_rework_update_file_mechanically_actionable_patch()`.
+  - For active validation rework targets, `apply_patch` now normalizes candidate `Update File` payloads first.
+  - If the normalized payload has no native-hunk header errors, no mixed-native/unified markers, and no unanchored update sections, runtime dispatches it to the apply_patch tool.
+  - If the normalized payload is still unanchored or malformed, runtime preserves `apply_patch_replacement_required:<target>`.
+- Validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core rework_target --lib
+    PASS: 6/6
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core replacement_required --lib
+    PASS: 1/1
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core mixed_native_unified --lib
+    PASS: 4/4
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core unanchored_update --lib
+    PASS: 4/4
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_rework --lib
+    PASS: 29/29
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core taskspace_apply_patch --lib
+    PASS: 18/18
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core action_contract_prompt --lib
+    PASS: 29/29
+  cargo fmt --check
+    PASS (stable rustfmt warns that imports_granularity is nightly-only)
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo check -p codex-core
+    PASS
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
+    PASS
+  git diff --check
+    PASS
+  ```
+- Interpretation: H-112 is focused-fixed. Remaining gates are commit/push, install/attest, and keyed rerun to verify the live task can execute the mechanically actionable rework patch instead of hard-stopping on replacement-required feedback.

@@ -2489,6 +2489,36 @@ H-110 live-clear：replacement-required sticky 分类生效，后续四次 `Upda
 
 状态：focused fixed，待 install/attest 和真实 keyed rerun 确认 live recovery 不再把 replacement-required 标成 native-hunk。
 
+## 41. 2026-07-05 replacement-required overblocks actionable update
+
+`23a25bd` 安装后 keyed rerun：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260705af-replacement-marker-gate/runs/terminal_bench__organization-json-generator/20260705-011054-226
+reported_evidence_level: E2-candidate
+outcome_standard: solved
+outcome_taskspace: engineering_unclean
+right_tool_call_count: 12
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+right_open_leaf_nodes: 1
+final_marker: TaskSpaceApplyPatchRecoveryHardStopV1
+```
+
+H-111 live-clear：`TaskSpaceApplyPatchReplacementRequiredRecoveryV1` 已进入 live trace，NativeHunk marker distortion 未复现。
+新问题：
+
+| 字段 | 内容 |
+|---|---|
+| case | `apply-patch-replacement-required-overblocks-actionable-update` |
+| 层级 | apply_patch action-contract / capability normalization / feedback boundary |
+| 本质 | replacement-required gate 无条件拒绝 active rework target 的 `Update File`，但 item_58 归一化后可 apply 且 schema validator 通过 |
+| 非根因 | 不是 H-111 marker distortion；不是 schema validator 不可用；不是 raw patch 直接合法，raw patch 仍需 normalizer |
+| 修复 | active rework target 先尝试 normalize；归一化后无 malformed/mixed/unanchored 问题则 dispatch apply_patch；不可执行 update 继续 replacement-required |
+| evidence | CoE H-112/E-229/E-230；keyed rerun `20260705-011054-226`；diagnostic `target/r4-h112-patch-diagnostic/item_58`; focused tests `rework_target`, `replacement_required`, `mixed_native_unified`, `unanchored_update`, `validation_rework`, `taskspace_apply_patch`, `action_contract_prompt`; fmt/check/build |
+
+状态：focused fixed，待 install/attest 和真实 keyed rerun 验证 live task 是否越过 replacement-required hard-stop。
+
 ## 27. 2026-07-04 validation rework schema feedback chain
 
 本轮把 `organization-json-generator` 的 schema validation rework 继续拆成连续 tools 链路问题类型。它们都属于

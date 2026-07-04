@@ -7443,7 +7443,7 @@ Then I will inspect the file."#,
     }
 
     #[test]
-    fn taskspace_action_contract_requires_replacement_for_rework_target_mixed_patch() {
+    fn taskspace_action_contract_allows_mechanically_actionable_rework_target_mixed_patch() {
         let raw = serde_json::json!({
             "schema_version": "taskspace-action-v1",
             "action": "apply_patch",
@@ -7457,21 +7457,31 @@ Then I will inspect the file."#,
         let mut snapshot = provider_snapshot("implement_solution");
         snapshot.current_node_validation_rework_artifacts = vec!["process_csv.py".to_string()];
 
-        let err = taskspace_action_to_tool_call(&action, &snapshot).expect_err(
-            "rework target mixed patch must be converted to replacement-required feedback",
-        );
+        let call = taskspace_action_to_tool_call(&action, &snapshot)
+            .expect("mechanically actionable rework mixed patch should dispatch")
+            .expect("tool call");
 
-        assert_eq!(err, "apply_patch_replacement_required:process_csv.py");
+        assert_eq!(call.tool_name.name, "apply_patch");
+        match call.payload {
+            ToolPayload::Custom { input } => {
+                assert!(input.contains("*** Update File: src/process_csv.py"));
+                assert!(input.contains("@@\n-print('bad')\n+print('fixed')"));
+                assert!(!input.contains("--- a/process_csv.py"));
+                assert!(!input.contains("+++ b/process_csv.py"));
+                assert!(!input.contains("@@ -1,1 +1,1 @@"));
+            }
+            other => panic!("expected custom payload, got {other:?}"),
+        }
     }
 
     #[test]
-    fn taskspace_action_contract_requires_replacement_for_rework_target_any_update_file() {
+    fn taskspace_action_contract_requires_replacement_for_rework_target_unanchored_update_file() {
         let raw = serde_json::json!({
             "schema_version": "taskspace-action-v1",
             "action": "apply_patch",
             "node_id": "node-1",
             "args": {
-                "patch": "*** Begin Patch\n*** Update File: process.py\n@@\n-    'budget_total': total_budget,\n+    'total_budget': total_budget,\n*** End Patch\n"
+                "patch": "*** Begin Patch\n*** Update File: process.py\n+print('replacement is still required')\n*** End Patch\n"
             },
         })
         .to_string();
@@ -12983,6 +12993,30 @@ fn taskspace_validation_rework_replacement_required_targets(
         .collect()
 }
 
+fn taskspace_validation_rework_update_file_mechanically_actionable_patch(
+    patch: &str,
+    snapshot: &crate::action_map::ActionMapProviderRequestBudgetSnapshot,
+) -> Option<String> {
+    let replacement_required_targets = taskspace_validation_rework_replacement_required_targets(
+        &taskspace_apply_patch_update_file_targets(patch),
+        snapshot,
+    );
+    if replacement_required_targets.is_empty() {
+        return None;
+    }
+
+    let normalized = normalize_taskspace_unified_diff_patch(patch)
+        .unwrap_or_else(|| normalize_taskspace_apply_patch(patch));
+    if taskspace_apply_patch_native_hunk_header_targets(&normalized).is_empty()
+        && taskspace_apply_patch_mixed_native_unified_targets(&normalized).is_empty()
+        && taskspace_apply_patch_unanchored_update_targets(&normalized).is_empty()
+    {
+        Some(normalized)
+    } else {
+        None
+    }
+}
+
 fn taskspace_apply_patch_malformed_native_operation_targets(patch: &str) -> Vec<String> {
     let mut targets = Vec::new();
     for line in patch.lines() {
@@ -13284,23 +13318,34 @@ fn taskspace_action_to_tool_call(
             }))
         }
         "apply_patch" => {
-            let patch = taskspace_action_arg_string(args, "patch")
+            let raw_patch = taskspace_action_arg_string(args, "patch")
                 .ok_or_else(|| "missing_apply_patch_patch".to_string())?;
-            let update_file_replacement_required_targets =
-                taskspace_validation_rework_replacement_required_targets(
-                    &taskspace_apply_patch_update_file_targets(&patch),
-                    snapshot,
+            let mechanically_actionable_rework_patch =
+                taskspace_validation_rework_update_file_mechanically_actionable_patch(
+                    &raw_patch, snapshot,
                 );
-            if !update_file_replacement_required_targets.is_empty() {
-                return Err(format!(
-                    "apply_patch_replacement_required:{}",
-                    update_file_replacement_required_targets.join(",")
-                ));
+            let mut patch = mechanically_actionable_rework_patch
+                .clone()
+                .unwrap_or_else(|| raw_patch.clone());
+            let allow_rework_update_file = mechanically_actionable_rework_patch.is_some();
+            if !allow_rework_update_file {
+                let update_file_replacement_required_targets =
+                    taskspace_validation_rework_replacement_required_targets(
+                        &taskspace_apply_patch_update_file_targets(&raw_patch),
+                        snapshot,
+                    );
+                if !update_file_replacement_required_targets.is_empty() {
+                    return Err(format!(
+                        "apply_patch_replacement_required:{}",
+                        update_file_replacement_required_targets.join(",")
+                    ));
+                }
             }
-            if taskspace_apply_patch_missing_unified_header_target(&patch) {
+            if taskspace_apply_patch_missing_unified_header_target(&raw_patch) {
                 return Err("apply_patch_mixed_native_unified:(missing patch target)".to_string());
             }
-            let existing_add_targets = taskspace_unified_diff_add_targets_existing_files(&patch);
+            let existing_add_targets =
+                taskspace_unified_diff_add_targets_existing_files(&raw_patch);
             if !existing_add_targets.is_empty() {
                 return Err(format!(
                     "apply_patch_existing_file_as_add:{}",
@@ -13308,7 +13353,7 @@ fn taskspace_action_to_tool_call(
                 ));
             }
             let malformed_native_operation_targets =
-                taskspace_apply_patch_malformed_native_operation_targets(&patch);
+                taskspace_apply_patch_malformed_native_operation_targets(&raw_patch);
             if !malformed_native_operation_targets.is_empty() {
                 return Err(format!(
                     "apply_patch_native_hunk_header:{}",
@@ -13316,44 +13361,52 @@ fn taskspace_action_to_tool_call(
                 ));
             }
             let native_hunk_header_targets =
-                taskspace_apply_patch_native_hunk_header_targets(&patch);
+                taskspace_apply_patch_native_hunk_header_targets(&raw_patch);
             if !native_hunk_header_targets.is_empty() {
                 return Err(format!(
                     "apply_patch_native_hunk_header:{}",
                     native_hunk_header_targets.join(",")
                 ));
             }
-            let native_update_unified_header_targets =
-                taskspace_apply_patch_native_update_with_unified_file_header_targets(&patch);
-            if !native_update_unified_header_targets.is_empty() {
-                let replacement_required_targets =
-                    taskspace_validation_rework_replacement_required_targets(
-                        &native_update_unified_header_targets,
-                        snapshot,
+            if !allow_rework_update_file {
+                let native_update_unified_header_targets =
+                    taskspace_apply_patch_native_update_with_unified_file_header_targets(
+                        &raw_patch,
                     );
-                if !replacement_required_targets.is_empty() {
+                if !native_update_unified_header_targets.is_empty() {
+                    let replacement_required_targets =
+                        taskspace_validation_rework_replacement_required_targets(
+                            &native_update_unified_header_targets,
+                            snapshot,
+                        );
+                    if !replacement_required_targets.is_empty() {
+                        return Err(format!(
+                            "apply_patch_replacement_required:{}",
+                            replacement_required_targets.join(",")
+                        ));
+                    }
                     return Err(format!(
-                        "apply_patch_replacement_required:{}",
-                        replacement_required_targets.join(",")
+                        "apply_patch_mixed_native_unified:{}",
+                        native_update_unified_header_targets.join(",")
                     ));
                 }
-                return Err(format!(
-                    "apply_patch_mixed_native_unified:{}",
-                    native_update_unified_header_targets.join(",")
-                ));
             }
-            let patch = normalize_taskspace_unified_diff_patch(&patch)
-                .unwrap_or_else(|| normalize_taskspace_apply_patch(&patch));
-            let update_file_replacement_required_targets =
-                taskspace_validation_rework_replacement_required_targets(
-                    &taskspace_apply_patch_update_file_targets(&patch),
-                    snapshot,
-                );
-            if !update_file_replacement_required_targets.is_empty() {
-                return Err(format!(
-                    "apply_patch_replacement_required:{}",
-                    update_file_replacement_required_targets.join(",")
-                ));
+            if !allow_rework_update_file {
+                patch = normalize_taskspace_unified_diff_patch(&raw_patch)
+                    .unwrap_or_else(|| normalize_taskspace_apply_patch(&raw_patch));
+            }
+            if !allow_rework_update_file {
+                let update_file_replacement_required_targets =
+                    taskspace_validation_rework_replacement_required_targets(
+                        &taskspace_apply_patch_update_file_targets(&patch),
+                        snapshot,
+                    );
+                if !update_file_replacement_required_targets.is_empty() {
+                    return Err(format!(
+                        "apply_patch_replacement_required:{}",
+                        update_file_replacement_required_targets.join(",")
+                    ));
+                }
             }
             let native_hunk_header_targets =
                 taskspace_apply_patch_native_hunk_header_targets(&patch);
@@ -13366,6 +13419,17 @@ fn taskspace_action_to_tool_call(
             let mixed_native_unified_targets =
                 taskspace_apply_patch_mixed_native_unified_targets(&patch);
             if !mixed_native_unified_targets.is_empty() {
+                let replacement_required_targets =
+                    taskspace_validation_rework_replacement_required_targets(
+                        &mixed_native_unified_targets,
+                        snapshot,
+                    );
+                if !replacement_required_targets.is_empty() {
+                    return Err(format!(
+                        "apply_patch_replacement_required:{}",
+                        replacement_required_targets.join(",")
+                    ));
+                }
                 return Err(format!(
                     "apply_patch_mixed_native_unified:{}",
                     mixed_native_unified_targets.join(",")

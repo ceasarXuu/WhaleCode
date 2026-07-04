@@ -1028,3 +1028,17 @@ native hunk grammar 修复。
 
 边界说明：该修复不放宽 `apply_patch` 工具，也不把 malformed patch 当成功。它只保证已存在的
 `apply_patch_replacement_required` 失败语义在反馈层、恢复计数和审计摘要中不再被改名为 native-hunk recovery。
+
+## 2026-07-05 R4-D issue type addendum: replacement gate blocks actionable normalized patch
+
+`23a25bd` 后 keyed rerun 证明 H-111 live-clear：replacement-required recovery marker 已正确显示为
+`TaskSpaceApplyPatchReplacementRequiredRecoveryV1`。但同一 run 暴露能力层/反馈层边界问题：item_58 的
+`Update File` patch 被 replacement-required gate 拦截；复制到诊断目录后，只需执行现有 normalizer 等价操作
+（去掉 unified file headers、把 range hunk 改成 native `@@`）即可 apply，且 schema validation 通过。
+
+| Issue type | Layer | Symptom | Resolution contract | Evidence |
+|---|---|---|---|---|
+| `apply-patch-replacement-required-overblocks-actionable-update` | apply_patch action-contract / capability normalization / feedback boundary | active rework target 的可机械归一化 mixed `Update File` 被 `apply_patch_replacement_required` 无条件拒绝，错失可执行修复 | 已实现：active rework target 先尝试 normalize；归一化后无 malformed/mixed/unanchored 问题则 dispatch apply_patch；不可执行 update 才保留 replacement-required | keyed rerun `20260705-011054-226`; diagnostic `target/r4-h112-patch-diagnostic/item_58`; CoE H-112/E-229/E-230; focused tests `rework_target`, `replacement_required`, `mixed_native_unified`, `unanchored_update`, `validation_rework`, `taskspace_apply_patch` |
+
+边界说明：这不是撤销 replacement-required 语义。无锚点、placeholder、仍带 mixed marker 或 malformed header 的 rework
+`Update File` 仍会被拒绝为 replacement-required；只有归一化后可执行的 patch 进入工具层。

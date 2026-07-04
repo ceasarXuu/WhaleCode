@@ -1563,6 +1563,50 @@ CODEX_SKIP_VENDORED_BWRAP=1 cargo check -p codex-core
 CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
 ```
 
+## 5.98 2026-07-05 replacement-required overblocks actionable update
+
+`23a25bd` 后 keyed rerun 证明 H-111 已 live-clear：replacement-required recovery marker 保真。新的 failure 是
+replacement gate 过度拦截可执行 patch：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260705af-replacement-marker-gate/runs/terminal_bench__organization-json-generator/20260705-011054-226
+reported_evidence_level: E2-candidate
+outcome_standard: solved
+outcome_taskspace: engineering_unclean
+right_tool_call_count: 12
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+final_marker: TaskSpaceApplyPatchRecoveryHardStopV1
+```
+
+收益判断：
+
+1. H-111 的收益已被 live 证据确认：rejection 后插入的是 `TaskSpaceApplyPatchReplacementRequiredRecoveryV1`。
+2. 新问题是 `apply-patch-replacement-required-overblocks-actionable-update`：item_58 被无条件拒绝，但复制到
+   `target/r4-h112-patch-diagnostic/item_58` 后，经 normalizer 等价转换可以 apply，且 schema validation 通过。
+3. focused fix 把 replacement-required 从“禁止所有 Update File”改成“禁止不可执行 Update File”：归一化后可执行就进入
+   apply_patch，仍 malformed/unanchored 才返回 replacement-required。
+4. R4-G utility 仍需下一次 keyed rerun 验证；本修复解决的是能力层被反馈状态过度收窄的问题。
+
+验证：
+
+```text
+keyed rerun: 20260705-011054-226
+diagnostic: target/r4-h112-patch-diagnostic/item_58
+CoE: H-112/E-229/E-230
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core rework_target --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core replacement_required --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core mixed_native_unified --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core unanchored_update --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_rework --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core taskspace_apply_patch --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core action_contract_prompt --lib
+cargo fmt --check
+CODEX_SKIP_VENDORED_BWRAP=1 cargo check -p codex-core
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
+git diff --check
+```
+
 ## 5.95 2026-07-05 terminal blocked observed fact-source contradiction
 
 `fc7cae1` keyed rerun 越过 H-108 的 replacement-only hard-stop，但右侧 TaskSpace 仍未生成 `organization.json`。
