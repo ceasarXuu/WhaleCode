@@ -2964,6 +2964,39 @@ H-088 live 结论：已越过。trace 没有再在新 rework node 首次 target 
 
 状态：focused 修复已编码并通过相关回归、fmt/diff/build。下一步是 commit/push、attestation、keyed rerun。
 
+## 26. 2026-07-04 whole Python Update File replacement normalization
+
+`eebd0e1` keyed rerun 使用 attested binary 并 live-clear H-089：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260704cj-patch-recovery-hardstop/runs/terminal_bench__organization-json-generator/20260704-195220-438
+current_git_head: eebd0e1d53e171e322edd975717a8a921ca173e2
+whale_binary_sha256: 61cb4f0c819bd0d9a14947dadc4ab9d79cee41bd36622e662c84d5b47175ad3e
+build_attestation_status: pass
+final_hard_stop: TaskSpaceApplyPatchRecoveryHardStopV1
+```
+
+H-089 live 结论：已越过 generic provider budget hard-stop。新的 blocker 是 capability layer 的 patch normalization：
+
+| Signal | 结论 |
+|---|---|
+| provider 多次输出 `*** Update File: generate_org_json.py` 后跟完整 Python source | 这是整文件替换意图，不是局部 hunk |
+| runtime 拒绝为 `apply_patch_unanchored_update` | 语义正确，但缺少整文件替换 normalizer |
+| `python3 -c` 这类 non-diff command payload 仍需拒绝 | 不能把任意命令文本转成文件替换 |
+
+问题类型收录：
+
+| 字段 | 内容 |
+|---|---|
+| case | `apply-patch-whole-python-update-replacement-normalization-gap` |
+| 层级 | apply_patch capability normalization / action-contract grammar |
+| 本质 | 明确的 Python whole-file replacement intent 被当作 malformed Update File 拒绝，导致只能 hard-stop |
+| 非根因 | 不是 H-089 hard-stop 未生效；不是 unanchored update gate 错；不是 command payload 应该被接受 |
+| 修复 | 单一 `.py/.pyw` `Update File` section、无 diff markers、内容像 Python source 时 normalize 为 `Delete File + Add File`；命令 payload 继续拒绝 |
+| focused evidence | CoE H-090/E-190/E-191；`taskspace_action_contract_normalizes_whole_python_update_replacement`; `taskspace_action_contract_rejects_non_diff_update_payload`; `apply_patch_` 36/36; `validation_rework` 26/26; `action_contract_prompt` 29/29；fmt/check/build |
+
+状态：focused 修复已编码并通过相关回归、fmt/diff/build。下一步是 commit/push、attestation、keyed rerun。
+
 ## 10. 2026-07-04 validation rework patch directive buried after evidence
 
 `431e0ee` 的 keyed rerun 没有复现 block-rejection wording path，说明 H-069 仍需下一次命中该分支才能 live-clear。该轮暴露

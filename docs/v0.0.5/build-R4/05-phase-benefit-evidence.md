@@ -4809,3 +4809,17 @@ patch 继续消耗 provider node budget，最后退化为 `TaskSpaceProviderBudg
 
 边界说明：这不是让 malformed patch 成功，也不是自动生成代码补丁；它把“同节点持续无法按 patch feedback 修正”的循环从 generic
 provider budget hard-stop 改成专用、可审计的 apply_patch recovery hard-stop。
+
+## 5.80 2026-07-04 whole Python Update File replacement normalization
+
+`eebd0e1` keyed rerun live-cleared H-089：最终 marker 是 `TaskSpaceApplyPatchRecoveryHardStopV1`，不是 generic provider
+budget hard-stop。新的问题进入 capability layer：provider 多次表达“整文件替换 `generate_org_json.py`”意图，但使用了
+`*** Update File: generate_org_json.py` 后直接跟完整 Python 源码正文。runtime 将其拒绝为 `apply_patch_unanchored_update`，
+语义正确但能力不足；这类明确的 Python whole-file replacement 可以安全转成 `Delete File + Add File`，而 `python3 -c`
+这类命令 payload 仍必须拒绝。
+
+| Case | Before | After | Evidence |
+|---|---|---|---|
+| `apply-patch-whole-python-update-replacement-normalization-gap` | 完整 Python 源码正文放在 `*** Update File` 下会被拒绝为 unanchored update，最后进入 patch recovery hard-stop | 单一 `.py/.pyw` Update File、无 hunk/diff/change marker、首个非空行像 Python source 时，normalize 为 `*** Delete File` + `*** Add File`；命令 payload 继续拒绝 | keyed rerun `20260704-195220-438`; CoE H-090/E-190/E-191; `taskspace_action_contract_normalizes_whole_python_update_replacement`; `taskspace_action_contract_rejects_non_diff_update_payload`; `apply_patch_` 36/36 |
+
+边界说明：该能力层修复只接受明显源码整文件替换，不把任意文本、shell/Python 命令、JSON transformation command 当成 patch。

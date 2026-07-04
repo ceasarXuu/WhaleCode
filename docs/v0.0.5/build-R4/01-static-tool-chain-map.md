@@ -810,3 +810,15 @@ hard-stop escalation，最终被 generic provider node budget 截断。
 
 边界说明：该 hard-stop 是反馈层可审计收敛，不代表 patch 已修好；它防止具体 patch feedback 被 generic provider budget
 hard-stop 掩盖，为后续继续优化 patch quality / rewrite strategy 留出清晰边界。
+
+## 2026-07-04 R4-D issue type addendum: whole Python Update File replacement normalization
+
+apply_patch recovery hard-stop 修复后的 keyed rerun 显示 provider 的下一层常见 patch intent：用 `*** Update File` 包住完整
+Python 文件正文，实际想做 whole-file replacement。旧 action contract 只能拒绝为 unanchored update。
+
+| Issue type | Layer | Symptom | Resolution contract | Evidence |
+|---|---|---|---|---|
+| `apply-patch-whole-python-update-replacement-normalization-gap` | apply_patch capability normalization / action-contract grammar | `*** Update File: <python>` 下直接跟完整 Python source，反复被拒绝为 unanchored update 并进入 patch recovery hard-stop | 单一 Python target、无 hunk/diff/change marker、内容像 Python source 时 normalize 为 `*** Delete File` + `*** Add File`; command payload 仍拒绝 | keyed rerun `20260704-195220-438`; CoE H-090/E-190/E-191; `taskspace_action_contract_normalizes_whole_python_update_replacement`; `taskspace_action_contract_rejects_non_diff_update_payload` |
+
+边界说明：只转换明显源码整文件替换；不会把 `python3 -c`、shell command、JSON transformation command 或任意无差异文本作为
+apply_patch 执行。

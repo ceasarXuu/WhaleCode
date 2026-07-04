@@ -7019,6 +7019,34 @@ Then I will inspect the file."#,
     }
 
     #[test]
+    fn taskspace_action_contract_normalizes_whole_python_update_replacement() {
+        let raw = serde_json::json!({
+            "schema_version": "taskspace-action-v1",
+            "action": "apply_patch",
+            "node_id": "node-1",
+            "args": {
+                "patch": "*** Begin Patch\n*** Update File: generate_org_json.py\n#!/usr/bin/env python3\nimport csv\nimport json\n\ndef main():\n    print('fixed')\n\nif __name__ == '__main__':\n    main()\n*** End Patch"
+            },
+        })
+        .to_string();
+        let action = parse_taskspace_action_v1(&raw).expect("valid json");
+
+        let call = taskspace_action_to_tool_call(&action, &provider_snapshot("implement_solution"))
+            .expect("whole-file python replacement can be normalized")
+            .expect("tool call");
+
+        match call.payload {
+            ToolPayload::Custom { input } => {
+                assert!(input.contains("*** Delete File: src/generate_org_json.py"));
+                assert!(input.contains("*** Add File: src/generate_org_json.py"));
+                assert!(input.contains("+#!/usr/bin/env python3\n+import csv\n+import json"));
+                assert!(!input.contains("*** Update File: src/generate_org_json.py"));
+            }
+            other => panic!("expected custom payload, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn taskspace_action_contract_allows_delete_only_update_patch() {
         let raw = serde_json::json!({
             "schema_version": "taskspace-action-v1",
@@ -11528,9 +11556,11 @@ fn normalize_taskspace_apply_patch(patch: &str) -> String {
     {
         return normalized;
     }
-    normalize_taskspace_native_patch_payloads(&rewrite_taskspace_apply_patch_unique_update_paths(
-        &normalized,
-    ))
+    let rewritten = rewrite_taskspace_apply_patch_unique_update_paths(&normalized);
+    if let Some(rewritten) = normalize_taskspace_update_file_whole_replacement(&rewritten) {
+        return normalize_taskspace_native_patch_payloads(&rewritten);
+    }
+    normalize_taskspace_native_patch_payloads(&rewritten)
 }
 
 fn normalize_taskspace_native_patch_payloads(patch: &str) -> String {
@@ -11671,6 +11701,77 @@ fn normalize_taskspace_python_add_file_common_indent(patch: &str) -> String {
 fn taskspace_patch_target_is_python(target: &str) -> bool {
     let normalized = target.trim().to_ascii_lowercase();
     normalized.ends_with(".py") || normalized.ends_with(".pyw")
+}
+
+fn normalize_taskspace_update_file_whole_replacement(patch: &str) -> Option<String> {
+    let source_lines = patch.lines().collect::<Vec<_>>();
+    if source_lines.len() < 7
+        || source_lines.first() != Some(&"*** Begin Patch")
+        || source_lines.last() != Some(&"*** End Patch")
+    {
+        return None;
+    }
+
+    let update_indices = source_lines
+        .iter()
+        .enumerate()
+        .filter_map(|(index, line)| line.starts_with("*** Update File: ").then_some(index))
+        .collect::<Vec<_>>();
+    if update_indices.len() != 1 {
+        return None;
+    }
+    if source_lines
+        .iter()
+        .any(|line| line.starts_with("*** Add File: ") || line.starts_with("*** Delete File: "))
+    {
+        return None;
+    }
+
+    let update_index = update_indices[0];
+    let target = source_lines[update_index]
+        .strip_prefix("*** Update File: ")?
+        .trim();
+    if !taskspace_patch_target_is_python(target) {
+        return None;
+    }
+
+    let content = &source_lines[update_index + 1..source_lines.len().saturating_sub(1)];
+    if content.len() < 5
+        || content.iter().any(|line| {
+            line.starts_with("@@")
+                || line.starts_with('+')
+                || line.starts_with('-')
+                || line.starts_with("*** ")
+        })
+        || !taskspace_update_file_replacement_looks_like_python_source(content)
+    {
+        return None;
+    }
+
+    let mut rewritten = Vec::with_capacity(content.len() + 4);
+    rewritten.push("*** Begin Patch".to_string());
+    rewritten.push(format!("*** Delete File: {target}"));
+    rewritten.push(format!("*** Add File: {target}"));
+    for line in content {
+        rewritten.push(format!("+{line}"));
+    }
+    rewritten.push("*** End Patch".to_string());
+    Some(rewritten.join("\n") + "\n")
+}
+
+fn taskspace_update_file_replacement_looks_like_python_source(content: &[&str]) -> bool {
+    let Some(first) = content
+        .iter()
+        .map(|line| line.trim())
+        .find(|line| !line.is_empty())
+    else {
+        return false;
+    };
+    first.starts_with("#!")
+        || first.starts_with("import ")
+        || first.starts_with("from ")
+        || first.starts_with("def ")
+        || first.starts_with("class ")
 }
 
 fn taskspace_added_file_content_has_common_single_indent(content: &[&str]) -> bool {

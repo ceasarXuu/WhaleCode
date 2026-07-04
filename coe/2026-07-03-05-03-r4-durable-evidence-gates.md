@@ -5455,3 +5455,67 @@
     PASS
   ```
 - Interpretation: H-089 is focused-fixed. Remaining gates are commit/push, attestation, and another keyed rerun to confirm the live trace now stops with `TaskSpaceApplyPatchRecoveryHardStopV1` or advances to a successful edit instead of generic provider budget hard-stop.
+
+# Evidence E-190: eebd0e1 rerun live-clears H-089 and exposes whole-file replacement intent normalization gap
+
+- Real rerun:
+  ```text
+  RunDir: target/r4-org-json-real-keyed-20260704cj-patch-recovery-hardstop/runs/terminal_bench__organization-json-generator/20260704-195220-438
+  reported_evidence_level: E2-candidate
+  outcome_standard: solved
+  outcome_taskspace: engineering_unclean
+  right_tool_call_count: 12
+  right_public_validation_exit_code: 1
+  right_hidden_oracle_exit_code: 0
+  final_hard_stop: TaskSpaceApplyPatchRecoveryHardStopV1
+  current_git_head: eebd0e1d53e171e322edd975717a8a921ca173e2
+  whale_binary_sha256: 61cb4f0c819bd0d9a14947dadc4ab9d79cee41bd36622e662c84d5b47175ad3e
+  build_attestation_status: pass
+  ```
+- H-089 live status:
+  - Live-cleared for this sample. The final marker is `TaskSpaceApplyPatchRecoveryHardStopV1`, not generic `TaskSpaceProviderBudgetHardStopV1`.
+- New blocker signal:
+  - The provider repeatedly intended a whole-file replacement for `generate_org_json.py`, but expressed it as `*** Update File: generate_org_json.py` followed by complete Python source text rather than native `Delete File` + `Add File`.
+  - Runtime correctly rejected this as `apply_patch_unanchored_update`, but that leaves a common model patch intent unexecutable.
+  - Command-like non-diff payloads such as `python3 -c ...` must remain rejected; only obvious complete source replacement should be normalized.
+- Interpretation: H-089 is live-fixed. H-090 is a capability-layer normalizer gap: a safe, common whole-file replacement intent is semantically clear but not accepted by the action contract.
+
+# Hypothesis H-090: Python whole-file replacement written as Update File should normalize to Delete/Add
+
+- Claim: For a single Python target, a `*** Update File: <path>` section containing complete source text with no hunk/diff markers should be normalized to native `*** Delete File` + `*** Add File` instead of rejected as unanchored update. This should not apply to shell/Python command payloads or non-source text.
+- Prediction:
+  1. `normalize_taskspace_apply_patch()` should detect one Python `Update File` section whose first non-empty content line looks like Python source.
+  2. The normalized payload should delete and re-add the same target with every content line prefixed by `+`.
+  3. Existing non-diff command payload rejection should remain passing.
+  4. `apply_patch_`, `validation_rework`, and `action_contract_prompt` regressions should remain passing.
+- Status: confirmed.
+
+# Evidence E-191: H-090 focused fix normalizes whole Python Update File replacements
+
+- Repair artifact:
+  - `third_party/codex-cli/codex-rs/core/src/session/turn.rs`
+- Repair behavior:
+  - Added `normalize_taskspace_update_file_whole_replacement()`.
+  - The normalizer only handles a single `.py`/`.pyw` `*** Update File` section with no hunk/diff/change markers and source-looking content.
+  - It rewrites that intent to `*** Delete File: <target>` plus `*** Add File: <target>` with `+`-prefixed full contents.
+  - `python3 -c` / command payloads continue to be rejected as `apply_patch_unanchored_update`.
+- Validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core taskspace_action_contract_normalizes_whole_python_update_replacement --lib --locked
+    PASS
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core taskspace_action_contract_rejects_non_diff_update_payload --lib --locked
+    PASS
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core apply_patch_ --lib --locked
+    PASS: 36/36
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_rework --lib --locked
+    PASS: 26/26
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core action_contract_prompt --lib --locked
+    PASS: 29/29
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+    PASS
+  git diff --check
+    PASS
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-cli --bin whale --locked
+    PASS
+  ```
+- Interpretation: H-090 is focused-fixed. Remaining gates are commit/push, attestation, and another keyed rerun to confirm live TaskSpace can execute whole-file replacement attempts instead of hard-stopping on patch grammar.
