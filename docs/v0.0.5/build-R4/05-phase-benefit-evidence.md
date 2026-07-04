@@ -4275,3 +4275,64 @@ CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/co
 边界说明：该 case 不是 tool execution failure，也不是 failure marker 缺失。失败 patch 的语义已经存在，问题是 failed-edit
 refresh policy 把“可能因为截断/陈旧导致 hunk 失败”的例外错误套用到 `complete_read/eof_reached=true`。修复保留 bounded/truncated
 read 的 refresh 逃生口，但完整读取后仍强制沿 patch 修正路径前进。
+
+## 5.67 2026-07-04 partial-excerpt blocker accepted after patch grammar failure
+
+`dc2a986` keyed rerun 证明 5.66 的 failed-edit refresh loop 已清除：provider 没有停在失败 patch 后重复 `read_file`，而是进入
+`apply_patch` / patch grammar recovery 分支。但该轮仍未通过 public validation，新的 failure mode 是 validation rework node
+被一个 missing-source blocker 错误关闭。
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260704bw-complete-read-failed-edit-closed/runs/terminal_bench__organization-json-generator/20260704-170158-193
+reported_evidence_level: E1
+outcome_standard: wrong
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 12
+right_wall_time_ms: 403592
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+current_git_head: dc2a98680400249e896b36f06c91378fc046bd17
+whale_binary_sha256: d3c3611d0bc27779110238090be6c87c8b6b6e12f616085b896eae91722238bf
+```
+
+关键观察：
+
+| Signal | 结论 |
+|---|---|
+| provider 进入 `apply_patch`，随后出现 `apply_patch verification failed` | H-076 清除了 failed-edit refresh-read loop，问题推进到 patch 质量/语法 |
+| 第二次 patch 被 `apply_patch_mixed_native_unified:process.py` 拒绝，runtime 插入 `TaskSpaceApplyPatchNativeHunkRecoveryV1` | patch grammar recovery 正常触发 |
+| provider 随后 `blocked`：`Insufficient file content visibility... only partial excerpt... full content is needed... ability to read the full file` | missing-source blocker 换了新 wording |
+| runtime 接受该 blocker，后续 `provider_context_missing:current_main_node_missing` | repairable validation rework node 被错误关闭 |
+| final candidate 变成 CSV/schema missing blocker，但这些文件已经在 `result-2..result-5` 成功读取 | 关闭当前节点后反馈链路退化为错误终止语义 |
+
+本轮新增并 focused 修复的问题类型：
+
+| Case | Before | After | Evidence |
+|---|---|---|---|
+| `validation-rework-partial-excerpt-blocker-wording-drift` | 已完整读取 target 且 patch grammar recovery 后，provider 用 `partial excerpt/full content needed/ability to read full file` 表达 missing-source blocker；recognizer 未覆盖，runtime 接受 blocker 并关闭 node | missing-source blocker recognizer 覆盖 partial-excerpt/full-content wording；complete-read validation rework blocker rejection 明确只能重试 `apply_patch`，不得 refresh read | keyed rerun `20260704-170158-193`; CoE H-077/E-164/E-165; `validation_rework_allows_changed_artifact_read_when_schema_failure_lacks_traceback`; `validation_rework` 24/24 |
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core action_map::runtime::tests::validation_rework_allows_changed_artifact_read_when_schema_failure_lacks_traceback --locked
+  PASS
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_rework --locked
+  PASS: 24/24
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core action_contract_prompt --locked
+  PASS: 29/29
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+  PASS
+
+git diff --check
+  PASS
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-cli --bin whale --locked
+  PASS
+```
+
+边界说明：该 case 和 H-069 同属 missing-source blocker feedback classification，但触发点不同。H-069 是 runtime 新 rejection wording
+没有被 session 识别；H-077 是 provider 的 blocker wording 没被 runtime recognizer 拒绝，导致当前节点被关闭。

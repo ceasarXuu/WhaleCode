@@ -639,3 +639,17 @@ static read exception 修复后的 attested keyed rerun 进入了更深一层：
 边界说明：这是反馈/控制投影的语义边界缺失，不是语义扭曲。runtime 对 repeated read 的拒绝仍是正确的；错误在于上游 projection
 把完整读取后的 failed patch 当成可 refresh 的截断/陈旧上下文处理。修复不取消 failed-edit refresh，只把它限制在未完整读取的 target
 read 上。
+
+## 2026-07-04 R4-D issue type addendum: partial-excerpt blocker wording drift
+
+failed-edit refresh 修复后的 keyed rerun 进入 patch grammar recovery，但随后暴露新的 blocker wording 漂移。provider 在
+`apply_patch_mixed_native_unified` 之后没有按 native grammar 重发 patch，而是 block：`Insufficient file content visibility`、
+`only partial excerpt`、`full content is needed`、`ability to read the full file`。这些都是 missing-source blocker 的同义表达；
+但 recognizer 旧词表未覆盖，runtime 接受 blocker，关闭了 repairable validation rework node。
+
+| Issue type | Layer | Symptom | Resolution contract | Evidence |
+|---|---|---|---|---|
+| `validation-rework-partial-excerpt-blocker-wording-drift` | runtime blocker classification / validation rework feedback continuity | complete target read + failed/malformed patch 后，partial-excerpt/full-content blocker 被接受，current node 关闭，后续请求退化为 `provider-context-missing` 和错误 final blocker | missing-source blocker recognizer 覆盖 partial-excerpt/full-content/read-full-file wording；complete target read 时 rejection 明确使用 existing complete evidence retry `apply_patch`，不 refresh read | keyed rerun `20260704-170158-193`; CoE H-077/E-164/E-165; `validation_rework_allows_changed_artifact_read_when_schema_failure_lacks_traceback`; `validation_rework`; `action_contract_prompt` |
+
+边界说明：这不是 CSV/schema 真的缺失，也不是允许模型 block。正确行为是保持 validation rework node active，把该 blocker 转回
+patch-only recovery，直到生成合法 patch、真实外部 blocker，或达到 bounded hard-stop。

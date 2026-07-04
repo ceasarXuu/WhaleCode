@@ -5663,8 +5663,15 @@ preview:\n\
                 || implement_node_has_dependency_validation_rework_evidence(map, node))
             && blocker_claims_missing_inspected_source_evidence(blocker_summary)
         {
+            let next_action = if implement_node_has_complete_validation_rework_target_read(
+                map, node,
+            ) {
+                "Next valid action: retry apply_patch using existing complete validation rework target evidence plus failed validation/tool feedback; do not block for source visibility and do not refresh read when complete_read/eof_reached=true."
+            } else {
+                "Next valid action: retry apply_patch using the inspected source evidence and failed validation feedback; if a failed edit made the visible target context stale or truncated, read_file the same validation rework target once to refresh context, then patch."
+            };
             return Err(format!(
-                "TaskSpace implement_solution node `{node_id}` cannot be blocked for missing source visibility because dependency evidence already identifies the implementation artifact or validation rework target. Next valid action: retry apply_patch using the inspected source evidence and failed validation feedback; if a failed edit made the visible target context stale or truncated, read_file the same validation rework target once to refresh context, then patch. Block only with a specific external blocker that makes editing impossible."
+                "TaskSpace implement_solution node `{node_id}` cannot be blocked for missing source visibility because dependency evidence already identifies the implementation artifact or validation rework target. {next_action} Block only with a specific external blocker that makes editing impossible."
             ));
         }
         if node.kind == NodeKind::ImplementSolution
@@ -16484,6 +16491,7 @@ fn blocker_claims_missing_inspected_source_evidence(blocker_summary: &str) -> bo
         || lower.contains("current code");
     let missing_claim = lower.contains("unknown")
         || lower.contains("no excerpt")
+        || lower.contains("only partial excerpt")
         || lower.contains("not provided")
         || lower.contains("not visible")
         || lower.contains("not shown")
@@ -16492,7 +16500,11 @@ fn blocker_claims_missing_inspected_source_evidence(blocker_summary: &str) -> bo
         || lower.contains("need to view")
         || lower.contains("need source")
         || lower.contains("need full file content")
+        || lower.contains("full content is needed")
+        || lower.contains("insufficient file content visibility")
         || lower.contains("view full")
+        || lower.contains("read the full file")
+        || lower.contains("ability to read the full file")
         || lower.contains("full current")
         || lower.contains("without full file content")
         || lower.contains("without seeing")
@@ -16634,6 +16646,21 @@ fn implement_node_has_dependency_validation_rework_evidence(
     node: &MapNode,
 ) -> bool {
     implement_node_dependency_validation_rework_summary(map, node).is_some()
+}
+
+fn implement_node_has_complete_validation_rework_target_read(
+    map: &ActionMapInstance,
+    node: &MapNode,
+) -> bool {
+    let artifact_refs = implement_node_dependency_validation_rework_artifact_refs(map, node);
+    implement_node_validation_rework_artifact_read_results(map, node, &artifact_refs)
+        .iter()
+        .any(|(_, result_id)| {
+            map.results
+                .get(result_id)
+                .and_then(|result| read_file_summary_eof_reached(&result.body))
+                == Some(true)
+        })
 }
 
 fn implement_node_validation_rework_read_targets_failure_artifact(
@@ -34725,6 +34752,32 @@ TaskSpaceReadFileSummaryV1: path=generate_org.py lines_read=210 eof_reached=true
         assert!(
             truncated_blocker.contains("apply_patch") || truncated_blocker.contains("read_file"),
             "{truncated_blocker}"
+        );
+        let partial_excerpt_blocker = state
+            .block_main_node(
+                owner,
+                &rework_node_id,
+                "Insufficient file content visibility for generate_org.py; only partial excerpt available in projection, and full content is needed to construct a correct apply_patch. Reading is disallowed by current node contract until a successful edit records progress. Blocked to request clarification or ability to read the full file."
+                    .to_string(),
+            )
+            .expect_err(
+                "partial-excerpt source blocker should be rejected after complete target read",
+            );
+        assert!(
+            partial_excerpt_blocker.contains("missing source visibility"),
+            "{partial_excerpt_blocker}"
+        );
+        assert!(
+            partial_excerpt_blocker.contains("complete_read/eof_reached=true"),
+            "{partial_excerpt_blocker}"
+        );
+        assert!(
+            partial_excerpt_blocker.contains("apply_patch"),
+            "{partial_excerpt_blocker}"
+        );
+        assert!(
+            !partial_excerpt_blocker.contains("read_file the same validation rework target"),
+            "{partial_excerpt_blocker}"
         );
     }
 

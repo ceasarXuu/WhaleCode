@@ -4637,3 +4637,63 @@
   ```
 - Result: passed. Focused runtime regression passed; `validation_rework` passed 24/24; `action_contract_prompt` passed 29/29; formatting, whitespace, and `whale` build passed.
 - Interpretation: H-076 is focused-fixed in runtime/projection. It still needs commit/push, binary attestation, and another keyed rerun to verify whether the live path now recovers from failed patch by correcting the patch instead of returning to read.
+
+# Evidence E-164: dc2a986 rerun clears failed-edit refresh loop but accepts a missing-source blocker
+
+- Prediction tested: H-076 predicts failed patch after complete target read should not reopen a same-target read loop.
+- Real rerun:
+  ```text
+  RunDir: target/r4-org-json-real-keyed-20260704bw-complete-read-failed-edit-closed/runs/terminal_bench__organization-json-generator/20260704-170158-193
+  PairReport: pair-001/pair-report.md
+  reported_evidence_level: E1
+  outcome_standard: wrong
+  outcome_taskspace: engineering_unclean
+  right_exec_timed_out: False
+  right_tool_call_count: 12
+  right_wall_time_ms: 403592
+  right_public_validation_exit_code: 1
+  right_hidden_oracle_exit_code: 0
+  current_git_head: dc2a98680400249e896b36f06c91378fc046bd17
+  whale_binary_sha256: d3c3611d0bc27779110238090be6c87c8b6b6e12f616085b896eae91722238bf
+  ```
+- Matched H-076 signals:
+  - After a complete validation rework read, the provider no longer stayed in the failed-edit refresh-read loop.
+  - The run progressed through a closed read rejection, patch-only recovery, `apply_patch`, edit-failure recovery, and apply-patch grammar recovery.
+- New/remaining blocker signals:
+  - First repair patch used mixed native/unified patch style and failed as an edit.
+  - The next patch was rejected before execution with `apply_patch_mixed_native_unified:process.py`, then `TaskSpaceApplyPatchNativeHunkRecoveryV1` was inserted.
+  - The provider returned `blocked` on node `node-4` claiming `Insufficient file content visibility for process.py; only partial excerpt available in projection, and full content is needed... ability to read the full file.`
+  - Runtime accepted that blocker, closing the current main node. Subsequent provider requests had `provider_context_missing:current_main_node_missing`, and the final candidate became a clearly false blocker claiming required CSV/schema files were missing or inaccessible, despite results `result-2` to `result-5` being successful reads.
+  - Public validation failed because final `organization.json` still lacked `department.id`, `project.members`, and `statistics.averageDepartmentBudget`.
+- Interpretation: H-076 is live-cleared for the failed-edit refresh loop. New blocker is H-077: missing-source blocker wording drift after patch grammar failure. The runtime already rejected older missing-source blocker wording, but the live wording (`partial excerpt`, `full content is needed`, `ability to read the full file`) did not match the recognizer, allowing a repairable validation rework node to close.
+
+# Hypothesis H-077: missing-source blocker recognizer must cover partial-excerpt/full-content wording after patch grammar failure
+
+- Claim: In validation rework, after complete target read and failed/malformed patch attempts, a blocker claiming partial projection excerpt or need for full file content is the same semantic class as missing source visibility. It must be rejected while keeping the implement node active, especially when `complete_read/eof_reached=true` proves no refresh read is needed.
+- Prediction:
+  1. `blocker_claims_missing_inspected_source_evidence()` should match live wording: `only partial excerpt`, `full content is needed`, `insufficient file content visibility`, and `ability to read the full file`.
+  2. When a validation rework target has a complete read, the blocker rejection should say to retry `apply_patch` using existing complete target evidence and should not recommend refresh read.
+  3. Existing validation rework and action-contract prompt regressions should remain passing.
+- Diagnostic evidence plan: Extend the existing complete-read validation rework regression to call `block_main_node()` with the live partial-excerpt wording after failed patch; expected result is missing-source blocker rejection with `complete_read/eof_reached=true` and `apply_patch`.
+- Status: confirmed.
+
+# Evidence E-165: partial-excerpt missing-source blocker is rejected after complete validation rework read
+
+- Prediction tested: H-077 predicts live partial-excerpt/full-content wording should be rejected as missing-source blocker after complete target read.
+- Repair artifact:
+  - `third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs`
+- Repair behavior:
+  - `blocker_claims_missing_inspected_source_evidence()` now recognizes `only partial excerpt`, `full content is needed`, `insufficient file content visibility`, `read the full file`, and `ability to read the full file`.
+  - `block_main_node()` now emits a complete-read-aware rejection when validation rework target evidence has `eof_reached=true`: retry `apply_patch` from existing complete evidence and do not refresh read when `complete_read/eof_reached=true`.
+  - Added `implement_node_has_complete_validation_rework_target_read()` to avoid advertising the stale/truncated refresh escape hatch for complete reads in blocker rejection text.
+- Validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core action_map::runtime::tests::validation_rework_allows_changed_artifact_read_when_schema_failure_lacks_traceback --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_rework --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core action_contract_prompt --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+  git diff --check
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-cli --bin whale --locked
+  ```
+- Result: passed. Focused runtime regression passed; `validation_rework` passed 24/24; `action_contract_prompt` passed 29/29; formatting, whitespace, and `whale` build passed.
+- Interpretation: H-077 is focused-fixed. It needs commit/push, attestation, and keyed rerun. It should keep the validation rework implement node active after malformed patch attempts instead of falling through to `provider-context-missing`.

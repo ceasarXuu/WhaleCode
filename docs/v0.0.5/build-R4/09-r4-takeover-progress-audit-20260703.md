@@ -2500,6 +2500,46 @@ whale_binary_sha256: 136008edf014e6ab1bfc86ae6c0188623723b5089de322a65bfe6348f9d
 
 状态：focused 修复已编码并通过 focused/regression、fmt/check/build。仍需 commit/push、attestation、keyed rerun。
 
+## 13. 2026-07-04 validation rework partial-excerpt blocker wording drift
+
+`dc2a986` 的 keyed rerun 证明 H-076 已把 failed-edit refresh loop 清掉，但新的 live blocker 出现在 patch grammar recovery 之后。
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260704bw-complete-read-failed-edit-closed/runs/terminal_bench__organization-json-generator/20260704-170158-193
+reported_evidence_level: E1
+outcome_standard: wrong
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 12
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+current_git_head: dc2a98680400249e896b36f06c91378fc046bd17
+whale_binary_sha256: d3c3611d0bc27779110238090be6c87c8b6b6e12f616085b896eae91722238bf
+```
+
+关键观察：
+
+| Signal | 结论 |
+|---|---|
+| closed read rejection 后 provider 进入 `apply_patch` | H-076/H-075 路径继续推进 |
+| 第一次 repair patch hunk verification failed，第二次被 `apply_patch_mixed_native_unified:process.py` 拒绝 | patch grammar recovery 生效 |
+| provider 随后 block：`Insufficient file content visibility... only partial excerpt... full content is needed... ability to read the full file` | missing-source blocker wording 漂移 |
+| blocker 被接受后，后续请求 `provider_context_missing:current_main_node_missing` | 当前 validation rework node 被错误关闭 |
+| final candidate 声称 CSV/schema missing，但这些文件已成功读取 | feedback 链路退化成错误终止语义 |
+
+问题类型收录：
+
+| 字段 | 内容 |
+|---|---|
+| case | `validation-rework-partial-excerpt-blocker-wording-drift` |
+| 层级 | runtime blocker classification / validation rework feedback continuity |
+| 本质 | provider 用 partial-excerpt/full-content wording 表达 missing-source blocker，runtime recognizer 未覆盖，导致 repairable node 被关闭 |
+| 非根因 | 不是输入文件真的缺失；不是 H-076 failed-edit refresh；不是 static action contract 冲突 |
+| 修复 | missing-source recognizer 覆盖 `only partial excerpt`、`full content is needed`、`insufficient file content visibility`、`ability to read the full file`；complete-read blocker rejection 明确只 retry `apply_patch`，不 refresh read |
+| focused evidence | `validation_rework_allows_changed_artifact_read_when_schema_failure_lacks_traceback`; `validation_rework` 24/24; `action_contract_prompt` 29/29; fmt/check/build |
+
+状态：focused 修复已编码并通过 focused/regression、fmt/check/build。仍需 commit/push、attestation、keyed rerun。
+
 ## 11. 2026-07-04 validation rework closed action-space noncompliance
 
 `41b1cf6` 的 keyed rerun 证明 H-070 的 recovery ordering 已进入 live path，但仍未让 TaskSpace 完成 public validation。
