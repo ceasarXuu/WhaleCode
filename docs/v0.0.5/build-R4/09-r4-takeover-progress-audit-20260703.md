@@ -146,6 +146,7 @@ raw signal 存在但语义没有正确进入下一轮 tool contract：
 | `implementation-rework-stale-edit-success-feedback` | hard-stop live 复验中，`node-4` 没有 successful edit，但 provider-visible recent outputs 仍泄漏 `node-2` 的 apply_patch success，并生成错误的 `A file edit already succeeded` progress hint；已将 recent tool outputs 聚合边界收窄到 latest active TaskSpace context 之后 | focused+regression fixed / real rerun pending |
 | `validation-rework-target-read-output-context-loss` | latest active context scoping 修复了跨节点 stale edit success，但也误丢当前 rework target 的完整 read output，只剩 projection compact excerpt，模型又重复读 `generate_org.py`；已对 latest projection 明确引用的 `validation_rework_target_read artifact=*` 回补对应 read output，同时继续排除旧 apply_patch success | focused+regression fixed / real rerun pending |
 | `inspect-duplicate-list-files-data-bootstrap-gap` | keyed rerun `20260704-115228-006` 证实第一次 `list_files` 已列出 `schema.json` 和 CSV fact sources，但模型重复 `list_files` 后只收到 duplicate recovery，没有触发 bounded data artifact bootstrap，最终烧到 `TaskSpaceProviderBudgetHardStopV1`；已让 repeated duplicate read/search 在 force-finish 不安全时触发 bounded source/test/data artifact bootstrap | focused+regression fixed / real rerun pending |
+| `validation-rework-patch-only-after-target-read-feedback` | keyed rerun `20260704-120401-124` 证实 schema repair contract、`validation_rework_target_read` 和禁止 schema inspection 的 patch-only 契约都已出现在 provider prompt，但下一次 `read_file schema.json` 仍被包装成泛化 `implementation_needs_edit` hard-stop；已新增 post-target-read patch-only 专用 recovery/hard-stop 语义 | focused+regression fixed / real rerun pending |
 
 新增关键判断：
 
@@ -1459,6 +1460,93 @@ stable rustfmt `imports_granularity` 警告；`git diff --check` 和 `whale` bui
 
 当前状态：focused 修复和 R4-adjacent regression/build 已完成；仍需 attestation 和下一次 keyed rerun 验证 live sample
 是否越过 repeated duplicate `list_files` budget drain。
+
+### 3.30 validation rework patch-only after target read feedback
+
+duplicate list_files bootstrap 修复并提交 attestation 后执行 keyed rerun：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260704bb-data-bootstrap/runs/terminal_bench__organization-json-generator/20260704-120401-124
+preflight current_git_head: 807a3cf5802e59688bb911fe69216e314f4e33ff
+build_attestation_status: pass
+outcome_standard: solved
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 14
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+right_maps: 1
+right_nodes: 4
+right_open_leaf_nodes: 1
+```
+
+本次进展：
+
+| 层 | 结论 |
+|---|---|
+| inspect | BA 的重复 `list_files` drain 未复现；模型本轮声明并读取了 `schema.json`、`departments.csv`、`employees.csv`、`projects.csv` |
+| validation | 执行了 `python generate_org.py && python -m jsonschema -i organization.json schema.json`，到达真实 schema mismatch |
+| schema failure | project 输出 `member_ids` 而不是 required `members`；statistics 缺 `averageDepartmentBudget`、`totalEmployees`、`skillDistribution`、`departmentSizes`、`projectStatusDistribution`、`averageYearsOfService` |
+| rework target read | `generate_org.py` 读取成功，`TaskSpaceReadFileSummaryV1` 显示 `lines_read=89 eof_reached=true max_lines=240` |
+
+新问题：
+
+| 层 | 结论 |
+|---|---|
+| prompt evidence | `rollout.jsonl` line 432 已包含 `validation_schema_repair_contract`、`validation_rework_target_read result=result-12 artifact=generate_org.py`、schema/CSV evidence、`TaskSpaceGateRecoveryV1 reason=validation_rework_duplicate_artifact_read` |
+| patch-only contract | `rollout.jsonl` line 457 已把当前 node contract 收窄到 `edit, control(block_node only...)`，并说明 read/search of visible target 会被 blocked |
+| bad action | 模型仍请求 `read_file schema.json` |
+| semantic distortion | action-contract/session 把它包装成泛化 `node_policy_violation:implement_solution:read_file:implementation_needs_edit` 和 `TaskSpaceImplementationNeedsEditHardStopV1 reason=repeated_finish_without_successful_edit`，没有保留“target read 后只允许 patch/block”的专用语义 |
+
+根因判断：
+
+这不是 schema 修复语义缺失。修复字段、目标文件、已读目标内容、禁止 schema inspection 的恢复契约都进入了 provider prompt。
+缺口是 feedback layer 的语义专用化不足：validation rework 从“允许首次读取命名 target artifact”进入“target 已可见，patch-only”
+后，session 对后续非编辑动作仍复用普通 `implementation_needs_edit`，导致日志和 hard-stop 语义无法表达真实状态边界。
+
+本轮修复设计：
+
+| 层 | 结论 |
+|---|---|
+| recovery selector | `build_taskspace_implementation_recovery_item()` 在 evidence summary 包含 `validation_rework_target_read` 时，优先生成 `TaskSpaceValidationReworkPatchOnlyRecoveryV1` |
+| failure kind | 新增 `failure_kind: validation_rework_patch_only_after_target_read`，明确这是 target read 后的非编辑动作，不是缺少 schema 或普通 implementation 证据不足 |
+| recovery behavior | 第一次 post-target-read 非编辑动作给一次专用 patch-only recovery，要求立即 `apply_patch` 或 `block_node`，禁止 `schema.json` / fact-source 迁移读取 |
+| hard stop | 第二次同类 patch-only 违规触发 `TaskSpaceValidationReworkPatchOnlyHardStopV1 reason=repeated_non_edit_after_validation_rework_target_read`，避免再退化成泛化 needs-edit 或 provider budget drain |
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core implementation_recovery_selects_patch_only_after_target_read_evidence --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core validation_rework_patch_only_hard_stops_after_one_recovery --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core implementation_recovery_does_not_enter_patch_only_before_target_read --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core implementation_recovery --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core implementation_needs_edit --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core validation_rework_duplicate_read --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core validation_rework --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core action_contract_prompt --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core validation_ --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core provider_budget --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core taskspace_active_budget --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core duplicate_read_search --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core missing_fact_source_bootstrap --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core inspect_missing_fact_sources --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core local_infra --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core apply_patch_ --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core taskspace_control --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+git diff --check
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-cli --bin whale --locked
+```
+
+结果：通过。`implementation_recovery` 5/5、`implementation_needs_edit` 3/3、`validation_rework_duplicate_read`
+6/6、`validation_rework` 19/19、`action_contract_prompt` 28/28、`validation_` 98/98、`provider_budget`
+23/23、`taskspace_active_budget` 11/11、`duplicate_read_search` 3/3、`missing_fact_source_bootstrap`
+1/1、`inspect_missing_fact_sources` 2/2、`local_infra` 11/11、`apply_patch_` 35/35、`taskspace_control`
+35/35 均通过。`cargo fmt --check` 仍只输出项目既有 stable rustfmt `imports_granularity` 警告；
+`git diff --check` 和 `whale` build 通过。
+
+当前状态：focused 修复和 R4-adjacent regression/build 已完成；仍需 attestation 和下一次 keyed rerun 验证 live sample
+是否在新 patch-only recovery 后直接 patch schema mismatch，或者暴露下一层 tools-chain blocker。
 
 ## 4. 本次验证
 

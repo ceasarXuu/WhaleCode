@@ -154,6 +154,10 @@ const TASKSPACE_VALIDATION_REWORK_DUPLICATE_READ_MARKER: &str =
     "TaskSpaceValidationReworkDuplicateReadRecoveryV1:";
 const TASKSPACE_VALIDATION_REWORK_DUPLICATE_READ_HARD_STOP_MARKER: &str =
     "TaskSpaceValidationReworkDuplicateReadHardStopV1:";
+const TASKSPACE_VALIDATION_REWORK_PATCH_ONLY_MARKER: &str =
+    "TaskSpaceValidationReworkPatchOnlyRecoveryV1:";
+const TASKSPACE_VALIDATION_REWORK_PATCH_ONLY_HARD_STOP_MARKER: &str =
+    "TaskSpaceValidationReworkPatchOnlyHardStopV1:";
 const TASKSPACE_EDIT_FAILURE_MARKER: &str = "TaskSpaceEditFailureRecoveryV1:";
 const TASKSPACE_APPLY_PATCH_FORMAT_MARKER: &str = "TaskSpaceApplyPatchFormatRecoveryV1:";
 const TASKSPACE_APPLY_PATCH_MISSING_TARGET_MARKER: &str =
@@ -484,6 +488,7 @@ pub(crate) async fn run_turn(
     let mut taskspace_implement_needs_edit_recovery_count = 0usize;
     let mut taskspace_implement_needs_edit_recovery_key: Option<String> = None;
     let mut taskspace_validation_rework_duplicate_read_recovery_count = 0usize;
+    let mut taskspace_validation_rework_patch_only_recovery_count = 0usize;
     // Although from the perspective of codex.rs, TurnDiffTracker has the lifecycle of a Task which contains
     // many turns, from the perspective of the user, it is a single turn.
     let turn_diff_tracker = Arc::new(tokio::sync::Mutex::new(TurnDiffTracker::new()));
@@ -606,13 +611,21 @@ pub(crate) async fn run_turn(
                     let counts_against_no_action_cap =
                         is_taskspace_no_action_recovery_item(&recovery_item);
                     let counts_against_implement_needs_edit_cap =
-                        is_taskspace_implement_needs_edit_recovery_item(&recovery_item);
+                        is_taskspace_implement_needs_edit_recovery_item(&recovery_item)
+                            || is_taskspace_validation_rework_patch_only_recovery_item(
+                                &recovery_item,
+                            );
                     let counts_against_plain_implement_needs_edit_cap =
                         is_taskspace_plain_implement_needs_edit_recovery_item(&recovery_item);
                     let validation_rework_duplicate_read_hard_stop =
                         taskspace_validation_rework_duplicate_read_should_hard_stop(
                             &recovery_item,
                             taskspace_validation_rework_duplicate_read_recovery_count,
+                        );
+                    let validation_rework_patch_only_hard_stop =
+                        taskspace_validation_rework_patch_only_should_hard_stop(
+                            &recovery_item,
+                            taskspace_validation_rework_patch_only_recovery_count,
                         );
                     let no_action_recovery_cap = current_recovery_snapshot
                         .as_ref()
@@ -642,6 +655,9 @@ pub(crate) async fn run_turn(
                     if is_taskspace_validation_rework_duplicate_read_recovery_item(&recovery_item) {
                         taskspace_validation_rework_duplicate_read_recovery_count += 1;
                     }
+                    if is_taskspace_validation_rework_patch_only_recovery_item(&recovery_item) {
+                        taskspace_validation_rework_patch_only_recovery_count += 1;
+                    }
                     if taskspace_implementation_needs_edit_should_hard_stop(
                         &recovery_item,
                         taskspace_implement_needs_edit_recovery_count,
@@ -665,6 +681,28 @@ pub(crate) async fn run_turn(
                             .await;
                         last_agent_message = Some(
                             "TaskSpace implementation needs-edit hard stop: repeated_finish_without_successful_edit".to_string(),
+                        );
+                        break;
+                    }
+                    if validation_rework_patch_only_hard_stop {
+                        let hard_stop_item =
+                            build_taskspace_validation_rework_patch_only_hard_stop_item(
+                                &recovery_item,
+                                taskspace_validation_rework_patch_only_recovery_count,
+                            );
+                        sess.send_event(
+                            &turn_context,
+                            EventMsg::Warning(WarningEvent {
+                                message: taskspace_special_recovery_warning_message(
+                                    &hard_stop_item,
+                                ),
+                            }),
+                        )
+                        .await;
+                        sess.record_conversation_items(&turn_context, &[hard_stop_item])
+                            .await;
+                        last_agent_message = Some(
+                            "TaskSpace validation rework patch-only hard stop: repeated_non_edit_after_target_read".to_string(),
                         );
                         break;
                     }
@@ -2181,6 +2219,101 @@ Last recovery contract excerpt:\n{recovery_excerpt}"
     }
 }
 
+fn build_taskspace_validation_rework_patch_only_recovery_item(
+    last_message: Option<&str>,
+    evidence_summary: Option<&str>,
+    failed_edit_summary: Option<&str>,
+) -> ResponseItem {
+    let previous = last_message
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("(no blocked action feedback was captured)");
+    let previous_excerpt = previous.chars().take(1600).collect::<String>();
+    let target_artifacts =
+        taskspace_validation_rework_patch_only_artifacts(evidence_summary.unwrap_or(""));
+    let target_artifact_label = if target_artifacts.is_empty() {
+        "validation rework target artifact".to_string()
+    } else {
+        target_artifacts.join(", ")
+    };
+    let evidence = evidence_summary
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| {
+            let bullets = value
+                .split(" | ")
+                .map(str::trim)
+                .filter(|item| !item.is_empty())
+                .map(|item| format!("- {item}"))
+                .collect::<Vec<_>>()
+                .join("\n");
+            format!("\nAlready inspected evidence available to use now:\n{bullets}\n")
+        })
+        .unwrap_or_default();
+    let failed_edit = failed_edit_summary
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| format!("\nMost recent failed edit feedback to preserve:\n- {value}\n"))
+        .unwrap_or_default();
+    let text = format!(
+        "{TASKSPACE_VALIDATION_REWORK_PATCH_ONLY_MARKER}\n\
+failure_kind: validation_rework_patch_only_after_target_read\n\
+target_artifacts: {target_artifact_label}\n\
+The previous action was blocked because this validation rework node already has the target file contents and validation repair contract needed for an edit.\n\
+Previous blocked feedback:\n{previous_excerpt}\n\
+{failed_edit}\
+{evidence}\
+Current required behavior:\n\
+- Emit exactly one taskspace-action-v1 apply_patch action targeting `{target_artifact_label}` now, or one taskspace_control block_node with the exact unsafe-edit reason.\n\
+- Use the visible validation failure, schema repair contract, and validation_rework_target_read evidence already shown in context.\n\
+- Do not call read_file, list_files, search, broad shell discovery, schema inspection, or validation before a successful edit is recorded.\n\
+- Do not move from the named target artifact to `schema.json` or another fact source; those facts are already present in evidence.\n\
+- If no safe edit can be made from the already visible evidence, block explicitly instead of requesting more reads."
+    );
+
+    ResponseItem::Message {
+        id: None,
+        role: "developer".to_string(),
+        content: vec![ContentItem::InputText { text }],
+        end_turn: None,
+        phase: None,
+    }
+}
+
+fn build_taskspace_validation_rework_patch_only_hard_stop_item(
+    recovery_item: &ResponseItem,
+    attempt: usize,
+) -> ResponseItem {
+    let recovery_text = response_item_text(recovery_item).unwrap_or_default();
+    let artifacts = taskspace_validation_rework_patch_only_artifacts(&recovery_text);
+    let artifact_label = if artifacts.is_empty() {
+        "validation rework target artifact".to_string()
+    } else {
+        artifacts.join(", ")
+    };
+    let recovery_excerpt = recovery_text.chars().take(1800).collect::<String>();
+    let text = format!(
+        "{TASKSPACE_VALIDATION_REWORK_PATCH_ONLY_HARD_STOP_MARKER}\n\
+reason: repeated_non_edit_after_validation_rework_target_read\n\
+attempt_count: {attempt}\n\
+target_artifacts: {artifact_label}\n\
+The current validation rework node repeatedly requested read/search/discovery after TaskSpace had already shown the target file contents and patch-only repair contract.\n\
+Runtime decision:\n\
+- Stop provider sampling for this turn instead of issuing another advisory recovery request.\n\
+- Preserve the bounded evidence and the last patch-only recovery contract for audit.\n\
+- A later turn may continue only after TaskSpace state changes or the provider emits the required apply_patch/block_node action.\n\
+Last recovery contract excerpt:\n{recovery_excerpt}"
+    );
+
+    ResponseItem::Message {
+        id: None,
+        role: "developer".to_string(),
+        content: vec![ContentItem::InputText { text }],
+        end_turn: None,
+        phase: None,
+    }
+}
+
 fn build_taskspace_implementation_needs_edit_hard_stop_item(
     recovery_item: &ResponseItem,
     attempt: usize,
@@ -2217,6 +2350,12 @@ fn build_taskspace_implementation_recovery_item(
         .is_some_and(taskspace_text_mentions_validation_rework_duplicate_artifact_read)
     {
         build_taskspace_validation_rework_duplicate_read_recovery_item(
+            last_agent_message,
+            evidence_summary,
+            failed_edit_summary,
+        )
+    } else if taskspace_evidence_has_validation_rework_target_read(evidence_summary) {
+        build_taskspace_validation_rework_patch_only_recovery_item(
             last_agent_message,
             evidence_summary,
             failed_edit_summary,
@@ -2292,6 +2431,17 @@ fn is_taskspace_validation_rework_duplicate_read_hard_stop_item(item: &ResponseI
     )
 }
 
+fn is_taskspace_validation_rework_patch_only_recovery_item(item: &ResponseItem) -> bool {
+    response_item_text_contains(item, TASKSPACE_VALIDATION_REWORK_PATCH_ONLY_MARKER)
+}
+
+fn is_taskspace_validation_rework_patch_only_hard_stop_item(item: &ResponseItem) -> bool {
+    response_item_text_contains(
+        item,
+        TASKSPACE_VALIDATION_REWORK_PATCH_ONLY_HARD_STOP_MARKER,
+    )
+}
+
 fn is_taskspace_implementation_needs_edit_hard_stop_item(item: &ResponseItem) -> bool {
     response_item_text_contains(item, TASKSPACE_IMPLEMENT_NEEDS_EDIT_HARD_STOP_MARKER)
 }
@@ -2304,6 +2454,13 @@ fn taskspace_validation_rework_duplicate_read_should_hard_stop(
         && (previous_recovery_count > 0
             || response_item_text_contains(item, "\"repeated_blocked_action\"")
             || response_item_text_contains(item, "repeated_blocked_action:"))
+}
+
+fn taskspace_validation_rework_patch_only_should_hard_stop(
+    item: &ResponseItem,
+    previous_recovery_count: usize,
+) -> bool {
+    is_taskspace_validation_rework_patch_only_recovery_item(item) && previous_recovery_count > 0
 }
 
 fn taskspace_implementation_needs_edit_should_hard_stop(
@@ -2382,6 +2539,10 @@ fn taskspace_implement_recovery_advisory_warning_message(
         format!(
             "TaskSpace inserted TaskSpaceValidationReworkDuplicateReadRecoveryV1 because validation rework already has the target file contents and the model must patch or block instead of reading again. Advisory recovery attempt {attempt} is being used."
         )
+    } else if response_item_text_contains(item, TASKSPACE_VALIDATION_REWORK_PATCH_ONLY_MARKER) {
+        format!(
+            "TaskSpace inserted TaskSpaceValidationReworkPatchOnlyRecoveryV1 because validation rework already has target file contents plus a repair contract, so read/search/schema inspection is no longer valid before apply_patch or block. Advisory recovery attempt {attempt} is being used."
+        )
     } else {
         format!(
             "TaskSpace inserted TaskSpaceImplementNeedsEditRecoveryV1 because implementation has enough read/search evidence and must edit or block. Advisory recovery attempt {attempt} is being used."
@@ -2403,6 +2564,8 @@ fn taskspace_special_recovery_warning_message(item: &ResponseItem) -> String {
         "TaskSpace inserted TaskSpaceProviderBudgetHardStopV1 because provider request budget was exhausted before dispatch. The current turn will stop without another model request.".to_string()
     } else if is_taskspace_validation_rework_duplicate_read_hard_stop_item(item) {
         "TaskSpace inserted TaskSpaceValidationReworkDuplicateReadHardStopV1 because validation rework repeated an already-blocked artifact read after patch-only recovery. The current turn will stop without another model request.".to_string()
+    } else if is_taskspace_validation_rework_patch_only_hard_stop_item(item) {
+        "TaskSpace inserted TaskSpaceValidationReworkPatchOnlyHardStopV1 because validation rework repeated read/search/discovery after target contents were already visible and only apply_patch/block was valid. The current turn will stop without another model request.".to_string()
     } else if is_taskspace_implementation_needs_edit_hard_stop_item(item) {
         "TaskSpace inserted TaskSpaceImplementationNeedsEditHardStopV1 because implementation repeatedly tried to finish without a successful edit after apply_patch-or-block recovery. The current turn will stop without another model request.".to_string()
     } else if response_item_text_contains(item, TASKSPACE_FORCED_IMPLEMENT_TRANSITION_MARKER) {
@@ -2419,6 +2582,8 @@ fn taskspace_special_recovery_warning_message(item: &ResponseItem) -> String {
         "TaskSpace inserted TaskSpaceEditFailureRecoveryV1 after an edit tool call failed. This guidance does not consume the no-action recovery allowance.".to_string()
     } else if response_item_text_contains(item, TASKSPACE_VALIDATION_REWORK_DUPLICATE_READ_MARKER) {
         "TaskSpace inserted TaskSpaceValidationReworkDuplicateReadRecoveryV1 after a validation rework node repeated an already-read failure artifact. This guidance does not consume the no-action recovery allowance.".to_string()
+    } else if response_item_text_contains(item, TASKSPACE_VALIDATION_REWORK_PATCH_ONLY_MARKER) {
+        "TaskSpace inserted TaskSpaceValidationReworkPatchOnlyRecoveryV1 after a validation rework node requested read/search/discovery even though target contents were already visible. This guidance does not consume the no-action recovery allowance.".to_string()
     } else if response_item_text_contains(item, TASKSPACE_IMPLEMENT_NEEDS_EDIT_MARKER) {
         "TaskSpace inserted TaskSpaceImplementNeedsEditRecoveryV1 because implementation has enough read/search evidence and must edit or block. This guidance does not consume the no-action recovery allowance.".to_string()
     } else if response_item_text_contains(item, TASKSPACE_PATCH_INTENT_FORMAT_MARKER) {
@@ -2439,9 +2604,45 @@ fn taskspace_special_recovery_warning_message(item: &ResponseItem) -> String {
 fn taskspace_message_hit_implementation_needs_edit(message: Option<&str>) -> bool {
     message.is_some_and(|message| {
         message.contains("implementation_needs_edit")
+            || message.contains("validation_rework_patch_only_after_target_read")
             || taskspace_text_mentions_validation_rework_duplicate_artifact_read(message)
             || message.contains("has enough read/search evidence and no successful edit")
     })
+}
+
+fn taskspace_evidence_has_validation_rework_target_read(evidence_summary: Option<&str>) -> bool {
+    evidence_summary.is_some_and(|text| text.contains("validation_rework_target_read"))
+}
+
+fn taskspace_validation_rework_patch_only_artifacts(text: &str) -> Vec<String> {
+    let mut artifacts = Vec::new();
+    let mut seen = HashSet::new();
+    for line in text.lines() {
+        if !line.contains("validation_rework_target_read")
+            && !line.contains("target_artifacts=")
+            && !line.contains("target_artifacts:")
+        {
+            continue;
+        }
+        for part in line.split_whitespace() {
+            let value = part
+                .strip_prefix("artifact=")
+                .or_else(|| part.strip_prefix("artifacts="))
+                .or_else(|| part.strip_prefix("target_artifacts="))
+                .or_else(|| part.strip_prefix("target_artifacts:"));
+            if let Some(value) = value {
+                for artifact in value.split(',') {
+                    let artifact = artifact
+                        .trim_matches(|ch| matches!(ch, ',' | ';' | '`' | '\'' | '"' | '[' | ']'))
+                        .to_string();
+                    if !artifact.is_empty() && seen.insert(artifact.clone()) {
+                        artifacts.push(artifact);
+                    }
+                }
+            }
+        }
+    }
+    artifacts
 }
 
 fn taskspace_text_mentions_validation_rework_duplicate_artifact_read(text: &str) -> bool {
@@ -5237,6 +5438,89 @@ Then I will inspect the file."#,
         assert!(text.contains(TASKSPACE_VALIDATION_REWORK_DUPLICATE_READ_MARKER));
         assert!(!text.contains(TASKSPACE_IMPLEMENT_NEEDS_EDIT_MARKER));
         assert!(text.contains("previous_read_result: result-10"));
+    }
+
+    #[test]
+    fn implementation_recovery_selects_patch_only_after_target_read_evidence() {
+        let last_message = "TaskSpaceActionV1 rejected: node_policy_violation:implement_solution:read_file:implementation_needs_edit. Return exactly one valid taskspace-action-v1 JSON object.";
+        let evidence = "validation_rework: smoke_test `node-3` failed result `result-10`: missing_required_properties: members, averageDepartmentBudget \
+| validation_rework_target_read result=result-12 artifact=generate_org.py excerpt: member_ids -> members \
+| result-2 artifacts=schema.json: required members and averageDepartmentBudget";
+        let item =
+            build_taskspace_implementation_recovery_item(Some(last_message), Some(evidence), None);
+        let text = item_text(item.clone());
+
+        assert!(text.contains(TASKSPACE_VALIDATION_REWORK_PATCH_ONLY_MARKER));
+        assert!(text.contains("failure_kind: validation_rework_patch_only_after_target_read"));
+        assert!(text.contains("target_artifacts: generate_org.py"));
+        assert!(text.contains("Do not move from the named target artifact to `schema.json`"));
+        assert!(text.contains("Emit exactly one taskspace-action-v1 apply_patch"));
+        assert!(!text.contains(TASKSPACE_IMPLEMENT_NEEDS_EDIT_MARKER));
+        assert!(is_taskspace_validation_rework_patch_only_recovery_item(
+            &item
+        ));
+        assert!(!is_taskspace_plain_implement_needs_edit_recovery_item(
+            &item
+        ));
+        assert!(!is_taskspace_no_action_recovery_item(&item));
+        assert!(
+            taskspace_implement_recovery_advisory_warning_message(&item, 4)
+                .contains("TaskSpaceValidationReworkPatchOnlyRecoveryV1")
+        );
+    }
+
+    #[test]
+    fn validation_rework_patch_only_hard_stops_after_one_recovery() {
+        let item = build_taskspace_validation_rework_patch_only_recovery_item(
+            Some(
+                "TaskSpaceActionV1 rejected: node_policy_violation:implement_solution:read_file:implementation_needs_edit",
+            ),
+            Some(
+                "validation_rework_target_read result=result-12 artifact=generate_org.py | validation_schema_repair_contract: missing_required_properties=members",
+            ),
+            None,
+        );
+
+        assert!(!taskspace_validation_rework_patch_only_should_hard_stop(
+            &item, 0
+        ));
+        assert!(taskspace_validation_rework_patch_only_should_hard_stop(
+            &item, 1
+        ));
+
+        let hard_stop = build_taskspace_validation_rework_patch_only_hard_stop_item(&item, 2);
+        let text = item_text(hard_stop.clone());
+
+        assert!(text.contains(TASKSPACE_VALIDATION_REWORK_PATCH_ONLY_HARD_STOP_MARKER));
+        assert!(text.contains("reason: repeated_non_edit_after_validation_rework_target_read"));
+        assert!(text.contains("target_artifacts: generate_org.py"));
+        assert!(is_taskspace_validation_rework_patch_only_hard_stop_item(
+            &hard_stop
+        ));
+        assert!(!is_taskspace_no_action_recovery_item(&hard_stop));
+        assert!(!is_taskspace_implement_needs_edit_recovery_item(&hard_stop));
+        assert!(
+            taskspace_special_recovery_warning_message(&hard_stop)
+                .contains("TaskSpaceValidationReworkPatchOnlyHardStopV1")
+        );
+    }
+
+    #[test]
+    fn implementation_recovery_does_not_enter_patch_only_before_target_read() {
+        let item = build_taskspace_implementation_recovery_item(
+            Some(
+                "TaskSpaceActionV1 rejected: node_policy_violation:implement_solution:read_file:implementation_needs_edit",
+            ),
+            Some(
+                "validation_schema_repair_contract: missing_required_properties=members | target_artifacts=generate_org.py",
+            ),
+            None,
+        );
+        let text = item_text(item.clone());
+
+        assert!(text.contains(TASKSPACE_IMPLEMENT_NEEDS_EDIT_MARKER));
+        assert!(!text.contains(TASKSPACE_VALIDATION_REWORK_PATCH_ONLY_MARKER));
+        assert!(is_taskspace_plain_implement_needs_edit_recovery_item(&item));
     }
 
     #[test]

@@ -3276,3 +3276,83 @@
   ```
 - Result: passed. `duplicate_read_search` 3/3, `missing_fact_source_bootstrap` 1/1, `inspect_missing_fact_sources` 2/2, `taskspace_control` 35/35, `provider_budget` 23/23, `taskspace_active_budget` 11/11, `action_contract_prompt` 28/28, `validation_rework` 18/18, `validation_` 97/97, `local_infra` 11/11, `apply_patch_` 35/35, and `implementation_needs_edit` 3/3 all passed. The fmt check still prints the known stable rustfmt `imports_granularity` warning.
 - Interpretation: H-055 is focused-fixed with regression/build coverage. The remaining live gate is commit/push, attestation, and another keyed `organization-json-generator` rerun to verify the repeated `list_files` budget drain is gone.
+
+# Evidence E-121: 807a3cf live rerun clears early list_files drain and exposes post-target-read patch-only feedback gap
+
+- Prediction tested: H-055 should let the live `organization-json-generator` sample move beyond repeated `list_files` inspect budget drain after an attested `807a3cf` binary.
+- Real rerun:
+  ```text
+  RunDir: target/r4-org-json-real-keyed-20260704bb-data-bootstrap/runs/terminal_bench__organization-json-generator/20260704-120401-124
+  PairReport: pair-001/pair-report.md
+  preflight current_git_head: 807a3cf5802e59688bb911fe69216e314f4e33ff
+  build_attestation_status: pass
+  outcome_standard: solved
+  outcome_taskspace: engineering_unclean
+  right_exec_timed_out: False
+  right_tool_call_count: 14
+  right_public_validation_exit_code: 1
+  right_hidden_oracle_exit_code: 0
+  right_maps: 1
+  right_nodes: 4
+  right_open_leaf_nodes: 1
+  ```
+- Result: partially supports H-055 live utility. The exact BA repeated `list_files` drain did not recur, but the run did not directly execute `TaskSpaceRepeatedBlockedInspectBootstrapV1` because the model declared and read `schema.json`, `departments.csv`, `employees.csv`, and `projects.csv` without repeating `list_files`.
+- New blocker signals:
+  - The validation node eventually executed `python generate_org.py && python -m jsonschema -i organization.json schema.json`.
+  - The validator produced real implementation/schema failures: every project emitted `member_ids` instead of required `members`, and `statistics` used snake_case fields while missing `averageDepartmentBudget`, `totalEmployees`, `skillDistribution`, `departmentSizes`, `projectStatusDistribution`, and `averageYearsOfService`.
+  - The rework node read `generate_org.py` successfully; `TaskSpaceReadFileSummaryV1` reported `lines_read=89 eof_reached=true max_lines=240`.
+  - A duplicate `read_file generate_org.py` then produced `TaskSpaceValidationReworkDuplicateReadRecoveryV1`, correctly saying target contents were already visible and the next action must be `apply_patch` or `block_node`.
+  - The next model action was `read_file schema.json`. Action contract rejected it as generic `node_policy_violation:implement_solution:read_file:implementation_needs_edit`, and session emitted generic `TaskSpaceImplementationNeedsEditHardStopV1 reason=repeated_finish_without_successful_edit`.
+- Diagnostic source evidence:
+  - `rollout.jsonl` line 432 showed the provider prompt already contained `validation_schema_repair_contract`, `validation_rework_target_read result=result-12 artifact=generate_org.py`, schema/source CSV evidence, `TaskSpaceGateRecoveryV1 reason=validation_rework_duplicate_artifact_read`, and the explicit instruction: do not call `read_file`, `list_files`, `search`, broad discovery, schema inspection, or validation before a successful edit.
+  - `rollout.jsonl` line 457 showed the active projection narrowed the current node contract to `edit, control(block_node only; finish_node blocked until successful edit; read/search of already visible validation rework targets will be blocked)`.
+- Interpretation: This is semantic distortion, not semantic loss. The needed repair facts and patch-only contract were present, but the session/action-contract feedback collapsed the later off-contract schema read into generic `implementation_needs_edit` instead of preserving the specific `validation_rework_patch_only_after_target_read` state. The new problem type is `validation-rework-patch-only-after-target-read-feedback`.
+
+# Hypothesis H-056: post-target-read validation rework needs a patch-only recovery/hard-stop semantic
+
+- Claim: After validation rework has both a schema repair contract and a visible target-file read, any subsequent read/search/schema inspection before a successful edit violates a stricter patch-only state. The session currently treats the resulting action-contract rejection as ordinary `implementation_needs_edit`, so logs and recovery semantics no longer explain that the runtime has crossed from "read target once" to "patch or block only".
+- Prediction:
+  1. A focused session test with generic `implementation_needs_edit` rejection plus evidence containing `validation_rework_target_read result=... artifact=generate_org.py` should build `TaskSpaceValidationReworkPatchOnlyRecoveryV1` with `failure_kind: validation_rework_patch_only_after_target_read`, not generic `TaskSpaceImplementNeedsEditRecoveryV1`.
+  2. The first patch-only recovery should give one more chance to emit `apply_patch` or `block_node`.
+  3. A second patch-only recovery on the same turn should produce `TaskSpaceValidationReworkPatchOnlyHardStopV1 reason=repeated_non_edit_after_validation_rework_target_read`, not the generic implementation needs-edit hard stop.
+- Diagnostic evidence plan: Add session focused tests for the recovery selector and hard-stop trigger, then run R4-adjacent regression groups for validation rework, implementation needs-edit, action-contract prompt, provider/budget control, formatting, whitespace, and the `whale` build. A live rerun must verify whether the sample now either patches the schema mismatch after the new patch-only recovery or exposes the next R4 tools-chain problem.
+- Status: confirmed.
+
+# Evidence E-122: validation rework patch-only feedback is focused-fixed with R4 regression coverage
+
+- Prediction tested: H-056 predicts the session should preserve the post-target-read patch-only semantic instead of collapsing it into plain implementation needs-edit.
+- Repair artifact:
+  - `third_party/codex-cli/codex-rs/core/src/session/turn.rs`
+- Repair behavior:
+  - Added `TaskSpaceValidationReworkPatchOnlyRecoveryV1` with `failure_kind: validation_rework_patch_only_after_target_read`.
+  - `build_taskspace_implementation_recovery_item()` now detects evidence containing `validation_rework_target_read` and emits the patch-only recovery instead of generic `TaskSpaceImplementNeedsEditRecoveryV1`.
+  - The first patch-only recovery gives one more provider chance to emit `apply_patch` or `block_node`.
+  - Added `TaskSpaceValidationReworkPatchOnlyHardStopV1 reason=repeated_non_edit_after_validation_rework_target_read` for a second same-turn post-target-read non-edit/discovery violation.
+- Focused validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core implementation_recovery_selects_patch_only_after_target_read_evidence --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core validation_rework_patch_only_hard_stops_after_one_recovery --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core implementation_recovery_does_not_enter_patch_only_before_target_read --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core implementation_recovery --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core implementation_needs_edit --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core validation_rework_duplicate_read --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core validation_rework --lib --locked
+  ```
+- R4-adjacent regression/build validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core action_contract_prompt --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core validation_ --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core provider_budget --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core taskspace_active_budget --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core duplicate_read_search --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core missing_fact_source_bootstrap --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core inspect_missing_fact_sources --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core local_infra --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core apply_patch_ --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core taskspace_control --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+  git diff --check
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-cli --bin whale --locked
+  ```
+- Result: passed. `implementation_recovery` 5/5, `implementation_needs_edit` 3/3, `validation_rework_duplicate_read` 6/6, `validation_rework` 19/19, `action_contract_prompt` 28/28, `validation_` 98/98, `provider_budget` 23/23, `taskspace_active_budget` 11/11, `duplicate_read_search` 3/3, `missing_fact_source_bootstrap` 1/1, `inspect_missing_fact_sources` 2/2, `local_infra` 11/11, `apply_patch_` 35/35, and `taskspace_control` 35/35 all passed. The fmt check still prints the known stable rustfmt `imports_granularity` warning. `git diff --check` and the `whale` build passed.
+- Interpretation: H-056 is focused-fixed with R4-adjacent regression/build coverage. The remaining live gate is commit/push, binary attestation, and another keyed `organization-json-generator` rerun to verify whether the model patches after the new patch-only recovery or exposes the next tools-chain blocker.
