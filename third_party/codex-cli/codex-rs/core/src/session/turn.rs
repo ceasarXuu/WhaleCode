@@ -2356,14 +2356,14 @@ fn build_taskspace_implementation_recovery_item(
             evidence_summary,
             failed_edit_summary,
         )
+    } else if failed_edit_summary.is_some() {
+        build_taskspace_edit_failure_recovery_item(failed_edit_summary, evidence_summary)
     } else if taskspace_evidence_has_validation_rework_target_read(evidence_summary) {
         build_taskspace_validation_rework_patch_only_recovery_item(
             last_agent_message,
             evidence_summary,
             failed_edit_summary,
         )
-    } else if failed_edit_summary.is_some() {
-        build_taskspace_edit_failure_recovery_item(failed_edit_summary, evidence_summary)
     } else {
         build_taskspace_implement_needs_edit_recovery_item(evidence_summary)
     }
@@ -5478,6 +5478,31 @@ Then I will inspect the file."#,
             taskspace_implement_recovery_advisory_warning_message(&item, 4)
                 .contains("TaskSpaceValidationReworkPatchOnlyRecoveryV1")
         );
+    }
+
+    #[test]
+    fn implementation_recovery_prioritizes_failed_edit_over_patch_only_after_target_read() {
+        let last_message =
+            "TaskSpace inserted TaskSpaceImplementNeedsEditRecoveryV1 after failed edit.";
+        let evidence = "validation_rework_target_read result=result-12 artifact=process.py excerpt: complete_read \
+| validation_schema_repair_contract: missing_required_properties=members,totalEmployees";
+        let failed_edit = "result-13: apply_patch verification failed: Failed to find expected lines in process.py:\nimport csv";
+
+        let item = build_taskspace_implementation_recovery_item(
+            Some(last_message),
+            Some(evidence),
+            Some(failed_edit),
+        );
+        let text = item_text(item.clone());
+
+        assert!(text.contains(TASKSPACE_EDIT_FAILURE_MARKER));
+        assert!(text.contains("Failed to find expected lines"));
+        assert!(text.contains("do not repeat the same hunk"));
+        assert!(text.contains("one narrow read_file of the same failed target artifact"));
+        assert!(!text.contains(TASKSPACE_VALIDATION_REWORK_PATCH_ONLY_MARKER));
+        assert!(!is_taskspace_validation_rework_patch_only_recovery_item(
+            &item
+        ));
     }
 
     #[test]

@@ -151,6 +151,7 @@ raw signal 存在但语义没有正确进入下一轮 tool contract：
 | `complete-read-content-preview-truncation` | keyed rerun `20260704-132354-931` 证实 H-060 已 live-cleared：complete-read duplicate read 直接 `attempt_count: 1` hard-stop；但 ActionMap `result-10.body` 仍在 `eof_reached=true` 的完整读取中只持久化 2KiB telemetry head + summary tail，provider-visible source 在 patch-relevant 下半段前被截断；已对 bounded complete read_file preview 保留完整 model-visible text | focused+regression fixed / real rerun pending |
 | `optional-fact-source-required-loop` | keyed rerun `20260704-133520-535` 证实 `package.json or any config files (if present)` 被 runtime 抽取成硬性 `package.json` fact-source gate；即使 `rg --files` 证明文件不存在且 schema/CSV 已读完，projection 仍要求 `read_file package.json` 并烧到 provider node hard-stop；已让条件性/可选 fact-source 描述不生成硬 inspect/validation gate | focused+regression fixed / real rerun pending |
 | `missing-fact-source-bootstrap-read-classification` | 同一 trace 中自动 missing-source bootstrap 生成 `printf ...; sed -n ... && awk ...` 读命令，但 preflight/gate 可将该非 action-contract shell 命令误入非 read 路径；已把 bounded `sed -n` read 形态纳入 shell action classifier，覆盖 bootstrap header 组合，同时保留 `sed -i`/重定向等 edit 判定 | focused+regression fixed / real rerun pending |
+| `validation-rework-failed-edit-recovery-shadowed-by-patch-only-hardstop` | keyed rerun `20260704-135944-845` 证实 optional fact-source loop 已清除，但 validation rework 中 `apply_patch` expected-lines mismatch 被已有 target-read 证据误路由到 patch-only hard-stop，导致具体失败反馈没有传给模型；已让 failed edit recovery 优先于 post-target-read patch-only recovery | focused+regression fixed / real rerun pending |
 
 新增关键判断：
 
@@ -2037,6 +2038,69 @@ CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/co
 `validation_` 99/99、`provider_budget` 23/23、`taskspace_active_budget` 11/11、`apply_patch_` 35/35、
 `local_infra` 11/11、`taskspace_preview_` 4/4、`read_file_summary_` 3/3 均通过。`cargo fmt --check`
 仍只输出项目既有 stable rustfmt `imports_granularity` warning；`git diff --check` 和 `whale` build 通过。
+
+### 3.37 validation rework failed edit recovery priority inversion
+
+optional fact-source 修复提交、push 并刷新 attestation 后执行 keyed rerun：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260704bi-optional-fact-source/runs/terminal_bench__organization-json-generator/20260704-135944-845
+PairReport: pair-001/pair-report.md
+reported_evidence_level: E1
+outcome_standard: wrong
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 12
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+current_git_head: a09a966cf74729d4625b556b044f9327c8e57e21
+```
+
+H-062/H-063 的 live 信号已经清除：TaskSpace start 中只保留 `schema.json`、`departments.csv`、`employees.csv`
+和 `projects.csv` 作为 required fact sources，没有再进入 `package.json` missing fact-source loop；运行在约 283s
+结束，不再是 900s timeout。新的 blocker 出现在 validation rework 反馈层：
+
+| evidence | 观察 |
+|---|---|
+| validation failure | `result-9` 报告 `missing_required_properties: members, averageDepartmentBudget, totalEmployees, skillDistribution, departmentSizes, projectStatusDistribution, averageYearsOfService` |
+| target visibility | rework node `node-4` 已通过 `result-11` 完整读取 `process.py`，`TaskSpaceReadFileSummaryV1` 显示 `eof_reached=true` |
+| failed edit | 模型随后发出 `apply_patch`，但工具返回 `apply_patch verification failed: Failed to find expected lines ... process.py` |
+| wrong recovery | runtime 没有输出 `TaskSpaceEditFailureRecoveryV1` / `apply_patch_expected_lines_mismatch`，而是在 whale-exec line 76 插入 `TaskSpaceValidationReworkPatchOnlyHardStopV1` 并结束 turn |
+| graph state | `node-4` 留作 open leaf，TaskSpace 结果为 `engineering_unclean` |
+
+问题类型收录：
+
+| field | value |
+|---|---|
+| case | `validation-rework-failed-edit-recovery-shadowed-by-patch-only-hardstop` |
+| layer | feedback layer / recovery priority semantics |
+| trigger | validation rework node 已有 target-read evidence，随后同节点发生具体 `apply_patch` failure |
+| expected | 已经发生的 failed edit 应优先得到 failed-edit recovery，携带 expected-lines mismatch、不要重复同一 hunk、必要时只做同目标窄读 |
+| actual | recovery selector 先匹配 target-read patch-only contract，再处理 failed edit；既有 patch-only recovery 计数让本次变成 hard-stop，遮蔽了具体失败语义 |
+| classification | 语义缺失后的遮蔽：raw apply_patch failure 存在，但被更泛化的 patch-only 状态语义覆盖，模型看不到下一步可恢复动作 |
+| fix | `build_taskspace_implementation_recovery_item()` 保留 duplicate-read 优先级，但将 `failed_edit_summary.is_some()` 提前到 target-read patch-only recovery 之前 |
+
+本地 focused 和 R4-adjacent 验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core implementation_recovery_prioritizes_failed_edit_over_patch_only_after_target_read --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core implementation_recovery_selects_patch_only_after_target_read_evidence --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core validation_rework_patch_only_hard_stops_after_one_recovery --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core apply_patch_ --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core validation_rework --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core action_contract_prompt --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core implementation_needs_edit --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core provider_budget --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+git diff --check
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-cli --bin whale --locked
+```
+
+结果：已通过。focused H-064 测试确认 failed edit recovery 会优先输出 `TaskSpaceEditFailureRecoveryV1`，
+且仍保留 `Failed to find expected lines`、`do not repeat the same hunk` 和同目标窄读恢复指令；原有
+post-target-read patch-only recovery/hard-stop 测试继续通过，说明只有真实 failed edit 会抢占优先级。
+`git diff --check` 和 `whale` build 通过；`cargo fmt --check` 仍只输出既有 stable rustfmt
+`imports_granularity` warning。
 
 ## 4. 本次验证
 

@@ -3804,3 +3804,72 @@
   ```
 - Result: passed. Focused H-062 and H-063 tests passed. Regression suites passed through `inspect_missing_fact_sources` 2/2, `missing_fact_source_bootstrap` 1/1, `duplicate_read_search` 3/3, `output_contract` 8/8, `taskspace_control` 35/35, `action_contract_prompt` 28/28, `validation_` 99/99, `provider_budget` 23/23, `taskspace_active_budget` 11/11, `apply_patch_` 35/35, `local_infra` 11/11, `taskspace_preview_` 4/4, and `read_file_summary_` 3/3. `cargo fmt --check` still prints the known stable rustfmt `imports_granularity` warning but exits 0 after formatting. `git diff --check` and the `whale` build passed.
 - Interpretation: H-062 and H-063 are focused-fixed with R4-adjacent regression/build coverage. The remaining live gate is commit/push, attestation, and another keyed `organization-json-generator` rerun to verify the run advances past optional config inspection and any missing-source bootstrap remains read-classified.
+
+# Evidence E-135: a09a966 live rerun clears optional fact-source loop but exposes failed-edit recovery priority inversion
+
+- Prediction tested: H-062/H-063 should let `organization-json-generator` advance beyond optional `package.json` inspect loops and keep missing-source bootstrap read-classified.
+- Real rerun:
+  ```text
+  RunDir: target/r4-org-json-real-keyed-20260704bi-optional-fact-source/runs/terminal_bench__organization-json-generator/20260704-135944-845
+  PairReport: pair-001/pair-report.md
+  reported_evidence_level: E1
+  outcome_standard: wrong
+  outcome_taskspace: engineering_unclean
+  right_exec_timed_out: False
+  right_tool_call_count: 12
+  right_public_validation_exit_code: 1
+  right_hidden_oracle_exit_code: 0
+  current_git_head: a09a966cf74729d4625b556b044f9327c8e57e21
+  ```
+- Matched H-062/H-063 live signals:
+  - The task started with required `schema.json`, `departments.csv`, `employees.csv`, and `projects.csv` fact sources only.
+  - No `package.json` missing fact-source loop occurred.
+  - TaskSpace read all fact sources, forced inspect transition into implementation, ran schema validation, and entered validation rework.
+  - The turn completed in about 283s, not a 900s timeout.
+- New blocker signals:
+  - Validation result `result-9` summarized `missing_required_properties: members, averageDepartmentBudget, totalEmployees, skillDistribution, departmentSizes, projectStatusDistribution, averageYearsOfService`.
+  - Rework node `node-4` read complete target contents from `process.py` as `result-11`.
+  - The model emitted an `apply_patch`, but the patch failed with `apply_patch verification failed: Failed to find expected lines ... process.py`.
+  - Instead of surfacing `TaskSpaceEditFailureRecoveryV1` / `apply_patch_expected_lines_mismatch`, runtime inserted `TaskSpaceValidationReworkPatchOnlyHardStopV1` and ended the turn. The graph was left with open leaf `node-4`.
+- Interpretation: optional fact-source and bootstrap read classification are live-cleared. The new problem type is `validation-rework-failed-edit-recovery-shadowed-by-patch-only-hardstop`: an actual failed edit attempt should reset the model into failed-edit recovery, not count as a repeated non-edit/read violation of the patch-only contract.
+
+# Hypothesis H-064: failed apply_patch feedback must take priority over validation rework patch-only recovery
+
+- Claim: `build_taskspace_implementation_recovery_item()` checks `taskspace_evidence_has_validation_rework_target_read(evidence_summary)` before `failed_edit_summary.is_some()`. Once a validation rework node has target-read evidence, any later needs-edit recovery chooses `TaskSpaceValidationReworkPatchOnlyRecoveryV1` even after a concrete failed `apply_patch`. Because patch-only recovery count was already 1 from the prior read attempt, the next patch-only recovery becomes `TaskSpaceValidationReworkPatchOnlyHardStopV1`, shadowing the more specific apply_patch expected-lines recovery.
+- Prediction:
+  1. A focused session recovery test with target-read evidence plus failed `apply_patch expected lines` summary should produce `TaskSpaceEditFailureRecoveryV1`, not `TaskSpaceValidationReworkPatchOnlyRecoveryV1`.
+  2. The edit failure recovery should preserve `apply_patch_expected_lines_mismatch` guidance, including not repeating the same hunk and optionally one narrow same-target context refresh.
+  3. Existing patch-only recovery still applies when target-read evidence exists and there is no failed edit summary.
+  4. Apply-patch, validation rework, action-contract prompt, provider budget, formatting, whitespace, and `whale` build checks should pass.
+- Diagnostic evidence plan: Reorder implementation recovery selection so duplicate-read recovery remains first, failed edit recovery comes before target-read patch-only recovery, add focused tests for the live priority inversion, then rerun R4-adjacent apply_patch/validation/action-contract/build gates.
+- Status: confirmed.
+
+# Evidence E-136: failed edit recovery now outranks validation rework patch-only recovery
+
+- Prediction tested: H-064 predicts a validation rework node with target-read evidence plus concrete failed `apply_patch` feedback should receive `TaskSpaceEditFailureRecoveryV1`, not `TaskSpaceValidationReworkPatchOnlyRecoveryV1` or its hard-stop variant.
+- Repair artifact:
+  - `third_party/codex-cli/codex-rs/core/src/session/turn.rs`
+- Repair behavior:
+  - `build_taskspace_implementation_recovery_item()` still lets duplicate-read recovery run first, because repeated reads/searches after target visibility remain a separate no-progress case.
+  - Concrete failed edit summaries now run before `taskspace_evidence_has_validation_rework_target_read(evidence_summary)`, so `apply_patch` expected-lines/context mismatch feedback is not hidden by the more general post-target-read patch-only contract.
+  - Added `implementation_recovery_prioritizes_failed_edit_over_patch_only_after_target_read`, covering the live shape: validation rework target-read evidence, schema repair requirements, and failed `apply_patch verification failed: Failed to find expected lines ... process.py`.
+  - The focused test asserts the provider-visible recovery contains `TaskSpaceEditFailureRecoveryV1`, `Failed to find expected lines`, `do not repeat the same hunk`, and one same-target narrow read option, while excluding `TaskSpaceValidationReworkPatchOnlyRecoveryV1`.
+- Focused validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core implementation_recovery_prioritizes_failed_edit_over_patch_only_after_target_read --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core implementation_recovery_selects_patch_only_after_target_read_evidence --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core validation_rework_patch_only_hard_stops_after_one_recovery --lib --locked
+  ```
+- R4-adjacent regression validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core apply_patch_ --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core validation_rework --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core action_contract_prompt --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core implementation_needs_edit --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core provider_budget --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+  git diff --check
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-cli --bin whale --locked
+  ```
+- Result: passed. Focused H-064 test passed; original post-target-read patch-only recovery and hard-stop tests still passed. Regression suites passed through `apply_patch_` 35/35, `validation_rework` 20/20, `action_contract_prompt` 28/28, `implementation_needs_edit` 3/3, and `provider_budget` 23/23. `cargo fmt --check` exits 0 with only the known stable rustfmt `imports_granularity` warnings. `git diff --check` and the `whale` build passed.
+- Interpretation: H-064 is focused-fixed with R4-adjacent regression/build coverage. The remaining gates are commit/push, attestation, and another keyed `organization-json-generator` rerun to verify the live trace advances past failed-edit recovery priority inversion.
