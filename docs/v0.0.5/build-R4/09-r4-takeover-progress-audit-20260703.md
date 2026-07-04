@@ -2745,6 +2745,46 @@ current_git_head: 5b9bdc4
 状态：focused 修复已编码；`inspect_missing_fact_sources` 2/2、`forced_inspect_transition` 5/5、`inspect_bootstrap` 3/3、
 `action_contract_prompt` 29/29、`validation_rework` 25/25、fmt/check/build 均通过。后续 gate 是 attestation 和 keyed rerun。
 
+## 18. 2026-07-04 validation required-command advisory loop
+
+`51edaaf` 的 keyed rerun 证明 H-081 已经 live-clear：runtime 成功跨过 inspect、进入 implementation、生成输出并进入
+validation。当前 R4 主线已经从 inspect feedback/control bridge 推进到 validation feedback bridge。
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260704cb-hardstop-bridge/runs/terminal_bench__organization-json-generator/20260704-180719-471
+reported_evidence_level: E2-candidate
+valid_pair: True
+outcome_standard: solved
+outcome_taskspace: engineering_unclean
+right_tool_call_count: 17
+right_public_validation_exit_code: 1
+final_hard_stop: provider_request_hard_limit_exceeded request_count=20/20 node_kind=smoke_test
+```
+
+关键观察：
+
+| Signal | 结论 |
+|---|---|
+| trace 出现 `TaskSpaceForcedInspectTransitionV1 trigger=inspect_no_action_with_evidence` | inspect 阶段已能自动转入 implementation |
+| validation gate 给出 exact combined command：`python generate_organization.py && python -m jsonschema -i organization.json schema.json` | output-contract 失败语义没有丢 |
+| `TaskSpaceValidationNeedsTestRecoveryV1` 保留 exact next action，但 provider 继续尝试不可用 pytest/generator-only | 问题是 advisory 没进入 runtime control |
+| 最终 hard-stop 发生在 smoke_test/provider request budget | 需要 runtime 执行确定合法 validation command，避免再靠模型重试 |
+
+问题类型收录：
+
+| 字段 | 内容 |
+|---|---|
+| case | `validation-output-contract-next-action-advisory-loop` |
+| 层级 | validation feedback / session runtime bridge |
+| 本质 | feedback 语义正确但控制语义缺失：exact next action 已知，却仍交给 stuck provider 执行 |
+| 非根因 | 不是 output contract gate 错误；不是 schema 文件缺失；不是 pytest 不可用本身 |
+| 修复 | 对 changed-artifact/output-contract coverage gate 的 exact `run_test with command ...`，由 session 同轮执行并以 `ActionClass::Test` 写回 ActionMap；trace 记录 `TaskSpaceValidationRequiredCommandBootstrapV1` |
+| focused evidence | CoE H-082/E-174/E-175；`validation_required_command_bridge`; `validation_needs_test`; `validation_output_contract`; `action_contract_prompt`; `validation_rework` |
+
+状态：focused 修复已编码并通过测试、fmt/check/build。后续 gate 是重新写入 whale binary attestation，并用真实 key 再跑
+`organization-json-generator`，确认 live trace 是否出现 `TaskSpaceValidationRequiredCommandBootstrapV1` 且不再在 smoke_test
+因 ignored recovery guidance 耗尽预算。
+
 ## 10. 2026-07-04 validation rework patch directive buried after evidence
 
 `431e0ee` 的 keyed rerun 没有复现 block-rejection wording path，说明 H-069 仍需下一次命中该分支才能 live-clear。该轮暴露

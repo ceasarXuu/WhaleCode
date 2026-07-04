@@ -708,3 +708,18 @@ bootstrap read 命令由于 awk summary 中含 `>` 被 shell action classifier �
 
 边界说明：该修复不削弱 read-only gate。误判修复只让内部 bounded read 留在 read class；hard-stop bridge 仍依赖 inspect progress
 ready，missing fact-source 或 unread referenced script 未完成时不会 forced finish。
+
+## 2026-07-04 R4-D issue type addendum: validation required-command advisory loop
+
+inspect bridge 修复后的 keyed rerun 进入 validation 阶段并暴露新的 feedback/control 缺口。validation gate 已经拒绝了
+generator-only command，并在 `TaskSpaceGateRecoveryV1.next_valid_actions` 中给出 exact combined command：
+`python generate_organization.py && python -m jsonschema -i organization.json schema.json`。`TaskSpaceValidationNeedsTestRecoveryV1`
+也保留了这条命令，但它只是 developer guidance。provider 随后继续选择不可用 pytest 和 generator-only 命令，runtime 反复拒绝，
+最后耗尽全局 request budget。
+
+| Issue type | Layer | Symptom | Resolution contract | Evidence |
+|---|---|---|---|---|
+| `validation-output-contract-next-action-advisory-loop` | validation feedback / session runtime bridge | exact `run_test with command ...` 已存在，但只作为 advisory 返回模型；模型忽略后反复尝试不可用 pytest 或 generator-only validation，最终 hard-stop | 对 changed-artifact/output-contract coverage gate 的 exact next action，session 在同轮 runtime 中执行该命令，并把结果记录为 `ActionClass::Test`；trace 暴露 `TaskSpaceValidationRequiredCommandBootstrapV1`；普通失败或 unrelated gate 不自动执行 | keyed rerun `20260704-180719-471`; CoE H-082/E-174/E-175; `validation_required_command_bridge`; `validation_needs_test`; `validation_output_contract`; `action_contract_prompt`; `validation_rework` |
+
+边界说明：这是反馈层“正确语义未进入控制语义”的缺口，不是 validation gate 缺失。修复不会允许 generator-only command
+绕过 output contract，也不会根据文件名猜测测试；只执行 gate 自己产出的 exact legal command。

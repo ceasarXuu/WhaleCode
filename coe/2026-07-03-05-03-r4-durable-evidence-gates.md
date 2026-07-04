@@ -4955,3 +4955,79 @@
   ```
 - Result: passed. Focused tests passed; `inspect_missing_fact_sources` passed 2/2; `forced_inspect_transition` passed 5/5; `inspect_bootstrap` passed 3/3; `action_contract_prompt` passed 29/29; `validation_rework` passed 25/25; formatting, whitespace, and `whale` build passed.
 - Interpretation: H-081 is focused-fixed. After this patch lands, the remaining gates are attestation and a new keyed `organization-json-generator` rerun to verify whether the live path now crosses inspect and reaches implementation.
+
+# Evidence E-174: 51edaaf rerun clears inspect bridge but exposes validation required-command advisory gap
+
+- Prediction tested: H-081 predicts the live path should cross inspect after complete fact-source evidence.
+- Real rerun:
+  ```text
+  RunDir: target/r4-org-json-real-keyed-20260704cb-hardstop-bridge/runs/terminal_bench__organization-json-generator/20260704-180719-471
+  PairReport: pair-001/pair-report.md
+  reported_evidence_level: E2-candidate
+  valid_pair: True
+  outcome_standard: solved
+  outcome_taskspace: engineering_unclean
+  taskspace_business_success: false
+  right_tool_call_count: 17
+  right_wall_time_ms: 433520
+  right_public_validation_exit_code: 1
+  right_hidden_oracle_exit_code: 0
+  final_hard_stop: provider_request_hard_limit_exceeded request_count=20/20 node_kind=smoke_test phase=budget_recovery
+  ```
+- H-081 live-clear signals:
+  - Trace contains `TaskSpaceForcedInspectTransitionV1 trigger=inspect_no_action_with_evidence request_count=5/20 source_node_id=node-1 next_node_id=node-2 result_id=result-6`.
+  - The subsequent `read_file generate_organization.py` command used `if (240 < lines)` and succeeded; no bootstrap/read command was misclassified as edit.
+  - The run reached `implement_solution`, edited `generate_organization.py`, generated `organization.json`, and entered validation nodes.
+- New blocker signals:
+  - Validation feedback reported exact schema failures: missing `members`, `averageDepartmentBudget`, `totalEmployees`, `skillDistribution`, `departmentSizes`, `projectStatusDistribution`, `averageYearsOfService`.
+  - Runtime then correctly rejected generator-only validation because the smoke_test node had declared output contract artifacts `organization.json, schema.json`.
+  - The gate emitted exact next action: `run_test with command `python generate_organization.py && python -m jsonschema -i organization.json schema.json``.
+  - `TaskSpaceValidationNeedsTestRecoveryV1` preserved that next action, but it remained advisory. The provider instead tried unavailable pytest commands, then a generator-only command, then hit the global provider hard-stop before executing the required combined validation command.
+- Interpretation: H-081 is live-cleared. The remaining blocker is H-082: the feedback layer carries the correct validation command, but runtime does not promote that known legal action into execution when the model ignores it.
+
+# Hypothesis H-082: validation gate required-command recovery must bridge from advisory feedback to runtime execution
+
+- Claim: When validation gate recovery rejects a run_test for `validation_test_missing_changed_artifact_coverage` or `validation_test_missing_output_contract_coverage`, and the recovery payload contains an exact `run_test with command ...` next action, the session should execute that command as a controlled runtime bridge instead of spending another provider request on advisory guidance.
+- Prediction:
+  1. A helper should extract required commands only from `TaskSpaceGateRecoveryV1` messages whose reason is changed-artifact or output-contract coverage; generic failed tests and unrelated gate reasons must not auto-execute.
+  2. If `TaskSpaceValidationNeedsTestRecoveryV1` is about to be inserted on a smoke/regression node and the latest gate recovery contains an exact required command, session should run that command via `shell_command` with validation timeout.
+  3. The bridge result must be recorded back into ActionMap as `ActionClass::Test`, so existing validation closeout/rework logic sees a real validation result.
+  4. The trace should include `TaskSpaceValidationRequiredCommandBootstrapV1` so keyed runs can distinguish runtime-bridged validation from provider-chosen validation.
+  5. Existing action-contract prompt, validation rework, formatting, whitespace, and whale build regressions should remain passing.
+- Diagnostic evidence plan: Add focused helper tests; run validation-needs-test/output-contract focused tests, full `action_contract_prompt`, full `validation_rework`, fmt/check/build.
+- Status: confirmed.
+
+# Evidence E-175: H-082 focused fix bridges exact validation gate commands into Test results
+
+- Prediction tested: H-082 predicts required-command feedback can be promoted to a runtime bridge without weakening validation gates.
+- Repair artifact:
+  - `third_party/codex-cli/codex-rs/core/src/session/turn.rs`
+- Repair behavior:
+  - Added `taskspace_validation_required_command_from_gate_recovery()` to extract exact commands only from changed-artifact/output-contract `TaskSpaceGateRecoveryV1` feedback.
+  - Added `run_taskspace_validation_required_command_bootstrap()` to execute the exact command through `shell_command`, emit `TaskSpaceValidationRequiredCommandBootstrapV1`, and record the result as `ActionClass::Test`.
+  - Inserted the bridge after tool drain and before validation closeout, so a successful bridged validation can be closed by existing `force_finish_action_map_validation_after_successful_tool()` logic in the same request cycle.
+  - The bridge clears the advisory `TaskSpaceValidationNeedsTestRecoveryV1` item only after the command is executed; failed command output remains visible as a normal validation result for rework.
+- Validation:
+  ```text
+  cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core validation_required_command_bridge --lib --locked
+    initial attempt failed on local libcap/vendored bubblewrap because CODEX_SKIP_VENDORED_BWRAP was omitted
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core validation_required_command_bridge --lib --locked
+    PASS: 2/2
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core validation_needs_test --lib --locked
+    PASS: 1/1
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core action_contract_prompt_structures_output_contract_coverage_failure --lib --locked
+    PASS: 1/1
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core validation_output_contract --lib --locked
+    PASS: 1/1
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core action_contract_prompt --lib --locked
+    PASS: 29/29
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core validation_rework --lib --locked
+    PASS: 25/25
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+    PASS
+  git diff --check
+    PASS
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-cli --bin whale --locked
+    PASS
+  ```
+- Interpretation: H-082 is focused-fixed. The next gate is attestation and keyed rerun to verify whether the live path executes `TaskSpaceValidationRequiredCommandBootstrapV1` instead of burning provider requests on ignored validation recovery guidance.

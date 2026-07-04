@@ -4612,3 +4612,72 @@ CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/co
 
 边界说明：这不是放宽 inspect read-only gate。bootstrap 命令仍是普通 bounded read，并通过 classifier/read tests 锁定；
 hard-stop bridge 也仍依赖 `action_map_current_inspect_progress_ready_for_transition()`，不会绕过 missing fact-source 或 unread script guard。
+
+## 5.72 2026-07-04 validation required-command advisory-to-runtime bridge
+
+`51edaaf` keyed rerun 证明 H-081 已 live-clear：TaskSpace 跨过 inspect、进入 implementation、生成并验证
+`organization.json`。新的失败点出现在 validation feedback 层：runtime 已经知道唯一 coverage-correct 的下一条 validation
+命令，但只把它作为 `TaskSpaceValidationNeedsTestRecoveryV1` advisory 返回给模型。模型继续尝试不可用 pytest 和 generator-only
+命令，最终耗尽 provider request budget。
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260704cb-hardstop-bridge/runs/terminal_bench__organization-json-generator/20260704-180719-471
+reported_evidence_level: E2-candidate
+valid_pair: True
+outcome_standard: solved
+outcome_taskspace: engineering_unclean
+right_tool_call_count: 17
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+final_hard_stop: provider_request_hard_limit_exceeded request_count=20/20 node_kind=smoke_test
+```
+
+关键观察：
+
+| Signal | 结论 |
+|---|---|
+| `TaskSpaceForcedInspectTransitionV1 trigger=inspect_no_action_with_evidence` | H-081 inspect bridge live-clear |
+| `TaskSpaceValidationNeedsTestRecoveryV1` 包含 `python generate_organization.py && python -m jsonschema -i organization.json schema.json` | 反馈语义存在，且 exact next action 未丢 |
+| provider 先后尝试 `python -m pytest -v`、`pytest`、generator-only 命令 | advisory 未被执行语义接管 |
+| runtime 再次拒绝 generator-only，并重发 recovery，随后全局 request hard-stop | 控制层把确定命令交给模型重试，预算被消耗 |
+
+本轮新增并 focused 修复的问题类型：
+
+| Case | Before | After | Evidence |
+|---|---|---|---|
+| `validation-output-contract-next-action-advisory-loop` | validation gate 已给 exact `run_test with command ...`，但 `TaskSpaceValidationNeedsTestRecoveryV1` 只是 advisory；模型忽略后继续烧请求预算 | session 在 validation recovery item 插入后、validation closeout 前，识别 changed-artifact/output-contract gate 的 exact command，自动通过 `shell_command` 执行，并以 `ActionClass::Test` 记录；trace 记录 `TaskSpaceValidationRequiredCommandBootstrapV1` | keyed rerun `20260704-180719-471`; CoE H-082/E-174/E-175; `validation_required_command_bridge`; `validation_needs_test`; `validation_output_contract`; `action_contract_prompt`; `validation_rework` |
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core validation_required_command_bridge --lib --locked
+  PASS: 2/2
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core validation_needs_test --lib --locked
+  PASS: 1/1
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core action_contract_prompt_structures_output_contract_coverage_failure --lib --locked
+  PASS: 1/1
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core validation_output_contract --lib --locked
+  PASS: 1/1
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core action_contract_prompt --lib --locked
+  PASS: 29/29
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core validation_rework --lib --locked
+  PASS: 25/25
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+  PASS
+
+git diff --check
+  PASS
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-cli --bin whale --locked
+  PASS
+```
+
+边界说明：这不是放宽 validation gate，也不是让 runtime 猜测任意测试命令。bridge 只接受
+`TaskSpaceGateRecoveryV1` 中 changed-artifact/output-contract coverage gate 已明确给出的 exact command；普通 pytest 失败、
+local validator coverage gate、无 gate 的失败都不会自动执行。

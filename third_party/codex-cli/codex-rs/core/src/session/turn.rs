@@ -179,6 +179,8 @@ const TASKSPACE_MISSING_FACT_SOURCE_BOOTSTRAP_CALL_ID: &str =
 const TASKSPACE_REPEATED_BLOCKED_INSPECT_BOOTSTRAP_COMMAND_WINDOWS: &str = "rg --files -g '*.py' -g '*.md' -g '*.txt' -g '*.json' -g '*.csv' -g '*.yaml' -g '*.yml' | Select-Object -First 12 | ForEach-Object { Write-Output ('===== ' + $_); Get-Content -LiteralPath $_ -TotalCount 120 }";
 const TASKSPACE_REPEATED_BLOCKED_INSPECT_BOOTSTRAP_COMMAND_UNIX: &str = "rg --files -g '*.py' -g '*.md' -g '*.txt' -g '*.json' -g '*.csv' -g '*.yaml' -g '*.yml' | head -n 12 | while IFS= read -r path; do printf '===== %s\\n' \"$path\"; sed -n '1,120p' -- \"$path\"; done";
 const TASKSPACE_INSPECT_TEST_BOOTSTRAP_CALL_ID: &str = "taskspace-inspect-bootstrap-pytest";
+const TASKSPACE_VALIDATION_REQUIRED_COMMAND_BOOTSTRAP_CALL_ID: &str =
+    "taskspace-validation-required-command-bootstrap";
 const TASKSPACE_ACTIVE_MAX_RAW_TOOL_OUTPUT_CHARS: usize = 12_000;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -4285,6 +4287,19 @@ fn taskspace_validation_changed_artifact_required_command(text: &str) -> Option<
     let (command, _) = rest.split_once('`')?;
     let command = command.trim();
     (!command.is_empty()).then(|| command.to_string())
+}
+
+fn taskspace_validation_required_command_from_gate_recovery(text: Option<&str>) -> Option<String> {
+    let text = text?;
+    if !text.contains(TASKSPACE_GATE_RECOVERY_MARKER) {
+        return None;
+    }
+    if !text.contains("validation_test_missing_changed_artifact_coverage")
+        && !text.contains("validation_test_missing_output_contract_coverage")
+    {
+        return None;
+    }
+    taskspace_validation_changed_artifact_required_command(text)
 }
 
 fn taskspace_missing_command_script_from_text(text: &str) -> Option<String> {
@@ -9398,6 +9413,44 @@ TaskSpaceGateRecoveryV1: {\"schema_version\":\"TaskSpaceGateRecoveryV1\",\"allow
     }
 
     #[test]
+    fn validation_required_command_bridge_extracts_gate_next_action() {
+        let changed = "TaskSpace blocked this validation command.\n\
+TaskSpaceGateRecoveryV1: {\"schema_version\":\"TaskSpaceGateRecoveryV1\",\"allowed\":false,\"reason\":\"validation_test_missing_changed_artifact_coverage\",\"next_valid_actions\":[\"run_test with command `python generate_organization.py` to execute changed artifact `generate_organization.py`\"]}";
+        let output_contract = "TaskSpace blocked this validation command.\n\
+TaskSpaceGateRecoveryV1: {\"schema_version\":\"TaskSpaceGateRecoveryV1\",\"allowed\":false,\"reason\":\"validation_test_missing_output_contract_coverage\",\"next_valid_actions\":[\"run_test with command `python generate_organization.py && python -m jsonschema -i organization.json schema.json` to execute the changed artifact and validate declared output contract(s)\"]}";
+
+        assert_eq!(
+            taskspace_validation_required_command_from_gate_recovery(Some(changed)).as_deref(),
+            Some("python generate_organization.py")
+        );
+        assert_eq!(
+            taskspace_validation_required_command_from_gate_recovery(Some(output_contract))
+                .as_deref(),
+            Some(
+                "python generate_organization.py && python -m jsonschema -i organization.json schema.json"
+            )
+        );
+    }
+
+    #[test]
+    fn validation_required_command_bridge_rejects_non_gate_failures() {
+        let generic_failure = "TaskSpaceToolFeedbackV1:\n\
+tool_action: run_test\n\
+tool_result: failed\n\
+raw_output:\npytest: command not found";
+        let unrelated_gate = "TaskSpaceGateRecoveryV1: {\"reason\":\"validation_test_missing_local_validator_coverage\",\"next_valid_actions\":[\"run_test with command `python scripts/validate.py`\"]}";
+
+        assert_eq!(
+            taskspace_validation_required_command_from_gate_recovery(Some(generic_failure)),
+            None
+        );
+        assert_eq!(
+            taskspace_validation_required_command_from_gate_recovery(Some(unrelated_gate)),
+            None
+        );
+    }
+
+    #[test]
     fn apply_patch_format_recovery_does_not_count_as_no_action_retry() {
         let targets = taskspace_existing_file_add_targets_from_rejection(Some(
             "TaskSpaceActionV1 rejected: apply_patch_existing_file_as_add:generate_report.sh. Return exactly one valid taskspace-action-v1 JSON object.",
@@ -10561,6 +10614,72 @@ raw_output:\n\
     .await;
     let evidence_item = build_taskspace_inspect_bootstrap_evidence_item(&command, &response_item);
     record_completed_response_item(sess.as_ref(), turn_context.as_ref(), &evidence_item).await;
+    Ok(())
+}
+
+async fn run_taskspace_validation_required_command_bootstrap(
+    tool_runtime: ToolCallRuntime,
+    sess: Arc<Session>,
+    turn_context: Arc<TurnContext>,
+    request_count: usize,
+    command: &str,
+    cancellation_token: CancellationToken,
+) -> CodexResult<()> {
+    let call_id =
+        format!("{TASKSPACE_VALIDATION_REQUIRED_COMMAND_BOOTSTRAP_CALL_ID}-{request_count}");
+    let arguments = serde_json::json!({
+        "command": command,
+        "timeout_ms": 120000,
+    })
+    .to_string();
+    let call_item = ResponseItem::FunctionCall {
+        id: None,
+        name: "shell_command".to_string(),
+        namespace: None,
+        arguments: arguments.clone(),
+        call_id: call_id.clone(),
+    };
+    record_completed_response_item(sess.as_ref(), turn_context.as_ref(), &call_item).await;
+    sess.send_event(
+        &turn_context,
+        EventMsg::Warning(WarningEvent {
+            message: format!(
+                "TaskSpaceValidationRequiredCommandBootstrapV1 executed coverage-correct validation command after a rejected validation run_test: {command}"
+            ),
+        }),
+    )
+    .await;
+
+    let response_input = tool_runtime
+        .handle_tool_call(
+            ToolCall {
+                tool_name: ToolName::plain("shell_command"),
+                call_id: call_id.clone(),
+                payload: ToolPayload::Function { arguments },
+            },
+            cancellation_token,
+        )
+        .await?;
+    let response_item =
+        record_response_input_item(sess.as_ref(), turn_context.as_ref(), response_input).await;
+    let (success, output) =
+        taskspace_tool_output_success_and_text(&response_item).unwrap_or((false, String::new()));
+    let preview = format!(
+        "TaskSpaceToolInvocationV1:\n\
+tool: shell_command\n\
+command: {command}\n\
+raw_output:\n\
+{output}"
+    );
+    sess.record_action_map_main_tool_result(
+        &turn_context,
+        &call_id,
+        "shell_command",
+        Some(ActionClass::Test),
+        success,
+        preview,
+    )
+    .await;
     Ok(())
 }
 
@@ -14271,6 +14390,33 @@ async fn try_run_sampling_request(
                 }
             }
         }
+    }
+    if let Ok(result) = &mut outcome
+        && result
+            .taskspace_no_action_recovery_item
+            .as_ref()
+            .is_some_and(|item| {
+                response_item_text_contains(item, TASKSPACE_VALIDATION_NEEDS_TEST_MARKER)
+            })
+        && let Some(snapshot) = sess.action_map_provider_request_budget_snapshot().await
+        && matches!(
+            snapshot.node_kind.as_deref(),
+            Some("smoke_test" | "regression_test")
+        )
+        && let Some(command) = taskspace_validation_required_command_from_gate_recovery(
+            result.last_agent_message.as_deref(),
+        )
+    {
+        run_taskspace_validation_required_command_bootstrap(
+            tool_runtime.clone(),
+            sess.clone(),
+            turn_context.clone(),
+            snapshot.request_count,
+            &command,
+            cancellation_token.child_token(),
+        )
+        .await?;
+        result.taskspace_no_action_recovery_item = None;
     }
     if let Ok(result) = &mut outcome
         && result.taskspace_no_action_recovery_item.is_none()
