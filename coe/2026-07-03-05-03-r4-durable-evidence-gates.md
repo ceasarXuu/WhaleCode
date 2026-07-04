@@ -2119,3 +2119,62 @@
   - The live mixed shape `*** Update File` + `--- a/...` / `+++ b/...` + `@@ ... @@` strips unified file headers and preserves the anchor context.
   - `--- Update File:` malformed operation headers are still rejected by the dash-native test.
 - Interpretation: The `apply-patch-anchored-placeholder-hunk-normalization-gap` class is focused-fixed at action-contract normalization/build level. Commit/push, binary attestation, and another keyed rerun are required before claiming live convergence beyond this case.
+
+# Evidence E-085: H-038 rerun crosses placeholder hunk rejection and exposes duplicate-read advisory loop
+
+- Prediction tested: H-038 should remove `apply_patch_native_hunk_header` / `TaskSpaceApplyPatchNativeHunkRecoveryV1` as the live blocker after commit/push/build attestation.
+- Real rerun:
+  ```text
+  RunDir: target/r4-org-json-real-keyed-20260703ak-placeholder-hunk/runs/terminal_bench__organization-json-generator/20260704-075115-109
+  PairReport: pair-001/pair-report.md
+  reported_evidence_level: E1
+  outcome_standard: wrong
+  outcome_taskspace: engineering_unclean
+  right_exec_timed_out: False
+  right_tool_call_count: 16
+  right_open_leaf_nodes: 1
+  public_validation_exit_code: 1
+  hidden_oracle_exit_code: 0
+  preflight_git_head: 75923e09bb069d5a5a57c264c56f0d0be7ae99e5
+  build_attestation_status: pass
+  ```
+- Matched trace signals:
+  - No `apply_patch_native_hunk_header` or `TaskSpaceApplyPatchNativeHunkRecoveryV1` appears in the right-side trace, so H-038 crossed.
+  - Line 50 runs the expected schema validation command and reaches real jsonschema errors: projects emit `member_ids` instead of required `members`, and statistics still use snake_case / alternate keys instead of required camelCase fields.
+  - Line 59 reads `generate_org.py`; active projection later shows `critical_artifact_evidence` with `result-11` and states `read/search is no longer a valid next action`.
+  - Lines 69, 76, 83, 90, and 97 repeatedly insert `TaskSpaceValidationReworkDuplicateReadRecoveryV1`; line 98 hits `TaskSpaceProviderBudgetHardStopV1`.
+- Interpretation: The failure semantic is not missing. The projection and recovery both preserve the correct next action: patch the already-read rework artifact or block with concrete external reason. The live gap is that runtime treats repeated violation of this patch-only gate as another advisory recovery, allowing provider sampling to continue until budget hard stop.
+
+# Hypothesis H-039: validation rework duplicate-read recovery needs a hard-stop escalation
+
+- Claim: For validation rework duplicate reads, the first structured recovery is useful, but repeated `validation_rework_duplicate_artifact_read` after the same patch-only contract is no longer a recoverable tool failure. Continuing provider sampling converts a correct action-contract rejection into a budget-drain loop. Runtime should recognize a repeated duplicate-read gate and stop provider sampling with a stable hard-stop marker instead of issuing another advisory recovery request.
+- Prediction: A focused unit test should show the first `TaskSpaceValidationReworkDuplicateReadRecoveryV1` is not terminal, but the next recovery for the same class, or any recovery carrying `repeated_blocked_action`, produces `TaskSpaceValidationReworkDuplicateReadHardStopV1`. The hard-stop item must not be classified as ordinary no-action recovery or implement-needs-edit advisory.
+- Diagnostic evidence plan: Add a dedicated marker, recovery counter, repeated-gate detection, and tests for both count-based and `repeated_blocked_action`-based escalation. Run validation rework, duplicate rework, validation, apply_patch, fmt/diff, and whale build regressions.
+- Status: confirmed.
+
+# Evidence E-086: duplicate-read advisory loop now escalates to a named hard stop
+
+- Prediction tested: H-039 requires repeated validation rework duplicate reads to stop model sampling before provider/node budget exhaustion.
+- Repair artifact:
+  - `third_party/codex-cli/codex-rs/core/src/session/turn.rs`
+- Focused commands:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked validation_rework_duplicate_read
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked validation_rework
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked duplicate_rework
+  ```
+- Adjacent regression/build commands:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked validation_
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked apply_patch_
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+  git diff --check
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-cli --bin whale --locked
+  ```
+- Result: passed. `validation_rework_duplicate_read` is 5/5, `validation_rework` is 17/17, `duplicate_rework` is 2/2, `validation_` is 94/94, and `apply_patch_` is 35/35. `cargo fmt --check`, `git diff --check`, and the `whale` build passed.
+- Matched test signals:
+  - First duplicate-read recovery remains advisory.
+  - A second same-class recovery escalates to `TaskSpaceValidationReworkDuplicateReadHardStopV1`.
+  - A recovery that already carries `repeated_blocked_action` hard-stops immediately.
+  - The hard-stop item is not counted as `TaskSpaceNoActionRecoveryV1` or `TaskSpaceImplementNeedsEditRecoveryV1`.
+- Interpretation: The `validation-rework-duplicate-read-advisory-loop` class is focused-fixed at runtime recovery-loop level. This does not auto-generate the missing code patch; it prevents a correct patch-only tool failure from being diluted into repeated model retries and budget hard stop. Commit/push, binary attestation, and another keyed rerun are required before claiming live behavior.

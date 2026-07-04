@@ -398,3 +398,15 @@ CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core force_finish_validation --l
 CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_ --locked
 CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale --locked
 ```
+
+## 2026-07-04 R4-D issue type addendum: duplicate-read advisory loop
+
+本轮把 `organization-json-generator` keyed rerun 中暴露的反馈层 case 收录为新的 R4-D tools 链路问题类型。
+
+| Issue type | Layer | Symptom | Resolution contract | Evidence |
+|---|---|---|---|---|
+| `validation-rework-duplicate-read-advisory-loop` | runtime recovery loop / feedback layer | validation rework 已经读取目标 artifact，projection 与 action-contract 都要求 `apply_patch` 或具体 `block_node`，但模型重复 `read_file` 同一目标；runtime 继续 advisory recovery，最后 provider/node budget hard stop | 第一条 duplicate-read recovery 保留纠错机会；第二条同类 recovery 或带 `repeated_blocked_action` 的 gate 升级为 `TaskSpaceValidationReworkDuplicateReadHardStopV1`，停止当前 turn 的 provider sampling，并保留 bounded evidence | `validation_rework_duplicate_read_hard_stops_after_one_recovery`; `validation_rework_duplicate_read_repeated_gate_hard_stops_immediately`; CoE E-085/E-086 |
+
+边界说明：该 case 不是 tool executor 吞掉错误，也不是 feedback 语义缺失。失败语义已经通过
+`TaskSpaceValidationReworkDuplicateReadRecoveryV1`、`TaskSpaceGateRecoveryV1` 和 active projection 正确传达；缺口是 runtime
+把重复违反同一 patch-only gate 继续当成 advisory retry。修复只停止重复采样，不代替模型生成补丁，也不把节点伪装成业务外部 blocker。

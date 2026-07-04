@@ -3329,3 +3329,75 @@ CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/co
 状态：该 action-contract normalization class 已 focused fixed，并通过本地回归、fmt、diff check 和 `whale` build；
 还需要 commit/push、binary attestation 和下一轮 keyed rerun。下一轮期望 line 101 这类 anchored placeholder patch 直接规范化并进入
 `apply_patch` 工具，不再在 hard stop 前被 `apply_patch_native_hunk_header` 丢弃。
+
+## 5.49 2026-07-04 validation rework duplicate-read advisory hard stop
+
+anchored placeholder hunk 修复、commit/push、binary attestation 后的 keyed rerun 证明 H-038 已越过：right-side trace 中没有
+`apply_patch_native_hunk_header` 或 `TaskSpaceApplyPatchNativeHunkRecoveryV1`。新的 blocker 回到 feedback/control
+层：validation rework 已经拥有 `generate_org.py` 的 target read result，projection 也明确写出
+`read/search is no longer a valid next action`，但模型继续重复 `read_file generate_org.py`，runtime 继续插入 advisory
+recovery，直到 provider node budget hard stop。
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260703ak-placeholder-hunk/runs/terminal_bench__organization-json-generator/20260704-075115-109
+reported_evidence_level: E1
+outcome_standard: wrong
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 16
+right_open_leaf_nodes: 1
+public_validation_exit_code: 1
+hidden_oracle_exit_code: 0
+preflight_git_head: 75923e09bb069d5a5a57c264c56f0d0be7ae99e5
+build_attestation_status: pass
+```
+
+关键观察：
+
+| Signal | 结论 |
+|---|---|
+| right trace 无 `apply_patch_native_hunk_header` / NativeHunk recovery | H-038 live 越过 |
+| line 50 执行 `python generate_org.py && python -m jsonschema -i organization.json schema.json` | 已进入真实 schema validation |
+| schema errors 指向 `members`、statistics camelCase fields | rework 有明确可编辑目标 |
+| active projection 显示 `use existing validation rework target read result result-11` 和 `apply_patch validation rework target artifact(s): generate_org.py` | feedback 语义没有缺失 |
+| lines 69/76/83/90/97 连续 `TaskSpaceValidationReworkDuplicateReadRecoveryV1`，line 98 budget hard stop | 正确语义被 advisory loop 稀释 |
+
+结论：该 case 不是“工具失败语义缺失”，而是“失败语义出现降级/扭曲”。Action contract 和 projection 已经把下一步限定为
+`apply_patch` 或具体 `block_node`，但外层 provider loop 仍把重复违反同一 gate 当成可继续采样的 advisory recovery。
+因此本轮修复不让 runtime 生成代码补丁，也不把节点伪装成外部 blocker；只在同一 validation rework duplicate-read
+recovery 第二次出现、或 GateRecovery 已携带 `repeated_blocked_action` 时，插入稳定终止 marker：
+`TaskSpaceValidationReworkDuplicateReadHardStopV1`，停止本 turn 的 provider sampling，保留 bounded evidence。
+
+本轮新增并 focused 修复的问题类型：
+
+| Case | Before | After | Evidence |
+|---|---|---|---|
+| `validation-rework-duplicate-read-advisory-loop` | 已读 rework target 后，重复 `read_file` 被正确拒绝并带 patch-only recovery，但同一非法动作仍可反复触发 advisory recovery 直到 provider/node budget hard stop | 第一条 duplicate-read recovery 仍保留纠错机会；第二条同类 recovery 或带 `repeated_blocked_action` 的 gate 直接升级为 `TaskSpaceValidationReworkDuplicateReadHardStopV1`，不再继续采样烧预算 | `validation_rework_duplicate_read_hard_stops_after_one_recovery`; `validation_rework_duplicate_read_repeated_gate_hard_stops_immediately` |
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked validation_rework_duplicate_read
+  PASS：5 tests
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked validation_rework
+  PASS：17 tests
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked duplicate_rework
+  PASS：2 tests
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked validation_
+  PASS：94 tests
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked apply_patch_
+  PASS：35 tests
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+git diff --check
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-cli --bin whale --locked
+  PASS
+```
+
+状态：该 runtime recovery-loop class 已 focused fixed；还需要 commit/push、binary attestation 和下一轮 keyed rerun。下一轮期望不再出现
+`TaskSpaceProviderBudgetHardStopV1 reason=provider_node_request_hard_limit_exceeded` 的重复 read_file 预算耗尽形态；若模型仍不 patch，
+应以 `TaskSpaceValidationReworkDuplicateReadHardStopV1` 明确暴露，而不是继续 advisory loop。

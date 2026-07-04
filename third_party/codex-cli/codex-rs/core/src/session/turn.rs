@@ -150,6 +150,8 @@ const TASKSPACE_FORCED_VALIDATION_CLOSEOUT_MARKER: &str =
 const TASKSPACE_IMPLEMENT_NEEDS_EDIT_MARKER: &str = "TaskSpaceImplementNeedsEditRecoveryV1:";
 const TASKSPACE_VALIDATION_REWORK_DUPLICATE_READ_MARKER: &str =
     "TaskSpaceValidationReworkDuplicateReadRecoveryV1:";
+const TASKSPACE_VALIDATION_REWORK_DUPLICATE_READ_HARD_STOP_MARKER: &str =
+    "TaskSpaceValidationReworkDuplicateReadHardStopV1:";
 const TASKSPACE_EDIT_FAILURE_MARKER: &str = "TaskSpaceEditFailureRecoveryV1:";
 const TASKSPACE_APPLY_PATCH_FORMAT_MARKER: &str = "TaskSpaceApplyPatchFormatRecoveryV1:";
 const TASKSPACE_APPLY_PATCH_MISSING_TARGET_MARKER: &str =
@@ -476,6 +478,7 @@ pub(crate) async fn run_turn(
     let mut stop_hook_active = false;
     let mut taskspace_no_action_recovery_count = 0usize;
     let mut taskspace_implement_needs_edit_recovery_count = 0usize;
+    let mut taskspace_validation_rework_duplicate_read_recovery_count = 0usize;
     // Although from the perspective of codex.rs, TurnDiffTracker has the lifecycle of a Task which contains
     // many turns, from the perspective of the user, it is a single turn.
     let turn_diff_tracker = Arc::new(tokio::sync::Mutex::new(TurnDiffTracker::new()));
@@ -597,6 +600,11 @@ pub(crate) async fn run_turn(
                         is_taskspace_no_action_recovery_item(&recovery_item);
                     let counts_against_implement_needs_edit_cap =
                         is_taskspace_implement_needs_edit_recovery_item(&recovery_item);
+                    let validation_rework_duplicate_read_hard_stop =
+                        taskspace_validation_rework_duplicate_read_should_hard_stop(
+                            &recovery_item,
+                            taskspace_validation_rework_duplicate_read_recovery_count,
+                        );
                     let no_action_recovery_cap = sess
                         .action_map_provider_request_budget_snapshot()
                         .await
@@ -611,6 +619,31 @@ pub(crate) async fn run_turn(
                     }
                     if counts_against_implement_needs_edit_cap {
                         taskspace_implement_needs_edit_recovery_count += 1;
+                    }
+                    if is_taskspace_validation_rework_duplicate_read_recovery_item(&recovery_item) {
+                        taskspace_validation_rework_duplicate_read_recovery_count += 1;
+                    }
+                    if validation_rework_duplicate_read_hard_stop {
+                        let hard_stop_item =
+                            build_taskspace_validation_rework_duplicate_read_hard_stop_item(
+                                &recovery_item,
+                                taskspace_validation_rework_duplicate_read_recovery_count,
+                            );
+                        sess.send_event(
+                            &turn_context,
+                            EventMsg::Warning(WarningEvent {
+                                message: taskspace_special_recovery_warning_message(
+                                    &hard_stop_item,
+                                ),
+                            }),
+                        )
+                        .await;
+                        sess.record_conversation_items(&turn_context, &[hard_stop_item])
+                            .await;
+                        last_agent_message = Some(
+                            "TaskSpace validation rework duplicate-read hard stop: repeated_validation_rework_duplicate_artifact_read".to_string(),
+                        );
+                        break;
                     }
                     sess.send_event(
                         &turn_context,
@@ -2062,6 +2095,39 @@ Current required behavior:\n\
     }
 }
 
+fn build_taskspace_validation_rework_duplicate_read_hard_stop_item(
+    recovery_item: &ResponseItem,
+    attempt: usize,
+) -> ResponseItem {
+    let recovery_text = response_item_text(recovery_item).unwrap_or_default();
+    let artifact = taskspace_validation_rework_duplicate_artifact(&recovery_text)
+        .unwrap_or_else(|| "already-read validation rework artifact".to_string());
+    let previous_result = taskspace_validation_rework_duplicate_previous_result(&recovery_text)
+        .unwrap_or_else(|| "previous read result".to_string());
+    let recovery_excerpt = recovery_text.chars().take(1800).collect::<String>();
+    let text = format!(
+        "{TASKSPACE_VALIDATION_REWORK_DUPLICATE_READ_HARD_STOP_MARKER}\n\
+reason: repeated_validation_rework_duplicate_artifact_read\n\
+attempt_count: {attempt}\n\
+target_artifact: {artifact}\n\
+previous_read_result: {previous_result}\n\
+The current validation rework node repeatedly requested the same already-visible failure artifact after TaskSpace provided an apply_patch-or-block recovery contract.\n\
+Runtime decision:\n\
+- Stop provider sampling for this turn instead of issuing another advisory recovery request.\n\
+- Preserve the bounded evidence and the last recovery contract for audit.\n\
+- A later turn may continue only after TaskSpace state changes or the provider emits the required apply_patch/block_node action.\n\
+Last recovery contract excerpt:\n{recovery_excerpt}"
+    );
+
+    ResponseItem::Message {
+        id: None,
+        role: "developer".to_string(),
+        content: vec![ContentItem::InputText { text }],
+        end_turn: None,
+        phase: None,
+    }
+}
+
 fn build_taskspace_implementation_recovery_item(
     last_agent_message: Option<&str>,
     evidence_summary: Option<&str>,
@@ -2135,6 +2201,27 @@ fn is_taskspace_provider_budget_hard_stop_item(item: &ResponseItem) -> bool {
     response_item_text_contains(item, TASKSPACE_PROVIDER_BUDGET_HARD_STOP_MARKER)
 }
 
+fn is_taskspace_validation_rework_duplicate_read_recovery_item(item: &ResponseItem) -> bool {
+    response_item_text_contains(item, TASKSPACE_VALIDATION_REWORK_DUPLICATE_READ_MARKER)
+}
+
+fn is_taskspace_validation_rework_duplicate_read_hard_stop_item(item: &ResponseItem) -> bool {
+    response_item_text_contains(
+        item,
+        TASKSPACE_VALIDATION_REWORK_DUPLICATE_READ_HARD_STOP_MARKER,
+    )
+}
+
+fn taskspace_validation_rework_duplicate_read_should_hard_stop(
+    item: &ResponseItem,
+    previous_recovery_count: usize,
+) -> bool {
+    is_taskspace_validation_rework_duplicate_read_recovery_item(item)
+        && (previous_recovery_count > 0
+            || response_item_text_contains(item, "\"repeated_blocked_action\"")
+            || response_item_text_contains(item, "repeated_blocked_action:"))
+}
+
 fn taskspace_provider_budget_limit_reached(
     snapshot: &crate::action_map::ActionMapProviderRequestBudgetSnapshot,
 ) -> bool {
@@ -2144,6 +2231,9 @@ fn taskspace_provider_budget_limit_reached(
 }
 
 fn is_taskspace_implement_needs_edit_recovery_item(item: &ResponseItem) -> bool {
+    if is_taskspace_validation_rework_duplicate_read_hard_stop_item(item) {
+        return false;
+    }
     response_item_text_contains(item, TASKSPACE_IMPLEMENT_NEEDS_EDIT_MARKER)
         || response_item_text_contains(item, TASKSPACE_VALIDATION_REWORK_DUPLICATE_READ_MARKER)
         || response_item_text_contains(item, TASKSPACE_EDIT_FAILURE_MARKER)
@@ -2203,6 +2293,8 @@ fn taskspace_implement_recovery_advisory_warning_message(
 fn taskspace_special_recovery_warning_message(item: &ResponseItem) -> String {
     if response_item_text_contains(item, TASKSPACE_PROVIDER_BUDGET_HARD_STOP_MARKER) {
         "TaskSpace inserted TaskSpaceProviderBudgetHardStopV1 because provider request budget was exhausted before dispatch. The current turn will stop without another model request.".to_string()
+    } else if is_taskspace_validation_rework_duplicate_read_hard_stop_item(item) {
+        "TaskSpace inserted TaskSpaceValidationReworkDuplicateReadHardStopV1 because validation rework repeated an already-blocked artifact read after patch-only recovery. The current turn will stop without another model request.".to_string()
     } else if response_item_text_contains(item, TASKSPACE_FORCED_IMPLEMENT_TRANSITION_MARKER) {
         "TaskSpace inserted TaskSpaceForcedImplementTransitionRecoveryV1 after a provider-budget forced implement transition. This guidance does not consume the no-action recovery allowance.".to_string()
     } else if response_item_text_contains(item, TASKSPACE_APPLY_PATCH_FORMAT_MARKER) {
@@ -4132,6 +4224,66 @@ fn function_call_output_body_text(body: &FunctionCallOutputBody) -> String {
             .collect::<Vec<_>>()
             .join("\n"),
     }
+}
+
+fn response_item_text(item: &ResponseItem) -> Option<String> {
+    let parts = match item {
+        ResponseItem::Message { role, content, .. } => {
+            let mut parts = vec![role.clone()];
+            parts.extend(
+                content
+                    .iter()
+                    .filter_map(|content_item| match content_item {
+                        ContentItem::InputText { text } | ContentItem::OutputText { text } => {
+                            Some(text.clone())
+                        }
+                        ContentItem::InputImage { image_url, .. } => Some(image_url.clone()),
+                    }),
+            );
+            parts
+        }
+        ResponseItem::FunctionCall {
+            name,
+            namespace,
+            arguments,
+            ..
+        } => {
+            let mut parts = vec![name.clone(), arguments.clone()];
+            if let Some(namespace) = namespace {
+                parts.push(namespace.clone());
+            }
+            parts
+        }
+        ResponseItem::CustomToolCall { name, input, .. } => vec![name.clone(), input.clone()],
+        ResponseItem::FunctionCallOutput { output, .. }
+        | ResponseItem::CustomToolCallOutput { output, .. } => {
+            vec![function_call_output_body_text(&output.body)]
+        }
+        ResponseItem::ToolSearchCall {
+            execution,
+            arguments,
+            ..
+        } => vec![execution.clone(), arguments.to_string()],
+        ResponseItem::ToolSearchOutput {
+            execution, tools, ..
+        } => {
+            let mut parts = vec![execution.clone()];
+            parts.extend(tools.iter().map(ToString::to_string));
+            parts
+        }
+        ResponseItem::LocalShellCall { .. }
+        | ResponseItem::Reasoning { .. }
+        | ResponseItem::WebSearchCall { .. }
+        | ResponseItem::ImageGenerationCall { .. }
+        | ResponseItem::GhostSnapshot { .. }
+        | ResponseItem::Compaction { .. }
+        | ResponseItem::Other => Vec::new(),
+    };
+    let parts = parts
+        .into_iter()
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>();
+    (!parts.is_empty()).then(|| parts.join("\n"))
 }
 
 fn response_item_text_contains(item: &ResponseItem, needle: &str) -> bool {
@@ -7878,6 +8030,52 @@ TaskSpaceGateRecoveryV1: {\"schema_version\":\"TaskSpaceGateRecoveryV1\",\"allow
         snapshot.max_requests = 0;
         snapshot.max_model_requests_per_node = 0;
         assert!(!taskspace_provider_budget_limit_reached(&snapshot));
+    }
+
+    #[test]
+    fn validation_rework_duplicate_read_hard_stops_after_one_recovery() {
+        let last_message = "TaskSpace blocked this read because validation rework node `node-4` already read failure artifact `generate_org.py` in result `result-11` and no successful edit has been recorded after that read. Use the existing file contents from that result and apply the smallest fix with apply_patch, or return blocked with the exact reason no safe edit can be made. Validation repair contract: missing_required_properties=members, averageDepartmentBudget | target_artifacts=generate_org.py\nTaskSpaceGateRecoveryV1: {\"schema_version\":\"TaskSpaceGateRecoveryV1\",\"allowed\":false,\"reason\":\"validation_rework_duplicate_artifact_read\",\"next_valid_actions\":[\"call apply_patch for `generate_org.py`\"]}";
+        let recovery = build_taskspace_validation_rework_duplicate_read_recovery_item(
+            Some(last_message),
+            Some("validation_rework result-11 artifacts=generate_org.py"),
+            None,
+        );
+
+        assert!(!taskspace_validation_rework_duplicate_read_should_hard_stop(&recovery, 0));
+        assert!(taskspace_validation_rework_duplicate_read_should_hard_stop(
+            &recovery, 1
+        ));
+
+        let hard_stop =
+            build_taskspace_validation_rework_duplicate_read_hard_stop_item(&recovery, 2);
+        let text = item_text(hard_stop.clone());
+
+        assert!(text.contains(TASKSPACE_VALIDATION_REWORK_DUPLICATE_READ_HARD_STOP_MARKER));
+        assert!(text.contains("reason: repeated_validation_rework_duplicate_artifact_read"));
+        assert!(text.contains("target_artifact: generate_org.py"));
+        assert!(text.contains("previous_read_result: result-11"));
+        assert!(text.contains("Stop provider sampling for this turn"));
+        assert!(is_taskspace_validation_rework_duplicate_read_hard_stop_item(&hard_stop));
+        assert!(!is_taskspace_no_action_recovery_item(&hard_stop));
+        assert!(!is_taskspace_implement_needs_edit_recovery_item(&hard_stop));
+        assert!(
+            taskspace_special_recovery_warning_message(&hard_stop)
+                .contains("current turn will stop without another model request")
+        );
+    }
+
+    #[test]
+    fn validation_rework_duplicate_read_repeated_gate_hard_stops_immediately() {
+        let last_message = "TaskSpace blocked this read because validation rework node `node-4` already read failure artifact `generate_org.py` in result `result-11` and no successful edit has been recorded after that read. Use the existing file contents from that result and apply the smallest fix with apply_patch, or return blocked with the exact reason no safe edit can be made.\nTaskSpaceGateRecoveryV1: {\"schema_version\":\"TaskSpaceGateRecoveryV1\",\"allowed\":false,\"reason\":\"validation_rework_duplicate_artifact_read\",\"blocking_items\":[\"current_node:node-4:implement_solution\",\"repeated_blocked_action:validation_rework_duplicate_artifact_read|shell_command|read|sed -n 1,240p -- generate_org.py\"],\"next_valid_actions\":[\"call apply_patch for `generate_org.py`\"],\"repeated_blocked_action\":{\"fingerprint\":\"validation_rework_duplicate_artifact_read|shell_command|read|sed -n 1,240p -- generate_org.py\",\"repeat_count\":2,\"same_action_allowed\":false}}";
+        let recovery = build_taskspace_validation_rework_duplicate_read_recovery_item(
+            Some(last_message),
+            Some("validation_rework result-11 artifacts=generate_org.py"),
+            None,
+        );
+
+        assert!(taskspace_validation_rework_duplicate_read_should_hard_stop(
+            &recovery, 0
+        ));
     }
 
     #[test]
