@@ -1569,6 +1569,54 @@ git diff --check
   PASS
 ```
 
+## 5.96.1 2026-07-05 generic CSV input fact-source undercoverage
+
+`c8d2359` 安装后 keyed rerun 证明 H-118 live-clear，但暴露新的 inspect coverage 问题：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260705am-missing-source-recovery-gate/runs/terminal_bench__organization-json-generator/20260705-034521-738
+installed_whale_sha256: ef3aca6dc734d580f5aed368fcfe3018e51d9a9a9abcb4cd8d07a17de2a293ca
+reported_evidence_level: E2-candidate
+outcome_standard: solved
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 7
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+right_nodes: 4
+right_open_leaf_nodes: 1
+final_marker: TaskSpaceValidationReworkPatchOnlyHardStopV1 reason=repeated_non_edit_after_validation_rework_target_read
+```
+
+收益判断：
+
+1. H-118 live-clear：没有 `missing_source_visibility_blocker_rejected` 后立即 hard-stop。
+2. 新问题是 `inspect-generic-csv-input-fact-source-undercoverage`。
+3. 根因是 start_task success criterion 只写了泛化 `CSV files`，runtime 未把 list_files 发现的具体 CSV 输入升级为必读内容证据。
+4. 结果是实现阶段猜测 `projects.csv` 有 `id/budget` 字段，实际 headers 为 `name,status,member_ids,deadline,department_id`，最终 `KeyError: 'id'`。
+5. 修复后，generic CSV requirement + discovered `.csv` 会阻止 forced transition，直到 CSV 内容被 read/bootstrap read。
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core inspect_generic_csv_requirement_expands_discovered_csv_inputs -- --nocapture
+  PASS: 1/1
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core inspect_missing_fact_source -- --nocapture
+  PASS: 3/3
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core forced_inspect_transition -- --nocapture
+  PASS: 6/6
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core action_contract_prompt -- --nocapture
+  PASS: 29/29
+cargo fmt --check
+  PASS
+CODEX_SKIP_VENDORED_BWRAP=1 cargo check -p codex-core
+  PASS
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
+  PASS
+git diff --check
+  PASS
+```
+
 ## 5.97 2026-07-05 replacement-required recovery marker distortion
 
 `b3d31ec` 后 keyed rerun 证明 H-110 已 live-clear：replacement-required 不再被不同 `Update File` 形态分流。

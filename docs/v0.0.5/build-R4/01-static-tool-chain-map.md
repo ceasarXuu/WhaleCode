@@ -1112,3 +1112,18 @@ placeholder range hunk 也未进入 apply_patch。但该轮暴露更早的 inspe
 
 边界说明：该修复不是放宽 patch-only 约束。read/list/search/schema inspection 仍无效；只是把“被 runtime 反驳的 block_node”
 作为新的强语义反馈交给模型一次，要求下一步必须基于已读 target 和 validation failure 进行 apply_patch。
+
+## 2026-07-05 R4-D issue type addendum: generic CSV input fact-source undercoverage
+
+`c8d2359` 安装后 keyed rerun 证明 H-118 live-clear：没有再出现
+`missing_source_visibility_blocker_rejected` 后立即 hard-stop。新的 blocker 前移到 inspect coverage：
+start_task 把用户要求压缩成“Read existing CSV files and schema.json”，runtime 只强制读取了 `schema.json`，
+没有把 list_files 发现的 `departments.csv`、`employees.csv`、`projects.csv` 升级为必须读取的输入证据。
+provider 随后凭猜测写 `process.py`，在 `projects.csv` 上触发 `KeyError: 'id'`。
+
+| Issue type | Layer | Symptom | Resolution contract | Evidence |
+|---|---|---|---|---|
+| `inspect-generic-csv-input-fact-source-undercoverage` | inspect fact-source expansion / forced inspect transition / input-data capability boundary | 需求说 `CSV files` 且 list_files 已发现具体 CSV，但 forced inspect transition 仍在未读 CSV 内容时进入 implementation | 已实现：generic CSV requirement 会把发现的具体 `.csv` 输入加入 required fact-source reads；`===== file.csv` bootstrap sections 满足 coverage；`*.csv` glob 不会成为 required artifact | keyed rerun `20260705-034521-738`; CoE H-119/E-241/E-242; focused tests `inspect_generic_csv_requirement_expands_discovered_csv_inputs`, `inspect_missing_fact_source`, `forced_inspect_transition` |
+
+边界说明：该修复不把所有 repo CSV 都无条件变成任务输入。只有任务要求中出现 CSV input/data/files/source 语义，
+且 inspect 已发现具体 `.csv` 文件时，才把这些具体输入加入必读 fact-source coverage；生成输出过滤仍保留。

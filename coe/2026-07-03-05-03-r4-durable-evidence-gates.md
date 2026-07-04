@@ -7075,3 +7075,68 @@
     PASS
   ```
 - Interpretation: H-118 is focused-fixed. Remaining gates are commit/push, install/attest, and a keyed rerun to verify the provider receives and acts on the missing-source blocker rejection instead of terminal hard-stopping immediately.
+
+# Evidence E-241: H-118 rerun live-clears missing-source rejection hard-stop and exposes generic CSV fact-source gap
+
+- Real rerun:
+  ```text
+  RunDir: target/r4-org-json-real-keyed-20260705am-missing-source-recovery-gate/runs/terminal_bench__organization-json-generator/20260705-034521-738
+  installed_whale_sha256: ef3aca6dc734d580f5aed368fcfe3018e51d9a9a9abcb4cd8d07a17de2a293ca
+  reported_evidence_level: E2-candidate
+  outcome_standard: solved
+  outcome_taskspace: engineering_unclean
+  right_exec_timed_out: False
+  right_tool_call_count: 7
+  right_public_validation_exit_code: 1
+  right_hidden_oracle_exit_code: 0
+  right_nodes: 4
+  right_open_leaf_nodes: 1
+  final_marker: TaskSpaceValidationReworkPatchOnlyHardStopV1 reason=repeated_non_edit_after_validation_rework_target_read
+  ```
+- H-118 live status:
+  - The run did not reproduce `missing_source_visibility_blocker_rejected` followed by immediate hard-stop.
+  - TaskSpace gave ordinary patch-only recovery after a complete `process.py` target read, then hard-stopped only after the provider emitted another invalid `read_file schema.json`.
+  - The last agent message was `{"action":"read_file","node_id":"node-4","args":{"path":"schema.json"}}`, so the terminal marker was the existing repeated read/search after complete target-read gate, not the H-118 missing-source rejection overcount.
+- New blocker signals:
+  - Initial inspect read only `schema.json` and listed files, then forced transitioned to implementation.
+  - The provider never read `departments.csv`, `employees.csv`, or `projects.csv` contents before writing `process.py`.
+  - The generated script assumed project rows had `id` and `budget`; actual `projects.csv` headers are `name,status,member_ids,deadline,department_id`.
+  - Smoke validation failed with `KeyError: 'id'`, and public validation later failed because `organization.json` was not produced.
+- Interpretation: H-118 is live-cleared. H-119 is an inspect capability/feedback gap: generic requirements such as "CSV files" must expand discovered concrete CSV inputs into required fact-source reads before forced implementation transition.
+
+# Hypothesis H-119: generic CSV input requirements must expand discovered CSV files into required fact-source reads
+
+- Claim: `inspect_missing_required_fact_source_artifacts()` only enforces concrete artifact names extracted from task requirements. When `start_task` summarizes the user request as generic "Read existing CSV files and schema.json", list_files can discover `departments.csv`, `employees.csv`, and `projects.csv`, but those concrete inputs are not promoted to required content reads before forced inspect transition.
+- Prediction: A task whose success criterion says "Read existing CSV files and schema.json", after reading `schema.json` and listing `departments.csv`, `employees.csv`, `projects.csv`, should report those three CSVs as missing required fact-source artifacts and should not force-finish into implementation until their contents are read. Bootstrap reads with `===== <file>` sections should satisfy the requirement; wildcard tokens such as `*.csv` must not become required artifacts.
+- Diagnostic evidence plan: Add a live-shaped ActionMap regression for generic CSV criteria plus discovered CSV files. Update inspect missing fact-source expansion to add concrete discovered CSV paths, filter glob patterns, and preserve existing bootstrap section-read coverage. Run focused, inspect missing fact-source, forced inspect, action-contract, fmt/check/build/diff gates.
+- Status: focused-fixed; live rerun pending.
+
+# Evidence E-242: generic CSV discovered fact-source coverage is focused-fixed
+
+- Repair artifact:
+  - `third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs`
+- Repair behavior:
+  - Generic task requirements containing `csv files`, `csv data`, `csv input`, or `csv source` now activate discovered CSV input coverage.
+  - During inspect, concrete `.csv` artifacts discovered in read/search/list output are added to required fact-source coverage until a real content read or bootstrap section read observes them.
+  - Glob tokens such as `*.csv` / `*.json` are filtered and do not become impossible required artifacts.
+  - Generated output filtering from H-117 remains intact: `organization.json` is still excluded as a generated output target.
+- Validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core inspect_generic_csv_requirement_expands_discovered_csv_inputs -- --nocapture
+    PASS: 1/1
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core inspect_missing_fact_source -- --nocapture
+    PASS: 3/3
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core forced_inspect_transition -- --nocapture
+    PASS: 6/6
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core action_contract_prompt -- --nocapture
+    PASS: 29/29
+  cargo fmt --check
+    PASS
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo check -p codex-core
+    PASS
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
+    PASS
+  git diff --check
+    PASS
+  ```
+- Interpretation: H-119 is focused-fixed. Remaining gates are commit/push, install/attest, and keyed rerun to verify inspect now reads concrete CSV inputs before implementation instead of producing a `KeyError: 'id'` from guessed columns.

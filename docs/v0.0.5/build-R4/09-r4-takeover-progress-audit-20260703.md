@@ -3620,6 +3620,23 @@ statistics calculations 通过。新的 blocker 是 `members` 仍为对象数组
 
 状态：focused fixed，待 commit/push、install/attest 和真实 keyed rerun。
 
+## 47. 2026-07-05 generic CSV input fact-source undercoverage
+
+`c8d2359` 安装后 keyed rerun 证明 H-118 live-clear，但 TaskSpace 在 inspect 阶段过早转入 implementation：
+模型的 `start_task` 只记录了泛化 `CSV files`，runtime 看到 `schema.json` 和 list_files 后认为 inspect 足够，
+没有强制读取 `departments.csv`、`employees.csv`、`projects.csv` 内容。
+
+| 字段 | 内容 |
+|---|---|
+| case | `inspect-generic-csv-input-fact-source-undercoverage` |
+| 层级 | inspect fact-source expansion / forced inspect transition / input-data capability boundary |
+| 本质 | 泛化 `CSV files` 需求没有扩展成 list_files 已发现的具体 CSV 输入读取要求 |
+| 非根因 | 不是 H-118 复发；不是 output contract false positive；不是 validator 未执行；不是单纯模型列名猜错 |
+| 修复 | generic CSV requirement 会把发现的具体 `.csv` 文件加入 required fact-source coverage；bootstrap section read 可满足；glob `*.csv` 被过滤 |
+| evidence | CoE H-119/E-241/E-242；keyed rerun `20260705-034521-738`; focused tests `inspect_generic_csv_requirement_expands_discovered_csv_inputs`, `inspect_missing_fact_source`, `forced_inspect_transition`, `action_contract_prompt`; fmt/check/build/diff |
+
+状态：focused fixed，待 commit/push、install/attest 和真实 keyed rerun。
+
 ## 45. 2026-07-05 output-contract fact-source false positive
 
 `c78e8fc` 安装后 keyed rerun 证明 H-115/H-116 不再阻塞当前路径，但 TaskSpace 侧卡在 inspect：

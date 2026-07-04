@@ -16083,8 +16083,12 @@ fn inspect_missing_required_fact_source_artifacts(
     map: &ActionMapInstance,
     node: &MapNode,
 ) -> Vec<String> {
+    let mut required = task_required_fact_source_artifact_refs(task);
+    for artifact in inspect_node_discovered_required_input_artifact_refs(task, map, node) {
+        push_required_fact_source_artifact_ref(&mut required, artifact);
+    }
     let observed_artifacts = inspect_node_observed_artifact_refs(map, node);
-    task_required_fact_source_artifact_refs(task)
+    required
         .into_iter()
         .filter(|required| {
             !observed_artifacts
@@ -16092,6 +16096,83 @@ fn inspect_missing_required_fact_source_artifacts(
                 .any(|observed| artifact_refs_match(required, observed))
         })
         .collect()
+}
+
+fn inspect_node_discovered_required_input_artifact_refs(
+    task: &TaskState,
+    map: &ActionMapInstance,
+    node: &MapNode,
+) -> Vec<String> {
+    let extensions = task_required_generic_input_extensions(task);
+    if extensions.is_empty() {
+        return Vec::new();
+    }
+    let mut artifacts: Vec<String> = Vec::new();
+    for result_ref in &node.result_context {
+        let Some(result) = map.results.get(&result_ref.id) else {
+            continue;
+        };
+        if result.kind != NodeResultKind::MainToolCall
+            || result.tool_success != Some(true)
+            || !matches!(
+                result.action_class,
+                Some(ActionClass::Read | ActionClass::Search)
+            )
+        {
+            continue;
+        }
+        for artifact in extract_artifact_like_refs(&result.body) {
+            if !artifact.contains('*')
+                && !artifact.contains('?')
+                && artifact_has_any_extension(&artifact, &extensions)
+                && !artifacts
+                    .iter()
+                    .any(|existing| artifact_refs_match(existing, &artifact))
+            {
+                artifacts.push(artifact);
+            }
+        }
+    }
+    artifacts
+}
+
+fn task_required_generic_input_extensions(task: &TaskState) -> Vec<&'static str> {
+    let mut extensions = Vec::new();
+    for text in task_requirement_texts(task) {
+        let lower = text.to_ascii_lowercase();
+        if (lower.contains("csv files")
+            || lower.contains("csv file")
+            || lower.contains("csv data")
+            || lower.contains("csv input")
+            || lower.contains("csv source"))
+            && !extensions.contains(&"csv")
+        {
+            extensions.push("csv");
+        }
+    }
+    extensions
+}
+
+fn task_requirement_texts(task: &TaskState) -> Vec<&str> {
+    let mut texts = vec![task.title.as_str(), task.objective.as_str()];
+    for source in &task.cognitive_state.fact_sources {
+        texts.push(source.id.as_str());
+        texts.push(source.description.as_str());
+    }
+    for criterion in &task.problem_ledger.success_criteria {
+        texts.push(criterion.description.as_str());
+    }
+    for criterion in &task.cognitive_state.success_criteria {
+        texts.push(criterion.as_str());
+    }
+    texts
+}
+
+fn artifact_has_any_extension(artifact: &str, extensions: &[&str]) -> bool {
+    let lower = normalize_artifact_ref(artifact).to_ascii_lowercase();
+    lower
+        .rsplit_once('.')
+        .is_some_and(|(_, ext)| extensions.iter().any(|expected| ext == *expected))
 }
 
 fn observed_required_fact_source_artifacts(
@@ -24639,6 +24720,132 @@ def build_organization():\n\
                 .iter()
                 .any(|target| target == "schema.json"),
             "{requirements:?}"
+        );
+    }
+
+    #[test]
+    fn inspect_generic_csv_requirement_expands_discovered_csv_inputs() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (_task_id, map_id, node_id, _) = state
+            .start_task_for_main_with_kind_and_criteria(
+                owner,
+                NodeKind::InspectCodeContext,
+                "TaskSpace task".to_string(),
+                "TaskSpace task".to_string(),
+                vec![ActionMapSuccessCriterionInput {
+                    id: "criterion-1".to_string(),
+                    kind: "test".to_string(),
+                    description: "Read existing CSV files and schema.json".to_string(),
+                    status: "open".to_string(),
+                    evidence_refs: vec![ActionMapEvidenceRefInput {
+                        artifact_ref: Some("user-request".to_string()),
+                        ..Default::default()
+                    }],
+                }],
+                vec![ActionMapStateCommitOutputContractInput {
+                    id: "output-contract-1".to_string(),
+                    kind: "artifact".to_string(),
+                    description: "organization.json file created".to_string(),
+                    evidence_refs: vec![ActionMapEvidenceRefInput {
+                        artifact_ref: Some("user-request".to_string()),
+                        ..Default::default()
+                    }],
+                }],
+                vec![ActionMapStateCommitFactSourceInput {
+                    id: "fact-source-1".to_string(),
+                    provenance: "observed_from_environment".to_string(),
+                    description: "User request: Create a JSON processor following schema.json"
+                        .to_string(),
+                    evidence_refs: vec![ActionMapEvidenceRefInput {
+                        artifact_ref: Some("user-request".to_string()),
+                        ..Default::default()
+                    }],
+                }],
+                "Inspect code context".to_string(),
+                "Inspect the repository context for the user request.".to_string(),
+                true,
+            )
+            .expect("task starts");
+        record_successful_read_result(&mut state, owner, "schema", "schema.json");
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "list-files",
+                "shell_command",
+                Some(ActionClass::Read),
+                true,
+                "TaskSpaceToolInvocationV1:\n\
+tool: shell_command\n\
+command: rg --files .\n\
+raw_output:\n\
+schema.json\n\
+departments.csv\n\
+employees.csv\n\
+projects.csv\n"
+                    .to_string(),
+            )
+            .expect("listing records");
+
+        let missing = state.current_main_inspect_missing_required_fact_source_artifacts();
+        assert!(
+            missing.contains(&"departments.csv".to_string()),
+            "{missing:?}"
+        );
+        assert!(
+            missing.contains(&"employees.csv".to_string()),
+            "{missing:?}"
+        );
+        assert!(missing.contains(&"projects.csv".to_string()), "{missing:?}");
+        assert!(
+            !missing.contains(&"organization.json".to_string()),
+            "generated output target must not become a required input fact source: {missing:?}"
+        );
+
+        let snapshot = ActionMapProviderRequestBudgetSnapshot {
+            task_id: state.active_task_id.clone(),
+            map_id,
+            node_id: Some(node_id),
+            node_kind: Some(NodeKind::InspectCodeContext.as_str().to_string()),
+            current_node_progress_signature: None,
+            current_node_has_successful_edit: false,
+            current_node_has_dependency_working_evidence: false,
+            current_node_has_uncovered_mandatory_evidence: false,
+            current_node_uncovered_mandatory_evidence: Vec::new(),
+            current_node_validation_rework_artifacts: Vec::new(),
+            route_mode: Some("thin".to_string()),
+            profile_name: Some("taskspace-v005-thin".to_string()),
+            request_phase: Some("model_sampling".to_string()),
+            provider_request_context_missing_reason: None,
+            request_count: 3,
+            max_requests: 20,
+            node_request_count: 3,
+            max_model_requests_per_node: 5,
+            post_budget_grace_requests: 1,
+            post_budget_grace_request_count: 0,
+            budget_state: "normal".to_string(),
+        };
+        let forced = state
+            .force_finish_inspect_for_provider_budget(
+                owner,
+                &snapshot,
+                "inspect_duplicate_read_search_gate_recovery",
+            )
+            .expect("force finish should not error while waiting for fact-source reads");
+        assert!(
+            forced.is_none(),
+            "generic CSV input requirement must block forced transition until discovered CSV inputs are read"
+        );
+
+        record_successful_read_result(&mut state, owner, "departments", "departments.csv");
+        record_successful_read_result(&mut state, owner, "employees", "employees.csv");
+        record_successful_read_result(&mut state, owner, "projects", "projects.csv");
+        assert!(
+            state
+                .current_main_inspect_missing_required_fact_source_artifacts()
+                .is_empty(),
+            "reading the discovered CSV inputs should satisfy generic CSV coverage"
         );
     }
 
