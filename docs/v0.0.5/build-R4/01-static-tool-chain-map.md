@@ -497,3 +497,17 @@ read completeness 修复后的首轮 keyed rerun 暴露命令构造的 portabili
 
 边界说明：该 case 是工具能力层命令构造错误，不是模型行为问题，也不是 read completeness contract 本身错误。修复只移除
 summary `awk` 的非 portable `--`，不改变 read 窗口、不改变状态机权限。
+
+## 2026-07-04 R4-D issue type addendum: generic fact-source concrete artifact gap
+
+schema rename hint 修复后的 keyed rerun 证明 schema validation 链路已能跑到真实 required-property errors，但也暴露出更早的
+inspect coverage 缺口：`start_task` 的 `initial_fact_sources` 写成泛化目录描述，`initial_success_criteria` 却已经明确点名
+`departments.csv`、`employees.csv`、`projects.csv`。runtime 只从 fact-source record 提取 concrete artifacts，导致 inspect
+只读 `schema.json` 就允许进入 implementation，模型随后按猜测字段实现。
+
+| Issue type | Layer | Symptom | Resolution contract | Evidence |
+|---|---|---|---|---|
+| `generic-fact-source-success-criteria-artifact-gap` | inspect coverage / fact-source feedback layer | 具体输入文件存在于 success criteria，但泛化 fact-source 描述没有展开为 required reads；实现前未读 CSV，导致字段发明和后续 schema failure | required fact-source artifacts 同时从 explicit fact_sources 和 success criteria 中抽取；排除 output-contract targets 和 generated JSON output，避免把 `organization.json` 当作输入；projection/manual finish 在命名输入未读时不暴露 implement transition | `inspect_requires_success_criteria_artifacts_when_fact_source_is_generic_directory`; `inspect_` regression suite; CoE H-067/E-141/E-142 |
+
+边界说明：该 case 是反馈层“语义缺失”，不是 validation repair 语义扭曲。runtime 不应该在 implementation node 成功 edit
+之后再允许补做输入 inspect；正确做法是在 inspect 阶段把 success criteria 中的 concrete input artifacts 纳入硬 gate。

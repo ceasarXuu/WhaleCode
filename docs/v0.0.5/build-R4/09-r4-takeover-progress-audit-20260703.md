@@ -154,6 +154,7 @@ raw signal 存在但语义没有正确进入下一轮 tool contract：
 | `validation-rework-failed-edit-recovery-shadowed-by-patch-only-hardstop` | keyed rerun `20260704-135944-845` 证实 optional fact-source loop 已清除，但 validation rework 中 `apply_patch` expected-lines mismatch 被已有 target-read 证据误路由到 patch-only hard-stop，导致具体失败反馈没有传给模型；已让 failed edit recovery 优先于 post-target-read patch-only recovery | focused+regression fixed / real rerun pending |
 | `validation-local-infra-retry-command-generic` | keyed rerun `20260704-141543-156` 证实 H-064 path 未复现，但裸 `pytest -v` command-not-found 被正确路由到 local-infra validation retry 后，retry context 明知 changed artifact 是 `process.py`，却仍给泛化 `python recover.py` 示例；已从 changed script artifact 生成 exact platform-compatible command hint，如 `python process.py` | focused+regression fixed / real rerun pending |
 | `validation-schema-repair-rename-hint-gap` | keyed rerun `20260704-143221-395` 证实 local-infra command genericity 已清除，并进入真实 schema validation；validator output 已显示 `member_ids` vs `members`、`total_employees` vs `totalEmployees` 等 rename 线索，但 repair contract 只列 missing required names，模型继续读 schema 到 patch-only hard-stop；已从 validator offending object keys 生成 `schema_property_rename_hints` | focused+regression fixed / real rerun pending |
+| `generic-fact-source-success-criteria-artifact-gap` | keyed rerun `20260704-144300-806` 证实 schema validation path 可达，但 start_task 的 fact source 只有泛化“repository root containing schema.json and CSV files”，而 success criteria 已点名 `departments.csv/employees.csv/projects.csv`；runtime 未从 success criteria 提取这些输入工件，导致只读 schema 就实现并猜错 CSV 字段；已把 success criteria 中的 concrete input artifacts 纳入 inspect fact-source gate，并排除 generated output `organization.json` | focused fixed / real rerun pending |
 
 新增关键判断：
 
@@ -2319,3 +2320,52 @@ CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/co
 4. `organization-json-generator` 当前下一步不再是 provider 前置；keyed run 已证明 provider preflight 通过，`bwrap` feedback-layer case 已收录并修复。
 5. 重跑 `organization-json-generator` 验证 `tool-runtime-bootstrap-failure`、fact-source coverage、provider hard stop、fact-source path retention、adaptive inspect node limit、implementation rework evidence join、inspect projection fact-source guard、editable validation blocker guard、output contract coverage guard、schema fact-source guard、recovery projection guard、validation rework target artifact read guard、jsonschema module recovery、sed read artifact attribution、manual validation rework origin、stale validation block guard、target-read projection guard、read summary portability、pytest runner infra classification、rework target multiline evidence、implementation needs-edit hard-stop、recent-output active-context scoping、rework target read output retention、pytest command normalization 和 duplicate list_files data bootstrap 是否让 TaskSpace 生成 schema/public-test 正确的 `organization.json`；如仍 wrong，按新 trace 建立下一层 case。
 6. 每完成一个样本，更新 public-10 snapshot 或生成新的 durable report artifact，避免再次依赖未提交 `target/` 缓存。
+
+## 7. 2026-07-04 generic fact-source success-criteria artifact gap
+
+`d11321c` 的 keyed rerun 继续把 `organization-json-generator` 推进到真实 schema validation，但失败根因前移到 inspect
+coverage：TaskSpace 没有在实现前读取三个 CSV 输入文件。
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260704bl-schema-rename-hints/runs/terminal_bench__organization-json-generator/20260704-144300-806
+reported_evidence_level: E2-candidate
+outcome_standard: solved
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 10
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+current_git_head: d11321c9dcb66441b4611b0a931051c94df87de5
+```
+
+关键观察：
+
+| Signal | 结论 |
+|---|---|
+| `initial_success_criteria` 明确包含 `Process departments.csv, employees.csv, projects.csv` | 用户/任务语义里已经有具体输入工件 |
+| `initial_fact_sources` 只有 `repository root containing schema.json and CSV files` | fact-source record 太泛化，无法驱动 concrete read gate |
+| inspect 阶段只读取 `schema.json`，没有读取三个 CSV | 现有 gate 只从 fact sources 提取 concrete artifacts，不从 success criteria 补齐 |
+| 初始 `process.py` 猜测 `email/role/salary` 等不存在字段 | implementation 在缺输入证据时发明字段，后续 validation repair 成本显著增加 |
+| validation 后再读 `departments.csv` 被 runtime 拒绝 | 状态机底线是对的：成功 edit 后不能回到同一 implementation node 做输入 inspect |
+
+问题类型收录：
+
+| 字段 | 内容 |
+|---|---|
+| case | `generic-fact-source-success-criteria-artifact-gap` |
+| 层级 | inspect fact-source coverage / feedback layer |
+| 本质 | 语义缺失：具体输入工件存在于 success criteria，但没有进入 required fact-source artifact set |
+| 非根因 | 不是 validation repair contract 缺 rename hint；也不是 runtime 应允许 implementation 后补读 CSV |
+| 修复 | `task_required_fact_source_artifact_refs()` 扫描 success criteria / cognitive success criteria 中的 artifact-like refs，排除 output contract targets 和 generated JSON output，保留 schema/CSV/source artifacts |
+| focused evidence | `inspect_requires_success_criteria_artifacts_when_fact_source_is_generic_directory` |
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core inspect_ -- --nocapture
+  PASS：62 tests
+```
+
+状态：focused 修复和 R4-adjacent regression/build 已完成；仍需 commit/push、attestation，并再次 keyed rerun
+`organization-json-generator`，确认模型在实现前读取 `departments.csv/employees.csv/projects.csv`，或者继续暴露下一层
+tools/control case。

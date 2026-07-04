@@ -4004,3 +4004,68 @@
   ```
 - Result: passed. Focused test passed after updating the fixture to include the live-style statistics required-property lines. Regression suites passed through `validation_rework` 20/20, `output_contract` 8/8, `action_contract_prompt` 28/28, and `provider_budget` 23/23. `cargo fmt` and `cargo fmt --check` exit 0 with only the known stable rustfmt `imports_granularity` warnings. `git diff --check` and the `whale` build passed.
 - Interpretation: H-066 is focused-fixed with R4-adjacent regression/build coverage. Remaining gates are commit/push, attestation, and another keyed rerun.
+
+# Evidence E-141: d11321c live rerun clears rename-hint contract but exposes generic fact-source coverage gap
+
+- Prediction tested: H-066 should make schema repair contracts richer when validation reaches real required-property failures.
+- Real rerun:
+  ```text
+  RunDir: target/r4-org-json-real-keyed-20260704bl-schema-rename-hints/runs/terminal_bench__organization-json-generator/20260704-144300-806
+  PairReport: pair-001/pair-report.md
+  reported_evidence_level: E2-candidate
+  outcome_standard: solved
+  outcome_taskspace: engineering_unclean
+  right_exec_timed_out: False
+  right_tool_call_count: 10
+  right_public_validation_exit_code: 1
+  right_hidden_oracle_exit_code: 0
+  current_git_head: d11321c9dcb66441b4611b0a931051c94df87de5
+  ```
+- Matched H-066-adjacent live signals:
+  - Docker validation environment was available; both sides reached `tests_completed`.
+  - TaskSpace reached the schema-validating command path and failed on real output-contract properties rather than local infra.
+  - The failure remained bounded: no 900s timeout; the turn ended through TaskSpace hard-stop semantics.
+- New blocker signals:
+  - `start_task` recorded success criteria that explicitly named `departments.csv`, `employees.csv`, and `projects.csv`, but `initial_fact_sources` only said `repository root containing schema.json and CSV files`.
+  - The inspect node listed repository files and read `schema.json`, then implementation started without reading any CSV contents.
+  - The generated `process.py` guessed nonexistent employee columns such as `email`, `role`, and `salary`, producing schema failures for missing `position`, `skills`, `years_of_service`, `members`, `deadline`, and statistics keys.
+  - The model attempted `read_file departments.csv` only after implementation had already succeeded, and runtime correctly rejected that as too late for the implementation node.
+- Interpretation: H-066 is not contradicted, but the latest blocker is upstream of repair-contract quality. The new problem type is `generic-fact-source-success-criteria-artifact-gap`: declared fact-source text can be too generic, while success criteria contain concrete input artifacts that must still be enforced during inspect.
+
+# Hypothesis H-067: inspect fact-source coverage must derive concrete input artifacts from success criteria
+
+- Claim: `task_required_fact_source_artifact_refs()` only extracted concrete artifacts from recorded fact sources. When `initial_fact_sources` used a generic directory phrase but success criteria named concrete input files, inspect coverage did not require those named inputs before implementation.
+- Prediction:
+  1. A focused test matching the live shape should treat `departments.csv`, `employees.csv`, and `projects.csv` in success criteria as required fact-source artifacts even when the fact source says only `repository root containing schema.json and CSV files`.
+  2. The same test should not treat generated `organization.json` as an input fact source.
+  3. Projection and manual finish should refuse implement transition until the named CSVs are read.
+  4. Existing inspect/fact-source regressions should pass.
+- Diagnostic evidence plan: Extend required fact-source artifact extraction to scan success criteria and cognitive success criteria, exclude output-contract targets and generated JSON outputs, then add a focused runtime test and rerun inspect/fact-source regression coverage.
+- Status: confirmed.
+
+# Evidence E-142: success-criteria input artifacts now participate in inspect fact-source gates
+
+- Prediction tested: H-067 predicts generic directory fact sources no longer allow implementation before user-named input artifacts are read.
+- Repair artifact:
+  - `third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs`
+- Repair behavior:
+  - `task_required_fact_source_artifact_refs()` now adds concrete artifact refs from problem-ledger and cognitive success criteria.
+  - The added path excludes declared output-contract targets and generated non-schema JSON outputs, so `organization.json` is not forced as a pre-implementation input read.
+  - Existing explicit fact-source records keep their previous behavior, including JSON input support.
+  - Added `inspect_requires_success_criteria_artifacts_when_fact_source_is_generic_directory`, covering the live shape and asserting projection/manual finish remain blocked until all three CSVs are read.
+- Focused validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core inspect_ -- --nocapture
+  ```
+- R4-adjacent regression validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core output_contract -- --nocapture
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_rework -- --nocapture
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core action_contract_prompt -- --nocapture
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core provider_budget -- --nocapture
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+  git diff --check
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-cli --bin whale --locked
+  ```
+- Result: passed. Focused inspect suite passed `62/62`, including the new H-067 test plus adjacent inspect, duplicate-read, missing fact-source, projection, and provider-budget inspect tests. Regression suites passed through `output_contract` 8/8, `validation_rework` 20/20, `action_contract_prompt` 28/28, and `provider_budget` 23/23. `cargo fmt --check` exits 0 with only the known stable rustfmt `imports_granularity` warnings. `git diff --check` and the `whale` build passed.
+- Interpretation: H-067 is focused-fixed with R4-adjacent regression/build coverage. Remaining gates are commit/push, attestation, and another keyed rerun to verify the live model now reads CSV source files before implementation.

@@ -15655,6 +15655,7 @@ fn task_output_contract_artifact_targets(task: &TaskState) -> Vec<String> {
 
 fn task_required_fact_source_artifact_refs(task: &TaskState) -> Vec<String> {
     let mut artifact_refs = Vec::new();
+    let output_targets = task_output_contract_artifact_targets(task);
     for source in &task.cognitive_state.fact_sources {
         if fact_source_is_optional(source) {
             continue;
@@ -15673,7 +15674,59 @@ fn task_required_fact_source_artifact_refs(task: &TaskState) -> Vec<String> {
             }
         }
     }
+    for criterion in &task.problem_ledger.success_criteria {
+        push_requirement_text_fact_source_artifact_refs(
+            &mut artifact_refs,
+            &criterion.description,
+            &output_targets,
+        );
+        for evidence in &criterion.evidence_refs {
+            if let Some(artifact_ref) = evidence.artifact_ref.as_deref() {
+                push_requirement_fact_source_artifact_ref(
+                    &mut artifact_refs,
+                    normalize_artifact_ref(artifact_ref),
+                    &output_targets,
+                );
+            }
+        }
+    }
+    for criterion in &task.cognitive_state.success_criteria {
+        push_requirement_text_fact_source_artifact_refs(
+            &mut artifact_refs,
+            criterion,
+            &output_targets,
+        );
+    }
     artifact_refs
+}
+
+fn push_requirement_text_fact_source_artifact_refs(
+    artifact_refs: &mut Vec<String>,
+    text: &str,
+    output_targets: &[String],
+) {
+    if fact_source_text_is_optional(text) {
+        return;
+    }
+    for artifact in extract_artifact_like_refs(text) {
+        push_requirement_fact_source_artifact_ref(artifact_refs, artifact, output_targets);
+    }
+}
+
+fn push_requirement_fact_source_artifact_ref(
+    artifact_refs: &mut Vec<String>,
+    artifact_ref: String,
+    output_targets: &[String],
+) {
+    let artifact_ref = normalize_artifact_ref(&artifact_ref);
+    if output_targets
+        .iter()
+        .any(|target| artifact_refs_match(target, &artifact_ref))
+        || output_contract_artifact_ref_looks_like_generated_json_output(&artifact_ref)
+    {
+        return;
+    }
+    push_required_fact_source_artifact_ref(artifact_refs, artifact_ref);
 }
 
 fn fact_source_is_optional(source: &FactSource) -> bool {
@@ -23753,6 +23806,132 @@ def build_organization():\n\
                         && blocked.action_class == "read"
             )
         }));
+    }
+
+    #[test]
+    fn inspect_requires_success_criteria_artifacts_when_fact_source_is_generic_directory() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (_task_id, _map_id, node_id, _) = state
+            .start_task_for_main_with_kind_and_criteria(
+                owner,
+                NodeKind::InspectCodeContext,
+                "Create organization JSON".to_string(),
+                "Create a JSON processor that transforms CSV data into organization.json following schema.json".to_string(),
+                vec![
+                    ActionMapSuccessCriterionInput {
+                        id: "sc-process-inputs".to_string(),
+                        kind: "artifact".to_string(),
+                        description: "Process departments.csv, employees.csv, projects.csv"
+                            .to_string(),
+                        status: "open".to_string(),
+                        evidence_refs: vec![ActionMapEvidenceRefInput {
+                            artifact_ref: Some("user-request".to_string()),
+                            ..Default::default()
+                        }],
+                    },
+                    ActionMapSuccessCriterionInput {
+                        id: "sc-output-schema".to_string(),
+                        kind: "validator".to_string(),
+                        description:
+                            "Output organization.json that matches schema.json structure"
+                                .to_string(),
+                        status: "open".to_string(),
+                        evidence_refs: vec![ActionMapEvidenceRefInput {
+                            artifact_ref: Some("user-request".to_string()),
+                            ..Default::default()
+                        }],
+                    },
+                ],
+                vec![ActionMapStateCommitOutputContractInput {
+                    id: "organization-json".to_string(),
+                    kind: "artifact".to_string(),
+                    description: "organization.json in the repository root".to_string(),
+                    evidence_refs: vec![ActionMapEvidenceRefInput {
+                        artifact_ref: Some("user-request".to_string()),
+                        ..Default::default()
+                    }],
+                }],
+                vec![ActionMapStateCommitFactSourceInput {
+                    id: "repository-root".to_string(),
+                    provenance: "observed_from_environment".to_string(),
+                    description: "repository root containing schema.json and CSV files"
+                        .to_string(),
+                    evidence_refs: vec![ActionMapEvidenceRefInput {
+                        artifact_ref: Some("user-request".to_string()),
+                        ..Default::default()
+                    }],
+                }],
+                "Inspect repository data".to_string(),
+                "Read schema and CSV source files before implementation.".to_string(),
+                true,
+            )
+            .expect("task starts");
+        record_test_node_scope_question(&mut state, owner, &node_id);
+        record_successful_read_result(&mut state, owner, "schema", "schema.json");
+
+        let missing = state.current_main_inspect_missing_required_fact_source_artifacts();
+        assert!(
+            missing.contains(&"departments.csv".to_string()),
+            "{missing:?}"
+        );
+        assert!(
+            missing.contains(&"employees.csv".to_string()),
+            "{missing:?}"
+        );
+        assert!(missing.contains(&"projects.csv".to_string()), "{missing:?}");
+        assert!(
+            !missing.contains(&"organization.json".to_string()),
+            "generated output target must not become a required input fact source: {missing:?}"
+        );
+
+        let map = state.maps.get("map-1").expect("map");
+        let task_id = state.active_task_id.clone().expect("active task");
+        let task = state.tasks.get(&task_id).expect("task");
+        let actions = projection_next_valid_actions(map, Some(&node_id), Some(task), &[]);
+        assert!(
+            actions
+                .iter()
+                .any(|action| action.contains("departments.csv")),
+            "{actions:?}"
+        );
+        assert!(
+            !actions
+                .iter()
+                .any(|action| action.contains("next_node_kind=\"implement_solution\"")),
+            "projection must not allow implementation before named CSV inputs are read: {actions:?}"
+        );
+
+        let manual_error = state
+            .finish_main_node_with_next(
+                owner,
+                &node_id,
+                "Only schema.json was inspected.".to_string(),
+                None,
+                Some(ActionMapNextNodeDraft {
+                    kind: NodeKind::ImplementSolution,
+                    title: "Implement CSV processor".to_string(),
+                    context_summary: "Implement after source data inspection.".to_string(),
+                    dependency_node_ids: vec![node_id.clone()],
+                }),
+            )
+            .expect_err(
+                "inspect must not finish before success-criterion input artifacts are read",
+            );
+        assert!(manual_error.contains("departments.csv"));
+        assert!(manual_error.contains("employees.csv"));
+        assert!(manual_error.contains("projects.csv"));
+
+        record_successful_read_result(&mut state, owner, "departments", "departments.csv");
+        record_successful_read_result(&mut state, owner, "employees", "employees.csv");
+        record_successful_read_result(&mut state, owner, "projects", "projects.csv");
+        assert!(
+            state
+                .current_main_inspect_missing_required_fact_source_artifacts()
+                .is_empty(),
+            "reading the three success-criterion CSV artifacts should satisfy inspect coverage"
+        );
     }
 
     #[test]

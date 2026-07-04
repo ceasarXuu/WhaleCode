@@ -3889,3 +3889,27 @@ CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/co
 
 状态：该 portability class 已 focused fixed，并通过 diff/build；还需要 commit/push、binary attestation 和下一轮 keyed
 rerun。下一轮重新验证 5.55 的目标：`read_file` 成功、summary 出现、`eof_reached` 进入 projection/recovery。
+
+## 5.57 2026-07-04 generic fact-source success-criteria artifact gap
+
+`d11321c` 的 keyed rerun 证明 schema validation path 已可达，但 TaskSpace 仍未达到 utility success。新的 blocker
+是 inspect coverage：success criteria 已经点名 `departments.csv`、`employees.csv`、`projects.csv`，但 fact source
+只记录了泛化目录描述，runtime 未把这些具体输入工件纳入 required read gate。
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260704bl-schema-rename-hints/runs/terminal_bench__organization-json-generator/20260704-144300-806
+reported_evidence_level: E2-candidate
+outcome_standard: solved
+outcome_taskspace: engineering_unclean
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+```
+
+本轮新增并 focused 修复的问题类型：
+
+| Case | Before | After | Evidence |
+|---|---|---|---|
+| `generic-fact-source-success-criteria-artifact-gap` | `initial_fact_sources` 泛化为 repository root，inspect 只读 `schema.json` 就进入实现；模型猜测 CSV 字段，后续 validation 出现大面积 missing required properties | `task_required_fact_source_artifact_refs()` 从 success criteria 补齐 concrete input artifacts；排除 output target / generated JSON，避免误要求读取 `organization.json` | `inspect_requires_success_criteria_artifacts_when_fact_source_is_generic_directory`; `CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core inspect_ -- --nocapture` 62/62 PASS; CoE H-067/E-141/E-142 |
+
+结论：这是 R4-D feedback/coverage focused 修复，不是 R4-G utility acceptance。下一轮 keyed rerun 应首先验证模型是否在实现前读取
+三个 CSV；如果仍 wrong，继续按新 trace 收录下一层 tools/control case。
