@@ -16805,6 +16805,17 @@ fn implement_node_dependency_validation_rework_repair_contract(
             .join("; ");
         parts.push(format!("schema_required_groups={group_summary}"));
     }
+    let rename_hints = implement_node_dependency_validation_rework_property_rename_hints(
+        map,
+        node,
+        &missing_required_properties,
+    );
+    if !rename_hints.is_empty() {
+        parts.push(format!(
+            "schema_property_rename_hints={}",
+            rename_hints.join(", ")
+        ));
+    }
     if !target_artifacts.is_empty() {
         parts.push(format!("target_artifacts={}", target_artifacts.join(", ")));
     }
@@ -16845,6 +16856,125 @@ fn implement_node_dependency_validation_rework_missing_required_properties(
         }
     }
     properties
+}
+
+fn implement_node_dependency_validation_rework_property_rename_hints(
+    map: &ActionMapInstance,
+    node: &MapNode,
+    missing_required_properties: &[String],
+) -> Vec<String> {
+    if missing_required_properties.is_empty() {
+        return Vec::new();
+    }
+    let mut hints = Vec::new();
+    for dependency_node_id in implement_node_validation_rework_dependency_node_ids(map, node) {
+        let Some(dependency) = map.nodes.get(&dependency_node_id) else {
+            continue;
+        };
+        if !matches!(
+            dependency.kind,
+            NodeKind::SmokeTest | NodeKind::RegressionTest
+        ) || dependency.status != NodeStatus::Blocked
+        {
+            continue;
+        }
+        for result_ref in &dependency.result_context {
+            let Some(result) = map.results.get(&result_ref.id) else {
+                continue;
+            };
+            if result.kind != NodeResultKind::MainToolCall && result.kind != NodeResultKind::Blocker
+            {
+                continue;
+            }
+            for hint in
+                validation_failure_property_rename_hints(&result.body, missing_required_properties)
+            {
+                if !hints.iter().any(|existing| existing == &hint) {
+                    hints.push(hint);
+                }
+            }
+        }
+    }
+    hints
+}
+
+fn validation_failure_property_rename_hints(
+    text: &str,
+    missing_required_properties: &[String],
+) -> Vec<String> {
+    let mut hints = Vec::new();
+    let missing = missing_required_properties
+        .iter()
+        .map(|property| property.as_str())
+        .collect::<HashSet<_>>();
+    for line in text.lines() {
+        let lower = line.to_ascii_lowercase();
+        if !lower.contains("is a required property") {
+            continue;
+        }
+        let Some(marker_start) = lower.find("is a required property") else {
+            continue;
+        };
+        let before = &line[..marker_start];
+        let Some(required) = quoted_suffix_value(before) else {
+            continue;
+        };
+        if !missing.contains(required.as_str()) {
+            continue;
+        }
+        for existing_key in quoted_object_keys(before) {
+            if property_key_suggests_rename(&existing_key, &required) {
+                let hint = format!("{existing_key}->{required}");
+                if !hints.iter().any(|existing| existing == &hint) {
+                    hints.push(hint);
+                }
+            }
+        }
+    }
+    hints
+}
+
+fn quoted_object_keys(text: &str) -> Vec<String> {
+    let mut keys = Vec::new();
+    for quote in ['\'', '"'] {
+        let mut rest = text;
+        while let Some(start) = rest.find(quote) {
+            let after_start = &rest[start + quote.len_utf8()..];
+            let Some(end) = after_start.find(quote) else {
+                break;
+            };
+            let value = &after_start[..end];
+            let after_end = &after_start[end + quote.len_utf8()..];
+            if after_end.trim_start().starts_with(':')
+                && !keys.iter().any(|existing| existing == value)
+            {
+                keys.push(value.to_string());
+            }
+            rest = after_end;
+        }
+    }
+    keys
+}
+
+fn property_key_suggests_rename(existing_key: &str, required_property: &str) -> bool {
+    let existing = normalize_property_name(existing_key);
+    let required = normalize_property_name(required_property);
+    if existing.is_empty() || required.is_empty() {
+        return false;
+    }
+    if existing == required {
+        return true;
+    }
+    let required_singular = required.strip_suffix('s').unwrap_or(&required);
+    required_singular.len() >= 4 && existing.contains(required_singular)
+}
+
+fn normalize_property_name(value: &str) -> String {
+    value
+        .chars()
+        .filter(|ch| ch.is_ascii_alphanumeric())
+        .flat_map(|ch| ch.to_lowercase())
+        .collect()
 }
 
 fn implement_node_dependency_schema_required_groups_for_properties(
@@ -33588,7 +33718,8 @@ command: python generate_org.py && python -m jsonschema -i organization.json sch
 raw_output:\n\
 /home/user/miniconda3/lib/python3.12/site-packages/jsonschema/__main__.py:4: DeprecationWarning: The jsonschema CLI is deprecated\n\
 {'name': 'Madrid', 'member_ids': ['D001-E001']}: 'members' is a required property\n\
-{'total_employees': 12, 'total_departments': 5, 'total_budget': 5300000, 'average_years_of_servic\n\
+{'total_employees': 12, 'total_departments': 5, 'total_budget': 5300000}: 'totalEmployees' is a required property\n\
+{'average_department_budget': 1060000.0, 'average_employee_tenure_years': 7.25}: 'averageDepartmentBudget' is a required property\n\
 [... telemetry preview truncated ...]\n"
                     .to_string(),
             )
@@ -33644,6 +33775,11 @@ raw_output:\n\
         );
         assert!(contract.contains("projectStatusDistribution"), "{contract}");
         assert!(contract.contains("averageYearsOfService"), "{contract}");
+        assert!(contract.contains("member_ids->members"), "{contract}");
+        assert!(
+            contract.contains("total_employees->totalEmployees"),
+            "{contract}"
+        );
         assert!(
             contract.contains("target_artifacts=generate_org.py"),
             "{contract}"

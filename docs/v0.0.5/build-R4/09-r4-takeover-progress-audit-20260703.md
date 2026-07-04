@@ -153,6 +153,7 @@ raw signal 存在但语义没有正确进入下一轮 tool contract：
 | `missing-fact-source-bootstrap-read-classification` | 同一 trace 中自动 missing-source bootstrap 生成 `printf ...; sed -n ... && awk ...` 读命令，但 preflight/gate 可将该非 action-contract shell 命令误入非 read 路径；已把 bounded `sed -n` read 形态纳入 shell action classifier，覆盖 bootstrap header 组合，同时保留 `sed -i`/重定向等 edit 判定 | focused+regression fixed / real rerun pending |
 | `validation-rework-failed-edit-recovery-shadowed-by-patch-only-hardstop` | keyed rerun `20260704-135944-845` 证实 optional fact-source loop 已清除，但 validation rework 中 `apply_patch` expected-lines mismatch 被已有 target-read 证据误路由到 patch-only hard-stop，导致具体失败反馈没有传给模型；已让 failed edit recovery 优先于 post-target-read patch-only recovery | focused+regression fixed / real rerun pending |
 | `validation-local-infra-retry-command-generic` | keyed rerun `20260704-141543-156` 证实 H-064 path 未复现，但裸 `pytest -v` command-not-found 被正确路由到 local-infra validation retry 后，retry context 明知 changed artifact 是 `process.py`，却仍给泛化 `python recover.py` 示例；已从 changed script artifact 生成 exact platform-compatible command hint，如 `python process.py` | focused+regression fixed / real rerun pending |
+| `validation-schema-repair-rename-hint-gap` | keyed rerun `20260704-143221-395` 证实 local-infra command genericity 已清除，并进入真实 schema validation；validator output 已显示 `member_ids` vs `members`、`total_employees` vs `totalEmployees` 等 rename 线索，但 repair contract 只列 missing required names，模型继续读 schema 到 patch-only hard-stop；已从 validator offending object keys 生成 `schema_property_rename_hints` | focused+regression fixed / real rerun pending |
 
 新增关键判断：
 
@@ -2162,6 +2163,68 @@ CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/co
 `local_infra` 11/11、`validation_rework` 20/20、`action_contract_prompt` 28/28、`provider_budget` 23/23 通过。
 `cargo fmt --check`、`git diff --check` 和 `whale` build 通过；fmt 仍只输出既有 stable rustfmt
 `imports_granularity` warning。
+
+### 3.39 validation schema repair rename hint gap
+
+local-infra retry command 修复提交、push 并刷新 attestation 后执行 keyed rerun：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260704bk-local-infra-command-hint/runs/terminal_bench__organization-json-generator/20260704-143221-395
+PairReport: pair-001/pair-report.md
+reported_evidence_level: E2-candidate
+outcome_standard: solved
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 11
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+current_git_head: 4fcf4ab21dd8070f6d2faf4f6c5b99acd6e6416d
+```
+
+这次 trace 证明 H-065 live-cleared：Docker validator 正常启动，TaskSpace 没再进入 `python recover.py`
+泛化 local-infra retry，而是执行到真实 output/schema contract validation：
+`python csv_to_json.py && python -m jsonschema -i organization.json schema.json`。
+
+新的 blocker 是 schema repair contract 的 rename hint 缺口：
+
+| evidence | 观察 |
+|---|---|
+| validation output | schema validator 报 `members`、`averageDepartmentBudget`、`totalEmployees`、`skillDistribution`、`departmentSizes`、`projectStatusDistribution`、`averageYearsOfService` 缺失 |
+| offending objects | project object 有 `member_ids`，schema 要 `members`；statistics object 有 `total_employees` / `average_department_budget`，schema 要 camelCase |
+| existing contract | runtime 已输出 `missing_required_properties` 和 `schema_required_groups` |
+| missing semantic | repair contract 没有把 offending object key 与 required key 关联成 rename hint |
+| result | 模型继续读 `schema.json`；target `csv_to_json.py` 已完整读完后再次读 schema，触发 `TaskSpaceValidationReworkPatchOnlyHardStopV1` |
+
+问题类型收录：
+
+| field | value |
+|---|---|
+| case | `validation-schema-repair-rename-hint-gap` |
+| layer | feedback layer / schema repair contract |
+| trigger | jsonschema validator 输出 `'<required>' is a required property` 且 offending object 中存在近似 key |
+| expected | repair contract 应包含 `schema_property_rename_hints`，例如 `member_ids->members`、`total_employees->totalEmployees` |
+| actual | contract 只列 missing required names 和 schema groups，模型仍倾向读取 schema 而不是 patch |
+| classification | 语义缺失：validator raw output 里已有 source/target rename evidence，但没有结构化进入下一轮 tool contract |
+| fix | 从 validation failure line 的 quoted object keys 提取候选 key，按规范化 key / singular containment 匹配 missing required property，加入 `schema_property_rename_hints` |
+
+本地 focused 和 R4-adjacent 验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core validation_rework_projects_schema_repair_contract_from_schema_read --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core validation_rework --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core output_contract --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core action_contract_prompt --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core provider_budget --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all
+CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+git diff --check
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-cli --bin whale --locked
+```
+
+结果：已通过。focused 测试确认 schema repair contract 包含 `member_ids->members` 和
+`total_employees->totalEmployees`；`validation_rework` 20/20、`output_contract` 8/8、
+`action_contract_prompt` 28/28、`provider_budget` 23/23 通过。`cargo fmt --check`、`git diff --check`
+和 `whale` build 通过；fmt 仍只输出既有 stable rustfmt `imports_granularity` warning。
 
 ## 4. 本次验证
 

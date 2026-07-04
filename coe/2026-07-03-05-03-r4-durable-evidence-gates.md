@@ -3939,3 +3939,68 @@
   ```
 - Result: passed. Focused test passed for both failed-result and manual-blocker paths; `local_infra` 11/11, `validation_rework` 20/20, `action_contract_prompt` 28/28, and `provider_budget` 23/23 passed. `cargo fmt` and `cargo fmt --check` exit 0 with only the known stable rustfmt `imports_granularity` warnings. `git diff --check` and the `whale` build passed.
 - Interpretation: H-065 is focused-fixed with R4-adjacent regression/build coverage. Remaining gates are commit/push, attestation, and another keyed rerun.
+
+# Evidence E-139: 4fcf4ab live rerun clears local-infra command genericity but exposes schema rename hint gap
+
+- Prediction tested: H-065 should make validation retry context specific enough to steer away from bare pytest/local-infra loops.
+- Real rerun:
+  ```text
+  RunDir: target/r4-org-json-real-keyed-20260704bk-local-infra-command-hint/runs/terminal_bench__organization-json-generator/20260704-143221-395
+  PairReport: pair-001/pair-report.md
+  reported_evidence_level: E2-candidate
+  outcome_standard: solved
+  outcome_taskspace: engineering_unclean
+  right_exec_timed_out: False
+  right_tool_call_count: 11
+  right_public_validation_exit_code: 1
+  right_hidden_oracle_exit_code: 0
+  current_git_head: 4fcf4ab21dd8070f6d2faf4f6c5b99acd6e6416d
+  ```
+- Matched H-065 live signals:
+  - Docker validation environment was available; `tests_started_seen=True` on both sides.
+  - TaskSpace did not repeat the prior `python recover.py` generic local-infra retry.
+  - The model reached the correct combined validation command: `python csv_to_json.py && python -m jsonschema -i organization.json schema.json`.
+  - The validator produced real schema failures rather than local-infra failures.
+- New blocker signals:
+  - Validation failed with required property gaps: `members`, `averageDepartmentBudget`, `totalEmployees`, `skillDistribution`, `departmentSizes`, `projectStatusDistribution`, and `averageYearsOfService`.
+  - The failed output itself contained obvious source/target rename clues: project objects used `member_ids` while schema required `members`; statistics used snake_case keys such as `total_employees` while schema required camelCase.
+  - Runtime generated a schema repair contract with missing properties and schema required groups, but not the source-to-required rename hints.
+  - The model repeatedly tried to read `schema.json` instead of patching `csv_to_json.py`, then hit `TaskSpaceValidationReworkPatchOnlyHardStopV1`.
+- Interpretation: H-065 is live-cleared. The newly actionable feedback-layer problem type is `validation-schema-repair-rename-hint-gap`: validation output contains enough structured evidence to suggest key renames, but the repair contract only lists missing required names.
+
+# Hypothesis H-066: schema repair contracts should include property rename hints from validator output
+
+- Claim: `implement_node_dependency_validation_rework_repair_contract()` already collects missing required properties and schema required groups, but it does not inspect the offending JSON object keys in the validator output. When the output has `member_ids` and the missing property is `members`, or `total_employees` and the missing property is `totalEmployees`, the provider receives weaker repair guidance than the evidence supports.
+- Prediction:
+  1. A focused schema repair contract test with `{'name': 'Madrid', 'member_ids': [...]}` and missing `members` should include `member_ids->members`.
+  2. A focused schema repair contract test with `{'total_employees': 12}` and missing `totalEmployees` should include `total_employees->totalEmployees`.
+  3. Existing validation rework, output contract, action-contract prompt, and provider-budget suites should pass.
+- Diagnostic evidence plan: Extract quoted object keys from validation failure lines that end in `'<property>' is a required property`; compare normalized key names with missing required properties; append unique `schema_property_rename_hints` to the repair contract.
+- Status: confirmed.
+
+# Evidence E-140: schema repair contract now includes validator-derived rename hints
+
+- Prediction tested: H-066 predicts rename hints should be added without weakening existing validation rework gates.
+- Repair artifact:
+  - `third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs`
+- Repair behavior:
+  - Added `validation_failure_property_rename_hints()` and helpers to extract quoted object keys from validator output.
+  - The repair contract now appends `schema_property_rename_hints=...` when an offending output key normalizes to a missing required property, or clearly contains its singular form.
+  - Focused fixture now covers `member_ids->members`, `total_employees->totalEmployees`, and `average_department_budget->averageDepartmentBudget` style evidence.
+- Focused validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core validation_rework_projects_schema_repair_contract_from_schema_read --lib --locked
+  ```
+- R4-adjacent regression validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core validation_rework --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core output_contract --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core action_contract_prompt --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core provider_budget --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+  git diff --check
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-cli --bin whale --locked
+  ```
+- Result: passed. Focused test passed after updating the fixture to include the live-style statistics required-property lines. Regression suites passed through `validation_rework` 20/20, `output_contract` 8/8, `action_contract_prompt` 28/28, and `provider_budget` 23/23. `cargo fmt` and `cargo fmt --check` exit 0 with only the known stable rustfmt `imports_granularity` warnings. `git diff --check` and the `whale` build passed.
+- Interpretation: H-066 is focused-fixed with R4-adjacent regression/build coverage. Remaining gates are commit/push, attestation, and another keyed rerun.
