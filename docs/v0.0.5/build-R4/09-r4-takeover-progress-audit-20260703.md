@@ -152,6 +152,7 @@ raw signal 存在但语义没有正确进入下一轮 tool contract：
 | `optional-fact-source-required-loop` | keyed rerun `20260704-133520-535` 证实 `package.json or any config files (if present)` 被 runtime 抽取成硬性 `package.json` fact-source gate；即使 `rg --files` 证明文件不存在且 schema/CSV 已读完，projection 仍要求 `read_file package.json` 并烧到 provider node hard-stop；已让条件性/可选 fact-source 描述不生成硬 inspect/validation gate | focused+regression fixed / real rerun pending |
 | `missing-fact-source-bootstrap-read-classification` | 同一 trace 中自动 missing-source bootstrap 生成 `printf ...; sed -n ... && awk ...` 读命令，但 preflight/gate 可将该非 action-contract shell 命令误入非 read 路径；已把 bounded `sed -n` read 形态纳入 shell action classifier，覆盖 bootstrap header 组合，同时保留 `sed -i`/重定向等 edit 判定 | focused+regression fixed / real rerun pending |
 | `validation-rework-failed-edit-recovery-shadowed-by-patch-only-hardstop` | keyed rerun `20260704-135944-845` 证实 optional fact-source loop 已清除，但 validation rework 中 `apply_patch` expected-lines mismatch 被已有 target-read 证据误路由到 patch-only hard-stop，导致具体失败反馈没有传给模型；已让 failed edit recovery 优先于 post-target-read patch-only recovery | focused+regression fixed / real rerun pending |
+| `validation-local-infra-retry-command-generic` | keyed rerun `20260704-141543-156` 证实 H-064 path 未复现，但裸 `pytest -v` command-not-found 被正确路由到 local-infra validation retry 后，retry context 明知 changed artifact 是 `process.py`，却仍给泛化 `python recover.py` 示例；已从 changed script artifact 生成 exact platform-compatible command hint，如 `python process.py` | focused+regression fixed / real rerun pending |
 
 新增关键判断：
 
@@ -2100,6 +2101,66 @@ CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/co
 且仍保留 `Failed to find expected lines`、`do not repeat the same hunk` 和同目标窄读恢复指令；原有
 post-target-read patch-only recovery/hard-stop 测试继续通过，说明只有真实 failed edit 会抢占优先级。
 `git diff --check` 和 `whale` build 通过；`cargo fmt --check` 仍只输出既有 stable rustfmt
+`imports_granularity` warning。
+
+### 3.38 validation local-infra retry command specificity
+
+failed-edit recovery 修复提交、push 并刷新 attestation 后执行 keyed rerun：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260704bj-failed-edit-recovery/runs/terminal_bench__organization-json-generator/20260704-141543-156
+PairReport: pair-001/pair-report.md
+reported_evidence_level: E1
+outcome_standard: engineering_unclean
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 8
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+current_git_head: c3ccd498b56eff26f8dd77161b24b01d3ca8a609
+```
+
+这次 trace 没有出现 `apply_patch verification failed`，也没有 `TaskSpaceValidationReworkPatchOnlyHardStopV1`，
+因此不构成 H-064 反例。它暴露了下一层 local-infra retry command specificity 问题：
+
+| evidence | 观察 |
+|---|---|
+| implementation | TaskSpace 创建 `process.py`，进入 smoke-test validation |
+| wrong validation command | 模型运行裸 `pytest -v`，shell 返回 `/bin/bash: line 1: pytest: command not found` |
+| correct coarse routing | runtime 将该结果归入 local validator infrastructure，block `node-3`，并创建 `node-4` smoke-test retry，而不是误转 implementation rework |
+| lost specificity | `node-4` context 已列出 `Changed artifacts still need platform-compatible execution: process.py`，但下一句仍是泛化示例 `python recover.py` |
+| run health | provider 在 validation recovery 后续连续 5 次 stream disconnect，最终 `TaskSpaceProviderBudgetHardStopV1`；pair 同时因 Docker backend unavailable 被标 `engineering_unclean` |
+
+问题类型收录：
+
+| field | value |
+|---|---|
+| case | `validation-local-infra-retry-command-generic` |
+| layer | feedback layer / validation retry next-action specificity |
+| trigger | validation node 的 local-infra failure 发生在 changed artifact 被真实验证前 |
+| expected | retry node 应把 changed artifact 转成 exact platform-compatible command，例如 `process.py` -> `python process.py` |
+| actual | retry node 虽然知道 `process.py`，但用固定示例 `python recover.py`，导致下一步语义弱化 |
+| classification | 语义缺失：artifact target 已存在，但没有进入下一轮可执行 command contract |
+| fix | `validation_node_local_infra_*_unvalidated_artifact_result()` 生成 changed script artifact command hint；retry node 文案引用 named command(s)，不再硬编码 `python recover.py` |
+
+本地 focused 和 R4-adjacent 验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core local_infra_validation_block_routes_unvalidated_changed_artifact_to_rework --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core local_infra --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core validation_rework --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core action_contract_prompt --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core provider_budget --lib --locked
+CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all
+CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+git diff --check
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-cli --bin whale --locked
+```
+
+结果：已通过。focused 测试覆盖 failed-result 和 manual-blocker 两条 local-infra retry 路径：`merge_users.py`
+会生成 `python merge_users.py` 且不再包含泛化 `python recover.py`；`recover.py` 路径仍生成 `python recover.py`。
+`local_infra` 11/11、`validation_rework` 20/20、`action_contract_prompt` 28/28、`provider_budget` 23/23 通过。
+`cargo fmt --check`、`git diff --check` 和 `whale` build 通过；fmt 仍只输出既有 stable rustfmt
 `imports_granularity` warning。
 
 ## 4. 本次验证

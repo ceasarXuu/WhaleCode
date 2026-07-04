@@ -3873,3 +3873,69 @@
   ```
 - Result: passed. Focused H-064 test passed; original post-target-read patch-only recovery and hard-stop tests still passed. Regression suites passed through `apply_patch_` 35/35, `validation_rework` 20/20, `action_contract_prompt` 28/28, `implementation_needs_edit` 3/3, and `provider_budget` 23/23. `cargo fmt --check` exits 0 with only the known stable rustfmt `imports_granularity` warnings. `git diff --check` and the `whale` build passed.
 - Interpretation: H-064 is focused-fixed with R4-adjacent regression/build coverage. The remaining gates are commit/push, attestation, and another keyed `organization-json-generator` rerun to verify the live trace advances past failed-edit recovery priority inversion.
+
+# Evidence E-137: c3ccd49 live rerun clears H-064 path but exposes generic local-infra retry command
+
+- Prediction tested: H-064 should no longer shadow concrete failed-edit feedback with validation rework patch-only hard-stop.
+- Real rerun:
+  ```text
+  RunDir: target/r4-org-json-real-keyed-20260704bj-failed-edit-recovery/runs/terminal_bench__organization-json-generator/20260704-141543-156
+  PairReport: pair-001/pair-report.md
+  reported_evidence_level: E1
+  outcome_standard: engineering_unclean
+  outcome_taskspace: engineering_unclean
+  right_exec_timed_out: False
+  right_tool_call_count: 8
+  right_public_validation_exit_code: 1
+  right_hidden_oracle_exit_code: 0
+  current_git_head: c3ccd498b56eff26f8dd77161b24b01d3ca8a609
+  ```
+- Matched H-064 live signals:
+  - No `apply_patch verification failed` occurred in the TaskSpace side.
+  - No `TaskSpaceValidationReworkPatchOnlyHardStopV1` occurred.
+  - The run advanced through inspect and implementation into smoke-test validation.
+- New blocker signals:
+  - The model created `process.py`, then ran `pytest -v`.
+  - The shell returned `/bin/bash: line 1: pytest: command not found`.
+  - Runtime correctly treated this as local validator infrastructure and blocked `node-3`, then created `node-4` as a `smoke_test` retry instead of an implementation rework.
+  - The `node-4` context knew the changed artifact was `process.py`, but the recovery text still said to run a platform-compatible command "such as `python recover.py`".
+  - The provider then hit five stream disconnects during validation recovery and ended at `TaskSpaceProviderBudgetHardStopV1`; the pair is also engineering-unclean because the external Docker backend was unavailable.
+- Interpretation: H-064 is not contradicted by the rerun. The newly actionable feedback-layer problem type is `validation-local-infra-retry-command-generic`: local-infra retry context names the changed artifact but loses it when presenting the command, weakening the next action from exact `python process.py` to a generic sample.
+
+# Hypothesis H-065: local-infra validation retry must name exact changed-artifact commands
+
+- Claim: `block_main_node()` creates local-infra validation retry nodes from `validation_node_local_infra_unvalidated_artifact_result()` / `validation_node_local_infra_blocker_unvalidated_artifact_result()`. Those helpers already compute `validation_dependency_changed_artifacts()`, but the retry node context uses the hard-coded example `python recover.py` instead of a command derived from the changed artifact list.
+- Prediction:
+  1. A failed validation result with changed artifact `merge_users.py` should create a retry node whose context includes `python merge_users.py` and does not include generic `python recover.py`.
+  2. A manual local-infra blocker with changed artifact `recover.py` should still include `python recover.py`.
+  3. Existing local-infra, validation rework, action-contract prompt, and provider-budget tests should continue to pass.
+- Diagnostic evidence plan: Add command-hint generation for changed script artifacts (`.py`, `.js`, `.mjs`, `.sh`) and use it in both local-infra failed-result and blocker summaries; replace the retry node text with "named platform-compatible command(s)" so the exact command from the summary is authoritative.
+- Status: confirmed.
+
+# Evidence E-138: local-infra retry context now carries exact changed-artifact command hints
+
+- Prediction tested: H-065 predicts local-infra validation retry nodes should preserve the changed artifact as a concrete runnable command.
+- Repair artifact:
+  - `third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs`
+- Repair behavior:
+  - Added `platform_compatible_validation_commands()` and `platform_compatible_validation_command_hint()` to derive command hints from changed script artifacts.
+  - `.py` artifacts become `python <artifact>`, `.js` / `.mjs` become `node <artifact>`, and `.sh` becomes `sh <artifact>`.
+  - Local-infra failed-result and blocker summaries now append `Suggested platform-compatible command(s): ...` when changed script artifacts are known.
+  - Validation retry node context now tells the model to run the named command(s) above, instead of hard-coding `python recover.py`.
+- Focused validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core local_infra_validation_block_routes_unvalidated_changed_artifact_to_rework --lib --locked
+  ```
+- R4-adjacent regression validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core local_infra --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core validation_rework --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core action_contract_prompt --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core provider_budget --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+  git diff --check
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-cli --bin whale --locked
+  ```
+- Result: passed. Focused test passed for both failed-result and manual-blocker paths; `local_infra` 11/11, `validation_rework` 20/20, `action_contract_prompt` 28/28, and `provider_budget` 23/23 passed. `cargo fmt` and `cargo fmt --check` exit 0 with only the known stable rustfmt `imports_granularity` warnings. `git diff --check` and the `whale` build passed.
+- Interpretation: H-065 is focused-fixed with R4-adjacent regression/build coverage. Remaining gates are commit/push, attestation, and another keyed rerun.

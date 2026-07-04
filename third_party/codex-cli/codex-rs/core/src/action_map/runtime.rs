@@ -5764,7 +5764,7 @@ preview:\n\
                 )
             } else {
                 format!(
-                    "Validation node `{node_id}` was blocked because local validator infrastructure failed before changed artifacts were proven. Failure preview: {failed_summary}. Run the changed artifact(s) directly with a platform-compatible command such as `python recover.py`, or run another real validator that covers the same changed artifact(s)."
+                    "Validation node `{node_id}` was blocked because local validator infrastructure failed before changed artifacts were proven. Failure preview: {failed_summary}. Run the named platform-compatible command(s) above, or run another real validator that covers the same changed artifact(s)."
                 )
             };
             let (rework_node_id, mut rework_events) = self.create_node_for_main_with_kind(
@@ -15332,8 +15332,9 @@ fn validation_node_local_infra_unvalidated_artifact_result(
         Some((
             result.id.clone(),
             format!(
-                "local validator infrastructure failed before changed artifacts were proven. Changed artifacts still need platform-compatible execution: {}. Failure preview: {}",
+                "local validator infrastructure failed before changed artifacts were proven. Changed artifacts still need platform-compatible execution: {}.{} Failure preview: {}",
                 changed_artifacts.join(", "),
+                platform_compatible_validation_command_hint(&changed_artifacts),
                 single_line_preview(&result.body, 180)
             ),
         ))
@@ -15358,8 +15359,9 @@ fn validation_node_local_infra_blocker_unvalidated_artifact_result(
     Some((
         "blocked_validation_local_infra".to_string(),
         format!(
-            "local validator infrastructure blocker was recorded before changed artifacts were proven. Changed artifacts still need platform-compatible execution: {}. Blocker preview: {}",
+            "local validator infrastructure blocker was recorded before changed artifacts were proven. Changed artifacts still need platform-compatible execution: {}.{} Blocker preview: {}",
             changed_artifacts.join(", "),
+            platform_compatible_validation_command_hint(&changed_artifacts),
             single_line_preview(blocker_summary, 180)
         ),
     ))
@@ -15550,6 +15552,47 @@ fn script_artifact_token(token: &str) -> bool {
     matches!(
         normalized.rsplit_once('.').map(|(_, ext)| ext),
         Some("py" | "js" | "mjs" | "sh")
+    )
+}
+
+fn shell_single_quote_arg(value: &str) -> String {
+    if value
+        .chars()
+        .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '.' | '/' | '_' | '-'))
+    {
+        return value.to_string();
+    }
+    format!("'{}'", value.replace('\'', "'\\''"))
+}
+
+fn platform_compatible_validation_commands(artifacts: &[String]) -> Vec<String> {
+    artifacts
+        .iter()
+        .filter_map(|artifact| {
+            let normalized = normalize_artifact_ref(artifact);
+            let quoted = shell_single_quote_arg(&normalized);
+            match normalized.rsplit_once('.').map(|(_, ext)| ext) {
+                Some("py") => Some(format!("python {quoted}")),
+                Some("js" | "mjs") => Some(format!("node {quoted}")),
+                Some("sh") => Some(format!("sh {quoted}")),
+                _ => None,
+            }
+        })
+        .collect()
+}
+
+fn platform_compatible_validation_command_hint(artifacts: &[String]) -> String {
+    let commands = platform_compatible_validation_commands(artifacts);
+    if commands.is_empty() {
+        return String::new();
+    }
+    format!(
+        " Suggested platform-compatible command(s): {}.",
+        commands
+            .iter()
+            .map(|command| format!("`{command}`"))
+            .collect::<Vec<_>>()
+            .join(", ")
     )
 }
 
@@ -32975,6 +33018,13 @@ organization.json generated successfully.\n"
             rework_node
                 .context
                 .summary
+                .contains("python merge_users.py")
+        );
+        assert!(!rework_node.context.summary.contains("python recover.py"));
+        assert!(
+            rework_node
+                .context
+                .summary
                 .contains("platform-compatible execution")
         );
     }
@@ -33091,6 +33141,7 @@ organization.json generated successfully.\n"
         let rework_node = map.nodes.get(rework_node_id).expect("rework node");
         assert_eq!(rework_node.kind, NodeKind::SmokeTest);
         assert!(rework_node.context.summary.contains("recover.py"));
+        assert!(rework_node.context.summary.contains("python recover.py"));
         assert!(
             rework_node
                 .context
