@@ -6942,3 +6942,75 @@
     PASS
   ```
 - Interpretation: H-115 and H-116 are focused-fixed. Remaining gates are commit/push, install/attest, and a keyed rerun to verify fake project-name type mismatches and placeholder-range expected-lines loops no longer occur live.
+
+# Evidence E-237: H-115/H-116 rerun clears prior blockers but exposes output-contract fact-source false positive
+
+- Real rerun:
+  ```text
+  RunDir: target/r4-org-json-real-keyed-20260705ak-type-placeholder-gate/runs/terminal_bench__organization-json-generator/20260705-031706-550
+  reported_evidence_level: E2-candidate
+  outcome_standard: solved
+  outcome_taskspace: wrong
+  right_exec_timed_out: False
+  right_tool_call_count: 20
+  right_public_validation_exit_code: 1
+  right_hidden_oracle_exit_code: 0
+  right_open_leaf_nodes: 1
+  final_marker: TaskSpaceProviderBudgetHardStopV1 reason=provider_node_request_hard_limit_exceeded node_kind=inspect_code_context node_request_count=13/12
+  ```
+- H-115 live status:
+  - No fake `schema_type_mismatches: RedBull expected string` repair contract appeared.
+  - `RedBull` only appeared in raw CSV/tool stderr output, not as a schema type-mismatch path.
+- H-116 live status:
+  - No placeholder range hunk was dispatched into `apply_patch`; this run did not reach validation rework patching because it failed earlier in inspect.
+- New blocker signals:
+  - The last agent message remained a `read_file schema.json` action.
+  - The active node stayed `inspect_code_context` with one open leaf.
+  - Runtime repeatedly told the provider that declared fact-source artifact(s) still needed inspect evidence: `organization.json`.
+  - `organization.json` was also the declared output contract and did not exist yet; repeated forced reads returned `sed: can't read organization.json: No such file or directory`.
+  - The projection's next valid actions included ``read_file declared fact-source artifact `organization.json` next`` and `do not finish inspect_code_context until declared fact-source artifacts are read`, which prevented transition to implementation.
+- Interpretation: H-115 and H-116 are live-cleared for this run. H-117 is a feedback-layer false positive: output contracts were incorrectly projected as required input fact sources.
+
+# Hypothesis H-117: generated output contracts must not become inspect fact-source requirements
+
+- Claim: `task_required_fact_source_artifact_refs()` filters generated output targets when extracting artifacts from success criteria, but not when extracting artifacts from `fact_sources`. If an initial fact source says "goal is to generate organization.json" and an output contract also declares `organization.json`, inspect coverage treats the generated output as an unread input fact-source artifact.
+- Prediction: A task with `initial_fact_sources` mentioning "generate organization.json" and `initial_output_contracts` declaring "organization.json file" should require `schema.json` and CSV inputs, but should not require `organization.json` before implementation.
+- Diagnostic evidence plan: Add a focused ActionMap test for the live shape. Update fact-source artifact extraction to use output-target filtering while preserving schema/validator dependencies such as `schema.json`. Run inspect fact-source, duplicate-read, output-contract, and build/fmt/check gates.
+- Status: focused-fixed; live rerun pending.
+
+# Evidence E-238: output-contract fact-source false positive is focused-fixed
+
+- Repair artifact:
+  - `third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs`
+- Repair behavior:
+  - Fact-source artifact extraction now receives the generated output-target set and filters those artifacts out before adding required inspect coverage.
+  - The output-target set now excludes schema/validator contracts and schema-looking artifacts, so `organization.json` is excluded as generated output while `schema.json` remains required input/validation evidence.
+  - Projection and duplicate-read recovery therefore stop advertising ``read_file declared fact-source artifact `organization.json``` before implementation.
+- Validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core inspect_fact_source_extraction_ignores_declared_generated_output_targets -- --nocapture
+    PASS: 1/1
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core inspect_fact_source -- --nocapture
+    PASS: 2/2
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core output_contract -- --nocapture
+    PASS: 10/10
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core inspect_duplicate_read -- --nocapture
+    PASS: 1/1
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core force_finish_inspect -- --nocapture
+    PASS: 1/1
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core start_task_derives_output_contracts_from_objective_when_model_records_inspect_outputs -- --nocapture
+    PASS: 1/1
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core inspect_missing_fact_sources -- --nocapture
+    PASS: 2/2
+  cargo fmt --check
+    PASS (stable rustfmt warns that imports_granularity is nightly-only)
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo check -p codex-core
+    PASS
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
+    PASS
+  git diff --check
+    PASS
+  ```
+- Note:
+  - Initial Cargo runs without `CODEX_SKIP_VENDORED_BWRAP=1` failed because the local environment lacks `libcap.pc` for vendored bubblewrap. The project validation path uses `CODEX_SKIP_VENDORED_BWRAP=1` for this workspace.
+- Interpretation: H-117 is focused-fixed. Remaining gates are commit/push, install/attest, and a keyed rerun to verify taskspace transitions from inspect into implementation instead of exhausting provider budget on generated output reads.

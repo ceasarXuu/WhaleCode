@@ -15913,8 +15913,17 @@ fn validation_dependency_changed_artifacts(map: &ActionMapInstance, node: &MapNo
 fn task_output_contract_artifact_targets(task: &TaskState) -> Vec<String> {
     let mut targets = Vec::new();
     for contract in &task.cognitive_state.output_contracts {
+        let schema_or_validator_contract = matches!(
+            contract.kind,
+            OutputContractKind::Schema | OutputContractKind::Validator
+        );
         for value in [&contract.id, &contract.description] {
             for artifact in extract_artifact_like_refs(value) {
+                if schema_or_validator_contract
+                    || output_contract_artifact_ref_looks_like_schema_or_validator(&artifact)
+                {
+                    continue;
+                }
                 if !targets.iter().any(|existing| existing == &artifact) {
                     targets.push(artifact);
                 }
@@ -15923,6 +15932,11 @@ fn task_output_contract_artifact_targets(task: &TaskState) -> Vec<String> {
         for evidence in &contract.evidence_refs {
             if let Some(artifact) = evidence.artifact_ref.as_deref() {
                 let artifact = normalize_artifact_ref(artifact);
+                if schema_or_validator_contract
+                    || output_contract_artifact_ref_looks_like_schema_or_validator(&artifact)
+                {
+                    continue;
+                }
                 if !targets.iter().any(|existing| existing == &artifact) {
                     targets.push(artifact);
                 }
@@ -15941,14 +15955,19 @@ fn task_required_fact_source_artifact_refs(task: &TaskState) -> Vec<String> {
         }
         for value in [&source.id, &source.description] {
             for artifact in extract_artifact_like_refs(value) {
-                push_required_fact_source_artifact_ref(&mut artifact_refs, artifact);
+                push_requirement_fact_source_artifact_ref(
+                    &mut artifact_refs,
+                    artifact,
+                    &output_targets,
+                );
             }
         }
         for evidence in &source.evidence_refs {
             if let Some(artifact_ref) = evidence.artifact_ref.as_deref() {
-                push_required_fact_source_artifact_ref(
+                push_requirement_fact_source_artifact_ref(
                     &mut artifact_refs,
                     normalize_artifact_ref(artifact_ref),
+                    &output_targets,
                 );
             }
         }
@@ -24746,6 +24765,113 @@ def build_organization():\n\
                 .current_main_inspect_missing_required_fact_source_artifacts()
                 .is_empty(),
             "reading the three success-criterion CSV artifacts should satisfy inspect coverage"
+        );
+    }
+
+    #[test]
+    fn inspect_fact_source_extraction_ignores_declared_generated_output_targets() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (_, _, node_id, _) = state
+            .start_task_for_main_with_kind_and_criteria(
+                owner,
+                NodeKind::InspectCodeContext,
+                "TaskSpace task".to_string(),
+                "Create a JSON processor that transforms CSV data into organization.json following schema.json".to_string(),
+                vec![ActionMapSuccessCriterionInput {
+                    id: "criterion-1".to_string(),
+                    kind: "test".to_string(),
+                    description:
+                        "organization.json is created and valid according to schema.json"
+                            .to_string(),
+                    status: "open".to_string(),
+                    evidence_refs: vec![ActionMapEvidenceRefInput {
+                        artifact_ref: Some("user-request".to_string()),
+                        ..Default::default()
+                    }],
+                }],
+                vec![ActionMapStateCommitOutputContractInput {
+                    id: "output-contract-1".to_string(),
+                    kind: "artifact".to_string(),
+                    description: "organization.json file in the working directory".to_string(),
+                    evidence_refs: vec![ActionMapEvidenceRefInput {
+                        artifact_ref: Some("user-request".to_string()),
+                        ..Default::default()
+                    }],
+                }],
+                vec![
+                    ActionMapStateCommitFactSourceInput {
+                        id: "fact-source-1".to_string(),
+                        provenance: "observed_from_environment".to_string(),
+                        description: "The workspace contains departments.csv, employees.csv, projects.csv and schema.json.".to_string(),
+                        evidence_refs: vec![ActionMapEvidenceRefInput {
+                            artifact_ref: Some("user-request".to_string()),
+                            ..Default::default()
+                        }],
+                    },
+                    ActionMapStateCommitFactSourceInput {
+                        id: "fact-source-2".to_string(),
+                        provenance: "observed_from_environment".to_string(),
+                        description:
+                            "The goal is to generate organization.json following the schema."
+                                .to_string(),
+                        evidence_refs: vec![ActionMapEvidenceRefInput {
+                            artifact_ref: Some("user-request".to_string()),
+                            ..Default::default()
+                        }],
+                    },
+                ],
+                "Inspect code context".to_string(),
+                "Inspect the repository context for the user request.".to_string(),
+                true,
+            )
+            .expect("task starts");
+
+        let missing = state.current_main_inspect_missing_required_fact_source_artifacts();
+        assert!(missing.contains(&"schema.json".to_string()), "{missing:?}");
+        assert!(
+            missing.contains(&"departments.csv".to_string()),
+            "{missing:?}"
+        );
+        assert!(
+            missing.contains(&"employees.csv".to_string()),
+            "{missing:?}"
+        );
+        assert!(missing.contains(&"projects.csv".to_string()), "{missing:?}");
+        assert!(
+            !missing.contains(&"organization.json".to_string()),
+            "declared generated output must not become a required input fact source: {missing:?}"
+        );
+
+        record_successful_read_result(&mut state, owner, "schema", "schema.json");
+        record_successful_read_result(&mut state, owner, "departments", "departments.csv");
+        record_successful_read_result(&mut state, owner, "employees", "employees.csv");
+        record_successful_read_result(&mut state, owner, "projects", "projects.csv");
+        assert!(
+            state
+                .current_main_inspect_missing_required_fact_source_artifacts()
+                .is_empty(),
+            "reading real CSV/schema fact sources should satisfy inspect coverage"
+        );
+
+        let map = state.maps.get("map-1").expect("map");
+        let task_id = state.active_task_id.clone().expect("active task");
+        let task = state.tasks.get(&task_id).expect("task");
+        let actions = projection_next_valid_actions(map, Some(&node_id), Some(task), &[]);
+        assert!(
+            actions
+                .iter()
+                .any(|action| action.contains("next_node_kind=\"implement_solution\"")),
+            "{actions:?}"
+        );
+        assert!(
+            !actions.iter().any(|action| {
+                action.contains("declared fact-source artifact `organization.json`")
+                    || action
+                        .contains("read_file declared fact-source artifact `organization.json`")
+            }),
+            "projection must not ask to read the generated output before implementation: {actions:?}"
         );
     }
 

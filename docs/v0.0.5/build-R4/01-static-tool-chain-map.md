@@ -1084,3 +1084,17 @@ gate 又把 `@@ -... +... @@` placeholder range hunk 归一化后送进 apply_pa
 
 边界说明：该修复不撤销 H-112 的 actionable patch normalization。带具体行号和真实 old/new context 的 range hunk 仍可归一化执行；
 只有 `...` placeholder range 被视为不可执行。
+
+## 2026-07-05 R4-D issue type addendum: generated output target advertised as unread fact source
+
+`c78e8fc` 后 keyed rerun 证明 H-115/H-116 没有复现：普通数据值不再污染 `schema_type_mismatches`，
+placeholder range hunk 也未进入 apply_patch。但该轮暴露更早的 inspect feedback 问题：runtime 把
+`organization.json` 同时作为 output contract 和 declared fact-source artifact，导致模型反复读取尚未生成的输出文件，
+最终 `inspect_code_context` 节点耗尽 provider node budget。
+
+| Issue type | Layer | Symptom | Resolution contract | Evidence |
+|---|---|---|---|---|
+| `inspect-output-contract-as-fact-source-false-positive` | inspect fact-source extraction / context projection / duplicate-read recovery | projection 和 recovery 要求 `read_file declared fact-source artifact organization.json`，但 `organization.json` 是生成输出，不是输入证据；模型无法进入 implement_solution | 已实现：从 fact_sources 抽取 required artifact 时过滤已声明生成输出；输出目标集合排除 schema/validator contracts，确保 `schema.json` 仍是输入/验证依赖 | keyed rerun `20260705-031706-550`; CoE H-117/E-237/E-238; focused tests `inspect_fact_source_extraction_ignores_declared_generated_output_targets`, `inspect_fact_source`, `output_contract`, `inspect_duplicate_read` |
+
+边界说明：该修复不放松 CSV/schema 输入读取要求。`departments.csv`、`employees.csv`、`projects.csv`、`schema.json`
+仍会作为 inspect coverage；只有已由 output contract 声明的生成物不再被要求在实现前读取。

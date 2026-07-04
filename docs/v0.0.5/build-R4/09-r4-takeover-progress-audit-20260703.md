@@ -3603,6 +3603,22 @@ statistics calculations 通过。新的 blocker 是 `members` 仍为对象数组
 
 状态：focused fixed，待 commit/push、install/attest 和真实 keyed rerun。
 
+## 45. 2026-07-05 output-contract fact-source false positive
+
+`c78e8fc` 安装后 keyed rerun 证明 H-115/H-116 不再阻塞当前路径，但 TaskSpace 侧卡在 inspect：
+runtime 要求读取 `organization.json` 作为 declared fact-source artifact，而该文件正是尚未生成的 output contract。
+
+| 字段 | 内容 |
+|---|---|
+| case | `inspect-output-contract-as-fact-source-false-positive` |
+| 层级 | inspect fact-source extraction / context projection / duplicate-read recovery |
+| 本质 | `initial_fact_sources` 中的“generate organization.json”被 artifact extractor 当作输入证据；过滤逻辑只作用于 success criteria，未作用于 fact_sources |
+| 非根因 | 不是 CSV/schema 未读；不是 provider budget 单纯过低；不是 H-115/H-116 复发；不是模型拒绝实现 |
+| 修复 | fact_sources 抽取 artifact 时过滤已声明生成输出；output target 集合排除 schema/validator contracts，保留 `schema.json` 作为必读输入/验证依赖 |
+| evidence | CoE H-117/E-237/E-238；keyed rerun `20260705-031706-550`; focused tests `inspect_fact_source_extraction_ignores_declared_generated_output_targets`, `inspect_fact_source`, `output_contract`, `inspect_duplicate_read`, `force_finish_inspect`, `inspect_missing_fact_sources` |
+
+状态：focused fixed，待 commit/push、install/attest 和真实 keyed rerun。
+
 ## 28. 2026-07-04 natural-language slash fact-source extraction
 
 `3b6b269` 后的 keyed rerun 没有触发 no-action recovery，因此 H-098 尚未 live-clear。该轮暴露 inspect fact-source

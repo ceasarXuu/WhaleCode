@@ -1607,6 +1607,48 @@ CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
 git diff --check
 ```
 
+## 5.95 2026-07-05 output-contract fact-source false positive
+
+`c78e8fc` 后 keyed rerun 证明 H-115/H-116 已越过旧 blocker，但 TaskSpace 侧在 inspect 阶段耗尽
+provider node budget：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260705ak-type-placeholder-gate/runs/terminal_bench__organization-json-generator/20260705-031706-550
+reported_evidence_level: E2-candidate
+outcome_standard: solved
+outcome_taskspace: wrong
+right_exec_timed_out: False
+right_tool_call_count: 20
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+right_open_leaf_nodes: 1
+final_marker: TaskSpaceProviderBudgetHardStopV1 node_kind=inspect_code_context node_request_count=13/12
+```
+
+收益判断：
+
+1. 新收录的 R4-D feedback/capability 修复是 `inspect-output-contract-as-fact-source-false-positive`。
+2. 根因不是模型不知道要生成 JSON，而是 runtime 把 output contract `organization.json` 误加入 required fact-source coverage。
+3. 反馈层因此持续给出错误下一步：读取尚未生成的 `organization.json`，并禁止 finish inspect 进入 implementation。
+4. 修复后，fact_sources 抽取 artifact 时会过滤已声明生成输出；schema/validator contract 不进入输出过滤集合，所以 `schema.json` 仍保留为必读输入/验证依赖。
+5. R4-G utility 仍未通过：需要下一次 keyed rerun 验证 inspect 是否能进入 implementation，并继续验证 H-114/H-117 后续链路。
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core inspect_fact_source_extraction_ignores_declared_generated_output_targets -- --nocapture
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core inspect_fact_source -- --nocapture
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core output_contract -- --nocapture
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core inspect_duplicate_read -- --nocapture
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core force_finish_inspect -- --nocapture
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core start_task_derives_output_contracts_from_objective_when_model_records_inspect_outputs -- --nocapture
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core inspect_missing_fact_sources -- --nocapture
+cargo fmt --check
+CODEX_SKIP_VENDORED_BWRAP=1 cargo check -p codex-core
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
+git diff --check
+```
+
 ## 5.99 2026-07-05 schema type mismatch repair semantics gap
 
 `646edd8` 后 keyed rerun 证明 H-112 的 mechanically actionable patch gate 已 live-clear：item_37 的 mixed
