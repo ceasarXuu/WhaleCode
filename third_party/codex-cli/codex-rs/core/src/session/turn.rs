@@ -13845,7 +13845,39 @@ async fn try_run_sampling_request(
                                     cancellation_token.child_token(),
                                 )
                                 .await?;
-                                None
+                                let remaining_fact_sources = sess
+                                    .action_map_current_inspect_missing_required_fact_source_artifacts()
+                                    .await;
+                                if remaining_fact_sources.is_empty() {
+                                    match sess
+                                        .force_finish_action_map_inspect_for_provider_budget(
+                                            &turn_context,
+                                            snapshot,
+                                            "inspect_missing_fact_source_bootstrap_complete",
+                                        )
+                                        .await
+                                    {
+                                        Ok(true) => Some(
+                                            build_taskspace_forced_inspect_transition_recovery_item(
+                                            ),
+                                        ),
+                                        Ok(false) => None,
+                                        Err(error) => {
+                                            sess.send_event(
+                                                &turn_context,
+                                                EventMsg::Warning(WarningEvent {
+                                                    message: format!(
+                                                        "TaskSpaceForcedInspectTransitionFailedV1 trigger=inspect_missing_fact_source_bootstrap_complete error={error}"
+                                                    ),
+                                                }),
+                                            )
+                                            .await;
+                                            None
+                                        }
+                                    }
+                                } else {
+                                    None
+                                }
                             }
                         } else if taskspace_message_has_repeated_blocked_action(
                             last_agent_message.as_deref(),

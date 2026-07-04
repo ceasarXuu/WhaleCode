@@ -4466,3 +4466,74 @@ CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/co
 
 边界说明：该 case 不是 H-072 的 recovery routing 降级，也不是 H-075/H-076 的 action-space 冲突。`read_file` 已被正确拒绝；
 问题是反馈没有把 validator 的字段级失败语义转译成足够明确的 patch 合成任务。
+
+## 5.70 2026-07-04 missing fact-source bootstrap does not transition
+
+`6ef01cc` keyed rerun 没有到达 5.69 的 validation rework path；它在 inspect 阶段更早失败。H-079 因而仍是 focused-fixed /
+live-unverified，新 blocker 是 missing fact-source bootstrap 后没有自动进入 implementation。
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260704bz-schema-repair-synthesis/runs/terminal_bench__organization-json-generator/20260704-174618-510
+reported_evidence_level: E1
+outcome_standard: wrong
+outcome_taskspace: wrong
+right_exec_timed_out: False
+right_tool_call_count: 7
+right_wall_time_ms: 29239
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+current_git_head: 6ef01cc
+```
+
+关键观察：
+
+| Signal | 结论 |
+|---|---|
+| provider 重复 `list_files`，duplicate inspect gate 拦截 | inspect 行为已卡在重复 discovery |
+| `TaskSpaceMissingFactSourceBootstrapV1` 读取 `schema.json` | bootstrap capability 生效 |
+| `TaskSpaceRepeatedBlockedInspectBootstrapV1` 随后读 bounded json/csv/yaml 内容 | runtime 已经能补充更多证据 |
+| 没有 `TaskSpaceForcedInspectTransitionV1`，current node 仍是 `inspect_code_context` | phase bridge 缺失 |
+| 最后 `TaskSpaceProviderBudgetHardStopV1 reason=provider_node_request_hard_limit_exceeded node_request_count=5/5`，没有生成 `organization.json` | budget 兜底太晚 |
+
+本轮新增并 focused 修复的问题类型：
+
+| Case | Before | After | Evidence |
+|---|---|---|---|
+| `inspect-missing-fact-source-bootstrap-no-transition` | missing fact-source bootstrap 读完后仍把控制权交回 inspect 模型，模型继续 list/search/read 直到 node budget hard-stop | bootstrap 返回后若 required fact-source coverage 已清空，session 立即触发 `inspect_missing_fact_source_bootstrap_complete` forced transition；runtime 接受该 trigger | keyed rerun `20260704-174618-510`; CoE H-080/E-170/E-171; focused tests |
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core inspect_missing_fact_source_bootstrap_complete_forces_transition_after_coverage --lib --locked
+  PASS
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core inspect_missing_fact_sources --lib --locked
+  PASS: 2/2
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core forced_inspect_transition_accepts_duplicate_read_search_gate_recovery --lib --locked
+  PASS
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core forced_inspect_transition --lib --locked
+  PASS: 5/5
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core inspect_bootstrap --lib --locked
+  PASS: 3/3
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_rework --lib --locked
+  PASS: 25/25
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core action_contract_prompt --lib --locked
+  PASS: 29/29
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+  PASS
+
+git diff --check
+  PASS
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-cli --bin whale --locked
+  PASS
+```
+
+边界说明：这不是允许未读完 fact-source 时提前进入 implementation。既有 `inspect_missing_fact_sources_block_manual_and_forced_finish_until_read`
+仍通过；修复只处理 bootstrap 已补齐覆盖后的自动过渡。

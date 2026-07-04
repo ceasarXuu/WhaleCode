@@ -681,3 +681,16 @@ rename hints 提升为足够可执行的 patch 任务。
 边界说明：这不是 permission 层问题，也不是 `read_file` 没有被挡住。runtime 已正确拒绝
 `validation_rework_closed_action_space_read_disallowed:read_file` 并 bounded hard-stop；修复点是让反馈层把 schema 失败语义转成
 可执行 patch plan，降低模型继续 discovery 的概率。
+
+## 2026-07-04 R4-D issue type addendum: missing fact-source bootstrap does not transition
+
+schema repair synthesis 修复后的 keyed rerun 没有到达 validation rework，而是在更早的 inspect 阶段暴露 phase-control 缺口：
+provider 重复 `list_files`，runtime 已执行 `TaskSpaceMissingFactSourceBootstrapV1` 读取剩余声明 fact-source，并进一步执行 bounded
+json/csv/yaml bootstrap，但没有把 inspect node 强制结束进入 implementation。模型继续 inspect，最终触发 inspect node request hard-stop。
+
+| Issue type | Layer | Symptom | Resolution contract | Evidence |
+|---|---|---|---|---|
+| `inspect-missing-fact-source-bootstrap-no-transition` | inspect bootstrap / phase-control bridge | missing fact-source bootstrap 已补齐事实源，但 session/runtime 把控制权还给 stuck inspect model，最终 `provider_node_request_hard_limit_exceeded node_request_count=5/5` | missing fact-source bootstrap 后若 required fact-source coverage 已清空，立即以 `inspect_missing_fact_source_bootstrap_complete` 触发 forced inspect transition；runtime 接受该 trigger 并插入 implementation node | keyed rerun `20260704-174618-510`; CoE H-080/E-170/E-171; `inspect_missing_fact_source_bootstrap_complete_forces_transition_after_coverage`; `inspect_missing_fact_sources`; duplicate transition regression |
+
+边界说明：这不是要跳过 fact-source guard。缺失事实源未读完时，既有 guard 仍阻止 forced finish；修复只覆盖 bootstrap 已把缺口补齐后的
+bridge，不再让模型继续消耗 inspect node budget。

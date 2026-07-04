@@ -4822,3 +4822,67 @@
   ```
 - Result: passed. Focused tests passed; `validation_rework` passed 25/25; `action_contract_prompt` passed 29/29; formatting, whitespace, and `whale` build passed.
 - Interpretation: H-079 is focused-fixed. It needs commit/push, attestation, and keyed rerun.
+
+# Evidence E-170: 6ef01cc rerun hits inspect-node hard stop before validation rework
+
+- Prediction tested: H-079 predicts patch-only recovery should be more actionable once the run reaches validation rework.
+- Real rerun:
+  ```text
+  RunDir: target/r4-org-json-real-keyed-20260704bz-schema-repair-synthesis/runs/terminal_bench__organization-json-generator/20260704-174618-510
+  PairReport: pair-001/pair-report.md
+  reported_evidence_level: E1
+  outcome_standard: wrong
+  outcome_taskspace: wrong
+  right_exec_timed_out: False
+  right_tool_call_count: 7
+  right_wall_time_ms: 29239
+  right_public_validation_exit_code: 1
+  right_hidden_oracle_exit_code: 0
+  current_git_head: 6ef01cc
+  ```
+- Matched/neutral H-079 signals:
+  - The run did not reach validation rework; no `TaskSpaceValidationReworkPatchOnlyRecoveryV1` or `Schema repair synthesis` branch was exercised.
+  - H-079 therefore remains focused-fixed but live-unverified.
+- New/remaining blocker signals:
+  - The provider repeated `list_files` on inspect node `node-1`; runtime blocked the duplicate and ran `TaskSpaceMissingFactSourceBootstrapV1` for `schema.json`.
+  - Runtime then ran `TaskSpaceRepeatedBlockedInspectBootstrapV1` and read bounded json/csv/yaml data, but did not force transition to implementation.
+  - The provider kept searching/reading in inspect and hit `TaskSpaceProviderBudgetHardStopV1 reason=provider_node_request_hard_limit_exceeded request_count=5/20 node_request_count=5/5`.
+  - No implementation artifact or `organization.json` was generated.
+- Interpretation: New blocker is H-080. The bootstrap capability reads missing fact sources, but after coverage is complete session/runtime does not automatically bridge inspect to implement; it returns control to a model already stuck in duplicate inspect behavior.
+
+# Hypothesis H-080: missing fact-source bootstrap completion should force inspect-to-implement transition
+
+- Claim: When `TaskSpaceMissingFactSourceBootstrapV1` records the remaining declared fact-source artifact(s) and `current_main_inspect_missing_required_fact_source_artifacts()` becomes empty, the session should immediately call `force_finish_action_map_inspect_for_provider_budget()` with a dedicated bootstrap-complete trigger. Runtime must accept that trigger as evidence-driven inspect convergence. Otherwise the model can spend the remaining inspect node budget on duplicate list/search/read actions even though enough evidence exists to implement.
+- Prediction:
+  1. After missing fact-source bootstrap returns and missing fact sources are empty, session should insert `TaskSpaceForcedInspectTransitionRecoveryV1`.
+  2. Runtime should accept trigger `inspect_missing_fact_source_bootstrap_complete`.
+  3. Existing missing fact-source guard should still block forced finish until required fact sources are actually read.
+  4. Existing duplicate read/search forced transition behavior should remain passing.
+- Diagnostic evidence plan: Add a runtime focused test proving the new trigger forces transition only after required fact-source coverage, and run existing inspect missing fact-source / duplicate transition tests.
+- Status: confirmed.
+
+# Evidence E-171: missing fact-source bootstrap completion now forces inspect transition
+
+- Prediction tested: H-080 predicts bootstrap-complete coverage must bridge inspect to implement instead of returning to duplicate inspect sampling.
+- Repair artifacts:
+  - `third_party/codex-cli/codex-rs/core/src/session/turn.rs`
+  - `third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs`
+- Repair behavior:
+  - After `run_taskspace_missing_fact_source_bootstrap()` records read evidence, session checks `action_map_current_inspect_missing_required_fact_source_artifacts()`.
+  - If coverage is complete, session calls `force_finish_action_map_inspect_for_provider_budget(..., "inspect_missing_fact_source_bootstrap_complete")` and inserts `TaskSpaceForcedInspectTransitionRecoveryV1` on success.
+  - Runtime now treats `inspect_missing_fact_source_bootstrap_complete` as an accepted evidence-driven forced-inspect trigger.
+- Validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core inspect_missing_fact_source_bootstrap_complete_forces_transition_after_coverage --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core inspect_missing_fact_sources --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core forced_inspect_transition_accepts_duplicate_read_search_gate_recovery --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core forced_inspect_transition --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core inspect_bootstrap --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_rework --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core action_contract_prompt --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+  git diff --check
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-cli --bin whale --locked
+  ```
+- Result: passed. Focused test passed; `inspect_missing_fact_sources` passed 2/2; `forced_inspect_transition` passed 5/5; `inspect_bootstrap` passed 3/3; `validation_rework` passed 25/25; `action_contract_prompt` passed 29/29; formatting, whitespace, and `whale` build passed.
+- Interpretation: H-080 is focused-fixed and should allow the next keyed run to reach implementation instead of hard-stopping inside inspect.

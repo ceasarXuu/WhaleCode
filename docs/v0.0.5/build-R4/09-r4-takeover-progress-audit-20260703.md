@@ -2500,6 +2500,46 @@ current_git_head: 0b8e5a1802f6aa59018715fe3ddf3219b042b289
 状态：focused 修复已编码；targeted tests、`validation_rework` 25/25、`action_contract_prompt` 29/29、fmt/check/build 均通过。
 仍需 commit/push、attestation、keyed rerun。
 
+## 16. 2026-07-04 missing fact-source bootstrap completion should force inspect transition
+
+`6ef01cc` 的 keyed rerun 没有命中 H-079 validation rework path，而是在 inspect 阶段提前失败。
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260704bz-schema-repair-synthesis/runs/terminal_bench__organization-json-generator/20260704-174618-510
+reported_evidence_level: E1
+outcome_standard: wrong
+outcome_taskspace: wrong
+right_exec_timed_out: False
+right_tool_call_count: 7
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+current_git_head: 6ef01cc
+```
+
+关键观察：
+
+| Signal | 结论 |
+|---|---|
+| repeated `list_files` 后出现 `TaskSpaceMissingFactSourceBootstrapV1 read bounded declared fact-source artifact(s): schema.json` | missing fact-source bootstrap capability 触发 |
+| 随后出现 `TaskSpaceRepeatedBlockedInspectBootstrapV1`，bounded 读取 json/csv/yaml 内容 | runtime 继续补证据，而不是直接过渡 |
+| 没有 `TaskSpaceForcedInspectTransitionV1` | bootstrap completion 后 phase bridge 缺失 |
+| 最终 `TaskSpaceProviderBudgetHardStopV1 reason=provider_node_request_hard_limit_exceeded node_request_count=5/5` | inspect node budget 被 discovery loop 耗尽 |
+| public validator 4/4 失败，`organization.json` 不存在 | 根本未进入 implementation |
+
+问题类型收录：
+
+| 字段 | 内容 |
+|---|---|
+| case | `inspect-missing-fact-source-bootstrap-no-transition` |
+| 层级 | inspect bootstrap / phase-control bridge |
+| 本质 | bootstrap 已补齐 required fact-source coverage，但 session/runtime 未立即 forced transition，导致 stuck inspect model 继续消耗 node budget |
+| 非根因 | 不是 H-079 schema synthesis；不是 missing fact-source guard 放宽；不是 validator/source 失败 |
+| 修复 | `run_taskspace_missing_fact_source_bootstrap()` 后重新检查 missing fact-source；若为空，调用 `force_finish_action_map_inspect_for_provider_budget(..., "inspect_missing_fact_source_bootstrap_complete")`；runtime allowlist 接受该 trigger |
+| focused evidence | CoE H-080/E-170/E-171；`inspect_missing_fact_source_bootstrap_complete_forces_transition_after_coverage`; `inspect_missing_fact_sources`; `forced_inspect_transition_accepts_duplicate_read_search_gate_recovery` |
+
+状态：focused 修复已编码；`forced_inspect_transition` 5/5、`inspect_bootstrap` 3/3、`validation_rework` 25/25、
+`action_contract_prompt` 29/29、fmt/check/build 均通过。仍需 commit/push、attestation、keyed rerun。
+
 ## 12. 2026-07-04 validation rework failed-edit refresh reopens complete read
 
 `c8a2d16` 的 attested keyed rerun 证明 H-075 静态 contract 修复已经把 live path 推进到 `apply_patch`。新的失败点不是
