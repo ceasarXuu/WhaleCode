@@ -11837,6 +11837,7 @@ fn validation_failure_body_excerpt(body: &str, max_chars: usize) -> String {
         .or_else(|| body.split_once("\r\nraw_output:\r\n").map(|(_, rest)| rest))
         .unwrap_or(body);
     let missing_required_properties = validation_failure_required_properties(focused);
+    let type_mismatches = validation_failure_type_mismatches(focused);
     let rename_hints =
         validation_failure_property_rename_hints(focused, &missing_required_properties);
     let mut signal_lines = Vec::new();
@@ -11863,17 +11864,26 @@ fn validation_failure_body_excerpt(body: &str, max_chars: usize) -> String {
     } else {
         single_line_preview(&selected.join(" | "), max_chars)
     };
-    if missing_required_properties.is_empty() {
+    if missing_required_properties.is_empty() && type_mismatches.is_empty() {
         selected_text
     } else {
-        let mut summaries = vec![format!(
-            "missing_required_properties: {}",
-            missing_required_properties.join(", ")
-        )];
-        if !rename_hints.is_empty() {
+        let mut summaries = Vec::new();
+        if !missing_required_properties.is_empty() {
             summaries.push(format!(
-                "schema_property_rename_hints={}",
-                rename_hints.join(", ")
+                "missing_required_properties: {}",
+                missing_required_properties.join(", ")
+            ));
+            if !rename_hints.is_empty() {
+                summaries.push(format!(
+                    "schema_property_rename_hints={}",
+                    rename_hints.join(", ")
+                ));
+            }
+        }
+        if !type_mismatches.is_empty() {
+            summaries.push(format!(
+                "schema_type_mismatches: {}",
+                type_mismatches.join(", ")
             ));
         }
         let required_summary = summaries.join(" | ");
@@ -11912,6 +11922,49 @@ fn validation_failure_required_properties(text: &str) -> Vec<String> {
         push_unique_required_property(&mut properties, property);
     }
     properties
+}
+
+fn validation_failure_type_mismatches(text: &str) -> Vec<String> {
+    let lines = text.lines().collect::<Vec<_>>();
+    let mut mismatches = Vec::new();
+    for (index, line) in lines.iter().enumerate() {
+        let lower = line.to_ascii_lowercase();
+        let Some(marker_start) = lower.find(" is not of type ") else {
+            continue;
+        };
+        let expected =
+            quoted_suffix_value(&line[marker_start..]).unwrap_or_else(|| "unknown".to_string());
+        let property = lines
+            .iter()
+            .skip(index + 1)
+            .take(8)
+            .find_map(|candidate| last_bracket_path_segment(candidate));
+        let Some(property) = property else {
+            continue;
+        };
+        let mismatch = format!("{property} expected {expected}");
+        if !mismatches.iter().any(|existing| existing == &mismatch) {
+            mismatches.push(mismatch);
+        }
+    }
+    mismatches
+}
+
+fn last_bracket_path_segment(line: &str) -> Option<String> {
+    let mut rest = line;
+    let mut last = None;
+    while let Some(start) = rest.find("['") {
+        let after_start = &rest[start + 2..];
+        let Some(end) = after_start.find("']") else {
+            break;
+        };
+        let value = after_start[..end].trim();
+        if !value.is_empty() && value != "properties" && value != "items" {
+            last = Some(value.to_string());
+        }
+        rest = &after_start[end + 2..];
+    }
+    last
 }
 
 fn push_unique_required_property(properties: &mut Vec<String>, property: String) {
@@ -17075,7 +17128,8 @@ fn implement_node_dependency_validation_rework_repair_contract(
     }
     let missing_required_properties =
         implement_node_dependency_validation_rework_missing_required_properties(map, node);
-    if missing_required_properties.is_empty() {
+    let type_mismatches = implement_node_dependency_validation_rework_type_mismatches(map, node);
+    if missing_required_properties.is_empty() && type_mismatches.is_empty() {
         return None;
     }
     let target_artifacts = implement_node_dependency_validation_rework_artifact_refs(map, node);
@@ -17084,10 +17138,19 @@ fn implement_node_dependency_validation_rework_repair_contract(
         node,
         &missing_required_properties,
     );
-    let mut parts = vec![format!(
-        "missing_required_properties={}",
-        missing_required_properties.join(", ")
-    )];
+    let mut parts = Vec::new();
+    if !missing_required_properties.is_empty() {
+        parts.push(format!(
+            "missing_required_properties={}",
+            missing_required_properties.join(", ")
+        ));
+    }
+    if !type_mismatches.is_empty() {
+        parts.push(format!(
+            "schema_type_mismatches={}",
+            type_mismatches.join(", ")
+        ));
+    }
     if !schema_groups.is_empty() {
         let group_summary = schema_groups
             .iter()
@@ -17155,6 +17218,40 @@ fn implement_node_dependency_validation_rework_missing_required_properties(
         }
     }
     properties
+}
+
+fn implement_node_dependency_validation_rework_type_mismatches(
+    map: &ActionMapInstance,
+    node: &MapNode,
+) -> Vec<String> {
+    let mut mismatches = Vec::new();
+    for dependency_node_id in implement_node_validation_rework_dependency_node_ids(map, node) {
+        let Some(dependency) = map.nodes.get(&dependency_node_id) else {
+            continue;
+        };
+        if !matches!(
+            dependency.kind,
+            NodeKind::SmokeTest | NodeKind::RegressionTest
+        ) || dependency.status != NodeStatus::Blocked
+        {
+            continue;
+        }
+        for result_ref in &dependency.result_context {
+            let Some(result) = map.results.get(&result_ref.id) else {
+                continue;
+            };
+            if result.kind != NodeResultKind::MainToolCall && result.kind != NodeResultKind::Blocker
+            {
+                continue;
+            }
+            for mismatch in validation_failure_type_mismatches(&result.body) {
+                if !mismatches.iter().any(|existing| existing == &mismatch) {
+                    mismatches.push(mismatch);
+                }
+            }
+        }
+    }
+    mismatches
 }
 
 fn implement_node_dependency_validation_rework_property_rename_hints(
@@ -35722,6 +35819,29 @@ organization.json generated successfully\n\
             ),
             "{excerpt}"
         );
+    }
+
+    #[test]
+    fn validation_failure_excerpt_extracts_schema_type_mismatch() {
+        let excerpt = validation_failure_body_excerpt(
+            "TaskSpaceToolInvocationV1:\n\
+tool: shell_command\n\
+raw_output:\n\
+jsonschema.exceptions.ValidationError: [{'skill': 'Python', 'count': 4}] is not of type 'object'\n\
+\n\
+Failed validating 'type' in schema['properties']['statistics']['properties']['skillDistribution']:\n\
+    {'type': 'object', 'additionalProperties': {'type': 'integer'}}\n\
+\n\
+On instance['statistics']['skillDistribution']:\n\
+    [{'skill': 'Python', 'count': 4}]\n",
+            420,
+        );
+
+        assert!(
+            excerpt.contains("schema_type_mismatches: skillDistribution expected object"),
+            "{excerpt}"
+        );
+        assert!(excerpt.contains("is not of type 'object'"), "{excerpt}");
     }
 
     #[test]

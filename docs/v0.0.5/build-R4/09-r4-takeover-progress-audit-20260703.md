@@ -3519,6 +3519,52 @@ H-109 live-clear：false CSV/schema missing terminal blocker 未复现。新问�
 
 状态：focused fixed，待 install/attest 和真实 keyed rerun 确认 replacement-required 不再分流。
 
+## 40. 2026-07-05 replacement-required recovery marker distortion
+
+`b3d31ec` 安装后 keyed rerun 证明 H-110 sticky replacement-required 分类已生效，但 recovery marker 仍把
+`apply_patch_replacement_required` 包装成 `TaskSpaceApplyPatchNativeHunkRecoveryV1`。
+
+| 字段 | 内容 |
+|---|---|
+| case | `apply-patch-replacement-required-recovery-marker-distortion` |
+| 层级 | feedback recovery marker / observability / hard-stop audit |
+| 本质 | 失败分类已是 replacement-required，但 provider-visible recovery 和 hard-stop excerpt 显示 native-hunk recovery，语义被改名 |
+| 修复 | 新增 `TaskSpaceApplyPatchReplacementRequiredRecoveryV1`，warning、recovery accounting、duplicate-read preserve、hard-stop excerpt 全链路识别 |
+| evidence | CoE H-111/E-227/E-228；keyed rerun `20260705-005608-072`；focused tests `replacement_required`, `native_hunk_recovery`, `unanchored_update`, `action_contract_prompt`, `validation_rework`, `taskspace_apply_patch` |
+
+状态：focused fixed；后续 keyed rerun 已确认 NativeHunk marker distortion 未复现。
+
+## 41. 2026-07-05 replacement gate blocks actionable normalized patch
+
+`23a25bd` 安装后 keyed rerun 证明 H-111 live-clear，但 item_58 的 active rework `Update File` 可机械归一化并通过
+schema validation，却被 replacement-required gate 无条件拦截。
+
+| 字段 | 内容 |
+|---|---|
+| case | `apply-patch-replacement-required-overblocks-actionable-update` |
+| 层级 | apply_patch action-contract / capability normalization / feedback boundary |
+| 本质 | replacement-required enforcement 过宽，把可执行 patch 错误归为必须 whole-file replacement |
+| 修复 | active rework target 先 normalize；归一化后无 malformed/mixed/unanchored 问题则 dispatch `apply_patch`，否则保留 replacement-required |
+| evidence | CoE H-112/E-229/E-230；keyed rerun `20260705-011054-226`；diagnostic `target/r4-h112-patch-diagnostic/item_58`; focused tests `rework_target`, `replacement_required`, `mixed_native_unified`, `unanchored_update`, `validation_rework`, `taskspace_apply_patch`, `action_contract_prompt` |
+
+状态：focused fixed；后续 keyed rerun 已确认 mechanically actionable rework patch 可 live 执行。
+
+## 42. 2026-07-05 schema type mismatch repair semantics gap
+
+`646edd8` 安装后 keyed rerun 证明 H-112 live-clear：item_37 的 active rework `Update File` 已产生 `file_change`。
+新的 blocker 是 schema type mismatch 没有进入结构化 repair contract。
+
+| 字段 | 内容 |
+|---|---|
+| case | `validation-schema-type-mismatch-repair-semantics-gap` |
+| 层级 | tool semantic summary / validation rework repair contract / implementation recovery synthesis |
+| 本质 | `jsonschema` 已指出 `skillDistribution` expected object，但 runtime 只结构化 missing required properties 和 rename hints；模型没有稳定收到“把 array-of-objects 改成 object/map”的动作语义 |
+| 非根因 | 不是 apply_patch 失败；不是 schema 未读；不是 validator 不可用；不是状态机越权 |
+| 修复 | `TaskSpaceToolSemanticSummaryV1`、validation failure excerpt、validation repair contract 增加 `schema_type_mismatches`；implementation recovery 对 `expected object` 生成 object/map patch synthesis |
+| evidence | CoE H-113/E-231/E-232；keyed rerun `20260705-012516-669`；focused tests `schema_type_mismatch`, `type_mismatch`, `validation_rework`, `action_contract_prompt`, `taskspace_apply_patch`, `replacement_required`; fmt/check/build/diff |
+
+状态：focused fixed，待 commit/push、install/attest 和真实 keyed rerun 确认 schema type mismatch 能 live 修复。
+
 ## 28. 2026-07-04 natural-language slash fact-source extraction
 
 `3b6b269` 后的 keyed rerun 没有触发 no-action recovery，因此 H-098 尚未 live-clear。该轮暴露 inspect fact-source

@@ -2513,7 +2513,14 @@ fn taskspace_validation_rework_schema_repair_synthesis(
     };
     let rename_hints =
         taskspace_schema_repair_values(evidence_summary, "schema_property_rename_hints=");
-    if missing.is_empty() && rename_hints.is_empty() {
+    let type_mismatches =
+        taskspace_schema_repair_values(evidence_summary, "schema_type_mismatches=");
+    let type_mismatches = if type_mismatches.is_empty() {
+        taskspace_schema_repair_values(evidence_summary, "schema_type_mismatches:")
+    } else {
+        type_mismatches
+    };
+    if missing.is_empty() && rename_hints.is_empty() && type_mismatches.is_empty() {
         return String::new();
     }
 
@@ -2535,11 +2542,21 @@ fn taskspace_validation_rework_schema_repair_synthesis(
             .collect::<Vec<_>>()
             .join(", ")
     };
+    let type_mismatch_label = if type_mismatches.is_empty() {
+        "(none captured)".to_string()
+    } else {
+        type_mismatches
+            .iter()
+            .map(|mismatch| format!("`{mismatch}`"))
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
 
     format!(
         "Schema repair synthesis from current validation failure:\n\
 - Missing required output properties to implement in `{target_artifact_label}` now: {missing_label}.\n\
 - Apply captured output-key rename hints exactly when present: {rename_label}.\n\
+- Fix schema type mismatches exactly when present: {type_mismatch_label}; for `expected object`, emit a JSON object/map keyed by the natural name rather than an array of objects.\n\
 - For every missing property without a rename hint, add a generated output field with the exact schema spelling and derive its value from already-read CSV/schema evidence.\n\
 - This is a patch-construction requirement, not a reason to read schema/data/target files again.\n"
     )
@@ -6129,6 +6146,26 @@ Then I will inspect the file."#,
         ));
         assert!(taskspace_validation_rework_patch_only_should_hard_stop(
             &item, 1
+        ));
+    }
+
+    #[test]
+    fn implementation_recovery_synthesizes_schema_type_mismatch_repairs() {
+        let last_message = "TaskSpaceActionV1 rejected: node_policy_violation:implement_solution:read_file:implementation_needs_edit. Return exactly one valid taskspace-action-v1 JSON object.";
+        let evidence = "validation_rework: smoke_test `node-5` failed result `result-14`: schema_type_mismatches=skillDistribution expected object \
+| validation_rework_target_read result=result-16 artifact=generate_organization.py read_context: complete_read eof_reached=true content_visibility: full_content_visible \
+| validation_schema_repair_contract: schema_type_mismatches=skillDistribution expected object | target_artifacts=generate_organization.py";
+        let item =
+            build_taskspace_implementation_recovery_item(Some(last_message), Some(evidence), None);
+        let text = item_text(item.clone());
+
+        assert!(text.contains(TASKSPACE_VALIDATION_REWORK_PATCH_ONLY_MARKER));
+        assert!(text.contains("Schema repair synthesis from current validation failure:"));
+        assert!(text.contains("`skillDistribution expected object`"));
+        assert!(text.contains("emit a JSON object/map keyed by the natural name"));
+        assert!(text.contains("target_artifacts: generate_organization.py"));
+        assert!(is_taskspace_validation_rework_patch_only_recovery_item(
+            &item
         ));
     }
 

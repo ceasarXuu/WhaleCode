@@ -1607,6 +1607,51 @@ CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
 git diff --check
 ```
 
+## 5.99 2026-07-05 schema type mismatch repair semantics gap
+
+`646edd8` 后 keyed rerun 证明 H-112 的 mechanically actionable patch gate 已 live-clear：item_37 的 mixed
+native/unified `Update File` 不再被 replacement-required 拦截，后续产生 `file_change`。新的 failure 是 validation
+schema type mismatch 没有被结构化为 patch repair requirement：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260705ag-actionable-rework-patch-gate/runs/terminal_bench__organization-json-generator/20260705-012516-669
+reported_evidence_level: E1
+outcome_standard: engineering_unclean
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 16
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+right_open_leaf_nodes: 1
+```
+
+收益判断：
+
+1. 新收录的 R4-D feedback 修复是 `validation-schema-type-mismatch-repair-semantics-gap`：validator 输出了
+   `skillDistribution expected object`，但旧链路只结构化 missing-required 和 rename-hint，导致模型没有稳定收到
+   “把 array-of-objects 改成 object/map”的下一步动作。
+2. 修复后，工具输出摘要、validation failure excerpt、validation repair contract 都会保留
+   `schema_type_mismatches`。
+3. implementation recovery synthesis 在只有 type mismatch、没有 missing required properties 的情况下也会生成
+   patch-only repair synthesis；对 `expected object` 明确要求输出 JSON object/map，而不是 array of objects。
+4. R4-G utility 仍未通过：需真实 keyed rerun 验证 `skillDistribution`、`departmentSizes`、
+   `projectStatusDistribution` 这类 schema object-map mismatch 是否能被 live 修复。
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core schema_type_mismatch --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core type_mismatch --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_rework --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core action_contract_prompt --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core taskspace_apply_patch --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core replacement_required --lib
+cargo fmt --check
+CODEX_SKIP_VENDORED_BWRAP=1 cargo check -p codex-core
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
+git diff --check
+```
+
 ## 5.95 2026-07-05 terminal blocked observed fact-source contradiction
 
 `fc7cae1` keyed rerun 越过 H-108 的 replacement-only hard-stop，但右侧 TaskSpace 仍未生成 `organization.json`。

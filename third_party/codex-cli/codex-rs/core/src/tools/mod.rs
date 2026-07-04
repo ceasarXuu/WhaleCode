@@ -176,18 +176,28 @@ pub(crate) fn append_taskspace_tool_tail_sentinels(preview: String, full_text: &
 
 pub(crate) fn taskspace_tool_semantic_summary(text: &str) -> Option<String> {
     let properties = taskspace_required_properties_from_text(text);
-    if properties.is_empty() {
+    let type_mismatches = taskspace_schema_type_mismatches_from_text(text);
+    if properties.is_empty() && type_mismatches.is_empty() {
         return None;
     }
-    let mut lines = vec![format!(
-        "TaskSpaceToolSemanticSummaryV1:\nmissing_required_properties: {}",
-        properties.join(", ")
-    )];
-    let rename_hints = taskspace_property_rename_hints_from_text(text, &properties);
-    if !rename_hints.is_empty() {
+    let mut lines = vec!["TaskSpaceToolSemanticSummaryV1:".to_string()];
+    if !properties.is_empty() {
         lines.push(format!(
-            "schema_property_rename_hints={}",
-            rename_hints.join(", ")
+            "missing_required_properties: {}",
+            properties.join(", ")
+        ));
+        let rename_hints = taskspace_property_rename_hints_from_text(text, &properties);
+        if !rename_hints.is_empty() {
+            lines.push(format!(
+                "schema_property_rename_hints={}",
+                rename_hints.join(", ")
+            ));
+        }
+    }
+    if !type_mismatches.is_empty() {
+        lines.push(format!(
+            "schema_type_mismatches: {}",
+            type_mismatches.join(", ")
         ));
     }
     Some(lines.join("\n"))
@@ -260,6 +270,49 @@ fn taskspace_quoted_suffix_value_with(text: &str, quote: char) -> Option<String>
     let start = before_end.rfind(quote)?;
     let value = before_end[start + quote.len_utf8()..].trim();
     (!value.is_empty()).then(|| value.to_string())
+}
+
+fn taskspace_schema_type_mismatches_from_text(text: &str) -> Vec<String> {
+    let lines = text.lines().collect::<Vec<_>>();
+    let mut mismatches = Vec::new();
+    for (index, line) in lines.iter().enumerate() {
+        let lower = line.to_ascii_lowercase();
+        let Some(marker_start) = lower.find(" is not of type ") else {
+            continue;
+        };
+        let expected = taskspace_quoted_suffix_value(&line[marker_start..])
+            .unwrap_or_else(|| "unknown".to_string());
+        let property = lines
+            .iter()
+            .skip(index + 1)
+            .take(8)
+            .find_map(|candidate| taskspace_last_bracket_path_segment(candidate));
+        let Some(property) = property else {
+            continue;
+        };
+        let mismatch = format!("{property} expected {expected}");
+        if !mismatches.iter().any(|existing| existing == &mismatch) {
+            mismatches.push(mismatch);
+        }
+    }
+    mismatches
+}
+
+fn taskspace_last_bracket_path_segment(line: &str) -> Option<String> {
+    let mut rest = line;
+    let mut last = None;
+    while let Some(start) = rest.find("['") {
+        let after_start = &rest[start + 2..];
+        let Some(end) = after_start.find("']") else {
+            break;
+        };
+        let value = after_start[..end].trim();
+        if !value.is_empty() && value != "properties" && value != "items" {
+            last = Some(value.to_string());
+        }
+        rest = &after_start[end + 2..];
+    }
+    last
 }
 
 fn taskspace_property_rename_hints_from_text(
@@ -401,5 +454,32 @@ mod tests {
         assert!(formatted.contains(
             "schema_property_rename_hints=member_ids->members, total_employees->totalEmployees, project_status_distribution->projectStatusDistribution"
         ));
+    }
+
+    #[test]
+    fn exec_output_formatter_summarizes_schema_type_mismatch() {
+        let raw_output = "\
+jsonschema.exceptions.ValidationError: [{'skill': 'Python', 'count': 4}] is not of type 'object'
+
+Failed validating 'type' in schema['properties']['statistics']['properties']['skillDistribution']:
+    {'type': 'object', 'additionalProperties': {'type': 'integer'}}
+
+On instance['statistics']['skillDistribution']:
+    [{'skill': 'Python', 'count': 4}]";
+        let exec_output = ExecToolCallOutput {
+            exit_code: 1,
+            stdout: StreamOutput::new(String::new()),
+            stderr: StreamOutput::new(String::new()),
+            aggregated_output: StreamOutput::new(raw_output.to_string()),
+            duration: Duration::from_millis(100),
+            timed_out: false,
+        };
+
+        let formatted =
+            format_exec_output_str_with_ref(&exec_output, TruncationPolicy::Bytes(512), None);
+
+        assert!(formatted.starts_with("TaskSpaceToolSemanticSummaryV1"));
+        assert!(formatted.contains("schema_type_mismatches: skillDistribution expected object"));
+        assert!(!formatted.contains("missing_required_properties:"));
     }
 }

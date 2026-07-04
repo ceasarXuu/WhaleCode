@@ -1042,3 +1042,17 @@ native hunk grammar 修复。
 
 边界说明：这不是撤销 replacement-required 语义。无锚点、placeholder、仍带 mixed marker 或 malformed header 的 rework
 `Update File` 仍会被拒绝为 replacement-required；只有归一化后可执行的 patch 进入工具层。
+
+## 2026-07-05 R4-D issue type addendum: schema type mismatch repair semantics gap
+
+`646edd8` 后 keyed rerun 证明 H-112 live-clear：active rework target 的 mechanically actionable `Update File`
+已经实际进入 `apply_patch` 并产生 `file_change`。新的 failure 转入 validation feedback：`jsonschema` 明确报告
+`skillDistribution` 不是 `object`，public validator 也因 `departmentSizes` 仍是 list 而失败，但 recovery 链没有把
+“expected object”组织成 schema repair 事实，模型后续漂移到 CSV parsing、metadata 和 stale blocker。
+
+| Issue type | Layer | Symptom | Resolution contract | Evidence |
+|---|---|---|---|---|
+| `validation-schema-type-mismatch-repair-semantics-gap` | tool semantic summary / validation rework repair contract / implementation recovery synthesis | validator 已给出 `skillDistribution expected object`，但反馈层只结构化 missing required properties 和 rename hints，未把 type mismatch 转成 patch-only 修复要求 | 已实现：tool summary、validation failure excerpt、validation repair contract 均输出 `schema_type_mismatches`；implementation recovery 对 `expected object` 明确要求输出 object/map，而不是 array of objects | keyed rerun `20260705-012516-669`; CoE H-113/E-231/E-232; focused tests `schema_type_mismatch`, `type_mismatch`, `validation_rework`, `action_contract_prompt` |
+
+边界说明：该修复不绕过 validator，也不凭空改 schema。它只把 validator 已经输出的类型事实保真传给下一轮 patch 构造，
+避免“类型不匹配”被压缩成普通失败文本后丢失操作语义。

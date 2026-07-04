@@ -6725,3 +6725,74 @@
     PASS
   ```
 - Interpretation: H-112 is focused-fixed. Remaining gates are commit/push, install/attest, and keyed rerun to verify the live task can execute the mechanically actionable rework patch instead of hard-stopping on replacement-required feedback.
+
+# Evidence E-231: H-112 rerun clears actionable patch block and exposes schema type-mismatch omission
+
+- Real rerun:
+  ```text
+  RunDir: target/r4-org-json-real-keyed-20260705ag-actionable-rework-patch-gate/runs/terminal_bench__organization-json-generator/20260705-012516-669
+  reported_evidence_level: E1
+  outcome_standard: engineering_unclean
+  outcome_taskspace: engineering_unclean
+  right_exec_timed_out: False
+  right_tool_call_count: 16
+  right_public_validation_exit_code: 1
+  right_hidden_oracle_exit_code: 0
+  right_open_leaf_nodes: 1
+  ```
+- H-112 live status:
+  - item_37 contained a mixed native/unified `*** Update File: generate_organization.py` patch.
+  - The patch was no longer rejected as replacement-required. It produced item_38 `file_change`, proving the mechanically actionable rework update path executed live.
+- New blocker signal:
+  - item_51 ran local generation and JSON schema validation, and failed with `jsonschema.exceptions.ValidationError: [{'skill': 'Python', 'count': 4}, ...] is not of type 'object'`.
+  - The failing schema path was `schema['properties']['statistics']['properties']['skillDistribution']`; the instance path was `instance['statistics']['skillDistribution']`.
+  - Final public validation also failed because `departmentSizes` remained a list while validator logic indexed it as an object: `stats["departmentSizes"][dept_name]`.
+  - The final generated implementation still emitted `skillDistribution`, `departmentSizes`, and `projectStatusDistribution` as arrays of objects, while `schema.json` requires object maps.
+  - Later recovery drifted into CSV parsing, metadata, and stale blocker attempts instead of converting those statistics fields from arrays to maps.
+- Interpretation: H-112 is live-cleared. H-113 is a feedback-layer omission: schema type mismatch facts are visible in validator output, but runtime only structures missing-required-property repair semantics and does not turn `expected object, got array` into a patch-construction requirement.
+
+# Hypothesis H-113: schema type mismatches need structured validation repair semantics
+
+- Claim: Validation rework currently preserves missing required properties and rename hints, but omits JSON schema type mismatches. When the validator says a field is "not of type 'object'", the provider receives raw traceback text rather than a structured repair contract, so it can drift to unrelated edits or false blockers.
+- Prediction: Focused tests should show:
+  - tool output summaries include `schema_type_mismatches: skillDistribution expected object`;
+  - validation failure excerpts preserve the same structured mismatch;
+  - implementation recovery synthesis turns that mismatch into a patch-only instruction to emit an object/map for `expected object`.
+- Diagnostic evidence plan: Add bounded extraction of jsonschema type mismatch lines and nearby schema/instance bracket paths; thread the result through tool semantic summary, ActionMap validation-failure excerpt, validation rework repair contract, and implementation recovery synthesis. Run focused type-mismatch tests plus validation-rework/action-contract/apply-patch/replacement-required regressions, fmt/check/build/diff gates, then commit/push and rerun the keyed benchmark.
+- Status: focused-fixed; real keyed rerun pending.
+
+# Evidence E-232: schema type mismatches are now preserved as patch repair facts
+
+- Repair artifacts:
+  - `third_party/codex-cli/codex-rs/core/src/tools/mod.rs`
+  - `third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs`
+  - `third_party/codex-cli/codex-rs/core/src/session/turn.rs`
+- Repair behavior:
+  - `TaskSpaceToolSemanticSummaryV1` now includes `schema_type_mismatches: <field> expected <type>` for jsonschema failures such as `skillDistribution expected object`.
+  - `validation_failure_body_excerpt()` now preserves type mismatches alongside missing-required-property and rename-hint summaries.
+  - Validation rework repair contracts now include `schema_type_mismatches=...` when dependency smoke/regression failures contain that signal.
+  - Implementation recovery synthesis now treats type mismatches as sufficient patch-repair evidence, and for `expected object` instructs the provider to emit a JSON object/map keyed by natural names rather than an array of objects.
+- Validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core schema_type_mismatch --lib
+    PASS: 3/3
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core type_mismatch --lib
+    PASS: 3/3
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_rework --lib
+    PASS: 29/29
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core action_contract_prompt --lib
+    PASS: 29/29
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core taskspace_apply_patch --lib
+    PASS: 18/18
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core replacement_required --lib
+    PASS: 1/1
+  cargo fmt --check
+    PASS (stable rustfmt warns that imports_granularity is nightly-only)
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo check -p codex-core
+    PASS
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
+    PASS
+  git diff --check
+    PASS
+  ```
+- Interpretation: H-113 is focused-fixed. Remaining gates are commit/push, install/attest, and a keyed rerun to verify the live task converts schema type mismatch evidence into the correct statistics object-map repair.
