@@ -3202,3 +3202,77 @@
   ```
 - Result: passed. `taskspace_action_contract_run_test` 5/5, `local_infra` 11/11, `action_contract_prompt` 28/28, `validation_rework` 18/18, `validation_` 97/97, `provider_budget` 23/23, `taskspace_active_budget` 11/11, `implementation_needs_edit` 3/3, `apply_patch_` 35/35, `duplicate_read_search` 2/2, `missing_fact_source_bootstrap` 1/1, `inspect_missing_fact_sources` 2/2, and `taskspace_control` 35/35 all passed. The fmt check still prints the known stable rustfmt `imports_granularity` warning.
 - Interpretation: H-054 is focused-fixed with regression/build coverage. The remaining live gate is another keyed `organization-json-generator` rerun to verify the sample moves beyond pytest runner infra and either reaches a schema-correct `organization.json` or exposes the next R4 tools-chain blocker.
+
+# Evidence E-119: 9f08638 live rerun exposes duplicate list_files data bootstrap gap before pytest
+
+- Prediction tested: H-054 should be live-gated by another keyed `organization-json-generator` rerun on an attested `9f08638` binary.
+- Real rerun:
+  ```text
+  RunDir: target/r4-org-json-real-keyed-20260704ba-pytest-runner-feedback/runs/terminal_bench__organization-json-generator/20260704-115228-006
+  PairReport: pair-001/pair-report.md
+  preflight current_git_head: 9f086386e3a8baeba5f1387bb179b4f1306e1895
+  build_attestation_status: pass
+  outcome_standard: solved
+  outcome_taskspace: wrong
+  right_exec_timed_out: False
+  right_tool_call_count: 6
+  right_public_validation_exit_code: 1
+  right_hidden_oracle_exit_code: 0
+  right_maps: 1
+  right_nodes: 1
+  right_open_leaf_nodes: 1
+  ```
+- Result: inconclusive for H-054 live utility because the run failed earlier than pytest validation. It did not reproduce the pytest runner blocker.
+- New blocker signals:
+  - First inspect action `list_files "."` executed as `rg --files .` and successfully listed `employees.csv`, `departments.csv`, `projects.csv`, `schema.json`, `task.yaml`, and related artifacts.
+  - The model repeated `list_files "."` five more times.
+  - Runtime blocked each repeat as `inspect_duplicate_successful_read_or_search`, which is correct.
+  - The recovery remained advisory/action-nonforcing: it did not execute bounded reads of the data artifacts named in the file-list result, and existing missing fact-source bootstrap did not trigger because these artifacts were only present in success criteria/list output, not structured `initial_fact_sources`.
+  - The inspect node hit `TaskSpaceProviderBudgetHardStopV1 reason=provider_node_request_hard_limit_exceeded node_request_count=6/5`.
+- Interpretation: This is a new feedback/control gap named `inspect-duplicate-list-files-data-bootstrap-gap`. The runtime is correct not to finish inspect from file-list evidence alone, but the session fallback must turn repeated duplicate list/search/read loops into bounded source/test/data artifact evidence rather than merely telling the model not to repeat.
+
+# Hypothesis H-055: repeated duplicate inspect read/search should trigger bounded data artifact bootstrap when force-finish is unsafe
+
+- Claim: The session-level no-action recovery path only runs `TaskSpaceRepeatedBlockedInspectBootstrapV1` for repeated blocked diagnostic commands, not repeated duplicate read/search gates. The static bootstrap command also only reads `*.py`, `*.md`, and `*.txt`, so data-processing samples with `schema.json` and `*.csv` can remain stuck after a successful `rg --files` result.
+- Prediction:
+  1. Source inspection will show that when `taskspace_message_has_repeated_blocked_action()` is true and the reason is `inspect_duplicate_successful_read_or_search`, the code attempts force-finish and then falls back to another recovery item without running bootstrap.
+  2. A focused session test should prove repeated duplicate read/search recovery with unchanged progress and unsafe force-finish executes a bootstrap command instead of issuing only advisory recovery.
+  3. The bootstrap command should include bounded `*.json`, `*.csv`, `*.yaml`, and `*.yml` reads in addition to existing source/test text globs.
+- Diagnostic evidence plan: Extend the repeated blocked inspect bootstrap command to bounded source/test/data artifact globs, and run it when repeated duplicate read/search cannot safely force-finish. Validate with focused bootstrap tests plus duplicate/read-search, missing fact-source, taskspace control, budget, validation, format, whitespace, and `whale` build.
+- Status: confirmed.
+
+# Evidence E-120: repeated duplicate inspect read/search now triggers bounded source/test/data bootstrap
+
+- Prediction tested: H-055 predicts repeated duplicate read/search should not continue advisory recovery until node budget hard-stop when inspect cannot safely finish from existing evidence.
+- Repair artifact:
+  - `third_party/codex-cli/codex-rs/core/src/session/turn.rs`
+- Repair behavior:
+  - `TaskSpaceRepeatedBlockedInspectBootstrapV1` now reads bounded source/test/data artifacts by globbing `*.py`, `*.md`, `*.txt`, `*.json`, `*.csv`, `*.yaml`, and `*.yml`.
+  - The command remains bounded: Unix uses `head -n 12` and `sed -n '1,120p'`; Windows uses `Select-Object -First 12` and `Get-Content -TotalCount 120`.
+  - Added `taskspace_repeated_duplicate_read_search_should_bootstrap()` so the session fallback can distinguish repeated duplicate read/search from duplicate diagnostics.
+  - When repeated `inspect_duplicate_successful_read_or_search` cannot force-finish inspect, the session now executes the bootstrap command instead of emitting only another advisory recovery item.
+- Focused validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core repeated_duplicate_read_search_triggers_inspect_bootstrap --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core repeated_blocked --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core duplicate_read_search --lib --locked
+  ```
+- R4-adjacent regression/build validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core missing_fact_source_bootstrap --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core inspect_missing_fact_sources --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core taskspace_control --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core provider_budget --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core taskspace_active_budget --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core action_contract_prompt --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core validation_rework --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core validation_ --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core local_infra --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core apply_patch_ --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-core implementation_needs_edit --lib --locked
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+  git diff --check
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -j1 -p codex-cli --bin whale --locked
+  ```
+- Result: passed. `duplicate_read_search` 3/3, `missing_fact_source_bootstrap` 1/1, `inspect_missing_fact_sources` 2/2, `taskspace_control` 35/35, `provider_budget` 23/23, `taskspace_active_budget` 11/11, `action_contract_prompt` 28/28, `validation_rework` 18/18, `validation_` 97/97, `local_infra` 11/11, `apply_patch_` 35/35, and `implementation_needs_edit` 3/3 all passed. The fmt check still prints the known stable rustfmt `imports_granularity` warning.
+- Interpretation: H-055 is focused-fixed with regression/build coverage. The remaining live gate is commit/push, attestation, and another keyed `organization-json-generator` rerun to verify the repeated `list_files` budget drain is gone.

@@ -171,8 +171,8 @@ const TASKSPACE_REPEATED_BLOCKED_INSPECT_BOOTSTRAP_CALL_ID: &str =
     "taskspace-inspect-bootstrap-repeated-blocked-read";
 const TASKSPACE_MISSING_FACT_SOURCE_BOOTSTRAP_CALL_ID: &str =
     "taskspace-inspect-bootstrap-missing-fact-source";
-const TASKSPACE_REPEATED_BLOCKED_INSPECT_BOOTSTRAP_COMMAND_WINDOWS: &str = "rg --files -g '*.py' -g '*.md' -g '*.txt' | Select-Object -First 8 | ForEach-Object { Write-Output ('===== ' + $_); Get-Content -LiteralPath $_ -TotalCount 120 }";
-const TASKSPACE_REPEATED_BLOCKED_INSPECT_BOOTSTRAP_COMMAND_UNIX: &str = "rg --files -g '*.py' -g '*.md' -g '*.txt' | head -n 8 | while IFS= read -r path; do printf '===== %s\\n' \"$path\"; sed -n '1,120p' -- \"$path\"; done";
+const TASKSPACE_REPEATED_BLOCKED_INSPECT_BOOTSTRAP_COMMAND_WINDOWS: &str = "rg --files -g '*.py' -g '*.md' -g '*.txt' -g '*.json' -g '*.csv' -g '*.yaml' -g '*.yml' | Select-Object -First 12 | ForEach-Object { Write-Output ('===== ' + $_); Get-Content -LiteralPath $_ -TotalCount 120 }";
+const TASKSPACE_REPEATED_BLOCKED_INSPECT_BOOTSTRAP_COMMAND_UNIX: &str = "rg --files -g '*.py' -g '*.md' -g '*.txt' -g '*.json' -g '*.csv' -g '*.yaml' -g '*.yml' | head -n 12 | while IFS= read -r path; do printf '===== %s\\n' \"$path\"; sed -n '1,120p' -- \"$path\"; done";
 const TASKSPACE_INSPECT_TEST_BOOTSTRAP_CALL_ID: &str = "taskspace-inspect-bootstrap-pytest";
 const TASKSPACE_ACTIVE_MAX_RAW_TOOL_OUTPUT_CHARS: usize = 12_000;
 
@@ -1649,6 +1649,14 @@ fn taskspace_message_has_repeated_blocked_action(message: Option<&str>) -> bool 
         message.contains("\"repeated_blocked_action\"")
             || message.contains("repeated_blocked_action:")
     })
+}
+
+fn taskspace_repeated_duplicate_read_search_should_bootstrap(message: Option<&str>) -> bool {
+    taskspace_message_has_repeated_blocked_action(message)
+        && taskspace_message_has_gate_recovery_reason(
+            message,
+            "inspect_duplicate_successful_read_or_search",
+        )
 }
 
 fn build_taskspace_duplicate_diagnostic_inspect_recovery_item(
@@ -7140,15 +7148,35 @@ tax_calc.py\n\
     #[test]
     fn repeated_blocked_inspect_bootstrap_uses_host_platform_command() {
         let command = taskspace_repeated_blocked_inspect_bootstrap_command();
+        assert!(command.contains("*.json"));
+        assert!(command.contains("*.csv"));
+        assert!(command.contains("*.yaml"));
+        assert!(command.contains("*.yml"));
         if cfg!(windows) {
             assert!(command.contains("Get-Content -LiteralPath"));
-            assert!(command.contains("Select-Object -First 8"));
+            assert!(command.contains("Select-Object -First 12"));
         } else {
-            assert!(command.contains("head -n 8"));
+            assert!(command.contains("head -n 12"));
             assert!(command.contains("sed -n '1,120p' --"));
             assert!(!command.contains("Get-Content"));
             assert!(!command.contains("Select-Object"));
         }
+    }
+
+    #[test]
+    fn repeated_duplicate_read_search_triggers_inspect_bootstrap() {
+        let duplicate_read_search = "TaskSpace blocked this evidence command because inspect node `node-1` already recorded successful read/search evidence `result-1` for the same command `rg --files .`.\nTaskSpaceGateRecoveryV1: {\"schema_version\":\"TaskSpaceGateRecoveryV1\",\"allowed\":false,\"reason\":\"inspect_duplicate_successful_read_or_search\",\"repeated_blocked_action\":{\"fingerprint\":\"inspect_duplicate_successful_read_or_search:node-1:read:rg --files .\",\"repeat_count\":2,\"same_action_allowed\":false}}";
+        assert!(taskspace_repeated_duplicate_read_search_should_bootstrap(
+            Some(duplicate_read_search)
+        ));
+
+        let duplicate_diagnostic = "TaskSpaceGateRecoveryV1: {\"reason\":\"inspect_duplicate_successful_diagnostic_test\",\"repeated_blocked_action\":{\"repeat_count\":2}}";
+        assert!(!taskspace_repeated_duplicate_read_search_should_bootstrap(
+            Some(duplicate_diagnostic)
+        ));
+        assert!(!taskspace_repeated_duplicate_read_search_should_bootstrap(
+            None
+        ));
     }
 
     #[test]
@@ -13453,10 +13481,10 @@ async fn try_run_sampling_request(
                         result.last_agent_message.as_deref(),
                         "inspect_duplicate_successful_read_or_search",
                     );
-                    if taskspace_message_has_repeated_blocked_action(
+                    let repeated_blocked_action = taskspace_message_has_repeated_blocked_action(
                         result.last_agent_message.as_deref(),
-                    ) && !duplicate_read_search_gate
-                    {
+                    );
+                    if repeated_blocked_action && !duplicate_read_search_gate {
                         match sess
                             .force_finish_action_map_inspect_for_provider_budget(
                                 &turn_context,
@@ -13503,7 +13531,7 @@ async fn try_run_sampling_request(
                         match sess
                             .force_finish_action_map_inspect_for_provider_budget(
                                 &turn_context,
-                                snapshot,
+                                snapshot.clone(),
                                 trigger,
                             )
                             .await
@@ -13513,7 +13541,24 @@ async fn try_run_sampling_request(
                                     Some(build_taskspace_forced_inspect_transition_recovery_item());
                                 forced_transition = true;
                             }
-                            Ok(false) => {}
+                            Ok(false) => {
+                                if taskspace_repeated_duplicate_read_search_should_bootstrap(
+                                    result.last_agent_message.as_deref(),
+                                ) {
+                                    run_taskspace_inspect_bootstrap(
+                                        tool_runtime.clone(),
+                                        sess.clone(),
+                                        turn_context.clone(),
+                                        snapshot.request_count,
+                                        TASKSPACE_REPEATED_BLOCKED_INSPECT_BOOTSTRAP_CALL_ID,
+                                        taskspace_repeated_blocked_inspect_bootstrap_command(),
+                                        "TaskSpaceRepeatedBlockedInspectBootstrapV1 executed bounded source/test/data artifact reads after progress stayed unchanged on a repeated blocked inspect read/search command.",
+                                        cancellation_token.child_token(),
+                                    )
+                                    .await?;
+                                    repeated_block_bootstrap = true;
+                                }
+                            }
                             Err(error) => {
                                 sess.send_event(
                                         &turn_context,
