@@ -86,6 +86,10 @@ pub fn format_exec_output_for_model_freeform_with_ref(
     let formatted_output =
         output_reference::reference_text_for_raw_output(content.as_bytes(), artifact_ref)
             .unwrap_or_else(|| truncate_text(&content, truncation_policy));
+    let formatted_output = prepend_taskspace_semantic_summary(
+        formatted_output,
+        taskspace_tool_semantic_summary(&content),
+    );
 
     let mut sections = Vec::new();
 
@@ -120,8 +124,10 @@ pub fn format_exec_output_str_with_ref(
         return reference_text;
     }
 
-    // Truncate for model consumption before serialization.
-    formatted_truncate_text(&content, truncation_policy)
+    // Truncate for model consumption before serialization, but keep compact
+    // machine-readable failure semantics extracted from the complete output.
+    let formatted_output = formatted_truncate_text(&content, truncation_policy);
+    prepend_taskspace_semantic_summary(formatted_output, taskspace_tool_semantic_summary(&content))
 }
 
 /// Extracts exec output content and prepends a timeout message if the command timed out.
@@ -134,5 +140,119 @@ fn build_content_with_timeout(exec_output: &ExecToolCallOutput) -> String {
         )
     } else {
         exec_output.aggregated_output.text.clone()
+    }
+}
+
+pub(crate) fn prepend_taskspace_semantic_summary(
+    preview: String,
+    semantic_summary: Option<String>,
+) -> String {
+    let Some(summary) = semantic_summary else {
+        return preview;
+    };
+    let summary = summary.trim();
+    if summary.is_empty() || preview.contains(summary) {
+        return preview;
+    }
+    format!("{summary}\n{preview}")
+}
+
+pub(crate) fn taskspace_tool_semantic_summary(text: &str) -> Option<String> {
+    let properties = taskspace_required_properties_from_text(text);
+    if properties.is_empty() {
+        return None;
+    }
+    Some(format!(
+        "TaskSpaceToolSemanticSummaryV1:\nmissing_required_properties: {}",
+        properties.join(", ")
+    ))
+}
+
+fn taskspace_required_properties_from_text(text: &str) -> Vec<String> {
+    let mut properties = Vec::new();
+    for line in text.lines() {
+        if let Some((_, rest)) = line.split_once("missing_required_properties:") {
+            let required_part = rest.split('|').next().unwrap_or(rest);
+            for property in required_part
+                .split(',')
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+            {
+                push_unique_taskspace_required_property(&mut properties, property.to_string());
+            }
+        }
+
+        let lower = line.to_ascii_lowercase();
+        if !lower.contains("is a required property") {
+            continue;
+        }
+        let Some(marker_start) = lower.find("is a required property") else {
+            continue;
+        };
+        let before = &line[..marker_start];
+        if let Some(property) = taskspace_quoted_suffix_value(before) {
+            push_unique_taskspace_required_property(&mut properties, property);
+        }
+    }
+    properties
+}
+
+fn push_unique_taskspace_required_property(properties: &mut Vec<String>, property: String) {
+    let property = property.trim().to_string();
+    if property.is_empty() {
+        return;
+    }
+    if !properties.iter().any(|existing| existing == &property) {
+        properties.push(property);
+    }
+}
+
+fn taskspace_quoted_suffix_value(text: &str) -> Option<String> {
+    taskspace_quoted_suffix_value_with(text, '\'')
+        .or_else(|| taskspace_quoted_suffix_value_with(text, '"'))
+}
+
+fn taskspace_quoted_suffix_value_with(text: &str, quote: char) -> Option<String> {
+    let end = text.rfind(quote)?;
+    let before_end = &text[..end];
+    let start = before_end.rfind(quote)?;
+    let value = before_end[start + quote.len_utf8()..].trim();
+    (!value.is_empty()).then(|| value.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use codex_protocol::exec_output::StreamOutput;
+    use std::time::Duration;
+
+    #[test]
+    fn exec_output_formatter_preserves_schema_summary_before_truncation() {
+        let raw_output = format!(
+            "{}\n{}\n{}\n{}\n{}\n{}\n{}",
+            "{'statistics': {}}: 'averageDepartmentBudget' is a required property",
+            "{'statistics': {}}: 'totalEmployees' is a required property",
+            "{'statistics': {}}: 'skillDistribution' is a required property",
+            "{'statistics': {}}: 'departmentSizes' is a required property",
+            "x".repeat(4_096),
+            "{'statistics': {}}: 'projectStatusDistribution' is a required property",
+            "{'statistics': {}}: 'averageYearsOfService' is a required property",
+        );
+        let exec_output = ExecToolCallOutput {
+            exit_code: 1,
+            stdout: StreamOutput::new(String::new()),
+            stderr: StreamOutput::new(String::new()),
+            aggregated_output: StreamOutput::new(raw_output),
+            duration: Duration::from_millis(100),
+            timed_out: false,
+        };
+
+        let formatted =
+            format_exec_output_str_with_ref(&exec_output, TruncationPolicy::Bytes(512), None);
+
+        assert!(formatted.starts_with("TaskSpaceToolSemanticSummaryV1"));
+        assert!(formatted.contains(
+            "missing_required_properties: averageDepartmentBudget, totalEmployees, skillDistribution, departmentSizes, projectStatusDistribution, averageYearsOfService"
+        ));
     }
 }

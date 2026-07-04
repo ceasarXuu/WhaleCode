@@ -3537,3 +3537,71 @@ CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/co
 build 已通过。还需要 commit/push、binary attestation 和下一轮 keyed rerun。
 下一轮期望 validation rework recovery / duplicate-read hard stop 中的 `repair_contract` 至少包含
 `members` 与 statistics camelCase required fields，而不是只剩 `members`。
+
+## 5.52 2026-07-04 schema summary must be attached at exec formatter boundary
+
+`schema required-property semantic summary` 修复、commit/push、binary attestation 后的 keyed rerun 证明第一段修复点仍太晚：
+`organization-json-generator` 的 `shell_command` 非零退出路径不是把 `ExecCommandToolOutput` 直接交给
+`tool_output_model_visible_preview`，而是在 `ToolEmitter::finish` 中先通过 exec formatter 生成
+`FunctionCallError::RespondToModel(content)`。因此 `ToolOutput` 层 summary 没有进入 live ActionMap。
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260703an-schema-summary/runs/terminal_bench__organization-json-generator/20260704-083751-467
+reported_evidence_level: E2-candidate
+outcome_standard: solved
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 11
+right_open_leaf_nodes: 1
+public_validation_exit_code: 1
+hidden_oracle_exit_code: 0
+preflight_git_head: c8fe197171b6f236f11641bedc2548ef28ef64a9
+build_attestation_status: pass
+```
+
+关键观察：
+
+| Signal | 结论 |
+|---|---|
+| `whale-exec.jsonl` line 36 raw command output 包含六个 statistics required fields | validation 工具原始失败语义完整 |
+| `rollout.jsonl` `result-8` 没有 `TaskSpaceToolSemanticSummaryV1` | live shell path 绕过了 `ExecCommandToolOutput::taskspace_semantic_summary` |
+| `result-8` body 在 `projectStatusDistribution` / `averageYearsOfService` 前截断 | ActionMap 仍只看到 formatter 后的 bounded output |
+| final duplicate-read hard stop 的 repair contract 只有 `averageDepartmentBudget, totalEmployees, skillDistribution, departmentSizes` | H-041 只修了一半，后两项仍在 formatter 截断中丢失 |
+
+本轮新增并 focused 修复的问题类型细化：
+
+| Case | Before | After | Evidence |
+|---|---|---|---|
+| `schema-required-property-summary-after-exec-formatter-truncation` | shell_command error path 在 `ExecToolCallOutput -> FunctionCallError::RespondToModel` 阶段先截断；ToolOutput preview 层已无法恢复完整 schema failure semantics | semantic summary helper 上移到 `tools/mod.rs`；`format_exec_output_str_with_ref` 在 `formatted_truncate_text` 之前抽取并前置 `TaskSpaceToolSemanticSummaryV1`；`context.rs` 复用同一 helper | `exec_output_formatter_preserves_schema_summary_before_truncation`; `taskspace_preview_`; `validation_rework`; `validation_` |
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked schema_summary
+  PASS：2 tests
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked taskspace_preview_
+  PASS：2 tests
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked validation_rework
+  PASS：17 tests
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked validation_
+  PASS：94 tests
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked apply_patch_
+  PASS：35 tests
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+  PASS
+
+git diff --check
+  PASS
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-cli --bin whale --locked
+  PASS
+```
+
+状态：该 formatter-level feedback semantic class 已 focused fixed，并通过 fmt/diff/build；还需要 commit/push、binary attestation
+和下一轮 keyed rerun。下一轮期望 `result-8` 或等价 failed validation result body 明确包含
+`TaskSpaceToolSemanticSummaryV1`，且 downstream `repair_contract` 包含全部 six statistics required fields。

@@ -2299,3 +2299,66 @@
   - `taskspace_preview_does_not_add_schema_summary_for_plain_exec_output` keeps ordinary long exec output free of `missing_required_properties`.
   - `validation_rework_projects_schema_repair_contract_from_schema_read` now simulates a truncated raw validation preview plus complete semantic summary, and still produces a repair contract containing `members`, the statistics camelCase fields, and the schema required sibling group.
 - Interpretation: The `validation-schema-required-property-summary-truncated-before-action-map` class is focused-fixed at tool-result preview and ActionMap repair-contract levels. Commit/push, binary attestation, and another keyed rerun are still required to prove live `organization-json-generator` rework feedback now carries the full schema repair contract.
+
+# Evidence E-091: c8fe197 rerun shows shell_command truncates before ToolOutput preview
+
+- Prediction tested: E-090 predicted the `ToolOutput` preview-layer summary would appear in the live `organization-json-generator` ActionMap result.
+- Real rerun:
+  ```text
+  RunDir: target/r4-org-json-real-keyed-20260703an-schema-summary/runs/terminal_bench__organization-json-generator/20260704-083751-467
+  PairReport: pair-001/pair-report.md
+  reported_evidence_level: E2-candidate
+  outcome_standard: solved
+  outcome_taskspace: engineering_unclean
+  right_exec_timed_out: False
+  right_tool_call_count: 11
+  right_open_leaf_nodes: 1
+  public_validation_exit_code: 1
+  hidden_oracle_exit_code: 0
+  preflight_git_head: c8fe197171b6f236f11641bedc2548ef28ef64a9
+  build_attestation_status: pass
+  ```
+- Result: partially refuted E-090's live-path assumption.
+- Matched signals:
+  - `whale-exec.jsonl` line 36 contains full raw jsonschema output with all six statistics required properties: `averageDepartmentBudget`, `totalEmployees`, `skillDistribution`, `departmentSizes`, `projectStatusDistribution`, and `averageYearsOfService`.
+  - `rollout.jsonl` `result-8` body has no `TaskSpaceToolSemanticSummaryV1`; it stores a truncated `TaskSpaceToolInvocationV1` preview ending before `projectStatusDistribution` and `averageYearsOfService`.
+  - `result-9` blocker and the final duplicate-read hard stop carry only `missing_required_properties=averageDepartmentBudget, totalEmployees, skillDistribution, departmentSizes`.
+- Interpretation: The live `shell_command` path converts `ExecToolCallOutput` into a `FunctionToolOutput` error string inside the exec formatter before `tool_output_model_visible_preview` runs. The repair must move to `format_exec_output_str_with_ref` / exec formatter, not just the later ToolOutput preview boundary.
+
+# Hypothesis H-042: shell command exec formatter truncates schema failures before FunctionToolOutput is built
+
+- Claim: `ShellHandler::run_exec_like` calls `ToolEmitter::finish`, which formats `ExecToolCallOutput` into a model-visible string through `format_exec_output_for_model_*`. For nonzero exit codes this string is returned as `FunctionCallError::RespondToModel`, and the ActionMap preview records that already-truncated error response. Therefore the semantic summary must be attached in `format_exec_output_str_with_ref` before `formatted_truncate_text`, not only in `ToolOutput::taskspace_semantic_summary`.
+- Prediction: A focused formatter test should reproduce a long `ExecToolCallOutput` where the last required-property lines are past the truncation cutoff and should pass only if `format_exec_output_str_with_ref` prepends a complete `TaskSpaceToolSemanticSummaryV1`. Existing ToolOutput preview and validation rework tests should keep passing.
+- Diagnostic evidence plan: Move the shared semantic-summary helper to `tools/mod.rs`, call it from `format_exec_output_str_with_ref` and the freeform formatter, reuse it from `context.rs`, then run `schema_summary`, `taskspace_preview_`, `validation_rework`, `validation_`, fmt/diff/build, and another keyed rerun.
+- Status: confirmed.
+
+# Evidence E-092: exec formatter now preserves schema required-property summary before truncation
+
+- Prediction tested: H-042 predicts that the exec formatter, not only the ToolOutput preview layer, must prepend the semantic summary.
+- Repair artifacts:
+  - `third_party/codex-cli/codex-rs/core/src/tools/mod.rs`
+  - `third_party/codex-cli/codex-rs/core/src/tools/context.rs`
+  - `third_party/codex-cli/codex-rs/core/src/tools/context_tests.rs`
+- Focused commands:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked schema_summary
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked taskspace_preview_
+  ```
+- Adjacent regression commands:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked validation_rework
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked validation_
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib --locked apply_patch_
+  ```
+- Static/build commands:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all --check
+  git diff --check
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-cli --bin whale --locked
+  ```
+- Result: passed. `schema_summary` is 2/2, `taskspace_preview_` is 2/2, `validation_rework` is 17/17, `validation_` is 94/94, `apply_patch_` is 35/35, fmt/diff checks pass, and the `whale` binary build passes.
+- Matched test signals:
+  - `exec_output_formatter_preserves_schema_summary_before_truncation` constructs a long `ExecToolCallOutput` where `projectStatusDistribution` and `averageYearsOfService` appear after the truncation cutoff; `format_exec_output_str_with_ref(..., TruncationPolicy::Bytes(512), ...)` still starts with `TaskSpaceToolSemanticSummaryV1` and carries all six required fields.
+  - `taskspace_preview_` still preserves ToolOutput-level semantics and avoids adding schema summaries to plain output.
+  - `validation_rework_projects_schema_repair_contract_from_schema_read` still parses the semantic summary into the repair contract.
+- Interpretation: H-042 is focused-fixed at the formatter/build level. Commit/push, attestation, and another live rerun are still required before claiming the live `shell_command` path is fixed.

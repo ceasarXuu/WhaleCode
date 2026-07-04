@@ -435,8 +435,8 @@ feedback-layer 语义保真问题：真实 `jsonschema` 输出包含所有缺失
 
 | Issue type | Layer | Symptom | Resolution contract | Evidence |
 |---|---|---|---|---|
-| `validation-schema-required-property-summary-truncated-before-action-map` | tool result preview / feedback layer | validator raw output 完整，但 ActionMap 只记录截断后的 model-visible preview；下游 `validation_schema_repair_contract` 只能解析出截断前的第一批 required-property 失败 | 在 `ToolOutput` 仍持有完整 raw output 时抽取 `TaskSpaceToolSemanticSummaryV1`，把 `missing_required_properties:` 摘要前置到 ActionMap preview；bounded raw preview 仍保持截断，普通非 schema 输出不新增摘要 | `taskspace_preview_preserves_required_properties_from_untruncated_exec_output`; `taskspace_preview_does_not_add_schema_summary_for_plain_exec_output`; `validation_rework_projects_schema_repair_contract_from_schema_read`; CoE E-089/H-041 |
+| `validation-schema-required-property-summary-truncated-before-action-map` | exec formatter / tool result preview / feedback layer | validator raw output 完整，但 shell_command error path 在 `ExecToolCallOutput -> FunctionToolOutput` 阶段先生成截断后的 model-visible string；ActionMap 下游 `validation_schema_repair_contract` 只能解析出截断前的 required-property 失败 | 在 exec formatter 的 `format_exec_output_str_with_ref` 截断前抽取 `TaskSpaceToolSemanticSummaryV1`，把 `missing_required_properties:` 摘要前置到 formatted output；ToolOutput preview 复用同一 helper；bounded raw preview 仍保持截断，普通非 schema 输出不新增摘要 | `exec_output_formatter_preserves_schema_summary_before_truncation`; `taskspace_preview_preserves_required_properties_from_untruncated_exec_output`; `taskspace_preview_does_not_add_schema_summary_for_plain_exec_output`; `validation_rework_projects_schema_repair_contract_from_schema_read`; CoE E-089/E-091/H-042 |
 
 边界说明：该 case 是“语义缺失”，不是模型不服从，也不是 validation gate 判断错误。完整失败语义在 shell command
-原始输出中存在，但进入 ActionMap 的 body 已经被 telemetry preview 截断。修复只提升结构化 failure summary，不扩大 raw output
-窗口，也不把任意长输出直接暴露给 provider/map。
+原始输出中存在，但进入 FunctionToolOutput / ActionMap 的 body 已经被 exec formatter / telemetry preview 截断。修复只提升结构化
+failure summary，不扩大 raw output 窗口，也不把任意长输出直接暴露给 provider/map。
