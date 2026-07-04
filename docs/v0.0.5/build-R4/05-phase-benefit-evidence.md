@@ -5003,3 +5003,42 @@ CODEX_SKIP_VENDORED_BWRAP=1 cargo check -p codex-core
 CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
 git diff --check
 ```
+
+## 5.86 2026-07-04 targetless unified apply_patch fake target attribution
+
+`b330f33` 后 rerun 证明 H-099 已越过 inspect coverage：TaskSpace 不再要求自然语言 `employees/projects`，
+并进入 implementation/rework。新的 blocker 是 apply_patch 反馈目标被扭曲：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260704ct-slash-fact-source/runs/terminal_bench__organization-json-generator/20260704-220721-916
+reported_evidence_level: E1
+outcome_standard: wrong
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 12
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+final_marker: TaskSpaceApplyPatchRecoveryHardStopV1
+```
+
+收益判断：
+
+1. 新收录的 R4-D feedback 修复是 `apply-patch-targetless-unified-header-fake-target`：无目标 `---` / `+++` patch
+   不再被归因为 `src/---`。
+2. 这是“失败语义扭曲”而不是“失败语义缺失”：runtime 已经拒绝了 malformed patch，但 provider-visible failure
+   给了不存在的目标，容易让下一轮围绕伪目标恢复。
+3. R4-G utility 仍未通过：public validation 仍失败，下一轮需要验证该 case 是否 live-clear，并继续定位后续 apply_patch
+   或 validation rework blocker。
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core targetless_unified_headers --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core bare_file_patch_normalizer_does_not_treat_unified_separator_as_path --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core apply_patch_ --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core action_contract_prompt --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --check
+CODEX_SKIP_VENDORED_BWRAP=1 cargo check -p codex-core
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
+git diff --check
+```

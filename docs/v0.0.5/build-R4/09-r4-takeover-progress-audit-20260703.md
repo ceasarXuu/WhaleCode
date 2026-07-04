@@ -3123,6 +3123,37 @@ final_hard_stop: TaskSpaceProviderBudgetHardStopV1 node_kind=inspect_code_contex
 
 状态：focused 修复已编码并通过相关回归、fmt/diff/check/build。下一步是 commit/push、attestation、keyed rerun。
 
+## 29. 2026-07-04 targetless unified apply_patch fake target attribution
+
+`b330f33` 后的 keyed rerun 已越过 H-099：inspect 读完 schema、departments、employees、projects，并强制 transition 到
+implementation。新的 blocker 出现在 validation rework 的 apply_patch grammar 反馈层：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260704ct-slash-fact-source/runs/terminal_bench__organization-json-generator/20260704-220721-916
+reported_evidence_level: E1
+outcome_standard: wrong
+outcome_taskspace: engineering_unclean
+right_exec_timed_out: False
+right_tool_call_count: 12
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+right_open_leaf_nodes: 1
+final_marker: TaskSpaceApplyPatchRecoveryHardStopV1
+```
+
+问题类型收录：
+
+| 字段 | 内容 |
+|---|---|
+| case | `apply-patch-targetless-unified-header-fake-target` |
+| 层级 | apply_patch action-contract normalization / feedback attribution |
+| 本质 | provider 输出无目标 `---` / `+++` unified-like patch；runtime 将 separator-only `---` 当 bare file path，并 fallback 为伪目标 `src/---` |
+| 非根因 | 不是真实文件 `src/---` 缺失；不是 apply_patch 工具执行时才失败；不是 H-099 fact-source coverage 未修复 |
+| 修复 | `---` / `+++` 不能作为 bare-file path；targetless unified headers 在 dispatch 前拒绝为 `apply_patch_mixed_native_unified:(missing patch target)` |
+| focused evidence | CoE H-100/E-205/E-206；`targetless_unified_headers`；`bare_file_patch_normalizer_does_not_treat_unified_separator_as_path`；`apply_patch_` 36/36；`action_contract_prompt` 29/29；fmt/check/build/diff-check |
+
+状态：focused 修复已编码并通过相关回归、fmt/diff/check/build。下一步是 commit/push、attestation、keyed rerun，验证该伪目标反馈不再出现并继续暴露下一个 R4 tools 链路 blocker。
+
 ## 28. 2026-07-04 natural-language slash fact-source extraction
 
 `3b6b269` 后的 keyed rerun 没有触发 no-action recovery，因此 H-098 尚未 live-clear。该轮暴露 inspect fact-source

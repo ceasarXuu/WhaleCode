@@ -5869,3 +5869,73 @@
     PASS
   ```
 - Remaining gate: commit/push, binary attestation, and keyed rerun to see whether inspect now transitions to implementation or reveals the next R4-D blocker.
+
+# Evidence E-205: H-099 rerun transitions into implementation and exposes fake apply_patch target attribution
+
+- Real rerun:
+  ```text
+  RunDir: target/r4-org-json-real-keyed-20260704ct-slash-fact-source/runs/terminal_bench__organization-json-generator/20260704-220721-916
+  reported_evidence_level: E1
+  outcome_standard: wrong
+  outcome_taskspace: engineering_unclean
+  right_exec_timed_out: False
+  right_tool_call_count: 12
+  right_public_validation_exit_code: 1
+  right_hidden_oracle_exit_code: 0
+  right_open_leaf_nodes: 1
+  final_marker: TaskSpaceApplyPatchRecoveryHardStopV1
+  ```
+- H-099 live-cross signal:
+  - The inspect node read `schema.json`, `departments.csv`, `employees.csv`, and `projects.csv`.
+  - The prior false required artifact `employees/projects` did not appear.
+  - Runtime inserted `TaskSpaceForcedInspectTransitionV1 ... next_node_kind=implement_solution`.
+- New blocker signal:
+  - A later rework patch payload started with targetless unified headers:
+    ```text
+    *** Begin Patch
+    ---
+    +++
+    @@ -75,6 +75,7 @@
+    ...
+    *** End Patch
+    ```
+  - The action contract/recovery path reported `apply_patch_mixed_native_unified:src/---`.
+  - `src/---` is not a real target; it was produced by treating the separator-only `---` line as a bare-file path and resolving it to a synthetic `src/---` fallback.
+- Interpretation: H-099 is live-crossed. The new issue is feedback-layer semantic distortion: the tool failure was targetless/malformed patch syntax, but the provider-visible rejection invented a fake target path.
+
+# Hypothesis H-100: targetless unified patch headers are misattributed as `src/---`
+
+- Claim: `normalize_taskspace_bare_file_patch()` accepts the second line of a wrapped patch as a bare file path. When that line is separator-only `--- `, it trims to `---`, resolves as an unknown basename, and falls back to `src/---`. The later mixed native/unified rejection then reports the fake target instead of the actual failure: missing patch target.
+- Prediction: A focused regression with the live targetless `--- ` / `+++ ` payload will reproduce the fake target before the repair; after repair it must be rejected before tool dispatch as `apply_patch_mixed_native_unified:(missing patch target)` and must not contain `src/---`.
+- Diagnostic evidence plan: Add a focused action-contract regression for targetless unified headers, add a bare-file normalizer regression preventing `---` / `+++` from being accepted as paths, then run apply_patch/action-contract/fmt/check/build.
+- Status: confirmed.
+
+# Evidence E-206: targetless unified headers no longer create fake apply_patch targets
+
+- Prediction tested: H-100 predicts targetless unified headers are rejected with missing-target semantics and no synthetic `src/---` path.
+- Repair artifact:
+  - `third_party/codex-cli/codex-rs/core/src/session/turn.rs`
+- Repair behavior:
+  - `normalize_taskspace_bare_file_patch()` now rejects separator-only `---` and `+++` as candidate bare file paths.
+  - Added `taskspace_apply_patch_missing_unified_header_target()` so targetless `---` / `+++` unified-like headers are rejected before tool dispatch.
+  - The rejection is now `apply_patch_mixed_native_unified:(missing patch target)`, preserving grammar failure semantics without fabricating a target path.
+- Validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core targetless_unified_headers --lib
+    PASS
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core bare_file_patch_normalizer_does_not_treat_unified_separator_as_path --lib
+    PASS
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core apply_patch_ --lib
+    PASS: 36/36
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core action_contract_prompt --lib
+    PASS: 29/29
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo fmt --check
+    PASS
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo check -p codex-core
+    PASS
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
+    PASS
+  git diff --check
+    PASS
+  ```
+- Interpretation: The R4 issue type is focused-fixed. It is a semantic distortion case, not a missing feedback case: a malformed targetless patch was already rejected, but the rejection named a fake file and therefore sent recovery toward the wrong object.

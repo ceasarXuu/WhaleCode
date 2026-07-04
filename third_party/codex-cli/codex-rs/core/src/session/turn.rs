@@ -7295,6 +7295,37 @@ Then I will inspect the file."#,
     }
 
     #[test]
+    fn taskspace_action_contract_rejects_targetless_unified_headers_without_fake_src_target() {
+        let raw = serde_json::json!({
+            "schema_version": "taskspace-action-v1",
+            "action": "apply_patch",
+            "node_id": "node-1",
+            "args": {
+                "patch": "*** Begin Patch\n--- \n+++ \n@@ -1,2 +1,3 @@\n existing_line\n+new_line\n*** End Patch\n"
+            },
+            "rationale": "patch a file"
+        })
+        .to_string();
+        let action = parse_taskspace_action_v1(&raw).expect("valid json");
+
+        let err = taskspace_action_to_tool_call(&action, &provider_snapshot("implement_solution"))
+            .expect_err("targetless unified headers must be rejected before tool dispatch");
+
+        assert_eq!(
+            err,
+            "apply_patch_mixed_native_unified:(missing patch target)"
+        );
+        assert!(!err.contains("src/---"));
+    }
+
+    #[test]
+    fn bare_file_patch_normalizer_does_not_treat_unified_separator_as_path() {
+        let patch = "*** Begin Patch\n--- \n+++ \n@@ -1,2 +1,3 @@\n existing_line\n+new_line\n*** End Patch\n";
+
+        assert!(normalize_taskspace_bare_file_patch(patch).is_none());
+    }
+
+    #[test]
     fn taskspace_action_contract_normalizes_duplicate_unwrapped_update_wrapper() {
         let raw = serde_json::json!({
             "schema_version": "taskspace-action-v1",
@@ -12058,6 +12089,8 @@ fn normalize_taskspace_bare_file_patch(patch: &str) -> Option<String> {
     }
     let raw_path = lines.get(1)?.trim();
     if raw_path.is_empty()
+        || raw_path == "---"
+        || raw_path == "+++"
         || raw_path.starts_with("*** ")
         || raw_path.starts_with("--- ")
         || raw_path.starts_with("+++ ")
@@ -12244,6 +12277,35 @@ fn taskspace_unified_diff_old_path_is_dev_null(line: &str) -> bool {
     line.strip_prefix("--- ")
         .map(str::trim)
         .is_some_and(|path| path == "/dev/null")
+}
+
+fn taskspace_apply_patch_missing_unified_header_target(patch: &str) -> bool {
+    let normalized = patch.replace("\r\n", "\n");
+    let mut lines = normalized.lines().collect::<Vec<_>>();
+    if lines.first() == Some(&"*** Begin Patch") && lines.last() == Some(&"*** End Patch") {
+        lines = lines[1..lines.len().saturating_sub(1)].to_vec();
+    }
+
+    let mut index = 0usize;
+    while index + 1 < lines.len() {
+        let old_line = lines[index];
+        let new_line = lines[index + 1];
+        if taskspace_line_looks_unified_old_file_header(old_line)
+            && taskspace_line_looks_unified_new_file_header(new_line)
+        {
+            let old_target = taskspace_unified_header_target(old_line, "---");
+            let new_target = taskspace_unified_header_target(new_line, "+++");
+            if old_target.is_some_and(str::is_empty) || new_target.is_some_and(str::is_empty) {
+                return true;
+            }
+        }
+        index += 1;
+    }
+    false
+}
+
+fn taskspace_unified_header_target<'a>(line: &'a str, marker: &str) -> Option<&'a str> {
+    line.trim().strip_prefix(marker).map(str::trim)
 }
 
 fn rewrite_taskspace_apply_patch_unique_update_paths(patch: &str) -> String {
@@ -12654,6 +12716,9 @@ fn taskspace_action_to_tool_call(
         "apply_patch" => {
             let patch = taskspace_action_arg_string(args, "patch")
                 .ok_or_else(|| "missing_apply_patch_patch".to_string())?;
+            if taskspace_apply_patch_missing_unified_header_target(&patch) {
+                return Err("apply_patch_mixed_native_unified:(missing patch target)".to_string());
+            }
             let existing_add_targets = taskspace_unified_diff_add_targets_existing_files(&patch);
             if !existing_add_targets.is_empty() {
                 return Err(format!(
