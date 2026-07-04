@@ -3431,6 +3431,34 @@ H-108 的 replacement-only hard-stop 未复现，但出现新问题：
 
 状态：focused fixed，待 install/attest 和真实 keyed rerun 确认 false local-infra blocker 不再终止任务。
 
+## 39. 2026-07-05 non-sticky replacement-required state
+
+`4aeb22f` 安装后 keyed rerun：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260705ad-terminal-blocker-gate/runs/terminal_bench__organization-json-generator/20260705-003821-682
+reported_evidence_level: E2-candidate
+outcome_taskspace: engineering_unclean
+right_tool_call_count: 11
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+right_open_leaf_nodes: 1
+final_marker: TaskSpaceApplyPatchRecoveryHardStopV1
+```
+
+H-109 live-clear：false CSV/schema missing terminal blocker 未复现。新问题：
+
+| 字段 | 内容 |
+|---|---|
+| case | `apply-patch-replacement-required-non-sticky-update-file` |
+| 层级 | apply_patch action-contract / replacement-required state |
+| 本质 | 第一次 mixed `Update File` 被拒绝为 `apply_patch_replacement_required:process.py`，但同一 active rework target 后续 `Update File` 变体仍落入 generic `unanchored_update` / mixed recovery |
+| 非根因 | 不是 H-109 terminal blocker；不是 provider 未看到 replacement-required；不是文件读取失败 |
+| 修复 | active validation rework target 的任何 `*** Update File` 在 normalize 前后都优先返回 `apply_patch_replacement_required:<target>`；非 rework target 保持 generic feedback |
+| evidence | CoE H-110/E-225/E-226；keyed rerun `20260705-003821-682`；focused tests `requires_replacement`, `keeps_generic_unanchored`, `mixed_native_unified`, `unanchored_update`, `validation_rework`, `taskspace_apply_patch`, `action_contract_prompt`；fmt/check/build |
+
+状态：focused fixed，待 install/attest 和真实 keyed rerun 确认 replacement-required 不再分流。
+
 ## 28. 2026-07-04 natural-language slash fact-source extraction
 
 `3b6b269` 后的 keyed rerun 没有触发 no-action recovery，因此 H-098 尚未 live-clear。该轮暴露 inspect fact-source

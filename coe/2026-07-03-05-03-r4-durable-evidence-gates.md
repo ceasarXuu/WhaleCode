@@ -6530,3 +6530,68 @@
     PASS
   ```
 - Interpretation: H-109 is focused-fixed. Remaining gates are `git diff --check`, commit/push, install/attest, and a keyed rerun to verify the false local-infrastructure blocker no longer terminates the live task.
+
+# Evidence E-225: H-109 rerun clears false terminal blocker and exposes non-sticky replacement-required state
+
+- Real rerun:
+  ```text
+  RunDir: target/r4-org-json-real-keyed-20260705ad-terminal-blocker-gate/runs/terminal_bench__organization-json-generator/20260705-003821-682
+  reported_evidence_level: E2-candidate
+  outcome_standard: solved
+  outcome_taskspace: engineering_unclean
+  right_exec_timed_out: False
+  right_tool_call_count: 11
+  right_public_validation_exit_code: 1
+  right_hidden_oracle_exit_code: 0
+  right_open_leaf_nodes: 1
+  final_marker: TaskSpaceApplyPatchRecoveryHardStopV1
+  ```
+- H-109 live status:
+  - The previous false terminal blocker claiming CSV/schema files were absent did not recur.
+  - The task stayed in the active validation rework path instead of terminating with `blocked_by_taskspace_action_contract`.
+- New blocker signal:
+  - Node `node-4` read full `process.py` with `TaskSpaceReadFileSummaryV1: path=process.py lines_read=86 eof_reached=true`.
+  - A mixed `*** Update File: process.py` patch was rejected as `apply_patch_replacement_required:process.py`.
+  - Subsequent attempts against the same active rework target used other `*** Update File` shapes and were classified as generic `apply_patch_unanchored_update` or mixed-native/unified feedback, consuming recovery attempts until `TaskSpaceApplyPatchRecoveryHardStopV1`.
+- Interpretation: H-109 is live-cleared. H-110 is that replacement-required state is not sticky across all `Update File` variants for the same active validation rework target.
+
+# Hypothesis H-110: replacement-required state must cover every Update File for active rework target
+
+- Claim: Once an active validation rework target requires whole-file replacement, every subsequent `*** Update File` for that target should return `apply_patch_replacement_required:<target>`, regardless of whether the patch is mixed unified/range, unanchored, old/new separator, or normalized from a pure unified diff. Letting alternate `Update File` shapes fall through to generic grammar feedback reopens the same hard-stop loop.
+- Prediction: Focused tests should show active rework target `*** Update File` returns replacement-required even when it would otherwise be unanchored, while non-rework targets keep generic unanchored feedback.
+- Diagnostic evidence plan: Add an Update File target extractor, run replacement-required before and after patch normalization, and cover rework/non-rework behavior with tests plus mixed/unanchored/validation-rework/taskspace-apply-patch/action-contract regressions and fmt/check/build/diff gates.
+- Status: focused-fixed; real keyed rerun pending.
+
+# Evidence E-226: replacement-required now sticks to all active rework Update File attempts
+
+- Repair artifact:
+  - `third_party/codex-cli/codex-rs/core/src/session/turn.rs`
+- Repair behavior:
+  - Added `taskspace_apply_patch_update_file_targets()`.
+  - `taskspace_action_to_tool_call()` now rejects any `*** Update File` for `current_node_validation_rework_artifacts` as `apply_patch_replacement_required:<target>` before generic grammar classification.
+  - The same check runs after patch normalization, so pure unified diffs normalized into native `Update File` cannot bypass replacement-required state.
+  - Non-rework targets continue to receive generic `apply_patch_unanchored_update` / mixed-native feedback.
+- Validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core requires_replacement --lib
+    PASS: 2/2
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core keeps_generic_unanchored --lib
+    PASS: 1/1
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core mixed_native_unified --lib
+    PASS: 4/4
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core unanchored_update --lib
+    PASS: 3/3
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_rework --lib
+    PASS: 29/29
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core taskspace_apply_patch --lib
+    PASS: 18/18
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core action_contract_prompt --lib
+    PASS: 29/29
+  cargo fmt --check
+    PASS (stable rustfmt warns that imports_granularity is nightly-only)
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo check -p codex-core
+    PASS
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
+    PASS
+  ```
+- Interpretation: H-110 is focused-fixed. Remaining gates are `git diff --check`, commit/push, install/attest, and another keyed rerun.

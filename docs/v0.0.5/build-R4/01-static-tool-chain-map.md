@@ -1003,3 +1003,13 @@ workspace，导致任务以 false local infrastructure blocker 结束。
 
 边界说明：这不是文件工具失败，也不是 runner 没提供 CSV/schema；日志证明文件已列出并读取。问题是 terminal blocker
 路径绕过了普通 `block_node` 的证据矛盾校验。
+
+## 2026-07-05 R4-D issue type addendum: non-sticky replacement-required state
+
+`4aeb22f` 后 keyed rerun 证明 H-109 的 false terminal blocker 不再终止任务，但 active validation rework target
+仍进入 patch recovery hard-stop：第一次 mixed `Update File` 被拒绝为 `apply_patch_replacement_required:process.py`，后续
+其他 `Update File` 形态又落回 generic unanchored/mixed feedback。
+
+| Issue type | Layer | Symptom | Resolution contract | Evidence |
+|---|---|---|---|---|
+| `apply-patch-replacement-required-non-sticky-update-file` | apply_patch action-contract / replacement-required state | active rework target 已 replacement-required，但后续 `*** Update File` old/new、unanchored、normalized update 仍走 generic recovery 并 hard-stop | 已实现：active validation rework target 的任何 `*** Update File` 在 normalize 前后都优先返回 `apply_patch_replacement_required:<target>`；非 rework target 保持 generic feedback | keyed rerun `20260705-003821-682`; CoE H-110/E-225/E-226; focused tests `requires_replacement`, `keeps_generic_unanchored`, `mixed_native_unified`, `unanchored_update`, `validation_rework`, `taskspace_apply_patch` |

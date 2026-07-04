@@ -1559,6 +1559,44 @@ CODEX_SKIP_VENDORED_BWRAP=1 cargo check -p codex-core
 CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
 ```
 
+## 5.96 2026-07-05 replacement-required sticky Update File gate
+
+`4aeb22f` 后 H-109 的 false terminal blocker 未复现，但 replacement-required 仍不够粘滞：
+
+```text
+RunDir: target/r4-org-json-real-keyed-20260705ad-terminal-blocker-gate/runs/terminal_bench__organization-json-generator/20260705-003821-682
+outcome_taskspace: engineering_unclean
+right_public_validation_exit_code: 1
+right_hidden_oracle_exit_code: 0
+right_open_leaf_nodes: 1
+final_marker: TaskSpaceApplyPatchRecoveryHardStopV1
+```
+
+收益判断：
+
+1. H-109 live-cleared：terminal `blocked` 没有再把已观察的 CSV/schema 声明为缺失。
+2. 新问题是 `apply-patch-replacement-required-non-sticky-update-file`：replacement-required 只覆盖部分 mixed
+   `Update File`，后续 unanchored/old-new/normalized `Update File` 仍走 generic recovery。
+3. focused fix 已把 active validation rework target 的任何 `*** Update File` 都优先路由到
+   `apply_patch_replacement_required:<target>`，避免同一状态分流。
+4. R4-G utility 仍未通过，需真实 keyed rerun 验证。
+
+验证：
+
+```text
+CoE: H-110/E-225/E-226
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core requires_replacement --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core keeps_generic_unanchored --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core mixed_native_unified --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core unanchored_update --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_rework --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core taskspace_apply_patch --lib
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core action_contract_prompt --lib
+cargo fmt --check
+CODEX_SKIP_VENDORED_BWRAP=1 cargo check -p codex-core
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
+```
+
 结论：该 case 的 feedback-layer 语义已修复并纳入 R4 coverage；R4 验收仍需真实 keyed rerun 证明
 `organization-json-generator` 不再在同类 tool-runtime failure 上 900s timeout。
 

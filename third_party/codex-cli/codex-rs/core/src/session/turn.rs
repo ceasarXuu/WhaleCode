@@ -7429,6 +7429,47 @@ Then I will inspect the file."#,
     }
 
     #[test]
+    fn taskspace_action_contract_requires_replacement_for_rework_target_any_update_file() {
+        let raw = serde_json::json!({
+            "schema_version": "taskspace-action-v1",
+            "action": "apply_patch",
+            "node_id": "node-1",
+            "args": {
+                "patch": "*** Begin Patch\n*** Update File: process.py\n@@\n-    'budget_total': total_budget,\n+    'total_budget': total_budget,\n*** End Patch\n"
+            },
+        })
+        .to_string();
+        let action = parse_taskspace_action_v1(&raw).expect("valid json");
+        let mut snapshot = provider_snapshot("implement_solution");
+        snapshot.current_node_validation_rework_artifacts = vec!["process.py".to_string()];
+
+        let err = taskspace_action_to_tool_call(&action, &snapshot).expect_err(
+            "rework target Update File must stay replacement-required after prior recovery",
+        );
+
+        assert_eq!(err, "apply_patch_replacement_required:process.py");
+    }
+
+    #[test]
+    fn taskspace_action_contract_keeps_generic_unanchored_update_for_non_rework_target() {
+        let raw = serde_json::json!({
+            "schema_version": "taskspace-action-v1",
+            "action": "apply_patch",
+            "node_id": "node-1",
+            "args": {
+                "patch": "*** Begin Patch\n*** Update File: recover.py\n+print('fixed')\n*** End Patch\n"
+            },
+        })
+        .to_string();
+        let action = parse_taskspace_action_v1(&raw).expect("valid json");
+
+        let err = taskspace_action_to_tool_call(&action, &provider_snapshot("implement_solution"))
+            .expect_err("non-rework target should keep generic unanchored update feedback");
+
+        assert_eq!(err, "apply_patch_unanchored_update:recover.py");
+    }
+
+    #[test]
     fn taskspace_action_contract_rejects_live_wrapped_mixed_native_unified_patch() {
         let raw = serde_json::json!({
             "schema_version": "taskspace-action-v1",
@@ -12767,6 +12808,19 @@ fn taskspace_apply_patch_declared_targets(patch: &str) -> Vec<String> {
     targets
 }
 
+fn taskspace_apply_patch_update_file_targets(patch: &str) -> Vec<String> {
+    let mut targets = Vec::new();
+    for line in patch.lines() {
+        let Some(target) = line.strip_prefix("*** Update File: ").map(str::trim) else {
+            continue;
+        };
+        if !target.is_empty() && !targets.iter().any(|existing| existing == target) {
+            targets.push(target.to_string());
+        }
+    }
+    targets
+}
+
 fn taskspace_apply_patch_mixed_native_unified_targets(patch: &str) -> Vec<String> {
     let has_native_target = patch
         .lines()
@@ -13167,6 +13221,17 @@ fn taskspace_action_to_tool_call(
         "apply_patch" => {
             let patch = taskspace_action_arg_string(args, "patch")
                 .ok_or_else(|| "missing_apply_patch_patch".to_string())?;
+            let update_file_replacement_required_targets =
+                taskspace_validation_rework_replacement_required_targets(
+                    &taskspace_apply_patch_update_file_targets(&patch),
+                    snapshot,
+                );
+            if !update_file_replacement_required_targets.is_empty() {
+                return Err(format!(
+                    "apply_patch_replacement_required:{}",
+                    update_file_replacement_required_targets.join(",")
+                ));
+            }
             if taskspace_apply_patch_missing_unified_header_target(&patch) {
                 return Err("apply_patch_mixed_native_unified:(missing patch target)".to_string());
             }
@@ -13214,6 +13279,17 @@ fn taskspace_action_to_tool_call(
             }
             let patch = normalize_taskspace_unified_diff_patch(&patch)
                 .unwrap_or_else(|| normalize_taskspace_apply_patch(&patch));
+            let update_file_replacement_required_targets =
+                taskspace_validation_rework_replacement_required_targets(
+                    &taskspace_apply_patch_update_file_targets(&patch),
+                    snapshot,
+                );
+            if !update_file_replacement_required_targets.is_empty() {
+                return Err(format!(
+                    "apply_patch_replacement_required:{}",
+                    update_file_replacement_required_targets.join(",")
+                ));
+            }
             let native_hunk_header_targets =
                 taskspace_apply_patch_native_hunk_header_targets(&patch);
             if !native_hunk_header_targets.is_empty() {
