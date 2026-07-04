@@ -11807,6 +11807,8 @@ fn validation_failure_body_excerpt(body: &str, max_chars: usize) -> String {
         .or_else(|| body.split_once("\r\nraw_output:\r\n").map(|(_, rest)| rest))
         .unwrap_or(body);
     let missing_required_properties = validation_failure_required_properties(focused);
+    let rename_hints =
+        validation_failure_property_rename_hints(focused, &missing_required_properties);
     let mut signal_lines = Vec::new();
     let mut fallback_lines = Vec::new();
     for line in focused.lines() {
@@ -11834,10 +11836,17 @@ fn validation_failure_body_excerpt(body: &str, max_chars: usize) -> String {
     if missing_required_properties.is_empty() {
         selected_text
     } else {
-        let required_summary = format!(
+        let mut summaries = vec![format!(
             "missing_required_properties: {}",
             missing_required_properties.join(", ")
-        );
+        )];
+        if !rename_hints.is_empty() {
+            summaries.push(format!(
+                "schema_property_rename_hints={}",
+                rename_hints.join(", ")
+            ));
+        }
+        let required_summary = summaries.join(" | ");
         if selected_text.trim().is_empty() {
             required_summary
         } else {
@@ -35113,6 +35122,33 @@ organization.json generated successfully\n\
         );
         assert!(
             excerpt.contains("'averageDepartmentBudget' is a required property"),
+            "{excerpt}"
+        );
+    }
+
+    #[test]
+    fn validation_failure_excerpt_extracts_schema_rename_hints() {
+        let excerpt = validation_failure_body_excerpt(
+            "TaskSpaceToolInvocationV1:\n\
+tool: shell_command\n\
+raw_output:\n\
+organization.json generated successfully\n\
+{'name': 'Madrid', 'member_ids': ['D001-E001']}: 'members' is a required property\n\
+{'total_employees': 12, 'project_status_distribution': {'In Progress': 3}}: 'totalEmployees' is a required property\n\
+{'total_employees': 12, 'project_status_distribution': {'In Progress': 3}}: 'projectStatusDistribution' is a required property\n",
+            520,
+        );
+
+        assert!(
+            excerpt.contains(
+                "missing_required_properties: members, totalEmployees, projectStatusDistribution"
+            ),
+            "{excerpt}"
+        );
+        assert!(
+            excerpt.contains(
+                "schema_property_rename_hints=member_ids->members, total_employees->totalEmployees, project_status_distribution->projectStatusDistribution"
+            ),
             "{excerpt}"
         );
     }

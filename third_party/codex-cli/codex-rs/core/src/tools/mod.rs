@@ -179,10 +179,18 @@ pub(crate) fn taskspace_tool_semantic_summary(text: &str) -> Option<String> {
     if properties.is_empty() {
         return None;
     }
-    Some(format!(
+    let mut lines = vec![format!(
         "TaskSpaceToolSemanticSummaryV1:\nmissing_required_properties: {}",
         properties.join(", ")
-    ))
+    )];
+    let rename_hints = taskspace_property_rename_hints_from_text(text, &properties);
+    if !rename_hints.is_empty() {
+        lines.push(format!(
+            "schema_property_rename_hints={}",
+            rename_hints.join(", ")
+        ));
+    }
+    Some(lines.join("\n"))
 }
 
 fn taskspace_read_file_summary_from_text(text: &str) -> Option<String> {
@@ -254,6 +262,84 @@ fn taskspace_quoted_suffix_value_with(text: &str, quote: char) -> Option<String>
     (!value.is_empty()).then(|| value.to_string())
 }
 
+fn taskspace_property_rename_hints_from_text(
+    text: &str,
+    missing_required_properties: &[String],
+) -> Vec<String> {
+    let mut hints = Vec::new();
+    for line in text.lines() {
+        let lower = line.to_ascii_lowercase();
+        if !lower.contains("is a required property") {
+            continue;
+        }
+        let Some(marker_start) = lower.find("is a required property") else {
+            continue;
+        };
+        let before = &line[..marker_start];
+        let Some(required) = taskspace_quoted_suffix_value(before) else {
+            continue;
+        };
+        if !missing_required_properties
+            .iter()
+            .any(|property| property == &required)
+        {
+            continue;
+        }
+        for existing_key in taskspace_quoted_object_keys(before) {
+            if taskspace_property_key_suggests_rename(&existing_key, &required) {
+                let hint = format!("{existing_key}->{required}");
+                if !hints.iter().any(|existing| existing == &hint) {
+                    hints.push(hint);
+                }
+            }
+        }
+    }
+    hints
+}
+
+fn taskspace_quoted_object_keys(text: &str) -> Vec<String> {
+    let mut keys = Vec::new();
+    for quote in ['\'', '"'] {
+        let mut rest = text;
+        while let Some(start) = rest.find(quote) {
+            let after_start = &rest[start + quote.len_utf8()..];
+            let Some(end) = after_start.find(quote) else {
+                break;
+            };
+            let value = &after_start[..end];
+            let after_end = &after_start[end + quote.len_utf8()..];
+            if after_end.trim_start().starts_with(':')
+                && !keys.iter().any(|existing| existing == value)
+            {
+                keys.push(value.to_string());
+            }
+            rest = after_end;
+        }
+    }
+    keys
+}
+
+fn taskspace_property_key_suggests_rename(existing_key: &str, required_property: &str) -> bool {
+    let existing = taskspace_normalize_property_name(existing_key);
+    let required = taskspace_normalize_property_name(required_property);
+    if existing.is_empty() || required.is_empty() {
+        return false;
+    }
+    if existing == required {
+        return true;
+    }
+    let required_singular = required.strip_suffix('s').unwrap_or(&required);
+    required_singular.len() >= 4 && existing.contains(required_singular)
+}
+
+fn taskspace_normalize_property_name(value: &str) -> String {
+    value
+        .chars()
+        .filter(|ch| ch.is_ascii_alphanumeric())
+        .flat_map(|ch| ch.to_lowercase())
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -287,6 +373,33 @@ mod tests {
         assert!(formatted.starts_with("TaskSpaceToolSemanticSummaryV1"));
         assert!(formatted.contains(
             "missing_required_properties: averageDepartmentBudget, totalEmployees, skillDistribution, departmentSizes, projectStatusDistribution, averageYearsOfService"
+        ));
+    }
+
+    #[test]
+    fn exec_output_formatter_summarizes_schema_rename_hints() {
+        let raw_output = "\
+{'name': 'Madrid', 'member_ids': ['D001-E001']}: 'members' is a required property
+{'total_employees': 12, 'project_status_distribution': {'In Progress': 3}}: 'totalEmployees' is a required property
+{'total_employees': 12, 'project_status_distribution': {'In Progress': 3}}: 'projectStatusDistribution' is a required property";
+        let exec_output = ExecToolCallOutput {
+            exit_code: 1,
+            stdout: StreamOutput::new(String::new()),
+            stderr: StreamOutput::new(String::new()),
+            aggregated_output: StreamOutput::new(raw_output.to_string()),
+            duration: Duration::from_millis(100),
+            timed_out: false,
+        };
+
+        let formatted =
+            format_exec_output_str_with_ref(&exec_output, TruncationPolicy::Bytes(512), None);
+
+        assert!(formatted.starts_with("TaskSpaceToolSemanticSummaryV1"));
+        assert!(formatted.contains(
+            "missing_required_properties: members, totalEmployees, projectStatusDistribution"
+        ));
+        assert!(formatted.contains(
+            "schema_property_rename_hints=member_ids->members, total_employees->totalEmployees, project_status_distribution->projectStatusDistribution"
         ));
     }
 }
