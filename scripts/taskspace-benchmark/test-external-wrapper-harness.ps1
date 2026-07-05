@@ -66,12 +66,15 @@ $sourceGuard = Protect-TaskspaceExternalSensitiveSource ([pscustomobject]@{
         }
     }) $sourceGuardPairDir
 if ([System.Environment]::OSVersion.Platform -ne [System.PlatformID]::Win32NT) {
-    Assert-True (-not [bool]$sourceGuard.active) "source guard should not use Windows ACLs on non-Windows hosts"
-    Assert-True ([string]$sourceGuard.reason -eq "windows_acl_unavailable") "source guard did not record stable non-Windows reason"
+    Assert-True ([bool]$sourceGuard.active) "source guard should use POSIX chmod on non-Windows hosts"
+    Assert-True ([string]$sourceGuard.guard_method -eq "posix_chmod_no_permissions") "source guard did not record POSIX chmod method"
+    Assert-True ([bool]$sourceGuard.all_reads_denied_after_protect) "POSIX source guard did not deny reads"
 } else {
     Assert-True ([bool]$sourceGuard.active) "source guard should stay active on Windows hosts"
+    Assert-True ([string]$sourceGuard.guard_method -eq "windows_icacls_deny_read") "source guard did not record Windows ACL method"
 }
 $sourceGuard = Unprotect-TaskspaceExternalSensitiveSource $sourceGuard
+Assert-True ([bool]$sourceGuard.all_denies_removed_after_release -and [bool]$sourceGuard.all_reads_restored_after_release) "source guard did not restore protected source reads"
 
 $wrapperRunRoot = Join-Path $runDir "wrapper-runs"
 $defaultOutput = & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "run-taskspace-external-benchmark.ps1") -Benchmark terminal-bench -TaskDir $taskDir -SourceVersion "pinned" -RunRoot $wrapperRunRoot -RunnerPath $runnerStub -WhaleBin $freshWhaleBin 2>&1

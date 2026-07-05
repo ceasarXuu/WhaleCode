@@ -4131,3 +4131,82 @@ E3StartGate: target/r4-e3-formal-p0-20260705/start-gate-wrapper-fixed/e3-start-g
 - formal start-gate 已能在 explicit skipped calibration 模式下放行 full E3 evidence-generation。
 - `gate_decision.calibration_gate_passed=false`，因此这还不是最终 release decision pass。
 - 下一步需要提交当前工具链修复，重建当前 HEAD 的 non-agent gates/markers，然后启动正式 full E3 evidence-generating run。
+
+## 63. 2026-07-05 formal E3 validator fidelity blocker and POSIX source guard
+
+重新生成当前 HEAD markers 后启动 formal full E3 evidence-generating run：
+
+```text
+SuiteRoot: target/r4-e3-formal-p0-20260705/full-e3-01c6331/suite-20260705-171525
+PairAbort: samples/processing-pipeline/runs/terminal_bench__processing-pipeline/20260705-171552-266/pair-001/pair-abort.json
+exit_code=3
+```
+
+这次 start-gate 已过，suite 在第一个 pair 的 scoring fast-fail 处退出。根因不是 runtime proof 缺失：
+
+| proof | 状态 |
+|---|---|
+| runtime/mount proof | `runtime_proven=true`, `validator_mount_proven=true` |
+| official runner proof | `source_hashes=[]`, `official_protocol_source_proven=false`, `task_worktree_dirty=true` |
+| source isolation proof | validator source hash/outside-repo proof 通过，但 `source_guard_proven=false` |
+| abort reason | `e3_external_validator_fidelity_unproven`, `e3_external_validator_not_e3_eligible`, `e3_external_validator_source_not_isolated` |
+
+新增修复：
+
+- 旧 P0 sparse checkout 补齐 official Terminal-Bench runner 源文件：
+  - `terminal_bench/harness/harness.py`
+  - `terminal_bench/terminal/docker_compose_manager.py`
+  - `terminal_bench/handlers/trial_handler.py`
+  - `terminal_bench/parsers/pytest_parser.py`
+- `source-guard.ps1` 增加 POSIX `chmod 000` source guard：
+  - `guard_method=posix_chmod_no_permissions`
+  - POSIX probe: `current_powershell`, `powershell_child`, `sh_child`
+  - 记录 original mode、deny rows、release rows 和 hash restoration
+  - Windows `icacls` 路径保留
+- `test-external-wrapper-harness.ps1` 改为在非 Windows 上要求 active POSIX guard。
+
+focused 验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/taskspace-benchmark/test-external-wrapper-harness.ps1
+  PASS
+CODEX_SKIP_VENDORED_BWRAP=1 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/taskspace-benchmark/test-e3-proof-harness.ps1
+  PASS
+git diff --check
+  PASS
+```
+
+真实 diagnostic pair：
+
+```text
+RunDir: target/r4-e3-formal-p0-20260705/processing-pipeline-proof-diagnostic-01c6331/runs/terminal_bench__processing-pipeline/20260705-172210-590
+exit_code=0
+sample_status.run_validity=valid
+pair_report.engineering_unclean=false
+```
+
+关键 proof：
+
+```text
+external-e3-proof.validator_fidelity:
+  official_runner_or_equivalent=true
+  agent_cannot_read_validator_source=true
+  e3_eligible=true
+  runtime_proven=true
+  validator_mount_proven=true
+
+external-runner-equivalence-proof:
+  official_protocol_source_proven=true
+  task_worktree_dirty=false
+  source_hashes: 4/4 pinned files match
+
+external-isolation-proof:
+  source_guard_proven=true
+  agent_cannot_read_validator_source_proven=true
+```
+
+当前结论：
+
+- formal E3 的 validator fidelity blocker 已 focused-cleared。
+- diagnostic pair 中 standard/taskspace 均为 `wrong`，这是样本执行质量问题，不再是 E3 fidelity/harness blocker。
+- 下一步需要提交 POSIX source guard 修复，重新生成当前 HEAD gates/markers，再重启 formal full E3 evidence run。

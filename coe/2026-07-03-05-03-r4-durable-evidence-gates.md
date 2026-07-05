@@ -8365,3 +8365,116 @@
   E3StartGate: target/r4-e3-formal-p0-20260705/start-gate-wrapper-fixed/e3-start-gate.json
   ```
 - Interpretation: H-135 is focused-fixed. Formal start-gate operation no longer requires bypassing the CLI wrapper.
+
+# Hypothesis H-136: formal full E3 aborts because validator fidelity proof lacks official source files and Linux source guard
+
+- Claim: the first formal full-E3 evidence-generating run after start-gate repair aborts before useful scoring because
+  Terminal-Bench E3 fidelity proof is incomplete, not because the start-gate or model execution crashed. Two support
+  gaps combine:
+  - the old P0 sparse checkout includes the three task directories but not the official Terminal-Bench runner source
+    files required by `terminal-bench-equivalence.ps1`;
+  - `source-guard.ps1` only activates Windows `icacls`, so Linux runs cannot prove validator/source isolation.
+- Prediction:
+  - `external-runtime-proof.json` should show `runtime_proven=true` and `validator_mount_proven=true`.
+  - `external-runner-equivalence-proof.json` should show `source_hashes=[]`, `task_worktree_dirty=true`, and
+    `official_protocol_source_proven=false`.
+  - `external-isolation-proof.json` should show source placement/hash checks passing but `source_guard_proven=false`.
+  - After adding required sparse source files and POSIX source guard, a real one-pair diagnostic should show
+    `official_runner_or_equivalent=true`, `agent_cannot_read_validator_source=true`, and `e3_eligible=true`.
+- Diagnostic evidence plan:
+  - Inspect the aborted full-E3 pair proof artifacts.
+  - Add the required official source paths to the old Terminal-Bench sparse checkout.
+  - Implement POSIX chmod-based source guard with deny probes and release proof.
+  - Run focused self-tests and a one-pair diagnostic against `processing-pipeline`.
+- Status: confirmed; focused-fixed.
+
+# Evidence E-276: formal full E3 reached runtime proof but aborted on validator fidelity
+
+- Prediction tested: H-136 predicts a fidelity proof blocker rather than a runtime-proof blocker.
+- Run:
+  ```text
+  SuiteRoot: target/r4-e3-formal-p0-20260705/full-e3-01c6331/suite-20260705-171525
+  PairAbort: samples/processing-pipeline/runs/terminal_bench__processing-pipeline/20260705-171552-266/pair-001/pair-abort.json
+  exit_code: 3
+  ```
+- Abort:
+  ```text
+  reason: e3_external_validator_fidelity_unproven
+  engineering_unclean_reasons:
+    e3_external_validator_fidelity_unproven
+    e3_external_validator_not_e3_eligible
+    e3_external_validator_source_not_isolated
+  ```
+- Proof observations:
+  - `external-runtime-proof.json`:
+    - `runtime_proven=true`
+    - `validator_mount_proven=true`
+    - `runtime_manifest_under_artifact=true`
+    - `docker_inspect_under_artifact=true`
+  - `external-runner-equivalence-proof.json`:
+    - `source_hashes=[]`
+    - `task_worktree_dirty=true`
+    - `official_protocol_source_proven=false`
+  - `external-isolation-proof.json`:
+    - `validator_source_hash_matches=true`
+    - `validator_source_outside_repo_proven=true`
+    - `source_guard_proof_path=""`
+    - `source_guard_proven=false`
+- Interpretation: H-136 is supported. Formal E3 no longer fails at start-gate, but it cannot score until official source
+  hash proof and source guard proof are present on Linux.
+
+# Evidence E-277: POSIX source guard plus official sparse source files clears the fidelity blocker
+
+- Prediction tested: H-136 predicts fidelity proof clears after adding official source paths and Linux source guard.
+- Source preparation:
+  ```text
+  git -C target/external-sources/terminal-bench-1a6ffa9674b571da0ed040c470cb40c4d85f9b9b sparse-checkout add --skip-checks \
+    terminal_bench/harness/harness.py \
+    terminal_bench/terminal/docker_compose_manager.py \
+    terminal_bench/handlers/trial_handler.py \
+    terminal_bench/parsers/pytest_parser.py
+  ```
+- Repair artifacts:
+  - `scripts/taskspace-benchmark/lib/source-guard.ps1`
+    - adds POSIX `chmod 000` deny/read probes;
+    - records `guard_method=posix_chmod_no_permissions`;
+    - records original mode, deny probe rows, release rows, and hash restoration;
+    - uses `current_powershell`, `powershell_child`, and `sh_child` probes on POSIX.
+  - `scripts/taskspace-benchmark/test-external-wrapper-harness.ps1`
+    - now expects active POSIX source guard on non-Windows hosts.
+- Focused validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/taskspace-benchmark/test-external-wrapper-harness.ps1
+    PASS
+  CODEX_SKIP_VENDORED_BWRAP=1 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/taskspace-benchmark/test-e3-proof-harness.ps1
+    PASS
+  git diff --check
+    PASS
+  ```
+- Real diagnostic:
+  ```text
+  run-taskspace-external-benchmark.ps1 -Benchmark terminal-bench \
+    -TaskDir target/external-sources/terminal-bench-1a6ffa9674b571da0ed040c470cb40c4d85f9b9b/original-tasks/processing-pipeline \
+    -SampleId processing-pipeline -SourceVersion 1a6ffa9674b571da0ed040c470cb40c4d85f9b9b -Repeats 1 -ScoringMode
+  RunDir: target/r4-e3-formal-p0-20260705/processing-pipeline-proof-diagnostic-01c6331/runs/terminal_bench__processing-pipeline/20260705-172210-590
+  exit_code: 0
+  sample_status.run_validity: valid
+  pair_report.engineering_unclean: false
+  ```
+- Diagnostic proof:
+  - `external-e3-proof.json`:
+    - `official_runner_or_equivalent=true`
+    - `agent_cannot_read_validator_source=true`
+    - `e3_eligible=true`
+    - `runtime_proven=true`
+    - `validator_mount_proven=true`
+  - `external-runner-equivalence-proof.json`:
+    - `official_protocol_source_proven=true`
+    - `task_worktree_dirty=false`
+    - four required official source hashes match pinned revision.
+  - `external-isolation-proof.json`:
+    - `source_guard_proven=true`
+    - `agent_cannot_read_validator_source_proven=true`
+    - five source guard rows prove deny and release/hash restoration.
+- Interpretation: H-136 is focused-fixed. Remaining `processing-pipeline` diagnostic outcome is business wrong on both
+  sides and `repeats_lt_3`/`audit_review_missing`; it is no longer an E3 harness fidelity blocker.
