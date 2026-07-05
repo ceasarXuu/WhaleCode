@@ -9377,3 +9377,74 @@
 - Interpretation:
   - The direct budget-drain mechanism is focused-fixed locally.
   - A fresh targeted run is still required to prove the final live marker changes from generic provider-budget hard-stop to `TaskSpacePathCorrectionHardStopV1`.
+
+# Hypothesis H-149: successful relative reads must clear stale path-correction feedback
+
+- Claim: The first live run after E-299 proved the hard-stop marker works, but also exposed that `tool_path_correction_feedback` persisted after the provider switched from `/data` to `rg --files .` and got a successful read result. That stale correction then caused `TaskSpacePathCorrectionHardStopV1` to stop the turn even though the model had stopped repeating the absolute alias.
+- Prediction:
+  - The `500859e` targeted run should show `/data` failure followed by successful `rg --files .`, then an incorrect `TaskSpacePathCorrectionHardStopV1`.
+  - Clearing path-correction feedback after a successful `list_files`/`read_file`/`search` action with no new path-correction failure should prevent this stale hard-stop.
+  - Edit/control success should not clear path-correction feedback because those actions do not prove path discovery recovered.
+- Diagnostic evidence plan:
+  - Inspect `targeted-multi-source-500859e` for `/data` failure, successful relative listing, and path-correction hard-stop.
+  - Add a narrow action-kind predicate for clearing path-correction feedback.
+  - Validate focused path-correction, provider actionability, taskspace, build, and diff checks.
+- Status: confirmed; focused-fixed; fresh targeted live validation pending.
+
+# Evidence E-300: 500859e live run hard-stopped on stale correction after successful `rg --files .`
+
+- Prediction tested: H-149 predicts the first hard-stop implementation can fire after successful relative discovery if the old correction state is not cleared.
+- Run:
+  ```text
+  HEAD: 500859e
+  RunRoot: target/r4-e3-formal-p0-20260705/targeted-multi-source-500859e
+  RunDir: target/r4-e3-formal-p0-20260705/targeted-multi-source-500859e/runs/terminal_bench__multi-source-data-merger/20260706-004757-758
+  pair: pair-001/right
+  ```
+- Matched run signals:
+  ```text
+  item.started command_execution: rg --files /data
+  item.completed failed: rg: /data: No such file or directory
+
+  item.started command_execution: rg --files .
+  item.completed success:
+    ./data/source_a/users.json
+    ./data/source_b/users.csv
+    ./data/source_c/users.parquet
+
+  terminal marker:
+    TaskSpacePathCorrectionHardStopV1
+    reason=repeated_path_correction_retry_forbidden
+    attempt_count=2
+    task_complete duration_ms=12072
+  ```
+- Interpretation:
+  - The dedicated hard-stop marker is live, but the trigger was too broad.
+  - The correct repair is to clear path-correction feedback after successful read/list/search recovery, not to remove the hard-stop.
+
+# Evidence E-301: stale path-correction feedback clears after successful read-surface action
+
+- Prediction tested: H-149 predicts read/list/search success can safely clear stale path-correction feedback if no new path-correction failure is present.
+- Repair artifact:
+  - `third_party/codex-cli/codex-rs/core/src/session/turn.rs`
+    - adds `taskspace_action_can_clear_path_correction_feedback(...)`;
+    - clears `tool_path_correction_feedback` after successful `list_files`, `read_file`, or `search` action when the recorded response item does not contain a new path-correction failure;
+    - leaves edit/control actions out of this clearing path.
+- Validation:
+  ```text
+  cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all
+    passed with existing nightly rustfmt config warnings
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core path_correction --lib
+    10 passed
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core provider_response_actionability --lib
+    9 passed
+  RUST_MIN_STACK=8388608 CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core taskspace --lib
+    175 passed
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
+    Finished dev profile
+  git diff --check
+    passed
+  ```
+- Interpretation:
+  - The stale-feedback false hard-stop is focused-fixed locally.
+  - A fresh targeted run is still required to prove the live flow no longer stops immediately after successful relative listing.

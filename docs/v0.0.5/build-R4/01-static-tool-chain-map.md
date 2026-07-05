@@ -1329,6 +1329,7 @@ E3 targeted `multi-source-data-merger` 诊断证明路径纠错已经从“反�
 | issue type | 层级 | 本质 | 修复 | 证据 |
 |---|---|---|---|---|
 | `path-correction-recovery-budget-drain` | action-contract path correction / feedback recovery accounting / provider budget control | 路径失败语义已传到 tool boundary，但 provider 重试绝对 workspace alias 后，专用 path-correction recovery 可反复 advisory，直到 generic provider budget hard-stop | 已实现：新增 `TaskSpacePathCorrectionHardStopV1`；同一 node 允许一次 path-correction recovery prompt，第二次仍重复确定性绝对路径拒绝时停止本 turn；hard-stop excerpt 不再被误识别为 recovery item | targeted run `20260706-003657-482`; CoE H-148/E-298/E-299; focused tests `path_correction_recovery_hard_stops_after_one_retry_prompt`, `path_correction`, `provider_response_actionability` |
+| `path-correction-stale-feedback-after-successful-relative-read` | path-correction recovery lifecycle / actionability state cleanup | provider 已从 `/data` 改为成功的 `rg --files .`，但旧 path-correction state 未清除，导致 `TaskSpacePathCorrectionHardStopV1` 误把成功相对读之后的恢复判断当成重复绝对路径违规 | 已实现：成功 `list_files`/`read_file`/`search` 且没有新的 path-not-found correction 时清除 path-correction feedback；edit/control success 不清除 | targeted run `20260706-004757-758`; CoE H-149/E-300/E-301; focused test `path_correction_feedback_clears_after_successful_read_surface_action`; regressions `path_correction`, `taskspace` |
 
 边界说明：这不是扩大 `/data` 访问权限，也不是把失败读当成成功证据。runtime 仍拒绝绝对 alias
 并提供 workspace-relative suggestion；修复只把重复确定性拒绝从高成本 provider budget hard-stop 收敛为专用、可审计的

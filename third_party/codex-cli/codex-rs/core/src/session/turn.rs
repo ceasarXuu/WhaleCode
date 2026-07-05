@@ -2369,6 +2369,13 @@ fn taskspace_path_correction_retry_reject_reason(
     ))
 }
 
+fn taskspace_action_can_clear_path_correction_feedback(action: &TaskSpaceActionV1) -> bool {
+    matches!(
+        action.action.as_str(),
+        "list_files" | "read_file" | "search"
+    )
+}
+
 fn taskspace_same_workspace_path(left: &str, right: &str) -> bool {
     taskspace_normalize_retry_path(left) == taskspace_normalize_retry_path(right)
 }
@@ -8549,6 +8556,31 @@ TaskSpace implement_solution node `node-6` cannot be blocked for missing source 
         assert!(text.contains("attempt_count: 2"));
         assert!(!is_taskspace_path_correction_recovery_item(&hard_stop));
         assert!(is_taskspace_path_correction_hard_stop_item(&hard_stop));
+    }
+
+    #[test]
+    fn path_correction_feedback_clears_after_successful_read_surface_action() {
+        for action_name in ["list_files", "read_file", "search"] {
+            let action = TaskSpaceActionV1 {
+                schema_version: "taskspace-action-v1".to_string(),
+                action: action_name.to_string(),
+                node_id: Some("node-1".to_string()),
+                args: serde_json::json!({ "path": "data/source_a/users.json" }),
+                rationale: None,
+            };
+            assert!(taskspace_action_can_clear_path_correction_feedback(&action));
+        }
+
+        let edit_action = TaskSpaceActionV1 {
+            schema_version: "taskspace-action-v1".to_string(),
+            action: "apply_patch".to_string(),
+            node_id: Some("node-1".to_string()),
+            args: serde_json::json!({ "patch": "*** Begin Patch\n*** End Patch\n" }),
+            rationale: None,
+        };
+        assert!(!taskspace_action_can_clear_path_correction_feedback(
+            &edit_action
+        ));
     }
 
     #[test]
@@ -15995,6 +16027,10 @@ async fn try_run_sampling_request(
                                         taskspace_path_correction_from_response_item(&response_item)
                                     {
                                         tool_path_correction_feedback = Some(correction);
+                                    } else if taskspace_action_can_clear_path_correction_feedback(
+                                        &action,
+                                    ) {
+                                        tool_path_correction_feedback = None;
                                     }
                                     tool_gate_recovery_message =
                                         taskspace_gate_recovery_from_response_item(&response_item);

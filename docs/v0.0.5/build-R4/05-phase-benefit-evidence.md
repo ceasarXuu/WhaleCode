@@ -6431,12 +6431,39 @@ terminal marker: TaskSpaceProviderBudgetHardStopV1 node_request_count=7/6
 5. R4-G utility 仍未通过：需要 fresh targeted rerun 验证 live 终态从 generic provider budget hard-stop
    变为 path-correction 专用 hard-stop，随后再决定是否接入 bounded fact-source bootstrap 提升通过率。
 
+`500859e` fresh targeted run 证明专用 hard-stop marker 已 live 生效，但同时暴露了一个更窄的 stale-feedback
+问题：provider 在 `/data` 失败后改用 `rg --files .`，并成功看到 `./data/source_a/users.json`、
+`./data/source_b/users.csv`、`./data/source_c/users.parquet`，但旧 path-correction feedback 未被清除，仍触发
+`TaskSpacePathCorrectionHardStopV1 attempt_count=2`。这不是 hard-stop 机制本身错误，而是 recovery state lifecycle
+缺少成功相对读后的清理。
+
+```text
+RunDir: target/r4-e3-formal-p0-20260705/targeted-multi-source-500859e/runs/terminal_bench__multi-source-data-merger/20260706-004757-758
+HEAD: 500859e
+initial failure: rg --files /data -> No such file or directory
+successful recovery read: rg --files . -> ./data/source_a/users.json, ./data/source_b/users.csv, ./data/source_c/users.parquet
+incorrect terminal marker: TaskSpacePathCorrectionHardStopV1 attempt_count=2
+task_complete duration_ms: 12072
+```
+
+追加修复：
+
+1. 新收录问题类型为 `path-correction-stale-feedback-after-successful-relative-read`。
+2. action-contract 成功执行 `list_files`、`read_file`、`search` 且 response item 没有新的 path-not-found correction 时，
+   清除 `tool_path_correction_feedback`。
+3. `apply_patch`、`taskspace_control` 等 edit/control 成功不清除该状态，因为它们不能证明 path discovery 已恢复。
+4. 仍需下一次 targeted rerun 验证 live 流程不再在成功 `rg --files .` 后立即 hard-stop。
+
 验证：
 
 ```text
 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all
 CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core path_correction --lib
-  9 passed
+  10 passed
 CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core provider_response_actionability --lib
   9 passed
+RUST_MIN_STACK=8388608 CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core taskspace --lib
+  175 passed
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
+git diff --check
 ```
