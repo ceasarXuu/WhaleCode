@@ -79,6 +79,23 @@ function Get-TaskspaceRequiredWaitTimingFields {
     )
 }
 
+function ConvertFrom-TaskspaceJsonPreservingDateStrings {
+    param([Parameter(Mandatory = $true)][string]$Json)
+    $convert = Get-Command ConvertFrom-Json -ErrorAction Stop
+    if ($convert.Parameters.ContainsKey("DateKind")) {
+        return ($Json | ConvertFrom-Json -DateKind String)
+    }
+    $Json | ConvertFrom-Json
+}
+
+function ConvertTo-TaskspaceDateTimeOffset {
+    param($Value)
+    if ($null -eq $Value) { return $null }
+    if ($Value -is [datetimeoffset]) { return $Value }
+    if ($Value -is [datetime]) { return [datetimeoffset]$Value }
+    [datetimeoffset]::Parse([string]$Value, [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::RoundtripKind)
+}
+
 function New-TaskspaceMissingWaitAttribution {
     param($Object)
     $missing = New-Object System.Collections.Generic.List[string]
@@ -504,7 +521,8 @@ function Add-TaskspaceMetricTimingFields {
     $Metrics | Add-Member -NotePropertyName validation_timeout_phase -NotePropertyValue $timeoutPhase -Force
     if ($Metrics.PSObject.Properties.Name -contains "docker_build_result_path" -and $Metrics.docker_build_result_path -and (Test-Path -LiteralPath $Metrics.docker_build_result_path)) {
         try {
-            $docker = Get-Content -Raw -Encoding UTF8 -LiteralPath $Metrics.docker_build_result_path | ConvertFrom-Json
+            $dockerText = Get-Content -Raw -Encoding UTF8 -LiteralPath $Metrics.docker_build_result_path
+            $docker = ConvertFrom-TaskspaceJsonPreservingDateStrings $dockerText
             $phases = @($docker.phases | Where-Object { $_.timestamp })
             foreach ($phase in @($docker.phases)) {
                 if (-not ($phase.PSObject.Properties.Name -contains "duration_ms")) { continue }
@@ -518,8 +536,8 @@ function Add-TaskspaceMetricTimingFields {
                 }
             }
             if ($phases.Count -ge 1) {
-                $first = [datetime]::Parse([string]$phases[0].started_at)
-                $last = [datetime]::Parse([string]$phases[-1].finished_at)
+                $first = ConvertTo-TaskspaceDateTimeOffset $phases[0].started_at
+                $last = ConvertTo-TaskspaceDateTimeOffset $phases[-1].finished_at
                 $Metrics.docker_observed_duration_ms = [int64](($last - $first).TotalMilliseconds)
             }
         } catch {

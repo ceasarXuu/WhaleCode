@@ -8236,3 +8236,132 @@
   ```
 - Interpretation: H-133 is focused-fixed. After committing this alignment, non-agent gates must be rebuilt so their
   `git_commit` and evidence hashes bind to the final R4 candidate head.
+
+# Hypothesis H-134: formal E3 start-gate self-test failure is caused by support-script evidence parsing drift
+
+- Claim: the `cheap_self_tests` start-gate failure after formal P0 gate prep is not a runtime/state-machine failure;
+  it is caused by two support-script evidence parsers that lost valid proof evidence on Linux/PowerShell:
+  `Test-TaskspacePathUnderRoot` accepted only backslash child paths, and docker timing parsing let
+  `ConvertFrom-Json` coerce ISO timestamps to second-precision `DateTime`.
+- Prediction:
+  - `test-e3-proof-harness.ps1` proof artifacts will show runtime/inspect/cleanup paths inside the artifact root, but
+    `*_under_artifact=false`.
+  - `test-e3-score-validity.ps1` will record docker build/run/cleanup durations correctly but compute
+    `docker_observed_duration_ms=4000` for a fixture that spans `4200ms`.
+  - After repairing those parsers, both self-tests and the formal start-gate cheap self-test bundle should pass.
+- Diagnostic evidence plan:
+  - Reproduce the two failing self-tests directly.
+  - Inspect the latest generated proof and timing JSON artifacts.
+  - Patch only evidence parsing utilities, then rerun the direct self-tests and formal start gate.
+- Status: confirmed; focused-fixed.
+
+# Evidence E-273: start-gate self-test artifacts prove cross-platform path and date precision loss
+
+- Prediction tested: H-134 predicts support-script evidence parsing loss rather than missing runtime evidence.
+- Reproduction:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/taskspace-benchmark/test-e3-score-validity.ps1
+    FAIL: metric timing did not record full docker observed duration
+  CODEX_SKIP_VENDORED_BWRAP=1 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/taskspace-benchmark/test-e3-proof-harness.ps1
+    FAIL: runtime proof did not accept complete structured markers
+    FAIL: official equivalent proof did not accept source-hashed /tests protocol
+  ```
+- Diagnostic observations:
+  - `external-runtime-proof.json` reported Linux paths such as
+    `/home/zhangxu/whalecode-alpha/target/e3-proof-selftest/.../pair/right/artifacts/external-validator-runtime/terminal-bench-runtime-manifest.json`
+    while `runtime_manifest_under_artifact=false`, `docker_inspect_under_artifact=false`, and
+    `validation_cleanup_result_under_artifact=false`.
+  - A direct probe showed `Test-TaskspacePathUnderRoot` returned `false`, `starts_backslash=false`, and
+    `starts_slash=true` for the same child/root pair.
+  - `docker-build-result.json` preserved fractional ISO timestamps ending in `.3369658+08:00` and `.5369658+08:00`,
+    but PowerShell `ConvertFrom-Json` produced `System.DateTime` values whose `ToString("o")` had `.0000000`.
+  - `Add-TaskspaceMetricTimingFields` therefore returned:
+    ```json
+    {
+      "docker_observed_duration_ms": 4000,
+      "docker_build_duration_ms": 1000,
+      "docker_run_duration_ms": 2000,
+      "docker_inspect_duration_ms": 300,
+      "docker_cleanup_duration_ms": 900
+    }
+    ```
+- Interpretation: H-134 is supported. The failing gate lost valid evidence during parsing; the underlying proof/timing
+  artifacts were present.
+
+# Evidence E-274: evidence parser repair clears direct self-tests and formal start gate
+
+- Prediction tested: H-134 predicts focused parser repair clears the self-test bundle.
+- Repair artifacts:
+  - `scripts/taskspace-benchmark/lib/e3-proof.ps1`
+    - `Test-TaskspacePathUnderRoot` now accepts both native and alternate separators after resolving paths.
+  - `scripts/taskspace-benchmark/lib/timing.ps1`
+    - docker build result JSON is parsed with `ConvertFrom-Json -DateKind String` when available.
+    - docker observed duration now uses `DateTimeOffset` parsing so offset/fractional precision survives.
+- Validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/taskspace-benchmark/test-e3-score-validity.ps1
+    PASS
+  CODEX_SKIP_VENDORED_BWRAP=1 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/taskspace-benchmark/test-e3-proof-harness.ps1
+    PASS
+  CODEX_SKIP_VENDORED_BWRAP=1 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/taskspace-benchmark/test-e3-start-gate.ps1
+    PASS
+  git diff --check
+    PASS
+  ```
+- Formal start-gate validation:
+  ```text
+  Invoke-TaskspaceE3StartGate ... -RunSelfTests -AllowSkippedPathContract -AllowSkippedOnePairSmoke -AllowSkippedCalibrationGate
+    status: pass
+    gate_decision.full_e3_allowed: true
+    gate_decision.calibration_gate_skipped_allowed: true
+    gate_decision.calibration_gate_passed: false
+    gate_decision.v005_markers_passed: true
+    cheap_self_tests: pass
+  ```
+- Interpretation: H-134 is focused-fixed. This authorizes the next evidence-generating formal E3 attempt with
+  calibration explicitly skipped, but still does not satisfy final release-decision calibration requirements.
+
+# Hypothesis H-135: start-gate CLI wrapper hides formal v0.0.5 marker and sample identity parameters
+
+- Claim: `invoke-taskspace-e3-start-gate.ps1` could not be used as the formal R4 operator entrypoint because it did not
+  expose `V005NonAgentGatesPath`, `V005CodeCompleteMarkerPath`, `V005UserApprovalMarkerPath`, `Benchmark`, `Repeats`, or
+  `ExpectedSampleSetId`, even though `Invoke-TaskspaceE3StartGate` requires those inputs to validate formal P0 identity
+  and v0.0.5 markers.
+- Prediction:
+  - The wrapper path will report marker paths missing or be unable to derive the formal sample set, while a direct
+    function invocation with the same artifacts passes.
+  - Adding pass-through parameters should let the wrapper produce the same start-gate pass result.
+- Diagnostic evidence plan:
+  - Compare wrapper invocation behavior with direct `Invoke-TaskspaceE3StartGate`.
+  - Add only pass-through parameters and rerun the wrapper against current formal P0 artifacts.
+- Status: confirmed; focused-fixed.
+
+# Evidence E-275: start-gate wrapper now passes formal marker and identity inputs through
+
+- Prediction tested: H-135 predicts wrapper pass-through repair makes the user-facing start-gate entrypoint usable.
+- Repair artifact:
+  - `scripts/taskspace-benchmark/invoke-taskspace-e3-start-gate.ps1`
+- Added pass-through parameters:
+  - `Benchmark`
+  - `Repeats`
+  - `V005NonAgentGatesPath`
+  - `V005CodeCompleteMarkerPath`
+  - `V005UserApprovalMarkerPath`
+  - `ExpectedSampleSetId`
+- Wrapper validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/taskspace-benchmark/invoke-taskspace-e3-start-gate.ps1 \
+    -OutputDir target/r4-e3-formal-p0-20260705/start-gate-wrapper-fixed \
+    -TaskListPath target/r4-e3-formal-p0-20260705/task-list.jsonl \
+    -SourceVersion 1a6ffa9674b571da0ed040c470cb40c4d85f9b9b \
+    -ExpectedTaskListHash 00d9c0ab0fe44c6d0d1079d9917562dc7a906eb177d83185a264f4a567aedfba \
+    -ExpectedProfileHash 03f792dbdf15c1d3081f1bf89ca71f4dd008252b45785eaa6d6909d919254dc6 \
+    -Benchmark terminal-bench -Repeats 5 \
+    -V005NonAgentGatesPath target/r4-e3-formal-p0-20260705/gates-4cfaaf6/v005-non-agent-gates.json \
+    -V005CodeCompleteMarkerPath target/r4-e3-formal-p0-20260705/gates-4cfaaf6/v005-code-complete.json \
+    -V005UserApprovalMarkerPath target/r4-e3-formal-p0-20260705/gates-4cfaaf6/v005-user-approval.json \
+    -RunSelfTests -AllowSkippedPathContract -AllowSkippedOnePairSmoke -AllowSkippedCalibrationGate
+  exit_code: 0
+  E3StartGate: target/r4-e3-formal-p0-20260705/start-gate-wrapper-fixed/e3-start-gate.json
+  ```
+- Interpretation: H-135 is focused-fixed. Formal start-gate operation no longer requires bypassing the CLI wrapper.

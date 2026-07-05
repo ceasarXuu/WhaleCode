@@ -41,7 +41,11 @@ function Test-TaskspacePathUnderRoot {
     $resolvedPath = (Resolve-Path -LiteralPath $Path).Path.TrimEnd("\", "/")
     $resolvedRoot = (Resolve-Path -LiteralPath $Root).Path.TrimEnd("\", "/")
     $comparison = [System.StringComparison]::OrdinalIgnoreCase
-    $resolvedPath.Equals($resolvedRoot, $comparison) -or $resolvedPath.StartsWith("$resolvedRoot\", $comparison)
+    if ($resolvedPath.Equals($resolvedRoot, $comparison)) { return $true }
+    foreach ($separator in @([IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar, "\", "/") | Select-Object -Unique) {
+        if ($resolvedPath.StartsWith("$resolvedRoot$separator", $comparison)) { return $true }
+    }
+    $false
 }
 
 function Get-TaskspaceBoolField {

@@ -4084,3 +4084,50 @@ git diff --check
 ```
 
 状态：formal source/materialization path 已打通；active-context non-agent gate 测试口径已修正。下一步是 commit/push 后重跑 `build-v005-non-agent-gates.ps1`，再生成 code-complete/user-approval markers 和 start gate。
+
+## 62. 2026-07-05 formal E3 start-gate evidence parser and CLI wrapper repair
+
+继续 formal R4/E3 闭环时，`start-gate` 在 v0.0.5 markers 已生成后仍失败，首个失败点是 `cheap_self_tests`。直接复现发现两个真实工具链问题：
+
+| 问题类型 | 层级 | 现象 | 根因 | 修复 |
+|---|---|---|---|---|
+| proof path evidence parser drift | feedback/evidence layer | `test-e3-proof-harness.ps1` 拒绝完整 structured markers | `Test-TaskspacePathUnderRoot` 只接受 `\` 子路径；Linux `/root/child` 被判为不在 artifact root 下 | 路径归属判断同时接受 native/alternate separator |
+| docker timing precision loss | feedback/evidence layer | `docker_observed_duration_ms=4000`，预期 `4200` | PowerShell `ConvertFrom-Json` 将 ISO timestamp 转成 second-precision `DateTime` | docker build result 使用 date-string 保留解析，并以 `DateTimeOffset` 计算 |
+| start-gate wrapper capability gap | capability layer | CLI wrapper 无法传入 v0.0.5 marker 和 formal sample identity | `invoke-taskspace-e3-start-gate.ps1` 未暴露 `V005*MarkerPath`、`Benchmark`、`Repeats`、`ExpectedSampleSetId` | wrapper 增加透传参数 |
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/taskspace-benchmark/test-e3-score-validity.ps1
+  PASS
+CODEX_SKIP_VENDORED_BWRAP=1 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/taskspace-benchmark/test-e3-proof-harness.ps1
+  PASS
+CODEX_SKIP_VENDORED_BWRAP=1 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/taskspace-benchmark/test-e3-start-gate.ps1
+  PASS
+git diff --check
+  PASS
+```
+
+formal wrapper start-gate 验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/taskspace-benchmark/invoke-taskspace-e3-start-gate.ps1 \
+  -OutputDir target/r4-e3-formal-p0-20260705/start-gate-wrapper-fixed \
+  -TaskListPath target/r4-e3-formal-p0-20260705/task-list.jsonl \
+  -SourceVersion 1a6ffa9674b571da0ed040c470cb40c4d85f9b9b \
+  -ExpectedTaskListHash 00d9c0ab0fe44c6d0d1079d9917562dc7a906eb177d83185a264f4a567aedfba \
+  -ExpectedProfileHash 03f792dbdf15c1d3081f1bf89ca71f4dd008252b45785eaa6d6909d919254dc6 \
+  -Benchmark terminal-bench -Repeats 5 \
+  -V005NonAgentGatesPath target/r4-e3-formal-p0-20260705/gates-4cfaaf6/v005-non-agent-gates.json \
+  -V005CodeCompleteMarkerPath target/r4-e3-formal-p0-20260705/gates-4cfaaf6/v005-code-complete.json \
+  -V005UserApprovalMarkerPath target/r4-e3-formal-p0-20260705/gates-4cfaaf6/v005-user-approval.json \
+  -RunSelfTests -AllowSkippedPathContract -AllowSkippedOnePairSmoke -AllowSkippedCalibrationGate
+exit_code=0
+E3StartGate: target/r4-e3-formal-p0-20260705/start-gate-wrapper-fixed/e3-start-gate.json
+```
+
+当前结论：
+
+- formal start-gate 已能在 explicit skipped calibration 模式下放行 full E3 evidence-generation。
+- `gate_decision.calibration_gate_passed=false`，因此这还不是最终 release decision pass。
+- 下一步需要提交当前工具链修复，重建当前 HEAD 的 non-agent gates/markers，然后启动正式 full E3 evidence-generating run。
