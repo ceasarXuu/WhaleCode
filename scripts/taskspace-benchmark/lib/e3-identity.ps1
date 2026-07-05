@@ -42,6 +42,7 @@ function New-TaskspaceE3ProfileIdentity {
         [string]$ChildRunnerSha256 = "",
         [string]$TaskListSha256 = "",
         [string]$SampleSetId = "",
+        [string]$RunSide = "both",
         [bool]$ScoringMode = $false
     )
     $profile = [ordered]@{
@@ -66,6 +67,7 @@ function New-TaskspaceE3ProfileIdentity {
         child_runner_sha256 = $ChildRunnerSha256
         task_list_sha256 = $TaskListSha256
         sample_set_id = $SampleSetId
+        run_side = $RunSide
         scoring_mode = $ScoringMode
     }
     [pscustomobject]@{

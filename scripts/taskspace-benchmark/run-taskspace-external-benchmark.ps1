@@ -35,6 +35,8 @@ param(
     [string]$V005NonAgentGatesPath = "",
     [string]$V005CodeCompleteMarkerPath = "",
     [string]$V005UserApprovalMarkerPath = "",
+    [ValidateSet("both", "left", "right")]
+    [string]$RunSide = "both",
     [switch]$EnableAggregate,
     [switch]$AllowDiagnosticNonTargetResult,
     [switch]$ScoringMode,
@@ -209,6 +211,7 @@ if (-not [string]::IsNullOrWhiteSpace($CodeCompleteMarkerSha256)) { $args += @("
 if (-not [string]::IsNullOrWhiteSpace($V005NonAgentGatesPath)) { $args += @("-V005NonAgentGatesPath", $V005NonAgentGatesPath) }
 if (-not [string]::IsNullOrWhiteSpace($V005CodeCompleteMarkerPath)) { $args += @("-V005CodeCompleteMarkerPath", $V005CodeCompleteMarkerPath) }
 if (-not [string]::IsNullOrWhiteSpace($V005UserApprovalMarkerPath)) { $args += @("-V005UserApprovalMarkerPath", $V005UserApprovalMarkerPath) }
+$args += @("-RunSide", $RunSide)
 foreach ($override in @($ConfigOverride)) { $args += @("-ConfigOverride", $override) }
 if (-not [string]::IsNullOrWhiteSpace($AuditReviewRoot)) { $args += @("-AuditReviewRoot", $AuditReviewRoot) }
 if ($EnableAggregate) { $args += "-EnableAggregate" }

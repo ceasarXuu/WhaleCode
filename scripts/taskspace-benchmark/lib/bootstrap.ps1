@@ -20,6 +20,7 @@ param(
 . (Join-Path $BenchmarkRoot "lib\pair-artifact-classifier.ps1")
 . (Join-Path $BenchmarkRoot "lib\e3-proof.ps1")
 . (Join-Path $BenchmarkRoot "lib\pair-report.ps1")
+. (Join-Path $BenchmarkRoot "lib\side-selection.ps1")
 . (Join-Path $BenchmarkRoot "lib\report-summary.ps1")
 . (Join-Path $BenchmarkRoot "lib\aggregate-report.ps1")
 . (Join-Path $BenchmarkRoot "lib\source-guard.ps1")

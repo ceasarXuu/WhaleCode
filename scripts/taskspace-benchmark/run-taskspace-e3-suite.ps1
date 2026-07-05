@@ -27,6 +27,8 @@ param(
     [string]$V005NonAgentGatesPath = "",
     [string]$V005CodeCompleteMarkerPath = "",
     [string]$V005UserApprovalMarkerPath = "",
+    [ValidateSet("both", "left", "right")]
+    [string]$RunSide = "both",
     [switch]$SkipStartGate,
     [switch]$AllowSkippedOnePairSmoke,
     [switch]$AllowSkippedCalibrationGate,
@@ -101,6 +103,7 @@ $profileIdentity = New-TaskspaceE3ProfileIdentity `
     -ChildRunnerSha256 $childRunnerSha256 `
     -TaskListSha256 $taskListSha256 `
     -SampleSetId $sampleSetId `
+    -RunSide $RunSide `
     -ScoringMode ([bool]$scoreValidityEnforced)
 $profileHash = [string]$profileIdentity.profile_hash
 $suiteManifestPath = Join-Path $suiteRoot "suite-manifest.json"
@@ -126,6 +129,7 @@ $suiteRunnerNonce = [guid]::NewGuid().ToString("n")
     task_list_sha256 = $taskListSha256
     profile_hash = $profileHash
     scoring_mode = [bool]$scoreValidityEnforced
+    run_side = $RunSide
     generated_at = (Get-Date).ToString("o")
 } | ConvertTo-Json -Depth 30 | Set-Content -LiteralPath $suiteManifestPath -Encoding UTF8
 
@@ -549,6 +553,7 @@ function New-SuiteChildArgs {
         "-SuiteManifestPath", $suiteManifestPath,
         "-SuiteReceiptPath", $suiteReceiptPath,
         "-SuiteReceiptSha256", (Get-SuiteReceiptSha256),
+        "-RunSide", $RunSide,
         "-EnableAggregate"
     )
     $optionalStringArgs = [ordered]@{

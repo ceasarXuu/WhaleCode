@@ -34,6 +34,8 @@ param(
     [string]$V005NonAgentGatesPath = "",
     [string]$V005CodeCompleteMarkerPath = "",
     [string]$V005UserApprovalMarkerPath = "",
+    [ValidateSet("both", "left", "right")]
+    [string]$RunSide = "both",
     [switch]$ForceRerun,
     [switch]$AllowStaleWhaleBin,
     [switch]$PlanOnly
@@ -132,6 +134,7 @@ Update-TaskspaceBenchmarkRunStatusFields $runDir @{
     suite_receipt_sha256 = if ($SuiteReceiptSha256) { $SuiteReceiptSha256 } elseif ($suiteReceiptCopyPath) { (Get-FileHash -Algorithm SHA256 -LiteralPath $suiteReceiptCopyPath).Hash.ToLowerInvariant() } else { "" }
     approval_marker_sha256 = $ApprovalMarkerSha256
     code_complete_marker_sha256 = $CodeCompleteMarkerSha256
+    run_side = $RunSide
 } | Out-Null
 $promptCopy = Join-Path $runDir "prompt.txt"
 Write-Text $promptCopy $prompt
@@ -289,8 +292,8 @@ for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
                 evidence = $classified.evidence
         })
         Set-TaskspaceSampleStatus $runDir $manifest.Id "execute" $repeat $repeat "" "" "" $existingPairReport $commandLine | Out-Null
-        if (($ScoringMode -or $RequireScoreValidity) -and $classified.evidence.PSObject.Properties.Name -contains "engineering_unclean" -and [bool]$classified.evidence.engineering_unclean) {
-        $abort = Stop-TaskspaceScoringInvalidRun $runDir $manifest.Id $existingPairDir $existingPairReport $classified.evidence $commandLine $repeat $Repeats -TaskListHash $TaskListHash -SourceVersion $SourceVersion -ProfileHash $ProfileHash
+        if ($RunSide -eq "both" -and ($ScoringMode -or $RequireScoreValidity) -and $classified.evidence.PSObject.Properties.Name -contains "engineering_unclean" -and [bool]$classified.evidence.engineering_unclean) {
+            $abort = Stop-TaskspaceScoringInvalidRun $runDir $manifest.Id $existingPairDir $existingPairReport $classified.evidence $commandLine $repeat $Repeats -TaskListHash $TaskListHash -SourceVersion $SourceVersion -ProfileHash $ProfileHash
             Write-Host "RunDir: $runDir"
             Write-Host "PairAbort: $($abort.abort_path)"
             exit 3
@@ -346,10 +349,19 @@ for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
             throw "Non-neutral cwd for $($side.Name): $($side.RepoDir)"
         }
     }
+    $allSides = @($pair.Left, $pair.Right)
+    $selectedSides = @($allSides | Where-Object { Test-TaskspaceRunSideSelected ([string]$_.Name) $RunSide })
+    $skippedSides = @($allSides | Where-Object { -not (Test-TaskspaceRunSideSelected ([string]$_.Name) $RunSide) })
+    Write-TaskspaceRunEvent $runDir "pair_side_selection_completed" @{
+        repeat = $repeat
+        run_side = $RunSide
+        selected_sides = @($selectedSides | ForEach-Object { [string]$_.Name })
+        skipped_sides = @($skippedSides | ForEach-Object { [string]$_.Name })
+    }
     $probeTimingBySide = @{}
     $probeStatusBySide = @{}
     if ([string]$manifest.EvidenceTarget -eq "E3" -or ($manifest.ExternalBenchmark -and $manifest.ExternalBenchmark.adapter_metadata -and [bool]$manifest.ExternalBenchmark.adapter_metadata.validator_probe_supported)) {
-        foreach ($side in @($pair.Left, $pair.Right)) {
+        foreach ($side in $selectedSides) {
             $probeRoot = if ($side.PSObject.Properties.Name -contains "RunnerPrivateDir" -and -not [string]::IsNullOrWhiteSpace([string]$side.RunnerPrivateDir)) {
                 New-Dir (Join-Path ([string]$side.RunnerPrivateDir) "vprobe")
             } else {
@@ -426,6 +438,9 @@ for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
         sandbox_mode = $SandboxMode
         oracle_isolation_policy = $OracleIsolationPolicy
         logical_mode_map = @{ left = $pair.Left.LogicalMode; right = $pair.Right.LogicalMode }
+        run_side = $RunSide
+        selected_sides = @($selectedSides | ForEach-Object { [string]$_.Name })
+        skipped_sides = @($skippedSides | ForEach-Object { [string]$_.Name })
         sample_origin = $manifest.SampleOrigin
         external_benchmark = $manifest.ExternalBenchmark
         human_review_required = $manifest.HumanReviewRequired
@@ -437,7 +452,7 @@ for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
     $sourceGuard = $null
     try {
         $sourceGuard = Protect-TaskspaceExternalSensitiveSource $manifest $pair.PairDir
-        foreach ($side in @($pair.Left, $pair.Right)) {
+        foreach ($side in $selectedSides) {
             $jsonlPath = Join-Path $side.ArtifactDir "whale-exec.jsonl"
             $stderrPath = Join-Path $side.ArtifactDir "whale-exec.stderr.log"
             $lastMessagePath = Join-Path $side.ArtifactDir "last-message.md"
@@ -498,11 +513,43 @@ for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
     } finally {
         $sourceGuard = Unprotect-TaskspaceExternalSensitiveSource $sourceGuard
     }
-    $probe = Invoke-TaskspaceOracleIsolationProbe $WhaleBin $pair.Left.RepoDir $pair.PairDir $pair.CanaryPath $pair.CanaryText $Model $SandboxMode $ConfigOverride 180
+    $probe = if ($RunSide -eq "both") {
+        Invoke-TaskspaceOracleIsolationProbe $WhaleBin $pair.Left.RepoDir $pair.PairDir $pair.CanaryPath $pair.CanaryText $Model $SandboxMode $ConfigOverride 180
+    } else {
+        Write-TaskspaceRunEvent $runDir "oracle_isolation_probe_skipped" @{ repeat = $repeat; run_side = $RunSide; reason = "side_selection" }
+        $null
+    }
     Materialize-TaskspacePrivateOracle $pair $manifest
     $metricsBySide = @{}
     $validationTimingBySide = @{}
     foreach ($side in @($pair.Left, $pair.Right)) {
+        if (-not (Test-TaskspaceRunSideSelected ([string]$side.Name) $RunSide)) {
+            $skipTimestamp = Get-Date
+            $metrics = New-TaskspaceSideSelectionSkipMetrics $side $RunSide $skipTimestamp
+            $validationTimingBySide[$side.Name] = [pscustomobject]@{
+                logical_mode = [string]$side.LogicalMode
+                validation_started_at = $skipTimestamp
+                validation_finished_at = $skipTimestamp
+                validation_exit_code = 0
+                validation_skipped = $true
+                validation_skip_reason = "side_selection"
+                validation_process_launch_wait_ms = 0
+                probe_duration_ms = 0
+                oracle_started_at = $skipTimestamp
+                oracle_finished_at = $skipTimestamp
+                oracle_exit_code = 0
+                engineering_unclean_reasons = @($metrics.metrics_taints)
+            }
+            Write-TaskspaceJson $metrics (Join-Path $side.ArtifactDir "metrics.json")
+            $metricsBySide[$side.Name] = $metrics
+            Write-TaskspaceRunEvent $runDir "side_execution_skipped" @{
+                repeat = $repeat
+                side = [string]$side.Name
+                logical_mode = [string]$side.LogicalMode
+                run_side = $RunSide
+            }
+            continue
+        }
         $validationStdout = Join-Path $side.ArtifactDir "validation.stdout.log"
         $validationStderr = Join-Path $side.ArtifactDir "validation.stderr.log"
         $validationProofDir = Join-Path $side.ArtifactDir "vrun"
@@ -687,7 +734,7 @@ for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
     $pairReports.Add([pscustomobject]@{ repeat = $repeat; pair_dir = $pair.PairDir; pair_report = $pairReportPath; evidence_target = $manifest.EvidenceTarget; evidence = $evidence })
     Write-TaskspaceRunEvent $runDir "pair_completed" @{ repeat = $repeat; pair_report = $pairReportPath; reported_evidence_level = [string]$evidence.reported_evidence_level }
     Set-TaskspaceSampleStatus $runDir $manifest.Id "execute" $repeat $repeat "" "" "" $pairReportPath $commandLine | Out-Null
-    if (($ScoringMode -or $RequireScoreValidity) -and [bool]$auditManifest.engineering_unclean) {
+    if ($RunSide -eq "both" -and ($ScoringMode -or $RequireScoreValidity) -and [bool]$auditManifest.engineering_unclean) {
         $abort = Stop-TaskspaceScoringInvalidRun $runDir $manifest.Id $pair.PairDir $pairReportPath $evidence $commandLine $repeat $Repeats -TaskListHash $TaskListHash -SourceVersion $SourceVersion -ProfileHash $ProfileHash
         Write-Host "RunDir: $runDir"
         Write-Host "PairAbort: $($abort.abort_path)"

@@ -1641,6 +1641,69 @@ CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
 git diff --check
 ```
 
+## 5.97 2026-07-06 E3 targeted side-selection cost control
+
+R4 targeted rerun 的成本直接来自 paired benchmark 的默认执行方式：即使当前只需要验证 right(TaskSpace) 的
+tools 链路，left(baseline) 也会启动 agent、消耗模型请求和 tokens。为了继续高频定位 R4-D/R4-C tools
+问题，benchmark harness 已升级为可选单侧执行：
+
+```text
+-RunSide both   默认；正式 E3 paired score 使用
+-RunSide right  只执行 TaskSpace/right，用于 R4 targeted diagnostics
+-RunSide left   只执行 baseline/left，用于 baseline-only diagnostics
+```
+
+边界：
+
+1. 单侧模式不是正式 E3 对比结果。跳过侧会生成 `side-selection-skip.json`、空 `whale-exec.jsonl`、
+   validation/oracle skip logs 和带 `side_selection_skipped:<side>:run_side=<mode>` 的 `metrics.json`。
+2. 单侧模式的 pair audit/report 保持 `run_score_valid=false`，避免被 phase benefit 或统计汇总误用。
+3. E3 profile hash 已纳入 `run_side`，`both`、`right`、`left` 不会共享 profile identity。
+4. oracle isolation probe 只在 `both` 模式运行；单侧诊断没有 paired oracle comparison，记录为 side-selection skipped。
+
+本地验证：
+
+```text
+powershell parser check:
+  run-taskspace-benchmark.ps1
+  run-taskspace-external-benchmark.ps1
+  run-taskspace-e3-suite.ps1
+  lib/e3-identity.ps1
+  => parse_ok
+
+PlanOnly:
+  run-taskspace-benchmark.ps1 -Scenario single-file-fast-fix -RunSide right -PlanOnly
+  => PromptInvalid False
+
+profile identity:
+  New-TaskspaceE3ProfileIdentity -RunSide both vs right
+  => profile_hash_distinguishes_run_side
+
+fake-whale smoke:
+  run-taskspace-benchmark.ps1 -Scenario single-file-fast-fix -RunSide right -AllowNonE2Result
+  => left no whale-argv.json, side-selection-skip.json present
+  => right whale-argv.json and validation artifacts present
+  => manifest selected_sides=["right"], skipped_sides=["left"]
+  => report contains side_selection_skipped:left:run_side=right and run_score_valid=false
+```
+
+下一步 targeted rerun 可直接使用：
+
+```text
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/taskspace-benchmark/run-taskspace-external-benchmark.ps1 `
+  -Benchmark terminal-bench `
+  -TaskListPath target/r4-e3-formal-p0-20260705/tasks/multi-source-data-merger.jsonl `
+  -RunRoot target/r4-e3-formal-p0-20260705/targeted-multi-source-<HEAD>-right-only `
+  -RunSide right `
+  -Model deepseek-v4-flash `
+  -WhaleBin third_party/codex-cli/codex-rs/target/debug/whale `
+  -ScoringMode `
+  -RequireScoreValidity `
+  -EnableDockerImageCache
+```
+
+说明：命令仍保留 `-RequireScoreValidity`，但单侧模式不会因为 skipped side 中止；结果会明确标为 diagnostic-only。
+
 `c98542b` targeted rerun 未能验证 H-150 live 终态，因为 right-side 在 validation 前遇到新的
 feedback-layer collision：
 

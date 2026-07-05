@@ -9579,3 +9579,53 @@
 - Interpretation:
   - The live blocker from E-304 is locally fixed at the feedback/control boundary.
   - Another targeted E3 rerun is needed to verify right-side progress reaches implementation/validation again, and then to retest H-150 live.
+
+# Hypothesis H-152: E3 diagnostics need side-selectable runs to control paired-arm model cost
+
+- Claim: R4 targeted debugging often needs only one arm of the paired benchmark, usually the TaskSpace/right side. Forcing the baseline/left arm to execute during every diagnostic rerun burns model tokens without adding evidence for the current tools-chain blocker.
+- Prediction:
+  - The benchmark harness can support `-RunSide both|left|right` without weakening formal E3 scoring.
+  - A skipped side must still materialize explicit artifacts, metrics taints, and audit evidence so downstream reports cannot mistake the diagnostic run for a complete paired score.
+- Status: implemented in harness scripts and smoke-validated with a fake whale binary; live targeted rerun pending.
+
+# Evidence E-306: side-selectable E3 harness emits diagnostic-only tainted skip artifacts
+
+- Type: harness-cost-control.
+- Prediction tested: H-152 predicts that `-RunSide right` should execute only the TaskSpace side while creating explicit, tainted skip artifacts for the left side.
+- Repair artifact:
+  - `scripts/taskspace-benchmark/lib/side-selection.ps1`
+    - Owns `-RunSide` selection checks and skipped-side diagnostic metrics/artifact materialization.
+  - `scripts/taskspace-benchmark/run-taskspace-benchmark.ps1`
+    - Adds `-RunSide both|left|right`, defaulting to `both`.
+    - Executes pre-agent validator probe and whale only for selected sides.
+    - Skips oracle isolation probe for one-sided diagnostics because there is no paired oracle comparison.
+    - Writes skipped-side `side-selection-skip.json`, empty `whale-exec.jsonl`, validation/oracle skip logs, and `metrics.json` with `side_selection_skipped:<side>:run_side=<RunSide>`.
+    - Keeps formal score-validity aborts for `both`, but allows one-sided diagnostic runs to finish with `run_score_valid=false`.
+  - `scripts/taskspace-benchmark/run-taskspace-external-benchmark.ps1`
+    - Forwards `-RunSide` to the child benchmark runner.
+  - `scripts/taskspace-benchmark/run-taskspace-e3-suite.ps1`
+    - Adds `run_side` to suite manifest and child runner args.
+  - `scripts/taskspace-benchmark/lib/e3-identity.ps1`
+    - Includes `run_side` in the E3 profile hash, preventing mixed-side modes from sharing an identity.
+- Validation:
+  ```text
+  PowerShell parser check for benchmark, external wrapper, E3 suite, and e3-identity
+    parse_ok
+
+  run-taskspace-benchmark.ps1 -Scenario single-file-fast-fix -RunSide right -PlanOnly
+    PromptInvalid False
+
+  New-TaskspaceE3ProfileIdentity both vs right
+    profile_hash_distinguishes_run_side
+
+  fake whale smoke:
+    run-taskspace-benchmark.ps1 -Scenario single-file-fast-fix -RunSide right -AllowNonE2Result
+    left: no whale-argv.json; side-selection-skip.json present
+    right: whale-argv.json present; validation artifacts present
+    manifest.resolved.json selected_sides=["right"], skipped_sides=["left"]
+    pair audit/run report contain side_selection_skipped:left:run_side=right and run_score_valid=false
+  ```
+- Interpretation:
+  - H-152 is locally validated for harness behavior.
+  - `-RunSide right` is now available for targeted R4 diagnostics, including the next `multi-source-data-merger` rerun.
+  - Formal E3 evidence still requires `-RunSide both`; one-sided runs are explicitly tainted diagnostic artifacts.
