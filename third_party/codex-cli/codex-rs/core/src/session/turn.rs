@@ -2273,6 +2273,39 @@ Current required behavior:\n\
     }
 }
 
+fn taskspace_path_correction_retry_reject_reason(
+    action: &TaskSpaceActionV1,
+    correction: &TaskspacePathCorrection,
+) -> Option<String> {
+    if !matches!(
+        action.action.as_str(),
+        "list_files" | "read_file" | "search"
+    ) {
+        return None;
+    }
+    let path = taskspace_action_arg_string(&action.args, "path")?;
+    if !taskspace_same_workspace_path(&path, &correction.failed_path) {
+        return None;
+    }
+    Some(format!(
+        "path_correction_retry_forbidden:{failed_path}:suggested_relative_path={suggested_relative_path}",
+        failed_path = correction.failed_path,
+        suggested_relative_path = correction.suggested_relative_path,
+    ))
+}
+
+fn taskspace_same_workspace_path(left: &str, right: &str) -> bool {
+    taskspace_normalize_retry_path(left) == taskspace_normalize_retry_path(right)
+}
+
+fn taskspace_normalize_retry_path(path: &str) -> String {
+    let trimmed = path.trim().trim_matches(['"', '\'', '`']);
+    if trimmed == "/" {
+        return trimmed.to_string();
+    }
+    trimmed.trim_end_matches('/').to_string()
+}
+
 fn build_taskspace_apply_patch_replacement_required_recovery_item(
     targets: &str,
     evidence_summary: Option<&str>,
@@ -8389,6 +8422,40 @@ TaskSpace implement_solution node `node-6` cannot be blocked for missing source 
         assert!(text.contains("suggested_relative_path: data/source_a"));
         assert!(text.contains("Do not retry `/data/source_a`"));
         assert!(text.contains("read_file, list_files, or search"));
+    }
+
+    #[test]
+    fn path_correction_rejects_repeated_absolute_action_path() {
+        let correction = TaskspacePathCorrection {
+            failed_path: "/data".to_string(),
+            suggested_relative_path: "data".to_string(),
+        };
+        let action = parse_taskspace_action_v1(
+            r#"{"schema_version":"taskspace-action-v1","action":"list_files","args":{"path":"/data/"}}"#,
+        )
+        .expect("valid action");
+
+        let reason = taskspace_path_correction_retry_reject_reason(&action, &correction)
+            .expect("absolute retry rejected");
+
+        assert_eq!(
+            reason,
+            "path_correction_retry_forbidden:/data:suggested_relative_path=data"
+        );
+    }
+
+    #[test]
+    fn path_correction_allows_suggested_relative_action_path() {
+        let correction = TaskspacePathCorrection {
+            failed_path: "/data/source_a/users.json".to_string(),
+            suggested_relative_path: "data/source_a/users.json".to_string(),
+        };
+        let action = parse_taskspace_action_v1(
+            r#"{"schema_version":"taskspace-action-v1","action":"read_file","args":{"path":"data/source_a/users.json"}}"#,
+        )
+        .expect("valid action");
+
+        assert!(taskspace_path_correction_retry_reject_reason(&action, &correction).is_none());
     }
 
     #[test]
@@ -15646,6 +15713,15 @@ async fn try_run_sampling_request(
                                 None
                             };
                             if let Some(reason) = closed_rework_read_reject {
+                                Err(reason)
+                            } else if let Some(reason) = tool_path_correction_feedback
+                                .as_ref()
+                                .and_then(|correction| {
+                                    taskspace_path_correction_retry_reject_reason(
+                                        &action, correction,
+                                    )
+                                })
+                            {
                                 Err(reason)
                             } else {
                                 let action = if let Some(snapshot) =

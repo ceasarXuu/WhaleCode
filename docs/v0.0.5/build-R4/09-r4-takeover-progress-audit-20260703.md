@@ -4836,3 +4836,87 @@ git diff --check
   - `/app` -> `.`。
 - 这仍属于 feedback semantic missing，不是工具能力层返回错误。
 - 下一步需要提交该修复、刷新 attestation/gates，然后继续 E3，优先确认 `multi-source-data-merger` 的 `rg --files /data` 是否触发 `TaskSpacePathCorrectionRecoveryV1`。
+
+## 74. 2026-07-05 eb0ae1b formal E3 live miss: path correction 已传达但未被 action contract 强制执行
+
+在 `eb0ae1b` 上刷新 whale/attestation/gates/start gate 后继续 formal E3：
+
+```text
+SuiteRoot: target/r4-e3-formal-p0-20260705/full-e3-eb0ae1b/suite-20260705-234241
+processing-pipeline: completed_pairs=5/5, run_validity=valid
+multi-source-data-merger: pair-001/right 复现 action-contract enforcement 缺口后手动中断
+```
+
+关键变化：
+
+- `TaskSpacePathCorrectionRecoveryV1` 已经出现在 rollout；
+- `/data/source_a/users.json` 能纠正到 `data/source_a/users.json`；
+- `/data` 能纠正到 `data`；
+- provider response actionability 从之前的 `actionable/recovery_action:none` 变成 `no_action_follow_up/recovery_action:developer_recovery`。
+
+但 live trace 仍继续失败：
+
+```text
+重复 action:
+  sed ... /data/source_a/users.json
+  rg --files /data
+
+terminal state:
+  TaskSpaceProviderBudgetHardStopV1
+  reason=provider_node_request_hard_limit_exceeded
+  request_count=7/20
+  node_request_count=7/6
+  phase=budget_recovery
+```
+
+结论：
+
+- 这一次不是 semantic missing。
+- 恢复语义已经正确进入 feedback 层，并且分类为 developer recovery。
+- 真正缺口是 capability/action-contract 层：`TaskSpacePathCorrectionRecoveryV1` 说“不要重试 failed_path”，但解析后的 `TaskSpaceActionV1` 如果继续携带同一个 `args.path`，runtime 仍把它转换成真实 tool call。
+- 因此模型一旦忽略 recovery guidance，就会继续消耗 provider/node request budget，直到 hard stop。
+
+修复：
+
+- 新增 `taskspace_path_correction_retry_reject_reason(...)`；
+- 对 `list_files`、`read_file`、`search` 的 `args.path` 执行 retry-path 检查；
+- 路径比较会归一化 trailing slash 和简单 quote wrapper；
+- 当 action 继续使用同一个 failed absolute path 时，在 tool dispatch 前拒绝：
+
+```text
+path_correction_retry_forbidden:/data:suggested_relative_path=data
+```
+
+- 建议相对路径继续放行，例如 `data`、`data/source_a/users.json`。
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core path_correction --lib
+  7 passed
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core provider_response_actionability --lib
+  9 passed
+RUST_MIN_STACK=8388608 CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core taskspace --lib
+  175 passed
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
+  Finished dev profile
+```
+
+R4 问题类型收录：
+
+- feedback semantic missing：
+  - raw tool failure 存在，但没有进入 recovery classifier；
+  - 例：ActionMap failed-read summary 未接入；
+  - 例：`/data` 根目录 alias 未被 extractor 识别。
+- feedback semantic delivered but advisory-only：
+  - recovery message 已进入 rollout；
+  - classifier 已识别为 developer recovery；
+  - 但 action contract 未把 recovery 语义升级为执行前约束；
+  - 例：模型继续发 `args.path="/data"`，runtime 仍执行 tool。
+
+下一步：
+
+- 提交该修复并刷新 whale attestation；
+- 重建 formal E3 gates/markers/start gate；
+- 继续 E3，优先确认 `multi-source-data-merger` 不再真实执行重复 `/data` 工具调用；
+- 如果仍有高成本，继续按同样方式拆分“反馈已传达但未被约束”的其他 tool 问题。

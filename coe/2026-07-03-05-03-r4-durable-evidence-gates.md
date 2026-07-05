@@ -9101,3 +9101,75 @@
 - Interpretation:
   - The `/data` root-directory retry class is focused-fixed in unit/build gates.
   - Formal E3 still needs another live rerun on the next committed binary to prove `TaskSpacePathCorrectionRecoveryV1` appears for this exact trace shape.
+
+# Hypothesis H-145: delivered path-correction feedback was not enforced by the action contract
+
+- Claim: After `/data` root alias detection, the path-correction recovery item reached the live E3 rollout, but it remained advisory. The TaskSpace action-contract path parsed the next `TaskSpaceActionV1`, converted repeated `list_files`/`read_file`/`search` actions using the same failed absolute `args.path` into real tool calls, and only reinserted recovery after those tools failed again. This allowed a model that ignored the recovery guidance to consume node budget until hard stop.
+- Prediction:
+  - A rerun on `eb0ae1b` should show `TaskSpacePathCorrectionRecoveryV1` present in rollout before the hard stop, followed by repeated actions with the same failed `/data` or `/data/...` path.
+  - The repeated actions should be classified as `no_action_follow_up` with `developer_recovery`, proving the feedback semantic is present rather than missing.
+  - Adding a pre-tool action-contract rejection for repeated failed absolute `args.path` should reject the repeat without executing the failed tool again and should still allow the suggested relative path.
+- Diagnostic evidence plan:
+  - Inspect the interrupted `eb0ae1b` formal E3 run for recovery markers and repeated absolute-path actions.
+  - Add focused unit tests for repeated absolute path rejection and suggested relative path acceptance.
+  - Validate path-correction, provider actionability, taskspace, build, and diff checks before rerunning E3.
+- Status: confirmed; focused-fixed; awaiting fresh formal E3 live validation.
+
+# Evidence E-292: eb0ae1b formal E3 proved feedback delivery but no pre-tool enforcement
+
+- Prediction tested: H-145 predicts that recovery feedback is visible in rollout but repeated absolute-path actions still execute.
+- Run:
+  ```text
+  HEAD: eb0ae1b
+  SuiteRoot: target/r4-e3-formal-p0-20260705/full-e3-eb0ae1b/suite-20260705-234241
+  processing-pipeline: completed 5/5, run_validity=valid
+  multi-source-data-merger: interrupted during pair-001/right after the repeated absolute-path action-contract miss was proven
+  ```
+- Matched run signals:
+  ```text
+  TaskSpacePathCorrectionRecoveryV1 present:
+    /data/source_a/users.json -> data/source_a/users.json
+    /data -> data
+
+  repeated actions after recovery:
+    sed ... /data/source_a/users.json
+    rg --files /data
+
+  observed classifier state:
+    provider_response_actionability: no_action_follow_up
+    recovery_action: developer_recovery
+
+  terminal state:
+    TaskSpaceProviderBudgetHardStopV1
+    reason=provider_node_request_hard_limit_exceeded
+    request_count=7/20
+    node_request_count=7/6
+    phase=budget_recovery
+  ```
+- Interpretation:
+  - This separates H-145 from H-143/H-144. The feedback semantic is no longer missing; it is present and correctly classified as recovery.
+  - The remaining defect is a capability-layer enforcement gap: the action contract did not forbid a repeated failed path before dispatching the tool.
+
+# Evidence E-293: path correction now rejects repeated absolute paths before tool dispatch
+
+- Prediction tested: H-145 predicts that repeated failed absolute `args.path` can be blocked at the action-contract layer while the suggested relative path remains legal.
+- Repair artifact:
+  - `third_party/codex-cli/codex-rs/core/src/session/turn.rs`
+    - adds `taskspace_path_correction_retry_reject_reason(...)`;
+    - normalizes trailing slashes and simple quote wrappers for retry-path comparison;
+    - rejects `list_files`, `read_file`, and `search` when `args.path` repeats the active failed absolute path;
+    - inserts the rejection after existing closed-validation read policy and before `taskspace_action_to_tool_call(...)`.
+- Validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core path_correction --lib
+    7 passed
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core provider_response_actionability --lib
+    9 passed
+  RUST_MIN_STACK=8388608 CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core taskspace --lib
+    175 passed
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
+    Finished dev profile
+  ```
+- Interpretation:
+  - The local contract now matches the recovery semantics: "do not retry failed_path" is enforced before tool dispatch.
+  - Fresh formal E3 is still required to prove the live `/data` loop is gone and to measure the cost impact.
