@@ -9033,3 +9033,71 @@
 - Interpretation:
   - The e9298eb live miss is focused-fixed at the feedback bridge level.
   - A fresh E3 rerun on the new binary is still required to prove the live `/data` retry loop is gone and to measure cost impact.
+
+# Hypothesis H-144: path correction missed absolute workspace root directory failures
+
+- Claim: After the ActionMap failed-read bridge, `TaskSpacePathCorrectionRecoveryV1` still missed the live `rg --files /data` class because the extractor only matched `/data/...` and `/app/...` paths, not the root directory paths `/data` or `/app` themselves. The failed-read evidence reached the bridge, but no relative candidate was produced, so response actionability remained `actionable`.
+- Prediction:
+  - A rerun on `faeb9c1` should show repeated `rg --files /data`, `TaskSpacePathCorrectionRecoveryV1` absent, `response_actionability=actionable`, and a provider node budget hard stop.
+  - A focused unit test with `rg: /data: IO error ... No such file or directory` should fail before the extractor is expanded and pass after mapping `/data` to `data`.
+  - The extractor must not over-match unrelated prefixes such as `/database`.
+- Diagnostic evidence plan:
+  - Inspect the interrupted `faeb9c1` formal E3 run for repeated `/data` directory probes.
+  - Add focused tests for `/data` root failure and `/database` non-match.
+  - Validate path-correction, provider actionability, taskspace, build, and diff checks.
+- Status: confirmed; focused-fixed.
+
+# Evidence E-290: faeb9c1 formal E3 reproduced root-directory path correction miss
+
+- Prediction tested: H-144 predicts that root directory failures still bypass path correction after the ActionMap bridge.
+- Run:
+  ```text
+  HEAD: faeb9c1
+  SuiteRoot: target/r4-e3-formal-p0-20260705/full-e3-faeb9c1/suite-20260705-232019
+  processing-pipeline: completed 5/5, run_validity=valid
+  multi-source-data-merger: interrupted during pair-001 after the repeated /data directory miss was proven
+  ```
+- Matched run signals:
+  ```text
+  multi-source-data-merger pair-001/right:
+    command: rg --files /data
+    output: rg: /data: IO error for operation on /data: No such file or directory (os error 2)
+    repeated failed commands: item_3, item_8, item_15, item_22
+    workspace evidence: rg --files . returned ./data/source_a/users.json, ./data/source_b/users.csv, ./data/source_c/users.parquet
+    TaskSpacePathCorrectionRecoveryV1: absent
+    response_actionability: actionable
+    recovery_action: none
+    TaskSpaceProviderBudgetHardStopV1:
+      reason=provider_node_request_hard_limit_exceeded
+      request_count=6/20
+      node_request_count=6/5
+  ```
+- Interpretation:
+  - The ActionMap failed-read bridge was necessary but insufficient.
+  - This is a narrower feedback semantic gap: the path detector handled absolute child paths, but not absolute workspace root directory aliases.
+
+# Evidence E-291: path correction now maps absolute workspace root directory aliases
+
+- Prediction tested: H-144 predicts `/data` root failure should produce a correction while `/database` should not.
+- Repair artifacts:
+  - `third_party/codex-cli/codex-rs/core/src/session/turn.rs`
+    - expands matching prefixes from `/data/` and `/app/` to boundary-checked `/data` and `/app`;
+    - maps `/data` to `data`;
+    - maps `/app` to `.`;
+    - adds boundary checking so `/database` is not treated as `/data`.
+- Validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core path_correction --lib
+    5 passed
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core provider_response_actionability --lib
+    9 passed
+  RUST_MIN_STACK=8388608 CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core taskspace --lib
+    175 passed
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
+    Finished dev profile
+  git diff --check
+    pass
+  ```
+- Interpretation:
+  - The `/data` root-directory retry class is focused-fixed in unit/build gates.
+  - Formal E3 still needs another live rerun on the next committed binary to prove `TaskSpacePathCorrectionRecoveryV1` appears for this exact trace shape.

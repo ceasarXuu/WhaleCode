@@ -2139,7 +2139,7 @@ fn taskspace_path_correction_from_text(text: &str) -> Option<TaskspacePathCorrec
         return None;
     }
 
-    ["/data/", "/app/"]
+    ["/data", "/app"]
         .iter()
         .filter_map(|prefix| taskspace_first_absolute_workspace_path(text, prefix))
         .filter_map(|failed_path| {
@@ -2156,6 +2156,11 @@ fn taskspace_path_correction_from_text(text: &str) -> Option<TaskspacePathCorrec
 fn taskspace_first_absolute_workspace_path(text: &str, prefix: &str) -> Option<String> {
     for (start, _) in text.match_indices(prefix) {
         let tail = &text[start..];
+        if let Some(next) = tail[prefix.len()..].chars().next()
+            && !taskspace_absolute_workspace_path_boundary(next)
+        {
+            continue;
+        }
         let mut end = tail.len();
         for (index, character) in tail.char_indices() {
             if index > 0
@@ -2177,14 +2182,46 @@ fn taskspace_first_absolute_workspace_path(text: &str, prefix: &str) -> Option<S
                 )
             })
             .to_string();
-        if candidate.len() > prefix.len() {
+        if candidate.len() >= prefix.len() {
             return Some(candidate);
         }
     }
     None
 }
 
+fn taskspace_absolute_workspace_path_boundary(character: char) -> bool {
+    character == '/'
+        || character.is_whitespace()
+        || matches!(
+            character,
+            ':' | ','
+                | ';'
+                | '.'
+                | ')'
+                | '('
+                | '['
+                | ']'
+                | '{'
+                | '}'
+                | '"'
+                | '\''
+                | '`'
+                | '<'
+                | '>'
+                | '|'
+                | '\r'
+                | '\n'
+                | '\t'
+        )
+}
+
 fn taskspace_relative_candidate_for_absolute_workspace_path(path: &str) -> Option<String> {
+    if path == "/app" {
+        return Some(".".to_string());
+    }
+    if path == "/data" {
+        return Some("data".to_string());
+    }
     path.strip_prefix("/app/")
         .map(ToString::to_string)
         .or_else(|| {
@@ -8310,6 +8347,26 @@ TaskSpace implement_solution node `node-6` cannot be blocked for missing source 
         assert_eq!(
             correction.suggested_relative_path,
             "data/source_a/users.json"
+        );
+    }
+
+    #[test]
+    fn path_correction_detects_absolute_workspace_root_directory_failure() {
+        let summary = "result-1: Main tool call tool: shell_command call_id: taskspace-action-contract-1-list_files action_class: read success: false preview: TaskSpaceToolInvocationV1: tool: shell_command command: rg --files /data raw_output: rg: /data: IO error for operation on /data: No such file or directory (os error 2)";
+        let correction =
+            taskspace_path_correction_from_text(summary).expect("root path correction");
+
+        assert_eq!(correction.failed_path, "/data");
+        assert_eq!(correction.suggested_relative_path, "data");
+    }
+
+    #[test]
+    fn path_correction_does_not_match_non_workspace_prefix_word() {
+        assert!(
+            taskspace_path_correction_from_text(
+                "rg: /database: IO error for operation on /database: No such file or directory"
+            )
+            .is_none()
         );
     }
 

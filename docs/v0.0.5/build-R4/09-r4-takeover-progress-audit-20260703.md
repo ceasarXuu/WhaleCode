@@ -4749,3 +4749,90 @@ RUST_MIN_STACK=8388608 CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core task
   - `/data/...` 绝对路径是否不再重复到 provider hard stop；
   - apply_patch native-hunk 失败是否减少或更早给出清晰 hard stop；
   - direct token ratio/cost gate 是否下降。
+
+## 73. 2026-07-05 faeb9c1 formal E3 live miss: `/data` root directory correction
+
+在 `faeb9c1` 上重建 whale、刷新 attestation、重建 gates/markers/start gate 后，继续 formal E3：
+
+```text
+SuiteRoot: target/r4-e3-formal-p0-20260705/full-e3-faeb9c1/suite-20260705-232019
+processing-pipeline: completed_pairs=5/5, run_validity=valid
+multi-source-data-merger: pair-001 复现新的 path correction 细分缺口后手动中断
+```
+
+`processing-pipeline` 结果：
+
+- 5/5 pair-report 完成；
+- run_validity 为 valid；
+- native-hunk recovery/hard-stop 确认进入 live 链路；
+- 但业务效果仍不稳定，模型仍多次重复 malformed patch grammar。当前 hard-stop 降低继续烧 token 的概率，但没有根治模型生成错误 patch 语法。
+
+`multi-source-data-merger` 的新 live miss：
+
+```text
+pair-001/right:
+  rg --files /data
+  rg: /data: IO error for operation on /data: No such file or directory (os error 2)
+
+repeated failed commands:
+  item_3
+  item_8
+  item_15
+  item_22
+
+positive workspace evidence:
+  rg --files .
+  ./data/source_a/users.json
+  ./data/source_b/users.csv
+  ./data/source_c/users.parquet
+
+observed classifier state:
+  TaskSpacePathCorrectionRecoveryV1: absent
+  response_actionability: actionable
+  recovery_action: none
+  TaskSpaceProviderBudgetHardStopV1 reason=provider_node_request_hard_limit_exceeded
+```
+
+直接原因：
+
+- `faeb9c1` 已经把 ActionMap failed-read summary 接入 path correction extractor。
+- 但 extractor 只识别 `/data/...` 和 `/app/...` 子路径。
+- live trace 失败的是根目录本身：`/data`。
+- 因为 `/data` 没被视为可纠偏绝对 workspace alias，`tool_path_correction_feedback` 仍为空。
+- `saw_actionable_output=true` 继续把响应归为 `Actionable`，直到 node request hard stop。
+
+修复：
+
+- path correction prefix 从 `/data/`、`/app/` 扩展为边界检查的 `/data`、`/app`。
+- 新增映射：
+  - `/data` -> `data`
+  - `/app` -> `.`
+- 增加边界判断，避免误把 `/database` 当作 `/data`。
+- 新增测试：
+  - `path_correction_detects_absolute_workspace_root_directory_failure`
+  - `path_correction_does_not_match_non_workspace_prefix_word`
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core path_correction --lib
+  5 passed
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core provider_response_actionability --lib
+  9 passed
+RUST_MIN_STACK=8388608 CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core taskspace --lib
+  175 passed
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
+  Finished dev profile
+git diff --check
+  pass
+```
+
+当前结论：
+
+- `path_not_found_with_relative_candidate` 类型继续拆细：
+  - 子路径不存在：`/data/source_a/users.json` -> `data/source_a/users.json`；
+  - 根目录不存在：`/data` -> `data`；
+  - `/app/run_pipeline.sh` -> `run_pipeline.sh`；
+  - `/app` -> `.`。
+- 这仍属于 feedback semantic missing，不是工具能力层返回错误。
+- 下一步需要提交该修复、刷新 attestation/gates，然后继续 E3，优先确认 `multi-source-data-merger` 的 `rg --files /data` 是否触发 `TaskSpacePathCorrectionRecoveryV1`。
