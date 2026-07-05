@@ -175,6 +175,7 @@ const TASKSPACE_PATCH_INTENT_FORMAT_MARKER: &str = "TaskSpacePatchIntentFormatRe
 const TASKSPACE_VALIDATION_INFRA_RECOVERY_MARKER: &str = "TaskSpaceValidationInfraRecoveryV1:";
 const TASKSPACE_VALIDATION_NEEDS_TEST_MARKER: &str = "TaskSpaceValidationNeedsTestRecoveryV1:";
 const TASKSPACE_PROVIDER_BUDGET_HARD_STOP_MARKER: &str = "TaskSpaceProviderBudgetHardStopV1:";
+const TASKSPACE_PATH_CORRECTION_MARKER: &str = "TaskSpacePathCorrectionRecoveryV1:";
 const TASKSPACE_TOOL_FEEDBACK_MARKER: &str = "TaskSpaceToolFeedbackV1:";
 const TASKSPACE_INSPECT_BOOTSTRAP_CALL_ID: &str = "taskspace-inspect-bootstrap-rg-files";
 const TASKSPACE_REPEATED_BLOCKED_INSPECT_BOOTSTRAP_CALL_ID: &str =
@@ -2075,19 +2076,155 @@ Current required behavior:\n\
 - Do not call read_file, list_files, search, finish_node, or validation until this corrected edit succeeds."
     } else {
         "\
-\tCurrent required behavior:\n\
-\t- Emit exactly one corrected apply_patch now.\n\
-\t- Use native `*** Update File: <relative/path>` with `@@` plus exact existing context and exact `-old` / `+new` lines.\n\
-\t- Do not put `--- a/...`, `+++ b/...`, or `@@ -old,+new @@` anywhere after `*** Update File`; those are unified-diff markers, not native apply_patch hunks.\n\
-\t- If you are unsure whether exact context still matches, prefer complete replacement with `*** Delete File: <path>` followed by `*** Add File: <path>` for small/generated files.\n\
-\t- If the file is small or generated and the full intended contents are known, use `*** Delete File: <path>` followed by `*** Add File: <path>` with the complete corrected file.\n\
-\t- Do not call read_file, list_files, search, finish_node, or validation until this corrected edit succeeds."
+Current required behavior:\n\
+- Emit exactly one corrected apply_patch now.\n\
+- Use native `*** Update File: <relative/path>` with `@@` plus exact existing context and exact `-old` / `+new` lines.\n\
+- Do not put `--- a/...`, `+++ b/...`, or `@@ -old,+new @@` anywhere after `*** Update File`; those are unified-diff markers, not native apply_patch hunks.\n\
+- Use this native Update File scaffold when the target line is known:\n\
+```text\n\
+*** Begin Patch\n\
+*** Update File: <relative/path>\n\
+@@\n\
+ exact existing context line\n\
+-old exact line\n\
++new exact line\n\
+*** End Patch\n\
+```\n\
+- If exact context may be stale, use complete replacement with `*** Delete File: <relative/path>` followed by `*** Add File: <relative/path>` for small/generated files.\n\
+- Do not call read_file, list_files, search, finish_node, or validation until this corrected edit succeeds."
     };
     let text = format!(
         "{TASKSPACE_APPLY_PATCH_NATIVE_HUNK_MARKER}\n\
 The previous apply_patch mixed native apply_patch grammar with unified-diff/range hunk syntax for: {targets}\n\
 Native apply_patch does not use `--- Update File:`, `--- a/...`, `+++ b/...`, or `@@ -old,+new @@` range headers inside `*** Update File` sections.\n\
 {recovery_mode}"
+    );
+
+    ResponseItem::Message {
+        id: None,
+        role: "developer".to_string(),
+        content: vec![ContentItem::InputText { text }],
+        end_turn: None,
+        phase: None,
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct TaskspacePathCorrection {
+    failed_path: String,
+    suggested_relative_path: String,
+}
+
+fn taskspace_path_correction_from_response_item(
+    item: &ResponseItem,
+) -> Option<TaskspacePathCorrection> {
+    let output = match item {
+        ResponseItem::FunctionCallOutput { output, .. }
+        | ResponseItem::CustomToolCallOutput { output, .. } => {
+            function_call_output_body_text(&output.body)
+        }
+        _ => return None,
+    };
+    taskspace_path_correction_from_text(&output)
+}
+
+fn taskspace_path_correction_from_text(text: &str) -> Option<TaskspacePathCorrection> {
+    let normalized = text.to_ascii_lowercase();
+    let mentions_missing_path = normalized.contains("no such file or directory")
+        || normalized.contains("can't read")
+        || normalized.contains("cannot access")
+        || normalized.contains("could not find item")
+        || normalized.contains("cannot find the path");
+    if !mentions_missing_path {
+        return None;
+    }
+
+    ["/data/", "/app/"]
+        .iter()
+        .filter_map(|prefix| taskspace_first_absolute_workspace_path(text, prefix))
+        .filter_map(|failed_path| {
+            taskspace_relative_candidate_for_absolute_workspace_path(&failed_path).map(
+                |suggested_relative_path| TaskspacePathCorrection {
+                    failed_path,
+                    suggested_relative_path,
+                },
+            )
+        })
+        .next()
+}
+
+fn taskspace_first_absolute_workspace_path(text: &str, prefix: &str) -> Option<String> {
+    for (start, _) in text.match_indices(prefix) {
+        let tail = &text[start..];
+        let mut end = tail.len();
+        for (index, character) in tail.char_indices() {
+            if index > 0
+                && (character.is_whitespace()
+                    || matches!(
+                        character,
+                        '"' | '\'' | '`' | '<' | '>' | '|' | '\r' | '\n' | '\t'
+                    ))
+            {
+                end = index;
+                break;
+            }
+        }
+        let candidate = tail[..end]
+            .trim_matches(|character| {
+                matches!(
+                    character,
+                    ':' | ',' | ';' | '.' | ')' | '(' | '[' | ']' | '{' | '}'
+                )
+            })
+            .to_string();
+        if candidate.len() > prefix.len() {
+            return Some(candidate);
+        }
+    }
+    None
+}
+
+fn taskspace_relative_candidate_for_absolute_workspace_path(path: &str) -> Option<String> {
+    path.strip_prefix("/app/")
+        .map(ToString::to_string)
+        .or_else(|| {
+            path.strip_prefix("/data/")
+                .map(|relative| format!("data/{relative}"))
+        })
+        .filter(|path| !path.trim().is_empty())
+}
+
+fn build_taskspace_path_correction_recovery_item(
+    correction: &TaskspacePathCorrection,
+    node_kind: Option<&str>,
+) -> ResponseItem {
+    let next_action = match node_kind {
+        Some("inspect_code_context") => {
+            "emit exactly one read_file, list_files, or search action using the suggested relative path; do not retry the failed absolute path"
+        }
+        Some("smoke_test" | "regression_test") => {
+            "emit exactly one run_test action with the command/path corrected to the suggested relative path, or blocked if the required container mount is truly unavailable"
+        }
+        Some("implement_solution") => {
+            "emit exactly one legal implementation action that uses the suggested relative path, or blocked if the task explicitly requires the unavailable absolute mount"
+        }
+        _ => {
+            "emit exactly one legal TaskSpace action using the suggested relative path, or blocked if the task explicitly requires the unavailable absolute mount"
+        }
+    };
+    let text = format!(
+        "{TASKSPACE_PATH_CORRECTION_MARKER}\n\
+failure_kind: path_not_found_with_relative_candidate\n\
+failed_path: {failed_path}\n\
+suggested_relative_path: {suggested_relative_path}\n\
+The previous tool failed because it used an absolute container path that is not visible in the current workspace. This is failed tool feedback, not successful evidence.\n\
+Current required behavior:\n\
+- Do not retry `{failed_path}`.\n\
+- Use `{suggested_relative_path}` as the workspace-relative candidate.\n\
+- Next valid action: {next_action}.\n\
+- If the relative path also fails and no workspace evidence names an alternative, emit blocked with the exact path failure evidence instead of looping.",
+        failed_path = correction.failed_path,
+        suggested_relative_path = correction.suggested_relative_path,
     );
 
     ResponseItem::Message {
@@ -3013,7 +3150,12 @@ fn taskspace_apply_patch_recovery_should_hard_stop(
     item: &ResponseItem,
     previous_recovery_count: usize,
 ) -> bool {
-    is_taskspace_apply_patch_recovery_item(item) && previous_recovery_count >= 3
+    is_taskspace_apply_patch_recovery_item(item)
+        && if response_item_text_contains(item, TASKSPACE_APPLY_PATCH_NATIVE_HUNK_MARKER) {
+            previous_recovery_count >= 2
+        } else {
+            previous_recovery_count >= 3
+        }
 }
 
 fn taskspace_apply_patch_replacement_required_should_hard_stop(
@@ -3656,12 +3798,15 @@ fn classify_taskspace_provider_response_actionability(
     saw_actionable_output: bool,
     assistant_message_present: bool,
     gate_recovery_message_present: bool,
+    tool_failure_recovery_message_present: bool,
     final_response_rejected: bool,
     _provider_budget_exhausted_followup: bool,
 ) -> TaskspaceProviderResponseActionability {
     if final_response_rejected {
         TaskspaceProviderResponseActionability::FinalRejected
     } else if gate_recovery_message_present {
+        TaskspaceProviderResponseActionability::NoActionFollowUp
+    } else if tool_failure_recovery_message_present {
         TaskspaceProviderResponseActionability::NoActionFollowUp
     } else if saw_actionable_output {
         TaskspaceProviderResponseActionability::Actionable
@@ -6923,6 +7068,7 @@ TaskSpace implement_solution node `node-6` cannot be blocked for missing source 
                 false,
                 false,
                 false,
+                false,
             ),
             TaskspaceProviderResponseActionability::FinalCandidate
         );
@@ -8104,7 +8250,7 @@ TaskSpace implement_solution node `node-6` cannot be blocked for missing source 
         assert!(text.contains("recover.py"));
         assert!(text.contains("Do not call read_file"));
         assert!(text.contains("`--- Update File:`"));
-        assert!(text.contains("*** Delete File: <path>"));
+        assert!(text.contains("*** Delete File: <relative/path>"));
         assert!(!is_taskspace_no_action_recovery_item(&item));
         assert!(is_taskspace_implement_needs_edit_recovery_item(&item));
     }
@@ -8124,10 +8270,55 @@ TaskSpace implement_solution node `node-6` cannot be blocked for missing source 
         assert!(text.contains("generate_org.py"));
         assert!(text.contains("Do not call read_file"));
         assert!(text.contains("`--- Update File:`"));
+        assert!(text.contains("native Update File scaffold"));
+        assert!(text.contains("*** Update File: <relative/path>"));
+        assert!(text.contains("-old exact line"));
+        assert!(text.contains("+new exact line"));
         assert!(warning.contains("TaskSpaceApplyPatchNativeHunkRecoveryV1"));
         assert!(!warning.contains("TaskSpaceImplementNeedsEditRecoveryV1"));
         assert!(!is_taskspace_no_action_recovery_item(&item));
         assert!(is_taskspace_implement_needs_edit_recovery_item(&item));
+    }
+
+    #[test]
+    fn path_correction_detects_data_and_app_absolute_paths() {
+        let data_correction = taskspace_path_correction_from_text(
+            "sed: can't read /data/source_b/users.csv: No such file or directory",
+        )
+        .expect("data path correction");
+        assert_eq!(data_correction.failed_path, "/data/source_b/users.csv");
+        assert_eq!(
+            data_correction.suggested_relative_path,
+            "data/source_b/users.csv"
+        );
+
+        let app_correction = taskspace_path_correction_from_text(
+            "bash: /app/run_pipeline.sh: No such file or directory",
+        )
+        .expect("app path correction");
+        assert_eq!(app_correction.failed_path, "/app/run_pipeline.sh");
+        assert_eq!(app_correction.suggested_relative_path, "run_pipeline.sh");
+    }
+
+    #[test]
+    fn path_correction_recovery_item_blocks_absolute_retry() {
+        let output = tool_output(
+            "rg: /data/source_a: IO error for operation on /data/source_a: No such file or directory",
+        );
+        let correction =
+            taskspace_path_correction_from_response_item(&output).expect("path correction");
+        let item = build_taskspace_path_correction_recovery_item(
+            &correction,
+            Some("inspect_code_context"),
+        );
+        let text = item_text(item);
+
+        assert!(text.contains(TASKSPACE_PATH_CORRECTION_MARKER));
+        assert!(text.contains("failure_kind: path_not_found_with_relative_candidate"));
+        assert!(text.contains("failed_path: /data/source_a"));
+        assert!(text.contains("suggested_relative_path: data/source_a"));
+        assert!(text.contains("Do not retry `/data/source_a`"));
+        assert!(text.contains("read_file, list_files, or search"));
     }
 
     #[test]
@@ -8225,6 +8416,15 @@ TaskSpace implement_solution node `node-6` cannot be blocked for missing source 
             taskspace_special_recovery_warning_message(&hard_stop)
                 .contains("TaskSpaceApplyPatchRecoveryHardStopV1")
         );
+    }
+
+    #[test]
+    fn apply_patch_native_hunk_recovery_hard_stops_earlier() {
+        let item = build_taskspace_apply_patch_native_hunk_recovery_item("recover.py", false);
+
+        assert!(is_taskspace_apply_patch_recovery_item(&item));
+        assert!(!taskspace_apply_patch_recovery_should_hard_stop(&item, 1));
+        assert!(taskspace_apply_patch_recovery_should_hard_stop(&item, 2));
     }
 
     #[test]
@@ -10667,7 +10867,7 @@ TaskSpaceGateRecoveryV1: {\"schema_version\":\"TaskSpaceGateRecoveryV1\",\"allow
     #[test]
     fn provider_response_actionability_classifies_final_gate_rejection_as_recovery() {
         let classification = classify_taskspace_provider_response_actionability(
-            true, false, true, false, true, false,
+            true, false, true, false, false, true, false,
         );
 
         assert_eq!(
@@ -10681,7 +10881,7 @@ TaskSpaceGateRecoveryV1: {\"schema_version\":\"TaskSpaceGateRecoveryV1\",\"allow
     #[test]
     fn provider_response_actionability_classifies_no_action_follow_up() {
         let classification = classify_taskspace_provider_response_actionability(
-            true, false, true, false, false, false,
+            true, false, true, false, false, false, false,
         );
 
         assert_eq!(
@@ -10706,6 +10906,7 @@ TaskSpaceGateRecoveryV1: {\"schema_version\":\"TaskSpaceGateRecoveryV1\",\"allow
             false,
             false,
             false,
+            false,
         );
 
         assert_eq!(
@@ -10721,6 +10922,7 @@ TaskSpaceGateRecoveryV1: {\"schema_version\":\"TaskSpaceGateRecoveryV1\",\"allow
             taskspace_active_node_empty_response_requires_follow_up(None, false, false, false);
         let classification = classify_taskspace_provider_response_actionability(
             needs_follow_up,
+            false,
             false,
             false,
             false,
@@ -10828,7 +11030,7 @@ TaskSpaceGateRecoveryV1: {\"schema_version\":\"TaskSpaceGateRecoveryV1\",\"allow
     #[test]
     fn provider_response_actionability_keeps_actionable_response_out_of_recovery() {
         let classification = classify_taskspace_provider_response_actionability(
-            true, true, true, false, false, false,
+            true, true, true, false, false, false, false,
         );
 
         assert_eq!(
@@ -10841,7 +11043,20 @@ TaskSpaceGateRecoveryV1: {\"schema_version\":\"TaskSpaceGateRecoveryV1\",\"allow
     #[test]
     fn provider_response_actionability_treats_gate_recovery_as_recovery() {
         let classification = classify_taskspace_provider_response_actionability(
-            true, true, true, true, false, false,
+            true, true, true, true, false, false, false,
+        );
+
+        assert_eq!(
+            classification,
+            TaskspaceProviderResponseActionability::NoActionFollowUp
+        );
+        assert!(classification.needs_recovery());
+    }
+
+    #[test]
+    fn provider_response_actionability_treats_tool_failure_feedback_as_recovery() {
+        let classification = classify_taskspace_provider_response_actionability(
+            true, true, true, false, true, false, false,
         );
 
         assert_eq!(
@@ -10854,7 +11069,7 @@ TaskSpaceGateRecoveryV1: {\"schema_version\":\"TaskSpaceGateRecoveryV1\",\"allow
     #[test]
     fn provider_response_actionability_treats_profile_hint_overrun_as_actionable() {
         let classification = classify_taskspace_provider_response_actionability(
-            true, true, true, false, false, true,
+            true, true, true, false, false, false, true,
         );
 
         assert_eq!(
@@ -15173,6 +15388,7 @@ async fn try_run_sampling_request(
         FuturesOrdered::new();
     let mut needs_follow_up = false;
     let mut last_agent_message: Option<String> = None;
+    let mut tool_path_correction_feedback: Option<TaskspacePathCorrection> = None;
     let mut saw_actionable_output = false;
     let mut active_item: Option<TurnItem> = None;
     let mut active_tool_argument_diff_consumer: Option<(
@@ -15474,6 +15690,11 @@ async fn try_run_sampling_request(
                                         response_input,
                                     )
                                     .await;
+                                    if let Some(correction) =
+                                        taskspace_path_correction_from_response_item(&response_item)
+                                    {
+                                        tool_path_correction_feedback = Some(correction);
+                                    }
                                     tool_gate_recovery_message =
                                         taskspace_gate_recovery_from_response_item(&response_item);
                                 }
@@ -15490,6 +15711,8 @@ async fn try_run_sampling_request(
                                     .await;
                                     tool_error_message =
                                         Some(format!("TaskSpace tool call failed: {err}"));
+                                    tool_path_correction_feedback =
+                                        taskspace_path_correction_from_text(&err.to_string());
                                 }
                             }
                             if let Some(message) = tool_gate_recovery_message {
@@ -15776,6 +15999,7 @@ async fn try_run_sampling_request(
                     saw_actionable_output,
                     assistant_message_present,
                     taskspace_message_has_gate_recovery(last_agent_message.as_deref()),
+                    tool_path_correction_feedback.is_some(),
                     final_response_rejected
                         || budget_pressure_follow_up_intent
                         || budget_pressure_silent_action_transition,
@@ -15785,7 +16009,14 @@ async fn try_run_sampling_request(
                     .needs_recovery()
                     && current_budget_snapshot.is_some()
                 {
-                    if let Some(targets) = taskspace_existing_file_add_targets_from_rejection(
+                    if let Some(correction) = tool_path_correction_feedback.as_ref() {
+                        Some(build_taskspace_path_correction_recovery_item(
+                            correction,
+                            current_budget_snapshot
+                                .as_ref()
+                                .and_then(|snapshot| snapshot.node_kind.as_deref()),
+                        ))
+                    } else if let Some(targets) = taskspace_existing_file_add_targets_from_rejection(
                         last_agent_message.as_deref(),
                     ) {
                         Some(build_taskspace_apply_patch_format_recovery_item(&targets))

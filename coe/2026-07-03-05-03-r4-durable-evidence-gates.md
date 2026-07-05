@@ -8839,3 +8839,112 @@
   ```
 - Interpretation: H-140 is focused-fixed at the control-loop level. R4 acceptance still requires a fresh formal E3 run
   on the new binary to verify direct token ratio drops below the threshold without introducing premature transitions.
+
+# Hypothesis H-141: absolute workspace path failures were returned as raw tool output but not promoted to TaskSpace recovery semantics
+
+- Claim: In action-contract mode, a `read_file`/`shell_command` failure such as `sed: can't read /data/...: No such file or directory` or `/app/run_pipeline.sh: No such file or directory` can be recorded as ordinary tool output. Because `saw_actionable_output=true` takes precedence in provider response actionability, the failed tool output is classified as `Actionable` and does not produce a focused path-correction recovery item. The agent then retries the same unavailable absolute path until node/provider hard stop.
+- Prediction:
+  - Formal E3 traces should show raw no-such-file output plus repeated retries of `/data/...` or `/app/...`, followed by provider budget or recovery hard stop.
+  - Source inspection should show that ordinary function-call output text is not part of response actionability unless it is an existing gate recovery marker.
+  - Adding a path-correction recovery semantic should make these failures classify as recovery even when a tool output was observed.
+- Diagnostic evidence plan:
+  - Inspect the interrupted formal suite traces for repeated absolute path failures.
+  - Inspect `session/turn.rs` action-contract tool result handling and response actionability ordering.
+  - Add unit tests for `/data` and `/app` path correction extraction plus actionability precedence.
+- Status: confirmed; focused-fixed.
+
+# Evidence E-285: formal suite reproduced path-not-found feedback loss across processing and multi-source samples
+
+- Prediction tested: H-141 predicts raw failure text survives but does not alter next-action semantics.
+- Run:
+  ```text
+  HEAD: 60e86fc
+  SuiteRoot: target/r4-e3-formal-p0-20260705/full-e3-60e86fc/suite-20260705-195417
+  Suite status before operator interruption: run_validity=valid, no abort observed, processing-pipeline completed 5/5 pairs at E1.
+  ```
+- Matched run signals:
+  ```text
+  processing-pipeline pair-003 TaskSpace:
+    rg --files showed relative workspace paths.
+    model then read /app/run_pipeline.sh.
+    sed returned "can't read /app/run_pipeline.sh: No such file or directory".
+    TaskSpaceProviderBudgetHardStopV1 reason=provider_node_request_hard_limit_exceeded request_count=7/20 node_request_count=7/6.
+
+  multi-source-data-merger pair-001 TaskSpace:
+    initial fact sources used /data/source_a and /data/source_b absolute paths.
+    rg --files /data/source_a failed no such file.
+    bootstrap rg --files showed relative paths.
+    model kept reading /data/source_a/users.json and /data/source_b/users.csv.
+    each sed returned No such file or directory.
+    TaskSpaceProviderBudgetHardStopV1 reason=provider_node_request_hard_limit_exceeded request_count=6/20 node_request_count=6/6.
+  ```
+- Source evidence before repair:
+  ```text
+  third_party/codex-cli/codex-rs/core/src/session/turn.rs:
+    saw_actionable_output is set when the action-contract tool call is executed.
+    classify_taskspace_provider_response_actionability(...) returned Actionable whenever saw_actionable_output=true unless final/gate recovery was already present.
+    taskspace_gate_recovery_from_response_item(...) only recognized TaskSpaceGateRecoveryV1, not ordinary no-such-file command output.
+  ```
+- Interpretation:
+  - This is feedback-layer semantic missing, not semantic distortion. The tool failure text exists, but TaskSpace did not convert it into a durable `path_not_found_with_relative_candidate` recovery semantic.
+  - The runtime remained within its state-machine role after the repair: it does not invent task success; it narrows the next allowed action when a tool reports an unavailable absolute workspace path.
+
+# Evidence E-286: path-not-found tool feedback now produces explicit path-correction recovery semantics
+
+- Prediction tested: H-141 predicts that a failed absolute `/data` or `/app` path should enter recovery even when an actionable tool output was observed.
+- Repair artifacts:
+  - `third_party/codex-cli/codex-rs/core/src/session/turn.rs`
+    - adds `TaskSpacePathCorrectionRecoveryV1`;
+    - extracts `/data/...` -> `data/...` and `/app/...` -> relative workspace path candidates from no-such-file tool output;
+    - passes `tool_failure_recovery_message_present` into response actionability before the generic `saw_actionable_output` branch;
+    - emits a recovery item that forbids retrying the failed absolute path and requires one corrected relative-path action or a blocker with exact evidence.
+- Validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core provider_response_actionability --lib
+    9 passed
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core path_correction --lib
+    2 passed
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core taskspace --lib
+    175 passed
+  ```
+- Interpretation:
+  - The specific `/data` and `/app` repeated path retry class is focused-fixed at the feedback/control boundary.
+  - Formal E3 acceptance still requires a fresh live rerun to verify that the new recovery semantics reduce retries without causing premature block/transition.
+
+# Hypothesis H-142: apply_patch native-hunk feedback existed but was too weak to stop repeated malformed patch attempts
+
+- Claim: `TaskSpaceApplyPatchNativeHunkRecoveryV1` was already emitted after mixed native/unified patch grammar, so this class is not missing semantics. The failure is weaker: the feedback did not provide an executable native patch scaffold and allowed too many repeated malformed attempts before hard stop.
+- Prediction:
+  - Formal traces should show repeated `apply_patch_mixed_native_unified` after a native-hunk recovery item.
+  - Strengthening the recovery item with an explicit native `Update File` scaffold and lowering the native-hunk retry hard stop should be covered by focused tests.
+- Diagnostic evidence plan:
+  - Inspect the interrupted formal suite for repeated native/unified grammar rejection.
+  - Add focused tests for the recovery text and hard-stop threshold.
+- Status: confirmed; focused-fixed.
+
+# Evidence E-287: apply_patch native-hunk feedback now includes executable scaffold and earlier hard stop
+
+- Prediction tested: H-142 predicts that existing feedback was present but weakly constrained.
+- Real trace signal:
+  ```text
+  processing-pipeline pair-005 TaskSpace:
+    TaskSpaceActionV1 rejected: apply_patch_mixed_native_unified:generate_report.sh
+    TaskSpace inserted TaskSpaceApplyPatchNativeHunkRecoveryV1
+    model repeated mixed native/unified syntax four times
+    TaskSpaceApplyPatchRecoveryHardStopV1
+  ```
+- Repair artifacts:
+  - `third_party/codex-cli/codex-rs/core/src/session/turn.rs`
+    - adds an explicit valid native `*** Update File` scaffold to `TaskSpaceApplyPatchNativeHunkRecoveryV1`;
+    - keeps whole-file replacement guidance for stale context/small generated files;
+    - hard-stops native-hunk recovery after two previous recoveries, while preserving the older threshold for other apply_patch recovery types.
+- Validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core apply_patch_native_hunk --lib
+    3 passed
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core taskspace --lib
+    175 passed
+  ```
+- Interpretation:
+  - This class is feedback-layer semantic weak/underconstrained, not semantic missing.
+  - The next live E3 run should reveal whether the stronger scaffold reduces malformed patch retries or simply fails faster with cleaner blocked evidence.

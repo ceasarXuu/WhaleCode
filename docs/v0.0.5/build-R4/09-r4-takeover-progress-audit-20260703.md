@@ -4541,3 +4541,109 @@ CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
   - direct input/output ratio 是否低于 partial 阈值 3.0；
   - 是否仍为 15/15 pair-report、0 abort；
   - 是否出现 premature forced transition 导致业务质量下降。
+
+## 69. 2026-07-05 path-not-found feedback semantic repair
+
+在 `60e86fc` 上刷新 non-agent gates/start gate 后，formal E3 进入真实执行：
+
+```text
+SuiteRoot: target/r4-e3-formal-p0-20260705/full-e3-60e86fc/suite-20260705-195417
+processing-pipeline: completed_pairs=5/5, reported_evidence_level=E1
+suite invalid_harness abort: 未观察到
+```
+
+出于成本控制，执行到 `multi-source-data-merger` 第 1 个 pair 期间手动中断；中断前已经足够复现新的 R4 tools feedback 问题类型。
+
+### 问题类型 A：路径不存在反馈语义缺失
+
+典型现象：
+
+```text
+processing-pipeline pair-003 TaskSpace:
+  rg --files 已显示相对路径
+  后续仍读取 /app/run_pipeline.sh
+  sed: can't read /app/run_pipeline.sh: No such file or directory
+  最终 TaskSpaceProviderBudgetHardStopV1
+
+multi-source-data-merger pair-001 TaskSpace:
+  初始 fact source 为 /data/source_a、/data/source_b
+  rg --files /data/source_a 失败
+  bootstrap rg --files 显示 data/source_a/... 相对路径
+  后续仍反复读取 /data/source_a/users.json、/data/source_b/users.csv
+  最终 TaskSpaceProviderBudgetHardStopV1
+```
+
+结论：
+
+- 这不是工具能力层完全失败：工具已经返回了 no-such-file 文本。
+- 也不是语义扭曲：错误文本没有被改成成功。
+- 根因是反馈层语义缺失：普通工具输出中的路径失败没有升级为 TaskSpace recovery semantic。
+- `saw_actionable_output=true` 把本轮响应分类为 `Actionable`，盖过了失败输出；下一轮 agent 只看到普通工具历史，继续按原绝对路径重试。
+
+修复：
+
+- 新增 `TaskSpacePathCorrectionRecoveryV1`。
+- 从普通 `FunctionCallOutput` / `CustomToolCallOutput` 提取：
+  - `/data/...` -> `data/...`
+  - `/app/...` -> workspace-relative path
+- `classify_taskspace_provider_response_actionability(...)` 增加 `tool_failure_recovery_message_present`，并在 `saw_actionable_output` 之前判定 recovery。
+- 恢复项明确约束：
+  - 不得重试失败的绝对路径；
+  - 下一步必须使用建议相对路径执行一个合法 action；
+  - 如果相对路径也失败且无替代证据，必须 blocked，不允许循环。
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core provider_response_actionability --lib
+  9 passed
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core path_correction --lib
+  2 passed
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core taskspace --lib
+  175 passed
+```
+
+## 70. 2026-07-05 apply_patch native-hunk feedback strengthening
+
+同一轮 formal E3 还复现了第二个相似但不同的问题类型：
+
+```text
+processing-pipeline pair-005 TaskSpace:
+  TaskSpaceActionV1 rejected: apply_patch_mixed_native_unified:generate_report.sh
+  TaskSpace inserted TaskSpaceApplyPatchNativeHunkRecoveryV1
+  agent 连续重复 mixed native/unified patch 语法
+  最终 TaskSpaceApplyPatchRecoveryHardStopV1
+```
+
+结论：
+
+- 这类不是语义缺失：`TaskSpaceApplyPatchNativeHunkRecoveryV1` 已经存在。
+- 问题是反馈语义弱约束：提示说明了不能混用 unified/range hunk，但没有足够可执行的 native patch scaffold；同时 hard stop 阈值允许过多重复尝试。
+
+修复：
+
+- `TaskSpaceApplyPatchNativeHunkRecoveryV1` 增加可直接照抄的 native `*** Update File` scaffold。
+- 保留小文件/生成文件的 whole-file replacement 建议。
+- native-hunk recovery 的 hard stop 提前到两次 previous recovery；其他 apply_patch recovery 仍保持原阈值。
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core apply_patch_native_hunk --lib
+  3 passed
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core taskspace --lib
+  175 passed
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
+  Finished dev profile
+```
+
+当前 R4 状态：
+
+- 已收录并修复两类新的 tools feedback 问题：
+  - `path_not_found_with_relative_candidate`: 反馈语义缺失；
+  - `apply_patch_mixed_native_unified`: 反馈语义存在但弱约束。
+- 仍不能标记 R4 完成；需要在新二进制上重跑 formal E3，观察：
+  - 路径纠偏是否减少 `/data`、`/app` 绝对路径重试；
+  - apply_patch malformed retry 是否减少；
+  - cost gate 是否低于 partial 阈值；
+  - 是否引入 premature block/transition。

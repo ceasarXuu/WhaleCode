@@ -1796,6 +1796,9 @@ async fn session_main_tool_result_emits_taskspace_trace_event_and_snapshot() {
                 }
             }
             EventMsg::MapRuntime(MapRuntimeEvent::TaskspaceTraceEventRecorded(event)) => {
+                if event.kind != "main_tool_result" {
+                    continue;
+                }
                 map_runtime_order.push("taskspace_trace_event_recorded");
                 assert_eq!(event.kind, "main_tool_result");
                 assert_eq!(event.result_id.as_deref(), Some("result-1"));
@@ -1893,7 +1896,7 @@ async fn session_standard_mode_main_tool_result_does_not_record_trace() {
     assert!(snapshot.sentinel_warnings.is_empty());
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn real_user_turn_sets_taskspace_routing_gate_and_snapshot() {
     let (session, turn_context, rx) = make_session_and_context_with_rx().await;
     let config = session.get_config().await;
