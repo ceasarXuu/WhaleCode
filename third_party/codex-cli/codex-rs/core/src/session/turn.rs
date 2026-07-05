@@ -892,6 +892,18 @@ pub(crate) async fn run_turn(
                         );
                         break;
                     }
+                    if let Some(snapshot) = current_recovery_snapshot.as_ref()
+                        && let Some(sync) =
+                            taskspace_gate_recovery_projection_sync_from_item(&recovery_item)
+                    {
+                        sess.record_action_map_gate_recovery_projection_sync(
+                            &turn_context,
+                            snapshot,
+                            sync.reason.as_deref(),
+                            &sync.next_valid_actions,
+                        )
+                        .await;
+                    }
                     sess.send_event(
                         &turn_context,
                         EventMsg::Warning(WarningEvent {
@@ -5812,6 +5824,56 @@ fn taskspace_gate_recovery_from_response_item(item: &ResponseItem) -> Option<Str
     output
         .contains(TASKSPACE_GATE_RECOVERY_MARKER)
         .then(|| output.chars().take(2200).collect::<String>())
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct TaskSpaceGateRecoveryProjectionSync {
+    reason: Option<String>,
+    next_valid_actions: Vec<String>,
+}
+
+fn taskspace_gate_recovery_projection_sync_from_item(
+    item: &ResponseItem,
+) -> Option<TaskSpaceGateRecoveryProjectionSync> {
+    let text = response_item_text(item)?;
+    taskspace_gate_recovery_projection_sync_from_text(&text)
+}
+
+fn taskspace_gate_recovery_projection_sync_from_text(
+    text: &str,
+) -> Option<TaskSpaceGateRecoveryProjectionSync> {
+    let (_, rest) = text.split_once(TASKSPACE_GATE_RECOVERY_MARKER)?;
+    let payload = rest.trim_start();
+    if !payload.starts_with('{') {
+        return None;
+    }
+    let json_end = taskspace_leading_json_object_end(payload)?;
+    let value = serde_json::from_str::<serde_json::Value>(&payload[..json_end]).ok()?;
+    let next_valid_actions = value
+        .get("next_valid_actions")
+        .and_then(|actions| actions.as_array())
+        .map(|actions| {
+            actions
+                .iter()
+                .filter_map(|action| action.as_str().map(str::trim))
+                .filter(|action| !action.is_empty())
+                .map(str::to_string)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    if next_valid_actions.is_empty() {
+        return None;
+    }
+    let reason = value
+        .get("reason")
+        .and_then(|reason| reason.as_str())
+        .map(str::trim)
+        .filter(|reason| !reason.is_empty())
+        .map(str::to_string);
+    Some(TaskSpaceGateRecoveryProjectionSync {
+        reason,
+        next_valid_actions,
+    })
 }
 
 fn response_item_texts_contain(item: &ResponseItem, predicate: &dyn Fn(&str) -> bool) -> bool {
@@ -11106,6 +11168,29 @@ TaskSpaceGateRecoveryV1: {\"schema_version\":\"TaskSpaceGateRecoveryV1\",\"allow
 
         assert!(extracted.contains(TASKSPACE_GATE_RECOVERY_MARKER));
         assert!(extracted.contains("run python recover_logs.py"));
+    }
+
+    #[test]
+    fn extracts_projection_sync_from_recovery_message_gate_recovery() {
+        let item = message(
+            "developer",
+            "TaskSpacePathCorrectionRecoveryV1:\nfailed_path: /data\nsuggested_relative_path: data\nTaskSpaceGateRecoveryV1: {\"schema_version\":\"TaskSpaceGateRecoveryV1\",\"allowed\":false,\"reason\":\"path_correction_retry_forbidden\",\"next_valid_actions\":[\"emit list_files with args.path `data`\",\"or emit blocked with exact relative-path failure evidence if the suggested path also fails\"]}",
+        );
+
+        let sync = taskspace_gate_recovery_projection_sync_from_item(&item)
+            .expect("message recovery should expose gate recovery projection sync");
+
+        assert_eq!(
+            sync.reason.as_deref(),
+            Some("path_correction_retry_forbidden")
+        );
+        assert_eq!(
+            sync.next_valid_actions,
+            vec![
+                "emit list_files with args.path `data`",
+                "or emit blocked with exact relative-path failure evidence if the suggested path also fails",
+            ]
+        );
     }
 
     #[test]

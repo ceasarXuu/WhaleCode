@@ -1037,6 +1037,55 @@ impl ActionMapRuntimeState {
             .unwrap_or_default()
     }
 
+    pub(crate) fn record_gate_recovery_projection_sync(
+        &mut self,
+        snapshot: &ActionMapProviderRequestBudgetSnapshot,
+        reason: Option<&str>,
+        next_valid_actions: &[String],
+    ) -> Option<Vec<MapRuntimeEvent>> {
+        let node_id = snapshot.node_id.as_deref()?;
+        if next_valid_actions.is_empty() {
+            return None;
+        }
+        self.record_latest_gate_recovery_next_actions(
+            &snapshot.map_id,
+            node_id,
+            next_valid_actions,
+        );
+
+        let mut tags = vec![
+            "schema:taskspace-gate-recovery-projection-sync-v1".to_string(),
+            "producer:session_recovery".to_string(),
+            format!("action_count:{}", next_valid_actions.len()),
+        ];
+        if let Some(reason) = reason.filter(|reason| !reason.trim().is_empty()) {
+            tags.push(format!("reason:{reason}"));
+        }
+        tags.extend(
+            next_valid_actions
+                .iter()
+                .take(3)
+                .enumerate()
+                .map(|(index, action)| {
+                    format!(
+                        "next_valid_action_{}:{}",
+                        index + 1,
+                        single_line_preview(action, 180)
+                    )
+                }),
+        );
+
+        Some(vec![self.record_runtime_budget_trace_event(
+            "gate_recovery_projection_sync",
+            snapshot.task_id.clone(),
+            snapshot.map_id.clone(),
+            node_id.to_string(),
+            None,
+            true,
+            tags,
+        )])
+    }
+
     fn install_active_budget_for_route(
         &mut self,
         profile_name: &str,
@@ -26265,6 +26314,56 @@ Platform,In Progress,D001\n"
         assert!(
             !actions.iter().any(|action| action.contains("finish_node")),
             "projection must not advertise finish while gate recovery is active: {actions:?}"
+        );
+    }
+
+    #[test]
+    fn gate_recovery_projection_sync_records_latest_actions_and_trace() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::InspectCodeContext,
+            "Inspect data sources",
+            "Read every declared data source before implementation.",
+            "Inspect data sources",
+            "Read every declared data source before implementation.",
+            true,
+        );
+        let snapshot = state
+            .provider_request_budget_snapshot()
+            .expect("provider request snapshot");
+        let next_valid_actions = vec![
+            "emit list_files with args.path `data`".to_string(),
+            "or emit blocked with exact relative-path failure evidence if the suggested path also fails"
+                .to_string(),
+        ];
+
+        let events = state
+            .record_gate_recovery_projection_sync(
+                &snapshot,
+                Some("path_correction_retry_forbidden"),
+                &next_valid_actions,
+            )
+            .expect("projection sync events");
+
+        assert_eq!(
+            state.latest_gate_recovery_next_actions_for_node("map-1", Some("node-1")),
+            next_valid_actions
+        );
+        let MapRuntimeEvent::TaskspaceTraceEventRecorded(event) = &events[0] else {
+            panic!("expected trace event");
+        };
+        assert_eq!(event.kind, "gate_recovery_projection_sync");
+        assert!(
+            event
+                .tags
+                .iter()
+                .any(|tag| tag == "reason:path_correction_retry_forbidden"),
+            "{:?}",
+            event.tags
         );
     }
 

@@ -1176,6 +1176,25 @@ impl Session {
         state.action_map_runtime.provider_request_budget_snapshot()
     }
 
+    pub(crate) async fn record_action_map_gate_recovery_projection_sync(
+        &self,
+        turn_context: &TurnContext,
+        snapshot: &ActionMapProviderRequestBudgetSnapshot,
+        reason: Option<&str>,
+        next_valid_actions: &[String],
+    ) {
+        let events = {
+            let mut state = self.state.lock().await;
+            state
+                .action_map_runtime
+                .record_gate_recovery_projection_sync(snapshot, reason, next_valid_actions)
+        };
+        if let Some(events) = events {
+            self.emit_action_map_events_for_turn(turn_context, events)
+                .await;
+        }
+    }
+
     pub(crate) async fn action_map_gate_provider_request_pre_dispatch(
         &self,
         snapshot: &ActionMapProviderRequestBudgetSnapshot,

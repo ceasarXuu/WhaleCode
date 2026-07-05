@@ -1759,6 +1759,44 @@ RUST_MIN_STACK=8388608 CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core task
   175 passed
 ```
 
+后续 right-only targeted run `20260706-031406-765` 证明上述修复仍缺一段状态同步：
+
+```text
+rollout line 64:
+  TaskSpacePathCorrectionRecoveryV1 failed_path=/data suggested_relative_path=data
+  TaskSpaceGateRecoveryV1.next_valid_actions:
+    emit list_files with args.path `data`
+
+rollout line 65:
+  ContextProjectionV1 active replacement next_valid_actions:
+    read_file declared fact-source artifact `/data/source_b/users.csv` next
+    read_file declared fact-source artifact `/data/source_c/users.parquet` next
+    do not finish inspect_code_context until declared fact-source artifacts are read
+```
+
+结论：不是 GateRecovery 缺失，而是 session 生成的 developer recovery item 没有把
+`TaskSpaceGateRecoveryV1.next_valid_actions` 写入 ActionMap 的 latest gate recovery 状态槽。
+这会让 active projection 重新推导旧的 inspect/fact-source 动作，稀释刚刚给出的 `data` 恢复语义。
+
+追加修复：
+
+1. `turn.rs` 新增 recovery message 中 `TaskSpaceGateRecoveryV1.reason` 和 `next_valid_actions`
+   的解析器。
+2. session 在记录非 hard-stop recovery item 前，将 next actions 同步到 ActionMap projection state。
+3. `runtime.rs` 新增 `record_gate_recovery_projection_sync(...)`，只记录 projection state，并发出
+   `gate_recovery_projection_sync` trace；不执行工具、不自动 inspect。
+
+追加验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core extracts_projection_sync_from_recovery_message_gate_recovery --lib
+  1 passed
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core gate_recovery_projection_sync_records_latest_actions_and_trace --lib
+  1 passed
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core projection_prioritizes_inspect_gate_recovery_next_actions --lib
+  1 passed
+```
+
 `c98542b` targeted rerun 未能验证 H-150 live 终态，因为 right-side 在 validation 前遇到新的
 feedback-layer collision：
 
