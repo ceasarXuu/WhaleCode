@@ -5637,8 +5637,10 @@ mod active_context_replacement_tests {
         let text = item_text(taskspace_action_contract_state_item(&snapshot));
 
         assert!(text.contains("Implementation convergence state: implementation_needs_edit"));
-        assert!(text.contains("apply_patch, taskspace_control, or blocked only"));
-        assert!(text.contains("Do not call list_files, search, read_file"));
+        assert!(text.contains(
+            "apply_patch, taskspace_control, blocked, or read_file only for a validation rework target"
+        ));
+        assert!(text.contains("Do not call list_files, search, broad read_file"));
 
         snapshot.current_node_has_successful_edit = true;
         let text_after_edit = item_text(taskspace_action_contract_state_item(&snapshot));
@@ -5653,7 +5655,7 @@ mod active_context_replacement_tests {
         let text = item_text(taskspace_action_contract_state_item(&snapshot));
 
         assert!(text.contains("Implementation convergence state: implementation_needs_edit"));
-        assert!(text.contains("Do not call list_files, search, read_file"));
+        assert!(text.contains("Do not call list_files, search, broad read_file"));
 
         let read = parse_taskspace_action_v1(
             r#"{"schema_version":"taskspace-action-v1","action":"read_file","node_id":"node-1","args":{"path":"generate_report.sh"},"rationale":"read more"}"#,
@@ -5676,7 +5678,7 @@ mod active_context_replacement_tests {
         let text = item_text(taskspace_action_contract_state_item(&snapshot));
 
         assert!(text.contains("Implementation convergence state: implementation_needs_edit"));
-        assert!(text.contains("Do not call list_files, search, read_file"));
+        assert!(text.contains("Do not call list_files, search, broad read_file"));
 
         let read = parse_taskspace_action_v1(
             r#"{"schema_version":"taskspace-action-v1","action":"read_file","node_id":"node-2","args":{"path":"collect_data.sh"},"rationale":"read more"}"#,
@@ -7902,7 +7904,7 @@ TaskSpace implement_solution node `node-6` cannot be blocked for missing source 
     }
 
     #[test]
-    fn taskspace_action_contract_normalizes_separator_update_sections() {
+    fn taskspace_action_contract_rejects_separator_update_sections() {
         let raw = serde_json::json!({
             "schema_version": "taskspace-action-v1",
             "action": "apply_patch",
@@ -7916,28 +7918,14 @@ TaskSpace implement_solution node `node-6` cannot be blocked for missing source 
             + "\"";
         let action = parse_taskspace_action_v1(&raw).expect("valid json with trailing quote");
 
-        let call = taskspace_action_to_tool_call(&action, &provider_snapshot("implement_solution"))
-            .expect("separator update sections normalize")
-            .expect("tool call");
+        let err = taskspace_action_to_tool_call(&action, &provider_snapshot("implement_solution"))
+            .expect_err("mixed native/unified separators must be rejected before tool dispatch");
 
-        match call.payload {
-            ToolPayload::Custom { input } => {
-                assert!(input.starts_with("*** Begin Patch\n"));
-                assert!(input.ends_with("*** End Patch\n"));
-                assert_eq!(input.matches("*** Update File: ").count(), 2);
-                assert!(input.contains("process.py"));
-                assert!(input.contains("@@\n-    'member_ids':"));
-                assert!(input.contains("+    'members':"));
-                assert!(input.contains("@@\n-    'total_employees':"));
-                assert!(input.contains("+    'totalEmployees':"));
-                assert!(!input.contains("\n---\n"));
-            }
-            other => panic!("expected custom payload, got {other:?}"),
-        }
+        assert_eq!(err, "apply_patch_mixed_native_unified:process.py");
     }
 
     #[test]
-    fn taskspace_action_contract_normalizes_duplicate_unwrapped_update_wrapper() {
+    fn taskspace_action_contract_rejects_duplicate_unwrapped_update_wrapper() {
         let raw = serde_json::json!({
             "schema_version": "taskspace-action-v1",
             "action": "apply_patch",
@@ -7950,27 +7938,17 @@ TaskSpace implement_solution node `node-6` cannot be blocked for missing source 
         .to_string();
         let action = parse_taskspace_action_v1(&raw).expect("valid json");
 
-        let call = taskspace_action_to_tool_call(&action, &provider_snapshot("implement_solution"))
-            .expect("duplicate empty Update File wrapper can be normalized")
-            .expect("tool call");
+        let err = taskspace_action_to_tool_call(&action, &provider_snapshot("implement_solution"))
+            .expect_err("duplicate mixed wrapper must be rejected before tool dispatch");
 
-        match call.payload {
-            ToolPayload::Custom { input } => {
-                assert!(input.starts_with("*** Begin Patch\n"));
-                assert!(input.ends_with("*** End Patch\n"));
-                assert_eq!(input.matches("*** Update File: ").count(), 1);
-                assert!(input.contains("process_csv_to_json.py"));
-                assert!(input.contains("@@\n def build_organization():"));
-                assert!(input.contains("-        'member_ids':"));
-                assert!(input.contains("+        'members':"));
-                assert!(!input.contains("--- \n+++ "));
-            }
-            other => panic!("expected custom payload, got {other:?}"),
-        }
+        assert_eq!(
+            err,
+            "apply_patch_mixed_native_unified:(missing patch target)"
+        );
     }
 
     #[test]
-    fn taskspace_action_contract_normalizes_misordered_begin_update_mixed_patch() {
+    fn taskspace_action_contract_rejects_misordered_begin_update_mixed_patch() {
         let raw = serde_json::json!({
             "schema_version": "taskspace-action-v1",
             "action": "apply_patch",
@@ -7983,24 +7961,10 @@ TaskSpace implement_solution node `node-6` cannot be blocked for missing source 
         .to_string();
         let action = parse_taskspace_action_v1(&raw).expect("valid json");
 
-        let call = taskspace_action_to_tool_call(&action, &provider_snapshot("implement_solution"))
-            .expect("misordered wrapper can be normalized")
-            .expect("tool call");
+        let err = taskspace_action_to_tool_call(&action, &provider_snapshot("implement_solution"))
+            .expect_err("misordered mixed wrapper must be rejected before tool dispatch");
 
-        match call.payload {
-            ToolPayload::Custom { input } => {
-                assert!(input.starts_with("*** Begin Patch\n"));
-                assert!(input.ends_with("*** End Patch\n"));
-                assert_eq!(input.matches("*** Begin Patch").count(), 1);
-                assert_eq!(input.matches("*** Update File: ").count(), 1);
-                assert!(input.contains("csv2json.py"));
-                assert!(input.contains("@@\n- #!/usr/bin/env python3\n+#!/usr/bin/env python3"));
-                assert!(!input.contains("--- a/csv2json.py"));
-                assert!(!input.contains("+++ b/csv2json.py"));
-                assert!(!input.contains("@@ -1,2 +1,2 @@"));
-            }
-            other => panic!("expected custom payload, got {other:?}"),
-        }
+        assert_eq!(err, "apply_patch_mixed_native_unified:csv2json.py");
     }
 
     #[test]
@@ -8031,7 +7995,7 @@ TaskSpace implement_solution node `node-6` cannot be blocked for missing source 
     }
 
     #[test]
-    fn taskspace_action_contract_normalizes_live_mixed_placeholder_hunk_patch() {
+    fn taskspace_action_contract_rejects_live_mixed_placeholder_hunk_patch() {
         let raw = serde_json::json!({
             "schema_version": "taskspace-action-v1",
             "action": "apply_patch",
@@ -8043,22 +8007,10 @@ TaskSpace implement_solution node `node-6` cannot be blocked for missing source 
         .to_string();
         let action = parse_taskspace_action_v1(&raw).expect("valid json");
 
-        let call = taskspace_action_to_tool_call(&action, &provider_snapshot("implement_solution"))
-            .expect("live mixed placeholder hunk can be normalized")
-            .expect("tool call");
+        let err = taskspace_action_to_tool_call(&action, &provider_snapshot("implement_solution"))
+            .expect_err("live mixed placeholder hunk must be rejected before tool dispatch");
 
-        match call.payload {
-            ToolPayload::Custom { input } => {
-                assert!(input.starts_with("*** Begin Patch\n"));
-                assert!(input.ends_with("*** End Patch\n"));
-                assert!(input.contains("generate_json.py"));
-                assert!(input.contains("@@\n def build_organization"));
-                assert!(!input.contains("--- a/generate_json.py"));
-                assert!(!input.contains("+++ b/generate_json.py"));
-                assert!(!input.contains("@@ ... @@"));
-            }
-            other => panic!("expected custom payload, got {other:?}"),
-        }
+        assert_eq!(err, "apply_patch_mixed_native_unified:generate_json.py");
     }
 
     #[test]

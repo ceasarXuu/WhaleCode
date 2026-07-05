@@ -8122,3 +8122,117 @@
 - Interpretation: H-132 is live-cleared for this benchmark path. The run remains `E2-candidate` rather than E3 because
   official Terminal-Bench runner equivalence/source-isolation/human-review gates are not satisfied in the current
   harness configuration, not because the taskspace side failed.
+
+# Evidence E-270: formal E3 gate currently mixes old P0 sample identity with newer Terminal-Bench source
+
+- Discovery path:
+  - `scripts/taskspace-benchmark/write-release-decision.ps1` hard-codes formal R4/E3 sample set
+    `terminal-bench_E3-P0_3_5` with `processing-pipeline`, `multi-source-data-merger`, and `recover-accuracy-log`.
+  - Current Linux R4 source cache `target/external-sources/terminal-bench-core-0.1.1` is commit
+    `91e10457b5410f16c44364da1a34cb6de8c488a5` on `dataset/terminal-bench-core/v0.1.x`.
+  - That checkout contains `tasks/processing-pipeline` but does not contain `multi-source-data-merger` or
+    `recover-accuracy-log`.
+  - Historical E3 CoE `coe/2026-06-13-20-10-e3-rerun-suite-abort.md` records the old formal P0 source commit
+    `1a6ffa9674b571da0ed040c470cb40c4d85f9b9b`, where the three expected samples exist under `original-tasks`.
+- Recovery action:
+  - Created ignored target worktree
+    `target/external-sources/terminal-bench-1a6ffa9674b571da0ed040c470cb40c4d85f9b9b`.
+  - Added sparse checkout paths:
+    `original-tasks/processing-pipeline`, `original-tasks/multi-source-data-merger`,
+    `original-tasks/recover-accuracy-log`.
+  - Created ignored task list `target/r4-e3-formal-p0-20260705/task-list.jsonl`.
+- Verification:
+  ```text
+  Get-TaskspaceE3SampleSetDerivation -Benchmark terminal-bench -TaskListPath target/r4-e3-formal-p0-20260705/task-list.jsonl -Repeats 5
+    sample_set_id: terminal-bench_E3-P0_3_5
+    formal_p0: true
+    missing_required_sample_names: []
+  task-list sha256:
+    00d9c0ab0fe44c6d0d1079d9917562dc7a906eb177d83185a264f4a567aedfba
+  ```
+- Interpretation: the next E3 attempt must use the old `1a6ffa.../original-tasks` task list unless the release
+  decision identity is intentionally redesigned. Running the formal gate against `91e10457.../tasks` cannot close R4
+  because two required sample names are absent.
+
+# Evidence E-271: formal P0 plan-only suite materializes all three old samples after binary attestation refresh
+
+- First attempt:
+  - Command:
+    `run-taskspace-e3-suite.ps1 ... -TaskListPath target/r4-e3-formal-p0-20260705/task-list.jsonl ... -PlanOnly`
+  - Result: `invalid_harness`, stable code `whale_binary_stale_for_codex_source`.
+  - Cause: `third_party/codex-cli/codex-rs/target/debug/whale.build-attestation.json` still referred to older
+    binary/source hashes.
+- Recovery:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
+    PASS
+  write-whale-binary-attestation.ps1 -WhaleBin third_party/codex-cli/codex-rs/target/debug/whale
+    PASS
+  ```
+- Second attempt:
+  ```text
+  SuiteRoot: target/r4-e3-formal-p0-20260705/planonly-attested/suite-20260705-165342
+  suite status: completed
+  suite_score_ready: true
+  suite_score_valid: true
+  invalid_harness_sample_count: 0
+  sample_set_id: terminal-bench_E3-P0_3_5
+  profile_hash for plan-only: 3cae81ab864cb456ece772bcf69e524968e10beaaa995e3001b9c7b7b2316e44
+  ```
+- Formal full-E3 profile hash computed from the same parameters with `scoring_mode=true`:
+  `03f792dbdf15c1d3081f1bf89ca71f4dd008252b45785eaa6d6909d919254dc6`.
+- Interpretation: old P0 source and task list are viable for the suite runner. Remaining blockers moved from source
+  materialization to start-gate prerequisites: non-agent gates, code-complete/user-approval markers, calibration, and
+  later human review.
+
+# Hypothesis H-133: active-context non-agent gate was blocked by stale tests, not by production behavior
+
+- Claim: `build-v005-non-agent-gates.ps1` failed only because `active_context_replacement` tests still expected old
+  action-contract text and old mixed native/unified patch normalization behavior. The runtime behavior after H-132 is
+  stricter and should reject mixed native/unified apply_patch payloads before dispatch.
+- Prediction:
+  - Updating only tests to assert current strict rejection and current narrowed action text will make
+    `cargo test -p codex-core active_context_replacement --lib` pass.
+  - `action_contract_prompt`, `validation_rework`, `taskspace_apply_patch`, formatting, diff, and `cargo check` will
+    continue to pass.
+- Diagnostic evidence plan: Update tests in `turn.rs` without changing production logic; run focused and related
+  regression commands.
+- Status: confirmed; focused-fixed.
+
+# Evidence E-272: active-context non-agent gate test contract is realigned to H-132 strict patch semantics
+
+- First non-agent gate attempt:
+  ```text
+  build-v005-non-agent-gates.ps1
+    status: fail
+    failed gate: active_context_replacement
+    command exit_code: 101
+  ```
+- Failing assertions:
+  - Old tests expected prompt text containing `apply_patch, taskspace_control, or blocked only` and
+    `Do not call list_files, search, read_file`.
+  - Current contract text says implementation may read only an explicitly named validation rework target and forbids
+    `list_files`, `search`, and `broad read_file`.
+  - Old tests expected mixed native/unified patch payloads to normalize; current H-132 behavior returns stable
+    `apply_patch_mixed_native_unified:<target>` or `(missing patch target)` before tool dispatch.
+- Repair artifact:
+  - `third_party/codex-cli/codex-rs/core/src/session/turn.rs` tests only.
+- Validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core active_context_replacement --lib -- --nocapture
+    PASS: 250/250
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core action_contract_prompt -- --nocapture
+    PASS: 29/29
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_rework -- --nocapture
+    PASS: 32/32
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core taskspace_apply_patch -- --nocapture
+    PASS: 18/18
+  cargo fmt --check
+    PASS
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo check -p codex-core
+    PASS
+  git diff --check
+    PASS
+  ```
+- Interpretation: H-133 is focused-fixed. After committing this alignment, non-agent gates must be rebuilt so their
+  `git_commit` and evidence hashes bind to the final R4 candidate head.

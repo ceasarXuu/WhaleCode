@@ -4032,3 +4032,55 @@ current_git_head: 431e0eebd1e94425287173393a381851c50485ce
 | focused evidence | recovery ordering tests; `validation_rework_duplicate_read`; `validation_rework` |
 
 状态：focused 修复已编码；仍需 focused/regression、fmt/build、commit/push、attestation、keyed rerun。
+
+## 61. 2026-07-05 formal E3 source identity and non-agent gate unblock
+
+R4 单样本 `organization-json-generator` 已 live-clear 到 E2-candidate solved；继续推进 release 闭环时，正式 E3 gate 暴露两个前置缺口：
+
+| 字段 | 内容 |
+|---|---|
+| formal sample set | `terminal-bench_E3-P0_3_5` |
+| release gate 固定样本 | `processing-pipeline`, `multi-source-data-merger`, `recover-accuracy-log` |
+| 当前 Linux source cache | `91e10457b5410f16c44364da1a34cb6de8c488a5`, `tasks/` |
+| 问题 | 当前 cache 只有 `processing-pipeline`，缺少 `multi-source-data-merger` 和 `recover-accuracy-log` |
+| 恢复路径 | 使用历史正式 P0 source `1a6ffa9674b571da0ed040c470cb40c4d85f9b9b`, `original-tasks/` |
+| task list | `target/r4-e3-formal-p0-20260705/task-list.jsonl` |
+| task list sha256 | `00d9c0ab0fe44c6d0d1079d9917562dc7a906eb177d83185a264f4a567aedfba` |
+| full E3 profile hash | `03f792dbdf15c1d3081f1bf89ca71f4dd008252b45785eaa6d6909d919254dc6` |
+
+PlanOnly 验证结果：
+
+```text
+SuiteRoot: target/r4-e3-formal-p0-20260705/planonly-attested/suite-20260705-165342
+suite status: completed
+suite_score_ready: true
+suite_score_valid: true
+invalid_harness_sample_count: 0
+sample_set_id: terminal-bench_E3-P0_3_5
+```
+
+non-agent gate 首轮失败在 `active_context_replacement`，根因是测试仍断言 H-132 之前的宽松 mixed native/unified patch normalization 和旧 action-contract 文案。已仅更新测试口径，使其断言当前严格行为：
+
+- mixed native/unified patch 返回 `apply_patch_mixed_native_unified:<target>`，不再进入工具层。
+- implementation_needs_edit 文案允许仅针对显式 validation rework target 的窄 `read_file`，并禁止 `broad read_file`。
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core active_context_replacement --lib -- --nocapture
+  PASS: 250/250
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core action_contract_prompt -- --nocapture
+  PASS: 29/29
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_rework -- --nocapture
+  PASS: 32/32
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core taskspace_apply_patch -- --nocapture
+  PASS: 18/18
+cargo fmt --check
+  PASS
+CODEX_SKIP_VENDORED_BWRAP=1 cargo check -p codex-core
+  PASS
+git diff --check
+  PASS
+```
+
+状态：formal source/materialization path 已打通；active-context non-agent gate 测试口径已修正。下一步是 commit/push 后重跑 `build-v005-non-agent-gates.ps1`，再生成 code-complete/user-approval markers 和 start gate。
