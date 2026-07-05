@@ -1697,6 +1697,27 @@ function Add-TaskspaceCostMetricTotal {
     $Totals[$Field] = [double]$Totals[$Field] + [double]$value
 }
 
+function Add-TaskspaceCostMetricTotalWithFallback {
+    param(
+        [System.Collections.IDictionary]$Totals,
+        $Metric,
+        [string]$Field,
+        [string]$FallbackField
+    )
+    $value = Get-TaskspaceCostMetricNumber $Metric $Field
+    if ($null -eq $value -and -not [string]::IsNullOrWhiteSpace($FallbackField)) {
+        $value = Get-TaskspaceCostMetricNumber $Metric $FallbackField
+        if ($null -ne $value) {
+            $Totals["fallback_$Field"]++
+        }
+    }
+    if ($null -eq $value) {
+        $Totals["missing_$Field"]++
+        return
+    }
+    $Totals[$Field] = [double]$Totals[$Field] + [double]$value
+}
+
 function New-TaskspaceCostSideTotals {
     param([string]$Mode)
     [ordered]@{
@@ -1745,6 +1766,9 @@ function New-TaskspaceCostSideTotals {
         missing_projection_count = 0
         missing_projection_tokens = 0
         missing_projection_protected_miss_count = 0
+        fallback_model_request_count = 0
+        fallback_input_tokens = 0
+        fallback_output_tokens = 0
     }
 }
 
@@ -1820,7 +1844,15 @@ function Write-TaskspaceCostAggregateArtifacts {
         $totals.side_count++
         if ([string]$metric.token_summary_availability -eq "measured") { $totals.complete_side_count++ }
         foreach ($field in @("model_request_count", "input_tokens", "output_tokens", "cached_input_tokens", "uncached_input_tokens", "jsonl_bytes", "provider_input_tokens_per_jsonl_kb", "provider_total_tokens_per_jsonl_kb", "wall_time_ms", "taskspace_control_count", "native_taskspace_control_count", "action_contract_taskspace_control_count", "state_commit_count", "runtime_state_commit_count", "runtime_output_ref_created_count", "runtime_output_ref_slice_read_count", "taskspace_runtime_event_count", "large_output_replay_count", "projection_count", "projection_tokens", "projection_protected_miss_count")) {
-            Add-TaskspaceCostMetricTotal $totals $metric $field
+            if ($field -eq "model_request_count") {
+                Add-TaskspaceCostMetricTotalWithFallback $totals $metric $field "rollout_trace_model_request_count"
+            } elseif ($field -eq "input_tokens") {
+                Add-TaskspaceCostMetricTotalWithFallback $totals $metric $field "rollout_trace_input_tokens"
+            } elseif ($field -eq "output_tokens") {
+                Add-TaskspaceCostMetricTotalWithFallback $totals $metric $field "rollout_trace_output_tokens"
+            } else {
+                Add-TaskspaceCostMetricTotal $totals $metric $field
+            }
         }
     }
     $tokenPath = Join-Path $RootDir "token-summary.json"

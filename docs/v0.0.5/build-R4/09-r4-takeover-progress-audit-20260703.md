@@ -4361,3 +4361,124 @@ Real pair-001 taskspace metrics reclassification:
   - agent timeout + validation skip + pre-agent probe passed 时，stale validator sentinel 不再覆盖 timeout 语义；
   - external validation completed 时，internal validator sentinel 不再覆盖 business wrong 语义。
 - 仍需提交该修复，刷新 gates/markers，并再次重跑 formal full E3。
+
+## 66. 2026-07-05 formal E3 completes pair execution after sentinel taxonomy fixes
+
+提交 H-138 修复后，当前 HEAD：
+
+```text
+c173d1cebe3ee0307030d88acef32caddf207f39
+```
+
+重新生成 gates/markers 并启动 formal full E3：
+
+```text
+SuiteRoot: target/r4-e3-formal-p0-20260705/full-e3-c173d1c/suite-20260705-183826
+pair-report count: 15
+pair-abort count: 0
+suite-health.status: audit_required
+invalid_harness_sample_count: 0
+completed_child_processes: 3
+score_pending_audit_child_runs: 3
+```
+
+结论：
+
+- H-137/H-138 修掉的 `active_sentinel_warning:validator_failure` 误杀，在 formal live run 中没有复发。
+- 3 个 sample 均完成 5/5 pair，suite 没有 `invalid_harness` abort。
+- 当前不能把 R4 标成完成，因为：
+  - `suite_score_ready=false`
+  - `suite_score_valid=false`
+  - `score_block_reason=audit_required`
+  - start gate 使用了 `AllowSkippedCalibrationGate`，`calibration_gate_passed=false`
+
+这说明 feedback-layer 分类链路已向前推进一层：错误的 validator sentinel 覆盖问题已关，剩余问题转为 audit、calibration 和真实成本/质量指标。
+
+## 67. 2026-07-05 suite cost gate rollout fallback repair
+
+formal E3 退出后，`suite-cost-gate.json` 初始状态：
+
+```text
+status=FAIL
+reason=missing_cost_data
+missing_fields=[model_request_count,input_tokens,output_tokens]
+ratios:
+  direct_input_output_ratio=2.8406
+  walltime_ratio=1.8388
+  model_request_count_ratio=0.9333
+```
+
+进一步检查发现这不是 suite 聚合完全没有成本数据，而是一个 timeout side 顶层 provider usage 缺失：
+
+```text
+metrics:
+  target/r4-e3-formal-p0-20260705/full-e3-c173d1c/suite-20260705-183826/samples/multi-source-data-merger/runs/terminal_bench__multi-source-data-merger/20260705-185157-964/pair-004/left/artifacts/metrics.json
+top-level:
+  token_summary_availability=usage_unavailable
+  model_request_count=null
+  input_tokens=null
+  output_tokens=null
+  exec_timed_out=true
+  public_validation_skip_reason=agent_exec_timeout
+rollout_trace:
+  availability=measured
+  model_request_count=18
+  input_tokens=2169306
+  output_tokens=58787
+```
+
+根因：
+
+- per-side `request-summary.json.rollout_trace` 已有可用请求/token 统计。
+- suite aggregate 只读 `metrics.json` 顶层 `model_request_count/input_tokens/output_tokens`。
+- timeout 场景没有 `turn.completed` usage，但 rollout trace 是真实 measured fallback。
+- 结果是 cost gate 把“可测但来自 fallback 的高成本”误报为 `missing_cost_data`。
+
+修复：
+
+- `cost-instrumentation.ps1` 的 suite/sample aggregate 对以下字段启用 rollout trace fallback：
+  - `model_request_count <- rollout_trace_model_request_count`
+  - `input_tokens <- rollout_trace_input_tokens`
+  - `output_tokens <- rollout_trace_output_tokens`
+- 仍然只对 cost gate 必需字段启用 fallback；其他字段缺失继续按原规则处理。
+- aggregate token summary 增加 fallback 计数：
+  - `fallback_model_request_count`
+  - `fallback_input_tokens`
+  - `fallback_output_tokens`
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/taskspace-benchmark/test-harness.ps1
+  PASS
+CODEX_SKIP_VENDORED_BWRAP=1 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/taskspace-benchmark/test-cost-instrumentation.ps1
+  cost instrumentation selftest passed
+CODEX_SKIP_VENDORED_BWRAP=1 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/taskspace-benchmark/test-cost-diagnostics.ps1
+  TaskSpace cost diagnostics self-test: PASS
+git diff --check
+  PASS
+```
+
+重算 formal suite cost gate 后：
+
+```text
+status=FAIL
+reason=cost_gate_failed
+missing_fields=[]
+direct_input_output_ratio=3.2436
+walltime_ratio=1.8388
+model_request_count_ratio=2.1333
+taskspace fallback counts:
+  fallback_model_request_count=1
+  fallback_input_tokens=1
+  fallback_output_tokens=1
+```
+
+当前 R4 状态：
+
+- `missing_cost_data` 误报已修复。
+- 成本门仍 FAIL，但现在原因正确：TaskSpace direct input/output ratio=3.2436，超过 partial 阈值 3.0。
+- 最大 token driver 都来自 taskspace side；top two:
+  - recover-accuracy-log pair-004 left: 2,429,635 direct tokens
+  - multi-source-data-merger pair-004 left: 2,228,093 direct tokens
+- 下一步应收敛 feedback/control 的高成本循环：validation rework 后仍重复 read/validate，且成功或足够失败证据后没有强制闭合 action space。

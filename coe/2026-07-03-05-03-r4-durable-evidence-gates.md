@@ -8675,3 +8675,103 @@
   ```
 - Interpretation: H-138 is focused-fixed. External benchmark validation now owns business wrong/solved classification
   once it completed; internal TaskSpace validator sentinels remain diagnostic feedback instead of harness-failure proof.
+
+# Evidence E-282: formal E3 run no longer aborts on validator sentinel classification
+
+- Prediction tested: H-137 and H-138 predict that the focused taxonomy repairs should allow the formal P0 suite to
+  complete pair execution instead of aborting on stale/internal `active_sentinel_warning:validator_failure`.
+- Run:
+  ```text
+  HEAD: c173d1cebe3ee0307030d88acef32caddf207f39
+  SuiteRoot: target/r4-e3-formal-p0-20260705/full-e3-c173d1c/suite-20260705-183826
+  pair-report count: 15
+  pair-abort count: 0
+  suite-health.status: audit_required
+  invalid_harness_sample_count: 0
+  completed_child_processes: 3
+  score_pending_audit_child_runs: 3
+  ```
+- Gate status:
+  ```text
+  start gate: pass, full_e3_allowed=true
+  calibration_gate_passed=false
+  calibration_gate_skipped_allowed=true
+  suite_score_ready=false
+  suite_score_valid=false
+  score_block_reason=audit_required
+  ```
+- Interpretation: the R4 feedback-layer misclassification case is fixed in the live formal path. This does not close
+  R4 release acceptance because the suite is pending manual audit and the calibration gate was explicitly skipped.
+
+# Hypothesis H-139: suite cost gate ignores measured rollout fallback usage when provider usage is unavailable
+
+- Claim: when a side times out or otherwise lacks `turn.completed` provider usage, `metrics.json` can have null
+  top-level `model_request_count`, `input_tokens`, and `output_tokens` while still carrying measured
+  `rollout_trace_model_request_count`, `rollout_trace_input_tokens`, and `rollout_trace_output_tokens`. The suite cost
+  aggregate only reads the top-level fields, so it reports `missing_cost_data` even though a usable measured fallback
+  exists.
+- Prediction:
+  - A real side should show `token_summary_availability=usage_unavailable`, null top-level usage fields, and measured
+    rollout trace request/token totals.
+  - After aggregate fallback repair, the same formal suite should have `suite-cost-gate.missing_fields=[]`; if it still
+    fails, the reason should be the actual cost ratio, not missing data.
+  - A case with neither top-level nor rollout usage must still fail closed as `missing_cost_data`.
+- Diagnostic evidence plan:
+  - Inspect the formal suite side that triggered missing cost data.
+  - Add aggregate fallback logic for the required cost fields only.
+  - Add a focused harness regression and rerun cost tests.
+- Status: confirmed; focused-fixed.
+
+# Evidence E-283: rollout trace fallback converts cost gate from missing data to real cost failure
+
+- Prediction tested: H-139 predicts the formal suite has measured rollout usage that should be accepted as an explicit
+  fallback for suite cost aggregation.
+- Real artifact:
+  ```text
+  metrics:
+    target/r4-e3-formal-p0-20260705/full-e3-c173d1c/suite-20260705-183826/samples/multi-source-data-merger/runs/terminal_bench__multi-source-data-merger/20260705-185157-964/pair-004/left/artifacts/metrics.json
+  top-level:
+    token_summary_availability=usage_unavailable
+    model_request_count=null
+    input_tokens=null
+    output_tokens=null
+    exec_timed_out=true
+    public_validation_skip_reason=agent_exec_timeout
+  rollout_trace:
+    availability=measured
+    model_request_count=18
+    input_tokens=2169306
+    output_tokens=58787
+  ```
+- Repair artifacts:
+  - `scripts/taskspace-benchmark/lib/cost-instrumentation.ps1`
+    - adds rollout-trace fallback for aggregate `model_request_count`, `input_tokens`, and `output_tokens`;
+    - records `fallback_model_request_count`, `fallback_input_tokens`, and `fallback_output_tokens` counters.
+  - `scripts/taskspace-benchmark/test-harness.ps1`
+    - adds regression for `usage_unavailable` primary usage plus measured rollout fallback usage.
+- Validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/taskspace-benchmark/test-harness.ps1
+    PASS
+  CODEX_SKIP_VENDORED_BWRAP=1 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/taskspace-benchmark/test-cost-instrumentation.ps1
+    cost instrumentation selftest passed
+  CODEX_SKIP_VENDORED_BWRAP=1 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/taskspace-benchmark/test-cost-diagnostics.ps1
+    TaskSpace cost diagnostics self-test: PASS
+  git diff --check
+    PASS
+  ```
+- Recomputed formal suite cost gate:
+  ```text
+  status=FAIL
+  reason=cost_gate_failed
+  missing_fields=[]
+  direct_input_output_ratio=3.2436
+  walltime_ratio=1.8388
+  model_request_count_ratio=2.1333
+  taskspace fallback counts:
+    fallback_model_request_count=1
+    fallback_input_tokens=1
+    fallback_output_tokens=1
+  ```
+- Interpretation: H-139 is fixed. The remaining R4 blocker is no longer missing telemetry; it is real TaskSpace cost
+  amplification above the partial threshold, driven by high-token taskspace sides and validation-rework loops.

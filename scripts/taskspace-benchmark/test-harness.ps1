@@ -650,6 +650,25 @@ Assert-True ([string]$partialGate.status -eq "PARTIAL") "cost gate did not retur
 $missingGate = (Write-TaskspaceCostAggregateArtifacts -RootDir $costAggregateRoot -Scope "sample").gate
 Assert-True ([string]$missingGate.status -eq "FAIL" -and [string]$missingGate.reason -eq "missing_cost_data") "cost gate did not fail closed on missing input tokens"
 
+$fallbackCostRoot = Join-Path $runDir "cost-aggregate-rollout-fallback"
+New-Item -ItemType Directory -Path (Join-Path $fallbackCostRoot "pair-001\left\artifacts") -Force | Out-Null
+New-Item -ItemType Directory -Path (Join-Path $fallbackCostRoot "pair-001\right\artifacts") -Force | Out-Null
+[pscustomobject]@{
+    logical_mode = "standard"; token_summary_availability = "measured"; model_request_count = 10
+    input_tokens = 1000; output_tokens = 200; wall_time_ms = 1000
+} | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath (Join-Path $fallbackCostRoot "pair-001\left\artifacts\metrics.json") -Encoding UTF8
+[pscustomobject]@{
+    logical_mode = "taskspace"; token_summary_availability = "usage_unavailable"
+    rollout_trace_model_request_count = 12; rollout_trace_input_tokens = 1800; rollout_trace_output_tokens = 500
+    wall_time_ms = 1900
+} | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath (Join-Path $fallbackCostRoot "pair-001\right\artifacts\metrics.json") -Encoding UTF8
+$fallbackAggregate = Write-TaskspaceCostAggregateArtifacts -RootDir $fallbackCostRoot -Scope "sample"
+Assert-True ([string]$fallbackAggregate.gate.reason -ne "missing_cost_data") "cost gate ignored rollout trace fallback usage"
+$fallbackTokenSummary = Get-Content -Raw -Encoding UTF8 -LiteralPath $fallbackAggregate.token_summary_path | ConvertFrom-Json
+Assert-True ([int]$fallbackTokenSummary.modes.taskspace.fallback_input_tokens -eq 1) "fallback input token count was not tracked"
+Assert-True ([int]$fallbackTokenSummary.modes.taskspace.fallback_output_tokens -eq 1) "fallback output token count was not tracked"
+Assert-True ([int]$fallbackTokenSummary.modes.taskspace.fallback_model_request_count -eq 1) "fallback model request count was not tracked"
+
 $standardArgv = New-TaskspaceWhaleArgv "standard" "model-x" "C:\neutral\left\repo" "C:\neutral\left\last.md"
 $taskspaceArgv = New-TaskspaceWhaleArgv "taskspace" "model-x" "C:\neutral\right\repo" "C:\neutral\right\last.md"
 $normalizedStandard = Get-NormalizedTaskspaceWhaleArgv $standardArgv
