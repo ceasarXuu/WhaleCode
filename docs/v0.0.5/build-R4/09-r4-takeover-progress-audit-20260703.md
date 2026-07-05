@@ -4647,3 +4647,105 @@ CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
   - apply_patch malformed retry 是否减少；
   - cost gate 是否低于 partial 阈值；
   - 是否引入 premature block/transition。
+
+## 71. 2026-07-05 e9298eb formal E3 live miss: ActionMap failed-read feedback bridge
+
+在 `e9298eb` 上重建 whale、刷新 attestation，并完成 non-agent gates/start gate 后，按用户授权启动 formal E3：
+
+```text
+SuiteRoot: target/r4-e3-formal-p0-20260705/full-e3-e9298eb/suite-20260705-225206
+processing-pipeline: 5/5 pair-report completed, run_validity=valid, phase=audit_required
+multi-source-data-merger: pair-001/right 中断前复现路径反馈缺口
+```
+
+`processing-pipeline` 的现场信号说明上一轮 apply_patch 修复已经进入真实链路：
+
+```text
+TaskSpaceApplyPatchNativeHunkRecoveryV1: observed
+TaskSpaceApplyPatchRecoveryHardStopV1: observed at attempt_count=3
+```
+
+这证明 native-hunk scaffold/hard-stop 分支已经上线，但模型仍可能继续生成错误 patch grammar。该问题暂时不是“没接上线”的问题，而是后续要通过 E3 统计观察“减少重复”还是“更快、更清楚地 hard stop”。
+
+`multi-source-data-merger` 复现了更关键的 live miss：
+
+```text
+start_task fact sources:
+  /data/source_a/users.json
+  /data/source_b/users.csv
+  /data/source_c/users.parquet
+
+repeated failed read:
+  sed: can't read /data/source_a/users.json: No such file or directory
+
+later workspace evidence:
+  ./data/source_a/users.json
+  ./data/source_b/users.csv
+  ./data/source_c/users.parquet
+
+observed classifier state:
+  TaskSpacePathCorrectionRecoveryV1: absent
+  provider_response_actionability: actionable
+  recovery_action: none
+  TaskSpaceProviderBudgetHardStopV1 reason=provider_node_request_hard_limit_exceeded
+```
+
+直接原因：
+
+- 第一版 path correction 只从当前 `FunctionCallOutput` / `CustomToolCallOutput` 文本提取 no-such-file 语义。
+- live action-contract 链路里，失败 read 的完整 raw output 存在于当前 ActionMap node 的 failed read result body。
+- classifier 没有读取该 ActionMap failed-read summary，所以 `tool_path_correction_feedback=None`。
+- 同轮又有 `saw_actionable_output=true`，于是响应被归类为 `Actionable`，agent 继续尝试原来的 `/data/...` 绝对路径，直到 node/provider budget hard stop。
+
+结论更新：
+
+- 仍然不是语义扭曲：工具失败文本没有被改写为成功。
+- 是反馈桥接缺失：正确的失败语义停在 ActionMap result，没有进入 response actionability/recovery item。
+- R4 问题类型从单纯 `path_not_found_with_relative_candidate` 扩展为：
+  - response-item tool output path correction；
+  - ActionMap failed-read result path correction。
+
+为避免无意义成本，E3 在该证据充分后手动中断，先修 bridge 再重跑。
+
+## 72. 2026-07-05 ActionMap failed-read path correction bridge repair
+
+修复范围：
+
+```text
+third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs
+third_party/codex-cli/codex-rs/core/src/session/mod.rs
+third_party/codex-cli/codex-rs/core/src/session/turn.rs
+```
+
+核心变更：
+
+- `ActionMapRuntime` 新增 `current_main_recent_failed_read_summary()`。
+- 复用 failed action result summary 机制，但 read summary 使用更长 preview，避免 raw command/output 被 640 字符截断。
+- `Session` 暴露 async wrapper：`action_map_current_recent_failed_read_summary()`。
+- `try_run_sampling_request(...)` 在当前 response item 没有提取到 path correction 时，回退读取当前 ActionMap node 最近一次 failed read summary，并复用同一个 `taskspace_path_correction_from_text(...)`。
+- 新增单测覆盖 live summary 形态：
+
+```text
+path_correction_detects_action_map_failed_read_summary
+```
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core path_correction --lib
+  3 passed
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core provider_response_actionability --lib
+  9 passed
+RUST_MIN_STACK=8388608 CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core taskspace --lib
+  175 passed
+```
+
+下一步：
+
+- 构建新 whale 并刷新 attestation。
+- 按新 HEAD 重建 gates/markers/start gate。
+- 继续 formal E3，重点观察：
+  - `multi-source-data-merger` 是否出现 `TaskSpacePathCorrectionRecoveryV1`；
+  - `/data/...` 绝对路径是否不再重复到 provider hard stop；
+  - apply_patch native-hunk 失败是否减少或更早给出清晰 hard stop；
+  - direct token ratio/cost gate 是否下降。

@@ -7268,6 +7268,14 @@ preview:\n\
         node_recent_failed_action_summary(map, node, ActionClass::Edit)
     }
 
+    pub(crate) fn current_main_recent_failed_read_summary(&self) -> Option<String> {
+        let map_id = self.active_map_id.as_ref()?;
+        let node_id = self.current_main_node_id.as_ref()?;
+        let map = self.maps.get(map_id)?;
+        let node = map.nodes.get(node_id)?;
+        node_recent_failed_action_summary_with_limit(map, node, ActionClass::Read, 2400)
+    }
+
     pub(crate) fn current_main_working_evidence_summary(&self) -> Option<String> {
         let map_id = self.active_map_id.as_ref()?;
         let node_id = self.current_main_node_id.as_ref()?;
@@ -16972,6 +16980,15 @@ fn node_recent_failed_action_summary(
     node: &MapNode,
     action_class: ActionClass,
 ) -> Option<String> {
+    node_recent_failed_action_summary_with_limit(map, node, action_class, 640)
+}
+
+fn node_recent_failed_action_summary_with_limit(
+    map: &ActionMapInstance,
+    node: &MapNode,
+    action_class: ActionClass,
+    max_chars: usize,
+) -> Option<String> {
     node.result_context.iter().rev().find_map(|result_ref| {
         let result = map.results.get(&result_ref.id)?;
         if result.kind != NodeResultKind::MainToolCall
@@ -16980,7 +16997,7 @@ fn node_recent_failed_action_summary(
         {
             return None;
         }
-        let preview = single_line_preview(&result.body, 640);
+        let preview = single_line_preview(&result.body, max_chars);
         Some(format!("{}: {}", result.id, preview))
     })
 }

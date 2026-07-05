@@ -8948,3 +8948,88 @@
 - Interpretation:
   - This class is feedback-layer semantic weak/underconstrained, not semantic missing.
   - The next live E3 run should reveal whether the stronger scaffold reduces malformed patch retries or simply fails faster with cleaner blocked evidence.
+
+# Hypothesis H-143: path-correction extraction missed ActionMap failed-read evidence in live action-contract runs
+
+- Claim: The first `TaskSpacePathCorrectionRecoveryV1` repair only extracted no-such-file semantics from the current response item. In live action-contract execution, the same failed read can be persisted as the current ActionMap node's failed read result summary, while the response item path used by the classifier does not carry the raw shell failure text. That leaves `tool_path_correction_feedback=None`, `saw_actionable_output=true`, and the response classified as actionable.
+- Prediction:
+  - A formal E3 rerun on the first repair should show repeated `/data/...` reads, no `TaskSpacePathCorrectionRecoveryV1`, and a provider/node budget hard stop.
+  - The corresponding ActionMap result body should contain the failed read summary and raw `sed: can't read ... No such file or directory` text.
+  - Bridging current failed read summaries into the same path-correction extractor should make this case detectable without changing the tool execution semantics.
+- Diagnostic evidence plan:
+  - Inspect the interrupted formal E3 suite after `e9298eb`.
+  - Add a focused unit test using the ActionMap failed-read summary shape.
+  - Validate the existing actionability and taskspace regression suites.
+- Status: confirmed; focused-fixed.
+
+# Evidence E-288: e9298eb formal E3 showed path correction still absent from ActionMap failed-read path
+
+- Prediction tested: H-143 predicts that the first path-correction repair would pass unit tests but miss live failed-read summaries.
+- Run:
+  ```text
+  HEAD: e9298eb
+  SuiteRoot: target/r4-e3-formal-p0-20260705/full-e3-e9298eb/suite-20260705-225206
+  processing-pipeline: completed 5/5 pair-report, run_validity=valid, phase=audit_required
+  multi-source-data-merger: interrupted during pair-001/right after the repeated absolute-path failure was proven
+  ```
+- Matched run signals:
+  ```text
+  start_task fact sources:
+    /data/source_a/users.json
+    /data/source_b/users.csv
+    /data/source_c/users.parquet
+
+  repeated tool output:
+    sed: can't read /data/source_a/users.json: No such file or directory
+
+  later workspace evidence:
+    ./data/source_a/users.json
+    ./data/source_b/users.csv
+    ./data/source_c/users.parquet
+
+  observed recovery markers:
+    TaskSpacePathCorrectionRecoveryV1: absent
+    provider_response_actionability: actionable
+    recovery_action: none
+    TaskSpaceProviderBudgetHardStopV1:
+      reason=provider_node_request_hard_limit_exceeded
+      request_count=7/20
+      node_request_count=7/6
+  ```
+- Additional trace signal:
+  ```text
+  ActionMap current node result body included:
+    action_class: read
+    success: false
+    command: sed ... /data/source_a/users.json
+    raw_output: sed: can't read /data/source_a/users.json: No such file or directory
+  ```
+- Interpretation:
+  - This narrows H-141: the path-not-found semantic was not only missing from ordinary tool response handling; live action-contract runs also require reading ActionMap failed read summaries.
+  - The failure is semantic missing at the feedback bridge. The raw tool failure exists and remains correct, but it was not delivered into the classifier's recovery signal.
+
+# Evidence E-289: path correction now bridges current ActionMap failed-read summaries into recovery classification
+
+- Prediction tested: H-143 predicts that the ActionMap failed-read summary shape should be detectable by the same path-correction extractor.
+- Repair artifacts:
+  - `third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs`
+    - adds `current_main_recent_failed_read_summary()`;
+    - factors failed action result preview length into `node_recent_failed_action_summary_with_limit(...)`;
+    - keeps the existing failed edit summary limit unchanged while allowing longer read summaries for command/raw-output evidence.
+  - `third_party/codex-cli/codex-rs/core/src/session/mod.rs`
+    - exposes `action_map_current_recent_failed_read_summary()`.
+  - `third_party/codex-cli/codex-rs/core/src/session/turn.rs`
+    - falls back to the current ActionMap failed read summary when current response item extraction did not find path-correction feedback;
+    - adds `path_correction_detects_action_map_failed_read_summary`.
+- Validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core path_correction --lib
+    3 passed
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core provider_response_actionability --lib
+    9 passed
+  RUST_MIN_STACK=8388608 CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core taskspace --lib
+    175 passed
+  ```
+- Interpretation:
+  - The e9298eb live miss is focused-fixed at the feedback bridge level.
+  - A fresh E3 rerun on the new binary is still required to prove the live `/data` retry loop is gone and to measure cost impact.

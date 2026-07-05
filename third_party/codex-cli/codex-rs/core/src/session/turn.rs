@@ -8301,6 +8301,19 @@ TaskSpace implement_solution node `node-6` cannot be blocked for missing source 
     }
 
     #[test]
+    fn path_correction_detects_action_map_failed_read_summary() {
+        let summary = "result-1: Main tool call tool: shell_command call_id: taskspace-action-contract-1-read_file action_class: read success: false preview: TaskSpaceToolInvocationV1: tool: shell_command command: sed -n '1,240p' -- /data/source_a/users.json raw_output: sed: can't read /data/source_a/users.json: No such file or directory";
+        let correction =
+            taskspace_path_correction_from_text(summary).expect("summary path correction");
+
+        assert_eq!(correction.failed_path, "/data/source_a/users.json");
+        assert_eq!(
+            correction.suggested_relative_path,
+            "data/source_a/users.json"
+        );
+    }
+
+    #[test]
     fn path_correction_recovery_item_blocks_absolute_retry() {
         let output = tool_output(
             "rg: /data/source_a: IO error for operation on /data/source_a: No such file or directory",
@@ -15994,6 +16007,13 @@ async fn try_run_sampling_request(
                         )
                     })
                     .unwrap_or(false);
+                if tool_path_correction_feedback.is_none()
+                    && let Some(failed_read_summary) =
+                        sess.action_map_current_recent_failed_read_summary().await
+                {
+                    tool_path_correction_feedback =
+                        taskspace_path_correction_from_text(&failed_read_summary);
+                }
                 let response_actionability = classify_taskspace_provider_response_actionability(
                     needs_follow_up,
                     saw_actionable_output,
