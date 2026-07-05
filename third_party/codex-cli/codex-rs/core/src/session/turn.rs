@@ -2284,13 +2284,20 @@ fn taskspace_path_correction_retry_reject_reason(
         return None;
     }
     let path = taskspace_action_arg_string(&action.args, "path")?;
-    if !taskspace_same_workspace_path(&path, &correction.failed_path) {
+    let suggested_relative_path = if taskspace_same_workspace_path(&path, &correction.failed_path) {
+        correction.suggested_relative_path.clone()
+    } else if taskspace_workspace_alias_root(&path)
+        .is_some_and(|root| Some(root) == taskspace_workspace_alias_root(&correction.failed_path))
+    {
+        taskspace_relative_candidate_for_absolute_workspace_path(&taskspace_normalize_retry_path(
+            &path,
+        ))?
+    } else {
         return None;
-    }
+    };
     Some(format!(
         "path_correction_retry_forbidden:{failed_path}:suggested_relative_path={suggested_relative_path}",
-        failed_path = correction.failed_path,
-        suggested_relative_path = correction.suggested_relative_path,
+        failed_path = taskspace_normalize_retry_path(&path),
     ))
 }
 
@@ -2304,6 +2311,13 @@ fn taskspace_normalize_retry_path(path: &str) -> String {
         return trimmed.to_string();
     }
     trimmed.trim_end_matches('/').to_string()
+}
+
+fn taskspace_workspace_alias_root(path: &str) -> Option<&'static str> {
+    let normalized = taskspace_normalize_retry_path(path);
+    ["/data", "/app"]
+        .into_iter()
+        .find(|root| normalized == *root || normalized.starts_with(&format!("{root}/")))
 }
 
 fn build_taskspace_apply_patch_replacement_required_recovery_item(
@@ -8441,6 +8455,26 @@ TaskSpace implement_solution node `node-6` cannot be blocked for missing source 
         assert_eq!(
             reason,
             "path_correction_retry_forbidden:/data:suggested_relative_path=data"
+        );
+    }
+
+    #[test]
+    fn path_correction_rejects_absolute_child_after_alias_root_failure() {
+        let correction = TaskspacePathCorrection {
+            failed_path: "/data".to_string(),
+            suggested_relative_path: "data".to_string(),
+        };
+        let action = parse_taskspace_action_v1(
+            r#"{"schema_version":"taskspace-action-v1","action":"read_file","args":{"path":"/data/source_a/users.json"}}"#,
+        )
+        .expect("valid action");
+
+        let reason = taskspace_path_correction_retry_reject_reason(&action, &correction)
+            .expect("absolute child rejected");
+
+        assert_eq!(
+            reason,
+            "path_correction_retry_forbidden:/data/source_a/users.json:suggested_relative_path=data/source_a/users.json"
         );
     }
 

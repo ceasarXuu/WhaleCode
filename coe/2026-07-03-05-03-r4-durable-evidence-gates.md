@@ -9173,3 +9173,74 @@
 - Interpretation:
   - The local contract now matches the recovery semantics: "do not retry failed_path" is enforced before tool dispatch.
   - Fresh formal E3 is still required to prove the live `/data` loop is gone and to measure the cost impact.
+
+# Hypothesis H-146: alias-root path correction must reject descendant absolute paths
+
+- Claim: Exact failed-path rejection is insufficient for workspace alias failures. Once `/data` or `/app` has failed with a relative candidate, the runtime has evidence that the absolute alias root is not visible in the current workspace. The action contract must therefore reject descendant actions such as `/data/source_a/users.json`, not only the exact failed path `/data`.
+- Prediction:
+  - A targeted multi-source run after H-145 should show no repeated exact `/data` after the root correction, but may still execute `/data/source_a/...` or `/data/source_b/...` because those are different strings.
+  - Extending the action-contract check to same alias root should reject `/data/source_a/users.json` before dispatch and derive `data/source_a/users.json` as the suggested path.
+  - Existing suggested relative paths must remain legal.
+- Diagnostic evidence plan:
+  - Run a targeted `multi-source-data-merger` diagnostic on the H-145 binary and inspect the right-side `whale-exec.jsonl`.
+  - Add a focused unit test for `/data` root failure followed by `/data/source_a/users.json`.
+  - Validate path-correction, provider actionability, taskspace, build, and diff checks.
+- Status: confirmed; focused-fixed; awaiting fresh targeted live validation.
+
+# Evidence E-294: targeted multi-source run showed exact retry fixed but descendant alias still executed
+
+- Prediction tested: H-146 predicts that exact retry blocking alone leaves descendant absolute paths executable.
+- Run:
+  ```text
+  HEAD: fb5b195
+  RunRoot: target/r4-e3-formal-p0-20260705/targeted-multi-source-fb5b195
+  RunDir: target/r4-e3-formal-p0-20260705/targeted-multi-source-fb5b195/runs/terminal_bench__multi-source-data-merger/20260706-002509-479
+  pair: pair-001/right
+  run_validity: valid
+  ```
+- Matched run signals:
+  ```text
+  item_4:
+    command: rg --files /data
+    output: rg: /data: IO error ... No such file or directory
+
+  item_8:
+    command: sed ... /data/source_a/users.json
+    output: sed: can't read /data/source_a/users.json: No such file or directory
+
+  item_16:
+    command: sed ... /data/source_b/users.csv
+    output: sed: can't read /data/source_b/users.csv: No such file or directory
+
+  later successful relative reads:
+    data/source_a/users.json
+    data/source_b/users.csv
+    data/source_c/users.parquet
+  ```
+- Interpretation:
+  - H-145 reduced exact root retry, but did not fully enforce the workspace alias semantic.
+  - The remaining defect is still action-contract enforcement, not feedback semantic missing: the runtime has already learned that `/data` maps to `data`.
+
+# Evidence E-295: path correction now rejects same-alias descendant absolute paths
+
+- Prediction tested: H-146 predicts the action contract can derive a relative candidate for descendant paths under an already-failed workspace alias root.
+- Repair artifact:
+  - `third_party/codex-cli/codex-rs/core/src/session/turn.rs`
+    - expands `taskspace_path_correction_retry_reject_reason(...)` from exact failed-path comparison to workspace alias-root comparison;
+    - derives suggestions with `taskspace_relative_candidate_for_absolute_workspace_path(...)`;
+    - adds `taskspace_workspace_alias_root(...)`;
+    - adds `path_correction_rejects_absolute_child_after_alias_root_failure`.
+- Validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core path_correction --lib
+    8 passed
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core provider_response_actionability --lib
+    9 passed
+  RUST_MIN_STACK=8388608 CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core taskspace --lib
+    175 passed
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
+    Finished dev profile
+  ```
+- Interpretation:
+  - The local action-contract capability now matches the stronger recovery invariant: after `/data -> data`, any `/data/...` action is rejected before tool dispatch with a derived `data/...` suggestion.
+  - Fresh targeted live validation is still required before treating the `/data` retry loop as fixed end to end.

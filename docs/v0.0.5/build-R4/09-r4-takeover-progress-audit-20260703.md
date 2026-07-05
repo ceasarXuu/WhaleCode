@@ -4920,3 +4920,118 @@ R4 问题类型收录：
 - 重建 formal E3 gates/markers/start gate；
 - 继续 E3，优先确认 `multi-source-data-merger` 不再真实执行重复 `/data` 工具调用；
 - 如果仍有高成本，继续按同样方式拆分“反馈已传达但未被约束”的其他 tool 问题。
+
+## 75. 2026-07-06 targeted multi-source live miss: exact retry enforcement 不足，需要 alias-root enforcement
+
+`fb5b195` 提交后执行了 formal E3 gate 流程：
+
+```text
+Commit: fb5b195 R4 enforce path correction action contract
+NonAgentGates: target/r4-e3-formal-p0-20260705/gates-fb5b195/v005-non-agent-gates.json
+StartGate: target/r4-e3-formal-p0-20260705/start-gate-fb5b195-skipcal-rerun/e3-start-gate.json
+FullE3Attempt: target/r4-e3-formal-p0-20260705/full-e3-fb5b195-env/suite-20260706-001546
+```
+
+过程问题：
+
+- `run-taskspace-e3-suite.ps1` 的 provider credential preflight 只检查进程环境变量 `DEEPSEEK_API_KEY`；
+- 它不会自动读取 repo 根目录的 `.env.local`；
+- 因此直接运行时先出现：
+
+```text
+provider_credential_missing
+DEEPSEEK_API_KEY is required for DeepSeek benchmark model execution.
+```
+
+本次正确启动方式：
+
+```text
+set -a
+. ./.env.local
+set +a
+powershell ... run-taskspace-e3-suite.ps1 ...
+```
+
+注意：不要打印 key；只把 `.env.local` 注入当前子进程环境。
+
+full E3 观察：
+
+- `processing-pipeline` pair-001、pair-002 有效完成；
+- 但该 sample 不覆盖 `/data` path correction；
+- right 侧仍多次出现 `TaskSpaceApplyPatchNativeHunkRecoveryV1`，说明 apply_patch grammar recovery 仍是独立残留问题；
+- 为避免继续在无关 sample 上烧 token，手动中断 full E3，改跑目标 sample 诊断。
+
+目标诊断 run：
+
+```text
+RunRoot: target/r4-e3-formal-p0-20260705/targeted-multi-source-fb5b195
+RunDir: target/r4-e3-formal-p0-20260705/targeted-multi-source-fb5b195/runs/terminal_bench__multi-source-data-merger/20260706-002509-479
+pair: pair-001/right
+run_validity: valid
+```
+
+新证据：
+
+```text
+item_4:
+  rg --files /data
+  rg: /data: IO error ... No such file or directory
+
+item_8:
+  sed ... /data/source_a/users.json
+  sed: can't read /data/source_a/users.json: No such file or directory
+
+item_16:
+  sed ... /data/source_b/users.csv
+  sed: can't read /data/source_b/users.csv: No such file or directory
+
+later:
+  data/source_a/users.json succeeds
+  data/source_b/users.csv succeeds
+  data/source_c/users.parquet succeeds
+```
+
+结论：
+
+- `fb5b195` 的 exact retry enforcement 确实降低了“同一个 `/data` 重复执行”的概率；
+- 但 action contract 只拦截 `args.path == failed_path`；
+- 当已知 `/data -> data` 后，模型仍可发 `/data/source_a/users.json`；
+- 这不是 semantic missing，而是 capability enforcement 粒度太窄；
+- 正确语义是：一旦 workspace alias root `/data` 不可见，同一 root 下所有 `/data/...` action 都应在 tool dispatch 前拒绝，并派生 `data/...` 建议。
+
+修复：
+
+- `taskspace_path_correction_retry_reject_reason(...)` 从 exact failed-path comparison 扩展到 workspace alias-root comparison；
+- 新增 `taskspace_workspace_alias_root(...)`；
+- 对同一 alias root 下的 absolute child path 自动派生相对建议：
+
+```text
+/data/source_a/users.json -> data/source_a/users.json
+/app/foo.py -> foo.py
+```
+
+- 新增测试：
+
+```text
+path_correction_rejects_absolute_child_after_alias_root_failure
+```
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core path_correction --lib
+  8 passed
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core provider_response_actionability --lib
+  9 passed
+RUST_MIN_STACK=8388608 CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core taskspace --lib
+  175 passed
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
+  Finished dev profile
+```
+
+下一步：
+
+- 提交 alias-root enforcement；
+- 刷新 whale attestation；
+- 重跑 `multi-source-data-merger` targeted diagnostic；
+- 验证 `path_correction_retry_forbidden:/data/source_a/users.json:suggested_relative_path=data/source_a/users.json` 是否出现，且对应 absolute child path 不再真实 dispatch 到 shell tool。
