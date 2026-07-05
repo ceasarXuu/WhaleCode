@@ -9701,11 +9701,40 @@
   - H-151 is live-proven for feedback semantics: broad root drift is now rejected as `path_correction_retry_forbidden` before duplicate-read masking.
   - R4 utility still fails because the hard-stop terminates the turn without a successful relative-path inspect or implementation. The next unsolved issue is not semantic loss; it is a recovery/utility gap after a correct path-correction hard-stop, likely requiring bounded fact-source bootstrap or a stronger recovery transition to `data`.
 
-# Hypothesis H-153: correct path-correction hard-stop needs a bounded utility bridge to the suggested relative path
+# Hypothesis H-153: path-correction recovery needs structured suggested-action projection, not runtime auto-inspect
 
-- Claim: Once TaskSpace has a deterministic relative candidate (`/data -> data`) and the provider repeatedly ignores it, a hard-stop is semantically correct but not utility-sufficient. The runtime should have a narrow, auditable way to convert the known candidate into low-cost inspect evidence, or to force a transition that can continue implementation without another expensive provider retry loop.
+- Claim: Once TaskSpace has a deterministic relative candidate (`/data -> data`) and the provider repeatedly ignores it, the runtime must not auto-run inspect on behalf of the Agent. The failure is a feedback/projection consistency gap: recovery text and active projection do not carry the same concise `next_valid_actions`, so the Agent can keep seeing broad or stale inspect choices instead of the suggested relative path.
 - Prediction:
-  - A bounded fact-source bootstrap using the suggested relative path should be possible without treating the failed `/data` read as success.
-  - The bootstrap must be limited to read/list/search on the suggested relative path or known concrete children, and must preserve the hard-stop evidence if the relative candidate also fails.
-  - If implemented, the next right-only rerun should advance beyond `TaskSpacePathCorrectionHardStopV1` toward reading `data/source_*` or implementation.
-- Status: open.
+  - Path-correction recovery and action-contract rejection should include `TaskSpaceGateRecoveryV1` with `next_valid_actions` naming the suggested relative path.
+  - Inspect projection should prioritize latest gate recovery actions and avoid diluting them with stale absolute fact-source paths or `finish_node` advice while the gate is active.
+  - Focused tests should prove no runtime bootstrap/auto-inspect is introduced; the Agent still chooses the next action.
+  - If implemented, the next right-only rerun should advance beyond `TaskSpacePathCorrectionHardStopV1` by the Agent emitting `list_files/read_file/search` on `data`, or it should block with clearer evidence if the Agent still refuses.
+- Status: confirmed from E-307; focused fix implemented and regression-validated; live rerun pending.
+
+# Evidence E-308: H-153 focused repair aligns path-correction feedback and projection without runtime auto-inspect
+
+- Type: fix-validation.
+- Prediction tested: H-153 predicts that the repair should make suggested relative-path recovery machine-readable and projection-visible, without moving inspect decisions into runtime.
+- Repair artifact:
+  - `third_party/codex-cli/codex-rs/core/src/session/turn.rs`
+    - `TaskSpacePathCorrectionRecoveryV1` now appends `TaskSpaceGateRecoveryV1` with `reason=path_correction_retry_forbidden`, `failed_path`, `suggested_relative_path`, and `next_valid_actions`.
+    - Action-contract rejection follow-up for `path_correction_retry_forbidden:*` now preserves the same structured GateRecovery payload instead of returning only generic "Return exactly one JSON object" text.
+    - No code path was added that executes `list_files/read_file/search` automatically.
+  - `third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs`
+    - `projection_next_valid_actions(...)` now lets inspect nodes prioritize latest gate recovery actions when present, and explicitly says not to repeat the blocked inspect action.
+- Validation:
+  ```text
+  cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core path_correction --lib
+    13 passed
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core projection_prioritizes_inspect_gate_recovery_next_actions --lib
+    1 passed
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core provider_response_actionability --lib
+    9 passed
+  RUST_MIN_STACK=8388608 CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core taskspace --lib
+    175 passed
+  ```
+- Interpretation:
+  - H-153 is locally fixed at the TaskSpace feedback/projection layer.
+  - The repair preserves the responsibility boundary: Agent remains responsible for choosing the next semantic action; runtime only provides structured failure semantics, allowed next actions, and hard-stop baselines.
+  - A right-only targeted live rerun is required to verify whether DeepSeek now follows the `data` suggested action and advances toward implementation.

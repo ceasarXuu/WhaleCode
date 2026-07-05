@@ -1721,8 +1721,43 @@ right: model_request_count=1; uncached_input_tokens=4298; cached_input_tokens=47
 `TaskSpacePathCorrectionHardStopV1 reason=repeated_path_correction_retry_forbidden` 终止同一语义的高成本重试。
 
 剩余问题：utility 仍未通过。right 侧没有生成 patch，validator 报 `/app/merged_users.parquet` 和
-`/app/conflicts.json` 缺失。当前不是 path-correction 语义丢失，而是正确 hard-stop 后没有进入相对路径
-`data` 的低成本 fact-source bootstrap 或后续 implementation。
+`/app/conflicts.json` 缺失。当前不是 path-correction 语义丢失，而是 suggested relative path 没有以足够清晰、
+一致、结构化的方式进入 recovery/projection，导致 Agent 没有采纳 `data`。
+
+后续按边界收窄：runtime 不自动替 Agent 执行 `rg --files data`，也不把 `/data` 失败当成功证据；修复只发生在
+反馈和投影层，让 Agent 看到同一个结构化 GateRecovery：
+
+```text
+TaskSpaceGateRecoveryV1:
+  reason: path_correction_retry_forbidden
+  failed_path: /data
+  suggested_relative_path: data
+  next_valid_actions:
+    - emit list_files with args.path `data`
+    - or emit read_file/search for a concrete child path under `data`
+    - or emit blocked with exact relative-path failure evidence
+```
+
+本地修复：
+
+1. `TaskSpacePathCorrectionRecoveryV1` 追加 `TaskSpaceGateRecoveryV1.next_valid_actions`。
+2. `path_correction_retry_forbidden:*` 的 action-contract rejection follow-up 也携带同一 GateRecovery，不再只返回泛化
+   “Return exactly one JSON object”。
+3. inspect projection 若存在 latest gate recovery，优先展示该 recovery actions，并明确不重复 blocked inspect action。
+4. 没有新增 runtime auto-inspect/bootstrap 执行路径。
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core path_correction --lib
+  13 passed
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core projection_prioritizes_inspect_gate_recovery_next_actions --lib
+  1 passed
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core provider_response_actionability --lib
+  9 passed
+RUST_MIN_STACK=8388608 CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core taskspace --lib
+  175 passed
+```
 
 `c98542b` targeted rerun 未能验证 H-150 live 终态，因为 right-side 在 validation 前遇到新的
 feedback-layer collision：

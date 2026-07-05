@@ -12394,6 +12394,13 @@ fn projection_next_valid_actions(
     };
     match node.kind {
         NodeKind::InspectCodeContext => {
+            if !latest_gate_recovery_next_actions.is_empty() {
+                let mut actions = latest_gate_recovery_next_actions.to_vec();
+                actions.push(
+                    "do not repeat the blocked inspect action; use the named recovery action or return blocked with exact evidence".to_string(),
+                );
+                return actions;
+            }
             let main_tool_result_count =
                 count_node_results_of_kind(node, NodeResultKind::MainToolCall);
             if main_tool_result_count > 0 {
@@ -26198,6 +26205,66 @@ Platform,In Progress,D001\n"
                 .iter()
                 .any(|action| action.contains("next_node_kind=\"implement_solution\"")),
             "projection must not advertise implementation transition while declared fact sources are missing: {actions:?}"
+        );
+    }
+
+    #[test]
+    fn projection_prioritizes_inspect_gate_recovery_next_actions() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::InspectCodeContext,
+            "Inspect data sources",
+            "Read every declared data source before implementation.",
+            "Inspect data sources",
+            "Read every declared data source before implementation.",
+            true,
+        );
+        record_required_fact_source_artifacts(
+            &mut state,
+            owner,
+            &[
+                "/data/source_a/users.json",
+                "/data/source_b/users.csv",
+                "/data/source_c/users.parquet",
+            ],
+        );
+        record_successful_read_result(&mut state, owner, "root-listing", ".");
+
+        let task_id = state.active_task_id.clone().expect("active task");
+        let map = state.maps.get("map-1").expect("map");
+        let task = state.tasks.get(&task_id).expect("task");
+        let latest_gate_recovery = vec![
+            "emit list_files with args.path `data`".to_string(),
+            "or emit read_file/search for a concrete child path under `data` that is already visible in workspace evidence".to_string(),
+        ];
+        let actions =
+            projection_next_valid_actions(map, Some("node-1"), Some(task), &latest_gate_recovery);
+
+        assert!(
+            actions
+                .iter()
+                .any(|action| action.contains("args.path `data`")),
+            "{actions:?}"
+        );
+        assert!(
+            actions
+                .iter()
+                .any(|action| action.contains("do not repeat the blocked inspect action")),
+            "{actions:?}"
+        );
+        assert!(
+            !actions
+                .iter()
+                .any(|action| action.contains("/data/source_a")),
+            "projection must not dilute path-correction gate recovery with stale absolute fact-source paths: {actions:?}"
+        );
+        assert!(
+            !actions.iter().any(|action| action.contains("finish_node")),
+            "projection must not advertise finish while gate recovery is active: {actions:?}"
         );
     }
 

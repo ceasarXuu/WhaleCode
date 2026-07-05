@@ -2290,6 +2290,7 @@ fn build_taskspace_path_correction_recovery_item(
             "emit exactly one legal TaskSpace action using the suggested relative path, or blocked if the task explicitly requires the unavailable absolute mount"
         }
     };
+    let gate_recovery = taskspace_path_correction_gate_recovery_json(correction, node_kind);
     let text = format!(
         "{TASKSPACE_PATH_CORRECTION_MARKER}\n\
 failure_kind: path_not_found_with_relative_candidate\n\
@@ -2300,7 +2301,8 @@ Current required behavior:\n\
 - Do not retry `{failed_path}`.\n\
 - Use `{suggested_relative_path}` as the workspace-relative candidate.\n\
 - Next valid action: {next_action}.\n\
-- If the relative path also fails and no workspace evidence names an alternative, emit blocked with the exact path failure evidence instead of looping.",
+- If the relative path also fails and no workspace evidence names an alternative, emit blocked with the exact path failure evidence instead of looping.\n\
+{TASKSPACE_GATE_RECOVERY_MARKER} {gate_recovery}",
         failed_path = correction.failed_path,
         suggested_relative_path = correction.suggested_relative_path,
     );
@@ -2312,6 +2314,71 @@ Current required behavior:\n\
         end_turn: None,
         phase: None,
     }
+}
+
+fn taskspace_path_correction_next_valid_actions(
+    correction: &TaskspacePathCorrection,
+    node_kind: Option<&str>,
+) -> Vec<String> {
+    let suggested = correction.suggested_relative_path.as_str();
+    match node_kind {
+        Some("inspect_code_context") => vec![
+            format!("emit list_files with args.path `{suggested}`"),
+            format!(
+                "or emit read_file/search for a concrete child path under `{suggested}` that is already visible in workspace evidence"
+            ),
+            "or emit blocked with exact relative-path failure evidence if the suggested path also fails".to_string(),
+        ],
+        Some("smoke_test" | "regression_test") => vec![
+            format!("emit run_test with command/path corrected to `{suggested}`"),
+            "or emit blocked only if the required container mount is truly unavailable".to_string(),
+        ],
+        Some("implement_solution") => vec![
+            format!("emit one legal implementation action that uses `{suggested}`"),
+            "or emit blocked only if the task explicitly requires the unavailable absolute mount".to_string(),
+        ],
+        _ => vec![
+            format!("emit one legal TaskSpace action using `{suggested}`"),
+            "or emit blocked only if the task explicitly requires the unavailable absolute mount".to_string(),
+        ],
+    }
+}
+
+fn taskspace_path_correction_gate_recovery_json(
+    correction: &TaskspacePathCorrection,
+    node_kind: Option<&str>,
+) -> String {
+    serde_json::json!({
+        "schema_version": "TaskSpaceGateRecoveryV1",
+        "allowed": false,
+        "reason": "path_correction_retry_forbidden",
+        "blocking_items": [
+            format!("failed_path:{}", correction.failed_path),
+            format!("suggested_relative_path:{}", correction.suggested_relative_path),
+        ],
+        "next_valid_actions": taskspace_path_correction_next_valid_actions(correction, node_kind),
+        "missing_evidence": [],
+    })
+    .to_string()
+}
+
+fn taskspace_path_correction_rejection_followup(
+    reason: &str,
+    correction: Option<&TaskspacePathCorrection>,
+    node_kind: Option<&str>,
+) -> String {
+    let base = format!(
+        "TaskSpaceActionV1 rejected: {reason}. Return exactly one valid taskspace-action-v1 JSON object."
+    );
+    if reason.starts_with("path_correction_retry_forbidden:")
+        && let Some(correction) = correction
+    {
+        return format!(
+            "{base}\n{TASKSPACE_GATE_RECOVERY_MARKER} {}",
+            taskspace_path_correction_gate_recovery_json(correction, node_kind)
+        );
+    }
+    base
 }
 
 fn build_taskspace_path_correction_hard_stop_item(
@@ -8552,6 +8619,28 @@ TaskSpace implement_solution node `node-6` cannot be blocked for missing source 
         assert!(text.contains("suggested_relative_path: data/source_a"));
         assert!(text.contains("Do not retry `/data/source_a`"));
         assert!(text.contains("read_file, list_files, or search"));
+        assert!(text.contains(TASKSPACE_GATE_RECOVERY_MARKER));
+        assert!(text.contains("\"reason\":\"path_correction_retry_forbidden\""));
+        assert!(text.contains("emit list_files with args.path `data/source_a`"));
+    }
+
+    #[test]
+    fn path_correction_rejection_followup_preserves_structured_next_actions() {
+        let correction = TaskspacePathCorrection {
+            failed_path: "/data".to_string(),
+            suggested_relative_path: "data".to_string(),
+        };
+        let followup = taskspace_path_correction_rejection_followup(
+            "path_correction_retry_forbidden:.:suggested_relative_path=data",
+            Some(&correction),
+            Some("inspect_code_context"),
+        );
+
+        assert!(followup.contains("TaskSpaceActionV1 rejected"));
+        assert!(followup.contains(TASKSPACE_GATE_RECOVERY_MARKER));
+        assert!(followup.contains("\"reason\":\"path_correction_retry_forbidden\""));
+        assert!(followup.contains("emit list_files with args.path `data`"));
+        assert!(followup.contains("concrete child path under `data`"));
     }
 
     #[test]
@@ -16178,9 +16267,19 @@ async fn try_run_sampling_request(
                             } else {
                                 String::new()
                             };
-                            last_agent_message = Some(format!(
-                                "TaskSpaceActionV1 rejected: {reason}{patch_intent_suffix}. Return exactly one valid taskspace-action-v1 JSON object."
-                            ));
+                            last_agent_message = Some(if patch_intent_suffix.is_empty() {
+                                taskspace_path_correction_rejection_followup(
+                                    &reason,
+                                    tool_path_correction_feedback.as_ref(),
+                                    provider_budget_snapshot
+                                        .as_ref()
+                                        .and_then(|snapshot| snapshot.node_kind.as_deref()),
+                                )
+                            } else {
+                                format!(
+                                    "TaskSpaceActionV1 rejected: {reason}{patch_intent_suffix}. Return exactly one valid taskspace-action-v1 JSON object."
+                                )
+                            });
                         }
                     }
                 }
