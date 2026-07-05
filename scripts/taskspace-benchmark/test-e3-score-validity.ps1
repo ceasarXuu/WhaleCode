@@ -35,7 +35,8 @@ function New-Metrics {
         [bool]$PublicValidationSkipped = $false,
         [string]$PublicValidationSkipReason = "",
         [string]$PreAgentProbeStatus = "",
-        [string]$PreAgentProbeHash = ""
+        [string]$PreAgentProbeHash = "",
+        [string[]]$ActiveSentinelWarningTypes = @()
     )
     [pscustomobject]@{
         mode = $Mode
@@ -52,6 +53,8 @@ function New-Metrics {
         public_validation_skip_reason = $PublicValidationSkipReason
         pre_agent_validator_probe_status = $PreAgentProbeStatus
         pre_agent_validator_probe_hash = $PreAgentProbeHash
+        active_sentinel_warning_count = @($ActiveSentinelWarningTypes).Count
+        active_sentinel_warning_types = @($ActiveSentinelWarningTypes)
         metrics_taints = @()
         pretest_failure = $PretestFailure
         tests_started_seen = (-not $PretestFailure)
@@ -77,6 +80,8 @@ Assert-Outcome "clean solved" (New-Metrics "left" "standard" -Success $true -Pub
 Assert-Outcome "clean wrong" (New-Metrics "left" "standard" -Success $false -PublicExit 2) "wrong" $true
 Assert-Outcome "clean agent timeout" (New-Metrics "left" "taskspace" -ExecTimedOut $true -PublicExit 1) "agent_exec_timeout" $true
 Assert-Outcome "clean agent timeout with validation skip" (New-Metrics "left" "taskspace" -ExecTimedOut $true -PublicExit 0 -PublicValidationSkipped $true -PublicValidationSkipReason "agent_exec_timeout" -PreAgentProbeStatus "passed" -PreAgentProbeHash ("a" * 64)) "agent_exec_timeout" $true
+Assert-Outcome "clean agent timeout suppresses stale validator sentinel" (New-Metrics "left" "taskspace" -ExecTimedOut $true -PublicExit 0 -PublicValidationSkipped $true -PublicValidationSkipReason "agent_exec_timeout" -PreAgentProbeStatus "passed" -PreAgentProbeHash ("a" * 64) -ActiveSentinelWarningTypes @("validator_failure")) "agent_exec_timeout" $true
+Assert-Outcome "non-timeout validator sentinel stays unclean" (New-Metrics "left" "taskspace" -PublicExit 0 -ActiveSentinelWarningTypes @("validator_failure")) "engineering_unclean" $false
 Assert-Outcome "agent timeout skip missing probe" (New-Metrics "left" "taskspace" -ExecTimedOut $true -PublicExit 0 -PublicValidationSkipped $true -PublicValidationSkipReason "agent_exec_timeout") "engineering_unclean" $false
 Assert-Outcome "agent timeout skip failed probe" (New-Metrics "left" "taskspace" -ExecTimedOut $true -PublicExit 0 -PublicValidationSkipped $true -PublicValidationSkipReason "agent_exec_timeout" -PreAgentProbeStatus "failed" -PreAgentProbeHash ("a" * 64)) "engineering_unclean" $false
 Assert-Outcome "validator timeout" (New-Metrics "left" "standard" -PublicExit 124 -Failures @("public_validation_timeout")) "engineering_unclean" $false

@@ -8478,3 +8478,123 @@
     - five source guard rows prove deny and release/hash restoration.
 - Interpretation: H-136 is focused-fixed. Remaining `processing-pipeline` diagnostic outcome is business wrong on both
   sides and `repeats_lt_3`/`audit_review_missing`; it is no longer an E3 harness fidelity blocker.
+
+# Evidence E-278: current HEAD formal E3 clears validator fidelity and exposes a stale active-sentinel scoring abort
+
+- Prediction tested:
+  - H-136 predicts formal E3 should no longer abort on validator fidelity after the POSIX source guard repair.
+  - A separate feedback-layer issue should be recorded if scoring aborts on a different tool-chain semantic.
+- Current HEAD:
+  ```text
+  9b6779dee991bb02ead4d11e67b23b00e9ee9d43
+  ```
+- Gate refresh:
+  ```text
+  NonAgentGates: target/r4-e3-formal-p0-20260705/gates-9b6779d/v005-non-agent-gates.json
+    status=pass
+    git_commit=9b6779dee991bb02ead4d11e67b23b00e9ee9d43
+  StartGate: target/r4-e3-formal-p0-20260705/start-gate-9b6779d-skipcal/e3-start-gate.json
+    status=pass
+    run_validity=valid
+    gate_decision.full_e3_allowed=true
+    gate_decision.v005_markers_passed=true
+    gate_decision.calibration_gate_passed=false
+    gate_decision.calibration_gate_skipped_allowed=true
+  ```
+- Formal E3 run:
+  ```text
+  SuiteRoot: target/r4-e3-formal-p0-20260705/full-e3-9b6779d/suite-20260705-173135
+  exit_code: 3
+  pair reports completed before abort: 14
+  first abort:
+    samples/recover-accuracy-log/runs/terminal_bench__recover-accuracy-log/20260705-175915-554/pair-004/pair-abort.json
+    reason=active_sentinel_warning:validator_failure
+    abort_phase=score_validity
+  ```
+- Fidelity proof in the aborting pair remained clean:
+  ```text
+  external-e3-proof.validator_fidelity.official_runner_or_equivalent=true
+  external-e3-proof.validator_fidelity.agent_cannot_read_validator_source=true
+  external-e3-proof.validator_fidelity.e3_eligible=true
+  external-e3-proof.validator_fidelity.runtime_proven=true
+  external-e3-proof.validator_fidelity.validator_mount_proven=true
+  external-isolation-proof.source_guard_proven=true
+  ```
+- Aborting pair details:
+  ```text
+  left/taskspace:
+    exec_exit_code=124
+    exec_timed_out=true
+    wall_time_ms=900101
+    public_validation_skipped=true
+    public_validation_skip_reason=agent_exec_timeout
+    pre_agent_validator_probe_status=passed
+    validator_environment_failures=[]
+    active_sentinel_warning_types=[validator_failure]
+  right/standard:
+    business_success=true
+    exec_exit_code=0
+    wall_time_ms=47210
+  ```
+- Log evidence from left `whale-exec.jsonl`:
+  - Tool failure feedback was present: `TaskSpaceEditFailureRecoveryV1`.
+  - Validation rework guard feedback was present: `TaskSpaceValidationReworkPatchOnlyRecoveryV1`.
+  - The agent continued through 17 tool/model steps and timed out rather than blocking.
+- Interpretation:
+  - H-136 is formally validated for fidelity: the old fidelity abort did not recur.
+  - A new feedback-layer issue exists: clean agent timeout with validation skip and a passed pre-agent validator probe
+    was overridden by a stale active `validator_failure` sentinel, causing an `invalid_harness` score abort.
+
+# Hypothesis H-137: stale validator-failure sentinels override clean agent-timeout validation-skip semantics
+
+- Claim: when the agent times out before validation, `run-taskspace-benchmark.ps1` correctly records
+  `public_validation_skipped=true`, `public_validation_skip_reason=agent_exec_timeout`, and a passed pre-agent validator
+  probe. However, `failure-taxonomy.ps1` later treats an active `validator_failure` sentinel from the same rollout as
+  engineering-unclean without checking the clean timeout-skip condition. This turns an agent timeout into a harness
+  materialization failure.
+- Prediction:
+  - The real aborting metrics should have `exec_timed_out=true`, skip reason `agent_exec_timeout`, probe status
+    `passed`, a 64-char probe hash, no validator environment failures, and active sentinel type `validator_failure`.
+  - After suppressing only stale `validator_failure` sentinel reasons in the clean timeout-skip condition, the same
+    metrics should classify as `agent_exec_timeout` with no engineering-unclean reasons.
+  - Non-timeout active `validator_failure` sentinel cases must remain engineering-unclean.
+- Diagnostic evidence plan:
+  - Read the real pair-004 metrics and skip/probe artifacts.
+  - Add a focused taxonomy helper and tests for clean timeout plus stale validator sentinel.
+  - Re-run score-validity and harness self-tests.
+- Status: confirmed; focused-fixed.
+
+# Evidence E-279: taxonomy suppresses stale validator sentinel only for clean agent-timeout validation skip
+
+- Prediction tested: H-137 predicts the real pair-004 metrics should classify as `agent_exec_timeout` after the focused
+  taxonomy repair, while ordinary validator sentinels remain unclean.
+- Repair artifacts:
+  - `scripts/taskspace-benchmark/lib/failure-taxonomy.ps1`
+    - adds `Test-TaskspaceCleanAgentTimeoutValidationSkip`;
+    - skips `active_sentinel_warning:validator_failure` only when:
+      - `exec_timed_out=true`;
+      - `public_validation_skipped=true`;
+      - `public_validation_skip_reason=agent_exec_timeout`;
+      - `pre_agent_validator_probe_status=passed`;
+      - `pre_agent_validator_probe_hash` is a 64-char SHA-256 value.
+  - `scripts/taskspace-benchmark/test-e3-score-validity.ps1`
+    - adds regression for clean timeout with stale validator sentinel;
+    - adds regression that non-timeout validator sentinel stays engineering-unclean.
+- Focused validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/taskspace-benchmark/test-e3-score-validity.ps1
+    PASS
+  CODEX_SKIP_VENDORED_BWRAP=1 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/taskspace-benchmark/test-harness.ps1
+    PASS
+  ```
+- Real artifact reclassification probe:
+  ```text
+  metrics:
+    target/r4-e3-formal-p0-20260705/full-e3-9b6779d/suite-20260705-173135/samples/recover-accuracy-log/runs/terminal_bench__recover-accuracy-log/20260705-175915-554/pair-004/left/artifacts/metrics.json
+  result:
+    reasons=[]
+    outcome=agent_exec_timeout
+    reason_count=0
+  ```
+- Interpretation: H-137 is focused-fixed. The fix does not hide true validator failures; it prevents a stale active
+  sentinel from overriding stronger validation-skip evidence after an agent execution timeout.

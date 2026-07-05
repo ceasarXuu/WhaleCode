@@ -4210,3 +4210,93 @@ external-isolation-proof:
 - formal E3 的 validator fidelity blocker 已 focused-cleared。
 - diagnostic pair 中 standard/taskspace 均为 `wrong`，这是样本执行质量问题，不再是 E3 fidelity/harness blocker。
 - 下一步需要提交 POSIX source guard 修复，重新生成当前 HEAD gates/markers，再重启 formal full E3 evidence run。
+
+## 64. 2026-07-05 formal E3 stale validator sentinel after agent timeout
+
+提交 POSIX source guard 修复后，当前 HEAD：
+
+```text
+9b6779dee991bb02ead4d11e67b23b00e9ee9d43
+```
+
+重新生成当前 HEAD gates/markers：
+
+```text
+NonAgentGates: target/r4-e3-formal-p0-20260705/gates-9b6779d/v005-non-agent-gates.json
+  status=pass
+  git_commit=9b6779dee991bb02ead4d11e67b23b00e9ee9d43
+StartGate: target/r4-e3-formal-p0-20260705/start-gate-9b6779d-skipcal/e3-start-gate.json
+  status=pass
+  gate_decision.full_e3_allowed=true
+  gate_decision.v005_markers_passed=true
+  gate_decision.calibration_gate_passed=false
+  gate_decision.calibration_gate_skipped_allowed=true
+```
+
+启动 formal full E3：
+
+```text
+SuiteRoot: target/r4-e3-formal-p0-20260705/full-e3-9b6779d/suite-20260705-173135
+exit_code=3
+completed pair reports before abort=14
+PairAbort: samples/recover-accuracy-log/runs/terminal_bench__recover-accuracy-log/20260705-175915-554/pair-004/pair-abort.json
+reason=active_sentinel_warning:validator_failure
+abort_phase=score_validity
+```
+
+这次不是 validator fidelity 问题：
+
+```text
+external-e3-proof.validator_fidelity:
+  official_runner_or_equivalent=true
+  agent_cannot_read_validator_source=true
+  e3_eligible=true
+  runtime_proven=true
+  validator_mount_proven=true
+external-isolation-proof.source_guard_proven=true
+```
+
+实际阻断语义：
+
+| 侧 | 状态 |
+|---|---|
+| taskspace | `exec_timed_out=true`, `exec_exit_code=124`, `wall_time_ms=900101` |
+| taskspace validation | `public_validation_skipped=true`, `public_validation_skip_reason=agent_exec_timeout`, pre-agent validator probe `passed` |
+| taskspace sentinels | active `validator_failure` sentinel still present |
+| standard | solved, `exec_exit_code=0`, `wall_time_ms=47210` |
+
+根因：
+
+- `run-taskspace-benchmark.ps1` 已经记录了更强、更具体的语义：agent 执行超时，所以 validation 被跳过，且 pre-agent validator probe 通过。
+- `failure-taxonomy.ps1` 后续无条件把 active `validator_failure` sentinel 加回 engineering-unclean，导致 clean agent timeout 被误归类为 `harness_materialization_failure/active_sentinel_warning:validator_failure`。
+- 这是 R4 feedback layer 问题：不是语义完全缺失，而是语义冲突时旧 sentinel 覆盖了更具体的新状态。
+
+修复：
+
+- `failure-taxonomy.ps1` 增加 `Test-TaskspaceCleanAgentTimeoutValidationSkip`。
+- 仅在以下条件全部满足时抑制 stale `active_sentinel_warning:validator_failure`：
+  - `exec_timed_out=true`
+  - `public_validation_skipped=true`
+  - `public_validation_skip_reason=agent_exec_timeout`
+  - `pre_agent_validator_probe_status=passed`
+  - `pre_agent_validator_probe_hash` 是 64 位 SHA-256
+- 非 timeout 的 active validator sentinel 仍保持 engineering-unclean。
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/taskspace-benchmark/test-e3-score-validity.ps1
+  PASS
+CODEX_SKIP_VENDORED_BWRAP=1 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/taskspace-benchmark/test-harness.ps1
+  PASS
+Real pair-004 metrics reclassification:
+  reasons=[]
+  outcome=agent_exec_timeout
+  reason_count=0
+```
+
+当前 R4 状态：
+
+- validator fidelity blocker 已解除。
+- stale validator sentinel 覆盖 clean timeout skip 的分类问题已 focused-fixed。
+- formal E3 需要在新 HEAD 上重新生成 gates/markers 后重跑；当前 release 仍不能关，因为 calibration gate 是 skip，且 full E3 最新 run exit 3。
