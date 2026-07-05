@@ -4482,3 +4482,62 @@ taskspace fallback counts:
   - recover-accuracy-log pair-004 left: 2,429,635 direct tokens
   - multi-source-data-merger pair-004 left: 2,228,093 direct tokens
 - 下一步应收敛 feedback/control 的高成本循环：validation rework 后仍重复 read/validate，且成功或足够失败证据后没有强制闭合 action space。
+
+## 68. 2026-07-05 budget-pressure forced transition repair
+
+继续追踪 cost gate 的真实失败后，定位到一个控制层缺口：
+
+```text
+third_party/codex-cli/codex-rs/core/src/session/turn.rs
+taskspace_budget_pressure_active_for_node_kind(...) => false
+```
+
+也就是说，session 主循环已有 budget-pressure forced transition 分支：
+
+- `force_finish_action_map_inspect_for_provider_budget`
+- `force_finish_action_map_implement_for_provider_budget`
+
+但触发条件被整体关闭。formal trace 中的高成本 taskspace side 正好落入这个缺口。
+
+真实 trace 形态：
+
+| 样本 | 形态 | 结果 |
+|---|---|---|
+| recover-accuracy-log pair-004 left | inspect 阶段连续发出 `Read generator.log...` / `Read raw...` / `Read the generator...`，request_count 进入 warned/thin_downgraded | 直到 `TaskSpaceProviderBudgetHardStopV1 request_count=18/20` |
+| multi-source-data-merger pair-004 left | validation rework 后反复出现 `A successful implementation edit is already recorded.`、`Read current merge_users.py...`、弱验证命令被 recovery 替换 | 进入 warned/thin_downgraded，最终 timeout，rollout trace 18 requests |
+
+修复：
+
+- 重新启用 budget-pressure active 判断，但限制在较大预算场景：
+  - `max_requests < 10` 不触发，避免小测试/短任务误判。
+  - inspect 节点：`request_count * 2 >= max_requests`。
+  - implement 节点：`request_count * 10 >= max_requests * 7`。
+- 扩展 follow-up intent marker，覆盖 action rationale 中的重复读/验证语义：
+  - `read current`
+  - `read generator`
+  - `read raw`
+  - `read the`
+  - `inspect raw`
+  - `examine `
+  - `verify output`
+  - `run validation`
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core budget_pressure_follow_up --lib
+  4 passed
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core provider_response_actionability --lib
+  8 passed
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
+  Finished dev profile
+```
+
+当前状态：
+
+- 该问题类型是 R4 feedback/control 层问题：不是工具能力失败，而是高压状态下 action space 没有及时收束。
+- 代码层 focused-fixed，尚未 formal live 验证。
+- 下一步需要在新 HEAD 上刷新 gates/markers 并重跑 formal full E3，验证：
+  - direct input/output ratio 是否低于 partial 阈值 3.0；
+  - 是否仍为 15/15 pair-report、0 abort；
+  - 是否出现 premature forced transition 导致业务质量下降。

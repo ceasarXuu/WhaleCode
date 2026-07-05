@@ -8775,3 +8775,67 @@
   ```
 - Interpretation: H-139 is fixed. The remaining R4 blocker is no longer missing telemetry; it is real TaskSpace cost
   amplification above the partial threshold, driven by high-token taskspace sides and validation-rework loops.
+
+# Hypothesis H-140: disabled budget-pressure transitions let repeated read/validation intents drain provider budget
+
+- Claim: formal E3 high-token taskspace sides are not only model-quality failures. Session code has the budget-pressure
+  transition hook wired into response actionability, but `taskspace_budget_pressure_active_for_node_kind` returns `false`
+  for every node. As a result, repeated inspect reads and validation-rework read/test loops can continue until
+  node/provider hard stop instead of forcing inspect/implement transition when the same follow-up intent persists under
+  pressure.
+- Prediction:
+  - Real traces should show request counts climbing into `warned` and `thin_downgraded` while the last agent messages
+    remain follow-up actions such as "Read generator..." or "Read current merge_users.py".
+  - Source inspection should show disabled budget-pressure activation despite existing forced transition code paths.
+  - Re-enabling pressure activation for sufficiently large request budgets should be validated by focused unit tests and
+    `whale` build before a formal rerun.
+- Diagnostic evidence plan:
+  - Inspect formal high-token traces and `session/turn.rs`.
+  - Add pressure thresholds and follow-up markers for repeated read/inspect/verify/run rationales.
+  - Run focused Rust tests for budget pressure and response actionability, then rebuild `whale`.
+- Status: confirmed; focused-fixed; formal E3 rerun pending.
+
+# Evidence E-284: budget-pressure transition hooks were disabled while high-token traces repeated follow-up intents
+
+- Prediction tested: H-140 predicts the cost gate failure is driven by repeated provider requests that existing pressure
+  hooks could have interrupted.
+- Real trace examples:
+  ```text
+  recover-accuracy-log pair-004 left:
+    repeated inspect_code_context messages:
+      "Read generator.log to understand data structure..."
+      request_count advanced through 10/20, 15/20, 17/20, then hard stop at 18/20.
+    final marker:
+      TaskSpaceProviderBudgetHardStopV1 reason=provider_node_request_hard_limit_exceeded
+
+  multi-source-data-merger pair-004 left:
+    validation rework messages:
+      "A successful implementation edit is already recorded."
+      "Read current merge_users.py to identify the code that needs fixing..."
+    request_count advanced through warned/thin_downgraded states before timeout.
+  ```
+- Source evidence:
+  ```text
+  third_party/codex-cli/codex-rs/core/src/session/turn.rs:
+    taskspace_budget_pressure_active_for_node_kind(...) returned false unconditionally.
+    Existing main-loop branches already call force_finish_action_map_inspect_for_provider_budget
+    and force_finish_action_map_implement_for_provider_budget when budget pressure is classified.
+  ```
+- Repair artifacts:
+  - `third_party/codex-cli/codex-rs/core/src/session/turn.rs`
+    - activates pressure only when `max_requests >= 10`;
+    - inspect threshold: `request_count * 2 >= max_requests`;
+    - implement threshold: `request_count * 10 >= max_requests * 7`;
+    - extends follow-up markers to repeated read/inspect/verify/run rationales such as `read generator`,
+      `read current`, `inspect raw`, and `run validation`.
+- Validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core budget_pressure_follow_up --lib
+    4 passed
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core provider_response_actionability --lib
+    8 passed
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
+    Finished dev profile
+  ```
+- Interpretation: H-140 is focused-fixed at the control-loop level. R4 acceptance still requires a fresh formal E3 run
+  on the new binary to verify direct token ratio drops below the threshold without introducing premature transitions.

@@ -3605,11 +3605,20 @@ fn taskspace_budget_pressure_silent_action_requires_transition(
 }
 
 fn taskspace_budget_pressure_active_for_node_kind(
-    _request_count: usize,
-    _max_requests: usize,
-    _node_kind: Option<&str>,
+    request_count: usize,
+    max_requests: usize,
+    node_kind: Option<&str>,
 ) -> bool {
-    false
+    if max_requests < 10 {
+        return false;
+    }
+    match node_kind {
+        Some("inspect_code_context") => request_count.saturating_mul(2) >= max_requests,
+        Some("implement_solution") => {
+            request_count.saturating_mul(10) >= max_requests.saturating_mul(7)
+        }
+        _ => false,
+    }
 }
 
 fn taskspace_budget_pressure_message_has_follow_up_intent(message: &str) -> bool {
@@ -3623,6 +3632,14 @@ fn taskspace_budget_pressure_message_has_follow_up_intent(message: &str) -> bool
         "i need to check",
         "i should check",
         "try running",
+        "read current",
+        "read generator",
+        "read raw",
+        "read the",
+        "inspect raw",
+        "examine ",
+        "verify output",
+        "run validation",
         "\u{5148}\u{8dd1}",
         "\u{8dd1}\u{6d4b}\u{8bd5}",
         "\u{8fd0}\u{884c}\u{6d4b}\u{8bd5}",
@@ -10632,8 +10649,8 @@ TaskSpaceGateRecoveryV1: {\"schema_version\":\"TaskSpaceGateRecoveryV1\",\"allow
     }
 
     #[test]
-    fn budget_pressure_follow_up_intent_is_disabled_for_implementation_node() {
-        assert!(!taskspace_budget_pressure_follow_up_intent(
+    fn budget_pressure_follow_up_intent_forces_late_implementation_follow_up() {
+        assert!(taskspace_budget_pressure_follow_up_intent(
             32,
             40,
             Some("implement_solution"),
@@ -10719,8 +10736,8 @@ TaskSpaceGateRecoveryV1: {\"schema_version\":\"TaskSpaceGateRecoveryV1\",\"allow
     }
 
     #[test]
-    fn budget_pressure_follow_up_intent_does_not_require_recovery() {
-        assert!(!taskspace_budget_pressure_follow_up_intent(
+    fn budget_pressure_follow_up_intent_forces_late_inspect_follow_up() {
+        assert!(taskspace_budget_pressure_follow_up_intent(
             30,
             40,
             Some("inspect_code_context"),
@@ -10737,6 +10754,22 @@ TaskSpaceGateRecoveryV1: {\"schema_version\":\"TaskSpaceGateRecoveryV1\",\"allow
             40,
             Some("implement_solution"),
             Some("Let me run the pipeline.")
+        ));
+    }
+
+    #[test]
+    fn budget_pressure_follow_up_intent_forces_repeated_inspect_reads() {
+        assert!(taskspace_budget_pressure_follow_up_intent(
+            10,
+            20,
+            Some("inspect_code_context"),
+            Some("Read generator.log to understand data structure and verify 30 events"),
+        ));
+        assert!(!taskspace_budget_pressure_follow_up_intent(
+            9,
+            20,
+            Some("inspect_code_context"),
+            Some("Read generator.log to understand data structure and verify 30 events"),
         ));
     }
 
