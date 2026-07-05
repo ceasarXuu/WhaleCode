@@ -2278,7 +2278,7 @@ fn build_taskspace_path_correction_recovery_item(
 ) -> ResponseItem {
     let next_action = match node_kind {
         Some("inspect_code_context") => {
-            "emit exactly one read_file, list_files, or search action using the suggested relative path; do not retry the failed absolute path"
+            "emit exactly one read_file, list_files, or search action using the suggested relative path itself or a concrete child path already seen under it; do not list/search `.` again and do not retry the failed absolute path"
         }
         Some("smoke_test" | "regression_test") => {
             "emit exactly one run_test action with the command/path corrected to the suggested relative path, or blocked if the required container mount is truly unavailable"
@@ -2360,6 +2360,11 @@ fn taskspace_path_correction_retry_reject_reason(
         taskspace_relative_candidate_for_absolute_workspace_path(&taskspace_normalize_retry_path(
             &path,
         ))?
+    } else if taskspace_path_correction_action_drifted_from_suggestion(
+        &path,
+        &correction.suggested_relative_path,
+    ) {
+        correction.suggested_relative_path.clone()
     } else {
         return None;
     };
@@ -2367,6 +2372,24 @@ fn taskspace_path_correction_retry_reject_reason(
         "path_correction_retry_forbidden:{failed_path}:suggested_relative_path={suggested_relative_path}",
         failed_path = taskspace_normalize_retry_path(&path),
     ))
+}
+
+fn taskspace_path_correction_action_drifted_from_suggestion(path: &str, suggestion: &str) -> bool {
+    let path = taskspace_normalize_retry_path(path);
+    if taskspace_workspace_alias_root(&path).is_some() {
+        return false;
+    }
+    let suggestion = taskspace_normalize_retry_path(suggestion);
+    if path.is_empty() || suggestion.is_empty() || path == suggestion {
+        return false;
+    }
+    if path
+        .strip_prefix(suggestion.trim_end_matches('/'))
+        .is_some_and(|suffix| suffix.starts_with('/'))
+    {
+        return false;
+    }
+    matches!(path.as_str(), "." | "./")
 }
 
 fn taskspace_action_can_clear_path_correction_feedback(action: &TaskSpaceActionV1) -> bool {
@@ -8624,10 +8647,44 @@ TaskSpace implement_solution node `node-6` cannot be blocked for missing source 
     }
 
     #[test]
+    fn path_correction_rejects_broad_root_after_relative_candidate() {
+        let correction = TaskspacePathCorrection {
+            failed_path: "/data".to_string(),
+            suggested_relative_path: "data".to_string(),
+        };
+        let action = parse_taskspace_action_v1(
+            r#"{"schema_version":"taskspace-action-v1","action":"list_files","args":{"path":"."}}"#,
+        )
+        .expect("valid action");
+
+        let reason = taskspace_path_correction_retry_reject_reason(&action, &correction)
+            .expect("broad root drift rejected");
+
+        assert_eq!(
+            reason,
+            "path_correction_retry_forbidden:.:suggested_relative_path=data"
+        );
+    }
+
+    #[test]
     fn path_correction_allows_suggested_relative_action_path() {
         let correction = TaskspacePathCorrection {
             failed_path: "/data/source_a/users.json".to_string(),
             suggested_relative_path: "data/source_a/users.json".to_string(),
+        };
+        let action = parse_taskspace_action_v1(
+            r#"{"schema_version":"taskspace-action-v1","action":"read_file","args":{"path":"data/source_a/users.json"}}"#,
+        )
+        .expect("valid action");
+
+        assert!(taskspace_path_correction_retry_reject_reason(&action, &correction).is_none());
+    }
+
+    #[test]
+    fn path_correction_allows_child_of_suggested_relative_path() {
+        let correction = TaskspacePathCorrection {
+            failed_path: "/data".to_string(),
+            suggested_relative_path: "data".to_string(),
         };
         let action = parse_taskspace_action_v1(
             r#"{"schema_version":"taskspace-action-v1","action":"read_file","args":{"path":"data/source_a/users.json"}}"#,

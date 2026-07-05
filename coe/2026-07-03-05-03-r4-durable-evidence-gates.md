@@ -9512,3 +9512,70 @@
 - Interpretation:
   - H-150 is locally fixed at validation command synthesis.
   - Formal E3 targeted rerun is still needed to prove the live `multi-source-data-merger` trace no longer fails at `test -s /app/merged_users.parquet`.
+
+# Evidence E-304: c98542b targeted run exposes path-correction duplicate-read collision before validation
+
+- Type: diagnostic live run.
+- Prediction tested: H-150 live rerun should reach validation and show whether `/app/merged_users.parquet` has been normalized to `merged_users.parquet`.
+- Run:
+  ```text
+  HEAD: c98542b
+  RunRoot: target/r4-e3-formal-p0-20260705/targeted-multi-source-c98542b-r3
+  RunDir: target/r4-e3-formal-p0-20260705/targeted-multi-source-c98542b-r3/runs/terminal_bench__multi-source-data-merger/20260706-010740-512
+  pair: pair-001/right
+  ```
+- Harness notes:
+  - First attempt aborted before model calls because whale binary preflight saw a stale binary for the post-commit source timestamp.
+  - Second attempt passed whale preflight after writing `whale.build-attestation.json`, then aborted during materialization because cached task files had mode `000`.
+  - Cached permissions were repaired under `target/external-sources/.../multi-source-data-merger`: scripts to `755`, test file to `644`.
+- Matched run signals:
+  ```text
+  item_3: rg --files . -> success
+    ./data/source_a/users.json
+    ./data/source_b/users.csv
+    ./data/source_c/users.parquet
+
+  item_6: rg --files /data -> failed
+    rg: /data: IO error for operation on /data: No such file or directory
+
+  item_7: TaskSpaceProviderResponseActionabilityV1 actionability=no_action_follow_up
+  item_8: TaskSpace inserted non-cap TaskSpace recovery guidance
+
+  item_9: list_files "." after path-correction recovery
+  item_10: inspect duplicate successful read/search gate blocks same `rg --files .`
+  ```
+- Interpretation:
+  - H-150 was not live-tested because right-side execution did not reach validation.
+  - The run exposes a new feedback-layer collision: path-correction recovery did not prevent the provider from falling back to already-successful `list_files "."`; duplicate-read gate then masked the path-correction semantics with an inspect duplicate-read error.
+
+# Hypothesis H-151: path-correction recovery must reject broad root drift after a relative candidate
+
+- Claim: When path-correction feedback is active, an inspect read/list/search action that moves from failed `/data` to broad `.` is not a valid correction. It replays already-recorded evidence and collides with duplicate-read/search gates. The action contract should reject broad root drift before duplicate-read handling, preserving the path-correction semantic and requiring the suggested relative path (`data`) or a concrete child path (`data/source_a/users.json`).
+- Prediction:
+  - A focused test with correction `/data -> data` and action `list_files "."` should return `path_correction_retry_forbidden:.:suggested_relative_path=data`.
+  - A focused test with correction `/data -> data` and action `read_file data/source_a/users.json` should remain allowed.
+- Status: confirmed from live evidence; local repair implemented and regression-validated; targeted live rerun pending.
+
+# Evidence E-305: H-151 local repair preserves path-correction semantics before duplicate-read gate
+
+- Type: fix-validation.
+- Prediction tested: H-151 predicts broad root drift should be blocked as path-correction retry misuse, while concrete child paths under the suggested relative path remain legal.
+- Repair artifact:
+  - `third_party/codex-cli/codex-rs/core/src/session/turn.rs`
+    - `build_taskspace_path_correction_recovery_item(...)` now instructs inspect nodes to use the suggested path itself or a concrete child path, and explicitly not to list/search `.` again.
+    - `taskspace_path_correction_retry_reject_reason(...)` now rejects broad `.` drift while path-correction feedback is active.
+    - `taskspace_path_correction_action_drifted_from_suggestion(...)` allows the suggested relative path and its concrete children.
+- Validation:
+  ```text
+  cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core path_correction --lib
+    12 passed
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core provider_response_actionability --lib
+    9 passed
+  RUST_MIN_STACK=8388608 CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core taskspace --lib
+    175 passed
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
+  ```
+- Interpretation:
+  - The live blocker from E-304 is locally fixed at the feedback/control boundary.
+  - Another targeted E3 rerun is needed to verify right-side progress reaches implementation/validation again, and then to retest H-150 live.

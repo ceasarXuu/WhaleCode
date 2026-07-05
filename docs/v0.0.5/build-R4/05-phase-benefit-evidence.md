@@ -1641,6 +1641,50 @@ CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
 git diff --check
 ```
 
+`c98542b` targeted rerun 未能验证 H-150 live 终态，因为 right-side 在 validation 前遇到新的
+feedback-layer collision：
+
+```text
+RunDir: target/r4-e3-formal-p0-20260705/targeted-multi-source-c98542b-r3/runs/terminal_bench__multi-source-data-merger/20260706-010740-512
+HEAD: c98542b
+right-side evidence:
+  rg --files . -> success, listed data/source_a/users.json, data/source_b/users.csv, data/source_c/users.parquet
+  rg --files /data -> failed, /data does not exist
+  path-correction recovery inserted
+  provider emitted list_files "." again
+  duplicate-read gate blocked same `rg --files .`
+```
+
+新增问题类型：
+
+1. `path-correction-broad-root-drift-after-recovery`：已有 `/data -> data` correction 时，provider 回到 broad
+   `.`，导致 duplicate-read gate 抢走语义。
+2. 这仍是 R4-D feedback/control 问题，不是 validation output-contract 修复失效；H-150 尚未被 live 触发。
+3. 本次 run 还暴露两个 harness 操作经验：commit 后要重建或写入 whale build attestation；external source cache 中
+   mode `000` 的 task 文件会导致 materialization `ReadAllBytes` 失败，需恢复 scripts `755`、tests `644`。
+
+追加修复：
+
+1. path-correction recovery 文案现在要求 inspect node 使用 suggested relative path 本身或 concrete child path，
+   并明确禁止再次 list/search `.`。
+2. action-contract 前置拒绝 active path-correction 下的 broad `.` drift，返回
+   `path_correction_retry_forbidden:.:suggested_relative_path=data`，避免 duplicate-read gate 抢先改变语义。
+3. `data/...` concrete child path 仍允许通过，避免过度收紧。
+4. 仍需下一次 targeted rerun 验证 right-side 能重新进入 implementation/validation，并继续验证 H-150。
+
+验证：
+
+```text
+cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core path_correction --lib
+  12 passed
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core provider_response_actionability --lib
+  9 passed
+RUST_MIN_STACK=8388608 CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core taskspace --lib
+  175 passed
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
+```
+
 ## 5.97 2026-07-05 apply_patch 占位 ellipsis hunk 泄漏
 
 `6a4ec2e` 安装后 keyed rerun 未复发 H-131 的 provider budget hard-stop；patch-only recovery 已进入后续模型轮次。
