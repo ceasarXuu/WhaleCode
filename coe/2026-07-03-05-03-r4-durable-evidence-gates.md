@@ -9904,3 +9904,90 @@
   - H-155 is locally fixed at the recovery/projection wording layer.
   - The repair does not mutate the original fact-source aliases and does not execute the suggested relative inspect action.
   - A right-only rerun is still required to see whether DeepSeek now uses `data` instead of `/data`.
+
+# Evidence E-313: f4a2942 right-only rerun proves exact alias guidance works but stale failed-read bridge reopens recovery
+
+- Type: diagnostic live run.
+- Prediction tested: H-155 predicts that exact alias-negative guidance should make DeepSeek use the workspace-relative path.
+- Run:
+  ```text
+  HEAD: f4a2942
+  RunRoot: target/r4-e3-formal-p0-20260705/targeted-multi-source-f4a2942-right-only
+  RunDir: target/r4-e3-formal-p0-20260705/targeted-multi-source-f4a2942-right-only/runs/terminal_bench__multi-source-data-merger/20260706-032959-741
+  pair: pair-001/right
+  RunSide: right
+  ```
+- Matched signals:
+  ```text
+  item_2:
+    read_file /data/source_a/users.json
+  item_3:
+    sed: can't read /data/source_a/users.json: No such file or directory
+
+  recovery/projection:
+    emit list_files with args.path exactly `data/source_a/users.json`;
+    do not use `/data/source_a/users.json` or `/data/source_a/users.json/...`
+
+  item_6:
+    list_files data/source_a/users.json
+  item_7:
+    rg --files data/source_a/users.json
+    data/source_a/users.json
+    exit_code=0
+
+  item_8:
+    TaskSpaceProviderResponseActionabilityV1 actionability=no_action_follow_up
+  item_9:
+    TaskSpace inserted non-cap TaskSpace recovery guidance
+  terminal:
+    TaskSpacePathCorrectionHardStopV1
+  ```
+- Metrics:
+  ```text
+  business_success: false
+  public_validation_exit_code: 1
+  tool_call_count: 2
+  failed_tool_call_count: 1
+  changed_paths: []
+  input_tokens: 359356
+  cached_input_tokens: 356224
+  uncached_input_tokens: 3132
+  ```
+- Interpretation:
+  - H-155 is live-confirmed: the Agent stopped retrying the absolute alias and emitted the relative candidate.
+  - New blocker: after a successful relative list/read/search result, session re-filled `tool_path_correction_feedback` from ActionMap's older failed-read summary at end-of-request. That re-opened path-correction recovery and caused a hard-stop despite real progress.
+
+# Hypothesis H-156: failed-read summary bridge must not refill path-correction after new node progress
+
+- Claim: The failed-read summary bridge is only valid when no newer node progress occurred during the current provider request. If a subsequent list/read/search records successful relative evidence, refilling path-correction from the older failed-read summary turns stale failure feedback into the current recovery state.
+- Prediction:
+  - A focused test should prove the failed-read bridge is skipped when current node progress signature changes during the request.
+  - Existing path-correction tests should still pass for the no-progress case.
+  - The repair should not delete the failed result or hide evidence; it should only stop stale feedback from overriding newer progress.
+- Status: confirmed from E-313; local repair implemented and regression-validated; live rerun pending.
+
+# Evidence E-314: H-156 local repair prevents stale failed-read bridge after successful relative progress
+
+- Type: fix-validation.
+- Prediction tested: H-156 predicts that the old failed-read summary should not re-trigger path-correction when current node progress changed during the same request.
+- Repair artifact:
+  - `third_party/codex-cli/codex-rs/core/src/session/turn.rs`
+    - Added `taskspace_should_refill_path_correction_from_failed_read_summary(...)`.
+    - End-of-request path-correction bridge now refills from `action_map_current_recent_failed_read_summary()` only if no `tool_path_correction_feedback` is active and the node progress signature is unchanged since request dispatch.
+    - Added `path_correction_failed_read_bridge_skips_after_new_progress`.
+- Validation:
+  ```text
+  cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core path_correction --lib
+    14 passed
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core provider_response_actionability --lib
+    9 passed
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core gate_recovery_projection_sync_records_latest_actions_and_trace --lib
+    1 passed
+  RUST_MIN_STACK=8388608 CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core taskspace --lib
+    175 passed
+  ```
+- Interpretation:
+  - H-156 is locally fixed at the feedback lifecycle layer.
+  - The original failed `/data/...` result remains recorded evidence; it just no longer dominates after newer successful relative-path evidence.
+  - Next gate: rerun right-only targeted `multi-source-data-merger` and verify the successful `data/source_a/users.json` evidence advances inspect instead of path-correction hard-stopping.

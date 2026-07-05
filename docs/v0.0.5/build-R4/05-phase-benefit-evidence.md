@@ -1832,6 +1832,37 @@ RUST_MIN_STACK=8388608 CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core task
   175 passed
 ```
 
+`f4a2942` right-only targeted run `20260706-032959-741` 证明 H-155 生效但暴露新生命周期缺口：
+
+```text
+item_2: read_file /data/source_a/users.json -> failed
+recovery/projection:
+  emit list_files with args.path exactly `data/source_a/users.json`;
+  do not use `/data/source_a/users.json` or `/data/source_a/users.json/...`
+item_6: list_files data/source_a/users.json
+item_7: rg --files data/source_a/users.json -> success
+```
+
+后续却仍插入 `TaskSpacePathCorrectionRecoveryV1` 并 hard-stop。根因是 session 在 request 末尾从
+ActionMap 旧 failed-read summary 重新回填 path-correction feedback，覆盖了同一 request 内刚记录的成功相对路径进展。
+
+追加修复 H-156：
+
+1. 增加 `taskspace_should_refill_path_correction_from_failed_read_summary(...)`。
+2. 只有当前 provider request 没有新 node progress 时，才允许 failed-read summary bridge 回填 path-correction。
+3. 成功相对路径 evidence 仍保留，旧 `/data/...` 失败也仍保留为审计证据，只是不再覆盖更新进展。
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core path_correction --lib
+  14 passed
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core provider_response_actionability --lib
+  9 passed
+RUST_MIN_STACK=8388608 CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core taskspace --lib
+  175 passed
+```
+
 `c98542b` targeted rerun 未能验证 H-150 live 终态，因为 right-side 在 validation 前遇到新的
 feedback-layer collision：
 

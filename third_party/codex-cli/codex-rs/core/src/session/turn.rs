@@ -2481,6 +2481,14 @@ fn taskspace_action_can_clear_path_correction_feedback(action: &TaskSpaceActionV
     )
 }
 
+fn taskspace_should_refill_path_correction_from_failed_read_summary(
+    tool_path_correction_feedback_present: bool,
+    progress_before_request: Option<usize>,
+    progress_after_request: Option<usize>,
+) -> bool {
+    !tool_path_correction_feedback_present && progress_after_request == progress_before_request
+}
+
 fn taskspace_same_workspace_path(left: &str, right: &str) -> bool {
     taskspace_normalize_retry_path(left) == taskspace_normalize_retry_path(right)
 }
@@ -8760,6 +8768,31 @@ TaskSpace implement_solution node `node-6` cannot be blocked for missing source 
         assert!(!taskspace_action_can_clear_path_correction_feedback(
             &edit_action
         ));
+    }
+
+    #[test]
+    fn path_correction_failed_read_bridge_skips_after_new_progress() {
+        assert!(
+            taskspace_should_refill_path_correction_from_failed_read_summary(
+                false,
+                Some(3),
+                Some(3),
+            )
+        );
+        assert!(
+            !taskspace_should_refill_path_correction_from_failed_read_summary(
+                false,
+                Some(3),
+                Some(4),
+            )
+        );
+        assert!(
+            !taskspace_should_refill_path_correction_from_failed_read_summary(
+                true,
+                Some(3),
+                Some(3),
+            )
+        );
     }
 
     #[test]
@@ -16577,9 +16610,14 @@ async fn try_run_sampling_request(
                         )
                     })
                     .unwrap_or(false);
-                if tool_path_correction_feedback.is_none()
-                    && let Some(failed_read_summary) =
-                        sess.action_map_current_recent_failed_read_summary().await
+                let taskspace_progress_after_request =
+                    sess.action_map_current_main_node_progress_signature().await;
+                if taskspace_should_refill_path_correction_from_failed_read_summary(
+                    tool_path_correction_feedback.is_some(),
+                    taskspace_progress_before_request,
+                    taskspace_progress_after_request,
+                ) && let Some(failed_read_summary) =
+                    sess.action_map_current_recent_failed_read_summary().await
                 {
                     tool_path_correction_feedback =
                         taskspace_path_correction_from_text(&failed_read_summary);
