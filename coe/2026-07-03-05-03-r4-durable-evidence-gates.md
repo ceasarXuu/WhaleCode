@@ -10065,3 +10065,422 @@
 - Interpretation:
   - H-157 is locally fixed at projection wording/mapping only.
   - The Agent remains responsible for reading the files and deciding the implementation; runtime only removes an avoidable alias ambiguity from the next action.
+
+# Evidence E-317: 4edf7dc right-only rerun exposes explicit JSON fact-source loss and path-listing coverage distortion
+
+- Type: diagnostic live run.
+- Run:
+  ```text
+  HEAD: 4edf7dc
+  RunRoot: target/r4-e3-formal-p0-20260705/targeted-multi-source-4edf7dc-right-only
+  RunDir: target/r4-e3-formal-p0-20260705/targeted-multi-source-4edf7dc-right-only/runs/terminal_bench__multi-source-data-merger/20260706-034121-763
+  pair: pair-001/right
+  RunSide: right
+  ```
+- Matched signals:
+  ```text
+  metrics:
+    business_success=false
+    exec_exit_code=0
+    public_validation_exit_code=1
+    changed_paths=[]
+    tool_call_count=2
+    failed_tool_call_count=1
+
+  item_2:
+    read_file /data/source_a/users.json
+    exit_code=2
+
+  recovery projection:
+    emit list_files with args.path exactly `data/source_a/users.json`;
+    do not use `/data/source_a/users.json`
+
+  item_6/item_7:
+    list_files data/source_a/users.json
+    rg --files data/source_a/users.json
+    data/source_a/users.json
+    exit_code=0
+
+  next projection:
+    read_file declared fact-source artifact `/data/source_b/users.csv` next
+    read_file declared fact-source artifact `/data/source_c/users.parquet` next
+
+  item_9:
+    read_file /data/source_a/users.json
+    path_correction_retry_forbidden:/data/source_a/users.json:suggested_relative_path=data/source_a/users.json
+  ```
+- Interpretation:
+  - H-157's projection-only alias mapping was not enough because `source_a/users.json` had already disappeared from missing fact-source coverage.
+  - The root cause has two parts:
+    1. Explicit JSON input fact sources such as `/data/source_a/users.json` were filtered by the generated-JSON-output heuristic.
+    2. A successful `rg --files data/source_a/users.json` path listing could be treated as enough observed artifact evidence, even though it had not read the file contents.
+  - This is both semantic loss (declared JSON fact-source omitted) and semantic distortion (existence listing treated like content evidence).
+
+# Hypothesis H-158: declared fact-source coverage must distinguish explicit inputs, inferred output-like JSON, and path-listing evidence
+
+- Claim: `task_required_fact_source_artifact_refs()` should trust explicit `cognitive_state.fact_sources` as input declarations, including `.json` files, while still filtering generated output targets when they are actually output contracts. Separately, `inspect_node_observed_artifact_refs()` must not count path-listing-only results as read coverage; path listings may only feed projection-only workspace-relative candidate hints.
+- Prediction:
+  - A focused regression with explicit `/data/source_a/users.json` should report it missing before any read.
+  - After `rg --files data/source_a/users.json`, the same fact source should still be missing, but projection next action should advertise `read_file data/source_a/users.json` as the workspace-relative candidate.
+  - Existing generated-output filtering tests should still prevent `organization.json` from becoming an input when declared as an output target.
+- Status: confirmed from E-317; local repair implemented and regression-validated; live rerun pending.
+
+# Evidence E-318: H-158 local repair preserves explicit JSON inputs and prevents path listings from satisfying reads
+
+- Type: fix-validation.
+- Repair artifact:
+  - `third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs`
+    - Added `push_declared_fact_source_artifact_ref(...)` for explicit fact-source extraction.
+    - Explicit `cognitive_state.fact_sources` still skip declared output targets, but no longer apply the broad generated-JSON-output heuristic.
+    - `inspect_node_observed_artifact_refs(...)` now skips `read_result_body_is_path_listing_only(...)` results for fact-source coverage.
+    - Projection-only candidate extraction still sees path-listing results through `inspect_node_projection_visible_artifact_refs(...)`.
+    - Added `fact_source_path_listing_does_not_satisfy_required_read_coverage`.
+- Validation:
+  ```text
+  cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core fact_source_path_listing_does_not_satisfy_required_read_coverage -- --nocapture
+    1 passed
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core projection_uses_observed_relative_candidate_for_data_alias_fact_sources -- --nocapture
+    1 passed
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core inspect_fact_source -- --nocapture
+    2 passed
+  ```
+- Interpretation:
+  - H-158 is locally fixed.
+  - Boundary: runtime still does not read files or infer merge logic. It only preserves explicit TaskSpace fact-source semantics and prevents an existence listing from being reclassified as content evidence.
+  - Next gate: run the broader path-correction/provider-response/taskspace/build regressions, then rerun right-only `multi-source-data-merger` to see whether Agent consumes the corrected `read_file data/source_a/users.json` projection or exposes the next tools-chain issue.
+
+# Evidence E-319: H-158 live rerun clears fact-source/path-listing distortion but exposes final-gate loop
+
+- Type: diagnostic live run.
+- Run:
+  ```text
+  RunRoot: target/r4-e3-formal-p0-20260705/targeted-multi-source-h158-local-right-only-r2
+  RunDir: target/r4-e3-formal-p0-20260705/targeted-multi-source-h158-local-right-only-r2/runs/terminal_bench__multi-source-data-merger/20260706-035400-093
+  pair: pair-001/right
+  RunSide: right
+  ```
+- Metrics:
+  ```text
+  business_success=true
+  exec_exit_code=0
+  public_validation_exit_code=0
+  hidden_oracle_exit_code=0
+  model_request_count=1
+  input_tokens=2523482
+  cached_input_tokens=2506624
+  uncached_input_tokens=16858
+  changed_paths=["conflicts.json","merge_users.py","merged_users.parquet"]
+  tool_call_count=10
+  failed_tool_call_count=2
+  open_leaf_nodes=0
+  ```
+- Matched signals:
+  ```text
+  no /data/source_a hard stop
+  apply_patch generated merge_users.py, merged_users.parquet, conflicts.json
+  validation command: python merge_users.py && test -s merged_users.parquet
+  validation exit_code=0
+  forced validation closeout ran
+  final_answer rejected: TaskSpace result `result-8` on node `node-3` is still unreviewed
+  TaskSpaceProviderBudgetHardStopV1 provider_request_hard_limit_exceeded request_count=20/20
+  ```
+- Interpretation:
+  - H-158 is live-cleared for this sample: explicit JSON fact source was not lost, path listing did not satisfy read coverage, and the Agent reached a correct implementation plus public/hidden validation success.
+  - The remaining cost tail is a new feedback/termination issue: an earlier local validator infrastructure blocker from a sibling validation branch remained `unreviewed` after a later successful platform-compatible validation closeout.
+  - This is not a business failure and not an Agent reasoning failure. It is TaskSpace final-readiness semantics failing to recognize that a successful validation closeout has superseded a local environment blocker for the same implementation dependency.
+
+# Hypothesis H-159: validation closeout should supersede sibling local-infra blockers on the same implementation dependency
+
+- Claim: When forced validation closeout succeeds for a validation node that depends on implementation node `I`, earlier unreviewed blockers from sibling `SmokeTest`/`RegressionTest` nodes that also depend on `I` should be invalidated if and only if their body is a local validator infrastructure failure. This is a narrow semantic cleanup: real failed assertions, output mismatches, and business blockers must remain active until reviewed or repaired.
+- Prediction:
+  - A focused helper regression should construct implementation `I`, first validation local-infra blocker, then second validation closeout path, and `superseded_validation_blocker_result_ids(...)` should include the local-infra blocker.
+  - Existing validation closeout and TaskSpace regressions should remain green.
+  - A fresh right-only rerun should avoid repeated `final_answer rejected ... still unreviewed` for the superseded local-infra blocker.
+- Status: confirmed by E-319; local repair implemented and regression-validated; live rerun pending.
+
+# Evidence E-320: H-159 local repair invalidates sibling local-infra blockers without broadening business success semantics
+
+- Type: fix-validation.
+- Repair artifact:
+  - `third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs`
+    - `superseded_validation_blocker_result_ids(...)` now discovers implementation dependencies of the successful validation node.
+    - It scans sibling `SmokeTest`/`RegressionTest` nodes sharing those implementation dependencies.
+    - It adds only `NodeResultKind::Blocker` results whose validity is `Unreviewed` and whose body matches `is_local_validator_infra_failure(...)`.
+    - Added `superseded_validation_blockers_include_sibling_local_infra_blocker`.
+- Validation:
+  ```text
+  cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core superseded_validation_blockers_include_sibling_local_infra_blocker -- --nocapture
+    1 passed
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_closeout -- --nocapture
+    3 passed
+  RUST_MIN_STACK=8388608 CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core taskspace -- --nocapture
+    175 passed
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
+    passed
+  git diff --check
+    passed
+  ```
+- Interpretation:
+  - H-159 is locally fixed at final-readiness blocker invalidation only.
+  - Boundary: runtime does not infer that the task is semantically correct from a tool success alone. It only removes an obsolete infrastructure blocker after another validation branch has already produced a successful closeout for the same implementation dependency.
+
+# Evidence E-321: H-159 live rerun exposes file-suggestion action ambiguity
+
+- Type: diagnostic live run.
+- Run:
+  ```text
+  RunRoot: target/r4-e3-formal-p0-20260705/targeted-multi-source-h159-local-right-only
+  RunDir: target/r4-e3-formal-p0-20260705/targeted-multi-source-h159-local-right-only/runs/terminal_bench__multi-source-data-merger/20260706-041013-186
+  ```
+- Metrics:
+  ```text
+  business_success=false
+  public_validation_exit_code=1
+  hidden_oracle_exit_code=0
+  changed_paths=[]
+  ```
+- Interpretation:
+  - H-159's final-gate loop was no longer the immediate blocker.
+  - The next failure was path-correction feedback wording: for a concrete file suggestion, recovery emphasized `list_files` around the exact suggested path instead of making `read_file args.path exactly <file>` the primary next action.
+
+# Hypothesis H-160: path-correction feedback for concrete file candidates must name exact read_file action
+
+- Claim: When the suggested relative candidate names a file, the feedback layer must present `read_file` with exact `args.path` as the first valid action and explicitly forbid the failed absolute path and absolute children.
+- Status: fixed locally and live-cleared by E-322.
+
+# Evidence E-322: H-160 live-cleared; validation bootstrap routing gap exposed
+
+- Type: fix-validation plus live rerun.
+- Repair artifact:
+  - `third_party/codex-cli/codex-rs/core/src/session/turn.rs`
+    - Path-correction recovery now says `read_file with args.path exactly <suggested>` for file candidates.
+    - `TaskSpaceGateRecoveryV1.next_valid_actions` carries the same exact action contract.
+- Validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core path_correction
+    14 passed
+  RUST_MIN_STACK=8388608 CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core taskspace
+    175 passed
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
+    passed
+  ```
+- Live run:
+  ```text
+  RunRoot: target/r4-e3-formal-p0-20260705/targeted-multi-source-h160-local-right-only
+  RunDir: target/r4-e3-formal-p0-20260705/targeted-multi-source-h160-local-right-only/runs/terminal_bench__multi-source-data-merger/20260706-041410-934
+  business_success=false
+  public_validation_exit_code=1
+  hidden_oracle_exit_code=0
+  changed_paths=["merge_users.py"]
+  tool_call_count=14
+  failed_tool_call_count=3
+  open_leaf_nodes=1
+  ```
+- Interpretation:
+  - H-160 live-cleared: the Agent moved past early path-correction and read `data/source_a` / `data/source_b`.
+  - New blocker: validation bootstrap failed with `FileNotFoundError: /data/source_a/users.json`, but the validation failure did not route cleanly into implementation rework.
+
+# Hypothesis H-161: failed validation evidence should route to implementation rework before output-contract coverage recovery
+
+- Claim: A concrete failed validation result is higher-signal than output-contract coverage prompting. Validation nodes with failed test/build results should be blocked and bind an implementation rework node, except for narrow unresolved known-input path cases that cannot be repaired from implementation evidence.
+- Status: fixed locally and live-cleared by E-323/E-324.
+
+# Evidence E-323: H-161 local repair narrows corrected-alias classifier
+
+- Type: fix-validation.
+- Repair artifact:
+  - `third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs`
+    - Validation failed-result routing now runs before output-contract coverage recovery.
+    - `validation_failure_is_known_input_path_error(...)` narrowed to unresolved known-input path errors.
+    - Corrected `/data/... -> data/...` aliases observed in workspace evidence are treated as implementation-repairable validation failures.
+- Validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_failure_result_auto_routes_to_implementation_rework
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_corrected_data_alias_failure_routes_to_implementation_rework
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_known_input_path_error_stays_on_validation_node
+  RUST_MIN_STACK=8388608 CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core taskspace
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
+  git diff --check
+  ```
+
+# Evidence E-324: H-161 live-cleared but exposes root-cause patch miss
+
+- Type: diagnostic live run.
+- Run:
+  ```text
+  RunRoot: target/r4-e3-formal-p0-20260705/targeted-multi-source-h161-local-right-only
+  RunDir: target/r4-e3-formal-p0-20260705/targeted-multi-source-h161-local-right-only/runs/terminal_bench__multi-source-data-merger/20260706-043403-485
+  ```
+- Metrics:
+  ```text
+  business_success=false
+  public_validation_exit_code=1
+  hidden_oracle_exit_code=0
+  model_request_count=1
+  input_tokens=2533110
+  cached_input_tokens=2491392
+  uncached_input_tokens=41718
+  changed_paths=["merge_users.py"]
+  tool_call_count=23
+  failed_tool_call_count=5
+  open_leaf_nodes=1
+  ```
+- Interpretation:
+  - H-161 live-cleared: failed validation nodes were blocked and implementation rework nodes were created.
+  - New blocker: the Agent repeatedly patched secondary issues while leaving the failed root-cause alias `/data/source_a/users.json` in `merge_users.py`.
+
+# Hypothesis H-162: validation rework patch feedback must require covering the failed alias root cause first
+
+- Claim: If validation evidence names a corrected absolute input alias and workspace evidence has the relative counterpart, the first rework edit must remove/replace that failed absolute alias in implementation artifacts before secondary fixes.
+- Status: fixed locally; live reruns moved past this gate only after earlier path-correction stale-state repairs.
+
+# Evidence E-325: H-162 local repair blocks secondary patches that miss failed alias
+
+- Type: fix-validation.
+- Repair artifact:
+  - `third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs`
+    - Added `CorrectedAliasRepairRequirement`.
+    - Rework repair contract now includes `corrected_input_aliases=/data/... -> data/...`.
+    - `prepare_main_tool_call` blocks first rework `apply_patch` with `validation_rework_patch_misses_failed_alias` unless the patch removes the failed absolute alias and does not re-add it.
+- Validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_rework_patch_must_remove_corrected_failed_alias
+    1 passed
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_corrected_data_alias_failure_routes_to_implementation_rework
+    1 passed
+  RUST_MIN_STACK=8388608 CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core taskspace
+    175 passed
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
+    passed
+  ```
+
+# Evidence E-326: H-162 live rerun exposed stale path-correction refills before rework
+
+- Type: diagnostic live run.
+- Run:
+  ```text
+  RunRoot: target/r4-e3-formal-p0-20260705/targeted-multi-source-h162-local-right-only
+  RunDir: target/r4-e3-formal-p0-20260705/targeted-multi-source-h162-local-right-only/runs/terminal_bench__multi-source-data-merger/20260706-045343-381
+  ```
+- Metrics:
+  ```text
+  business_success=false
+  public_validation_exit_code=1
+  tool_call_count=3
+  changed_paths=[]
+  ```
+- Interpretation:
+  - This run did not reach H-162 rework.
+  - New blocker H-163: after `/data` failed and `data` succeeded, stale path-correction state still rejected later broad-root inspect actions.
+
+# Hypothesis H-163: path-correction state must not refill from stale failed-read summary after a successful suggested action in the same request
+
+- Claim: Once a request successfully executes a clearing read/list/search action for the suggested relative path, the request-end failed-read bridge must not refill path-correction feedback from old ActionMap failed-read summaries.
+- Status: fixed locally; live rerun exposed H-164.
+
+# Evidence E-327: H-163 local repair and live rerun
+
+- Repair artifact:
+  - `third_party/codex-cli/codex-rs/core/src/session/turn.rs`
+    - Added `path_correction_cleared_this_request`.
+    - `taskspace_should_refill_path_correction_from_failed_read_summary(...)` now skips refill when the current request already cleared path-correction feedback.
+- Validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core path_correction
+    14 passed
+  RUST_MIN_STACK=8388608 CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core taskspace
+    175 passed
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
+    passed
+  ```
+- Live rerun:
+  ```text
+  RunRoot: target/r4-e3-formal-p0-20260705/targeted-multi-source-h163-local-right-only
+  RunDir: target/r4-e3-formal-p0-20260705/targeted-multi-source-h163-local-right-only/runs/terminal_bench__multi-source-data-merger/20260706-045701-852
+  business_success=false
+  public_validation_exit_code=1
+  tool_call_count=2
+  ```
+- Interpretation:
+  - H-163 narrowed stale refill, but H-164 remained: path-correction hard-stop counted a retry as consecutive even after an intervening successful suggested action.
+
+# Hypothesis H-164: path-correction hard-stop accounting must reset after successful suggested-path progress
+
+- Claim: `TaskSpacePathCorrectionHardStopV1` should represent consecutive deterministic retries. If the Agent successfully uses the suggested relative path between retries, the path-correction recovery count must reset for that node.
+- Status: fixed locally and live-cleared by E-328.
+
+# Evidence E-328: H-164 local repair and live rerun
+
+- Repair artifact:
+  - `third_party/codex-cli/codex-rs/core/src/session/turn.rs`
+    - `SamplingRequestResult` carries `path_correction_cleared_this_request`.
+    - Path-correction recovery accounting resets when a request has successfully cleared the correction.
+    - `taskspace_path_correction_recovery_should_hard_stop(...)` also receives the cleared signal for direct test coverage.
+- Validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core path_correction
+    14 passed
+  RUST_MIN_STACK=8388608 CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core taskspace
+    175 passed
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
+    passed
+  ```
+- Live rerun:
+  ```text
+  RunRoot: target/r4-e3-formal-p0-20260705/targeted-multi-source-h164-local-right-only
+  RunDir: target/r4-e3-formal-p0-20260705/targeted-multi-source-h164-local-right-only/runs/terminal_bench__multi-source-data-merger/20260706-050112-519
+  business_success=false
+  public_validation_exit_code=1
+  tool_call_count=5
+  failed_tool_call_count=2
+  ```
+- Interpretation:
+  - H-164 live-cleared enough to read `source_a` and `source_b`.
+  - New blocker H-165: `current_main_recent_failed_read_summary()` still returned stale `/data/source_b/users.csv` after successful `data/source_b/users.csv`, causing old correction state to revive.
+
+# Hypothesis H-165: recent failed-read summary must retire failures covered by later successful relative reads
+
+- Claim: ActionMap's recent failed-read bridge should not report an absolute workspace alias failure once a later successful read/search in the same node covers its workspace-relative candidate.
+- Status: fixed locally and live-cleared for stale source_b path-correction; live rerun exposed H-166.
+
+# Evidence E-329: H-165 local repair and live rerun
+
+- Repair artifact:
+  - `third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs`
+    - `node_recent_failed_action_summary_with_limit(...)` skips failed `Read` results corrected by later successful relative read/search.
+    - Added path extraction for `/data/...` and `/app/...` aliases and coverage check against visible artifacts/body.
+    - Added `recent_failed_read_summary_skips_corrected_relative_success`.
+- Validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core recent_failed_read_summary_skips_corrected_relative_success
+    1 passed
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core path_correction
+    14 passed
+  RUST_MIN_STACK=8388608 CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core taskspace
+    175 passed
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
+    passed
+  ```
+- Live rerun:
+  ```text
+  RunRoot: target/r4-e3-formal-p0-20260705/targeted-multi-source-h165-local-right-only
+  RunDir: target/r4-e3-formal-p0-20260705/targeted-multi-source-h165-local-right-only/runs/terminal_bench__multi-source-data-merger/20260706-050538-091
+  business_success=false
+  public_validation_exit_code=1
+  tool_call_count=5
+  failed_tool_call_count=1
+  changed_paths=[]
+  ```
+- Interpretation:
+  - H-165 live-cleared: stale source_b path-correction hard-stop did not recur.
+  - New blocker H-166: after successful `source_a` read, duplicate-read recovery did not converge the inspect node to implementation; the Agent repeated `source_a`, then retried `/data` and `/data/source_a/users.json`.
+
+# Hypothesis H-166: duplicate inspect evidence recovery should force transition after repeated duplicate/path-correction loop
+
+- Claim: Once inspect has a successful read/search for a source artifact, repeated duplicate evidence commands should either force `finish_node -> implement_solution` or hard-stop with a dedicated duplicate-inspect marker before the Agent spends more requests on the same evidence surface.
+- Status: open.
+- Boundary:
+  - Runtime should not decide the merge implementation.
+  - Runtime may enforce the hard baseline that repeated identical evidence collection after successful inspect evidence is not progress, and should present a clear transition/control action rather than preserving ambiguous recovery text.

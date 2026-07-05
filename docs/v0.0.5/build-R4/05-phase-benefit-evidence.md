@@ -1641,6 +1641,151 @@ CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
 git diff --check
 ```
 
+## 5.97 2026-07-06 corrected-alias validation and path-correction lifecycle
+
+H-160 到 H-165 继续沿 `multi-source-data-merger` right-only targeted runs 推进，目标不是证明 E3 utility，
+而是把 tools 链路的能力层/反馈层问题逐个收敛。
+
+关键 live 证据：
+
+```text
+H-160 live:
+RunDir: target/r4-e3-formal-p0-20260705/targeted-multi-source-h160-local-right-only/runs/terminal_bench__multi-source-data-merger/20260706-041410-934
+changed_paths=["merge_users.py"]
+blocker: validation FileNotFoundError /data/source_a/users.json did not route to rework
+
+H-161 live:
+RunDir: target/r4-e3-formal-p0-20260705/targeted-multi-source-h161-local-right-only/runs/terminal_bench__multi-source-data-merger/20260706-043403-485
+tool_call_count=23
+blocker: implementation rework created, but patches missed failed /data alias root cause
+
+H-164 live:
+RunDir: target/r4-e3-formal-p0-20260705/targeted-multi-source-h164-local-right-only/runs/terminal_bench__multi-source-data-merger/20260706-050112-519
+tool_call_count=5
+progress: source_a and source_b read successfully
+blocker: stale failed-read summary revived source_b path-correction state
+
+H-165 live:
+RunDir: target/r4-e3-formal-p0-20260705/targeted-multi-source-h165-local-right-only/runs/terminal_bench__multi-source-data-merger/20260706-050538-091
+tool_call_count=5
+failed_tool_call_count=1
+stale source_b hard-stop absent
+blocker: duplicate inspect evidence did not converge to implementation
+```
+
+已落地收益：
+
+1. `path-correction-file-suggestion-action-ambiguity`：file candidate 的 next action 现在明确为 exact `read_file`。
+2. `synthetic-validation-bootstrap-failure-rework-gap`：validation failed result 先于 coverage recovery 进入 implementation rework。
+3. `validation-rework-patch-misses-failed-alias`：rework patch 必须先移除失败 absolute alias。
+4. `path-correction-same-request-stale-refill`：同请求内 successful suggested path 不再被旧 failed-read summary 覆盖。
+5. `path-correction-hardstop-count-not-reset-after-progress`：path-correction hard-stop 只表达连续重复失败，中间有 successful suggested path 会重置计数。
+6. `recent-failed-read-summary-stale-after-relative-success`：ActionMap 不再把已被后续相对路径成功覆盖的 absolute read failure 暴露给 turn 层。
+
+当前未解：
+
+1. `inspect-duplicate-evidence-recovery-does-not-converge`：inspect 已有 successful evidence 后，duplicate-read recovery
+   还不足以稳定推进 `finish_node -> implement_solution`。
+2. E3 utility 仍未达成；这些 right-only runs 是 R4-D 定向诊断，不计入正式 paired E3 aggregate。
+
+验证：
+
+```text
+cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_rework_patch_must_remove_corrected_failed_alias
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_corrected_data_alias_failure_routes_to_implementation_rework
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core recent_failed_read_summary_skips_corrected_relative_success
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core path_correction
+RUST_MIN_STACK=8388608 CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core taskspace
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
+git diff --check
+```
+
+## 5.99 2026-07-06 validation closeout local-infra blocker final-gate loop
+
+H-158 修复后的 right-only targeted rerun 已把 `multi-source-data-merger` 推到业务成功：
+
+```text
+RunDir: target/r4-e3-formal-p0-20260705/targeted-multi-source-h158-local-right-only-r2/runs/terminal_bench__multi-source-data-merger/20260706-035400-093
+business_success=true
+public_validation_exit_code=0
+hidden_oracle_exit_code=0
+changed_paths=["conflicts.json","merge_users.py","merged_users.parquet"]
+tool_call_count=10
+failed_tool_call_count=2
+```
+
+这说明 `/data` alias、explicit JSON fact-source、path-listing coverage 三个前置问题已经在该样本上 live-clear。
+新的成本尾部来自 final readiness gate：successful validation closeout 之后，provider 继续尝试 `final_answer`，
+但每次都被拒绝：
+
+```text
+TaskSpace final_answer rejected by final readiness gate.
+Rejection reason: TaskSpace result `result-8` on node `node-3` is still unreviewed.
+TaskSpaceProviderBudgetHardStopV1 provider_request_hard_limit_exceeded request_count=20/20
+```
+
+`result-8` 是早先 pytest/local validator infrastructure blocker；后续 platform-compatible validation 已经成功。
+因此这是 `validation-closeout-local-infra-blocker-final-gate-loop`：成功 validation closeout 没有失效同一实现依赖下、
+已被后续验证替代的本地环境 blocker，导致终态语义卡住并继续消耗预算。
+
+修复边界：
+
+1. runtime 不把普通 tool success 解释成业务成功。
+2. runtime 不替 Agent 判断 merge 逻辑是否正确。
+3. 只有当 successful validation closeout 已成立时，才扫描同一 `ImplementSolution` dependency 下的 sibling
+   `SmokeTest`/`RegressionTest` blocker。
+4. 只失效 `is_local_validator_infra_failure(...)` 命中的 unreviewed blocker；真实断言失败、输出契约失败、业务 mismatch
+   仍保留。
+
+验证：
+
+```text
+cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core superseded_validation_blockers_include_sibling_local_infra_blocker -- --nocapture
+  1 passed
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_closeout -- --nocapture
+  3 passed
+RUST_MIN_STACK=8388608 CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core taskspace -- --nocapture
+  175 passed
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
+  passed
+git diff --check
+  passed
+```
+
+`4edf7dc` right-only targeted rerun 进一步说明 path-correction 不是唯一语义问题。Agent 按 recovery
+执行了 `list_files data/source_a/users.json` 并看到该文件存在后，projection 不再要求读取
+`source_a/users.json` 内容，而是只要求 `/data/source_b/users.csv`、`/data/source_c/users.parquet`。
+根因是两层 TaskSpace 语义边界混淆：
+
+1. 显式声明的 JSON fact-source 被 generated-output 启发式过滤，导致 `/data/source_a/users.json`
+   作为输入语义丢失。
+2. `rg --files data/source_a/users.json` 这种路径存在性清单被纳入 observed artifact coverage，
+   导致“文件存在”被扭成“事实源已读”。
+
+追加修复：
+
+1. `declared-json-fact-source-and-path-listing-coverage-distortion` 收录为 R4-D tools 链路问题类型。
+2. 显式 `cognitive_state.fact_sources` 走独立 extraction：仍排除真正的 output target，但不再因为
+   `.json` 后缀被 broad generated-output 过滤。
+3. `inspect_node_observed_artifact_refs()` 跳过 path-listing-only result；这些 result 只通过
+   projection-only helper 用来提供 workspace-relative candidate，不满足 fact-source read coverage。
+4. 边界保持不变：runtime 不自动读取文件，不判断 merge 逻辑，只保证 TaskSpace 的 evidence 分类不丢失、
+   不歧义、不扭曲。
+
+验证：
+
+```text
+cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core fact_source_path_listing_does_not_satisfy_required_read_coverage -- --nocapture
+  1 passed
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core projection_uses_observed_relative_candidate_for_data_alias_fact_sources -- --nocapture
+  1 passed
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core inspect_fact_source -- --nocapture
+  2 passed
+```
+
 ## 5.97 2026-07-06 E3 targeted side-selection cost control
 
 R4 targeted rerun 的成本直接来自 paired benchmark 的默认执行方式：即使当前只需要验证 right(TaskSpace) 的

@@ -2641,18 +2641,22 @@ impl ActionMapRuntimeState {
                 )],
             ));
         }
-        if matches!(node.kind, NodeKind::SmokeTest | NodeKind::RegressionTest)
-            && matches!(
-                descriptor.action_class,
-                ActionClass::Test | ActionClass::Build
-            )
-            && let Some(task) = map
-                .task_id
-                .as_ref()
-                .and_then(|task_id| self.tasks.get(task_id))
-            && let Some((reason, message, next_valid_actions, evidence_refs)) =
-                validation_test_coverage_block(map, node, task, &descriptor)
+        if node.kind == NodeKind::ImplementSolution
+            && descriptor.action_class == ActionClass::Edit
+            && !node_has_successful_action(map, node, ActionClass::Edit)
+            && let Some(requirement) =
+                implement_node_dependency_validation_rework_corrected_alias_requirement(map, node)
+            && !patch_removes_corrected_absolute_alias(&descriptor.preview, &requirement)
         {
+            let reason = "validation_rework_patch_misses_failed_alias".to_string();
+            let message = format!(
+                "TaskSpace blocked this edit because validation rework node `{}` has failed validation evidence showing corrected input alias `{}` while workspace evidence already observed `{}`. The first rework patch must remove or replace that failed alias in `{}` before addressing secondary issues.",
+                node.id,
+                requirement.absolute_alias,
+                requirement.relative_candidate,
+                requirement.target_artifacts.join(", ")
+            );
+            let current_node_item = format!("current_node:{}:{}", node.id, node.kind.as_str());
             let blocked_node_kind = node.kind.as_str().to_string();
             let repeated_block = self.record_blocked_action_repeat(
                 &map_id,
@@ -2661,12 +2665,26 @@ impl ActionMapRuntimeState {
                 &reason,
                 &descriptor,
             );
-            self.record_latest_gate_recovery_next_actions(&map_id, &node_id, &next_valid_actions);
             let recovery = gate_recovery_message_with_repeated_block(
                 &message,
                 &reason,
-                evidence_refs,
-                next_valid_actions,
+                vec![
+                    current_node_item,
+                    format!("failed_absolute_alias:{}", requirement.absolute_alias),
+                    format!("workspace_relative_candidate:{}", requirement.relative_candidate),
+                ],
+                vec![
+                    format!(
+                        "apply_patch for `{}` that removes `{}` from the implementation target",
+                        requirement.target_artifacts.join(", "),
+                        requirement.absolute_alias
+                    ),
+                    format!(
+                        "replace the failed alias with workspace-relative input `{}` or an equivalent local path strategy",
+                        requirement.relative_candidate
+                    ),
+                    "do not spend this rework edit on unrelated validation details before the failed alias is removed".to_string(),
+                ],
                 Vec::new(),
                 Some(&repeated_block),
             );
@@ -2752,6 +2770,49 @@ impl ActionMapRuntimeState {
                 )),
             }
             return Err(ActionMapGateError::new(recovery, events));
+        }
+        if matches!(node.kind, NodeKind::SmokeTest | NodeKind::RegressionTest)
+            && matches!(
+                descriptor.action_class,
+                ActionClass::Test | ActionClass::Build
+            )
+            && let Some(task) = map
+                .task_id
+                .as_ref()
+                .and_then(|task_id| self.tasks.get(task_id))
+            && let Some((reason, message, next_valid_actions, evidence_refs)) =
+                validation_test_coverage_block(map, node, task, &descriptor)
+        {
+            let blocked_node_kind = node.kind.as_str().to_string();
+            let repeated_block = self.record_blocked_action_repeat(
+                &map_id,
+                &node_id,
+                progress_signature,
+                &reason,
+                &descriptor,
+            );
+            self.record_latest_gate_recovery_next_actions(&map_id, &node_id, &next_valid_actions);
+            let recovery = gate_recovery_message_with_repeated_block(
+                &message,
+                &reason,
+                evidence_refs,
+                next_valid_actions,
+                Vec::new(),
+                Some(&repeated_block),
+            );
+            return Err(ActionMapGateError::new(
+                recovery,
+                vec![MapRuntimeEvent::ToolActionBlocked(
+                    MapRuntimeToolActionBlockedEvent {
+                        map_id,
+                        node_id,
+                        node_kind: blocked_node_kind,
+                        tool_name: descriptor.tool_name,
+                        action_class: descriptor.action_class.as_str().to_string(),
+                        reason,
+                    },
+                )],
+            ));
         }
         if descriptor.action_class != ActionClass::Control
             && let Some(call_id) = descriptor.call_id.as_deref()
@@ -15763,7 +15824,7 @@ fn validation_node_failed_noninfra_result(
                 Some(ActionClass::Test | ActionClass::Build)
             )
             || is_local_validator_infra_failure(&result.body)
-            || validation_failure_is_known_input_path_error(map, result)
+            || validation_failure_is_unresolved_known_input_path_error(map, result)
             || validation_failure_is_missing_command_script_error(result)
             || validation_failure_is_missing_jsonschema_dependency(result)
         {
@@ -15823,12 +15884,15 @@ fn validation_failure_is_missing_jsonschema_dependency(result: &NodeResult) -> b
             || body.contains("no module named \"jsonschema\""))
 }
 
-fn validation_failure_is_known_input_path_error(
+fn validation_failure_is_unresolved_known_input_path_error(
     map: &ActionMapInstance,
     result: &NodeResult,
 ) -> bool {
     let body = result.body.replace('\\', "/").to_ascii_lowercase();
     if !body.contains("filenotfounderror") && !body.contains("no such file or directory") {
+        return false;
+    }
+    if validation_failure_mentions_corrected_absolute_input_alias(map, &body) {
         return false;
     }
     let command_section = body
@@ -15851,6 +15915,125 @@ fn validation_failure_is_known_input_path_error(
             && command_section.contains(file_name)
             && !command_section.contains(&normalized)
     })
+}
+
+fn validation_failure_mentions_corrected_absolute_input_alias(
+    map: &ActionMapInstance,
+    body: &str,
+) -> bool {
+    !corrected_absolute_input_aliases_in_text(map, body).is_empty()
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct CorrectedAliasRepairRequirement {
+    absolute_alias: String,
+    relative_candidate: String,
+    target_artifacts: Vec<String>,
+}
+
+fn corrected_absolute_input_aliases_in_text(
+    map: &ActionMapInstance,
+    body: &str,
+) -> Vec<(String, String)> {
+    let known_artifacts = map
+        .results
+        .values()
+        .flat_map(result_visible_artifact_refs)
+        .collect::<Vec<_>>();
+    let mut aliases = Vec::new();
+    for artifact in &known_artifacts {
+        let normalized = normalize_artifact_ref(artifact).to_ascii_lowercase();
+        if normalized.starts_with("/data/") || !normalized.starts_with("data/") {
+            continue;
+        }
+        let absolute_alias = format!("/{}", normalized);
+        if body.contains(&absolute_alias)
+            && !aliases
+                .iter()
+                .any(|(existing, _)| existing == &absolute_alias)
+        {
+            aliases.push((absolute_alias, normalized));
+        }
+    }
+    aliases
+}
+
+fn implement_node_dependency_validation_rework_corrected_alias_requirement(
+    map: &ActionMapInstance,
+    node: &MapNode,
+) -> Option<CorrectedAliasRepairRequirement> {
+    if node.kind != NodeKind::ImplementSolution {
+        return None;
+    }
+    let mut dependency_node_ids = implement_node_validation_rework_dependency_node_ids(map, node);
+    if let Some(origin_node_id) = node.origin_node_id.as_deref()
+        && !dependency_node_ids
+            .iter()
+            .any(|existing| existing == origin_node_id)
+    {
+        dependency_node_ids.push(origin_node_id.to_string());
+    }
+    let target_artifacts = implement_node_dependency_validation_rework_artifact_refs(map, node);
+    for dependency_node_id in dependency_node_ids {
+        let Some(dependency) = map.nodes.get(&dependency_node_id) else {
+            continue;
+        };
+        if !matches!(
+            dependency.kind,
+            NodeKind::SmokeTest | NodeKind::RegressionTest
+        ) {
+            continue;
+        }
+        for result_ref in dependency.result_context.iter().rev() {
+            let Some(result) = map.results.get(&result_ref.id) else {
+                continue;
+            };
+            if result.kind != NodeResultKind::MainToolCall
+                || result.tool_success != Some(false)
+                || !matches!(
+                    result.action_class,
+                    Some(ActionClass::Test | ActionClass::Build)
+                )
+            {
+                continue;
+            }
+            let body = result.body.replace('\\', "/").to_ascii_lowercase();
+            if let Some((absolute_alias, relative_candidate)) =
+                corrected_absolute_input_aliases_in_text(map, &body)
+                    .into_iter()
+                    .next()
+            {
+                return Some(CorrectedAliasRepairRequirement {
+                    absolute_alias,
+                    relative_candidate,
+                    target_artifacts: if target_artifacts.is_empty() {
+                        vec!["implementation artifact named by failed validation".to_string()]
+                    } else {
+                        target_artifacts.clone()
+                    },
+                });
+            }
+        }
+    }
+    None
+}
+
+fn patch_removes_corrected_absolute_alias(
+    patch_preview: &str,
+    requirement: &CorrectedAliasRepairRequirement,
+) -> bool {
+    let patch = patch_preview.replace("\\n", "\n");
+    let removes_failed_alias = patch.lines().any(|line| {
+        line.starts_with('-')
+            && !line.starts_with("---")
+            && line.contains(&requirement.absolute_alias)
+    });
+    let readds_failed_alias = patch.lines().any(|line| {
+        line.starts_with('+')
+            && !line.starts_with("+++")
+            && line.contains(&requirement.absolute_alias)
+    });
+    removes_failed_alias && !readds_failed_alias
 }
 
 fn validation_failure_is_missing_command_script_error(result: &NodeResult) -> bool {
@@ -16272,7 +16455,7 @@ fn task_required_fact_source_artifact_refs(task: &TaskState) -> Vec<String> {
         }
         for value in [&source.id, &source.description] {
             for artifact in extract_artifact_like_refs(value) {
-                push_requirement_fact_source_artifact_ref(
+                push_declared_fact_source_artifact_ref(
                     &mut artifact_refs,
                     artifact,
                     &output_targets,
@@ -16281,7 +16464,7 @@ fn task_required_fact_source_artifact_refs(task: &TaskState) -> Vec<String> {
         }
         for evidence in &source.evidence_refs {
             if let Some(artifact_ref) = evidence.artifact_ref.as_deref() {
-                push_requirement_fact_source_artifact_ref(
+                push_declared_fact_source_artifact_ref(
                     &mut artifact_refs,
                     normalize_artifact_ref(artifact_ref),
                     &output_targets,
@@ -16313,6 +16496,21 @@ fn task_required_fact_source_artifact_refs(task: &TaskState) -> Vec<String> {
         );
     }
     artifact_refs
+}
+
+fn push_declared_fact_source_artifact_ref(
+    artifact_refs: &mut Vec<String>,
+    artifact_ref: String,
+    output_targets: &[String],
+) {
+    let artifact_ref = normalize_artifact_ref(&artifact_ref);
+    if output_targets
+        .iter()
+        .any(|target| artifact_refs_match(target, &artifact_ref))
+    {
+        return;
+    }
+    push_required_fact_source_artifact_ref(artifact_refs, artifact_ref);
 }
 
 fn push_requirement_text_fact_source_artifact_refs(
@@ -16575,6 +16773,9 @@ fn inspect_node_observed_artifact_refs(map: &ActionMapInstance, node: &MapNode) 
                 Some(ActionClass::Read | ActionClass::Search)
             )
         {
+            continue;
+        }
+        if read_result_body_is_path_listing_only(&result.body) {
             continue;
         }
         for artifact in result_visible_artifact_refs(result) {
@@ -17131,17 +17332,107 @@ fn node_recent_failed_action_summary_with_limit(
     action_class: ActionClass,
     max_chars: usize,
 ) -> Option<String> {
-    node.result_context.iter().rev().find_map(|result_ref| {
-        let result = map.results.get(&result_ref.id)?;
-        if result.kind != NodeResultKind::MainToolCall
-            || result.action_class != Some(action_class)
-            || result.tool_success != Some(false)
-        {
-            return None;
-        }
-        let preview = single_line_preview(&result.body, max_chars);
-        Some(format!("{}: {}", result.id, preview))
+    node.result_context
+        .iter()
+        .enumerate()
+        .rev()
+        .find_map(|(index, result_ref)| {
+            let result = map.results.get(&result_ref.id)?;
+            if result.kind != NodeResultKind::MainToolCall
+                || result.action_class != Some(action_class)
+                || result.tool_success != Some(false)
+            {
+                return None;
+            }
+            if action_class == ActionClass::Read
+                && failed_read_result_corrected_by_later_success(map, node, index, result)
+            {
+                return None;
+            }
+            let preview = single_line_preview(&result.body, max_chars);
+            Some(format!("{}: {}", result.id, preview))
+        })
+}
+
+fn failed_read_result_corrected_by_later_success(
+    map: &ActionMapInstance,
+    node: &MapNode,
+    failed_result_index: usize,
+    failed_result: &NodeResult,
+) -> bool {
+    let Some(relative_candidate) =
+        failed_read_workspace_relative_candidate_from_body(&failed_result.body)
+    else {
+        return false;
+    };
+    node.result_context
+        .iter()
+        .skip(failed_result_index + 1)
+        .filter_map(|result_ref| map.results.get(&result_ref.id))
+        .any(|result| successful_result_covers_relative_candidate(result, &relative_candidate))
+}
+
+fn failed_read_workspace_relative_candidate_from_body(body: &str) -> Option<String> {
+    let normalized = body.replace('\\', "/");
+    ["/data/", "/app/"].into_iter().find_map(|prefix| {
+        let start = normalized.find(prefix)?;
+        let tail = &normalized[start..];
+        let end = tail
+            .char_indices()
+            .find_map(|(index, character)| {
+                (index > 0
+                    && (character.is_whitespace()
+                        || matches!(
+                            character,
+                            '"' | '\'' | '`' | '<' | '>' | '|' | '\r' | '\n' | '\t'
+                        )))
+                .then_some(index)
+            })
+            .unwrap_or(tail.len());
+        let absolute = normalize_artifact_ref(tail[..end].trim_matches(|character| {
+            matches!(
+                character,
+                ':' | ',' | ';' | '.' | ')' | '(' | '[' | ']' | '{' | '}'
+            )
+        }));
+        absolute
+            .strip_prefix("/data/")
+            .map(|suffix| format!("data/{}", suffix.trim_start_matches('/')))
+            .or_else(|| {
+                absolute
+                    .strip_prefix("/app/")
+                    .map(|suffix| suffix.trim_start_matches('/').to_string())
+            })
+            .filter(|candidate| !candidate.trim().is_empty())
     })
+}
+
+fn successful_result_covers_relative_candidate(
+    result: &NodeResult,
+    relative_candidate: &str,
+) -> bool {
+    if result.kind != NodeResultKind::MainToolCall
+        || result.tool_success != Some(true)
+        || !matches!(
+            result.action_class,
+            Some(ActionClass::Read | ActionClass::Search)
+        )
+    {
+        return false;
+    }
+    let candidate = normalize_artifact_ref(relative_candidate);
+    if candidate.is_empty() {
+        return false;
+    }
+    let candidate_key = artifact_key(&candidate);
+    let covers_artifact = result_visible_artifact_refs(result).iter().any(|artifact| {
+        let artifact_key = artifact_key(artifact);
+        artifact_key == candidate_key
+            || artifact_key
+                .strip_prefix(candidate_key.trim_end_matches('/'))
+                .is_some_and(|suffix| suffix.starts_with('/'))
+    });
+    covers_artifact || result.body.replace('\\', "/").contains(&candidate)
 }
 
 fn node_result_is_successful_validation(result: &NodeResult) -> bool {
@@ -17783,7 +18074,12 @@ fn implement_node_dependency_validation_rework_repair_contract(
             type_mismatches.push(mismatch);
         }
     }
-    if missing_required_properties.is_empty() && type_mismatches.is_empty() {
+    let corrected_alias_requirement =
+        implement_node_dependency_validation_rework_corrected_alias_requirement(map, node);
+    if missing_required_properties.is_empty()
+        && type_mismatches.is_empty()
+        && corrected_alias_requirement.is_none()
+    {
         return None;
     }
     let target_artifacts = implement_node_dependency_validation_rework_artifact_refs(map, node);
@@ -17834,6 +18130,17 @@ fn implement_node_dependency_validation_rework_repair_contract(
     }
     if !target_artifacts.is_empty() {
         parts.push(format!("target_artifacts={}", target_artifacts.join(", ")));
+    }
+    if let Some(requirement) = corrected_alias_requirement {
+        parts.push(format!(
+            "corrected_input_aliases={} -> {}",
+            requirement.absolute_alias, requirement.relative_candidate
+        ));
+        parts.push(format!(
+            "patch_requirement=remove failed absolute input alias {} from {} before secondary fixes",
+            requirement.absolute_alias,
+            requirement.target_artifacts.join(", ")
+        ));
     }
     parts.push(
         "patch_requirement=update generated output keys and objects to satisfy these schema-required names before rerunning validation"
@@ -19084,6 +19391,17 @@ fn superseded_validation_blocker_result_ids(
     map: &ActionMapInstance,
     validation_node_id: &str,
 ) -> Vec<NodeResultId> {
+    let implementation_dependency_ids = map
+        .edges
+        .iter()
+        .filter(|edge| edge.to == validation_node_id)
+        .filter_map(|edge| {
+            map.nodes
+                .get(&edge.from)
+                .is_some_and(|node| node.kind == NodeKind::ImplementSolution)
+                .then_some(edge.from.clone())
+        })
+        .collect::<HashSet<_>>();
     let mut stack = map
         .edges
         .iter()
@@ -19129,6 +19447,28 @@ fn superseded_validation_blocker_result_ids(
         for edge in &map.edges {
             if edge.to == node_id {
                 stack.push(edge.from.clone());
+            }
+        }
+    }
+    for edge in &map.edges {
+        if !implementation_dependency_ids.contains(&edge.from) {
+            continue;
+        }
+        let Some(node) = map.nodes.get(&edge.to) else {
+            continue;
+        };
+        if !matches!(node.kind, NodeKind::SmokeTest | NodeKind::RegressionTest) {
+            continue;
+        }
+        for result_ref in &node.result_context {
+            let Some(result) = map.results.get(&result_ref.id) else {
+                continue;
+            };
+            if result.kind == NodeResultKind::Blocker
+                && result.evidence_package.validity == ResultValidity::Unreviewed
+                && is_local_validator_infra_failure(&result.body)
+            {
+                result_ids.push(result_ref.id.clone());
             }
         }
     }
@@ -26119,6 +26459,74 @@ data/source_c/users.parquet\n"
     }
 
     #[test]
+    fn fact_source_path_listing_does_not_satisfy_required_read_coverage() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        state
+            .start_task_for_main_with_kind_and_criteria(
+                owner,
+                NodeKind::InspectCodeContext,
+                "Inspect user data".to_string(),
+                "Read every declared data source.".to_string(),
+                Vec::new(),
+                Vec::new(),
+                vec![ActionMapStateCommitFactSourceInput {
+                    id: "fact-source-1".to_string(),
+                    provenance: "observed_from_environment".to_string(),
+                    description: "/data/source_a/users.json".to_string(),
+                    evidence_refs: vec![ActionMapEvidenceRefInput {
+                        artifact_ref: Some("user-request".to_string()),
+                        ..Default::default()
+                    }],
+                }],
+                "Inspect user data".to_string(),
+                "Read every declared data source.".to_string(),
+                true,
+            )
+            .expect("test task starts");
+        record_test_node_scope_question(&mut state, owner, "node-1");
+        assert_eq!(
+            state.current_main_inspect_missing_required_fact_source_artifacts(),
+            vec!["/data/source_a/users.json".to_string()]
+        );
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "list-source-a",
+                "shell_command",
+                Some(ActionClass::Read),
+                true,
+                "TaskSpaceToolInvocationV1:\n\
+tool: shell_command\n\
+command: rg --files data/source_a/users.json\n\
+raw_output:\n\
+data/source_a/users.json\n"
+                    .to_string(),
+            )
+            .expect("relative file listing records");
+
+        let missing = state.current_main_inspect_missing_required_fact_source_artifacts();
+        assert_eq!(missing, vec!["/data/source_a/users.json".to_string()]);
+
+        let task_id = state.active_task_id.clone().expect("active task");
+        let map = state.maps.get("map-1").expect("map");
+        let task = state.tasks.get(&task_id).expect("task");
+        let actions = projection_next_valid_actions(map, Some("node-1"), Some(task), &[]);
+        assert!(
+            actions.iter().any(|action| action.contains(
+                "read_file declared fact-source artifact `data/source_a/users.json` next"
+            )),
+            "{actions:?}"
+        );
+        assert!(
+            actions.iter().any(|action| action
+                .contains("workspace-relative candidate for `/data/source_a/users.json`")),
+            "{actions:?}"
+        );
+    }
+
+    #[test]
     fn inspect_missing_fact_source_bootstrap_complete_forces_transition_after_coverage() {
         let mut state = ActionMapRuntimeState::default();
         let owner = ThreadId::new();
@@ -27086,6 +27494,614 @@ def normalize_status(value: str) -> str:\n\
                 ToolActionDescriptor::new("shell_command", ActionClass::Test, "pytest"),
             )
             .expect("general project validators remain allowed");
+    }
+
+    #[test]
+    fn validation_failure_result_auto_routes_to_implementation_rework() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (_, map_id, implement_node_id, _) = start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::ImplementSolution,
+            "Merge users",
+            "Create merged user outputs.",
+            "Implement merge script",
+            "Create the script that generates merged outputs.",
+            true,
+        );
+        for (id, artifact) in [
+            ("oc-merged", "/app/merged_users.parquet"),
+            ("oc-conflicts", "/app/conflicts.json"),
+        ] {
+            state
+                .record_output_contract_for_main(
+                    owner,
+                    id,
+                    "artifact",
+                    artifact.to_string(),
+                    vec![ActionMapEvidenceRefInput {
+                        artifact_ref: Some("user-request".to_string()),
+                        ..Default::default()
+                    }],
+                )
+                .expect("output contract records");
+        }
+        let (edit_result_id, _) = state
+            .record_main_tool_result_with_class(
+                owner,
+                "edit-merge-script",
+                "apply_patch",
+                Some(ActionClass::Edit),
+                true,
+                "Success. Updated the following files:\nA merge_users.py\n".to_string(),
+            )
+            .expect("edit result records")
+            .expect("edit result id");
+        state
+            .mark_result_validity_for_main(
+                owner,
+                &edit_result_id,
+                "accepted",
+                "accepted implementation edit".to_string(),
+                vec![ActionMapCognitiveClaimInput {
+                    id: "claim-edit".to_string(),
+                    statement: "Merge script was created.".to_string(),
+                    evidence_refs: vec![ActionMapEvidenceRefInput {
+                        result_id: Some(edit_result_id.clone()),
+                        ..Default::default()
+                    }],
+                }],
+                vec![ActionMapEvidenceRefInput {
+                    result_id: Some(edit_result_id.clone()),
+                    ..Default::default()
+                }],
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+            )
+            .expect("edit accepted");
+        let (outcome, _) = state
+            .finish_main_node_with_next(
+                owner,
+                &implement_node_id,
+                "Created merge script.".to_string(),
+                None,
+                Some(ActionMapNextNodeDraft {
+                    kind: NodeKind::SmokeTest,
+                    title: "Run merge validation".to_string(),
+                    context_summary: "Run validation that executes the merge script.".to_string(),
+                    dependency_node_ids: vec![implement_node_id.clone()],
+                }),
+            )
+            .expect("finish implementation into validation");
+        let validation_node_id = outcome
+            .next_node_id
+            .clone()
+            .expect("validation node created");
+        state
+            .mark_result_validity_for_main(
+                owner,
+                &outcome.result_id,
+                "accepted",
+                "accepted implementation handoff".to_string(),
+                vec![ActionMapCognitiveClaimInput {
+                    id: "claim-handoff".to_string(),
+                    statement: "Implementation can proceed to validation.".to_string(),
+                    evidence_refs: vec![ActionMapEvidenceRefInput {
+                        result_id: Some(outcome.result_id.clone()),
+                        ..Default::default()
+                    }],
+                }],
+                vec![ActionMapEvidenceRefInput {
+                    result_id: Some(outcome.result_id.clone()),
+                    ..Default::default()
+                }],
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+            )
+            .expect("handoff accepted");
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "run-merge-validation",
+                "shell_command",
+                Some(ActionClass::Test),
+                false,
+                "TaskSpaceToolInvocationV1:\n\
+tool: shell_command\n\
+command: python merge_users.py && test -s merged_users.parquet\n\
+raw_output:\n\
+Exit code: 1\n\
+Output:\n\
+Reading source A...\n\
+Traceback (most recent call last):\n\
+  File \"merge_users.py\", line 31, in read_source\n\
+    with open(path, 'r') as f:\n\
+FileNotFoundError: [Errno 2] No such file or directory: '/data/source_a/users.json'\n"
+                    .to_string(),
+            )
+            .expect("failed validation records");
+        let map = state.maps.get(&map_id).expect("map");
+        assert_eq!(
+            map.nodes
+                .get(&validation_node_id)
+                .expect("validation node")
+                .status,
+            NodeStatus::Blocked
+        );
+        let rework_node_id = state
+            .current_main_node_id
+            .as_deref()
+            .expect("validation failure should bind rework");
+        assert_eq!(
+            map.nodes.get(rework_node_id).expect("rework node").kind,
+            NodeKind::ImplementSolution
+        );
+    }
+
+    #[test]
+    fn validation_corrected_data_alias_failure_routes_to_implementation_rework() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (_, map_id, implement_node_id, _) = start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::ImplementSolution,
+            "Merge users",
+            "Create merged user outputs from corrected workspace-relative inputs.",
+            "Implement merge script",
+            "Create the script that generates merged outputs.",
+            true,
+        );
+        let (read_result_id, _) = state
+            .record_main_tool_result_with_class(
+                owner,
+                "read-source-a",
+                "shell_command",
+                Some(ActionClass::Read),
+                true,
+                "TaskSpaceToolInvocationV1:\n\
+tool: shell_command\n\
+command: sed -n '1,240p' -- data/source_a/users.json\n\
+raw_output:\n\
+[{\"id\":101,\"full_name\":\"John Doe\"}]\n\
+TaskSpaceReadFileSummaryV1: path=data/source_a/users.json lines_read=1 eof_reached=true max_lines=240\n"
+                    .to_string(),
+            )
+            .expect("corrected relative source read records")
+            .expect("read result id");
+        {
+            let map = state.maps.get_mut(&map_id).expect("map");
+            let result = map.results.get_mut(&read_result_id).expect("read result");
+            result.evidence_package.evidence_refs.push(EvidenceRef {
+                artifact_ref: Some("data/source_a/users.json".to_string()),
+                ..Default::default()
+            });
+        }
+        state
+            .mark_result_validity_for_main(
+                owner,
+                &read_result_id,
+                "questioned",
+                "reviewed corrected relative source read; it observes the input artifact but is not an implementation change".to_string(),
+                vec![ActionMapCognitiveClaimInput {
+                    id: "claim-source-a-read".to_string(),
+                    statement: "source_a was read at the workspace-relative path.".to_string(),
+                    evidence_refs: vec![ActionMapEvidenceRefInput {
+                        result_id: Some(read_result_id.clone()),
+                        artifact_ref: Some("data/source_a/users.json".to_string()),
+                        ..Default::default()
+                    }],
+                }],
+                vec![ActionMapEvidenceRefInput {
+                    result_id: Some(read_result_id.clone()),
+                    artifact_ref: Some("data/source_a/users.json".to_string()),
+                    ..Default::default()
+                }],
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+            )
+            .expect("read reviewed");
+        let (edit_result_id, _) = state
+            .record_main_tool_result_with_class(
+                owner,
+                "edit-merge-script",
+                "apply_patch",
+                Some(ActionClass::Edit),
+                true,
+                "Success. Updated the following files:\nA merge_users.py\n".to_string(),
+            )
+            .expect("edit result records")
+            .expect("edit result id");
+        state
+            .mark_result_validity_for_main(
+                owner,
+                &edit_result_id,
+                "accepted",
+                "accepted implementation edit".to_string(),
+                vec![ActionMapCognitiveClaimInput {
+                    id: "claim-edit".to_string(),
+                    statement: "merge_users.py was created.".to_string(),
+                    evidence_refs: vec![ActionMapEvidenceRefInput {
+                        result_id: Some(edit_result_id.clone()),
+                        ..Default::default()
+                    }],
+                }],
+                vec![ActionMapEvidenceRefInput {
+                    result_id: Some(edit_result_id.clone()),
+                    ..Default::default()
+                }],
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+            )
+            .expect("edit accepted");
+        let (outcome, _) = state
+            .finish_main_node_with_next(
+                owner,
+                &implement_node_id,
+                "Created merge script.".to_string(),
+                None,
+                Some(ActionMapNextNodeDraft {
+                    kind: NodeKind::SmokeTest,
+                    title: "Run merge validation".to_string(),
+                    context_summary: "Run validation that executes the merge script.".to_string(),
+                    dependency_node_ids: vec![implement_node_id.clone()],
+                }),
+            )
+            .expect("finish implementation into validation");
+        let validation_node_id = outcome.next_node_id.expect("validation node");
+        state
+            .mark_result_validity_for_main(
+                owner,
+                &outcome.result_id,
+                "accepted",
+                "accepted validation handoff".to_string(),
+                vec![ActionMapCognitiveClaimInput {
+                    id: "claim-handoff".to_string(),
+                    statement: "implementation can proceed to validation.".to_string(),
+                    evidence_refs: vec![ActionMapEvidenceRefInput {
+                        result_id: Some(outcome.result_id.clone()),
+                        ..Default::default()
+                    }],
+                }],
+                vec![ActionMapEvidenceRefInput {
+                    result_id: Some(outcome.result_id.clone()),
+                    ..Default::default()
+                }],
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+            )
+            .expect("handoff accepted");
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "taskspace-validation-required-command-bootstrap-1-1",
+                "shell_command",
+                Some(ActionClass::Test),
+                false,
+                "TaskSpaceToolInvocationV1:\n\
+tool: shell_command\n\
+command: python merge_users.py && test -s merged_users.parquet\n\
+raw_output:\n\
+Exit code: 1\n\
+Output:\n\
+Reading source A...\n\
+Traceback (most recent call last):\n\
+  File \"merge_users.py\", line 31, in read_source\n\
+    with open(path, 'r') as f:\n\
+FileNotFoundError: [Errno 2] No such file or directory: '/data/source_a/users.json'\n"
+                    .to_string(),
+            )
+            .expect("failed bootstrap validation records");
+
+        let map = state.maps.get(&map_id).expect("map");
+        assert_eq!(
+            map.nodes
+                .get(&validation_node_id)
+                .expect("validation node")
+                .status,
+            NodeStatus::Blocked
+        );
+        let rework_node_id = state
+            .current_main_node_id
+            .as_deref()
+            .expect("validation failure should bind rework");
+        let rework_node = map.nodes.get(rework_node_id).expect("rework node");
+        assert_eq!(rework_node.kind, NodeKind::ImplementSolution);
+        assert_eq!(
+            rework_node.origin_node_id.as_deref(),
+            Some(validation_node_id.as_str())
+        );
+        assert!(
+            rework_node
+                .context
+                .summary
+                .contains("/data/source_a/users.json"),
+            "{}",
+            rework_node.context.summary
+        );
+    }
+
+    #[test]
+    fn validation_rework_patch_must_remove_corrected_failed_alias() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (_, map_id, implement_node_id, _) = start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::ImplementSolution,
+            "Merge users",
+            "Create merged user outputs from corrected workspace-relative inputs.",
+            "Implement merge script",
+            "Create the script that generates merged outputs.",
+            true,
+        );
+        let (read_result_id, _) = state
+            .record_main_tool_result_with_class(
+                owner,
+                "read-source-a",
+                "shell_command",
+                Some(ActionClass::Read),
+                true,
+                "TaskSpaceToolInvocationV1:\n\
+tool: shell_command\n\
+command: sed -n '1,240p' -- data/source_a/users.json\n\
+raw_output:\n\
+[{\"id\":101,\"full_name\":\"John Doe\"}]\n\
+TaskSpaceReadFileSummaryV1: path=data/source_a/users.json lines_read=1 eof_reached=true max_lines=240\n"
+                    .to_string(),
+            )
+            .expect("corrected relative source read records")
+            .expect("read result id");
+        {
+            let map = state.maps.get_mut(&map_id).expect("map");
+            let result = map.results.get_mut(&read_result_id).expect("read result");
+            result.evidence_package.evidence_refs.push(EvidenceRef {
+                artifact_ref: Some("data/source_a/users.json".to_string()),
+                ..Default::default()
+            });
+        }
+        state
+            .mark_result_validity_for_main(
+                owner,
+                &read_result_id,
+                "questioned",
+                "reviewed corrected relative source read; it observes the input artifact but is not an implementation change".to_string(),
+                vec![ActionMapCognitiveClaimInput {
+                    id: "claim-source-a-read".to_string(),
+                    statement: "source_a was read at the workspace-relative path.".to_string(),
+                    evidence_refs: vec![ActionMapEvidenceRefInput {
+                        result_id: Some(read_result_id.clone()),
+                        artifact_ref: Some("data/source_a/users.json".to_string()),
+                        ..Default::default()
+                    }],
+                }],
+                vec![ActionMapEvidenceRefInput {
+                    result_id: Some(read_result_id.clone()),
+                    artifact_ref: Some("data/source_a/users.json".to_string()),
+                    ..Default::default()
+                }],
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+            )
+            .expect("read reviewed");
+        let (edit_result_id, _) = state
+            .record_main_tool_result_with_class(
+                owner,
+                "edit-merge-script",
+                "apply_patch",
+                Some(ActionClass::Edit),
+                true,
+                "Success. Updated the following files:\nA merge_users.py\n".to_string(),
+            )
+            .expect("edit result records")
+            .expect("edit result id");
+        state
+            .mark_result_validity_for_main(
+                owner,
+                &edit_result_id,
+                "accepted",
+                "accepted implementation edit".to_string(),
+                vec![ActionMapCognitiveClaimInput {
+                    id: "claim-edit".to_string(),
+                    statement: "merge_users.py was created.".to_string(),
+                    evidence_refs: vec![ActionMapEvidenceRefInput {
+                        result_id: Some(edit_result_id.clone()),
+                        ..Default::default()
+                    }],
+                }],
+                vec![ActionMapEvidenceRefInput {
+                    result_id: Some(edit_result_id.clone()),
+                    ..Default::default()
+                }],
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+            )
+            .expect("edit accepted");
+        let (outcome, _) = state
+            .finish_main_node_with_next(
+                owner,
+                &implement_node_id,
+                "Created merge script.".to_string(),
+                None,
+                Some(ActionMapNextNodeDraft {
+                    kind: NodeKind::SmokeTest,
+                    title: "Run merge validation".to_string(),
+                    context_summary: "Run validation that executes the merge script.".to_string(),
+                    dependency_node_ids: vec![implement_node_id.clone()],
+                }),
+            )
+            .expect("finish implementation into validation");
+        let validation_node_id = outcome.next_node_id.expect("validation node");
+        state
+            .mark_result_validity_for_main(
+                owner,
+                &outcome.result_id,
+                "accepted",
+                "accepted validation handoff".to_string(),
+                vec![ActionMapCognitiveClaimInput {
+                    id: "claim-handoff".to_string(),
+                    statement: "implementation can proceed to validation.".to_string(),
+                    evidence_refs: vec![ActionMapEvidenceRefInput {
+                        result_id: Some(outcome.result_id.clone()),
+                        ..Default::default()
+                    }],
+                }],
+                vec![ActionMapEvidenceRefInput {
+                    result_id: Some(outcome.result_id.clone()),
+                    ..Default::default()
+                }],
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+            )
+            .expect("handoff accepted");
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "run-validation",
+                "shell_command",
+                Some(ActionClass::Test),
+                false,
+                "TaskSpaceToolInvocationV1:\n\
+tool: shell_command\n\
+command: python merge_users.py && test -s merged_users.parquet\n\
+raw_output:\n\
+Traceback (most recent call last):\n\
+  File \"merge_users.py\", line 23, in <module>\n\
+    with open(source_a_path, 'r') as f:\n\
+FileNotFoundError: [Errno 2] No such file or directory: '/data/source_a/users.json'\n"
+                    .to_string(),
+            )
+            .expect("failed validation records");
+        let rework_node_id = state
+            .current_main_node_id
+            .clone()
+            .expect("validation failure should bind rework");
+        {
+            let map = state.maps.get(&map_id).expect("map");
+            assert_eq!(
+                map.nodes
+                    .get(&validation_node_id)
+                    .expect("validation node")
+                    .status,
+                NodeStatus::Blocked
+            );
+            let rework_node = map.nodes.get(&rework_node_id).expect("rework node");
+            assert_eq!(rework_node.kind, NodeKind::ImplementSolution);
+            let contract =
+                implement_node_dependency_validation_rework_repair_contract(map, rework_node)
+                    .expect("corrected alias contract");
+            assert!(
+                contract.contains(
+                    "corrected_input_aliases=/data/source_a/users.json -> data/source_a/users.json"
+                ),
+                "{contract}"
+            );
+        }
+
+        let bad_patch = "*** Begin Patch\n\
+*** Update File: merge_users.py\n\
+@@\n\
+-merged_df['created_date'] = pd.to_datetime(merged_df['created_date'], errors='coerce').dt.strftime('%Y-%m-%d')\n\
++merged_df['created_date'] = pd.to_datetime(merged_df['created_date'], errors='coerce').dt.strftime('%Y-%m-%d').fillna('')\n\
+*** End Patch";
+        let err = state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new("apply_patch", ActionClass::Edit, bad_patch),
+            )
+            .expect_err("patch that misses failed alias should be blocked");
+        assert!(
+            err.to_string()
+                .contains("validation_rework_patch_misses_failed_alias"),
+            "{err}"
+        );
+
+        let good_patch = "*** Begin Patch\n\
+*** Update File: merge_users.py\n\
+@@\n\
+-source_a_path = '/data/source_a/users.json'\n\
++source_a_path = 'data/source_a/users.json'\n\
+*** End Patch";
+        state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new("apply_patch", ActionClass::Edit, good_patch),
+            )
+            .expect("patch removing failed alias is allowed");
+    }
+
+    #[test]
+    fn recent_failed_read_summary_skips_corrected_relative_success() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::InspectCodeContext,
+            "Inspect data sources",
+            "Inspect data sources before implementing merge.",
+            "Inspect inputs",
+            "Read source inputs.",
+            true,
+        );
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "read-source-b-absolute",
+                "shell_command",
+                Some(ActionClass::Read),
+                false,
+                "TaskSpaceToolInvocationV1:\n\
+tool: shell_command\n\
+command: sed -n '1,240p' -- /data/source_b/users.csv\n\
+raw_output:\n\
+sed: can't read /data/source_b/users.csv: No such file or directory\n"
+                    .to_string(),
+            )
+            .expect("failed absolute read records");
+
+        assert!(
+            state
+                .current_main_recent_failed_read_summary()
+                .expect("failed read summary")
+                .contains("/data/source_b/users.csv")
+        );
+
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "read-source-b-relative",
+                "shell_command",
+                Some(ActionClass::Read),
+                true,
+                "TaskSpaceToolInvocationV1:\n\
+tool: shell_command\n\
+command: sed -n '1,240p' -- data/source_b/users.csv\n\
+raw_output:\n\
+user_id,name,email_address,created_at,is_active\n\
+101,John Doe,john@b.com,2024-01-10,true\n\
+TaskSpaceReadFileSummaryV1: path=data/source_b/users.csv lines_read=2 eof_reached=true max_lines=240\n"
+                    .to_string(),
+            )
+            .expect("corrected relative read records");
+
+        assert!(
+            state.current_main_recent_failed_read_summary().is_none(),
+            "corrected relative read should retire stale absolute read failure"
+        );
     }
 
     #[test]
@@ -38529,6 +39545,86 @@ KeyError: 'salary'\n"
         state
             .record_main_final_response(owner, "Validation passed; the output is ready.")
             .expect("superseded blocker must not block final answer");
+    }
+
+    #[test]
+    fn superseded_validation_blockers_include_sibling_local_infra_blocker() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (_, map_id, implement_node_id, _) = start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::ImplementSolution,
+            "Create merged outputs",
+            "Create requested outputs and validate them.",
+            "Apply merge implementation",
+            "Write the requested output artifacts.",
+            true,
+        );
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "call-edit-output",
+                "apply_patch",
+                Some(ActionClass::Edit),
+                true,
+                "Success. Updated the following files:\nA merge_users.py\nA merged_users.parquet\nA conflicts.json\n"
+                    .to_string(),
+            )
+            .expect("edit result records");
+        let (implement_outcome, _) = state
+            .finish_main_node_with_next(
+                owner,
+                &implement_node_id,
+                "Merge implementation was written.".to_string(),
+                None,
+                Some(ActionMapNextNodeDraft {
+                    kind: NodeKind::SmokeTest,
+                    title: "Run pytest validation".to_string(),
+                    context_summary: "Attempt pytest validation.".to_string(),
+                    dependency_node_ids: vec![implement_node_id.clone()],
+                }),
+            )
+            .expect("implementation finishes into first validation");
+        let first_validation_node_id = implement_outcome
+            .next_node_id
+            .clone()
+            .expect("first validation node created");
+        state
+            .block_main_node(
+                owner,
+                &first_validation_node_id,
+                "Local validator infrastructure failed while running `result-7`: command: python -m pytest; /usr/bin/python: No module named pytest.".to_string(),
+            )
+            .expect("local infra blocker records");
+        let local_infra_blocker_id = {
+            let map = state.maps.get(&map_id).expect("map");
+            map.nodes
+                .get(&first_validation_node_id)
+                .expect("first validation")
+                .result_context
+                .iter()
+                .find(|result_ref| result_ref.kind == NodeResultKind::Blocker)
+                .expect("local infra blocker result")
+                .id
+                .clone()
+        };
+        state
+            .create_node_for_main_with_kind(
+                owner,
+                NodeKind::SmokeTest,
+                "Run platform validation".to_string(),
+                "Run a platform-compatible validation command.".to_string(),
+                vec![implement_node_id.clone()],
+                false,
+            )
+            .expect("sibling validation node creates");
+        let second_validation_node_id = "node-4";
+        let map = state.maps.get(&map_id).expect("map");
+        let superseded = superseded_validation_blocker_result_ids(map, second_validation_node_id);
+
+        assert_eq!(superseded, vec![local_infra_blocker_id]);
     }
 
     #[test]

@@ -620,6 +620,7 @@ pub(crate) async fn run_turn(
                     needs_follow_up: model_needs_follow_up,
                     last_agent_message: sampling_request_last_agent_message,
                     taskspace_no_action_recovery_item,
+                    path_correction_cleared_this_request,
                 } = sampling_request_output;
                 can_drain_pending_input = true;
                 if let Some(recovery_item) = taskspace_no_action_recovery_item {
@@ -666,6 +667,9 @@ pub(crate) async fn run_turn(
                             &mut taskspace_path_correction_recovery_count,
                             current_recovery_snapshot.as_ref(),
                         );
+                        if path_correction_cleared_this_request {
+                            taskspace_path_correction_recovery_count = 0;
+                        }
                     }
                     if is_validation_rework_duplicate_read_recovery {
                         taskspace_reset_recovery_count_for_snapshot_node(
@@ -705,6 +709,7 @@ pub(crate) async fn run_turn(
                         taskspace_path_correction_recovery_should_hard_stop(
                             &recovery_item,
                             taskspace_path_correction_recovery_count,
+                            path_correction_cleared_this_request,
                         );
                     let no_action_recovery_cap = current_recovery_snapshot
                         .as_ref()
@@ -2289,18 +2294,22 @@ fn build_taskspace_path_correction_recovery_item(
     node_kind: Option<&str>,
 ) -> ResponseItem {
     let next_action = match node_kind {
-        Some("inspect_code_context") => {
-            "emit exactly one read_file, list_files, or search action using the suggested relative path itself or a concrete child path already seen under it; do not list/search `.` again and do not retry the failed absolute path"
-        }
-        Some("smoke_test" | "regression_test") => {
-            "emit exactly one run_test action with the command/path corrected to the suggested relative path, or blocked if the required container mount is truly unavailable"
-        }
-        Some("implement_solution") => {
-            "emit exactly one legal implementation action that uses the suggested relative path, or blocked if the task explicitly requires the unavailable absolute mount"
-        }
-        _ => {
-            "emit exactly one legal TaskSpace action using the suggested relative path, or blocked if the task explicitly requires the unavailable absolute mount"
-        }
+        Some("inspect_code_context") => format!(
+            "emit exactly one read_file action with args.path exactly `{}` if it names a file, or list_files/search with args.path exactly `{}` if it names a directory; do not list/search `.` again and do not retry the failed absolute path",
+            correction.suggested_relative_path, correction.suggested_relative_path
+        ),
+        Some("smoke_test" | "regression_test") => format!(
+            "emit exactly one run_test action with the command/path corrected to `{}`, or blocked if the required container mount is truly unavailable",
+            correction.suggested_relative_path
+        ),
+        Some("implement_solution") => format!(
+            "emit exactly one legal implementation action that uses `{}`, or blocked if the task explicitly requires the unavailable absolute mount",
+            correction.suggested_relative_path
+        ),
+        _ => format!(
+            "emit exactly one legal TaskSpace action using `{}`, or blocked if the task explicitly requires the unavailable absolute mount",
+            correction.suggested_relative_path
+        ),
     };
     let gate_recovery = taskspace_path_correction_gate_recovery_json(correction, node_kind);
     let text = format!(
@@ -2336,11 +2345,14 @@ fn taskspace_path_correction_next_valid_actions(
     match node_kind {
         Some("inspect_code_context") => vec![
             format!(
-                "emit list_files with args.path exactly `{suggested}`; do not use `{}` or `{}/...`",
+                "emit read_file with args.path exactly `{suggested}` if `{suggested}` names a file; do not use `{}` or `{}/...`",
                 correction.failed_path, correction.failed_path
             ),
             format!(
-                "or emit read_file/search for a concrete child path under `{suggested}` that is already visible in workspace evidence"
+                "or emit list_files/search with args.path exactly `{suggested}` if `{suggested}` names a directory; do not list/search `.` again"
+            ),
+            format!(
+                "or emit read_file/search for a concrete child path under `{suggested}` only if that child path is already visible in workspace evidence"
             ),
             "or emit blocked with exact relative-path failure evidence if the suggested path also fails".to_string(),
         ],
@@ -2483,10 +2495,13 @@ fn taskspace_action_can_clear_path_correction_feedback(action: &TaskSpaceActionV
 
 fn taskspace_should_refill_path_correction_from_failed_read_summary(
     tool_path_correction_feedback_present: bool,
+    path_correction_cleared_this_request: bool,
     progress_before_request: Option<usize>,
     progress_after_request: Option<usize>,
 ) -> bool {
-    !tool_path_correction_feedback_present && progress_after_request == progress_before_request
+    !tool_path_correction_feedback_present
+        && !path_correction_cleared_this_request
+        && progress_after_request == progress_before_request
 }
 
 fn taskspace_same_workspace_path(left: &str, right: &str) -> bool {
@@ -3451,8 +3466,11 @@ fn taskspace_apply_patch_replacement_required_should_hard_stop(
 fn taskspace_path_correction_recovery_should_hard_stop(
     item: &ResponseItem,
     previous_recovery_count: usize,
+    path_correction_cleared_this_request: bool,
 ) -> bool {
-    is_taskspace_path_correction_recovery_item(item) && previous_recovery_count > 0
+    is_taskspace_path_correction_recovery_item(item)
+        && !path_correction_cleared_this_request
+        && previous_recovery_count > 0
 }
 
 fn taskspace_no_action_recovery_should_hard_stop(
@@ -8691,10 +8709,12 @@ TaskSpace implement_solution node `node-6` cannot be blocked for missing source 
         assert!(text.contains("failed_path: /data/source_a"));
         assert!(text.contains("suggested_relative_path: data/source_a"));
         assert!(text.contains("Do not retry `/data/source_a`"));
-        assert!(text.contains("read_file, list_files, or search"));
+        assert!(text.contains("read_file action with args.path exactly `data/source_a`"));
+        assert!(text.contains("list_files/search with args.path exactly `data/source_a`"));
         assert!(text.contains(TASKSPACE_GATE_RECOVERY_MARKER));
         assert!(text.contains("\"reason\":\"path_correction_retry_forbidden\""));
-        assert!(text.contains("emit list_files with args.path exactly `data/source_a`"));
+        assert!(text.contains("emit read_file with args.path exactly `data/source_a`"));
+        assert!(text.contains("or emit list_files/search with args.path exactly `data/source_a`"));
         assert!(text.contains("do not use `/data/source_a` or `/data/source_a/...`"));
     }
 
@@ -8713,7 +8733,8 @@ TaskSpace implement_solution node `node-6` cannot be blocked for missing source 
         assert!(followup.contains("TaskSpaceActionV1 rejected"));
         assert!(followup.contains(TASKSPACE_GATE_RECOVERY_MARKER));
         assert!(followup.contains("\"reason\":\"path_correction_retry_forbidden\""));
-        assert!(followup.contains("emit list_files with args.path exactly `data`"));
+        assert!(followup.contains("emit read_file with args.path exactly `data`"));
+        assert!(followup.contains("or emit list_files/search with args.path exactly `data`"));
         assert!(followup.contains("do not use `/data` or `/data/...`"));
         assert!(followup.contains("concrete child path under `data`"));
     }
@@ -8730,10 +8751,13 @@ TaskSpace implement_solution node `node-6` cannot be blocked for missing source 
         );
         assert!(is_taskspace_path_correction_recovery_item(&item));
         assert!(!taskspace_path_correction_recovery_should_hard_stop(
-            &item, 0
+            &item, 0, false
         ));
         assert!(taskspace_path_correction_recovery_should_hard_stop(
-            &item, 1
+            &item, 1, false
+        ));
+        assert!(!taskspace_path_correction_recovery_should_hard_stop(
+            &item, 1, true
         ));
 
         let hard_stop = build_taskspace_path_correction_hard_stop_item(&item, 2);
@@ -8775,6 +8799,7 @@ TaskSpace implement_solution node `node-6` cannot be blocked for missing source 
         assert!(
             taskspace_should_refill_path_correction_from_failed_read_summary(
                 false,
+                false,
                 Some(3),
                 Some(3),
             )
@@ -8782,12 +8807,22 @@ TaskSpace implement_solution node `node-6` cannot be blocked for missing source 
         assert!(
             !taskspace_should_refill_path_correction_from_failed_read_summary(
                 false,
+                false,
                 Some(3),
                 Some(4),
             )
         );
         assert!(
             !taskspace_should_refill_path_correction_from_failed_read_summary(
+                true,
+                false,
+                Some(3),
+                Some(3),
+            )
+        );
+        assert!(
+            !taskspace_should_refill_path_correction_from_failed_read_summary(
+                false,
                 true,
                 Some(3),
                 Some(3),
@@ -11896,6 +11931,7 @@ struct SamplingRequestResult {
     needs_follow_up: bool,
     last_agent_message: Option<String>,
     taskspace_no_action_recovery_item: Option<ResponseItem>,
+    path_correction_cleared_this_request: bool,
 }
 
 /// Ephemeral per-response state for streaming a single proposed plan.
@@ -15847,6 +15883,7 @@ async fn try_run_sampling_request(
                         "TaskSpace ran validation bootstrap before provider budget hard stop: {command}"
                     )),
                     taskspace_no_action_recovery_item: Some(recovery_item),
+                    path_correction_cleared_this_request: false,
                 });
             }
             if snapshot.node_kind.as_deref() == Some("inspect_code_context") {
@@ -15868,6 +15905,7 @@ async fn try_run_sampling_request(
                             taskspace_no_action_recovery_item: Some(
                                 build_taskspace_forced_inspect_transition_recovery_item(),
                             ),
+                            path_correction_cleared_this_request: false,
                         });
                     }
                     Ok(false) => {}
@@ -15910,6 +15948,7 @@ async fn try_run_sampling_request(
                 taskspace_no_action_recovery_item: Some(
                     build_taskspace_provider_budget_hard_stop_item(snapshot, &gate),
                 ),
+                path_correction_cleared_this_request: false,
             });
         }
     }
@@ -15974,6 +16013,7 @@ async fn try_run_sampling_request(
     let mut needs_follow_up = false;
     let mut last_agent_message: Option<String> = None;
     let mut tool_path_correction_feedback: Option<TaskspacePathCorrection> = None;
+    let mut path_correction_cleared_this_request = false;
     if action_contract_mode
         && let Some(failed_read_summary) = sess
             .action_map_current_recent_failed_read_summary()
@@ -16300,6 +16340,7 @@ async fn try_run_sampling_request(
                                         &action,
                                     ) {
                                         tool_path_correction_feedback = None;
+                                        path_correction_cleared_this_request = true;
                                     }
                                     tool_gate_recovery_message =
                                         taskspace_gate_recovery_from_response_item(&response_item);
@@ -16415,6 +16456,7 @@ async fn try_run_sampling_request(
                         needs_follow_up: true,
                         last_agent_message,
                         taskspace_no_action_recovery_item: None,
+                        path_correction_cleared_this_request,
                     });
                 }
             }
@@ -16614,6 +16656,7 @@ async fn try_run_sampling_request(
                     sess.action_map_current_main_node_progress_signature().await;
                 if taskspace_should_refill_path_correction_from_failed_read_summary(
                     tool_path_correction_feedback.is_some(),
+                    path_correction_cleared_this_request,
                     taskspace_progress_before_request,
                     taskspace_progress_after_request,
                 ) && let Some(failed_read_summary) =
@@ -17046,6 +17089,7 @@ async fn try_run_sampling_request(
                     needs_follow_up,
                     last_agent_message,
                     taskspace_no_action_recovery_item,
+                    path_correction_cleared_this_request,
                 });
             }
             ResponseEvent::OutputTextDelta(delta) => {
