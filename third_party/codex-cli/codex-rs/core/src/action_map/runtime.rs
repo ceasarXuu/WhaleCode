@@ -15535,17 +15535,19 @@ fn validation_output_contract_check_command(
                 .any(|schema| artifact_refs_match(schema, target))
         })
         .or_else(|| requirements.targets.first())?;
+    let local_output_target = local_workspace_command_artifact_ref(output_target);
     if let Some(schema_target) = requirements.schema_targets.first() {
+        let local_schema_target = local_workspace_command_artifact_ref(schema_target);
         return Some(format!(
-            "python -m jsonschema -i {output_target} {schema_target}"
+            "python -m jsonschema -i {local_output_target} {local_schema_target}"
         ));
     }
-    if output_target.ends_with(".json") {
+    if local_output_target.ends_with(".json") {
         return Some(format!(
-            "python -c \"import json; data=json.load(open('{output_target}')); assert data\""
+            "python -c \"import json; data=json.load(open('{local_output_target}')); assert data\""
         ));
     }
-    Some(format!("test -s {output_target}"))
+    Some(format!("test -s {local_output_target}"))
 }
 
 fn summarize_artifact_refs(artifacts: &[String]) -> String {
@@ -15596,7 +15598,7 @@ fn validation_changed_artifact_action(artifact: &str) -> String {
 }
 
 fn validation_changed_artifact_command(artifact: &str) -> String {
-    let normalized = normalize_artifact_ref(artifact);
+    let normalized = local_workspace_command_artifact_ref(artifact);
     if normalized.ends_with(".py") {
         format!("python {normalized}")
     } else if normalized.ends_with(".js") || normalized.ends_with(".mjs") {
@@ -15605,6 +15607,20 @@ fn validation_changed_artifact_command(artifact: &str) -> String {
         format!("bash {normalized}")
     } else {
         normalized.clone()
+    }
+}
+
+fn local_workspace_command_artifact_ref(artifact: &str) -> String {
+    let normalized = normalize_artifact_ref(artifact);
+    match normalized.as_str() {
+        "/app" | "app" | "/app/src" | "app/src" => ".".to_string(),
+        _ => normalized
+            .strip_prefix("/app/src/")
+            .or_else(|| normalized.strip_prefix("app/src/"))
+            .or_else(|| normalized.strip_prefix("/app/"))
+            .or_else(|| normalized.strip_prefix("app/"))
+            .unwrap_or(&normalized)
+            .to_string(),
     }
 }
 
@@ -26684,7 +26700,7 @@ def normalize_status(value: str) -> str:\n\
         );
         assert!(error.contains("recover_logs.py"), "{error}");
         assert!(error.contains("recovered_logs/results.json"), "{error}");
-        assert!(error.contains("python /app/recover_logs.py"), "{error}");
+        assert!(error.contains("python recover_logs.py"), "{error}");
         assert!(error.contains("Do not run discovery commands"), "{error}");
 
         let runs_changed_artifact = serde_json::json!({
@@ -26707,7 +26723,7 @@ def normalize_status(value: str) -> str:\n\
             "{error}"
         );
         assert!(error.contains("recovered_logs/results.json"), "{error}");
-        assert!(error.contains("python /app/recover_logs.py &&"), "{error}");
+        assert!(error.contains("python recover_logs.py &&"), "{error}");
 
         let runs_changed_artifact_and_checks_output = serde_json::json!({
             "command": "python /app/recover_logs.py && python -c \"import json; data=json.load(open('/app/recovered_logs/results.json')); assert isinstance(data, list)\"",
@@ -26768,6 +26784,41 @@ def normalize_status(value: str) -> str:\n\
                 ToolActionDescriptor::new("shell_command", ActionClass::Test, "pytest"),
             )
             .expect("general project validators remain allowed");
+    }
+
+    #[test]
+    fn validation_output_contract_check_command_uses_workspace_relative_app_alias() {
+        let requirements = OutputContractValidationRequirements {
+            targets: vec!["/app/merged_users.parquet".to_string()],
+            schema_targets: Vec::new(),
+        };
+
+        assert_eq!(
+            validation_output_contract_check_command(&requirements).as_deref(),
+            Some("test -s merged_users.parquet")
+        );
+
+        let json_requirements = OutputContractValidationRequirements {
+            targets: vec!["/app/output/users.json".to_string()],
+            schema_targets: Vec::new(),
+        };
+
+        assert_eq!(
+            validation_output_contract_check_command(&json_requirements).as_deref(),
+            Some(
+                "python -c \"import json; data=json.load(open('output/users.json')); assert data\""
+            )
+        );
+
+        let schema_requirements = OutputContractValidationRequirements {
+            targets: vec!["/app/output/users.json".to_string()],
+            schema_targets: vec!["/app/schema/users.schema.json".to_string()],
+        };
+
+        assert_eq!(
+            validation_output_contract_check_command(&schema_requirements).as_deref(),
+            Some("python -m jsonschema -i output/users.json schema/users.schema.json")
+        );
     }
 
     #[test]

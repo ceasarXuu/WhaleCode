@@ -6454,10 +6454,40 @@ task_complete duration_ms: 12072
 3. `apply_patch`、`taskspace_control` 等 edit/control 成功不清除该状态，因为它们不能证明 path discovery 已恢复。
 4. 仍需下一次 targeted rerun 验证 live 流程不再在成功 `rg --files .` 后立即 hard-stop。
 
+`3d3f33c` targeted rerun 已验证 stale path-correction hard-stop 不再复发：right-side 直接执行
+`rg --files .`，成功列出三份输入文件，随后走到 `TaskSpaceRepeatedBlockedInspectBootstrapV1`、
+`TaskSpaceForcedInspectTransitionV1`，并进入 implementation/validation。该 run 的新 blocker 是 output contract
+路径别名进入 validation command：
+
+```text
+RunDir: target/r4-e3-formal-p0-20260705/targeted-multi-source-3d3f33c/runs/terminal_bench__multi-source-data-merger/20260706-005505-648
+HEAD: 3d3f33c
+absent marker: TaskSpacePathCorrectionHardStopV1
+progress: apply_patch added merge_users.py
+validation command: python merge_users.py && test -s /app/merged_users.parquet
+validation output: Wrote 4 merged records to ./merged_users.parquet; Wrote 3 conflicts to ./conflicts.json
+validation exit_code: 1
+```
+
+追加修复：
+
+1. `validation-output-contract-app-alias-command-gap`：本地 validation command synthesis 直接使用 output contract
+   的 `/app/...`，而当前 workspace 执行面需要 relative path。
+2. `validation_output_contract_check_command()` 已将本地执行命令中的 `/app/<path>` 规范为 workspace-relative
+   `<path>`；changed-artifact execution hint 同步使用该规则。
+3. artifact matching 仍接受 `/app/...` 和 relative path 两种形式，避免把契约来源语义误删。
+4. 仍需下一次 targeted rerun 验证 live 流程不再失败在 `test -s /app/merged_users.parquet`。
+
 验证：
 
 ```text
 cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_output_contract --lib
+  2 passed
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_required_command --lib
+  3 passed
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_node_blocks_vacuous_test_after_changed_artifact --lib
+  1 passed
 CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core path_correction --lib
   10 passed
 CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core provider_response_actionability --lib

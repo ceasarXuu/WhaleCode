@@ -9448,3 +9448,67 @@
 - Interpretation:
   - The stale-feedback false hard-stop is focused-fixed locally.
   - A fresh targeted run is still required to prove the live flow no longer stops immediately after successful relative listing.
+
+# Evidence E-302: 3d3f33c targeted run no longer stops on stale path-correction feedback
+
+- Prediction tested: H-149 predicts successful relative read/list/search clears stale path-correction feedback and avoids the false `TaskSpacePathCorrectionHardStopV1`.
+- Run:
+  ```text
+  HEAD: 3d3f33c
+  RunRoot: target/r4-e3-formal-p0-20260705/targeted-multi-source-3d3f33c
+  RunDir: target/r4-e3-formal-p0-20260705/targeted-multi-source-3d3f33c/runs/terminal_bench__multi-source-data-merger/20260706-005505-648
+  pair: pair-001/right
+  ```
+- Matched run signals:
+  ```text
+  item.started command_execution: rg --files .
+  item.completed success:
+    ./data/source_a/users.json
+    ./data/source_b/users.csv
+    ./data/source_c/users.parquet
+
+  absent marker:
+    TaskSpacePathCorrectionHardStopV1
+
+  subsequent progress:
+    TaskSpaceRepeatedBlockedInspectBootstrapV1
+    TaskSpaceForcedInspectTransitionV1 trigger=inspect_duplicate_read_search_bootstrap_complete
+    apply_patch added merge_users.py
+    validation bootstrap executed: python merge_users.py && test -s /app/merged_users.parquet
+  ```
+- Interpretation:
+  - H-149 is live-cleared for the stale path-correction hard-stop.
+  - The run advanced to the next tools-chain issue: output contract paths still carry `/app/...` into validation commands, while local execution and implementation use workspace-relative output paths.
+
+# Hypothesis H-150: validation required command should normalize `/app` output contracts to workspace-relative paths
+
+- Claim: The `multi-source-data-merger` live run after H-149 failed validation because runtime generated `test -s /app/merged_users.parquet` from the output contract. In the local TaskSpace workspace, `/app` is an external/container alias; implementation writes `./merged_users.parquet`, so validation should use `merged_users.parquet` when constructing local shell commands.
+- Prediction:
+  - Current validation command synthesis contains an output-contract path normalization gap.
+  - Normalizing `/app/<path>` to `<path>` for local validation command construction should preserve contract semantics without granting absolute `/app` access.
+- Status: confirmed from live evidence; local repair implemented and regression-validated; targeted live rerun pending.
+
+# Evidence E-303: H-150 local command synthesis repair normalizes `/app` aliases
+
+- Type: fix-validation.
+- Prediction tested: H-150 predicts that validation command synthesis should use workspace-relative paths for local shell commands while preserving output-contract artifact semantics.
+- Observation:
+  - `validation_output_contract_check_command()` now converts `/app/merged_users.parquet` to `merged_users.parquet` when constructing local check commands.
+  - The same local command normalization is applied to changed-artifact execution hints, so `/app/recover_logs.py` becomes `python recover_logs.py`.
+  - Artifact matching remains tolerant of both `/app/...` and relative forms through `artifact_command_match_variants()`, so existing provider commands that mention `/app/...` can still satisfy coverage gates.
+- Validation:
+  ```text
+  cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_output_contract --lib
+    2 passed
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_required_command --lib
+    3 passed
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_node_blocks_vacuous_test_after_changed_artifact --lib
+    1 passed
+  RUST_MIN_STACK=8388608 CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core taskspace --lib
+    175 passed
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
+  ```
+- Interpretation:
+  - H-150 is locally fixed at validation command synthesis.
+  - Formal E3 targeted rerun is still needed to prove the live `multi-source-data-merger` trace no longer fails at `test -s /app/merged_users.parquet`.
