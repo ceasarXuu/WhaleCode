@@ -9244,3 +9244,72 @@
 - Interpretation:
   - The local action-contract capability now matches the stronger recovery invariant: after `/data -> data`, any `/data/...` action is rejected before tool dispatch with a derived `data/...` suggestion.
   - Fresh targeted live validation is still required before treating the `/data` retry loop as fixed end to end.
+
+# Hypothesis H-147: path-correction enforcement state was lost at model-request boundaries
+
+- Claim: The alias-root enforcement helper passed unit tests but did not fire in live targeted runs because `tool_path_correction_feedback` was a local variable inside `try_run_sampling_request(...)`. Recovery items and failed-read summaries were emitted at the end of one model request, but the next model request initialized the local enforcement state to `None` before parsing the next `TaskSpaceActionV1`.
+- Prediction:
+  - A targeted run after H-146 should show `TaskSpacePathCorrectionRecoveryV1` in rollout, repeated absolute child actions in `whale-exec.jsonl`, and no `path_correction_retry_forbidden`.
+  - Restoring `tool_path_correction_feedback` from the current ActionMap failed-read summary before streaming/parsing the next response should give the action parser an enforcement state before tool dispatch.
+- Diagnostic evidence plan:
+  - Inspect the `11c43a6` targeted run for recovery markers and missing retry-forbidden markers.
+  - Move the existing ActionMap failed-read summary bridge earlier in `try_run_sampling_request(...)`.
+  - Validate path-correction, provider actionability, taskspace, build, and diff checks.
+- Status: confirmed; focused-fixed; awaiting fresh targeted live validation.
+
+# Evidence E-296: 11c43a6 targeted run had recovery markers but no retry-forbidden enforcement
+
+- Prediction tested: H-147 predicts recovery feedback exists in rollout, while enforcement state is absent during action parse.
+- Run:
+  ```text
+  HEAD: 11c43a6
+  RunRoot: target/r4-e3-formal-p0-20260705/targeted-multi-source-11c43a6
+  RunDir: target/r4-e3-formal-p0-20260705/targeted-multi-source-11c43a6/runs/terminal_bench__multi-source-data-merger/20260706-003154-395
+  pair: pair-001/right
+  ```
+- Matched run signals:
+  ```text
+  rollout markers:
+    TaskSpacePathCorrectionRecoveryV1 failed_path=/data suggested_relative_path=data
+    TaskSpacePathCorrectionRecoveryV1 failed_path=/data/source_b/users.csv suggested_relative_path=data/source_b/users.csv
+    TaskSpacePathCorrectionRecoveryV1 failed_path=/data/source_a/users.json suggested_relative_path=data/source_a/users.json
+
+  missing marker:
+    path_correction_retry_forbidden: absent
+
+  repeated tool dispatch:
+    sed ... /data/source_b/users.csv
+    sed ... /data/source_b/users.csv
+    sed ... /data/source_a/users.json
+    sed ... /data/source_b/users.csv
+
+  terminal state:
+    TaskSpaceProviderBudgetHardStopV1
+    node_request_count=7/6
+  ```
+- Interpretation:
+  - H-146's helper was not wrong; the live request boundary prevented it from seeing the active correction.
+  - The fix needs to restore enforcement state from durable ActionMap failed-read evidence before parsing the next model output.
+
+# Evidence E-297: path-correction enforcement state now restores from ActionMap before action parse
+
+- Prediction tested: H-147 predicts the current failed-read summary can seed `tool_path_correction_feedback` before processing the next response item.
+- Repair artifact:
+  - `third_party/codex-cli/codex-rs/core/src/session/turn.rs`
+    - initializes `tool_path_correction_feedback` from `sess.action_map_current_recent_failed_read_summary().await` when action-contract mode is active;
+    - reuses the existing `taskspace_path_correction_from_text(...)` extractor;
+    - keeps the later response-completed fallback in place for same-request recovery item generation.
+- Validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core path_correction --lib
+    8 passed
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core provider_response_actionability --lib
+    9 passed
+  RUST_MIN_STACK=8388608 CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core taskspace --lib
+    175 passed
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
+    Finished dev profile
+  ```
+- Interpretation:
+  - The local request-boundary gap is focused-fixed.
+  - A fresh targeted live run is still required to verify `path_correction_retry_forbidden` appears before shell dispatch.

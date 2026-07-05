@@ -15560,6 +15560,14 @@ async fn try_run_sampling_request(
     let mut needs_follow_up = false;
     let mut last_agent_message: Option<String> = None;
     let mut tool_path_correction_feedback: Option<TaskspacePathCorrection> = None;
+    if action_contract_mode
+        && let Some(failed_read_summary) = sess
+            .action_map_current_recent_failed_read_summary()
+            .await
+            .filter(|summary| !summary.trim().is_empty())
+    {
+        tool_path_correction_feedback = taskspace_path_correction_from_text(&failed_read_summary);
+    }
     let mut saw_actionable_output = false;
     let mut active_item: Option<TurnItem> = None;
     let mut active_tool_argument_diff_consumer: Option<(

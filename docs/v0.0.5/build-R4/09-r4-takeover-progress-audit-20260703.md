@@ -5035,3 +5035,70 @@ CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
 - 刷新 whale attestation；
 - 重跑 `multi-source-data-merger` targeted diagnostic；
 - 验证 `path_correction_retry_forbidden:/data/source_a/users.json:suggested_relative_path=data/source_a/users.json` 是否出现，且对应 absolute child path 不再真实 dispatch 到 shell tool。
+
+## 76. 2026-07-06 targeted multi-source live miss: enforcement state 在请求边界丢失
+
+`11c43a6` 提交后刷新 attestation，并重跑目标诊断：
+
+```text
+RunRoot: target/r4-e3-formal-p0-20260705/targeted-multi-source-11c43a6
+RunDir: target/r4-e3-formal-p0-20260705/targeted-multi-source-11c43a6/runs/terminal_bench__multi-source-data-merger/20260706-003154-395
+pair: pair-001/right
+```
+
+结果没有达到预期：
+
+```text
+rollout:
+  TaskSpacePathCorrectionRecoveryV1 failed_path=/data suggested_relative_path=data
+  TaskSpacePathCorrectionRecoveryV1 failed_path=/data/source_b/users.csv suggested_relative_path=data/source_b/users.csv
+  TaskSpacePathCorrectionRecoveryV1 failed_path=/data/source_a/users.json suggested_relative_path=data/source_a/users.json
+
+whale-exec:
+  path_correction_retry_forbidden: absent
+  sed ... /data/source_b/users.csv
+  sed ... /data/source_b/users.csv
+  sed ... /data/source_a/users.json
+  sed ... /data/source_b/users.csv
+  TaskSpaceProviderBudgetHardStopV1 node_request_count=7/6
+```
+
+结论：
+
+- alias-root helper 单测通过，但 live 没触发；
+- 原因是 `tool_path_correction_feedback` 是 `try_run_sampling_request(...)` 内的局部变量；
+- recovery item 和 failed-read summary 在一次模型请求结束时写入，但下一次模型请求重新进入函数时局部状态又变成 `None`；
+- action parser 因此没有拿到 active correction，自然不会产出 `path_correction_retry_forbidden`。
+
+修复：
+
+- 在 action-contract mode 下，`try_run_sampling_request(...)` 初始化 `tool_path_correction_feedback` 时，立即从当前 ActionMap failed-read summary 恢复一次；
+- 复用已有 `taskspace_path_correction_from_text(...)`；
+- 保留 response-completed 阶段的 fallback，用于同请求内 recovery item 生成。
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core path_correction --lib
+  8 passed
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core provider_response_actionability --lib
+  9 passed
+RUST_MIN_STACK=8388608 CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core taskspace --lib
+  175 passed
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
+  Finished dev profile
+```
+
+R4 问题类型继续拆分：
+
+- semantic missing：失败语义没有进入 recovery classifier；
+- advisory-only：recovery 已出现但没有 action-contract enforcement；
+- enforcement granularity too narrow：只拦 exact path，没有拦 alias-root descendant；
+- enforcement state not durable across request boundary：helper 存在，但下一次请求解析 action 时没有 active correction。
+
+下一步：
+
+- 提交该生命周期修复；
+- 刷新 attestation；
+- 重跑 targeted `multi-source-data-merger`；
+- 验证 `path_correction_retry_forbidden` 是否在 shell dispatch 前出现。
