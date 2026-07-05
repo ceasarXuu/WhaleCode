@@ -4300,3 +4300,64 @@ Real pair-004 metrics reclassification:
 - validator fidelity blocker 已解除。
 - stale validator sentinel 覆盖 clean timeout skip 的分类问题已 focused-fixed。
 - formal E3 需要在新 HEAD 上重新生成 gates/markers 后重跑；当前 release 仍不能关，因为 calibration gate 是 skip，且 full E3 最新 run exit 3。
+
+## 65. 2026-07-05 internal validator sentinel after completed external validation
+
+提交 H-137 后重跑当前 HEAD formal full E3：
+
+```text
+HEAD: db63d5bcea6f298c83b5fc0d04b89d54b2feeb48
+SuiteRoot: target/r4-e3-formal-p0-20260705/full-e3-db63d5b/suite-20260705-182918
+PairAbort: samples/processing-pipeline/runs/terminal_bench__processing-pipeline/20260705-182945-595/pair-001/pair-abort.json
+exit_code=3
+reason=active_sentinel_warning:validator_failure
+abort_phase=score_validity
+```
+
+这次不是 agent timeout，而是更一般的 feedback-layer 分类问题。aborting pair 的 taskspace side：
+
+```text
+exec_timed_out=false
+public_validation_exit_code=1
+hidden_oracle_exit_code=0
+tests_started_seen=true
+tests_completed_seen=true
+validation_lifecycle_stage=tests_completed
+validator_environment_failures=[]
+metrics_taints=[]
+active_sentinel_warning_types=[validator_failure]
+business_success=false
+```
+
+结论：
+
+- 外部 Terminal-Bench validator 已完整跑完，返回的是普通业务失败。
+- active `validator_failure` sentinel 来自 TaskSpace 内部反馈链路：模型先提交 mixed patch 被拒，随后又在 validation rework 阶段发起 read，被 TaskSpace 拒绝并 hard stop。
+- 这类 sentinel 应保留为诊断反馈，但不能把一个已完成外部验证的 `wrong` 变成 `invalid_harness`。
+
+修复：
+
+- `failure-taxonomy.ps1` 增加 `Test-TaskspaceExternalValidationCompleted`。
+- 当外部 validation 已 `tests_completed` 时，抑制 `active_sentinel_warning:validator_failure` 对 engineering-unclean 的污染。
+- 如果没有跑到 tests completed，validator sentinel 仍保持 unclean。
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/taskspace-benchmark/test-e3-score-validity.ps1
+  PASS
+CODEX_SKIP_VENDORED_BWRAP=1 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/taskspace-benchmark/test-harness.ps1
+  PASS
+Real pair-001 taskspace metrics reclassification:
+  reasons=[]
+  outcome=wrong
+  reason_count=0
+```
+
+当前 R4 状态：
+
+- R4 feedback layer 新增问题类型：内部 TaskSpace sentinel 与外部 benchmark validator 结果的语义边界冲突。
+- 已修复两种冲突：
+  - agent timeout + validation skip + pre-agent probe passed 时，stale validator sentinel 不再覆盖 timeout 语义；
+  - external validation completed 时，internal validator sentinel 不再覆盖 business wrong 语义。
+- 仍需提交该修复，刷新 gates/markers，并再次重跑 formal full E3。

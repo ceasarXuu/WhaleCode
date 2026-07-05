@@ -8598,3 +8598,80 @@
   ```
 - Interpretation: H-137 is focused-fixed. The fix does not hide true validator failures; it prevents a stale active
   sentinel from overriding stronger validation-skip evidence after an agent execution timeout.
+
+# Hypothesis H-138: internal validator-failure sentinels should not invalidate completed external validator runs
+
+- Claim: `active_sentinel_warning:validator_failure` can represent TaskSpace internal feedback after a model-visible
+  validation/tool failure, not an external Terminal-Bench validator infrastructure failure. When external validation
+  reaches `tests_completed`, has no validator environment failures, and returns a normal non-zero validation exit, the
+  run should be classified as business `wrong` rather than `engineering_unclean`.
+- Prediction:
+  - A real pair can show `tests_started_seen=true`, `tests_completed_seen=true`, `validation_lifecycle_stage=tests_completed`,
+    `validator_environment_failures=[]`, and `active_sentinel_warning_types=[validator_failure]`.
+  - Before repair, that pair aborts scoring as `harness_materialization_failure/active_sentinel_warning:validator_failure`.
+  - After suppressing `validator_failure` active sentinel only when external validation completed, the same metrics should
+    classify as `wrong` with no engineering-unclean reasons.
+  - A validator sentinel without completed external tests must remain engineering-unclean.
+- Diagnostic evidence plan:
+  - Inspect the db63d5b formal E3 pair-001 abort and metrics.
+  - Add an external-validation-completed helper to `failure-taxonomy.ps1`.
+  - Add score-validity regression cases for completed external validation and no-tests sentinel.
+- Status: confirmed; focused-fixed.
+
+# Evidence E-280: completed external validation was incorrectly invalidated by an internal validator sentinel
+
+- Prediction tested: H-138 predicts the new db63d5b formal E3 abort is not a real harness validator failure.
+- Run:
+  ```text
+  SuiteRoot: target/r4-e3-formal-p0-20260705/full-e3-db63d5b/suite-20260705-182918
+  PairAbort: samples/processing-pipeline/runs/terminal_bench__processing-pipeline/20260705-182945-595/pair-001/pair-abort.json
+  exit_code: 3
+  reason: active_sentinel_warning:validator_failure
+  abort_phase: score_validity
+  ```
+- Pair evidence:
+  ```text
+  right/taskspace metrics:
+    exec_timed_out=false
+    public_validation_exit_code=1
+    hidden_oracle_exit_code=0
+    tests_started_seen=true
+    tests_completed_seen=true
+    validation_lifecycle_stage=tests_completed
+    validator_environment_failures=[]
+    metrics_taints=[]
+    active_sentinel_warning_types=[validator_failure]
+    business_success=false
+  ```
+- Interpretation: H-138 is supported. The external validator completed normally and reported a business failure. Treating
+  the internal active sentinel as harness invalid made score-validity too strict.
+
+# Evidence E-281: taxonomy preserves validator sentinel only when external validation did not complete
+
+- Prediction tested: H-138 predicts completed external validation should classify as `wrong`, while no-tests sentinel
+  remains unclean.
+- Repair artifacts:
+  - `scripts/taskspace-benchmark/lib/failure-taxonomy.ps1`
+    - adds `Test-TaskspaceExternalValidationCompleted`;
+    - suppresses `active_sentinel_warning:validator_failure` when external validation has reached `tests_completed`.
+  - `scripts/taskspace-benchmark/test-e3-score-validity.ps1`
+    - adds `completed validation suppresses internal validator sentinel`;
+    - adds `no-tests validator sentinel stays unclean`.
+- Focused validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/taskspace-benchmark/test-e3-score-validity.ps1
+    PASS
+  CODEX_SKIP_VENDORED_BWRAP=1 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/taskspace-benchmark/test-harness.ps1
+    PASS
+  ```
+- Real artifact reclassification probe:
+  ```text
+  metrics:
+    target/r4-e3-formal-p0-20260705/full-e3-db63d5b/suite-20260705-182918/samples/processing-pipeline/runs/terminal_bench__processing-pipeline/20260705-182945-595/pair-001/right/artifacts/metrics.json
+  result:
+    reasons=[]
+    outcome=wrong
+    reason_count=0
+  ```
+- Interpretation: H-138 is focused-fixed. External benchmark validation now owns business wrong/solved classification
+  once it completed; internal TaskSpace validator sentinels remain diagnostic feedback instead of harness-failure proof.

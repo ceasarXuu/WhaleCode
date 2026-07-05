@@ -35,6 +35,15 @@ function Test-TaskspaceCleanAgentTimeoutValidationSkip {
     ($skipReason -eq "agent_exec_timeout" -and $probeStatus -eq "passed" -and $probeHash -match '^[0-9a-f]{64}$')
 }
 
+function Test-TaskspaceExternalValidationCompleted {
+    param($Metrics)
+    if (-not $Metrics) { return $false }
+    if (-not (Get-TaskspaceMetricBool $Metrics "tests_started_seen")) { return $false }
+    if (-not (Get-TaskspaceMetricBool $Metrics "tests_completed_seen")) { return $false }
+    if ($Metrics.PSObject.Properties.Name -contains "validation_lifecycle_stage" -and [string]$Metrics.validation_lifecycle_stage -ne "tests_completed") { return $false }
+    $true
+}
+
 function Test-TaskspaceAuditPending {
     param(
         $Evidence = $null,
@@ -97,13 +106,14 @@ function Get-TaskspaceEngineeringUncleanReasons {
         }
         if ($Metrics.PSObject.Properties.Name -contains "active_sentinel_warning_count" -and [int]$Metrics.active_sentinel_warning_count -gt 0) {
             $cleanAgentTimeoutSkip = Test-TaskspaceCleanAgentTimeoutValidationSkip $Metrics
+            $externalValidationCompleted = Test-TaskspaceExternalValidationCompleted $Metrics
             foreach ($sentinelType in @(Get-TaskspaceMetricArray $Metrics "active_sentinel_warning_types")) {
                 $text = [string]$sentinelType
                 if ([string]::IsNullOrWhiteSpace($text)) { $text = "unknown" }
-                if ($cleanAgentTimeoutSkip -and $text -eq "validator_failure") { continue }
+                if (($cleanAgentTimeoutSkip -or $externalValidationCompleted) -and $text -eq "validator_failure") { continue }
                 Add-TaskspaceFailureClass $reasons "active_sentinel_warning:$text"
             }
-            if (-not $cleanAgentTimeoutSkip -and @(Get-TaskspaceMetricArray $Metrics "active_sentinel_warning_types").Count -eq 0) {
+            if (-not $cleanAgentTimeoutSkip -and -not $externalValidationCompleted -and @(Get-TaskspaceMetricArray $Metrics "active_sentinel_warning_types").Count -eq 0) {
                 Add-TaskspaceFailureClass $reasons "active_sentinel_warning"
             }
         }
