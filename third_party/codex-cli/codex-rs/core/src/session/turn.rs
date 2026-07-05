@@ -176,6 +176,7 @@ const TASKSPACE_VALIDATION_INFRA_RECOVERY_MARKER: &str = "TaskSpaceValidationInf
 const TASKSPACE_VALIDATION_NEEDS_TEST_MARKER: &str = "TaskSpaceValidationNeedsTestRecoveryV1:";
 const TASKSPACE_PROVIDER_BUDGET_HARD_STOP_MARKER: &str = "TaskSpaceProviderBudgetHardStopV1:";
 const TASKSPACE_PATH_CORRECTION_MARKER: &str = "TaskSpacePathCorrectionRecoveryV1:";
+const TASKSPACE_PATH_CORRECTION_HARD_STOP_MARKER: &str = "TaskSpacePathCorrectionHardStopV1:";
 const TASKSPACE_TOOL_FEEDBACK_MARKER: &str = "TaskSpaceToolFeedbackV1:";
 const TASKSPACE_INSPECT_BOOTSTRAP_CALL_ID: &str = "taskspace-inspect-bootstrap-rg-files";
 const TASKSPACE_REPEATED_BLOCKED_INSPECT_BOOTSTRAP_CALL_ID: &str =
@@ -501,6 +502,8 @@ pub(crate) async fn run_turn(
     let mut taskspace_apply_patch_recovery_key: Option<String> = None;
     let mut taskspace_apply_patch_replacement_required_recovery_count = 0usize;
     let mut taskspace_apply_patch_replacement_required_recovery_key: Option<String> = None;
+    let mut taskspace_path_correction_recovery_count = 0usize;
+    let mut taskspace_path_correction_recovery_key: Option<String> = None;
     let mut taskspace_validation_rework_duplicate_read_recovery_count = 0usize;
     let mut taskspace_validation_rework_duplicate_read_recovery_key: Option<String> = None;
     let mut taskspace_validation_rework_patch_only_recovery_count = 0usize;
@@ -641,6 +644,8 @@ pub(crate) async fn run_turn(
                         is_taskspace_apply_patch_recovery_item(&recovery_item);
                     let is_apply_patch_replacement_required_recovery =
                         is_taskspace_apply_patch_replacement_required_recovery_item(&recovery_item);
+                    let is_path_correction_recovery =
+                        is_taskspace_path_correction_recovery_item(&recovery_item);
                     if is_apply_patch_recovery {
                         taskspace_reset_recovery_count_for_snapshot_node(
                             &mut taskspace_apply_patch_recovery_key,
@@ -652,6 +657,13 @@ pub(crate) async fn run_turn(
                         taskspace_reset_recovery_count_for_snapshot_node(
                             &mut taskspace_apply_patch_replacement_required_recovery_key,
                             &mut taskspace_apply_patch_replacement_required_recovery_count,
+                            current_recovery_snapshot.as_ref(),
+                        );
+                    }
+                    if is_path_correction_recovery {
+                        taskspace_reset_recovery_count_for_snapshot_node(
+                            &mut taskspace_path_correction_recovery_key,
+                            &mut taskspace_path_correction_recovery_count,
                             current_recovery_snapshot.as_ref(),
                         );
                     }
@@ -688,6 +700,11 @@ pub(crate) async fn run_turn(
                         taskspace_apply_patch_replacement_required_should_hard_stop(
                             &recovery_item,
                             taskspace_apply_patch_replacement_required_recovery_count,
+                        );
+                    let path_correction_recovery_hard_stop =
+                        taskspace_path_correction_recovery_should_hard_stop(
+                            &recovery_item,
+                            taskspace_path_correction_recovery_count,
                         );
                     let no_action_recovery_cap = current_recovery_snapshot
                         .as_ref()
@@ -730,6 +747,9 @@ pub(crate) async fn run_turn(
                     }
                     if is_apply_patch_replacement_required_recovery {
                         taskspace_apply_patch_replacement_required_recovery_count += 1;
+                    }
+                    if is_path_correction_recovery {
+                        taskspace_path_correction_recovery_count += 1;
                     }
                     if is_validation_rework_duplicate_read_recovery {
                         taskspace_validation_rework_duplicate_read_recovery_count += 1;
@@ -826,6 +846,27 @@ pub(crate) async fn run_turn(
                             .await;
                         last_agent_message = Some(
                             "TaskSpace validation rework duplicate-read hard stop: repeated_validation_rework_duplicate_artifact_read".to_string(),
+                        );
+                        break;
+                    }
+                    if path_correction_recovery_hard_stop {
+                        let hard_stop_item = build_taskspace_path_correction_hard_stop_item(
+                            &recovery_item,
+                            taskspace_path_correction_recovery_count,
+                        );
+                        sess.send_event(
+                            &turn_context,
+                            EventMsg::Warning(WarningEvent {
+                                message: taskspace_special_recovery_warning_message(
+                                    &hard_stop_item,
+                                ),
+                            }),
+                        )
+                        .await;
+                        sess.record_conversation_items(&turn_context, &[hard_stop_item])
+                            .await;
+                        last_agent_message = Some(
+                            "TaskSpace path-correction recovery hard stop: repeated_path_correction_retry_forbidden".to_string(),
                         );
                         break;
                     }
@@ -2273,6 +2314,33 @@ Current required behavior:\n\
     }
 }
 
+fn build_taskspace_path_correction_hard_stop_item(
+    recovery_item: &ResponseItem,
+    attempt: usize,
+) -> ResponseItem {
+    let recovery_text = response_item_text(recovery_item).unwrap_or_default();
+    let recovery_excerpt = recovery_text.chars().take(1800).collect::<String>();
+    let text = format!(
+        "{TASKSPACE_PATH_CORRECTION_HARD_STOP_MARKER}\n\
+reason: repeated_path_correction_retry_forbidden\n\
+attempt_count: {attempt}\n\
+The provider repeatedly retried an absolute workspace alias after TaskSpace supplied a relative path correction.\n\
+Runtime decision:\n\
+- Stop provider sampling for this turn instead of spending more model requests on the same deterministic action-contract rejection.\n\
+- Preserve the path-correction contract for audit.\n\
+- A later turn may continue only after TaskSpace state changes or the provider emits the suggested relative path, a legal taskspace_control transition, or a blocked-with-evidence result.\n\
+Last path-correction contract excerpt:\n{recovery_excerpt}"
+    );
+
+    ResponseItem::Message {
+        id: None,
+        role: "developer".to_string(),
+        content: vec![ContentItem::InputText { text }],
+        end_turn: None,
+        phase: None,
+    }
+}
+
 fn taskspace_path_correction_retry_reject_reason(
     action: &TaskSpaceActionV1,
     correction: &TaskspacePathCorrection,
@@ -3147,6 +3215,17 @@ fn is_taskspace_no_action_recovery_hard_stop_item(item: &ResponseItem) -> bool {
     response_item_text_contains(item, TASKSPACE_NO_ACTION_RECOVERY_HARD_STOP_MARKER)
 }
 
+fn is_taskspace_path_correction_recovery_item(item: &ResponseItem) -> bool {
+    if is_taskspace_path_correction_hard_stop_item(item) {
+        return false;
+    }
+    response_item_text_contains(item, TASKSPACE_PATH_CORRECTION_MARKER)
+}
+
+fn is_taskspace_path_correction_hard_stop_item(item: &ResponseItem) -> bool {
+    response_item_text_contains(item, TASKSPACE_PATH_CORRECTION_HARD_STOP_MARKER)
+}
+
 fn is_taskspace_provider_budget_hard_stop_item(item: &ResponseItem) -> bool {
     response_item_text_contains(item, TASKSPACE_PROVIDER_BUDGET_HARD_STOP_MARKER)
 }
@@ -3247,6 +3326,13 @@ fn taskspace_apply_patch_replacement_required_should_hard_stop(
     previous_recovery_count: usize,
 ) -> bool {
     is_taskspace_apply_patch_replacement_required_recovery_item(item) && previous_recovery_count > 0
+}
+
+fn taskspace_path_correction_recovery_should_hard_stop(
+    item: &ResponseItem,
+    previous_recovery_count: usize,
+) -> bool {
+    is_taskspace_path_correction_recovery_item(item) && previous_recovery_count > 0
 }
 
 fn taskspace_no_action_recovery_should_hard_stop(
@@ -8436,6 +8522,33 @@ TaskSpace implement_solution node `node-6` cannot be blocked for missing source 
         assert!(text.contains("suggested_relative_path: data/source_a"));
         assert!(text.contains("Do not retry `/data/source_a`"));
         assert!(text.contains("read_file, list_files, or search"));
+    }
+
+    #[test]
+    fn path_correction_recovery_hard_stops_after_one_retry_prompt() {
+        let correction = TaskspacePathCorrection {
+            failed_path: "/data/source_a/users.json".to_string(),
+            suggested_relative_path: "data/source_a/users.json".to_string(),
+        };
+        let item = build_taskspace_path_correction_recovery_item(
+            &correction,
+            Some("inspect_code_context"),
+        );
+        assert!(is_taskspace_path_correction_recovery_item(&item));
+        assert!(!taskspace_path_correction_recovery_should_hard_stop(
+            &item, 0
+        ));
+        assert!(taskspace_path_correction_recovery_should_hard_stop(
+            &item, 1
+        ));
+
+        let hard_stop = build_taskspace_path_correction_hard_stop_item(&item, 2);
+        let text = item_text(hard_stop.clone());
+        assert!(text.contains(TASKSPACE_PATH_CORRECTION_HARD_STOP_MARKER));
+        assert!(text.contains("reason: repeated_path_correction_retry_forbidden"));
+        assert!(text.contains("attempt_count: 2"));
+        assert!(!is_taskspace_path_correction_recovery_item(&hard_stop));
+        assert!(is_taskspace_path_correction_hard_stop_item(&hard_stop));
     }
 
     #[test]

@@ -6404,3 +6404,39 @@ cargo fmt --check
 CODEX_SKIP_VENDORED_BWRAP=1 cargo check -p codex-core
 CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
 ```
+
+## 5.96 2026-07-05 path-correction recovery budget drain
+
+E3 targeted `multi-source-data-merger` 复验把 `/data` case 的反馈链路拆清楚了：
+
+```text
+RunDir: target/r4-e3-formal-p0-20260705/targeted-multi-source-c34e3cc/runs/terminal_bench__multi-source-data-merger/20260706-003657-482
+HEAD: c34e3cc
+initial failure: rg --files /data -> No such file or directory
+enforced rejection:
+  path_correction_retry_forbidden:/data/source_a/users.json:suggested_relative_path=data/source_a/users.json
+  path_correction_retry_forbidden:/data:suggested_relative_path=data
+  path_correction_retry_forbidden:/data/source_b/users.csv:suggested_relative_path=data/source_b/users.csv
+terminal marker: TaskSpaceProviderBudgetHardStopV1 node_request_count=7/6
+```
+
+收益判断：
+
+1. H-147 live 证据成立：路径失败语义已经恢复到 action-contract/tool boundary，重复绝对路径没有再下发成 shell read。
+2. 当前成本问题的直接原因是 `TaskSpacePathCorrectionRecoveryV1` 没有专用 hard-stop accounting；它不是
+   generic `TaskSpaceNoActionRecoveryV1`，所以 provider 可反复消费同一纠错提示直到 node budget hard-stop。
+3. 新收录的 R4-D feedback/control 问题是 `path-correction-recovery-budget-drain`。
+4. focused fix 新增 `TaskSpacePathCorrectionHardStopV1`：同一 node 允许一次路径纠错提示；第二次仍重复确定性
+   absolute alias rejection 时停止本 turn，并保留最后 recovery contract excerpt。
+5. R4-G utility 仍未通过：需要 fresh targeted rerun 验证 live 终态从 generic provider budget hard-stop
+   变为 path-correction 专用 hard-stop，随后再决定是否接入 bounded fact-source bootstrap 提升通过率。
+
+验证：
+
+```text
+cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core path_correction --lib
+  9 passed
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core provider_response_actionability --lib
+  9 passed
+```

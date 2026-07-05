@@ -1317,3 +1317,19 @@ results 执行原有 gate。
 
 边界说明：这不是禁止所有含 `...` 的文件内容。检测只在 patch hunk header 行本身是 `@@ ... @@`/`@@...@@`
 或已有 placeholder range hunk 时触发；普通文件内容里的 `...` 仍按原 patch normalization 处理。
+
+## 2026-07-05 R4-D issue type addendum: path-correction recovery budget drain
+
+E3 targeted `multi-source-data-merger` 诊断证明路径纠错已经从“反馈缺失”推进到“反馈已送达但恢复循环无界”：
+`/data` 失败后，`/data/source_a/users.json` 和 `/data/source_b/users.csv` 被
+`path_correction_retry_forbidden` 拒绝在 shell dispatch 之前；但专用
+`TaskSpacePathCorrectionRecoveryV1` 不计入 generic no-action hard-stop，最终仍落到
+`TaskSpaceProviderBudgetHardStopV1 node_request_count=7/6`。
+
+| issue type | 层级 | 本质 | 修复 | 证据 |
+|---|---|---|---|---|
+| `path-correction-recovery-budget-drain` | action-contract path correction / feedback recovery accounting / provider budget control | 路径失败语义已传到 tool boundary，但 provider 重试绝对 workspace alias 后，专用 path-correction recovery 可反复 advisory，直到 generic provider budget hard-stop | 已实现：新增 `TaskSpacePathCorrectionHardStopV1`；同一 node 允许一次 path-correction recovery prompt，第二次仍重复确定性绝对路径拒绝时停止本 turn；hard-stop excerpt 不再被误识别为 recovery item | targeted run `20260706-003657-482`; CoE H-148/E-298/E-299; focused tests `path_correction_recovery_hard_stops_after_one_retry_prompt`, `path_correction`, `provider_response_actionability` |
+
+边界说明：这不是扩大 `/data` 访问权限，也不是把失败读当成成功证据。runtime 仍拒绝绝对 alias
+并提供 workspace-relative suggestion；修复只把重复确定性拒绝从高成本 provider budget hard-stop 收敛为专用、可审计的
+path-correction hard-stop。

@@ -9313,3 +9313,67 @@
 - Interpretation:
   - The local request-boundary gap is focused-fixed.
   - A fresh targeted live run is still required to verify `path_correction_retry_forbidden` appears before shell dispatch.
+
+# Hypothesis H-148: path-correction recovery bypassed no-action hard-stop accounting
+
+- Claim: After H-147, path-correction rejection is correctly enforced, but `TaskSpacePathCorrectionRecoveryV1` is a specialized recovery item and does not count as `TaskSpaceNoActionRecoveryV1`. Repeated absolute-path retries therefore keep generating developer recovery requests until the provider/node budget hard-stop, making the direct cost cause a recovery-accounting gap rather than a missing path-correction semantic.
+- Prediction:
+  - A targeted run after H-147 should contain `path_correction_retry_forbidden` before shell dispatch.
+  - The same run should still spend repeated provider requests on `TaskSpacePathCorrectionRecoveryV1` and end at `TaskSpaceProviderBudgetHardStopV1` if the model keeps retrying `/data/...`.
+  - Adding a node-scoped path-correction recovery counter should allow one correction prompt and then stop with `TaskSpacePathCorrectionHardStopV1` on the next repeated deterministic rejection.
+- Diagnostic evidence plan:
+  - Inspect the `c34e3cc` targeted run for retry-forbidden markers, absence of shell dispatch after rejection, and terminal budget hard-stop.
+  - Add a dedicated path-correction hard-stop marker and unit coverage.
+  - Re-run focused path-correction and provider actionability tests, then run wider TaskSpace/build gates.
+- Status: confirmed; focused-fix implemented; live targeted rerun pending.
+
+# Evidence E-298: c34e3cc targeted run proved path-correction rejection reaches the tool boundary
+
+- Prediction tested: H-147 predicts `path_correction_retry_forbidden` is emitted before command execution after restoring enforcement state from ActionMap.
+- Run:
+  ```text
+  HEAD: c34e3cc
+  RunRoot: target/r4-e3-formal-p0-20260705/targeted-multi-source-c34e3cc
+  RunDir: target/r4-e3-formal-p0-20260705/targeted-multi-source-c34e3cc/runs/terminal_bench__multi-source-data-merger/20260706-003657-482
+  pair: pair-001/right
+  ```
+- Matched run signals:
+  ```text
+  initial tool dispatch:
+    item.started command_execution: rg --files /data
+    item.completed failed: rg: /data: No such file or directory
+
+  enforced rejections:
+    path_correction_retry_forbidden:/data/source_a/users.json:suggested_relative_path=data/source_a/users.json
+    path_correction_retry_forbidden:/data:suggested_relative_path=data
+    path_correction_retry_forbidden:/data/source_b/users.csv:suggested_relative_path=data/source_b/users.csv
+
+  terminal state:
+    TaskSpaceProviderBudgetHardStopV1
+    node_request_count=7/6
+  ```
+- Interpretation:
+  - The feedback semantic is no longer missing at the tool boundary: absolute alias retries are rejected before shell execution.
+  - The remaining direct cost cause is that path-correction recovery itself was not bounded by a specialized hard-stop, so repeated deterministic rejection consumed provider requests.
+
+# Evidence E-299: path-correction recovery now has a dedicated hard-stop
+
+- Prediction tested: H-148 predicts specialized path-correction recovery needs node-scoped hard-stop accounting separate from generic no-action recovery.
+- Repair artifact:
+  - `third_party/codex-cli/codex-rs/core/src/session/turn.rs`
+    - adds `TaskSpacePathCorrectionHardStopV1`;
+    - tracks `TaskSpacePathCorrectionRecoveryV1` per current provider snapshot node;
+    - allows the first path-correction recovery prompt and stops on a repeated same-node recovery;
+    - excludes hard-stop excerpts from recovery-item detection, so audit excerpts do not re-enter the counter.
+- Validation:
+  ```text
+  cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all
+    passed with existing nightly rustfmt config warnings
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core path_correction --lib
+    9 passed
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core provider_response_actionability --lib
+    9 passed
+  ```
+- Interpretation:
+  - The direct budget-drain mechanism is focused-fixed locally.
+  - A fresh targeted run is still required to prove the final live marker changes from generic provider-budget hard-stop to `TaskSpacePathCorrectionHardStopV1`.
