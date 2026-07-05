@@ -1797,6 +1797,41 @@ CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core projection_prioritizes_insp
   1 passed
 ```
 
+`c573bbc` right-only targeted run `20260706-032432-324` 进一步证明 sync 修复已生效：
+
+```text
+gate_recovery_projection_sync:
+  reason:path_correction_retry_forbidden
+  next_valid_action_1:emit list_files with args.path `data`
+
+second ContextProjectionV1 active replacement:
+  next_valid_actions:
+    emit list_files with args.path `data`
+    do not repeat the blocked inspect action; use the named recovery action or return blocked with exact evidence
+```
+
+但 utility 仍未过：Agent 下一步仍发出 `list_files` path `/data`，随后被
+`path_correction_retry_forbidden:/data:suggested_relative_path=data` 拒绝并 hard-stop。
+这说明 H-154 的同步缺口已清除，新的问题是同一投影表面中 `facts` 仍显示 `/data/source_*`
+外部别名，positive next action 没有在同一句中声明 forbidden alias。
+
+追加修复 H-155：
+
+```text
+emit list_files with args.path exactly `data`; do not use `/data` or `/data/...`
+```
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core path_correction --lib
+  13 passed
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core provider_response_actionability --lib
+  9 passed
+RUST_MIN_STACK=8388608 CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core taskspace --lib
+  175 passed
+```
+
 `c98542b` targeted rerun 未能验证 H-150 live 终态，因为 right-side 在 validation 前遇到新的
 feedback-layer collision：
 

@@ -9819,3 +9819,88 @@
   - The repair closes the state-sync gap proven by E-309.
   - Boundary remains intact: runtime stores and projects structured recovery semantics; it does not infer or execute the semantic action for the Agent.
   - Next gate: run path-correction/provider-response/taskspace regressions, then rebuild whale and rerun right-only `multi-source-data-merger` to prove the next active projection contains `args.path=data` instead of stale `/data/...` fact-source actions.
+
+# Evidence E-311: c573bbc right-only rerun proves projection sync works but fact-source alias ambiguity remains
+
+- Type: diagnostic live run.
+- Prediction tested: H-154 predicts that the next active projection after path-correction recovery should contain the synced `data` next action.
+- Run:
+  ```text
+  HEAD: c573bbc
+  RunRoot: target/r4-e3-formal-p0-20260705/targeted-multi-source-c573bbc-right-only
+  RunDir: target/r4-e3-formal-p0-20260705/targeted-multi-source-c573bbc-right-only/runs/terminal_bench__multi-source-data-merger/20260706-032432-324
+  pair: pair-001/right
+  RunSide: right
+  ```
+- Matched signals:
+  ```text
+  gate_recovery_projection_sync:
+    reason:path_correction_retry_forbidden
+    next_valid_action_1:emit list_files with args.path `data`
+
+  second ContextProjectionV1 active replacement:
+    facts:
+      fact-source-1 /data/source_a/users.json
+      fact-source-2 /data/source_b/users.csv
+      fact-source-3 /data/source_c/users.parquet
+    next_valid_actions:
+      emit list_files with args.path `data`
+      do not repeat the blocked inspect action; use the named recovery action or return blocked with exact evidence
+
+  provider next action:
+    {"action":"list_files","args":{"path":"/data"}}
+  rejection:
+    path_correction_retry_forbidden:/data:suggested_relative_path=data
+  ```
+- Metrics:
+  ```text
+  business_success: false
+  public_validation_exit_code: 1
+  model_request_count: 1
+  input_tokens: 359192
+  cached_input_tokens: 356224
+  uncached_input_tokens: 2968
+  changed_paths: []
+  ```
+- Interpretation:
+  - H-154 is live-confirmed: recovery `next_valid_actions` reached active projection and stale `/data/...` fact-source actions no longer appeared in `next_valid_actions`.
+  - Utility still fails because the model reused `/data` from the facts/request surface despite the positive `data` action.
+  - The next feedback-layer issue is ambiguity, not missing sync: projection still displays absolute fact-source aliases while the recovery action only says what to use, not explicitly what not to use in that same projected action.
+
+# Hypothesis H-155: path-correction projection must disambiguate exact args.path from failed absolute aliases
+
+- Claim: When the facts section still contains external/container aliases such as `/data/source_a/users.json`, a positive next action like "emit list_files with args.path `data`" is insufficiently explicit for DeepSeek. The recovery/projection action should carry both the exact replacement and the forbidden failed alias in one sentence, so the Agent sees a single unambiguous path contract.
+- Prediction:
+  - Path-correction recovery text and action-contract rejection follow-up should say `args.path exactly data` and `do not use /data or /data/...`.
+  - Focused path-correction tests should prove the exact replacement and forbidden alias are present.
+  - No runtime auto-inspect or fact mutation should be introduced.
+- Status: confirmed from E-311; local repair implemented and regression-validated; live rerun pending.
+
+# Evidence E-312: H-155 local repair makes path-correction next action exact and alias-negative
+
+- Type: fix-validation.
+- Prediction tested: H-155 predicts that feedback should remove ambiguity inside the projected next action itself.
+- Repair artifact:
+  - `third_party/codex-cli/codex-rs/core/src/session/turn.rs`
+    - Inspect path-correction `next_valid_actions` now starts with:
+      `emit list_files with args.path exactly <suggested>; do not use <failed> or <failed>/...`
+    - Existing recovery and rejection follow-up paths inherit the same GateRecovery action payload.
+    - No automatic `list_files/read_file/search` execution path was added.
+- Validation:
+  ```text
+  cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core path_correction --lib
+    13 passed
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core provider_response_actionability --lib
+    9 passed
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core extracts_projection_sync_from_recovery_message_gate_recovery --lib
+    1 passed
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core gate_recovery_projection_sync_records_latest_actions_and_trace --lib
+    1 passed
+  RUST_MIN_STACK=8388608 CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core taskspace --lib
+    175 passed
+  ```
+- Interpretation:
+  - H-155 is locally fixed at the recovery/projection wording layer.
+  - The repair does not mutate the original fact-source aliases and does not execute the suggested relative inspect action.
+  - A right-only rerun is still required to see whether DeepSeek now uses `data` instead of `/data`.

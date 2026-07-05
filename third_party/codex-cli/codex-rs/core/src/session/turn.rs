@@ -2335,7 +2335,10 @@ fn taskspace_path_correction_next_valid_actions(
     let suggested = correction.suggested_relative_path.as_str();
     match node_kind {
         Some("inspect_code_context") => vec![
-            format!("emit list_files with args.path `{suggested}`"),
+            format!(
+                "emit list_files with args.path exactly `{suggested}`; do not use `{}` or `{}/...`",
+                correction.failed_path, correction.failed_path
+            ),
             format!(
                 "or emit read_file/search for a concrete child path under `{suggested}` that is already visible in workspace evidence"
             ),
@@ -8683,7 +8686,8 @@ TaskSpace implement_solution node `node-6` cannot be blocked for missing source 
         assert!(text.contains("read_file, list_files, or search"));
         assert!(text.contains(TASKSPACE_GATE_RECOVERY_MARKER));
         assert!(text.contains("\"reason\":\"path_correction_retry_forbidden\""));
-        assert!(text.contains("emit list_files with args.path `data/source_a`"));
+        assert!(text.contains("emit list_files with args.path exactly `data/source_a`"));
+        assert!(text.contains("do not use `/data/source_a` or `/data/source_a/...`"));
     }
 
     #[test]
@@ -8701,7 +8705,8 @@ TaskSpace implement_solution node `node-6` cannot be blocked for missing source 
         assert!(followup.contains("TaskSpaceActionV1 rejected"));
         assert!(followup.contains(TASKSPACE_GATE_RECOVERY_MARKER));
         assert!(followup.contains("\"reason\":\"path_correction_retry_forbidden\""));
-        assert!(followup.contains("emit list_files with args.path `data`"));
+        assert!(followup.contains("emit list_files with args.path exactly `data`"));
+        assert!(followup.contains("do not use `/data` or `/data/...`"));
         assert!(followup.contains("concrete child path under `data`"));
     }
 
