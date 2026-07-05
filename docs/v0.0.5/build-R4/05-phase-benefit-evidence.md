@@ -1692,7 +1692,9 @@ fake-whale smoke:
 ```text
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/taskspace-benchmark/run-taskspace-external-benchmark.ps1 `
   -Benchmark terminal-bench `
-  -TaskListPath target/r4-e3-formal-p0-20260705/tasks/multi-source-data-merger.jsonl `
+  -TaskDir target/external-sources/terminal-bench-1a6ffa9674b571da0ed040c470cb40c4d85f9b9b/original-tasks/multi-source-data-merger `
+  -SampleId multi-source-data-merger `
+  -SourceVersion 1a6ffa9674b571da0ed040c470cb40c4d85f9b9b `
   -RunRoot target/r4-e3-formal-p0-20260705/targeted-multi-source-<HEAD>-right-only `
   -RunSide right `
   -Model deepseek-v4-flash `
@@ -1703,6 +1705,24 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/taskspace-benchmark/
 ```
 
 说明：命令仍保留 `-RequireScoreValidity`，但单侧模式不会因为 skipped side 中止；结果会明确标为 diagnostic-only。
+
+`852d38f` right-only targeted run 已验证该模式可用于真实 E3 诊断：
+
+```text
+RunRoot: target/r4-e3-formal-p0-20260705/targeted-multi-source-852d38f-right-only-r2
+RunDir: target/r4-e3-formal-p0-20260705/targeted-multi-source-852d38f-right-only-r2/runs/terminal_bench__multi-source-data-merger/20260706-023531-057
+RunSide: right
+left: no whale-argv.json; metrics_taints=side_selection_skipped:left:run_side=right
+right: model_request_count=1; uncached_input_tokens=4298; cached_input_tokens=474752
+```
+
+这轮还 live-clear 了 H-151：`/data` 失败后 provider 再次漂移到 `list_files "."`，runtime 返回
+`path_correction_retry_forbidden:.:suggested_relative_path=data`，随后以
+`TaskSpacePathCorrectionHardStopV1 reason=repeated_path_correction_retry_forbidden` 终止同一语义的高成本重试。
+
+剩余问题：utility 仍未通过。right 侧没有生成 patch，validator 报 `/app/merged_users.parquet` 和
+`/app/conflicts.json` 缺失。当前不是 path-correction 语义丢失，而是正确 hard-stop 后没有进入相对路径
+`data` 的低成本 fact-source bootstrap 或后续 implementation。
 
 `c98542b` targeted rerun 未能验证 H-150 live 终态，因为 right-side 在 validation 前遇到新的
 feedback-layer collision：

@@ -9629,3 +9629,83 @@
   - H-152 is locally validated for harness behavior.
   - `-RunSide right` is now available for targeted R4 diagnostics, including the next `multi-source-data-merger` rerun.
   - Formal E3 evidence still requires `-RunSide both`; one-sided runs are explicitly tainted diagnostic artifacts.
+
+# Evidence E-307: 852d38f right-only targeted run live-proves side selection and H-151 hard-stop semantics
+
+- Type: diagnostic live run.
+- Prediction tested:
+  - H-152 predicts `-RunSide right` should avoid left-side model execution.
+  - H-151 predicts broad `.` drift after `/data -> data` correction should be rejected as path-correction misuse before duplicate-read handling.
+- Run:
+  ```text
+  HEAD: 852d38f
+  RunRoot: target/r4-e3-formal-p0-20260705/targeted-multi-source-852d38f-right-only-r2
+  RunDir: target/r4-e3-formal-p0-20260705/targeted-multi-source-852d38f-right-only-r2/runs/terminal_bench__multi-source-data-merger/20260706-023531-057
+  pair: pair-001
+  RunSide: right
+  ```
+- Harness notes:
+  - First attempt aborted before model calls because the whale binary preflight attestation was stale.
+  - `write-whale-binary-attestation.ps1` refreshed `third_party/codex-cli/codex-rs/target/debug/whale.build-attestation.json` for the current codex source commit.
+  - Second attempt passed harness health, provider credential preflight, and whale binary preflight.
+- Side-selection signals:
+  ```text
+  manifest.resolved.json:
+    run_side: right
+    selected_sides: ["right"]
+    skipped_sides: ["left"]
+
+  left:
+    no whale-argv.json
+    side-selection-skip.json present
+    metrics_taints: side_selection_skipped:left:run_side=right
+
+  right:
+    whale-argv.json present
+    model_request_count: 1
+    rollout_trace_model_request_count: 4
+    input_tokens: 479050
+    cached_input_tokens: 474752
+    uncached_input_tokens: 4298
+  ```
+- Matched tools-chain signals:
+  ```text
+  item_3: rg --files . -> success
+    ./data/source_a/users.json
+    ./data/source_b/users.csv
+    ./data/source_c/users.parquet
+
+  item_6: rg --files /data -> failed path_not_found
+
+  item_9: list_files "." after path-correction recovery
+
+  item_10:
+    TaskSpaceActionV1 rejected:
+    path_correction_retry_forbidden:.:suggested_relative_path=data
+
+  terminal marker:
+    TaskSpacePathCorrectionHardStopV1
+    reason: repeated_path_correction_retry_forbidden
+    attempt_count: 2
+  ```
+- Validation outcome:
+  ```text
+  right public_validation_exit_code: 1
+  changed_paths: none
+  validator failures:
+    /app/merged_users.parquet missing
+    /app/conflicts.json missing
+  ```
+- Interpretation:
+  - H-152 is live-proven for diagnostic cost control: left-side agent/model execution was skipped.
+  - H-151 is live-proven for feedback semantics: broad root drift is now rejected as `path_correction_retry_forbidden` before duplicate-read masking.
+  - R4 utility still fails because the hard-stop terminates the turn without a successful relative-path inspect or implementation. The next unsolved issue is not semantic loss; it is a recovery/utility gap after a correct path-correction hard-stop, likely requiring bounded fact-source bootstrap or a stronger recovery transition to `data`.
+
+# Hypothesis H-153: correct path-correction hard-stop needs a bounded utility bridge to the suggested relative path
+
+- Claim: Once TaskSpace has a deterministic relative candidate (`/data -> data`) and the provider repeatedly ignores it, a hard-stop is semantically correct but not utility-sufficient. The runtime should have a narrow, auditable way to convert the known candidate into low-cost inspect evidence, or to force a transition that can continue implementation without another expensive provider retry loop.
+- Prediction:
+  - A bounded fact-source bootstrap using the suggested relative path should be possible without treating the failed `/data` read as success.
+  - The bootstrap must be limited to read/list/search on the suggested relative path or known concrete children, and must preserve the hard-stop evidence if the relative candidate also fails.
+  - If implemented, the next right-only rerun should advance beyond `TaskSpacePathCorrectionHardStopV1` toward reading `data/source_*` or implementation.
+- Status: open.
