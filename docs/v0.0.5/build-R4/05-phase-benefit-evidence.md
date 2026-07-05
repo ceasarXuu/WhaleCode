@@ -1863,6 +1863,30 @@ RUST_MIN_STACK=8388608 CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core task
   175 passed
 ```
 
+`5933ae9` right-only targeted run `20260706-033452-890` 证明 H-156 生效：`rg --files data`
+成功后不再立刻旧反馈 hard-stop。但 projection 随后又输出：
+
+```text
+read_file declared fact-source artifact `/data/source_b/users.csv` next
+read_file declared fact-source artifact `/data/source_c/users.parquet` next
+```
+
+这使 Agent 再次尝试 `/data/source_a/users.json` 并被 path-correction gate 拒绝。新的 H-157 修复是
+projection-only 的路径映射：若成功 listing 已观察到 `data/source_b/users.csv`，则 missing fact-source
+next action 使用该 workspace-relative candidate，同时保留原始 `/data/...` 作为上下文，不把 listing
+误算成完整 read coverage。
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core projection_uses_observed_relative_candidate_for_data_alias_fact_sources --lib
+  1 passed
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core path_correction --lib
+  14 passed
+RUST_MIN_STACK=8388608 CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core taskspace --lib
+  175 passed
+```
+
 `c98542b` targeted rerun 未能验证 H-150 live 终态，因为 right-side 在 validation 前遇到新的
 feedback-layer collision：
 

@@ -9991,3 +9991,77 @@
   - H-156 is locally fixed at the feedback lifecycle layer.
   - The original failed `/data/...` result remains recorded evidence; it just no longer dominates after newer successful relative-path evidence.
   - Next gate: rerun right-only targeted `multi-source-data-merger` and verify the successful `data/source_a/users.json` evidence advances inspect instead of path-correction hard-stopping.
+
+# Evidence E-315: 5933ae9 right-only rerun clears stale bridge but projection reintroduces absolute fact-source actions
+
+- Type: diagnostic live run.
+- Prediction tested: H-156 predicts that successful relative-path progress should no longer be overwritten by stale path-correction feedback.
+- Run:
+  ```text
+  HEAD: 5933ae9
+  RunRoot: target/r4-e3-formal-p0-20260705/targeted-multi-source-5933ae9-right-only
+  RunDir: target/r4-e3-formal-p0-20260705/targeted-multi-source-5933ae9-right-only/runs/terminal_bench__multi-source-data-merger/20260706-033452-890
+  pair: pair-001/right
+  RunSide: right
+  ```
+- Matched signals:
+  ```text
+  item_6:
+    list_files data
+  item_7:
+    rg --files data
+    data/source_a/users.json
+    data/source_c/users.parquet
+    data/source_b/users.csv
+    exit_code=0
+  item_8:
+    response_actionability=actionable recovery_action=none
+
+  next projection:
+    read_file declared fact-source artifact `/data/source_b/users.csv` next
+    read_file declared fact-source artifact `/data/source_c/users.parquet` next
+
+  item_9:
+    read_file /data/source_a/users.json
+  item_10:
+    path_correction_retry_forbidden:/data/source_a/users.json:suggested_relative_path=data/source_a/users.json
+  ```
+- Interpretation:
+  - H-156 is live-confirmed: after successful `rg --files data`, there was no immediate stale path-correction recovery.
+  - New blocker: projection's missing fact-source actions still use the original `/data/...` aliases even when the successful listing has already revealed workspace-relative `data/...` candidates.
+  - This is a projection wording/mapping gap, not a tool permission gap and not evidence mutation.
+
+# Hypothesis H-157: missing fact-source projection should use observed workspace-relative candidates for failed aliases
+
+- Claim: When a required fact source is `/data/<path>` and a successful path listing has observed `data/<path>`, `next_valid_actions` should ask the Agent to `read_file data/<path>` while preserving the original fact-source identity as context. It must not count the listing as full fact-source content coverage.
+- Prediction:
+  - A focused projection test should show `read_file declared fact-source artifact data/source_b/users.csv next (workspace-relative candidate for /data/source_b/users.csv)`.
+  - The underlying missing fact-source coverage should remain unsatisfied until actual read/content evidence exists.
+  - `taskspace` regressions should remain green.
+- Status: confirmed from E-315; local repair implemented and regression-validated; live rerun pending.
+
+# Evidence E-316: H-157 local repair maps missing fact-source read actions to observed relative candidates
+
+- Type: fix-validation.
+- Prediction tested: H-157 predicts projection can use observed relative candidates without mutating fact-source coverage.
+- Repair artifact:
+  - `third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs`
+    - Added `inspect_node_projection_visible_artifact_refs(...)` and `path_listing_artifact_refs_from_result_body(...)` for projection-only path listing references.
+    - Added `workspace_relative_candidate_for_observed_alias(...)` and `projection_fact_source_read_action(...)`.
+    - `projection_next_valid_actions(...)` now formats missing fact-source read actions with an observed workspace-relative candidate when available.
+    - Coverage logic still uses `inspect_node_observed_artifact_refs(...)`; path listings are not treated as complete fact-source reads.
+- Validation:
+  ```text
+  cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --all
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core projection_uses_observed_relative_candidate_for_data_alias_fact_sources --lib
+    1 passed
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core path_correction --lib
+    14 passed
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core provider_response_actionability --lib
+    9 passed
+  RUST_MIN_STACK=8388608 CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core taskspace --lib
+    175 passed
+  ```
+- Interpretation:
+  - H-157 is locally fixed at projection wording/mapping only.
+  - The Agent remains responsible for reading the files and deciding the implementation; runtime only removes an avoidable alias ambiguity from the next action.

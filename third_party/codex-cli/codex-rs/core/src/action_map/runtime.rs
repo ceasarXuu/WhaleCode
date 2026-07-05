@@ -12457,11 +12457,13 @@ fn projection_next_valid_actions(
                     .map(|task| inspect_missing_required_fact_source_artifacts(task, map, node))
                     .unwrap_or_default();
                 if !missing_fact_source_artifacts.is_empty() {
+                    let observed_artifacts =
+                        inspect_node_projection_visible_artifact_refs(map, node);
                     let mut actions = missing_fact_source_artifacts
                         .iter()
                         .take(4)
                         .map(|artifact| {
-                            format!("read_file declared fact-source artifact `{artifact}` next")
+                            projection_fact_source_read_action(artifact, &observed_artifacts)
                         })
                         .collect::<Vec<_>>();
                     actions.push(
@@ -12640,6 +12642,74 @@ fn projection_next_valid_actions(
         }
         NodeKind::Custom => vec!["choose concrete built-in node kind for follow-up".to_string()],
     }
+}
+
+fn projection_fact_source_read_action(artifact: &str, observed_artifacts: &[String]) -> String {
+    if let Some(candidate) =
+        workspace_relative_candidate_for_observed_alias(artifact, observed_artifacts)
+    {
+        return format!(
+            "read_file declared fact-source artifact `{candidate}` next (workspace-relative candidate for `{artifact}`)"
+        );
+    }
+    format!("read_file declared fact-source artifact `{artifact}` next")
+}
+
+fn inspect_node_projection_visible_artifact_refs(
+    map: &ActionMapInstance,
+    node: &MapNode,
+) -> Vec<String> {
+    let mut artifact_refs = inspect_node_observed_artifact_refs(map, node);
+    for result_ref in &node.result_context {
+        let Some(result) = map.results.get(&result_ref.id) else {
+            continue;
+        };
+        if result.kind != NodeResultKind::MainToolCall
+            || result.tool_success != Some(true)
+            || !matches!(
+                result.action_class,
+                Some(ActionClass::Read | ActionClass::Search)
+            )
+        {
+            continue;
+        }
+        for artifact in path_listing_artifact_refs_from_result_body(&result.body) {
+            push_unique_artifact_ref(&mut artifact_refs, artifact);
+        }
+    }
+    artifact_refs
+}
+
+fn path_listing_artifact_refs_from_result_body(body: &str) -> Vec<String> {
+    if !read_result_body_is_path_listing_only(body) {
+        return Vec::new();
+    }
+    let mut artifact_refs = Vec::new();
+    for line in body.lines().map(str::trim).filter(|line| !line.is_empty()) {
+        if is_probable_path_listing_line(line) {
+            push_unique_artifact_ref(&mut artifact_refs, normalize_artifact_ref(line));
+        }
+    }
+    artifact_refs
+}
+
+fn workspace_relative_candidate_for_observed_alias(
+    artifact: &str,
+    observed_artifacts: &[String],
+) -> Option<String> {
+    let normalized = normalize_artifact_ref(artifact);
+    let candidate = normalized
+        .strip_prefix("/data/")
+        .map(|suffix| format!("data/{}", suffix.trim_start_matches('/')))
+        .or_else(|| {
+            normalized
+                .strip_prefix("/app/")
+                .map(|suffix| suffix.trim_start_matches('/').to_string())
+        })?;
+    observed_artifacts
+        .iter()
+        .any(|observed| artifact_refs_equivalent(observed, &candidate))
+        .then_some(candidate)
 }
 
 fn compact_projection_allowed_actions_for_node(kind: NodeKind) -> String {
@@ -25979,6 +26049,72 @@ Platform,In Progress,D001\n"
                 .current_main_inspect_missing_required_fact_source_artifacts()
                 .is_empty(),
             "relative section headers should satisfy root-style fact-source refs"
+        );
+    }
+
+    #[test]
+    fn projection_uses_observed_relative_candidate_for_data_alias_fact_sources() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::InspectCodeContext,
+            "Inspect user data",
+            "Read every declared data source before implementation.",
+            "Inspect user data",
+            "Read every declared data source before implementation.",
+            true,
+        );
+        record_required_fact_source_artifacts(
+            &mut state,
+            owner,
+            &[
+                "/data/source_a/users.json",
+                "/data/source_b/users.csv",
+                "/data/source_c/users.parquet",
+            ],
+        );
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "list-data",
+                "shell_command",
+                Some(ActionClass::Read),
+                true,
+                "TaskSpaceToolInvocationV1:\n\
+tool: shell_command\n\
+command: rg --files data\n\
+raw_output:\n\
+data/source_a/users.json\n\
+data/source_b/users.csv\n\
+data/source_c/users.parquet\n"
+                    .to_string(),
+            )
+            .expect("relative data listing records");
+
+        let task_id = state.active_task_id.clone().expect("active task");
+        let map = state.maps.get("map-1").expect("map");
+        let task = state.tasks.get(&task_id).expect("task");
+        let actions = projection_next_valid_actions(map, Some("node-1"), Some(task), &[]);
+
+        assert!(
+            actions
+                .iter()
+                .any(|action| action.contains("`data/source_b/users.csv`")),
+            "{actions:?}"
+        );
+        assert!(
+            actions.iter().any(|action| action
+                .contains("workspace-relative candidate for `/data/source_b/users.csv`")),
+            "{actions:?}"
+        );
+        assert!(
+            !actions
+                .iter()
+                .any(|action| action.contains("artifact `/data/source_b/users.csv` next")),
+            "projection should not ask the model to read the failed absolute alias after observing a relative candidate: {actions:?}"
         );
     }
 
