@@ -2241,100 +2241,6 @@ impl ActionMapRuntimeState {
                 ));
             }
         }
-        if node.kind == NodeKind::InspectCodeContext
-            && matches!(
-                descriptor.action_class,
-                ActionClass::Read | ActionClass::Search
-            )
-            && let Some((previous_result_id, command)) =
-                inspect_duplicate_successful_read_or_search(map, node, &descriptor)
-        {
-            let reason = "inspect_duplicate_successful_read_or_search".to_string();
-            let missing_fact_source_artifacts = map
-                .task_id
-                .as_deref()
-                .and_then(|task_id| self.tasks.get(task_id))
-                .map(|task| inspect_missing_required_fact_source_artifacts(task, map, node))
-                .unwrap_or_default();
-            let has_missing_fact_sources = !missing_fact_source_artifacts.is_empty();
-            let message = format!(
-                "TaskSpace blocked this evidence command because inspect node `{}` already recorded successful read/search evidence `{}` for the same command `{}`. {}",
-                node.id,
-                previous_result_id,
-                single_line_preview(&command, 220),
-                if has_missing_fact_sources {
-                    format!(
-                        "Use the existing result for that command, but do not finish this inspect node yet; declared fact-source artifact(s) still need inspect evidence: {}.",
-                        missing_fact_source_artifacts.join(", ")
-                    )
-                } else {
-                    "Use the existing result, read/search a different concrete artifact only if needed, or finish this inspect node into implement_solution.".to_string()
-                }
-            );
-            let current_node_item = format!("current_node:{}:{}", node.id, node.kind.as_str());
-            let blocked_node_kind = node.kind.as_str().to_string();
-            let finish_node_action = format!(
-                "taskspace_control(action=finish_node, node_id=\"{}\", next_node_kind=\"implement_solution\")",
-                node.id
-            );
-            let mut evidence_refs = vec![
-                current_node_item,
-                format!("previous_read_search_result:{previous_result_id}"),
-            ];
-            evidence_refs.extend(
-                missing_fact_source_artifacts
-                    .iter()
-                    .map(|artifact| format!("missing_fact_source_artifact:{artifact}")),
-            );
-            let mut next_valid_actions = if has_missing_fact_sources {
-                missing_fact_source_artifacts
-                    .iter()
-                    .map(|artifact| {
-                        format!(
-                            "read_file or search for declared fact-source artifact `{artifact}`"
-                        )
-                    })
-                    .collect::<Vec<_>>()
-            } else {
-                vec![
-                    "read_file or search for a different concrete implementation/test artifact"
-                        .to_string(),
-                ]
-            };
-            next_valid_actions
-                .push("taskspace_control(action=state_commit) for accepted findings".to_string());
-            if !has_missing_fact_sources {
-                next_valid_actions.push(finish_node_action);
-            }
-            let repeated_block = self.record_blocked_action_repeat(
-                &map_id,
-                &node_id,
-                progress_signature,
-                &reason,
-                &descriptor,
-            );
-            let recovery = gate_recovery_message_with_repeated_block(
-                &message,
-                &reason,
-                evidence_refs,
-                next_valid_actions,
-                Vec::new(),
-                Some(&repeated_block),
-            );
-            return Err(ActionMapGateError::new(
-                recovery,
-                vec![MapRuntimeEvent::ToolActionBlocked(
-                    MapRuntimeToolActionBlockedEvent {
-                        map_id,
-                        node_id,
-                        node_kind: blocked_node_kind,
-                        tool_name: descriptor.tool_name,
-                        action_class: descriptor.action_class.as_str().to_string(),
-                        reason,
-                    },
-                )],
-            ));
-        }
         if node.kind == NodeKind::ImplementSolution
             && matches!(
                 descriptor.action_class,
@@ -2567,63 +2473,6 @@ impl ActionMapRuntimeState {
                     })
                     .unwrap_or_else(|| vec![current_node_item]),
                 next_valid_actions,
-                Vec::new(),
-                Some(&repeated_block),
-            );
-            return Err(ActionMapGateError::new(
-                recovery,
-                vec![MapRuntimeEvent::ToolActionBlocked(
-                    MapRuntimeToolActionBlockedEvent {
-                        map_id,
-                        node_id,
-                        node_kind: blocked_node_kind,
-                        tool_name: descriptor.tool_name,
-                        action_class: descriptor.action_class.as_str().to_string(),
-                        reason,
-                    },
-                )],
-            ));
-        }
-        if node.kind == NodeKind::InspectCodeContext
-            && matches!(
-                descriptor.action_class,
-                ActionClass::Test | ActionClass::Build
-            )
-            && let Some((previous_result_id, command)) =
-                inspect_duplicate_successful_diagnostic_test(map, node, &descriptor)
-        {
-            let reason = "inspect_duplicate_successful_diagnostic_test".to_string();
-            let message = format!(
-                "TaskSpace blocked this diagnostic command because inspect node `{}` already recorded successful diagnostic evidence `{}` for the same command `{}`. Do not rerun the same diagnostic without a code change. Continue with read/search evidence, record accepted findings, or finish this inspect node into implement_solution.",
-                node.id,
-                previous_result_id,
-                single_line_preview(&command, 220)
-            );
-            let current_node_item = format!("current_node:{}:{}", node.id, node.kind.as_str());
-            let blocked_node_kind = node.kind.as_str().to_string();
-            let finish_node_action = format!(
-                "taskspace_control(action=finish_node, node_id=\"{}\", next_node_kind=\"implement_solution\")",
-                node.id
-            );
-            let repeated_block = self.record_blocked_action_repeat(
-                &map_id,
-                &node_id,
-                progress_signature,
-                &reason,
-                &descriptor,
-            );
-            let recovery = gate_recovery_message_with_repeated_block(
-                &message,
-                &reason,
-                vec![
-                    current_node_item,
-                    format!("previous_diagnostic_result:{previous_result_id}"),
-                ],
-                vec![
-                    "read_file or search for implementation/test evidence".to_string(),
-                    "taskspace_control(action=state_commit) for accepted findings".to_string(),
-                    finish_node_action,
-                ],
                 Vec::new(),
                 Some(&repeated_block),
             );
@@ -16368,70 +16217,6 @@ fn tool_action_descriptor_matching_artifact_ref(
     })
 }
 
-fn inspect_duplicate_successful_diagnostic_test(
-    map: &ActionMapInstance,
-    node: &MapNode,
-    descriptor: &ToolActionDescriptor,
-) -> Option<(NodeResultId, String)> {
-    let command = tool_action_descriptor_command(descriptor)?;
-    let normalized_command = normalize_command_for_repeat_detection(&command);
-    if normalized_command.is_empty() {
-        return None;
-    }
-    node.result_context.iter().rev().find_map(|result_ref| {
-        let result = map.results.get(&result_ref.id)?;
-        if result.kind != NodeResultKind::MainToolCall
-            || result.tool_success != Some(true)
-            || !matches!(
-                result.action_class,
-                Some(ActionClass::Test | ActionClass::Build)
-            )
-        {
-            return None;
-        }
-        let previous_command = result_body_command(result)
-            .map(|command| normalize_command_for_repeat_detection(&command))
-            .unwrap_or_default();
-        if previous_command == normalized_command {
-            Some((result.id.clone(), command.clone()))
-        } else {
-            None
-        }
-    })
-}
-
-fn inspect_duplicate_successful_read_or_search(
-    map: &ActionMapInstance,
-    node: &MapNode,
-    descriptor: &ToolActionDescriptor,
-) -> Option<(NodeResultId, String)> {
-    let command = tool_action_descriptor_command(descriptor)?;
-    let normalized_command = normalize_command_for_repeat_detection(&command);
-    if normalized_command.is_empty() {
-        return None;
-    }
-    node.result_context.iter().rev().find_map(|result_ref| {
-        let result = map.results.get(&result_ref.id)?;
-        if result.kind != NodeResultKind::MainToolCall
-            || result.tool_success != Some(true)
-            || !matches!(
-                result.action_class,
-                Some(ActionClass::Read | ActionClass::Search)
-            )
-        {
-            return None;
-        }
-        let previous_command = result_body_command(result)
-            .map(|command| normalize_command_for_repeat_detection(&command))
-            .unwrap_or_default();
-        if previous_command == normalized_command {
-            Some((result.id.clone(), command.clone()))
-        } else {
-            None
-        }
-    })
-}
-
 fn result_body_command(result: &NodeResult) -> Option<String> {
     result
         .body
@@ -25454,7 +25239,7 @@ sample rows from {artifact}"
     }
 
     #[test]
-    fn inspect_node_blocks_repeated_successful_diagnostic_test_command() {
+    fn inspect_node_allows_repeated_successful_diagnostic_test_command() {
         let mut state = ActionMapRuntimeState::default();
         let owner = ThreadId::new();
         state.set_mode(MapRuntimeMode::Experiment);
@@ -25491,50 +25276,23 @@ OutputReferenceV1: output-ref://sha256/example"
             )
             .expect("successful diagnostic records");
 
-        let error = state
+        let events = state
             .prepare_main_tool_call(owner, descriptor.clone())
-            .expect_err("same successful diagnostic command should not rerun");
-        let (message, events) = error.into_parts();
-
-        assert!(message.contains("inspect_duplicate_successful_diagnostic_test"));
-        assert!(message.contains("previous_diagnostic_result:result-1"));
-        assert!(message.contains("read_file or search"));
-        assert!(message.contains("finish_node"));
-        assert!(message.contains("implement_solution"));
-        assert!(events.iter().any(|event| {
-            matches!(
-                event,
-                MapRuntimeEvent::ToolActionBlocked(blocked)
-                    if blocked.reason == "inspect_duplicate_successful_diagnostic_test"
-                        && blocked.node_kind == "inspect_code_context"
-                        && blocked.action_class == "test"
-            )
-        }));
-
-        let repeat_error = state
-            .prepare_main_tool_call(owner, descriptor.clone())
-            .expect_err("second identical blocked action should carry repeat state");
-        let (repeat_message, repeat_events) = repeat_error.into_parts();
-
-        assert!(repeat_message.contains("\"repeated_blocked_action\""));
-        assert!(repeat_message.contains("\"repeat_count\":2"));
-        assert!(repeat_message.contains("\"same_action_allowed\":false"));
-        assert!(repeat_message.contains(
-            "\"excluded_until\":\"current node records new successful evidence or changes state\""
-        ));
+            .expect("same successful diagnostic command is advisory-only and remains allowed");
         assert!(
-            repeat_message
-                .contains("repeated_blocked_action:inspect_duplicate_successful_diagnostic_test")
+            events
+                .iter()
+                .all(|event| !matches!(event, MapRuntimeEvent::ToolActionBlocked(_)))
         );
-        assert!(repeat_events.iter().any(|event| {
-            matches!(
-                event,
-                MapRuntimeEvent::ToolActionBlocked(blocked)
-                    if blocked.reason == "inspect_duplicate_successful_diagnostic_test"
-                        && blocked.node_kind == "inspect_code_context"
-                        && blocked.action_class == "test"
-            )
-        }));
+
+        let repeat_events = state
+            .prepare_main_tool_call(owner, descriptor.clone())
+            .expect("second identical diagnostic command also remains agent-controlled");
+        assert!(
+            repeat_events
+                .iter()
+                .all(|event| !matches!(event, MapRuntimeEvent::ToolActionBlocked(_)))
+        );
 
         let read_descriptor = ToolActionDescriptor::new(
             "shell_command",
@@ -25561,16 +25319,18 @@ def test_large_output_ref():\n\
             )
             .expect("successful read clears stale blocked-action repeat state");
 
-        let after_progress_error = state
+        let after_progress_events = state
             .prepare_main_tool_call(owner, descriptor)
-            .expect_err("same duplicate diagnostic is still blocked after progress");
-        let (after_progress_message, _) = after_progress_error.into_parts();
-        assert!(!after_progress_message.contains("\"repeated_blocked_action\""));
-        assert!(after_progress_message.contains("inspect_duplicate_successful_diagnostic_test"));
+            .expect("diagnostic rerun remains allowed after progress");
+        assert!(
+            after_progress_events
+                .iter()
+                .all(|event| !matches!(event, MapRuntimeEvent::ToolActionBlocked(_)))
+        );
     }
 
     #[test]
-    fn inspect_node_blocks_repeated_successful_read_command() {
+    fn inspect_node_allows_repeated_successful_read_command() {
         let mut state = ActionMapRuntimeState::default();
         let owner = ThreadId::new();
         state.set_mode(MapRuntimeMode::Experiment);
@@ -25607,28 +25367,18 @@ def build_organization():\n\
             )
             .expect("successful read records");
 
-        let error = state
+        let events = state
             .prepare_main_tool_call(owner, descriptor)
-            .expect_err("same successful read command should not rerun");
-        let (message, events) = error.into_parts();
-
-        assert!(message.contains("inspect_duplicate_successful_read_or_search"));
-        assert!(message.contains("previous_read_search_result:result-1"));
-        assert!(message.contains("different concrete implementation/test artifact"));
-        assert!(message.contains("finish_node"));
-        assert!(events.iter().any(|event| {
-            matches!(
-                event,
-                MapRuntimeEvent::ToolActionBlocked(blocked)
-                    if blocked.reason == "inspect_duplicate_successful_read_or_search"
-                        && blocked.node_kind == "inspect_code_context"
-                        && blocked.action_class == "read"
-            )
-        }));
+            .expect("same successful read command is advisory-only and remains allowed");
+        assert!(
+            events
+                .iter()
+                .all(|event| !matches!(event, MapRuntimeEvent::ToolActionBlocked(_)))
+        );
     }
 
     #[test]
-    fn inspect_duplicate_read_reports_missing_fact_source_artifacts_without_finish() {
+    fn inspect_duplicate_read_with_missing_fact_sources_remains_allowed() {
         let mut state = ActionMapRuntimeState::default();
         let owner = ThreadId::new();
         state.set_mode(MapRuntimeMode::Experiment);
@@ -25660,29 +25410,14 @@ def build_organization():\n\
             ActionClass::Read,
             r#"{"command":"sed -n '1,240p' -- departments.csv","timeout_ms":10000}"#,
         );
-        let error = state
+        let events = state
             .prepare_main_tool_call(owner, duplicate_departments)
-            .expect_err("duplicate read must be blocked with missing fact-source recovery");
-        let (message, events) = error.into_parts();
-
-        assert!(message.contains("inspect_duplicate_successful_read_or_search"));
-        assert!(message.contains("missing_fact_source_artifact:employees.csv"));
-        assert!(message.contains("missing_fact_source_artifact:projects.csv"));
-        assert!(message.contains("declared fact-source artifact `employees.csv`"));
-        assert!(message.contains("declared fact-source artifact `projects.csv`"));
+            .expect("duplicate read must not be blocked while fact-source hints are advisory");
         assert!(
-            !message.contains("taskspace_control(action=finish_node"),
-            "finish_node must not be a next action while declared fact sources are unread"
+            events
+                .iter()
+                .all(|event| !matches!(event, MapRuntimeEvent::ToolActionBlocked(_)))
         );
-        assert!(events.iter().any(|event| {
-            matches!(
-                event,
-                MapRuntimeEvent::ToolActionBlocked(blocked)
-                    if blocked.reason == "inspect_duplicate_successful_read_or_search"
-                        && blocked.node_kind == "inspect_code_context"
-                        && blocked.action_class == "read"
-            )
-        }));
     }
 
     #[test]
@@ -26335,14 +26070,14 @@ projects.csv\n"
             ActionClass::Search,
             r#"{"command":"rg --files","timeout_ms":10000}"#,
         );
-        let error = state
+        let events = state
             .prepare_main_tool_call(owner, duplicate_list_files)
-            .expect_err("duplicate list_files should be blocked with finish recovery");
-        let (message, _) = error.into_parts();
-        assert!(message.contains("inspect_duplicate_successful_read_or_search"));
-        assert!(message.contains("taskspace_control(action=finish_node"));
-        assert!(!message.contains("missing_fact_source_artifact:package.json"));
-        assert!(!message.contains("declared fact-source artifact `package.json`"));
+            .expect("duplicate list_files is advisory-only and remains allowed");
+        assert!(
+            events
+                .iter()
+                .all(|event| !matches!(event, MapRuntimeEvent::ToolActionBlocked(_)))
+        );
     }
 
     #[test]

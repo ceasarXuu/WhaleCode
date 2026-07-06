@@ -1376,42 +1376,6 @@ impl Session {
         }
     }
 
-    pub(crate) async fn force_finish_action_map_inspect_for_provider_budget(
-        &self,
-        turn_context: &TurnContext,
-        snapshot: ActionMapProviderRequestBudgetSnapshot,
-        trigger: &str,
-    ) -> Result<bool, String> {
-        let result = {
-            let mut state = self.state.lock().await;
-            state
-                .action_map_runtime
-                .force_finish_inspect_for_provider_budget(self.conversation_id, &snapshot, trigger)
-        }?;
-        if let Some((outcome, events)) = result {
-            self.send_event(
-                turn_context,
-                EventMsg::Warning(WarningEvent {
-                    message: format!(
-                        "TaskSpaceForcedInspectTransitionV1 trigger={} request_count={}/{} source_node_id={} next_node_id={} result_id={}",
-                        trigger,
-                        snapshot.request_count,
-                        snapshot.max_requests,
-                        snapshot.node_id.as_deref().unwrap_or("unknown"),
-                        outcome.next_node_id.as_deref().unwrap_or("none"),
-                        outcome.result_id,
-                    ),
-                }),
-            )
-            .await;
-            self.emit_action_map_events_for_turn(turn_context, events)
-                .await;
-            Ok(true)
-        } else {
-            Ok(false)
-        }
-    }
-
     pub(crate) async fn action_map_current_inspect_progress_ready_for_transition(&self) -> bool {
         let state = self.state.lock().await;
         state
@@ -1461,92 +1425,6 @@ impl Session {
         state
             .action_map_runtime
             .current_main_working_evidence_summary()
-    }
-
-    pub(crate) async fn action_map_current_validation_bootstrap_command(&self) -> Option<String> {
-        let state = self.state.lock().await;
-        state
-            .action_map_runtime
-            .current_main_validation_bootstrap_command()
-    }
-
-    pub(crate) async fn force_finish_action_map_implement_for_provider_budget(
-        &self,
-        turn_context: &TurnContext,
-        snapshot: ActionMapProviderRequestBudgetSnapshot,
-        trigger: &str,
-    ) -> Result<bool, String> {
-        let result = {
-            let mut state = self.state.lock().await;
-            state
-                .action_map_runtime
-                .force_finish_implement_for_provider_budget(
-                    self.conversation_id,
-                    &snapshot,
-                    trigger,
-                )
-        }?;
-        if let Some((outcome, events)) = result {
-            self.send_event(
-                turn_context,
-                EventMsg::Warning(WarningEvent {
-                    message: format!(
-                        "TaskSpaceForcedImplementTransitionV1 trigger={} request_count={}/{} source_node_id={} next_node_id={} result_id={}",
-                        trigger,
-                        snapshot.request_count,
-                        snapshot.max_requests,
-                        snapshot.node_id.as_deref().unwrap_or("unknown"),
-                        outcome.next_node_id.as_deref().unwrap_or("none"),
-                        outcome.result_id,
-                    ),
-                }),
-            )
-            .await;
-            self.emit_action_map_events_for_turn(turn_context, events)
-                .await;
-            Ok(true)
-        } else {
-            Ok(false)
-        }
-    }
-
-    pub(crate) async fn force_finish_action_map_validation_after_successful_tool(
-        &self,
-        turn_context: &TurnContext,
-        snapshot: ActionMapProviderRequestBudgetSnapshot,
-        trigger: &str,
-    ) -> Result<bool, String> {
-        let result = {
-            let mut state = self.state.lock().await;
-            state
-                .action_map_runtime
-                .force_finish_validation_after_successful_tool(
-                    self.conversation_id,
-                    &snapshot,
-                    trigger,
-                )
-        }?;
-        if let Some((outcome, events)) = result {
-            self.send_event(
-                turn_context,
-                EventMsg::Warning(WarningEvent {
-                    message: format!(
-                        "TaskSpaceForcedValidationCloseoutV1 trigger={} request_count={}/{} source_node_id={} result_id={}",
-                        trigger,
-                        snapshot.request_count,
-                        snapshot.max_requests,
-                        snapshot.node_id.as_deref().unwrap_or("unknown"),
-                        outcome.result_id,
-                    ),
-                }),
-            )
-            .await;
-            self.emit_action_map_events_for_turn(turn_context, events)
-                .await;
-            Ok(true)
-        } else {
-            Ok(false)
-        }
     }
 
     pub(crate) async fn record_action_map_child_tool_result(

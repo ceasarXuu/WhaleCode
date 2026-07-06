@@ -10908,3 +10908,185 @@
   - output refs, bounded excerpts, or summaries may be unrecoverable or misleading.
 - Runtime escalation rule: Add a runtime gate only after the fidelity path is audited and the defect is proven to be a hard baseline issue: protocol pairing, permissions/sandbox, request budget, tool grammar, non-recoverable tool-runtime failure, exact repeated invalid action, or mechanically checkable contract coverage.
 - Boundary: If the Agent merely misunderstands faithful tool feedback or chooses a poor but state-machine-legal action, runtime should allow the action and return the resulting tool feedback. That failure belongs to Agent intelligence, not runtime semantic control.
+
+# Hypothesis H-173: R4 retained semantic-control runtime strategies after the boundary clarification
+
+- Claim: H-171/H-172 fixed concrete alias matching and inspect budget headroom, but the broader R4 runtime still retained several semantic-control strategies that exceeded the clarified boundary:
+  - session pre-dispatch and post-drain branches could force-finish inspect/implement/validation nodes;
+  - recovery branches could auto-run inspect/fact-source/validation bootstrap commands without an explicit Agent tool action;
+  - action-contract parsing could rewrite an Agent action into `finish_node`, `final_answer`, or terminal `blocked`;
+  - `implementation_needs_edit` and validation-rework complete target reads closed the implement action space to patch/block;
+  - patch-only recovery synthesized repair strategy and escalated repeated non-edit recovery as a semantic hard-stop.
+- Prediction: Removing these runtime semantic-control paths should leave hard baselines intact while changing provider-visible guidance to expose state/evidence/options instead of commanding progress.
+- Diagnostic evidence plan: Patch the session/action-contract path, then run focused `taskspace_action_contract` and `implementation_recovery` unit suites. Confirm main session code no longer calls forced transition/bootstrap helpers.
+- Status: confirmed locally.
+
+# Evidence E-340: runtime boundary convergence removes main-path forced transitions and patch-only action closure
+
+- Prediction tested: H-173 predicts that focused action-contract and recovery tests can pass after converting semantic-control behavior to expose-only/evidence-only feedback.
+- Repair:
+  - `third_party/codex-cli/codex-rs/core/src/session/turn.rs`
+    - Removed session main-path calls that force-finished inspect/implement/validation nodes at provider-budget, no-progress, and tool-drain boundaries.
+    - Removed automatic validation/inspect/fact-source bootstrap execution from the main recovery path.
+    - Removed action-contract action rewriting; parsed actions are now executed/rejected as emitted by the Agent.
+    - Changed `implementation_needs_edit` from hard action-space narrowing to a convergence hint; `list_files`/`search`/`read_file` remain legal on `implement_solution`.
+    - Renamed the rework duplicate target read rejection to `validation_rework_duplicate_target_read_disallowed` and limited the hard baseline to exact duplicate target reads after visible complete target evidence.
+    - Converted `TaskSpaceValidationReworkPatchOnlyRecoveryV1` to `boundary_mode: evidence_only`; schema repair content is now factual (`missing_required_properties`, rename hints, type mismatches) rather than patch synthesis.
+    - Disabled patch-only recovery hard-stop escalation; repeated non-progress still falls under ordinary provider budget/no-action hard baselines.
+    - Added expose-only recovery items: `TaskSpaceInspectTransitionAvailableV1`, `TaskSpaceImplementValidationAvailableV1`, and `TaskSpaceValidationCloseoutAvailableV1`.
+- Validation:
+  ```text
+  cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --package codex-core
+    passed with existing rustfmt nightly-option warnings
+  cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib taskspace_action_contract -- --nocapture
+    failed before tests because codex-linux-sandbox could not find system libcap.pc
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib taskspace_action_contract -- --nocapture
+    passed: 75 tests
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib implementation_recovery -- --nocapture
+    passed: 9 tests
+  ```
+- Static audit:
+  - `rg "force_finish_action_map|bootstrap_then_force|run_taskspace_missing_fact_source_bootstrap|run_taskspace_inspect_bootstrap\\(" third_party/codex-cli/codex-rs/core/src/session/turn.rs`
+  - Remaining matches are legacy helper definitions only; no main session execution path calls them.
+- Interpretation:
+  - H-173 is locally fixed as a runtime-boundary convergence pass.
+  - The runtime still enforces hard baselines: node-kind action matrix, node id match, exact duplicate rework target read, patch grammar, validation coverage, budget hard-stop, sandbox/tool runtime failure, and TaskSpace control invariants.
+  - The session-level forced-transition wrappers, forced recovery items, inspect auto-bootstrap helpers, and validation-required auto-bootstrap helper were removed after the first H-173 pass. Underlying ActionMap force-finish methods remain only as legacy runtime unit-test surfaces and are no longer reachable from the session execution path.
+
+# Hypothesis H-174: inspect duplicate-success gates are runtime semantic overreach
+
+- Claim: After H-173 removed forced transitions, the targeted `multi-source-data-merger` rerun still failed because ActionMap rejected repeated successful inspect read/search evidence as `inspect_duplicate_successful_read_or_search`. Under the clarified boundary, repeating a successful inspect read/list/search or diagnostic command is an Agent-quality problem, not a runtime hard-baseline violation. Runtime may preserve previous result ids and budget costs, but should not reject a wrong-but-state-machine-legal inspect action.
+- Status: fixed locally and live-supported for the targeted sample.
+- Boundary:
+  - Exact duplicate validation-rework target reads after complete visible target evidence remain a hard baseline because they are mechanically tied to the same repair artifact and same failure loop.
+  - Inspect duplicate successful read/search/test is not the same hard baseline. It should be allowed to dispatch if permissions, node kind, node id, and tool grammar are valid.
+  - Runtime must not use duplicate inspect evidence as a reason to force transition, bootstrap missing files, or inject special semantic recovery.
+- Predictions:
+  1. Focused tests should show repeated successful inspect read/search and diagnostic commands are allowed.
+  2. A rerun should no longer terminate on `inspect_duplicate_successful_read_or_search`.
+  3. Any remaining blocker should shift to tool capability, context fidelity, Agent behavior, or ordinary budget/no-action baselines rather than the duplicate inspect gate.
+
+# Evidence E-341: H-174 removes inspect duplicate-success hard gates
+
+- Prediction tested: H-174 predicts the runtime should no longer reject repeated successful inspect read/search or diagnostic commands.
+- Repair:
+  - `third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs`
+    - Removed `inspect_duplicate_successful_read_or_search` and `inspect_duplicate_successful_diagnostic_test` hard gates.
+    - Removed the associated duplicate inspect helper functions.
+    - Updated tests so repeated successful inspect read/search and diagnostics are allowed.
+  - `third_party/codex-cli/codex-rs/core/src/session/turn.rs`
+    - Removed duplicate-inspect special recovery, inspect auto-bootstrap, forced inspect recovery items, and validation-required auto-bootstrap execution.
+    - Generic `TaskSpaceNoActionRecoveryV1` still preserves any `TaskSpaceGateRecoveryV1` text for audit, but does not derive forced transition or bootstrap behavior from old inspect duplicate markers.
+  - `third_party/codex-cli/codex-rs/core/src/session/mod.rs`
+    - Removed session-level forced finish wrappers so forced ActionMap methods cannot be called from the main session loop.
+- Validation:
+  ```text
+  cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --package codex-core
+    passed with existing rustfmt nightly-option warnings
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib inspect_node_allows_repeated_successful -- --nocapture
+    passed: 2 tests
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib inspect_duplicate_read_with_missing_fact_sources_remains_allowed -- --nocapture
+    passed: 1 test
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib inspect_optional_fact_source_absence_does_not_block_finish -- --nocapture
+    passed: 1 test
+  ```
+- Live signal:
+  ```text
+  Pre-fix RunDir:
+    target/r4-runtime-boundary-multisource-right-only-20260707-03c89f4/runs/terminal_bench__multi-source-data-merger/20260707-043635-117
+  Pre-fix terminal blocker:
+    inspect_duplicate_successful_read_or_search on repeated `rg --files .`
+    node_request_count=6/5
+    business_success=false
+    changed_paths=[]
+
+  Post-fix RunDir:
+    target/r4-runtime-boundary-multisource-right-only-20260707-post-inspect-dup/runs/terminal_bench__multi-source-data-merger/20260707-044401-706
+  Post-fix signal:
+    no inspect_duplicate_successful_* gate
+    tool_call_count=11
+    changed_paths=[]
+    failure shifted to parquet read capability and repeated `/data/source_c/users.parquet` probes
+  ```
+- Interpretation:
+  - H-174 is confirmed as a runtime-boundary defect: the duplicate inspect successful evidence gate was a semantic-control gate, not a hard baseline.
+  - Removing it made the Agent progress past the old blocker and exposed a separate tool feedback/capability problem for structured binary input.
+
+# Hypothesis H-175: parquet read_file feedback is a structured-binary capability gap
+
+- Claim: The sample declares `/data/source_c/users.parquet`. Before repair, `read_file data/source_c/users.parquet` used the ordinary text read path and exposed binary/control output rather than a faithful structured preview. This is a tools capability/feedback-layer problem: the Agent may not be able to use evidence that was technically read but semantically unreadable.
+- Status: fixed locally and live-supported for the targeted sample's tool output.
+- Boundary:
+  - Runtime should not parse the business task, merge user data, choose priority logic, or decide that inspect is semantically sufficient.
+  - The `read_file` tool may provide a bounded structured preview for known binary tabular formats, because that preserves the file's content semantics more faithfully than raw binary bytes.
+  - Dependency or read errors must be explicit tool feedback (`dependency_unavailable`, `read_error`, `python_unavailable`), not silent fallbacks or synthetic success.
+- Predictions:
+  1. `read_file` for `.parquet` should emit `TaskSpaceStructuredFilePreviewV1` plus a bounded JSON records preview and `TaskSpaceReadFileSummaryV1`.
+  2. Ordinary text reads should keep the existing host-platform `sed` / `Get-Content` path.
+  3. A rerun should show source_c content in tool output without raw binary corruption; any remaining failure should not be blamed on a missing parquet read capability.
+
+# Evidence E-342: H-175 parquet read_file emits structured preview
+
+- Prediction tested: H-175 predicts `.parquet` reads should use a bounded structured preview instead of raw text/binary output.
+- Repair:
+  - `third_party/codex-cli/codex-rs/core/src/session/turn.rs`
+    - Added `.parquet` extension detection to `taskspace_read_file_command`.
+    - Added `TASKSPACE_PARQUET_PREVIEW_SCRIPT` that tries `python`, then `python3`, imports pandas, reads the Parquet file, and prints:
+      - `TaskSpaceStructuredFilePreviewV1: path=... format=parquet status=ok rows=... columns=[...]`
+      - bounded JSON records from `df.head(20)`
+      - `TaskSpaceReadFileSummaryV1: ... structured_preview=true`
+    - Dependency/read failures are explicit structured tool feedback and exit without raw binary output.
+- Validation:
+  ```text
+  cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --package codex-core
+    passed with existing rustfmt nightly-option warnings
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib action_contract_read_file_uses -- --nocapture
+    passed: 2 tests
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-cli --bin whale
+    passed
+  ```
+- Live signal:
+  ```text
+  RunDir:
+    target/r4-runtime-boundary-multisource-right-only-20260707-parquet-preview/runs/terminal_bench__multi-source-data-merger/20260707-044902-626
+  right business_success=false
+  public_validation_exit_code=1
+  hidden_oracle_exit_code=0
+  tool_call_count=9
+  changed_paths=[]
+  terminal marker:
+    TaskSpaceNoActionRecoveryHardStopV1 reason=repeated_no_action_after_recovery_threshold
+
+  source_c read_file output:
+    TaskSpaceStructuredFilePreviewV1: path=data/source_c/users.parquet format=parquet status=ok rows=2 columns=["userId", "userName", "email", "joined", "active"]
+    [{"userId":101,"userName":"John D.","email":"john@c.com","joined":"2024-01-20","active":true},{"userId":104,"userName":"Alice Brown","email":"alice@c.com","joined":"2024-04-01","active":true}]
+    TaskSpaceReadFileSummaryV1: path=data/source_c/users.parquet lines_read=2 eof_reached=true max_lines=20 structured_preview=true
+  ```
+- Interpretation:
+  - H-175 is fixed for the tool capability layer: the parquet input is now faithfully represented as structured, bounded, model-readable evidence.
+  - The latest sample failure is no longer caused by runtime duplicate inspect gates or raw parquet read feedback. The Agent ignored the already successful `data/source_c/users.parquet` evidence, retried invalid `/data/source_c/users.parquet`, and attempted `python3` without pandas. Runtime allowed those legal but poor actions and stopped only on ordinary no-action recovery hard-stop.
+  - This matches the clarified boundary: do not add a new runtime gate to prevent the Agent from making poor but legal probes. The next investigation should focus on provider-visible evidence salience/efficiency or model behavior, not runtime semantic correction.
+
+# Evidence E-343: final local regression pack for runtime-boundary convergence
+
+- Prediction tested: H-173/H-174/H-175 should leave the reachable TaskSpace session/action-contract path buildable and regression-clean after deleting session forced/bootstrap legacy entrypoints.
+- Validation:
+  ```text
+  cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --package codex-core
+    passed with existing rustfmt nightly-option warnings
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib taskspace_action_contract -- --nocapture
+    passed: 75 tests
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib implementation_recovery -- --nocapture
+    passed: 9 tests
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib inspect_ -- --nocapture
+    passed: 69 tests
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib action_contract_read_file_uses -- --nocapture
+    passed: 2 tests
+  RUST_MIN_STACK=8388608 CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib taskspace -- --nocapture
+    passed: 176 tests
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-cli --bin whale
+    passed
+  ```
+- Residual warnings:
+  - Builds still warn about unused legacy ActionMap force/closeout methods and session auto-finish helper functions.
+  - These warnings are not reachable from the current session main path after this repair, but they remain valid cleanup debt for a separate deprecation/test-only pass.

@@ -1423,3 +1423,57 @@ grammar、不可恢复的 tool runtime failure、明确重复同一无效动作�
 | sandbox/tool-runtime bootstrap failure blocker | 工具运行时不可用是能力层硬失败；runtime 应阻止继续普通工具重试并保留失败证据 |
 | `TaskSpaceReadFileSummaryV1` 与 read excerpt/ref | 它保留 bounded read 的完整性语义，避免 Agent 因内容丢失或截断歧义重复读取 |
 | output-contract validation gate | runtime 可以拒绝明显 vacuous validation 或 generator-only 弱验证，因为这是 contract coverage 底线；但 closeout 判断仍需 Agent 显式完成 |
+
+## 2026-07-07 R4-D issue type addendum: runtime 边界统一收敛
+
+H-171/H-172 修复了 `multi-source-data-merger` 的具体 alias matching 与 inspect budget headroom，但 R4 审计显示此前若干
+“让 Agent 更容易通过”的策略已经把 runtime 从工具/账本推向语义控制器。本节对 2026-07-06 runtime-as-tool 审计做落地更新：
+历史条目中写作“必须 patch / forced transition / bootstrap complete”的策略均被本节 supersede，后续不得再作为默认方向复用。
+
+| issue type | 层级 | 旧行为 | 2026-07-07 收敛 |
+|---|---|---|---|
+| `runtime-forced-phase-transition` | session control loop / phase gate | provider budget、no-progress、tool-drain 后 session 可调用 `force_finish_action_map_*`，自动 finish inspect/implement/validation 或 closeout | 主路径已移除 forced finish 调用；改为 `TaskSpaceInspectTransitionAvailableV1`、`TaskSpaceImplementValidationAvailableV1`、`TaskSpaceValidationCloseoutAvailableV1`，只暴露状态和可用显式 action |
+| `runtime-auto-bootstrap-tool-execution` | session recovery / tool execution | repeated blocked inspect、missing fact-source、validation budget cliff 可由 session 自动执行 shell/read/test bootstrap | 主路径不再自动运行 bootstrap；runtime 只报告 missing fact sources、budget hard-stop、已有 recovery command/证据，由 Agent 显式选择是否调用工具 |
+| `action-contract-action-rewrite` | action-contract parser / semantic control | parser 可把 Agent 发出的 action 改写为 `finish_node`、`final_answer` 或 terminal `blocked` | parser 只解析、校验并执行 Agent 原始 action；合法 action 进入工具，非法 action 返回真实 rejection |
+| `implementation-needs-edit-closed-read-space` | implementation feedback / action schema | `implementation_needs_edit` 后硬禁止 `list_files/search/read_file`，除命名 rework target read 外只能 patch/control/block | `implementation_needs_edit` 降级为 convergence hint；`implement_solution` 仍接受 `list_files/search/read_file/apply_patch/taskspace_control/blocked`，只保留 node kind 与 node id 等硬基线 |
+| `validation-rework-patch-only-repair-synthesis` | validation rework feedback / repair synthesis | complete target read 后 recovery 生成 patch construction scaffold、schema repair synthesis、tail action lock，并要求立即 apply_patch/block | `TaskSpaceValidationReworkPatchOnlyRecoveryV1` 改为 `boundary_mode: evidence_only`；只保留 target read、validation failure、missing/rename/type mismatch facts、apply_patch grammar reminder 和恢复引用 |
+| `validation-rework-closed-action-space-read` | validation rework duplicate baseline | 完整 target read 后用 `validation_rework_closed_action_space_read_disallowed` 表示 action space closed，并路由到 patch-only recovery | 新语义为 `validation_rework_duplicate_target_read_disallowed`；硬拒绝仅限 exact duplicate complete target read，不代表同节点其它读取/search/list_files 被语义禁止 |
+| `patch-only-recovery-hardstop-escalation` | recovery accounting / provider loop | patch-only recovery 后重复非 edit 可触发专门 hard-stop，逼迫停止在 patch/block 语义上 | patch-only hard-stop 关闭；重复无效模式继续由普通 no-action/provider budget/exact duplicate hard baseline 控制 |
+| `provider-budget-semantic-transition` | provider budget / phase control | 预算边界可触发 inspect/implement/validation semantic transition | provider/node budget 只做 hard-stop 或 bounded headroom，不创建节点、不 finish 节点、不执行验证 |
+| `inspect-duplicate-successful-evidence-gate` | inspect feedback / action-contract hard gate | inspect 中重复成功 read/search/list/test 会被 `inspect_duplicate_successful_*` 拒绝，并可进一步触发 inspect bootstrap/transition recovery | 已废弃：inspect duplicate successful action 是 Agent 质量问题，不是 hard baseline；重复 action 若符合 node kind、node id、permission 和 tool grammar，应进入普通 tool 执行；session 侧 duplicate-inspect recovery 与 auto-bootstrap 已删除 |
+| `validation-required-auto-bootstrap` | validation feedback / automatic tool execution | coverage gate 生成 required validation command 后，session 可自动执行 shell validation bootstrap | 已废弃：validation coverage gate 只返回缺口与建议 command；是否执行验证由 Agent 显式 `run_test` 决定 |
+| `structured-binary-read-preview-gap` | read_file capability / feedback fidelity | `.parquet` 等结构化二进制输入走普通 text read，输出 raw binary/control chars，导致“已读”不等于 Agent 可用证据 | 已实现 `.parquet` bounded structured preview：`TaskSpaceStructuredFilePreviewV1` + JSON records + `TaskSpaceReadFileSummaryV1 structured_preview=true`；依赖/read 错误显式反馈，不做业务合成 |
+
+保留的硬底线：
+
+- tool call/result pairing、node kind action matrix、node id match、patch grammar、sandbox/tool runtime failure、provider/node budget hard-stop；
+- exact duplicate complete target read 的重复证据 gate；
+- inspect 阶段不再保留 duplicate-successful read/search/test hard gate；
+- output/validation contract coverage、vacuous validation rejection；
+- TaskSpace control invariants，例如 implementation node 无 successful edit 时不能 `finish_node`。
+
+本轮验证：
+
+```text
+cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --package codex-core
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib taskspace_action_contract -- --nocapture
+  passed: 75 tests
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib implementation_recovery -- --nocapture
+  passed: 9 tests
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib inspect_node_allows_repeated_successful -- --nocapture
+  passed: 2 tests
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib action_contract_read_file_uses -- --nocapture
+  passed: 2 tests
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib inspect_ -- --nocapture
+  passed: 69 tests
+RUST_MIN_STACK=8388608 CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib taskspace -- --nocapture
+  passed: 176 tests
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-cli --bin whale
+  passed
+```
+
+环境说明：不带 `CODEX_SKIP_VENDORED_BWRAP=1` 的 `codex-core` 测试在本机因 `codex-linux-sandbox` build script 找不到
+系统 `libcap.pc` 而失败，未进入测试阶段。带该开关后测试通过。session 主链路中的 forced transition wrapper、forced recovery item、
+inspect duplicate recovery、inspect auto-bootstrap 与 validation auto-bootstrap 已删除；底层 ActionMap forced closeout 方法仍保留在
+legacy 单元测试覆盖面内。当前 build 仍输出 dead-code warnings，主要来自这批 legacy ActionMap force/closeout 方法和 session 中已不接
+主链路的 auto-finish helper；后续可单独做 test-only/deprecation 清理。
