@@ -10730,7 +10730,7 @@
 # Hypothesis H-170: advisory path correction feedback is diluted by stale fact-source projection aliases
 
 - Claim: Once path correction is advisory-only, ordinary absolute-path mistakes remain legal tool actions. On `multi-source-data-merger`, those legal mistakes consumed the inspect node model-request budget before all fact-source reads because the active projection continued to advertise raw `/data/...` fact-source next actions until a successful relative candidate had already been observed. The budget hard-stop was the symptom; the root cause was conflicting provider-visible feedback: path correction said "use `data/...`", while projection still strengthened "read `/data/...` next".
-- Status: fixed locally and live-cleared for the inspect-stage source-read blocker.
+- Status: fixed locally and live-supported for projection alias conflict; later H-172 shows this was not sufficient alone for robust inspect completion because the fact-source inspect node budget was still too tight after advisory-only path correction.
 - Boundary:
   - Runtime must not reject or auto-correct wrong-but-state-machine-legal paths.
   - Runtime may expose clear path-correction advice, preserve successful read evidence, and enforce hard request budgets.
@@ -10787,21 +10787,115 @@
   - The run created `merge_users.py`, reached smoke validation, and failed because the implementation still used `DATA_DIR = "/data"`.
   - The rework node read `merge_users.py`, but repeated patch attempts to change `DATA_DIR` were rejected as `validation_rework_patch_misses_failed_alias` or malformed patch grammar, ending in `TaskSpaceNoActionRecoveryHardStopV1`.
 - Interpretation:
-  - H-170 is live-cleared for the inspect-stage source-read budget blocker.
+  - H-170 is live-supported for the projection conflict: the provider-visible next action stopped reinforcing failed `/data/...` aliases and the run reached `data/source_c/users.parquet`.
+  - H-170 is not a standalone robust fix for all inspect-stage budget symptoms. A later H-171 diagnostic rerun still stopped at `node_request_count=8/8` after showing the correct `data/source_c/users.parquet` next action, so H-172 tracks the separate budget-headroom issue.
   - The next active blocker is validation-rework feedback/matching: runtime recognizes the corrected input alias at a concrete file path, but the Agent's equivalent root constant fix is not accepted as removing that alias.
 
 # Hypothesis H-171: validation rework alias repair matching is too literal for root constant fixes
 
 - Claim: In validation rework, `validation_rework_patch_misses_failed_alias` currently requires the first patch to remove or replace the concrete failed alias `/data/source_a/users.json` in the implementation target. When the implementation constructs that path through `DATA_DIR = "/data"` plus `source_a/users.json`, a patch that changes `DATA_DIR` to `data` is semantically the correct root-cause repair, but the current matcher still rejects it because the full concrete alias string is absent from the patch.
-- Status: active.
+- Status: fixed locally and live-supported in the combined H-171/H-172 right-only diagnostic rerun.
 - Boundary:
-  - Runtime may require a validation rework edit to address the failed alias before unrelated changes, because the failed validation evidence is concrete and mechanically repairable.
-  - Runtime should not require the literal full path string to appear in the patch when the target builds the path through an equivalent root alias constant or local path strategy.
+  - Runtime may reject a rework patch that claims to address a concrete validation failure but does not touch the mechanically identified corrected alias repair surface.
+  - Runtime must not require the literal full path string to appear in the patch when the target builds the path through an equivalent root alias constant or local path strategy.
   - The fix should improve repair-contract fidelity and alias-equivalence matching, not loosen patch grammar or accept unrelated edits.
 - Predictions:
   1. A focused test can reproduce a rework patch changing `DATA_DIR = "/data"` to `DATA_DIR = "data"` while failed validation evidence names `/data/source_a/users.json`; current code rejects it as `validation_rework_patch_misses_failed_alias`.
   2. Alias-root-aware matching should accept root constant replacement as addressing the failed alias while still rejecting unrelated secondary changes.
   3. A rerun after repair should allow the path fix patch to reach `apply_patch`; remaining failures should be ordinary script behavior, validation failure, or downstream Agent logic.
+
+# Evidence E-338: H-171 alias-root repair matching accepts root constant fixes without accepting unrelated aliases
+
+- Prediction tested: H-171 predicts that a patch changing `DATA_DIR = "/data"` to `DATA_DIR = "data"` should satisfy the corrected alias repair for `/data/source_a/users.json`, while unrelated `/data/source_b/...` edits remain blocked.
+- Repair:
+  - `third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs`
+    - `patch_removes_corrected_absolute_alias(...)` now accepts either concrete alias removal/replacement or a standalone root alias replacement.
+    - `patch_replaces_corrected_absolute_alias_root(...)` maps `/data/... -> data/...` repair requirements to standalone token replacement `/data -> data`.
+    - `line_contains_standalone_path_token(...)` treats `/data/source_b` as a different path token, so changing an unrelated child path does not satisfy a `/data/source_a/users.json` repair requirement.
+- Validation:
+  ```text
+  cargo fmt --all
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_rework_patch_must_remove_corrected_failed_alias --lib -- --nocapture
+    passed: root alias replacement accepted; unrelated /data/source_b child replacement rejected
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_rework --lib -- --nocapture
+    passed: 33 tests
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core taskspace_apply_patch --lib -- --nocapture
+    passed: 18 tests
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core path_correction --lib -- --nocapture
+    passed: 14 tests
+  RUST_MIN_STACK=8388608 CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core taskspace --lib -- --nocapture
+    passed: 176 tests
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
+    passed
+  ```
+- Live signal:
+  ```text
+  RunDir: target/r4-h171-budget-alias-right-only-20260707-045500/runs/terminal_bench__multi-source-data-merger/20260707-034204-968
+  rework target read: merge_users.py contained DATA_DIR = Path("/data")
+  accepted patch: DATA_DIR = Path("/data") -> DATA_DIR = Path("data")
+  final target file: DATA_DIR = Path("data")
+  public_validation_exit_code: 0
+  hidden_oracle_exit_code: 0
+  ```
+- Interpretation:
+  - The local matcher fix directly exercises the intended H-171 boundary: root-cause-equivalent alias repair is accepted, unrelated alias edits are still rejected, and patch grammar remains under the normal apply_patch tool contract.
+  - The live rerun supports H-171 in combination with H-172. It should not be over-read as evidence that all validation-rework runtime boundary issues are closed.
+
+# Hypothesis H-172: fact-source inspect node request headroom is too tight after advisory-only path correction
+
+- Claim: After H-168 made path correction advisory-only, wrong-but-state-machine-legal path attempts remain allowed and may consume inspect node model requests. With three required fact sources, the old effective node limit `fact_source_count * 2 + 2` yielded `8`, which left no provider request after the projection correctly advertised `read_file data/source_c/users.parquet`. This is a hard budget-headroom issue, not a reason to reintroduce path-correction action gates.
+- Status: fixed locally and live-supported for the targeted `multi-source-data-merger` diagnostic.
+- Boundary:
+  - Budget is a runtime hard baseline. It may stop a turn or provide bounded headroom, but it must not trigger semantic transitions or forbid legal tool actions just because the Agent chose a poor path.
+  - The repair should loosen the inspect-node cap enough for declared fact-source evidence collection under advisory feedback, while preserving budget accounting and hard-stop semantics.
+  - The repair must not count failed aliases, listings, or candidate paths as fact-source coverage.
+- Predictions:
+  1. A pre-repair rerun will show correct provider-visible `next_valid_actions` for `data/source_c/users.parquet` immediately before `TaskSpaceProviderBudgetHardStopV1 node_request_count=8/8`.
+  2. Increasing inspect fact-source request headroom should update the focused budget test from `10` to `14` for four fact sources and leave the broader taskspace suite passing.
+  3. A targeted rerun after H-171 and H-172 should no longer stop at inspect `8/8`; it should reach implementation, rework, validation, and either solve the sample or expose a later non-inspect blocker.
+
+# Evidence E-339: H-172 budget headroom lets H-171 repair reach solved right-only taskspace outcome
+
+- Prediction tested: H-172 predicts that correct projection plus more inspect fact-source headroom should avoid the `8/8` pre-dispatch hard-stop and let the Agent act on the remaining declared fact source.
+- Pre-repair diagnostic:
+  ```text
+  RunDir: target/r4-h171-alias-root-repair-right-only-20260707-044500/runs/terminal_bench__multi-source-data-merger/20260707-033840-897
+  final projection: read_file declared fact-source artifact `data/source_c/users.parquet` next
+  terminal marker: TaskSpaceProviderBudgetHardStopV1
+  node_request_count: 8/8
+  public_validation_exit_code: 1
+  business_success: false
+  ```
+- Repair:
+  - `effective_provider_node_request_limit(...)` now uses `fact_source_count * 3 + 2` for inspect nodes with required fact sources.
+  - This widens a hard baseline budget cap; it does not add a semantic gate, action preference, forced transition, or automatic read.
+- Validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core taskspace_active_budget_expands_inspect_node_limit_for_fact_sources --lib -- --nocapture
+    passed: four fact sources now produce max_model_requests_per_node=14
+  RUST_MIN_STACK=8388608 CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core taskspace --lib -- --nocapture
+    passed: 176 tests
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
+    passed
+  ```
+- Live rerun:
+  ```text
+  RunRoot: target/r4-h171-budget-alias-right-only-20260707-045500
+  RunDir: target/r4-h171-budget-alias-right-only-20260707-045500/runs/terminal_bench__multi-source-data-merger/20260707-034204-968
+  RunSide: right
+  reported_evidence_level: E2-candidate
+  outcome_taskspace: solved
+  business_success: true
+  public_validation_exit_code: 0
+  hidden_oracle_exit_code: 0
+  tool_call_count: 21
+  changed_paths: conflicts.json, merge_users.py, merged_users.parquet
+  included_in_e3_aggregate: false
+  ```
+- Interpretation:
+  - H-172 is fixed for this targeted diagnostic: the correct fact-source projection was no longer stranded behind the inspect node budget cliff.
+  - The run is not formal E3 evidence because it is right-only, single-repeat, score-disabled, and manual review was not completed.
+  - The run still contains known forced transition/closeout behavior already listed in the R4 boundary audit. Therefore it proves H-171/H-172 tool-chain progress, not that the TaskSpace runtime boundary has been fully cleaned.
 
 # R4 Design Note D-001: context fidelity is the first suspect
 

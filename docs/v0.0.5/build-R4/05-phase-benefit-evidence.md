@@ -1641,6 +1641,58 @@ CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
 git diff --check
 ```
 
+## 5.108 2026-07-07 H171/H172 alias-root rework and fact-source budget headroom
+
+`multi-source-data-merger` right-only diagnostic 继续验证 R4 的边界原则：当 Agent 在低级路径错误上消耗预算时，先排查
+provider-visible context/projection/tool feedback 是否扭曲或缺失；确认语义已经保真后，才处理硬基线预算头寸。这里没有恢复
+path-correction action gate，也没有让 runtime 替 Agent 纠正路径。
+
+```text
+pre-repair budget run:
+RunDir: target/r4-h171-alias-root-repair-right-only-20260707-044500/runs/terminal_bench__multi-source-data-merger/20260707-033840-897
+final projection: read_file declared fact-source artifact `data/source_c/users.parquet` next
+terminal marker: TaskSpaceProviderBudgetHardStopV1
+node_request_count: 8/8
+
+solved diagnostic run:
+RunDir: target/r4-h171-budget-alias-right-only-20260707-045500/runs/terminal_bench__multi-source-data-merger/20260707-034204-968
+reported_evidence_level: E2-candidate
+outcome_taskspace: solved
+business_success: true
+public_validation_exit_code: 0
+hidden_oracle_exit_code: 0
+tool_call_count: 21
+changed_paths: conflicts.json, merge_users.py, merged_users.parquet
+```
+
+收益判断：
+
+1. H170 的 projection 修复不应再表述为单独完全清场。它解决的是 `/data/...` 与 `data/...` 的 provider-visible
+   next-action 冲突；后续 rerun 证明即便 projection 已正确，旧 inspect node budget 仍可能在 `8/8` 截断下一次 provider
+   机会。
+2. H172 修复的是硬预算头寸：inspect fact-source 节点上限从 `fact_source_count * 2 + 2` 放宽为
+   `fact_source_count * 3 + 2`。这是减少 runtime 约束，不是新增语义控制；runtime 仍不自动读取 source、不把
+   candidate 当 coverage、不替 Agent 选择 action。
+3. H171 修复的是 validation rework alias-root 等价匹配：`DATA_DIR = "/data"` 改成 `data` 可满足
+   `/data/source_a/users.json -> data/source_a/users.json` 的根因修复要求；无关的 `/data/source_b...` 修改仍会被拒绝。
+4. right-only diagnostic 已经从 inspect、implementation、validation rework 走到 public/hidden validation 全部 0，但它不是正式
+   E3：单侧、单次、score disabled，且 manual review 未完成。
+5. 该 run 仍出现已列入边界审计的 forced inspect transition / forced validation closeout。因此它只证明 tools 链路进展，
+   不证明 TaskSpace runtime 的越界策略已经全部收敛。
+
+验证：
+
+```text
+cargo fmt --all
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_rework_patch_must_remove_corrected_failed_alias --lib -- --nocapture
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_rework --lib -- --nocapture
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core taskspace_apply_patch --lib -- --nocapture
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core path_correction --lib -- --nocapture
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core taskspace_active_budget_expands_inspect_node_limit_for_fact_sources --lib -- --nocapture
+RUST_MIN_STACK=8388608 CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core taskspace --lib -- --nocapture
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
+```
+
 ## 5.107 2026-07-07 H170 projection alias feedback 修复
 
 H170 的直接成本问题不是单纯预算过小，而是上下文语义冲突导致预算被消耗：`TaskSpacePathCorrectionRecoveryV1`
@@ -1696,14 +1748,15 @@ terminal marker: TaskSpaceNoActionRecoveryHardStopV1
 
 结论：
 
-1. H170 live-clear：上一轮 `TaskSpaceProviderBudgetHardStopV1 node_request_count=8/8` 未复发。
+1. H170 live-supported：上一轮 `TaskSpaceProviderBudgetHardStopV1 node_request_count=8/8` 在该 run 中未复发，projection
+   冲突已被修正；后续 H172 证明它不是单独充分条件，正确 projection 仍可能被旧 inspect budget 截断。
 2. 这次读到了 `data/source_c/users.parquet`，随后 `TaskSpaceForcedInspectTransitionV1` 进入 implementation。
 3. 仍未通过业务验证。新 blocker 是 H171：validation rework 要求修复 `/data/source_a/users.json` concrete alias，
    但实现代码通过 `DATA_DIR = "/data"` 拼路径；Agent 多次尝试改 root constant，仍被
    `validation_rework_patch_misses_failed_alias` 拒绝，最后 `TaskSpaceNoActionRecoveryHardStopV1`。
 
-下一步优先修 H171：让 validation rework 的 alias 修复判定支持 root constant 等价修复，同时保持 patch grammar 和
-未触及 root-cause alias 的拒绝能力。
+后续已按 H171/H172 继续收敛：validation rework 的 alias 修复判定支持 root constant 等价修复，同时保持 patch grammar 和
+未触及 root-cause alias 的拒绝能力；inspect fact-source budget 也放宽为硬基线头寸，而不是恢复 path-correction gate。
 
 ## 5.106 2026-07-07 validation rework replacement-required gate 边界收敛
 

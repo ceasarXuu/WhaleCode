@@ -15090,7 +15090,7 @@ fn effective_provider_node_request_limit(
     if fact_source_count == 0 {
         return base_limit;
     }
-    base_limit.max(fact_source_count.saturating_mul(2).saturating_add(2))
+    base_limit.max(fact_source_count.saturating_mul(3).saturating_add(2))
 }
 
 fn budget_state_for_counter(counter_value: usize, counter_limit: usize) -> TaskSpaceBudgetState {
@@ -16145,7 +16145,63 @@ fn patch_removes_corrected_absolute_alias(
             && !line.starts_with("+++")
             && line.contains(&requirement.absolute_alias)
     });
-    removes_failed_alias && !readds_failed_alias
+    (removes_failed_alias && !readds_failed_alias)
+        || patch_replaces_corrected_absolute_alias_root(&patch, requirement)
+}
+
+fn patch_replaces_corrected_absolute_alias_root(
+    patch: &str,
+    requirement: &CorrectedAliasRepairRequirement,
+) -> bool {
+    let Some((absolute_root, relative_root)) = corrected_absolute_alias_root_pair(requirement)
+    else {
+        return false;
+    };
+    let removes_root = patch.lines().any(|line| {
+        line.starts_with('-')
+            && !line.starts_with("---")
+            && line_contains_standalone_path_token(line, &absolute_root)
+    });
+    let adds_relative_root = patch.lines().any(|line| {
+        line.starts_with('+')
+            && !line.starts_with("+++")
+            && line_contains_standalone_path_token(line, &relative_root)
+    });
+    let readds_absolute_root = patch.lines().any(|line| {
+        line.starts_with('+')
+            && !line.starts_with("+++")
+            && line_contains_standalone_path_token(line, &absolute_root)
+    });
+    removes_root && adds_relative_root && !readds_absolute_root
+}
+
+fn corrected_absolute_alias_root_pair(
+    requirement: &CorrectedAliasRepairRequirement,
+) -> Option<(String, String)> {
+    let absolute = normalize_artifact_ref(&requirement.absolute_alias);
+    let relative = normalize_artifact_ref(&requirement.relative_candidate);
+    if absolute.starts_with("/data/") && relative.starts_with("data/") {
+        return Some(("/data".to_string(), "data".to_string()));
+    }
+    None
+}
+
+fn line_contains_standalone_path_token(line: &str, token: &str) -> bool {
+    let line = line.replace('\\', "/").to_ascii_lowercase();
+    let token = token.to_ascii_lowercase();
+    line.match_indices(&token).any(|(start, _)| {
+        let before = if start == 0 {
+            None
+        } else {
+            line[..start].chars().next_back()
+        };
+        let after = line[start + token.len()..].chars().next();
+        before.is_none_or(|ch| !path_token_char(ch)) && after.is_none_or(|ch| !path_token_char(ch))
+    })
+}
+
+fn path_token_char(ch: char) -> bool {
+    ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-' | '.' | '/')
 }
 
 fn validation_failure_is_missing_command_script_error(result: &NodeResult) -> bool {
@@ -20909,7 +20965,7 @@ mod tests {
 
         assert_eq!(snapshot.node_request_count, 5);
         assert_eq!(snapshot.max_requests, 20);
-        assert_eq!(snapshot.max_model_requests_per_node, 10);
+        assert_eq!(snapshot.max_model_requests_per_node, 14);
         assert!(decision.allowed);
         assert_eq!(decision.reason, "provider_request_budget_available");
     }
@@ -28281,6 +28337,41 @@ FileNotFoundError: [Errno 2] No such file or directory: '/data/source_a/users.js
                 .contains("validation_rework_patch_misses_failed_alias"),
             "{err}"
         );
+
+        let unrelated_absolute_child_patch = "*** Begin Patch\n\
+*** Update File: merge_users.py\n\
+@@\n\
+-source_b_path = '/data/source_b/users.csv'\n\
++source_b_path = 'data/source_b/users.csv'\n\
+*** End Patch";
+        let err = state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new(
+                    "apply_patch",
+                    ActionClass::Edit,
+                    unrelated_absolute_child_patch,
+                ),
+            )
+            .expect_err("patch replacing an unrelated concrete /data child stays blocked");
+        assert!(
+            err.to_string()
+                .contains("validation_rework_patch_misses_failed_alias"),
+            "{err}"
+        );
+
+        let root_alias_patch = "*** Begin Patch\n\
+*** Update File: merge_users.py\n\
+@@\n\
+-DATA_DIR = \"/data\"\n\
++DATA_DIR = \"data\"\n\
+*** End Patch";
+        state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new("apply_patch", ActionClass::Edit, root_alias_patch),
+            )
+            .expect("patch replacing root alias constant should satisfy failed alias repair");
 
         let good_patch = "*** Begin Patch\n\
 *** Update File: merge_users.py\n\
