@@ -11090,3 +11090,87 @@
 - Residual warnings:
   - Builds still warn about unused legacy ActionMap force/closeout methods and session auto-finish helper functions.
   - These warnings are not reachable from the current session main path after this repair, but they remain valid cleanup debt for a separate deprecation/test-only pass.
+
+# Hypothesis H-176: structured parquet read evidence is stored but not promoted into verified input projection
+
+- Claim: The latest `multi-source-data-merger` right-only failure after H-175 is caused by a feedback/projection fidelity gap, not by missing parquet tool capability and not by a runtime gate. `read_file data/source_c/users.parquet` successfully returned a structured preview, and ActionMap stored the result, but the active model-visible projection did not promote that result into `verified_input_evidence`. The result remained only a hidden ref, so the stable context showed source_a/source_b contents but not the source_c rows.
+- Status: confirmed root cause for the latest run; repair not started in this evidence pass.
+- Boundary:
+  - Do not add a runtime gate that prevents the Agent from retrying `/data/source_c/users.parquet`, forcing `finish_node`, or forbidding pandas probes. Those are wrong-but-state-machine-legal Agent choices.
+  - Runtime/taskspace must faithfully preserve and classify tool feedback. A structured table preview for a declared input source must be visible as input evidence just like JSON/CSV reads.
+  - Failed structured previews must carry failure semantics consistently; `read_error` or dependency failure must not be silently counted as a successful read.
+- Predictions:
+  1. The raw tool output for `result-4` contains `TaskSpaceStructuredFilePreviewV1 ... status=ok` plus the source_c rows.
+  2. ActionMap stores `result-4` as a read result with the structured body, but its evidence package/artifact refs do not identify `data/source_c/users.parquet`.
+  3. Provider-visible projection after the source_c read lists `result-4` only in `hidden_refs_available`, while `verified_input_evidence` still contains only source_a/source_b.
+  4. The projection code requires `result_input_data_artifact_refs(result)` before emitting `verified_input_evidence`, and the current input-data whitelist excludes `.parquet`.
+  5. Exact payload replacement scans pass, so this is not an active-context replacement loss or protected-miss issue.
+
+# Evidence E-344: latest parquet-preview rerun proves H-176 feedback projection loss
+
+- Prediction tested: H-176 predicts that source_c content exists in raw/tool storage but is missing from stable verified input evidence.
+- RunDir:
+  ```text
+  target/r4-runtime-boundary-multisource-right-only-20260707-parquet-preview/runs/terminal_bench__multi-source-data-merger/20260707-044902-626
+  ```
+- Raw tool result:
+  ```text
+  rollout.jsonl line 124:
+    TaskSpaceStructuredFilePreviewV1: path=data/source_c/users.parquet format=parquet status=ok rows=2 columns=["userId", "userName", "email", "joined", "active"]
+    [{"userId":101,"userName":"John D.","email":"john@c.com","joined":"2024-01-20","active":true},{"userId":104,"userName":"Alice Brown","email":"alice@c.com","joined":"2024-04-01","active":true}]
+    TaskSpaceReadFileSummaryV1: path=data/source_c/users.parquet lines_read=2 eof_reached=true max_lines=20 structured_preview=true
+  ```
+- ActionMap storage:
+  ```text
+  rollout.jsonl line 122:
+    resultId=result-4 callId=taskspace-action-contract-4-read_file actionClass=read toolSuccess=true artifactRefs=[]
+
+  action-map-observability.json:
+    result-4 success=true actionClass=read body contains TaskSpaceStructuredFilePreviewV1, John D., and Alice Brown
+    evidencePackage claims=[], evidenceRefs=[], changedArtifacts=[]
+  ```
+- Provider-visible projection:
+  ```text
+  rollout.jsonl lines 239 and 260:
+    verified_input_evidence includes:
+      result-2 verified_paths=data/source_a/users.json
+      result-3 verified_paths=data/source_b/users.csv
+    verified_input_evidence does not include:
+      result-4 verified_paths=data/source_c/users.parquet
+      John D.
+      Alice Brown
+    hidden_refs_available includes:
+      result:result-4
+    next_valid_actions includes:
+      taskspace_control(action=finish_node, node_id="node-1", next_node_kind="implement_solution", ...)
+  ```
+- Code path:
+  ```text
+  third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs:
+    projection_verified_input_evidence(...) skips any read result whose result_input_data_artifact_refs(result) is empty.
+    result_input_data_artifact_refs(...) filters refs through is_input_data_artifact_ref(...).
+    is_input_data_artifact_ref(...) currently accepts log/jsonl/json/csv/tsv/yaml/yml/txt and excludes parquet.
+  ```
+- Replacement scan:
+  ```text
+  context-projection-summary.json:
+    protected_miss_count=0
+    active_projection_count=9
+
+  exact-payload-scan-events.jsonl:
+    active_projection_present=true
+    context_bundle_present=true
+    exact_context_bundle_verified=true
+    replacement_confirmed=true
+    failure_reasons=none
+  ```
+- Secondary fidelity issue:
+  ```text
+  result-5 read_file /data/source_c/users.parquet contains TaskSpaceStructuredFilePreviewV1 status=read_error,
+  but the command exits 0 and ActionMap records success=true/actionClass=read.
+  ```
+- Interpretation:
+  - H-176 is confirmed. The failure mechanism is a semantic feedback omission in the projection/classification layer: source_c was read and stored, but not stably exposed as verified input evidence.
+  - This explains why the Agent continued to act as if source_c still required inspection even after a successful structured preview.
+  - H-175 remains valid for the capability layer, but incomplete for the full tools link: structured binary reads also need evidence classification and failed-status fidelity.
+  - The next repair should make structured input previews first-class input evidence and align structured preview error statuses with tool success semantics, without adding semantic-control gates or forced transitions.
