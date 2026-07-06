@@ -1378,6 +1378,17 @@ context/projection 只负责忠实保留、透明裁剪和可恢复引用。若 
 维护权限/预算/协议配对/重复无效动作等硬底线，并把错误如实反馈给 Agent；它不应替 Agent 判断任务语义是否充分、
 不应替 Agent 选择业务推进策略，也不应把 recovery 文案写成“当前必须怎么思考”的上层智能控制。
 
+### 设计倾向：先怀疑上下文保真，再考虑 runtime 约束
+
+R4 后续诊断默认采用以下优先级：当 Agent 无法完成任务、重复工具调用、误用路径、忽略已有证据、生成错误补丁或进入低质量
+rework 循环时，第一优先级应怀疑 provider-visible context、projection、recent tool feedback、large-output ref 或
+ActionMap evidence 发生了扭曲、丢失、截断、降级、过期回填或引用不可恢复，而不是优先让 runtime 增加新的语义约束。
+
+只有在完成上下文保真审计后，才能升级到 runtime 约束设计。升级条件必须是硬底线缺口：协议配对、权限/沙箱、预算、工具
+grammar、不可恢复的 tool runtime failure、明确重复同一无效动作、或 output/validation contract coverage 等可机械验证的规则。
+如果问题只是 Agent 没有理解工具反馈、没有选择最优下一步、或没有按建议行动，runtime 应保持为忠实工具和记账本，允许合法
+动作进入 tool 执行，并把真实结果继续反馈给 Agent。
+
 ### 明显越界，需后续重构
 
 | Strategy / code area | 当前行为 | 越界原因 | 收敛方向 |

@@ -1754,6 +1754,12 @@ terminal marker: TaskSpaceApplyPatchRecoveryHardStopV1
    replacement-required recovery 升级为 `apply_patch_replacement_required:<target>` action gate，最终
    `TaskSpaceApplyPatchRecoveryHardStopV1`。这已归入下一步 H169，属于 patch/rework runtime 控制越界方向。
 
+后续推进增加一条设计倾向：当 Agent 无法完成任务或出现错误操作时，默认先怀疑上下文/反馈链路是否发生了保真问题，
+包括 provider-visible context 裁剪、projection 改写、recent tool feedback 丢失、large-output ref 不可恢复、ActionMap
+旧状态回填、bounded excerpt 误导、或 tool failure 语义被降级。只有排除这些上下文传递问题后，才考虑新增 runtime 约束；
+且 runtime 约束只能用于协议、权限、预算、工具 grammar、确定重复无效动作、contract coverage 等硬底线，不能把 Agent 的
+理解/决策能力不足转移给 runtime 纠正。
+
 ## 5.97 2026-07-06 corrected-alias validation and path-correction lifecycle
 
 H-160 到 H-165 继续沿 `multi-source-data-merger` right-only targeted runs 推进，目标不是证明 E3 utility，

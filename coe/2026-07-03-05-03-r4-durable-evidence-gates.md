@@ -10659,3 +10659,15 @@
   1. A focused validation-rework replacement-required test can reproduce rejection of an `Update File` patch that should be allowed to reach the patch tool under the clarified boundary.
   2. Removing the semantic replacement-required action gate should preserve strict patch grammar validation while allowing legal patch attempts through.
   3. A rerun should move past `TaskSpaceApplyPatchRecoveryHardStopV1`; remaining failures should be ordinary patch tool failures, validation failures, or Agent logic errors.
+
+# R4 Design Note D-001: context fidelity is the first suspect
+
+- Principle: When the Agent fails to complete a task, repeats a tool, ignores existing evidence, misuses a path, emits a bad patch, or enters a low-quality recovery loop, the first diagnostic hypothesis should be context/feedback fidelity loss rather than a need for stronger runtime control.
+- Check first:
+  - provider-visible context replacement may have dropped, truncated, summarized, or de-prioritized critical tool output;
+  - projection may have rewritten, diluted, contradicted, or overconstrained the original tool result;
+  - recent tool feedback may have lost the exact failure/success semantics;
+  - ActionMap summaries may have revived stale failures or hidden newer successful evidence;
+  - output refs, bounded excerpts, or summaries may be unrecoverable or misleading.
+- Runtime escalation rule: Add a runtime gate only after the fidelity path is audited and the defect is proven to be a hard baseline issue: protocol pairing, permissions/sandbox, request budget, tool grammar, non-recoverable tool-runtime failure, exact repeated invalid action, or mechanically checkable contract coverage.
+- Boundary: If the Agent merely misunderstands faithful tool feedback or chooses a poor but state-machine-legal action, runtime should allow the action and return the resulting tool feedback. That failure belongs to Agent intelligence, not runtime semantic control.
