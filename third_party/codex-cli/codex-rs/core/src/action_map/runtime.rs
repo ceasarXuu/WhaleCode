@@ -1023,6 +1023,7 @@ impl ActionMapRuntimeState {
         );
     }
 
+    #[cfg(test)]
     fn latest_gate_recovery_next_actions_for_node(
         &self,
         map_id: &str,
@@ -9271,17 +9272,11 @@ preview:\n\
                 .or(self.active_task_id.as_ref())
                 .and_then(|task_id| self.tasks.get(task_id))
             {
-                let latest_gate_recovery_next_actions = self
-                    .latest_gate_recovery_next_actions_for_node(
-                        &map.id,
-                        self.current_main_node_id.as_deref(),
-                    );
                 append_context_projection_shadow(
                     &mut context,
                     task,
                     map,
                     self.current_main_node_id.as_deref(),
-                    &latest_gate_recovery_next_actions,
                 );
                 append_task_cognitive_context(&mut context, task, map);
             }
@@ -9293,8 +9288,8 @@ preview:\n\
                 context.push_str(" kind=");
                 context.push_str(node.kind.as_str());
                 context.push_str("\nCurrent node contract:\n- allowed action classes: ");
-                context.push_str(&projection_allowed_actions_for_node(map, node));
-                context.push_str("\nBefore requesting a blocked action, call taskspace_control(action=finish_node) and bind or create a suitable next node. If the current node kind is implement_solution, shell test commands will be blocked; after implementation edits, finish the implementation node and create or bind a smoke_test or regression_test node before running tests.\n");
+                context.push_str(&compact_projection_allowed_actions_for_node(node.kind));
+                context.push('\n');
             }
             context.push_str("\nNodes:\n");
             for node_id in ordered_node_ids(map) {
@@ -9333,15 +9328,15 @@ preview:\n\
 
     fn build_bootstrap_compact_developer_context(&self) -> String {
         let mut context = String::from(
-            "TaskSpace v0.0.5 active compact profile is enabled. Runtime state is authoritative; keep the model-visible TaskSpace surface compact.\n",
+            "TaskSpace v0.0.5 active compact profile is enabled. Runtime state is authoritative.\n",
         );
         if self.tasks.is_empty() {
             context.push_str(
-                "No TaskSpace task exists yet. Before ordinary tools or spawn_agent, call taskspace_control(action=start_task) with a concrete first node derived from the current user request. Include initial_success_criteria, initial_output_contracts, and initial_fact_sources in that start_task call when the user request already supplies them.\n",
+                "Bootstrap status: no TaskSpace task exists. taskspace_control(action=start_task) is required before ordinary tools or spawn_agent. start_task accepts initial_success_criteria, initial_output_contracts, and initial_fact_sources when those fields are already known.\n",
             );
         } else {
             context.push_str(
-                "No active TaskSpace path is bound for this turn. Route to one listed task if it is the same semantic task, or start a new task if the user request is new.\n",
+                "Routing status: no active TaskSpace path is bound for this turn. taskspace_control(action=route_task) can bind a listed task; taskspace_control(action=start_task) can create a new semantic task.\n",
             );
             context.push_str("Task inventory compact:\n");
             for task_id in ordered_task_ids(&self.tasks).into_iter().take(6) {
@@ -9359,9 +9354,6 @@ preview:\n\
             }
             append_omitted_count(&mut context, self.tasks.len(), 6, "tasks");
         }
-        context.push_str(
-                "Use the minimum sufficient map. Thin/single-file fixes should follow inspect_code_context -> implement_solution -> smoke_test/regression_test, then direct final answer after accepted validation, without subagents or a summary-only final_synthesis node. Prefer state_commit for multi-section state updates.\n",
-        );
         if self.reborn_requested {
             context.push_str(
                 "A task reborn was requested; route or start a task before ordinary work and do not continue the old path unless the follow-up cancels the reborn request.\n",
@@ -9380,18 +9372,15 @@ preview:\n\
                 .or(self.active_task_id.as_ref())
                 .and_then(|task_id| self.tasks.get(task_id))?;
             let mut context = String::from(
-                "TaskSpace v0.0.5 active compact profile is enabled. Use this compact projection as the model-visible TaskSpace surface; runtime state remains authoritative.\n",
-            );
-            context.push_str(
-                "Use taskspace_control for state changes. Prefer state_commit for multi-section updates. Keep simple fixes on the narrow path: inspect_code_context -> implement_solution -> smoke_test/regression_test, then direct final answer after accepted validation. Do not create final_synthesis only to summarize thin work. Do not spawn agents for thin/single-file work unless new evidence reveals independent tracks.\n",
+                "TaskSpace v0.0.5 active compact projection. This surface contains TaskSpace state, bounded tool-result excerpts, result references, and hard action-class constraints. Runtime state remains authoritative.\n",
             );
             if self.bootstrap_required {
                 context.push_str(
-                    "Bootstrap is required now: create the first semantic task with taskspace_control(action=start_task) before ordinary tools or subagent spawn.\n",
+                    "Bootstrap status: required before ordinary tools or subagent spawn.\n",
                 );
             } else if self.routing_required {
                 context.push_str(
-                    "Task routing is required now: route to the active task or start a new semantic task before ordinary tools or subagent spawn.\n",
+                    "Task routing status: required before ordinary tools or subagent spawn.\n",
                 );
             }
             if let Some(barrier) = self.active_maintenance_barrier() {
@@ -9403,18 +9392,12 @@ preview:\n\
                 context.push_str(barrier.reason.as_str());
                 context.push('\n');
             }
-            let latest_gate_recovery_next_actions = self
-                .latest_gate_recovery_next_actions_for_node(
-                    &map.id,
-                    self.current_main_node_id.as_deref(),
-                );
             let estimated_tokens = append_context_projection_active(
                 &mut context,
                 task,
                 map,
                 self.current_main_node_id.as_deref(),
                 self.active_budget.as_ref(),
-                &latest_gate_recovery_next_actions,
             );
             if let Some(node_id) = self.current_main_node_id.as_ref()
                 && let Some(node) = map.nodes.get(node_id)
@@ -9424,7 +9407,7 @@ preview:\n\
                 context.push_str(" kind=");
                 context.push_str(node.kind.as_str());
                 context.push_str("\n- allowed action classes: ");
-                context.push_str(&projection_allowed_actions_for_node(map, node));
+                context.push_str(&compact_projection_allowed_actions_for_node(node.kind));
                 context.push('\n');
             }
             (
@@ -9495,16 +9478,11 @@ preview:\n\
         let mut context = String::from(
             "TaskSpace ContextProjectionV1 shadow update. This is a compact model-visible projection only; legacy TaskSpace context remains authoritative until active profile rollout.\n",
         );
-        let latest_gate_recovery_next_actions = self.latest_gate_recovery_next_actions_for_node(
-            &map.id,
-            self.current_main_node_id.as_deref(),
-        );
         append_context_projection_shadow(
             &mut context,
             task,
             map,
             self.current_main_node_id.as_deref(),
-            &latest_gate_recovery_next_actions,
         );
         Some(context)
     }
@@ -11320,7 +11298,6 @@ fn append_context_projection_shadow(
     task: &TaskState,
     map: &ActionMapInstance,
     current_node_id: Option<&str>,
-    latest_gate_recovery_next_actions: &[String],
 ) {
     append_context_projection_with_header(
         context,
@@ -11330,7 +11307,6 @@ fn append_context_projection_shadow(
         "shadow",
         "ContextProjectionV1 shadow (not active replacement):",
         None,
-        latest_gate_recovery_next_actions,
     );
 }
 
@@ -11340,7 +11316,6 @@ fn append_context_projection_active(
     map: &ActionMapInstance,
     current_node_id: Option<&str>,
     active_budget: Option<&TaskSpaceActiveBudgetV1>,
-    latest_gate_recovery_next_actions: &[String],
 ) -> usize {
     append_context_projection_with_header(
         context,
@@ -11352,7 +11327,6 @@ fn append_context_projection_active(
             .unwrap_or("active"),
         "ContextProjectionV1 active replacement:",
         active_budget,
-        latest_gate_recovery_next_actions,
     )
 }
 
@@ -11364,7 +11338,6 @@ fn append_context_projection_with_header(
     profile: &str,
     header: &str,
     active_budget: Option<&TaskSpaceActiveBudgetV1>,
-    latest_gate_recovery_next_actions: &[String],
 ) -> usize {
     let projection_id = format!("projection-{profile}-{}-{}", task.id, map.id);
     let current_node = current_node_id
@@ -11447,18 +11420,8 @@ fn append_context_projection_with_header(
         projection_dependency_read_evidence(map, current_node_id, 4, 900);
     let critical_artifact_evidence =
         projection_critical_artifact_evidence(map, current_node_id, 4, 900);
-    let hidden_refs = map
-        .results
-        .keys()
-        .take(8)
-        .map(|result_id| format!("result:{result_id}"))
-        .collect::<Vec<_>>();
-    let next_valid_actions = projection_next_valid_actions(
-        map,
-        current_node_id,
-        Some(task),
-        latest_gate_recovery_next_actions,
-    );
+    let fact_source_coverage = projection_fact_source_coverage(task, map, current_node_id, 8);
+    let result_refs_available = projection_result_refs_available(map, 8);
 
     let mut projection = String::new();
     projection.push('\n');
@@ -11503,8 +11466,16 @@ fn append_context_projection_with_header(
         "critical_artifact_evidence",
         &critical_artifact_evidence,
     );
-    append_projection_list(&mut projection, "next_valid_actions", &next_valid_actions);
-    append_projection_list(&mut projection, "hidden_refs_available", &hidden_refs);
+    append_projection_list(
+        &mut projection,
+        "fact_source_coverage",
+        &fact_source_coverage,
+    );
+    append_projection_list(
+        &mut projection,
+        "result_refs_available",
+        &result_refs_available,
+    );
     projection.push_str("- estimated_tokens: ");
     let estimated_tokens = approx_projection_tokens(&projection);
     projection.push_str(&estimated_tokens.to_string());
@@ -11710,7 +11681,7 @@ fn projection_critical_artifact_evidence(
             node_recent_failed_action_summary(map, current_node, ActionClass::Edit)
         {
             evidence.push(format!(
-                "failed_edit_feedback signal=latest_failed_edit\n{failed_edit}\nnext_action=correct the failed apply_patch; do not finish_node until a successful edit result is recorded"
+                "failed_edit_feedback signal=latest_failed_edit\n{failed_edit}"
             ));
             if evidence.len() >= max_results {
                 return evidence;
@@ -11781,6 +11752,155 @@ fn projection_critical_artifact_evidence(
         }
     }
     evidence
+}
+
+fn projection_fact_source_coverage(
+    task: &TaskState,
+    map: &ActionMapInstance,
+    current_node_id: Option<&str>,
+    max_results: usize,
+) -> Vec<String> {
+    let required = current_node_id
+        .and_then(|node_id| map.nodes.get(node_id))
+        .filter(|node| node.kind == NodeKind::InspectCodeContext)
+        .map(|node| inspect_required_fact_source_artifacts(task, map, node))
+        .unwrap_or_else(|| task_required_fact_source_artifact_refs(task));
+    if required.is_empty() {
+        return Vec::new();
+    }
+
+    let observed = projection_all_inspect_observed_artifact_refs(map);
+    let visible_aliases = projection_all_inspect_visible_artifact_refs(map);
+    let failed_aliases = projection_all_inspect_failed_workspace_alias_artifact_refs(map);
+    let mut coverage = Vec::new();
+    for artifact in required.iter().take(max_results) {
+        let observed_as = observed
+            .iter()
+            .filter(|observed| artifact_refs_match(artifact, observed))
+            .cloned()
+            .collect::<Vec<_>>();
+        let mut entry = format!(
+            "{} status={}",
+            artifact,
+            if observed_as.is_empty() {
+                "not_observed"
+            } else {
+                "observed"
+            }
+        );
+        if !observed_as.is_empty() {
+            entry.push_str(" observed_as=");
+            entry.push_str(&observed_as.join(","));
+        }
+        if let Some(candidate) =
+            workspace_relative_candidate_for_observed_alias(artifact, &visible_aliases)
+        {
+            entry.push_str(" workspace_relative_alias_observed=");
+            entry.push_str(&candidate);
+        } else if let Some(candidate) =
+            workspace_relative_candidate_for_failed_alias(artifact, &failed_aliases)
+        {
+            entry.push_str(" workspace_relative_alias_from_failed_path=");
+            entry.push_str(&candidate);
+        }
+        coverage.push(entry);
+    }
+    if required.len() > max_results {
+        coverage.push(format!(
+            "... {} more fact source artifact(s) omitted",
+            required.len() - max_results
+        ));
+    }
+    coverage
+}
+
+fn projection_all_inspect_observed_artifact_refs(map: &ActionMapInstance) -> Vec<String> {
+    let mut artifact_refs = Vec::new();
+    for node_id in ordered_node_ids(map) {
+        let Some(node) = map.nodes.get(&node_id) else {
+            continue;
+        };
+        if node.kind != NodeKind::InspectCodeContext {
+            continue;
+        }
+        for artifact in inspect_node_observed_artifact_refs(map, node) {
+            push_unique_artifact_ref(&mut artifact_refs, artifact);
+        }
+    }
+    artifact_refs
+}
+
+fn projection_all_inspect_visible_artifact_refs(map: &ActionMapInstance) -> Vec<String> {
+    let mut artifact_refs = Vec::new();
+    for node_id in ordered_node_ids(map) {
+        let Some(node) = map.nodes.get(&node_id) else {
+            continue;
+        };
+        if node.kind != NodeKind::InspectCodeContext {
+            continue;
+        }
+        for artifact in inspect_node_projection_visible_artifact_refs(map, node) {
+            push_unique_artifact_ref(&mut artifact_refs, artifact);
+        }
+    }
+    artifact_refs
+}
+
+fn projection_all_inspect_failed_workspace_alias_artifact_refs(
+    map: &ActionMapInstance,
+) -> Vec<String> {
+    let mut artifact_refs = Vec::new();
+    for node_id in ordered_node_ids(map) {
+        let Some(node) = map.nodes.get(&node_id) else {
+            continue;
+        };
+        if node.kind != NodeKind::InspectCodeContext {
+            continue;
+        }
+        for artifact in inspect_node_failed_workspace_alias_artifact_refs(map, node) {
+            push_unique_artifact_ref(&mut artifact_refs, artifact);
+        }
+    }
+    artifact_refs
+}
+
+fn projection_result_refs_available(map: &ActionMapInstance, max_results: usize) -> Vec<String> {
+    let result_ids = ordered_result_ids(map);
+    let start = result_ids.len().saturating_sub(max_results);
+    result_ids
+        .into_iter()
+        .skip(start)
+        .filter_map(|result_id| map.results.get(&result_id))
+        .map(|result| {
+            let mut artifacts = result_visible_artifact_refs(result);
+            for artifact in result_input_data_artifact_refs(result) {
+                push_unique_artifact_ref(&mut artifacts, artifact);
+            }
+            let artifact_text = if artifacts.is_empty() {
+                "none".to_string()
+            } else {
+                artifacts.join(",")
+            };
+            let action_class = result
+                .action_class
+                .map(|action| action.as_str())
+                .unwrap_or("none");
+            let tool_success = result
+                .tool_success
+                .map(|success| success.to_string())
+                .unwrap_or_else(|| "none".to_string());
+            format!(
+                "{} node={} kind={} action_class={} tool_success={} artifacts={} body_chars={}",
+                result.id,
+                result.node_id,
+                result.kind.as_str(),
+                action_class,
+                tool_success,
+                artifact_text,
+                result.body.chars().count()
+            )
+        })
+        .collect()
 }
 
 fn bounded_line_preserving_excerpt(text: &str, max_chars: usize) -> String {
@@ -12347,6 +12467,7 @@ fn validation_failure_line_is_signal(lower_line: &str) -> bool {
         || lower_line.contains(" line ")
 }
 
+#[cfg(test)]
 fn projection_next_valid_actions(
     map: &ActionMapInstance,
     current_node_id: Option<&str>,
@@ -12565,6 +12686,7 @@ fn projection_next_valid_actions(
     }
 }
 
+#[cfg(test)]
 fn projection_fact_source_read_action(
     artifact: &str,
     observed_artifacts: &[String],
@@ -12749,6 +12871,7 @@ fn compact_projection_allowed_actions_for_node(kind: NodeKind) -> String {
     }
 }
 
+#[cfg(test)]
 fn projection_allowed_actions_for_node(map: &ActionMapInstance, node: &MapNode) -> String {
     if node.kind == NodeKind::ImplementSolution
         && !node_has_successful_action(map, node, ActionClass::Edit)
@@ -12858,6 +12981,7 @@ fn gate_recovery_message_with_repeated_block(
     format!("{message}\nTaskSpaceGateRecoveryV1: {recovery}")
 }
 
+#[cfg(test)]
 fn projection_no_current_next_valid_actions(map: &ActionMapInstance) -> Vec<String> {
     let mut ready_validation_nodes = ordered_node_ids(map)
         .into_iter()
@@ -15798,6 +15922,7 @@ fn validation_node_failed_noninfra_result(
     })
 }
 
+#[cfg(test)]
 fn validation_missing_jsonschema_dependency_next_actions(
     map: &ActionMapInstance,
     node: &MapNode,
@@ -16835,6 +16960,7 @@ fn artifact_like_token(token: &str) -> bool {
                 | "jsonl"
                 | "csv"
                 | "tsv"
+                | "parquet"
                 | "txt"
                 | "md"
                 | "yaml"
@@ -18653,6 +18779,11 @@ fn result_visible_artifact_refs(result: &NodeResult) -> Vec<String> {
             artifacts.push(artifact_ref);
         }
     }
+    for artifact_ref in result_body_taskspace_marker_artifact_refs(&result.body) {
+        if !artifact_ref.is_empty() && !artifacts.iter().any(|existing| existing == &artifact_ref) {
+            artifacts.push(artifact_ref);
+        }
+    }
     for artifact_ref in result_body_inline_artifact_refs(&result.body) {
         if !artifact_ref.is_empty() && !artifacts.iter().any(|existing| existing == &artifact_ref) {
             artifacts.push(artifact_ref);
@@ -18689,6 +18820,40 @@ fn result_body_section_artifact_refs(body: &str) -> Vec<String> {
         }
     }
     artifacts
+}
+
+fn result_body_taskspace_marker_artifact_refs(body: &str) -> Vec<String> {
+    let mut artifacts = Vec::new();
+    for line in result_body_raw_output_section(body).lines().map(str::trim) {
+        if !(line.starts_with("TaskSpaceReadFileSummaryV1:")
+            || line.starts_with("TaskSpaceStructuredFilePreviewV1:"))
+        {
+            continue;
+        }
+        let Some(path) = taskspace_marker_field(line, "path") else {
+            continue;
+        };
+        let artifact_ref = normalize_artifact_ref(&path);
+        if !artifact_ref.is_empty() && !artifacts.iter().any(|existing| existing == &artifact_ref) {
+            artifacts.push(artifact_ref);
+        }
+    }
+    artifacts
+}
+
+fn result_body_raw_output_section(body: &str) -> &str {
+    body.split_once("\nraw_output:\n")
+        .map(|(_, rest)| rest)
+        .or_else(|| body.split_once("\r\nraw_output:\r\n").map(|(_, rest)| rest))
+        .unwrap_or(body)
+}
+
+fn taskspace_marker_field(line: &str, field: &str) -> Option<String> {
+    let prefix = format!("{field}=");
+    line.split_whitespace()
+        .find_map(|part| part.strip_prefix(&prefix))
+        .map(|value| value.trim_matches(['"', '\'']).to_string())
+        .filter(|value| !value.is_empty())
 }
 
 fn artifact_key(path: &str) -> String {
@@ -18729,6 +18894,9 @@ fn successful_read_result_has_working_evidence(result: &NodeResult) -> bool {
     {
         return false;
     }
+    if structured_file_preview_is_unsuccessful(&result.body) {
+        return false;
+    }
     if read_result_body_is_path_listing_only(&result.body) {
         return false;
     }
@@ -18749,8 +18917,26 @@ fn successful_inspect_result_has_working_evidence(result: &NodeResult) -> bool {
     if read_result_body_is_path_listing_only(&result.body) {
         return false;
     }
+    if structured_file_preview_is_unsuccessful(&result.body) {
+        return false;
+    }
     code_or_test_read_body_has_content_signal(&result.body)
         || !result_input_data_artifact_refs(result).is_empty()
+}
+
+fn structured_file_preview_is_unsuccessful(body: &str) -> bool {
+    let mut saw_structured_preview = false;
+    let mut saw_ok = false;
+    for line in result_body_raw_output_section(body).lines().map(str::trim) {
+        if !line.starts_with("TaskSpaceStructuredFilePreviewV1:") {
+            continue;
+        }
+        saw_structured_preview = true;
+        if taskspace_marker_field(line, "status").as_deref() == Some("ok") {
+            saw_ok = true;
+        }
+    }
+    saw_structured_preview && !saw_ok
 }
 
 fn read_result_body_is_path_listing_only(body: &str) -> bool {
@@ -18908,7 +19094,7 @@ fn is_input_data_artifact_ref(artifact_ref: &str) -> bool {
     }
     matches!(
         normalized.rsplit_once('.').map(|(_, ext)| ext),
-        Some("log" | "jsonl" | "json" | "csv" | "tsv" | "yaml" | "yml" | "txt")
+        Some("log" | "jsonl" | "json" | "csv" | "tsv" | "yaml" | "yml" | "txt" | "parquet")
     )
 }
 
@@ -25173,16 +25359,16 @@ sample rows from {artifact}"
 
         let context = state.build_developer_context().expect("developer context");
 
-        assert!(context.contains("TaskSpace v0.0.5 active compact profile is enabled."));
-        assert!(context.contains("then direct final answer after accepted validation"));
-        assert!(context.contains("Do not create final_synthesis only to summarize thin work"));
+        assert!(context.contains("TaskSpace v0.0.5 active compact projection."));
+        assert!(!context.contains("then direct final answer after accepted validation"));
+        assert!(!context.contains("Do not create final_synthesis only to summarize thin work"));
         assert!(
             !context.contains(
                 "inspect_code_context -> implement_solution -> smoke_test/regression_test -> final_synthesis"
             )
         );
         assert!(context.contains("ContextProjectionV1 active replacement:"));
-        assert!(context.contains("Use taskspace_control for state changes."));
+        assert!(!context.contains("Use taskspace_control for state changes."));
         assert!(!context.contains("promote_taskspace"));
         assert!(!context.contains("promotion_not_in_mvp"));
         assert!(!context.contains("collapsed-direct"));
@@ -26830,6 +27016,45 @@ TaskSpaceReadFileSummaryV1: path=data/source_a/users.json lines_read=10 eof_reac
                     .to_string(),
             )
             .expect("source_a read records");
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "read-source-c",
+                "shell_command",
+                Some(ActionClass::Read),
+                true,
+                "TaskSpaceToolInvocationV1:\n\
+tool: shell_command\n\
+command: python - data/source_c/users.parquet\n\
+raw_output:\n\
+Exit code: 0\n\
+Wall time: 0.1 seconds\n\
+Output:\n\
+TaskSpaceStructuredFilePreviewV1: path=data/source_c/users.parquet format=parquet status=ok rows=2 columns=[\"userId\", \"userName\", \"email\", \"joined\", \"active\"]\n\
+[{\"userId\":101,\"userName\":\"John D.\",\"email\":\"john@c.com\",\"joined\":\"2024-01-20\",\"active\":true},{\"userId\":104,\"userName\":\"Alice Brown\",\"email\":\"alice@c.com\",\"joined\":\"2024-04-01\",\"active\":true}]\n\
+TaskSpaceReadFileSummaryV1: path=data/source_c/users.parquet lines_read=2 eof_reached=true max_lines=20 structured_preview=true\n"
+                    .to_string(),
+            )
+            .expect("source_c read records");
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "read-source-c-absolute",
+                "shell_command",
+                Some(ActionClass::Read),
+                true,
+                "TaskSpaceToolInvocationV1:\n\
+tool: shell_command\n\
+command: python - /data/source_c/users.parquet\n\
+raw_output:\n\
+Exit code: 0\n\
+Wall time: 0.1 seconds\n\
+Output:\n\
+TaskSpaceStructuredFilePreviewV1: path=/data/source_c/users.parquet format=parquet status=read_error error=FileNotFoundError: missing\n\
+TaskSpaceReadFileSummaryV1: path=/data/source_c/users.parquet lines_read=0 eof_reached=true max_lines=20 structured_preview=false\n"
+                    .to_string(),
+            )
+            .expect("source_c failed preview records");
 
         let context = state.build_developer_context().expect("developer context");
         assert!(context.contains("verified_input_evidence:"), "{context}");
@@ -26844,6 +27069,17 @@ TaskSpaceReadFileSummaryV1: path=data/source_a/users.json lines_read=10 eof_reac
         assert!(context.contains("John Doe"), "{context}");
         assert!(context.contains("john@a.com"), "{context}");
         assert!(context.contains("eof_reached=true"), "{context}");
+        assert!(
+            context.contains("verified_paths=data/source_c/users.parquet"),
+            "{context}"
+        );
+        assert!(context.contains("John D."), "{context}");
+        assert!(context.contains("Alice Brown"), "{context}");
+        assert!(
+            !context.contains("verified_paths=/data/source_c/users.parquet"),
+            "{context}"
+        );
+        assert!(context.contains("result_refs_available:"), "{context}");
     }
 
     #[test]
@@ -35183,7 +35419,7 @@ fi\n"
 
         let context = state.build_developer_context().expect("context");
 
-        assert!(context.contains("TaskSpace v0.0.5 active compact profile is enabled."));
+        assert!(context.contains("TaskSpace v0.0.5 active compact projection."));
         assert!(context.contains("ContextProjectionV1 active replacement:"));
         assert!(context.contains("projection_id: projection-default_compact-task-1-map-1"));
         assert!(context.contains("mode: default_compact"));
@@ -35192,7 +35428,9 @@ fi\n"
         assert!(context.contains("current_node: node-1 kind=inspect_code_context"));
         assert!(context.contains("decisions:"));
         assert!(context.contains("Stay on the narrow main-agent path."));
-        assert!(context.contains("next_valid_actions:"));
+        assert!(context.contains("fact_source_coverage:"));
+        assert!(context.contains("result_refs_available:"));
+        assert!(!context.contains("next_valid_actions:"));
         assert!(context.contains("estimated_tokens:"));
         assert!(!context.contains("Active task path:"));
         assert!(!context.contains("Task cognitive state (MVP):"));
@@ -41706,13 +41944,9 @@ OK: 0 rows"
         state.set_mode(MapRuntimeMode::Experiment);
         let context = state.build_developer_context().expect("experiment context");
         assert!(context.contains("TaskSpace v0.0.5 active compact profile is enabled"));
-        assert!(context.contains("No TaskSpace task exists yet"));
-        assert!(context.contains("Use the minimum sufficient map"));
-        assert!(
-            context.contains(
-                "inspect_code_context -> implement_solution -> smoke_test/regression_test"
-            )
-        );
+        assert!(context.contains("Bootstrap status: no TaskSpace task exists."));
+        assert!(!context.contains("Use the minimum sufficient map"));
+        assert!(!context.contains("inspect_code_context -> implement_solution"));
     }
 
     #[test]
@@ -43182,7 +43416,9 @@ OK: 0 rows"
         assert!(context.contains("Task inventory compact:"));
         assert!(context.contains("task-1 [active] Architecture review"));
         assert!(context.contains("objective=Find structural risks."));
-        assert!(context.contains("Route to one listed task"));
+        assert!(context.contains("Routing status: no active TaskSpace path is bound"));
+        assert!(context.contains("taskspace_control(action=route_task)"));
+        assert!(context.contains("taskspace_control(action=start_task)"));
     }
 
     #[test]

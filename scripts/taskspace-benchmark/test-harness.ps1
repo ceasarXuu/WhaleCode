@@ -527,9 +527,11 @@ ContextProjectionV1 active replacement:
     - fact: output refs active
   relevant_results:
     - result:abc
-  next_valid_actions:
-    - inspect_code_context
-  hidden_refs_available:
+  verified_input_evidence:
+    - none
+  fact_source_coverage:
+    - /data/source_a/users.json status=observed
+  result_refs_available:
     - result:abc
 - estimated_tokens: 123
 "@
@@ -551,9 +553,11 @@ ContextProjectionV1 shadow (not active replacement):
     - fact: output refs active
   relevant_results:
     - result:abc
-  next_valid_actions:
-    - inspect_code_context
-  hidden_refs_available:
+  verified_input_evidence:
+    - none
+  fact_source_coverage:
+    - /data/source_a/users.json status=observed
+  result_refs_available:
     - result:abc
 - estimated_tokens: 123
 "@

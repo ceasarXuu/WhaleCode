@@ -150,6 +150,17 @@ const RESPONSES_COMPACT_ENDPOINT: &str = "/responses/compact";
 const TASKSPACE_ACTIVE_PROJECTION_MARKER: &str = "ContextProjectionV1 active replacement:";
 const TASKSPACE_SHADOW_PROJECTION_MARKER: &str =
     "ContextProjectionV1 shadow (not active replacement):";
+const TASKSPACE_PROJECTION_REQUIRED_SECTIONS: &[&str] = &[
+    "success_criteria",
+    "current_node",
+    "blockers",
+    "decisions",
+    "facts",
+    "relevant_results",
+    "verified_input_evidence",
+    "fact_source_coverage",
+    "result_refs_available",
+];
 // `/responses/compact` is unary, so the timeout covers the full response rather than one idle
 // period between stream events.
 const COMPACT_REQUEST_TIMEOUT_IDLE_MULTIPLIER: u32 = 4;
@@ -929,7 +940,8 @@ fn scan_provider_payload_text(
     let protected_items_present = active_projection_block.contains("- protected")
         || active_projection_block.contains("protected_item")
         || active_projection_block.contains("protected item")
-        || active_projection_block.contains("protected evidence");
+        || active_projection_block.contains("protected evidence")
+        || projection_block_contains_required_sections(active_projection_block);
     let raw_taskspace_control_history_tokens =
         estimate_marker_context_tokens(&legacy_scan_text, "taskspace_control(");
     let completed_stale_node_history_tokens =
@@ -963,7 +975,7 @@ fn scan_provider_payload_text(
         failure_reasons.push("large_raw_output_present".to_string());
     }
     if !protected_items_present {
-        failure_reasons.push("protected_items_missing".to_string());
+        failure_reasons.push("projection_required_sections_missing".to_string());
     }
     ExactPayloadScanEventV1 {
         schema_version: "taskspace-exact-payload-scan-event-v1",
@@ -994,6 +1006,20 @@ fn scan_provider_payload_text(
         passed: failure_reasons.is_empty(),
         failure_reasons,
     }
+}
+
+fn projection_block_contains_required_sections(block: &str) -> bool {
+    let normalized = block.replace("\\r\\n", "\n").replace("\\n", "\n");
+    TASKSPACE_PROJECTION_REQUIRED_SECTIONS
+        .iter()
+        .all(|section| projection_block_contains_section(&normalized, section))
+}
+
+fn projection_block_contains_section(block: &str, section: &str) -> bool {
+    let section_prefix = format!("{section}:");
+    block
+        .lines()
+        .any(|line| line.trim_start().starts_with(&section_prefix))
 }
 
 fn remove_taskspace_agent_context_bundle_sections(text: &str) -> String {

@@ -390,23 +390,33 @@ fn provider_request_budget_records_started_and_terminal_status() {
 
 #[test]
 fn provider_payload_scan_rejects_shadow_or_legacy_taskspace_history() {
+    let active_projection = concat!(
+        "ContextProjectionV1 active replacement:\n",
+        "- sections:\n",
+        "  success_criteria:\n",
+        "    - criterion\n",
+        "  current_node: node-1\n",
+        "  blockers:\n",
+        "    - none\n",
+        "  decisions:\n",
+        "    - none\n",
+        "  facts:\n",
+        "    - fact\n",
+        "  relevant_results:\n",
+        "    - none\n",
+        "  verified_input_evidence:\n",
+        "    - none\n",
+        "  fact_source_coverage:\n",
+        "    - none\n",
+        "  result_refs_available:\n",
+        "    - none\n",
+    );
     let active = provider_payload_digest(&json!({
-        "input": "ContextProjectionV1 active replacement:\n- protected"
+        "input": active_projection
     }))
     .expect("active payload digest");
     assert!(active.scan.passed);
     assert!(active.scan.replacement_confirmed);
-
-    let active_with_current_control_guidance = provider_payload_digest(&json!({
-        "input": "ContextProjectionV1 active replacement:\n- protected\nUse taskspace_control for state changes."
-    }))
-    .expect("active payload digest with current control guidance");
-    assert!(active_with_current_control_guidance.scan.passed);
-    assert!(
-        active_with_current_control_guidance
-            .scan
-            .replacement_confirmed
-    );
 
     let bundled_active_with_structured_control = provider_payload_digest(&json!({
         "input": concat!(
@@ -453,7 +463,7 @@ fn provider_payload_scan_rejects_shadow_or_legacy_taskspace_history() {
     );
 
     let legacy = provider_payload_digest(&json!({
-        "input": "ContextProjectionV1 active replacement:\n- protected\nContextProjectionV1 shadow (not active replacement):\ntaskspace_control"
+        "input": format!("{active_projection}\nContextProjectionV1 shadow (not active replacement):\ntaskspace_control")
     }))
     .expect("legacy payload digest");
     assert!(legacy.scan.active_projection_present);
@@ -470,12 +480,12 @@ fn provider_payload_scan_rejects_shadow_or_legacy_taskspace_history() {
     assert!(!missing_protected.scan.passed);
     assert_eq!(
         missing_protected.scan.failure_reasons,
-        vec!["protected_items_missing".to_string()]
+        vec!["projection_required_sections_missing".to_string()]
     );
 
     let large_instruction_text = "x".repeat(60 * 1024);
     let large_active_instructions = provider_payload_digest(&json!({
-        "input": format!("ContextProjectionV1 active replacement:\n- protected\n{large_instruction_text}")
+        "input": format!("{active_projection}\n{large_instruction_text}")
     }))
     .expect("large active instruction payload digest");
     assert_eq!(large_active_instructions.scan.large_raw_output_tokens, 0);
@@ -487,7 +497,7 @@ fn provider_payload_scan_rejects_shadow_or_legacy_taskspace_history() {
             {
                 "type": "message",
                 "role": "developer",
-                "content": "ContextProjectionV1 active replacement:\n- protected"
+                "content": active_projection
             },
             {
                 "type": "function_call_output",

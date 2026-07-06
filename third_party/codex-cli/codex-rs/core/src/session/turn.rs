@@ -133,6 +133,8 @@ use tracing::trace_span;
 use tracing::warn;
 
 const TASKSPACE_ACTIVE_PROFILE_MARKER: &str = "TaskSpace v0.0.5 active compact profile is enabled.";
+const TASKSPACE_ACTIVE_COMPACT_PROJECTION_MARKER: &str =
+    "TaskSpace v0.0.5 active compact projection.";
 const TASKSPACE_ACTIVE_PROJECTION_MARKER: &str = "ContextProjectionV1 active replacement:";
 const TASKSPACE_SHADOW_PROJECTION_MARKER: &str =
     "ContextProjectionV1 shadow (not active replacement):";
@@ -4433,7 +4435,7 @@ fn is_taskspace_validation_rework_target_read_output(
 
 fn is_taskspace_active_context_item(item: &ResponseItem) -> bool {
     is_active_context_projection_item(item)
-        || response_item_text_contains(item, TASKSPACE_ACTIVE_PROFILE_MARKER)
+        || response_item_text_contains_taskspace_active_marker(item)
         || response_item_text_contains(item, "TaskSpace mode is now active.")
 }
 
@@ -5311,8 +5313,13 @@ fn classify_provider_visible_item(item: &ResponseItem) -> ProviderVisibleItemCat
 }
 
 fn is_active_context_projection_item(item: &ResponseItem) -> bool {
-    response_item_text_contains(item, TASKSPACE_ACTIVE_PROFILE_MARKER)
+    response_item_text_contains_taskspace_active_marker(item)
         && response_item_text_contains(item, TASKSPACE_ACTIVE_PROJECTION_MARKER)
+}
+
+fn response_item_text_contains_taskspace_active_marker(item: &ResponseItem) -> bool {
+    response_item_text_contains(item, TASKSPACE_ACTIVE_PROFILE_MARKER)
+        || response_item_text_contains(item, TASKSPACE_ACTIVE_COMPACT_PROJECTION_MARKER)
 }
 
 fn compile_taskspace_context_item(item: ResponseItem) -> ResponseItem {

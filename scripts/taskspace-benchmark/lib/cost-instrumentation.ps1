@@ -1438,8 +1438,9 @@ function New-TaskspaceContextProjectionEvent {
         "decisions",
         "facts",
         "relevant_results",
-        "next_valid_actions",
-        "hidden_refs_available"
+        "verified_input_evidence",
+        "fact_source_coverage",
+        "result_refs_available"
     )
     $missing = @($requiredSections | Where-Object { $Block -notmatch "(?m)^\s*$([regex]::Escape($_)):" })
     $projectionId = ""

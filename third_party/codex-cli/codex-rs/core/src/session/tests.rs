@@ -1413,7 +1413,7 @@ async fn record_context_updates_refreshes_taskspace_inventory_in_steady_state() 
     let history = session.clone_history().await;
     let developer_text = developer_input_texts(history.raw_items()).join("\n");
     assert!(
-        developer_text.contains("TaskSpace v0.0.5 active compact profile is enabled."),
+        developer_text.contains("TaskSpace v0.0.5 active compact projection."),
         "expected active compact TaskSpace update in steady-state context: {developer_text}"
     );
     assert!(
@@ -1425,8 +1425,12 @@ async fn record_context_updates_refreshes_taskspace_inventory_in_steady_state() 
         "expected active objective in steady-state context: {developer_text}"
     );
     assert!(
-        developer_text.contains("taskspace_control(action=bind_node or create_node)"),
-        "expected compact next valid action in steady-state context: {developer_text}"
+        developer_text.contains("result_refs_available:"),
+        "expected compact result reference section in steady-state context: {developer_text}"
+    );
+    assert!(
+        !developer_text.contains("next_valid_actions:"),
+        "active projection must not inject next-valid-action guidance: {developer_text}"
     );
     assert!(
         !developer_text.contains("ContextProjectionV1 shadow (not active replacement):"),

@@ -11174,3 +11174,125 @@
   - This explains why the Agent continued to act as if source_c still required inspection even after a successful structured preview.
   - H-175 remains valid for the capability layer, but incomplete for the full tools link: structured binary reads also need evidence classification and failed-status fidelity.
   - The next repair should make structured input previews first-class input evidence and align structured preview error statuses with tool success semantics, without adding semantic-control gates or forced transitions.
+
+# Hypothesis H-177: active projection must be a factual constructor, not a next-action prompt surface
+
+- Claim: H-176 should be repaired by making the projection layer preserve and expose tool-result facts faithfully, not by adding runtime semantic coaching. Active compact projection should stop emitting `next_valid_actions`, hidden prompt guidance, or gate-recovery instructions, and should instead expose:
+  - bounded source/result excerpts,
+  - factual fact-source coverage,
+  - result references for progressive disclosure,
+  - hard action-class constraints only.
+- Boundary:
+  - Projection may state state-machine facts and hard constraints.
+  - Projection must not tell the Agent what strategy to choose, when to finish, or which next semantic step is preferred.
+  - Failed structured previews must not be counted as successful working evidence.
+  - Observability/protected-section scanners must track the new factual projection schema instead of preserving old prompt-surface requirements.
+- Status: implemented and locally validated.
+
+# Evidence E-345: projection passthrough refactor fixes H-176 at unit/regression level
+
+- Repair artifacts:
+  - `third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs`
+    - Active projection preamble is factual and no longer includes strategy text such as `Use taskspace_control`, `direct final answer`, `Do not create final_synthesis`, or spawn guidance.
+    - Production projection no longer calls `projection_next_valid_actions` or consumes gate-recovery `next_valid_actions`.
+    - `hidden_refs_available` was replaced by factual `result_refs_available`.
+    - Added `fact_source_coverage` with `observed/not_observed` and path alias facts, not read-next instructions.
+    - Structured `TaskSpaceStructuredFilePreviewV1` / `TaskSpaceReadFileSummaryV1` markers are parsed only from raw tool output.
+    - `.parquet` is classified as input data evidence; successful structured previews become `verified_input_evidence`.
+    - Structured previews with non-`ok` status no longer count as successful working evidence.
+  - `third_party/codex-cli/codex-rs/core/src/session/mod.rs` and `session/turn.rs`
+    - Active projection cleanup and provider-visible context classification now recognize both the old compact-profile marker and the new compact-projection marker.
+  - `third_party/codex-cli/codex-rs/core/src/client.rs`
+    - Provider payload scan now treats required factual projection sections as the protected projection surface instead of requiring legacy `protected_item` text.
+  - `scripts/taskspace-benchmark/lib/cost-instrumentation.ps1`
+    - Context projection protected-section scanner now expects `verified_input_evidence`, `fact_source_coverage`, and `result_refs_available`, not removed `next_valid_actions` / `hidden_refs_available`.
+- Validation:
+  ```text
+  cargo fmt --manifest-path third_party/codex-cli/codex-rs/Cargo.toml --package codex-core
+    passed with existing rustfmt nightly-option warnings
+
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib provider_payload_scan_rejects_shadow_or_legacy_taskspace_history -- --nocapture
+    passed: 1 test
+
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib developer_context -- --nocapture
+    passed: 5 tests
+
+  RUST_MIN_STACK=8388608 CODEX_SKIP_VENDORED_BWRAP=1 cargo test --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-core --lib taskspace -- --nocapture
+    passed: 176 tests
+
+  powershell -NoProfile -ExecutionPolicy Bypass -File scripts/taskspace-benchmark/test-cost-instrumentation.ps1
+    passed
+
+  powershell -NoProfile -ExecutionPolicy Bypass -File scripts/taskspace-benchmark/test-harness.ps1
+    passed
+
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build --manifest-path third_party/codex-cli/codex-rs/Cargo.toml -p codex-cli --bin whale
+    passed
+  ```
+- Interpretation:
+  - H-176 is fixed in the projection/classification layer: structured parquet content is now first-class input evidence.
+  - H-177 is fixed for active compact projection: the projection is now a bounded factual constructor rather than a next-step prompt surface.
+  - Remaining `next_valid_actions` in gate-recovery and no-action recovery paths are outside this projection repair and should be handled as a separate runtime-boundary issue.
+
+# Evidence E-346: right-only live multi-source rerun proves source_c projection passthrough and exposes next boundary issue
+
+- Run:
+  ```text
+  RunRoot:
+    target/r4-projection-passthrough-multisource-right-only-20260707
+  RunDir:
+    target/r4-projection-passthrough-multisource-right-only-20260707/runs/terminal_bench__multi-source-data-merger/20260707-055420-725
+  RunSide:
+    right
+  reported_evidence_level:
+    E1 diagnostic only
+  ```
+- Outcome:
+  ```text
+  right business_success=false
+  right public_validation_exit_code=1
+  hidden_oracle_exit_code=0
+  tool_call_count=11
+  changed_paths=[]
+  failure_taxonomy=engineering_unclean, agent_no_patch, audit_unclean
+  ```
+- H-176/H-177 live signals:
+  ```text
+  result-7 read_file data/source_c/users.parquet:
+    TaskSpaceStructuredFilePreviewV1: path=data/source_c/users.parquet format=parquet status=ok rows=2 columns=["userId", "userName", "email", "joined", "active"]
+    [{"userId":101,"userName":"John D.","email":"john@c.com","joined":"2024-01-20","active":true},{"userId":104,"userName":"Alice Brown","email":"alice@c.com","joined":"2024-04-01","active":true}]
+    TaskSpaceReadFileSummaryV1: path=data/source_c/users.parquet lines_read=2 eof_reached=true max_lines=20 structured_preview=true
+
+  active projection after result-7:
+    verified_input_evidence includes result-7 verified_paths=data/source_c/users.parquet
+    excerpt includes John D. and Alice Brown
+    fact_source_coverage marks /data/source_c/users.parquet status=observed observed_as=data/source_c/users.parquet
+    result_refs_available lists result-7 artifacts=data/source_c/users.parquet
+    next_valid_actions is absent from active projection
+    hidden_refs_available is absent from active projection
+
+  recomputed context-projection-summary.json:
+    projection_count=10
+    active_projection_count=10
+    protected_miss_count=0
+  ```
+- New residual failure:
+  ```text
+  item-8:
+    taskspace_control finish_node closes node-1 and records result-8
+
+  item-9:
+    Agent creates a new inspect_code_context node instead of implementing.
+
+  items 10-13:
+    repeated list_files calls are blocked because result-8 is still unreviewed:
+      "Before ordinary work or subagent spawn, call taskspace_control(action=state_commit) with result_validities..."
+
+  terminal marker:
+    TaskSpaceNoActionRecoveryHardStopV1 reason=repeated_no_action_after_recovery_threshold
+  ```
+- Interpretation:
+  - The live failure moved past the original H-176 projection loss. Source C was visible, complete enough, and stable in active projection.
+  - The remaining `agent_no_patch` is now driven by a different runtime-boundary/feedback issue: after `finish_node`, runtime blocks ordinary work until a result-validity `state_commit`, while the Agent creates another inspect node and repeats `list_files`.
+  - No-action recovery still injects action guidance and references `next_valid_actions`; this is inconsistent with the clarified boundary and should become the next boundary repair area.
+  - Do not respond to this by adding more semantic gates. First inspect whether result-validity/state transition feedback is being transmitted faithfully and whether the gate itself is an overreach beyond TaskSpace as a ledger/tool.
