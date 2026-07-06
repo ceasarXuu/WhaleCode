@@ -1641,6 +1641,92 @@ CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
 git diff --check
 ```
 
+## 5.106 2026-07-07 validation rework replacement-required gate 边界收敛
+
+H168/H167 之后，`multi-source-data-merger` right-only run 已经越过 path correction 和 source read retention，
+但最终卡在 validation rework 的 apply_patch feedback loop：
+
+```text
+RunDir: target/r4-h168-path-advisory-right-only-20260707-023537/runs/terminal_bench__multi-source-data-merger/20260707-023541-333
+terminal marker: TaskSpaceApplyPatchRecoveryHardStopV1
+observed blocker: TaskSpaceApplyPatchReplacementRequiredRecoveryV1 followed by patch recovery hard-stop
+```
+
+重新按 runtime-as-tool 边界审计后，这不是 Agent 需要更强 runtime 纠正的问题，而是 runtime 越界：
+它把“whole-file replacement 是 recovery 偏好”升级成 `apply_patch_replacement_required:<target>` action gate，
+直接拒绝 active validation rework target 的 `*** Update File`。这会让合法 edit action 无法进入 patch tool，
+把后续失败语义扭成 recovery loop。
+
+修复：
+
+1. 移除 action-contract 中针对 validation rework target 的 `apply_patch_replacement_required:<target>` 生成路径。
+2. 保留工具协议/语法硬底线：unanchored update 返回 `apply_patch_unanchored_update:<target>`；
+   placeholder range/ellipsis 且没有真实上下文的 hunk 返回 `apply_patch_mixed_native_unified:<target>`。
+3. 继续允许 mechanically actionable mixed native/unified rework patch 归一化后 dispatch。
+4. legacy `TaskSpaceApplyPatchReplacementRequiredRecoveryV1` 只保留为可解析的历史 recovery marker，文案改为 advisory，
+   不再声称 TaskSpace 会拒绝合法 `Update File`。
+
+收益判断：
+
+1. H169 本地修复成立：合法 native `Update File` 不再因 replacement preference 被 runtime 拦截。
+2. H116/H132 类 patch grammar 防线仍保留：`@@ -... +... @@`、无上下文 `@@ ... @@` 不会泄漏到 apply_patch。
+3. right-only rerun 没有复发 replacement-required marker，但本轮没有到达 validation rework patch path；
+   新 terminal blocker 提前发生在 inspect node request budget。
+
+验证：
+
+```text
+cargo fmt --all
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core rework_target --lib -- --nocapture
+  9 passed
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core replacement_required --lib -- --nocapture
+  2 passed
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core placeholder_range --lib -- --nocapture
+  1 passed
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core mixed_native_unified --lib -- --nocapture
+  4 passed
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_rework --lib -- --nocapture
+  33 passed
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core taskspace_apply_patch --lib -- --nocapture
+  18 passed
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core provider_response_actionability --lib -- --nocapture
+  9 passed
+RUST_MIN_STACK=8388608 CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core taskspace --lib -- --nocapture
+  176 passed
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
+  passed
+```
+
+live 复验：
+
+```text
+RunRoot: target/r4-h169-replacement-gate-right-only-20260707-030855
+RunDir: target/r4-h169-replacement-gate-right-only-20260707-030855/runs/terminal_bench__multi-source-data-merger/20260707-030859-133
+RunSide: right
+business_success=false
+public_validation_exit_code=1
+tool_call_count=8
+failed_tool_call_count=4
+changed_paths=[]
+terminal marker: TaskSpaceProviderBudgetHardStopV1
+node_request_count: 8/8
+absent: TaskSpaceApplyPatchReplacementRequiredRecoveryV1
+absent: apply_patch_replacement_required
+absent: TaskSpaceApplyPatchRecoveryHardStopV1
+```
+
+复验解释：
+
+1. H169 的 replacement-required action gate 没有复发，但该 run 也没有进入 implementation / validation rework，
+   因此不能 live-clear H169。
+2. Agent 在 provider-visible `TaskSpacePathCorrectionRecoveryV1` 明确给出 `suggested_relative_path=data/source_a/users.json`
+   后仍多次尝试 `/data/source_a/users.json`；这属于 Agent 对忠实反馈的使用问题，不应恢复 runtime path gate。
+3. Agent 后续正确读取了 `data/source_a/users.json` 与 `data/source_b/users.csv`；active projection 在 hard-stop 前给出的
+   下一步也是 `read_file data/source_c/users.parquet`。
+4. 新问题类型是 `inspect-budget-after-advisory-path-correction`：在 advisory-only path correction 下，错误但合法的路径尝试
+   消耗了 inspect node 的 8 次模型请求预算，使正确的 source_c next action 没机会发给 Agent。后续应按 H170 审计
+   budget/profile，而不是重新引入 path-correction 语义拦截。
+
 ## 5.97 2026-07-06 H167 read-result visible retention fix
 
 H166 原先被描述为 duplicate inspect evidence recovery 没有把 inspect 推进到 implementation。按最新边界重新拆解后，

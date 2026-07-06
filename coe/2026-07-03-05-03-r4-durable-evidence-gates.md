@@ -10650,7 +10650,7 @@
 # Hypothesis H-169: validation rework replacement-required gate overconstrains patch repair
 
 - Claim: In validation rework, runtime currently upgrades "whole-file replacement is preferred/required by recovery" into an action-contract gate that rejects otherwise state-machine-legal `apply_patch` update attempts as `apply_patch_replacement_required:<target>`. This can trap the Agent in patch-format recovery and hard-stop before a valid repair is attempted.
-- Status: active.
+- Status: fixed locally; live rerun pending.
 - Boundary:
   - Runtime may reject malformed patch grammar, missing patch targets, impossible context, and tool-protocol violations.
   - Runtime should not reject a syntactically valid `*** Update File` patch solely because a prior recovery preferred `Delete File` + `Add File`.
@@ -10659,6 +10659,86 @@
   1. A focused validation-rework replacement-required test can reproduce rejection of an `Update File` patch that should be allowed to reach the patch tool under the clarified boundary.
   2. Removing the semantic replacement-required action gate should preserve strict patch grammar validation while allowing legal patch attempts through.
   3. A rerun should move past `TaskSpaceApplyPatchRecoveryHardStopV1`; remaining failures should be ordinary patch tool failures, validation failures, or Agent logic errors.
+
+# Evidence E-335: H-169 local repair removes replacement-required action gate
+
+- Prediction tested: Under the clarified boundary, TaskSpace should not reject a validation-rework `*** Update File` solely because prior recovery preferred whole-file replacement. It should still reject malformed patch grammar before tool execution.
+- Repair:
+  - `third_party/codex-cli/codex-rs/core/src/session/turn.rs`
+    - Removed action-contract branches that returned `apply_patch_replacement_required:<target>` for active validation rework targets before/after normalization.
+    - Kept safe normalization for mechanically actionable mixed native/unified rework patches.
+    - Preserved hard grammar feedback: unanchored updates return `apply_patch_unanchored_update:<target>`; placeholder range/ellipsis hunks without real context return `apply_patch_mixed_native_unified:<target>`.
+    - Updated legacy `TaskSpaceApplyPatchReplacementRequiredRecoveryV1` wording from "TaskSpace will reject Update File" to advisory preference language.
+    - Added/rewrote focused tests proving native `Update File` dispatches for rework targets while malformed patch shapes retain grammar feedback.
+- Validation:
+  ```text
+  cargo fmt --all
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core rework_target --lib -- --nocapture
+    passed: 9 tests
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core replacement_required --lib -- --nocapture
+    passed: 2 tests
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core placeholder_range --lib -- --nocapture
+    passed: 1 test
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core mixed_native_unified --lib -- --nocapture
+    passed: 4 tests
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_rework --lib -- --nocapture
+    passed: 33 tests
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core taskspace_apply_patch --lib -- --nocapture
+    passed: 18 tests
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core provider_response_actionability --lib -- --nocapture
+    passed: 9 tests
+  RUST_MIN_STACK=8388608 CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core taskspace --lib -- --nocapture
+    passed: 176 tests
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
+    passed
+  ```
+- Interpretation:
+  - H-169 is locally fixed as a runtime-boundary issue.
+  - `apply_patch_replacement_required` remains parseable for legacy recovery accounting, but the current action-contract path no longer generates it as a semantic ban on legal `Update File`.
+  - The next live rerun should determine whether the sample now reaches ordinary patch/tool/validation feedback instead of `TaskSpaceApplyPatchReplacementRequiredRecoveryV1`.
+
+# Evidence E-336: H-169 live rerun did not reach validation rework; replacement gate did not recur
+
+- Prediction tested: A right-only `multi-source-data-merger` rerun after H-169 should no longer terminate through replacement-required apply_patch recovery if it reaches validation rework.
+- Run:
+  ```text
+  RunRoot: target/r4-h169-replacement-gate-right-only-20260707-030855
+  RunDir: target/r4-h169-replacement-gate-right-only-20260707-030855/runs/terminal_bench__multi-source-data-merger/20260707-030859-133
+  RunSide: right
+  Repeats: 1
+  business_success=false
+  public_validation_exit_code=1
+  tool_call_count=8
+  failed_tool_call_count=4
+  changed_paths=[]
+  terminal marker: TaskSpaceProviderBudgetHardStopV1
+  ```
+- Observations:
+  - `TaskSpaceApplyPatchReplacementRequiredRecoveryV1` was absent.
+  - `apply_patch_replacement_required` was absent.
+  - `TaskSpaceApplyPatchRecoveryHardStopV1` was absent.
+  - The run did not reach implementation or validation rework; no patch was attempted.
+  - The Agent first retried `/data` / `/data/source_a/users.json` despite visible `TaskSpacePathCorrectionRecoveryV1` messages with `suggested_relative_path=data` and `suggested_relative_path=data/source_a/users.json`.
+  - It later corrected to `data/source_a/users.json` and `data/source_b/users.csv`, and both successful reads were preserved in `verified_input_evidence`.
+  - After `source_b`, the active projection named the correct next action: `read_file declared fact-source artifact data/source_c/users.parquet`.
+  - The node then hard-stopped at `node_request_count=8/8` before that next provider request could be sent.
+- Interpretation:
+  - H-169 remains locally fixed; this live run does not exercise the H-169 validation-rework patch path, so it cannot live-clear H-169.
+  - Replacement-required runtime gate did not recur in the run.
+  - The next active issue is an inspect-stage budget/feedback interaction: under advisory-only path correction, wrong-but-legal path attempts can consume enough node requests that required fact-source reads are blocked by budget before implementation begins.
+
+# Hypothesis H-170: inspect node request budget can stop after advisory path correction before required fact-source reads
+
+- Claim: Once path correction is advisory-only, ordinary absolute-path mistakes remain legal tool actions. On `multi-source-data-merger`, those legal mistakes can consume the current inspect node model-request budget (`8/8`) before all declared fact-source artifacts are read, even though the projection has the correct next action. This is a hard-baseline budget/profile issue, not a reason to reintroduce path-correction semantic gates.
+- Status: active.
+- Boundary:
+  - Runtime must not reject or auto-correct wrong-but-state-machine-legal paths.
+  - Runtime may expose clear path-correction advice, preserve successful read evidence, and enforce hard request budgets.
+  - If the hard budget prevents a correct next action after faithful feedback is visible, the budget/profile should be audited before adding semantic control.
+- Predictions:
+  1. Focused budget/profile tests should show the deep inspect node limit is currently 8 model requests.
+  2. A profile-level change can allow one or more additional inspect requests without changing path-correction from advisory to gate.
+  3. A rerun after budget/profile repair should reach `data/source_c/users.parquet` and then implementation or a concrete source-C tool failure.
 
 # R4 Design Note D-001: context fidelity is the first suspect
 

@@ -2440,12 +2440,12 @@ fn build_taskspace_apply_patch_replacement_required_recovery_item(
     let text = format!(
         "{TASKSPACE_APPLY_PATCH_REPLACEMENT_REQUIRED_MARKER}\n\
 The previous apply_patch used `*** Update File` for: {targets}\n\
-The active validation rework state already requires a whole-file native replacement for this target.\n\
-Current required behavior:\n\
-- Emit exactly one corrected apply_patch now: a whole-file native replacement for the target above.\n\
+The active validation rework recovery previously preferred a whole-file native replacement for this target.\n\
+Current recovery guidance:\n\
+- Emit exactly one corrected apply_patch now; prefer a whole-file native replacement when the full corrected target is known.\n\
 - Use `*** Delete File: <relative/path>` followed by `*** Add File: <relative/path>` with the complete corrected file contents.\n\
 - Prefix every added replacement line with `+`.\n\
-- Do not emit `*** Update File` for this recovery; TaskSpace will reject Update File for this target until replacement succeeds.\n\
+- A syntactically valid native `*** Update File` is still allowed by TaskSpace, but it must include exact existing context and exact `-old` / `+new` lines.\n\
 - Do not put `*** Context Lines`, `---`, `--- a/...`, `+++ b/...`, `--- Update File:`, or `@@ -old,+new @@` anywhere in the patch payload.\n\
 - Do not call read_file, list_files, search, finish_node, or validation until this corrected replacement edit succeeds.\
 {complete_target_replacement}"
@@ -3462,7 +3462,7 @@ fn taskspace_implement_recovery_advisory_warning_message(
         )
     } else if response_item_text_contains(item, TASKSPACE_APPLY_PATCH_REPLACEMENT_REQUIRED_MARKER) {
         format!(
-            "TaskSpace inserted TaskSpaceApplyPatchReplacementRequiredRecoveryV1 because active validation rework requires whole-file replacement and `*** Update File` is no longer valid for this target. Advisory recovery attempt {attempt} is being used."
+            "TaskSpace inserted TaskSpaceApplyPatchReplacementRequiredRecoveryV1 because prior validation rework feedback preferred whole-file replacement for this target. Advisory recovery attempt {attempt} is being used."
         )
     } else if response_item_text_contains(item, TASKSPACE_APPLY_PATCH_NATIVE_HUNK_MARKER) {
         format!(
@@ -3525,7 +3525,7 @@ fn taskspace_special_recovery_warning_message(item: &ResponseItem) -> String {
     } else if response_item_text_contains(item, TASKSPACE_APPLY_PATCH_UNANCHORED_UPDATE_MARKER) {
         "TaskSpace inserted TaskSpaceApplyPatchUnanchoredUpdateRecoveryV1 after apply_patch used an unanchored Update File patch. This guidance does not consume the no-action recovery allowance.".to_string()
     } else if response_item_text_contains(item, TASKSPACE_APPLY_PATCH_REPLACEMENT_REQUIRED_MARKER) {
-        "TaskSpace inserted TaskSpaceApplyPatchReplacementRequiredRecoveryV1 after apply_patch used `*** Update File` where active validation rework requires whole-file replacement. This guidance does not consume the no-action recovery allowance.".to_string()
+        "TaskSpace inserted TaskSpaceApplyPatchReplacementRequiredRecoveryV1 after prior validation rework feedback preferred whole-file replacement. This guidance does not consume the no-action recovery allowance.".to_string()
     } else if response_item_text_contains(item, TASKSPACE_APPLY_PATCH_NATIVE_HUNK_MARKER) {
         "TaskSpace inserted TaskSpaceApplyPatchNativeHunkRecoveryV1 after apply_patch mixed native grammar with unified/range hunk syntax. This guidance does not consume the no-action recovery allowance.".to_string()
     } else if response_item_text_contains(item, TASKSPACE_EDIT_FAILURE_MARKER) {
@@ -8096,6 +8096,28 @@ TaskSpace implement_solution node `node-6` cannot be blocked for missing source 
     }
 
     #[test]
+    fn taskspace_action_contract_allows_native_update_for_rework_target() {
+        let raw = serde_json::json!({
+            "schema_version": "taskspace-action-v1",
+            "action": "apply_patch",
+            "node_id": "node-1",
+            "args": {
+                "patch": "*** Begin Patch\n*** Update File: process.py\n@@\n-print('bad')\n+print('fixed')\n*** End Patch\n"
+            },
+        })
+        .to_string();
+        let action = parse_taskspace_action_v1(&raw).expect("valid json");
+        let mut snapshot = provider_snapshot("implement_solution");
+        snapshot.current_node_validation_rework_artifacts = vec!["process.py".to_string()];
+
+        let call = taskspace_action_to_tool_call(&action, &snapshot)
+            .expect("state-machine-legal native update should dispatch for rework target")
+            .expect("tool call");
+
+        assert_eq!(call.tool_name.name, "apply_patch");
+    }
+
+    #[test]
     fn taskspace_action_contract_rejects_mixed_native_unified_patch() {
         let raw = serde_json::json!({
             "schema_version": "taskspace-action-v1",
@@ -8147,7 +8169,7 @@ TaskSpace implement_solution node `node-6` cannot be blocked for missing source 
     }
 
     #[test]
-    fn taskspace_action_contract_requires_replacement_for_rework_target_unanchored_update_file() {
+    fn taskspace_action_contract_keeps_unanchored_update_feedback_for_rework_target() {
         let raw = serde_json::json!({
             "schema_version": "taskspace-action-v1",
             "action": "apply_patch",
@@ -8161,15 +8183,14 @@ TaskSpace implement_solution node `node-6` cannot be blocked for missing source 
         let mut snapshot = provider_snapshot("implement_solution");
         snapshot.current_node_validation_rework_artifacts = vec!["process.py".to_string()];
 
-        let err = taskspace_action_to_tool_call(&action, &snapshot).expect_err(
-            "rework target Update File must stay replacement-required after prior recovery",
-        );
+        let err = taskspace_action_to_tool_call(&action, &snapshot)
+            .expect_err("unanchored rework target Update File must keep grammar feedback");
 
-        assert_eq!(err, "apply_patch_replacement_required:process.py");
+        assert_eq!(err, "apply_patch_unanchored_update:process.py");
     }
 
     #[test]
-    fn taskspace_action_contract_requires_replacement_for_rework_target_placeholder_range_hunk() {
+    fn taskspace_action_contract_keeps_placeholder_range_feedback_for_rework_target() {
         let raw = serde_json::json!({
             "schema_version": "taskspace-action-v1",
             "action": "apply_patch",
@@ -8186,12 +8207,11 @@ TaskSpace implement_solution node `node-6` cannot be blocked for missing source 
         let err = taskspace_action_to_tool_call(&action, &snapshot)
             .expect_err("placeholder range hunks are not mechanically actionable");
 
-        assert_eq!(err, "apply_patch_replacement_required:process.py");
+        assert_eq!(err, "apply_patch_mixed_native_unified:process.py");
     }
 
     #[test]
-    fn taskspace_action_contract_requires_replacement_for_rework_target_placeholder_ellipsis_hunk()
-    {
+    fn taskspace_action_contract_keeps_placeholder_ellipsis_feedback_for_rework_target() {
         let raw = serde_json::json!({
             "schema_version": "taskspace-action-v1",
             "action": "apply_patch",
@@ -8208,7 +8228,7 @@ TaskSpace implement_solution node `node-6` cannot be blocked for missing source 
         let err = taskspace_action_to_tool_call(&action, &snapshot)
             .expect_err("placeholder ellipsis hunks are not mechanically actionable");
 
-        assert_eq!(err, "apply_patch_replacement_required:process.py");
+        assert_eq!(err, "apply_patch_mixed_native_unified:process.py");
     }
 
     #[test]
@@ -8847,7 +8867,7 @@ TaskSpace implement_solution node `node-6` cannot be blocked for missing source 
         assert!(text.contains("whole-file native replacement"));
         assert!(text.contains("*** Delete File: <relative/path>"));
         assert!(text.contains("*** Add File: <relative/path>"));
-        assert!(text.contains("TaskSpace will reject Update File"));
+        assert!(text.contains("A syntactically valid native `*** Update File` is still allowed"));
         assert!(text.contains("Do not put `*** Context Lines`"));
         assert!(!text.contains(TASKSPACE_APPLY_PATCH_NATIVE_HUNK_MARKER));
         assert!(warning.contains("TaskSpaceApplyPatchReplacementRequiredRecoveryV1"));
@@ -14061,7 +14081,7 @@ fn taskspace_apply_patch_native_update_with_unified_file_header_targets(
     targets
 }
 
-fn taskspace_validation_rework_replacement_required_targets(
+fn taskspace_current_validation_rework_targets(
     targets: &[String],
     snapshot: &crate::action_map::ActionMapProviderRequestBudgetSnapshot,
 ) -> Vec<String> {
@@ -14086,11 +14106,11 @@ fn taskspace_validation_rework_update_file_mechanically_actionable_patch(
     patch: &str,
     snapshot: &crate::action_map::ActionMapProviderRequestBudgetSnapshot,
 ) -> Option<String> {
-    let replacement_required_targets = taskspace_validation_rework_replacement_required_targets(
+    let rework_targets = taskspace_current_validation_rework_targets(
         &taskspace_apply_patch_update_file_targets(patch),
         snapshot,
     );
-    if replacement_required_targets.is_empty() {
+    if rework_targets.is_empty() {
         return None;
     }
     if !taskspace_apply_patch_placeholder_range_hunk_targets(patch).is_empty() {
@@ -14113,24 +14133,69 @@ fn taskspace_validation_rework_update_file_mechanically_actionable_patch(
 fn taskspace_apply_patch_placeholder_range_hunk_targets(patch: &str) -> Vec<String> {
     let mut targets = Vec::new();
     let mut current_target = None::<String>;
+    let mut pending_ellipsis_target = None::<String>;
+    let mut pending_ellipsis_has_context = false;
+    let finish_pending_ellipsis =
+        |targets: &mut Vec<String>,
+         pending_ellipsis_target: &mut Option<String>,
+         pending_ellipsis_has_context: &mut bool| {
+            if let Some(target) = pending_ellipsis_target.take()
+                && !*pending_ellipsis_has_context
+                && !targets.iter().any(|existing| existing == &target)
+            {
+                targets.push(target);
+            }
+            *pending_ellipsis_has_context = false;
+        };
     for line in patch.lines() {
         if let Some(target) = line.strip_prefix("*** Update File: ").map(str::trim) {
+            finish_pending_ellipsis(
+                &mut targets,
+                &mut pending_ellipsis_target,
+                &mut pending_ellipsis_has_context,
+            );
             current_target = (!target.is_empty()).then(|| target.to_string());
             continue;
         }
-        let trimmed = line.trim();
-        if trimmed.starts_with("@@")
-            && trimmed.contains("...")
-            && (trimmed.contains("-...")
-                || trimmed.contains("+...")
-                || trimmed == "@@ ... @@"
-                || trimmed == "@@...@@")
-            && let Some(target) = current_target.as_ref()
-            && !targets.iter().any(|existing| existing == target)
+        if line.starts_with("*** Add File: ")
+            || line.starts_with("*** Delete File: ")
+            || line.starts_with("*** End Patch")
         {
-            targets.push(target.clone());
+            finish_pending_ellipsis(
+                &mut targets,
+                &mut pending_ellipsis_target,
+                &mut pending_ellipsis_has_context,
+            );
+            current_target = None;
+            continue;
+        }
+        let trimmed = line.trim();
+        if trimmed.starts_with("@@") {
+            finish_pending_ellipsis(
+                &mut targets,
+                &mut pending_ellipsis_target,
+                &mut pending_ellipsis_has_context,
+            );
+            if trimmed.contains("...")
+                && (trimmed.contains("-...") || trimmed.contains("+..."))
+                && let Some(target) = current_target.as_ref()
+                && !targets.iter().any(|existing| existing == target)
+            {
+                targets.push(target.clone());
+            } else if matches!(trimmed, "@@ ... @@" | "@@...@@") {
+                pending_ellipsis_target = current_target.clone();
+            }
+            continue;
+        }
+        if pending_ellipsis_target.is_some() && line.starts_with(' ') && !line.trim().is_empty() {
+            pending_ellipsis_has_context = true;
         }
     }
+    finish_pending_ellipsis(
+        &mut targets,
+        &mut pending_ellipsis_target,
+        &mut pending_ellipsis_has_context,
+    );
     targets
 }
 
@@ -14445,19 +14510,6 @@ fn taskspace_action_to_tool_call(
                 .clone()
                 .unwrap_or_else(|| raw_patch.clone());
             let allow_rework_update_file = mechanically_actionable_rework_patch.is_some();
-            if !allow_rework_update_file {
-                let update_file_replacement_required_targets =
-                    taskspace_validation_rework_replacement_required_targets(
-                        &taskspace_apply_patch_update_file_targets(&raw_patch),
-                        snapshot,
-                    );
-                if !update_file_replacement_required_targets.is_empty() {
-                    return Err(format!(
-                        "apply_patch_replacement_required:{}",
-                        update_file_replacement_required_targets.join(",")
-                    ));
-                }
-            }
             if taskspace_apply_patch_missing_unified_header_target(&raw_patch) {
                 return Err("apply_patch_mixed_native_unified:(missing patch target)".to_string());
             }
@@ -14485,23 +14537,20 @@ fn taskspace_action_to_tool_call(
                     native_hunk_header_targets.join(",")
                 ));
             }
+            let placeholder_range_hunk_targets =
+                taskspace_apply_patch_placeholder_range_hunk_targets(&raw_patch);
+            if !placeholder_range_hunk_targets.is_empty() {
+                return Err(format!(
+                    "apply_patch_mixed_native_unified:{}",
+                    placeholder_range_hunk_targets.join(",")
+                ));
+            }
             if !allow_rework_update_file {
                 let native_update_unified_header_targets =
                     taskspace_apply_patch_native_update_with_unified_file_header_targets(
                         &raw_patch,
                     );
                 if !native_update_unified_header_targets.is_empty() {
-                    let replacement_required_targets =
-                        taskspace_validation_rework_replacement_required_targets(
-                            &native_update_unified_header_targets,
-                            snapshot,
-                        );
-                    if !replacement_required_targets.is_empty() {
-                        return Err(format!(
-                            "apply_patch_replacement_required:{}",
-                            replacement_required_targets.join(",")
-                        ));
-                    }
                     return Err(format!(
                         "apply_patch_mixed_native_unified:{}",
                         native_update_unified_header_targets.join(",")
@@ -14512,19 +14561,6 @@ fn taskspace_action_to_tool_call(
                 patch = normalize_taskspace_unified_diff_patch(&raw_patch)
                     .unwrap_or_else(|| normalize_taskspace_apply_patch(&raw_patch));
             }
-            if !allow_rework_update_file {
-                let update_file_replacement_required_targets =
-                    taskspace_validation_rework_replacement_required_targets(
-                        &taskspace_apply_patch_update_file_targets(&patch),
-                        snapshot,
-                    );
-                if !update_file_replacement_required_targets.is_empty() {
-                    return Err(format!(
-                        "apply_patch_replacement_required:{}",
-                        update_file_replacement_required_targets.join(",")
-                    ));
-                }
-            }
             let native_hunk_header_targets =
                 taskspace_apply_patch_native_hunk_header_targets(&patch);
             if !native_hunk_header_targets.is_empty() {
@@ -14533,20 +14569,17 @@ fn taskspace_action_to_tool_call(
                     native_hunk_header_targets.join(",")
                 ));
             }
+            let placeholder_range_hunk_targets =
+                taskspace_apply_patch_placeholder_range_hunk_targets(&patch);
+            if !placeholder_range_hunk_targets.is_empty() {
+                return Err(format!(
+                    "apply_patch_mixed_native_unified:{}",
+                    placeholder_range_hunk_targets.join(",")
+                ));
+            }
             let mixed_native_unified_targets =
                 taskspace_apply_patch_mixed_native_unified_targets(&patch);
             if !mixed_native_unified_targets.is_empty() {
-                let replacement_required_targets =
-                    taskspace_validation_rework_replacement_required_targets(
-                        &mixed_native_unified_targets,
-                        snapshot,
-                    );
-                if !replacement_required_targets.is_empty() {
-                    return Err(format!(
-                        "apply_patch_replacement_required:{}",
-                        replacement_required_targets.join(",")
-                    ));
-                }
                 return Err(format!(
                     "apply_patch_mixed_native_unified:{}",
                     mixed_native_unified_targets.join(",")
