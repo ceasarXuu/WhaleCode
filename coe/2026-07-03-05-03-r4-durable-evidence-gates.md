@@ -10480,7 +10480,31 @@
 # Hypothesis H-166: duplicate inspect evidence recovery should force transition after repeated duplicate/path-correction loop
 
 - Claim: Once inspect has a successful read/search for a source artifact, repeated duplicate evidence commands should either force `finish_node -> implement_solution` or hard-stop with a dedicated duplicate-inspect marker before the Agent spends more requests on the same evidence surface.
-- Status: open.
+- Status: downgraded; superseded by H-167 as the primary root-cause candidate.
 - Boundary:
   - Runtime should not decide the merge implementation.
   - Runtime may enforce the hard baseline that repeated identical evidence collection after successful inspect evidence is not progress, and should present a clear transition/control action rather than preserving ambiguous recovery text.
+
+# Evidence E-330: H-166 run retained source_a read in ActionMap but archived it from active projection
+
+- Prediction tested: If H-166 is primarily a state-transition weakness, the successful `source_a` read should remain available as Agent-visible working evidence and the failure should be about choosing not to transition. If it is a feedback-retention issue, the raw tool result should exist in runtime records while disappearing or weakening in provider-visible active context.
+- Observation:
+  - `whale-exec.jsonl` for run `20260706-050538-091` records `read_file data/source_a/users.json` success with full JSON body and `TaskSpaceReadFileSummaryV1: path=data/source_a/users.json lines_read=16 eof_reached=true max_lines=240`.
+  - `observability/action-map-observability.json` stores the same body under `result-2`, including `John Doe`, `john@a.com`, field names, and the complete-read summary.
+  - `compaction-events.jsonl` records `result-2` as `archive_from_active_projection` with `reason=low_salience_unprotected_item`.
+  - `exact-payload-scan-events.jsonl` proves active replacement/context bundle/pairing checks passed, but does not prove the `source_a` JSON body remained in the next provider-visible payload.
+- Interpretation: The tool result was not distorted at execution or ActionMap storage time. The likely loss is at Agent-visible working-context retention: an unreviewed successful read was archived before the Agent had clearly consumed or committed it.
+
+# Hypothesis H-167: successful read_file results must remain Agent-visible working evidence until consumed or transparently referenced
+
+- Claim: The H-166 repeat-read loop is primarily caused by successful bounded `read_file` evidence being recorded in the ledger but not faithfully retained in Agent-visible working context. The Agent repeats the read because, from its visible context, the raw file content is missing or weakened.
+- Status: active.
+- Boundary: Treat the state machine as a mandatory, non-bypassable tool and ledger controlled by the Agent. It may enforce bottom-line rules and report errors, but it must not become a semantic controller above tools or decide task progress on the Agent's behalf.
+- Predictions:
+  1. A focused projection test should fail before repair when a successful small `read_file` result with `eof_reached=true` is unreviewed and then classified as low-salience archived.
+  2. After repair, the same result should remain in active working context, or be replaced only by an explicit output-ref/recovery reference that names the artifact, result id, completeness, and how the Agent can retrieve the exact content.
+  3. The fix should not add runtime semantic control such as forced implementation transition as the primary mechanism.
+- Diagnostic evidence plan:
+  - Add or update focused projection/compaction coverage for small complete read results.
+  - Verify a real or fixture provider-visible payload contains either the exact bounded read body or a transparent, lossless reference before the next model request.
+  - Keep duplicate read blocking only as a hard baseline after provider-visible retention is proven.

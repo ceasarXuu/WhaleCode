@@ -1362,7 +1362,10 @@ H-160 到 H-165 均已本地修复并回归验证；H-166 为当前最新 open b
 | `path-correction-same-request-stale-refill` | response actionability / failed-read bridge | 本请求内已成功使用 suggested relative path 后，请求收尾仍从旧 failed-read summary 回填 path-correction feedback | 已实现：`path_correction_cleared_this_request` 阻止同请求尾部 stale refill | CoE H-163/E-326/E-327; focused `path_correction`; taskspace 175 passed |
 | `path-correction-hardstop-count-not-reset-after-progress` | recovery accounting / provider hard-stop | `TaskSpacePathCorrectionHardStopV1` 把“中间已有 successful suggested path”的后续拒绝仍计为连续重复 | 已实现：sampling result 携带 cleared signal，path-correction recovery count 在成功 suggested path 后重置 | CoE H-164/E-328; focused `path_correction`; live run `20260706-050112-519` |
 | `recent-failed-read-summary-stale-after-relative-success` | ActionMap failed-read summary / feedback source semantics | `/data/source_b/users.csv` 失败后，`data/source_b/users.csv` 已成功读取，但 `current_main_recent_failed_read_summary()` 仍返回旧失败，导致 path-correction 状态复活 | 已实现：recent failed-read query 跳过被后续 successful read/search 覆盖的 absolute workspace alias failure | CoE H-165/E-329; test `recent_failed_read_summary_skips_corrected_relative_success`; live run `20260706-050538-091` |
-| `inspect-duplicate-evidence-recovery-does-not-converge` | inspect feedback / duplicate evidence gate / node transition | inspect 已有 successful source read 后，Agent 重复读同一 source、再回到 `/data`；recovery 没有足够强地推进 `finish_node -> implement_solution` 或专用 hard-stop | open：下一步应让 duplicate inspect evidence recovery 收敛到 transition/control action，或在重复 duplicate/path-correction loop 后专用 hard-stop | CoE H-166/E-329; live run `20260706-050538-091` |
+| `read-result-provider-visible-retention-loss` | tool feedback retention / active projection / Agent-visible context | `read_file data/source_a/users.json` 成功且 ActionMap `result-2` 保存完整 JSON 与 `eof_reached=true`，但 `result-2` 随后因 `low_salience_unprotected_item` 被 `archive_from_active_projection`；Agent 下一轮并未被证明仍可见完整 read 内容，重复读取更像是在恢复缺失 evidence，而不是状态机推进不足 | open：修复方向不是 runtime 强推 `finish_node -> implement_solution`；应保证 successful bounded read result 在 Agent 明确消费、state_commit、或获得透明 output-ref 前不被静默移出 active working context | CoE H-166/H-167/E-329/E-330; live run `20260706-050538-091` |
 
-边界说明：这些修复继续遵守“runtime 只提供工具支持和硬基线”的原则。runtime 不读取 parquet、不实现 merge、不选择业务策略；
-它只维护 feedback 的时序正确性：旧失败不覆盖新成功，重复证据不伪装成进展，validation root-cause feedback 不丢失。
+边界说明：这些修复继续遵守“runtime 只提供工具支持和硬基线”的原则。runtime 不读取 parquet、不实现 merge、不选择业务策略，
+也不替 Agent 判断 inspect 是否已经语义充分。状态机是 Agent 必须使用、不可绕过的内建工具和规则化账本；
+它的地位不高于其他 tools，只因工程规则而不可绕过。状态机只暴露能力、记录事实、维护权限/预算/协议配对和重复无效动作等底线；
+context/projection 只负责忠实保留、透明裁剪和可恢复引用。若 `read_file` 成功结果还未被 Agent 明确消费或提交为判断依据，
+不得因为 `unreviewed`/`low_salience` 静默从 Agent 可见工作上下文中消失。

@@ -8,7 +8,7 @@
 
 ```text
 Created: 2026-06-30
-Updated: 2026-06-30
+Updated: 2026-07-06
 Version: v0.0.5 build-R4
 Status: Draft
 Owner / Responsible: WhaleCode core runtime
@@ -60,6 +60,21 @@ timing attribution 和 start gate 脚手架收敛到工程可验状态。但轻�
 | 建立真实样本账本 | 用历史现场驱动设计，不只靠单元测试 | `02-field-evidence-and-sample-ledger.md` 记录样本、症状、证据路径和设计结论 |
 | 控制性能和日志膨胀 | 消除无意义循环和 uncontrolled rollout bloat | large-output 样本不再 900s timeout / 491MB rollout |
 | 保持 DeepSeek cache hit | tools feedback 修复不能破坏 R3 cache-friendly layout | request 2+ cache hit 维持 `>= 0.95`，stable prefix 非预期变化为 0 |
+
+### 0.4.1 状态机与 runtime 边界
+
+R4 的 tools 链路修复必须保持状态机边界清晰：
+
+1. 状态机是 Agent 必须使用、不可绕过的内建工具和规则化账本，不是语义控制器。
+2. 状态机只负责暴露自身能力、记录工具调用与结果、维护权限/预算/协议配对/重复无效动作等底线规则，并在违反底线时给出明确报错。
+3. 状态机的地位不高于其他 tools；它只因工程规则而不可绕过，实际使用方式仍由 Agent 支配。
+4. 状态机只负责底线，不负责上限；不得替 Agent 决定任务是否已经理解充分、是否应进入下一阶段、是否应采用某个业务结论。
+5. Agent 负责语义判断和状态推进，包括是否继续读取、是否 state_commit、是否实现、是否验证、是否结束节点。
+6. context/projection 层只做忠实保留与透明裁剪：能完整保留就完整保留；不能完整保留时必须说明截断范围、保留恢复引用，并提供继续获取信息的路径。
+7. context/projection 不得把 Agent 仍可能需要的 tool result 静默归档、改写成主观状态，或用“已读/已完成”这类强语义反馈替代原始 evidence。
+
+因此，R4 中类似 `read_file` 成功后 Agent 仍重复读取的 case，优先按 tool result 是否忠实进入 Agent 可见上下文排查；
+只有在工具结果已被证明无损可见后，才讨论重复动作硬基线或状态推进问题。
 
 ## 0.5 非目标
 
