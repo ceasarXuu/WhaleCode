@@ -1641,6 +1641,50 @@ CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
 git diff --check
 ```
 
+## 5.97 2026-07-06 H167 read-result visible retention fix
+
+H166 原先被描述为 duplicate inspect evidence recovery 没有把 inspect 推进到 implementation。按最新边界重新拆解后，
+更准确的根因是 H167：`read_file data/source_a/users.json` 成功结果已经进入 ActionMap ledger，但 active provider
+projection 只保留了 wrapper preview，没有把 `John Doe`、`john@a.com` 这类实际 file body 值保真放进 Agent 可见工作证据。
+因此 Agent 的重复读取更像是在恢复缺失 evidence，而不是单纯不愿意推进状态。
+
+收益判断：
+
+1. H166 被降级为旧假设，H167 成为已确认的 feedback-retention 问题。
+2. 修复没有新增 `finish_node -> implement_solution` 强推；runtime 只把成功 read 的真实内容以 bounded excerpt 放回
+   `verified_input_evidence`。
+3. `verified_input_evidence` 现在携带 `content_visibility: complete_read` 和 `TaskSpaceReadFileSummaryV1`，小型完整输入读
+   不再只剩一行工具调用 preview。
+4. 该修复符合 runtime-as-tool 边界：状态机仍只是记录、投影、报错和执行硬底线，不替 Agent 判断 inspect 是否语义充分。
+5. live right-only rerun 仍待执行，用于验证 `multi-source-data-merger` 不再因为 `source_a` 内容不可见而重复读取。
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core active_projection_preserves_complete_input_read_excerpt --lib -- --nocapture
+  1 passed
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core projection_ --lib -- --nocapture
+  17 passed
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core inspect_duplicate --lib -- --nocapture
+  2 passed
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core path_correction --lib -- --nocapture
+  14 passed
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core working_evidence --lib -- --nocapture
+  3 passed
+RUST_MIN_STACK=8388608 CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core taskspace --lib -- --nocapture
+  175 passed
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
+  passed
+```
+
+同次审计把已实现策略按新边界重新分类：
+
+1. 明显越界、需后续重构：forced inspect transition、自动 missing fact-source bootstrap、forced implement transition、
+   forced validation closeout、patch-only closed action space、patch construction scaffold。
+2. 可保留但需收窄：`next_valid_actions`、missing fact-source finish guard、duplicate read/search gate、provider/node budget hard-stop。
+3. 符合边界应保留：tool pairing、payload scan、large-output ref、path-correction exact alias rejection、
+   tool-runtime bootstrap blocker、`TaskSpaceReadFileSummaryV1`、output-contract validation coverage gate。
+
 ## 5.97 2026-07-06 corrected-alias validation and path-correction lifecycle
 
 H-160 到 H-165 继续沿 `multi-source-data-merger` right-only targeted runs 推进，目标不是证明 E3 utility，

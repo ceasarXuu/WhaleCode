@@ -1362,10 +1362,46 @@ H-160 到 H-165 均已本地修复并回归验证；H-166 为当前最新 open b
 | `path-correction-same-request-stale-refill` | response actionability / failed-read bridge | 本请求内已成功使用 suggested relative path 后，请求收尾仍从旧 failed-read summary 回填 path-correction feedback | 已实现：`path_correction_cleared_this_request` 阻止同请求尾部 stale refill | CoE H-163/E-326/E-327; focused `path_correction`; taskspace 175 passed |
 | `path-correction-hardstop-count-not-reset-after-progress` | recovery accounting / provider hard-stop | `TaskSpacePathCorrectionHardStopV1` 把“中间已有 successful suggested path”的后续拒绝仍计为连续重复 | 已实现：sampling result 携带 cleared signal，path-correction recovery count 在成功 suggested path 后重置 | CoE H-164/E-328; focused `path_correction`; live run `20260706-050112-519` |
 | `recent-failed-read-summary-stale-after-relative-success` | ActionMap failed-read summary / feedback source semantics | `/data/source_b/users.csv` 失败后，`data/source_b/users.csv` 已成功读取，但 `current_main_recent_failed_read_summary()` 仍返回旧失败，导致 path-correction 状态复活 | 已实现：recent failed-read query 跳过被后续 successful read/search 覆盖的 absolute workspace alias failure | CoE H-165/E-329; test `recent_failed_read_summary_skips_corrected_relative_success`; live run `20260706-050538-091` |
-| `read-result-provider-visible-retention-loss` | tool feedback retention / active projection / Agent-visible context | `read_file data/source_a/users.json` 成功且 ActionMap `result-2` 保存完整 JSON 与 `eof_reached=true`，但 `result-2` 随后因 `low_salience_unprotected_item` 被 `archive_from_active_projection`；Agent 下一轮并未被证明仍可见完整 read 内容，重复读取更像是在恢复缺失 evidence，而不是状态机推进不足 | open：修复方向不是 runtime 强推 `finish_node -> implement_solution`；应保证 successful bounded read result 在 Agent 明确消费、state_commit、或获得透明 output-ref 前不被静默移出 active working context | CoE H-166/H-167/E-329/E-330; live run `20260706-050538-091` |
+| `read-result-provider-visible-retention-loss` | tool feedback retention / active projection / Agent-visible context | `read_file data/source_a/users.json` 成功且 ActionMap `result-2` 保存完整 JSON 与 `eof_reached=true`，但 active projection 只保留 wrapper preview，未把 `John Doe` / `john@a.com` 等实际 file body 值稳定放入 Agent 可见工作证据；重复读取更像是在恢复缺失 evidence，而不是状态机推进不足 | fixed locally / live rerun pending：`verified_input_evidence` 改为多行保真 excerpt，携带 `content_visibility: complete_read` 和 bounded raw body；不新增 forced inspect transition | CoE H-166/H-167/E-329/E-330/E-331; focused test `active_projection_preserves_complete_input_read_excerpt`; live run `20260706-050538-091` |
 
 边界说明：这些修复继续遵守“runtime 只提供工具支持和硬基线”的原则。runtime 不读取 parquet、不实现 merge、不选择业务策略，
 也不替 Agent 判断 inspect 是否已经语义充分。状态机是 Agent 必须使用、不可绕过的内建工具和规则化账本；
 它的地位不高于其他 tools，只因工程规则而不可绕过。状态机只暴露能力、记录事实、维护权限/预算/协议配对和重复无效动作等底线；
 context/projection 只负责忠实保留、透明裁剪和可恢复引用。若 `read_file` 成功结果还未被 Agent 明确消费或提交为判断依据，
 不得因为 `unreviewed`/`low_salience` 静默从 Agent 可见工作上下文中消失。
+
+## 2026-07-06 R4 边界审计：runtime-as-tool 原则
+
+基于最新边界，TaskSpace 状态机应被视为 Agent 必须使用且不可绕过的内建工具/规则化账本。它负责暴露能力、记录事实、
+维护权限/预算/协议配对/重复无效动作等硬底线，并把错误如实反馈给 Agent；它不应替 Agent 判断任务语义是否充分、
+不应替 Agent 选择业务推进策略，也不应把 recovery 文案写成“当前必须怎么思考”的上层智能控制。
+
+### 明显越界，需后续重构
+
+| Strategy / code area | 当前行为 | 越界原因 | 收敛方向 |
+|---|---|---|---|
+| `force_finish_inspect_for_provider_budget` 及 session 侧 `inspect_*_bootstrap_complete` / `inspect_hard_stop_progress_convergence` | runtime/session 在 coverage 或预算边界下自动 finish inspect，并创建/绑定 implementation node | 这把“inspect 是否语义充分”变成 runtime 决策；即使 evidence floor 已满足，是否进入实现仍应由 Agent 调用 `finish_node` 或显式 control action | 改成 expose-only：记录 ready/coverage/budget 事实，列出 `finish_node` 可用和不满足项；只有 Agent 显式调用 control action 才变更 phase |
+| `run_taskspace_missing_fact_source_bootstrap` 与 repeated blocked inspect bootstrap | session 在 Agent 卡住时自动读取 missing fact-source artifacts，并可能随后强制 transition | 自动补读是工具调用决策，不是账本职责；除非 Agent 显式请求该 helper，否则 runtime 代 Agent 做了数据获取 | 保留为可调用工具/helper；默认路径只报告 missing fact sources、已观察候选路径和可选 bootstrap command |
+| `force_finish_implement_for_provider_budget` | successful edit + budget 边界时自动 finish implementation 并创建 smoke validation | “成功 edit 后下一步应验证”是合理 workflow，但 phase 变更仍是 Agent 决策；runtime 可阻止预算无限消耗，不应代 Agent 创建下一节点 | 改为 hard-stop/recovery：保留成功 edit、预算边界和建议的 validation action；要求 Agent 显式 `finish_node` / `create_node` |
+| `force_finish_validation_after_successful_tool` / forced validation closeout | runtime 根据一次 validation tool success 自动关闭 validation node，并推动 final readiness | validation 是否满足 task-level success criteria 是 Agent 的判断责任；runtime 可检查 contract coverage、拒绝弱验证，但不应替 Agent 宣告完成 | 改为 accepted validation evidence + closeout available；success criteria 状态更新需 Agent `state_commit` 或 `finish_node` |
+| implementation / validation rework patch-only closed action space | complete target read 后 runtime/schema 层禁止 `read_file/search/list_files`，并用 patch-only recovery 要求 apply_patch/block | 精确重复读可作为硬底线拦截，但“现在只能 patch”是语义推进策略；它会把 Agent 的修复判断压缩为 runtime 决策 | 硬拦截仅限 exact duplicate complete read、非法路径、预算/协议违规；同类非重复读取应返回 cost/coverage warning，由 Agent 权衡 |
+| patch construction scaffold / schema repair synthesis in recovery text | recovery 把 missing fields、rename hints 转成具体 patch construction steps，并要求立即按步骤 patch | 这已经接近 repair synthesis 智能层，超出“忠实保留证据和错误”的反馈层职责 | 保留结构化事实字段和 validator excerpt；把 patch synthesis 迁移到 Agent/skill/model 层 |
+
+### 可保留但必须收窄
+
+| Strategy / code area | 可保留部分 | 需要收窄的部分 |
+|---|---|---|
+| `projection_next_valid_actions` / `TaskSpaceGateRecoveryV1.next_valid_actions` | 暴露当前节点合法 action schema、已知 blockers、可用 control action、失败工具的精确 retry 参数 | 文案避免写成“必须执行 X”；不要把 future condition（例如 successful edit 后可 finish）混入当前 immediate action |
+| missing fact-source finish guard | 对显式声明或从 success criteria 明确抽取的 required input artifacts，阻止未读完就 finish inspect | 不应把 generic/inferred artifacts 扩张为强制读取，除非 evidence 证明它们是任务输入；缺口反馈要给 result refs 和 observed candidates |
+| duplicate read/search gate | exact same command 或 same artifact complete read 重复时可拒绝，并返回 previous result id、completeness、可恢复引用 | 不应把 duplicate recovery 自动升级为 phase transition 或 patch-only control；也不应在 content 未保真可见时声称“已读够” |
+| provider/node budget hard-stop | 预算是硬基线，可以停止本 turn 并保留 last recovery/evidence | 预算边界不应触发自动 semantic transition；只能报告 why stopped 和可由 Agent 下次显式执行的 control options |
+
+### 符合边界，应继续保留
+
+| Strategy / code area | 原因 |
+|---|---|
+| tool call/result pairing、provider-visible payload scan、large-output output-ref | 这是协议和上下文保真底线，不替 Agent 做业务判断 |
+| path-correction exact alias rejection | 对确定不存在的 workspace absolute alias 重复 retry 属于无效工具调用；runtime 返回 suggested relative path 是工具错误反馈 |
+| sandbox/tool-runtime bootstrap failure blocker | 工具运行时不可用是能力层硬失败；runtime 应阻止继续普通工具重试并保留失败证据 |
+| `TaskSpaceReadFileSummaryV1` 与 read excerpt/ref | 它保留 bounded read 的完整性语义，避免 Agent 因内容丢失或截断歧义重复读取 |
+| output-contract validation gate | runtime 可以拒绝明显 vacuous validation 或 generator-only 弱验证，因为这是 contract coverage 底线；但 closeout 判断仍需 Agent 显式完成 |

@@ -10498,7 +10498,7 @@
 # Hypothesis H-167: successful read_file results must remain Agent-visible working evidence until consumed or transparently referenced
 
 - Claim: The H-166 repeat-read loop is primarily caused by successful bounded `read_file` evidence being recorded in the ledger but not faithfully retained in Agent-visible working context. The Agent repeats the read because, from its visible context, the raw file content is missing or weakened.
-- Status: active.
+- Status: fixed locally; live rerun pending.
 - Boundary: Treat the state machine as a mandatory, non-bypassable tool and ledger controlled by the Agent. It may enforce bottom-line rules and report errors, but it must not become a semantic controller above tools or decide task progress on the Agent's behalf.
 - Predictions:
   1. A focused projection test should fail before repair when a successful small `read_file` result with `eof_reached=true` is unreviewed and then classified as low-salience archived.
@@ -10508,3 +10508,34 @@
   - Add or update focused projection/compaction coverage for small complete read results.
   - Verify a real or fixture provider-visible payload contains either the exact bounded read body or a transparent, lossless reference before the next model request.
   - Keep duplicate read blocking only as a hard baseline after provider-visible retention is proven.
+
+# Evidence E-331: H-167 local repair preserves complete input read evidence in active projection
+
+- Prediction tested: After repair, a successful bounded `read_file` result with `TaskSpaceReadFileSummaryV1 ... eof_reached=true` should remain in the active developer context as faithful working evidence, including the file body values needed by the Agent. The repair should not add a forced inspect-to-implementation transition as the primary mechanism.
+- Repair artifact:
+  - `third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs`
+    - `projection_verified_input_evidence(...)` now emits multiline `verified_input_evidence` entries with `content_visibility` and a bounded `excerpt`.
+    - The excerpt is generated from the original result body with `working_evidence_body_excerpt(...)`, so small complete reads keep the actual file values instead of only a one-line tool wrapper preview.
+    - The active projection still records evidence and valid action context only; it does not decide that inspect is complete or create an implementation node.
+  - Focused regression: `active_projection_preserves_complete_input_read_excerpt`.
+- Validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core active_projection_preserves_complete_input_read_excerpt --lib -- --nocapture
+    1 passed
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core projection_ --lib -- --nocapture
+    17 passed
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core inspect_duplicate --lib -- --nocapture
+    2 passed
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core path_correction --lib -- --nocapture
+    14 passed
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core working_evidence --lib -- --nocapture
+    3 passed
+  RUST_MIN_STACK=8388608 CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core taskspace --lib -- --nocapture
+    175 passed
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
+    passed
+  ```
+- Interpretation:
+  - H-167 is confirmed as a feedback-retention defect, not a need for stronger runtime semantic control.
+  - The H-166 framing is closed as downgraded/superseded: duplicate read blocking remains a hard baseline, but the primary fix is faithful Agent-visible read evidence retention.
+  - Live E3/right-only rerun is still needed to prove `multi-source-data-merger` no longer repeats `source_a` because the read body is absent from active context.

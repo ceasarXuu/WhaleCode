@@ -11593,7 +11593,7 @@ fn append_context_projection_with_header(
             )
         })
         .collect::<Vec<_>>();
-    let verified_input_evidence = projection_verified_input_evidence(map, current_node_id, 6);
+    let verified_input_evidence = projection_verified_input_evidence(map, current_node_id, 6, 1600);
     let dependency_read_evidence =
         projection_dependency_read_evidence(map, current_node_id, 4, 900);
     let critical_artifact_evidence =
@@ -11639,7 +11639,7 @@ fn append_context_projection_with_header(
     append_projection_list(&mut projection, "decisions", &decisions);
     append_projection_list(&mut projection, "facts", &facts);
     append_projection_list(&mut projection, "relevant_results", &relevant_results);
-    append_projection_list(
+    append_projection_multiline_list(
         &mut projection,
         "verified_input_evidence",
         &verified_input_evidence,
@@ -11733,6 +11733,7 @@ fn projection_verified_input_evidence(
     map: &ActionMapInstance,
     current_node_id: Option<&str>,
     max_results: usize,
+    max_excerpt_chars: usize,
 ) -> Vec<String> {
     let mut evidence = Vec::new();
     let mut seen = HashSet::new();
@@ -11755,12 +11756,16 @@ fn projection_verified_input_evidence(
             if !seen.insert(key) {
                 continue;
             }
+            let read_context = validation_rework_read_context_status(&result.body)
+                .map(|status| format!("\ncontent_visibility: {status}"))
+                .unwrap_or_default();
             evidence.push(format!(
-                "{} node={} verified_paths={} preview={}",
+                "{} node={} verified_paths={}{}\nexcerpt:\n{}",
                 result.id,
                 result.node_id,
                 artifacts.join(","),
-                single_line_preview(&result.body, 180)
+                read_context,
+                working_evidence_body_excerpt(&result.body, max_excerpt_chars)
             ));
             if evidence.len() >= max_results {
                 return evidence;
@@ -26802,6 +26807,73 @@ data/source_a/users.json\n"
     }
 
     #[test]
+    fn active_projection_preserves_complete_input_read_excerpt() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::InspectCodeContext,
+            "Inspect data sources",
+            "Read declared data sources before implementation.",
+            "Inspect data sources",
+            "Read declared data sources before implementation.",
+            true,
+        );
+        record_required_fact_source_artifacts(
+            &mut state,
+            owner,
+            &[
+                "/data/source_a/users.json",
+                "/data/source_b/users.csv",
+                "/data/source_c/users.parquet",
+            ],
+        );
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "read-source-a",
+                "shell_command",
+                Some(ActionClass::Read),
+                true,
+                "TaskSpaceToolInvocationV1:\n\
+tool: shell_command\n\
+command: sed -n '1,240p' -- data/source_a/users.json\n\
+raw_output:\n\
+Exit code: 0\n\
+Wall time: 0.1 seconds\n\
+Output:\n\
+[\n\
+  {\n\
+    \"id\": 101,\n\
+    \"full_name\": \"John Doe\",\n\
+    \"email\": \"john@a.com\",\n\
+    \"registration_date\": \"2024-01-15\",\n\
+    \"status\": \"active\"\n\
+  }\n\
+]\n\
+TaskSpaceReadFileSummaryV1: path=data/source_a/users.json lines_read=10 eof_reached=true max_lines=240\n"
+                    .to_string(),
+            )
+            .expect("source_a read records");
+
+        let context = state.build_developer_context().expect("developer context");
+        assert!(context.contains("verified_input_evidence:"), "{context}");
+        assert!(
+            context.contains("verified_paths=data/source_a/users.json"),
+            "{context}"
+        );
+        assert!(
+            context.contains("content_visibility: complete_read"),
+            "{context}"
+        );
+        assert!(context.contains("John Doe"), "{context}");
+        assert!(context.contains("john@a.com"), "{context}");
+        assert!(context.contains("eof_reached=true"), "{context}");
+    }
+
+    #[test]
     fn projection_prioritizes_inspect_gate_recovery_next_actions() {
         let mut state = ActionMapRuntimeState::default();
         let owner = ThreadId::new();
@@ -31407,9 +31479,19 @@ command: rg --files -g '*.json' -g '*.csv' | head -n 12 | while IFS= read -r pat
 raw_output:\n\
 ===== schema.json\n\
 {\"type\":\"object\",\"required\":[\"metadata\",\"organization\",\"statistics\"]}\n\
+TaskSpaceReadFileSummaryV1: path=schema.json lines_read=1 eof_reached=true max_lines=120\n\
 ===== departments.csv\n\
 id,name,budget\n\
-D001,Engineering,1500000\n"
+D001,Engineering,1500000\n\
+TaskSpaceReadFileSummaryV1: path=departments.csv lines_read=2 eof_reached=true max_lines=120\n\
+===== employees.csv\n\
+id,department_id,name\n\
+E001,D001,Jane Smith\n\
+TaskSpaceReadFileSummaryV1: path=employees.csv lines_read=2 eof_reached=true max_lines=120\n\
+===== projects.csv\n\
+id,department_id,name\n\
+P001,D001,Platform\n\
+TaskSpaceReadFileSummaryV1: path=projects.csv lines_read=2 eof_reached=true max_lines=120\n"
                     .to_string(),
             )
             .expect("bootstrap data reads record");
