@@ -10727,18 +10727,81 @@
   - Replacement-required runtime gate did not recur in the run.
   - The next active issue is an inspect-stage budget/feedback interaction: under advisory-only path correction, wrong-but-legal path attempts can consume enough node requests that required fact-source reads are blocked by budget before implementation begins.
 
-# Hypothesis H-170: inspect node request budget can stop after advisory path correction before required fact-source reads
+# Hypothesis H-170: advisory path correction feedback is diluted by stale fact-source projection aliases
 
-- Claim: Once path correction is advisory-only, ordinary absolute-path mistakes remain legal tool actions. On `multi-source-data-merger`, those legal mistakes can consume the current inspect node model-request budget (`8/8`) before all declared fact-source artifacts are read, even though the projection has the correct next action. This is a hard-baseline budget/profile issue, not a reason to reintroduce path-correction semantic gates.
-- Status: active.
+- Claim: Once path correction is advisory-only, ordinary absolute-path mistakes remain legal tool actions. On `multi-source-data-merger`, those legal mistakes consumed the inspect node model-request budget before all fact-source reads because the active projection continued to advertise raw `/data/...` fact-source next actions until a successful relative candidate had already been observed. The budget hard-stop was the symptom; the root cause was conflicting provider-visible feedback: path correction said "use `data/...`", while projection still strengthened "read `/data/...` next".
+- Status: fixed locally and live-cleared for the inspect-stage source-read blocker.
 - Boundary:
   - Runtime must not reject or auto-correct wrong-but-state-machine-legal paths.
   - Runtime may expose clear path-correction advice, preserve successful read evidence, and enforce hard request budgets.
-  - If the hard budget prevents a correct next action after faithful feedback is visible, the budget/profile should be audited before adding semantic control.
+  - Projection may coordinate already-visible tool feedback by suggesting a workspace-relative candidate, but that candidate must not satisfy fact-source coverage until the file is actually read.
 - Predictions:
-  1. Focused budget/profile tests should show the deep inspect node limit is currently 8 model requests.
-  2. A profile-level change can allow one or more additional inspect requests without changing path-correction from advisory to gate.
-  3. A rerun after budget/profile repair should reach `data/source_c/users.parquet` and then implementation or a concrete source-C tool failure.
+  1. A focused projection test should show that a failed `/data` read/list result changes missing `/data/source_a/users.json` next action to `data/source_a/users.json` without satisfying fact-source coverage.
+  2. Existing successful relative listing projection behavior should remain intact.
+  3. A rerun after the projection fix should reach `data/source_c/users.parquet` and then implementation instead of stopping at inspect request `8/8`.
+
+# Evidence E-337: H-170 projection alias feedback fix reaches source_c and implementation
+
+- Prediction tested: H-170 predicts the provider-visible projection should stop reinforcing failed `/data/...` fact-source aliases after ordinary path-not-found feedback and should allow the same sample to finish fact-source reads.
+- Repair:
+  - `third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs`
+    - Added projection-only extraction of failed absolute workspace alias refs from failed read/search results.
+    - `projection_fact_source_read_action(...)` now prefers successful observed relative candidates, then failed-alias-derived workspace-relative candidates, then the original artifact.
+    - The failed-alias candidate is used only for `next_valid_actions` wording. `inspect_missing_required_fact_source_artifacts(...)` still treats the declared fact source as unread until a successful read/search result covers it.
+    - Added `projection_uses_failed_alias_feedback_candidate_for_data_fact_sources`.
+- Validation:
+  ```text
+  cargo fmt --all
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core projection_uses_failed_alias_feedback_candidate_for_data_fact_sources --lib -- --nocapture
+    passed: 1 test
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core projection_uses_observed_relative_candidate_for_data_alias_fact_sources --lib -- --nocapture
+    passed: 1 test
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core fact_source_path_listing_does_not_satisfy_required_read_coverage --lib -- --nocapture
+    passed: 1 test
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core path_correction --lib -- --nocapture
+    passed: 14 tests
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core provider_response_actionability --lib -- --nocapture
+    passed: 9 tests
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_rework --lib -- --nocapture
+    passed: 33 tests
+  RUST_MIN_STACK=8388608 CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core taskspace --lib -- --nocapture
+    passed: 176 tests
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
+    passed
+  ```
+- Live rerun:
+  ```text
+  RunRoot: target/r4-h170-projection-alias-feedback-right-only-20260707-042000
+  RunDir: target/r4-h170-projection-alias-feedback-right-only-20260707-042000/runs/terminal_bench__multi-source-data-merger/20260707-032625-840
+  RunSide: right
+  business_success=false
+  public_validation_exit_code=1
+  tool_call_count=17
+  failed_tool_call_count=4
+  changed_paths=["merge_users.py"]
+  terminal marker: TaskSpaceNoActionRecoveryHardStopV1
+  ```
+- Observations:
+  - The previous H-169 rerun stopped at inspect request `8/8` after source_b. This run continued past source_b, read `data/source_c/users.parquet`, and forced the inspect-to-implementation transition.
+  - `TaskSpaceProviderBudgetHardStopV1` did not recur as the terminal marker.
+  - The run created `merge_users.py`, reached smoke validation, and failed because the implementation still used `DATA_DIR = "/data"`.
+  - The rework node read `merge_users.py`, but repeated patch attempts to change `DATA_DIR` were rejected as `validation_rework_patch_misses_failed_alias` or malformed patch grammar, ending in `TaskSpaceNoActionRecoveryHardStopV1`.
+- Interpretation:
+  - H-170 is live-cleared for the inspect-stage source-read budget blocker.
+  - The next active blocker is validation-rework feedback/matching: runtime recognizes the corrected input alias at a concrete file path, but the Agent's equivalent root constant fix is not accepted as removing that alias.
+
+# Hypothesis H-171: validation rework alias repair matching is too literal for root constant fixes
+
+- Claim: In validation rework, `validation_rework_patch_misses_failed_alias` currently requires the first patch to remove or replace the concrete failed alias `/data/source_a/users.json` in the implementation target. When the implementation constructs that path through `DATA_DIR = "/data"` plus `source_a/users.json`, a patch that changes `DATA_DIR` to `data` is semantically the correct root-cause repair, but the current matcher still rejects it because the full concrete alias string is absent from the patch.
+- Status: active.
+- Boundary:
+  - Runtime may require a validation rework edit to address the failed alias before unrelated changes, because the failed validation evidence is concrete and mechanically repairable.
+  - Runtime should not require the literal full path string to appear in the patch when the target builds the path through an equivalent root alias constant or local path strategy.
+  - The fix should improve repair-contract fidelity and alias-equivalence matching, not loosen patch grammar or accept unrelated edits.
+- Predictions:
+  1. A focused test can reproduce a rework patch changing `DATA_DIR = "/data"` to `DATA_DIR = "data"` while failed validation evidence names `/data/source_a/users.json`; current code rejects it as `validation_rework_patch_misses_failed_alias`.
+  2. Alias-root-aware matching should accept root constant replacement as addressing the failed alias while still rejecting unrelated secondary changes.
+  3. A rerun after repair should allow the path fix patch to reach `apply_patch`; remaining failures should be ordinary script behavior, validation failure, or downstream Agent logic.
 
 # R4 Design Note D-001: context fidelity is the first suspect
 

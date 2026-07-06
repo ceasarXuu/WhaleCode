@@ -12525,11 +12525,17 @@ fn projection_next_valid_actions(
                 if !missing_fact_source_artifacts.is_empty() {
                     let observed_artifacts =
                         inspect_node_projection_visible_artifact_refs(map, node);
+                    let failed_alias_artifacts =
+                        inspect_node_failed_workspace_alias_artifact_refs(map, node);
                     let mut actions = missing_fact_source_artifacts
                         .iter()
                         .take(4)
                         .map(|artifact| {
-                            projection_fact_source_read_action(artifact, &observed_artifacts)
+                            projection_fact_source_read_action(
+                                artifact,
+                                &observed_artifacts,
+                                &failed_alias_artifacts,
+                            )
                         })
                         .collect::<Vec<_>>();
                     actions.push(
@@ -12710,12 +12716,23 @@ fn projection_next_valid_actions(
     }
 }
 
-fn projection_fact_source_read_action(artifact: &str, observed_artifacts: &[String]) -> String {
+fn projection_fact_source_read_action(
+    artifact: &str,
+    observed_artifacts: &[String],
+    failed_alias_artifacts: &[String],
+) -> String {
     if let Some(candidate) =
         workspace_relative_candidate_for_observed_alias(artifact, observed_artifacts)
     {
         return format!(
             "read_file declared fact-source artifact `{candidate}` next (workspace-relative candidate for `{artifact}`)"
+        );
+    }
+    if let Some(candidate) =
+        workspace_relative_candidate_for_failed_alias(artifact, failed_alias_artifacts)
+    {
+        return format!(
+            "read_file declared fact-source artifact `{candidate}` next (workspace-relative candidate for `{artifact}` from failed absolute path feedback)"
         );
     }
     format!("read_file declared fact-source artifact `{artifact}` next")
@@ -12746,6 +12763,56 @@ fn inspect_node_projection_visible_artifact_refs(
     artifact_refs
 }
 
+fn inspect_node_failed_workspace_alias_artifact_refs(
+    map: &ActionMapInstance,
+    node: &MapNode,
+) -> Vec<String> {
+    let mut artifact_refs = Vec::new();
+    for result_ref in &node.result_context {
+        let Some(result) = map.results.get(&result_ref.id) else {
+            continue;
+        };
+        if result.kind != NodeResultKind::MainToolCall
+            || result.tool_success != Some(false)
+            || !matches!(
+                result.action_class,
+                Some(ActionClass::Read | ActionClass::Search)
+            )
+            || !failed_workspace_alias_result_has_path_failure(&result.body)
+        {
+            continue;
+        }
+        for artifact in result_visible_artifact_refs(result) {
+            push_failed_workspace_alias_ref(&mut artifact_refs, artifact);
+        }
+        if let Some(command) = result_body_command(result) {
+            for artifact in command_artifact_refs(&command) {
+                push_failed_workspace_alias_ref(&mut artifact_refs, artifact);
+            }
+        }
+        for artifact in extract_artifact_like_refs(&result.body) {
+            push_failed_workspace_alias_ref(&mut artifact_refs, artifact);
+        }
+    }
+    artifact_refs
+}
+
+fn failed_workspace_alias_result_has_path_failure(body: &str) -> bool {
+    let lower = body.to_ascii_lowercase();
+    lower.contains("no such file")
+        || lower.contains("not found")
+        || lower.contains("does not exist")
+        || lower.contains("cannot find")
+        || lower.contains("filenotfounderror")
+}
+
+fn push_failed_workspace_alias_ref(artifact_refs: &mut Vec<String>, artifact_ref: String) {
+    let normalized = normalize_artifact_ref(&artifact_ref);
+    if workspace_relative_candidate_for_absolute_workspace_alias(&normalized).is_some() {
+        push_unique_artifact_ref(artifact_refs, normalized);
+    }
+}
+
 fn path_listing_artifact_refs_from_result_body(body: &str) -> Vec<String> {
     if !read_result_body_is_path_listing_only(body) {
         return Vec::new();
@@ -12763,19 +12830,59 @@ fn workspace_relative_candidate_for_observed_alias(
     artifact: &str,
     observed_artifacts: &[String],
 ) -> Option<String> {
+    let candidate = workspace_relative_candidate_for_absolute_workspace_alias(artifact)?;
+    observed_artifacts
+        .iter()
+        .any(|observed| artifact_refs_equivalent(observed, &candidate))
+        .then_some(candidate)
+}
+
+fn workspace_relative_candidate_for_failed_alias(
+    artifact: &str,
+    failed_alias_artifacts: &[String],
+) -> Option<String> {
     let normalized = normalize_artifact_ref(artifact);
-    let candidate = normalized
+    let candidate = workspace_relative_candidate_for_absolute_workspace_alias(&normalized)?;
+    failed_alias_artifacts
+        .iter()
+        .any(|failed_alias| failed_workspace_alias_supports_artifact(&normalized, failed_alias))
+        .then_some(candidate)
+}
+
+fn workspace_relative_candidate_for_absolute_workspace_alias(artifact: &str) -> Option<String> {
+    let normalized = normalize_artifact_ref(artifact);
+    if normalized == "/data" {
+        return Some("data".to_string());
+    }
+    if normalized == "/app" {
+        return Some(".".to_string());
+    }
+    normalized
         .strip_prefix("/data/")
         .map(|suffix| format!("data/{}", suffix.trim_start_matches('/')))
         .or_else(|| {
             normalized
                 .strip_prefix("/app/")
                 .map(|suffix| suffix.trim_start_matches('/').to_string())
-        })?;
-    observed_artifacts
-        .iter()
-        .any(|observed| artifact_refs_equivalent(observed, &candidate))
-        .then_some(candidate)
+        })
+        .filter(|candidate| !candidate.trim().is_empty())
+}
+
+fn failed_workspace_alias_supports_artifact(artifact: &str, failed_alias: &str) -> bool {
+    let artifact = normalize_artifact_ref(artifact);
+    let failed_alias = normalize_artifact_ref(failed_alias);
+    if artifact_refs_equivalent(&artifact, &failed_alias) {
+        return true;
+    }
+    matches!(
+        failed_alias.as_str(),
+        "/data" if artifact.starts_with("/data/")
+    ) || matches!(
+        failed_alias.as_str(),
+        "/app" if artifact.starts_with("/app/")
+    ) || artifact
+        .strip_prefix(failed_alias.trim_end_matches('/'))
+        .is_some_and(|suffix| suffix.starts_with('/'))
 }
 
 fn compact_projection_allowed_actions_for_node(kind: NodeKind) -> String {
@@ -26460,6 +26567,81 @@ data/source_c/users.parquet\n"
                 .iter()
                 .any(|action| action.contains("artifact `/data/source_b/users.csv` next")),
             "projection should not ask the model to read the failed absolute alias after observing a relative candidate: {actions:?}"
+        );
+    }
+
+    #[test]
+    fn projection_uses_failed_alias_feedback_candidate_for_data_fact_sources() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::InspectCodeContext,
+            "Inspect user data",
+            "Read every declared data source before implementation.",
+            "Inspect user data",
+            "Read every declared data source before implementation.",
+            true,
+        );
+        record_required_fact_source_artifacts(
+            &mut state,
+            owner,
+            &[
+                "/data/source_a/users.json",
+                "/data/source_b/users.csv",
+                "/data/source_c/users.parquet",
+            ],
+        );
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "list-data-absolute",
+                "shell_command",
+                Some(ActionClass::Read),
+                false,
+                "TaskSpaceToolInvocationV1:\n\
+tool: shell_command\n\
+command: rg --files /data\n\
+raw_output:\n\
+rg: /data: IO error for operation on /data: No such file or directory (os error 2)\n"
+                    .to_string(),
+            )
+            .expect("failed absolute data listing records");
+
+        assert_eq!(
+            state.current_main_inspect_missing_required_fact_source_artifacts(),
+            vec![
+                "/data/source_a/users.json".to_string(),
+                "/data/source_b/users.csv".to_string(),
+                "/data/source_c/users.parquet".to_string(),
+            ],
+            "failed alias feedback must not satisfy fact-source coverage"
+        );
+
+        let task_id = state.active_task_id.clone().expect("active task");
+        let map = state.maps.get("map-1").expect("map");
+        let task = state.tasks.get(&task_id).expect("task");
+        let actions = projection_next_valid_actions(map, Some("node-1"), Some(task), &[]);
+
+        assert!(
+            actions
+                .iter()
+                .any(|action| action.contains("`data/source_a/users.json`")),
+            "{actions:?}"
+        );
+        assert!(
+            actions.iter().any(|action| action.contains(
+                "workspace-relative candidate for `/data/source_a/users.json` from failed absolute path feedback"
+            )),
+            "{actions:?}"
+        );
+        assert!(
+            !actions
+                .iter()
+                .any(|action| action.contains("artifact `/data/source_a/users.json` next")),
+            "projection should not reinforce the failed absolute alias after path feedback: {actions:?}"
         );
     }
 

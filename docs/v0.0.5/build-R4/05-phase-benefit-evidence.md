@@ -1641,6 +1641,70 @@ CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
 git diff --check
 ```
 
+## 5.107 2026-07-07 H170 projection alias feedback 修复
+
+H170 的直接成本问题不是单纯预算过小，而是上下文语义冲突导致预算被消耗：`TaskSpacePathCorrectionRecoveryV1`
+已经提示 `/data -> data`，但 active projection 在首次成功相对路径之前仍把 missing fact-source next action 写成
+`read_file /data/source_a/users.json next`。这会让 Agent 同时看到“别用 `/data`”和“下一步读 `/data/...`”。
+
+本次修复遵守 runtime-as-tool 边界：
+
+1. 不恢复 path-correction gate，不拒绝 Agent 想执行的合法 read/list/search。
+2. 只在 projection 的 `next_valid_actions` 中协调已存在的 tool feedback：失败 absolute workspace alias 可导出
+   workspace-relative candidate。
+3. candidate 不算 fact-source coverage；只有真实成功 read/search 才能让 fact-source 变为已读。
+
+实现和验证：
+
+```text
+runtime.rs:
+- inspect_node_failed_workspace_alias_artifact_refs(...)
+- workspace_relative_candidate_for_failed_alias(...)
+- projection_fact_source_read_action(...) now uses observed candidate, then failed-alias candidate.
+
+cargo fmt --all
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core projection_uses_failed_alias_feedback_candidate_for_data_fact_sources --lib -- --nocapture
+  1 passed
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core projection_uses_observed_relative_candidate_for_data_alias_fact_sources --lib -- --nocapture
+  1 passed
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core fact_source_path_listing_does_not_satisfy_required_read_coverage --lib -- --nocapture
+  1 passed
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core path_correction --lib -- --nocapture
+  14 passed
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core provider_response_actionability --lib -- --nocapture
+  9 passed
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core validation_rework --lib -- --nocapture
+  33 passed
+RUST_MIN_STACK=8388608 CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core taskspace --lib -- --nocapture
+  176 passed
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
+  passed
+```
+
+targeted rerun：
+
+```text
+RunRoot: target/r4-h170-projection-alias-feedback-right-only-20260707-042000
+RunDir: target/r4-h170-projection-alias-feedback-right-only-20260707-042000/runs/terminal_bench__multi-source-data-merger/20260707-032625-840
+right business_success=false
+public_validation_exit_code=1
+tool_call_count=17
+failed_tool_call_count=4
+changed_paths=["merge_users.py"]
+terminal marker: TaskSpaceNoActionRecoveryHardStopV1
+```
+
+结论：
+
+1. H170 live-clear：上一轮 `TaskSpaceProviderBudgetHardStopV1 node_request_count=8/8` 未复发。
+2. 这次读到了 `data/source_c/users.parquet`，随后 `TaskSpaceForcedInspectTransitionV1` 进入 implementation。
+3. 仍未通过业务验证。新 blocker 是 H171：validation rework 要求修复 `/data/source_a/users.json` concrete alias，
+   但实现代码通过 `DATA_DIR = "/data"` 拼路径；Agent 多次尝试改 root constant，仍被
+   `validation_rework_patch_misses_failed_alias` 拒绝，最后 `TaskSpaceNoActionRecoveryHardStopV1`。
+
+下一步优先修 H171：让 validation rework 的 alias 修复判定支持 root constant 等价修复，同时保持 patch grammar 和
+未触及 root-cause alias 的拒绝能力。
+
 ## 5.106 2026-07-07 validation rework replacement-required gate 边界收敛
 
 H168/H167 之后，`multi-source-data-merger` right-only run 已经越过 path correction 和 source read retention，
