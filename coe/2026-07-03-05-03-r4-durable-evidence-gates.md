@@ -10569,17 +10569,93 @@
 
 # Hypothesis H-168: path-correction broad-root hard-stop can preempt source-read verification
 
-- Claim: After `/data` fails and TaskSpace suggests `data`, the current path-correction retry accounting treats a follow-up broad root action `list_files "."` as hard-stop-worthy on the same path-correction budget path. This can end the turn before the Agent consumes the suggested relative path and before source-read retention can be verified.
+- Claim: After `/data` fails and TaskSpace suggests `data`, runtime turned the advisory path-correction feedback into an action-contract gate. It rejected the Agent's next state-machine-legal action (`list_files "."`) and then emitted `TaskSpacePathCorrectionHardStopV1`, ending the turn before ordinary tool feedback could reach the Agent.
+- Status: fixed locally; live rerun pending.
+- Boundary:
+  - Runtime may record the failed absolute/container path and expose a workspace-relative candidate as faithful tool feedback.
+  - Runtime must not reject or correct a later `read_file`/`list_files`/`search` action merely because it differs from the suggested path, as long as that action satisfies TaskSpace's hard state-machine constraints.
+  - If the Agent chooses a poor path, the tool should run and fail normally; the resulting failure is feedback for Agent intelligence, not a runtime control decision.
+  - Any fix must not auto-run `list_files data` on behalf of the Agent.
+- Predictions:
+  1. Focused path-correction tests should prove repeated absolute alias retry, absolute child retry, and broad-root drift are no longer action-contract rejections.
+  2. Path-correction recovery should no longer carry `TaskSpaceGateRecoveryV1` or `path_correction_retry_forbidden`; it should be advisory text only.
+  3. No path-correction recovery should generate `TaskSpacePathCorrectionHardStopV1`.
+  4. After H-168 is repaired, the same sample should be able to continue past `list_files "."` as an ordinary tool action, allowing H-167 live verification to run.
+- Diagnostic evidence plan:
+  - Add focused coverage around `/data -> data` correction followed by `list_files "."` and repeated absolute-path attempts.
+  - Remove the path-correction action-contract dispatch rejection and path-correction hard-stop production path.
+  - Re-run the same right-only sample after any repair, and require the run to reach source reads before judging H-167 live status.
+
+# Evidence E-333: H-168 local repair makes path correction advisory only
+
+- Prediction tested: H-168 predicts runtime should preserve path-correction failure semantics without turning the suggestion into a dispatch gate or hard-stop.
+- Repair:
+  - `third_party/codex-cli/codex-rs/core/src/session/turn.rs`
+    - `TaskSpacePathCorrectionRecoveryV1` text now says "Suggested recovery, not a runtime gate".
+    - Removed `TaskSpaceGateRecoveryV1` generation from path-correction recovery.
+    - Removed the action-contract branch that rejected legal read/list/search actions as path-correction retry misuse.
+    - Removed the production path-correction recovery hard-stop branch.
+    - Focused tests now assert absolute retry, absolute child retry, and broad-root `list_files "."` are allowed through runtime; any later path failure remains ordinary tool feedback.
+- Validation:
+  ```text
+  cargo fmt --all
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core path_correction --lib -- --nocapture
+    passed: 14 tests
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core provider_response_actionability --lib -- --nocapture
+    passed: 9 tests
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core extracts_projection_sync_from_recovery_message_gate_recovery --lib -- --nocapture
+    passed: 1 test
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core projection_prioritizes_inspect_gate_recovery_next_actions --lib -- --nocapture
+    passed: 1 test
+  RUST_MIN_STACK=8388608 CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core taskspace --lib -- --nocapture
+    passed: 175 tests
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
+    passed
+  ```
+- Interpretation:
+  - H-168 is locally fixed as a runtime-boundary defect.
+  - The correct boundary is advisory path feedback plus faithful subsequent tool results, not runtime correction or rejection.
+  - Live right-only rerun is still needed to prove H-167's read-retention repair now gets exercised past the former path-correction blocker.
+
+# Evidence E-334: H-168 live rerun crossed path correction and exercised H-167 source reads
+
+- Prediction tested: After H-168, the `multi-source-data-merger` right-only sample should no longer stop at path-correction. It should reach source reads and ordinary downstream tool feedback.
+- Run:
+  ```text
+  RunRoot: target/r4-h168-path-advisory-right-only-20260707-023537
+  RunDir: target/r4-h168-path-advisory-right-only-20260707-023537/runs/terminal_bench__multi-source-data-merger/20260707-023541-333
+  RunSide: right
+  Repeats: 1
+  business_success=false
+  public_validation_exit_code=1
+  tool_call_count=17
+  failed_tool_call_count=4
+  changed_paths=["merge_users.py"]
+  exec_timed_out=false
+  terminal marker: TaskSpaceApplyPatchRecoveryHardStopV1
+  ```
+- Observations:
+  - `TaskSpacePathCorrectionHardStopV1` was absent.
+  - `path_correction_retry_forbidden` was absent.
+  - The Agent read `data/source_a/users.json` successfully with visible content including `John Doe` and `john@a.com`.
+  - It moved on to `source_b` and `source_c` instead of repeating `source_a`, so H-167's read-retention path was exercised live.
+  - Absolute `/data/source_b/users.csv` and `/data/source_c/users.parquet` attempts were allowed to run and fail as ordinary tool feedback; the Agent then used `data/source_b/users.csv` and `data/source_c/users.parquet`.
+  - The run produced `merge_users.py` and reached validation. Validation failed because generated output files were absent; the script still used `DATA_DIR = Path("/data")`.
+  - The final blocker was `TaskSpaceApplyPatchReplacementRequiredRecoveryV1` followed by `TaskSpaceApplyPatchRecoveryHardStopV1` after repeated rejected/malformed patch attempts.
+- Interpretation:
+  - H-168 is live-cleared for the specific pre-H167 path-correction blocker.
+  - H-167 is live-supported for the `source_a` read-retention failure mode: the successful read body was visible enough for the Agent to move forward rather than re-reading `source_a`.
+  - The next unsolved blocker is no longer path-correction; it is a validation-rework/apply-patch action-control loop.
+
+# Hypothesis H-169: validation rework replacement-required gate overconstrains patch repair
+
+- Claim: In validation rework, runtime currently upgrades "whole-file replacement is preferred/required by recovery" into an action-contract gate that rejects otherwise state-machine-legal `apply_patch` update attempts as `apply_patch_replacement_required:<target>`. This can trap the Agent in patch-format recovery and hard-stop before a valid repair is attempted.
 - Status: active.
 - Boundary:
-  - Runtime may reject deterministic invalid path retries and broad root drift after a precise correction.
-  - Runtime should report the exact failed action and reason. It should not mislabel broad root drift as repeated absolute-alias retry.
-  - Any fix should remain in the feedback/error accounting layer; it should not auto-run `list_files data` on behalf of the Agent.
+  - Runtime may reject malformed patch grammar, missing patch targets, impossible context, and tool-protocol violations.
+  - Runtime should not reject a syntactically valid `*** Update File` patch solely because a prior recovery preferred `Delete File` + `Add File`.
+  - If the Agent chooses a poor but legal patch strategy, the patch tool should run and return concrete success/failure feedback.
 - Predictions:
-  1. A focused path-correction test can reproduce `/data` failure followed by `.` rejection and show the hard-stop marker text/accounting does not distinguish broad-root drift from repeated absolute alias retry.
-  2. A narrowed recovery policy can preserve the hard baseline while giving the Agent a precise, non-distorted failure marker or one explicit recovery opportunity for `data`.
-  3. After H-168 is repaired, the same sample should reach at least `list_files data` or a concrete `read_file data/source_a/users.json`, allowing H-167 live verification to run.
-- Diagnostic evidence plan:
-  - Add focused coverage around `/data -> data` correction followed by `list_files "."`.
-  - Inspect `taskspace_path_correction_recovery_should_hard_stop(...)` and hard-stop recovery text generation for broad-root drift classification.
-  - Re-run the same right-only sample after any repair, and require the run to reach source reads before judging H-167 live status.
+  1. A focused validation-rework replacement-required test can reproduce rejection of an `Update File` patch that should be allowed to reach the patch tool under the clarified boundary.
+  2. Removing the semantic replacement-required action gate should preserve strict patch grammar validation while allowing legal patch attempts through.
+  3. A rerun should move past `TaskSpaceApplyPatchRecoveryHardStopV1`; remaining failures should be ordinary patch tool failures, validation failures, or Agent logic errors.

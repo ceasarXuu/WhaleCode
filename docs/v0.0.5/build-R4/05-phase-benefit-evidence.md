@@ -1694,16 +1694,65 @@ terminal marker: TaskSpacePathCorrectionHardStopV1 attempt_count=2
 该 run 的结论是 inconclusive：Agent 没有执行 `read_file data/source_a/users.json`，因此没有验证
 `verified_input_evidence` 的 live 保真效果。新收录的前置问题是
 `path-correction-broad-root-hardstop-preempts-source-read`：`/data` 失败后建议 `data`，Agent 改为 broad root
-`list_files "."`，runtime 拦截后用 repeated absolute-alias hard-stop 文案结束 turn。后续应先让该反馈精确化，
-再重跑同一 sample 验证 H167。
+`list_files "."`，runtime 拦截后用 repeated absolute-alias hard-stop 文案结束 turn。
+
+基于 2026-07-07 重新澄清的边界，该问题重新定性为 runtime 越界：path correction 只能把 `/data` 失败和
+workspace-relative candidate `data` 忠实反馈给 Agent，不能把 suggested path 升级成 action-contract gate，
+也不能因为 Agent 选择了其它符合状态机硬约束的 `list_files`/`read_file`/`search` 就拒绝或纠正。Agent 选错路径应进入
+普通 tool 执行并由 tool failure 反馈给 Agent，而不是由 runtime 在 dispatch 前替 Agent 决策。
 
 同次审计把已实现策略按新边界重新分类：
 
 1. 明显越界、需后续重构：forced inspect transition、自动 missing fact-source bootstrap、forced implement transition、
-   forced validation closeout、patch-only closed action space、patch construction scaffold。
+   forced validation closeout、patch-only closed action space、patch construction scaffold、path-correction exact alias/broad-root
+   action gate 与 path-correction hard-stop。
 2. 可保留但需收窄：`next_valid_actions`、missing fact-source finish guard、duplicate read/search gate、provider/node budget hard-stop。
-3. 符合边界应保留：tool pairing、payload scan、large-output ref、path-correction exact alias rejection、
+3. 符合边界应保留：tool pairing、payload scan、large-output ref、
    tool-runtime bootstrap blocker、`TaskSpaceReadFileSummaryV1`、output-contract validation coverage gate。
+
+## 5.97 2026-07-07 H168 path-correction runtime gate 收敛
+
+H168 的修复已经本地完成：`TaskSpacePathCorrectionRecoveryV1` 改为纯 advisory feedback，不再生成
+`TaskSpaceGateRecoveryV1`；session dispatch 不再以 `path_correction_retry_forbidden` 拒绝合法 read/list/search；
+path-correction recovery 也不再产生 `TaskSpacePathCorrectionHardStopV1`。对应 focused tests 现在明确证明
+repeated absolute alias、absolute child、broad root `list_files "."` 都允许进入普通 tool 路径，后续失败由 tool result
+忠实反馈给 Agent。
+
+验证：
+
+```text
+path_correction: 14 passed
+provider_response_actionability: 9 passed
+extracts_projection_sync_from_recovery_message_gate_recovery: 1 passed
+projection_prioritizes_inspect_gate_recovery_next_actions: 1 passed
+taskspace: 175 passed
+cargo build -p codex-cli --bin whale: passed
+```
+
+live rerun 已完成：
+
+```text
+RunRoot: target/r4-h168-path-advisory-right-only-20260707-023537
+RunDir: target/r4-h168-path-advisory-right-only-20260707-023537/runs/terminal_bench__multi-source-data-merger/20260707-023541-333
+business_success=false
+public_validation_exit_code=1
+tool_call_count=17
+failed_tool_call_count=4
+changed_paths=["merge_users.py"]
+exec_timed_out=false
+terminal marker: TaskSpaceApplyPatchRecoveryHardStopV1
+```
+
+结论：
+
+1. H168 live-clear：`TaskSpacePathCorrectionHardStopV1` 和 `path_correction_retry_forbidden` 均未出现。
+2. H167 live-supported：`data/source_a/users.json` 的完整 read body 进入上下文后，Agent 没有重复读取
+   `source_a`，而是继续读取 `source_b` / `source_c` 并进入 implementation。
+3. absolute `/data/source_b/users.csv`、`/data/source_c/users.parquet` 后续选择被允许进入普通工具执行，
+   失败后由工具结果反馈，Agent 随后改用相对路径。
+4. 新 blocker 是 `validation-rework-replacement-required-action-gate`：validation rework 中，runtime 把
+   replacement-required recovery 升级为 `apply_patch_replacement_required:<target>` action gate，最终
+   `TaskSpaceApplyPatchRecoveryHardStopV1`。这已归入下一步 H169，属于 patch/rework runtime 控制越界方向。
 
 ## 5.97 2026-07-06 corrected-alias validation and path-correction lifecycle
 
@@ -1743,7 +1792,8 @@ blocker: duplicate inspect evidence did not converge to implementation
 2. `synthetic-validation-bootstrap-failure-rework-gap`：validation failed result 先于 coverage recovery 进入 implementation rework。
 3. `validation-rework-patch-misses-failed-alias`：rework patch 必须先移除失败 absolute alias。
 4. `path-correction-same-request-stale-refill`：同请求内 successful suggested path 不再被旧 failed-read summary 覆盖。
-5. `path-correction-hardstop-count-not-reset-after-progress`：path-correction hard-stop 只表达连续重复失败，中间有 successful suggested path 会重置计数。
+5. `path-correction-hardstop-count-not-reset-after-progress`：这是 H168 前的历史 hard-stop lifecycle 修复；H168 后
+   path-correction 不再产生 hard-stop，只保留 advisory feedback。
 6. `recent-failed-read-summary-stale-after-relative-success`：ActionMap 不再把已被后续相对路径成功覆盖的 absolute read failure 暴露给 turn 层。
 
 当前未解：
@@ -1925,7 +1975,10 @@ left: no whale-argv.json; metrics_taints=side_selection_skipped:left:run_side=ri
 right: model_request_count=1; uncached_input_tokens=4298; cached_input_tokens=474752
 ```
 
-这轮还 live-clear 了 H-151：`/data` 失败后 provider 再次漂移到 `list_files "."`，runtime 返回
+2026-07-07 修订：下面 H-151/H-153 的 live-clear 和本地修复记录保留为历史证据；其“path-correction gate
+合理”的解释已被 H168 覆盖。当前结论是 path-correction 只能 advisory，不能因 suggested path 拒绝其它合法 tool action。
+
+这轮当时记录为 live-clear H-151：`/data` 失败后 provider 再次漂移到 `list_files "."`，runtime 返回
 `path_correction_retry_forbidden:.:suggested_relative_path=data`，随后以
 `TaskSpacePathCorrectionHardStopV1 reason=repeated_path_correction_retry_forbidden` 终止同一语义的高成本重试。
 
@@ -1933,8 +1986,8 @@ right: model_request_count=1; uncached_input_tokens=4298; cached_input_tokens=47
 `/app/conflicts.json` 缺失。当前不是 path-correction 语义丢失，而是 suggested relative path 没有以足够清晰、
 一致、结构化的方式进入 recovery/projection，导致 Agent 没有采纳 `data`。
 
-后续按边界收窄：runtime 不自动替 Agent 执行 `rg --files data`，也不把 `/data` 失败当成功证据；修复只发生在
-反馈和投影层，让 Agent 看到同一个结构化 GateRecovery：
+当时的后续方案是：runtime 不自动替 Agent 执行 `rg --files data`，也不把 `/data` 失败当成功证据；修复只发生在
+反馈和投影层，让 Agent 看到同一个结构化 GateRecovery。该方案中 path-correction GateRecovery 部分已被 H168 撤销：
 
 ```text
 TaskSpaceGateRecoveryV1:
@@ -2007,6 +2060,10 @@ CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core projection_prioritizes_insp
 ```
 
 `c573bbc` right-only targeted run `20260706-032432-324` 进一步证明 sync 修复已生效：
+
+2026-07-07 修订：以下 H154/H155 的 path-correction GateRecovery、`path_correction_retry_forbidden`
+和 forbidden alias 同句约束均为历史策略，已被 H168 advisory-only 边界覆盖；当前只保留失败路径、suggested relative path
+和后续普通 tool failure。
 
 ```text
 gate_recovery_projection_sync:
@@ -2119,6 +2176,9 @@ right-side evidence:
    mode `000` 的 task 文件会导致 materialization `ReadAllBytes` 失败，需恢复 scripts `755`、tests `644`。
 
 追加修复：
+
+2026-07-07 修订：以下“禁止再次 list/search `.`”和 action-contract 前置拒绝 broad `.` drift 是历史修复，
+已被 H168 撤销。当前 broad `.` 是否有价值由 Agent 判断；runtime 只执行状态机硬约束和工具调用。
 
 1. path-correction recovery 文案现在要求 inspect node 使用 suggested relative path 本身或 concrete child path，
    并明确禁止再次 list/search `.`。

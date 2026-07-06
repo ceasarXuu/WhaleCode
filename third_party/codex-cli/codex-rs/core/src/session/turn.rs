@@ -705,12 +705,6 @@ pub(crate) async fn run_turn(
                             &recovery_item,
                             taskspace_apply_patch_replacement_required_recovery_count,
                         );
-                    let path_correction_recovery_hard_stop =
-                        taskspace_path_correction_recovery_should_hard_stop(
-                            &recovery_item,
-                            taskspace_path_correction_recovery_count,
-                            path_correction_cleared_this_request,
-                        );
                     let no_action_recovery_cap = current_recovery_snapshot
                         .as_ref()
                         .and_then(|snapshot| snapshot.node_kind.clone())
@@ -851,27 +845,6 @@ pub(crate) async fn run_turn(
                             .await;
                         last_agent_message = Some(
                             "TaskSpace validation rework duplicate-read hard stop: repeated_validation_rework_duplicate_artifact_read".to_string(),
-                        );
-                        break;
-                    }
-                    if path_correction_recovery_hard_stop {
-                        let hard_stop_item = build_taskspace_path_correction_hard_stop_item(
-                            &recovery_item,
-                            taskspace_path_correction_recovery_count,
-                        );
-                        sess.send_event(
-                            &turn_context,
-                            EventMsg::Warning(WarningEvent {
-                                message: taskspace_special_recovery_warning_message(
-                                    &hard_stop_item,
-                                ),
-                            }),
-                        )
-                        .await;
-                        sess.record_conversation_items(&turn_context, &[hard_stop_item])
-                            .await;
-                        last_agent_message = Some(
-                            "TaskSpace path-correction recovery hard stop: repeated_path_correction_retry_forbidden".to_string(),
                         );
                         break;
                     }
@@ -2293,37 +2266,34 @@ fn build_taskspace_path_correction_recovery_item(
     correction: &TaskspacePathCorrection,
     node_kind: Option<&str>,
 ) -> ResponseItem {
-    let next_action = match node_kind {
+    let suggested_action = match node_kind {
         Some("inspect_code_context") => format!(
-            "emit exactly one read_file action with args.path exactly `{}` if it names a file, or list_files/search with args.path exactly `{}` if it names a directory; do not list/search `.` again and do not retry the failed absolute path",
+            "try read_file with args.path `{}` if it names a file, or list_files/search with args.path `{}` if it names a directory",
             correction.suggested_relative_path, correction.suggested_relative_path
         ),
         Some("smoke_test" | "regression_test") => format!(
-            "emit exactly one run_test action with the command/path corrected to `{}`, or blocked if the required container mount is truly unavailable",
+            "try run_test with the command/path corrected to `{}`",
             correction.suggested_relative_path
         ),
         Some("implement_solution") => format!(
-            "emit exactly one legal implementation action that uses `{}`, or blocked if the task explicitly requires the unavailable absolute mount",
+            "prefer implementation actions that use `{}` instead of the failed absolute mount when that matches the task intent",
             correction.suggested_relative_path
         ),
         _ => format!(
-            "emit exactly one legal TaskSpace action using `{}`, or blocked if the task explicitly requires the unavailable absolute mount",
+            "prefer a legal TaskSpace action using `{}` when that matches the task intent",
             correction.suggested_relative_path
         ),
     };
-    let gate_recovery = taskspace_path_correction_gate_recovery_json(correction, node_kind);
     let text = format!(
         "{TASKSPACE_PATH_CORRECTION_MARKER}\n\
 failure_kind: path_not_found_with_relative_candidate\n\
 failed_path: {failed_path}\n\
 suggested_relative_path: {suggested_relative_path}\n\
 The previous tool failed because it used an absolute container path that is not visible in the current workspace. This is failed tool feedback, not successful evidence.\n\
-Current required behavior:\n\
-- Do not retry `{failed_path}`.\n\
-- Use `{suggested_relative_path}` as the workspace-relative candidate.\n\
-- Next valid action: {next_action}.\n\
-- If the relative path also fails and no workspace evidence names an alternative, emit blocked with the exact path failure evidence instead of looping.\n\
-{TASKSPACE_GATE_RECOVERY_MARKER} {gate_recovery}",
+Suggested recovery, not a runtime gate:\n\
+- Workspace-relative candidate: `{suggested_relative_path}`.\n\
+- Suggested action: {suggested_action}.\n\
+- TaskSpace will not block other state-machine-legal tool actions only because they differ from this suggestion; further failures remain ordinary tool feedback for the Agent to interpret.\n",
         failed_path = correction.failed_path,
         suggested_relative_path = correction.suggested_relative_path,
     );
@@ -2337,105 +2307,23 @@ Current required behavior:\n\
     }
 }
 
-fn taskspace_path_correction_next_valid_actions(
-    correction: &TaskspacePathCorrection,
-    node_kind: Option<&str>,
-) -> Vec<String> {
-    let suggested = correction.suggested_relative_path.as_str();
-    match node_kind {
-        Some("inspect_code_context") => vec![
-            format!(
-                "emit read_file with args.path exactly `{suggested}` if `{suggested}` names a file; do not use `{}` or `{}/...`",
-                correction.failed_path, correction.failed_path
-            ),
-            format!(
-                "or emit list_files/search with args.path exactly `{suggested}` if `{suggested}` names a directory; do not list/search `.` again"
-            ),
-            format!(
-                "or emit read_file/search for a concrete child path under `{suggested}` only if that child path is already visible in workspace evidence"
-            ),
-            "or emit blocked with exact relative-path failure evidence if the suggested path also fails".to_string(),
-        ],
-        Some("smoke_test" | "regression_test") => vec![
-            format!("emit run_test with command/path corrected to `{suggested}`"),
-            "or emit blocked only if the required container mount is truly unavailable".to_string(),
-        ],
-        Some("implement_solution") => vec![
-            format!("emit one legal implementation action that uses `{suggested}`"),
-            "or emit blocked only if the task explicitly requires the unavailable absolute mount".to_string(),
-        ],
-        _ => vec![
-            format!("emit one legal TaskSpace action using `{suggested}`"),
-            "or emit blocked only if the task explicitly requires the unavailable absolute mount".to_string(),
-        ],
-    }
-}
-
-fn taskspace_path_correction_gate_recovery_json(
-    correction: &TaskspacePathCorrection,
-    node_kind: Option<&str>,
-) -> String {
-    serde_json::json!({
-        "schema_version": "TaskSpaceGateRecoveryV1",
-        "allowed": false,
-        "reason": "path_correction_retry_forbidden",
-        "blocking_items": [
-            format!("failed_path:{}", correction.failed_path),
-            format!("suggested_relative_path:{}", correction.suggested_relative_path),
-        ],
-        "next_valid_actions": taskspace_path_correction_next_valid_actions(correction, node_kind),
-        "missing_evidence": [],
-    })
-    .to_string()
-}
-
-fn taskspace_path_correction_rejection_followup(
-    reason: &str,
-    correction: Option<&TaskspacePathCorrection>,
-    node_kind: Option<&str>,
-) -> String {
-    let base = format!(
+fn taskspace_action_contract_rejection_followup(reason: &str) -> String {
+    format!(
         "TaskSpaceActionV1 rejected: {reason}. Return exactly one valid taskspace-action-v1 JSON object."
-    );
-    if reason.starts_with("path_correction_retry_forbidden:")
-        && let Some(correction) = correction
-    {
-        return format!(
-            "{base}\n{TASKSPACE_GATE_RECOVERY_MARKER} {}",
-            taskspace_path_correction_gate_recovery_json(correction, node_kind)
-        );
-    }
-    base
+    )
 }
 
-fn build_taskspace_path_correction_hard_stop_item(
-    recovery_item: &ResponseItem,
-    attempt: usize,
-) -> ResponseItem {
-    let recovery_text = response_item_text(recovery_item).unwrap_or_default();
-    let recovery_excerpt = recovery_text.chars().take(1800).collect::<String>();
-    let text = format!(
-        "{TASKSPACE_PATH_CORRECTION_HARD_STOP_MARKER}\n\
-reason: repeated_path_correction_retry_forbidden\n\
-attempt_count: {attempt}\n\
-The provider repeatedly retried an absolute workspace alias after TaskSpace supplied a relative path correction.\n\
-Runtime decision:\n\
-- Stop provider sampling for this turn instead of spending more model requests on the same deterministic action-contract rejection.\n\
-- Preserve the path-correction contract for audit.\n\
-- A later turn may continue only after TaskSpace state changes or the provider emits the suggested relative path, a legal taskspace_control transition, or a blocked-with-evidence result.\n\
-Last path-correction contract excerpt:\n{recovery_excerpt}"
-    );
-
-    ResponseItem::Message {
-        id: None,
-        role: "developer".to_string(),
-        content: vec![ContentItem::InputText { text }],
-        end_turn: None,
-        phase: None,
-    }
-}
-
+#[cfg(test)]
 fn taskspace_path_correction_retry_reject_reason(
+    action: &TaskSpaceActionV1,
+    correction: &TaskspacePathCorrection,
+) -> Option<String> {
+    let _ = (action, correction);
+    None
+}
+
+#[cfg(test)]
+fn taskspace_path_correction_retry_advisory_reason(
     action: &TaskSpaceActionV1,
     correction: &TaskspacePathCorrection,
 ) -> Option<String> {
@@ -2463,11 +2351,12 @@ fn taskspace_path_correction_retry_reject_reason(
         return None;
     };
     Some(format!(
-        "path_correction_retry_forbidden:{failed_path}:suggested_relative_path={suggested_relative_path}",
+        "path_correction_advisory:{failed_path}:suggested_relative_path={suggested_relative_path}",
         failed_path = taskspace_normalize_retry_path(&path),
     ))
 }
 
+#[cfg(test)]
 fn taskspace_path_correction_action_drifted_from_suggestion(path: &str, suggestion: &str) -> bool {
     let path = taskspace_normalize_retry_path(path);
     if taskspace_workspace_alias_root(&path).is_some() {
@@ -2504,10 +2393,12 @@ fn taskspace_should_refill_path_correction_from_failed_read_summary(
         && progress_after_request == progress_before_request
 }
 
+#[cfg(test)]
 fn taskspace_same_workspace_path(left: &str, right: &str) -> bool {
     taskspace_normalize_retry_path(left) == taskspace_normalize_retry_path(right)
 }
 
+#[cfg(test)]
 fn taskspace_normalize_retry_path(path: &str) -> String {
     let trimmed = path.trim().trim_matches(['"', '\'', '`']);
     if trimmed == "/" {
@@ -2516,6 +2407,7 @@ fn taskspace_normalize_retry_path(path: &str) -> String {
     trimmed.trim_end_matches('/').to_string()
 }
 
+#[cfg(test)]
 fn taskspace_workspace_alias_root(path: &str) -> Option<&'static str> {
     let normalized = taskspace_normalize_retry_path(path);
     ["/data", "/app"]
@@ -3463,14 +3355,18 @@ fn taskspace_apply_patch_replacement_required_should_hard_stop(
     is_taskspace_apply_patch_replacement_required_recovery_item(item) && previous_recovery_count > 0
 }
 
+#[cfg(test)]
 fn taskspace_path_correction_recovery_should_hard_stop(
     item: &ResponseItem,
     previous_recovery_count: usize,
     path_correction_cleared_this_request: bool,
 ) -> bool {
-    is_taskspace_path_correction_recovery_item(item)
-        && !path_correction_cleared_this_request
-        && previous_recovery_count > 0
+    let _ = (
+        item,
+        previous_recovery_count,
+        path_correction_cleared_this_request,
+    );
+    false
 }
 
 fn taskspace_no_action_recovery_should_hard_stop(
@@ -8692,7 +8588,7 @@ TaskSpace implement_solution node `node-6` cannot be blocked for missing source 
     }
 
     #[test]
-    fn path_correction_recovery_item_blocks_absolute_retry() {
+    fn path_correction_recovery_item_is_advisory_feedback() {
         let output = tool_output(
             "rg: /data/source_a: IO error for operation on /data/source_a: No such file or directory",
         );
@@ -8708,39 +8604,47 @@ TaskSpace implement_solution node `node-6` cannot be blocked for missing source 
         assert!(text.contains("failure_kind: path_not_found_with_relative_candidate"));
         assert!(text.contains("failed_path: /data/source_a"));
         assert!(text.contains("suggested_relative_path: data/source_a"));
-        assert!(text.contains("Do not retry `/data/source_a`"));
-        assert!(text.contains("read_file action with args.path exactly `data/source_a`"));
-        assert!(text.contains("list_files/search with args.path exactly `data/source_a`"));
-        assert!(text.contains(TASKSPACE_GATE_RECOVERY_MARKER));
-        assert!(text.contains("\"reason\":\"path_correction_retry_forbidden\""));
-        assert!(text.contains("emit read_file with args.path exactly `data/source_a`"));
-        assert!(text.contains("or emit list_files/search with args.path exactly `data/source_a`"));
-        assert!(text.contains("do not use `/data/source_a` or `/data/source_a/...`"));
+        assert!(text.contains("Suggested recovery, not a runtime gate"));
+        assert!(text.contains("Workspace-relative candidate: `data/source_a`"));
+        assert!(text.contains("read_file with args.path `data/source_a`"));
+        assert!(text.contains("list_files/search with args.path `data/source_a`"));
+        assert!(text.contains("will not block other state-machine-legal tool actions"));
+        assert!(!text.contains(TASKSPACE_GATE_RECOVERY_MARKER));
+        assert!(!text.contains("\"reason\":\"path_correction_retry_forbidden\""));
     }
 
     #[test]
-    fn path_correction_rejection_followup_preserves_structured_next_actions() {
+    fn path_correction_retry_is_advisory_not_action_contract_rejection() {
         let correction = TaskspacePathCorrection {
             failed_path: "/data".to_string(),
             suggested_relative_path: "data".to_string(),
         };
-        let followup = taskspace_path_correction_rejection_followup(
-            "path_correction_retry_forbidden:.:suggested_relative_path=data",
-            Some(&correction),
-            Some("inspect_code_context"),
-        );
+        let broad_root = parse_taskspace_action_v1(
+            r#"{"schema_version":"taskspace-action-v1","action":"list_files","args":{"path":"."}}"#,
+        )
+        .expect("valid action");
+        let absolute_retry = parse_taskspace_action_v1(
+            r#"{"schema_version":"taskspace-action-v1","action":"list_files","args":{"path":"/data"}}"#,
+        )
+        .expect("valid action");
 
-        assert!(followup.contains("TaskSpaceActionV1 rejected"));
-        assert!(followup.contains(TASKSPACE_GATE_RECOVERY_MARKER));
-        assert!(followup.contains("\"reason\":\"path_correction_retry_forbidden\""));
-        assert!(followup.contains("emit read_file with args.path exactly `data`"));
-        assert!(followup.contains("or emit list_files/search with args.path exactly `data`"));
-        assert!(followup.contains("do not use `/data` or `/data/...`"));
-        assert!(followup.contains("concrete child path under `data`"));
+        assert!(taskspace_path_correction_retry_reject_reason(&broad_root, &correction).is_none());
+        assert!(
+            taskspace_path_correction_retry_reject_reason(&absolute_retry, &correction).is_none()
+        );
+        assert_eq!(
+            taskspace_path_correction_retry_advisory_reason(&broad_root, &correction).as_deref(),
+            Some("path_correction_advisory:.:suggested_relative_path=data")
+        );
+        assert_eq!(
+            taskspace_path_correction_retry_advisory_reason(&absolute_retry, &correction)
+                .as_deref(),
+            Some("path_correction_advisory:/data:suggested_relative_path=data")
+        );
     }
 
     #[test]
-    fn path_correction_recovery_hard_stops_after_one_retry_prompt() {
+    fn path_correction_recovery_does_not_hard_stop() {
         let correction = TaskspacePathCorrection {
             failed_path: "/data/source_a/users.json".to_string(),
             suggested_relative_path: "data/source_a/users.json".to_string(),
@@ -8753,20 +8657,12 @@ TaskSpace implement_solution node `node-6` cannot be blocked for missing source 
         assert!(!taskspace_path_correction_recovery_should_hard_stop(
             &item, 0, false
         ));
-        assert!(taskspace_path_correction_recovery_should_hard_stop(
+        assert!(!taskspace_path_correction_recovery_should_hard_stop(
             &item, 1, false
         ));
         assert!(!taskspace_path_correction_recovery_should_hard_stop(
             &item, 1, true
         ));
-
-        let hard_stop = build_taskspace_path_correction_hard_stop_item(&item, 2);
-        let text = item_text(hard_stop.clone());
-        assert!(text.contains(TASKSPACE_PATH_CORRECTION_HARD_STOP_MARKER));
-        assert!(text.contains("reason: repeated_path_correction_retry_forbidden"));
-        assert!(text.contains("attempt_count: 2"));
-        assert!(!is_taskspace_path_correction_recovery_item(&hard_stop));
-        assert!(is_taskspace_path_correction_hard_stop_item(&hard_stop));
     }
 
     #[test]
@@ -8831,7 +8727,7 @@ TaskSpace implement_solution node `node-6` cannot be blocked for missing source 
     }
 
     #[test]
-    fn path_correction_rejects_repeated_absolute_action_path() {
+    fn path_correction_allows_repeated_absolute_action_path() {
         let correction = TaskspacePathCorrection {
             failed_path: "/data".to_string(),
             suggested_relative_path: "data".to_string(),
@@ -8841,17 +8737,15 @@ TaskSpace implement_solution node `node-6` cannot be blocked for missing source 
         )
         .expect("valid action");
 
-        let reason = taskspace_path_correction_retry_reject_reason(&action, &correction)
-            .expect("absolute retry rejected");
-
+        assert!(taskspace_path_correction_retry_reject_reason(&action, &correction).is_none());
         assert_eq!(
-            reason,
-            "path_correction_retry_forbidden:/data:suggested_relative_path=data"
+            taskspace_path_correction_retry_advisory_reason(&action, &correction).as_deref(),
+            Some("path_correction_advisory:/data:suggested_relative_path=data")
         );
     }
 
     #[test]
-    fn path_correction_rejects_absolute_child_after_alias_root_failure() {
+    fn path_correction_allows_absolute_child_after_alias_root_failure() {
         let correction = TaskspacePathCorrection {
             failed_path: "/data".to_string(),
             suggested_relative_path: "data".to_string(),
@@ -8861,17 +8755,17 @@ TaskSpace implement_solution node `node-6` cannot be blocked for missing source 
         )
         .expect("valid action");
 
-        let reason = taskspace_path_correction_retry_reject_reason(&action, &correction)
-            .expect("absolute child rejected");
-
+        assert!(taskspace_path_correction_retry_reject_reason(&action, &correction).is_none());
         assert_eq!(
-            reason,
-            "path_correction_retry_forbidden:/data/source_a/users.json:suggested_relative_path=data/source_a/users.json"
+            taskspace_path_correction_retry_advisory_reason(&action, &correction).as_deref(),
+            Some(
+                "path_correction_advisory:/data/source_a/users.json:suggested_relative_path=data/source_a/users.json"
+            )
         );
     }
 
     #[test]
-    fn path_correction_rejects_broad_root_after_relative_candidate() {
+    fn path_correction_allows_broad_root_after_relative_candidate() {
         let correction = TaskspacePathCorrection {
             failed_path: "/data".to_string(),
             suggested_relative_path: "data".to_string(),
@@ -8881,12 +8775,10 @@ TaskSpace implement_solution node `node-6` cannot be blocked for missing source 
         )
         .expect("valid action");
 
-        let reason = taskspace_path_correction_retry_reject_reason(&action, &correction)
-            .expect("broad root drift rejected");
-
+        assert!(taskspace_path_correction_retry_reject_reason(&action, &correction).is_none());
         assert_eq!(
-            reason,
-            "path_correction_retry_forbidden:.:suggested_relative_path=data"
+            taskspace_path_correction_retry_advisory_reason(&action, &correction).as_deref(),
+            Some("path_correction_advisory:.:suggested_relative_path=data")
         );
     }
 
@@ -11247,7 +11139,7 @@ TaskSpaceGateRecoveryV1: {\"schema_version\":\"TaskSpaceGateRecoveryV1\",\"allow
     fn extracts_projection_sync_from_recovery_message_gate_recovery() {
         let item = message(
             "developer",
-            "TaskSpacePathCorrectionRecoveryV1:\nfailed_path: /data\nsuggested_relative_path: data\nTaskSpaceGateRecoveryV1: {\"schema_version\":\"TaskSpaceGateRecoveryV1\",\"allowed\":false,\"reason\":\"path_correction_retry_forbidden\",\"next_valid_actions\":[\"emit list_files with args.path `data`\",\"or emit blocked with exact relative-path failure evidence if the suggested path also fails\"]}",
+            "TaskSpaceValidationNeedsTestRecoveryV1:\nTaskSpaceGateRecoveryV1: {\"schema_version\":\"TaskSpaceGateRecoveryV1\",\"allowed\":false,\"reason\":\"validation_test_missing_output_contract_coverage\",\"next_valid_actions\":[\"run_test with command `python generate_json.py && python -m jsonschema -i organization.json schema.json`\"]}",
         );
 
         let sync = taskspace_gate_recovery_projection_sync_from_item(&item)
@@ -11255,13 +11147,12 @@ TaskSpaceGateRecoveryV1: {\"schema_version\":\"TaskSpaceGateRecoveryV1\",\"allow
 
         assert_eq!(
             sync.reason.as_deref(),
-            Some("path_correction_retry_forbidden")
+            Some("validation_test_missing_output_contract_coverage")
         );
         assert_eq!(
             sync.next_valid_actions,
             vec![
-                "emit list_files with args.path `data`",
-                "or emit blocked with exact relative-path failure evidence if the suggested path also fails",
+                "run_test with command `python generate_json.py && python -m jsonschema -i organization.json schema.json`",
             ]
         );
     }
@@ -16210,15 +16101,6 @@ async fn try_run_sampling_request(
                             };
                             if let Some(reason) = closed_rework_read_reject {
                                 Err(reason)
-                            } else if let Some(reason) = tool_path_correction_feedback
-                                .as_ref()
-                                .and_then(|correction| {
-                                    taskspace_path_correction_retry_reject_reason(
-                                        &action, correction,
-                                    )
-                                })
-                            {
-                                Err(reason)
                             } else {
                                 let action = if let Some(snapshot) =
                                     provider_budget_snapshot.as_ref()
@@ -16432,13 +16314,7 @@ async fn try_run_sampling_request(
                                 String::new()
                             };
                             last_agent_message = Some(if patch_intent_suffix.is_empty() {
-                                taskspace_path_correction_rejection_followup(
-                                    &reason,
-                                    tool_path_correction_feedback.as_ref(),
-                                    provider_budget_snapshot
-                                        .as_ref()
-                                        .and_then(|snapshot| snapshot.node_kind.as_deref()),
-                                )
+                                taskspace_action_contract_rejection_followup(&reason)
                             } else {
                                 format!(
                                     "TaskSpaceActionV1 rejected: {reason}{patch_intent_suffix}. Return exactly one valid taskspace-action-v1 JSON object."
