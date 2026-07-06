@@ -10539,3 +10539,47 @@
   - H-167 is confirmed as a feedback-retention defect, not a need for stronger runtime semantic control.
   - The H-166 framing is closed as downgraded/superseded: duplicate read blocking remains a hard baseline, but the primary fix is faithful Agent-visible read evidence retention.
   - Live E3/right-only rerun is still needed to prove `multi-source-data-merger` no longer repeats `source_a` because the read body is absent from active context.
+
+# Evidence E-332: H-167 targeted sample rerun was inconclusive because path correction hard-stopped before source reads
+
+- Prediction tested: A right-only `multi-source-data-merger` rerun should reach `read_file data/source_a/users.json`; after that read, the active provider context should expose the actual bounded read body and avoid the previous `source_a` repeat-read loop.
+- Run:
+  ```text
+  RunRoot: target/r4-h167-multisource-right-only-20260706-213457
+  RunDir: target/r4-h167-multisource-right-only-20260706-213457/runs/terminal_bench__multi-source-data-merger/20260706-213501-596
+  RunSide: right
+  Repeats: 1
+  business_success=false
+  public_validation_exit_code=1
+  tool_call_count=1
+  failed_tool_call_count=1
+  changed_paths=[]
+  ```
+- Observation:
+  - The first ordinary action was `list_files /data`, which failed with `No such file or directory`.
+  - TaskSpace returned path-correction recovery with `suggested_relative_path=data`.
+  - The next model action was `list_files "."`, not `list_files data` or `read_file data/...`.
+  - Action-contract rejected that action as `path_correction_retry_forbidden:.:suggested_relative_path=data`.
+  - Session then inserted `TaskSpacePathCorrectionHardStopV1 attempt_count=2` and ended the turn.
+  - No successful `read_file data/source_a/users.json` occurred, so H-167's provider-visible read-retention prediction was not exercised in this live run.
+- Interpretation:
+  - This run does not refute the H-167 local repair and does not prove H-167 live-cleared.
+  - It exposes a pre-H167 blocker: path-correction recovery can stop the sample before any source read happens.
+  - The hard-stop text says the provider "repeatedly retried an absolute workspace alias", but the second rejected action was broad root `.`; that is a feedback precision gap and should not be conflated with H-167.
+
+# Hypothesis H-168: path-correction broad-root hard-stop can preempt source-read verification
+
+- Claim: After `/data` fails and TaskSpace suggests `data`, the current path-correction retry accounting treats a follow-up broad root action `list_files "."` as hard-stop-worthy on the same path-correction budget path. This can end the turn before the Agent consumes the suggested relative path and before source-read retention can be verified.
+- Status: active.
+- Boundary:
+  - Runtime may reject deterministic invalid path retries and broad root drift after a precise correction.
+  - Runtime should report the exact failed action and reason. It should not mislabel broad root drift as repeated absolute-alias retry.
+  - Any fix should remain in the feedback/error accounting layer; it should not auto-run `list_files data` on behalf of the Agent.
+- Predictions:
+  1. A focused path-correction test can reproduce `/data` failure followed by `.` rejection and show the hard-stop marker text/accounting does not distinguish broad-root drift from repeated absolute alias retry.
+  2. A narrowed recovery policy can preserve the hard baseline while giving the Agent a precise, non-distorted failure marker or one explicit recovery opportunity for `data`.
+  3. After H-168 is repaired, the same sample should reach at least `list_files data` or a concrete `read_file data/source_a/users.json`, allowing H-167 live verification to run.
+- Diagnostic evidence plan:
+  - Add focused coverage around `/data -> data` correction followed by `list_files "."`.
+  - Inspect `taskspace_path_correction_recovery_should_hard_stop(...)` and hard-stop recovery text generation for broad-root drift classification.
+  - Re-run the same right-only sample after any repair, and require the run to reach source reads before judging H-167 live status.

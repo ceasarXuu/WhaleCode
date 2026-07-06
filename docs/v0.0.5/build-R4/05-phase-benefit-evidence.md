@@ -1656,7 +1656,8 @@ projection 只保留了 wrapper preview，没有把 `John Doe`、`john@a.com` �
 3. `verified_input_evidence` 现在携带 `content_visibility: complete_read` 和 `TaskSpaceReadFileSummaryV1`，小型完整输入读
    不再只剩一行工具调用 preview。
 4. 该修复符合 runtime-as-tool 边界：状态机仍只是记录、投影、报错和执行硬底线，不替 Agent 判断 inspect 是否语义充分。
-5. live right-only rerun 仍待执行，用于验证 `multi-source-data-merger` 不再因为 `source_a` 内容不可见而重复读取。
+5. live right-only rerun 已执行一次但未命中 H167 验证点：`20260706-213501-596` 在读取 `source_a` 前被
+   path-correction hard-stop 截断；H167 仍需要下一次能到达 source read 的 live 验证。
 
 验证：
 
@@ -1676,6 +1677,25 @@ RUST_MIN_STACK=8388608 CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core task
 CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale
   passed
 ```
+
+追加 live attempt：
+
+```text
+RunRoot: target/r4-h167-multisource-right-only-20260706-213457
+RunDir: target/r4-h167-multisource-right-only-20260706-213457/runs/terminal_bench__multi-source-data-merger/20260706-213501-596
+RunSide: right
+tool_call_count=1
+failed_tool_call_count=1
+changed_paths=[]
+public_validation_exit_code=1
+terminal marker: TaskSpacePathCorrectionHardStopV1 attempt_count=2
+```
+
+该 run 的结论是 inconclusive：Agent 没有执行 `read_file data/source_a/users.json`，因此没有验证
+`verified_input_evidence` 的 live 保真效果。新收录的前置问题是
+`path-correction-broad-root-hardstop-preempts-source-read`：`/data` 失败后建议 `data`，Agent 改为 broad root
+`list_files "."`，runtime 拦截后用 repeated absolute-alias hard-stop 文案结束 turn。后续应先让该反馈精确化，
+再重跑同一 sample 验证 H167。
 
 同次审计把已实现策略按新边界重新分类：
 
