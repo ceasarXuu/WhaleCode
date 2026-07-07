@@ -11299,7 +11299,7 @@
 
 # Hypothesis H-178: unreviewed lifecycle result review is over-applied to ordinary work
 
-- Status: confirmed; repair in progress.
+- Status: fixed locally and live-supported by E-348/E-351.
 - Claim: The repeated `list_files` tail after E-346 is caused by a runtime boundary violation in `ActionMapRuntimeState::prepare_main_tool_call` and `prepare_spawn_assignment`: both call `validate_lifecycle_result_reviewed()` before ordinary work/subagent assignment. That check is appropriate for final response readiness and decision dependencies, but it is too strong as a general work preflight. It turns result-review bookkeeping into a semantic control gate and blocks wrong-but-state-machine-legal Agent actions.
 - Prediction:
   1. Code inspection should show ordinary tool calls and spawn assignment invoking the same unreviewed-result gate used by final response readiness.
