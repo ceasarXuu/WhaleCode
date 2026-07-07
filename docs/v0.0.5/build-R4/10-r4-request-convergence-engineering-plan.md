@@ -3,7 +3,7 @@
 - Created: 2026-07-08
 - Updated: 2026-07-08
 - Version: v0.0.5 build-R4 post-closeout
-- Status: Draft
+- Status: Active - Phase 1 ledger implemented; Phase 2 pending
 - Owner / Responsible: WhaleCode core runtime
 - Related Systems: TaskSpace runtime, ActionMapRuntime, session turn loop, action-contract feedback, active projection, context compiler, benchmark harness
 - Related Links:
@@ -235,6 +235,25 @@ Use three targeted samples before public-10 rerun:
 | Phase 4 Loop harness | sequence replay tests | no real sample needed | request count bounded in fixtures | 100% | pause until complete |
 | Phase 5 Targeted samples | paired rerun artifacts | no public-10 rerun needed | 3 sample benefit table | 100% or recorded no-go | pause until complete |
 | Phase 6 Public gate update | public-10 report | no E3 needed | updated R4 decision | 100% | decide E3/no-go |
+
+### Phase 1 Implementation Status - 2026-07-08
+
+Phase 1 已落地为观测账本，不是新的语义控制策略。
+
+已实现内容：
+
+1. `provider_request_budget` trace event 追加 `schema:taskspace-provider-request-reason-v1`。
+2. 每轮 provider request 记录 `trigger_kind`、`response_actionability_previous`、`latest_tool_result_refs`、`model_visible_feedback_refs`、`adoption_blockers`、`projection_bundle_hash`、`request_reason_delta`、`repeated_same_reason_count`、`reason_confidence`。
+3. provider budget pre-dispatch hard baseline 触发时，也记录同一套 reason tags，便于复盘最后一轮为什么停在硬基线。
+4. `repeated_same_reason_count` 只是 detector：它揭示相同原因、相同 projection/evidence 下的连续请求，不拒绝、不改写、不替 Agent 选择动作。
+
+边界说明：
+
+| Item | Decision |
+|---|---|
+| Runtime behavior | 不新增非预算 hard-stop，不新增动作纠正，不新增 strategy prompt |
+| Event visibility | 常规 provider lifecycle 继续返回 `TaskspaceTraceEventRecorded`；pre-dispatch hard-stop reason 写入 ActionMap snapshot trace，用于回放和报告 |
+| Next dependency | Phase 2 必须基于该账本识别 evidence adoption gap，不能直接加语义 stop |
 
 ## 11. Phased Execution Plan
 
@@ -785,8 +804,8 @@ Adversarial release/benefit review.
 
 | Plan Item | Expected Behavior | Production Code Path | Integration Entry | Test Evidence | Runtime / Log Evidence | Mock / Stub Exposure | Status |
 |---|---|---|---|---|---|---|---|
-| Request reason ledger | every provider request has reason | `session/turn.rs` or trace module | provider sampling | focused unit/replay tests | `TaskSpaceProviderRequestReasonV1` | none | planned |
-| Repeated same-reason gate | no extra provider request with unchanged reason/projection/evidence | request reason builder + loop fixture | provider sampling | repeated-reason tests | `request_reason_delta`, `repeated_same_reason_count` | none | planned |
+| Request reason ledger | every provider request has reason | `action_map/runtime.rs` trace enrichment | provider sampling lifecycle | `provider_request` 11/11; `provider_response_actionability` 10/10 | `schema:taskspace-provider-request-reason-v1` reason tags | none | implemented 2026-07-08 |
+| Repeated same-reason detector | unchanged reason/projection/evidence is observable without runtime blocking | `action_map/runtime.rs` reason delta builder | provider sampling lifecycle | `provider_request_reason_ledger_counts_repeated_no_delta_requests` | `request_reason_delta`, `repeated_same_reason_count` | none | detector implemented; no gate by design |
 | Evidence fact adoption repair | satisfied criteria/contracts record result refs without runtime semantic transition | `action_map/runtime.rs` | final gate / taskspace_control | final readiness + boundary negative tests | criterion/output contract refs, `adoption_actor` | none | planned |
 | Feedback semantic integrity | known tool feedback not downgraded | session recovery/projection paths | provider payload | action-contract/projection tests | feedback refs and projection hash | none | planned |
 | Loop regression harness | known loops do not create extra requests | test harness | codex-core tests | request convergence tests | reason summary artifact | test-only but required before sample gate | planned |
@@ -809,7 +828,7 @@ Adversarial release/benefit review.
 |---|---|---|
 | Formatting | `cargo fmt --check` in Rust workspace | pass |
 | Diff hygiene | `git diff --check` | pass |
-| Focused unit | `cargo test -p codex-core --lib provider_request_reason ...` | all pass |
+| Focused unit | `cargo test -p codex-core --lib provider_request --locked` | all pass |
 | Existing R4 regression | `provider_response_actionability`, `no_action_recovery`, `validation_rework`, `action_contract_prompt`, `provider_budget` | no regression |
 | Loop fixture | `request_convergence` filter | request count/reason assertions pass |
 | Targeted samples | harness output | solved or exact terminal no-go, no unknown reason |
@@ -879,6 +898,7 @@ No E3 progression is allowed from this plan until Phase 6 records a measured go 
 
 | Date | Change |
 |---|---|
+| 2026-07-08 | Implemented Phase 1 provider request reason ledger in ActionMap trace; repeated same-reason is detector-only |
 | 2026-07-08 | Initial engineering plan drafted for R4 request convergence |
 
 ## 22. Plan Quality Checklist

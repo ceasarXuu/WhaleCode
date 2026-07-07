@@ -856,6 +856,34 @@ struct MainToolTraceDraft {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+struct ProviderResponseActionabilityTrace {
+    trace_event_id: String,
+    response_actionability: String,
+    recovery_action: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ProviderRequestReasonFields {
+    trigger_kind: String,
+    response_actionability_previous: String,
+    previous_response_trace_event_id: Option<String>,
+    latest_tool_result_refs: Vec<String>,
+    model_visible_feedback_refs: Vec<String>,
+    adoption_blockers: Vec<String>,
+    projection_bundle_hash: String,
+    request_reason_delta: String,
+    repeated_same_reason_count: usize,
+    reason_confidence: String,
+}
+
+struct ProviderRequestReasonFingerprint<'a> {
+    trigger_kind: &'a str,
+    adoption_blockers: &'a [String],
+    latest_tool_result_refs: &'a [String],
+    projection_bundle_hash: &'a str,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct ActionMapMaintenanceBarrier {
     map_id: ActionMapId,
     node_id: MapNodeId,
@@ -1312,6 +1340,7 @@ impl ActionMapRuntimeState {
             Self::taskspace_validation_rework_patch_feedback_grace_available(snapshot);
         if rollout_limit_exceeded && !grace_remaining && !validation_rework_patch_feedback_grace {
             let reason = "provider_request_hard_limit_exceeded";
+            self.record_provider_request_budget_hard_stop_trace_event(snapshot, reason);
             let node_id = snapshot
                 .node_id
                 .as_deref()
@@ -1365,6 +1394,153 @@ impl ActionMapRuntimeState {
             recovery_request_phase: None,
             quality_impact_required: false,
         }
+    }
+
+    fn record_provider_request_budget_hard_stop_trace_event(
+        &mut self,
+        snapshot: &ActionMapProviderRequestBudgetSnapshot,
+        reason: &str,
+    ) {
+        if self.mode != MapRuntimeMode::Experiment {
+            return;
+        }
+        let map_id = snapshot.map_id.clone();
+        let node_id = snapshot
+            .node_id
+            .clone()
+            .unwrap_or_else(|| "provider-context-missing".to_string());
+        let request_phase = snapshot
+            .request_phase
+            .clone()
+            .unwrap_or_else(|| "unknown".to_string());
+        let logical_request_id = format!(
+            "provider-request:{}:{}:pre-dispatch-hard-stop-{}",
+            map_id, node_id, snapshot.request_count
+        );
+        let request_id = format!("{logical_request_id}:attempt-1");
+        let input = ActionMapProviderRequestBudgetEventInput {
+            request_id: request_id.clone(),
+            logical_request_id: logical_request_id.clone(),
+            parent_request_id: None,
+            attempt_seq: 1,
+            transport: "pre_dispatch".to_string(),
+            status: "blocked".to_string(),
+            request_count_before: snapshot.request_count,
+            request_count_after: snapshot.request_count,
+            max_requests: snapshot.max_requests,
+            budget_state_before: snapshot.budget_state.clone(),
+            budget_state_after: snapshot.budget_state.clone(),
+            budget_transition_reason: reason.to_string(),
+            started_at_ms: now_ms(),
+            completed_at_ms: None,
+            latency_ms: None,
+            input_tokens: None,
+            cached_input_tokens: None,
+            output_tokens: None,
+            reasoning_output_tokens: None,
+            total_tokens: None,
+            provider_payload_sha256: None,
+            provider_payload_bytes: None,
+            provider_wire_api: None,
+            tools_count: None,
+            tools_present: None,
+            request_shape_classifier: None,
+            messages_hash: None,
+            stable_prefix_hash: None,
+            dynamic_suffix_hash: None,
+            exact_payload_scan_passed: None,
+            active_projection_present: None,
+            legacy_taskspace_history_present: None,
+            large_raw_output_tokens: None,
+            protected_items_present: None,
+            replacement_confirmed: None,
+            exact_payload_scan: None,
+            task_id: snapshot.task_id.clone(),
+            map_id: Some(map_id.clone()),
+            node_id: Some(node_id.clone()),
+            request_phase: Some(request_phase.clone()),
+        };
+        let reason_fields = self.provider_request_reason_fields(
+            snapshot,
+            &input,
+            map_id.as_str(),
+            node_id.as_str(),
+            request_phase.as_str(),
+        );
+        let id = self.next_trace_event_id();
+        let mut tags = vec![
+            "schema:taskspace-provider-request-budget-event-v1".to_string(),
+            "schema:taskspace-provider-request-reason-v1".to_string(),
+            "producer:provider_lifecycle".to_string(),
+            "transport:pre_dispatch".to_string(),
+            "status:blocked".to_string(),
+            "hard_stop_stage:pre_dispatch".to_string(),
+            format!("hard_stop_reason:{reason}"),
+            format!("request_count_before:{}", snapshot.request_count),
+            format!("request_count_after:{}", snapshot.request_count),
+            format!("max_requests:{}", snapshot.max_requests),
+            format!("runtime_budget_state:{}", self.budget_state.as_str()),
+            format!("budget_state_before:{}", snapshot.budget_state),
+            format!("budget_state_after:{}", snapshot.budget_state),
+            format!("budget_transition_reason:{reason}"),
+            format!("request_phase:{request_phase}"),
+            format!(
+                "node_kind:{}",
+                snapshot.node_kind.as_deref().unwrap_or("unknown")
+            ),
+            format!("trigger_kind:{}", reason_fields.trigger_kind),
+            format!(
+                "response_actionability_previous:{}",
+                reason_fields.response_actionability_previous
+            ),
+            format!(
+                "latest_tool_result_refs:{}",
+                provider_request_reason_join(&reason_fields.latest_tool_result_refs)
+            ),
+            format!(
+                "model_visible_feedback_refs:{}",
+                provider_request_reason_join(&reason_fields.model_visible_feedback_refs)
+            ),
+            format!(
+                "adoption_blockers:{}",
+                provider_request_reason_join(&reason_fields.adoption_blockers)
+            ),
+            format!(
+                "projection_bundle_hash:{}",
+                reason_fields.projection_bundle_hash
+            ),
+            format!(
+                "request_reason_delta:{}",
+                reason_fields.request_reason_delta
+            ),
+            format!(
+                "repeated_same_reason_count:{}",
+                reason_fields.repeated_same_reason_count
+            ),
+            format!("reason_confidence:{}", reason_fields.reason_confidence),
+            format!("logical_request_id:{logical_request_id}"),
+            "attempt_seq:1".to_string(),
+        ];
+        if let Some(previous_trace_id) = reason_fields.previous_response_trace_event_id {
+            tags.push(format!(
+                "previous_response_trace_event_id:{previous_trace_id}"
+            ));
+        }
+        let event = TaskSpaceTraceEvent {
+            id: id.clone(),
+            kind: "provider_request_budget".to_string(),
+            task_id: snapshot.task_id.clone(),
+            map_id,
+            node_id,
+            result_id: None,
+            call_id: Some(request_id),
+            action_class: None,
+            tool_success: Some(false),
+            tags,
+            artifact_refs: Vec::new(),
+            created_at_ms: now_ms(),
+        };
+        self.taskspace_trace_events.push(event);
     }
 
     pub(crate) fn gate_create_node_budget(
@@ -3149,6 +3325,13 @@ preview:\n\
                 .clone()
                 .filter(|phase| !phase.trim().is_empty())
                 .unwrap_or_else(|| "unknown".to_string());
+            let reason_fields = self.provider_request_reason_fields(
+                snapshot,
+                &input,
+                map_id.as_str(),
+                node_id.as_str(),
+                request_phase.as_str(),
+            );
             if input.status == "started"
                 && self
                     .pending_provider_request_phase
@@ -3206,10 +3389,59 @@ preview:\n\
                 ),
                 format!("started_at_ms:{}", input.started_at_ms),
                 format!("request_phase:{request_phase}"),
+                "schema:taskspace-provider-request-reason-v1".to_string(),
+                format!(
+                    "node_kind:{}",
+                    snapshot.node_kind.as_deref().unwrap_or("unknown")
+                ),
+                format!("trigger_kind:{}", reason_fields.trigger_kind),
+                format!(
+                    "response_actionability_previous:{}",
+                    reason_fields.response_actionability_previous
+                ),
+                format!(
+                    "previous_response_recovery_action:{}",
+                    self.latest_provider_response_actionability_trace(
+                        map_id.as_str(),
+                        node_id.as_str()
+                    )
+                    .map(|trace| trace.recovery_action)
+                    .unwrap_or_else(|| "none".to_string())
+                ),
+                format!(
+                    "latest_tool_result_refs:{}",
+                    provider_request_reason_join(&reason_fields.latest_tool_result_refs)
+                ),
+                format!(
+                    "model_visible_feedback_refs:{}",
+                    provider_request_reason_join(&reason_fields.model_visible_feedback_refs)
+                ),
+                format!(
+                    "adoption_blockers:{}",
+                    provider_request_reason_join(&reason_fields.adoption_blockers)
+                ),
+                format!(
+                    "projection_bundle_hash:{}",
+                    reason_fields.projection_bundle_hash
+                ),
+                format!(
+                    "request_reason_delta:{}",
+                    reason_fields.request_reason_delta
+                ),
+                format!(
+                    "repeated_same_reason_count:{}",
+                    reason_fields.repeated_same_reason_count
+                ),
+                format!("reason_confidence:{}", reason_fields.reason_confidence),
                 "producer:provider_lifecycle".to_string(),
                 format!("logical_request_id:{}", input.logical_request_id),
                 format!("attempt_seq:{}", input.attempt_seq),
             ];
+            if let Some(previous_trace_id) = reason_fields.previous_response_trace_event_id {
+                tags.push(format!(
+                    "previous_response_trace_event_id:{previous_trace_id}"
+                ));
+            }
             if request_phase == "unknown" {
                 tags.push("request_phase_missing_reason:provider_context_missing".to_string());
             }
@@ -3514,6 +3746,167 @@ preview:\n\
             ));
         }
         Some(events)
+    }
+
+    fn provider_request_reason_fields(
+        &self,
+        snapshot: &ActionMapProviderRequestBudgetSnapshot,
+        input: &ActionMapProviderRequestBudgetEventInput,
+        map_id: &str,
+        node_id: &str,
+        request_phase: &str,
+    ) -> ProviderRequestReasonFields {
+        let previous_actionability =
+            self.latest_provider_response_actionability_trace(map_id, node_id);
+        let latest_tool_result_refs = self.latest_main_tool_result_refs(map_id, node_id, 5);
+        let adoption_blockers = provider_request_adoption_blockers(snapshot, request_phase);
+        let projection_bundle_hash = input
+            .dynamic_suffix_hash
+            .as_deref()
+            .or(input.provider_payload_sha256.as_deref())
+            .unwrap_or("unavailable")
+            .to_string();
+        let response_actionability_previous = previous_actionability
+            .as_ref()
+            .map(|trace| trace.response_actionability.clone())
+            .unwrap_or_else(|| "none".to_string());
+        let trigger_kind = provider_request_trigger_kind(
+            snapshot,
+            input,
+            request_phase,
+            response_actionability_previous.as_str(),
+            &adoption_blockers,
+        );
+        let mut model_visible_feedback_refs = latest_tool_result_refs.clone();
+        if let Some(trace) = previous_actionability.as_ref() {
+            model_visible_feedback_refs.push(trace.trace_event_id.clone());
+        }
+        let (request_reason_delta, repeated_same_reason_count) = self
+            .provider_request_reason_delta_and_count(
+                map_id,
+                node_id,
+                input.status.as_str(),
+                input.logical_request_id.as_str(),
+                ProviderRequestReasonFingerprint {
+                    trigger_kind: trigger_kind.as_str(),
+                    adoption_blockers: &adoption_blockers,
+                    latest_tool_result_refs: &latest_tool_result_refs,
+                    projection_bundle_hash: projection_bundle_hash.as_str(),
+                },
+            );
+        let reason_confidence = provider_request_reason_confidence(
+            request_phase,
+            trigger_kind.as_str(),
+            &previous_actionability,
+            &adoption_blockers,
+        );
+        ProviderRequestReasonFields {
+            trigger_kind,
+            response_actionability_previous,
+            previous_response_trace_event_id: previous_actionability
+                .as_ref()
+                .map(|trace| trace.trace_event_id.clone()),
+            latest_tool_result_refs,
+            model_visible_feedback_refs,
+            adoption_blockers,
+            projection_bundle_hash,
+            request_reason_delta,
+            repeated_same_reason_count,
+            reason_confidence,
+        }
+    }
+
+    fn latest_provider_response_actionability_trace(
+        &self,
+        map_id: &str,
+        node_id: &str,
+    ) -> Option<ProviderResponseActionabilityTrace> {
+        self.taskspace_trace_events
+            .iter()
+            .rev()
+            .find(|event| {
+                event.kind == "provider_response_actionability"
+                    && event.map_id == map_id
+                    && event.node_id == node_id
+            })
+            .map(|event| ProviderResponseActionabilityTrace {
+                trace_event_id: event.id.clone(),
+                response_actionability: trace_tag_value(&event.tags, "response_actionability")
+                    .unwrap_or("unknown")
+                    .to_string(),
+                recovery_action: trace_tag_value(&event.tags, "recovery_action")
+                    .unwrap_or("unknown")
+                    .to_string(),
+            })
+    }
+
+    fn latest_main_tool_result_refs(
+        &self,
+        map_id: &str,
+        node_id: &str,
+        limit: usize,
+    ) -> Vec<String> {
+        let mut refs = self
+            .taskspace_trace_events
+            .iter()
+            .rev()
+            .filter(|event| {
+                event.kind == "main_tool_result"
+                    && event.map_id == map_id
+                    && event.node_id == node_id
+            })
+            .filter_map(|event| event.result_id.clone())
+            .take(limit)
+            .collect::<Vec<_>>();
+        refs.reverse();
+        refs
+    }
+
+    fn provider_request_reason_delta_and_count(
+        &self,
+        map_id: &str,
+        node_id: &str,
+        status: &str,
+        logical_request_id: &str,
+        current: ProviderRequestReasonFingerprint<'_>,
+    ) -> (String, usize) {
+        let Some(previous) = self.taskspace_trace_events.iter().rev().find(|event| {
+            event.kind == "provider_request_budget"
+                && event.map_id == map_id
+                && event.node_id == node_id
+                && trace_tag_value(&event.tags, "status") == Some(status)
+                && trace_tag_value(&event.tags, "logical_request_id") != Some(logical_request_id)
+        }) else {
+            return ("initial_request".to_string(), 0);
+        };
+        let previous_latest_tool_result_refs =
+            trace_tag_value(&previous.tags, "latest_tool_result_refs").unwrap_or("none");
+        let current_latest_tool_result_refs =
+            provider_request_reason_join(current.latest_tool_result_refs);
+        if previous_latest_tool_result_refs != current_latest_tool_result_refs {
+            return ("new_tool_result_refs".to_string(), 0);
+        }
+        let previous_projection_bundle_hash =
+            trace_tag_value(&previous.tags, "projection_bundle_hash").unwrap_or("unavailable");
+        if current.projection_bundle_hash != "unavailable"
+            && previous_projection_bundle_hash != current.projection_bundle_hash
+        {
+            return ("changed_projection".to_string(), 0);
+        }
+        let previous_adoption_blockers =
+            trace_tag_value(&previous.tags, "adoption_blockers").unwrap_or("none");
+        let current_adoption_blockers = provider_request_reason_join(current.adoption_blockers);
+        if previous_adoption_blockers != current_adoption_blockers {
+            return ("changed_adoption_blockers".to_string(), 0);
+        }
+        let previous_trigger_kind =
+            trace_tag_value(&previous.tags, "trigger_kind").unwrap_or("unknown");
+        if previous_trigger_kind != current.trigger_kind {
+            return ("changed_trigger".to_string(), 0);
+        }
+        let repeated_same_reason_count =
+            trace_tag_usize(&previous.tags, "repeated_same_reason_count").unwrap_or(0) + 1;
+        ("none".to_string(), repeated_same_reason_count)
     }
 
     pub(crate) fn record_provider_response_actionability(
@@ -14465,6 +14858,114 @@ fn trace_tag_bool(tags: &[String], key: &str) -> Option<bool> {
     trace_tag_value(tags, key).and_then(|value| value.parse::<bool>().ok())
 }
 
+fn provider_request_adoption_blockers(
+    snapshot: &ActionMapProviderRequestBudgetSnapshot,
+    request_phase: &str,
+) -> Vec<String> {
+    let mut blockers = Vec::new();
+    if request_phase == "unknown" {
+        blockers.push("request_phase_unknown".to_string());
+    }
+    if let Some(reason) = snapshot.provider_request_context_missing_reason.as_deref() {
+        blockers.push(format!(
+            "provider_context_missing:{}",
+            sanitize_provider_response_trace_tag_value(reason)
+        ));
+    }
+    if snapshot.current_node_has_uncovered_mandatory_evidence {
+        if snapshot
+            .current_node_uncovered_mandatory_evidence
+            .is_empty()
+        {
+            blockers.push("uncovered_mandatory_evidence".to_string());
+        } else {
+            blockers.extend(
+                snapshot
+                    .current_node_uncovered_mandatory_evidence
+                    .iter()
+                    .take(5)
+                    .map(|item| {
+                        format!(
+                            "uncovered_mandatory_evidence:{}",
+                            sanitize_provider_response_trace_tag_value(item)
+                        )
+                    }),
+            );
+        }
+    }
+    if !snapshot.current_node_validation_rework_artifacts.is_empty() {
+        blockers.push(format!(
+            "validation_rework_artifacts:{}",
+            provider_request_reason_join(&snapshot.current_node_validation_rework_artifacts)
+        ));
+    }
+    if blockers.is_empty() {
+        blockers.push("none".to_string());
+    }
+    blockers
+}
+
+fn provider_request_trigger_kind(
+    snapshot: &ActionMapProviderRequestBudgetSnapshot,
+    input: &ActionMapProviderRequestBudgetEventInput,
+    request_phase: &str,
+    response_actionability_previous: &str,
+    adoption_blockers: &[String],
+) -> String {
+    if input.status == "blocked" {
+        return "hard_baseline_stop".to_string();
+    }
+    if request_phase == "budget_recovery" {
+        return "budget_recovery".to_string();
+    }
+    if matches!(
+        response_actionability_previous,
+        "no_action_follow_up" | "tool_feedback_recovery" | "final_rejected"
+    ) {
+        return "response_recovery".to_string();
+    }
+    if adoption_blockers.iter().any(|blocker| blocker != "none") {
+        return "open_adoption_blocker".to_string();
+    }
+    if request_phase == "final_synthesis" {
+        return "final_synthesis".to_string();
+    }
+    if snapshot.current_node_has_successful_edit {
+        return "post_edit_followup".to_string();
+    }
+    if request_phase == "unknown" {
+        return "unknown".to_string();
+    }
+    "model_sampling".to_string()
+}
+
+fn provider_request_reason_confidence(
+    request_phase: &str,
+    trigger_kind: &str,
+    previous_actionability: &Option<ProviderResponseActionabilityTrace>,
+    adoption_blockers: &[String],
+) -> String {
+    if trigger_kind == "unknown" || request_phase == "unknown" {
+        return "unknown".to_string();
+    }
+    if previous_actionability.is_some() || adoption_blockers.iter().any(|blocker| blocker != "none")
+    {
+        return "direct".to_string();
+    }
+    "derived".to_string()
+}
+
+fn provider_request_reason_join(values: &[String]) -> String {
+    if values.is_empty() {
+        return "none".to_string();
+    }
+    values
+        .iter()
+        .map(|value| sanitize_provider_response_trace_tag_value(value))
+        .collect::<Vec<_>>()
+        .join("|")
+}
+
 fn map_runtime_event_from_trace_event(event: TaskSpaceTraceEvent) -> MapRuntimeEvent {
     MapRuntimeEvent::TaskspaceTraceEventRecorded(MapRuntimeTraceEventRecordedEvent {
         trace_event_id: event.id,
@@ -14519,6 +15020,20 @@ fn is_known_trace_tag(tag: &str) -> bool {
         || tag.starts_with("request_phase:")
         || tag.starts_with("request_phase_missing_reason:")
         || tag.starts_with("provider_request_context_missing_reason:")
+        || tag.starts_with("node_kind:")
+        || tag.starts_with("trigger_kind:")
+        || tag.starts_with("response_actionability_previous:")
+        || tag.starts_with("previous_response_recovery_action:")
+        || tag.starts_with("previous_response_trace_event_id:")
+        || tag.starts_with("latest_tool_result_refs:")
+        || tag.starts_with("model_visible_feedback_refs:")
+        || tag.starts_with("adoption_blockers:")
+        || tag.starts_with("projection_bundle_hash:")
+        || tag.starts_with("request_reason_delta:")
+        || tag.starts_with("repeated_same_reason_count:")
+        || tag.starts_with("reason_confidence:")
+        || tag.starts_with("hard_stop_stage:")
+        || tag.starts_with("hard_stop_reason:")
         || tag.starts_with("provider_request_budget_trace_event_id:")
         || tag.starts_with("logical_request_id:")
         || tag.starts_with("attempt_seq:")
@@ -19758,6 +20273,58 @@ mod tests {
         }
     }
 
+    fn provider_request_budget_input(
+        request_id: &str,
+        logical_request_id: &str,
+        status: &str,
+        request_count_before: usize,
+        request_count_after: usize,
+        request_phase: Option<&str>,
+    ) -> ActionMapProviderRequestBudgetEventInput {
+        ActionMapProviderRequestBudgetEventInput {
+            request_id: request_id.to_string(),
+            logical_request_id: logical_request_id.to_string(),
+            parent_request_id: None,
+            attempt_seq: 1,
+            transport: "responses_http".to_string(),
+            status: status.to_string(),
+            request_count_before,
+            request_count_after,
+            max_requests: 10,
+            budget_state_before: "normal".to_string(),
+            budget_state_after: "normal".to_string(),
+            budget_transition_reason: "request_dispatched_without_state_change".to_string(),
+            started_at_ms: 100 + request_count_after as i64,
+            completed_at_ms: None,
+            latency_ms: None,
+            input_tokens: None,
+            cached_input_tokens: None,
+            output_tokens: None,
+            reasoning_output_tokens: None,
+            total_tokens: None,
+            provider_payload_sha256: None,
+            provider_payload_bytes: None,
+            provider_wire_api: None,
+            tools_count: None,
+            tools_present: None,
+            request_shape_classifier: None,
+            messages_hash: None,
+            stable_prefix_hash: None,
+            dynamic_suffix_hash: None,
+            exact_payload_scan_passed: None,
+            active_projection_present: None,
+            legacy_taskspace_history_present: None,
+            large_raw_output_tokens: None,
+            protected_items_present: None,
+            replacement_confirmed: None,
+            exact_payload_scan: None,
+            task_id: None,
+            map_id: None,
+            node_id: None,
+            request_phase: request_phase.map(str::to_string),
+        }
+    }
+
     #[test]
     fn provider_request_budget_events_record_replayable_trace() {
         let owner = ThreadId::new();
@@ -19921,6 +20488,42 @@ mod tests {
                 .tags
                 .iter()
                 .any(|tag| tag == "request_phase_missing_reason:provider_context_missing")
+        );
+        assert!(
+            started
+                .tags
+                .iter()
+                .any(|tag| tag == "schema:taskspace-provider-request-reason-v1")
+        );
+        assert!(
+            started
+                .tags
+                .iter()
+                .any(|tag| tag == "trigger_kind:open_adoption_blocker")
+        );
+        assert!(
+            started
+                .tags
+                .iter()
+                .any(|tag| tag == "response_actionability_previous:none")
+        );
+        assert!(
+            started
+                .tags
+                .iter()
+                .any(|tag| tag == "latest_tool_result_refs:none")
+        );
+        assert!(
+            started
+                .tags
+                .iter()
+                .any(|tag| tag == "request_reason_delta:initial_request")
+        );
+        assert!(
+            started
+                .tags
+                .iter()
+                .any(|tag| tag == "repeated_same_reason_count:0")
         );
         let MapRuntimeEvent::TaskspaceTraceEventRecorded(blocked) =
             events.get(2).expect("blocked provider trace event")
@@ -20111,6 +20714,101 @@ mod tests {
     }
 
     #[test]
+    fn provider_request_reason_ledger_counts_repeated_no_delta_requests() {
+        let owner = ThreadId::new();
+        let mut state = ActionMapRuntimeState::default();
+        state.set_mode(MapRuntimeMode::Experiment);
+        state
+            .start_task_for_main(
+                owner,
+                "request reason task".to_string(),
+                "record provider request reason deltas".to_string(),
+                "inspect".to_string(),
+                "inspect provider request reason tags".to_string(),
+                true,
+            )
+            .expect("start task");
+        let snapshot = state
+            .provider_request_budget_snapshot()
+            .expect("active budget snapshot");
+
+        let first = state
+            .record_provider_request_budget_events(
+                &snapshot,
+                vec![provider_request_budget_input(
+                    "provider-request-1",
+                    "provider-request:turn-a:logical-1",
+                    "started",
+                    0,
+                    1,
+                    Some("model_sampling"),
+                )],
+            )
+            .expect("first provider budget trace events");
+        let MapRuntimeEvent::TaskspaceTraceEventRecorded(first_started) =
+            first.first().expect("first provider trace event")
+        else {
+            panic!("expected provider budget trace event");
+        };
+        assert!(
+            first_started
+                .tags
+                .iter()
+                .any(|tag| tag == "trigger_kind:model_sampling")
+        );
+        assert!(
+            first_started
+                .tags
+                .iter()
+                .any(|tag| tag == "request_reason_delta:initial_request")
+        );
+        assert!(
+            first_started
+                .tags
+                .iter()
+                .any(|tag| tag == "repeated_same_reason_count:0")
+        );
+
+        let second = state
+            .record_provider_request_budget_events(
+                &snapshot,
+                vec![provider_request_budget_input(
+                    "provider-request-2",
+                    "provider-request:turn-a:logical-2",
+                    "started",
+                    1,
+                    2,
+                    Some("model_sampling"),
+                )],
+            )
+            .expect("second provider budget trace events");
+        let MapRuntimeEvent::TaskspaceTraceEventRecorded(second_started) =
+            second.first().expect("second provider trace event")
+        else {
+            panic!("expected provider budget trace event");
+        };
+        assert!(
+            second_started
+                .tags
+                .iter()
+                .any(|tag| tag == "request_reason_delta:none")
+        );
+        assert!(
+            second_started
+                .tags
+                .iter()
+                .any(|tag| tag == "repeated_same_reason_count:1")
+        );
+        assert_eq!(
+            state
+                .provider_request_budget_snapshot()
+                .expect("snapshot after repeated requests")
+                .request_count,
+            2
+        );
+    }
+
+    #[test]
     fn taskspace_active_budget_thin_route_uses_eight_requests_and_no_spawn() {
         let mut state = ActionMapRuntimeState::default();
         let owner = ThreadId::new();
@@ -20278,6 +20976,38 @@ mod tests {
                 .blocking_items
                 .iter()
                 .any(|item| item == "request_count:8/8")
+        );
+        let hard_stop = state
+            .taskspace_trace_events
+            .iter()
+            .rev()
+            .find(|event| {
+                event.kind == "provider_request_budget"
+                    && event.tags.iter().any(|tag| tag == "status:blocked")
+                    && event
+                        .tags
+                        .iter()
+                        .any(|tag| tag == "hard_stop_stage:pre_dispatch")
+            })
+            .expect("pre-dispatch provider hard stop trace");
+        assert_eq!(hard_stop.tool_success, Some(false));
+        assert!(
+            hard_stop
+                .tags
+                .iter()
+                .any(|tag| tag == "schema:taskspace-provider-request-reason-v1")
+        );
+        assert!(
+            hard_stop
+                .tags
+                .iter()
+                .any(|tag| tag == "trigger_kind:hard_baseline_stop")
+        );
+        assert!(
+            hard_stop
+                .tags
+                .iter()
+                .any(|tag| tag == "hard_stop_reason:provider_request_hard_limit_exceeded")
         );
     }
 

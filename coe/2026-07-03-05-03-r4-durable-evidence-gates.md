@@ -12288,3 +12288,71 @@
   - These residual failures are outside the repaired non-budget runtime-stop surface.
 - Interpretation:
   - H-189 is closed: non-budget runtime stops have been removed from the repaired production surface, and the closure review found no blocking residual boundary issue.
+
+# Hypothesis H-190: request-count amplification needs a provider-request reason ledger before semantic repairs
+
+- Claim: The remaining R4 request-count amplification cannot be engineered safely from budget counters alone. The runtime already records provider lifecycle, payload hash, active projection scan, node, and phase, but it does not persist why the next model request is needed in terms of previous response actionability, latest tool feedback refs, projection delta, adoption blockers, and repeated same-reason count. Without this ledger, later fixes can confuse observability with runtime semantic control.
+- Predictions:
+  1. Existing code has provider request lifecycle/budget events but no durable `TaskSpaceProviderRequestReasonV1`-style fields such as `trigger_kind`, `response_actionability_previous`, `latest_tool_result_refs`, `request_reason_delta`, or `repeated_same_reason_count`.
+  2. The provider dispatch path can carry these fields as trace metadata without blocking or rewriting the Agent's next action.
+  3. A focused unit test can prove repeated same-reason/no-delta requests are detectable as trace data while dispatch remains advisory.
+- Diagnostic evidence plan:
+  - Inspect `client.rs`, `session/turn.rs`, `session/mod.rs`, and `action_map/runtime.rs` for current provider-request event flow.
+  - Implement only observational fields and trace tags first.
+  - Validate by unit tests that started/payload/terminal events carry stable reason fields and repeated no-delta count increments.
+- Status: Phase 1 implemented; remaining request-convergence phases continue under the same hypothesis family.
+
+# Evidence E-368: R4 engineering plan and review require observational request reason fields
+
+- Prediction tested: H-190 predicts the next safe implementation step is a request reason ledger, not another runtime stop or semantic correction.
+- Evidence:
+  - `docs/v0.0.5/build-R4/10-r4-request-convergence-engineering-plan.md` defines Phase 1 as `provider request reason ledger` and requires `TaskSpaceProviderRequestReasonV1`-style fields including `trigger_kind`, `response_actionability_previous`, `latest_tool_result_refs`, `projection_bundle_hash`, `request_reason_delta`, and `repeated_same_reason_count`.
+  - `vs_review/2026-07-08-r4-request-convergence-plan-review.md` passed Round 3 closure at the plan level only after the plan made runtime boundary and request-count gates explicit.
+- Interpretation:
+  - H-190 is supported at the requirements/design level.
+
+# Evidence E-369: source inspection shows lifecycle events exist but reason fields are missing
+
+- Prediction tested: H-190 prediction 1.
+- Source observations:
+  - `third_party/codex-cli/codex-rs/core/src/client.rs` has `ProviderRequestBudgetEvent` carrying request id, transport, status, request counts, token usage, payload hashes, payload scan, task/map/node, and `request_phase`.
+  - `third_party/codex-cli/codex-rs/core/src/session/turn.rs` creates `ProviderRequestBudgetContext::enabled_with_attribution(...)` immediately before `stream_with_provider_request_budget(...)`.
+  - `third_party/codex-cli/codex-rs/core/src/session/mod.rs` forwards budget events into `ActionMapProviderRequestBudgetEventInput`.
+  - `third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs` records those inputs as `provider_request_budget` trace events and tags.
+  - None of those structs or trace tags contain `trigger_kind`, `response_actionability_previous`, `latest_tool_result_refs`, `adoption_blockers`, `request_reason_delta`, or `repeated_same_reason_count`.
+- Interpretation:
+  - H-190 is confirmed for the initial implementation slice: the root gap is missing observational attribution, not a missing stop condition.
+
+# Evidence E-370: provider-request reason ledger implemented as observational trace data
+
+- Prediction tested: H-190 predictions 2 and 3.
+- Repair:
+  - `third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs` now enriches `provider_request_budget` trace events with `schema:taskspace-provider-request-reason-v1`.
+  - Recorded reason fields include `node_kind`, `trigger_kind`, `response_actionability_previous`, `previous_response_recovery_action`, `previous_response_trace_event_id`, `latest_tool_result_refs`, `model_visible_feedback_refs`, `adoption_blockers`, `projection_bundle_hash`, `request_reason_delta`, `repeated_same_reason_count`, and `reason_confidence`.
+  - Provider budget pre-dispatch hard-stop now records the same reason schema as an ActionMap snapshot trace before returning the existing hard baseline decision.
+  - The repeated same-reason path is detector-only. It does not block provider dispatch, rewrite actions, hide tools, or inject next-action strategy.
+- Verification:
+
+  ```text
+  cargo fmt --check
+    passed in third_party/codex-cli/codex-rs
+    note: emitted existing rustfmt nightly-option warnings for imports_granularity
+
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib provider_request --locked
+    passed: 11 tests
+
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib provider_budget --locked
+    passed: 23 tests
+
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib provider_response_actionability --locked
+    passed: 10 tests
+
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib taskspace_active_budget_rollout_request_gate_blocks_pre_dispatch --locked
+    passed: 1 test
+
+  git diff --check
+    passed
+  ```
+- Interpretation:
+  - H-190 Phase 1 is closed: request-count amplification now has a durable reason ledger and repeated no-delta detector.
+  - The remaining repair work should consume this ledger to identify evidence adoption and projection gaps; it should not add runtime semantic control before a trace-backed adoption gap is proven.
