@@ -11296,3 +11296,242 @@
   - The remaining `agent_no_patch` is now driven by a different runtime-boundary/feedback issue: after `finish_node`, runtime blocks ordinary work until a result-validity `state_commit`, while the Agent creates another inspect node and repeats `list_files`.
   - No-action recovery still injects action guidance and references `next_valid_actions`; this is inconsistent with the clarified boundary and should become the next boundary repair area.
   - Do not respond to this by adding more semantic gates. First inspect whether result-validity/state transition feedback is being transmitted faithfully and whether the gate itself is an overreach beyond TaskSpace as a ledger/tool.
+
+# Hypothesis H-178: unreviewed lifecycle result review is over-applied to ordinary work
+
+- Status: confirmed; repair in progress.
+- Claim: The repeated `list_files` tail after E-346 is caused by a runtime boundary violation in `ActionMapRuntimeState::prepare_main_tool_call` and `prepare_spawn_assignment`: both call `validate_lifecycle_result_reviewed()` before ordinary work/subagent assignment. That check is appropriate for final response readiness and decision dependencies, but it is too strong as a general work preflight. It turns result-review bookkeeping into a semantic control gate and blocks wrong-but-state-machine-legal Agent actions.
+- Prediction:
+  1. Code inspection should show ordinary tool calls and spawn assignment invoking the same unreviewed-result gate used by final response readiness.
+  2. Removing the ordinary/spawn preflight while retaining final-response validation should allow a follow-up inspect `list_files` after an unreviewed finished-node result, while final response still rejects that unreviewed result.
+  3. Generic no-action recovery should no longer inject inspect-specific `rg --files`, forced inspect transition, or `next_valid_actions` obedience text.
+- Diagnostic evidence plan:
+  - Inspect the runtime call sites for `validate_lifecycle_result_reviewed`.
+  - Add focused unit tests for ordinary read allowance after an unreviewed prior result and final response rejection preservation.
+  - Add focused no-action recovery text assertions that reject semantic action injection.
+
+# Evidence E-347: unreviewed-result gate is shared by ordinary work and final response
+
+- Prediction tested: H-178 predicts ordinary work and final response share the same lifecycle result review gate.
+- Observation:
+  ```text
+  prepare_main_tool_call:
+    if descriptor.action_class != ActionClass::Control {
+        self.validate_lifecycle_result_reviewed()?;
+        self.validate_broad_inspect_delegation(owner_session_id)?;
+    }
+
+  prepare_spawn_assignment:
+    self.validate_lifecycle_result_reviewed()?;
+
+  validate_final_response_ready:
+    self.validate_lifecycle_result_reviewed_for_final_response(...)?;
+  ```
+- Interpretation:
+  - This confirms the E-346 blocker is not source evidence loss. It is a lifecycle review gate applied outside final/decision readiness.
+  - The repair should remove the ordinary/spawn preflight and keep final response plus decision dependency review as hard baselines.
+
+# Evidence E-348: H-178 repair removes ordinary/spawn unreviewed-result preflight
+
+- Prediction tested: H-178 predicts ordinary work should remain allowed after an unreviewed lifecycle result, while final response readiness should still enforce result-review baselines.
+- Repair:
+  - `ActionMapRuntimeState::prepare_main_tool_call` no longer calls lifecycle-result review for ordinary non-control tools.
+  - `ActionMapRuntimeState::prepare_spawn_assignment` no longer blocks spawn assignment solely because a lifecycle result is unreviewed.
+  - Final response readiness still uses the final-specific lifecycle review path.
+- Validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib taskspace
+    passed: 182 tests
+
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib final_response
+    passed: 15 tests
+
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale --locked
+    passed
+  ```
+- Live signal:
+  ```text
+  RunDir:
+    target/r4-h191-output-contract-string-path-right-only-20260707/runs/terminal_bench__multi-source-data-merger/20260707-185718-342
+
+  right business_success=true
+  public_validation_exit_code=0
+  hidden_oracle_exit_code=0
+  tool_call_count=15
+  changed_paths=conflicts.json, merge_users.py, merged_users.parquet
+  residual:
+    final_answer rejected twice, then TaskSpaceNoActionRecoveryHardStopV1
+    result_not_synthesized=true
+    open_leaf_nodes=1
+  ```
+- Interpretation:
+  - H-178 was a real runtime-boundary defect and is fixed for ordinary/spawn work.
+  - The live run progressed through implementation and validation after the boundary repair.
+  - The remaining blocker shifted to final-readiness/ledger semantics, not ordinary tool permission.
+
+# Hypothesis H-179: string output-contract paths were normalized as user-request text
+
+- Status: fixed locally.
+- Claim: `taskspace_control(start_task)` accepts simple string output contracts such as `/app/merged_users.parquet`, but the normalization path treated them as generic user-request descriptions rather than artifact refs. That made output-contract satisfaction harder to connect to produced artifacts and final readiness.
+- Prediction:
+  1. A string contract ending in a durable artifact extension should normalize to an `artifact_ref`.
+  2. Ordinary descriptive strings should remain user-request output contracts.
+  3. Existing object-shaped output contracts must keep their explicit `path` or `artifact_ref`.
+- Diagnostic evidence plan:
+  - Add focused normalization tests for path-like and descriptive string output contracts.
+  - Rerun the `multi-source-data-merger` sample after rebuild.
+
+# Evidence E-349: string output-contract path normalization is artifact-aware
+
+- Prediction tested: H-179 predicts path-like output contract strings should become artifact refs without changing descriptive strings.
+- Repair:
+  - `normalize_output_contract_array` now uses `string_output_contract_artifact_ref(...)` for direct string contracts.
+  - Paths such as `/app/merged_users.parquet` and `/app/conflicts.json` become artifact refs.
+  - Non-path descriptive strings remain `user-request`.
+- Validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib start_task_string_output_contract_paths_normalize_to_artifact_refs --locked
+    passed
+
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib start_task_direct_string_sections_normalize --locked
+    passed
+
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib taskspace_control --locked
+    passed: 41 tests
+  ```
+- Interpretation:
+  - The repair is a feedback/ledger fidelity fix: it preserves the Agent's declared output-contract semantics instead of requiring downstream inference.
+
+# Hypothesis H-180: missing success-criterion status defaulted to satisfied
+
+- Status: fixed locally.
+- Claim: When a success criterion object omitted `status`, `normalize_success_criteria_objects` defaulted it to `satisfied` even though the serde default and ledger semantics expect `open`. This distorted the initial ledger: success criteria could appear complete before any evidence existed, while output contracts remained open.
+- Prediction:
+  1. A `state_commit` success-criterion object without status should normalize to `open`.
+  2. Direct string criteria from `start_task` should also start as `open`.
+  3. Final readiness feedback should report missing ledger updates rather than treating criteria as silently satisfied.
+- Diagnostic evidence plan:
+  - Add focused success-criterion default tests.
+  - Strengthen direct string start-task normalization assertions.
+  - Rerun the targeted sample and inspect final-readiness behavior.
+
+# Evidence E-350: success criteria now default open and final readiness exposes missing ledger items
+
+- Prediction tested: H-180 predicts missing success-criterion status should normalize to `open`.
+- Repair:
+  - `normalize_success_criteria_objects` now defaults missing status to `default_success_criterion_status()` and falls back to `open`.
+  - Final readiness rejection now lists missing ledger items with id, kind, status, evidence count, description, and recent successful result refs.
+  - The feedback exposes the ledger update surface (`taskspace_control(action=state_commit, schema_version=taskspace-state-commit-v1)`) without auto-selecting evidence or closing the ledger for the Agent.
+- Validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib state_commit_success_criterion_object_without_status_defaults_open --locked
+    passed
+
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib direct_final_response_rejects_open_contract_without_validation_after_thin_work --locked
+    passed
+
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib taskspace --locked
+    passed: 182 tests
+
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale --locked
+    passed
+  ```
+- Live signal:
+  ```text
+  RunDir:
+    target/r4-h192-final-readiness-ledger-feedback-right-only-20260707/runs/terminal_bench__multi-source-data-merger/20260707-191051-437
+
+  right business_success=false
+  public_validation_exit_code=1
+  hidden_oracle_exit_code=0
+  tool_call_count=9
+  open_leaf_nodes=1
+  ```
+- Residual failure:
+  ```text
+  The run did not reach final readiness. The Agent repeatedly tried to inspect
+  source_c/users.parquet with python3/pandas commands that failed, then the turn
+  stopped on TaskSpaceNoActionRecoveryHardStopV1.
+  ```
+- Interpretation:
+  - H-180 is fixed locally, but the live sample exposed a new session recovery defect before final readiness could be exercised.
+  - The next hypothesis should target why failed tool results were followed by generic no-action recovery instead of being treated as ordinary tool feedback for the next model step.
+
+# Hypothesis H-181: failed tool results were misclassified as generic no-action follow-up
+
+- Status: fixed and live-supported for the targeted sample.
+- Claim: In action-contract mode, a failed tool result can leave the current node progress signature unchanged. The post-drain recovery block interpreted `needs_follow_up && unchanged_progress` as generic no-action even when the previous model response emitted a valid tool action and the tool produced a failed result. This contradicted the recovery text, which said successful or failed tool results are accepted progress forms.
+- Boundary:
+  - A failed tool result is still a real tool result. Runtime should preserve and project it as tool feedback.
+  - Runtime should not spend generic no-action recovery budget for a failed tool result merely because the task/node progress signature did not increase.
+  - Generic no-action recovery should be reserved for actual no-action text or unparseable action-contract output.
+- Predictions:
+  1. `SamplingRequestResult` must carry whether the provider emitted an actionable tool/control/final output.
+  2. The generic no-action post-drain fallback should require `!saw_actionable_output`.
+  3. A failed pandas/parquet diagnostic should no longer immediately consume generic no-action recovery.
+  4. The targeted sample should move past the previous H-192 hard stop.
+- Diagnostic evidence plan:
+  - Add a focused helper test for unchanged progress plus actionable failed-tool feedback.
+  - Update no-action recovery text so it says "no tool result" rather than "no successful tool result".
+  - Rebuild `whale` and rerun the right-only targeted sample.
+
+# Evidence E-351: failed tool feedback no longer consumes generic no-action recovery
+
+- Prediction tested: H-181 predicts generic no-action recovery should require no actionable output, not merely unchanged progress.
+- Repair:
+  - `SamplingRequestResult` now carries `saw_actionable_output`.
+  - `taskspace_should_insert_generic_no_action_recovery_after_request(...)` inserts generic no-action recovery only when:
+    - follow-up is needed,
+    - no special recovery item already exists,
+    - no actionable output was emitted,
+    - node progress signature existed and stayed unchanged.
+  - `TaskSpaceNoActionRecoveryV1` wording now says no tool result/control/final item was recorded, avoiding the previous contradiction with failed tool-result semantics.
+- Validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib generic_no_action_recovery_requires_no_actionable_output --locked
+    passed
+
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib no_action_recovery_item_requires_actionable_taskspace_output --locked
+    passed
+
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib provider_response_actionability_keeps_actionable_response_out_of_recovery --locked
+    passed
+
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale --locked
+    passed
+  ```
+- Live rerun:
+  ```text
+  RunDir:
+    target/r4-h193-failed-tool-noaction-fix-right-only-20260707/runs/terminal_bench__multi-source-data-merger/20260707-191903-519
+
+  reported_evidence_level=E2-candidate
+  outcome_taskspace=solved
+  right business_success=true
+  public_validation_exit_code=0
+  hidden_oracle_exit_code=0
+  tool_call_count=12
+  changed_paths=conflicts.json, merge_users.py, merged_users.parquet
+  open_leaf_nodes=0
+  result_not_synthesized=null
+  accepted_result_count=3
+  finalArtifacts=1
+  ```
+- Residual signals:
+  ```text
+  graph-health warnings:
+    high_unreviewed_result_ratio
+    low_decision_density
+
+  observability hardGateFailures:
+    sentinel_warning_uncleared_for_final_artifact
+
+  One TaskSpaceNoActionRecoveryV1 remains in the run, but it came from
+  unparseable assistant output: prose plus fenced JSON caused
+  action_contract_output_not_strict_json. That is a strict action-contract
+  format baseline, not failed-tool feedback being swallowed.
+  ```
+- Interpretation:
+  - H-181 is fixed for the targeted failure: the sample moved past the H-192 failed-tool/no-action hard stop and solved the benchmark.
+  - The repair follows the clarified boundary: runtime did not constrain the Agent's next semantic choice; it stopped mislabeling failed tool feedback as no-action.
+  - Remaining cleanup is evidence/audit quality, not business success for this sample: final-artifact sentinel linkage, high unreviewed-result ratio, and strict JSON/prose recovery efficiency.

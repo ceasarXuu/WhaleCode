@@ -767,7 +767,7 @@ pub(crate) fn taskspace_active_budget_for_route(
         }
         TaskSpaceRouteMode::Deep => {
             budget.max_rollout_model_requests = 20;
-            budget.max_model_requests_per_node = 5;
+            budget.max_model_requests_per_node = 10;
             budget.max_spawn_agent_calls = 4;
             budget.max_subagent_results = 4;
             budget.max_nodes = 14;
@@ -827,6 +827,7 @@ struct MainToolReservation {
     tool_name: String,
     action_class: ActionClass,
     artifact_refs: Vec<String>,
+    action_preview: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -2096,7 +2097,6 @@ impl ActionMapRuntimeState {
         }
         self.validate_main_binding(owner_session_id)?;
         if descriptor.action_class != ActionClass::Control {
-            self.validate_lifecycle_result_reviewed()?;
             self.validate_broad_inspect_delegation(owner_session_id)?;
         }
         let map_id = self.active_map_id.clone().ok_or_else(|| {
@@ -2621,49 +2621,6 @@ impl ActionMapRuntimeState {
             }
             return Err(ActionMapGateError::new(recovery, events));
         }
-        if matches!(node.kind, NodeKind::SmokeTest | NodeKind::RegressionTest)
-            && matches!(
-                descriptor.action_class,
-                ActionClass::Test | ActionClass::Build
-            )
-            && let Some(task) = map
-                .task_id
-                .as_ref()
-                .and_then(|task_id| self.tasks.get(task_id))
-            && let Some((reason, message, next_valid_actions, evidence_refs)) =
-                validation_test_coverage_block(map, node, task, &descriptor)
-        {
-            let blocked_node_kind = node.kind.as_str().to_string();
-            let repeated_block = self.record_blocked_action_repeat(
-                &map_id,
-                &node_id,
-                progress_signature,
-                &reason,
-                &descriptor,
-            );
-            self.record_latest_gate_recovery_next_actions(&map_id, &node_id, &next_valid_actions);
-            let recovery = gate_recovery_message_with_repeated_block(
-                &message,
-                &reason,
-                evidence_refs,
-                next_valid_actions,
-                Vec::new(),
-                Some(&repeated_block),
-            );
-            return Err(ActionMapGateError::new(
-                recovery,
-                vec![MapRuntimeEvent::ToolActionBlocked(
-                    MapRuntimeToolActionBlockedEvent {
-                        map_id,
-                        node_id,
-                        node_kind: blocked_node_kind,
-                        tool_name: descriptor.tool_name,
-                        action_class: descriptor.action_class.as_str().to_string(),
-                        reason,
-                    },
-                )],
-            ));
-        }
         if descriptor.action_class != ActionClass::Control
             && let Some(call_id) = descriptor.call_id.as_deref()
         {
@@ -2677,6 +2634,7 @@ impl ActionMapRuntimeState {
                     tool_name: descriptor.tool_name,
                     action_class: descriptor.action_class,
                     artifact_refs,
+                    action_preview: descriptor.preview,
                 },
             );
         }
@@ -2723,6 +2681,7 @@ impl ActionMapRuntimeState {
             recorded_tool_name,
             recorded_action_class,
             reserved_artifact_refs,
+            reserved_action_preview,
         ) = if let Some(reservation) = reservation {
             self.validate_main_tool_reservation(owner_session_id, &reservation)?;
             if let Some(observed_action_class) = action_class
@@ -2741,6 +2700,7 @@ impl ActionMapRuntimeState {
                 reservation.tool_name,
                 Some(reservation.action_class),
                 reservation.artifact_refs,
+                reservation.action_preview,
             )
         } else {
             self.validate_main_binding(owner_session_id)?;
@@ -2760,16 +2720,23 @@ impl ActionMapRuntimeState {
                 tool_name.to_string(),
                 action_class,
                 Vec::new(),
+                String::new(),
             )
         };
         let result_id = self.next_result_id();
         let created_at_ms = now_ms();
+        let action_preview_block = main_tool_result_action_preview_block(
+            &recorded_tool_name,
+            recorded_action_class,
+            &reserved_action_preview,
+        );
         let body = format!(
             "Main tool call\n\
 tool: {recorded_tool_name}\n\
 call_id: {call_id}\n\
 action_class: {}\n\
 success: {success}\n\
+{action_preview_block}\
 preview:\n\
 {preview}",
             recorded_action_class
@@ -4108,7 +4075,7 @@ preview:\n\
             None => return Ok(None),
         };
         let map_id = snapshot.map_id.clone();
-        let (task_id, node_kind, node_status, has_successful_validation, output_contract_block) = {
+        let (task_id, node_kind, node_status, has_successful_validation) = {
             let map = self
                 .maps
                 .get(&map_id)
@@ -4117,18 +4084,11 @@ preview:\n\
                 .nodes
                 .get(node_id)
                 .ok_or_else(|| format!("TaskSpace current node `{node_id}` is missing."))?;
-            let task = map
-                .task_id
-                .as_deref()
-                .and_then(|task_id| self.tasks.get(task_id));
             (
                 map.task_id.clone(),
                 node.kind,
                 node.status,
                 node_has_successful_validation_action(map, node),
-                task.and_then(|task| {
-                    validation_node_output_contract_coverage_block(map, node, task)
-                }),
             )
         };
         if !matches!(node_kind, NodeKind::SmokeTest | NodeKind::RegressionTest)
@@ -4136,39 +4096,6 @@ preview:\n\
             || !has_successful_validation
         {
             return Ok(None);
-        }
-        if let Some(block) = output_contract_block {
-            if let Some(result_id) = block.result_id.as_deref() {
-                self.reopen_success_criteria_citing_result_for_main(
-                    owner_session_id,
-                    result_id,
-                    "Reopened because the cited validation result did not validate declared output contracts.",
-                )?;
-                let evidence_refs = vec![ActionMapEvidenceRefInput {
-                    result_id: Some(result_id.to_string()),
-                    ..Default::default()
-                }];
-                let _ = self.mark_result_validity_for_main(
-                    owner_session_id,
-                    result_id,
-                    "invalid",
-                    block.message.clone(),
-                    Vec::new(),
-                    evidence_refs,
-                    Vec::new(),
-                    Vec::new(),
-                    vec![
-                        "successful command did not validate declared output contracts".to_string(),
-                    ],
-                )?;
-            }
-            return Err(gate_recovery_message(
-                &block.message,
-                &block.reason,
-                block.evidence_refs,
-                block.next_valid_actions,
-                Vec::new(),
-            ));
         }
         let mut events = self.accept_implementation_evidence_for_validation_closeout(
             owner_session_id,
@@ -7666,18 +7593,6 @@ preview:\n\
                     .task_id
                     .as_deref()
                     .and_then(|task_id| self.tasks.get(task_id));
-                if let Some(task) = task
-                    && let Some(block) =
-                        validation_node_output_contract_coverage_block(map, node, task)
-                {
-                    return Err(gate_recovery_message(
-                        &block.message,
-                        &block.reason,
-                        block.evidence_refs,
-                        block.next_valid_actions,
-                        Vec::new(),
-                    ));
-                }
                 if !task.is_some_and(|task| {
                     node_satisfies_success_criterion_with_validation_result(task, map, node)
                 }) {
@@ -8613,10 +8528,7 @@ preview:\n\
         if task_success_criteria_complete_for_final(task, map) {
             return Ok(());
         }
-        Err(
-            "TaskSpace final answer cannot be emitted until every success criterion and output contract is satisfied or waived with evidence. Continue the active task: create or bind the required implementation/validation node, produce the required artifact, run validation, and record accepted evidence before final_answer."
-                .to_string(),
-        )
+        Err(final_readiness_missing_ledger_message(task, map))
     }
 
     fn validate_no_open_blocking_questions(&self) -> Result<(), String> {
@@ -8756,7 +8668,6 @@ preview:\n\
 
         self.validate_routing_complete()?;
         self.validate_cognitive_preflight()?;
-        self.validate_lifecycle_result_reviewed()?;
         let mut events = Vec::new();
         let Some(map_id) = self.active_map_id.clone() else {
             return Err(
@@ -9820,10 +9731,6 @@ preview:\n\
         ))
     }
 
-    fn validate_lifecycle_result_reviewed(&self) -> Result<(), String> {
-        self.validate_lifecycle_result_reviewed_for_final_response(false, true)
-    }
-
     fn validate_lifecycle_result_reviewed_for_final_response(
         &self,
         ignore_completed_final_synthesis_result: bool,
@@ -9852,6 +9759,10 @@ preview:\n\
                 {
                     return false;
                 }
+                if self.unreviewed_result_is_current_final_dependency_lifecycle_summary(map, result)
+                {
+                    return false;
+                }
                 matches!(
                     result.kind,
                     NodeResultKind::Result
@@ -9863,11 +9774,40 @@ preview:\n\
             .min_by_key(|result| result.created_at_ms)
         {
             return Err(format!(
-                "TaskSpace result `{}` on node `{}` is still unreviewed. Before ordinary work or subagent spawn, call taskspace_control(action=state_commit) with result_validities including claims, evidence_refs, changed_artifacts, validator_refs, and remaining_uncertainty so the main agent explicitly accepts, questions, or rejects the node result before relying on it.",
+                "TaskSpace result `{}` on node `{}` is still unreviewed. Before final response or a decision that relies on this result, call taskspace_control(action=state_commit) with result_validities including claims, evidence_refs, changed_artifacts, validator_refs, and remaining_uncertainty so the main agent explicitly accepts, questions, or rejects the node result before relying on it.",
                 result.id, result.node_id
             ));
         }
         Ok(())
+    }
+
+    fn unreviewed_result_is_current_final_dependency_lifecycle_summary(
+        &self,
+        map: &ActionMapInstance,
+        result: &NodeResult,
+    ) -> bool {
+        if result.kind != NodeResultKind::Result
+            || result.action_class.is_some()
+            || result.tool_success.is_some()
+        {
+            return false;
+        }
+        let Some(current_node_id) = self.current_main_node_id.as_deref() else {
+            return false;
+        };
+        let Some(current_node) = map.nodes.get(current_node_id) else {
+            return false;
+        };
+        if current_node.kind != NodeKind::FinalSynthesis
+            || current_node.status != NodeStatus::Running
+        {
+            return false;
+        }
+        let Some(result_node) = map.nodes.get(&result.node_id) else {
+            return false;
+        };
+        result_node.status == NodeStatus::Completed
+            && Self::dependency_chain_contains_node(map, &current_node.id, &result.node_id)
     }
 
     fn unreviewed_result_is_active_rework_input_blocker(
@@ -11420,6 +11360,7 @@ fn append_context_projection_with_header(
         projection_dependency_read_evidence(map, current_node_id, 4, 900);
     let critical_artifact_evidence =
         projection_critical_artifact_evidence(map, current_node_id, 4, 900);
+    let recent_tool_feedback = projection_recent_tool_feedback(map, current_node_id, 6, 1000);
     let fact_source_coverage = projection_fact_source_coverage(task, map, current_node_id, 8);
     let result_refs_available = projection_result_refs_available(map, 8);
 
@@ -11451,6 +11392,11 @@ fn append_context_projection_with_header(
     append_projection_list(&mut projection, "decisions", &decisions);
     append_projection_list(&mut projection, "facts", &facts);
     append_projection_list(&mut projection, "relevant_results", &relevant_results);
+    append_projection_multiline_list(
+        &mut projection,
+        "recent_tool_feedback",
+        &recent_tool_feedback,
+    );
     append_projection_multiline_list(
         &mut projection,
         "verified_input_evidence",
@@ -11537,7 +11483,22 @@ fn projection_evidence_node_ids<'a>(
     current_node_id: Option<&'a str>,
 ) -> Vec<&'a str> {
     let Some(current_node_id) = current_node_id else {
-        return Vec::new();
+        let mut seen = HashSet::new();
+        let mut node_ids = Vec::new();
+        for result_id in ordered_result_ids(map).into_iter().rev() {
+            let Some(result) = map.results.get(&result_id) else {
+                continue;
+            };
+            let node_id = result.node_id.as_str();
+            if seen.insert(node_id) {
+                node_ids.push(node_id);
+            }
+            if node_ids.len() >= 3 {
+                break;
+            }
+        }
+        node_ids.reverse();
+        return node_ids;
     };
     let mut node_ids = map
         .edges
@@ -11547,6 +11508,85 @@ fn projection_evidence_node_ids<'a>(
         .collect::<Vec<_>>();
     node_ids.push(current_node_id);
     node_ids
+}
+
+fn projection_recent_tool_feedback(
+    map: &ActionMapInstance,
+    current_node_id: Option<&str>,
+    max_results: usize,
+    max_excerpt_chars: usize,
+) -> Vec<String> {
+    let node_ids = projection_evidence_node_ids(map, current_node_id);
+    if node_ids.is_empty() {
+        return Vec::new();
+    }
+
+    let mut selected = ordered_result_ids(map)
+        .into_iter()
+        .rev()
+        .filter_map(|result_id| map.results.get(&result_id))
+        .filter(|result| {
+            result.kind == NodeResultKind::MainToolCall
+                && node_ids
+                    .iter()
+                    .any(|node_id| *node_id == result.node_id.as_str())
+        })
+        .take(max_results)
+        .collect::<Vec<_>>();
+    selected.reverse();
+
+    selected
+        .into_iter()
+        .map(|result| {
+            let mut artifacts = result_visible_artifact_refs(result);
+            for artifact in result_input_data_artifact_refs(result) {
+                push_unique_artifact_ref(&mut artifacts, artifact);
+            }
+            let artifact_text = if artifacts.is_empty() {
+                "none".to_string()
+            } else {
+                artifacts.join(",")
+            };
+            let action_class = result
+                .action_class
+                .map(|action| action.as_str())
+                .unwrap_or("none");
+            let tool_success = result
+                .tool_success
+                .map(|success| success.to_string())
+                .unwrap_or_else(|| "none".to_string());
+            let command = result_body_command(result)
+                .map(|command| format!(" command={}", single_line_preview(&command, 180)))
+                .unwrap_or_default();
+            format!(
+                "{} node={} action_class={} tool_success={} artifacts={}{}\nexcerpt:\n{}",
+                result.id,
+                result.node_id,
+                action_class,
+                tool_success,
+                artifact_text,
+                command,
+                working_evidence_body_excerpt(&result.body, max_excerpt_chars)
+            )
+        })
+        .collect()
+}
+
+fn main_tool_result_action_preview_block(
+    tool_name: &str,
+    action_class: Option<ActionClass>,
+    action_preview: &str,
+) -> String {
+    if action_class != Some(ActionClass::Edit)
+        || tool_name != "apply_patch"
+        || action_preview.trim().is_empty()
+    {
+        return String::new();
+    }
+    format!(
+        "action_preview:\n{}\n",
+        bounded_line_preserving_excerpt(action_preview, TASKSPACE_EDIT_ACTION_PREVIEW_MAX_CHARS)
+    )
 }
 
 fn projection_verified_input_evidence(
@@ -11920,12 +11960,44 @@ fn bounded_line_preserving_excerpt(text: &str, max_chars: usize) -> String {
     excerpt.trim_end().to_string()
 }
 
+fn bounded_head_tail_excerpt(text: &str, max_chars: usize) -> String {
+    if text.chars().count() <= max_chars {
+        return text.trim_end().to_string();
+    }
+    if max_chars < 64 {
+        return bounded_line_preserving_excerpt(text, max_chars);
+    }
+
+    let marker = "\n...\n";
+    let marker_chars = marker.chars().count();
+    let content_budget = max_chars.saturating_sub(marker_chars);
+    let head_budget = content_budget / 2;
+    let tail_budget = content_budget.saturating_sub(head_budget);
+    let head = text.chars().take(head_budget).collect::<String>();
+    let tail_chars = text.chars().rev().take(tail_budget).collect::<Vec<_>>();
+    let tail = tail_chars.into_iter().rev().collect::<String>();
+
+    format!(
+        "{}{}{}",
+        head.trim_end_matches(['\r', '\n']),
+        marker,
+        tail.trim_start_matches(['\r', '\n'])
+    )
+    .trim_end()
+    .to_string()
+}
+
 fn working_evidence_body_excerpt(body: &str, max_chars: usize) -> String {
     let focused = body
         .split_once("\nraw_output:\n")
         .map(|(_, rest)| rest)
         .or_else(|| body.split_once("\r\nraw_output:\r\n").map(|(_, rest)| rest))
         .unwrap_or(body);
+    let max_chars = if read_file_summary_eof_reached(focused) == Some(true) {
+        max_chars.max(TASKSPACE_COMPLETE_READ_INLINE_MAX_CHARS)
+    } else {
+        max_chars
+    };
     let mut output = String::new();
     let mut count = 0usize;
     if let Some(summary) = read_file_summary_line(focused) {
@@ -11958,6 +12030,14 @@ fn working_evidence_body_excerpt(body: &str, max_chars: usize) -> String {
         let normalized = line.trim_end_matches('\r');
         let line_chars = normalized.chars().count() + 1;
         if count + line_chars > max_chars {
+            if diagnostic_output_is_tail_sensitive(focused) {
+                let remaining = focused
+                    .lines()
+                    .filter_map(working_evidence_visible_line)
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                return bounded_head_tail_excerpt(&remaining, max_chars);
+            }
             output.push_str("\n...");
             break;
         }
@@ -11971,6 +12051,42 @@ fn working_evidence_body_excerpt(body: &str, max_chars: usize) -> String {
     } else {
         output.to_string()
     }
+}
+
+fn working_evidence_visible_line(line: &str) -> Option<&str> {
+    let trimmed = line.trim();
+    let lower = trimmed.to_ascii_lowercase();
+    if trimmed.is_empty()
+        || lower.starts_with("exit code:")
+        || lower.starts_with("wall time:")
+        || lower == "output:"
+        || lower.starts_with("taskspacetoolinvocationv1:")
+        || lower.starts_with("tool:")
+        || lower.starts_with("command:")
+        || lower.starts_with("raw_output:")
+        || lower.starts_with("preview:")
+        || lower.starts_with("success:")
+        || lower.starts_with("call_id:")
+        || lower.starts_with("action_class:")
+        || lower.starts_with("taskspacereadfilesummaryv1:")
+    {
+        return None;
+    }
+    Some(line.trim_end_matches('\r'))
+}
+
+fn diagnostic_output_is_tail_sensitive(text: &str) -> bool {
+    let lower = text.to_ascii_lowercase();
+    lower.contains("traceback")
+        || lower.contains("exit code: 1")
+        || lower.contains("exit code: 2")
+        || lower.contains("assertionerror")
+        || lower.contains("exception")
+        || lower.contains("error:")
+        || lower.contains("failed")
+        || lower.contains("conversion failed")
+        || lower.contains("no such file")
+        || lower.contains("command not found")
 }
 
 fn read_file_summary_line(body: &str) -> Option<&str> {
@@ -12860,7 +12976,7 @@ fn compact_projection_allowed_actions_for_node(kind: NodeKind) -> String {
     match kind {
         NodeKind::SmokeTest | NodeKind::RegressionTest => "test, control".to_string(),
         NodeKind::FinalSynthesis => "final_response, control".to_string(),
-        NodeKind::ImplementSolution => "read, search, edit, control".to_string(),
+        NodeKind::ImplementSolution => "read, search, edit, test, control".to_string(),
         NodeKind::InspectCodeContext => "read, search, build, test, control".to_string(),
         NodeKind::Custom => contract_for(kind)
             .allowed_actions
@@ -15178,245 +15294,10 @@ fn tool_action_descriptor_artifact_refs(descriptor: &ToolActionDescriptor) -> Ve
     }
 }
 
-fn validation_test_coverage_block(
-    map: &ActionMapInstance,
-    node: &MapNode,
-    task: &TaskState,
-    descriptor: &ToolActionDescriptor,
-) -> Option<(String, String, Vec<String>, Vec<String>)> {
-    let command = tool_action_descriptor_command(descriptor)?;
-    if let Some(required_validator) = discovered_required_local_validator_commands(map)
-        .into_iter()
-        .find(|validator| !command_covers_local_validator(&command, validator))
-    {
-        let reason = "validation_test_missing_local_validator_coverage".to_string();
-        let message = format!(
-            "TaskSpace blocked this validation command because current node `{}` kind: {} has already discovered local validator `{}` but requested command `{}` does not run it. Unit tests such as pytest may pass while the local validator still fails. Run the discovered validator before closing validation.",
-            node.id,
-            node.kind.as_str(),
-            required_validator,
-            single_line_preview(&command, 220)
-        );
-        let next_valid_actions = vec![format!(
-            "run_test with command `{required_validator}` to execute the discovered local validator"
-        )];
-        let evidence_refs = vec![
-            format!("current_node:{}:{}", node.id, node.kind.as_str()),
-            format!("required_validator:{required_validator}"),
-        ];
-        return Some((reason, message, next_valid_actions, evidence_refs));
-    }
-    if command_is_general_validation_runner(&command) {
-        return None;
-    }
-    let changed_artifacts = validation_dependency_changed_artifacts(map, node);
-    let output_targets = task_output_contract_artifact_targets(task);
-    let output_requirements = task_output_contract_validation_requirements(task);
-    let changed_artifacts_requiring_coverage = changed_artifacts
-        .iter()
-        .filter(|artifact| {
-            !output_targets
-                .iter()
-                .any(|output| artifact_refs_equivalent(artifact, output))
-        })
-        .cloned()
-        .collect::<Vec<_>>();
-    let covered_changed_artifact = if changed_artifacts_requiring_coverage.is_empty() {
-        changed_artifacts
-            .iter()
-            .any(|artifact| command_mentions_artifact(&command, artifact))
-            || command_invokes_script_artifact(&command)
-            || output_targets
-                .iter()
-                .any(|artifact| command_mentions_artifact(&command, artifact))
-    } else {
-        changed_artifacts_requiring_coverage
-            .iter()
-            .any(|artifact| command_mentions_artifact(&command, artifact))
-            || command_invokes_script_artifact(&command)
-    };
-    if changed_artifacts.is_empty() || covered_changed_artifact {
-        if let Some(block) = validation_output_contract_coverage_block_for_command(
-            map,
-            node,
-            &changed_artifacts,
-            &output_requirements,
-            &command,
-        ) {
-            return Some((
-                block.reason,
-                block.message,
-                block.next_valid_actions,
-                block.evidence_refs,
-            ));
-        }
-        return None;
-    }
-    let changed_summary = changed_artifacts
-        .iter()
-        .take(4)
-        .cloned()
-        .collect::<Vec<_>>()
-        .join(", ");
-    let output_summary = if output_targets.is_empty() {
-        "none recorded".to_string()
-    } else {
-        output_targets
-            .iter()
-            .take(4)
-            .cloned()
-            .collect::<Vec<_>>()
-            .join(", ")
-    };
-    let reason = "validation_test_missing_changed_artifact_coverage".to_string();
-    let message = format!(
-        "TaskSpace blocked this validation command because current node `{}` kind: {} must validate the implementation edit, but requested command `{}` does not execute or reference changed artifact(s): {}. Declared output contract targets: {}. Run the changed artifact directly, run a real project/official validator such as pytest or run-tests, or block with the exact reason validation cannot exercise the edit. Do not run discovery commands such as find, ls, rg, or Get-ChildItem to rediscover the changed artifact; it is already known.",
-        node.id,
-        node.kind.as_str(),
-        single_line_preview(&command, 220),
-        changed_summary,
-        output_summary
-    );
-    let mut next_valid_actions = changed_artifacts
-        .iter()
-        .take(3)
-        .map(|artifact| validation_changed_artifact_action(artifact))
-        .collect::<Vec<_>>();
-    next_valid_actions.push("or run a real project/official validator command such as pytest, cargo test, npm test, or run-tests".to_string());
-    let mut evidence_refs = vec![format!("current_node:{}:{}", node.id, node.kind.as_str())];
-    evidence_refs.extend(
-        changed_artifacts
-            .iter()
-            .take(4)
-            .map(|artifact| format!("changed_artifact:{artifact}")),
-    );
-    evidence_refs.extend(
-        output_targets
-            .iter()
-            .take(4)
-            .map(|artifact| format!("output_contract:{artifact}")),
-    );
-    Some((reason, message, next_valid_actions, evidence_refs))
-}
-
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 struct OutputContractValidationRequirements {
     targets: Vec<String>,
     schema_targets: Vec<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct ValidationCoverageBlock {
-    result_id: Option<String>,
-    reason: String,
-    message: String,
-    next_valid_actions: Vec<String>,
-    evidence_refs: Vec<String>,
-}
-
-fn validation_node_output_contract_coverage_block(
-    map: &ActionMapInstance,
-    node: &MapNode,
-    task: &TaskState,
-) -> Option<ValidationCoverageBlock> {
-    let requirements = task_output_contract_validation_requirements(task);
-    let changed_artifacts = validation_dependency_changed_artifacts(map, node);
-    let result = latest_successful_validation_result(map, node)?;
-    let command = result_body_command(result).unwrap_or_default();
-    if command.trim().is_empty()
-        && output_contract_targets_are_changed_artifacts(&requirements, &changed_artifacts)
-        && validation_result_body_has_output_value(&result.body)
-    {
-        return None;
-    }
-    if command.trim().is_empty() && validation_result_body_confirms_general_validator(&result.body)
-    {
-        return None;
-    }
-    validation_output_contract_coverage_block_for_command(
-        map,
-        node,
-        &changed_artifacts,
-        &requirements,
-        &command,
-    )
-    .map(|mut block| {
-        block.result_id = Some(result.id.clone());
-        block
-    })
-}
-
-fn latest_successful_validation_result<'a>(
-    map: &'a ActionMapInstance,
-    node: &'a MapNode,
-) -> Option<&'a NodeResult> {
-    node.result_context.iter().rev().find_map(|result_ref| {
-        let result = map.results.get(&result_ref.id)?;
-        node_result_is_successful_validation(result).then_some(result)
-    })
-}
-
-fn validation_output_contract_coverage_block_for_command(
-    map: &ActionMapInstance,
-    node: &MapNode,
-    changed_artifacts: &[String],
-    requirements: &OutputContractValidationRequirements,
-    command: &str,
-) -> Option<ValidationCoverageBlock> {
-    let requirements =
-        output_contract_requirements_for_validation_command(requirements, changed_artifacts);
-    if requirements.targets.is_empty()
-        || command_is_general_validation_runner(command)
-        || command_validates_output_contract_targets(command, &requirements)
-    {
-        return None;
-    }
-    let target_summary = summarize_artifact_refs(&requirements.targets);
-    let schema_summary = if requirements.schema_targets.is_empty() {
-        "none recorded".to_string()
-    } else {
-        summarize_artifact_refs(&requirements.schema_targets)
-    };
-    let reason = "validation_test_missing_output_contract_coverage".to_string();
-    let message = format!(
-        "TaskSpace blocked this validation command because current node `{}` kind: {} has declared output contract artifact(s): {}, schema/validator artifact(s): {}, but requested command `{}` does not validate those output contract(s). Running a generator or changed script with exit code 0 only proves execution; it does not prove the produced artifact satisfies the declared format/schema/validator contract.",
-        node.id,
-        node.kind.as_str(),
-        target_summary,
-        schema_summary,
-        single_line_preview(command, 220)
-    );
-    let next_valid_actions =
-        validation_output_contract_next_actions(changed_artifacts, &requirements);
-    let mut evidence_refs = vec![format!("current_node:{}:{}", node.id, node.kind.as_str())];
-    evidence_refs.extend(
-        changed_artifacts
-            .iter()
-            .take(4)
-            .map(|artifact| format!("changed_artifact:{artifact}")),
-    );
-    evidence_refs.extend(
-        requirements
-            .targets
-            .iter()
-            .take(4)
-            .map(|artifact| format!("output_contract:{artifact}")),
-    );
-    for event in map
-        .task_id
-        .iter()
-        .map(|task_id| format!("task:{task_id}"))
-        .take(1)
-    {
-        evidence_refs.push(event);
-    }
-    Some(ValidationCoverageBlock {
-        result_id: None,
-        reason,
-        message,
-        next_valid_actions,
-        evidence_refs,
-    })
 }
 
 fn task_output_contract_validation_requirements(
@@ -15521,7 +15402,15 @@ fn push_success_criterion_validation_requirements(
     evidence_refs: &[EvidenceRef],
 ) {
     for artifact in extract_artifact_like_refs(description) {
-        push_success_criterion_validation_requirement(requirements, &artifact);
+        if requirement_text_declares_generated_output_artifact(description, &artifact) {
+            push_output_contract_validation_target(
+                requirements,
+                &artifact,
+                OutputContractKind::Artifact,
+            );
+        } else {
+            push_success_criterion_validation_requirement(requirements, &artifact);
+        }
     }
     for evidence in evidence_refs {
         if let Some(artifact_ref) = evidence.artifact_ref.as_deref() {
@@ -15581,33 +15470,6 @@ fn output_contract_artifact_ref_looks_like_schema_or_validator(artifact: &str) -
         || file.ends_with(".spec.js")
 }
 
-fn command_validates_output_contract_targets(
-    command: &str,
-    requirements: &OutputContractValidationRequirements,
-) -> bool {
-    if requirements.targets.is_empty() {
-        return true;
-    }
-    if command_is_general_validation_runner(command) {
-        return true;
-    }
-    let mentions_output_target = requirements
-        .targets
-        .iter()
-        .any(|target| command_mentions_artifact(command, target));
-    if !mentions_output_target {
-        return false;
-    }
-    if !requirements.schema_targets.is_empty() {
-        return requirements
-            .schema_targets
-            .iter()
-            .any(|target| command_mentions_artifact(command, target))
-            && command_has_schema_or_validator_check_semantics(command);
-    }
-    command_has_output_validation_check_semantics(command)
-}
-
 fn output_contract_requirements_for_validation_command(
     requirements: &OutputContractValidationRequirements,
     changed_artifacts: &[String],
@@ -15652,103 +15514,6 @@ fn output_contract_requirements_for_validation_command(
         targets,
         schema_targets,
     }
-}
-
-fn output_contract_targets_are_changed_artifacts(
-    requirements: &OutputContractValidationRequirements,
-    changed_artifacts: &[String],
-) -> bool {
-    !requirements.targets.is_empty()
-        && requirements.targets.iter().all(|target| {
-            changed_artifacts
-                .iter()
-                .any(|artifact| artifact_refs_match(artifact, target))
-        })
-}
-
-fn validation_result_body_has_output_value(body: &str) -> bool {
-    let lower = body.to_ascii_lowercase();
-    lower
-        .split_once("output:")
-        .map(|(_, output)| !output.trim().is_empty())
-        .unwrap_or(false)
-}
-
-fn command_has_output_validation_check_semantics(command: &str) -> bool {
-    let lower = command.to_ascii_lowercase();
-    [
-        "assert",
-        "check",
-        "cmp ",
-        "diff ",
-        "grep ",
-        "jq ",
-        "jsonschema",
-        "json.tool",
-        "node -e",
-        "perl -e",
-        "ruby -e",
-        "schema",
-        "test",
-        "validate",
-        "validator",
-    ]
-    .iter()
-    .any(|marker| lower.contains(marker))
-}
-
-fn command_has_schema_or_validator_check_semantics(command: &str) -> bool {
-    let lower = command.to_ascii_lowercase();
-    [
-        "ajv",
-        "draft7validator",
-        "jsonschema",
-        "pytest",
-        "run-tests",
-        "run_tests",
-        "test_outputs.py",
-        "unittest",
-        "validate",
-        "validator",
-    ]
-    .iter()
-    .any(|marker| lower.contains(marker))
-}
-
-fn validation_result_body_confirms_general_validator(body: &str) -> bool {
-    let lower = body.to_ascii_lowercase();
-    lower.contains("validator_tests_completed=true")
-        || lower.contains("validator_lifecycle_stage=tests_completed")
-        || lower.contains("pytest")
-        || lower.contains("collected ")
-        || lower.contains(" passed")
-}
-
-fn validation_output_contract_next_actions(
-    changed_artifacts: &[String],
-    requirements: &OutputContractValidationRequirements,
-) -> Vec<String> {
-    let mut actions = Vec::new();
-    let script_command = changed_artifacts
-        .iter()
-        .find(|artifact| script_artifact_token(artifact))
-        .map(|artifact| validation_changed_artifact_command(artifact));
-    let contract_check = validation_output_contract_check_command(requirements);
-    if let (Some(script_command), Some(contract_check)) = (&script_command, &contract_check) {
-        actions.push(format!(
-            "run_test with command `{script_command} && {contract_check}` to execute the changed artifact and validate declared output contract(s)"
-        ));
-    }
-    if let Some(contract_check) = contract_check {
-        actions.push(format!(
-            "or run_test with command `{contract_check}` after the changed artifact has generated the declared output"
-        ));
-    }
-    actions.push(
-        "or run a real project/official validator command such as pytest, cargo test, npm test, or run-tests that validates the declared output contract(s)"
-            .to_string(),
-    );
-    actions
 }
 
 fn validation_node_bootstrap_command(
@@ -15822,18 +15587,6 @@ fn validation_output_contract_check_command(
     Some(format!("test -s {local_output_target}"))
 }
 
-fn summarize_artifact_refs(artifacts: &[String]) -> String {
-    if artifacts.is_empty() {
-        return "none recorded".to_string();
-    }
-    artifacts
-        .iter()
-        .take(4)
-        .cloned()
-        .collect::<Vec<_>>()
-        .join(", ")
-}
-
 fn discovered_required_local_validator_commands(map: &ActionMapInstance) -> Vec<String> {
     let mut commands = Vec::new();
     for result in map.results.values() {
@@ -15845,14 +15598,6 @@ fn discovered_required_local_validator_commands(map: &ActionMapInstance) -> Vec<
     commands
 }
 
-fn command_covers_local_validator(command: &str, validator_command: &str) -> bool {
-    let command = command.replace('\\', "/").to_ascii_lowercase();
-    let validator_command = validator_command.replace('\\', "/").to_ascii_lowercase();
-    command.contains(&validator_command)
-        || command_mentions_artifact(&command, "scripts/validate.py")
-        || command.contains(" scripts/validate.py")
-}
-
 fn artifact_refs_equivalent(left: &str, right: &str) -> bool {
     normalize_artifact_ref(left).eq_ignore_ascii_case(&normalize_artifact_ref(right))
 }
@@ -15861,12 +15606,6 @@ fn push_unique_string(values: &mut Vec<String>, value: String) {
     if !values.iter().any(|existing| existing == &value) {
         values.push(value);
     }
-}
-
-fn validation_changed_artifact_action(artifact: &str) -> String {
-    let normalized = normalize_artifact_ref(artifact);
-    let command = validation_changed_artifact_command(&normalized);
-    format!("run_test with command `{command}` to execute changed artifact `{normalized}`")
 }
 
 fn validation_changed_artifact_command(artifact: &str) -> String {
@@ -16362,47 +16101,6 @@ fn latest_gate_recovery_key(map_id: &str, node_id: &str) -> String {
     format!("{map_id}\x1f{node_id}")
 }
 
-fn command_is_general_validation_runner(command: &str) -> bool {
-    let lower = command.to_ascii_lowercase();
-    [
-        "pytest",
-        "cargo test",
-        "npm test",
-        "pnpm test",
-        "yarn test",
-        "go test",
-        "mvn test",
-        "gradle test",
-        "run-tests",
-        "run_tests",
-        "run_pipeline",
-        "scripts/validate.py",
-        "test_outputs.py",
-    ]
-    .iter()
-    .any(|marker| lower.contains(marker))
-}
-
-fn command_invokes_script_artifact(command: &str) -> bool {
-    let normalized = command.replace('\\', "/").to_ascii_lowercase();
-    for marker in ["python ", "python3 ", "py ", "node ", "bash ", "sh "] {
-        let mut rest = normalized.as_str();
-        while let Some((_, after_marker)) = rest.split_once(marker) {
-            let token = after_marker
-                .trim_start()
-                .split(|ch: char| ch.is_whitespace() || matches!(ch, '&' | '|' | ';' | ')' | '('))
-                .next()
-                .unwrap_or("")
-                .trim_matches(|ch| matches!(ch, '"' | '\'' | '`'));
-            if !token.starts_with('-') && script_artifact_token(token) {
-                return true;
-            }
-            rest = after_marker;
-        }
-    }
-    false
-}
-
 fn script_artifact_token(token: &str) -> bool {
     let normalized =
         normalize_artifact_ref(token.trim_matches(|ch| matches!(ch, '"' | '\'' | '`')));
@@ -16600,6 +16298,9 @@ fn push_requirement_text_fact_source_artifact_refs(
         return;
     }
     for artifact in extract_artifact_like_refs(text) {
+        if requirement_text_declares_generated_output_artifact(text, &artifact) {
+            continue;
+        }
         push_requirement_fact_source_artifact_ref(artifact_refs, artifact, output_targets);
     }
 }
@@ -16618,6 +16319,104 @@ fn push_requirement_fact_source_artifact_ref(
         return;
     }
     push_required_fact_source_artifact_ref(artifact_refs, artifact_ref);
+}
+
+fn requirement_text_declares_generated_output_artifact(text: &str, artifact_ref: &str) -> bool {
+    let lower_text = text.to_ascii_lowercase();
+    let artifact = normalize_artifact_ref(artifact_ref).to_ascii_lowercase();
+    if artifact.is_empty() {
+        return false;
+    }
+    let mut needles = vec![artifact.clone()];
+    if let Some(file_name) = artifact.rsplit('/').next()
+        && file_name != artifact
+    {
+        needles.push(file_name.to_string());
+    }
+    needles.sort();
+    needles.dedup();
+
+    needles.into_iter().any(|needle| {
+        lower_text.match_indices(&needle).any(|(start, _)| {
+            generated_output_context_before(&lower_text[..start])
+                || generated_output_context_after(&lower_text[start + needle.len()..])
+        })
+    })
+}
+
+fn generated_output_context_before(text_before_artifact: &str) -> bool {
+    let words = semantic_context_words(text_before_artifact);
+    let mut recent = words.into_iter().rev().take(4).collect::<Vec<_>>();
+    recent.reverse();
+    recent.iter().any(|word| generated_output_prefix_word(word))
+        && !recent
+            .iter()
+            .any(|word| input_fact_source_prefix_word(word))
+}
+
+fn generated_output_context_after(text_after_artifact: &str) -> bool {
+    semantic_context_words(text_after_artifact)
+        .into_iter()
+        .take(4)
+        .any(|word| generated_output_suffix_word(&word))
+}
+
+fn semantic_context_words(text: &str) -> Vec<String> {
+    text.split(|ch: char| !(ch.is_ascii_alphanumeric() || ch == '_' || ch == '-'))
+        .map(str::trim)
+        .filter(|word| !word.is_empty())
+        .map(str::to_ascii_lowercase)
+        .collect()
+}
+
+fn generated_output_prefix_word(word: &str) -> bool {
+    matches!(
+        word,
+        "generate"
+            | "generates"
+            | "generated"
+            | "create"
+            | "creates"
+            | "created"
+            | "produce"
+            | "produces"
+            | "produced"
+            | "write"
+            | "writes"
+            | "written"
+            | "output"
+            | "outputs"
+            | "save"
+            | "saved"
+            | "export"
+            | "exports"
+            | "exported"
+            | "emit"
+            | "emits"
+            | "emitted"
+    )
+}
+
+fn generated_output_suffix_word(word: &str) -> bool {
+    matches!(
+        word,
+        "created"
+            | "generated"
+            | "produced"
+            | "written"
+            | "saved"
+            | "exported"
+            | "emitted"
+            | "output"
+            | "outputs"
+    )
+}
+
+fn input_fact_source_prefix_word(word: &str) -> bool {
+    matches!(
+        word,
+        "read" | "parse" | "inspect" | "input" | "inputs" | "source" | "sources"
+    )
 }
 
 fn fact_source_is_optional(source: &FactSource) -> bool {
@@ -16902,13 +16701,6 @@ fn artifact_refs_match(left: &str, right: &str) -> bool {
     left_variants
         .iter()
         .any(|left| right_variants.iter().any(|right| left == right))
-}
-
-fn command_mentions_artifact(command: &str, artifact: &str) -> bool {
-    let command = command.replace('\\', "/").to_ascii_lowercase();
-    artifact_command_match_variants(artifact)
-        .into_iter()
-        .any(|variant| !variant.is_empty() && command.contains(&variant))
 }
 
 fn artifact_command_match_variants(artifact: &str) -> Vec<String> {
@@ -19105,6 +18897,8 @@ fn code_or_test_read_body_has_content_signal(body: &str) -> bool {
 
 const TASKSPACE_WORKING_EVIDENCE_SUMMARY_MAX_RESULTS: usize = 8;
 const TASKSPACE_WORKING_EVIDENCE_SUMMARY_MAX_CHARS: usize = 1200;
+const TASKSPACE_COMPLETE_READ_INLINE_MAX_CHARS: usize = 6000;
+const TASKSPACE_EDIT_ACTION_PREVIEW_MAX_CHARS: usize = 6000;
 const TASKSPACE_VALIDATION_REWORK_TARGET_READ_MAX_CHARS: usize = 16_000;
 const TASKSPACE_VALIDATION_REWORK_TARGET_READ_SUMMARY_MAX_CHARS: usize = 6000;
 
@@ -19316,37 +19110,132 @@ fn node_satisfies_success_criterion_with_validation_result(
         })
 }
 
-fn task_success_criteria_complete(task: &TaskState) -> bool {
+fn task_success_criteria_complete_for_final(task: &TaskState, map: &ActionMapInstance) -> bool {
     let criteria = &task.problem_ledger.success_criteria;
     !criteria.is_empty()
-        && criteria.iter().all(|criterion| {
-            matches!(criterion.status.as_str(), "satisfied" | "waived")
-                && !criterion.evidence_refs.is_empty()
-        })
+        && criteria
+            .iter()
+            .all(|criterion| success_criterion_complete_for_final(criterion, map))
 }
 
-fn task_success_criteria_complete_for_final(task: &TaskState, map: &ActionMapInstance) -> bool {
-    if task_success_criteria_complete(task) {
+fn success_criterion_complete_for_final(
+    criterion: &ProblemSuccessCriterion,
+    map: &ActionMapInstance,
+) -> bool {
+    if matches!(criterion.status.as_str(), "satisfied" | "waived")
+        && !criterion.evidence_refs.is_empty()
+    {
         return true;
     }
-    let criteria = &task.problem_ledger.success_criteria;
-    !criteria.is_empty()
-        && criteria.iter().all(|criterion| {
-            if matches!(criterion.status.as_str(), "satisfied" | "waived")
-                && !criterion.evidence_refs.is_empty()
+    matches!(criterion.kind.as_str(), "test" | "validator")
+        && criterion.status == "open"
+        && !criterion.evidence_refs.is_empty()
+        && map_has_accepted_successful_validation_result(map)
+        || matches!(criterion.kind.as_str(), "artifact" | "behavior")
+            && criterion.status == "open"
+            && !criterion.evidence_refs.is_empty()
+            && map_has_accepted_implementation_result(map)
+            && map_has_accepted_successful_validation_result(map)
+}
+
+fn final_readiness_missing_ledger_message(task: &TaskState, map: &ActionMapInstance) -> String {
+    let mut missing = task
+        .problem_ledger
+        .success_criteria
+        .iter()
+        .filter(|criterion| !success_criterion_complete_for_final(criterion, map))
+        .map(|criterion| {
+            let label = if task
+                .cognitive_state
+                .output_contracts
+                .iter()
+                .any(|contract| contract.id == criterion.id)
+                || criterion.id.starts_with("output-contract")
+                || criterion.id.starts_with("oc-")
             {
-                return true;
-            }
-            matches!(criterion.kind.as_str(), "test" | "validator")
-                && criterion.status == "open"
-                && !criterion.evidence_refs.is_empty()
-                && map_has_accepted_successful_validation_result(map)
-                || matches!(criterion.kind.as_str(), "artifact" | "behavior")
-                    && criterion.status == "open"
-                    && !criterion.evidence_refs.is_empty()
-                    && map_has_accepted_implementation_result(map)
-                    && map_has_accepted_successful_validation_result(map)
+                "output_contract"
+            } else {
+                "success_criterion"
+            };
+            format!(
+                "{} id={} kind={} status={} evidence_refs={} description=\"{}\"",
+                label,
+                criterion.id,
+                criterion.kind,
+                criterion.status,
+                criterion.evidence_refs.len(),
+                single_line_preview(&criterion.description, 140)
+            )
         })
+        .collect::<Vec<_>>();
+    if missing.is_empty() {
+        missing.push("none listed; final readiness evidence join failed".to_string());
+    }
+    let omitted = missing.len().saturating_sub(8);
+    missing.truncate(8);
+    let omitted = if omitted > 0 {
+        format!("; omitted_missing_items={omitted}")
+    } else {
+        String::new()
+    };
+    format!(
+        "TaskSpace final answer cannot be emitted until every success criterion and output contract is satisfied or waived with evidence. Missing ledger items: {}{}. Recent result refs available to cite: {}. Ledger update path: call taskspace_control(action=state_commit, schema_version=taskspace-state-commit-v1) with success_criteria entries for the missing ids using explicit status=satisfied or status=waived and evidence_refs that cite result_id/artifact_ref; then retry final_answer. If these refs are insufficient, run or read the needed tool first.",
+        missing.join("; "),
+        omitted,
+        final_readiness_recent_result_refs(map)
+    )
+}
+
+fn final_readiness_recent_result_refs(map: &ActionMapInstance) -> String {
+    let mut results = map.results.values().collect::<Vec<_>>();
+    results.sort_by_key(|result| result.created_at_ms);
+    let mut refs = Vec::new();
+    for result in results.iter().rev() {
+        let Some(action_class) = result.action_class else {
+            continue;
+        };
+        if result.tool_success != Some(true) {
+            continue;
+        }
+        if !matches!(
+            action_class,
+            ActionClass::Edit | ActionClass::Build | ActionClass::Test | ActionClass::Read
+        ) {
+            continue;
+        }
+        refs.push(format!(
+            "{}:{} node={} artifacts={} preview=\"{}\"",
+            result.id,
+            action_class.as_str(),
+            result.node_id,
+            format_result_artifact_refs(result),
+            single_line_preview(&result.body, 120)
+        ));
+        if refs.len() >= 5 {
+            break;
+        }
+    }
+    if refs.is_empty() {
+        "none".to_string()
+    } else {
+        refs.join("; ")
+    }
+}
+
+fn format_result_artifact_refs(result: &NodeResult) -> String {
+    let artifacts = result
+        .evidence_package
+        .evidence_refs
+        .iter()
+        .filter_map(|evidence_ref| evidence_ref.artifact_ref.as_deref())
+        .filter(|artifact_ref| !artifact_ref.trim().is_empty())
+        .take(4)
+        .collect::<Vec<_>>();
+    if artifacts.is_empty() {
+        "none".to_string()
+    } else {
+        artifacts.join(",")
+    }
 }
 
 fn task_open_blocking_question_id(task: &TaskState) -> Option<&str> {
@@ -19912,7 +19801,7 @@ Tests hypotheses: {}\n\
 Depends on results: {}\n\
 Allowed action classes: {allowed_actions}\n\
 \n\
-        You must work only on this node's subtask and stay within Maximum scope. Use the provided node context and return a concise result package for this node. Include the claims you believe are supported, the evidence refs or concrete files/commands/validators behind them, changed artifacts if any, remaining uncertainty, and blockers if any. If evidence is weak or missing, say so instead of presenting the claim as final. Runtime enforces the allowed action classes above. Inspect nodes need concrete read/search evidence or a clear problem-state finding; implementation nodes need changed artifacts or an explicit no-edit blocker; validation nodes need command, exit status, and validator/test evidence; final nodes need satisfied criteria, accepted decisions, and remaining risks. Inspect, test, and final nodes are read-only for repository files; do not edit files or call apply_patch unless this node kind is implement_solution. Implementation nodes allow edits but not validation test runs; after editing, return the result so the parent can create or bind a smoke_test/regression_test node. Do not maintain the map directly. Do not call taskspace_control, spawn_agent, or wait_agent; return findings to the parent agent so it can review the result, mark result validity, and grow or route the task path.\n\n",
+        You must work only on this node's subtask and stay within Maximum scope. Use the provided node context and return a concise result package for this node. Include the claims you believe are supported, the evidence refs or concrete files/commands/validators behind them, changed artifacts if any, remaining uncertainty, and blockers if any. If evidence is weak or missing, say so instead of presenting the claim as final. Runtime enforces the allowed action classes above. Inspect nodes need concrete read/search evidence or a clear problem-state finding; implementation nodes need changed artifacts, relevant execution feedback when useful, or an explicit no-edit blocker; validation nodes need command, exit status, and validator/test evidence; final nodes need satisfied criteria, accepted decisions, and remaining risks. Inspect, test, and final nodes are read-only for repository files; do not edit files or call apply_patch unless this node kind is implement_solution. Do not maintain the map directly. Do not call taskspace_control, spawn_agent, or wait_agent; return findings to the parent agent so it can review the result, mark result validity, and grow or route the task path.\n\n",
         node_kind.as_str(),
         subagent_plan.id,
         subagent_plan.expected_artifact,
@@ -20022,15 +19911,28 @@ fn seed_start_task_derived_output_contracts(
 ) {
     let mut artifacts = Vec::new();
     for artifact in extract_artifact_like_refs(objective) {
-        push_unique_artifact_ref(&mut artifacts, artifact);
+        if requirement_text_declares_generated_output_artifact(objective, &artifact)
+            || output_contract_artifact_ref_looks_like_schema_or_validator(&artifact)
+        {
+            push_unique_artifact_ref(&mut artifacts, artifact);
+        }
     }
     for criterion in success_criteria {
         for artifact in extract_artifact_like_refs(&criterion.description) {
-            push_unique_artifact_ref(&mut artifacts, artifact);
+            if requirement_text_declares_generated_output_artifact(
+                &criterion.description,
+                &artifact,
+            ) || output_contract_artifact_ref_looks_like_schema_or_validator(&artifact)
+            {
+                push_unique_artifact_ref(&mut artifacts, artifact);
+            }
         }
         for evidence in &criterion.evidence_refs {
             if let Some(artifact_ref) = evidence.artifact_ref.as_deref() {
-                push_unique_artifact_ref(&mut artifacts, normalize_artifact_ref(artifact_ref));
+                let artifact = normalize_artifact_ref(artifact_ref);
+                if output_contract_artifact_ref_looks_like_schema_or_validator(&artifact) {
+                    push_unique_artifact_ref(&mut artifacts, artifact);
+                }
             }
         }
     }
@@ -20677,6 +20579,17 @@ mod tests {
         assert_eq!(budget.max_model_requests_per_node, 3);
         assert_eq!(budget.max_spawn_agent_calls, 2);
         assert_eq!(budget.max_nodes, 8);
+    }
+
+    #[test]
+    fn taskspace_active_budget_deep_route_keeps_room_for_inspect_progress() {
+        let budget =
+            taskspace_active_budget_for_route("taskspace-v005-deep", TaskSpaceRouteMode::Deep);
+
+        assert_eq!(budget.max_rollout_model_requests, 20);
+        assert_eq!(budget.max_model_requests_per_node, 10);
+        assert_eq!(budget.max_spawn_agent_calls, 4);
+        assert_eq!(budget.max_nodes, 14);
     }
 
     #[test]
@@ -23881,6 +23794,7 @@ sample rows from {artifact}"
             )
             .expect("task starts");
         seed_test_cognitive_preflight(&mut state, owner);
+        seed_final_synthesis_readiness(&mut state, owner);
 
         state
             .record_main_tool_result_with_class(
@@ -23969,7 +23883,6 @@ sample rows from {artifact}"
                     && event.result_id.as_deref() == Some(result_id.as_str())
                     && event.artifact_refs == vec!["generate_report.sh".to_string()]
         ));
-        assert!(command_is_general_validation_runner("bash run_pipeline.sh"));
     }
 
     #[test]
@@ -25671,6 +25584,102 @@ def build_organization():\n\
     }
 
     #[test]
+    fn output_contract_path_keeps_generated_parquet_out_of_fact_source_requirements() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (task_id, _, _, _) = state
+            .start_task_for_main_with_kind_and_criteria(
+                owner,
+                NodeKind::InspectCodeContext,
+                "Merge users".to_string(),
+                "Merge user data from /data/source_a/users.json, /data/source_b/users.csv, and /data/source_c/users.parquet. Output merged_users.parquet and conflicts.json.".to_string(),
+                vec![ActionMapSuccessCriterionInput {
+                    id: "sc-merged-users".to_string(),
+                    kind: "artifact".to_string(),
+                    description:
+                        "All unique users from all sources are included in merged_users.parquet"
+                            .to_string(),
+                    status: "open".to_string(),
+                    evidence_refs: vec![ActionMapEvidenceRefInput {
+                        artifact_ref: Some("user-request".to_string()),
+                        ..Default::default()
+                    }],
+                }],
+                vec![ActionMapStateCommitOutputContractInput {
+                    id: "oc-merged-users".to_string(),
+                    kind: "artifact".to_string(),
+                    description: "Merged user dataset with required columns".to_string(),
+                    evidence_refs: vec![ActionMapEvidenceRefInput {
+                        artifact_ref: Some("merged_users.parquet".to_string()),
+                        ..Default::default()
+                    }],
+                }],
+                vec![
+                    ActionMapStateCommitFactSourceInput {
+                        id: "fs-source-a".to_string(),
+                        provenance: "provided_by_user".to_string(),
+                        description: "Source A users".to_string(),
+                        evidence_refs: vec![ActionMapEvidenceRefInput {
+                            artifact_ref: Some("/data/source_a/users.json".to_string()),
+                            ..Default::default()
+                        }],
+                    },
+                    ActionMapStateCommitFactSourceInput {
+                        id: "fs-source-b".to_string(),
+                        provenance: "provided_by_user".to_string(),
+                        description: "Source B users".to_string(),
+                        evidence_refs: vec![ActionMapEvidenceRefInput {
+                            artifact_ref: Some("/data/source_b/users.csv".to_string()),
+                            ..Default::default()
+                        }],
+                    },
+                    ActionMapStateCommitFactSourceInput {
+                        id: "fs-source-c".to_string(),
+                        provenance: "provided_by_user".to_string(),
+                        description: "Source C users".to_string(),
+                        evidence_refs: vec![ActionMapEvidenceRefInput {
+                            artifact_ref: Some("/data/source_c/users.parquet".to_string()),
+                            ..Default::default()
+                        }],
+                    },
+                ],
+                "Inspect inputs".to_string(),
+                "Read the source datasets.".to_string(),
+                true,
+            )
+            .expect("task starts");
+
+        let task = state.tasks.get(&task_id).expect("task");
+        let output_targets = task_output_contract_artifact_targets(task);
+        assert!(
+            output_targets
+                .iter()
+                .any(|target| target == "merged_users.parquet"),
+            "{output_targets:?}"
+        );
+        assert!(
+            !output_targets
+                .iter()
+                .any(|target| target == "/data/source_a/users.json"),
+            "{output_targets:?}"
+        );
+        let required_fact_sources = task_required_fact_source_artifact_refs(task);
+        assert!(
+            !required_fact_sources
+                .iter()
+                .any(|artifact| artifact == "merged_users.parquet"),
+            "{required_fact_sources:?}"
+        );
+        assert!(
+            required_fact_sources
+                .iter()
+                .any(|artifact| artifact == "/data/source_a/users.json"),
+            "{required_fact_sources:?}"
+        );
+    }
+
+    #[test]
     fn inspect_generic_csv_requirement_expands_discovered_csv_inputs() {
         let mut state = ActionMapRuntimeState::default();
         let owner = ThreadId::new();
@@ -26059,6 +26068,128 @@ TaskSpaceReadFileSummaryV1: path=projects.csv lines_read=2 eof_reached=true max_
             }),
             "projection must not ask to read the generated output before implementation: {actions:?}"
         );
+    }
+
+    #[test]
+    fn inspect_fact_source_extraction_ignores_generated_parquet_success_criteria() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (task_id, _, node_id, _) = state
+            .start_task_for_main_with_kind_and_criteria(
+                owner,
+                NodeKind::InspectCodeContext,
+                "Merge user data".to_string(),
+                "Merge three user sources and generate output artifacts.".to_string(),
+                vec![
+                    ActionMapSuccessCriterionInput {
+                        id: "criterion-1".to_string(),
+                        kind: "test".to_string(),
+                        description: "Read all three source files".to_string(),
+                        status: "open".to_string(),
+                        evidence_refs: vec![ActionMapEvidenceRefInput {
+                            artifact_ref: Some("user-request".to_string()),
+                            ..Default::default()
+                        }],
+                    },
+                    ActionMapSuccessCriterionInput {
+                        id: "criterion-2".to_string(),
+                        kind: "test".to_string(),
+                        description: "Generate /app/merged_users.parquet".to_string(),
+                        status: "open".to_string(),
+                        evidence_refs: vec![ActionMapEvidenceRefInput {
+                            artifact_ref: Some("user-request".to_string()),
+                            ..Default::default()
+                        }],
+                    },
+                    ActionMapSuccessCriterionInput {
+                        id: "criterion-3".to_string(),
+                        kind: "test".to_string(),
+                        description: "Generate /app/conflicts.json".to_string(),
+                        status: "open".to_string(),
+                        evidence_refs: vec![ActionMapEvidenceRefInput {
+                            artifact_ref: Some("user-request".to_string()),
+                            ..Default::default()
+                        }],
+                    },
+                ],
+                Vec::new(),
+                vec![ActionMapStateCommitFactSourceInput {
+                    id: "fact-source-1".to_string(),
+                    provenance: "provided_by_user".to_string(),
+                    description: "Input files: /data/source_a/users.json, /data/source_b/users.csv, /data/source_c/users.parquet".to_string(),
+                    evidence_refs: vec![ActionMapEvidenceRefInput {
+                        artifact_ref: Some("user-request".to_string()),
+                        ..Default::default()
+                    }],
+                }],
+                "Inspect input data".to_string(),
+                "Read the three source files before implementation.".to_string(),
+                true,
+            )
+            .expect("task starts");
+
+        let missing_before = state.current_main_inspect_missing_required_fact_source_artifacts();
+        assert!(
+            missing_before
+                .iter()
+                .any(|artifact| artifact_refs_match(artifact, "/data/source_a/users.json")),
+            "{missing_before:?}"
+        );
+        assert!(
+            !missing_before
+                .iter()
+                .any(|artifact| artifact_refs_match(artifact, "/app/merged_users.parquet")),
+            "generated parquet output must not become an inspect fact source: {missing_before:?}"
+        );
+        assert!(
+            !missing_before
+                .iter()
+                .any(|artifact| artifact_refs_match(artifact, "/app/conflicts.json")),
+            "generated JSON output must not become an inspect fact source: {missing_before:?}"
+        );
+
+        record_successful_read_result(&mut state, owner, "source-a", "data/source_a/users.json");
+        record_successful_read_result(&mut state, owner, "source-b", "data/source_b/users.csv");
+        record_successful_read_result(&mut state, owner, "source-c", "data/source_c/users.parquet");
+        assert!(
+            state
+                .current_main_inspect_missing_required_fact_source_artifacts()
+                .is_empty(),
+            "reading all input fact sources should allow inspect completion"
+        );
+
+        let task = state.tasks.get(&task_id).expect("task");
+        let requirements = task_output_contract_validation_requirements(task);
+        assert!(
+            requirements
+                .targets
+                .iter()
+                .any(|target| artifact_refs_match(target, "/app/merged_users.parquet")),
+            "{requirements:?}"
+        );
+        assert!(
+            requirements
+                .targets
+                .iter()
+                .any(|target| artifact_refs_match(target, "/app/conflicts.json")),
+            "{requirements:?}"
+        );
+
+        state
+            .finish_main_node_with_next(
+                owner,
+                &node_id,
+                "All three input files were inspected.".to_string(),
+                None,
+                Some(ActionMapNextNodeDraft {
+                    kind: NodeKind::ImplementSolution,
+                    title: "Implement user merge".to_string(),
+                    context_summary: "Create the merge outputs from inspected sources.".to_string(),
+                    dependency_node_ids: vec![node_id.clone()],
+                }),
+            )
+            .expect("inspect can finish after input sources are read");
     }
 
     #[test]
@@ -27083,6 +27214,243 @@ TaskSpaceReadFileSummaryV1: path=/data/source_c/users.parquet lines_read=0 eof_r
     }
 
     #[test]
+    fn active_projection_preserves_recent_evidence_without_active_node() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (_, _, node_id, _) = start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::InspectCodeContext,
+            "Inspect data sources",
+            "Read input data before implementation.",
+            "Inspect data sources",
+            "Read input data before implementation.",
+            true,
+        );
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "read-source-a",
+                "shell_command",
+                Some(ActionClass::Read),
+                true,
+                "TaskSpaceToolInvocationV1:\n\
+tool: shell_command\n\
+command: sed -n '1,240p' -- data/source_a/users.json\n\
+raw_output:\n\
+Exit code: 0\n\
+Output:\n\
+[{\"id\":101,\"full_name\":\"John Doe\",\"email\":\"john@a.com\"}]\n\
+TaskSpaceReadFileSummaryV1: path=data/source_a/users.json lines_read=1 eof_reached=true max_lines=240\n"
+                    .to_string(),
+            )
+            .expect("source read records");
+        state
+            .finish_main_node_with_next(
+                owner,
+                &node_id,
+                "Inspection complete.".to_string(),
+                None,
+                None,
+            )
+            .expect("inspect node finishes without next node");
+
+        let context = state.build_developer_context().expect("developer context");
+        assert!(context.contains("current_node: none"), "{context}");
+        assert!(context.contains("recent_tool_feedback:"), "{context}");
+        assert!(
+            context.contains("command=sed -n '1,240p' -- data/source_a/users.json"),
+            "{context}"
+        );
+        assert!(context.contains("verified_input_evidence:"), "{context}");
+        assert!(
+            context.contains("verified_paths=data/source_a/users.json"),
+            "{context}"
+        );
+        assert!(context.contains("John Doe"), "{context}");
+        assert!(context.contains("john@a.com"), "{context}");
+    }
+
+    #[test]
+    fn active_projection_preserves_recent_tool_feedback_excerpts() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::InspectCodeContext,
+            "Inspect data sources",
+            "Locate data sources before implementation.",
+            "Inspect data sources",
+            "Locate data sources before implementation.",
+            true,
+        );
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "list-root",
+                "shell_command",
+                Some(ActionClass::Read),
+                true,
+                "TaskSpaceToolInvocationV1:\n\
+tool: shell_command\n\
+command: rg --files .\n\
+raw_output:\n\
+Exit code: 0\n\
+Wall time: 0.1 seconds\n\
+Output:\n\
+./task.yaml\n\
+./data/source_a/users.json\n\
+./data/source_b/users.csv\n\
+./data/source_c/users.parquet\n"
+                    .to_string(),
+            )
+            .expect("list result records");
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "read-absolute",
+                "shell_command",
+                Some(ActionClass::Read),
+                false,
+                "TaskSpaceToolInvocationV1:\n\
+tool: shell_command\n\
+command: sed -n '1,240p' -- /data/source_a/users.json\n\
+raw_output:\n\
+Exit code: 2\n\
+Output:\n\
+sed: can't read /data/source_a/users.json: No such file or directory\n"
+                    .to_string(),
+            )
+            .expect("failed read result records");
+
+        let context = state.build_developer_context().expect("developer context");
+        assert!(context.contains("recent_tool_feedback:"), "{context}");
+        assert!(context.contains("command=rg --files ."), "{context}");
+        assert!(context.contains("./data/source_b/users.csv"), "{context}");
+        assert!(
+            context.contains("sed: can't read /data/source_a/users.json"),
+            "{context}"
+        );
+    }
+
+    #[test]
+    fn active_projection_preserves_successful_apply_patch_action_preview() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::ImplementSolution,
+            "Fix parquet reader",
+            "Patch merge_users.py after the failing run.",
+            "Patch merge_users.py",
+            "Update the parquet row conversion.",
+            true,
+        );
+        seed_test_cognitive_preflight(&mut state, owner);
+        let patch = "*** Begin Patch\n\
+*** Update File: merge_users.py\n\
+@@\n\
+-    return table.to_pydict()\n\
++    return [dict(zip(table.column_names, row)) for row in zip(*[table.column(i).to_pylist() for i in range(table.num_columns)])]\n\
+*** End Patch";
+        state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new("apply_patch", ActionClass::Edit, patch)
+                    .with_call_id("patch-parquet-reader"),
+            )
+            .expect("edit is allowed");
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "patch-parquet-reader",
+                "apply_patch",
+                Some(ActionClass::Edit),
+                true,
+                "{\"output\":\"Success. Updated the following files:\\nM merge_users.py\\n\"}"
+                    .to_string(),
+            )
+            .expect("edit result records");
+
+        let context = state.build_developer_context().expect("developer context");
+        assert!(context.contains("recent_tool_feedback:"), "{context}");
+        assert!(context.contains("action_preview:"), "{context}");
+        assert!(
+            context.contains("return [dict(zip(table.column_names, row))"),
+            "{context}"
+        );
+        assert!(
+            context.contains("Success. Updated the following files"),
+            "{context}"
+        );
+    }
+
+    #[test]
+    fn active_projection_preserves_failed_run_test_tail_error() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::ImplementSolution,
+            "Fix merge output",
+            "Run merge_users.py and repair any failure.",
+            "Implement merger",
+            "Create merged_users.parquet.",
+            true,
+        );
+        seed_test_cognitive_preflight(&mut state, owner);
+        let mut body = String::from(
+            "TaskSpaceToolInvocationV1:\n\
+tool: shell_command\n\
+command: python merge_users.py 2>&1\n\
+raw_output:\n\
+Exit code: 1\n\
+Wall time: 0.3 seconds\n\
+Output:\n\
+Traceback (most recent call last):\n",
+        );
+        for index in 0..60 {
+            body.push_str(&format!(
+                "  File \"/tmp/site-packages/pandas/frame_{index}.py\", line {index}, in wrapper\n\
+    return next_call_{index}()\n"
+            ));
+        }
+        body.push_str(
+            "pyarrow.lib.ArrowTypeError: (\"Expected bytes, got a 'bool' object\", 'Conversion failed for column status with type object')\n",
+        );
+
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "run-merge",
+                "shell_command",
+                Some(ActionClass::Test),
+                false,
+                body,
+            )
+            .expect("failed test result records");
+
+        let context = state.build_developer_context().expect("developer context");
+        assert!(context.contains("recent_tool_feedback:"), "{context}");
+        assert!(
+            context.contains("Traceback (most recent call last)"),
+            "{context}"
+        );
+        assert!(context.contains("pyarrow.lib.ArrowTypeError"), "{context}");
+        assert!(
+            context.contains("Conversion failed for column status"),
+            "{context}"
+        );
+    }
+
+    #[test]
     fn projection_prioritizes_inspect_gate_recovery_next_actions() {
         let mut state = ActionMapRuntimeState::default();
         let owner = ThreadId::new();
@@ -27573,7 +27941,7 @@ def normalize_status(value: str) -> str:\n\
     }
 
     #[test]
-    fn validation_node_blocks_vacuous_test_after_changed_artifact() {
+    fn validation_node_allows_agent_chosen_test_after_changed_artifact() {
         let mut state = ActionMapRuntimeState::default();
         let owner = ThreadId::new();
         state.set_mode(MapRuntimeMode::Experiment);
@@ -27679,27 +28047,19 @@ def normalize_status(value: str) -> str:\n\
             "timeout_ms": 10000
         })
         .to_string();
-        let error = state
+        state
             .prepare_main_tool_call(
                 owner,
                 ToolActionDescriptor::new("shell_command", ActionClass::Test, vacuous),
             )
-            .expect_err("vacuous validation should not cover changed artifact");
-        assert!(
-            error.contains("validation_test_missing_changed_artifact_coverage"),
-            "{error}"
-        );
-        assert!(error.contains("recover_logs.py"), "{error}");
-        assert!(error.contains("recovered_logs/results.json"), "{error}");
-        assert!(error.contains("python recover_logs.py"), "{error}");
-        assert!(error.contains("Do not run discovery commands"), "{error}");
+            .expect("validation test commands should reach the tool layer");
 
         let runs_changed_artifact = serde_json::json!({
             "command": "python /app/recover_logs.py",
             "timeout_ms": 120000
         })
         .to_string();
-        let error = state
+        state
             .prepare_main_tool_call(
                 owner,
                 ToolActionDescriptor::new(
@@ -27708,13 +28068,7 @@ def normalize_status(value: str) -> str:\n\
                     runs_changed_artifact,
                 ),
             )
-            .expect_err("generator-only validation should not close output contracts");
-        assert!(
-            error.contains("validation_test_missing_output_contract_coverage"),
-            "{error}"
-        );
-        assert!(error.contains("recovered_logs/results.json"), "{error}");
-        assert!(error.contains("python recover_logs.py &&"), "{error}");
+            .expect("generator-only validation should reach the tool layer");
 
         let runs_changed_artifact_and_checks_output = serde_json::json!({
             "command": "python /app/recover_logs.py && python -c \"import json; data=json.load(open('/app/recovered_logs/results.json')); assert isinstance(data, list)\"",
@@ -27737,7 +28091,7 @@ def normalize_status(value: str) -> str:\n\
             "timeout_ms": 120000
         })
         .to_string();
-        let error = state
+        state
             .prepare_main_tool_call(
                 owner,
                 ToolActionDescriptor::new(
@@ -27746,12 +28100,7 @@ def normalize_status(value: str) -> str:\n\
                     checks_output_contract,
                 ),
             )
-            .expect_err("output-only validation does not exercise the changed generator");
-        assert!(
-            error.contains("validation_test_missing_changed_artifact_coverage"),
-            "{error}"
-        );
-        assert!(error.contains("recover_logs.py"), "{error}");
+            .expect("output-only validation should reach the tool layer");
 
         let wrong_script_validation_attempt = serde_json::json!({
             "command": "python process.py && python -c \"import json; data=json.load(open('/app/recovered_logs/results.json')); assert isinstance(data, list)\"",
@@ -28456,7 +28805,7 @@ TaskSpaceReadFileSummaryV1: path=data/source_b/users.csv lines_read=2 eof_reache
     }
 
     #[test]
-    fn validation_node_blocks_generator_only_command_for_schema_output_contract() {
+    fn validation_node_allows_generator_only_command_for_schema_output_contract() {
         let mut state = ActionMapRuntimeState::default();
         let owner = ThreadId::new();
         state.set_mode(MapRuntimeMode::Experiment);
@@ -28587,24 +28936,12 @@ TaskSpaceReadFileSummaryV1: path=data/source_b/users.csv lines_read=2 eof_reache
             "timeout_ms": 30000
         })
         .to_string();
-        let error = state
+        state
             .prepare_main_tool_call(
                 owner,
                 ToolActionDescriptor::new("shell_command", ActionClass::Test, generator_only),
             )
-            .expect_err("generator-only smoke test does not validate output contract");
-        assert!(
-            error.contains("validation_test_missing_output_contract_coverage"),
-            "{error}"
-        );
-        assert!(error.contains("organization.json"), "{error}");
-        assert!(error.contains("schema.json"), "{error}");
-        assert!(
-            error.contains(
-                "python generate_json.py && python -m jsonschema -i organization.json schema.json"
-            ),
-            "{error}"
-        );
+            .expect("agent-selected validation should reach the tool layer");
 
         let combined = serde_json::json!({
             "command": "python generate_json.py && python -m jsonschema -i organization.json schema.json",
@@ -28648,7 +28985,7 @@ organization.json generated successfully\n"
     }
 
     #[test]
-    fn validation_node_requires_schema_fact_source_for_output_contract_check() {
+    fn validation_node_allows_agent_chosen_schema_output_contract_check() {
         let mut state = ActionMapRuntimeState::default();
         let owner = ThreadId::new();
         state.set_mode(MapRuntimeMode::Experiment);
@@ -28764,43 +29101,12 @@ organization.json generated successfully\n"
             "timeout_ms": 30000
         })
         .to_string();
-        let error = state
+        state
             .prepare_main_tool_call(
                 owner,
                 ToolActionDescriptor::new("shell_command", ActionClass::Test, weak_json_parse),
             )
-            .expect_err("json parsing alone does not validate the schema fact source");
-        assert!(
-            error.contains("validation_test_missing_output_contract_coverage"),
-            "{error}"
-        );
-        assert!(error.contains("organization.json"), "{error}");
-        assert!(error.contains("schema.json"), "{error}");
-        assert!(
-            error.contains(
-                "python process.py && python -m jsonschema -i organization.json schema.json"
-            ),
-            "{error}"
-        );
-        let active_projection = state
-            .build_active_projection_developer_context()
-            .expect("active projection is available after validation gate recovery");
-        assert!(
-            active_projection.contains(
-                "python process.py && python -m jsonschema -i organization.json schema.json"
-            ),
-            "{active_projection}"
-        );
-        assert!(
-            active_projection.contains(
-                "do not substitute weaker validation; use the exact recovered command unless it cannot run"
-            ),
-            "{active_projection}"
-        );
-        assert!(
-            !active_projection.contains("    - run validator/test command\n"),
-            "projection must not dilute exact recovery into generic validator wording: {active_projection}"
-        );
+            .expect("agent-selected validation should reach the tool layer");
 
         let schema_validation = serde_json::json!({
             "command": "python process.py && python -m jsonschema -i organization.json schema.json",
@@ -28816,7 +29122,7 @@ organization.json generated successfully\n"
     }
 
     #[test]
-    fn validation_node_derives_output_target_from_success_criteria_for_schema_check() {
+    fn validation_node_allows_success_criteria_output_target_check() {
         let mut state = ActionMapRuntimeState::default();
         let owner = ThreadId::new();
         state.set_mode(MapRuntimeMode::Experiment);
@@ -28974,24 +29280,12 @@ organization.json generated successfully\n"
             "timeout_ms": 30000
         })
         .to_string();
-        let error = state
+        state
             .prepare_main_tool_call(
                 owner,
                 ToolActionDescriptor::new("shell_command", ActionClass::Test, weak_json_parse),
             )
-            .expect_err("top-level JSON parsing does not validate schema-derived output target");
-        assert!(
-            error.contains("validation_test_missing_output_contract_coverage"),
-            "{error}"
-        );
-        assert!(error.contains("organization.json"), "{error}");
-        assert!(error.contains("schema.json"), "{error}");
-        assert!(
-            error.contains(
-                "python process.py && python -m jsonschema -i organization.json schema.json"
-            ),
-            "{error}"
-        );
+            .expect("agent-selected validation should reach the tool layer");
     }
 
     #[test]
@@ -29273,7 +29567,7 @@ ModuleNotFoundError: No module named 'jsonschema'\n"
     }
 
     #[test]
-    fn validation_gate_requires_discovered_local_validator_over_pytest_only() {
+    fn validation_node_allows_agent_chosen_test_with_discovered_local_validator() {
         let mut state = ActionMapRuntimeState::default();
         let owner = ThreadId::new();
         state.set_mode(MapRuntimeMode::Experiment);
@@ -29353,18 +29647,12 @@ ModuleNotFoundError: No module named 'jsonschema'\n"
             "timeout_ms": 120000
         })
         .to_string();
-        let error = state
+        state
             .prepare_main_tool_call(
                 owner,
                 ToolActionDescriptor::new("shell_command", ActionClass::Test, pytest_only),
             )
-            .expect_err("pytest-only must not replace the discovered local validator");
-
-        assert!(
-            error.contains("validation_test_missing_local_validator_coverage"),
-            "{error}"
-        );
-        assert!(error.contains("python scripts/validate.py"), "{error}");
+            .expect("agent-chosen validation command reaches the tool layer");
         assert_eq!(
             state.current_main_node_id.as_deref(),
             Some(validation_node_id.as_str())
@@ -29797,13 +30085,13 @@ AssertionError: schema field missing";
             )
             .expect("task starts");
         seed_test_cognitive_preflight(&mut state, owner);
+        seed_final_synthesis_readiness(&mut state, owner);
 
         let (result_id, events) = state
             .record_main_final_response(owner, "Completed the requested review.")
             .expect("final response records")
             .expect("final node should record a result");
 
-        assert_eq!(result_id, "result-1");
         assert!(state.current_main_node_id.is_none());
         assert!(state.current_main_lease_id.is_none());
         assert!(events.iter().any(|event| {
@@ -29817,7 +30105,11 @@ AssertionError: schema field missing";
         let node = map.nodes.get("node-1").expect("final node");
         assert_eq!(node.status, NodeStatus::Completed);
         assert_eq!(node.active_lease, None);
-        assert_eq!(node.result_context.len(), 1);
+        assert!(
+            node.result_context
+                .iter()
+                .any(|result_ref| result_ref.id == result_id)
+        );
         let result = map.results.get(&result_id).expect("stored result");
         assert_eq!(result.kind, NodeResultKind::Result);
         assert_eq!(result.body, "Completed the requested review.");
@@ -30365,6 +30657,17 @@ AssertionError: schema field missing";
             "Inspect the corrupted database and produce recover.json.",
             true,
         );
+        let (test_result_id, _) = state
+            .record_main_tool_result_with_class(
+                owner,
+                "call-output-check",
+                "shell_command",
+                Some(ActionClass::Test),
+                true,
+                "ls recover.json && python recover.py".to_string(),
+            )
+            .expect("test result records")
+            .expect("test result id");
         state.current_main_node_id = None;
         state.current_main_lease_id = None;
 
@@ -30378,6 +30681,9 @@ AssertionError: schema field missing";
         );
         assert!(error.contains("success criterion"));
         assert!(error.contains("output contract"));
+        assert!(error.contains("contract-test"), "{error}");
+        assert!(error.contains("state_commit"), "{error}");
+        assert!(error.contains(&test_result_id), "{error}");
         assert!(state.current_main_node_id.is_none());
     }
 
@@ -30430,7 +30736,7 @@ AssertionError: schema field missing";
     }
 
     #[test]
-    fn final_response_rejects_unreviewed_prior_result() {
+    fn final_response_allows_current_final_dependency_lifecycle_result() {
         let mut state = ActionMapRuntimeState::default();
         let owner = ThreadId::new();
         state.set_mode(MapRuntimeMode::Experiment);
@@ -30441,6 +30747,7 @@ AssertionError: schema field missing";
             "Create an unreviewed lifecycle result before final response.",
             true,
         );
+        seed_final_synthesis_readiness(&mut state, owner);
         let (outcome, _) = state
             .finish_main_node_with_next(
                 owner,
@@ -30455,13 +30762,59 @@ AssertionError: schema field missing";
                 }),
             )
             .expect("finish into final");
-        assert_eq!(outcome.result_id, "result-1");
+        assert_eq!(outcome.result_id, "result-2");
 
-        let error = state
+        state
             .record_main_final_response(owner, "Done.")
-            .expect_err("final response must not bypass result review");
-        assert!(error.contains("still unreviewed"));
-        assert_eq!(state.current_main_node_id.as_deref(), Some("node-2"));
+            .expect("final response may rely on the current final dependency lifecycle summary");
+        let map = state.active_map().expect("active map");
+        let result = map
+            .results
+            .get(&outcome.result_id)
+            .expect("lifecycle result remains present");
+        assert_eq!(result.evidence_package.validity, ResultValidity::Unreviewed);
+    }
+
+    #[test]
+    fn ordinary_tool_call_allows_unreviewed_prior_result() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        start_test_task(
+            &mut state,
+            owner,
+            "Inspect first",
+            "Continue ordinary work after a prior node result exists.",
+            true,
+        );
+        let (outcome, _) = state
+            .finish_main_node_with_next(
+                owner,
+                "node-1",
+                "Inspection finished.".to_string(),
+                None,
+                Some(ActionMapNextNodeDraft {
+                    kind: NodeKind::InspectCodeContext,
+                    title: "Follow-up inspection".to_string(),
+                    context_summary: "Inspect another surface without reviewing the prior result."
+                        .to_string(),
+                    dependency_node_ids: vec!["node-1".to_string()],
+                }),
+            )
+            .expect("finish into follow-up inspect");
+        let follow_up_node_id = outcome.next_node_id.expect("next inspect node");
+        record_test_node_scope_question(&mut state, owner, &follow_up_node_id);
+
+        state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new("shell_command", ActionClass::Read, "rg --files ."),
+            )
+            .expect("ordinary read remains allowed with an unreviewed prior result");
+
+        let map = state.active_map().expect("active map");
+        let result = map.results.get(&outcome.result_id).expect("prior result");
+        assert_eq!(result.evidence_package.validity, ResultValidity::Unreviewed);
     }
 
     #[test]
@@ -36562,7 +36915,7 @@ summary: diagnostic payload for output reference smoke\n\
     }
 
     #[test]
-    fn force_finish_validation_rejects_generator_only_output_contract_success() {
+    fn force_finish_validation_allows_agent_chosen_output_contract_success() {
         let mut state = ActionMapRuntimeState::default();
         let owner = ThreadId::new();
         state.set_mode(MapRuntimeMode::Experiment);
@@ -36683,29 +37036,24 @@ organization.json generated successfully.\n"
             budget_state: "normal".to_string(),
         };
 
-        let error = state
+        let result = state
             .force_finish_validation_after_successful_tool(
                 owner,
                 &snapshot,
                 "validation_success_after_tool_drain",
             )
-            .expect_err("generator-only success should not force validation closeout");
+            .expect("agent-chosen validation success may force closeout");
 
-        assert!(
-            error.contains("validation_test_missing_output_contract_coverage"),
-            "{error}"
-        );
-        assert!(error.contains("organization.json"), "{error}");
-        assert!(error.contains("schema.json"), "{error}");
+        assert!(result.is_some());
         let map = state.maps.get(&map_id).expect("map");
         assert_eq!(
             map.nodes
                 .get(&validation_node_id)
                 .expect("validation node")
                 .status,
-            NodeStatus::Running
+            NodeStatus::Completed
         );
-        assert!(!state.active_map_has_accepted_successful_validation_result());
+        assert!(state.active_map_has_accepted_successful_validation_result());
     }
 
     #[test]
@@ -38701,6 +39049,72 @@ TaskSpaceReadFileSummaryV1: path=long.py lines_read=240 eof_reached=false max_li
     }
 
     #[test]
+    fn working_evidence_excerpt_preserves_small_complete_read_past_default_budget() {
+        let mut body = String::from(
+            "TaskSpaceToolInvocationV1:\n\
+tool: shell_command\n\
+command: sed -n '1,240p' -- merge_users.py\n\
+raw_output:\n",
+        );
+        for line in 0..120 {
+            body.push_str(&format!("print('line-{line:03}')\n"));
+        }
+        body.push_str(
+            "final_tail_marker = True\n\
+TaskSpaceReadFileSummaryV1: path=merge_users.py lines_read=121 eof_reached=true max_lines=240\n",
+        );
+
+        let excerpt = working_evidence_body_excerpt(&body, 1000);
+
+        assert!(
+            excerpt.contains("TaskSpaceReadFileSummaryV1: path=merge_users.py"),
+            "{excerpt}"
+        );
+        assert!(excerpt.contains("print('line-119')"), "{excerpt}");
+        assert!(excerpt.contains("final_tail_marker = True"), "{excerpt}");
+        assert!(
+            !excerpt.trim_end().ends_with("..."),
+            "small complete reads should not look like projection-only partial excerpts: {excerpt}"
+        );
+    }
+
+    #[test]
+    fn working_evidence_excerpt_preserves_failed_traceback_tail_error() {
+        let mut body = String::from(
+            "TaskSpaceToolInvocationV1:\n\
+tool: shell_command\n\
+command: python merge_users.py 2>&1\n\
+raw_output:\n\
+Exit code: 1\n\
+Wall time: 0.3 seconds\n\
+Output:\n\
+Traceback (most recent call last):\n",
+        );
+        for index in 0..80 {
+            body.push_str(&format!(
+                "  File \"/tmp/site-packages/pyarrow/pandas_compat_{index}.py\", line {index}, in convert_column\n\
+    result = pa.array(col, safe=safe)\n"
+            ));
+        }
+        body.push_str(
+            "pyarrow.lib.ArrowTypeError: (\"Expected bytes, got a 'bool' object\", 'Conversion failed for column status with type object')\n",
+        );
+
+        let excerpt = working_evidence_body_excerpt(&body, 1000);
+
+        assert!(
+            excerpt.contains("Traceback (most recent call last)"),
+            "{excerpt}"
+        );
+        assert!(excerpt.contains("..."), "{excerpt}");
+        assert!(excerpt.contains("pyarrow.lib.ArrowTypeError"), "{excerpt}");
+        assert!(
+            excerpt.contains("Conversion failed for column status"),
+            "{excerpt}"
+        );
+    }
+
+    #[test]
     fn validation_rework_rejects_validator_procedure_blocker_before_edit() {
         let mut state = ActionMapRuntimeState::default();
         let owner = ThreadId::new();
@@ -39251,17 +39665,12 @@ TaskSpaceReadFileSummaryV1: path=long.py lines_read=240 eof_reached=false max_li
             })
         );
 
-        let generator_only_error = state
+        state
             .prepare_main_tool_call(
                 owner,
                 ToolActionDescriptor::new("shell_command", ActionClass::Test, "python recover.py"),
             )
-            .expect_err("retry validation must also validate the declared output contract");
-        assert!(
-            generator_only_error.contains("validation_test_missing_output_contract_coverage"),
-            "{generator_only_error}"
-        );
-        assert!(generator_only_error.contains("recover.json"));
+            .expect("retry validation accepts the agent-chosen test command");
 
         state
             .prepare_main_tool_call(

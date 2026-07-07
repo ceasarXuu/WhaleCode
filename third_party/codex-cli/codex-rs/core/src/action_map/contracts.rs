@@ -23,6 +23,7 @@ const IMPLEMENT_ACTIONS: &[ActionClass] = &[
     ActionClass::Search,
     ActionClass::Edit,
     ActionClass::Build,
+    ActionClass::Test,
     ActionClass::Spawn,
     ActionClass::Wait,
     ActionClass::Review,

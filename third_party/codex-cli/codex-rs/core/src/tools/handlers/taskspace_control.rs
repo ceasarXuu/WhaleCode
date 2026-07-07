@@ -1304,6 +1304,7 @@ fn normalize_state_commit_sections(root: &mut serde_json::Map<String, JsonValue>
     normalize_state_commit_result_validities(root);
     normalize_state_commit_decisions(root);
     normalize_state_commit_facts(root);
+    normalize_output_contract_array_inline_artifact_refs(root, "output_contracts");
     normalize_state_commit_evidence_array(root, "output_contracts");
     normalize_fact_source_array_inline_artifact_refs(root, "fact_sources");
     normalize_state_commit_evidence_array(root, "fact_sources");
@@ -1365,9 +1366,9 @@ fn normalize_success_criteria_objects(value: &mut JsonValue) {
             .to_string();
         let status = object
             .entry("status".to_string())
-            .or_insert_with(|| JsonValue::String("satisfied".to_string()))
+            .or_insert_with(|| JsonValue::String(default_success_criterion_status()))
             .as_str()
-            .unwrap_or("satisfied")
+            .unwrap_or("open")
             .to_string();
         let status = normalize_success_criterion_status_alias(&status);
         object.insert("status".to_string(), JsonValue::String(status.clone()));
@@ -1642,11 +1643,20 @@ fn normalize_output_contract_array(root: &mut serde_json::Map<String, JsonValue>
         match item {
             JsonValue::String(text) => {
                 let description = text.trim().to_string();
+                let evidence_refs = string_output_contract_artifact_ref(&description)
+                    .map(|artifact_ref| {
+                        JsonValue::Array(vec![serde_json::json!({ "artifact_ref": artifact_ref })])
+                    })
+                    .unwrap_or_else(|| {
+                        JsonValue::Array(vec![
+                            serde_json::json!({ "artifact_ref": "user-request" }),
+                        ])
+                    });
                 *item = serde_json::json!({
                     "id": format!("output-contract-{}", index + 1),
                     "kind": "artifact",
                     "description": description,
-                    "evidence_refs": [{ "artifact_ref": "user-request" }],
+                    "evidence_refs": evidence_refs,
                 });
             }
             JsonValue::Object(object) => {
@@ -1662,6 +1672,7 @@ fn normalize_output_contract_array(root: &mut serde_json::Map<String, JsonValue>
                         index + 1
                     ))
                 });
+                normalize_output_contract_inline_artifact_refs(object);
                 let needs_default = match object.get("evidence_refs") {
                     Some(JsonValue::Array(existing)) => existing.is_empty(),
                     Some(_) => false,
@@ -1678,6 +1689,23 @@ fn normalize_output_contract_array(root: &mut serde_json::Map<String, JsonValue>
             }
             _ => {}
         }
+    }
+}
+
+fn string_output_contract_artifact_ref(description: &str) -> Option<String> {
+    let value = description.trim();
+    if value.is_empty() || value.chars().any(char::is_whitespace) {
+        return None;
+    }
+    let file_name = value
+        .rsplit(['/', '\\'])
+        .next()
+        .unwrap_or(value)
+        .trim_matches('.');
+    if value.contains('/') || value.contains('\\') || file_name.contains('.') {
+        Some(value.to_string())
+    } else {
+        None
     }
 }
 
@@ -1751,6 +1779,26 @@ fn normalize_state_commit_evidence_array(
     }
 }
 
+fn normalize_output_contract_array_inline_artifact_refs(
+    root: &mut serde_json::Map<String, JsonValue>,
+    field: &str,
+) {
+    let Some(JsonValue::Array(items)) = root.get_mut(field) else {
+        return;
+    };
+    for item in items {
+        let JsonValue::Object(object) = item else {
+            continue;
+        };
+        normalize_output_contract_inline_artifact_refs(object);
+    }
+}
+
+fn normalize_output_contract_inline_artifact_refs(object: &mut serde_json::Map<String, JsonValue>) {
+    let artifact_refs = inline_output_contract_artifact_refs(object);
+    append_inline_artifact_refs_to_evidence_refs(object, artifact_refs);
+}
+
 fn normalize_fact_source_array_inline_artifact_refs(
     root: &mut serde_json::Map<String, JsonValue>,
     field: &str,
@@ -1768,6 +1816,13 @@ fn normalize_fact_source_array_inline_artifact_refs(
 
 fn normalize_fact_source_inline_artifact_refs(object: &mut serde_json::Map<String, JsonValue>) {
     let artifact_refs = inline_fact_source_artifact_refs(object);
+    append_inline_artifact_refs_to_evidence_refs(object, artifact_refs);
+}
+
+fn append_inline_artifact_refs_to_evidence_refs(
+    object: &mut serde_json::Map<String, JsonValue>,
+    artifact_refs: Vec<String>,
+) {
     if artifact_refs.is_empty() {
         return;
     }
@@ -1788,6 +1843,39 @@ fn normalize_fact_source_inline_artifact_refs(object: &mut serde_json::Map<Strin
             evidence_refs.push(serde_json::json!({ "artifact_ref": artifact_ref }));
         }
     }
+}
+
+fn inline_output_contract_artifact_refs(
+    object: &serde_json::Map<String, JsonValue>,
+) -> Vec<String> {
+    let mut artifact_refs = Vec::new();
+    for key in [
+        "path",
+        "artifact_ref",
+        "artifactRef",
+        "artifact_path",
+        "artifactPath",
+        "output_path",
+        "outputPath",
+        "target_path",
+        "targetPath",
+    ] {
+        push_inline_artifact_ref(object.get(key), &mut artifact_refs);
+    }
+    for key in [
+        "paths",
+        "artifact_refs",
+        "artifactRefs",
+        "artifact_paths",
+        "artifactPaths",
+        "output_paths",
+        "outputPaths",
+        "target_paths",
+        "targetPaths",
+    ] {
+        push_inline_artifact_refs(object.get(key), &mut artifact_refs);
+    }
+    artifact_refs
 }
 
 fn inline_fact_source_artifact_refs(object: &serde_json::Map<String, JsonValue>) -> Vec<String> {
@@ -2378,6 +2466,38 @@ mod tests {
     }
 
     #[test]
+    fn state_commit_output_contract_path_normalizes_to_artifact_ref() {
+        let raw = serde_json::json!({
+            "action": "state_commit",
+            "commit_id": "commit-1",
+            "schema_version": "taskspace-state-commit-v1",
+            "output_contracts": [{
+                "path": "merged_users.parquet",
+                "description": "Merged user dataset"
+            }]
+        });
+
+        let normalized = normalize_taskspace_arguments(&raw.to_string()).expect("normalize");
+        let args: TaskSpaceControlArgs =
+            serde_json::from_str(&normalized).expect("state_commit output-contract paths parse");
+
+        match args {
+            TaskSpaceControlArgs::StateCommit {
+                output_contracts, ..
+            } => {
+                assert_eq!(output_contracts.len(), 1);
+                assert_eq!(output_contracts[0].id, "output-contracts-1");
+                assert_eq!(output_contracts[0].kind, "artifact");
+                assert_eq!(
+                    output_contracts[0].evidence_refs[0].artifact_ref.as_deref(),
+                    Some("merged_users.parquet")
+                );
+            }
+            other => panic!("unexpected args: {other:?}"),
+        }
+    }
+
+    #[test]
     fn active_profile_rejects_direct_legacy_state_action() {
         let raw = serde_json::json!({
             "action": "record_fact",
@@ -2648,6 +2768,83 @@ mod tests {
     }
 
     #[test]
+    fn start_task_output_contract_path_normalizes_to_artifact_ref() {
+        let raw = serde_json::json!({
+            "action": "start_task",
+            "task_description": "Merge users and output merged_users.parquet",
+            "initial_output_contracts": [{
+                "path": "merged_users.parquet",
+                "description": "Merged user dataset with required columns"
+            }],
+            "first_node_kind": "inspect_code_context"
+        });
+
+        let normalized = normalize_taskspace_arguments(&raw.to_string()).expect("normalize");
+        let args: TaskSpaceControlArgs =
+            serde_json::from_str(&normalized).expect("start_task output-contract path parses");
+        match args {
+            TaskSpaceControlArgs::StartTask {
+                initial_output_contracts,
+                ..
+            } => {
+                assert_eq!(initial_output_contracts.len(), 1);
+                assert_eq!(
+                    initial_output_contracts[0].evidence_refs[0]
+                        .artifact_ref
+                        .as_deref(),
+                    Some("merged_users.parquet")
+                );
+            }
+            other => panic!("unexpected args: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn start_task_string_output_contract_paths_normalize_to_artifact_refs() {
+        let raw = serde_json::json!({
+            "action": "start_task",
+            "task_description": "Merge users and produce declared files",
+            "initial_output_contracts": [
+                "/app/merged_users.parquet",
+                "/app/conflicts.json",
+                "Fixed implementation"
+            ],
+            "first_node_kind": "inspect_code_context"
+        });
+
+        let normalized = normalize_taskspace_arguments(&raw.to_string()).expect("normalize");
+        let args: TaskSpaceControlArgs =
+            serde_json::from_str(&normalized).expect("start_task string path contracts parse");
+        match args {
+            TaskSpaceControlArgs::StartTask {
+                initial_output_contracts,
+                ..
+            } => {
+                assert_eq!(initial_output_contracts.len(), 3);
+                assert_eq!(
+                    initial_output_contracts[0].evidence_refs[0]
+                        .artifact_ref
+                        .as_deref(),
+                    Some("/app/merged_users.parquet")
+                );
+                assert_eq!(
+                    initial_output_contracts[1].evidence_refs[0]
+                        .artifact_ref
+                        .as_deref(),
+                    Some("/app/conflicts.json")
+                );
+                assert_eq!(
+                    initial_output_contracts[2].evidence_refs[0]
+                        .artifact_ref
+                        .as_deref(),
+                    Some("user-request")
+                );
+            }
+            other => panic!("unexpected args: {other:?}"),
+        }
+    }
+
+    #[test]
     fn start_task_fact_source_path_normalizes_to_artifact_ref() {
         let raw = serde_json::json!({
             "action": "start_task",
@@ -2768,7 +2965,14 @@ mod tests {
                 assert!(!node_title.is_empty());
                 assert!(!node_context_summary.is_empty());
                 assert_eq!(initial_success_criteria[0].id, "criterion-1");
+                assert_eq!(initial_success_criteria[0].status, "open");
                 assert_eq!(initial_output_contracts[0].id, "output-contract-1");
+                assert_eq!(
+                    initial_output_contracts[0].evidence_refs[0]
+                        .artifact_ref
+                        .as_deref(),
+                    Some("user-request")
+                );
                 assert_eq!(initial_fact_sources[0].id, "fact-source-1");
                 assert_eq!(
                     initial_fact_sources[0].provenance,
@@ -2946,6 +3150,33 @@ mod tests {
                 );
                 assert_eq!(fact_sources[0].description, "fact_sources fs-observed");
                 assert_eq!(fact_sources[0].provenance, "observed_from_environment");
+            }
+            other => panic!("unexpected args: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn state_commit_success_criterion_object_without_status_defaults_open() {
+        let raw = serde_json::json!({
+            "action": "state_commit",
+            "schema_version": "taskspace-state-commit-v1",
+            "success_criteria": [{
+                "id": "sc-new",
+                "kind": "test",
+                "description": "New validation criterion"
+            }]
+        });
+        let normalized = normalize_taskspace_arguments(&raw.to_string()).expect("normalize");
+        let args: TaskSpaceControlArgs =
+            serde_json::from_str(&normalized).expect("state_commit success criterion parses");
+
+        match args {
+            TaskSpaceControlArgs::StateCommit {
+                success_criteria, ..
+            } => {
+                assert_eq!(success_criteria.len(), 1);
+                assert_eq!(success_criteria[0].id, "sc-new");
+                assert_eq!(success_criteria[0].status, "open");
             }
             other => panic!("unexpected args: {other:?}"),
         }
