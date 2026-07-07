@@ -12144,3 +12144,147 @@
 - Interpretation:
   - H-188's accepted blocking findings are fixed locally.
   - The remaining full-suite failures are outside the repaired R4 runtime-boundary surface and should be tracked separately if they become release blockers.
+
+# Hypothesis H-189: non-budget recovery hard-stops still exceed runtime boundary
+
+- Claim: After H-188, `TaskSpaceNoActionRecoveryHardStopV1` and `TaskSpaceValidationReworkDuplicateReadHardStopV1` still let runtime stop provider sampling for recoverable feedback states that are not total provider budget exhaustion. This exceeds the clarified boundary because failed tool feedback, no-action follow-up, and duplicate complete-read mistakes should remain Agent-visible feedback until a real hard baseline such as total budget, node policy, or tool contract applies.
+- Predictions:
+  1. A fresh adversarial reviewer should find at least one reachable non-budget stop or classifier path where failed tool/gate feedback is treated as no-action.
+  2. Source inspection should show hard-stop marker/constructor/loop branches for no-action or duplicate-read recovery.
+  3. Repair should remove those non-budget provider-sampling stops and keep only recovery feedback plus total provider budget stop.
+  4. Focused tests should prove failed tool/gate feedback with recorded actionable output is classified separately from no-action, and that no-action/duplicate-read recovery remains recoverable after old hard-stop thresholds.
+- Diagnostic evidence plan: Run a fresh subagent Round 2 review; inspect `turn.rs` classifier and recovery loop; add/update tests for provider response actionability, no-action recovery, duplicate-read recovery, provider budget, path correction, action-contract prompt, validation rework, and apply_patch; run a production text scan for remaining hard-stop markers.
+- Status: fixed
+
+# Evidence E-365: Round 2 review proves failed-tool feedback could be classified as no-action
+
+- Prediction tested: H-189 predicts a fresh reviewer will find a reachable non-budget runtime stop or classifier path.
+- Reviewer:
+  ```text
+  agent_id: 019f3d4d-bddc-70b2-bbca-29af813465a6
+  role: implementation-adversary
+  fork_context: false
+  report: vs_review/2026-07-07-r4-runtime-boundary-hard-stop-audit.md
+  ```
+- Finding:
+  ```text
+  Blocking finding B1:
+    failed tool feedback can still consume no-action recovery and hard-stop the turn.
+    classifier treated tool_failure_recovery_message_present as NoActionFollowUp
+    before checking saw_actionable_output.
+  ```
+- Local confirmation:
+  - `classify_taskspace_provider_response_actionability()` checked gate/tool feedback before `saw_actionable_output`.
+  - The old test `provider_response_actionability_treats_tool_failure_feedback_as_recovery` expected `NoActionFollowUp` despite `saw_actionable_output=true`.
+  - The recovery loop had explicit branches to build `TaskSpaceNoActionRecoveryHardStopV1` and `TaskSpaceValidationReworkDuplicateReadHardStopV1`.
+- Interpretation:
+  - H-189 is confirmed: the runtime could still stop for non-budget recovery classes and could mislabel actionable failed tool feedback as no-action.
+
+# Evidence E-366: non-budget runtime stops removed and failed-tool feedback split from no-action
+
+- Prediction tested: H-189 repair should remove non-budget provider-sampling stops and keep feedback recoverable.
+- Repair:
+  - Removed `TaskSpaceNoActionRecoveryHardStopV1` marker, constructor, loop stop branch, warning branch, and hard-stop tests.
+  - Removed `TaskSpaceValidationReworkDuplicateReadHardStopV1` marker, constructor, loop stop branch, warning branch, predicate, and hard-stop tests.
+  - Added `TaskspaceProviderResponseActionability::ToolFeedbackRecovery`.
+  - Changed classifier semantics so actionable gate/tool-failure feedback becomes `tool_feedback_recovery`, while gate feedback without actionable output remains `no_action_follow_up`.
+  - Updated tests to assert no-action and duplicate-read recovery stay recoverable and do not contain provider-stop text.
+- Verification:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib provider_response_actionability --locked
+    passed: 10 tests
+
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib no_action_recovery --locked
+    passed: 6 tests
+
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib validation_rework_duplicate_read --locked
+    passed: 7 tests
+
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib provider_budget --locked
+    passed: 23 tests
+
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib path_correction --locked
+    passed: 14 tests
+
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib action_contract_prompt --locked
+    passed: 29 tests
+
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib validation_rework --locked
+    passed: 33 tests
+
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib apply_patch --locked
+    passed: 55 tests
+  ```
+- Text audit:
+  ```text
+  rg -n "TaskSpace.*HardStopV1|HARD_STOP|hard stop|Stop provider sampling for this turn|current turn will stop without another model request" \
+    third_party/codex-cli/codex-rs/core/src/session/turn.rs \
+    third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs
+  ```
+  Result: production matches remain only for `TaskSpaceProviderBudgetHardStopV1`.
+- Interpretation:
+  - H-189 is fixed locally at code/test level.
+  - Closure still requires a fresh Round 3 adversarial re-review.
+
+# Evidence E-367: Round 3 adversarial closure passed for non-budget runtime stops
+
+- Prediction tested: H-189 predicts the repair should leave no reachable non-budget provider-sampling stop path after an independent re-review.
+- Reviewer:
+  ```text
+  agent_id: 019f3d56-4eb1-7391-85ff-6909b3f9bad6
+  role: implementation-adversary
+  fork_context: false
+  report: vs_review/2026-07-07-r4-runtime-boundary-hard-stop-audit.md
+  ```
+- Finding:
+  ```text
+  Blocking re-review passed: yes.
+  Production runtime only has TaskSpaceProviderBudgetHardStopV1 as a provider-sampling hard stop.
+  No-action recovery, failed tool/path-correction feedback, and duplicate validation-rework reads
+  remain feedback/recovery paths rather than runtime stop paths.
+  ```
+- Follow-up cleanup:
+  - Historical hard-stop names remain in COE only as append-only evidence, not as current runtime behavior.
+  - Stale duplicate-read fixture language was rewritten from strategy-prescriptive `call apply_patch` wording to neutral `reuse result / choose state-machine-legal action / record blocked` wording.
+  - Additional recovery-loop property tests are deferred as hardening, not a blocker for this closure.
+- Final verification:
+  ```text
+  cargo fmt --check
+    passed
+
+  git diff --check
+    passed
+
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib provider_response_actionability --locked
+    passed: 10 tests
+
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib no_action_recovery --locked
+    passed: 6 tests
+
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib validation_rework_duplicate_read --locked
+    passed: 7 tests
+
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib provider_budget --locked
+    passed: 23 tests
+
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib action_contract_prompt --locked
+    passed: 29 tests
+
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib validation_rework --locked
+    passed: 33 tests
+
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib apply_patch --locked
+    passed: 55 tests
+
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib --locked
+    failed: 2390 passed; 12 failed; 3 ignored
+  ```
+- Full-suite residual failures:
+  - `file_watcher::tests::recursive_registration_downgrades_to_non_recursive_after_drop`
+  - `file_watcher::tests::unregister_holds_state_lock_until_unwatch_finishes`
+  - guardian / MCP guardian permission tests requiring working DeepSeek guardian review environment.
+  - `session::tests::action_map_final_gate_failure_records_developer_followup`
+  - `thread_manager::tests::new_uses_active_provider_for_model_refresh`
+  - These residual failures are outside the repaired non-budget runtime-stop surface.
+- Interpretation:
+  - H-189 is closed: non-budget runtime stops have been removed from the repaired production surface, and the closure review found no blocking residual boundary issue.
