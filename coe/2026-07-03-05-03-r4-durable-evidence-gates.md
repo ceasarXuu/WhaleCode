@@ -11951,3 +11951,118 @@
 - Interpretation:
   - H-187 is fixed locally.
   - This is a boundary repair aligned with the R4 principle: TaskSpace exposes ledger state and hard baselines, while the Agent remains responsible for strategy.
+
+# Hypothesis H-188: hard-stop专项审计确认 R4 仍有 runtime 边界残留
+
+- Status: confirmed by local audit and independent review; repair not started in this evidence pass.
+- Claim: H-171/H-187 cleared the latest live blocker path, but R4 runtime still retains several hard-stop/recovery and terminal-blocker paths that exceed the clarified boundary. The remaining issue is not the target sample's business outcome; it is that some feedback/rejection code still tells the Agent which strategy to choose or stops sampling after repeated tool-feedback recovery, instead of only enforcing hard baselines and faithfully preserving tool/context evidence.
+- Boundary:
+  - Keep hard baselines: node action class, node id, strict action JSON, patch grammar/target validity, total rollout provider budget, final artifact/ledger readiness, and validation node must have same-node validator evidence before success/failure closeout.
+  - Remove or downgrade semantic controls: "must patch now", "do not read/search/list", "cannot block because runtime thinks patch is available", repeated patch failure hard-stops, and dead hard-stop markers that can be revived without a fresh boundary decision.
+- Predictions:
+  1. Static audit should show remaining hard-stop predicates for no-action, duplicate validation rework read, and apply_patch recovery; provider hard-stop should be total-budget only.
+  2. Duplicate validation rework and apply_patch recovery text should still contain closed action-space wording such as `exactly one apply_patch` or `Do not call read_file/list_files/search`.
+  3. Patch-only and path-correction hard-stop markers should be unreachable or stale, not cleanly removed.
+  4. Focused tests should expose stale expectations around patch-only hard-stop behavior.
+- Diagnostic evidence plan:
+  - Enumerate `TaskSpace*HardStopV1` markers and trigger predicates in `session/turn.rs`.
+  - Inspect `ActionMapRuntimeState::prepare_main_tool_call` and `block_main_node` for legal-action rejection based on strategy rather than hard contract.
+  - Run one focused legacy test around patch-only hard-stop to check whether tests are synchronized with the current boundary.
+  - Run one independent read-only architecture review and compare findings by code evidence.
+
+# Evidence E-360: local hard-stop audit identifies remaining semantic-control residues
+
+- Prediction tested: H-188 predicts that not all remaining hard-stop/recovery paths are hard baselines.
+- Observation:
+  ```text
+  Reachable hard-stop/recovery classes:
+    TaskSpaceProviderBudgetHardStopV1
+      runtime.rs gate_provider_request_pre_dispatch blocks only total rollout request hard limit.
+      node limit now returns provider_node_request_profile_hint_exceeded.
+
+    TaskSpaceNoActionRecoveryHardStopV1
+      turn.rs recovery loop stops after no-action recovery exceeds node-kind advisory cap.
+      This is close to budget/no-action hard baseline, but needs property tests to ensure failed tools or legal actions are not misclassified as no-action.
+
+    TaskSpaceValidationReworkDuplicateReadHardStopV1
+      runtime.rs prepare_main_tool_call blocks ImplementSolution Read/Search duplicate validation rework artifact reads before a successful edit.
+      turn.rs duplicate-read recovery says exactly one apply_patch and forbids read_file/list_files/search/schema inspection/validation before edit.
+
+    TaskSpaceApplyPatchRecoveryHardStopV1
+      turn.rs taskspace_apply_patch_recovery_should_hard_stop escalates repeated edit/patch recovery to hard-stop after 2 or 3 previous recoveries.
+      related recovery text often forbids read_file/list_files/search/finish_node/validation until a corrected edit succeeds.
+
+  Stale or unreachable classes:
+    TaskSpaceValidationReworkPatchOnlyHardStopV1
+      taskspace_validation_rework_patch_only_should_hard_stop currently returns false.
+      marker and constructor remain.
+
+    TaskSpacePathCorrectionHardStopV1
+      marker remains, but taskspace_path_correction_recovery_should_hard_stop is cfg(test) and returns false.
+      path correction runtime recovery text says it is not a runtime gate.
+  ```
+- Additional action-contract / block_node observations:
+  ```text
+  runtime.rs prepare_main_tool_call still rejects:
+    validation_rework_patch_misses_failed_alias
+      first rework patch must remove/replace the failed alias before secondary issues.
+
+  runtime.rs block_main_node still rejects blocker summaries when runtime believes:
+    dependency evidence already identifies source/target,
+    validator procedure concerns should not block,
+    editable validation failure should be patched,
+    internal policy or diagnostic-repeat concerns are not external blockers.
+  ```
+- Interpretation:
+  - Provider budget total hard-stop is aligned with the clarified boundary.
+  - Path correction is currently advisory-only but should have dead hard-stop markers removed.
+  - Patch-only hard-stop has been functionally disabled but stale constructor/tests remain.
+  - Duplicate-read and apply_patch recovery remain boundary defects because they go beyond hard tool contracts and tell the Agent which strategy to choose.
+  - `block_node` rejection heuristics are another boundary surface: some checks protect ledger contradictions, but several reject Agent's chosen terminal blocker because runtime believes patch is the better next action.
+
+# Evidence E-361: independent architecture review confirms duplicate-read and apply_patch recovery as blocking boundary residues
+
+- Prediction tested: H-188 predicts an independent reviewer, given only target files and boundary rules, should identify remaining semantic-control paths without inheriting the main analysis.
+- Reviewer launch:
+  ```text
+  tool: multi_agent_v1.spawn_agent
+  agent_id: 019f3d07-c0d9-71f0-8a06-2c3c0e445a2a
+  role: architecture-adversary
+  fork_context: false
+  mode: read-only
+  report: vs_review/2026-07-07-r4-runtime-boundary-hard-stop-audit.md
+  ```
+- Reviewer findings:
+  ```text
+  Blocking:
+    1. duplicate-read recovery still injects strategy: exactly one apply_patch, do not read/list/search/validate.
+    2. ApplyPatchRecoveryHardStop turns repeated tool failures into semantic stop and forbids legal recovery actions.
+
+  Non-blocking:
+    1. ProviderBudgetHardStop is acceptable as total budget baseline, but validation-rework grace needs proof.
+    2. PathCorrectionHardStop is unreachable but stale marker/helper should be removed.
+    3. ValidationReworkPatchOnlyHardStop is unreachable but stale constructor/tests should be removed.
+  ```
+- Interpretation:
+  - The independent review supports H-188's root-cause family.
+  - Reviewer agreement is not proof by itself; the supporting proof is the cited code paths and the focused test in E-362.
+
+# Evidence E-362: focused patch-only hard-stop test fails, proving stale boundary tests remain
+
+- Prediction tested: H-188 predicts that stale tests still encode pre-boundary hard-stop expectations.
+- Command:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib validation_rework_patch_only_schema_repair_gets_one_extra_recovery_before_hard_stop --locked
+  ```
+- Result:
+  ```text
+  running 1 test
+  test session::turn::active_context_replacement_tests::validation_rework_patch_only_schema_repair_gets_one_extra_recovery_before_hard_stop ... FAILED
+
+  thread 'session::turn::active_context_replacement_tests::validation_rework_patch_only_schema_repair_gets_one_extra_recovery_before_hard_stop' panicked at core/src/session/turn.rs:6510:14:
+  required behavior heading
+  ```
+- Interpretation:
+  - The test name and assertions still expect patch-only recovery to have a "Current required behavior" strategy section and later hard-stop.
+  - Current implementation has moved `taskspace_validation_rework_patch_only_should_hard_stop` to always return false, so this is not a live blocker by itself.
+  - It is still an R4 boundary cleanup defect because tests now preserve stale semantic-control assumptions and can pull future repairs back toward runtime overreach.
