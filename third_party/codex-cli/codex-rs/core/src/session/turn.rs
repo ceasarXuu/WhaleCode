@@ -152,8 +152,6 @@ const TASKSPACE_IMPLEMENT_VALIDATION_AVAILABLE_MARKER: &str =
 const TASKSPACE_VALIDATION_CLOSEOUT_AVAILABLE_MARKER: &str =
     "TaskSpaceValidationCloseoutAvailableV1:";
 const TASKSPACE_IMPLEMENT_NEEDS_EDIT_MARKER: &str = "TaskSpaceImplementNeedsEditRecoveryV1:";
-const TASKSPACE_IMPLEMENT_NEEDS_EDIT_HARD_STOP_MARKER: &str =
-    "TaskSpaceImplementationNeedsEditHardStopV1:";
 const TASKSPACE_VALIDATION_REWORK_DUPLICATE_READ_MARKER: &str =
     "TaskSpaceValidationReworkDuplicateReadRecoveryV1:";
 const TASKSPACE_VALIDATION_REWORK_DUPLICATE_READ_HARD_STOP_MARKER: &str =
@@ -628,8 +626,6 @@ pub(crate) async fn run_turn(
                             || is_taskspace_validation_rework_patch_only_recovery_item(
                                 &recovery_item,
                             );
-                    let counts_against_plain_implement_needs_edit_cap =
-                        is_taskspace_plain_implement_needs_edit_recovery_item(&recovery_item);
                     let is_validation_rework_duplicate_read_recovery =
                         is_taskspace_validation_rework_duplicate_read_recovery_item(&recovery_item);
                     let is_validation_rework_patch_only_recovery =
@@ -748,32 +744,6 @@ pub(crate) async fn run_turn(
                     }
                     if is_validation_rework_patch_only_recovery {
                         taskspace_validation_rework_patch_only_recovery_count += 1;
-                    }
-                    if taskspace_implementation_needs_edit_should_hard_stop(
-                        &recovery_item,
-                        taskspace_implement_needs_edit_recovery_count,
-                    ) && counts_against_plain_implement_needs_edit_cap
-                    {
-                        let hard_stop_item =
-                            build_taskspace_implementation_needs_edit_hard_stop_item(
-                                &recovery_item,
-                                taskspace_implement_needs_edit_recovery_count,
-                            );
-                        sess.send_event(
-                            &turn_context,
-                            EventMsg::Warning(WarningEvent {
-                                message: taskspace_special_recovery_warning_message(
-                                    &hard_stop_item,
-                                ),
-                            }),
-                        )
-                        .await;
-                        sess.record_conversation_items(&turn_context, &[hard_stop_item])
-                            .await;
-                        last_agent_message = Some(
-                            "TaskSpace implementation needs-edit hard stop: repeated_finish_without_successful_edit".to_string(),
-                        );
-                        break;
                     }
                     if apply_patch_recovery_hard_stop || apply_patch_replacement_required_hard_stop
                     {
@@ -2493,24 +2463,18 @@ fn build_taskspace_implement_needs_edit_recovery_item(
                 .map(|item| format!("- {item}"))
                 .collect::<Vec<_>>()
                 .join("\n");
-            format!(
-                "\nAlready inspected evidence available to use now:\n{bullets}\n\
-Coverage rule: if inspected evidence names a concrete artifact with a high-signal defect marker such as invalid shebang, traceback, syntax error, or command not found, the implementation must patch that artifact or return blocked with the exact reason it cannot be changed.\n"
-            )
+            format!("\nAlready inspected evidence visible in current context:\n{bullets}\n")
         })
         .unwrap_or_default();
     let text = format!(
         "{TASKSPACE_IMPLEMENT_NEEDS_EDIT_MARKER}\n\
-TaskSpace implement_solution has enough read/search evidence on the current node and no successful edit has been recorded.\n\
+TaskSpace implement_solution progress hint: no successful edit has been recorded on the current node yet.\n\
 {evidence}\
-Current required behavior:\n\
-- Do not call read_file, list_files, search, broad shell discovery, or validation tests from this implementation node.\n\
-- Emit exactly one implementation action now: call apply_patch with the smallest concrete fix supported by the inspected evidence.\n\
-- If the evidence contains a validation failure, treat that failure as the primary target and patch the artifact named by that failure before making generic improvements.\n\
-- If the failure is a top-level Python `IndentationError` in a generated file, fix the whole affected file or block indentation in one patch rather than patching a single import or line at a time.\n\
-- If the failure is a `KeyError` or missing field, use only field names observed in the inspected schema/CSV/JSON evidence; do not invent unobserved columns.\n\
-- Use the file contents and failure clues already present in inspected evidence; do not rediscover them.\n\
-- If no safe edit can be made, return blocked with the exact missing evidence instead of reading the same files again."
+Runtime boundary:\n\
+- This is a state/progress hint, not a closed action space and not a command to edit.\n\
+- TaskSpace has not executed or rejected any tool solely because of this hint.\n\
+Available actions remain governed by the active node contract: list_files, search, read_file, apply_patch, run_test, taskspace_control, or blocked.\n\
+Use already visible evidence when it is sufficient; request different concrete evidence when it is still needed."
     );
 
     ResponseItem::Message {
@@ -2848,33 +2812,6 @@ Last recovery contract excerpt:\n{recovery_excerpt}"
     }
 }
 
-fn build_taskspace_implementation_needs_edit_hard_stop_item(
-    recovery_item: &ResponseItem,
-    attempt: usize,
-) -> ResponseItem {
-    let recovery_text = response_item_text(recovery_item).unwrap_or_default();
-    let recovery_excerpt = recovery_text.chars().take(1800).collect::<String>();
-    let text = format!(
-        "{TASKSPACE_IMPLEMENT_NEEDS_EDIT_HARD_STOP_MARKER}\n\
-reason: repeated_finish_without_successful_edit\n\
-attempt_count: {attempt}\n\
-The current implement_solution node repeatedly tried to finish or otherwise continue after TaskSpace said a successful edit result is required.\n\
-Runtime decision:\n\
-- Stop provider sampling for this turn instead of issuing another advisory recovery request.\n\
-- Preserve the bounded evidence and the last apply_patch-or-block recovery contract for audit.\n\
-- A later turn may continue only after TaskSpace state changes or the provider emits the required apply_patch/block_node action.\n\
-Last recovery contract excerpt:\n{recovery_excerpt}"
-    );
-
-    ResponseItem::Message {
-        id: None,
-        role: "developer".to_string(),
-        content: vec![ContentItem::InputText { text }],
-        end_turn: None,
-        phase: None,
-    }
-}
-
 fn build_taskspace_apply_patch_recovery_hard_stop_item(
     recovery_item: &ResponseItem,
     attempt: usize,
@@ -3127,10 +3064,6 @@ fn is_taskspace_validation_rework_patch_only_hard_stop_item(item: &ResponseItem)
     )
 }
 
-fn is_taskspace_implementation_needs_edit_hard_stop_item(item: &ResponseItem) -> bool {
-    response_item_text_contains(item, TASKSPACE_IMPLEMENT_NEEDS_EDIT_HARD_STOP_MARKER)
-}
-
 fn is_taskspace_apply_patch_recovery_hard_stop_item(item: &ResponseItem) -> bool {
     response_item_text_contains(item, TASKSPACE_APPLY_PATCH_RECOVERY_HARD_STOP_MARKER)
 }
@@ -3229,25 +3162,14 @@ fn taskspace_reset_recovery_count_for_snapshot_node(
     }
 }
 
-fn taskspace_implementation_needs_edit_should_hard_stop(
-    item: &ResponseItem,
-    current_node_recovery_count: usize,
-) -> bool {
-    is_taskspace_plain_implement_needs_edit_recovery_item(item) && current_node_recovery_count >= 3
-}
-
 fn taskspace_provider_budget_limit_reached(
     snapshot: &crate::action_map::ActionMapProviderRequestBudgetSnapshot,
 ) -> bool {
-    (snapshot.max_requests > 0 && snapshot.request_count >= snapshot.max_requests)
-        || (snapshot.max_model_requests_per_node > 0
-            && snapshot.node_request_count >= snapshot.max_model_requests_per_node)
+    snapshot.max_requests > 0 && snapshot.request_count >= snapshot.max_requests
 }
 
+#[cfg(test)]
 fn is_taskspace_plain_implement_needs_edit_recovery_item(item: &ResponseItem) -> bool {
-    if is_taskspace_implementation_needs_edit_hard_stop_item(item) {
-        return false;
-    }
     response_item_text_contains(item, TASKSPACE_IMPLEMENT_NEEDS_EDIT_MARKER)
 }
 
@@ -3256,9 +3178,6 @@ fn is_taskspace_implement_needs_edit_recovery_item(item: &ResponseItem) -> bool 
         return false;
     }
     if is_taskspace_validation_rework_duplicate_read_hard_stop_item(item) {
-        return false;
-    }
-    if is_taskspace_implementation_needs_edit_hard_stop_item(item) {
         return false;
     }
     response_item_text_contains(item, TASKSPACE_IMPLEMENT_NEEDS_EDIT_MARKER)
@@ -3319,7 +3238,7 @@ fn taskspace_implement_recovery_advisory_warning_message(
         )
     } else {
         format!(
-            "TaskSpace inserted TaskSpaceImplementNeedsEditRecoveryV1 because implementation has enough read/search evidence and must edit or block. Advisory recovery attempt {attempt} is being used."
+            "TaskSpace inserted TaskSpaceImplementNeedsEditRecoveryV1 as a progress hint because implementation has no successful edit yet. Hint count for this node: {attempt}."
         )
     }
 }
@@ -3343,8 +3262,6 @@ fn taskspace_special_recovery_warning_message(item: &ResponseItem) -> String {
         "TaskSpace inserted TaskSpaceValidationReworkDuplicateReadHardStopV1 because validation rework repeated an already-blocked artifact read after patch-only recovery. The current turn will stop without another model request.".to_string()
     } else if is_taskspace_validation_rework_patch_only_hard_stop_item(item) {
         "TaskSpace inserted TaskSpaceValidationReworkPatchOnlyHardStopV1 because validation rework recovery exceeded the hard-stop threshold. The current turn will stop without another model request.".to_string()
-    } else if is_taskspace_implementation_needs_edit_hard_stop_item(item) {
-        "TaskSpace inserted TaskSpaceImplementationNeedsEditHardStopV1 because implementation repeatedly tried to finish without a successful edit after apply_patch-or-block recovery. The current turn will stop without another model request.".to_string()
     } else if is_taskspace_apply_patch_recovery_hard_stop_item(item) {
         "TaskSpace inserted TaskSpaceApplyPatchRecoveryHardStopV1 because apply_patch/edit-failure recovery repeated without a successful edit. The current turn will stop without another model request.".to_string()
     } else if response_item_text_contains(item, TASKSPACE_APPLY_PATCH_FORMAT_MARKER) {
@@ -3364,7 +3281,7 @@ fn taskspace_special_recovery_warning_message(item: &ResponseItem) -> String {
     } else if response_item_text_contains(item, TASKSPACE_VALIDATION_REWORK_PATCH_ONLY_MARKER) {
         "TaskSpace inserted TaskSpaceValidationReworkPatchOnlyRecoveryV1 after a validation rework node received already-visible target contents and repair facts. This guidance does not consume the no-action recovery allowance.".to_string()
     } else if response_item_text_contains(item, TASKSPACE_IMPLEMENT_NEEDS_EDIT_MARKER) {
-        "TaskSpace inserted TaskSpaceImplementNeedsEditRecoveryV1 because implementation has enough read/search evidence and must edit or block. This guidance does not consume the no-action recovery allowance.".to_string()
+        "TaskSpace inserted TaskSpaceImplementNeedsEditRecoveryV1 as a non-blocking progress hint. This guidance does not consume the no-action recovery allowance.".to_string()
     } else if response_item_text_contains(item, TASKSPACE_PATCH_INTENT_FORMAT_MARKER) {
         "TaskSpace inserted TaskSpacePatchIntentFormatRecoveryV1 after an apply_patch intent was rejected for non-strict JSON. This guidance does not consume the no-action recovery allowance.".to_string()
     } else if response_item_text_contains(item, TASKSPACE_VALIDATION_INFRA_RECOVERY_MARKER) {
@@ -6253,40 +6170,27 @@ Then I will inspect the file."#,
             &item,
             TASKSPACE_IMPLEMENT_NEEDS_EDIT_MARKER
         ));
-        assert!(response_item_text_contains(&item, "call apply_patch"));
-        assert!(response_item_text_contains(&item, "do not rediscover"));
+        assert!(response_item_text_contains(&item, "progress hint"));
+        assert!(response_item_text_contains(
+            &item,
+            "not a closed action space"
+        ));
+        assert!(response_item_text_contains(
+            &item,
+            "list_files, search, read_file"
+        ));
         assert!(response_item_text_contains(&item, "#!/bin/nonexistent"));
     }
 
     #[test]
-    fn implementation_needs_edit_hard_stop_triggers_on_third_plain_recovery() {
+    fn implementation_needs_edit_progress_hint_is_non_terminal() {
         let item = build_taskspace_implement_needs_edit_recovery_item(Some(
             "validation_schema_repair_contract: target_artifacts=generate_organization.py",
         ));
 
         assert!(is_taskspace_plain_implement_needs_edit_recovery_item(&item));
-        assert!(!taskspace_implementation_needs_edit_should_hard_stop(
-            &item, 2
-        ));
-        assert!(taskspace_implementation_needs_edit_should_hard_stop(
-            &item, 3
-        ));
-
-        let hard_stop = build_taskspace_implementation_needs_edit_hard_stop_item(&item, 3);
-        let text = item_text(hard_stop.clone());
-
-        assert!(text.contains(TASKSPACE_IMPLEMENT_NEEDS_EDIT_HARD_STOP_MARKER));
-        assert!(text.contains("repeated_finish_without_successful_edit"));
-        assert!(text.contains("attempt_count: 3"));
-        assert!(text.contains("apply_patch-or-block recovery contract"));
-        assert!(!is_taskspace_plain_implement_needs_edit_recovery_item(
-            &hard_stop
-        ));
-        assert!(!is_taskspace_implement_needs_edit_recovery_item(&hard_stop));
-        assert!(
-            taskspace_special_recovery_warning_message(&hard_stop)
-                .contains("TaskSpaceImplementationNeedsEditHardStopV1")
-        );
+        assert!(is_taskspace_implement_needs_edit_recovery_item(&item));
+        assert!(!taskspace_special_recovery_warning_message(&item).contains("HardStop"));
     }
 
     #[test]
@@ -7865,7 +7769,7 @@ TaskSpace implement_solution node `node-6` cannot be blocked for missing source 
     }
 
     #[test]
-    fn taskspace_action_contract_rejects_mixed_native_unified_patch() {
+    fn taskspace_action_contract_normalizes_mixed_native_unified_patch() {
         let raw = serde_json::json!({
             "schema_version": "taskspace-action-v1",
             "action": "apply_patch",
@@ -7877,10 +7781,21 @@ TaskSpace implement_solution node `node-6` cannot be blocked for missing source 
         .to_string();
         let action = parse_taskspace_action_v1(&raw).expect("valid json");
 
-        let err = taskspace_action_to_tool_call(&action, &provider_snapshot("implement_solution"))
-            .expect_err("mixed native/unified patch must be rejected before tool execution");
+        let call = taskspace_action_to_tool_call(&action, &provider_snapshot("implement_solution"))
+            .expect("mechanically convertible native/unified patch should dispatch")
+            .expect("tool call");
 
-        assert_eq!(err, "apply_patch_mixed_native_unified:recover.py");
+        assert_eq!(call.tool_name.name, "apply_patch");
+        match call.payload {
+            ToolPayload::Custom { input } => {
+                assert!(input.contains("*** Update File: src/recover.py"));
+                assert!(input.contains("@@\n-print('bad')\n+print('fixed')"));
+                assert!(!input.contains("--- a/recover.py"));
+                assert!(!input.contains("+++ b/recover.py"));
+                assert!(!input.contains("@@ -1,1 +1,1 @@"));
+            }
+            other => panic!("expected custom payload, got {other:?}"),
+        }
     }
 
     #[test]
@@ -7998,7 +7913,7 @@ TaskSpace implement_solution node `node-6` cannot be blocked for missing source 
     }
 
     #[test]
-    fn taskspace_action_contract_rejects_live_wrapped_mixed_native_unified_patch() {
+    fn taskspace_action_contract_normalizes_live_wrapped_mixed_native_unified_patch() {
         let raw = serde_json::json!({
             "schema_version": "taskspace-action-v1",
             "action": "apply_patch",
@@ -8011,14 +7926,25 @@ TaskSpace implement_solution node `node-6` cannot be blocked for missing source 
         .to_string();
         let action = parse_taskspace_action_v1(&raw).expect("valid json");
 
-        let err = taskspace_action_to_tool_call(&action, &provider_snapshot("implement_solution"))
-            .expect_err("live mixed native/unified patch must be rejected before tool execution");
+        let call = taskspace_action_to_tool_call(&action, &provider_snapshot("implement_solution"))
+            .expect("live wrapped native/unified patch should normalize")
+            .expect("tool call");
 
-        assert_eq!(err, "apply_patch_mixed_native_unified:csv2json.py");
+        assert_eq!(call.tool_name.name, "apply_patch");
+        match call.payload {
+            ToolPayload::Custom { input } => {
+                assert!(input.contains("*** Update File: src/csv2json.py"));
+                assert!(input.contains("@@\n #!/usr/bin/env python3\n- \"\"\"CSV"));
+                assert!(!input.contains("--- a/csv2json.py"));
+                assert!(!input.contains("+++ b/csv2json.py"));
+                assert!(!input.contains("@@ -1,2 +1,2 @@"));
+            }
+            other => panic!("expected custom payload, got {other:?}"),
+        }
     }
 
     #[test]
-    fn taskspace_action_contract_rejects_live_unwrapped_mixed_native_unified_patch() {
+    fn taskspace_action_contract_normalizes_live_unwrapped_mixed_native_unified_patch() {
         let raw = serde_json::json!({
             "schema_version": "taskspace-action-v1",
             "action": "apply_patch",
@@ -8031,10 +7957,56 @@ TaskSpace implement_solution node `node-6` cannot be blocked for missing source 
         .to_string();
         let action = parse_taskspace_action_v1(&raw).expect("valid json");
 
-        let err = taskspace_action_to_tool_call(&action, &provider_snapshot("implement_solution"))
-            .expect_err("live unwrapped mixed patch must be rejected before tool execution");
+        let call = taskspace_action_to_tool_call(&action, &provider_snapshot("implement_solution"))
+            .expect("live unwrapped native/unified patch should normalize")
+            .expect("tool call");
 
-        assert_eq!(err, "apply_patch_mixed_native_unified:csv2json.py");
+        assert_eq!(call.tool_name.name, "apply_patch");
+        match call.payload {
+            ToolPayload::Custom { input } => {
+                assert!(input.contains("*** Update File: src/csv2json.py"));
+                assert!(input.contains("@@\n- #!/usr/bin/env python3\n+#!/usr/bin/env python3"));
+                assert!(!input.contains("--- a/csv2json.py"));
+                assert!(!input.contains("+++ b/csv2json.py"));
+                assert!(!input.contains("@@ -1,2 +1,2 @@"));
+            }
+            other => panic!("expected custom payload, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn taskspace_action_contract_normalizes_sample_unwrapped_mixed_native_unified_patch() {
+        let raw = serde_json::json!({
+            "schema_version": "taskspace-action-v1",
+            "action": "apply_patch",
+            "node_id": "node-1",
+            "args": {
+                "patch": "*** Update File: merge_users.py\n--- a/merge_users.py\n+++ b/merge_users.py\n@@ -7,3 +7,3 @@\n-DATA_DIR = Path('/data')\n+DATA_DIR = Path('data')\n OUT_DIR = Path('.')"
+            },
+            "rationale": "fix data dir"
+        })
+        .to_string();
+        let action = parse_taskspace_action_v1(&raw).expect("valid json");
+
+        let call = taskspace_action_to_tool_call(&action, &provider_snapshot("implement_solution"))
+            .expect("sample native/unified patch should normalize")
+            .expect("tool call");
+
+        assert_eq!(call.tool_name.name, "apply_patch");
+        match call.payload {
+            ToolPayload::Custom { input } => {
+                assert!(input.starts_with("*** Begin Patch\n"));
+                assert!(input.ends_with("*** End Patch\n"));
+                assert!(input.contains("*** Update File: src/merge_users.py"));
+                assert!(input.contains(
+                    "@@\n-DATA_DIR = Path('/data')\n+DATA_DIR = Path('data')\n OUT_DIR = Path('.')"
+                ));
+                assert!(!input.contains("--- a/merge_users.py"));
+                assert!(!input.contains("+++ b/merge_users.py"));
+                assert!(!input.contains("@@ -7,3 +7,3 @@"));
+            }
+            other => panic!("expected custom payload, got {other:?}"),
+        }
     }
 
     #[test]
@@ -8088,7 +8060,7 @@ TaskSpace implement_solution node `node-6` cannot be blocked for missing source 
     }
 
     #[test]
-    fn taskspace_action_contract_rejects_separator_update_sections() {
+    fn taskspace_action_contract_normalizes_separator_update_sections() {
         let raw = serde_json::json!({
             "schema_version": "taskspace-action-v1",
             "action": "apply_patch",
@@ -8102,10 +8074,24 @@ TaskSpace implement_solution node `node-6` cannot be blocked for missing source 
             + "\"";
         let action = parse_taskspace_action_v1(&raw).expect("valid json with trailing quote");
 
-        let err = taskspace_action_to_tool_call(&action, &provider_snapshot("implement_solution"))
-            .expect_err("mixed native/unified separators must be rejected before tool dispatch");
+        let call = taskspace_action_to_tool_call(&action, &provider_snapshot("implement_solution"))
+            .expect("separator update sections should normalize to native hunks")
+            .expect("tool call");
 
-        assert_eq!(err, "apply_patch_mixed_native_unified:process.py");
+        assert_eq!(call.tool_name.name, "apply_patch");
+        match call.payload {
+            ToolPayload::Custom { input } => {
+                assert!(input.contains("*** Update File: src/process.py"));
+                assert!(input.contains(
+                    "@@\n-    'member_ids': [m.strip() for m in p['member_ids'].split(';')],\n+    'members': [m.strip() for m in p['member_ids'].split(';')],"
+                ));
+                assert!(input.contains(
+                    "@@\n-    'total_employees': total_employees,\n+    'totalEmployees': total_employees,"
+                ));
+                assert!(!input.contains("\n---\n"));
+            }
+            other => panic!("expected custom payload, got {other:?}"),
+        }
     }
 
     #[test]
@@ -8179,7 +8165,7 @@ TaskSpace implement_solution node `node-6` cannot be blocked for missing source 
     }
 
     #[test]
-    fn taskspace_action_contract_rejects_live_mixed_placeholder_hunk_patch() {
+    fn taskspace_action_contract_normalizes_live_mixed_placeholder_hunk_patch() {
         let raw = serde_json::json!({
             "schema_version": "taskspace-action-v1",
             "action": "apply_patch",
@@ -8191,10 +8177,23 @@ TaskSpace implement_solution node `node-6` cannot be blocked for missing source 
         .to_string();
         let action = parse_taskspace_action_v1(&raw).expect("valid json");
 
-        let err = taskspace_action_to_tool_call(&action, &provider_snapshot("implement_solution"))
-            .expect_err("live mixed placeholder hunk must be rejected before tool dispatch");
+        let call = taskspace_action_to_tool_call(&action, &provider_snapshot("implement_solution"))
+            .expect("live mixed placeholder hunk should normalize when context is concrete")
+            .expect("tool call");
 
-        assert_eq!(err, "apply_patch_mixed_native_unified:generate_json.py");
+        assert_eq!(call.tool_name.name, "apply_patch");
+        match call.payload {
+            ToolPayload::Custom { input } => {
+                assert!(input.contains("*** Update File: src/generate_json.py"));
+                assert!(input.contains(
+                    "@@\n def build_organization(departments, employees, projects):\n+    for emp in employees:"
+                ));
+                assert!(!input.contains("--- a/generate_json.py"));
+                assert!(!input.contains("+++ b/generate_json.py"));
+                assert!(!input.contains("@@ ... @@"));
+            }
+            other => panic!("expected custom payload, got {other:?}"),
+        }
     }
 
     #[test]
@@ -10713,7 +10712,7 @@ TaskSpaceGateRecoveryV1: {\"schema_version\":\"TaskSpaceGateRecoveryV1\",\"allow
         let mut decision =
             state.gate_create_node_budget("map-1", crate::action_map::NodeKind::InspectCodeContext);
         decision.allowed = false;
-        decision.reason = "provider_node_request_hard_limit_exceeded".to_string();
+        decision.reason = "provider_request_hard_limit_exceeded".to_string();
         decision.blocking_items = vec![
             "current_node:node-1".to_string(),
             "request_count:8/8".to_string(),
@@ -10727,7 +10726,7 @@ TaskSpaceGateRecoveryV1: {\"schema_version\":\"TaskSpaceGateRecoveryV1\",\"allow
         let text = item_text(item.clone());
 
         assert!(text.contains(TASKSPACE_PROVIDER_BUDGET_HARD_STOP_MARKER));
-        assert!(text.contains("reason: provider_node_request_hard_limit_exceeded"));
+        assert!(text.contains("reason: provider_request_hard_limit_exceeded"));
         assert!(text.contains("request_count: 8/8"));
         assert!(text.contains("node_request_count: 3/3"));
         assert!(text.contains("Do not send another provider request for this turn"));
@@ -10741,7 +10740,7 @@ TaskSpaceGateRecoveryV1: {\"schema_version\":\"TaskSpaceGateRecoveryV1\",\"allow
     }
 
     #[test]
-    fn provider_budget_limit_reached_detects_rollout_or_node_limit() {
+    fn provider_budget_limit_reached_detects_rollout_limit_only() {
         let mut snapshot = provider_snapshot("inspect_code_context");
 
         assert!(!taskspace_provider_budget_limit_reached(&snapshot));
@@ -10751,7 +10750,7 @@ TaskSpaceGateRecoveryV1: {\"schema_version\":\"TaskSpaceGateRecoveryV1\",\"allow
 
         snapshot.request_count = 1;
         snapshot.node_request_count = snapshot.max_model_requests_per_node;
-        assert!(taskspace_provider_budget_limit_reached(&snapshot));
+        assert!(!taskspace_provider_budget_limit_reached(&snapshot));
 
         snapshot.max_requests = 0;
         snapshot.max_model_requests_per_node = 0;
@@ -13392,61 +13391,20 @@ fn taskspace_apply_patch_mixed_native_unified_targets(patch: &str) -> Vec<String
     taskspace_apply_patch_declared_targets(patch)
 }
 
-fn taskspace_apply_patch_native_update_with_unified_file_header_targets(
-    patch: &str,
-) -> Vec<String> {
-    let mut targets = Vec::new();
-    let mut current_target: Option<String> = None;
-    let mut current_has_unified_file_header = false;
-
-    let finish_section = |targets: &mut Vec<String>,
-                          current_target: &mut Option<String>,
-                          current_has_unified_file_header: &mut bool| {
-        if *current_has_unified_file_header
-            && let Some(target) = current_target.take()
-            && !targets.iter().any(|existing| existing == &target)
-        {
-            targets.push(target);
-        } else {
-            current_target.take();
-        }
-        *current_has_unified_file_header = false;
-    };
-
-    for line in patch.lines() {
-        if line == "*** End Patch"
-            || line.starts_with("*** Add File: ")
-            || line.starts_with("*** Delete File: ")
-        {
-            finish_section(
-                &mut targets,
-                &mut current_target,
-                &mut current_has_unified_file_header,
-            );
-            continue;
-        }
-        if let Some(target) = line.strip_prefix("*** Update File: ") {
-            finish_section(
-                &mut targets,
-                &mut current_target,
-                &mut current_has_unified_file_header,
-            );
-            current_target = Some(target.trim().to_string());
-            continue;
-        }
-        if current_target.is_some()
-            && (taskspace_line_looks_unified_old_file_header(line)
-                || taskspace_line_looks_unified_new_file_header(line))
-        {
-            current_has_unified_file_header = true;
-        }
+fn taskspace_apply_patch_misordered_begin_targets(patch: &str) -> Vec<String> {
+    let lines = patch.lines().collect::<Vec<_>>();
+    if lines.first().is_some_and(|line| *line == "*** Begin Patch") {
+        return Vec::new();
     }
-    finish_section(
-        &mut targets,
-        &mut current_target,
-        &mut current_has_unified_file_header,
-    );
-    targets
+    if !lines.iter().any(|line| *line == "*** Begin Patch") {
+        return Vec::new();
+    }
+    let targets = taskspace_apply_patch_declared_targets(patch);
+    if targets.is_empty() {
+        vec!["(missing patch target)".to_string()]
+    } else {
+        targets
+    }
 }
 
 fn taskspace_current_validation_rework_targets(
@@ -13871,6 +13829,14 @@ fn taskspace_action_to_tool_call(
                 .clone()
                 .unwrap_or_else(|| raw_patch.clone());
             let allow_rework_update_file = mechanically_actionable_rework_patch.is_some();
+            let misordered_begin_targets =
+                taskspace_apply_patch_misordered_begin_targets(&raw_patch);
+            if !misordered_begin_targets.is_empty() {
+                return Err(format!(
+                    "apply_patch_mixed_native_unified:{}",
+                    misordered_begin_targets.join(",")
+                ));
+            }
             if taskspace_apply_patch_missing_unified_header_target(&raw_patch) {
                 return Err("apply_patch_mixed_native_unified:(missing patch target)".to_string());
             }
@@ -13905,18 +13871,6 @@ fn taskspace_action_to_tool_call(
                     "apply_patch_mixed_native_unified:{}",
                     placeholder_range_hunk_targets.join(",")
                 ));
-            }
-            if !allow_rework_update_file {
-                let native_update_unified_header_targets =
-                    taskspace_apply_patch_native_update_with_unified_file_header_targets(
-                        &raw_patch,
-                    );
-                if !native_update_unified_header_targets.is_empty() {
-                    return Err(format!(
-                        "apply_patch_mixed_native_unified:{}",
-                        native_update_unified_header_targets.join(",")
-                    ));
-                }
             }
             if !allow_rework_update_file {
                 patch = normalize_taskspace_unified_diff_patch(&raw_patch)

@@ -2,10 +2,12 @@
 
 function Get-SentinelClearAction {
     param([object]$Details)
-    foreach ($field in @("clearAction", "clear_action", "clearanceAction")) {
+    foreach ($field in @("clearAction", "clear_action")) {
         $value = [string](Get-ObjectField $Details $field)
         if (-not [string]::IsNullOrWhiteSpace($value)) { return $value }
     }
+    $legacyValue = [string](Get-ObjectField $Details "clearanceAction")
+    if (Test-AllowedSentinelClearAction $legacyValue) { return $legacyValue }
     return ""
 }
 
@@ -42,7 +44,8 @@ function Add-Or-Update-SentinelWarning {
         [string]$CreatedAtMs = "",
         [string]$ClearedAtMs = "",
         [string]$ClearedBy = "",
-        [object]$ClearEventIds = @()
+        [object]$ClearEventIds = @(),
+        [string]$ClearAction = ""
     )
 
     if ([string]::IsNullOrWhiteSpace($SentinelId)) { return $null }
@@ -53,6 +56,7 @@ function Add-Or-Update-SentinelWarning {
             at = $At; id = $SentinelId; sentinelType = $SentinelType; status = $Status; severity = $Severity
             taskId = $TaskId; mapId = $MapId; nodeId = $NodeId; resultId = $ResultId
             traceEventIds = @(Get-ObjectArray $TraceEventIds); reason = $Reason; clearanceAction = $ClearanceAction
+            clearAction = $ClearAction
             createdAtMs = $CreatedAtMs; clearedAtMs = $ClearedAtMs; clearedBy = $ClearedBy; clearEventIds = @(Get-ObjectArray $ClearEventIds)
             clearanceSource = $clearanceSource
         }
@@ -74,6 +78,7 @@ function Add-Or-Update-SentinelWarning {
     if (@(Get-ObjectArray $TraceEventIds).Count -gt 0) { $warning.traceEventIds = @(Get-ObjectArray $TraceEventIds) }
     if ($Reason) { $warning.reason = $Reason }
     if ($ClearanceAction) { $warning.clearanceAction = $ClearanceAction }
+    if ($ClearAction) { $warning.clearAction = $ClearAction }
     if ($CreatedAtMs) { $warning.createdAtMs = $CreatedAtMs }
     if ($ClearedAtMs) { $warning.clearedAtMs = $ClearedAtMs }
     if ($ClearedBy) { $warning.clearedBy = $ClearedBy }

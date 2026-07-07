@@ -48,6 +48,27 @@ $toolCalls = New-Object System.Collections.Generic.List[object]
 $toolCallById = @{}
 $collabToolNames = @("spawn_agent", "wait_agent", "close_agent", "resume_agent")
 
+function Get-SnapshotSentinelClearAction {
+    param([object]$Warning, [object]$Snapshot)
+    $direct = Get-SentinelClearAction $Warning
+    if (-not [string]::IsNullOrWhiteSpace($direct)) { return $direct }
+    if ([string](Get-ObjectField $Warning "status") -ne "cleared") { return "" }
+    if ([string](Get-ObjectField $Warning "sentinelType") -ne "validator_failure") { return "" }
+    $clearedAtMs = [string](Get-ObjectField $Warning "clearedAtMs")
+    if ([string]::IsNullOrWhiteSpace($clearedAtMs)) { return "" }
+    $traceIds = @(Get-ObjectArray (Get-ObjectField $Warning "traceEventIds") | ForEach-Object { [string]$_ })
+    foreach ($trace in @(Get-ObjectArray (Get-ObjectField $Snapshot "traceEvents"))) {
+        if ($traceIds -notcontains [string](Get-ObjectField $trace "id")) { continue }
+        if ([string](Get-ObjectField $trace "createdAtMs") -ne $clearedAtMs) { continue }
+        if ([string](Get-ObjectField $trace "taskId") -ne [string](Get-ObjectField $Warning "taskId")) { continue }
+        if ([string](Get-ObjectField $trace "mapId") -ne [string](Get-ObjectField $Warning "mapId")) { continue }
+        if (@(Get-ObjectArray (Get-ObjectField $trace "tags")) -contains "validator_success") {
+            return "FixApplied"
+        }
+    }
+    return ""
+}
+
 foreach ($item in $rolloutItems) {
     $payload = $item.payload
     if (-not $payload -or $payload.type -notin @(
@@ -163,10 +184,8 @@ foreach ($item in $rolloutItems) {
             Add-TimelineEvent $timeline $at $kind "sentinel warning: $($payload.sentinelType) on $($payload.nodeId)" $payload
         }
         "sentinel_warning_cleared" {
-            $clearAction = [string](Get-ObjectField $payload "clearAction")
-            if (-not $clearAction) { $clearAction = [string](Get-ObjectField $payload "clear_action") }
-            if (-not $clearAction) { $clearAction = [string](Get-ObjectField $payload "clearanceAction") }
-            [void](Add-Or-Update-SentinelWarning $sentinelWarnings $sentinelById $at ([string]$payload.sentinelId) "" "cleared" "" "" "" "" "" @() "" $clearAction "" ([string]$payload.clearedAtMs) ([string]$payload.clearedBy) $payload.clearEventIds)
+            $clearAction = Get-SentinelClearAction $payload
+            [void](Add-Or-Update-SentinelWarning $sentinelWarnings $sentinelById $at ([string]$payload.sentinelId) "" "cleared" "" "" "" "" "" @() "" "" "" ([string]$payload.clearedAtMs) ([string]$payload.clearedBy) $payload.clearEventIds $clearAction)
             Add-TimelineEvent $timeline $at $kind "sentinel warning cleared: $($payload.sentinelId) action=$clearAction" $payload
         }
         "cognitive_state_updated" {
@@ -276,7 +295,7 @@ foreach ($item in $rolloutItems) {
                 Add-Or-Update-MaintenanceBarrier $node $at ([string]$snapshotBarrier.mapId) ([string]$snapshotBarrier.reason) ([int]$snapshotBarrier.resultCount) ([int]$snapshotBarrier.budget) "active"
             }
             foreach ($snapshotWarning in @($payload.snapshot.sentinelWarnings)) {
-                [void](Add-Or-Update-SentinelWarning $sentinelWarnings $sentinelById $at ([string]$snapshotWarning.id) ([string]$snapshotWarning.sentinelType) ([string]$snapshotWarning.status) ([string]$snapshotWarning.severity) ([string]$snapshotWarning.taskId) ([string]$snapshotWarning.mapId) ([string]$snapshotWarning.nodeId) ([string]$snapshotWarning.resultId) $snapshotWarning.traceEventIds ([string]$snapshotWarning.reason) ([string]$snapshotWarning.clearanceAction) ([string]$snapshotWarning.createdAtMs) ([string]$snapshotWarning.clearedAtMs))
+                [void](Add-Or-Update-SentinelWarning $sentinelWarnings $sentinelById $at ([string]$snapshotWarning.id) ([string]$snapshotWarning.sentinelType) ([string]$snapshotWarning.status) ([string]$snapshotWarning.severity) ([string]$snapshotWarning.taskId) ([string]$snapshotWarning.mapId) ([string]$snapshotWarning.nodeId) ([string]$snapshotWarning.resultId) $snapshotWarning.traceEventIds ([string]$snapshotWarning.reason) ([string]$snapshotWarning.clearanceAction) ([string]$snapshotWarning.createdAtMs) ([string]$snapshotWarning.clearedAtMs) "" @() (Get-SnapshotSentinelClearAction $snapshotWarning $payload.snapshot))
             }
             Add-TimelineEvent $timeline $at $kind "snapshot updated: maps=$snapshotMapCount nodes=$snapshotNodeCount" $payload
         }

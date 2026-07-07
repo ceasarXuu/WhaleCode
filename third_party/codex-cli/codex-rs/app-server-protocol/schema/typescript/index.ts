@@ -26,6 +26,7 @@ export type { ActionMapSnapshotResultAdoption } from "./ActionMapSnapshotResultA
 export type { ActionMapSnapshotResultEvidencePackage } from "./ActionMapSnapshotResultEvidencePackage";
 export type { ActionMapSnapshotSentinelSummary } from "./ActionMapSnapshotSentinelSummary";
 export type { ActionMapSnapshotSentinelWarningRef } from "./ActionMapSnapshotSentinelWarningRef";
+export type { ActionMapSnapshotSubagentPlan } from "./ActionMapSnapshotSubagentPlan";
 export type { ActionMapSnapshotTask } from "./ActionMapSnapshotTask";
 export type { ActionMapSnapshotTraceEventRef } from "./ActionMapSnapshotTraceEventRef";
 export type { ActionMapSnapshotTraceSummary } from "./ActionMapSnapshotTraceSummary";

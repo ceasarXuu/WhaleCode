@@ -446,7 +446,8 @@ try {
                         resultId = "result-3"
                         traceEventIds = @("trace-1")
                         reason = "fixture | warning`ncleared"
-                        clearanceAction = "FixApplied"
+                        clearanceAction = "Run a successful validator before final artifact audit."
+                        clearAction = "FixApplied"
                         createdAtMs = "1"
                     })
             }

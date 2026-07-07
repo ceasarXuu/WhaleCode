@@ -17,6 +17,7 @@ pub(crate) struct TaskSpaceSentinelWarning {
     pub(crate) trace_event_ids: Vec<String>,
     pub(crate) reason: String,
     pub(crate) clearance_action: String,
+    pub(crate) clear_action: Option<String>,
     pub(crate) created_at_ms: i64,
     pub(crate) cleared_at_ms: Option<i64>,
 }

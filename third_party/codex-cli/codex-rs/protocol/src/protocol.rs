@@ -1803,7 +1803,6 @@ pub enum MapRuntimeMode {
 pub struct ActionMapSnapshot {
     pub mode: MapRuntimeMode,
     #[serde(default)]
-    #[ts(optional = nullable)]
     pub cognitive_schema_version: Option<String>,
     #[serde(default)]
     pub routing_required: bool,
@@ -1840,7 +1839,6 @@ pub struct ActionMapSnapshotTask {
     #[serde(default, deserialize_with = "deserialize_default_on_error")]
     pub cognitive_state: ActionMapSnapshotCognitiveState,
     #[serde(default)]
-    #[ts(optional = nullable)]
     pub problem_state_ledger_version: Option<String>,
     #[serde(default, deserialize_with = "deserialize_default_on_error")]
     pub problem_ledger: ActionMapSnapshotProblemStateLedger,
@@ -2358,6 +2356,8 @@ pub struct ActionMapSnapshotSentinelWarningRef {
     pub trace_event_ids: Vec<String>,
     pub reason: String,
     pub clearance_action: String,
+    #[serde(default)]
+    pub clear_action: Option<String>,
     pub created_at_ms: i64,
     pub cleared_at_ms: Option<i64>,
 }

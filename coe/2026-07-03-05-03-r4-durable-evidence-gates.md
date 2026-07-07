@@ -11535,3 +11535,419 @@
   - H-181 is fixed for the targeted failure: the sample moved past the H-192 failed-tool/no-action hard stop and solved the benchmark.
   - The repair follows the clarified boundary: runtime did not constrain the Agent's next semantic choice; it stopped mislabeling failed tool feedback as no-action.
   - Remaining cleanup is evidence/audit quality, not business success for this sample: final-artifact sentinel linkage, high unreviewed-result ratio, and strict JSON/prose recovery efficiency.
+
+# Hypothesis H-182: sentinel clearance action facts were conflated with clearance instructions
+
+- Status: confirmed; repair in progress.
+- Claim: Final-artifact sentinel audit can misreport a cleared validator sentinel as uncleared because the exported sentinel object uses `clearanceAction` for two different meanings:
+  - the instruction attached when a warning is raised, such as "Run a successful validator...";
+  - the actual canonical clear action required by the audit, such as `FixApplied`.
+- Mechanism:
+  - Runtime automatically clears an active `validator_failure` sentinel after a later `validator_success` trace on the same task/map.
+  - The snapshot records `status=cleared`, `clearedAtMs`, and the later validator trace id, but does not record a distinct actual clear action.
+  - The observability exporter preserves the original instruction text as `clearanceAction`.
+  - `Test-SentinelWarningCleared` requires a canonical clear action and therefore treats the already-cleared snapshot as uncleared.
+- Boundary:
+  - This is not an Agent behavior problem and should not become a runtime decision constraint.
+  - The fix should preserve both facts: the human-facing clearance instruction and the actual mechanical clear action, without adding semantic guidance to Agent context.
+- Predictions:
+  1. The failed target run should show a `cleared` sentinel with `clearedAtMs` and a later `validator_success` trace.
+  2. The same run should still fail `sentinel_warning_uncleared_for_final_artifact`.
+  3. Adding a distinct `clearAction=FixApplied` fact for validator-success auto-clear should make the audit pass without changing benchmark business behavior.
+- Diagnostic evidence plan:
+  - Inspect the target run rollout and observability JSON for sentinel status, trace ids, and audit gate records.
+  - Inspect runtime code that clears validator-failure sentinels.
+  - Add targeted Rust and PowerShell tests for separate clearance instruction vs actual clear action.
+
+# Evidence E-352: cleared validator sentinel is exported without an actual clear action
+
+- Prediction tested: H-182 predicts the latest solved sample has a cleared sentinel and validator-success trace, while final-artifact audit still reports it as uncleared.
+- Runtime sample:
+  ```text
+  RunDir:
+    target/r4-h193-failed-tool-noaction-fix-right-only-20260707/runs/terminal_bench__multi-source-data-merger/20260707-191903-519
+
+  sentinel-1:
+    sentinelType=validator_failure
+    status=cleared
+    resultId=result-10
+    nodeId=node-2
+    traceEventIds=trace-138, trace-166
+    clearanceAction=Run a successful validator, revise the contract, or explicitly accept the risk before final artifact audit.
+    clearedAtMs=1783423255088
+
+  trace-138:
+    actionClass=test
+    toolSuccess=false
+    tags=tool_failure, validator_failure
+
+  trace-166:
+    actionClass=test
+    toolSuccess=true
+    tags=tool_success, validator_success
+    createdAtMs=1783423255088
+  ```
+- Audit sample:
+  ```text
+  cognitiveAudit.hardGateFailures:
+    sentinel_warning_uncleared_for_final_artifact
+
+  gate record:
+    gateId=sentinel_warning_uncleared_for_final_artifact
+    pass=false
+    observed=unclearedSentinels=1
+    subjectIds=task:task-1|artifact:merge_users.py->sentinel-1
+  ```
+- Code-path evidence:
+  ```text
+  clear_validator_failure_sentinels_after_success:
+    - requires validator_success trace
+    - matches active validator_failure sentinel on task/map
+    - sets status=Cleared
+    - sets cleared_at_ms
+    - appends the successful trace id
+    - does not record an actual clear action
+
+  Test-SentinelWarningCleared:
+    - accepts timeline clear events with canonical actions
+    - accepts snapshot-cleared warnings only when Get-SentinelClearAction returns
+      FixApplied, RiskAcceptedByMainAgent, or ContractRevised
+  ```
+- Interpretation:
+  - H-182 is confirmed.
+  - The residual hard gate is an observability/ledger fidelity bug: the clear fact exists in snapshot state, but one required fact field is missing and another field carries instructional text.
+
+# Evidence E-353: H-182 repair preserves clearance guidance and actual clear action separately
+
+- Prediction tested: H-182 predicts a distinct actual clear action should make the final-artifact sentinel gate pass without changing Agent behavior.
+- Repair:
+  - `ActionMapSnapshotSentinelWarningRef` now exposes optional `clearAction`.
+  - Runtime sets `clearAction=FixApplied` when a later successful validator trace mechanically clears an active `validator_failure` sentinel.
+  - Exported observability keeps the original `clearanceAction` guidance text and writes actual canonical clear actions into `clearAction`.
+  - For old snapshots, export derives `clearAction=FixApplied` only when the snapshot already has `status=cleared`, `clearedAtMs`, and a same-task/map `validator_success` trace whose timestamp matches the clear time.
+- Validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib successful_validator_clears_active_validator_failure_sentinel --locked
+    passed
+
+  powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-action-map-sentinel-clearance.ps1
+    Overall: PASS
+
+  powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-action-map-observability-lib.ps1
+    Overall: PASS
+  ```
+- Old-run re-export validation:
+  ```text
+  Source:
+    target/r4-h193-failed-tool-noaction-fix-right-only-20260707/runs/terminal_bench__multi-source-data-merger/20260707-191903-519
+
+  Re-export:
+    target/r4-h182-reexport-h193-observability/action-map-observability.json
+
+  cognitiveAudit.hardGatePassed=true
+  cognitiveAudit.hardGateFailures=[]
+  sentinel-1:
+    status=cleared
+    clearanceAction=Run a successful validator, revise the contract, or explicitly accept the risk before final artifact audit.
+    clearAction=FixApplied
+  gate sentinel_warning_uncleared_for_final_artifact:
+    pass=true
+    observed=unclearedSentinels=0
+  ```
+- Interpretation:
+  - H-182 is fixed locally.
+  - This is a feedback/observability fidelity repair: it separates guidance text from actual clear facts and does not constrain Agent choices.
+
+# Hypothesis H-183: validation closeout lifecycle results remained unreviewed despite accepted validator evidence
+
+- Status: fixed locally.
+- Claim: When a `smoke_test` or `regression_test` node finishes after a successful validation tool result, runtime auto-accepts the validation tool result and records a satisfied success criterion, but the lifecycle `finish_node` result itself remains `unreviewed` with no evidence package. Graph health then reports `high_unreviewed_result_ratio` even though the node's validation evidence is already accepted.
+- Mechanism:
+  - `auto_accept_validation_result_for_finish` accepts the latest successful validation tool result.
+  - `finish_main_node_with_next` then records a separate lifecycle `kind=result` closeout summary.
+  - No code linked that closeout summary to the accepted validation result.
+- Boundary:
+  - The fix must not force the Agent to add a separate review action.
+  - It should preserve the Agent's closeout summary and attach it to already accepted validator evidence.
+- Predictions:
+  1. The target run should have an accepted `smoke_test` tool result and an unreviewed `smoke_test` lifecycle result.
+  2. Accepting the lifecycle result with evidence refs to the accepted validator result should remove this graph-health debt on new runs.
+- Diagnostic evidence plan:
+  - Inspect target observability for node-3 results and result validity transitions.
+  - Add/extend a runtime test for validation-node finish behavior.
+
+# Evidence E-354: validation closeout lifecycle result was orphaned from accepted validator evidence
+
+- Prediction tested: H-183 predicts node-3 has accepted validator result plus unreviewed lifecycle closeout.
+- Target evidence:
+  ```text
+  node-3 kind=smoke_test
+
+  result-14:
+    kind=main_tool_call
+    actionClass=test
+    validity=accepted
+    validatorRefs=smoke_test
+    body output includes ALL PASS
+
+  result-15:
+    kind=result
+    body=Smoke test passed: merged_users.parquet contains 4 users...
+    validity=unreviewed
+    claims=0
+    evidenceRefs=0
+
+  graph-health:
+    reviewable_result_count=3
+    reviewable_unreviewed_result_count=1
+    reviewable_unreviewed_result_ratio=0.3333
+    warnings=high_unreviewed_result_ratio, low_decision_density
+  ```
+- Repair:
+  - `finish_main_node_with_next` now calls `accept_validation_closeout_result_for_finish` after recording the lifecycle result.
+  - The helper only applies to `smoke_test` / `regression_test` closeout results and only when the same node already has an accepted successful validation result.
+  - The lifecycle result becomes `accepted`, with a claim and evidence refs pointing to the accepted validation result and the closeout summary.
+- Validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib finish_smoke_node_requires_successful_validation_evidence --locked
+    passed
+  ```
+- Interpretation:
+  - H-183 is fixed locally.
+  - This is ledger-fidelity repair, not runtime semantic control: runtime records the evidence relationship created by Agent's own validation and closeout actions.
+
+# Hypothesis H-184: low decision density warning over-applied to linear tasks
+
+- Status: fixed locally.
+- Claim: `low_decision_density` warned on any graph with at least four nodes and fewer than one decision per four nodes. This over-applies to linear inspect -> implement -> validate -> final flows where no branch, subagent choice, or alternative selection exists.
+- Boundary:
+  - Graph health should not create pressure for synthetic decision records on linear tasks.
+  - Decision density remains useful when the graph includes subagent work or real non-final branching.
+- Predictions:
+  1. A linear four-node task graph with final-synthesis fan-in should not emit `low_decision_density`.
+  2. A graph with subagent plans and no decisions should still emit `low_decision_density`.
+- Diagnostic evidence plan:
+  - Add benchmark harness fixtures for both shapes.
+
+# Evidence E-355: graph health now scopes low decision density to decision-worthy graphs
+
+- Prediction tested: H-184 predicts linear graphs should not require synthetic decisions, while subagent graphs still should.
+- Repair:
+  - Added `Test-TaskspaceGraphNeedsDecisionDensity`.
+  - Decision density warning now applies only when:
+    - a subagent plan/spawn exists, or
+    - a node branches to multiple non-final downstream nodes.
+  - Edges into `final_synthesis` are treated as final evidence fan-in, not as decision branching.
+  - Metric availability reports `decision_density=not_applicable_linear` when the graph is linear.
+- Validation:
+  ```text
+  powershell -NoProfile -ExecutionPolicy Bypass -File scripts/taskspace-benchmark/test-harness.ps1
+    TaskSpace benchmark harness self-test: PASS
+  ```
+- Interpretation:
+  - H-184 is fixed locally.
+  - This follows the R4 boundary principle: audit should measure useful structure without pushing the Agent to create non-semantic ledger entries.
+
+# Hypothesis H-185: apply_patch contract rejected a mechanically recoverable mixed native/unified patch
+
+- Status: fixed locally.
+- Claim: In the target `multi-source-data-merger` run, the Agent had identified the concrete data-path fix but emitted a native `*** Update File` patch containing unified file headers / range hunks. TaskSpace rejected it as `apply_patch_mixed_native_unified`, so a tool grammar mismatch became `agent_no_patch`.
+- Boundary:
+  - Runtime should enforce apply_patch grammar hard baselines.
+  - It should normalize mechanically unambiguous patch dialect drift instead of treating it as semantic failure.
+  - It must still reject structurally ambiguous/misordered patch payloads.
+- Predictions:
+  1. A patch with native update sections plus `--- a/...`, `+++ b/...`, and `@@ -old,+new @@` headers can be normalized to native apply_patch without guessing semantics.
+  2. Misordered native/unified payloads with duplicated/internal `*** Begin Patch` should remain rejected.
+- Diagnostic evidence plan:
+  - Inspect the failed target run transcript for rejected apply_patch payloads.
+  - Add focused action-contract normalization tests.
+
+# Evidence E-356: mixed native/unified apply_patch normalization repaired the H-185 failure path
+
+- Prediction tested: H-185 predicts the rejected patch shape is mechanically normalizable.
+- Failed target run:
+  ```text
+  target/r4-h182-h184-closeout-right-only-20260707/runs/terminal_bench__multi-source-data-merger/20260707-213551-013
+
+  right/taskspace:
+    business_success=False
+    public_validation_exit_code=1
+    hidden_oracle_exit_code=0
+    failure_taxonomy=engineering_unclean, agent_no_patch, agent_patch_wrong, audit_unclean
+
+  transcript:
+    Agent identified data/source paths but emitted native Update File sections with
+    --- a/... / +++ b/... and @@ -... +... @@ headers.
+    Runtime rejected as apply_patch_mixed_native_unified.
+  ```
+- Repair:
+  - Removed the early raw rejection for native update sections that contain unified file headers.
+  - Let existing normalization strip `---/+++` and normalize range hunk headers before hard-baseline checks.
+  - Preserved rejection for structurally misordered payloads where `*** Begin Patch` appears inside native operations.
+- Validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib taskspace --locked
+    passed, 183 tests
+
+  Added/updated tests:
+    taskspace_action_contract_normalizes_mixed_native_unified_patch
+    taskspace_action_contract_normalizes_live_wrapped_mixed_native_unified_patch
+    taskspace_action_contract_normalizes_live_unwrapped_mixed_native_unified_patch
+    taskspace_action_contract_normalizes_sample_unwrapped_mixed_native_unified_patch
+    taskspace_action_contract_rejects_misordered_begin_update_mixed_patch
+  ```
+- Interpretation:
+  - H-185 is fixed locally.
+  - This is a capability-layer repair: it expands supported unambiguous tool-call syntax without changing Agent intent or adding semantic control.
+
+# Hypothesis H-186: per-node provider budget hard stop exceeded runtime's boundary
+
+- Status: fixed locally.
+- Claim: After H-185, the Agent completed the target business task and final validation, but TaskSpace stopped another model request because the implementation node exceeded its per-node profile limit. The stop happened before the Agent could close the node and final artifact why-chain, producing `audit_why_chain_missing` despite public and hidden validation success.
+- Boundary:
+  - Total rollout request budget can remain a hard safety baseline.
+  - Per-node request count is a cost/profile hint, not a semantic correctness gate.
+  - Runtime must not terminate Agent sampling solely because one node exceeded its profile hint when total budget remains available.
+- Predictions:
+  1. The failed run should show `request_count` below total max and `node_request_count` over node profile max.
+  2. Changing node-limit excess to an allowed profile hint should prevent this false audit failure.
+- Diagnostic evidence plan:
+  - Inspect the H-185 target run transcript, graph health, and observability audit.
+  - Update budget gate tests to assert node-limit excess is non-blocking before rollout budget exhaustion.
+
+# Evidence E-357: node request profile limit caused a false hard stop before closeout
+
+- Prediction tested: H-186 predicts a node-profile hard stop despite remaining total budget.
+- Target run after H-185:
+  ```text
+  target/r4-h185-patch-normalize-right-only-20260707/runs/terminal_bench__multi-source-data-merger/20260707-214550-583
+
+  right/taskspace metrics:
+    business_success=True
+    public_validation_exit_code=0
+    hidden_oracle_exit_code=0
+    graph_health.warnings=[]
+    reviewable_unreviewed_result_count=0
+
+  whale-exec tail:
+    TaskSpaceProviderBudgetHardStopV1
+    reason=provider_node_request_hard_limit_exceeded
+    request_count=16/20
+    node_request_count=11/10
+
+  observability:
+    cognitiveAudit.hardGatePassed=false
+    hardGateFailures=audit_why_chain_missing
+    finalArtifacts=0
+    outputContracts=2
+  ```
+- Repair:
+  - `gate_provider_request_pre_dispatch` now blocks only on total rollout request hard limit, preserving existing grace logic.
+  - Node request limit excess returns allowed with `provider_node_request_profile_hint_exceeded`.
+  - Recovery bookkeeping no longer treats node-profile excess as a provider budget hard stop.
+- Validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib taskspace_active_budget_node_request_limit_is_profile_hint_before_rollout_budget --locked
+    passed
+
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib provider_budget_limit_reached_detects_rollout_limit_only --locked
+    passed
+
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib taskspace --locked
+    passed, 183 tests
+  ```
+- Interpretation:
+  - H-186 is fixed locally.
+  - This is a runtime-boundary repair: per-node budget is now observability/profile pressure, not a semantic stop.
+
+# Hypothesis H-187: implementation-needs-edit policy was a runtime semantic overreach
+
+- Status: fixed locally.
+- Claim: The implementation node used `implementation_needs_edit` as a hard action-space restriction and eventual hard stop. In the target sample, after environment probes failed, runtime inserted `TaskSpaceImplementationNeedsEditHardStopV1` and ended the turn before the Agent could continue. This is inconsistent with the R4 boundary: Agent may make poor choices, but runtime should not enforce "you must edit now" unless a hard state invariant is violated.
+- Boundary:
+  - The state machine may expose "no successful edit recorded" as ledger state.
+  - It must not reject read/search/run_test or stop sampling solely because it believes an edit is likely next.
+  - The hint should not inject a repair strategy or closed action space into the Agent's context.
+- Predictions:
+  1. The failed run should show `TaskSpaceImplementationNeedsEditHardStopV1` after non-edit implementation actions.
+  2. Removing the broad read/search blocker and hard stop should allow the same sample to proceed, while leaving hard node-policy baselines intact.
+- Diagnostic evidence plan:
+  - Inspect the H-186 target run transcript for hard-stop marker and preceding tool actions.
+  - Change `implementation_needs_edit` recovery into a non-terminal progress hint.
+  - Re-run the same target sample.
+
+# Evidence E-358: implementation-needs-edit hard stop blocked Agent continuation
+
+- Prediction tested: H-187 predicts runtime stopped the implementation node for strategy reasons, not hard state violation.
+- Target run:
+  ```text
+  target/r4-h186-profile-right-only-20260707/runs/terminal_bench__multi-source-data-merger/20260707-215923-607
+
+  whale-exec:
+    Agent first tried /data, then discovered ./data.
+    Structured parquet preview succeeded through TaskSpace read_file.
+    Agent then probed python3/pandas/pyarrow availability.
+    Runtime inserted:
+      TaskSpaceImplementationNeedsEditHardStopV1
+      because implementation repeatedly tried to continue without successful edit.
+
+  right/taskspace:
+    business_success=False
+    public_validation_exit_code=127
+    hidden_oracle_exit_code=0
+    hardGateFailures=audit_why_chain_missing
+    finalArtifacts=0
+  ```
+- Interpretation:
+  - The run also had validator infrastructure noise (`uv`/apt/proxy failure), but the Agent path was already terminated by runtime's implementation-needs-edit hard stop.
+  - The root boundary issue is confirmed independently of public validator infra noise.
+
+# Evidence E-359: implementation-needs-edit is now a non-blocking progress hint and the target sample passes
+
+- Prediction tested: H-187 predicts the same sample can proceed when implementation-needs-edit is non-terminal.
+- Repair:
+  - Removed the broad `implement_solution has enough read/search evidence and no successful edit` gate that blocked read/search before edit.
+  - Removed `TaskSpaceImplementationNeedsEditHardStopV1` generation.
+  - Rewrote `TaskSpaceImplementNeedsEditRecoveryV1` as a non-blocking progress hint:
+    - records that no successful edit exists yet,
+    - states it is not a closed action space,
+    - preserves list_files/search/read_file/apply_patch/run_test/taskspace_control/blocked availability under the node contract.
+  - Kept hard node-policy baselines and apply_patch/validation hard rules outside this broad strategy hint.
+- Validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib taskspace --locked
+    passed, 183 tests
+
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale --locked
+    passed
+
+  target/r4-h187-open-right-only-20260707/runs/terminal_bench__multi-source-data-merger/20260707-220924-311
+
+  right/taskspace:
+    business_success=True
+    public_validation_exit_code=0
+    hidden_oracle_exit_code=0
+    tool_call_count=15
+    failed_tool_call_count=2
+
+  graph-health:
+    warnings=[]
+    reviewable_unreviewed_result_count=0
+    decision_density=not_applicable_linear
+
+  observability:
+    cognitiveAudit.hardGatePassed=true
+    hardGateFailures=[]
+    finalArtifacts=1
+    activeSentinelWarnings=[]
+
+  transcript marker check:
+    TaskSpaceImplementNeedsEditRecoveryV1 appears once as progress hint.
+    No TaskSpaceImplementationNeedsEditHardStopV1.
+    No TaskSpaceProviderBudgetHardStopV1.
+    No provider_node_request_hard_limit_exceeded.
+  ```
+- Interpretation:
+  - H-187 is fixed locally.
+  - This is a boundary repair aligned with the R4 principle: TaskSpace exposes ledger state and hard baselines, while the Agent remains responsible for strategy.

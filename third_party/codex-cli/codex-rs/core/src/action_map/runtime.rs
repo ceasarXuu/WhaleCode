@@ -1310,15 +1310,8 @@ impl ActionMapRuntimeState {
                 == Some(TaskSpaceProviderRequestPhase::BudgetRecovery.as_str());
         let validation_rework_patch_feedback_grace =
             Self::taskspace_validation_rework_patch_feedback_grace_available(snapshot);
-        if (rollout_limit_exceeded || node_limit_exceeded)
-            && !grace_remaining
-            && !validation_rework_patch_feedback_grace
-        {
-            let reason = if node_limit_exceeded {
-                "provider_node_request_hard_limit_exceeded"
-            } else {
-                "provider_request_hard_limit_exceeded"
-            };
+        if rollout_limit_exceeded && !grace_remaining && !validation_rework_patch_feedback_grace {
+            let reason = "provider_request_hard_limit_exceeded";
             let node_id = snapshot
                 .node_id
                 .as_deref()
@@ -1360,11 +1353,9 @@ impl ActionMapRuntimeState {
             budget_state: self.budget_state,
             reason: if validation_rework_patch_feedback_grace {
                 "provider_validation_rework_patch_feedback_grace".to_string()
-            } else if snapshot.request_count < snapshot.max_requests
-                && snapshot.node_request_count < snapshot.max_model_requests_per_node
-            {
+            } else if !rollout_limit_exceeded && !node_limit_exceeded {
                 "provider_request_budget_available".to_string()
-            } else if snapshot.node_request_count >= snapshot.max_model_requests_per_node {
+            } else if node_limit_exceeded {
                 "provider_node_request_profile_hint_exceeded".to_string()
             } else {
                 "provider_request_profile_hint_exceeded".to_string()
@@ -1675,6 +1666,7 @@ impl ActionMapRuntimeState {
                     trace_event_ids: warning.trace_event_ids,
                     reason: warning.reason,
                     clearance_action: warning.clearance_action,
+                    clear_action: warning.clear_action,
                     created_at_ms: warning.created_at_ms,
                     cleared_at_ms: warning.cleared_at_ms,
                 })
@@ -2316,163 +2308,6 @@ impl ActionMapRuntimeState {
                 &message,
                 &reason,
                 blocking_items,
-                next_valid_actions,
-                Vec::new(),
-                Some(&repeated_block),
-            );
-            return Err(ActionMapGateError::new(
-                recovery,
-                vec![MapRuntimeEvent::ToolActionBlocked(
-                    MapRuntimeToolActionBlockedEvent {
-                        map_id,
-                        node_id,
-                        node_kind: blocked_node_kind,
-                        tool_name: descriptor.tool_name,
-                        action_class: descriptor.action_class.as_str().to_string(),
-                        reason,
-                    },
-                )],
-            ));
-        }
-        if node.kind == NodeKind::ImplementSolution
-            && matches!(
-                descriptor.action_class,
-                ActionClass::Read | ActionClass::Search
-            )
-            && !node_has_successful_action(map, node, ActionClass::Edit)
-            && (implement_node_has_dependency_working_evidence(map, node)
-                || implement_node_has_dependency_validation_rework_evidence(map, node)
-                || self
-                    .current_node_progress_signature(&map_id, &node_id)
-                    .is_some_and(|progress| {
-                        progress >= contract.max_main_tool_results_before_split_hint
-                    }))
-            && !implement_node_validation_rework_read_targets_failure_artifact(
-                map,
-                node,
-                &descriptor,
-            )
-        {
-            let evidence_source =
-                if implement_node_has_dependency_validation_rework_evidence(map, node) {
-                    "validation_rework_evidence"
-                } else if implement_node_has_dependency_working_evidence(map, node) {
-                    "dependency_working_evidence"
-                } else {
-                    "current_node_progress"
-                };
-            let reason = format!(
-                "implement_solution has enough read/search evidence ({evidence_source}) and no successful edit"
-            );
-            let repair_contract =
-                implement_node_dependency_validation_rework_repair_contract(map, node);
-            let contract_message = repair_contract
-                .as_ref()
-                .map(|contract| format!(" Validation repair contract: {contract}"))
-                .unwrap_or_default();
-            let message = format!(
-                "TaskSpace blocked this {} because current node `{}` kind: implement_solution has enough read/search evidence and no successful edit. Requested tool `{}` action class: {}. Apply the smallest implementation edit with apply_patch now, or return blocked with the exact missing evidence if no safe edit can be made.{}",
-                descriptor.action_class.as_str(),
-                node.id,
-                descriptor.tool_name,
-                descriptor.action_class.as_str(),
-                contract_message
-            );
-            let current_node_item = format!("current_node:{}:{}", node.id, node.kind.as_str());
-            let blocked_node_kind = node.kind.as_str().to_string();
-            let validation_rework_artifacts =
-                implement_node_dependency_validation_rework_artifact_refs(map, node);
-            let mut next_valid_actions = Vec::new();
-            if !validation_rework_artifacts.is_empty() {
-                let visible_target_reads = implement_node_validation_rework_artifact_read_results(
-                    map,
-                    node,
-                    &validation_rework_artifacts,
-                );
-                let refresh_target_reads = visible_target_reads
-                    .iter()
-                    .filter(|(_, result_id)| {
-                        validation_rework_target_read_can_refresh_after_failed_edit(
-                            map, node, result_id,
-                        )
-                    })
-                    .cloned()
-                    .collect::<Vec<_>>();
-                if visible_target_reads.is_empty() {
-                    next_valid_actions.extend(validation_rework_artifacts.iter().take(4).map(
-                        |artifact| {
-                            format!(
-                                "read_file validation rework target artifact `{artifact}` only if current contents are not visible"
-                            )
-                        },
-                    ));
-                    next_valid_actions.extend(
-                        validation_rework_artifacts
-                            .iter()
-                            .take(4)
-                            .map(|artifact| format!("or call apply_patch for `{artifact}`")),
-                    );
-                } else if !refresh_target_reads.is_empty() {
-                    next_valid_actions.extend(refresh_target_reads.iter().take(4).map(
-                        |(artifact, result_id)| {
-                            format!(
-                                "read_file validation rework target artifact `{artifact}` once to refresh context after failed edit following read result `{result_id}`"
-                            )
-                        },
-                    ));
-                    next_valid_actions.extend(
-                        refresh_target_reads
-                            .iter()
-                            .take(4)
-                            .map(|(artifact, _)| format!("or call apply_patch for `{artifact}`")),
-                    );
-                } else {
-                    next_valid_actions.extend(visible_target_reads.iter().take(4).map(
-                        |(artifact, result_id)| {
-                            format!(
-                                "use existing validation rework target read result `{result_id}` for `{artifact}`; do not read/search it again before edit"
-                            )
-                        },
-                    ));
-                    next_valid_actions.extend(
-                        visible_target_reads
-                            .iter()
-                            .take(4)
-                            .map(|(artifact, _)| format!("call apply_patch for `{artifact}`")),
-                    );
-                    next_valid_actions.push(
-                        "read/search is no longer a valid next action on this validation rework node until a successful edit records progress".to_string(),
-                    );
-                }
-                if let Some(contract) = repair_contract.as_ref() {
-                    next_valid_actions.push(format!(
-                        "satisfy validation_schema_repair_contract: {contract}"
-                    ));
-                }
-            } else {
-                next_valid_actions
-                    .push("call apply_patch for the current implementation node".to_string());
-            }
-            next_valid_actions.push("or return blocked with exact missing evidence".to_string());
-            let repeated_block = self.record_blocked_action_repeat(
-                &map_id,
-                &node_id,
-                progress_signature,
-                &reason,
-                &descriptor,
-            );
-            let recovery = gate_recovery_message_with_repeated_block(
-                &message,
-                &reason,
-                repair_contract
-                    .as_ref()
-                    .map(|contract| {
-                        vec![
-                            current_node_item.clone(),
-                            format!("validation_rework_contract:{contract}"),
-                        ]
-                    })
-                    .unwrap_or_else(|| vec![current_node_item]),
                 next_valid_actions,
                 Vec::new(),
                 Some(&repeated_block),
@@ -5404,6 +5239,7 @@ preview:\n\
             NodeStatus::Completed,
             true,
         )?;
+        events.extend(self.accept_validation_closeout_result_for_finish(node_id, &result_id)?);
         validation_events.append(&mut events);
         let mut events = validation_events;
         let mut bound_next_node_id = None;
@@ -5521,6 +5357,88 @@ preview:\n\
             )?);
         }
         Ok(events)
+    }
+
+    fn accept_validation_closeout_result_for_finish(
+        &mut self,
+        node_id: &str,
+        closeout_result_id: &str,
+    ) -> Result<Vec<MapRuntimeEvent>, String> {
+        let Some(map_id) = self.active_map_id.clone() else {
+            return Ok(Vec::new());
+        };
+        let Some((task_id, node_kind, validation_result_id)) =
+            self.maps.get(&map_id).and_then(|map| {
+                let node = map.nodes.get(node_id)?;
+                if !matches!(node.kind, NodeKind::SmokeTest | NodeKind::RegressionTest) {
+                    return None;
+                }
+                let validation_result_id =
+                    latest_accepted_successful_validation_result_id(map, node)?;
+                Some((map.task_id.clone(), node.kind, validation_result_id))
+            })
+        else {
+            return Ok(Vec::new());
+        };
+        let map = self
+            .maps
+            .get_mut(&map_id)
+            .ok_or_else(|| format!("TaskSpace task path `{map_id}` is missing."))?;
+        let result = map.results.get_mut(closeout_result_id).ok_or_else(|| {
+            format!(
+                "TaskSpace result `{closeout_result_id}` does not exist on task path `{map_id}`."
+            )
+        })?;
+        if result.evidence_package.validity != ResultValidity::Unreviewed {
+            return Ok(Vec::new());
+        }
+        let mut adoption = NodeResultAdoption::default();
+        adoption.refresh_state(ResultValidity::Accepted);
+        let closeout_ref = EvidenceRef {
+            result_id: Some(closeout_result_id.to_string()),
+            claim_id: None,
+            fact_source_id: None,
+            trace_event_id: None,
+            artifact_ref: None,
+            validator_ref: None,
+        };
+        let validation_ref = EvidenceRef {
+            result_id: Some(validation_result_id.clone()),
+            claim_id: None,
+            fact_source_id: None,
+            trace_event_id: None,
+            artifact_ref: None,
+            validator_ref: Some(node_kind.as_str().to_string()),
+        };
+        result.evidence_package = NodeResultEvidencePackage {
+            claims: vec![CognitiveClaim {
+                id: format!("claim-{closeout_result_id}-validation-closeout"),
+                statement: format!(
+                    "{} closeout summary is supported by accepted validation result `{validation_result_id}`.",
+                    node_kind.as_str()
+                ),
+                evidence_refs: vec![validation_ref.clone(), closeout_ref.clone()],
+            }],
+            evidence_refs: vec![validation_ref, closeout_ref],
+            changed_artifacts: Vec::new(),
+            validator_refs: vec![node_kind.as_str().to_string()],
+            remaining_uncertainty: Vec::new(),
+            validity: ResultValidity::Accepted,
+            validity_reason: format!(
+                "{} closeout accepted because validation result `{validation_result_id}` was already accepted.",
+                node_kind.as_str()
+            ),
+            adoption,
+        };
+        Ok(vec![MapRuntimeEvent::ResultValidityChanged(
+            MapRuntimeResultValidityChangedEvent {
+                task_id,
+                map_id,
+                node_id: result.node_id.clone(),
+                result_id: closeout_result_id.to_string(),
+                validity: ResultValidity::Accepted.as_str().to_string(),
+            },
+        )])
     }
 
     fn validate_existing_validation_criteria_for_finish(
@@ -10833,6 +10751,7 @@ preview:\n\
                 trace_event_ids: vec![event.id.clone()],
                 reason: draft.reason.to_string(),
                 clearance_action: draft.clearance_action.to_string(),
+                clear_action: None,
                 created_at_ms: event.created_at_ms,
                 cleared_at_ms: None,
             };
@@ -10859,6 +10778,7 @@ preview:\n\
                 continue;
             }
             warning.status = TaskSpaceSentinelWarningStatus::Cleared;
+            warning.clear_action = Some("FixApplied".to_string());
             warning.cleared_at_ms = Some(event.created_at_ms);
             if !warning.trace_event_ids.iter().any(|id| id == &event.id) {
                 warning.trace_event_ids.push(event.id.clone());
@@ -12988,30 +12908,7 @@ fn compact_projection_allowed_actions_for_node(kind: NodeKind) -> String {
 }
 
 #[cfg(test)]
-fn projection_allowed_actions_for_node(map: &ActionMapInstance, node: &MapNode) -> String {
-    if node.kind == NodeKind::ImplementSolution
-        && !node_has_successful_action(map, node, ActionClass::Edit)
-    {
-        let validation_rework_artifacts =
-            implement_node_dependency_validation_rework_artifact_refs(map, node);
-        if !validation_rework_artifacts.is_empty() {
-            let visible_target_reads = implement_node_validation_rework_artifact_read_results(
-                map,
-                node,
-                &validation_rework_artifacts,
-            );
-            if !visible_target_reads.is_empty() {
-                if visible_target_reads.iter().any(|(_, result_id)| {
-                    validation_rework_target_read_can_refresh_after_failed_edit(
-                        map, node, result_id,
-                    )
-                }) {
-                    return "read, edit, control(block_node only; finish_node blocked until successful edit; only same validation rework target refresh reads are allowed after a failed edit)".to_string();
-                }
-                return "edit, control(block_node only; finish_node blocked until successful edit; read/search of already visible validation rework targets will be blocked)".to_string();
-            }
-        }
-    }
+fn projection_allowed_actions_for_node(_map: &ActionMapInstance, node: &MapNode) -> String {
     compact_projection_allowed_actions_for_node(node.kind)
 }
 
@@ -14437,6 +14334,7 @@ fn snapshot_sentinel_warning_ref(
         trace_event_ids: warning.trace_event_ids.clone(),
         reason: warning.reason.clone(),
         clearance_action: warning.clearance_action.clone(),
+        clear_action: warning.clear_action.clone(),
         created_at_ms: warning.created_at_ms,
         cleared_at_ms: warning.cleared_at_ms,
     }
@@ -17163,6 +17061,7 @@ fn node_has_failed_edit_after_result(
     false
 }
 
+#[cfg(test)]
 fn validation_rework_target_read_can_refresh_after_failed_edit(
     map: &ActionMapInstance,
     node: &MapNode,
@@ -17691,24 +17590,6 @@ fn implement_node_has_complete_validation_rework_target_read(
                 .and_then(|result| read_file_summary_eof_reached(&result.body))
                 == Some(true)
         })
-}
-
-fn implement_node_validation_rework_read_targets_failure_artifact(
-    map: &ActionMapInstance,
-    node: &MapNode,
-    descriptor: &ToolActionDescriptor,
-) -> bool {
-    if node.kind != NodeKind::ImplementSolution
-        || !matches!(
-            descriptor.action_class,
-            ActionClass::Read | ActionClass::Search
-        )
-    {
-        return false;
-    }
-    let artifact_refs = implement_node_dependency_validation_rework_artifact_refs(map, node);
-    !artifact_refs.is_empty()
-        && tool_action_descriptor_targets_any_artifact(descriptor, &artifact_refs)
 }
 
 fn implement_node_duplicate_validation_rework_artifact_read(
@@ -20621,7 +20502,7 @@ mod tests {
     }
 
     #[test]
-    fn taskspace_active_budget_node_request_gate_blocks_before_rollout_budget() {
+    fn taskspace_active_budget_node_request_limit_is_profile_hint_before_rollout_budget() {
         let owner = ThreadId::new();
         let mut state = ActionMapRuntimeState::default();
         state.set_mode(MapRuntimeMode::Experiment);
@@ -20652,18 +20533,13 @@ mod tests {
         assert_eq!(snapshot.max_requests, 8);
         assert_eq!(snapshot.node_request_count, 3);
         assert_eq!(snapshot.max_model_requests_per_node, 3);
-        assert!(!decision.allowed);
-        assert_eq!(decision.reason, "provider_node_request_hard_limit_exceeded");
-        assert!(
-            decision
-                .blocking_items
-                .iter()
-                .any(|item| item == "node_request_count:3/3")
-        );
+        assert!(decision.allowed);
         assert_eq!(
-            decision.recovery_request_phase.as_deref(),
-            Some("budget_recovery")
+            decision.reason,
+            "provider_node_request_profile_hint_exceeded"
         );
+        assert!(decision.blocking_items.is_empty());
+        assert!(decision.recovery_request_phase.is_none());
     }
 
     #[test]
@@ -23600,6 +23476,12 @@ sample rows from {artifact}"
             .expect("sentinel warning remains auditable");
         assert_eq!(warning.sentinel_type, "validator_failure");
         assert_eq!(warning.status, "cleared");
+        assert_eq!(warning.clear_action.as_deref(), Some("FixApplied"));
+        assert!(
+            warning
+                .clearance_action
+                .contains("Run a successful validator")
+        );
         assert_eq!(warning.trace_event_ids.len(), 2);
         assert!(warning.trace_event_ids.iter().all(|id| {
             recovered_snapshot
@@ -36265,7 +36147,7 @@ fi\n"
             )
             .expect("successful test result records")
             .expect("test result id");
-        state
+        let (outcome, _) = state
             .finish_main_node(owner, &node_id, "Tests passed.".to_string(), None)
             .expect("smoke test auto-accepts successful validation evidence");
         let map = state.active_map().expect("active map");
@@ -36274,6 +36156,24 @@ fi\n"
             map.results
                 .get(&result_id)
                 .is_some_and(|result| result.evidence_package.validity == ResultValidity::Accepted)
+        );
+        let closeout_result = map
+            .results
+            .get(&outcome.result_id)
+            .expect("validation closeout result");
+        assert_eq!(
+            closeout_result.evidence_package.validity,
+            ResultValidity::Accepted
+        );
+        assert!(
+            closeout_result
+                .evidence_package
+                .evidence_refs
+                .iter()
+                .any(|evidence_ref| {
+                    evidence_ref.result_id.as_deref() == Some(result_id.as_str())
+                        && evidence_ref.validator_ref.as_deref() == Some("smoke_test")
+                })
         );
         assert!(
             task.problem_ledger

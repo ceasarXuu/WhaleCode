@@ -395,7 +395,7 @@ function renderCognitivePanel(task, m, s){
   }
   const warnings=arr(s.sentinelWarnings).filter(w=>w.mapId===m.id||w.taskId===task.id);
   if(warnings.length){
-    p.appendChild(detail('sentinel:'+m.id,'sentinel warnings',table(['id','type','severity','status','node','result','trace events','reason','clearance'],warnings.map(w=>[w.id||w.sentinelId,w.sentinelType,w.severity,w.status,w.nodeId,w.resultId,list(w.traceEventIds),w.reason,w.clearanceAction]))));
+    p.appendChild(detail('sentinel:'+m.id,'sentinel warnings',table(['id','type','severity','status','node','result','trace events','reason','clear action','clearance guidance'],warnings.map(w=>[w.id||w.sentinelId,w.sentinelType,w.severity,w.status,w.nodeId,w.resultId,list(w.traceEventIds),w.reason,w.clearAction,w.clearanceAction]))));
   }
   if(!arr(c.outputContracts).length&&!arr(c.factSources).length&&!arr(c.facts).length&&!resultRows.length&&!warnings.length){
     p.appendChild(el('div','No cognitive records yet.','muted'));

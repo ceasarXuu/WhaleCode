@@ -363,6 +363,35 @@ $nonReviewableObs = [pscustomobject]@{
 $nonReviewableReport = New-TaskspaceGraphHealthReport $nonReviewableObs "right" "taskspace"
 Assert-True (-not (@($nonReviewableReport.warnings) -contains "high_unreviewed_result_ratio")) "graph health counted tool/final summary results as reviewable debt"
 Assert-True ([int]$nonReviewableReport.reviewable_result_count -eq 0) "graph health reviewable result count included tool/final summary results"
+$linearGraphObs = [pscustomobject]@{
+    nodes = @(
+        [pscustomobject]@{ id = "node-1"; kind = "inspect_code_context"; status = "completed"; leases = @(); results = @(); events = @() },
+        [pscustomobject]@{ id = "node-2"; kind = "implement_solution"; status = "completed"; leases = @(); results = @(); events = @() },
+        [pscustomobject]@{ id = "node-3"; kind = "smoke_test"; status = "completed"; leases = @(); results = @(); events = @() },
+        [pscustomobject]@{ id = "node-4"; kind = "final_synthesis"; status = "completed"; leases = @(); results = @(); events = @() }
+    )
+    edges = @(
+        [pscustomobject]@{ from = "node-1"; to = "node-2" },
+        [pscustomobject]@{ from = "node-2"; to = "node-3" },
+        [pscustomobject]@{ from = "node-1"; to = "node-4" },
+        [pscustomobject]@{ from = "node-2"; to = "node-4" },
+        [pscustomobject]@{ from = "node-3"; to = "node-4" }
+    )
+    toolCalls = @()
+    timeline = @()
+}
+$linearGraphReport = New-TaskspaceGraphHealthReport $linearGraphObs "right" "taskspace"
+Assert-True (-not (@($linearGraphReport.warnings) -contains "low_decision_density")) "linear task graph should not require synthetic decisions"
+Assert-True ([string]$linearGraphReport.metric_availability.decision_density -eq "not_applicable_linear") "linear decision density applicability should be explicit"
+$subagentLowDecisionObs = [pscustomobject]@{
+    nodes = $linearGraphObs.nodes
+    edges = $linearGraphObs.edges
+    maps = @([pscustomobject]@{ subagentPlans = @([pscustomobject]@{ id = "subagent-plan-1" }) })
+    toolCalls = @()
+    timeline = @()
+}
+$subagentLowDecisionReport = New-TaskspaceGraphHealthReport $subagentLowDecisionObs "right" "taskspace"
+Assert-True (@($subagentLowDecisionReport.warnings) -contains "low_decision_density") "subagent graph should still report missing decision density"
 $graphDecisionObs = [pscustomobject]@{
     nodes = @(
         [pscustomobject]@{

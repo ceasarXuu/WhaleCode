@@ -63,6 +63,33 @@ function Test-TaskspaceBenchmarkResultSupportsDecision {
     return $false
 }
 
+function Test-TaskspaceGraphNeedsDecisionDensity {
+    param([object[]]$Nodes, [object[]]$Edges, [int]$SubagentSpawnCount)
+    if ($SubagentSpawnCount -gt 0) { return $true }
+    $nodeKindById = @{}
+    foreach ($node in @($Nodes)) {
+        $nodeId = [string]$node.id
+        if (-not [string]::IsNullOrWhiteSpace($nodeId)) {
+            $nodeKindById[$nodeId] = [string]$node.kind
+        }
+    }
+    $nonFinalOutgoing = @{}
+    foreach ($edge in @($Edges)) {
+        $from = [string]$edge.from
+        $to = [string]$edge.to
+        if ([string]::IsNullOrWhiteSpace($from) -or [string]::IsNullOrWhiteSpace($to)) { continue }
+        if ($nodeKindById.ContainsKey($to) -and [string]$nodeKindById[$to] -eq "final_synthesis") { continue }
+        if (-not $nonFinalOutgoing.ContainsKey($from)) {
+            $nonFinalOutgoing[$from] = [System.Collections.Generic.HashSet[string]]::new()
+        }
+        [void]$nonFinalOutgoing[$from].Add($to)
+    }
+    foreach ($from in @($nonFinalOutgoing.Keys)) {
+        if ($nonFinalOutgoing[$from].Count -gt 1) { return $true }
+    }
+    return $false
+}
+
 function New-TaskspaceGraphHealthReport {
     param(
         $Observability,
@@ -144,8 +171,9 @@ function New-TaskspaceGraphHealthReport {
     $decisionDensity = Get-TaskspaceSafeRatio $decisionCount $nodeCount
     $blockedRatio = Get-TaskspaceSafeRatio @($blockedNodes).Count $nodeCount
     $nodeInflationRatio = if ($decisionCount -gt 0) { Get-TaskspaceSafeRatio $nodeCount $decisionCount } else { [double]$nodeCount }
+    $decisionDensityApplicable = Test-TaskspaceGraphNeedsDecisionDensity $nodes $edges $subagentSpawnCount
     if (@($reviewableResults).Count -gt 0 -and $reviewableUnreviewedRatio -gt 0.3) { $warnings.Add("high_unreviewed_result_ratio") }
-    if ($nodeCount -ge 4 -and $decisionDensity -lt 0.25) { $warnings.Add("low_decision_density") }
+    if ($decisionDensityApplicable -and $nodeCount -ge 4 -and $decisionDensity -lt 0.25) { $warnings.Add("low_decision_density") }
     if ($nodeCount -gt 0 -and $blockedRatio -gt 0.25) { $warnings.Add("high_blocked_node_ratio") }
     if ($nodeInflationRatio -gt 12) { $warnings.Add("node_inflation_high") }
     if ($subagentSpawnCount -gt 0 -and $subagentAdoptedCount -eq 0 -and $adoptionMetricState -eq "measured") { $warnings.Add("subagent_no_adoption") }
@@ -173,7 +201,7 @@ function New-TaskspaceGraphHealthReport {
         node_inflation_ratio = $nodeInflationRatio
         metric_availability = [ordered]@{
             result_adoption = $adoptionMetricState
-            decision_density = "measured"
+            decision_density = if ($decisionDensityApplicable) { "measured" } else { "not_applicable_linear" }
             open_question_closure = "unsupported"
         }
         open_question_closure_rate = $null

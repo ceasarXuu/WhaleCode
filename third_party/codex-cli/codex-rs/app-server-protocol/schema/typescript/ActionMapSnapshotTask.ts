@@ -5,4 +5,4 @@ import type { ActionMapSnapshotCognitiveState } from "./ActionMapSnapshotCogniti
 import type { ActionMapSnapshotProblemStateLedger } from "./ActionMapSnapshotProblemStateLedger";
 import type { ThreadId } from "./ThreadId";
 
-export type ActionMapSnapshotTask = { id: string, title: string, objective: string, status: string, ownerSessionId: ThreadId | null, activeMapId: string | null, mapIds: Array<string>, cognitiveState: ActionMapSnapshotCognitiveState, problemStateLedgerVersion?: string | null, problemLedger: ActionMapSnapshotProblemStateLedger, };
+export type ActionMapSnapshotTask = { id: string, title: string, objective: string, status: string, ownerSessionId: ThreadId | null, activeMapId: string | null, mapIds: Array<string>, cognitiveState: ActionMapSnapshotCognitiveState, problemStateLedgerVersion: string | null, problemLedger: ActionMapSnapshotProblemStateLedger, };

@@ -122,7 +122,7 @@ fn action_map_snapshot_schema_exposes_trace_summary_and_refs() -> Result<()> {
         "ActionMapSnapshot TypeScript fixture must expose traceSummary"
     );
     assert!(
-        action_map_snapshot_ts.contains("cognitiveSchemaVersion?: string | null"),
+        action_map_snapshot_ts.contains("cognitiveSchemaVersion: string | null"),
         "ActionMapSnapshot TypeScript fixture must expose cognitiveSchemaVersion"
     );
     assert!(
@@ -166,7 +166,7 @@ fn action_map_snapshot_schema_exposes_trace_summary_and_refs() -> Result<()> {
         "ActionMapSnapshotTask TypeScript fixture must expose cognitiveState"
     );
     assert!(
-        task_ts.contains("problemStateLedgerVersion?: string | null"),
+        task_ts.contains("problemStateLedgerVersion: string | null"),
         "ActionMapSnapshotTask TypeScript fixture must expose problemStateLedgerVersion"
     );
     assert!(
