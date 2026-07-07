@@ -32,6 +32,12 @@ function Test-TruthValue {
     return [string]$Value -eq "true"
 }
 
+function Get-NullableInteger {
+    param([object]$Value)
+    if ($null -eq $Value -or [string]::IsNullOrWhiteSpace([string]$Value)) { return $null }
+    try { return [int]$Value } catch { return $null }
+}
+
 function Get-Sha256String {
     param([string]$Value)
     $sha = [System.Security.Cryptography.SHA256]::Create()
@@ -169,6 +175,13 @@ if (-not (Test-Path -LiteralPath $PlanPath -PathType Leaf)) {
         "token_ratio_availability",
         "request_2_plus_cache_hit_rate",
         "request_2_plus_cache_hit_rate_availability",
+        "request_reason_coverage_status",
+        "request_reason_event_count",
+        "request_reason_unknown_count",
+        "request_reason_attribution_coverage",
+        "repeated_same_reason_no_delta_count",
+        "request_reason_trigger_kind_counts",
+        "request_reason_delta_counts",
         "tool_feedback_loss_count",
         "tool_feedback_semantic_loss_count",
         "taskspace_map_attribution_missing_count",
@@ -234,7 +247,7 @@ if (-not [string]::IsNullOrWhiteSpace($ReportPath)) {
             }
             foreach ($sourceName in @("standard_model_request_count_source", "taskspace_model_request_count_source")) {
                 $source = [string]$row.$sourceName
-                if ($source -notin @("rollout_trace", "provider_cache_trace_summary", "request_summary", "metrics_token_summary", "unavailable", "missing_run")) {
+                if ($source -notin @("request_phase_summary_provider_distinct", "rollout_trace", "provider_cache_trace_summary", "request_summary", "metrics_token_summary", "unavailable", "missing_run")) {
                     Add-Failure $failures "report row ${taskId} has unknown ${sourceName}: $source"
                 }
             }
@@ -267,6 +280,27 @@ if (-not [string]::IsNullOrWhiteSpace($ReportPath)) {
             }
             if ($cacheAvailability -notin @("measured", "derived_from_token_summary", "cache_trace_unavailable", "source_missing", "missing_run")) {
                 Add-Failure $failures "report row ${taskId} has unknown request_2_plus_cache_hit_rate_availability: $cacheAvailability"
+            }
+            $reasonStatus = [string]$row.request_reason_coverage_status
+            if ($reasonStatus -notin @("measured", "measured_with_unknown", "unavailable", "source_missing", "missing", "missing_run", "documented_legacy_unavailable")) {
+                Add-Failure $failures "report row ${taskId} has unknown request_reason_coverage_status: $reasonStatus"
+            }
+            $reasonEventCount = Get-NullableInteger $row.request_reason_event_count
+            $reasonUnknownCount = Get-NullableInteger $row.request_reason_unknown_count
+            $reasonCoverage = Get-NullableInteger $row.request_reason_attribution_coverage
+            if ($reasonStatus -eq "measured") {
+                if ($null -eq $reasonEventCount -or $reasonEventCount -le 0) {
+                    Add-Failure $failures "report row ${taskId} request_reason_coverage_status=measured but request_reason_event_count is missing or zero"
+                }
+                if ($null -eq $reasonUnknownCount -or $reasonUnknownCount -ne 0) {
+                    Add-Failure $failures "report row ${taskId} request_reason_coverage_status=measured but request_reason_unknown_count is not zero"
+                }
+                if ($null -eq $reasonCoverage -or $reasonCoverage -ne 100) {
+                    Add-Failure $failures "report row ${taskId} request_reason_coverage_status=measured but request_reason_attribution_coverage is not 100"
+                }
+            }
+            if ($reasonStatus -eq "measured_with_unknown" -and ($null -eq $reasonUnknownCount -or $reasonUnknownCount -le 0)) {
+                Add-Failure $failures "report row ${taskId} request_reason_coverage_status=measured_with_unknown but request_reason_unknown_count is not positive"
             }
         }
     }

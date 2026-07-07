@@ -167,6 +167,7 @@ const TASKSPACE_APPLY_PATCH_REPLACEMENT_REQUIRED_MARKER: &str =
 const TASKSPACE_PATCH_INTENT_FORMAT_MARKER: &str = "TaskSpacePatchIntentFormatRecoveryV1:";
 const TASKSPACE_VALIDATION_INFRA_RECOVERY_MARKER: &str = "TaskSpaceValidationInfraRecoveryV1:";
 const TASKSPACE_VALIDATION_NEEDS_TEST_MARKER: &str = "TaskSpaceValidationNeedsTestRecoveryV1:";
+const TASKSPACE_FINAL_READINESS_RECOVERY_MARKER: &str = "TaskSpaceFinalReadinessRecoveryV1:";
 const TASKSPACE_PROVIDER_BUDGET_HARD_STOP_MARKER: &str = "TaskSpaceProviderBudgetHardStopV1:";
 const TASKSPACE_PATH_CORRECTION_MARKER: &str = "TaskSpacePathCorrectionRecoveryV1:";
 const TASKSPACE_TOOL_FEEDBACK_MARKER: &str = "TaskSpaceToolFeedbackV1:";
@@ -1323,7 +1324,7 @@ Allowed actions by active node kind:
 - existing task with no active node: final_answer, taskspace_control, blocked
 - inspect_code_context: list_files, search, read_file, run_test, taskspace_control, blocked; use run_test only for pre-edit diagnostic or baseline evidence, not final validation closeout
 - implement_solution: list_files, search, read_file, apply_patch, run_test, taskspace_control, blocked; run_test here records ordinary execution feedback and does not replace smoke_test/regression_test closeout
-- validation rework duplicate baseline: if TaskSpaceActionContractStateV1, projection, or recent feedback says a validation rework target was already read completely, an exact duplicate read_file for that same target may be rejected as duplicate evidence; use the previous result id/context, apply_patch if enough evidence is available, or taskspace_control/blocked if work cannot continue
+- validation rework duplicate baseline: TaskSpaceActionContractStateV1, projection, or recent feedback may report that a validation rework target was already read completely; an exact duplicate read_file for that target is a low-information evidence signal, but read_file remains governed by the active node action set.
 - smoke_test/regression_test: run_test, taskspace_control, blocked
 - final_synthesis: final_answer, taskspace_control, blocked
 Action argument rules:
@@ -1370,12 +1371,12 @@ Active node kind: {node_kind}"
     );
     if snapshot.task_id.is_some() && snapshot.node_id.is_none() {
         text.push_str(
-            "\nExisting TaskSpace task has no active bound node. If the requested work is complete, return final_answer. Do not create or bind another node unless unresolved work remains.",
+            "\nExisting TaskSpace task has no active bound node.\nstate_machine_allowed_actions: final_answer, taskspace_control, blocked.\nstate_transition_fact: creating or binding another node changes the task path and requires unresolved work evidence.",
         );
     }
     if taskspace_snapshot_requires_implementation_edit(snapshot) {
         text.push_str(
-            "\nImplementation convergence hint: implementation_needs_edit. TaskSpace has recorded evidence suggesting an implementation edit may be the next useful action, but implement_solution still accepts list_files, search, read_file, apply_patch, run_test, taskspace_control, or blocked. Avoid exact duplicate complete reads; if the visible evidence is sufficient, apply_patch or block_node is available.",
+            "\nImplementation convergence fact: implementation_needs_edit. TaskSpace has recorded evidence suggesting the implementation node still lacks a successful edit. implement_solution still accepts list_files, search, read_file, apply_patch, run_test, taskspace_control, or blocked. Exact duplicate complete reads are recorded as low-information evidence when they add no new state/tool delta.",
         );
         if !snapshot.current_node_validation_rework_artifacts.is_empty() {
             text.push_str(
@@ -1404,7 +1405,7 @@ Active node kind: {node_kind}"
         Some("smoke_test" | "regression_test")
     ) {
         text.push_str(
-            "\nValidation convergence state: validation_needs_test. Current request allowed actions are narrowed to run_test, taskspace_control, or blocked only. Do not call list_files, search, read_file, shell discovery, apply_patch, or spawn_agent from a validation node. If a discovered local validator is named in the projection or recent tool feedback, run that exact validator command before any generic pytest/cargo/npm test command.",
+            "\nValidation convergence state: validation_needs_test.\nstate_machine_allowed_actions: run_test, taskspace_control, blocked.\nrejected_by_state_baseline: list_files, search, read_file, shell discovery, apply_patch, spawn_agent from a validation node.\nvalidator_command_source: discovered local validator entries in projection or recent tool feedback, when present, are the strongest validation command facts.",
         );
     }
     ResponseItem::Message {
@@ -1420,7 +1421,9 @@ fn taskspace_action_contract_bootstrap_state_item() -> ResponseItem {
     let text = "TaskSpaceActionContractStateV1:\n\
 Active node id: none\n\
 Active node kind: bootstrap\n\
-No active TaskSpace task exists yet. The next action must be taskspace_control with action=start_task or blocked."
+No active TaskSpace task exists yet.\n\
+state_machine_allowed_actions: taskspace_control(action=start_task), blocked.\n\
+action_space_source: TaskSpace bootstrap hard baseline."
         .to_string();
     ResponseItem::Message {
         id: None,
@@ -1434,9 +1437,9 @@ No active TaskSpace task exists yet. The next action must be taskspace_control w
 fn taskspace_action_contract_closed_validation_item() -> ResponseItem {
     let text = "TaskSpaceActionContractClosedValidationV1:\n\
 Existing TaskSpace task has no active bound node because validation is closed as blocked by local infrastructure evidence.\n\
-Current request allowed actions are narrowed to final_answer or blocked only.\n\
-Do not call start_task, create_node, bind_node, list_files, read_file, search, apply_patch, run_test, or spawn_agent.\n\
-The next response must summarize the exact validator infrastructure blocker and the implementation evidence already recorded."
+state_machine_allowed_actions: final_answer, blocked.\n\
+rejected_by_state_baseline: start_task, create_node, bind_node, list_files, read_file, search, apply_patch, run_test, spawn_agent.\n\
+final_response_fact_sources: exact validator infrastructure blocker and implementation evidence already recorded."
         .to_string();
     ResponseItem::Message {
         id: None,
@@ -1457,6 +1460,7 @@ fn taskspace_closed_validation_blocker_applies(
         && !has_ready_recovery_node
 }
 
+#[cfg(test)]
 fn taskspace_completed_task_action_should_force_final_answer(action: &TaskSpaceActionV1) -> bool {
     action.action != "final_answer"
 }
@@ -1464,9 +1468,9 @@ fn taskspace_completed_task_action_should_force_final_answer(action: &TaskSpaceA
 fn taskspace_action_contract_tool_runtime_bootstrap_failure_item() -> ResponseItem {
     let text = "TaskSpaceActionContractToolRuntimeBootstrapFailureV1:\n\
 Existing TaskSpace task has no active bound node because ordinary tools are blocked by sandbox/tool runtime bootstrap failure evidence.\n\
-Current request allowed actions are narrowed to final_answer or blocked only.\n\
-Do not call start_task, create_node, bind_node, list_files, read_file, search, apply_patch, run_test, or spawn_agent.\n\
-The next response must summarize the exact sandbox/tool runtime blocker and the tool failure evidence already recorded."
+state_machine_allowed_actions: final_answer, blocked.\n\
+rejected_by_state_baseline: start_task, create_node, bind_node, list_files, read_file, search, apply_patch, run_test, spawn_agent.\n\
+final_response_fact_sources: exact sandbox/tool runtime blocker and tool failure evidence already recorded."
         .to_string();
     ResponseItem::Message {
         id: None,
@@ -1481,7 +1485,8 @@ fn taskspace_action_contract_inspect_unread_scripts_item(scripts: &[String]) -> 
     let mut text = String::from(
         "TaskSpaceActionContractInspectMissingScriptsV1:\n\
 Inspect convergence is blocked because already-read script evidence references script(s) that have not been read yet.\n\
-Current request allowed actions are narrowed to read_file or blocked only. Do not call list_files, search, apply_patch, run_test, taskspace_control finish_node, or re-read already inspected files before these missing script(s) are read.\n\
+state_machine_allowed_actions: read_file, blocked.\n\
+rejected_by_state_baseline_until_missing_scripts_read: list_files, search, apply_patch, run_test, taskspace_control finish_node, re-read already inspected files.\n\
 Required read_file targets:",
     );
     for script in scripts {
@@ -1489,9 +1494,9 @@ Required read_file targets:",
         text.push_str(script);
     }
     if let Some(first) = scripts.first() {
-        text.push_str("\nThe next action must be read_file for `");
+        text.push_str("\nfirst_missing_required_read_file_target: `");
         text.push_str(first);
-        text.push_str("` unless an external blocker makes that impossible.");
+        text.push_str("`");
     }
     ResponseItem::Message {
         id: None,
@@ -1529,7 +1534,7 @@ fn build_taskspace_provider_budget_hard_stop_item(
             .collect::<Vec<_>>()
             .join("\n")
     };
-    let next_valid_actions = if decision.next_valid_actions.is_empty() {
+    let state_machine_options = if decision.next_valid_actions.is_empty() {
         "- stop provider sampling for this turn".to_string()
     } else {
         decision
@@ -1562,10 +1567,10 @@ node_request_count: {node_request_count}/{max_model_requests_per_node}\n\
 post_budget_grace: {post_budget_grace_request_count}/{post_budget_grace_requests}\n\
 quality_impact_required: {quality_impact_required}\n\
 blocking_items:\n{blocking_items}\n\
-next_valid_actions:\n{next_valid_actions}\n\
-required_behavior:\n\
-- Do not send another provider request for this turn.\n\
-- Preserve bounded evidence and stop; a later turn may block the node or continue only after TaskSpace state changes.",
+state_machine_options:\n{state_machine_options}\n\
+hard_baseline_effect:\n\
+- provider sampling for this turn is stopped by the request budget baseline.\n\
+- bounded evidence is preserved; a later turn can continue only after TaskSpace state changes or the hard baseline permits it.",
         reason = decision.reason,
         budget_state = decision.budget_state.as_str(),
         request_count = snapshot.request_count,
@@ -1612,6 +1617,34 @@ This recovery item does not add task semantics beyond the captured previous mess
     }
 }
 
+fn build_taskspace_final_readiness_recovery_item(last_message: Option<&str>) -> ResponseItem {
+    let previous = last_message
+        .filter(|message| !message.trim().is_empty())
+        .unwrap_or("(no final-readiness rejection text was captured)");
+    let text = format!(
+        "{TASKSPACE_FINAL_READINESS_RECOVERY_MARKER}\n\
+final_answer_rejected: true\n\
+captured_rejection:\n{previous}\n\
+state_baseline:\n\
+- final_answer remains rejected until the missing ledger items in captured_rejection are satisfied or waived with evidence.\n\
+- This recovery item does not satisfy, waive, or choose evidence for any ledger item.\n\
+available_state_record_shape:\n\
+- taskspace_control action=state_commit schema_version=taskspace-state-commit-v1\n\
+- success_criteria entries may cite explicit id, status, description, kind, and evidence_refs.\n\
+- result_validities entries may cite explicit result_id, validity, validity_reason, claims, evidence_refs, changed_artifacts, and validator_refs.\n\
+- decisions entries may record an explicit decision and supporting result ids when the agent judges synthesis is ready.\n\
+This item preserves the final-readiness gate output as model-visible state feedback."
+    );
+
+    ResponseItem::Message {
+        id: None,
+        role: "developer".to_string(),
+        content: vec![ContentItem::InputText { text }],
+        end_turn: None,
+        phase: None,
+    }
+}
+
 fn taskspace_gate_recovery_context(message: &str) -> String {
     let Some(marker_start) = message.find(TASKSPACE_GATE_RECOVERY_MARKER) else {
         return String::new();
@@ -1630,6 +1663,7 @@ fn taskspace_message_has_gate_recovery(message: Option<&str>) -> bool {
     message.is_some_and(|message| message.contains(TASKSPACE_GATE_RECOVERY_MARKER))
 }
 
+#[cfg(test)]
 fn taskspace_message_has_gate_recovery_reason(message: Option<&str>, reason: &str) -> bool {
     message.is_some_and(|message| {
         message.contains(TASKSPACE_GATE_RECOVERY_MARKER) && message.contains(reason)
@@ -1893,21 +1927,21 @@ fn build_taskspace_path_correction_recovery_item(
     correction: &TaskspacePathCorrection,
     node_kind: Option<&str>,
 ) -> ResponseItem {
-    let suggested_action = match node_kind {
+    let candidate_path_context = match node_kind {
         Some("inspect_code_context") => format!(
-            "try read_file with args.path `{}` if it names a file, or list_files/search with args.path `{}` if it names a directory",
-            correction.suggested_relative_path, correction.suggested_relative_path
+            "inspect_code_context candidate path `{}` can be evaluated as a file or directory path by a state-machine-legal evidence action",
+            correction.suggested_relative_path
         ),
         Some("smoke_test" | "regression_test") => format!(
-            "try run_test with the command/path corrected to `{}`",
+            "validation candidate command/path component `{}` is a workspace-relative replacement for the failed absolute mount",
             correction.suggested_relative_path
         ),
         Some("implement_solution") => format!(
-            "prefer implementation actions that use `{}` instead of the failed absolute mount when that matches the task intent",
+            "implementation candidate path `{}` is a workspace-relative replacement for the failed absolute mount",
             correction.suggested_relative_path
         ),
         _ => format!(
-            "prefer a legal TaskSpace action using `{}` when that matches the task intent",
+            "workspace-relative candidate path `{}` is available as failed-path feedback",
             correction.suggested_relative_path
         ),
     };
@@ -1917,9 +1951,10 @@ failure_kind: path_not_found_with_relative_candidate\n\
 failed_path: {failed_path}\n\
 suggested_relative_path: {suggested_relative_path}\n\
 The previous tool failed because it used an absolute container path that is not visible in the current workspace. This is failed tool feedback, not successful evidence.\n\
-Suggested recovery, not a runtime gate:\n\
+Path correction facts, not a runtime-selected strategy:\n\
 - Workspace-relative candidate: `{suggested_relative_path}`.\n\
-- Suggested action: {suggested_action}.\n\
+- Candidate path context: {candidate_path_context}.\n\
+- action_space_source: active node contract plus hard state baseline.\n\
 - TaskSpace will not block other state-machine-legal tool actions only because they differ from this suggestion; further failures remain ordinary tool feedback for the Agent to interpret.\n",
         failed_path = correction.failed_path,
         suggested_relative_path = correction.suggested_relative_path,
@@ -2116,9 +2151,10 @@ The previous assistant response appeared to contain an apply_patch action, but T
 {evidence}\
 Tool feedback facts:\n\
 - TaskSpace accepted neither prose nor a raw patch because this turn requires exactly one valid taskspace-action-v1 JSON object.\n\
-- A JSON action can preserve the rejected patch intent with apply_patch, choose another state-machine-legal action, or record blocked with the exact blocker.\n\
+- taskspace-action-v1 JSON is the required transport shape; the rejected patch intent remains visible as raw evidence.\n\
 - The JSON object must not be wrapped in markdown fences, prose before or after the object, or a second action.\n\
-Already visible evidence remains available; request different concrete evidence only if it is needed for the next legal action."
+action_space_source: active node contract plus hard state baseline.\n\
+Already visible evidence remains available as ordinary input."
     );
 
     ResponseItem::Message {
@@ -2136,11 +2172,10 @@ fn build_taskspace_inspect_transition_available_item() -> ResponseItem {
 TaskSpace has recorded inspect_code_context evidence that appears sufficient for a concrete implementation step.\n\
 Runtime boundary:\n\
 - TaskSpace did not finish the inspect node or create an implementation node automatically.\n\
-- The agent must choose the next explicit action.\n\
-Available next actions:\n\
-- Use taskspace_control action=finish_node with next_node_kind=implement_solution if the inspected evidence is sufficient.\n\
-- Use read_file/search/list_files for a different concrete artifact if more evidence is still needed.\n\
-- Use blocked only for an external blocker, not merely because a duplicate action was rejected."
+- The agent remains responsible for the next explicit state-machine-legal action.\n\
+state_transition_contract: finish_node can bind implement_solution only if the agent chooses to close inspect_code_context.\n\
+action_space_source: active node contract plus hard state baseline.\n\
+visible_evidence_status: inspected evidence remains available; no implementation node was created by runtime."
     );
 
     ResponseItem::Message {
@@ -2158,11 +2193,10 @@ fn build_taskspace_implement_validation_available_item() -> ResponseItem {
 TaskSpace has recorded a successful implementation edit on the current implement_solution node.\n\
 Runtime boundary:\n\
 - TaskSpace did not finish the implementation node or create a validation node automatically.\n\
-- The agent must choose the next explicit action.\n\
-Available next actions:\n\
-- Use taskspace_control action=finish_node with next_node_kind=smoke_test or regression_test if the edit is ready for validation.\n\
-- Use apply_patch/read_file/search/list_files if more implementation work is still needed.\n\
-- Use blocked only for an external blocker."
+- The agent remains responsible for the next explicit state-machine-legal action.\n\
+state_transition_contract: finish_node can bind smoke_test or regression_test only if the agent chooses to close implement_solution.\n\
+action_space_source: active node contract plus hard state baseline.\n\
+visible_evidence_status: successful edit evidence remains available; no validation node was created by runtime."
     );
 
     ResponseItem::Message {
@@ -2180,11 +2214,11 @@ fn build_taskspace_validation_closeout_available_item() -> ResponseItem {
 TaskSpace has recorded a successful validation tool result on the current smoke_test/regression_test node.\n\
 Runtime boundary:\n\
 - TaskSpace did not finish the validation node or emit final_answer automatically.\n\
-- The agent must choose the next explicit action.\n\
-Available next actions:\n\
-- Use taskspace_control action=finish_node if the validation node should close.\n\
-- Use final_answer only when TaskSpace has no active node and the task is complete.\n\
-- Use run_test if another concrete validation command is still required."
+- The agent remains responsible for the next explicit state-machine-legal action.\n\
+State facts:\n\
+- validation node closeout is governed by the active node contract and hard state baseline.\n\
+- final_answer is governed by the no-active-node state baseline.\n\
+- additional validation commands, if any, are ordinary Agent-selected tool actions."
     );
 
     ResponseItem::Message {
@@ -2201,10 +2235,9 @@ fn build_taskspace_validation_infra_recovery_item() -> ResponseItem {
         "{TASKSPACE_VALIDATION_INFRA_RECOVERY_MARKER}\n\
 The latest validation command failed because local validator infrastructure or the host shell failed, not because new code evidence was found.\n\
 state_machine_requirement: this local infrastructure failure cannot be treated as implementation-code validation evidence.\n\
-available_actions:\n\
-- taskspace_control action=state_commit can record the failed run_test result as invalid infrastructure evidence.\n\
-- blocked can close the validation node only with the exact local infrastructure evidence, such as Bash/Service/CreateInstance/E_ACCESSDENIED.\n\
-- finish_node is available only after the validation ledger/state records the infrastructure outcome required by the active node contract.\n\
+state_record_fact: the failed run_test result can be recorded as invalid infrastructure evidence.\n\
+blocker_fact: blocked closeout requires the exact local infrastructure evidence, such as Bash/Service/CreateInstance/E_ACCESSDENIED.\n\
+action_space_source: active validation node contract plus hard state baseline.\n\
 duplicate_evidence_boundary: repeated bash, PowerShell, Docker, or shell-discovery commands for the same local validator failure are duplicate infrastructure evidence unless new state/tool evidence changes the failure."
     );
 
@@ -2272,13 +2305,13 @@ fn build_taskspace_implement_needs_edit_recovery_item(
         .unwrap_or_default();
     let text = format!(
         "{TASKSPACE_IMPLEMENT_NEEDS_EDIT_MARKER}\n\
-TaskSpace implement_solution progress hint: no successful edit has been recorded on the current node yet.\n\
+TaskSpace implement_solution progress fact: no successful edit has been recorded on the current node yet.\n\
 {evidence}\
 Runtime boundary:\n\
-- This is a state/progress hint, not a closed action space and not a command to edit.\n\
-- TaskSpace has not executed or rejected any tool solely because of this hint.\n\
-Available actions remain governed by the active node contract: list_files, search, read_file, apply_patch, run_test, taskspace_control, or blocked.\n\
-Use already visible evidence when it is sufficient; request different concrete evidence when it is still needed."
+- This is a state/progress fact, not a closed action space and not a command to edit.\n\
+- TaskSpace has not executed or rejected any tool solely because of this fact.\n\
+- Action-space source of truth: the active node contract and hard state baseline.\n\
+- Already visible evidence and any later tool results are preserved as ordinary inputs to the agent's next state-machine-legal action."
     );
 
     ResponseItem::Message {
@@ -2339,9 +2372,9 @@ The previous action was blocked because this validation rework node already has 
 Projection boundary:\n\
 - This item preserves the blocked tool feedback and visible evidence; it does not select an implementation strategy.\n\
 - The prior complete read_file result remains available as `{previous_result}`.\n\
-- If repair_contract is present, preserve those facts when choosing the next action.\n\
-Available actions remain governed by the active node contract: reuse the previous read result, apply_patch if the visible evidence is sufficient, request different concrete evidence if needed, use taskspace_control, or record blocked with the exact blocker.\n\
-Do not repeat the same complete read_file request unless state or tool evidence changes.\n\
+- repair_contract, when present, is copied as an evidence fact rather than a strategy instruction.\n\
+action_space_source: active node contract plus hard state baseline; this item does not narrow or expand that action space.\n\
+duplicate_complete_read_signal: the same complete read_file request has no recorded new state/tool evidence delta yet.\n\
 Previous blocked feedback:\n{previous_excerpt}\n\
 {gate_recovery}\
 {evidence}"
@@ -2417,12 +2450,12 @@ failure_kind: validation_rework_evidence_after_target_read\n\
 target_artifacts: {target_artifact_label}\n\
 boundary_mode: evidence_only\n\
 {schema_repair_fact_summary}\
-The previous action was blocked only if it repeated an already-visible validation rework target read. TaskSpace preserves the validation failure, target-read result, and schema repair facts below without forcing a repair strategy.\n\
-Available evidence and actions:\n\
-- Use the visible validation failure, schema repair contract, and validation_rework_target_read evidence already shown in context.\n\
+TaskSpace preserves the validation failure, target-read result, and schema repair facts below without forcing a repair strategy.\n\
+Available evidence facts:\n\
+- The visible validation failure, schema repair contract, and validation_rework_target_read evidence already shown in context remain available.\n\
 - If the validation_rework_target_read evidence says content_visibility=full_content_visible, no additional file lines are hidden for that target in the current projection.\n\
-- Exact duplicate read_file for `{target_artifact_label}` may be rejected as duplicate evidence; use the previous result id/context when it is sufficient.\n\
-- apply_patch, read_file/search/list_files for different needed evidence, taskspace_control, and blocked remain available under the implement_solution action contract.\n\
+- Exact duplicate read_file for `{target_artifact_label}` is a low-information evidence signal when it adds no new state/tool delta.\n\
+- action_space_source: active node contract for implement_solution; this recovery item does not narrow or expand that action space.\n\
 {schema_repair_facts}\
 Apply_patch grammar reminder:\n\
 - Native apply_patch starts with `*** Begin Patch` and ends with `*** End Patch`.\n\
@@ -2737,6 +2770,7 @@ fn is_taskspace_validation_rework_patch_only_recovery_item(item: &ResponseItem) 
     response_item_text_contains(item, TASKSPACE_VALIDATION_REWORK_PATCH_ONLY_MARKER)
 }
 
+#[cfg(test)]
 fn is_taskspace_apply_patch_recovery_item(item: &ResponseItem) -> bool {
     response_item_text_contains(item, TASKSPACE_EDIT_FAILURE_MARKER)
         || response_item_text_contains(item, TASKSPACE_APPLY_PATCH_FORMAT_MARKER)
@@ -2838,7 +2872,7 @@ fn taskspace_implement_recovery_advisory_warning_message(
         )
     } else {
         format!(
-            "TaskSpace inserted TaskSpaceImplementNeedsEditRecoveryV1 as a progress hint because implementation has no successful edit yet. Hint count for this node: {attempt}."
+            "TaskSpace inserted TaskSpaceImplementNeedsEditRecoveryV1 as a progress fact because implementation has no successful edit yet. Fact count for this node: {attempt}."
         )
     }
 }
@@ -2873,13 +2907,15 @@ fn taskspace_special_recovery_warning_message(item: &ResponseItem) -> String {
     } else if response_item_text_contains(item, TASKSPACE_VALIDATION_REWORK_PATCH_ONLY_MARKER) {
         "TaskSpace inserted TaskSpaceValidationReworkPatchOnlyRecoveryV1 after a validation rework node received already-visible target contents and repair facts. This guidance does not consume the no-action recovery allowance.".to_string()
     } else if response_item_text_contains(item, TASKSPACE_IMPLEMENT_NEEDS_EDIT_MARKER) {
-        "TaskSpace inserted TaskSpaceImplementNeedsEditRecoveryV1 as a non-blocking progress hint. This guidance does not consume the no-action recovery allowance.".to_string()
+        "TaskSpace inserted TaskSpaceImplementNeedsEditRecoveryV1 as a non-blocking progress fact. This guidance does not consume the no-action recovery allowance.".to_string()
     } else if response_item_text_contains(item, TASKSPACE_PATCH_INTENT_FORMAT_MARKER) {
         "TaskSpace inserted TaskSpacePatchIntentFormatRecoveryV1 after an apply_patch intent was rejected for non-strict JSON. This guidance does not consume the no-action recovery allowance.".to_string()
     } else if response_item_text_contains(item, TASKSPACE_VALIDATION_INFRA_RECOVERY_MARKER) {
         "TaskSpace inserted TaskSpaceValidationInfraRecoveryV1 after local validator infrastructure failed. This guidance does not consume the no-action recovery allowance.".to_string()
     } else if response_item_text_contains(item, TASKSPACE_VALIDATION_NEEDS_TEST_MARKER) {
         "TaskSpace inserted TaskSpaceValidationNeedsTestRecoveryV1 after a validation node needed a current run_test or build result. This guidance does not consume the no-action recovery allowance.".to_string()
+    } else if response_item_text_contains(item, TASKSPACE_FINAL_READINESS_RECOVERY_MARKER) {
+        "TaskSpace inserted TaskSpaceFinalReadinessRecoveryV1 after final readiness rejected a final_answer. This guidance does not consume the no-action recovery allowance.".to_string()
     } else {
         "TaskSpace inserted non-cap TaskSpace recovery guidance. This guidance does not consume the no-action recovery allowance.".to_string()
     }
@@ -2891,7 +2927,6 @@ fn taskspace_message_hit_implementation_needs_edit(message: Option<&str>) -> boo
             || message.contains("validation_rework_patch_only_after_target_read")
             || message.contains("validation_rework_evidence_after_target_read")
             || message.contains("validation_rework_closed_action_space_read_disallowed")
-            || message.contains("validation_rework_duplicate_target_read_disallowed")
             || taskspace_text_mentions_validation_rework_duplicate_artifact_read(message)
             || message.contains("has enough read/search evidence and no successful edit")
     })
@@ -3383,15 +3418,6 @@ fn taskspace_last_message_preview(message: Option<&str>) -> Option<String> {
     Some(preview)
 }
 
-fn taskspace_message_requests_validation(message: Option<&str>) -> bool {
-    let Some(message) = message else {
-        return false;
-    };
-    let message = message.to_ascii_lowercase();
-    (message.contains("run") || message.contains("execute"))
-        && (message.contains("test") || message.contains("pytest") || message.contains("confirm"))
-}
-
 fn filter_deferred_dynamic_tool_spec(
     spec: ToolSpec,
     deferred_dynamic_tools: &HashSet<ToolName>,
@@ -3844,11 +3870,14 @@ fn prepare_taskspace_action_contract_prompt_items_for_node(
 ) -> Vec<ResponseItem> {
     let mut latest_user_input: Option<(usize, ResponseItem)> = None;
     let mut latest_taskspace_context: Option<(usize, ResponseItem)> = None;
+    let mut latest_final_readiness_recovery: Option<(usize, ResponseItem)> = None;
     let mut tool_outputs: Vec<(usize, ResponseItem)> = Vec::new();
 
     for (index, item) in items.into_iter().enumerate() {
         if is_taskspace_active_context_item(&item) {
             latest_taskspace_context = Some((index, compile_taskspace_context_item(item)));
+        } else if is_taskspace_final_readiness_recovery_item(&item) {
+            latest_final_readiness_recovery = Some((index, item));
         } else if is_protected_user_input(&item) {
             latest_user_input = Some((index, item));
         } else if is_tool_output_item(&item) {
@@ -3872,7 +3901,25 @@ fn prepare_taskspace_action_contract_prompt_items_for_node(
         .as_ref()
         .map(|(_, item)| taskspace_validation_rework_target_read_artifacts_from_item(item))
         .unwrap_or_default();
+    let final_readiness_recovery_applies =
+        latest_final_readiness_recovery
+            .as_ref()
+            .is_some_and(|(index, item)| {
+                *index > latest_user_index
+                    && taskspace_final_readiness_recovery_still_applies(
+                        item,
+                        latest_taskspace_context
+                            .as_ref()
+                            .map(|(_, context_item)| context_item),
+                    )
+            });
     if let Some((_, item)) = latest_taskspace_context {
+        prepared.push(item);
+    }
+    if let Some((index, item)) = latest_final_readiness_recovery
+        && index > latest_user_index
+        && final_readiness_recovery_applies
+    {
         prepared.push(item);
     }
     let recent_tool_output_floor = latest_user_index.max(latest_context_index);
@@ -4085,10 +4132,9 @@ fn taskspace_action_contract_recent_tool_outputs_item(
     let validation_rework_duplicate_read_seen = summaries
         .iter()
         .any(|(_, text)| taskspace_text_mentions_validation_rework_duplicate_artifact_read(text));
-    let validation_rework_duplicate_target_read_seen = summaries.iter().any(|(_, text)| {
-        text.contains("validation_rework_duplicate_target_read_disallowed")
-            || text.contains("validation_rework_closed_action_space_read_disallowed")
-    });
+    let validation_rework_duplicate_target_read_seen = summaries
+        .iter()
+        .any(|(_, text)| text.contains("validation_rework_closed_action_space_read_disallowed"));
     let implementation_needs_edit_seen = summaries.iter().any(|(_, text)| {
         text.contains("failure_kind: implementation_needs_edit")
             || text.contains("implementation_needs_edit")
@@ -4117,44 +4163,44 @@ fn taskspace_action_contract_recent_tool_outputs_item(
     }
 
     let in_implement_rework = current_node_kind == Some("implement_solution");
-    let progress_hint = if implement_missing_edit_before_finish_seen {
-        "progress_hint: A previous finish_node action was rejected because the implement_solution node has no successful edit. Repeating finish_node before a successful edit will be rejected by the state baseline. apply_patch is available when the evidence is sufficient; different concrete evidence reads remain available if needed.\n"
+    let progress_fact = if implement_missing_edit_before_finish_seen {
+        "progress_fact: A previous finish_node action was rejected because the implement_solution node has no successful edit. State baseline requires a successful edit before finish_node can close this implementation node. Action-space source of truth: active node contract.\n"
     } else if validation_rework_duplicate_read_seen || validation_rework_duplicate_target_read_seen
     {
-        "progress_hint: A previous read_file was blocked because it repeated a complete read of the same validation rework target. Reuse the previous result id/context for that same target when sufficient; other state-machine-legal actions remain available when justified by the current task.\n"
+        "progress_fact: Earlier feedback marked a read_file as a duplicate complete read of the same validation rework target. The prior result id/context remains visible as evidence; all implement_solution state-machine-legal actions remain governed by the active node contract.\n"
     } else if implementation_needs_edit_seen {
-        "progress_hint: TaskSpace has recorded implementation_needs_edit evidence: an edit may be the next useful action, but implement_solution action space remains open to list_files/search/read_file/apply_patch/taskspace_control/blocked. Prefer reusing visible evidence over exact duplicate reads.\n"
+        "progress_fact: TaskSpace has recorded implementation_needs_edit evidence: the implementation node still lacks a successful edit. Action-space source of truth: active node contract.\n"
     } else if unreviewed_result_blocker_seen {
-        "progress_hint: A previous ordinary tool was blocked because a TaskSpace node result is still unreviewed. State baseline requires result_validities for the named result before dependent ordinary tool actions can rely on it. taskspace_control action=state_commit is available; blocked is available with an exact external blocker.\n"
+        "progress_fact: A previous ordinary tool was blocked because a TaskSpace node result is still unreviewed. State baseline requires result_validities for the named result before dependent ordinary tool actions can rely on it. This fact records the blocker and does not select the next action.\n"
     } else if validation_current_test_required_seen {
-        "progress_hint: A previous block_node or finish_node action tried to close the current validation node using failure text before this node had its own test/build result. State baseline requires the current validation node to record its own test/build result before closing or handing off that failure. run_test with the required validation command is available; blocked is available with an exact external blocker that prevents validation.\n"
+        "progress_fact: A previous block_node or finish_node action tried to close the current validation node using failure text before this node had its own test/build result. State baseline requires the current validation node to record its own test/build result before closing or handing off that failure. Action-space source of truth: active validation node contract.\n"
     } else if validation_command_missing_script_seen {
-        "progress_hint: The previous run_test did not start the validator because the command referenced a missing script. run_test with an existing changed script from the current TaskSpace projection is available; different concrete command evidence or blocked with an exact external blocker remain governed by the validation node contract.\n"
+        "progress_fact: The previous run_test did not start the validator because the command referenced a missing script. Changed scripts and output contracts in the current TaskSpace projection remain evidence facts; action-space source of truth: active validation node contract.\n"
     } else if uncovered_high_signal_seen {
-        "progress_hint: A previous finish_node was rejected because high-signal inspected evidence is still uncovered. The state baseline still requires coverage for the named mandatory evidence before finish_node. apply_patch, different concrete evidence actions, taskspace_control, or blocked with an exact blocker remain governed by the active node contract.\n"
+        "progress_fact: A previous finish_node was rejected because high-signal inspected evidence is still uncovered. State baseline still requires coverage for the named mandatory evidence before finish_node. Action-space source of truth: active node contract.\n"
     } else if in_implement_rework
         && unrecoverable_local_validator_infra_failure_seen
         && !recoverable_local_validator_command_failure_seen
     {
-        "progress_hint: Local validation failed because the host validator service or shell executor was unavailable, not because implementation code produced a test failure. State baseline treats this as infrastructure evidence, not implementation failure evidence. blocked with exact infrastructure evidence is available; other actions must be justified by different state/tool evidence.\n"
+        "progress_fact: Local validation failed because the host validator service or shell executor was unavailable, not because implementation code produced a test failure. State baseline treats this as infrastructure evidence, not implementation failure evidence.\n"
     } else if in_implement_rework
         && local_validator_infra_failure_seen
         && local_validator_infra_state_commit_seen
     {
-        "progress_hint: Local validation infrastructure failed earlier and that failure is already recorded. The current node is implementation rework, not the closed validation node. Reusing the same infrastructure failure as the implementation blocker will be rejected unless new evidence changes the state. apply_patch, platform-compatible validation evidence, taskspace_control, or blocked with a new exact blocker remain governed by the active node contract.\n"
+        "progress_fact: Local validation infrastructure failed earlier and that failure is already recorded. The current node is implementation rework, not the closed validation node. State baseline rejects reusing the same infrastructure failure as an implementation blocker unless new evidence changes the state.\n"
     } else if in_implement_rework && local_validator_infra_failure_seen {
-        "progress_hint: The previous validation command hit local validator infrastructure or host-shell syntax, but the current node is implementation rework. That evidence alone is not an implementation-code failure. apply_patch, platform-compatible validation evidence, taskspace_control, or blocked with a different exact blocker remain governed by the active node contract.\n"
+        "progress_fact: The previous validation command hit local validator infrastructure or host-shell syntax, but the current node is implementation rework. That evidence alone is not an implementation-code failure. Action-space source of truth: active node contract.\n"
     } else if local_validator_infra_failure_seen && local_validator_infra_state_commit_seen {
-        "progress_hint: Local validation already failed because the host validator infrastructure or shell is unavailable, and that failure has been recorded. Repeating shell discovery for the same local validator failure is low-value duplicate evidence. blocked with the exact infrastructure evidence or taskspace_control action=finish_node for an explicitly infrastructure-blocked node remain governed by the validation node contract.\n"
+        "progress_fact: Local validation already failed because the host validator infrastructure or shell is unavailable, and that failure has been recorded. Repeating shell discovery for the same local validator failure is low-value duplicate evidence. Action-space source of truth: active validation node contract.\n"
     } else if local_validator_infra_failure_seen {
-        "progress_hint: The last run_test failed because local validator infrastructure or the host shell failed, not because new code evidence was found. State ledger can record that failed run_test result as invalid infrastructure evidence; blocked with the exact infrastructure error is also available under the validation node contract.\n"
+        "progress_fact: The last run_test failed because local validator infrastructure or the host shell failed, not because new code evidence was found. State ledger can record that failed run_test result as invalid infrastructure evidence.\n"
     } else if edit_success_seen {
-        "progress_hint: A file edit already succeeded. TaskSpace will not finish the implementation node automatically. taskspace_control action=finish_node is available if the agent decides the implementation node is ready for validation.\n"
+        "progress_fact: A file edit already succeeded. TaskSpace will not finish the implementation node automatically. Action-space source of truth: active node contract and current state baseline.\n"
     } else {
         ""
     };
     let text = format!(
-        "TaskSpaceActionContractRecentToolOutputsV1:\n{progress_hint}{}",
+        "TaskSpaceActionContractRecentToolOutputsV1:\n{progress_fact}{}",
         sections.join("\n---\n")
     );
     Some(ResponseItem::Message {
@@ -4207,7 +4253,8 @@ tool_action: {action}\n\
 tool_result: blocked\n\
 failure_kind: validation_stale_failure_without_current_test\n\
 state_machine_requirement: the current validation node must record its own current test/build result before it can close, block on the stale failure, or hand off implementation rework for that failure.\n\
-available_actions: run_test using the required validation command from the current TaskSpace projection, or blocked only with an exact external blocker that prevents running that validation command.\n\
+validation_command_source: current TaskSpace projection.\n\
+action_space_source: active validation node contract plus hard state baseline.\n\
 raw_output:\n{text}"
         );
     }
@@ -4219,7 +4266,8 @@ tool_action: {action}\n\
 tool_result: blocked\n\
 failure_kind: validation_finish_missing_current_test_result\n\
 state_machine_requirement: the current validation node needs its own current test/build result before finish_node or implementation rework can rely on the validation outcome.\n\
-available_actions: run_test using the required validation command from the current TaskSpace projection, or blocked only with an exact external blocker that prevents running that validation command.\n\
+validation_command_source: current TaskSpace projection.\n\
+action_space_source: active validation node contract plus hard state baseline.\n\
 raw_output:\n{text}"
         );
     }
@@ -4241,7 +4289,7 @@ target_artifact: {artifact}\n\
 previous_read_result: {previous_result}\n\
 {repair_contract}\
 feedback_semantics: duplicate evidence only; the previous result already contains the target contents for `{artifact}`.\n\
-available_actions: reuse `{previous_result}`, emit apply_patch if the evidence is sufficient, request different concrete evidence if needed, or block with an external blocker.\n\
+available_evidence: previous_read_result `{previous_result}` remains visible; the active node action set remains governed by the state machine.\n\
 raw_output:\n{text}"
         );
     }
@@ -4269,8 +4317,8 @@ tool_action: {action}\n\
 tool_result: blocked\n\
 failure_kind: implementation_needs_edit\n\
 {repair_contract}\
-feedback_semantics: implementation_needs_edit is a convergence hint, not a closed action space.\n\
-available_actions: apply_patch if the evidence is sufficient; list_files/search/read_file for different needed implementation evidence; taskspace_control or blocked when justified by state or external blockers.\n\
+feedback_semantics: implementation_needs_edit is a convergence fact, not a closed action space.\n\
+action_space_source: active node contract plus hard state baseline; this feedback item does not narrow or expand that action space.\n\
 raw_output:\n{text}"
         );
     }
@@ -4354,8 +4402,8 @@ tool_action: run_test\n\
 tool_result: failed\n\
 failure_kind: validation_command_missing_script\n\
 missing_script: {missing_script}\n\
-tool_feedback_facts: the validation command references a script path that the shell cannot open.\n\
-available_actions: run_test with an existing changed script named in the current TaskSpace projection, gather different concrete command evidence if needed, or blocked with an exact external blocker that prevents validation.\n\
+tool_feedback_facts: the validation command references a script path that the shell cannot open. Current TaskSpace projection may name changed scripts and output contracts as evidence facts.\n\
+action_space_source: active validation node contract plus hard state baseline.\n\
 raw_output:\n{text}"
         );
     }
@@ -4370,7 +4418,7 @@ failure_kind: taskspace_unreviewed_result_blocker\n\
 blocked_result: {result_id}\n\
 blocked_node: {node_id}\n\
 state_machine_requirement: result_validities for `{result_id}` must be committed before dependent read/search/edit/test/control actions can rely on that result.\n\
-available_actions: taskspace_control action=state_commit with result_validities for `{result_id}`, or blocked only with an exact external blocker that prevents committing the validity state.\n\
+action_space_source: active node contract plus hard state baseline; this feedback item does not select the next action.\n\
 raw_output:\n{text}"
         );
     }
@@ -4384,7 +4432,7 @@ tool_action: {action}\n\
 tool_result: blocked\n\
 failure_kind: implement_missing_edit_before_finish\n\
 state_machine_requirement: finish_node for this implementation node requires a recorded successful edit first.\n\
-available_actions: apply_patch, concrete evidence actions, taskspace_control, or blocked with an exact blocker remain state-machine-governed options.\n\
+action_space_source: active node contract plus hard state baseline; this feedback item does not select the next action.\n\
 raw_output:\n{text}"
         );
     }
@@ -4395,7 +4443,7 @@ tool_action: {action}\n\
 tool_result: failed\n\
 failure_kind: tool_execution_failed\n\
 feedback_semantics: the tool result is a failed action result and remains available as raw evidence.\n\
-available_actions: choose any state-machine-legal corrective action, or blocked with evidence if the failure cannot be resolved.\n\
+action_space_source: active node contract plus hard state baseline.\n\
 raw_output:\n{text}"
     )
 }
@@ -4531,6 +4579,7 @@ enum ProviderVisibleHistoryAction {
 #[derive(Debug, PartialEq, Eq)]
 enum ProviderVisibleItemCategory {
     ActiveProjection,
+    FinalReadinessRecovery,
     ProtectedUserInput,
     ProtectedDeveloperOrSystemInput,
     ShadowProjection,
@@ -4566,12 +4615,56 @@ fn compose_provider_visible_history(items: Vec<ResponseItem>) -> ProviderVisible
         .collect::<Vec<_>>();
     let paired_omitted_tool_call_ids =
         omitted_provider_visible_tool_call_ids(classified_items.as_slice());
+    let latest_final_readiness_recovery_index = classified_items
+        .iter()
+        .filter(|(_, _, category, _)| {
+            matches!(
+                category,
+                ProviderVisibleItemCategory::FinalReadinessRecovery
+            )
+        })
+        .map(|(index, _, _, _)| *index)
+        .next_back();
+    let latest_active_projection_item = classified_items
+        .iter()
+        .filter(|(_, _, category, _)| {
+            matches!(category, ProviderVisibleItemCategory::ActiveProjection)
+        })
+        .map(|(_, item, _, _)| item.clone())
+        .next_back();
 
     let mut prepared = Vec::with_capacity(classified_items.len());
+    let mut latest_final_readiness_recovery_item: Option<ResponseItem> = None;
     let mut decisions = Vec::with_capacity(classified_items.len());
     for (index, item, category, base_action) in classified_items {
-        let action =
+        let mut action =
             provider_visible_history_pair_action(&item, base_action, &paired_omitted_tool_call_ids);
+        if matches!(
+            category,
+            ProviderVisibleItemCategory::FinalReadinessRecovery
+        ) {
+            if latest_final_readiness_recovery_index == Some(index) {
+                if taskspace_final_readiness_recovery_still_applies(
+                    &item,
+                    latest_active_projection_item.as_ref(),
+                ) {
+                    latest_final_readiness_recovery_item = Some(item);
+                } else {
+                    action = ProviderVisibleHistoryAction::Omit(
+                        "stale_final_readiness_recovery_satisfied_by_projection",
+                    );
+                }
+            } else {
+                action =
+                    ProviderVisibleHistoryAction::Omit("stale_final_readiness_recovery_replaced");
+            }
+            decisions.push(ProviderVisibleHistoryDecision {
+                index,
+                category,
+                action,
+            });
+            continue;
+        }
         if matches!(action, ProviderVisibleHistoryAction::Include) {
             prepared.push(match category {
                 ProviderVisibleItemCategory::ActiveProjection => {
@@ -4585,6 +4678,9 @@ fn compose_provider_visible_history(items: Vec<ResponseItem>) -> ProviderVisible
             category,
             action,
         });
+    }
+    if let Some(item) = latest_final_readiness_recovery_item {
+        prepared.push(item);
     }
 
     ProviderVisibleHistoryComposition {
@@ -4613,6 +4709,7 @@ fn provider_visible_history_action(
             ProviderVisibleHistoryAction::Omit("large_raw_tool_output_requires_output_reference")
         }
         ProviderVisibleItemCategory::ActiveProjection
+        | ProviderVisibleItemCategory::FinalReadinessRecovery
         | ProviderVisibleItemCategory::ProtectedUserInput
         | ProviderVisibleItemCategory::ProtectedDeveloperOrSystemInput
         | ProviderVisibleItemCategory::Other => ProviderVisibleHistoryAction::Include,
@@ -4657,6 +4754,9 @@ fn provider_visible_history_pair_action(
 fn classify_provider_visible_item(item: &ResponseItem) -> ProviderVisibleItemCategory {
     if is_active_context_projection_item(item) {
         return ProviderVisibleItemCategory::ActiveProjection;
+    }
+    if is_taskspace_final_readiness_recovery_item(item) {
+        return ProviderVisibleItemCategory::FinalReadinessRecovery;
     }
     if response_item_text_contains(item, TASKSPACE_SHADOW_PROJECTION_MARKER) {
         return ProviderVisibleItemCategory::ShadowProjection;
@@ -4742,9 +4842,76 @@ fn is_protected_developer_or_system_input(item: &ResponseItem) -> bool {
 }
 
 fn is_legacy_taskspace_instruction(item: &ResponseItem) -> bool {
+    if is_taskspace_final_readiness_recovery_item(item) {
+        return false;
+    }
     response_item_text_contains(item, "TaskSpace mode is now active")
         || response_item_text_contains(item, "TaskSpace final answer gate rejected")
         || response_item_text_contains(item, "taskspace_control(")
+}
+
+fn is_taskspace_final_readiness_recovery_item(item: &ResponseItem) -> bool {
+    response_item_text_contains(item, TASKSPACE_FINAL_READINESS_RECOVERY_MARKER)
+}
+
+fn taskspace_final_readiness_recovery_still_applies(
+    recovery: &ResponseItem,
+    active_context: Option<&ResponseItem>,
+) -> bool {
+    let Some(recovery_text) = response_item_text(recovery) else {
+        return true;
+    };
+    let missing_ids = taskspace_final_readiness_missing_ledger_ids(&recovery_text);
+    if missing_ids.is_empty() {
+        return true;
+    }
+    let Some(context_text) = active_context.and_then(response_item_text) else {
+        return true;
+    };
+    !taskspace_final_readiness_missing_ids_closed_in_projection(&missing_ids, &context_text)
+}
+
+fn taskspace_final_readiness_missing_ledger_ids(text: &str) -> Vec<String> {
+    let Some((_, after_marker)) = text.split_once("Missing ledger items:") else {
+        return Vec::new();
+    };
+    let relevant = after_marker
+        .split("Recent result refs")
+        .next()
+        .unwrap_or(after_marker);
+    let mut ids = Vec::new();
+    for token in relevant
+        .split(|ch: char| ch.is_whitespace() || matches!(ch, ';' | ',' | '.'))
+        .filter_map(|token| token.strip_prefix("id="))
+    {
+        let id = token.trim_matches(|ch| matches!(ch, '"' | '\'' | '`' | ':' | ')' | '('));
+        if !id.is_empty() && !ids.iter().any(|existing| existing == id) {
+            ids.push(id.to_string());
+        }
+    }
+    ids
+}
+
+fn taskspace_final_readiness_missing_ids_closed_in_projection(
+    missing_ids: &[String],
+    projection_text: &str,
+) -> bool {
+    missing_ids.iter().all(|id| {
+        projection_text.lines().any(|line| {
+            let line = line.trim_start();
+            if !line.starts_with("- ") {
+                return false;
+            }
+            let mut parts = line.trim_start_matches("- ").split_whitespace();
+            let Some(line_id) = parts.next() else {
+                return false;
+            };
+            if line_id != id {
+                return false;
+            }
+            parts.any(|part| matches!(part, "status=satisfied" | "status=waived"))
+        })
+    })
 }
 
 fn is_taskspace_control_call(item: &ResponseItem) -> bool {
@@ -5184,8 +5351,10 @@ mod active_context_replacement_tests {
 
         assert!(text.contains("Active node id: none"));
         assert!(text.contains("Existing TaskSpace task has no active bound node"));
-        assert!(text.contains("return final_answer"));
+        assert!(text.contains("state_machine_allowed_actions: final_answer"));
+        assert!(text.contains("state_transition_fact:"));
         assert!(!text.contains("action=start_task"));
+        assert!(!text.contains("Do not create"));
     }
 
     #[test]
@@ -5193,8 +5362,9 @@ mod active_context_replacement_tests {
         let text = item_text(taskspace_action_contract_closed_validation_item());
 
         assert!(text.contains("TaskSpaceActionContractClosedValidationV1"));
-        assert!(text.contains("final_answer or blocked only"));
-        assert!(text.contains("Do not call start_task"));
+        assert!(text.contains("state_machine_allowed_actions: final_answer, blocked"));
+        assert!(text.contains("rejected_by_state_baseline: start_task"));
+        assert!(!text.contains("Do not call start_task"));
         assert!(text.contains("create_node"));
         assert!(text.contains("validator infrastructure blocker"));
     }
@@ -5220,8 +5390,9 @@ mod active_context_replacement_tests {
         let text = item_text(taskspace_action_contract_tool_runtime_bootstrap_failure_item());
 
         assert!(text.contains("TaskSpaceActionContractToolRuntimeBootstrapFailureV1"));
-        assert!(text.contains("final_answer or blocked only"));
-        assert!(text.contains("Do not call start_task"));
+        assert!(text.contains("state_machine_allowed_actions: final_answer, blocked"));
+        assert!(text.contains("rejected_by_state_baseline: start_task"));
+        assert!(!text.contains("Do not call start_task"));
         assert!(text.contains("create_node"));
         assert!(text.contains("sandbox/tool runtime blocker"));
     }
@@ -5234,23 +5405,61 @@ mod active_context_replacement_tests {
         ));
 
         assert!(text.contains("TaskSpaceActionContractInspectMissingScriptsV1"));
-        assert!(text.contains("read_file or blocked only"));
+        assert!(text.contains("state_machine_allowed_actions: read_file, blocked"));
         assert!(text.contains("generate_report.sh"));
-        assert!(text.contains("The next action must be read_file"));
-        assert!(text.contains("Do not call list_files"));
+        assert!(text.contains("first_missing_required_read_file_target"));
+        assert!(text.contains("rejected_by_state_baseline_until_missing_scripts_read"));
+        assert!(!text.contains("The next action must be read_file"));
+        assert!(!text.contains("Do not call list_files"));
     }
 
     #[test]
-    fn taskspace_action_contract_state_exposes_implementation_edit_hint_after_progress() {
+    fn taskspace_boundary_feedback_items_do_not_emit_strategy_labels() {
+        let mut validation_snapshot = provider_snapshot("smoke_test");
+        validation_snapshot.node_id = Some("node-9".to_string());
+        let samples = vec![
+            item_text(taskspace_action_contract_state_item(&validation_snapshot)),
+            item_text(taskspace_action_contract_closed_validation_item()),
+            item_text(taskspace_action_contract_tool_runtime_bootstrap_failure_item()),
+            item_text(taskspace_action_contract_inspect_unread_scripts_item(&[
+                "generate_report.sh".to_string(),
+            ])),
+            item_text(build_taskspace_inspect_transition_available_item()),
+            item_text(build_taskspace_implement_validation_available_item()),
+            item_text(build_taskspace_validation_closeout_available_item()),
+        ];
+        let forbidden = [
+            "Available next actions",
+            "Do not call",
+            "Current request allowed actions are narrowed",
+            "Next valid action",
+            "Preferred fix",
+            "The next action must",
+            "Suggested recovery",
+            "Suggested action",
+        ];
+
+        for text in samples {
+            for phrase in forbidden {
+                assert!(
+                    !text.contains(phrase),
+                    "boundary feedback contains strategy phrase `{phrase}` in:\n{text}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn taskspace_action_contract_state_exposes_implementation_edit_fact_after_progress() {
         let mut snapshot = provider_snapshot("implement_solution");
         snapshot.current_node_progress_signature =
             Some(TASKSPACE_IMPLEMENT_PROGRESS_BEFORE_EDIT_HINT);
 
         let text = item_text(taskspace_action_contract_state_item(&snapshot));
 
-        assert!(text.contains("Implementation convergence hint: implementation_needs_edit"));
+        assert!(text.contains("Implementation convergence fact: implementation_needs_edit"));
         assert!(text.contains("implement_solution still accepts list_files, search, read_file"));
-        assert!(text.contains("Avoid exact duplicate complete reads"));
+        assert!(text.contains("low-information evidence"));
 
         snapshot.current_node_has_successful_edit = true;
         let text_after_edit = item_text(taskspace_action_contract_state_item(&snapshot));
@@ -5264,7 +5473,7 @@ mod active_context_replacement_tests {
 
         let text = item_text(taskspace_action_contract_state_item(&snapshot));
 
-        assert!(text.contains("Implementation convergence hint: implementation_needs_edit"));
+        assert!(text.contains("Implementation convergence fact: implementation_needs_edit"));
         assert!(text.contains("implement_solution still accepts"));
 
         let read = parse_taskspace_action_v1(
@@ -5272,7 +5481,7 @@ mod active_context_replacement_tests {
         )
         .expect("valid read action");
         let call = taskspace_action_to_tool_call(&read, &snapshot)
-            .expect("implementation evidence hint should not close read action space")
+            .expect("implementation evidence fact should not close read action space")
             .expect("read_file maps to shell command");
         assert_eq!(call.tool_name.name, "shell_command");
     }
@@ -5287,7 +5496,7 @@ mod active_context_replacement_tests {
 
         let text = item_text(taskspace_action_contract_state_item(&snapshot));
 
-        assert!(text.contains("Implementation convergence hint: implementation_needs_edit"));
+        assert!(text.contains("Implementation convergence fact: implementation_needs_edit"));
         assert!(text.contains("An apply_patch that claims to repair this mandatory evidence"));
 
         let read = parse_taskspace_action_v1(
@@ -5661,7 +5870,7 @@ Then I will inspect the file."#,
         snapshot.current_node_has_successful_edit = false;
 
         let call = taskspace_action_to_tool_call(&action, &snapshot)
-            .expect("implementation convergence hint should not block reads")
+            .expect("implementation convergence fact should not block reads")
             .expect("read_file maps to a shell command");
         assert_eq!(call.tool_name.name, "shell_command");
 
@@ -5714,7 +5923,7 @@ Then I will inspect the file."#,
             &item,
             TASKSPACE_IMPLEMENT_NEEDS_EDIT_MARKER
         ));
-        assert!(response_item_text_contains(&item, "progress hint"));
+        assert!(response_item_text_contains(&item, "progress fact"));
         assert!(response_item_text_contains(
             &item,
             "not a closed action space"
@@ -5727,7 +5936,7 @@ Then I will inspect the file."#,
     }
 
     #[test]
-    fn implementation_needs_edit_progress_hint_is_non_terminal() {
+    fn implementation_needs_edit_progress_fact_is_non_terminal() {
         let item = build_taskspace_implement_needs_edit_recovery_item(Some(
             "validation_schema_repair_contract: target_artifacts=generate_organization.py",
         ));
@@ -5750,7 +5959,7 @@ Then I will inspect the file."#,
 
         assert!(text.contains(TASKSPACE_IMPLEMENT_NEEDS_EDIT_MARKER));
         assert!(text.contains("recover.py"));
-        assert!(text.contains("apply_patch"));
+        assert!(text.contains("Action-space source of truth: the active node contract"));
         assert!(!is_taskspace_no_action_recovery_item(&item));
         assert!(is_taskspace_implement_needs_edit_recovery_item(&item));
     }
@@ -5779,8 +5988,8 @@ Then I will inspect the file."#,
         );
         assert!(text.contains("Projection boundary:"));
         assert!(text.contains("does not select an implementation strategy"));
-        assert!(text.contains("Available actions remain governed by the active node contract"));
-        assert!(text.contains("Do not repeat the same complete read_file request"));
+        assert!(text.contains("action_space_source: active node contract"));
+        assert!(text.contains("duplicate_complete_read_signal"));
         assert!(!text.contains("Current required behavior:"));
         assert!(!text.contains("read_file/context refresh is not a valid recovery"));
         let boundary_pos = text
@@ -5887,7 +6096,7 @@ Then I will inspect the file."#,
         assert!(text.contains("`members`"));
         assert!(text.contains("`averageDepartmentBudget`"));
         assert!(text.contains("Apply_patch grammar reminder:"));
-        assert!(text.contains("different needed evidence"));
+        assert!(text.contains("action_space_source: active node contract for implement_solution"));
         assert!(!text.contains("Patch construction scaffold:"));
         assert!(!text.contains("Final action lock:"));
         assert!(!text.contains(TASKSPACE_IMPLEMENT_NEEDS_EDIT_MARKER));
@@ -5951,8 +6160,8 @@ Then I will inspect the file."#,
     }
 
     #[test]
-    fn implementation_recovery_preserves_evidence_after_duplicate_target_read_reject() {
-        let last_message = "TaskSpaceActionV1 rejected: validation_rework_duplicate_target_read_disallowed:read_file. Return exactly one valid taskspace-action-v1 JSON object.";
+    fn implementation_recovery_preserves_evidence_after_visible_target_read() {
+        let last_message = "TaskSpaceActionContractStateV1: implementation_needs_edit after visible validation_rework_target_read.";
         assert!(taskspace_message_hit_implementation_needs_edit(Some(
             last_message
         )));
@@ -6213,7 +6422,7 @@ TaskSpace implement_solution node `node-6` cannot be blocked for missing source 
 
         assert!(text.contains(TASKSPACE_IMPLEMENT_NEEDS_EDIT_MARKER));
         assert!(text.contains("KeyError"));
-        assert!(text.contains("Available actions remain governed by the active node contract"));
+        assert!(text.contains("Action-space source of truth: the active node contract"));
         assert!(text.contains("employee_id,name,department_id,title"));
         assert!(!is_taskspace_no_action_recovery_item(&item));
         assert!(is_taskspace_implement_needs_edit_recovery_item(&item));
@@ -6578,9 +6787,10 @@ TaskSpace implement_solution node `node-6` cannot be blocked for missing source 
 
         assert!(summary.contains("failure_kind: validation_stale_failure_without_current_test"));
         assert!(summary.contains("state_machine_requirement:"));
-        assert!(summary.contains("available_actions: run_test"));
+        assert!(summary.contains("validation_command_source: current TaskSpace projection"));
+        assert!(summary.contains("action_space_source: active validation node contract"));
         assert!(text.contains("State baseline requires the current validation node"));
-        assert!(text.contains("blocked is available with an exact external blocker"));
+        assert!(!text.contains("blocked is available with an exact external blocker"));
         assert!(!text.contains("Next action must be run_test"));
         assert!(taskspace_message_hit_validation_needs_test(Some(&summary)));
     }
@@ -6610,7 +6820,8 @@ TaskSpace implement_solution node `node-6` cannot be blocked for missing source 
 
         assert!(summary.contains("failure_kind: validation_finish_missing_current_test_result"));
         assert!(summary.contains("state_machine_requirement:"));
-        assert!(summary.contains("available_actions: run_test"));
+        assert!(summary.contains("validation_command_source: current TaskSpace projection"));
+        assert!(summary.contains("action_space_source: active validation node contract"));
         assert!(text.contains("State baseline requires the current validation node"));
         assert!(!text.contains("Next action must be run_test"));
         assert!(taskspace_message_hit_validation_needs_test(Some(&summary)));
@@ -6645,16 +6856,18 @@ TaskSpace implement_solution node `node-6` cannot be blocked for missing source 
         assert!(summary.contains("repair_contract: missing_required_properties=members"));
         assert!(summary.contains("projectStatusDistribution"));
         assert!(summary.contains("feedback_semantics: duplicate evidence only"));
-        assert!(summary.contains("available_actions: reuse `result-10`"));
-        assert!(text.contains("repeated a complete read of the same validation rework target"));
-        assert!(text.contains("other state-machine-legal actions remain available"));
+        assert!(summary.contains("available_evidence: previous_read_result `result-10`"));
+        assert!(text.contains("Earlier feedback marked a read_file as a duplicate complete read"));
+        assert!(
+            text.contains("all implement_solution state-machine-legal actions remain governed")
+        );
         assert!(taskspace_message_hit_implementation_needs_edit(Some(
             &summary
         )));
     }
 
     #[test]
-    fn action_contract_feedback_preserves_implementation_needs_edit_as_hint() {
+    fn action_contract_feedback_preserves_implementation_needs_edit_as_fact() {
         let tool_call = ToolCall {
             tool_name: ToolName::plain("shell_command"),
             call_id: "taskspace-action-contract-20-read_file".to_string(),
@@ -6680,7 +6893,7 @@ TaskSpace implement_solution node `node-6` cannot be blocked for missing source 
         assert!(summary.contains("repair_contract: missing_required_properties=members"));
         assert!(summary.contains("projectStatusDistribution"));
         assert!(
-            summary.contains("feedback_semantics: implementation_needs_edit is a convergence hint")
+            summary.contains("feedback_semantics: implementation_needs_edit is a convergence fact")
         );
         assert!(summary.contains("list_files/search/read_file"));
         assert!(text.contains("action space remains open"));
@@ -7893,10 +8106,15 @@ TaskSpace implement_solution node `node-6` cannot be blocked for missing source 
         assert!(text.contains("failure_kind: path_not_found_with_relative_candidate"));
         assert!(text.contains("failed_path: /data/source_a"));
         assert!(text.contains("suggested_relative_path: data/source_a"));
-        assert!(text.contains("Suggested recovery, not a runtime gate"));
+        assert!(text.contains("Path correction facts, not a runtime-selected strategy"));
+        assert!(
+            text.contains("action_space_source: active node contract plus hard state baseline")
+        );
         assert!(text.contains("Workspace-relative candidate: `data/source_a`"));
-        assert!(text.contains("read_file with args.path `data/source_a`"));
-        assert!(text.contains("list_files/search with args.path `data/source_a`"));
+        assert!(!text.contains("Suggested recovery"));
+        assert!(
+            text.contains("inspect_code_context candidate path `data/source_a` can be evaluated")
+        );
         assert!(text.contains("will not block other state-machine-legal tool actions"));
         assert!(!text.contains(TASKSPACE_GATE_RECOVERY_MARKER));
         assert!(!text.contains("\"reason\":\"path_correction_retry_forbidden\""));
@@ -8400,8 +8618,10 @@ tax_calc.py\n\
 
         assert!(instructions.contains("validation rework duplicate baseline"));
         assert!(instructions.contains("exact duplicate read_file"));
-        assert!(instructions.contains("may be rejected as duplicate evidence"));
-        assert!(instructions.contains("apply_patch if enough evidence is available"));
+        assert!(instructions.contains("low-information evidence signal"));
+        assert!(instructions.contains("read_file remains governed by the active node action set"));
+        assert!(!instructions.contains("may be rejected as duplicate evidence"));
+        assert!(!instructions.contains("apply_patch if enough evidence is available"));
         assert!(!instructions.contains("validation rework override"));
         assert!(
             !instructions.contains("read_file/list_files/search/schema inspection are not valid")
@@ -8502,10 +8722,6 @@ tax_calc.py\n\
         )
         .expect("valid action");
 
-        assert!(
-            taskspace_closed_validation_rework_read_reject_reason(&action, &snapshot, false)
-                .is_none()
-        );
         let call = taskspace_action_to_tool_call(&action, &snapshot)
             .expect("first target read should be allowed")
             .expect("read_file maps to shell command");
@@ -8514,7 +8730,7 @@ tax_calc.py\n\
     }
 
     #[test]
-    fn taskspace_action_contract_rejects_closed_validation_rework_target_read() {
+    fn taskspace_action_contract_allows_duplicate_validation_rework_target_read() {
         let mut snapshot = provider_snapshot("implement_solution");
         snapshot.current_node_validation_rework_artifacts =
             vec!["generate_organization.py".to_string()];
@@ -8522,15 +8738,13 @@ tax_calc.py\n\
             r#"{"schema_version":"taskspace-action-v1","action":"read_file","node_id":"node-1","args":{"path":"generate_organization.py"}}"#,
         )
         .expect("valid action");
+        snapshot.current_node_has_successful_edit = false;
 
-        let reason =
-            taskspace_closed_validation_rework_read_reject_reason(&action, &snapshot, true)
-                .expect("closed rework read should be rejected");
+        let call = taskspace_action_to_tool_call(&action, &snapshot)
+            .expect("duplicate target read remains state-machine legal")
+            .expect("read_file maps to shell command");
 
-        assert_eq!(
-            reason,
-            "validation_rework_duplicate_target_read_disallowed:read_file"
-        );
+        assert_eq!(call.tool_name.name, "shell_command");
     }
 
     #[test]
@@ -9351,7 +9565,7 @@ next_valid_actions:\n\
         assert!(joined.contains("raw_output:"));
         assert!(!joined.contains("failure_kind: validation_test_missing_local_validator_coverage"));
         assert!(!joined.contains("required_validator: python scripts/validate.py"));
-        assert!(!joined.contains("progress_hint: A previous run_test was rejected"));
+        assert!(!joined.contains("progress_fact: A previous run_test was rejected"));
     }
 
     #[test]
@@ -9387,7 +9601,7 @@ next_valid_actions:\n\
             !joined.contains("failure_kind: validation_test_missing_changed_artifact_coverage")
         );
         assert!(!joined.contains("required_command: python generate_organization.py"));
-        assert!(!joined.contains("progress_hint: A previous run_test was rejected"));
+        assert!(!joined.contains("progress_fact: A previous run_test was rejected"));
     }
 
     #[test]
@@ -9423,7 +9637,7 @@ next_valid_actions:\n\
         assert!(joined.contains("raw_output:"));
         assert!(!joined.contains("failure_kind: validation_test_missing_output_contract_coverage"));
         assert!(!joined.contains("required_command: python generate_json.py"));
-        assert!(!joined.contains("progress_hint: A previous run_test was rejected"));
+        assert!(!joined.contains("progress_fact: A previous run_test was rejected"));
     }
 
     #[test]
@@ -9458,10 +9672,10 @@ python: can't open file '/workspace/process.py': [Errno 2] No such file or direc
         assert!(joined.contains("failure_kind: validation_command_missing_script"));
         assert!(joined.contains("missing_script: process.py"));
         assert!(
-            joined.contains("progress_hint: The previous run_test did not start the validator")
+            joined.contains("progress_fact: The previous run_test did not start the validator")
         );
-        assert!(joined.contains("run_test with an existing changed script"));
-        assert!(joined.contains("different concrete command evidence"));
+        assert!(joined.contains("Changed scripts and output contracts"));
+        assert!(joined.contains("action_space_source: active validation node contract"));
         assert!(!joined.contains("failure_kind: tool_execution_failed"));
     }
 
@@ -9495,9 +9709,10 @@ python: can't open file '/workspace/process.py': [Errno 2] No such file or direc
         assert!(joined.contains("failure_kind: taskspace_unreviewed_result_blocker"));
         assert!(joined.contains("blocked_result: result-8"));
         assert!(joined.contains("blocked_node: node-2"));
-        assert!(joined.contains("progress_hint: A previous ordinary tool was blocked"));
+        assert!(joined.contains("progress_fact: A previous ordinary tool was blocked"));
         assert!(joined.contains("state_machine_requirement: result_validities"));
-        assert!(joined.contains("taskspace_control action=state_commit"));
+        assert!(joined.contains("action_space_source: active node contract"));
+        assert!(!joined.contains("taskspace_control action=state_commit is available"));
         assert!(!joined.contains("Next action must be taskspace_control"));
         assert!(!joined.contains("failure_kind: tool_execution_failed"));
     }
@@ -9563,7 +9778,7 @@ python: can't open file '/workspace/process.py': [Errno 2] No such file or direc
 
         assert!(joined.contains(TASKSPACE_TOOL_FEEDBACK_MARKER));
         assert!(joined.contains("failure_kind: implement_missing_edit_before_finish"));
-        assert!(joined.contains("progress_hint: A previous finish_node action was rejected"));
+        assert!(joined.contains("progress_fact: A previous finish_node action was rejected"));
         assert!(joined.contains("state_machine_requirement: finish_node"));
         assert!(joined.contains("requires a recorded successful edit first"));
         assert!(!joined.contains("next_valid_action: emit exactly one apply_patch action"));
@@ -9800,7 +10015,8 @@ python: can't open file '/workspace/process.py': [Errno 2] No such file or direc
 
         assert!(joined.contains("A file edit already succeeded"));
         assert!(joined.contains("will not finish the implementation node automatically"));
-        assert!(joined.contains("taskspace_control action=finish_node is available"));
+        assert!(joined.contains("Action-space source of truth: active node contract"));
+        assert!(!joined.contains("taskspace_control action=finish_node is available"));
     }
 
     #[test]
@@ -9825,7 +10041,7 @@ python: can't open file '/workspace/process.py': [Errno 2] No such file or direc
         let joined = item_texts(&prepared).join("\n");
 
         assert!(joined.contains("high-signal inspected evidence is still uncovered"));
-        assert!(joined.contains("apply_patch, different concrete evidence actions"));
+        assert!(joined.contains("Action-space source of truth: active node contract"));
         assert!(!joined.contains("taskspace_control action=finish_node is available"));
     }
 
@@ -9849,7 +10065,7 @@ python: can't open file '/workspace/process.py': [Errno 2] No such file or direc
 
         assert!(text.contains("high-signal inspected evidence is still uncovered"));
         assert!(text.contains("generate_report.sh"));
-        assert!(text.contains("apply_patch, different concrete evidence actions"));
+        assert!(text.contains("Action-space source of truth: active node contract"));
     }
 
     #[test]
@@ -10034,7 +10250,8 @@ python: can't open file '/workspace/process.py': [Errno 2] No such file or direc
         assert!(joined.contains("Local validation already failed"));
         assert!(joined.contains("that failure has been recorded"));
         assert!(joined.contains("Repeating shell discovery"));
-        assert!(joined.contains("blocked with the exact infrastructure evidence"));
+        assert!(joined.contains("Action-space source of truth: active validation node contract"));
+        assert!(!joined.contains("blocked with the exact infrastructure evidence"));
     }
 
     #[test]
@@ -10062,8 +10279,8 @@ python: can't open file '/workspace/process.py': [Errno 2] No such file or direc
         let joined = item_texts(&prepared).join("\n");
 
         assert!(joined.contains("current node is implementation rework"));
-        assert!(joined.contains("Reusing the same infrastructure failure"));
-        assert!(joined.contains("platform-compatible validation evidence"));
+        assert!(joined.contains("State baseline rejects reusing the same infrastructure failure"));
+        assert!(!joined.contains("platform-compatible validation evidence"));
         assert!(!joined.contains("blocked with the exact local validator infrastructure evidence"));
     }
 
@@ -10089,7 +10306,7 @@ python: can't open file '/workspace/process.py': [Errno 2] No such file or direc
 
         assert!(joined.contains("host validator service or shell executor was unavailable"));
         assert!(joined.contains("State baseline treats this as infrastructure evidence"));
-        assert!(joined.contains("blocked with exact infrastructure evidence is available"));
+        assert!(!joined.contains("blocked with exact infrastructure evidence is available"));
         assert!(!joined.contains("platform-compatible syntax"));
     }
 
@@ -10275,7 +10492,7 @@ TaskSpaceGateRecoveryV1: {\"schema_version\":\"TaskSpaceGateRecoveryV1\",\"allow
 
     #[test]
     fn validation_rework_duplicate_read_complete_context_remains_recoverable() {
-        let last_message = "TaskSpace blocked this read because validation rework node `node-4` already read failure artifact `process.py` in result `result-11` and no successful edit has been recorded after that read. Result `result-11` is a complete read_file context (TaskSpaceReadFileSummaryV1 eof_reached=true; no additional file lines are hidden). The previous complete read result remains available as duplicate evidence; choose any state-machine-legal action using the visible facts, or record blocked with the exact blocker. Validation repair contract: missing_required_properties=id, members, averageDepartmentBudget | target_artifacts=process.py\nTaskSpaceGateRecoveryV1: {\"schema_version\":\"TaskSpaceGateRecoveryV1\",\"allowed\":false,\"reason\":\"validation_rework_duplicate_artifact_read\",\"next_valid_actions\":[\"reuse complete read_file result result-11; do not request the full file again\"]}";
+        let last_message = "TaskSpace recorded duplicate read evidence because validation rework node `node-4` already read failure artifact `process.py` in result `result-11` and no successful edit has been recorded after that read. Result `result-11` is a complete read_file context (TaskSpaceReadFileSummaryV1 eof_reached=true; no additional file lines are hidden). The previous complete read result remains available as duplicate evidence. Validation repair contract: missing_required_properties=id, members, averageDepartmentBudget | target_artifacts=process.py\nTaskSpaceGateRecoveryV1: {\"schema_version\":\"TaskSpaceGateRecoveryV1\",\"allowed\":false,\"reason\":\"validation_rework_duplicate_artifact_read\",\"next_valid_actions\":[\"state-machine legal actions remain available\"]}";
         let recovery = build_taskspace_validation_rework_duplicate_read_recovery_item(
             Some(last_message),
             Some(
@@ -10510,6 +10727,19 @@ TaskSpaceGateRecoveryV1: {\"schema_version\":\"TaskSpaceGateRecoveryV1\",\"allow
         );
         assert!(classification.needs_recovery());
         assert_eq!(classification.as_str(), "final_rejected");
+    }
+
+    #[test]
+    fn provider_response_actionability_final_rejection_overrides_actionable_output() {
+        let classification = classify_taskspace_provider_response_actionability(
+            true, true, true, false, false, true, false,
+        );
+
+        assert_eq!(
+            classification,
+            TaskspaceProviderResponseActionability::FinalRejected
+        );
+        assert!(classification.needs_recovery());
     }
 
     #[test]
@@ -10953,6 +11183,188 @@ TaskSpaceGateRecoveryV1: {\"schema_version\":\"TaskSpaceGateRecoveryV1\",\"allow
         let texts = item_texts(&prepared);
 
         assert!(texts.join("\n").contains("OutputReferenceV1"));
+    }
+
+    #[test]
+    fn final_readiness_recovery_preserves_ledger_update_shape() {
+        let rejection = taskspace_final_answer_gate_rejection_followup(
+            "TaskSpace final answer cannot be emitted until every success criterion and output contract is satisfied or waived with evidence. Missing ledger items: success_criterion id=criterion-1 kind=test status=open evidence_refs=1 description=\"run validator\". Recent result refs available to cite: result-8:test. State record schema available: taskspace_control action=state_commit schema_version=taskspace-state-commit-v1 accepts success_criteria/output_contracts entries with explicit id, status, kind, description, and evidence_refs. Final readiness is evaluated from the latest ledger state.",
+        );
+        let text = item_text(build_taskspace_final_readiness_recovery_item(Some(
+            &rejection,
+        )));
+
+        assert!(text.contains(TASKSPACE_FINAL_READINESS_RECOVERY_MARKER));
+        assert!(text.contains("final_answer_rejected: true"));
+        assert!(text.contains("criterion-1"));
+        assert!(text.contains("taskspace_control action=state_commit"));
+        assert!(text.contains("success_criteria entries"));
+        assert!(text.contains("result_validities entries"));
+        assert!(!text.contains("then retry final_answer"));
+        assert!(!text.contains(TASKSPACE_NO_ACTION_RECOVERY_MARKER));
+    }
+
+    #[test]
+    fn active_context_replacement_preserves_final_readiness_recovery() {
+        let active_projection = format!(
+            "{TASKSPACE_ACTIVE_PROFILE_MARKER}\n{TASKSPACE_ACTIVE_PROJECTION_MARKER}\nactive_objective: finish synthesis"
+        );
+        let rejection = taskspace_final_answer_gate_rejection_followup(
+            "TaskSpace final answer cannot be emitted until every success criterion and output contract is satisfied or waived with evidence. Missing ledger items: output_contract id=contract-1 status=open evidence_refs=1 description=\"summarize changed files\". State record schema available: taskspace_control action=state_commit schema_version=taskspace-state-commit-v1 accepts success_criteria/output_contracts entries with explicit id, status, kind, description, and evidence_refs.",
+        );
+        let recovery = build_taskspace_final_readiness_recovery_item(Some(&rejection));
+        let items = vec![message("developer", &active_projection), recovery];
+
+        let composition = compose_provider_visible_history(items);
+        let joined = item_texts(&composition.items).join("\n");
+
+        assert!(joined.contains(TASKSPACE_FINAL_READINESS_RECOVERY_MARKER));
+        assert!(joined.contains("contract-1"));
+        assert!(joined.contains("taskspace_control action=state_commit"));
+        assert_eq!(
+            composition.decisions[1].action,
+            ProviderVisibleHistoryAction::Include
+        );
+    }
+
+    #[test]
+    fn active_context_replacement_omits_stale_final_readiness_recovery_after_ledger_satisfied() {
+        let active_projection = format!(
+            "{TASKSPACE_ACTIVE_PROFILE_MARKER}\n{TASKSPACE_ACTIVE_PROJECTION_MARKER}\n\
+active_objective: finish synthesis\n\
+success_criteria:\n\
+  - criterion-1 status=satisfied run validator\n\
+  - output-contract-1 status=satisfied summarize changed files"
+        );
+        let rejection = taskspace_final_answer_gate_rejection_followup(
+            "TaskSpace final answer cannot be emitted until every success criterion and output contract is satisfied or waived with evidence. Missing ledger items: success_criterion id=criterion-1 kind=test status=open evidence_refs=1 description=\"run validator\"; output_contract id=output-contract-1 kind=artifact status=open evidence_refs=1 description=\"summarize changed files\". Recent result refs available to cite: result-8:test. State record schema available: taskspace_control action=state_commit schema_version=taskspace-state-commit-v1 accepts success_criteria/output_contracts entries with explicit id, status, kind, description, and evidence_refs.",
+        );
+        let recovery = build_taskspace_final_readiness_recovery_item(Some(&rejection));
+        let items = vec![message("developer", &active_projection), recovery];
+
+        let composition = compose_provider_visible_history(items);
+        let joined = item_texts(&composition.items).join("\n");
+
+        assert!(!joined.contains(TASKSPACE_FINAL_READINESS_RECOVERY_MARKER));
+        assert_eq!(
+            composition.decisions[1].action,
+            ProviderVisibleHistoryAction::Omit(
+                "stale_final_readiness_recovery_satisfied_by_projection"
+            )
+        );
+    }
+
+    #[test]
+    fn active_context_replacement_places_latest_final_readiness_recovery_after_projection() {
+        let active_projection = format!(
+            "{TASKSPACE_ACTIVE_PROFILE_MARKER}\n{TASKSPACE_ACTIVE_PROJECTION_MARKER}\nactive_objective: finish synthesis"
+        );
+        let stale_recovery =
+            build_taskspace_final_readiness_recovery_item(Some("stale missing id=old-criterion"));
+        let latest_recovery =
+            build_taskspace_final_readiness_recovery_item(Some("latest missing id=new-criterion"));
+        let items = vec![
+            message("user", "Keep the user task."),
+            stale_recovery,
+            message("developer", &active_projection),
+            latest_recovery,
+        ];
+
+        let composition = compose_provider_visible_history(items);
+        let texts = item_texts(&composition.items);
+        let joined = texts.join("\n");
+        let projection_pos = texts
+            .iter()
+            .position(|text| text.contains(TASKSPACE_ACTIVE_PROJECTION_MARKER))
+            .expect("projection should remain visible");
+        let recovery_pos = texts
+            .iter()
+            .position(|text| text.contains(TASKSPACE_FINAL_READINESS_RECOVERY_MARKER))
+            .expect("latest recovery should remain visible");
+
+        assert!(recovery_pos > projection_pos);
+        assert_eq!(
+            joined
+                .matches(TASKSPACE_FINAL_READINESS_RECOVERY_MARKER)
+                .count(),
+            1
+        );
+        assert!(!joined.contains("old-criterion"));
+        assert!(joined.contains("new-criterion"));
+        assert_eq!(
+            composition.decisions[1].action,
+            ProviderVisibleHistoryAction::Omit("stale_final_readiness_recovery_replaced")
+        );
+        assert_eq!(
+            composition.decisions[3].action,
+            ProviderVisibleHistoryAction::Include
+        );
+    }
+
+    #[test]
+    fn action_contract_prompt_preserves_latest_final_readiness_recovery_after_projection() {
+        let active_projection = format!(
+            "{TASKSPACE_ACTIVE_PROFILE_MARKER}\n{TASKSPACE_ACTIVE_PROJECTION_MARKER}\nactive_objective: finish synthesis"
+        );
+        let stale_recovery =
+            build_taskspace_final_readiness_recovery_item(Some("stale missing id=old-criterion"));
+        let latest_recovery =
+            build_taskspace_final_readiness_recovery_item(Some("latest missing id=new-criterion"));
+        let items = vec![
+            message("user", "Keep the user task."),
+            stale_recovery,
+            message("developer", &active_projection),
+            latest_recovery,
+        ];
+
+        let prepared =
+            prepare_taskspace_action_contract_prompt_items_for_node(items, Some("final_synthesis"));
+        let texts = item_texts(&prepared);
+        let joined = texts.join("\n");
+        let projection_pos = texts
+            .iter()
+            .position(|text| text.contains(TASKSPACE_ACTIVE_PROJECTION_MARKER))
+            .expect("projection should remain visible");
+        let recovery_pos = texts
+            .iter()
+            .position(|text| text.contains(TASKSPACE_FINAL_READINESS_RECOVERY_MARKER))
+            .expect("latest recovery should remain visible");
+
+        assert!(recovery_pos > projection_pos);
+        assert_eq!(
+            joined
+                .matches(TASKSPACE_FINAL_READINESS_RECOVERY_MARKER)
+                .count(),
+            1
+        );
+        assert!(!joined.contains("old-criterion"));
+        assert!(joined.contains("new-criterion"));
+    }
+
+    #[test]
+    fn action_contract_prompt_omits_stale_final_readiness_recovery_after_projection() {
+        let active_projection = format!(
+            "{TASKSPACE_ACTIVE_PROFILE_MARKER}\n{TASKSPACE_ACTIVE_PROJECTION_MARKER}\n\
+active_objective: finish synthesis\n\
+success_criteria:\n\
+  - criterion-1 status=satisfied run validator"
+        );
+        let recovery = build_taskspace_final_readiness_recovery_item(Some(
+            "TaskSpace final answer cannot be emitted until every success criterion and output contract is satisfied or waived with evidence. Missing ledger items: success_criterion id=criterion-1 kind=test status=open evidence_refs=1 description=\"run validator\". Recent result refs available to cite: result-8:test. State record schema available: taskspace_control action=state_commit schema_version=taskspace-state-commit-v1 accepts success_criteria entries.",
+        ));
+        let items = vec![
+            message("user", "Keep the user task."),
+            message("developer", &active_projection),
+            recovery,
+        ];
+
+        let prepared =
+            prepare_taskspace_action_contract_prompt_items_for_node(items, Some("final_synthesis"));
+        let joined = item_texts(&prepared).join("\n");
+
+        assert!(joined.contains("Keep the user task."));
+        assert!(joined.contains(TASKSPACE_ACTIVE_PROJECTION_MARKER));
+        assert!(!joined.contains(TASKSPACE_FINAL_READINESS_RECOVERY_MARKER));
     }
 }
 
@@ -11555,17 +11967,6 @@ fn response_input_for_taskspace_action_tool_error(
     }
 }
 
-fn taskspace_tool_output_success_and_text(item: &ResponseItem) -> Option<(bool, String)> {
-    match item {
-        ResponseItem::FunctionCallOutput { output, .. }
-        | ResponseItem::CustomToolCallOutput { output, .. } => Some((
-            output.success.unwrap_or(true),
-            function_call_output_body_text(&output.body),
-        )),
-        _ => None,
-    }
-}
-
 fn parse_taskspace_action_v1(text: &str) -> Result<TaskSpaceActionV1, String> {
     let trimmed = text.trim();
     if trimmed.is_empty() {
@@ -11777,108 +12178,12 @@ fn taskspace_action_allowed_for_node(action: &str, node_kind: Option<&str>) -> b
     }
 }
 
-fn taskspace_action_is_read_or_search(action: &str) -> bool {
-    matches!(action, "list_files" | "read_file" | "search")
-}
-
-async fn should_finish_node_after_successful_required_action(
-    action: &TaskSpaceActionV1,
-    snapshot: &crate::action_map::ActionMapProviderRequestBudgetSnapshot,
-    sess: &Session,
-) -> bool {
-    if taskspace_action_blocks_successful_required_action_auto_finish(action) {
-        return false;
-    }
-    match snapshot.node_kind.as_deref() {
-        Some("implement_solution") => {
-            sess.action_map_current_main_node_has_successful_action(ActionClass::Edit)
-                .await
-        }
-        Some("smoke_test" | "regression_test") => {
-            sess.action_map_current_main_node_has_successful_action(ActionClass::Test)
-                .await
-                || sess
-                    .action_map_current_main_node_has_successful_action(ActionClass::Build)
-                    .await
-        }
-        Some("inspect_code_context") => {
-            taskspace_action_is_read_or_search(&action.action)
-                && sess
-                    .action_map_current_main_inspect_has_successful_diagnostic_and_working_evidence(
-                    )
-                    .await
-        }
-        _ => false,
-    }
-}
-
-async fn should_answer_after_successful_validation_redundant_node(
-    action: &TaskSpaceActionV1,
-    snapshot: &crate::action_map::ActionMapProviderRequestBudgetSnapshot,
-    sess: &Session,
-) -> bool {
-    if snapshot.node_id.is_some() {
-        return false;
-    }
-    if !taskspace_action_control_creates_validation_node(action) {
-        return false;
-    }
-    sess.action_map_has_accepted_successful_validation_result()
-        .await
-}
-
-async fn should_answer_after_completed_task_without_active_node(
-    action: &TaskSpaceActionV1,
-    snapshot: &crate::action_map::ActionMapProviderRequestBudgetSnapshot,
-    sess: &Session,
-) -> bool {
-    if snapshot.node_id.is_some() {
-        return false;
-    }
-    if !taskspace_completed_task_action_should_force_final_answer(action) {
-        return false;
-    }
-    sess.action_map_has_accepted_successful_validation_result()
-        .await
-}
-
-async fn should_block_after_closed_validation_without_active_node(
-    action: &TaskSpaceActionV1,
-    snapshot: &crate::action_map::ActionMapProviderRequestBudgetSnapshot,
-    sess: &Session,
-) -> bool {
-    if snapshot.node_id.is_some() {
-        return false;
-    }
-    if taskspace_action_final_message(action).is_some() {
-        return false;
-    }
-    taskspace_closed_validation_blocker_applies(
-        sess.action_map_has_blocked_validation_result().await,
-        sess.action_map_has_accepted_successful_validation_result()
-            .await,
-        sess.action_map_has_ready_recovery_node().await,
-    )
-}
-
-async fn should_block_after_tool_runtime_bootstrap_failure_without_active_node(
-    action: &TaskSpaceActionV1,
-    snapshot: &crate::action_map::ActionMapProviderRequestBudgetSnapshot,
-    sess: &Session,
-) -> bool {
-    if snapshot.node_id.is_some() {
-        return false;
-    }
-    if taskspace_action_final_message(action).is_some() {
-        return false;
-    }
-    sess.action_map_has_tool_runtime_bootstrap_failure().await
-}
-
+#[cfg(test)]
 fn taskspace_action_is_finish_node_control(action: &TaskSpaceActionV1) -> bool {
     taskspace_action_control_action(action) == Some("finish_node")
 }
 
+#[cfg(test)]
 fn taskspace_action_blocks_successful_required_action_auto_finish(
     action: &TaskSpaceActionV1,
 ) -> bool {
@@ -11898,6 +12203,7 @@ const TASKSPACE_CONTROL_ACTION_KEYS: [&str; 5] = [
     "command",
 ];
 
+#[cfg(test)]
 fn taskspace_action_control_action(action: &TaskSpaceActionV1) -> Option<&str> {
     if let Some(control_action) = taskspace_top_level_control_action(action.action.as_str()) {
         return Some(control_action);
@@ -11984,6 +12290,7 @@ fn canonicalize_taskspace_control_action_arg(
     Ok(action)
 }
 
+#[cfg(test)]
 fn taskspace_action_control_creates_validation_node(action: &TaskSpaceActionV1) -> bool {
     if taskspace_action_control_action(action) != Some("create_node") {
         return false;
@@ -12000,6 +12307,7 @@ fn taskspace_action_control_creates_validation_node(action: &TaskSpaceActionV1) 
         .any(|part| matches!(part, "smoke_test" | "regression_test"))
 }
 
+#[cfg(test)]
 fn taskspace_action_control_creates_final_synthesis(action: &TaskSpaceActionV1) -> bool {
     taskspace_action_control_action(action) == Some("create_node")
         && action
@@ -12010,6 +12318,7 @@ fn taskspace_action_control_creates_final_synthesis(action: &TaskSpaceActionV1) 
             == Some("final_synthesis")
 }
 
+#[cfg(test)]
 fn taskspace_final_answer_action(message: &str) -> TaskSpaceActionV1 {
     TaskSpaceActionV1 {
         schema_version: "taskspace-action-v1".to_string(),
@@ -12017,16 +12326,6 @@ fn taskspace_final_answer_action(message: &str) -> TaskSpaceActionV1 {
         node_id: None,
         args: serde_json::json!({ "message": message }),
         rationale: Some("Thin TaskSpace path is complete after validation.".to_string()),
-    }
-}
-
-fn taskspace_blocked_final_action(reason: &str) -> TaskSpaceActionV1 {
-    TaskSpaceActionV1 {
-        schema_version: "taskspace-action-v1".to_string(),
-        action: "blocked".to_string(),
-        node_id: None,
-        args: serde_json::json!({ "reason": reason }),
-        rationale: Some("TaskSpace path is closed by a blocked validation node.".to_string()),
     }
 }
 
@@ -12042,6 +12341,7 @@ fn final_answer_gate_rejection_followup_preserves_specific_reason() {
     assert!(message.contains("Correct the specific rejection reason before final_answer"));
 }
 
+#[cfg(test)]
 fn taskspace_finish_current_node_action(
     node_id: Option<&str>,
     result_summary: &str,
@@ -12070,6 +12370,7 @@ fn taskspace_finish_current_node_action(
     }
 }
 
+#[cfg(test)]
 fn taskspace_finish_inspect_to_implementation_action(node_id: Option<&str>) -> TaskSpaceActionV1 {
     let mut action = taskspace_finish_current_node_action(
         node_id,
@@ -13483,46 +13784,6 @@ fn taskspace_action_to_tool_call(
     }
 }
 
-fn taskspace_action_reads_validation_rework_artifact(
-    action: &TaskSpaceActionV1,
-    snapshot: &crate::action_map::ActionMapProviderRequestBudgetSnapshot,
-) -> bool {
-    if action.action != "read_file" || snapshot.current_node_validation_rework_artifacts.is_empty()
-    {
-        return false;
-    }
-    let Some(path) = taskspace_action_arg_string(&action.args, "path") else {
-        return false;
-    };
-    let requested = taskspace_normalize_apply_patch_target(&path).to_ascii_lowercase();
-    snapshot
-        .current_node_validation_rework_artifacts
-        .iter()
-        .any(|artifact| {
-            taskspace_normalize_apply_patch_target(artifact).to_ascii_lowercase() == requested
-        })
-}
-
-fn taskspace_closed_validation_rework_read_reject_reason(
-    action: &TaskSpaceActionV1,
-    snapshot: &crate::action_map::ActionMapProviderRequestBudgetSnapshot,
-    visible_validation_rework_target_read: bool,
-) -> Option<String> {
-    if !visible_validation_rework_target_read {
-        return None;
-    }
-    if snapshot.node_kind.as_deref() != Some("implement_solution")
-        || snapshot.current_node_has_successful_edit
-        || !taskspace_action_reads_validation_rework_artifact(action, snapshot)
-    {
-        return None;
-    }
-    Some(format!(
-        "validation_rework_duplicate_target_read_disallowed:{}",
-        action.action
-    ))
-}
-
 const TASKSPACE_PARQUET_PREVIEW_SCRIPT: &str = r#"import json
 import sys
 
@@ -14673,6 +14934,7 @@ async fn try_run_sampling_request(
     )> = None;
     let mut should_emit_turn_diff = false;
     let mut taskspace_terminal_action_observed_in_request = false;
+    let mut taskspace_final_response_rejected_in_request = false;
     let plan_mode = turn_context.collaboration_mode.mode == ModeKind::Plan;
     let mut assistant_message_stream_parsers = AssistantMessageStreamParsers::new(plan_mode);
     let mut plan_mode_state = plan_mode.then(|| PlanModeStreamState::new(&turn_context.sub_id));
@@ -14839,30 +15101,14 @@ async fn try_run_sampling_request(
                     };
                     let action_result = match parsed_action {
                         Ok(action) => {
-                            let closed_rework_read_reject = if let Some(snapshot) =
-                                provider_budget_snapshot.as_ref()
-                            {
-                                taskspace_closed_validation_rework_read_reject_reason(
-                                        &action,
-                                        snapshot,
-                                        sess.action_map_current_main_node_has_visible_validation_rework_target_read()
-                                            .await,
-                                    )
-                            } else {
-                                None
-                            };
-                            if let Some(reason) = closed_rework_read_reject {
-                                Err(reason)
-                            } else {
-                                let final_message = taskspace_action_final_message(&action);
-                                let tool_call =
-                                    if let Some(snapshot) = provider_budget_snapshot.as_ref() {
-                                        taskspace_action_to_tool_call(&action, snapshot)
-                                    } else {
-                                        taskspace_bootstrap_action_to_tool_call(&action)
-                                    };
-                                tool_call.map(|tool_call| (action, final_message, tool_call))
-                            }
+                            let final_message = taskspace_action_final_message(&action);
+                            let tool_call =
+                                if let Some(snapshot) = provider_budget_snapshot.as_ref() {
+                                    taskspace_action_to_tool_call(&action, snapshot)
+                                } else {
+                                    taskspace_bootstrap_action_to_tool_call(&action)
+                                };
+                            tool_call.map(|tool_call| (action, final_message, tool_call))
                         }
                         Err(reason) => Err(reason),
                     };
@@ -14960,7 +15206,10 @@ async fn try_run_sampling_request(
                             };
                             if let Some(error) = terminal_gate_error {
                                 needs_follow_up = true;
-                                saw_actionable_output = true;
+                                saw_actionable_output = false;
+                                if action.action == "final_answer" {
+                                    taskspace_final_response_rejected_in_request = true;
+                                }
                                 last_agent_message = Some(if action.action == "blocked" {
                                     taskspace_blocked_gate_rejection_followup(&error)
                                 } else {
@@ -15156,7 +15405,7 @@ async fn try_run_sampling_request(
                     .as_deref()
                     .map(|message| !message.trim().is_empty())
                     .unwrap_or(false);
-                let mut final_response_rejected = false;
+                let mut final_response_rejected = taskspace_final_response_rejected_in_request;
                 if !taskspace_terminal_action_observed_in_request
                     && !needs_follow_up
                     && let Some(message) = last_agent_message.as_deref()
@@ -15329,6 +15578,10 @@ async fn try_run_sampling_request(
                         )
                     }) {
                         Some(build_taskspace_validation_needs_test_recovery_item(
+                            last_agent_message.as_deref(),
+                        ))
+                    } else if final_response_rejected {
+                        Some(build_taskspace_final_readiness_recovery_item(
                             last_agent_message.as_deref(),
                         ))
                     } else {

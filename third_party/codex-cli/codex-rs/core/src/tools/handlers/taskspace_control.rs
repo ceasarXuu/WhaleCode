@@ -295,6 +295,8 @@ struct TaskSpaceOutputContractArgs {
     #[serde(alias = "output_contract_kind", alias = "kind")]
     kind: String,
     description: String,
+    #[serde(default = "default_success_criterion_status")]
+    status: String,
     #[serde(default)]
     evidence_refs: Vec<TaskSpaceEvidenceRefArgs>,
 }
@@ -1275,7 +1277,7 @@ fn normalize_fact_source_provenance(root: &mut serde_json::Map<String, JsonValue
 }
 
 fn normalize_evidence_refs(root: &mut serde_json::Map<String, JsonValue>) {
-    if root.contains_key("evidence_refs") {
+    if normalize_evidence_refs_field(root) {
         return;
     }
     let Some(refs) = root.remove("refs") else {
@@ -1291,7 +1293,62 @@ fn normalize_evidence_refs(root: &mut serde_json::Map<String, JsonValue>) {
         .map(|artifact_ref| serde_json::json!({ "artifact_ref": artifact_ref }))
         .collect();
     if !evidence_refs.is_empty() {
-        root.insert("evidence_refs".to_string(), JsonValue::Array(evidence_refs));
+        let mut value = JsonValue::Array(evidence_refs);
+        normalize_evidence_ref_value(&mut value);
+        root.insert("evidence_refs".to_string(), value);
+    }
+}
+
+fn normalize_evidence_refs_field(root: &mut serde_json::Map<String, JsonValue>) -> bool {
+    let Some(value) = root.get_mut("evidence_refs") else {
+        return false;
+    };
+    normalize_evidence_ref_value(value);
+    true
+}
+
+fn normalize_evidence_ref_value(value: &mut JsonValue) {
+    match value {
+        JsonValue::String(text) => {
+            let text = text.trim();
+            *value = if text.is_empty() {
+                JsonValue::Array(Vec::new())
+            } else {
+                JsonValue::Array(vec![state_commit_string_evidence_ref(text)])
+            };
+        }
+        JsonValue::Array(items) => {
+            for item in items.iter_mut() {
+                let JsonValue::String(text) = item else {
+                    continue;
+                };
+                let text = text.trim().to_string();
+                *item = if text.is_empty() {
+                    JsonValue::Null
+                } else {
+                    state_commit_string_evidence_ref(&text)
+                };
+            }
+            items.retain(|item| !item.is_null());
+        }
+        _ => {}
+    }
+}
+
+fn state_commit_string_evidence_ref(value: &str) -> JsonValue {
+    let value = value.trim();
+    if value.starts_with("result-") {
+        serde_json::json!({ "result_id": value })
+    } else if value.starts_with("claim-") {
+        serde_json::json!({ "claim_id": value })
+    } else if value.starts_with("fact-source-") {
+        serde_json::json!({ "fact_source_id": value })
+    } else if value.starts_with("trace-") {
+        serde_json::json!({ "trace_event_id": value })
+    } else if value.starts_with("validator:") {
+        serde_json::json!({ "validator_ref": value })
+    } else {
+        serde_json::json!({ "artifact_ref": value })
     }
 }
 
@@ -1375,6 +1432,7 @@ fn normalize_success_criteria_objects(value: &mut JsonValue) {
         object
             .entry("description".to_string())
             .or_insert_with(|| JsonValue::String(format!("{kind} {id} is {status}")));
+        normalize_evidence_refs_field(object);
         if !object.contains_key("evidence_refs") {
             object.insert(
                 "evidence_refs".to_string(),
@@ -1418,6 +1476,7 @@ fn normalize_state_commit_result_validities(root: &mut serde_json::Map<String, J
                 let JsonValue::Object(object) = item else {
                     continue;
                 };
+                normalize_evidence_refs_field(object);
                 if !object.contains_key("validity_reason") {
                     object.insert(
                         "validity_reason".to_string(),
@@ -1765,6 +1824,7 @@ fn normalize_state_commit_evidence_array(
         let JsonValue::Object(object) = item else {
             continue;
         };
+        normalize_evidence_refs_field(object);
         let needs_default = match object.get("evidence_refs") {
             Some(JsonValue::Array(existing)) => existing.is_empty(),
             Some(_) => false,
@@ -1826,6 +1886,7 @@ fn append_inline_artifact_refs_to_evidence_refs(
     if artifact_refs.is_empty() {
         return;
     }
+    normalize_evidence_refs_field(object);
     let entry = object
         .entry("evidence_refs".to_string())
         .or_insert_with(|| JsonValue::Array(Vec::new()));
@@ -1975,6 +2036,7 @@ fn convert_state_commit_output_contracts(
             id: input.id,
             kind: input.kind,
             description: input.description,
+            status: input.status,
             evidence_refs: convert_evidence_refs(input.evidence_refs),
         })
         .collect()
@@ -3150,6 +3212,63 @@ mod tests {
                 );
                 assert_eq!(fact_sources[0].description, "fact_sources fs-observed");
                 assert_eq!(fact_sources[0].provenance, "observed_from_environment");
+            }
+            other => panic!("unexpected args: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn state_commit_string_evidence_refs_normalize_to_structured_refs() {
+        let raw = serde_json::json!({
+            "action": "state_commit",
+            "schema_version": "taskspace-state-commit-v1",
+            "success_criteria": [{
+                "id": "criterion-1",
+                "status": "satisfied",
+                "description": "Calculation completed",
+                "evidence_refs": ["result-10", "avg_temp.txt"]
+            }],
+            "output_contracts": [{
+                "id": "output-contract-1",
+                "kind": "artifact",
+                "description": "avg_temp.txt contains one number",
+                "status": "satisfied",
+                "evidence_refs": ["result-11"]
+            }],
+            "result_validities": [{
+                "result_id": "result-10",
+                "validity": "accepted",
+                "evidence_refs": ["result-10"]
+            }]
+        });
+        let normalized = normalize_taskspace_arguments(&raw.to_string()).expect("normalize");
+        let args: TaskSpaceControlArgs =
+            serde_json::from_str(&normalized).expect("state_commit string refs parse");
+
+        match args {
+            TaskSpaceControlArgs::StateCommit {
+                success_criteria,
+                output_contracts,
+                result_validities,
+                ..
+            } => {
+                assert_eq!(
+                    success_criteria[0].evidence_refs[0].result_id.as_deref(),
+                    Some("result-10")
+                );
+                assert_eq!(
+                    success_criteria[0].evidence_refs[1].artifact_ref.as_deref(),
+                    Some("avg_temp.txt")
+                );
+                assert_eq!(
+                    output_contracts[0].evidence_refs[0].result_id.as_deref(),
+                    Some("result-11")
+                );
+                assert_eq!(output_contracts[0].status, "satisfied");
+                assert_eq!(
+                    result_validities[0].evidence_refs[0].result_id.as_deref(),
+                    Some("result-10")
+                );
             }
             other => panic!("unexpected args: {other:?}"),
         }

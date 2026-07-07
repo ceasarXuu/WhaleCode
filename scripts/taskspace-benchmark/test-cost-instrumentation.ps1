@@ -52,6 +52,7 @@ $obs = [pscustomobject]@{
             call_id = "provider-request-1"
             tags = @(
                 "schema:taskspace-provider-request-budget-event-v1",
+                "schema:taskspace-provider-request-reason-v1",
                 "transport:responses_http",
                 "status:response_completed",
                 "request_count_before:0",
@@ -65,6 +66,17 @@ $obs = [pscustomobject]@{
                 "post_budget_grace_requests:1",
                 "runtime_budget_state:normal",
                 "request_phase:model_sampling",
+                "node_kind:inspect_code_context",
+                "trigger_kind:model_sampling",
+                "response_actionability_previous:none",
+                "previous_response_recovery_action:none",
+                "latest_tool_result_refs:none",
+                "model_visible_feedback_refs:none",
+                "adoption_blockers:none",
+                "projection_bundle_hash:dynamic-suffix-hash",
+                "request_reason_delta:initial_request",
+                "repeated_same_reason_count:0",
+                "reason_confidence:derived",
                 "producer:provider_lifecycle",
                 "started_at_ms:100",
                 "completed_at_ms:715",
@@ -169,6 +181,7 @@ $obs = [pscustomobject]@{
             call_id = "provider-request-2"
             tags = @(
                 "schema:taskspace-provider-request-budget-event-v1",
+                "schema:taskspace-provider-request-reason-v1",
                 "transport:responses_http",
                 "status:response_completed",
                 "request_count_before:1",
@@ -182,6 +195,18 @@ $obs = [pscustomobject]@{
                 "post_budget_grace_requests:1",
                 "runtime_budget_state:over_profile_hint",
                 "request_phase:validation_recovery",
+                "node_kind:smoke_test",
+                "trigger_kind:response_recovery",
+                "response_actionability_previous:tool_feedback_recovery",
+                "previous_response_recovery_action:tool_feedback_recovery",
+                "previous_response_trace_event_id:trace-response-1",
+                "latest_tool_result_refs:result-1",
+                "model_visible_feedback_refs:result-1|trace-response-1",
+                "adoption_blockers:validation_rework_artifacts:output.json",
+                "projection_bundle_hash:dynamic-suffix-hash-2",
+                "request_reason_delta:changed_trigger",
+                "repeated_same_reason_count:0",
+                "reason_confidence:direct",
                 "producer:provider_lifecycle",
                 "input_tokens:4",
                 "cached_input_tokens:1",
@@ -237,6 +262,7 @@ $obs = [pscustomobject]@{
             call_id = "provider-request-3"
             tags = @(
                 "schema:taskspace-provider-request-budget-event-v1",
+                "schema:taskspace-provider-request-reason-v1",
                 "transport:responses_http",
                 "status:response_completed",
                 "request_count_before:2",
@@ -250,6 +276,18 @@ $obs = [pscustomobject]@{
                 "post_budget_grace_requests:1",
                 "runtime_budget_state:over_profile_hint",
                 "request_phase:state_commit",
+                "node_kind:implement_solution",
+                "trigger_kind:response_recovery",
+                "response_actionability_previous:tool_feedback_recovery",
+                "previous_response_recovery_action:tool_feedback_recovery",
+                "previous_response_trace_event_id:trace-response-2",
+                "latest_tool_result_refs:result-1",
+                "model_visible_feedback_refs:result-1|trace-response-2",
+                "adoption_blockers:none",
+                "projection_bundle_hash:dynamic-suffix-hash-3",
+                "request_reason_delta:none",
+                "repeated_same_reason_count:1",
+                "reason_confidence:direct",
                 "producer:provider_lifecycle",
                 "input_tokens:7",
                 "cached_input_tokens:3",
@@ -437,6 +475,7 @@ Assert-True (Test-Path -LiteralPath (Join-Path $artifactDir "exact-payload-scan-
 Assert-True (Test-Path -LiteralPath (Join-Path $artifactDir "active-context-replacement-report.json")) "active-context-replacement-report.json was not written"
 Assert-True (Test-Path -LiteralPath (Join-Path $artifactDir "provider-request-events.jsonl")) "provider-request-events.jsonl was not written"
 Assert-True (Test-Path -LiteralPath (Join-Path $artifactDir "request-phase-summary.json")) "request-phase-summary.json was not written"
+Assert-True (Test-Path -LiteralPath (Join-Path $artifactDir "request-reason-summary.json")) "request-reason-summary.json was not written"
 Assert-True (Test-Path -LiteralPath (Join-Path $artifactDir "provider-cache-trace.jsonl")) "provider-cache-trace.jsonl was not written"
 Assert-True (Test-Path -LiteralPath (Join-Path $artifactDir "provider-cache-trace-summary.json")) "provider-cache-trace-summary.json was not written"
 Assert-True (Test-Path -LiteralPath (Join-Path $artifactDir "state-commit-displacement.json")) "state-commit-displacement.json was not written"
@@ -452,6 +491,7 @@ $summary = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $artifactDir 
 $cacheTraceSummary = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $artifactDir "provider-cache-trace-summary.json") | ConvertFrom-Json
 $replacement = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $artifactDir "active-context-replacement-report.json") | ConvertFrom-Json
 $phaseSummary = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $artifactDir "request-phase-summary.json") | ConvertFrom-Json
+$reasonSummary = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $artifactDir "request-reason-summary.json") | ConvertFrom-Json
 $stateCommit = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $artifactDir "state-commit-displacement.json") | ConvertFrom-Json
 $spawnBudget = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $artifactDir "spawn-node-budget-summary.json") | ConvertFrom-Json
 Assert-True ($budgetEvents.Count -eq 3) "budget event count was not extracted from runtime trace"
@@ -468,6 +508,9 @@ Assert-True ($providerEvents.Count -eq 3 -and [string]$providerEvents[0].schema_
 Assert-True (@($providerEvents | Where-Object { [string]$_.producer -eq "provider_lifecycle" }).Count -eq 3) "provider request events did not preserve provider_lifecycle producer"
 Assert-True ([string]$providerEvents[0].provider_wire_api -eq "ChatCompletions" -and [int]$providerEvents[0].tools_count -eq 24 -and [string]$providerEvents[0].request_shape_classifier -eq "native_tools_schema_hot_path") "provider request events did not preserve cache request shape fields"
 Assert-True ([int64]$providerEvents[0].model_request_duration_ms -eq 615 -and [int64]$providerEvents[0].latency_ms -eq 615 -and [int64]$providerEvents[0].started_at_ms -eq 100 -and [int64]$providerEvents[0].completed_at_ms -eq 715) "provider request events did not preserve provider lifecycle timing fields"
+Assert-True ([bool]$providerEvents[0].request_reason_schema_present -and [string]$providerEvents[0].trigger_kind -eq "model_sampling" -and [string]$providerEvents[0].request_reason_delta -eq "initial_request") "provider request events did not preserve request reason fields"
+Assert-True ([string]$providerEvents[1].response_actionability_previous -eq "tool_feedback_recovery" -and [string]$providerEvents[1].latest_tool_result_refs -eq "result-1" -and [string]$providerEvents[1].model_visible_feedback_refs -eq "result-1|trace-response-1") "provider request events did not preserve feedback refs"
+Assert-True ([int]$providerEvents[2].repeated_same_reason_count -eq 1 -and [string]$providerEvents[2].request_reason_delta -eq "none") "provider request events did not preserve repeated same-reason detector fields"
 Assert-True ($cacheTraceEvents.Count -eq 3 -and [string]$cacheTraceEvents[0].schema_version -eq "TaskSpaceProviderCacheTraceV1" -and [double]$cacheTraceEvents[0].hit_rate -eq 0.2) "provider cache trace events were not derived from terminal provider requests"
 Assert-True ([int]$cacheTraceSummary.native_tools_schema_hot_path_count -eq 1 -and [int]$cacheTraceSummary.tool_free_action_contract_count -eq 2 -and [double]$cacheTraceSummary.trace_coverage -eq 1.0) "provider cache trace summary did not classify completed request shapes"
 Assert-True ([bool]$replacement.exact_payload_scan_passed -and [bool]$replacement.replacement_confirmed) "active replacement report did not use exact payload scan"
@@ -480,6 +523,8 @@ Assert-True ([int]$phaseSummary.provider_request_terminal_coverage -eq 100 -and 
 Assert-True ([int]$phaseSummary.phase_counts.model_sampling -eq 1 -and [int]$phaseSummary.phase_counts.validation_recovery -eq 1 -and [int]$phaseSummary.phase_counts.state_commit -eq 1) "request phase summary did not expose phase counts"
 Assert-True ([bool]$phaseSummary.phase_diversity_gate_pass -and [int]$phaseSummary.non_model_sampling_distinct_phase_count -eq 2) "request phase summary did not enforce non-model phase diversity"
 Assert-True ([int64]$phaseSummary.phase_token_summary.state_commit.input_tokens -eq 7 -and [int64]$phaseSummary.phase_token_summary.validation_recovery.cached_input_tokens -eq 1) "request phase summary did not expose phase token totals"
+Assert-True ([string]$reasonSummary.request_reason_coverage_status -eq "measured" -and [int]$reasonSummary.request_reason_unknown_count -eq 0 -and [int]$reasonSummary.request_reason_attribution_coverage -eq 100) "request reason summary did not report complete measured coverage"
+Assert-True ([int]$reasonSummary.repeated_same_reason_no_delta_count -eq 1 -and [int]$reasonSummary.trigger_kind_counts.response_recovery -eq 2 -and [int]$reasonSummary.request_reason_delta_counts.none -eq 1) "request reason summary did not expose repeated no-delta and trigger counts"
 Assert-True ([string]$stateCommit.status -eq "pass" -and [string]$stateCommit.source_status -eq "runtime" -and [int]$stateCommit.runtime_event_count -eq 1 -and [bool]$stateCommit.has_displacement_denominator -and [int]$stateCommit.legacy_state_action_attempt_count -eq 2) "state commit displacement summary should pass with runtime denominator evidence"
 Assert-True ([int]$stateCommit.legacy_state_action_attempt_event_count -eq 2 -and [int]$stateCommit.state_commit_section_count -eq 2) "state commit displacement should report legacy attempts separately from state_commit sections"
 Assert-True ([string]$spawnBudget.status -eq "pass" -and [string]$spawnBudget.source_status -eq "runtime" -and [int]$spawnBudget.runtime_event_count -eq 2) "spawn/node budget should pass with runtime producer evidence"

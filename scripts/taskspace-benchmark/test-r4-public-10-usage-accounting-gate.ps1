@@ -83,6 +83,31 @@ Assert-True ($badRequestExitCode -ne 0) "bad request-count report unexpectedly p
 $badRequestLog = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $RunRoot "bad-request-report-gate.log")
 Assert-True ($badRequestLog -match "taskspace_model_request_ratio is missing") "bad request-count report failure did not explain request ratio availability mismatch"
 
+$badReasonReport = Join-Path $RunRoot "bad-request-reason-report.json"
+$report = Get-Content -Raw -Encoding UTF8 -LiteralPath $goodReport | ConvertFrom-Json
+$reasonTarget = @($report.rows | Where-Object { [string]$_.run_status -eq "found" } | Select-Object -First 1)[0]
+Assert-True ($null -ne $reasonTarget) "good report did not contain a found row for request-reason mutation"
+$reasonTarget.request_reason_coverage_status = "measured"
+$reasonTarget.request_reason_event_count = 3
+$reasonTarget.request_reason_unknown_count = 1
+$reasonTarget.request_reason_attribution_coverage = 67
+$report | ConvertTo-Json -Depth 30 | Set-Content -LiteralPath $badReasonReport -Encoding UTF8
+
+$previousErrorActionPreference = $ErrorActionPreference
+$ErrorActionPreference = "Continue"
+try {
+    & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "test-r4-public-10-tool-stress-plan.ps1") `
+        -PlanPath $planPath `
+        -ReportPath $badReasonReport *> (Join-Path $RunRoot "bad-request-reason-report-gate.log")
+    $badReasonExitCode = $LASTEXITCODE
+} finally {
+    $ErrorActionPreference = $previousErrorActionPreference
+}
+Assert-True ($badReasonExitCode -ne 0) "bad request-reason report unexpectedly passed public-10 gate"
+
+$badReasonLog = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $RunRoot "bad-request-reason-report-gate.log")
+Assert-True ($badReasonLog -match "request_reason_unknown_count is not zero") "bad request-reason report failure did not explain unknown reason coverage mismatch"
+
 $fallbackRunRoot = Join-Path $RunRoot "rollout-token-fallback-runroot"
 $fallbackPairDir = Join-Path $fallbackRunRoot "actual\runs\terminal_bench__heterogeneous-dates\20260703-060000-000\pair-001"
 $fallbackLeftArtifacts = Join-Path $fallbackPairDir "left\artifacts"
@@ -117,6 +142,12 @@ New-Item -ItemType Directory -Force -Path $fallbackLeftArtifacts, $fallbackRight
     public_validation_exit_code = -1
     hidden_oracle_exit_code = -1
 } | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath (Join-Path $fallbackRightArtifacts "metrics.json") -Encoding UTF8
+[pscustomobject]@{
+    schema_version = "taskspace-request-phase-summary-v1"
+    provider_request_distinct_count = 5
+    provider_request_terminal_count = 5
+    expected_model_request_count = 5
+} | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath (Join-Path $fallbackRightArtifacts "request-phase-summary.json") -Encoding UTF8
 $fallbackReport = Join-Path $RunRoot "rollout-token-fallback-report.json"
 & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "write-r4-public-10-tool-stress-report.ps1") `
     -PlanPath $planPath `
@@ -132,6 +163,8 @@ Assert-True ([string]$fallbackRow.standard_usage_accounting_status -eq "recovere
 Assert-True ([string]$fallbackRow.taskspace_usage_accounting_status -eq "recovered_from_rollout_trace") "taskspace fallback usage status was not recovered"
 Assert-True ([int64]$fallbackRow.standard_input_tokens -eq 100) "standard input tokens were not recovered from rollout trace"
 Assert-True ([int64]$fallbackRow.taskspace_output_tokens -eq 60) "taskspace output tokens were not recovered from rollout trace"
+Assert-True ([string]$fallbackRow.taskspace_model_request_count_source -eq "request_phase_summary_provider_distinct") "TaskSpace request count did not prefer request-phase distinct provider count"
+Assert-True ([int64]$fallbackRow.taskspace_model_request_count -eq 5) "TaskSpace request count did not use provider_request_distinct_count"
 & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "test-r4-public-10-tool-stress-plan.ps1") `
     -PlanPath $planPath `
     -ReportPath $fallbackReport

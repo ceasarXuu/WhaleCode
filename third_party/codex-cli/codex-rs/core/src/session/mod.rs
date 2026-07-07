@@ -1019,24 +1019,6 @@ impl Session {
             .current_main_node_has_successful_action(action_class)
     }
 
-    pub(crate) async fn action_map_current_main_node_has_visible_validation_rework_target_read(
-        &self,
-    ) -> bool {
-        let state = self.state.lock().await;
-        state
-            .action_map_runtime
-            .current_main_node_has_visible_validation_rework_target_read()
-    }
-
-    pub(crate) async fn action_map_current_main_inspect_has_successful_diagnostic_and_working_evidence(
-        &self,
-    ) -> bool {
-        let state = self.state.lock().await;
-        state
-            .action_map_runtime
-            .current_main_inspect_has_successful_diagnostic_and_working_evidence()
-    }
-
     pub(crate) async fn action_map_active_map_has_successful_edit_artifacts(&self) -> bool {
         let state = self.state.lock().await;
         state
@@ -1388,15 +1370,6 @@ impl Session {
         state
             .action_map_runtime
             .current_main_inspect_unread_referenced_scripts()
-    }
-
-    pub(crate) async fn action_map_current_inspect_missing_required_fact_source_artifacts(
-        &self,
-    ) -> Vec<String> {
-        let state = self.state.lock().await;
-        state
-            .action_map_runtime
-            .current_main_inspect_missing_required_fact_source_artifacts()
     }
 
     pub(crate) async fn action_map_current_implement_progress_needs_edit(&self) -> bool {

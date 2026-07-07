@@ -61,7 +61,14 @@
       "evidence_paths": [
         "docs/v0.0.5/build-R4/05-phase-benefit-evidence.md",
         "docs/v0.0.5/build-R4/06-r4-engineering-closeout.md"
-      ]
+      ],
+      "request_reason_coverage_status": "documented_legacy_unavailable",
+      "request_reason_event_count": 0,
+      "request_reason_unknown_count": null,
+      "request_reason_attribution_coverage": null,
+      "repeated_same_reason_no_delta_count": 0,
+      "request_reason_trigger_kind_counts": {},
+      "request_reason_delta_counts": {}
     },
     {
       "public_benchmark": "terminal-bench-core",
@@ -112,7 +119,14 @@
       "evidence_paths": [
         "docs/v0.0.5/build-R4/05-phase-benefit-evidence.md",
         "docs/v0.0.5/build-R4/06-r4-engineering-closeout.md"
-      ]
+      ],
+      "request_reason_coverage_status": "documented_legacy_unavailable",
+      "request_reason_event_count": 0,
+      "request_reason_unknown_count": null,
+      "request_reason_attribution_coverage": null,
+      "repeated_same_reason_no_delta_count": 0,
+      "request_reason_trigger_kind_counts": {},
+      "request_reason_delta_counts": {}
     },
     {
       "public_benchmark": "terminal-bench-core",
@@ -163,7 +177,14 @@
       "evidence_paths": [
         "docs/v0.0.5/build-R4/05-phase-benefit-evidence.md",
         "docs/v0.0.5/build-R4/06-r4-engineering-closeout.md"
-      ]
+      ],
+      "request_reason_coverage_status": "documented_legacy_unavailable",
+      "request_reason_event_count": 0,
+      "request_reason_unknown_count": null,
+      "request_reason_attribution_coverage": null,
+      "repeated_same_reason_no_delta_count": 0,
+      "request_reason_trigger_kind_counts": {},
+      "request_reason_delta_counts": {}
     },
     {
       "public_benchmark": "terminal-bench-core",
@@ -214,7 +235,14 @@
       "evidence_paths": [
         "docs/v0.0.5/build-R4/05-phase-benefit-evidence.md",
         "docs/v0.0.5/build-R4/06-r4-engineering-closeout.md"
-      ]
+      ],
+      "request_reason_coverage_status": "documented_legacy_unavailable",
+      "request_reason_event_count": 0,
+      "request_reason_unknown_count": null,
+      "request_reason_attribution_coverage": null,
+      "repeated_same_reason_no_delta_count": 0,
+      "request_reason_trigger_kind_counts": {},
+      "request_reason_delta_counts": {}
     },
     {
       "public_benchmark": "terminal-bench-core",
@@ -265,7 +293,14 @@
       "evidence_paths": [
         "docs/v0.0.5/build-R4/05-phase-benefit-evidence.md",
         "docs/v0.0.5/build-R4/06-r4-engineering-closeout.md"
-      ]
+      ],
+      "request_reason_coverage_status": "documented_legacy_unavailable",
+      "request_reason_event_count": 0,
+      "request_reason_unknown_count": null,
+      "request_reason_attribution_coverage": null,
+      "repeated_same_reason_no_delta_count": 0,
+      "request_reason_trigger_kind_counts": {},
+      "request_reason_delta_counts": {}
     },
     {
       "public_benchmark": "terminal-bench-core",
@@ -316,7 +351,14 @@
       "evidence_paths": [
         "docs/v0.0.5/build-R4/05-phase-benefit-evidence.md",
         "docs/v0.0.5/build-R4/06-r4-engineering-closeout.md"
-      ]
+      ],
+      "request_reason_coverage_status": "documented_legacy_unavailable",
+      "request_reason_event_count": 0,
+      "request_reason_unknown_count": null,
+      "request_reason_attribution_coverage": null,
+      "repeated_same_reason_no_delta_count": 0,
+      "request_reason_trigger_kind_counts": {},
+      "request_reason_delta_counts": {}
     },
     {
       "public_benchmark": "terminal-bench-core",
@@ -367,7 +409,14 @@
       "evidence_paths": [
         "docs/v0.0.5/build-R4/05-phase-benefit-evidence.md",
         "docs/v0.0.5/build-R4/06-r4-engineering-closeout.md"
-      ]
+      ],
+      "request_reason_coverage_status": "documented_legacy_unavailable",
+      "request_reason_event_count": 0,
+      "request_reason_unknown_count": null,
+      "request_reason_attribution_coverage": null,
+      "repeated_same_reason_no_delta_count": 0,
+      "request_reason_trigger_kind_counts": {},
+      "request_reason_delta_counts": {}
     },
     {
       "public_benchmark": "terminal-bench-core",
@@ -418,7 +467,14 @@
       "evidence_paths": [
         "docs/v0.0.5/build-R4/05-phase-benefit-evidence.md",
         "docs/v0.0.5/build-R4/06-r4-engineering-closeout.md"
-      ]
+      ],
+      "request_reason_coverage_status": "documented_legacy_unavailable",
+      "request_reason_event_count": 0,
+      "request_reason_unknown_count": null,
+      "request_reason_attribution_coverage": null,
+      "repeated_same_reason_no_delta_count": 0,
+      "request_reason_trigger_kind_counts": {},
+      "request_reason_delta_counts": {}
     },
     {
       "public_benchmark": "terminal-bench-core",
@@ -469,7 +525,14 @@
       "evidence_paths": [
         "docs/v0.0.5/build-R4/05-phase-benefit-evidence.md",
         "docs/v0.0.5/build-R4/06-r4-engineering-closeout.md"
-      ]
+      ],
+      "request_reason_coverage_status": "documented_legacy_unavailable",
+      "request_reason_event_count": 0,
+      "request_reason_unknown_count": null,
+      "request_reason_attribution_coverage": null,
+      "repeated_same_reason_no_delta_count": 0,
+      "request_reason_trigger_kind_counts": {},
+      "request_reason_delta_counts": {}
     },
     {
       "public_benchmark": "terminal-bench-core",
@@ -520,7 +583,14 @@
       "evidence_paths": [
         "docs/v0.0.5/build-R4/05-phase-benefit-evidence.md",
         "docs/v0.0.5/build-R4/06-r4-engineering-closeout.md"
-      ]
+      ],
+      "request_reason_coverage_status": "documented_legacy_unavailable",
+      "request_reason_event_count": 0,
+      "request_reason_unknown_count": null,
+      "request_reason_attribution_coverage": null,
+      "repeated_same_reason_no_delta_count": 0,
+      "request_reason_trigger_kind_counts": {},
+      "request_reason_delta_counts": {}
     }
   ]
 }

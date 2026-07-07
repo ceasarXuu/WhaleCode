@@ -254,6 +254,21 @@ function New-TaskspaceBudgetArtifacts {
             transport = [string]$tags.transport
             status = [string]$tags.status
             request_phase = [string]$tags.request_phase
+            request_reason_schema_present = ([string]$tags.schema -eq "taskspace-provider-request-reason-v1" -or -not [string]::IsNullOrWhiteSpace([string]$tags.trigger_kind))
+            node_kind = [string]$tags.node_kind
+            trigger_kind = [string]$tags.trigger_kind
+            response_actionability_previous = [string]$tags.response_actionability_previous
+            previous_response_recovery_action = [string]$tags.previous_response_recovery_action
+            previous_response_trace_event_id = [string]$tags.previous_response_trace_event_id
+            latest_tool_result_refs = [string]$tags.latest_tool_result_refs
+            model_visible_feedback_refs = [string]$tags.model_visible_feedback_refs
+            adoption_blockers = [string]$tags.adoption_blockers
+            projection_bundle_hash = [string]$tags.projection_bundle_hash
+            request_reason_delta = [string]$tags.request_reason_delta
+            repeated_same_reason_count = Convert-TaskspaceTraceInt $tags.repeated_same_reason_count
+            reason_confidence = [string]$tags.reason_confidence
+            hard_stop_stage = [string]$tags.hard_stop_stage
+            hard_stop_reason = [string]$tags.hard_stop_reason
             producer = [string]$tags.producer
             request_count_before = Convert-TaskspaceTraceInt $tags.request_count_before
             request_count_after = Convert-TaskspaceTraceInt $tags.request_count_after
@@ -459,13 +474,35 @@ function New-TaskspaceProviderRequestArtifacts {
     $events = New-Object System.Collections.Generic.List[object]
     $phaseCounts = @{}
     $phaseTokens = @{}
+    $triggerCounts = @{}
+    $deltaCounts = @{}
     $phaseKnown = 0
+    $reasonSchemaCount = 0
+    $reasonKnown = 0
+    $unknownReason = 0
+    $repeatedNoDeltaCount = 0
     $terminalStatuses = @("response_completed", "response_failed", "cancelled", "blocked")
     foreach ($event in @($BudgetEvents)) {
         if ([string]::IsNullOrWhiteSpace([string]$event.request_id)) { continue }
         $phase = [string]$event.request_phase
         if ([string]::IsNullOrWhiteSpace($phase)) { $phase = "unknown" }
         if ($phase -ne "unknown") { $phaseKnown++ }
+        $triggerKind = [string]$event.trigger_kind
+        $deltaKind = [string]$event.request_reason_delta
+        $hasReasonSchema = [bool]$event.request_reason_schema_present -or -not [string]::IsNullOrWhiteSpace($triggerKind)
+        if ($hasReasonSchema) { $reasonSchemaCount++ }
+        if ($hasReasonSchema -and -not [string]::IsNullOrWhiteSpace($triggerKind) -and $triggerKind -ne "unknown") {
+            $reasonKnown++
+            Add-TaskspaceCostCount $triggerCounts $triggerKind
+        } else {
+            $unknownReason++
+        }
+        if (-not [string]::IsNullOrWhiteSpace($deltaKind)) {
+            Add-TaskspaceCostCount $deltaCounts $deltaKind
+        }
+        if ($deltaKind -eq "none" -and [int]$event.repeated_same_reason_count -gt 0) {
+            $repeatedNoDeltaCount++
+        }
         Add-TaskspaceCostCount $phaseCounts $phase
         if (-not $phaseTokens.ContainsKey($phase)) {
             $phaseTokens[$phase] = [ordered]@{
@@ -497,6 +534,21 @@ function New-TaskspaceProviderRequestArtifacts {
             parent_request_id = [string]$event.parent_request_id
             attempt_seq = Convert-TaskspaceTraceInt $event.attempt_seq
             request_phase = if ([string]::IsNullOrWhiteSpace($phase)) { "unknown" } else { $phase }
+            request_reason_schema_present = [bool]$event.request_reason_schema_present
+            node_kind = [string]$event.node_kind
+            trigger_kind = [string]$event.trigger_kind
+            response_actionability_previous = [string]$event.response_actionability_previous
+            previous_response_recovery_action = [string]$event.previous_response_recovery_action
+            previous_response_trace_event_id = [string]$event.previous_response_trace_event_id
+            latest_tool_result_refs = [string]$event.latest_tool_result_refs
+            model_visible_feedback_refs = [string]$event.model_visible_feedback_refs
+            adoption_blockers = [string]$event.adoption_blockers
+            projection_bundle_hash = [string]$event.projection_bundle_hash
+            request_reason_delta = [string]$event.request_reason_delta
+            repeated_same_reason_count = Convert-TaskspaceTraceInt $event.repeated_same_reason_count
+            reason_confidence = [string]$event.reason_confidence
+            hard_stop_stage = [string]$event.hard_stop_stage
+            hard_stop_reason = [string]$event.hard_stop_reason
             producer = [string]$event.producer
             task_id = [string]$event.task_id
             map_id = [string]$event.map_id
@@ -532,6 +584,17 @@ function New-TaskspaceProviderRequestArtifacts {
     if ($expectedRequestCount -lt $distinctRequestCount) { $expectedRequestCount = $distinctRequestCount }
     $coverage = if ($count -gt 0) { [int][Math]::Round(([double]$phaseKnown / [double]$count) * 100.0) } else { 0 }
     $unknownRatio = if ($count -gt 0) { [int][Math]::Round((([double]$count - [double]$phaseKnown) / [double]$count) * 100.0) } else { 100 }
+    $reasonCoverage = if ($count -gt 0) { [int][Math]::Round(([double]$reasonKnown / [double]$count) * 100.0) } else { 0 }
+    $reasonUnknownRatio = if ($count -gt 0) { [int][Math]::Round(([double]$unknownReason / [double]$count) * 100.0) } else { 100 }
+    $reasonCoverageStatus = if ($count -eq 0) {
+        "missing"
+    } elseif ($reasonSchemaCount -eq 0) {
+        "unavailable"
+    } elseif ($unknownReason -eq 0) {
+        "measured"
+    } else {
+        "measured_with_unknown"
+    }
     $hookCoverage = if ($expectedRequestCount -gt 0) { [int][Math]::Min(100, [Math]::Round(([double]$distinctRequestCount / [double]$expectedRequestCount) * 100.0)) } else { 0 }
     $terminalCoverage = if ($expectedRequestCount -gt 0) { [int][Math]::Min(100, [Math]::Round(([double]$terminalRequestCount / [double]$expectedRequestCount) * 100.0)) } else { 0 }
     $phaseTokenSummary = [ordered]@{}
@@ -556,6 +619,18 @@ function New-TaskspaceProviderRequestArtifacts {
             non_model_sampling_phase_count = [int]$nonModelSamplingPhaseCount
             non_model_sampling_distinct_phase_count = [int]$nonModelSamplingPhaseNames.Count
             phase_diversity_gate_pass = [bool]$phaseDiversityGatePass
+        }
+        request_reason_summary = [pscustomobject]@{
+            schema_version = "taskspace-request-reason-summary-v1"
+            request_reason_coverage_status = $reasonCoverageStatus
+            request_reason_event_count = [int]$reasonSchemaCount
+            provider_request_event_count = $count
+            request_reason_attribution_coverage = $reasonCoverage
+            unknown_request_reason_ratio = $reasonUnknownRatio
+            request_reason_unknown_count = [int]$unknownReason
+            repeated_same_reason_no_delta_count = [int]$repeatedNoDeltaCount
+            trigger_kind_counts = Convert-TaskspaceCostTable $triggerCounts
+            request_reason_delta_counts = Convert-TaskspaceCostTable $deltaCounts
         }
     }
 }
@@ -1571,6 +1646,7 @@ function Write-TaskspaceCostInstrumentationArtifacts {
     $activeReplacementReportPath = Join-Path $ArtifactDir "active-context-replacement-report.json"
     $providerRequestEventsPath = Join-Path $ArtifactDir "provider-request-events.jsonl"
     $requestPhaseSummaryPath = Join-Path $ArtifactDir "request-phase-summary.json"
+    $requestReasonSummaryPath = Join-Path $ArtifactDir "request-reason-summary.json"
     $providerCacheTracePath = Join-Path $ArtifactDir "provider-cache-trace.jsonl"
     $providerCacheTraceSummaryPath = Join-Path $ArtifactDir "provider-cache-trace-summary.json"
     $stateCommitDisplacementPath = Join-Path $ArtifactDir "state-commit-displacement.json"
@@ -1627,6 +1703,7 @@ function Write-TaskspaceCostInstrumentationArtifacts {
         [System.IO.File]::WriteAllText($providerRequestEventsPath, "", [System.Text.UTF8Encoding]::new($false))
     }
     $providerRequest.request_phase_summary | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $requestPhaseSummaryPath -Encoding UTF8
+    $providerRequest.request_reason_summary | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $requestReasonSummaryPath -Encoding UTF8
     $providerCacheTraceEventLines = @($providerCacheTrace.provider_cache_trace_events | ForEach-Object { $_ | ConvertTo-Json -Compress -Depth 20 })
     if ($providerCacheTraceEventLines.Count -gt 0) {
         $providerCacheTraceEventLines | Set-Content -LiteralPath $providerCacheTracePath -Encoding UTF8
@@ -1653,6 +1730,7 @@ function Write-TaskspaceCostInstrumentationArtifacts {
         active_context_replacement_report_path = $activeReplacementReportPath
         provider_request_events_path = $providerRequestEventsPath
         request_phase_summary_path = $requestPhaseSummaryPath
+        request_reason_summary_path = $requestReasonSummaryPath
         provider_cache_trace_path = $providerCacheTracePath
         provider_cache_trace_summary_path = $providerCacheTraceSummaryPath
         state_commit_displacement_path = $stateCommitDisplacementPath
@@ -1673,6 +1751,7 @@ function Write-TaskspaceCostInstrumentationArtifacts {
         active_context_replacement_report = $activeReplacement.active_context_replacement_report
         provider_request_events = $providerRequest.provider_request_events
         request_phase_summary = $providerRequest.request_phase_summary
+        request_reason_summary = $providerRequest.request_reason_summary
         provider_cache_trace_events = $providerCacheTrace.provider_cache_trace_events
         provider_cache_trace_summary = $providerCacheTrace.provider_cache_trace_summary
         state_commit_displacement = $stateCommitDisplacement

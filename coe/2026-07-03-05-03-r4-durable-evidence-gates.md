@@ -12356,3 +12356,350 @@
 - Interpretation:
   - H-190 Phase 1 is closed: request-count amplification now has a durable reason ledger and repeated no-delta detector.
   - The remaining repair work should consume this ledger to identify evidence adoption and projection gaps; it should not add runtime semantic control before a trace-backed adoption gap is proven.
+
+# Hypothesis H-191: request convergence failures are amplified by residual runtime overreach in feedback/projection paths
+
+- Claim: After H-190, the next request-count repair should first remove residual runtime semantic control that conflicts with the clarified TaskSpace boundary. Two concrete overreach paths remained: inspect evidence could auto-transition into implementation, and validation rework duplicate complete reads could be blocked as if low information gain were a hard baseline.
+- Predictions:
+  1. Source inspection will find a production call from successful inspect read/search result recording into forced inspect transition.
+  2. Source inspection will find a production duplicate-read gate rejecting exact validation rework target reads before a successful edit.
+  3. Removing those controls should leave evidence/result visibility intact and should not regress provider request reason accounting.
+  4. Active projection can express the same state facts without `do not` / `retry only` / weaker-validation strategy commands.
+- Diagnostic evidence plan:
+  - Patch runtime behavior first, then update focused tests from "runtime forces/blocks" to "runtime preserves evidence and leaves action choice agent-controlled".
+  - Add projection text audit assertions for the active `next_valid_actions` constructor.
+  - Re-run request ledger and projection filters before any real sample rerun.
+- Status: implemented locally; real sample validation pending.
+
+# Evidence E-371: production forced inspect transition and duplicate-read block removed
+
+- Prediction tested: H-191 predictions 1 and 2.
+- Repair:
+  - Removed the `record_main_tool_result` production branch that called `force_finish_inspect_for_provider_budget(..., "inspect_progress_convergence")` after successful inspect read/search evidence.
+  - Scoped `force_finish_inspect_for_provider_budget`, `force_finish_implement_for_provider_budget`, and `force_finish_validation_after_successful_tool` to `#[cfg(test)]`, so production runtime no longer exposes those automatic semantic transition helpers.
+  - Removed the `validation_rework_duplicate_artifact_read` production gate and its duplicate target read matcher/completeness feedback helper. Exact duplicate complete target reads are no longer blocked by runtime; they remain Agent-controlled ordinary reads, with provider budget as the hard cost baseline.
+- Boundary interpretation:
+  - Inspect evidence is ledger evidence, not a runtime-created transition.
+  - Duplicate complete read is a low-information signal, not a state-machine hard violation.
+  - Successful validation adoption remains ledger bookkeeping and does not by itself create the next semantic node.
+- Focused behavior tests:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib inspect_progress_convergence_records_evidence_without_runtime_transition --locked
+    passed: 1 test
+
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib validation_rework_allows_changed_artifact_read_when_schema_failure_lacks_traceback --locked
+    passed: 1 test
+  ```
+- Interpretation:
+  - H-191 predictions 1 and 2 are confirmed and repaired for the production path.
+
+# Evidence E-372: active projection rewritten as factual feedback constructor
+
+- Prediction tested: H-191 prediction 4.
+- Repair:
+  - Replaced strategy text in active projection next actions:
+    - `do not repeat the blocked inspect action...` -> `blocked_inspect_action_repeat_detected...`
+    - `do not finish inspect_code_context...` -> `inspect_finish_blocker...`
+    - `retry edits only...` -> `edit_action_contract...`
+    - `do not taskspace_control(action=finish_node)...` -> `finish_node_blocker...`
+    - `do not substitute weaker validation...` -> `validation_recovery_fact...`
+  - Reworded validation rework failed-edit feedback so it says the failed edit result remains model-visible, instead of telling the Agent which action to choose.
+  - Reworded legacy duplicate-read recovery text in session from `Do not repeat...` to `duplicate_complete_read_signal: ... no recorded new state/tool evidence delta yet`.
+  - Added `assert_projection_actions_are_factual(...)` over key projection tests to prevent the old strategy phrases from returning.
+- Verification:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib projection_ --locked
+    passed: 22 tests
+
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib validation_rework_duplicate_read --locked
+    passed: 7 tests
+  ```
+- Interpretation:
+  - Active projection now behaves as a bounded factual constructor for the repaired paths. It still exposes tool/action schema facts, but no longer injects the repaired strategy phrases.
+
+# Evidence E-373: request reason/report gates now expose repeated no-delta and unknown attribution
+
+- Prediction tested: H-191 prediction 3 and Phase 6 report prerequisite.
+- Repair:
+  - `scripts/taskspace-benchmark/lib/cost-instrumentation.ps1` now exports `request-reason-summary.json` and carries request reason fields into provider request artifacts.
+  - `write-r4-public-10-tool-stress-report.ps1` and public-10 gate tests now require request reason coverage fields for measured rows.
+  - Legacy snapshot rows are marked `documented_legacy_unavailable` rather than pretending request reason data exists.
+- Verification:
+  ```text
+  pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/taskspace-benchmark/test-cost-instrumentation.ps1
+    passed
+
+  pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/taskspace-benchmark/test-r4-public-10-usage-accounting-gate.ps1
+    passed
+
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib request_convergence --locked
+    passed: 1 test
+
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib provider_request --locked
+    passed: 11 tests
+  ```
+- Interpretation:
+  - H-191 code-level repair does not hide request amplification. It improves the diagnostic surface for Phase 5/6 instead of adding new runtime shackles.
+  - Phase 5 targeted samples remain required before claiming request-count benefit or E3 readiness.
+
+# Hypothesis H-192: stale final-readiness recovery can outlive the ledger facts that made it obsolete
+
+- Claim: A remaining request amplification path was not caused by Agent intelligence failure or by a need for another runtime stop. The feedback layer preserved an old final-readiness recovery item after the active projection already showed the previously missing ledger items as satisfied. That stale recovery text kept obsolete control-path wording visible to the Agent and could bias subsequent actions toward repeated state updates.
+- Predictions:
+  1. In a failing `heterogeneous-dates` run, the Agent will have produced a legal `final_answer`, then continue with repeated TaskSpace bookkeeping requests after final readiness rejection.
+  2. The later active projection will show the relevant success criteria/output contract as satisfied while the provider-visible history still contains stale `TaskSpaceFinalReadinessRecoveryV1`/raw `taskspace_control` recovery text from the earlier rejection.
+  3. Removing stale contradictory recovery items from provider-visible context once the active projection closes their missing ledger ids should reduce the repeated no-delta request loop without blocking any Agent action.
+- Diagnostic evidence plan:
+  - Inspect the latest failed `heterogeneous-dates` trace for final-answer rejection, subsequent projection state, and exact payload scan markers.
+  - Repair the context composer/action-contract prompt preservation rule so final-readiness recovery remains visible only while it still applies to the latest active projection.
+  - Re-run the same sample right-only and compare correctness, request count, repeated no-delta count, final action, and exact payload scan.
+- Status: implemented and validated on the targeted sample; Phase 5 targeted diagnostics are complete with benefit no-go from org/sqlite.
+
+# Evidence E-374: stale final-readiness recovery repaired and targeted `heterogeneous-dates` no longer loops to hard stop
+
+- Prediction tested: H-192 predictions 1-3.
+- Failing run before repair:
+  ```text
+  target/r4-phase5-output-contract-status-fix-20260708-heterogeneous/runs/terminal_bench__heterogeneous-dates/20260708-041916-765
+  ```
+- Observations before repair:
+  - The Agent emitted `final_answer` around request 10, then final readiness rejected it for missing ledger items.
+  - Later projection showed the original criteria/output contract as `status=satisfied`.
+  - Exact payload scan still reported stale legacy/raw control history in later provider requests.
+  - Request summary reached the 20 request hard budget: `provider_request_distinct_count=20`, `repeated_same_reason_no_delta_count=14`.
+  - Last message was another `state_commit`, not `final_answer`.
+- Repair:
+  - `third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs` rewrote final-readiness missing-ledger feedback from directive-like "call taskspace_control ... then retry final_answer" wording into factual state-record schema availability.
+  - `third_party/codex-cli/codex-rs/core/src/session/turn.rs` now parses final-readiness missing ledger ids and omits a preserved recovery item when the latest active projection already marks all those ids `status=satisfied` or `status=waived`.
+  - The repair removes stale contradictory feedback from provider-visible context. It does not block `state_commit`, force `final_answer`, or add a new semantic hard stop.
+- Focused verification:
+  ```text
+  cargo fmt --check
+    passed
+
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib final_readiness_recovery --locked
+    passed: 6 tests
+
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib action_contract_prompt --locked
+    passed: 31 tests
+
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib active_context_replacement --locked
+    passed: 271 tests
+
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib final_response_ --locked
+    passed: 13 tests
+  ```
+- Targeted sample rerun:
+  ```text
+  target/r4-phase5-stale-final-readiness-fix-20260708-heterogeneous/runs/terminal_bench__heterogeneous-dates/20260708-043442-428/pair-001
+  ```
+- Rerun outcome:
+  - `right/taskspace business_success=True`
+  - `public_validation_exit_code=0`
+  - `hidden_oracle_exit_code=0`
+  - `provider_request_distinct_count=11`
+  - `repeated_same_reason_no_delta_count=0`
+  - `request_reason_unknown_count=0`
+  - `tool_call_count=7`
+  - `last-message.md` is a `final_answer`
+  - exact payload scan has no `passed=false`, no `legacy_taskspace_history_present=true`, and no nonzero `raw_taskspace_control_history_tokens`.
+- E3 status:
+  - This run is right-only and diagnostic. It remains `E2-candidate` because of `repeats_lt_3`, `side_selection_skipped:left`, external validator fidelity not proven, and missing human audit.
+  - It closes the H-192 loop symptom but does not by itself authorize E3 progression.
+- Interpretation:
+  - H-192 is closed for the observed failure class.
+  - The fix supports the R4 principle: when Agent behavior looks low quality, first suspect semantic/context transfer. The repair improved semantic validity by dropping stale contradictory feedback instead of adding a runtime action constraint.
+
+# Hypothesis H-193: failed edit feedback is visible but not yet actionably compact enough for patch recovery
+
+- Claim: After H-191/H-192, `organization-json-generator` no longer fails because of stale final-readiness recovery or unknown request attribution. The remaining TaskSpace failure is a feedback-actionability problem: repeated `apply_patch` failures and the original Python `TypeError` are visible, but the model spends the budget trying mismatched hunks and never produces the required `organization.json`.
+- Predictions:
+  1. A paired rerun will show standard solves while TaskSpace remains wrong.
+  2. TaskSpace request attribution will be complete (`unknown=0`) and repeated same-reason no-delta will be 0, ruling out the H-190/H-192 observability loop class.
+  3. Validation will fail because the required output file is missing, while stderr shows repeated patch hunk verification failures after an earlier concrete Python exception.
+  4. The next repair should improve failed-edit feedback usability or edit affordance fidelity without blocking Agent attempts or forcing a strategy.
+- Status: confirmed as next-slice blocker; not repaired in this phase.
+
+# Evidence E-375: `organization-json-generator` paired diagnostic records failed-edit actionability no-go
+
+- Prediction tested: H-193 predictions 1-3.
+- Run:
+  ```text
+  target/r4-phase5-request-convergence-org-20260708/runs/terminal_bench__organization-json-generator/20260708-044045-953/pair-001
+  ```
+- Pair outcome:
+  - `outcome_standard=solved`
+  - `outcome_taskspace=wrong`
+  - standard public validation exit code: 0
+  - TaskSpace public validation exit code: 1
+  - TaskSpace changed `generate.py` but did not create `organization.json`.
+- Request and feedback evidence:
+  - `request-phase-summary.json`: `provider_request_distinct_count=20`, attribution coverage 100%, unknown phase ratio 0.
+  - `request-reason-summary.json`: `request_reason_unknown_count=0`, `repeated_same_reason_no_delta_count=0`.
+  - `whale-exec.stderr.log` includes the original `TypeError: unsupported operand type(s) for +: 'int' and 'str'`.
+  - The same stderr log includes repeated `apply_patch verification failed` entries, including failed expected-line matches and one invalid hunk.
+  - `last-message.md` is another `apply_patch` action rather than a successful test or final answer.
+  - `validation.stdout.log` fails because `/app/organization.json does not exist`.
+- Interpretation:
+  - This is a benefit no-go for Phase 5, not an H-192 regression.
+  - The runtime should not refuse future patch attempts. The next repair should preserve exact failed-edit semantics while making the latest failure, target file state, and viable edit affordance easier for the Agent to consume.
+
+# Hypothesis H-194: long inspect evidence remains semantically visible but is not converted into timely implementation
+
+- Claim: After runtime overreach removal, `sqlite-db-truncate` shows a different request convergence blocker. The model spends many requests inspecting and reasoning about the corrupted database, eventually writes and runs `recover.py`, but the implementation is late and low quality. The failure is not unknown attribution or stale recovery; it is insufficiently efficient projection/feedback around large inspect evidence and implementation readiness.
+- Predictions:
+  1. A paired rerun will show standard solves while TaskSpace remains wrong.
+  2. TaskSpace request attribution will be complete (`unknown=0`) and repeated same-reason no-delta will be 0.
+  3. TaskSpace will create `recover.py` and `recover.json`, proving it moved into implementation, but validation will show an insufficient recovery score.
+  4. The next repair should improve progressive exposure and synthesis of long inspect evidence without auto-transitioning, blocking reads, or forcing implementation.
+- Status: confirmed as next-slice blocker; not repaired in this phase.
+
+# Evidence E-376: `sqlite-db-truncate` paired diagnostic records long-inspect implementation no-go
+
+- Prediction tested: H-194 predictions 1-3.
+- Run:
+  ```text
+  target/r4-phase5-request-convergence-sqlite-20260708/runs/terminal_bench__sqlite-db-truncate/20260708-044047-534/pair-001
+  ```
+- Pair outcome:
+  - `outcome_standard=solved`
+  - `outcome_taskspace=wrong`
+  - standard public validation exit code: 0
+  - TaskSpace public validation exit code: 1
+  - TaskSpace changed both `recover.py` and `recover.json`.
+- Request and validation evidence:
+  - `request-phase-summary.json`: `provider_request_distinct_count=20`, attribution coverage 100%, unknown phase ratio 0.
+  - `request-reason-summary.json`: `request_reason_unknown_count=0`, `repeated_same_reason_no_delta_count=0`.
+  - `last-message.md` is `run_test` for `python3 recover.py`, so the run reached implementation/testing rather than a stale inspect loop.
+  - `validation.stdout.log` fails with `AssertionError: Did not load data correctly` and `assert 2 > 6`.
+- Interpretation:
+  - This is a Phase 5 benefit no-go and a next-slice projection/large-inspect feedback problem.
+  - It does not justify restoring runtime inspect auto-transition or duplicate-read hard blocks. The action choice stays with the Agent; TaskSpace must focus on preserving and exposing evidence more efficiently.
+
+# Hypothesis H-195: action-contract transport retained a duplicate-read hard reject after ActionMap runtime cleanup
+
+- Claim: H-191 removed the `ActionMapRuntime` duplicate-read gate, but cache-optimized action-contract transport still had an independent production reject before mapping `read_file` to `shell_command`. This meant the claimed boundary cleanup was incomplete for DeepSeek action-contract mode.
+- Predictions:
+  1. Source review will find a production call from parsed `taskspace-action-v1` handling into a duplicate validation rework target read reject helper.
+  2. Static action-contract/recovery text will still include strategy wording such as duplicate reads "may be rejected" or directing reuse/apply_patch.
+  3. Removing the action-contract reject helper should let duplicate target `read_file` map to the ordinary shell read tool call while preserving factual low-information markers.
+- Status: confirmed by adversarial review; fixed locally.
+
+# Evidence E-377: adversarial review blocker fixed for action-contract duplicate target reads
+
+- Prediction tested: H-195 predictions 1-3.
+- Adversarial review finding:
+  - `third_party/codex-cli/codex-rs/core/src/session/turn.rs` still called `taskspace_closed_validation_rework_read_reject_reason(...)` in action-contract mode after parsing an Agent `read_file` action.
+  - Static action-contract text still said an exact duplicate validation rework target read "may be rejected" and steered the Agent toward previous result/apply_patch.
+  - Tests still expected the duplicate target read to be rejected, which would have preserved the overreach.
+- Repair:
+  - Removed the production `taskspace_closed_validation_rework_read_reject_reason` / `taskspace_action_reads_validation_rework_artifact` path.
+  - Removed the pre-tool duplicate target read rejection from the action-contract parsed-action loop.
+  - Changed static contract, state, recent-feedback, and patch-only recovery wording from strategy/rejection language to factual low-information evidence markers.
+  - Updated tests so duplicate validation rework target `read_file` remains allowed and maps to `shell_command`.
+- Boundary interpretation:
+  - A duplicate complete read may be low information, but it is not a hard baseline violation.
+  - TaskSpace can expose the prior read result and low-information marker; the Agent decides whether to read again, patch, test, state_commit, or block within the state machine.
+  - Provider budget remains the hard cost baseline.
+
+# Hypothesis H-196: feedback/projection facts still contained action-recommendation wording after duplicate-read hard-stop removal
+
+- Claim: After H-195 removed the production duplicate-read hard reject, some provider-visible recovery/projection strings still used fields or phrases such as `available_actions`, "apply_patch is available", or conditional `read_file ... only if ...`. Even without a hard reject, those strings could reintroduce runtime strategy steering through the feedback layer.
+- Predictions:
+  1. Static source scan will find strategy-like wording in recent tool output summaries, validation rework recovery items, and projection next-action strings.
+  2. Rewriting those strings to state facts, evidence facts, action-space source fields, and hard-baseline requirements should not change tool execution or action-contract legality.
+  3. Focused projection/action-contract tests should continue to pass while negative scans show the old phrases only in test assertions.
+- Status: confirmed; fixed locally as a feedback/projection boundary cleanup.
+
+# Evidence E-378: residual action-suggestion wording replaced with fact/source fields
+
+- Prediction tested: H-196 predictions 1-3.
+- Repair:
+  - Replaced recent feedback strings such as "apply_patch is available", "run_test ... is available", and `available_actions` with `progress_fact`, `state_machine_requirement`, `validation_command_source`, or `action_space_source` fields.
+  - Replaced validation rework projection strings such as conditional target reads and "apply_patch validation rework target" with structured facts:
+    - `validation_rework_target_artifact`
+    - `validation_rework_target_read_result`
+    - `validation_rework_target_refresh_candidate`
+    - `validation_rework_patch_target_artifacts`
+    - `duplicate_complete_target_read_signal`
+  - Updated tests so they assert factual markers and negative strategy phrases instead of requiring action-suggestion text.
+- Focused validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib action_contract_prompt --locked
+    passed: 31 tests
+
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib validation_rework_duplicate_read --locked
+    passed: 7 tests
+
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib projection_ --locked
+    passed: 22 tests
+
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib implementation_recovery --locked
+    passed: 9 tests
+  ```
+- Static scan:
+  - The old strategy-like phrases (`available_actions:`, `apply_patch is available`, `taskspace_control action=state_commit is available`, `read_file validation rework target artifact`, `read/search/list_files remain state-machine-legal`) remain only in negative test assertions or historical COE/doc references, not in production feedback strings.
+- Boundary interpretation:
+  - Projection and recovery feedback now expose what happened, which state baseline failed, and where legal action space is defined.
+  - They do not choose next actions, rank actions, or convert low-information evidence into a hard runtime rejection.
+
+# Hypothesis H-197: production-visible boundary cleanup remained incomplete outside the duplicate-read slice
+
+- Claim: The first H-196 cleanup focused on duplicate-read and validation rework wording, but broader production-visible feedback still contained strategy/control phrasing such as `Available next actions`, `Do not call`, `Current request allowed actions are narrowed`, `Next valid action`, and task reborn / mode-transition directives. This kept feedback projection partly outside the intended "facts plus hard baselines" boundary.
+- Predictions:
+  1. A production-segment static scan will still find strategy-like phrases outside tests and detector code.
+  2. Rewriting these strings into state facts, rejected-baseline facts, action-space source facts, and transport/tool-format facts will not require new runtime gates.
+  3. The remaining production hits after repair should be limited to tool grammar facts or detector source strings, not provider-visible strategy recommendations.
+- Status: confirmed by adversarial review; fixed locally.
+
+# Evidence E-379: broader production feedback wording converted to boundary-safe facts
+
+- Prediction tested: H-197 predictions 1-3.
+- Adversarial review finding:
+  - `session/turn.rs` still emitted action-contract state items with "Current request allowed actions are narrowed" and "Do not call" wording.
+  - `action_map/runtime.rs` still emitted "Available next actions", "Next valid action", "Preferred fix", task reborn "do not continue", and mode-transition directives in production-visible context.
+  - `action_map/basemap.rs` still exposed prompt fragments with strategy-style "Use / Prefer / Do not" wording rather than capability/contract facts.
+- Repair:
+  - `TaskSpaceActionContract*` items now expose `state_machine_allowed_actions`, `rejected_by_state_baseline`, `validator_command_source`, and related factual fields.
+  - Active projection availability and path-correction items now use `state_transition_contract`, `action_space_source`, `visible_evidence_status`, and candidate path context fields.
+  - Bootstrap/routing/reborn/context prompts now describe hard state-machine facts and available ledger operations without ranking actions or instructing strategy.
+  - `base_map_metadata_prompt`, `node_kind_selection_prompt`, and `cognitive_state_protocol_prompt` were rewritten from instruction lists into candidate menus and contract facts.
+- Static scan after repair:
+  ```text
+  sed -n '1,5190p' third_party/codex-cli/codex-rs/core/src/session/turn.rs | rg 'Available next actions|Do not call|Current request allowed actions are narrowed|Next valid action|Preferred fix|The next action must|Suggested recovery|Suggested action|Prefer |Use |do not |must choose|should choose'
+    remaining hits: apply_patch grammar facts, one stream-retry code comment, and detector source matching old phrases
+
+  sed -n '1,19905p' third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs | rg 'Available next actions|Do not call|Current request allowed actions are narrowed|Next valid action|Preferred fix|The next action must|Suggested recovery|Suggested action|Prefer |Use |do not |must choose|should choose'
+    no production hits
+
+  rg 'Available next actions|Do not call|Current request allowed actions are narrowed|Next valid action|Preferred fix|The next action must|Suggested recovery|Suggested action|Prefer |Use |do not |must choose|should choose' third_party/codex-cli/codex-rs/core/src/action_map/basemap.rs
+    no production hits
+  ```
+- Boundary interpretation:
+  - Transport/tool grammar facts are still allowed because they preserve exact tool input semantics.
+  - Runtime feedback still reports hard-baseline failures and legal state-machine action classes, but it does not select, rank, or correct the Agent's semantic strategy.
+
+# Hypothesis H-198: Phase 5 request-count evidence used two different artifacts without a declared canonical source
+
+- Claim: The Phase 5 table reported TaskSpace request counts as `11/20/20`, but raw artifacts also exposed top-level `request-summary.model_request_count=1`, rollout-trace `model_request_count=12/21/21`, and request-reason event counts `44/80/80`. Without an explicit canonical definition, the no-go/benefit evidence was ambiguous even though the underlying artifacts were present.
+- Predictions:
+  1. Latest Phase 5 TaskSpace runs will show `request-phase-summary.provider_request_distinct_count=11/20/20`.
+  2. The same runs will show `request-summary.rollout_trace.model_request_count=12/21/21` and top-level `request-summary.model_request_count=1`, proving a source-precedence rule is required.
+  3. Public report extraction should prefer `request-phase-summary.provider_request_distinct_count` when present and positive, while preserving rollout trace as legacy/fallback telemetry.
+- Status: confirmed; fixed locally.
+
+# Evidence E-380: request-count source precedence made explicit and test-covered
+
+- Prediction tested: H-198 predictions 1-3.
+- Artifact check:
+  - `heterogeneous-dates`: `request-phase-summary.provider_request_distinct_count=11`, `request-summary.model_request_count=1`, `request-summary.rollout_trace.model_request_count=12`, `request_reason_event_count=44`.
+  - `organization-json-generator` TaskSpace: `provider_request_distinct_count=20`, top-level `model_request_count=1`, rollout trace `model_request_count=21`, `request_reason_event_count=80`.
+  - `sqlite-db-truncate` TaskSpace: `provider_request_distinct_count=20`, top-level `model_request_count=1`, rollout trace `model_request_count=21`, `request_reason_event_count=80`.
+- Repair:
+  - `scripts/taskspace-benchmark/write-r4-public-10-tool-stress-report.ps1` now checks `request-phase-summary.json.provider_request_distinct_count` before rollout trace / provider cache / summary / metrics and reports source `request_phase_summary_provider_distinct`.
+  - `scripts/taskspace-benchmark/test-r4-public-10-tool-stress-plan.ps1` allow-lists the new source.
+  - `scripts/taskspace-benchmark/test-r4-public-10-usage-accounting-gate.ps1` adds a fixture proving TaskSpace request count prefers request-phase distinct provider count over rollout trace fallback.
+  - `docs/v0.0.5/build-R4/10-r4-request-convergence-engineering-plan.md` now defines Phase 5 canonical request-count source and explains why top-level summary and rollout trace are not the canonical TaskSpace convergence count when request-phase summary is available.
+- Boundary interpretation:
+  - This is observability/accounting cleanup, not a new runtime control.
+  - It makes Phase 5 no-go evidence auditable and prevents accidental overclaiming from mixed count semantics.

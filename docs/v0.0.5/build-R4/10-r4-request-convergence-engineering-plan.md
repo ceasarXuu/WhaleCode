@@ -3,7 +3,7 @@
 - Created: 2026-07-08
 - Updated: 2026-07-08
 - Version: v0.0.5 build-R4 post-closeout
-- Status: Active - Phase 1 ledger implemented; Phase 2 pending
+- Status: Active - Phase 1-4 implemented; Phase 5 targeted diagnostics complete with benefit no-go; Phase 6 no-go recorded, full public-10 deferred
 - Owner / Responsible: WhaleCode core runtime
 - Related Systems: TaskSpace runtime, ActionMapRuntime, session turn loop, action-contract feedback, active projection, context compiler, benchmark harness
 - Related Links:
@@ -138,7 +138,7 @@ what_feedback_path_was_used:
 | Non-budget hard stops | removed in latest closure | loop-level tests still need hardening |
 | Feedback classification | `ToolFeedbackRecovery` split from no-action | other feedback classes still need request-reason proof |
 | Projection | shifted toward factual constructor | some historical paths still require text audits and fixtures |
-| Sample evidence | public-10 reports request multipliers | targeted rerun after latest boundary fixes pending |
+| Sample evidence | public-10 reports request multipliers; three targeted reruns now complete diagnostically | benefit no-go: org/sqlite paired reruns standard solved but TaskSpace wrong; full public-10 deferred |
 
 ## 9. Overall Technical Design
 
@@ -254,6 +254,126 @@ Phase 1 已落地为观测账本，不是新的语义控制策略。
 | Runtime behavior | 不新增非预算 hard-stop，不新增动作纠正，不新增 strategy prompt |
 | Event visibility | 常规 provider lifecycle 继续返回 `TaskspaceTraceEventRecorded`；pre-dispatch hard-stop reason 写入 ActionMap snapshot trace，用于回放和报告 |
 | Next dependency | Phase 2 必须基于该账本识别 evidence adoption gap，不能直接加语义 stop |
+
+### Phase 2-4 Implementation Status - 2026-07-08
+
+本轮继续执行后的结论：Phase 2-4 的代码层收敛以“减少 runtime 语义干预、加强可观测账本”为主，而不是新增动作约束。
+
+已实现内容：
+
+1. 生产路径删除 `record_main_tool_result` 中 inspect 读/搜证据达到阈值后自动调用 `force_finish_inspect_for_provider_budget(..., "inspect_progress_convergence")` 的行为。
+2. `force_finish_inspect_for_provider_budget`、`force_finish_implement_for_provider_budget`、`force_finish_validation_after_successful_tool` 已收窄为 `#[cfg(test)]`，生产 runtime 不再暴露这些自动阶段迁移入口。
+3. validation rework 中 exact duplicate complete target read 不再被 runtime 硬拒绝为 `validation_rework_duplicate_artifact_read`；重复读取是否有价值由 Agent 决策，成本上限仍由 provider budget 硬基线负责。
+4. active projection 的 `next_valid_actions` 去掉 `do not repeat`、`do not finish`、`retry edits only`、`do not substitute weaker validation` 等策略指令，改为事实型 marker：`inspect_finish_blocker`、`edit_action_contract`、`finish_node_blocker`、`validation_recovery_fact`。
+5. 保留成功验证结果的 adoption 账本能力，但不把 adoption 当作 runtime 自动 finish/transition 的理由。
+6. request reason ledger 和 public report extractor 增加 request-reason coverage / unknown / repeated-no-delta 汇总字段，供 Phase 5/6 判断请求放大是否来自语义传递问题。
+7. 对抗性审查发现 action-contract transport 仍残留 validation rework duplicate target read 硬拒绝；已删除 `taskspace_closed_validation_rework_read_reject_reason` 生产分支，并把相关 contract/recovery 文案改为低信息量事实 marker，重复 read_file 仍保持 state-machine-legal。
+8. H-196 补充清理 feedback/projection 里残留的动作建议句式：`available_actions`、`apply_patch is available`、条件式 `read_file ... only if ...` 等生产文案改为 `state_machine_requirement`、`validation_command_source`、`action_space_source`、`validation_rework_target_read_result`、`duplicate_complete_target_read_signal` 等事实字段。
+
+边界审计：
+
+| Path | Previous Behavior | Current Classification | Current Status |
+|---|---|---|---|
+| inspect progress convergence | read/search 后 runtime 可自动 finish inspect 并创建 implement node | runtime overreach candidate | production path removed; test-only historical helper retained |
+| validation rework duplicate complete read | exact duplicate read 被硬拒绝并生成 recovery | runtime overreach candidate | production block removed; duplicate read remains agent-controlled |
+| action-contract duplicate target read | cache-optimized transport 可在 shell read 前硬拒绝重复 target read | runtime overreach candidate | production reject removed after adversarial review; retained only factual low-information marker |
+| feedback/projection action-suggestion wording | `available_actions`/`apply_patch is available`/条件式 target read 文案可能像 runtime 策略建议 | feedback constructor overreach candidate | production wording converted to fact/source fields; tests assert old phrases absent |
+| successful validation adoption | 成功 test/build 可自动标记 validation result validity | ledger adoption | retained; does not create semantic next node by itself |
+| provider budget pre-dispatch | 达到总请求预算停止本 turn provider sampling | hard baseline | retained with reason ledger tags |
+| active projection next actions | 混合事实和策略指令 | feedback constructor | rewritten to factual markers plus state-machine tool facts |
+
+已验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib inspect_progress_convergence_records_evidence_without_runtime_transition --locked
+  passed: 1 test
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib validation_rework_allows_changed_artifact_read_when_schema_failure_lacks_traceback --locked
+  passed: 1 test
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib projection_ --locked
+  passed: 22 tests
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib validation_rework_duplicate_read --locked
+  passed: 7 tests
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib request_convergence --locked
+  passed: 1 test
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib provider_request --locked
+  passed: 11 tests
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib action_contract_prompt --locked
+  passed: 31 tests
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib implementation_recovery --locked
+  passed: 9 tests
+```
+
+当前解释：
+
+- Phase 2 的 adoption 方向已收敛到“证据账本记录，不自动语义迁移”。
+- Phase 3 的 projection/feedback 方向已收敛到“事实 marker + result refs，不注入动作策略”。
+- Phase 4 的 loop harness 已落地 request reason no-delta fixture；Phase 5 targeted samples 已跑完并记录 benefit no-go，Phase 6 因 targeted no-go 停在 public-10/E3 之前。
+
+### Phase 5 Targeted Sample Status - 2026-07-08
+
+三个 targeted samples 已按诊断模式跑完。`heterogeneous-dates` 使用 right-only 复跑验证 H-192；`organization-json-generator` 和 `sqlite-db-truncate` 使用 paired 模式验证标准侧与 TaskSpace 侧差异。
+
+```text
+target/r4-phase5-stale-final-readiness-fix-20260708-heterogeneous/runs/terminal_bench__heterogeneous-dates/20260708-043442-428/pair-001
+target/r4-phase5-request-convergence-org-20260708/runs/terminal_bench__organization-json-generator/20260708-044045-953/pair-001
+target/r4-phase5-request-convergence-sqlite-20260708/runs/terminal_bench__sqlite-db-truncate/20260708-044047-534/pair-001
+```
+
+计数口径：
+
+- Phase 5 表格里的 `TaskSpace Provider Requests` 使用 canonical 诊断口径：`right/artifacts/request-phase-summary.json.provider_request_distinct_count`。该字段只在 provider lifecycle phase hooks 可用时使用，表示 distinct provider request payload 数；同文件中的 `provider_request_terminal_count` 和 `expected_model_request_count` 在这三次 TaskSpace run 中与它一致。
+- 标准侧 paired baseline 没有 TaskSpace provider lifecycle phase events，因此标准侧请求数仍以 `left/artifacts/request-summary.json.model_request_count=1` 作为 baseline。
+- `right/artifacts/request-summary.json.model_request_count=1` 是 top-level summary，不代表 TaskSpace provider lifecycle 请求总量，不能作为 TaskSpace 侧请求放大判断口径。
+- `right/artifacts/request-summary.json.rollout_trace.model_request_count` 在三次最新 TaskSpace run 中分别为 `12/21/21`，比 canonical distinct provider count `11/20/20` 多 1。该字段保留为 legacy/fallback rollout trace telemetry；当 `request-phase-summary.provider_request_distinct_count` 存在且大于 0 时，R4 public report extractor 现在优先使用 `request_phase_summary_provider_distinct`。
+
+样本结果：
+
+| Sample | Mode | Standard | TaskSpace | TaskSpace Provider Requests | Request Count Source | Request Reason | Terminal / Failure |
+|---|---|---|---|---:|---|---|---|
+| `heterogeneous-dates` | right-only | not run | solved: public=0, hidden=0 | 11 | `request_phase_summary_provider_distinct` | unknown=0, repeated-no-delta=0 | `final_answer`; exact payload scan clean |
+| `organization-json-generator` | paired | solved: public=0, hidden=0 | wrong: public=1, hidden=0 | 20 | `request_phase_summary_provider_distinct` | unknown=0, repeated-no-delta=0 | hard budget after repeated failed `apply_patch`; no `organization.json` generated |
+| `sqlite-db-truncate` | paired | solved: public=0, hidden=0 | wrong: public=1, hidden=0 | 20 | `request_phase_summary_provider_distinct` | unknown=0, repeated-no-delta=0 | hard budget after late incorrect `recover.py`; `recover.json` matches only 2 rows |
+
+结论：
+
+- H-192 的具体失败链路已收敛：旧 run 在 final readiness 后继续重复 `state_commit` 并触发 20 request hard budget；新 run 以 `final_answer` 结束。
+- 该修复没有新增 runtime action block，也没有强制 Agent final；只是当最新 projection 已关闭旧缺口时，不再把陈旧 recovery 保留进 provider-visible history。
+- Phase 5 不支持 benefit pass：两个 paired 样本都证明标准侧可解而 TaskSpace 侧未解，并且均耗尽 20/20 provider request。
+- 这两个 no-go 样本不是 request-reason 观测盲区：request reason coverage 为 100%，unknown 为 0，exact payload scan clean。剩余问题更接近 failed-edit/large-inspect feedback 的可用性和 Agent 对反馈的采纳效率，而不是 H-192 stale recovery 或 repeated-no-delta loop。
+
+### Phase 6 Report Gate Status - 2026-07-08
+
+public-10 report/gate 已支持 request reason coverage 字段：
+
+| Field | Purpose |
+|---|---|
+| `standard_model_request_count_source` / `taskspace_model_request_count_source` | 请求数来源；TaskSpace 侧优先 `request_phase_summary_provider_distinct`，再 fallback 到 rollout trace / provider cache / summary / metrics |
+| `request_reason_coverage_status` | 区分 measured、missing、legacy unavailable |
+| `request_reason_event_count` | 当前 run 中 request reason 事件数量 |
+| `request_reason_unknown_count` | 未知归因数量，measured run 必须为 0 |
+| `request_reason_attribution_coverage` | measured run 的归因覆盖率 |
+| `repeated_same_reason_no_delta_count` | 相同原因且无 evidence/projection delta 的重复请求数量 |
+| `request_reason_trigger_kind_counts` | 按 trigger_kind 聚合 |
+| `request_reason_delta_counts` | 按 request_reason_delta 聚合 |
+
+已验证：
+
+```text
+pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/taskspace-benchmark/test-cost-instrumentation.ps1
+  passed
+
+pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/taskspace-benchmark/test-r4-public-10-usage-accounting-gate.ps1
+  passed
+```
+
+Phase 6 记录 no-go：full public-10 rerun 尚未执行，且 Phase 5 targeted paired samples 已经出现 standard solved / TaskSpace wrong，因此没有继续运行 full public-10 或 E3 的工程依据。后续应先开新的 failed-edit / long-inspect feedback 收敛切片，再重新进入 targeted sample gate。
 
 ## 11. Phased Execution Plan
 
@@ -683,7 +803,7 @@ Run right-only where appropriate for cost control, then paired rerun if a benefi
 
 | Plan Item | Production Code Path | Integration Entry | Test Evidence | Runtime / Log Evidence | Mock / Stub Exposure | Status |
 |---|---|---|---|---|---|---|
-| targeted rerun | whale CLI benchmark harness | Terminal-Bench sample run | harness gates | pair reports/request reason summary | none | planned |
+| targeted rerun | whale CLI benchmark harness | Terminal-Bench sample run | harness gates | three targeted pair reports/request reason summaries | none | diagnostic complete; benefit no-go |
 
 #### Logging And Observability Design
 
@@ -724,7 +844,7 @@ Benefit-realization review before updating public-10 gate.
 
 | Gate Condition | Verification Evidence | Completion Status | User Approval Required | Proceed Decision |
 |---|---|---|---|---|
-| targeted sample pass/no-go table complete with request, wall, token, correctness, and eligibility fields | sample reports + doc summary | planned | no | pause |
+| targeted sample pass/no-go table complete with request, wall, token, correctness, and eligibility fields | sample reports + doc summary | complete as diagnostic no-go | no | stop before full public-10/E3 |
 
 ### Phase 6: Public Gate Update And E3 Decision
 
@@ -762,7 +882,7 @@ Run or update public-10 report with request reason fields. A full public-10 reru
 
 | Plan Item | Production Code Path | Integration Entry | Test Evidence | Runtime / Log Evidence | Mock / Stub Exposure | Status |
 |---|---|---|---|---|---|---|
-| public report update | benchmark scripts | public-10 report generation | report gate tests | public-10 artifact | none | planned |
+| public report update | benchmark scripts | public-10 report generation | report gate tests | no full public-10 rerun after Phase 5 no-go | none | report fields implemented; release no-go recorded |
 
 #### Logging And Observability Design
 
@@ -798,7 +918,7 @@ Adversarial release/benefit review.
 
 | Gate Condition | Verification Evidence | Completion Status | User Approval Required | Proceed Decision |
 |---|---|---|---|---|
-| release decision evidenced | public report + review | planned | no | pause |
+| release decision evidenced | Phase 5 no-go + report-field tests + review | no-go recorded; full public-10 deferred | no | stop |
 
 ## 12. Implementation Completeness Matrix
 
@@ -806,11 +926,11 @@ Adversarial release/benefit review.
 |---|---|---|---|---|---|---|---|
 | Request reason ledger | every provider request has reason | `action_map/runtime.rs` trace enrichment | provider sampling lifecycle | `provider_request` 11/11; `provider_response_actionability` 10/10 | `schema:taskspace-provider-request-reason-v1` reason tags | none | implemented 2026-07-08 |
 | Repeated same-reason detector | unchanged reason/projection/evidence is observable without runtime blocking | `action_map/runtime.rs` reason delta builder | provider sampling lifecycle | `provider_request_reason_ledger_counts_repeated_no_delta_requests` | `request_reason_delta`, `repeated_same_reason_count` | none | detector implemented; no gate by design |
-| Evidence fact adoption repair | satisfied criteria/contracts record result refs without runtime semantic transition | `action_map/runtime.rs` | final gate / taskspace_control | final readiness + boundary negative tests | criterion/output contract refs, `adoption_actor` | none | planned |
-| Feedback semantic integrity | known tool feedback not downgraded | session recovery/projection paths | provider payload | action-contract/projection tests | feedback refs and projection hash | none | planned |
-| Loop regression harness | known loops do not create extra requests | test harness | codex-core tests | request convergence tests | reason summary artifact | test-only but required before sample gate | planned |
-| Targeted sample reruns | real correctness/request benefit passes or no-go is recorded | benchmark harness | Terminal-Bench samples | harness gates | pair reports | none | planned |
-| Public gate update | full public-10 protects go/E3 decision from cherry-pick | report scripts | public-10 report | report gate | durable snapshot with omitted-row handling | none | planned |
+| Evidence fact adoption repair | satisfied criteria/contracts record result refs without runtime semantic transition | `action_map/runtime.rs` | final gate / taskspace_control | boundary negative tests | criterion/output contract refs, `adoption_actor` | none | implemented for current slices; org/sqlite expose next feedback-actionability slice |
+| Feedback semantic integrity | known tool feedback not downgraded | session recovery/projection paths | provider payload | action-contract/projection tests | feedback refs and projection hash | none | implemented for active projection / duplicate-read overreach slice |
+| Loop regression harness | known loops do not create extra requests | test harness | codex-core tests | request convergence tests | reason summary artifact | test-only but required before sample gate | implemented initial no-delta fixture; H-192 sample passed; utility no-go recorded |
+| Targeted sample reruns | real correctness/request benefit passes or no-go is recorded | benchmark harness | Terminal-Bench samples | harness gates | heterogeneous/org/sqlite pair reports | none | diagnostic complete; benefit no-go |
+| Public gate update | full public-10 protects go/E3 decision from cherry-pick | report scripts | public-10 report | report gate | no full public-10 rerun after targeted no-go | none | no-go recorded; rerun deferred |
 
 ## 13. Risks, Dependencies, And Mitigations
 
@@ -850,8 +970,8 @@ No E3 progression is allowed from this plan until Phase 6 records a measured go 
 | Metric | Baseline | Target | Measurement |
 |---|---|---|---|
 | `request_reason_unknown_count` | unavailable | 0 for measured targeted samples | request reason report |
-| `taskspace_model_request_ratio` for `heterogeneous-dates` | historical 12x; latest H-029 solved request count must be collected in Phase 0 | <= 3x and solved against current baseline | paired/right-only rerun with baseline comparison |
-| targeted org/sqlite correctness | public-10 negative: org timeout, sqlite wrong | solved when standard solves and request ratio <= 3x when standard request count is measured; otherwise explicit no-go | paired rerun |
+| `taskspace_model_request_ratio` for `heterogeneous-dates` | historical 12x; latest right-only diagnostic rerun solved at 11 distinct provider requests | <= 3x against a paired current standard baseline; until paired baseline exists, diagnostic closure only | paired rerun with baseline comparison; not enough for go |
+| targeted org/sqlite correctness | public-10 negative: org timeout, sqlite wrong | solved when standard solves and request ratio <= 3x when standard request count is measured; otherwise explicit no-go | paired rerun result: both no-go |
 | targeted sample pass eligibility | unavailable | every targeted row has `request_ratio_threshold`, `request_ratio_result`, `wall_time_ratio_threshold`, `wall_time_ratio_result`, `token_ratio_threshold`, `token_ratio_result`, `sample_pass_eligibility`, `diagnostic_no_go`, `standard_solved`, `taskspace_solved` | targeted report |
 | repeated same-reason no-delta requests | unavailable | 0 passing fixtures | request convergence fixture |
 | generic no-action after actionable tool feedback | historically present | 0 in focused fixtures | actionability/recovery tests |
@@ -881,9 +1001,9 @@ No E3 progression is allowed from this plan until Phase 6 records a measured go 
 | Question | Why It Matters | Resolution Path |
 |---|---|---|
 | Should `TaskSpaceProviderRequestReasonV1` live in session trace or ActionMap trace? | ownership and dependency direction | Phase 1 design check |
-| What exact current request-count baseline should replace historical `heterogeneous-dates` 12x after H-029? | benefit gate strictness | Phase 0 raw extraction or fresh rerun before Phase 5 |
+| What exact current request-count baseline should replace historical `heterogeneous-dates` 12x after H-029? | benefit gate strictness | partially resolved: TaskSpace right-only current count is 11; paired standard baseline still required for benefit ratio |
 | Should the initial <=3x request-ratio threshold be tightened after a clean org/sqlite baseline? | benefit gate strictness | Phase 5 baseline table; until then >3x is no-go, not pass |
-| Should public-10 full rerun happen before or after three targeted samples pass? | cost control | Phase 5 gate decision |
+| Should public-10 full rerun happen before or after three targeted samples pass? | cost control | resolved for this slice: full public-10 is deferred because Phase 5 targeted paired samples produced benefit no-go |
 | Which full-suite residual failures block release independently of R4? | release readiness | separate full-suite cleanup plan |
 
 ## 20. Decision Log
@@ -893,11 +1013,15 @@ No E3 progression is allowed from this plan until Phase 6 records a measured go 
 | 2026-07-08 | Treat request amplification as state-flow closure, not budget tuning | high cache hit plus high request ratio proves cache is not primary cause |
 | 2026-07-08 | Keep runtime boundary: no new semantic hard-stop as primary fix | aligns with R4 boundary clarification and latest adversarial closure |
 | 2026-07-08 | Require request reason ledger before more broad reruns | avoids paying for samples without knowing why requests continue |
+| 2026-07-08 | Treat stale final-readiness recovery as context-fidelity bug, not Agent-action violation | latest projection had closed the missing ledger ids, so preserving old recovery text was contradictory feedback |
+| 2026-07-08 | Stop before full public-10 after targeted paired no-go | org/sqlite standard solved while TaskSpace wrong, so full public-10 cannot produce a go signal without another repair slice |
 
 ## 21. Change Log
 
 | Date | Change |
 |---|---|
+| 2026-07-08 | Ran `organization-json-generator` and `sqlite-db-truncate` paired diagnostics; both recorded as Phase 5 benefit no-go |
+| 2026-07-08 | Added H-192 stale final-readiness recovery repair and `heterogeneous-dates` right-only diagnostic rerun results |
 | 2026-07-08 | Implemented Phase 1 provider request reason ledger in ActionMap trace; repeated same-reason is detector-only |
 | 2026-07-08 | Initial engineering plan drafted for R4 request convergence |
 

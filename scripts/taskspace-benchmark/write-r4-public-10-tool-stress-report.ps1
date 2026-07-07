@@ -138,6 +138,12 @@ function Get-CacheHitRateInfo {
 
 function Get-ModelRequestCountInfo {
     param([string]$ArtifactsDir, [object]$Metrics)
+    $phaseSummary = Read-JsonFile (Join-Path $ArtifactsDir "request-phase-summary.json")
+    $phaseProviderDistinctCount = Get-ObjectNullableNumber $phaseSummary "provider_request_distinct_count"
+    if ($null -ne $phaseProviderDistinctCount -and [double]$phaseProviderDistinctCount -gt 0) {
+        return [pscustomobject]@{ Count = [int64]$phaseProviderDistinctCount; Availability = "measured"; Source = "request_phase_summary_provider_distinct" }
+    }
+
     $requestSummary = Read-JsonFile (Join-Path $ArtifactsDir "request-summary.json")
     $rolloutCount = Get-ObjectNullableNumber $requestSummary.rollout_trace "model_request_count"
     if ($null -ne $rolloutCount -and [double]$rolloutCount -gt 0) {
@@ -212,6 +218,91 @@ function Get-ProjectionSummary {
         large_output_replay_count = [int](Get-ObjectNumber $Metrics "large_output_replay_count" 0)
         rollout_scan_mode = Get-ObjectString $Metrics "rollout_scan_mode" "unknown"
     }
+}
+
+function Get-RequestReasonSummary {
+    param([string]$ArtifactsDir)
+    $summary = Read-JsonFile (Join-Path $ArtifactsDir "request-reason-summary.json")
+    if ($null -ne $summary) {
+        return [ordered]@{
+            status = Get-ObjectString $summary "request_reason_coverage_status" "unavailable"
+            event_count = [int](Get-ObjectNumber $summary "request_reason_event_count" 0)
+            provider_request_event_count = [int](Get-ObjectNumber $summary "provider_request_event_count" 0)
+            unknown_count = [int](Get-ObjectNumber $summary "request_reason_unknown_count" 0)
+            attribution_coverage = [int](Get-ObjectNumber $summary "request_reason_attribution_coverage" 0)
+            repeated_same_reason_no_delta_count = [int](Get-ObjectNumber $summary "repeated_same_reason_no_delta_count" 0)
+            trigger_kind_counts = if ($summary.PSObject.Properties.Name -contains "trigger_kind_counts") { $summary.trigger_kind_counts } else { [ordered]@{} }
+            request_reason_delta_counts = if ($summary.PSObject.Properties.Name -contains "request_reason_delta_counts") { $summary.request_reason_delta_counts } else { [ordered]@{} }
+        }
+    }
+
+    $eventsPath = Join-Path $ArtifactsDir "provider-request-events.jsonl"
+    if (-not (Test-Path -LiteralPath $eventsPath -PathType Leaf)) {
+        return [ordered]@{
+            status = "source_missing"
+            event_count = 0
+            provider_request_event_count = 0
+            unknown_count = $null
+            attribution_coverage = $null
+            repeated_same_reason_no_delta_count = 0
+            trigger_kind_counts = [ordered]@{}
+            request_reason_delta_counts = [ordered]@{}
+        }
+    }
+
+    $eventCount = 0
+    $reasonCount = 0
+    $unknownCount = 0
+    $repeatedNoDelta = 0
+    $triggerCounts = @{}
+    $deltaCounts = @{}
+    foreach ($line in @(Get-Content -Encoding UTF8 -LiteralPath $eventsPath)) {
+        if ([string]::IsNullOrWhiteSpace($line)) { continue }
+        try { $event = $line | ConvertFrom-Json } catch { continue }
+        $eventCount++
+        $trigger = Get-ObjectString $event "trigger_kind" ""
+        $delta = Get-ObjectString $event "request_reason_delta" ""
+        $hasReason = Test-TruthValueLike (Get-ObjectString $event "request_reason_schema_present" "") -OrText $trigger
+        if ($hasReason -and -not [string]::IsNullOrWhiteSpace($trigger) -and $trigger -ne "unknown") {
+            $reasonCount++
+            if (-not $triggerCounts.ContainsKey($trigger)) { $triggerCounts[$trigger] = 0 }
+            $triggerCounts[$trigger]++
+        } else {
+            $unknownCount++
+        }
+        if (-not [string]::IsNullOrWhiteSpace($delta)) {
+            if (-not $deltaCounts.ContainsKey($delta)) { $deltaCounts[$delta] = 0 }
+            $deltaCounts[$delta]++
+        }
+        if ($delta -eq "none" -and [int](Get-ObjectNumber $event "repeated_same_reason_count" 0) -gt 0) {
+            $repeatedNoDelta++
+        }
+    }
+    $coverage = if ($eventCount -gt 0) { [int][math]::Round(([double]$reasonCount / [double]$eventCount) * 100.0) } else { 0 }
+    $status = if ($eventCount -eq 0) { "missing" } elseif ($reasonCount -eq 0) { "unavailable" } elseif ($unknownCount -eq 0) { "measured" } else { "measured_with_unknown" }
+    return [ordered]@{
+        status = $status
+        event_count = $reasonCount
+        provider_request_event_count = $eventCount
+        unknown_count = $unknownCount
+        attribution_coverage = $coverage
+        repeated_same_reason_no_delta_count = $repeatedNoDelta
+        trigger_kind_counts = Convert-HashtableToOrderedObject $triggerCounts
+        request_reason_delta_counts = Convert-HashtableToOrderedObject $deltaCounts
+    }
+}
+
+function Test-TruthValueLike {
+    param([AllowEmptyString()][string]$Value, [AllowEmptyString()][string]$OrText = "")
+    if (-not [string]::IsNullOrWhiteSpace($OrText)) { return $true }
+    return $Value -ieq "true"
+}
+
+function Convert-HashtableToOrderedObject {
+    param([hashtable]$Table)
+    $ordered = [ordered]@{}
+    foreach ($key in @($Table.Keys | Sort-Object)) { $ordered[$key] = $Table[$key] }
+    return [pscustomobject]$ordered
 }
 
 function Get-ChangedPaths {
@@ -314,6 +405,13 @@ function New-MissingRow {
         token_ratio_availability = "missing_run"
         request_2_plus_cache_hit_rate = $null
         request_2_plus_cache_hit_rate_availability = "missing_run"
+        request_reason_coverage_status = "missing_run"
+        request_reason_event_count = 0
+        request_reason_unknown_count = $null
+        request_reason_attribution_coverage = $null
+        repeated_same_reason_no_delta_count = 0
+        request_reason_trigger_kind_counts = [ordered]@{}
+        request_reason_delta_counts = [ordered]@{}
         tool_feedback_loss_count = 0
         tool_feedback_semantic_loss_count = 0
         tool_result_projection_count_by_reason = [ordered]@{}
@@ -370,6 +468,7 @@ function New-RunRow {
     $taxonomy = Get-ReportValue $reportLines "failure_taxonomy" "none"
     $graph = Read-JsonFile (Join-Path $taskspace.artifacts_dir "graph-health.json")
     $projection = Get-ProjectionSummary $taskspace.artifacts_dir $taskspaceMetrics
+    $requestReason = Get-RequestReasonSummary $taskspace.artifacts_dir
     $mapMissing = if ($null -eq $graph) { 1 } else { [int](Get-ObjectNumber $graph "attribution_missing_count" 0) }
     $feedbackLoss = if ($taxonomy -match "tool_feedback_loss") { 1 } else { 0 }
     $semanticLoss = if ($taxonomy -match "semantic_loss|tool_feedback_semantic_loss") { 1 } else { 0 }
@@ -419,6 +518,13 @@ function New-RunRow {
         token_ratio_availability = $tokenRatioAvailability
         request_2_plus_cache_hit_rate = $cacheHitInfo.Rate
         request_2_plus_cache_hit_rate_availability = [string]$cacheHitInfo.Availability
+        request_reason_coverage_status = [string]$requestReason.status
+        request_reason_event_count = [int]$requestReason.event_count
+        request_reason_unknown_count = $requestReason.unknown_count
+        request_reason_attribution_coverage = $requestReason.attribution_coverage
+        repeated_same_reason_no_delta_count = [int]$requestReason.repeated_same_reason_no_delta_count
+        request_reason_trigger_kind_counts = $requestReason.trigger_kind_counts
+        request_reason_delta_counts = $requestReason.request_reason_delta_counts
         tool_feedback_loss_count = $feedbackLoss
         tool_feedback_semantic_loss_count = $semanticLoss
         tool_result_projection_count_by_reason = $projection
@@ -442,6 +548,7 @@ function New-RunRow {
             $standard.metrics_path,
             $taskspace.metrics_path,
             (Join-Path $taskspace.artifacts_dir "provider-cache-trace-summary.json"),
+            (Join-Path $taskspace.artifacts_dir "request-reason-summary.json"),
             (Join-Path $taskspace.artifacts_dir "context-projection-summary.json"),
             (Join-Path $taskspace.artifacts_dir "graph-health.json")
         ) | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf }

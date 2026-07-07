@@ -361,6 +361,7 @@ pub(crate) struct ActionMapStateCommitOutputContractInput {
     pub(crate) id: String,
     pub(crate) kind: String,
     pub(crate) description: String,
+    pub(crate) status: String,
     pub(crate) evidence_refs: Vec<ActionMapEvidenceRefInput>,
 }
 
@@ -2298,8 +2299,8 @@ impl ActionMapRuntimeState {
                 && descriptor.action_class == ActionClass::Edit
             {
                 format!(
-                    "TaskSpace blocked this edit because current node `{}` kind: inspect_code_context is read-only. Requested tool `{}` action class: edit. Reason: {}. Do not create a recovery/reborn inspect node, spawn an agent, or retry the edit on this node. First call taskspace_control(action=finish_node, node_id=\"{}\", result_summary=\"concise finding and target file\", next_node_kind=\"implement_solution\", next_node_title=\"Apply inspected fix\", next_node_context_summary=\"Apply the narrow fix found by {}\", next_dependency_node_ids=[\"{}\"]), then retry the edit only after the current node is implement_solution.",
-                    node.id, descriptor.tool_name, reason, node.id, node.id, node.id
+                    "TaskSpace blocked this edit because current node `{}` kind: inspect_code_context is read-only. Requested tool `{}` action class: edit. Reason: {}. state_machine_requirement: repository edits require an implement_solution node; inspect_code_context evidence remains available for any later state-machine-legal transition.",
+                    node.id, descriptor.tool_name, reason
                 )
             } else {
                 blocked_action_recovery_message(node, &descriptor, &reason, implement_has_edit)
@@ -2307,20 +2308,14 @@ impl ActionMapRuntimeState {
             let next_valid_action = if node.kind == NodeKind::InspectCodeContext
                 && descriptor.action_class == ActionClass::Edit
             {
-                format!(
-                    "taskspace_control(action=finish_node, node_id=\"{}\", next_node_kind=\"implement_solution\")",
-                    node.id
-                )
+                "state_transition_contract: inspect_code_context is read-only; implement_solution is the node kind that permits repository edits".to_string()
             } else if node.kind == NodeKind::ImplementSolution
                 && descriptor.action_class == ActionClass::Test
                 && !implement_has_edit
             {
-                "call an edit-capable tool such as apply_patch before requesting tests".to_string()
+                "state_machine_requirement: implementation test reliance requires prior successful edit evidence on this node".to_string()
             } else {
-                format!(
-                    "taskspace_control(action=finish_node, node_id=\"{}\")",
-                    node.id
-                )
+                "action_space_source: active node contract plus hard state baseline".to_string()
             };
             let current_node_item = format!("current_node:{}:{}", node.id, node.kind.as_str());
             let blocked_node_kind = node.kind.as_str().to_string();
@@ -2411,97 +2406,6 @@ impl ActionMapRuntimeState {
             }
         }
         if node.kind == NodeKind::ImplementSolution
-            && descriptor.action_class == ActionClass::Read
-            && !node_has_successful_action(map, node, ActionClass::Edit)
-            && let Some((artifact_ref, previous_result_id)) =
-                implement_node_duplicate_validation_rework_artifact_read(map, node, &descriptor)
-        {
-            let reason = "validation_rework_duplicate_artifact_read".to_string();
-            let repair_contract =
-                implement_node_dependency_validation_rework_repair_contract(map, node);
-            let contract_message = repair_contract
-                .as_ref()
-                .map(|contract| format!(" Validation repair contract: {contract}"))
-                .unwrap_or_default();
-            let read_completeness_message = map
-                .results
-                .get(&previous_result_id)
-                .and_then(validation_rework_read_completeness_feedback)
-                .map(|feedback| format!(" {feedback}"))
-                .unwrap_or_default();
-            let read_summary = map
-                .results
-                .get(&previous_result_id)
-                .and_then(|result| read_file_summary_line(&result.body))
-                .map(str::to_string);
-            let message = format!(
-                "TaskSpace blocked this exact {} because validation rework node `{}` already has a complete successful read_file result `{}` for failure artifact `{}` and no successful edit has been recorded on the node.{} This feedback records duplicate complete-read semantics only; TaskSpace is not selecting an implementation strategy.{}",
-                descriptor.action_class.as_str(),
-                node.id,
-                previous_result_id,
-                artifact_ref,
-                read_completeness_message,
-                contract_message
-            );
-            let current_node_item = format!("current_node:{}:{}", node.id, node.kind.as_str());
-            let blocked_node_kind = node.kind.as_str().to_string();
-            let repeated_block = self.record_blocked_action_repeat(
-                &map_id,
-                &node_id,
-                progress_signature,
-                &reason,
-                &descriptor,
-            );
-            let mut blocking_items = vec![
-                current_node_item,
-                format!("failure_artifact:{artifact_ref}"),
-                format!("previous_read_result:{previous_result_id}"),
-            ];
-            if let Some(contract) = repair_contract.as_ref() {
-                blocking_items.push(format!("validation_rework_contract:{contract}"));
-            }
-            if let Some(read_summary) = read_summary {
-                blocking_items.push(format!("previous_read_summary:{read_summary}"));
-            }
-            let mut next_valid_actions = vec![format!(
-                "reuse complete read_file result `{previous_result_id}` when sufficient"
-            )];
-            if let Some(contract) = repair_contract.as_ref() {
-                next_valid_actions.push(format!(
-                    "preserve validation_schema_repair_contract facts: {contract}"
-                ));
-            }
-            next_valid_actions.push(
-                "choose any other state-machine-legal action for the active implement_solution node"
-                    .to_string(),
-            );
-            next_valid_actions.push(
-                "do not repeat the same complete read_file request unless state/tool evidence changes"
-                    .to_string(),
-            );
-            let recovery = gate_recovery_message_with_repeated_block(
-                &message,
-                &reason,
-                blocking_items,
-                next_valid_actions,
-                Vec::new(),
-                Some(&repeated_block),
-            );
-            return Err(ActionMapGateError::new(
-                recovery,
-                vec![MapRuntimeEvent::ToolActionBlocked(
-                    MapRuntimeToolActionBlockedEvent {
-                        map_id,
-                        node_id,
-                        node_kind: blocked_node_kind,
-                        tool_name: descriptor.tool_name,
-                        action_class: descriptor.action_class.as_str().to_string(),
-                        reason,
-                    },
-                )],
-            ));
-        }
-        if node.kind == NodeKind::ImplementSolution
             && descriptor.action_class == ActionClass::Edit
             && !node_has_successful_action(map, node, ActionClass::Edit)
             && let Some(requirement) =
@@ -2535,15 +2439,15 @@ impl ActionMapRuntimeState {
                 ],
                 vec![
                     format!(
-                        "apply_patch for `{}` that removes `{}` from the implementation target",
+                        "failed_alias_target_artifacts:{}",
                         requirement.target_artifacts.join(", "),
-                        requirement.absolute_alias
                     ),
                     format!(
-                        "replace the failed alias with workspace-relative input `{}` or an equivalent local path strategy",
+                        "workspace_relative_candidate:{}",
                         requirement.relative_candidate
                     ),
-                    "do not spend this rework edit on unrelated validation details before the failed alias is removed".to_string(),
+                    format!("failed_absolute_alias:{}", requirement.absolute_alias),
+                    "state_machine_requirement: failed absolute alias remains unresolved for this validation rework".to_string(),
                 ],
                 Vec::new(),
                 Some(&repeated_block),
@@ -2883,27 +2787,6 @@ preview:\n\
                 self.auto_accept_validation_result_for_finish(owner_session_id, &node_id, &body)?;
             events.append(&mut validation_accept_events);
         }
-        let progress_snapshot = self
-            .provider_request_budget_snapshot()
-            .or_else(|| self.provider_request_progress_snapshot_for_node(&map_id, &node_id));
-        if success
-            && matches!(
-                recorded_action_class,
-                Some(ActionClass::Read | ActionClass::Search)
-            )
-            && let Some(snapshot) = progress_snapshot
-            && snapshot.node_id.as_deref() == Some(node_id.as_str())
-            && snapshot.node_kind.as_deref() == Some(NodeKind::InspectCodeContext.as_str())
-            && self.current_main_inspect_progress_ready_for_transition()
-            && let Some((_outcome, transition_events)) = self
-                .force_finish_inspect_for_provider_budget(
-                    owner_session_id,
-                    &snapshot,
-                    "inspect_progress_convergence",
-                )?
-        {
-            events.extend(transition_events);
-        }
         Ok(Some((result_id, events)))
     }
 
@@ -3152,68 +3035,6 @@ preview:\n\
             node_request_count,
             max_model_requests_per_node,
             post_budget_grace_requests: budget.post_budget_grace_requests,
-            post_budget_grace_request_count: self.budget_counters.post_budget_grace_request_count,
-            budget_state: self.budget_state.as_str().to_string(),
-        })
-    }
-
-    fn provider_request_progress_snapshot_for_node(
-        &self,
-        map_id: &str,
-        node_id: &str,
-    ) -> Option<ActionMapProviderRequestBudgetSnapshot> {
-        if self.mode != MapRuntimeMode::Experiment {
-            return None;
-        }
-        let map = self.maps.get(map_id)?;
-        let node = map.nodes.get(node_id)?;
-        let current_node_has_successful_edit =
-            node_has_successful_action(map, node, ActionClass::Edit);
-        let current_node_has_dependency_working_evidence = node.kind == NodeKind::ImplementSolution
-            && (implement_node_has_dependency_working_evidence(map, node)
-                || implement_node_has_dependency_validation_rework_evidence(map, node));
-        let current_node_uncovered_mandatory_evidence = if node.kind == NodeKind::ImplementSolution
-        {
-            implement_node_uncovered_mandatory_evidence(map, node)
-        } else {
-            Vec::new()
-        };
-        let current_node_validation_rework_artifacts = if node.kind == NodeKind::ImplementSolution {
-            implement_node_dependency_validation_rework_artifact_refs(map, node)
-        } else {
-            Vec::new()
-        };
-        let node_request_count = self
-            .budget_counters
-            .model_request_count_by_node
-            .get(node_id)
-            .copied()
-            .unwrap_or(0);
-        Some(ActionMapProviderRequestBudgetSnapshot {
-            task_id: map.task_id.clone(),
-            map_id: map_id.to_string(),
-            node_id: Some(node_id.to_string()),
-            node_kind: Some(node.kind.as_str().to_string()),
-            current_node_progress_signature: self.current_node_progress_signature(map_id, node_id),
-            current_node_has_successful_edit,
-            current_node_has_dependency_working_evidence,
-            current_node_has_uncovered_mandatory_evidence:
-                !current_node_uncovered_mandatory_evidence.is_empty(),
-            current_node_uncovered_mandatory_evidence,
-            current_node_validation_rework_artifacts,
-            route_mode: None,
-            profile_name: None,
-            request_phase: Some(
-                TaskSpaceProviderRequestPhase::ModelSampling
-                    .as_str()
-                    .to_string(),
-            ),
-            provider_request_context_missing_reason: None,
-            request_count: self.budget_counters.rollout_model_request_count,
-            max_requests: 0,
-            node_request_count,
-            max_model_requests_per_node: 0,
-            post_budget_grace_requests: 0,
             post_budget_grace_request_count: self.budget_counters.post_budget_grace_request_count,
             budget_state: self.budget_state.as_str().to_string(),
         })
@@ -3994,6 +3815,7 @@ preview:\n\
         )])
     }
 
+    #[cfg(test)]
     pub(crate) fn force_finish_inspect_for_provider_budget(
         &mut self,
         owner_session_id: ThreadId,
@@ -4174,6 +3996,7 @@ preview:\n\
         Ok(Some((outcome, events)))
     }
 
+    #[cfg(test)]
     pub(crate) fn force_finish_implement_for_provider_budget(
         &mut self,
         owner_session_id: ThreadId,
@@ -4288,6 +4111,7 @@ preview:\n\
         Ok(Some((outcome, events)))
     }
 
+    #[cfg(test)]
     pub(crate) fn force_finish_validation_after_successful_tool(
         &mut self,
         owner_session_id: ThreadId,
@@ -4357,6 +4181,7 @@ preview:\n\
         let tags = vec![
             "schema:taskspace-forced-validation-closeout-v1".to_string(),
             "producer:tool_drain".to_string(),
+            "adoption_actor:runtime_validation_closeout".to_string(),
             format!("trigger:{trigger}"),
             format!("request_count:{}", snapshot.request_count),
             format!("max_requests:{}", snapshot.max_requests),
@@ -4399,6 +4224,7 @@ preview:\n\
         Ok(Some((outcome, events)))
     }
 
+    #[cfg(test)]
     fn accept_implementation_evidence_for_validation_closeout(
         &mut self,
         owner_session_id: ThreadId,
@@ -4457,6 +4283,7 @@ preview:\n\
         Ok(events)
     }
 
+    #[cfg(test)]
     fn invalidate_superseded_validation_blockers_for_closeout(
         &mut self,
         map_id: &str,
@@ -4532,6 +4359,7 @@ preview:\n\
         Ok(events)
     }
 
+    #[cfg(test)]
     fn satisfy_closeout_success_criteria(
         &mut self,
         owner_session_id: ThreadId,
@@ -4598,6 +4426,7 @@ preview:\n\
         self.record_success_criteria_for_main(owner_session_id, criteria)
     }
 
+    #[cfg(test)]
     fn accept_forced_transition_result(
         &mut self,
         map_id: &str,
@@ -4651,6 +4480,7 @@ preview:\n\
         )))
     }
 
+    #[cfg(test)]
     fn accept_forced_inspect_transition_result(
         &mut self,
         map_id: &str,
@@ -5912,7 +5742,7 @@ preview:\n\
             return Ok(());
         }
         Err(format!(
-            "TaskSpace {} node `{node_id}` cannot be finished as failed validation before this node records a test/build result. Run the required validation command on `{node_id}` first, or finish only after a same-node successful validation result.",
+            "TaskSpace {} node `{node_id}` cannot be finished as failed validation before this node records a test/build result. state_machine_requirement: same-node test/build result is required before failed-validation finish; same-node successful validation result also satisfies validation closeout.",
             node.kind.as_str()
         ))
     }
@@ -5943,7 +5773,7 @@ preview:\n\
             blocker_missing_observed_fact_source_artifacts(blocker_summary, &observed_artifacts);
         if !contradicted.is_empty() {
             return Err(format!(
-                "TaskSpace block_node on `{node_id}` cannot claim artifact(s) are missing because recorded read/search evidence already observed them: {}. This is a recorded-evidence contradiction; use a blocker not contradicted by recorded evidence or choose another state-machine-legal action.",
+                "TaskSpace block_node on `{node_id}` cannot claim artifact(s) are missing because recorded read/search evidence already observed them: {}. state_machine_requirement: blocker evidence must not contradict recorded evidence.",
                 contradicted.join(", ")
             ));
         }
@@ -5951,7 +5781,7 @@ preview:\n\
             && node_has_successful_validation_action(map, node)
         {
             return Err(format!(
-                "TaskSpace {} node `{node_id}` already has a successful test/build result, so it cannot be blocked as failed validation. Preferred fix: call taskspace_control(action=state_commit, schema_version=taskspace-state-commit-v1) once with result_validities for the validator result, success_criteria status=satisfied with evidence_refs from this node's successful validator result, and finished_nodes for `{node_id}`.",
+                "TaskSpace {} node `{node_id}` already has a successful test/build result, so it cannot be blocked as failed validation. state_machine_requirement: result_validities for the validator result, success_criteria status=satisfied with evidence_refs from this node's successful validator result, and finished_nodes for `{node_id}` must be recorded before closeout.",
                 node.kind.as_str()
             ));
         }
@@ -5965,7 +5795,7 @@ preview:\n\
             && blocker_claims_missing_validation_command_visibility(blocker_summary)
         {
             return Err(format!(
-                "TaskSpace {} node `{node_id}` cannot be blocked for missing validator/test command visibility because runtime can derive the required validation command from changed artifacts and output contracts. Next valid action: run_test with command `{command}`.",
+                "TaskSpace {} node `{node_id}` cannot be blocked for missing validator/test command visibility because runtime can derive the required validation command from changed artifacts and output contracts. validation_command_source: `{command}`.",
                 node.kind.as_str()
             ));
         }
@@ -5974,7 +5804,7 @@ preview:\n\
             && blocker_claims_validation_failure_without_current_result(blocker_summary)
         {
             return Err(format!(
-                "TaskSpace {} node `{node_id}` cannot be blocked as failed validation before this node records a test/build result. Run the required validation command on `{node_id}` first, or block only with a specific external blocker that prevents validation from running.",
+                "TaskSpace {} node `{node_id}` cannot be blocked as failed validation before this node records a test/build result. state_machine_requirement: current validation node must record its own test/build result before failed-validation block; exact external blockers remain separate blocker evidence.",
                 node.kind.as_str()
             ));
         }
@@ -6103,6 +5933,25 @@ preview:\n\
         description: String,
         evidence_refs: Vec<ActionMapEvidenceRefInput>,
     ) -> Result<Vec<MapRuntimeEvent>, String> {
+        self.record_output_contract_for_main_with_status(
+            owner_session_id,
+            output_contract_id,
+            kind,
+            description,
+            "open",
+            evidence_refs,
+        )
+    }
+
+    fn record_output_contract_for_main_with_status(
+        &mut self,
+        owner_session_id: ThreadId,
+        output_contract_id: &str,
+        kind: &str,
+        description: String,
+        status: &str,
+        evidence_refs: Vec<ActionMapEvidenceRefInput>,
+    ) -> Result<Vec<MapRuntimeEvent>, String> {
         let (task_id, map_id) = self.active_task_context_for_cognitive_update(owner_session_id)?;
         let id = require_nonempty("output_contract_id", output_contract_id)?;
         let kind = OutputContractKind::from_str(kind).ok_or_else(|| {
@@ -6110,12 +5959,25 @@ preview:\n\
                 .to_string()
         })?;
         let description = require_nonempty_owned("description", description)?;
+        let status = normalize_success_criterion_status(status.to_string())?;
         let evidence_refs = self.normalize_evidence_refs(&task_id, Some(&map_id), evidence_refs)?;
         if evidence_refs.is_empty() {
             return Err(
                 "TaskSpace record_output_contract evidence_refs cannot be empty.".to_string(),
             );
         }
+        let ledger_record = ProblemSuccessCriterion {
+            id: id.clone(),
+            kind: kind.as_str().to_string(),
+            description: description.clone(),
+            status,
+            evidence_refs: evidence_refs.clone(),
+        };
+        self.validate_success_criteria_update_allowed(
+            &task_id,
+            &map_id,
+            std::slice::from_ref(&ledger_record),
+        )?;
 
         let task = self
             .tasks
@@ -6128,16 +5990,8 @@ preview:\n\
             evidence_refs: evidence_refs.clone(),
         };
         upsert_output_contract(&mut task.cognitive_state.output_contracts, record);
-        task.problem_ledger.upsert_success_criterion(
-            ProblemSuccessCriterion {
-                id: id.clone(),
-                kind: kind.as_str().to_string(),
-                description,
-                status: "open".to_string(),
-                evidence_refs,
-            },
-            now_ms(),
-        );
+        task.problem_ledger
+            .upsert_success_criterion(ledger_record, now_ms());
         Ok(vec![MapRuntimeEvent::CognitiveStateUpdated(
             MapRuntimeCognitiveStateUpdatedEvent {
                 task_id,
@@ -6888,11 +6742,12 @@ preview:\n\
             |state| {
                 let mut section_events = Vec::new();
                 for contract in input.output_contracts {
-                    section_events.extend(state.record_output_contract_for_main(
+                    section_events.extend(state.record_output_contract_for_main_with_status(
                         owner_session_id,
                         &contract.id,
                         &contract.kind,
                         contract.description,
+                        &contract.status,
                         contract.evidence_refs,
                     )?);
                 }
@@ -7308,6 +7163,7 @@ preview:\n\
             })
     }
 
+    #[cfg(test)]
     pub(crate) fn current_main_inspect_has_successful_diagnostic_and_working_evidence(
         &self,
     ) -> bool {
@@ -7355,6 +7211,7 @@ preview:\n\
         inspect_node_unread_referenced_scripts(map, node)
     }
 
+    #[cfg(test)]
     pub(crate) fn current_main_inspect_missing_required_fact_source_artifacts(
         &self,
     ) -> Vec<String> {
@@ -7460,6 +7317,7 @@ preview:\n\
         Some(single_line_preview(&node.context.summary, 480))
     }
 
+    #[cfg(test)]
     pub(crate) fn current_main_validation_bootstrap_command(&self) -> Option<String> {
         let map_id = self.active_map_id.as_ref()?;
         let node_id = self.current_main_node_id.as_ref()?;
@@ -7469,6 +7327,7 @@ preview:\n\
         validation_node_bootstrap_command(map, node, task)
     }
 
+    #[cfg(test)]
     fn inspect_node_has_successful_code_or_test_read(
         &self,
         map_id: &str,
@@ -7523,30 +7382,6 @@ preview:\n\
             return false;
         };
         node_has_successful_action(map, node, action_class)
-    }
-
-    pub(crate) fn current_main_node_has_visible_validation_rework_target_read(&self) -> bool {
-        let Some(map_id) = self.active_map_id.as_deref() else {
-            return false;
-        };
-        let Some(node_id) = self.current_main_node_id.as_deref() else {
-            return false;
-        };
-        let Some(map) = self.maps.get(map_id) else {
-            return false;
-        };
-        let Some(node) = map.nodes.get(node_id) else {
-            return false;
-        };
-        if node.kind != NodeKind::ImplementSolution
-            || node_has_successful_action(map, node, ActionClass::Edit)
-        {
-            return false;
-        }
-        let artifact_refs = implement_node_dependency_validation_rework_artifact_refs(map, node);
-        !artifact_refs.is_empty()
-            && !implement_node_validation_rework_artifact_read_results(map, node, &artifact_refs)
-                .is_empty()
     }
 
     pub(crate) fn active_map_has_successful_edit_artifacts(&self) -> bool {
@@ -7825,7 +7660,7 @@ preview:\n\
                         inspect_missing_required_fact_source_artifacts(task, map, node);
                     if !missing_fact_source_artifacts.is_empty() {
                         return Err(format!(
-                            "TaskSpace inspect_code_context node `{node_id}` cannot be completed while declared fact-source artifact(s) remain unread: {}. Read/search those concrete artifact(s), then finish into implement_solution.",
+                            "TaskSpace inspect_code_context node `{node_id}` cannot be completed while declared fact-source artifact(s) remain unread: {}. state_machine_requirement: declared fact-source artifacts must have concrete read/search evidence before inspect closeout.",
                             missing_fact_source_artifacts.join(", ")
                         ));
                     }
@@ -7834,13 +7669,13 @@ preview:\n\
             NodeKind::ImplementSolution => {
                 if !node_has_successful_action(map, node, ActionClass::Edit) {
                     return Err(format!(
-                        "TaskSpace implement_solution node `{node_id}` cannot be completed without a recorded successful edit action. Execute the edit in this node, or block the node if the edit cannot be made."
+                        "TaskSpace implement_solution node `{node_id}` cannot be completed without a recorded successful edit action. state_machine_requirement: successful edit evidence is required before implementation closeout; no-edit blockers must cite the exact blocker."
                     ));
                 }
                 let uncovered = implement_node_uncovered_mandatory_evidence(map, node);
                 if !uncovered.is_empty() {
                     return Err(format!(
-                        "TaskSpace implement_solution node `{node_id}` cannot be completed while high-signal inspected evidence remains uncovered by successful edits: {}. Apply another patch covering those artifact(s), or block the node with the exact reason coverage is impossible.",
+                        "TaskSpace implement_solution node `{node_id}` cannot be completed while high-signal inspected evidence remains uncovered by successful edits: {}. state_machine_requirement: successful edits must cover the named evidence before implementation closeout; impossible coverage requires exact blocker evidence.",
                         uncovered.join(", ")
                     ));
                 }
@@ -7850,7 +7685,7 @@ preview:\n\
                     && !node_has_successful_action(map, node, ActionClass::Build)
                 {
                     return Err(format!(
-                        "TaskSpace {} node `{node_id}` cannot be completed without a recorded successful test or build action. Run validation in this node, or block it if validation fails and create a follow-up implementation node.",
+                        "TaskSpace {} node `{node_id}` cannot be completed without a recorded successful test or build action. state_machine_requirement: validation closeout requires same-node test/build evidence; failed validation can be recorded as blocker evidence.",
                         node.kind.as_str()
                     ));
                 }
@@ -7862,7 +7697,7 @@ preview:\n\
                     node_satisfies_success_criterion_with_validation_result(task, map, node)
                 }) {
                     return Err(format!(
-                        "TaskSpace {} node `{node_id}` cannot be completed without a satisfied success criterion tied to this validation node's successful test/build result. Preferred fix: call taskspace_control(action=state_commit, schema_version=taskspace-state-commit-v1) once with sections.result_validities for the validator result, sections.success_criteria status=satisfied with evidence_refs from this node's successful validator result, and sections.finished_nodes for `{node_id}`. Use legacy taskspace_control(action=record_success_criteria) only for a focused single-record correction.",
+                        "TaskSpace {} node `{node_id}` cannot be completed without a satisfied success criterion tied to this validation node's successful test/build result. state_machine_requirement: sections.result_validities for the validator result, sections.success_criteria status=satisfied with evidence_refs from this node's successful validator result, and sections.finished_nodes for `{node_id}` must be recorded before closeout.",
                         node.kind.as_str()
                     ));
                 }
@@ -7905,7 +7740,7 @@ preview:\n\
             return Err("TaskSpace mode is not active.".to_string());
         }
         let task_id = self.active_task_id.clone().ok_or_else(|| {
-            "TaskSpace mode is active but no active task exists. Use taskspace_control(action=start_task) or taskspace_control(action=route_task) before recording cognitive state."
+            "TaskSpace mode is active but no active task exists. state_machine_allowed_actions: taskspace_control(action=start_task), taskspace_control(action=route_task) before recording cognitive state."
                 .to_string()
         })?;
         let task = self
@@ -7920,7 +7755,7 @@ preview:\n\
             ));
         }
         let map_id = self.active_map_id.clone().ok_or_else(|| {
-            "TaskSpace mode is active but no active task path exists. Use taskspace_control(action=start_task) or taskspace_control(action=route_task) before recording cognitive state."
+            "TaskSpace mode is active but no active task path exists. state_machine_allowed_actions: taskspace_control(action=start_task), taskspace_control(action=route_task) before recording cognitive state."
                 .to_string()
         })?;
         if task.active_map_id.as_deref() != Some(map_id.as_str())
@@ -8505,42 +8340,6 @@ preview:\n\
             );
         }
         Ok(())
-    }
-
-    fn reopen_success_criteria_citing_result_for_main(
-        &mut self,
-        owner_session_id: ThreadId,
-        result_id: &str,
-        reason: &str,
-    ) -> Result<Vec<MapRuntimeEvent>, String> {
-        let (task_id, _) = self.active_task_context_for_cognitive_update(owner_session_id)?;
-        let criteria = self
-            .tasks
-            .get(&task_id)
-            .map(|task| {
-                task.problem_ledger
-                    .success_criteria
-                    .iter()
-                    .filter(|criterion| {
-                        criterion.status == "satisfied"
-                            && criterion.evidence_refs.iter().any(|evidence_ref| {
-                                evidence_ref.result_id.as_deref() == Some(result_id)
-                            })
-                    })
-                    .map(|criterion| ActionMapSuccessCriterionInput {
-                        id: criterion.id.clone(),
-                        kind: criterion.kind.clone(),
-                        description: format!("{} {reason}", criterion.description),
-                        status: "open".to_string(),
-                        evidence_refs: Vec::new(),
-                    })
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_default();
-        if criteria.is_empty() {
-            return Ok(Vec::new());
-        }
-        self.record_success_criteria_for_main(owner_session_id, criteria)
     }
 
     fn active_fact_citing_result(&self, task_id: &str, result_id: &str) -> Option<String> {
@@ -9330,63 +9129,63 @@ preview:\n\
 
         let mut context = String::from("TaskSpace mode is active.\n");
         context.push_str(
-            "Runtime slash commands such as /task-reborn and /task-show are UI commands, not shell commands; do not run them via shell_command.\n",
+            "Runtime slash commands such as /task-reborn and /task-show are UI commands, not shell commands; shell_command cannot execute them.\n",
         );
         context.push_str(
-            "Before ordinary work, the agent must decide whether the user's current request belongs to an existing task or needs a new task. Runtime exposes task ids and validates structure only; the agent performs semantic task routing with taskspace_control(action=route_task) or taskspace_control(action=start_task).\n",
+            "Task routing boundary: runtime exposes task ids and validates structure only. Semantic routing remains an Agent decision represented through taskspace_control(action=route_task) or taskspace_control(action=start_task).\n",
         );
         context.push_str(
-            "Use the minimum sufficient task map. For a simple single-file or single-failure task, prefer one main-agent chain: inspect_code_context -> implement_solution -> smoke_test/regression_test, then answer directly after accepted validation evidence is recorded. Do not create a final_synthesis node just to summarize thin work. Do not create extra ready inspect nodes or call spawn_agent for simple work unless new evidence shows independent tracks that would materially reduce risk or context load.\n",
+            "Task map capability facts: nodes can represent inspect_code_context, implement_solution, smoke_test, regression_test, and final_synthesis work. The Agent chooses whether the task needs one chain or multiple independent tracks.\n",
         );
         context.push_str(
-            "Complexity trigger for collaboration: if the user request already names or implies two or more distinct functional surfaces, modules, file groups, validators, or evidence classes, do not spend the initial main inspect node reading every surface. Use the main inspect node to identify the track boundaries, then finish it, create separate ready inspect_code_context nodes for at least two independent tracks, and call spawn_agent for each ready track. The main agent should then integrate accepted node results and create implementation/validation nodes from that model.\n",
+            "Collaboration capability facts: ready inspect_code_context nodes and spawn_agent can represent independent evidence tracks. The Agent remains responsible for deciding whether collaboration is useful for the current task.\n",
         );
         context.push_str(
-            "For simple tasks, path correction and reading a small known set of files stay inside the current inspect node. Do not create another inspect node or call spawn_agent merely to read one known file, re-read a file, fix a guessed path, or serialize one evidence item.\n",
+            "Evidence capability facts: path correction, file reads, search results, and serialized evidence can be recorded in the current TaskSpace path or in additional nodes according to the Agent's chosen task structure.\n",
         );
         context.push_str(
-            "Finish nodes with matching tool evidence, not only a written claim: implement_solution needs a successful edit action before finish_node; smoke_test/regression_test needs a successful test or build action before finish_node. If the needed action is impossible or fails, block the node or create a correctly typed follow-up node.\n",
+            "Hard closeout baselines: implement_solution finish requires a successful edit action; smoke_test/regression_test finish requires a successful test or build action; blockers require exact blocker evidence.\n",
         );
         context.push_str(
-            "Pre-fix diagnostic tests that are expected to fail belong inside inspect_code_context as evidence gathering. Create smoke_test/regression_test nodes for post-implementation validation, not for a separate baseline-failure node on simple bug fixes.\n",
+            "Validation evidence facts: diagnostic failures, post-edit validation, and blocker evidence are distinct evidence classes recorded on the node selected by the Agent.\n",
         );
         context.push_str(
-            "During inspect_code_context, reconcile product docs, tests, and implementation before editing. If explicit product rules in README/spec docs conflict with existing test expectations, treat the tests as potentially stale, update code and tests together to match the documented rule, and record the rationale in the node result.\n",
+            "Evidence reconciliation facts: product docs, tests, implementation, and validator output can disagree; TaskSpace records the Agent's accepted claims, evidence refs, decisions, and remaining uncertainty.\n",
         );
         context.push_str(
-            "spawn_agent can only claim ready nodes; do not bind a node to the main agent and then hand it off.\n",
+            "spawn_agent binding fact: spawn_agent can claim ready nodes with unused subagent plans; main-agent-bound nodes and subagent-owned ready nodes are distinct ownership states.\n",
         );
         context.push_str(
-            "For broad multi-module tasks, create separate inspect/review nodes for independent evidence gathering and delegate ready inspect/review nodes to explorer agents when at least two independent areas are visible. This is a manager-mode requirement, not a user preference: when independent parser/pricing/review/etc. tracks are visible before editing, do not substitute main-agent parallel shell/file-change calls for collaboration; create the ready nodes and call spawn_agent for those nodes. Do not handle one independent investigation yourself while only one explorer handles the other; when two independent tracks exist, the main agent should coordinate and integrate while two explorer agents own the two investigation nodes. Leave those parallel inspect nodes ready for explorer agents instead of binding one to the main agent unless only one independent area exists. Inspect nodes may run diagnostic tests to gather evidence; keep implementation edits on implementation nodes and final passing validation on explicit test nodes.\n",
+            "Collaboration structure facts: independent evidence surfaces can be represented as separate ready inspect/review nodes with subagent plans. Main-agent integration records accepted node results and creates later implementation/validation nodes according to the Agent's chosen structure.\n",
         );
         context.push_str(
-            "During inspect/review nodes, discover exact paths before reading files. Prefer rg --files, Get-ChildItem -Name, or narrow directory listings; do not read guessed filenames from truncated shell output.\n",
+            "Path evidence facts: exact path discovery can come from rg --files, Get-ChildItem -Name, narrow directory listings, read results, or search results. Truncated shell output is low-confidence path evidence.\n",
         );
         context.push_str(
-            "If a smoke_test or regression_test node reveals a failure that needs edits, record that test result on the test node, finish or block the test node, create or bind an implement_solution node for the fix, then finish that implementation node and create or bind a smoke_test/regression_test node to rerun validation. Do not enter final_synthesis while validation is missing or failing.\n",
+            "Validation rework facts: smoke_test/regression_test failures are recorded on validation nodes; implementation fixes are represented by implement_solution nodes; rerun validation is represented by smoke_test/regression_test nodes. final_synthesis closeout requires satisfied or waived criteria.\n",
         );
         context.push_str(
-            "final_synthesis is optional synthesis work, not the default final step for thin tasks. Use it only when multiple accepted results still need answer-only synthesis. For thin/single-file work, record accepted validation and answer directly. If final_synthesis is used, do not edit, test, build, spawn agents, or call ordinary tools from it. If more work is needed, create or bind the correct non-final node first. The final answer must describe user-visible phases, files, tests, and outcomes without internal TaskSpace terms such as task, map, node, subagent, spawn, lease, final_synthesis, or taskspace_control unless the user explicitly asks to debug TaskSpace. If the user asks how work was organized, describe visible phases, files, tests, and outcomes only; never mention hidden execution roles or words such as subagent, explorer, agent, delegated, parallel, evidence track, fan-out, or spawn. Collapse hidden orchestration into ordinary phrases such as investigation, implementation, and validation.\n",
+            "final_synthesis facts: final_synthesis is optional answer-only synthesis work; final_synthesis is read-only and ordinary tools are rejected by state baseline. Final answers describe user-visible phases, files, tests, outcomes, and residual risk; internal TaskSpace terms are hidden unless the user explicitly asks to debug TaskSpace.\n",
         );
         context.push_str(node_kind_selection_prompt());
         context.push('\n');
         if self.bootstrap_required {
             context.push_str(
-                "Bootstrap is required now: create the first semantic task with taskspace_control(action=start_task) before ordinary tools or subagent spawn.\n",
+                "Bootstrap hard baseline: the first semantic task must exist before ordinary tools or subagent spawn.\n",
             );
         } else if self.routing_required {
             context.push_str(
-                "Task routing is required for this user turn: call taskspace_control(action=route_task) for an existing task or taskspace_control(action=start_task) for a new semantic task before ordinary tools or subagent spawn.\n",
+                "Task routing hard baseline: this user turn requires an existing task route or a new semantic task before ordinary tools or subagent spawn.\n",
             );
         }
         if self.reborn_requested {
             context.push_str(
-                "The user requested /task-reborn. Runtime will not create a replacement task path automatically; use taskspace_control to route or start a task before ordinary work, and do not continue the old path unless the user's follow-up intent clearly cancels the reborn request.\n",
+                "task_reborn fact: runtime will not create a replacement task path automatically; the old path remains historical unless the Agent routes this turn there from user intent.\n",
             );
         }
         if self.tasks.is_empty() {
             context.push_str(
-                "No TaskSpace tasks exist yet. Call taskspace_control(action=start_task) with a concrete first node derived from the user's current request before ordinary tools or subagent spawn. Include initial_success_criteria, initial_output_contracts, and initial_fact_sources in the same start_task call when requirements are already known.\n",
+                "No TaskSpace tasks exist yet. state_machine_allowed_actions: taskspace_control(action=start_task), blocked. start_task supports a concrete first node plus initial_success_criteria, initial_output_contracts, and initial_fact_sources when requirements are already known.\n",
             );
         } else {
             context.push_str("Task inventory:\n");
@@ -9408,7 +9207,7 @@ preview:\n\
                 }
             }
             context.push_str(
-                "For each new user turn, route to one listed task if it is the same semantic task, or start_task if it is a new task. Do not use keyword matching in runtime terms; make the routing decision from the conversation and task objectives.\n",
+                "Task routing facts: listed task objectives and current conversation are available for Agent-owned semantic routing; runtime validates the selected route structure.\n",
             );
         }
         if let Some(barrier) = self.active_maintenance_barrier() {
@@ -9483,19 +9282,19 @@ preview:\n\
             }
             if map.nodes.is_empty() {
                 context.push_str(
-                    "No nodes exist yet. Before any ordinary tool call or subagent spawn, call taskspace_control(action=create_node) with a concrete node derived from the active task and bind_current=true for the main work node.\n",
+                    "No nodes exist yet. state_machine_allowed_actions before ordinary work: taskspace_control(action=create_node) with a concrete node derived from the active task and bind_current=true, or blocked with exact blocker evidence.\n",
                 );
                 context.push_str(&base_map_metadata_prompt());
             }
             context.push_str(
-                "Every action must run on the active task path. Main-agent ordinary tool calls are attributed to the current main action node; subagent actions are bound to ready nodes at spawn time. For small single-file fixes or one failing-test loops, prefer one main-agent path with inspect_code_context -> implement_solution -> smoke_test/regression_test nodes; do not create parallel inspect nodes or spawn subagents unless the user explicitly asks for multi-agent work or there are at least two independent evidence surfaces that can be reviewed separately. spawn_agent can only claim ready nodes that already have an unused taskspace_control(action=record_subagent_plan) record; the plan must name the parent_node_id, why the work is parallelizable, expected_artifact, acceptance_check, and max_scope. Do not bind a node to the main agent and then hand it off. If a subagent should own work, create that node with bind_current=false or finish/block the current main node first, then record_subagent_plan before spawning. If more than one ready node exists, spawn_agent must include node_id for the intended node; if only one ready node exists, runtime may bind it automatically. If a newly discovered subtask does not fit existing nodes, call taskspace_control(action=create_node) before doing that work. Prefer taskspace_control(action=state_commit, schema_version=taskspace-state-commit-v1) when recording multiple nodes, success criteria, output contracts, fact sources, decisions, result validities, or adoptions in one checkpoint. Node result context stays on the node; use it only when it is relevant to the next step. Do not spawn an agent merely because TaskSpace is active or because a node exists; spawn only when the node represents a bounded, independent track whose result the main agent will integrate. For inspect_code_context nodes, explorer spawn is for a parallel investigation group, not single-track outsourcing; create at least two ready independent inspect nodes before assigning explorer subagents.\n",
+                "Active task path facts: main-agent ordinary tool calls are attributed to the current main action node; subagent actions are bound to ready nodes at spawn time. spawn_agent can claim ready nodes with unused taskspace_control(action=record_subagent_plan) records; the plan names parent_node_id, why the work is parallelizable, expected_artifact, acceptance_check, and max_scope. Multiple ready nodes require spawn_agent node_id selection; a single ready node may be bound automatically by runtime. Newly discovered subtasks can be represented by taskspace_control(action=create_node). state_commit(schema_version=taskspace-state-commit-v1) can record multiple nodes, success criteria, output contracts, fact sources, decisions, result validities, or adoptions in one checkpoint. Node result context remains attached to the node as evidence context.\n",
             );
             context.push_str(
-                "When the task naturally separates into independent investigation tracks, proactively create separate inspect_code_context nodes and assign subagents instead of waiting for the user to ask for parallel work. This trigger requires clearly distinct evidence surfaces such as different subsystems, packages, or files with separable ownership; a single file plus its tests is one track and should stay on the main agent. If the current request names multiple areas such as parser/pricing/invoice/tests/config, this trigger is already satisfied; create at least two ready inspect nodes with distinct evidence surfaces before implementation. Keep dependency edges explicit: independent investigation nodes should not depend on each other, implementation nodes should depend on the investigation nodes they integrate, and validation/final nodes should depend on the implementation or validation predecessor they verify.\n",
+                "Independent-track facts: distinct evidence surfaces such as subsystems, packages, files, validators, or ownership areas can be represented as separate inspect_code_context nodes with explicit dependency edges. The Agent chooses whether independent-track structure is useful before implementation.\n",
             );
         } else {
             context.push_str(
-                "No active task path exists. Before any ordinary tool call or subagent spawn, call taskspace_control(action=start_task) for a new semantic task or taskspace_control(action=route_task) for an existing listed task. Prefer start_task initial_success_criteria, initial_output_contracts, and initial_fact_sources over a separate immediate state_commit when starting a new task from a clear user request.\n",
+                "No active task path exists. state_machine_allowed_actions before ordinary work: taskspace_control(action=start_task), taskspace_control(action=route_task), or blocked with exact blocker evidence. start_task supports initial_success_criteria, initial_output_contracts, and initial_fact_sources for clear requirements.\n",
             );
             context.push_str(&base_map_metadata_prompt());
         }
@@ -9532,7 +9331,7 @@ preview:\n\
         }
         if self.reborn_requested {
             context.push_str(
-                "A task reborn was requested; route or start a task before ordinary work and do not continue the old path unless the follow-up cancels the reborn request.\n",
+                "Task reborn status: requested. state_machine_allowed_actions before ordinary work: taskspace_control(action=route_task) for the reborn path, taskspace_control(action=start_task) for a new path, or blocked with exact blocker evidence. The old path is historical unless the current user request cancels the reborn request.\n",
             );
         }
         context
@@ -9991,7 +9790,7 @@ preview:\n\
             return Ok(());
         }
         Err(format!(
-            "TaskSpace problem-state preflight is required before ordinary work or subagent spawn on task `{task_id}`. Missing: {}. Preferred fix: call taskspace_control(action=state_commit, schema_version=taskspace-state-commit-v1) once with sections.success_criteria, sections.output_contracts, sections.fact_sources, and any related facts/decisions/next_best_action that are ready. Use legacy taskspace_control(action=record_success_criteria), record_output_contract, or record_fact_source only for a focused single-record correction. Use evidence_refs such as artifact_ref for the current user request, README/test/source paths, or validator_ref for observed checks.",
+            "TaskSpace problem-state preflight is required before ordinary work or subagent spawn on task `{task_id}`. Missing: {}. state_machine_requirement: sections.success_criteria, sections.output_contracts, sections.fact_sources, and any related facts/decisions/next_best_action that are ready must be recorded before ordinary work can rely on the task ledger. evidence_ref_examples: artifact_ref for the current user request, README/test/source paths, validator_ref for observed checks.",
             missing.join(", ")
         ))
     }
@@ -10288,7 +10087,7 @@ preview:\n\
             "TaskSpace mode is active but no active task path exists.".to_string()
         })?;
         let current_node_id = self.current_main_node_id.clone().ok_or_else(|| {
-            "TaskSpace mode is active but no current node binding exists. Call taskspace_control(action=create_node, bind_current=true) or taskspace_control(action=bind_node) before finishing or blocking a node."
+            "TaskSpace mode is active but no current node binding exists. state_machine_allowed_actions before finish/block: taskspace_control(action=create_node, bind_current=true), taskspace_control(action=bind_node), or blocked with exact blocker evidence."
                 .to_string()
         })?;
         if current_node_id != node_id {
@@ -10297,11 +10096,11 @@ preview:\n\
                 && node.status == NodeStatus::Completed
             {
                 return Err(format!(
-                    "TaskSpace node `{node_id}` is already completed; do not finish it again. Continue from current main node `{current_node_id}` or create and bind a follow-up node."
+                    "TaskSpace node `{node_id}` is already completed. state_machine_requirement: finish/block applies to current main node `{current_node_id}` or to a follow-up node that is explicitly created and bound."
                 ));
             }
             return Err(format!(
-                "TaskSpace node `{node_id}` is not the current main action node `{current_node_id}`. Bind it first with taskspace_control(action=bind_node)."
+                "TaskSpace node `{node_id}` is not the current main action node `{current_node_id}`. state_machine_requirement: target node must be current/bound before finish or block."
             ));
         }
         let current_lease_id = self.current_main_lease_id.clone().ok_or_else(|| {
@@ -12401,20 +12200,6 @@ fn validation_rework_read_context_status(body: &str) -> Option<String> {
     Some(format!("{prefix}; {summary}"))
 }
 
-fn validation_rework_read_completeness_feedback(result: &NodeResult) -> Option<String> {
-    match read_file_summary_eof_reached(&result.body) {
-        Some(true) => Some(format!(
-            "Result `{}` is a complete read_file context (TaskSpaceReadFileSummaryV1 eof_reached=true; no additional file lines are hidden).",
-            result.id
-        )),
-        Some(false) => Some(format!(
-            "Result `{}` is a bounded first-window read_file context (TaskSpaceReadFileSummaryV1 eof_reached=false); repeating the same read_file command will not reveal additional lines.",
-            result.id
-        )),
-        None => None,
-    }
-}
-
 fn validation_failure_body_excerpt(body: &str, max_chars: usize) -> String {
     let focused = body
         .split_once("\nraw_output:\n")
@@ -12851,7 +12636,7 @@ fn projection_next_valid_actions(
             if !latest_gate_recovery_next_actions.is_empty() {
                 let mut actions = latest_gate_recovery_next_actions.to_vec();
                 actions.push(
-                    "do not repeat the blocked inspect action; use the named recovery action or return blocked with exact evidence".to_string(),
+                    "blocked_inspect_action_repeat_detected: latest gate recovery actions remain model-visible facts".to_string(),
                 );
                 return actions;
             }
@@ -12878,7 +12663,8 @@ fn projection_next_valid_actions(
                         })
                         .collect::<Vec<_>>();
                     actions.push(
-                        "do not finish inspect_code_context until declared fact-source artifacts are read".to_string(),
+                        "inspect_finish_blocker: declared fact-source artifacts remain unread"
+                            .to_string(),
                     );
                     return actions;
                 }
@@ -12888,7 +12674,7 @@ fn projection_next_valid_actions(
                         "taskspace_control(action=finish_node, node_id=\"{}\", next_node_kind=\"implement_solution\", next_node_title=\"Apply inspected fix\", next_node_context_summary=\"Apply the narrow fix found by {}\", next_dependency_node_ids=[\"{}\"])",
                         node.id, node.id, node.id
                     ),
-                    "retry edits only after current_node is implement_solution; do not create recovery/reborn inspect nodes".to_string(),
+                    "edit_action_contract: inspect_code_context is read-only; implement_solution is the edit-capable node kind".to_string(),
                 ]
             } else {
                 vec![
@@ -12924,11 +12710,11 @@ fn projection_next_valid_actions(
                 {
                     if refresh_target_reads.is_empty() {
                         actions.push(format!(
-                            "failed_edit_feedback: {failed_edit}; preserve this failed edit result when choosing the next action. Existing complete target-read evidence remains available; corrected apply_patch, different concrete evidence, taskspace_control, or blocked remain state-machine-governed options"
+                            "failed_edit_feedback: {failed_edit}; latest failed edit result remains model-visible. Existing complete target-read evidence remains available. action_space_source: active node contract plus hard state baseline"
                         ));
                     } else {
                         actions.push(format!(
-                            "failed_edit_feedback: {failed_edit}; preserve this failed edit result when choosing the next action. A target-context refresh can be useful if the failed hunk was stale/truncated; corrected apply_patch, different concrete evidence, taskspace_control, or blocked remain state-machine-governed options"
+                            "failed_edit_feedback: {failed_edit}; latest failed edit result remains model-visible. target_context_refresh_evidence: available when the failed hunk was stale/truncated. action_space_source: active node contract plus hard state baseline"
                         ));
                     }
                 }
@@ -12938,7 +12724,7 @@ fn projection_next_valid_actions(
                         .take(4)
                         .map(|artifact| {
                             format!(
-                                "read_file validation rework target artifact `{artifact}` only if current contents are not visible"
+                                "validation_rework_target_artifact: `{artifact}`; current_contents_visible: false"
                             )
                         })
                         .collect::<Vec<_>>()
@@ -12948,7 +12734,7 @@ fn projection_next_valid_actions(
                         .take(4)
                         .map(|(artifact, result_id)| {
                             format!(
-                                "read_file validation rework target artifact `{artifact}` once to refresh context after failed edit following read result `{result_id}`"
+                                "validation_rework_target_refresh_candidate: `{artifact}` after failed edit following read result `{result_id}`"
                             )
                         })
                         .collect::<Vec<_>>()
@@ -12965,8 +12751,8 @@ fn projection_next_valid_actions(
                                 })
                                 .map(|status| format!(" ({status})"))
                                 .unwrap_or_default();
-                            format!(
-                                "existing validation rework target read result `{result_id}` for `{artifact}`{read_context} is available for reuse"
+                    format!(
+                        "validation_rework_target_read_result: `{result_id}` for `{artifact}`{read_context}; current_contents_visible: true"
                             )
                         })
                         .collect::<Vec<_>>()
@@ -12990,20 +12776,20 @@ fn projection_next_valid_actions(
                     actions.push(format!("validation_schema_repair_contract: {contract}"));
                 }
                 actions.push(format!(
-                    "apply_patch validation rework target artifact(s): {}",
+                    "validation_rework_patch_target_artifacts: {}",
                     patch_artifacts.join(", ")
                 ));
                 if !visible_target_reads.is_empty() && refresh_target_reads.is_empty() {
                     actions.push(
-                        "read/search/list_files remain available for different concrete evidence when needed; exact duplicate complete target reads may be blocked as duplicate evidence".to_string(),
+                        "duplicate_complete_target_read_signal: exact duplicate complete target reads are low-information evidence, not hard rejection or strategy control".to_string(),
                     );
                 } else if !refresh_target_reads.is_empty() {
                     actions.push(
-                        "read/search/list_files remain available when needed; target-context refresh reads are not restricted to a runtime-selected strategy".to_string(),
+                        "target_context_refresh_boundary: refresh candidates are evidence facts, not a runtime-selected strategy".to_string(),
                     );
                 }
                 actions.push(
-                    "do not taskspace_control(action=finish_node) until this node records a successful edit result"
+                    "finish_node_blocker: implement_solution has no successful edit result recorded"
                         .to_string(),
                 );
                 return actions;
@@ -13017,7 +12803,7 @@ fn projection_next_valid_actions(
             if !latest_gate_recovery_next_actions.is_empty() {
                 let mut actions = latest_gate_recovery_next_actions.to_vec();
                 actions.push(
-                    "do not substitute weaker validation; use the exact recovered command unless it cannot run".to_string(),
+                    "validation_recovery_fact: latest recovered validator command remains the strongest known validator reference".to_string(),
                 );
                 return actions;
             }
@@ -13342,12 +13128,10 @@ fn projection_no_current_next_valid_actions(map: &ActionMapInstance) -> Vec<Stri
 
     if let Some(node_id) = ready_validation_nodes.first() {
         return vec![
-            format!(
-                "taskspace_control(action=bind_node, node_id=\"{}\") for the ready validation node",
-                node_id
-            ),
-            "run validator/test command after binding".to_string(),
-            "do not create inspect nodes or spawn agents for thin validation recovery".to_string(),
+            format!("ready_validation_node:{node_id}"),
+            "validation_evidence_requirement: validator/test command result after binding"
+                .to_string(),
+            "thin_validation_recovery_fact: ready validation node already exists".to_string(),
         ];
     }
 
@@ -13361,17 +13145,15 @@ fn projection_no_current_next_valid_actions(map: &ActionMapInstance) -> Vec<Stri
 
     if let Some(node_id) = ready_implementation_nodes.first() {
         return vec![
-            format!(
-                "taskspace_control(action=bind_node, node_id=\"{}\") for the ready implementation node",
-                node_id
-            ),
-            "edit implementation artifacts after binding".to_string(),
-            "do not create inspect nodes or spawn agents for thin implementation recovery"
+            format!("ready_implementation_node:{node_id}"),
+            "implementation_evidence_requirement: changed artifact evidence after binding"
+                .to_string(),
+            "thin_implementation_recovery_fact: ready implementation node already exists"
                 .to_string(),
         ];
     }
 
-    vec!["taskspace_control(action=bind_node or create_node)".to_string()]
+    vec!["action_space_source: taskspace_control bind_node/create_node hard baseline".to_string()]
 }
 
 fn approx_projection_tokens(text: &str) -> usize {
@@ -13393,7 +13175,7 @@ fn append_problem_ledger_context(context: &mut String, ledger: &ProblemStateLedg
         context.push('\n');
     }
     if ledger.success_criteria.is_empty() {
-        context.push_str("- success criteria: missing; prefer taskspace_control(action=state_commit, schema_version=taskspace-state-commit-v1) with sections.success_criteria plus fact_sources/output-contract records before ordinary work.\n");
+        context.push_str("- success criteria: missing; state_machine_requirement: sections.success_criteria plus fact_sources/output-contract records before ordinary work can rely on the task ledger.\n");
     } else {
         context.push_str("- success criteria:\n");
         for criterion in ledger.success_criteria.iter().take(6) {
@@ -13487,7 +13269,7 @@ fn append_result_evidence_context(context: &mut String, map: &ActionMapInstance)
         .collect::<Vec<_>>();
     if evidence_result_ids.is_empty() {
         context.push_str(
-            "- result evidence packages: none recorded; do not treat node or subagent summaries as accepted facts until mark_result_validity records claims and evidence refs.\n",
+            "- result evidence packages: none recorded; result_validity_requirement: node or subagent summaries are not accepted facts until mark_result_validity records claims and evidence refs.\n",
         );
         return;
     }
@@ -15025,6 +14807,7 @@ fn is_known_trace_tag(tag: &str) -> bool {
         || tag.starts_with("response_actionability_previous:")
         || tag.starts_with("previous_response_recovery_action:")
         || tag.starts_with("previous_response_trace_event_id:")
+        || tag.starts_with("adoption_actor:")
         || tag.starts_with("latest_tool_result_refs:")
         || tag.starts_with("model_visible_feedback_refs:")
         || tag.starts_with("adoption_blockers:")
@@ -15498,6 +15281,7 @@ fn broad_delegation_recovery_message(broad_completed_inspects: &[String]) -> Str
     )
 }
 
+#[cfg(test)]
 fn provider_request_budget_pressure_active_for_node(
     _provider_request_count: usize,
     _max_requests: usize,
@@ -15506,6 +15290,7 @@ fn provider_request_budget_pressure_active_for_node(
     false
 }
 
+#[cfg(test)]
 fn provider_request_budget_snapshot_pressure_active_for_node(
     snapshot: &ActionMapProviderRequestBudgetSnapshot,
     _node_kind: NodeKind,
@@ -16033,13 +15818,13 @@ fn validation_missing_jsonschema_dependency_next_actions(
     let mut actions = validation_output_contract_check_command(&requirements)
         .map(|command| {
             vec![format!(
-                "run_test with command `{command}` using the default python environment because `{}` failed to import jsonschema",
+                "validation_command_candidate:{command}; source=output_contract_check_after_missing_jsonschema:{}",
                 result.id
             )]
         })
         .unwrap_or_default();
     actions.push(
-        "do not route missing jsonschema module errors to implementation rework; run an available schema validator or block with exact validator dependency evidence"
+        "missing_jsonschema_dependency_fact: implementation rework is not supported by this validator dependency failure alone; exact validator dependency evidence remains available"
             .to_string(),
     );
     actions
@@ -17533,6 +17318,7 @@ fn node_has_successful_action(
     })
 }
 
+#[cfg(test)]
 fn node_has_failed_edit_after_result(
     map: &ActionMapInstance,
     node: &MapNode,
@@ -17722,6 +17508,7 @@ fn node_has_successful_code_or_test_inspect_result(
     })
 }
 
+#[cfg(test)]
 fn node_has_successful_diagnostic_test_result(map: &ActionMapInstance, node: &MapNode) -> bool {
     node.result_context.iter().any(|result_ref| {
         let Some(result) = map.results.get(&result_ref.id) else {
@@ -17907,38 +17694,6 @@ fn implement_node_has_dependency_validation_rework_evidence(
     node: &MapNode,
 ) -> bool {
     implement_node_dependency_validation_rework_summary(map, node).is_some()
-}
-
-fn implement_node_duplicate_validation_rework_artifact_read(
-    map: &ActionMapInstance,
-    node: &MapNode,
-    descriptor: &ToolActionDescriptor,
-) -> Option<(String, NodeResultId)> {
-    if node.kind != NodeKind::ImplementSolution || descriptor.action_class != ActionClass::Read {
-        return None;
-    }
-    let artifact_refs = implement_node_dependency_validation_rework_artifact_refs(map, node);
-    let artifact_ref = tool_action_descriptor_matching_artifact_ref(descriptor, &artifact_refs)?;
-    let target_artifact_key = artifact_key(&artifact_ref);
-    node.result_context.iter().rev().find_map(|result_ref| {
-        let result = map.results.get(&result_ref.id)?;
-        if result.kind != NodeResultKind::MainToolCall
-            || result.tool_success != Some(true)
-            || result.action_class != Some(ActionClass::Read)
-        {
-            return None;
-        }
-        if !result_artifact_refs(result)
-            .iter()
-            .any(|existing| artifact_key(existing) == target_artifact_key)
-        {
-            return None;
-        }
-        let failed_edit_after_read = node_has_failed_edit_after_result(map, node, &result.id);
-        let complete_read = read_file_summary_eof_reached(&result.body) == Some(true);
-        (complete_read && !failed_edit_after_read)
-            .then(|| (artifact_ref.clone(), result.id.clone()))
-    })
 }
 
 fn implement_node_validation_rework_artifact_read_results(
@@ -18997,6 +18752,7 @@ const TASKSPACE_EDIT_ACTION_PREVIEW_MAX_CHARS: usize = 6000;
 const TASKSPACE_VALIDATION_REWORK_TARGET_READ_MAX_CHARS: usize = 16_000;
 const TASKSPACE_VALIDATION_REWORK_TARGET_READ_SUMMARY_MAX_CHARS: usize = 6000;
 
+#[cfg(test)]
 fn inspect_code_or_test_read_summary(map: &ActionMapInstance, node: &MapNode) -> String {
     let summary = working_evidence_summary_for_nodes(map, &[node.id.as_str()]);
     if summary.is_empty() {
@@ -19274,7 +19030,7 @@ fn final_readiness_missing_ledger_message(task: &TaskState, map: &ActionMapInsta
         String::new()
     };
     format!(
-        "TaskSpace final answer cannot be emitted until every success criterion and output contract is satisfied or waived with evidence. Missing ledger items: {}{}. Recent result refs available to cite: {}. Ledger update path: call taskspace_control(action=state_commit, schema_version=taskspace-state-commit-v1) with success_criteria entries for the missing ids using explicit status=satisfied or status=waived and evidence_refs that cite result_id/artifact_ref; then retry final_answer. If these refs are insufficient, run or read the needed tool first.",
+        "TaskSpace final answer cannot be emitted until every success criterion and output contract is satisfied or waived with evidence. Missing ledger items: {}{}. Recent result refs available to cite: {}. State record schema available: taskspace_control action=state_commit schema_version=taskspace-state-commit-v1 accepts success_criteria/output_contracts entries with explicit id, status, kind, description, and evidence_refs. Final readiness is evaluated from the latest ledger state.",
         missing.join("; "),
         omitted,
         final_readiness_recent_result_refs(map)
@@ -19455,6 +19211,7 @@ fn map_has_successful_edit(map: &ActionMapInstance) -> bool {
         .any(|node| node_has_successful_action(map, node, ActionClass::Edit))
 }
 
+#[cfg(test)]
 fn successful_dependency_edit_result_ids(
     map: &ActionMapInstance,
     validation_node_id: &str,
@@ -19467,6 +19224,7 @@ fn successful_dependency_edit_result_ids(
     })
 }
 
+#[cfg(test)]
 fn dependency_implementation_lifecycle_result_ids(
     map: &ActionMapInstance,
     validation_node_id: &str,
@@ -19477,6 +19235,7 @@ fn dependency_implementation_lifecycle_result_ids(
     })
 }
 
+#[cfg(test)]
 fn dependency_implementation_result_ids(
     map: &ActionMapInstance,
     validation_node_id: &str,
@@ -19510,6 +19269,7 @@ fn dependency_implementation_result_ids(
     result_ids
 }
 
+#[cfg(test)]
 fn superseded_validation_blocker_result_ids(
     map: &ActionMapInstance,
     validation_node_id: &str,
@@ -19811,6 +19571,7 @@ fn latest_accepted_successful_validation_result_id(
     })
 }
 
+#[cfg(test)]
 fn criterion_kind_can_be_satisfied_by_validated_artifact(kind: &str) -> bool {
     matches!(
         kind,
@@ -19818,6 +19579,7 @@ fn criterion_kind_can_be_satisfied_by_validated_artifact(kind: &str) -> bool {
     )
 }
 
+#[cfg(test)]
 fn closeout_success_criterion_evidence_refs(
     validation_result_id: &str,
     implementation_result_ids: &[NodeResultId],
@@ -19896,7 +19658,17 @@ Tests hypotheses: {}\n\
 Depends on results: {}\n\
 Allowed action classes: {allowed_actions}\n\
 \n\
-        You must work only on this node's subtask and stay within Maximum scope. Use the provided node context and return a concise result package for this node. Include the claims you believe are supported, the evidence refs or concrete files/commands/validators behind them, changed artifacts if any, remaining uncertainty, and blockers if any. If evidence is weak or missing, say so instead of presenting the claim as final. Runtime enforces the allowed action classes above. Inspect nodes need concrete read/search evidence or a clear problem-state finding; implementation nodes need changed artifacts, relevant execution feedback when useful, or an explicit no-edit blocker; validation nodes need command, exit status, and validator/test evidence; final nodes need satisfied criteria, accepted decisions, and remaining risks. Inspect, test, and final nodes are read-only for repository files; do not edit files or call apply_patch unless this node kind is implement_solution. Do not maintain the map directly. Do not call taskspace_control, spawn_agent, or wait_agent; return findings to the parent agent so it can review the result, mark result validity, and grow or route the task path.\n\n",
+Node assignment contract:\n\
+- scope_boundary: this node's subtask and Maximum scope.\n\
+- result_package_fields: supported claims, evidence refs or concrete files/commands/validators, changed artifacts if any, remaining uncertainty, blockers if any.\n\
+- weak_evidence_semantics: weak or missing evidence remains uncertainty, not final truth.\n\
+- allowed_action_classes_source: Runtime enforces the allowed action classes listed above.\n\
+- inspect_evidence_requirement: concrete read/search evidence or a clear problem-state finding.\n\
+- implementation_evidence_requirement: changed artifacts, relevant execution feedback when useful, or explicit no-edit blocker evidence.\n\
+- validation_evidence_requirement: command, exit status, and validator/test evidence.\n\
+- final_evidence_requirement: satisfied criteria, accepted decisions, and remaining risks.\n\
+- read_only_node_kinds: inspect_code_context, smoke_test, regression_test, final_synthesis.\n\
+- parent_review_contract: findings return to the parent agent for result validity review and task path updates.\n\n",
         node_kind.as_str(),
         subagent_plan.id,
         subagent_plan.expected_artifact,
@@ -19979,6 +19751,7 @@ fn seed_missing_start_task_scaffold(
             id: "oc-user-request".to_string(),
             kind: "artifact".to_string(),
             description: format!("User-visible result satisfies the task objective: {objective}"),
+            status: "open".to_string(),
             evidence_refs: user_request_evidence(),
         });
     }
@@ -20092,6 +19865,7 @@ fn push_derived_start_task_output_contract(
         ),
         kind: kind.to_string(),
         description,
+        status: "open".to_string(),
         evidence_refs,
     });
 }
@@ -20101,19 +19875,18 @@ fn transition_notice(previous_mode: MapRuntimeMode, current_mode: MapRuntimeMode
         (MapRuntimeMode::Standard, MapRuntimeMode::Experiment) => {
             "TaskSpace mode is now active.\n\
 Previous standard-mode conversation remains background context only.\n\
-Before taking multi-agent action, create or bind a task path and a ready node.\n\
-Before ordinary work or subagent spawn, the active task needs at least one success criterion, output contract, and fact source. For a new task with known requirements, include initial_success_criteria, initial_output_contracts, and initial_fact_sources directly in taskspace_control(action=start_task). For an existing/routed task or newly discovered requirements, use taskspace_control(action=state_commit, schema_version=taskspace-state-commit-v1) when more than one record is needed.\n\
-For a small single-file fix or a single failing test, keep the work on the main agent by default; do not create parallel inspect nodes or spawn subagents unless the user explicitly asks for multi-agent work or the task has truly independent evidence surfaces.\n\
-After a node-level result is recorded, mark its validity before relying on it or continuing ordinary work.\n\
-Accepted implementation results should include changed_artifacts for modified files.\n\
-Future subagent work must be task/node driven."
+state_machine_requirement: multi-agent action requires a task path and ready node.\n\
+cognitive_preflight_requirement: before ordinary work or subagent spawn, the active task needs at least one success criterion, output contract, and fact source. start_task can carry initial_success_criteria, initial_output_contracts, and initial_fact_sources. state_commit(schema_version=taskspace-state-commit-v1) can record multiple problem-state records.\n\
+result_validity_requirement: node-level results require validity review before later work can rely on them.\n\
+implementation_result_contract: accepted implementation results include changed_artifacts for modified files.\n\
+subagent_binding_requirement: future subagent work is task/node driven."
                 .to_string()
         }
         (MapRuntimeMode::Experiment, MapRuntimeMode::Standard) => {
             "TaskSpace mode is now disabled.\n\
 Existing task paths, nodes, leases, and results remain historical context only.\n\
-Do not continue maintaining the task path, require node binding, or follow task-driven protocol unless the user enables TaskSpace again.\n\
-Continue with the standard Codex multi-agent behavior."
+TaskSpace maintenance status: disabled. Task paths no longer impose node binding or task-driven protocol unless the user enables TaskSpace again.\n\
+Active runtime mode: standard Codex multi-agent behavior."
                 .to_string()
         }
         _ => {
@@ -20805,6 +20578,144 @@ mod tests {
                 .expect("snapshot after repeated requests")
                 .request_count,
             2
+        );
+    }
+
+    #[test]
+    fn request_convergence_fixture_tracks_new_feedback_then_no_delta_repeat() {
+        let owner = ThreadId::new();
+        let mut state = ActionMapRuntimeState::default();
+        state.set_mode(MapRuntimeMode::Experiment);
+        state
+            .start_task_for_main(
+                owner,
+                "request convergence task".to_string(),
+                "record provider requests around tool feedback adoption".to_string(),
+                "inspect".to_string(),
+                "inspect provider request convergence tags".to_string(),
+                true,
+            )
+            .expect("start task");
+
+        let snapshot = state
+            .provider_request_budget_snapshot()
+            .expect("active budget snapshot");
+        state
+            .record_provider_request_budget_events(
+                &snapshot,
+                vec![provider_request_budget_input(
+                    "provider-request-1",
+                    "provider-request:turn-a:logical-1",
+                    "started",
+                    0,
+                    1,
+                    Some("model_sampling"),
+                )],
+            )
+            .expect("first provider budget trace events");
+
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "read-input",
+                "shell_command",
+                Some(ActionClass::Read),
+                true,
+                "TaskSpaceToolInvocationV1:\n\
+tool: shell_command\n\
+command: sed -n '1,40p' -- data.csv\n\
+raw_output:\n\
+Exit code: 0\n\
+Output:\n\
+value\n\
+42\n\
+TaskSpaceReadFileSummaryV1: path=data.csv lines_read=2 eof_reached=true max_lines=40\n"
+                    .to_string(),
+            )
+            .expect("tool feedback records")
+            .expect("tool result id");
+
+        let snapshot = state
+            .provider_request_budget_snapshot()
+            .expect("snapshot after tool feedback");
+        let second = state
+            .record_provider_request_budget_events(
+                &snapshot,
+                vec![provider_request_budget_input(
+                    "provider-request-2",
+                    "provider-request:turn-a:logical-2",
+                    "started",
+                    1,
+                    2,
+                    Some("model_sampling"),
+                )],
+            )
+            .expect("second provider budget trace events");
+        let MapRuntimeEvent::TaskspaceTraceEventRecorded(second_started) =
+            second.first().expect("second provider trace event")
+        else {
+            panic!("expected provider budget trace event");
+        };
+        assert!(
+            second_started
+                .tags
+                .iter()
+                .any(|tag| tag == "request_reason_delta:new_tool_result_refs"),
+            "{:?}",
+            second_started.tags
+        );
+        assert!(
+            second_started
+                .tags
+                .iter()
+                .any(|tag| tag == "latest_tool_result_refs:result-1"),
+            "{:?}",
+            second_started.tags
+        );
+
+        let snapshot = state
+            .provider_request_budget_snapshot()
+            .expect("snapshot without new feedback");
+        let third = state
+            .record_provider_request_budget_events(
+                &snapshot,
+                vec![provider_request_budget_input(
+                    "provider-request-3",
+                    "provider-request:turn-a:logical-3",
+                    "started",
+                    2,
+                    3,
+                    Some("model_sampling"),
+                )],
+            )
+            .expect("third provider budget trace events");
+        let MapRuntimeEvent::TaskspaceTraceEventRecorded(third_started) =
+            third.first().expect("third provider trace event")
+        else {
+            panic!("expected provider budget trace event");
+        };
+        assert!(
+            third_started
+                .tags
+                .iter()
+                .any(|tag| tag == "request_reason_delta:none"),
+            "{:?}",
+            third_started.tags
+        );
+        assert!(
+            third_started
+                .tags
+                .iter()
+                .any(|tag| tag == "repeated_same_reason_count:1"),
+            "{:?}",
+            third_started.tags
+        );
+        assert_eq!(
+            state
+                .provider_request_budget_snapshot()
+                .expect("snapshot after convergence fixture")
+                .request_count,
+            3
         );
     }
 
@@ -21872,6 +21783,40 @@ mod tests {
             artifact_ref: Some("test-fixture:user-request".to_string()),
             ..Default::default()
         }];
+        let active_node_is_final_synthesis = state
+            .active_map()
+            .and_then(|map| {
+                state
+                    .current_main_node_id
+                    .as_deref()
+                    .and_then(|node_id| map.nodes.get(node_id))
+            })
+            .is_some_and(|node| node.kind == NodeKind::FinalSynthesis);
+        if active_node_is_final_synthesis {
+            state
+                .state_commit_for_main(
+                    owner,
+                    ActionMapStateCommitInput {
+                        commit_id: "test-cognitive-preflight".to_string(),
+                        output_contracts: vec![ActionMapStateCommitOutputContractInput {
+                            id: "contract-test".to_string(),
+                            kind: "artifact".to_string(),
+                            description: "Test fixture acceptance contract.".to_string(),
+                            status: "satisfied".to_string(),
+                            evidence_refs: evidence_refs.clone(),
+                        }],
+                        fact_sources: vec![ActionMapStateCommitFactSourceInput {
+                            id: "source-test".to_string(),
+                            provenance: "provided_by_user".to_string(),
+                            description: "Test fixture source facts.".to_string(),
+                            evidence_refs,
+                        }],
+                        ..ActionMapStateCommitInput::default()
+                    },
+                )
+                .expect("final synthesis test preflight records as satisfied state");
+            return;
+        }
         state
             .record_output_contract_for_main(
                 owner,
@@ -22064,6 +22009,7 @@ sample rows from {artifact}"
                         id: "oc-preflight".to_string(),
                         kind: "artifact".to_string(),
                         description: "updated source file".to_string(),
+                        status: "open".to_string(),
                         evidence_refs: evidence_refs.clone(),
                     }],
                     fact_sources: vec![ActionMapStateCommitFactSourceInput {
@@ -22096,6 +22042,90 @@ sample rows from {artifact}"
         state
             .validate_cognitive_preflight()
             .expect("state_commit satisfies problem preflight");
+    }
+
+    #[test]
+    fn state_commit_output_contract_status_reaches_projection() {
+        let owner = ThreadId::new();
+        let mut state = ActionMapRuntimeState::default();
+        state.set_mode(MapRuntimeMode::Experiment);
+        state
+            .start_task_for_main_with_kind_and_criteria(
+                owner,
+                NodeKind::FinalSynthesis,
+                "Calculate average".to_string(),
+                "Write avg_temp.txt with the average temperature difference.".to_string(),
+                vec![ActionMapSuccessCriterionInput {
+                    id: "criterion-1".to_string(),
+                    kind: "test".to_string(),
+                    description: "Average calculation is validated.".to_string(),
+                    status: "satisfied".to_string(),
+                    evidence_refs: vec![ActionMapEvidenceRefInput {
+                        artifact_ref: Some("user-request".to_string()),
+                        ..Default::default()
+                    }],
+                }],
+                vec![ActionMapStateCommitOutputContractInput {
+                    id: "output-contract-1".to_string(),
+                    kind: "artifact".to_string(),
+                    description: "avg_temp.txt containing the computed average difference"
+                        .to_string(),
+                    status: "open".to_string(),
+                    evidence_refs: vec![ActionMapEvidenceRefInput {
+                        artifact_ref: Some("user-request".to_string()),
+                        ..Default::default()
+                    }],
+                }],
+                vec![ActionMapStateCommitFactSourceInput {
+                    id: "fact-source-1".to_string(),
+                    provenance: "provided_by_user".to_string(),
+                    description: "User requested avg_temp.txt.".to_string(),
+                    evidence_refs: vec![ActionMapEvidenceRefInput {
+                        artifact_ref: Some("user-request".to_string()),
+                        ..Default::default()
+                    }],
+                }],
+                "Summarize".to_string(),
+                "Return final answer after ledger is complete.".to_string(),
+                true,
+            )
+            .expect("task starts");
+
+        let (outcome, _) = state
+            .state_commit_for_main(
+                owner,
+                ActionMapStateCommitInput {
+                    commit_id: "commit-output-contract-satisfied".to_string(),
+                    output_contracts: vec![ActionMapStateCommitOutputContractInput {
+                        id: "output-contract-1".to_string(),
+                        kind: "artifact".to_string(),
+                        description: "avg_temp.txt containing the computed average difference"
+                            .to_string(),
+                        status: "satisfied".to_string(),
+                        evidence_refs: vec![ActionMapEvidenceRefInput {
+                            artifact_ref: Some("avg_temp.txt".to_string()),
+                            ..Default::default()
+                        }],
+                    }],
+                    ..ActionMapStateCommitInput::default()
+                },
+            )
+            .expect("state_commit accepts satisfied output contract");
+
+        assert_eq!(outcome.status, ActionMapStateCommitStatus::Accepted);
+        let ledger_status = state
+            .tasks
+            .get("task-1")
+            .expect("task")
+            .problem_ledger
+            .success_criteria
+            .iter()
+            .find(|criterion| criterion.id == "output-contract-1")
+            .map(|criterion| criterion.status.as_str());
+        assert_eq!(ledger_status, Some("satisfied"));
+        let context = state.build_developer_context().expect("context");
+        assert!(context.contains("output-contract-1 status=satisfied"));
+        assert!(!context.contains("output-contract-1 status=open"));
     }
 
     #[test]
@@ -22256,6 +22286,7 @@ sample rows from {artifact}"
                         id: "contract-runtime-trace".to_string(),
                         kind: "artifact".to_string(),
                         description: "runtime trace artifact".to_string(),
+                        status: "open".to_string(),
                         evidence_refs: Vec::new(),
                     }],
                     ..ActionMapStateCommitInput::default()
@@ -25866,6 +25897,7 @@ def build_organization():\n\
                     id: "oc-schema-summary".to_string(),
                     kind: "artifact".to_string(),
                     description: "schema structure summary".to_string(),
+                    status: "open".to_string(),
                     evidence_refs: vec![ActionMapEvidenceRefInput {
                         artifact_ref: Some("user-request".to_string()),
                         ..Default::default()
@@ -25931,6 +25963,7 @@ def build_organization():\n\
                     id: "oc-merged-users".to_string(),
                     kind: "artifact".to_string(),
                     description: "Merged user dataset with required columns".to_string(),
+                    status: "open".to_string(),
                     evidence_refs: vec![ActionMapEvidenceRefInput {
                         artifact_ref: Some("merged_users.parquet".to_string()),
                         ..Default::default()
@@ -26025,6 +26058,7 @@ def build_organization():\n\
                     id: "output-contract-1".to_string(),
                     kind: "artifact".to_string(),
                     description: "organization.json file created".to_string(),
+                    status: "open".to_string(),
                     evidence_refs: vec![ActionMapEvidenceRefInput {
                         artifact_ref: Some("user-request".to_string()),
                         ..Default::default()
@@ -26198,6 +26232,7 @@ TaskSpaceReadFileSummaryV1: path=projects.csv lines_read=2 eof_reached=true max_
                     id: "organization-json".to_string(),
                     kind: "artifact".to_string(),
                     description: "organization.json in the repository root".to_string(),
+                    status: "open".to_string(),
                     evidence_refs: vec![ActionMapEvidenceRefInput {
                         artifact_ref: Some("user-request".to_string()),
                         ..Default::default()
@@ -26311,6 +26346,7 @@ TaskSpaceReadFileSummaryV1: path=projects.csv lines_read=2 eof_reached=true max_
                     id: "output-contract-1".to_string(),
                     kind: "artifact".to_string(),
                     description: "organization.json file in the working directory".to_string(),
+                    status: "open".to_string(),
                     evidence_refs: vec![ActionMapEvidenceRefInput {
                         artifact_ref: Some("user-request".to_string()),
                         ..Default::default()
@@ -26551,6 +26587,7 @@ TaskSpaceReadFileSummaryV1: path=projects.csv lines_read=2 eof_reached=true max_
                         id: "output-contract-1".to_string(),
                         kind: "artifact".to_string(),
                         description: "Process script file (e.g., process_csv.py).".to_string(),
+                        status: "open".to_string(),
                         evidence_refs: vec![ActionMapEvidenceRefInput {
                             artifact_ref: Some("user-request".to_string()),
                             ..Default::default()
@@ -26560,6 +26597,7 @@ TaskSpaceReadFileSummaryV1: path=projects.csv lines_read=2 eof_reached=true max_
                         id: "output-contract-2".to_string(),
                         kind: "artifact".to_string(),
                         description: "Generated organization.json file.".to_string(),
+                        status: "open".to_string(),
                         evidence_refs: vec![ActionMapEvidenceRefInput {
                             artifact_ref: Some("user-request".to_string()),
                             ..Default::default()
@@ -27317,6 +27355,24 @@ data/source_a/users.json\n"
         assert_eq!(snapshot.request_phase.as_deref(), Some("final_synthesis"));
     }
 
+    fn assert_projection_actions_are_factual(actions: &[String]) {
+        let joined = actions.join("\n").to_ascii_lowercase();
+        for forbidden in [
+            "do not repeat the blocked",
+            "do not finish inspect_code_context",
+            "do not create recovery/reborn",
+            "retry edits only",
+            "do not taskspace_control",
+            "do not substitute weaker validation",
+            "preserve this failed edit result when choosing",
+        ] {
+            assert!(
+                !joined.contains(forbidden),
+                "active projection next actions must be factual, not strategy-injection text `{forbidden}`: {actions:?}"
+            );
+        }
+    }
+
     #[test]
     fn projection_prioritizes_inspect_to_implement_after_evidence() {
         let mut state = ActionMapRuntimeState::default();
@@ -27343,6 +27399,7 @@ data/source_a/users.json\n"
             .expect("result id");
         let map = state.maps.get("map-1").expect("map");
         let actions = projection_next_valid_actions(map, Some("node-1"), None, &[]);
+        assert_projection_actions_are_factual(&actions);
 
         assert!(
             actions
@@ -27352,7 +27409,7 @@ data/source_a/users.json\n"
         assert!(
             actions
                 .iter()
-                .any(|action| action.contains("do not create recovery/reborn inspect nodes"))
+                .any(|action| action.contains("edit_action_contract"))
         );
         assert!(
             !actions
@@ -27394,6 +27451,7 @@ data/source_a/users.json\n"
         let map = state.maps.get("map-1").expect("map");
         let task = state.tasks.get(&task_id).expect("task");
         let actions = projection_next_valid_actions(map, Some("node-1"), Some(task), &[]);
+        assert_projection_actions_are_factual(&actions);
 
         assert!(
             actions.iter().any(|action| action.contains("projects.csv")),
@@ -27402,7 +27460,7 @@ data/source_a/users.json\n"
         assert!(
             actions
                 .iter()
-                .any(|action| action.contains("do not finish inspect_code_context")),
+                .any(|action| action.contains("inspect_finish_blocker")),
             "{actions:?}"
         );
         assert!(
@@ -27806,6 +27864,7 @@ Traceback (most recent call last):\n",
         ];
         let actions =
             projection_next_valid_actions(map, Some("node-1"), Some(task), &latest_gate_recovery);
+        assert_projection_actions_are_factual(&actions);
 
         assert!(
             actions
@@ -27816,7 +27875,7 @@ Traceback (most recent call last):\n",
         assert!(
             actions
                 .iter()
-                .any(|action| action.contains("do not repeat the blocked inspect action")),
+                .any(|action| action.contains("blocked_inspect_action_repeat_detected")),
             "{actions:?}"
         );
         assert!(
@@ -27910,6 +27969,7 @@ Traceback (most recent call last):\n",
             .expect("result id");
         let map = state.maps.get("map-1").expect("map");
         let actions = projection_next_valid_actions(map, Some(&node_id), None, &[]);
+        assert_projection_actions_are_factual(&actions);
 
         assert_eq!(
             compact_projection_allowed_actions_for_node(NodeKind::SmokeTest),
@@ -28201,17 +28261,17 @@ def normalize_status(value: str) -> str:\n\
         assert!(
             actions
                 .iter()
-                .any(|action| action.contains("bind_node, node_id=\"node-2\""))
+                .any(|action| action.contains("ready_validation_node:node-2"))
         );
         assert!(
             actions
                 .iter()
-                .any(|action| action.contains("run validator/test command"))
+                .any(|action| action.contains("validation_evidence_requirement"))
         );
         assert!(
             actions
                 .iter()
-                .any(|action| action.contains("do not create inspect nodes or spawn agents"))
+                .any(|action| action.contains("thin_validation_recovery_fact"))
         );
     }
 
@@ -34365,7 +34425,7 @@ fi\n"
     }
 
     #[test]
-    fn inspect_progress_convergence_force_finishes_after_contract_hint() {
+    fn inspect_progress_convergence_records_evidence_without_runtime_transition() {
         let mut state = ActionMapRuntimeState::default();
         let owner = ThreadId::new();
         state.set_mode(MapRuntimeMode::Experiment);
@@ -34380,13 +34440,10 @@ fi\n"
             "Inspect enough pipeline scripts to identify a concrete implementation.",
             true,
         );
-        let mut transition_events = Vec::new();
+        let mut recorded_events = Vec::new();
         for index in
             0..=contract_for(NodeKind::InspectCodeContext).max_main_tool_results_before_split_hint
         {
-            if state.current_main_node_id.as_deref() != Some(node_id.as_str()) {
-                break;
-            }
             let call_id = format!("read-{index}");
             state
                 .prepare_main_tool_call(
@@ -34412,39 +34469,40 @@ fi\n"
                     },
                 )
                 .expect("source read result records")
-                .map(|(_, events)| transition_events.extend(events));
+                .map(|(_, events)| recorded_events.extend(events));
         }
 
         let map = state.active_map().expect("active map");
         assert_eq!(
             map.nodes.get(&node_id).expect("inspect node").status,
-            NodeStatus::Completed
-        );
-        let next_node = map
-            .nodes
-            .values()
-            .find(|node| node.kind == NodeKind::ImplementSolution)
-            .expect("implementation node");
-        assert_eq!(next_node.kind, NodeKind::ImplementSolution);
-        assert!(
-            next_node.context.summary.contains("#!/bin/nonexistent"),
-            "forced transition must preserve suspicious inspected evidence beyond the first three reads"
+            NodeStatus::Running
         );
         assert!(
             state
                 .current_main_working_evidence_summary()
                 .expect("working evidence summary")
                 .contains("#!/bin/nonexistent"),
-            "implementation recovery should be able to expose dependency evidence"
+            "runtime must preserve suspicious inspected evidence for the Agent without creating the next node"
         );
-        assert!(transition_events.iter().any(|event| {
-            match event {
-                MapRuntimeEvent::TaskspaceTraceEventRecorded(event) => event
-                    .tags
-                    .iter()
-                    .any(|tag| tag == "trigger:inspect_progress_convergence"),
-                _ => false,
-            }
+        assert_eq!(
+            state.current_main_node_id.as_deref(),
+            Some(node_id.as_str())
+        );
+        assert!(
+            state
+                .active_map()
+                .expect("active map")
+                .nodes
+                .values()
+                .all(|node| node.kind != NodeKind::ImplementSolution),
+            "inspect evidence alone must not create an implementation node"
+        );
+        assert!(!recorded_events.iter().any(|event| {
+            matches!(
+                event,
+                MapRuntimeEvent::TaskspaceTraceEventRecorded(event)
+                    if event.kind == "forced_inspect_transition"
+            )
         }));
     }
 
@@ -35889,6 +35947,7 @@ fi\n"
                     id: "oc-1".to_string(),
                     kind: "validator".to_string(),
                     description: "Final answer cites the validator result.".to_string(),
+                    status: "open".to_string(),
                     evidence_refs: vec![ActionMapEvidenceRefInput {
                         artifact_ref: Some("user-request".to_string()),
                         ..Default::default()
@@ -36823,6 +36882,7 @@ fi\n"
             event,
             MapRuntimeEvent::TaskspaceTraceEventRecorded(event)
                 if event.kind == "forced_validation_closeout"
+                    && event.tags.iter().any(|tag| tag == "adoption_actor:runtime_validation_closeout")
         )));
     }
 
@@ -38775,8 +38835,10 @@ projects.append({'name': row['name'], 'member_ids': row['member_ids'].split(';')
         assert_eq!(targets, vec!["generate_org.py"]);
         let actions = projection_next_valid_actions(map, Some(&rework_node_id), None, &[]);
         assert!(
-            actions.iter().any(|action| action
-                .contains("read_file validation rework target artifact `generate_org.py`")),
+            actions
+                .iter()
+                .any(|action| action
+                    .contains("validation_rework_target_artifact: `generate_org.py`")),
             "{actions:?}"
         );
 
@@ -38850,7 +38912,7 @@ TaskSpaceReadFileSummaryV1: path=generate_org.py lines_read=210 eof_reached=true
             projection_next_valid_actions(map, Some(&rework_node_id), None, &[]);
         assert!(
             actions_after_read.iter().any(|action| action
-                .contains("existing validation rework target read result")
+                .contains("validation_rework_target_read_result")
                 && action.contains("generate_org.py")
                 && action.contains("complete_read")
                 && action.contains("eof_reached=true")),
@@ -38858,19 +38920,19 @@ TaskSpaceReadFileSummaryV1: path=generate_org.py lines_read=210 eof_reached=true
         );
         assert!(
             !actions_after_read.iter().any(|action| action
-                .contains("read_file validation rework target artifact `generate_org.py`")),
+                .contains("validation_rework_target_artifact: `generate_org.py`; current_contents_visible: false")),
+            "{actions_after_read:?}"
+        );
+        assert!(
+            actions_after_read.iter().any(|action| action
+                .contains("validation_rework_patch_target_artifacts")
+                && action.contains("generate_org.py")),
             "{actions_after_read:?}"
         );
         assert!(
             actions_after_read
                 .iter()
-                .any(|action| action.contains("apply_patch") && action.contains("generate_org.py")),
-            "{actions_after_read:?}"
-        );
-        assert!(
-            actions_after_read
-                .iter()
-                .any(|action| action.contains("do not taskspace_control(action=finish_node)")),
+                .any(|action| action.contains("finish_node_blocker")),
             "{actions_after_read:?}"
         );
         assert!(
@@ -38936,7 +38998,7 @@ TaskSpaceReadFileSummaryV1: path=generate_org.py lines_read=210 eof_reached=true
                 .all(|event| !matches!(event, MapRuntimeEvent::ToolActionBlocked(_)))
         );
 
-        let repeated_read_error = state
+        let repeated_read_events = state
             .prepare_main_tool_call(
                 owner,
                 ToolActionDescriptor::new(
@@ -38948,16 +39010,13 @@ TaskSpaceReadFileSummaryV1: path=generate_org.py lines_read=210 eof_reached=true
                     .to_string(),
                 ),
             )
-            .expect_err("same validation rework target read should not repeat before edit");
-        let repeated_message = repeated_read_error.to_string();
+            .expect("same validation rework target read remains agent-controlled");
         assert!(
-            repeated_message.contains("validation_rework_duplicate_artifact_read"),
-            "{repeated_message}"
+            repeated_read_events
+                .iter()
+                .all(|event| !matches!(event, MapRuntimeEvent::ToolActionBlocked(_))),
+            "{repeated_read_events:?}"
         );
-        assert!(repeated_message.contains("generate_org.py"));
-        assert!(repeated_message.contains("complete read_file context"));
-        assert!(repeated_message.contains("eof_reached=true"));
-        assert!(repeated_message.contains("no additional file lines are hidden"));
 
         state
             .record_main_tool_result_with_class(
@@ -38978,38 +39037,40 @@ TaskSpaceReadFileSummaryV1: path=generate_org.py lines_read=210 eof_reached=true
                 .iter()
                 .any(|action| action.contains("failed_edit_feedback")
                     && action.contains("failed-context-patch")
-                    && action.contains("preserve this failed edit result")),
+                    && action.contains("latest failed edit result remains model-visible")),
             "{actions_after_failed_edit:?}"
         );
         assert!(
             actions_after_failed_edit.iter().any(|action| action
-                .contains("existing validation rework target read result")
+                .contains("validation_rework_target_read_result")
                 && action.contains("generate_org.py")
                 && action.contains("eof_reached=true")),
             "{actions_after_failed_edit:?}"
         );
         assert!(
-            !actions_after_failed_edit.iter().any(|action| action.contains(
-                "read_file validation rework target artifact `generate_org.py` once to refresh context after failed edit"
-            )),
+            !actions_after_failed_edit.iter().any(|action| {
+                action.contains(
+                "validation_rework_target_refresh_candidate: `generate_org.py` after failed edit"
+            )
+            }),
             "{actions_after_failed_edit:?}"
         );
         assert!(
             actions_after_failed_edit.iter().any(|action| action
-                .contains("existing validation rework target read result")
+                .contains("validation_rework_target_read_result")
                 && action.contains("generate_org.py")),
             "{actions_after_failed_edit:?}"
         );
         assert!(
             actions_after_failed_edit
                 .iter()
-                .any(|action| action.contains("read/search/list_files remain available")),
+                .any(|action| action.contains("duplicate_complete_target_read_signal")),
             "{actions_after_failed_edit:?}"
         );
         assert!(
             actions_after_failed_edit
                 .iter()
-                .any(|action| action.contains("do not taskspace_control(action=finish_node)")),
+                .any(|action| action.contains("finish_node_blocker")),
             "{actions_after_failed_edit:?}"
         );
         assert!(
