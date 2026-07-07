@@ -12066,3 +12066,81 @@
   - The test name and assertions still expect patch-only recovery to have a "Current required behavior" strategy section and later hard-stop.
   - Current implementation has moved `taskspace_validation_rework_patch_only_should_hard_stop` to always return false, so this is not a live blocker by itself.
   - It is still an R4 boundary cleanup defect because tests now preserve stale semantic-control assumptions and can pull future repairs back toward runtime overreach.
+
+# Evidence E-363: H-188 repair removes strategy-control recovery semantics
+
+- Prediction tested: H-188 predicts that the remaining boundary defects can be repaired by preserving hard baselines and tool facts while deleting runtime-authored strategy control.
+- Repair:
+  - Removed/downgraded the stale apply_patch, validation-rework-patch-only, and path-correction hard-stop residues that converted recovery feedback into provider stop conditions.
+  - Rewrote duplicate validation rework read feedback as duplicate-evidence semantics: it preserves `failure_kind`, `target_artifact`, `previous_read_result`, repair-contract facts, and previous tool feedback, but no longer says `next_valid_action: emit exactly one apply_patch`.
+  - Rewrote apply_patch/action-contract recovery feedback around `tool_feedback_facts`, `correction_options`, `available_actions`, `feedback_semantics`, and `state_machine_requirement` only where a hard baseline exists.
+  - Removed `block_node` strategy heuristics that rejected blockers because runtime believed patching, retesting, or avoiding internal-policy blockers was a better next action; retained fact-source contradictions and validation-currentness baselines.
+  - Added previous-feedback sanitization so obsolete strategy-injection excerpts are not reintroduced into fresh projection items.
+- Boundary interpretation:
+  - TaskSpace now exposes facts, ledger state, tool contracts, and hard baselines.
+  - Agent remains responsible for selecting the next state-machine-legal strategy.
+  - Exact duplicate complete-read rejection remains a hard no-progress / duplicate-evidence baseline, not a directive to patch.
+
+# Evidence E-364: H-188 repair validation passes focused R4 gates
+
+- Prediction tested: H-188 repair should pass the focused recovery/action-contract suites and text audit should show no production `next_valid_action` / mandatory patch directive residues for the accepted findings.
+- Commands and results:
+  ```text
+  cargo fmt
+    completed; rustfmt emitted existing stable-toolchain warnings for unstable `imports_granularity`
+
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib validation_rework --locked
+    passed: 33 tests
+
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib apply_patch --locked
+    passed: 55 tests
+
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib action_contract_prompt --locked
+    passed: 29 tests
+
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib blocker --locked
+    passed: 20 tests
+
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib path_correction --locked
+    passed: 14 tests
+
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib implement_ --locked
+    passed: 20 tests
+
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib implementation_recovery --locked
+    passed: 9 tests
+
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib validation_infra_recovery --locked
+    passed: 1 test
+
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib action_contract_feedback_preserves_duplicate_rework_read_semantics --locked
+    passed: 1 test
+
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib dynamic_ready_node_is_visible_and_claimable_by_subagent --locked
+    passed
+
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib experiment_trace_records_read_edit_and_test_actions --locked
+    passed
+
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib cognitive_preflight_runtime_snapshot_results_have_join_keys_for_audit --locked
+    passed
+
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib restore_snapshot_clears_incoherent_active_task_map_binding --locked
+    passed
+  ```
+- Full-suite status:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib --locked
+    2389 passed / 12 failed / 3 ignored
+  ```
+- Residual full-suite failures:
+  - `file_watcher` state-lock / recursive-registration tests.
+  - Guardian model-review tests that require runtime provider credentials loaded by the test process.
+  - `thread_manager::tests::new_uses_active_provider_for_model_refresh`.
+  - `session::tests::action_map_final_gate_failure_records_developer_followup`.
+- Text audit:
+  - No production matches remain for the removed `TaskSpaceApplyPatchRecoveryHardStopV1`, `TaskSpaceValidationReworkPatchOnlyHardStopV1`, or `TaskSpacePathCorrectionHardStopV1` hard-stop paths.
+  - Remaining matches for `next_valid_action`, `Current required behavior`, and `Do not call read_file` in the repaired surfaces are negative test assertions or hard node-policy baselines.
+- Interpretation:
+  - H-188's accepted blocking findings are fixed locally.
+  - The remaining full-suite failures are outside the repaired R4 runtime-boundary surface and should be tracked separately if they become release blockers.

@@ -2235,10 +2235,7 @@ impl ActionMapRuntimeState {
             }
         }
         if node.kind == NodeKind::ImplementSolution
-            && matches!(
-                descriptor.action_class,
-                ActionClass::Read | ActionClass::Search
-            )
+            && descriptor.action_class == ActionClass::Read
             && !node_has_successful_action(map, node, ActionClass::Edit)
             && let Some((artifact_ref, previous_result_id)) =
                 implement_node_duplicate_validation_rework_artifact_read(map, node, &descriptor)
@@ -2261,16 +2258,12 @@ impl ActionMapRuntimeState {
                 .get(&previous_result_id)
                 .and_then(|result| read_file_summary_line(&result.body))
                 .map(str::to_string);
-            let read_next_action = map
-                .results
-                .get(&previous_result_id)
-                .and_then(validation_rework_read_next_action_feedback);
             let message = format!(
-                "TaskSpace blocked this {} because validation rework node `{}` already read failure artifact `{}` in result `{}` and no successful edit has been recorded after that read.{} Use the existing file contents from that result and apply the smallest fix with apply_patch, or return blocked with the exact reason no safe edit can be made.{}",
+                "TaskSpace blocked this exact {} because validation rework node `{}` already has a complete successful read_file result `{}` for failure artifact `{}` and no successful edit has been recorded on the node.{} This feedback records duplicate complete-read semantics only; TaskSpace is not selecting an implementation strategy.{}",
                 descriptor.action_class.as_str(),
                 node.id,
-                artifact_ref,
                 previous_result_id,
+                artifact_ref,
                 read_completeness_message,
                 contract_message
             );
@@ -2294,16 +2287,22 @@ impl ActionMapRuntimeState {
             if let Some(read_summary) = read_summary {
                 blocking_items.push(format!("previous_read_summary:{read_summary}"));
             }
-            let mut next_valid_actions = vec![format!("call apply_patch for `{artifact_ref}`")];
-            if let Some(feedback) = read_next_action {
-                next_valid_actions.push(feedback);
-            }
+            let mut next_valid_actions = vec![format!(
+                "reuse complete read_file result `{previous_result_id}` when sufficient"
+            )];
             if let Some(contract) = repair_contract.as_ref() {
                 next_valid_actions.push(format!(
-                    "satisfy validation_schema_repair_contract: {contract}"
+                    "preserve validation_schema_repair_contract facts: {contract}"
                 ));
             }
-            next_valid_actions.push("or return blocked with exact missing evidence".to_string());
+            next_valid_actions.push(
+                "choose any other state-machine-legal action for the active implement_solution node"
+                    .to_string(),
+            );
+            next_valid_actions.push(
+                "do not repeat the same complete read_file request unless state/tool evidence changes"
+                    .to_string(),
+            );
             let recovery = gate_recovery_message_with_repeated_block(
                 &message,
                 &reason,
@@ -5546,6 +5545,15 @@ preview:\n\
             .nodes
             .get(node_id)
             .ok_or_else(|| format!("TaskSpace node `{node_id}` is missing."))?;
+        let observed_artifacts = observed_successful_read_search_artifacts(map);
+        let contradicted =
+            blocker_missing_observed_fact_source_artifacts(blocker_summary, &observed_artifacts);
+        if !contradicted.is_empty() {
+            return Err(format!(
+                "TaskSpace block_node on `{node_id}` cannot claim artifact(s) are missing because recorded read/search evidence already observed them: {}. This is a recorded-evidence contradiction; use a blocker not contradicted by recorded evidence or choose another state-machine-legal action.",
+                contradicted.join(", ")
+            ));
+        }
         if matches!(node.kind, NodeKind::SmokeTest | NodeKind::RegressionTest)
             && node_has_successful_validation_action(map, node)
         {
@@ -5575,60 +5583,6 @@ preview:\n\
             return Err(format!(
                 "TaskSpace {} node `{node_id}` cannot be blocked as failed validation before this node records a test/build result. Run the required validation command on `{node_id}` first, or block only with a specific external blocker that prevents validation from running.",
                 node.kind.as_str()
-            ));
-        }
-        if node.kind == NodeKind::ImplementSolution
-            && blocker_claims_missing_completed_diagnostic(blocker_summary)
-            && node_has_dependency_successful_diagnostic(map, node)
-        {
-            return Err(format!(
-                "TaskSpace implement_solution node `{node_id}` cannot be blocked for a missing diagnostic prerequisite because a dependency inspect node already recorded successful diagnostic evidence. Next valid action: apply_patch with the smallest concrete implementation fix from inspected evidence, or block only with a different unresolved external blocker."
-            ));
-        }
-        if node.kind == NodeKind::ImplementSolution
-            && !node_has_successful_action(map, node, ActionClass::Edit)
-            && (implement_node_has_dependency_implementation_source_evidence(map, node)
-                || implement_node_has_dependency_inspected_fact_source_evidence(map, node)
-                || implement_node_has_dependency_validation_rework_evidence(map, node))
-            && blocker_claims_missing_inspected_source_evidence(blocker_summary)
-        {
-            let next_action = if implement_node_has_complete_validation_rework_target_read(
-                map, node,
-            ) {
-                "Next valid action: retry apply_patch using existing complete validation rework target evidence plus failed validation/tool feedback; do not block for source visibility and do not refresh read when complete_read/eof_reached=true."
-            } else {
-                "Next valid action: retry apply_patch using the inspected source evidence and failed validation feedback; if a failed edit made the visible target context stale or truncated, read_file the same validation rework target once to refresh context, then patch."
-            };
-            return Err(format!(
-                "TaskSpace implement_solution node `{node_id}` cannot be blocked for missing source visibility because dependency evidence already identifies the implementation artifact or validation rework target. {next_action} Block only with a specific external blocker that makes editing impossible."
-            ));
-        }
-        if node.kind == NodeKind::ImplementSolution
-            && !node_has_successful_action(map, node, ActionClass::Edit)
-            && implement_node_has_dependency_validation_rework_evidence(map, node)
-            && blocker_claims_validation_procedure_instead_of_implementation_fix(blocker_summary)
-        {
-            return Err(format!(
-                "TaskSpace implement_solution node `{node_id}` cannot be blocked for validator procedure or test-command concerns because dependency validation evidence already identifies an implementation failure and this rework node has no successful edit. Next valid action: apply_patch the implementation artifact named by the failed validation evidence, or block only with a specific external blocker that makes editing impossible."
-            ));
-        }
-        if node.kind == NodeKind::ImplementSolution
-            && !node_has_successful_action(map, node, ActionClass::Edit)
-            && implement_node_has_dependency_validation_rework_evidence(map, node)
-            && blocker_claims_editable_validation_failure_as_blocker(blocker_summary)
-        {
-            return Err(format!(
-                "TaskSpace implement_solution node `{node_id}` cannot be blocked for editable validation failure because dependency validation evidence already identifies a repairable implementation failure and this rework node has no successful edit. Next valid action: apply_patch the implementation artifact named by the failed validation evidence; for top-level Python IndentationError or SyntaxError, patch the whole affected file or block rather than blocking for inspection. If a failed edit made the visible target context stale or truncated, read_file the same validation rework target once to refresh context, then patch. Block only with a specific external blocker that makes editing impossible."
-            ));
-        }
-        if node.kind == NodeKind::ImplementSolution
-            && !node_has_successful_action(map, node, ActionClass::Edit)
-            && (implement_node_has_dependency_working_evidence(map, node)
-                || implement_node_has_dependency_validation_rework_evidence(map, node))
-            && blocker_claims_internal_policy_instead_of_external_blocker(blocker_summary)
-        {
-            return Err(format!(
-                "TaskSpace implement_solution node `{node_id}` cannot be blocked for an internal node-policy or diagnostic-repeat concern because inspected implementation evidence is already available and no edit has been attempted. Next valid action: apply_patch with the smallest concrete implementation fix from dependency evidence, or block only with a specific external blocker that makes editing impossible."
             ));
         }
         let validation_rework =
@@ -5743,7 +5697,7 @@ preview:\n\
             return Ok(());
         }
         Err(format!(
-            "TaskSpace terminal blocked response cannot claim required fact-source artifact(s) are missing because inspect evidence already observed them: {}. Next valid action: continue from the existing evidence, create or route to an implementation/validation node if needed, run the processor/validator, and block only for a specific external blocker not contradicted by recorded evidence.",
+            "TaskSpace terminal blocked response cannot claim required fact-source artifact(s) are missing because inspect evidence already observed them: {}. This is a recorded-evidence contradiction; terminal blockers must not cite those artifacts as missing.",
             contradicted.join(", ")
         ))
     }
@@ -12068,20 +12022,6 @@ fn validation_rework_read_completeness_feedback(result: &NodeResult) -> Option<S
     }
 }
 
-fn validation_rework_read_next_action_feedback(result: &NodeResult) -> Option<String> {
-    match read_file_summary_eof_reached(&result.body) {
-        Some(true) => Some(format!(
-            "use complete read_file result `{}`; do not request the full file again",
-            result.id
-        )),
-        Some(false) => Some(format!(
-            "do not repeat the same bounded read_file result `{}`; apply a visible fix or block with the exact missing trailing-line evidence",
-            result.id
-        )),
-        None => None,
-    }
-}
-
 fn validation_failure_body_excerpt(body: &str, max_chars: usize) -> String {
     let focused = body
         .split_once("\nraw_output:\n")
@@ -12591,11 +12531,11 @@ fn projection_next_valid_actions(
                 {
                     if refresh_target_reads.is_empty() {
                         actions.push(format!(
-                            "failed_edit_feedback: {failed_edit}; next action must correct that apply_patch using existing complete target-read evidence; do not refresh read when complete_read/eof_reached=true"
+                            "failed_edit_feedback: {failed_edit}; preserve this failed edit result when choosing the next action. Existing complete target-read evidence remains available; corrected apply_patch, different concrete evidence, taskspace_control, or blocked remain state-machine-governed options"
                         ));
                     } else {
                         actions.push(format!(
-                            "failed_edit_feedback: {failed_edit}; next action must correct that apply_patch or refresh only the same target context if the failed hunk was stale/truncated"
+                            "failed_edit_feedback: {failed_edit}; preserve this failed edit result when choosing the next action. A target-context refresh can be useful if the failed hunk was stale/truncated; corrected apply_patch, different concrete evidence, taskspace_control, or blocked remain state-machine-governed options"
                         ));
                     }
                 }
@@ -12633,7 +12573,7 @@ fn projection_next_valid_actions(
                                 .map(|status| format!(" ({status})"))
                                 .unwrap_or_default();
                             format!(
-                                "use existing validation rework target read result `{result_id}` for `{artifact}`{read_context}; do not read/search it again before edit"
+                                "existing validation rework target read result `{result_id}` for `{artifact}`{read_context} is available for reuse"
                             )
                         })
                         .collect::<Vec<_>>()
@@ -12662,11 +12602,11 @@ fn projection_next_valid_actions(
                 ));
                 if !visible_target_reads.is_empty() && refresh_target_reads.is_empty() {
                     actions.push(
-                        "read/search is no longer a valid next action on this validation rework node until a successful edit records progress".to_string(),
+                        "read/search/list_files remain available for different concrete evidence when needed; exact duplicate complete target reads may be blocked as duplicate evidence".to_string(),
                     );
                 } else if !refresh_target_reads.is_empty() {
                     actions.push(
-                        "only the same validation rework target may be re-read to recover failed edit context; do not read unrelated files or search".to_string(),
+                        "read/search/list_files remain available when needed; target-context refresh reads are not restricted to a runtime-selected strategy".to_string(),
                     );
                 }
                 actions.push(
@@ -16519,15 +16459,55 @@ fn observed_required_fact_source_artifacts(
         return Vec::new();
     }
     let mut observed = Vec::new();
-    for node in map.nodes.values() {
-        if node.kind != NodeKind::InspectCodeContext {
+    for result in map.results.values() {
+        if result.kind != NodeResultKind::MainToolCall
+            || result.tool_success != Some(true)
+            || !matches!(
+                result.action_class,
+                Some(ActionClass::Read | ActionClass::Search)
+            )
+            || read_result_body_is_path_listing_only(&result.body)
+        {
             continue;
         }
-        for artifact in inspect_node_observed_artifact_refs(map, node) {
+        let mut artifacts = result_visible_artifact_refs(result);
+        artifacts.extend(result_input_data_artifact_refs(result));
+        if let Some(command) = result_body_command(result) {
+            artifacts.extend(command_artifact_refs(&command));
+        }
+        for artifact in artifacts {
             if required
                 .iter()
                 .any(|required| artifact_refs_match(required, &artifact))
             {
+                push_unique_artifact_ref(&mut observed, artifact);
+            }
+        }
+    }
+    observed
+}
+
+fn observed_successful_read_search_artifacts(map: &ActionMapInstance) -> Vec<String> {
+    let mut observed = Vec::new();
+    for result in map.results.values() {
+        if result.kind != NodeResultKind::MainToolCall
+            || result.tool_success != Some(true)
+            || !matches!(
+                result.action_class,
+                Some(ActionClass::Read | ActionClass::Search)
+            )
+            || read_result_body_is_path_listing_only(&result.body)
+        {
+            continue;
+        }
+        for artifact in result_visible_artifact_refs(result) {
+            push_unique_artifact_ref(&mut observed, artifact);
+        }
+        for artifact in result_input_data_artifact_refs(result) {
+            push_unique_artifact_ref(&mut observed, artifact);
+        }
+        if let Some(command) = result_body_command(result) {
+            for artifact in command_artifact_refs(&command) {
                 push_unique_artifact_ref(&mut observed, artifact);
             }
         }
@@ -17242,41 +17222,6 @@ fn node_has_successful_diagnostic_test_result(map: &ActionMapInstance, node: &Ma
     })
 }
 
-fn node_has_dependency_successful_diagnostic(map: &ActionMapInstance, node: &MapNode) -> bool {
-    map.edges.iter().any(|edge| {
-        if edge.to != node.id {
-            return false;
-        }
-        map.nodes
-            .get(&edge.from)
-            .is_some_and(|dependency| node_has_successful_diagnostic_test_result(map, dependency))
-    })
-}
-
-fn blocker_claims_missing_completed_diagnostic(blocker_summary: &str) -> bool {
-    let lower = blocker_summary.to_ascii_lowercase();
-    (lower.contains("diagnostic") || lower.contains("emit_large_log"))
-        && (lower.contains("must be run first")
-            || lower.contains("needs to be run first")
-            || lower.contains("before any patch")
-            || lower.contains("before editing")
-            || lower.contains("prerequisite"))
-}
-
-fn blocker_claims_internal_policy_instead_of_external_blocker(blocker_summary: &str) -> bool {
-    let lower = blocker_summary.to_ascii_lowercase();
-    lower.contains("implementation_needs_edit")
-        || lower.contains("allowed actions are only apply_patch")
-        || lower.contains("proceeding directly to apply")
-        || lower.contains("proceeding directly to apply the fix")
-        || ((lower.contains("diagnostic") || lower.contains("emit_large_log"))
-            && lower.contains("not permitted")
-            && (lower.contains("current node") || lower.contains("state")))
-        || (lower.contains("cannot run")
-            && lower.contains("current node")
-            && (lower.contains("allowed actions") || lower.contains("state")))
-}
-
 fn blocker_claims_validation_failure_without_current_result(blocker_summary: &str) -> bool {
     let lower = blocker_summary.to_ascii_lowercase();
     let validation_subject = lower.contains("validation")
@@ -17346,72 +17291,6 @@ fn blocker_claims_missing_validation_command_visibility(blocker_summary: &str) -
     validation_subject && missing_visibility && !external_access_blocker
 }
 
-fn blocker_claims_missing_inspected_source_evidence(blocker_summary: &str) -> bool {
-    let lower = blocker_summary.to_ascii_lowercase();
-    let source_subject = lower.contains("implementation")
-        || lower.contains("source")
-        || lower.contains("src/")
-        || lower.contains("src\\")
-        || lower.contains(".py")
-        || lower.contains(".js")
-        || lower.contains(".sh")
-        || lower.contains(".json")
-        || lower.contains("schema")
-        || lower.contains("output structure")
-        || lower.contains("file content")
-        || lower.contains("current code");
-    let missing_claim = lower.contains("unknown")
-        || lower.contains("no excerpt")
-        || lower.contains("only partial excerpt")
-        || lower.contains("not provided")
-        || lower.contains("not visible")
-        || lower.contains("not shown")
-        || lower.contains("need to read")
-        || lower.contains("need to inspect")
-        || lower.contains("need to view")
-        || lower.contains("need source")
-        || lower.contains("need full content")
-        || lower.contains("need full file content")
-        || lower.contains("need full schema")
-        || lower.contains("need schema context")
-        || lower.contains("without knowing")
-        || lower.contains("without schema knowledge")
-        || lower.contains("lack schema knowledge")
-        || lower.contains("lacking schema knowledge")
-        || lower.contains("need schema definition")
-        || lower.contains("have not read")
-        || lower.contains("has not read")
-        || lower.contains("not read")
-        || lower.contains("not readable")
-        || lower.contains("missing schema context")
-        || lower.contains("full schema context")
-        || lower.contains("full content is needed")
-        || lower.contains("full content of")
-        || lower.contains("insufficient file content visibility")
-        || lower.contains("current projection excerpt")
-        || lower.contains("projection excerpt")
-        || lower.contains("insufficient to determine")
-        || lower.contains("insufficient to construct")
-        || lower.contains("insufficient to apply")
-        || lower.contains("view full")
-        || lower.contains("read the full file")
-        || lower.contains("ability to read the full file")
-        || lower.contains("full current")
-        || lower.contains("without full file content")
-        || lower.contains("without seeing")
-        || lower.contains("missing critical trailing")
-        || lower.contains("truncated")
-        || lower.contains("cannot construct")
-        || lower.contains("remaining code")
-        || lower.contains("request read access")
-        || lower.contains("cannot read")
-        || lower.contains("can't read")
-        || lower.contains("lack visibility")
-        || lower.contains("lacks visibility")
-        || lower.contains("cannot guess");
-    source_subject && missing_claim
-}
-
 fn blocker_missing_observed_fact_source_artifacts(
     blocker_summary: &str,
     observed_artifacts: &[String],
@@ -17421,6 +17300,9 @@ fn blocker_missing_observed_fact_source_artifacts(
         || lower.contains("not present")
         || lower.contains("not available")
         || lower.contains("not provided")
+        || lower.contains("need to read")
+        || lower.contains("needs to read")
+        || lower.contains("does not include content")
         || lower.contains("not found")
         || lower.contains("does not exist")
         || lower.contains("cannot be found")
@@ -17444,71 +17326,6 @@ fn blocker_missing_observed_fact_source_artifacts(
         }
     }
     contradicted
-}
-
-fn blocker_claims_validation_procedure_instead_of_implementation_fix(
-    blocker_summary: &str,
-) -> bool {
-    let lower = blocker_summary.to_ascii_lowercase();
-    let validation_subject = lower.contains("pytest")
-        || lower.contains("test command")
-        || lower.contains("test file")
-        || lower.contains("tests discovered")
-        || lower.contains("collected 0 items")
-        || lower.contains("validator")
-        || lower.contains("validation");
-    let procedure_claim = lower.contains("adjust the test")
-        || lower.contains("create a proper test")
-        || lower.contains("no tests discovered")
-        || lower.contains("cache permission")
-        || lower.contains("test infrastructure")
-        || lower.contains("validator tool is unavailable")
-        || lower.contains("validation tooling")
-        || lower.contains("validation tool is unavailable")
-        || lower.contains("schema validator tool is unavailable")
-        || lower.contains("cannot run recover.py")
-        || lower.contains("run the script manually");
-    validation_subject && procedure_claim
-}
-
-fn blocker_claims_editable_validation_failure_as_blocker(blocker_summary: &str) -> bool {
-    let lower = blocker_summary.to_ascii_lowercase();
-    let editable_failure = lower.contains("indentationerror")
-        || lower.contains("syntaxerror")
-        || lower.contains("keyerror")
-        || lower.contains("traceback")
-        || lower.contains("assertionerror")
-        || lower.contains("typeerror")
-        || lower.contains("valueerror");
-    let block_claim = lower.contains("need to inspect")
-        || lower.contains("need to read")
-        || lower.contains("need full file content")
-        || lower.contains("without full file content")
-        || lower.contains("missing critical trailing")
-        || lower.contains("truncated")
-        || lower.contains("cannot construct")
-        || lower.contains("cannot read")
-        || lower.contains("can't read")
-        || lower.contains("read actions are not allowed")
-        || lower.contains("read restriction")
-        || lower.contains("insufficient information")
-        || lower.contains("current narrowed state")
-        || lower.contains("file state")
-        || lower.contains("cannot execute")
-        || lower.contains("can't execute")
-        || lower.contains("implementation is incomplete")
-        || lower.contains("closed validation")
-        || lower.contains("blocked")
-        || lower.contains("infra");
-    let external_blocker = lower.contains("e_accessdenied")
-        || lower.contains("access denied")
-        || lower.contains("permission denied")
-        || lower.contains("sandbox")
-        || lower.contains("tool runtime bootstrap")
-        || lower.contains("network")
-        || lower.contains("service unavailable");
-
-    editable_failure && block_claim && !external_blocker
 }
 
 fn inspect_node_unread_referenced_scripts(map: &ActionMapInstance, node: &MapNode) -> Vec<String> {
@@ -17577,32 +17394,12 @@ fn implement_node_has_dependency_validation_rework_evidence(
     implement_node_dependency_validation_rework_summary(map, node).is_some()
 }
 
-fn implement_node_has_complete_validation_rework_target_read(
-    map: &ActionMapInstance,
-    node: &MapNode,
-) -> bool {
-    let artifact_refs = implement_node_dependency_validation_rework_artifact_refs(map, node);
-    implement_node_validation_rework_artifact_read_results(map, node, &artifact_refs)
-        .iter()
-        .any(|(_, result_id)| {
-            map.results
-                .get(result_id)
-                .and_then(|result| read_file_summary_eof_reached(&result.body))
-                == Some(true)
-        })
-}
-
 fn implement_node_duplicate_validation_rework_artifact_read(
     map: &ActionMapInstance,
     node: &MapNode,
     descriptor: &ToolActionDescriptor,
 ) -> Option<(String, NodeResultId)> {
-    if node.kind != NodeKind::ImplementSolution
-        || !matches!(
-            descriptor.action_class,
-            ActionClass::Read | ActionClass::Search
-        )
-    {
+    if node.kind != NodeKind::ImplementSolution || descriptor.action_class != ActionClass::Read {
         return None;
     }
     let artifact_refs = implement_node_dependency_validation_rework_artifact_refs(map, node);
@@ -17612,10 +17409,7 @@ fn implement_node_duplicate_validation_rework_artifact_read(
         let result = map.results.get(&result_ref.id)?;
         if result.kind != NodeResultKind::MainToolCall
             || result.tool_success != Some(true)
-            || !matches!(
-                result.action_class,
-                Some(ActionClass::Read | ActionClass::Search)
-            )
+            || result.action_class != Some(ActionClass::Read)
         {
             return None;
         }
@@ -17627,7 +17421,7 @@ fn implement_node_duplicate_validation_rework_artifact_read(
         }
         let failed_edit_after_read = node_has_failed_edit_after_result(map, node, &result.id);
         let complete_read = read_file_summary_eof_reached(&result.body) == Some(true);
-        (!failed_edit_after_read || complete_read)
+        (complete_read && !failed_edit_after_read)
             .then(|| (artifact_ref.clone(), result.id.clone()))
     })
 }
@@ -18261,101 +18055,6 @@ fn implement_node_transitive_dependency_node_ids(
         }
     }
     ordered
-}
-
-fn implement_node_has_dependency_implementation_source_evidence(
-    map: &ActionMapInstance,
-    node: &MapNode,
-) -> bool {
-    map.edges.iter().any(|edge| {
-        if edge.to != node.id {
-            return false;
-        }
-        let Some(dependency) = map.nodes.get(&edge.from) else {
-            return false;
-        };
-        dependency.result_context.iter().any(|result_ref| {
-            map.results.get(&result_ref.id).is_some_and(|result| {
-                successful_inspect_result_has_working_evidence(result)
-                    && result_visible_artifact_refs(result)
-                        .iter()
-                        .any(|artifact_ref| is_inspected_implementation_source_ref(artifact_ref))
-            })
-        })
-    })
-}
-
-fn implement_node_has_dependency_inspected_fact_source_evidence(
-    map: &ActionMapInstance,
-    node: &MapNode,
-) -> bool {
-    map.edges.iter().any(|edge| {
-        if edge.to != node.id {
-            return false;
-        }
-        let Some(dependency) = map.nodes.get(&edge.from) else {
-            return false;
-        };
-        if dependency.kind != NodeKind::InspectCodeContext {
-            return false;
-        }
-        dependency.result_context.iter().any(|result_ref| {
-            map.results
-                .get(&result_ref.id)
-                .is_some_and(|result| inspect_result_or_bridge_has_fact_source_evidence(result))
-        })
-    })
-}
-
-fn inspect_result_or_bridge_has_fact_source_evidence(result: &NodeResult) -> bool {
-    let inspect_tool_result = successful_inspect_result_has_working_evidence(result);
-    let inspect_bridge_result = result.kind == NodeResultKind::Result
-        && result.evidence_package.validity == ResultValidity::Accepted
-        && result
-            .body
-            .contains("Inspect evidence supported convergence");
-    if !inspect_tool_result && !inspect_bridge_result {
-        return false;
-    }
-    result_visible_artifact_refs(result).iter().any(|artifact| {
-        let artifact = artifact.to_ascii_lowercase();
-        matches!(
-            artifact.rsplit_once('.').map(|(_, ext)| ext),
-            Some("csv" | "json" | "yaml" | "yml" | "toml" | "txt")
-        )
-    })
-}
-
-fn is_inspected_implementation_source_ref(artifact_ref: &str) -> bool {
-    let normalized = normalize_artifact_ref(artifact_ref).to_ascii_lowercase();
-    if normalized.starts_with("scripts/")
-        || normalized.starts_with("tests/")
-        || normalized.contains("/tests/")
-        || normalized == "readme.md"
-        || normalized.starts_with("docs/")
-    {
-        return false;
-    }
-    normalized.starts_with("src/")
-        || normalized.contains("/src/")
-        || normalized.ends_with(".py")
-        || normalized.ends_with(".rs")
-        || normalized.ends_with(".js")
-        || normalized.ends_with(".jsx")
-        || normalized.ends_with(".ts")
-        || normalized.ends_with(".tsx")
-        || normalized.ends_with(".go")
-        || normalized.ends_with(".java")
-        || normalized.ends_with(".kt")
-        || normalized.ends_with(".swift")
-        || normalized.ends_with(".rb")
-        || normalized.ends_with(".php")
-        || normalized.ends_with(".c")
-        || normalized.ends_with(".cc")
-        || normalized.ends_with(".cpp")
-        || normalized.ends_with(".h")
-        || normalized.ends_with(".hpp")
-        || normalized.ends_with(".cs")
 }
 
 fn implement_node_uncovered_mandatory_evidence(
@@ -23090,7 +22789,7 @@ sample rows from {artifact}"
         let mut state = ActionMapRuntimeState::default();
         let owner = ThreadId::new();
         state.set_mode(MapRuntimeMode::Experiment);
-        let (_task_id, map_id, node_id, _) = start_test_task(
+        let (_task_id, map_id, _node_id, _) = start_test_task(
             &mut state,
             owner,
             "Inspect artifact contract",
@@ -23149,11 +22848,18 @@ sample rows from {artifact}"
         let result = map
             .results
             .iter()
-            .find(|result| result.id == "result-1")
-            .expect("snapshot result");
+            .find(|result| {
+                result.action_class.as_deref() == Some("test")
+                    && result.tool_success == Some(true)
+                    && result.body.contains("pytest passed")
+            })
+            .expect("snapshot test result");
 
         assert_eq!(result.map_id, map_id);
-        assert_eq!(result.node_id, node_id);
+        assert!(
+            map.nodes.iter().any(|node| node.id == result.node_id),
+            "snapshot result should join to an existing node"
+        );
         assert_eq!(result.kind, "main_tool_call");
         assert_eq!(result.action_class.as_deref(), Some("test"));
         assert_eq!(result.tool_success, Some(true));
@@ -23646,7 +23352,10 @@ sample rows from {artifact}"
             }
 
             let snapshot = state.snapshot();
-            assert_eq!(snapshot.trace_events.len(), 2);
+            assert!(
+                !snapshot.trace_events.is_empty(),
+                "snapshot should include taskspace trace events"
+            );
             let snapshot_trace = snapshot
                 .trace_events
                 .iter()
@@ -27640,7 +27349,7 @@ def normalize_status(value: str) -> str:\n\
     }
 
     #[test]
-    fn implement_node_allows_edit_but_blocks_test() {
+    fn implement_node_allows_edit_and_keeps_test_agent_controlled() {
         let mut state = ActionMapRuntimeState::default();
         let owner = ThreadId::new();
         state.set_mode(MapRuntimeMode::Experiment);
@@ -27673,22 +27382,16 @@ def normalize_status(value: str) -> str:\n\
                 "patched target file".to_string(),
             )
             .expect("edit result records");
-        let error = state
+        state
             .prepare_main_tool_call(
                 owner,
                 ToolActionDescriptor::new("shell_command", ActionClass::Test, "pytest"),
             )
-            .expect_err("implementation nodes do not absorb tests");
-
-        assert!(error.contains("implement_solution"));
-        assert!(error.contains("test"));
-        assert!(error.contains("next_node_kind=\"smoke_test\""));
-        assert!(error.contains("Do not block this implementation node"));
-        assert!(error.contains("then run the test only after current_node is smoke_test"));
+            .expect("implementation test actions remain agent-controlled after an edit");
     }
 
     #[test]
-    fn implement_node_blocks_test_before_edit_with_edit_recovery() {
+    fn implement_node_allows_test_before_edit_as_agent_controlled_action() {
         let mut state = ActionMapRuntimeState::default();
         let owner = ThreadId::new();
         state.set_mode(MapRuntimeMode::Experiment);
@@ -27705,17 +27408,12 @@ def normalize_status(value: str) -> str:\n\
             .expect("task starts");
         seed_test_cognitive_preflight(&mut state, owner);
 
-        let error = state
+        state
             .prepare_main_tool_call(
                 owner,
                 ToolActionDescriptor::new("shell_command", ActionClass::Test, "pytest"),
             )
-            .expect_err("implementation nodes require an edit before tests");
-
-        assert!(error.contains("has no successful edit result yet"));
-        assert!(error.contains("apply_patch"));
-        assert!(error.contains("Do not finish the node"));
-        assert!(!error.contains("result_summary=\"implementation edit is applied\""));
+            .expect("implementation test actions are not blocked by edit-pressure hints");
     }
 
     #[test]
@@ -32687,17 +32385,17 @@ def test_normalize_status_strips_and_lowercases():\n\
             .expect("force finish should not error")
             .expect("force finish should create implement node");
 
-        let error = state
+        let (result_id, events) = state
             .block_main_node(
                 owner,
                 "node-2",
                 "The diagnostic command (python scripts/emit_large_log.py) must be run first before any patch is applied."
                     .to_string(),
             )
-            .expect_err("completed diagnostic prerequisite must not become a blocker");
+            .expect("runtime should record Agent blocker without diagnostic-prerequisite strategy rejection");
 
-        assert!(error.contains("already recorded successful diagnostic evidence"));
-        assert!(error.contains("apply_patch"));
+        assert!(result_id.as_str().starts_with("result-"));
+        assert!(!events.is_empty());
     }
 
     #[test]
@@ -32785,17 +32483,17 @@ def test_normalize_status_strips_and_lowercases():\n\
             .expect("force finish should not error")
             .expect("force finish should create implement node");
 
-        let error = state
+        let (result_id, events) = state
             .block_main_node(
                 owner,
                 "node-2",
                 "Current node (implement_solution) state is implementation_needs_edit; allowed actions are only apply_patch, taskspace_control, or blocked. Running the diagnostic command python scripts/emit_large_log.py is not permitted in this state. Proceeding directly to apply the fix for the failing test."
                     .to_string(),
             )
-            .expect_err("internal node policy concern must not become a blocker");
+            .expect("runtime should record Agent blocker without strategy-level rejection");
 
-        assert!(error.contains("cannot be blocked for an internal node-policy"));
-        assert!(error.contains("apply_patch"));
+        assert!(result_id.as_str().starts_with("result-"));
+        assert!(!events.is_empty());
     }
 
     #[test]
@@ -32856,10 +32554,11 @@ def normalize_status(value: str) -> str:\n\
                 "Current implementation of src/large_output_demo.py is unknown because no excerpt was provided in the inspect evidence. I need to read the file to understand what to fix."
                     .to_string(),
             )
-            .expect_err("available source evidence must not be hidden behind a blocker");
+            .expect_err("blocker contradicts recorded source evidence");
 
-        assert!(error.contains("missing source visibility"));
-        assert!(error.contains("retry apply_patch"));
+        assert!(error.contains("recorded-evidence contradiction"), "{error}");
+        assert!(error.contains("src/large_output_demo.py"), "{error}");
+        assert!(!error.contains("apply_patch"), "{error}");
     }
 
     #[test]
@@ -32970,8 +32669,9 @@ Madrid,In Progress,D001-E001,2025-06-30,D001\n"
             )
             .expect_err("forced inspect evidence already contains schema and CSV facts");
 
-        assert!(error.contains("missing source visibility"), "{error}");
-        assert!(error.contains("apply_patch"), "{error}");
+        assert!(error.contains("recorded-evidence contradiction"), "{error}");
+        assert!(error.contains("schema.json"), "{error}");
+        assert!(error.contains("departments.csv"), "{error}");
     }
 
     #[test]
@@ -33457,7 +33157,7 @@ projects.csv\n"
             "implementation node should require an edit after enough reads"
         );
 
-        let err = state
+        state
             .prepare_main_tool_call(
                 owner,
                 ToolActionDescriptor::new(
@@ -33467,11 +33167,7 @@ projects.csv\n"
                 )
                 .with_call_id("late-read"),
             )
-            .expect_err("late read should be blocked until edit or blocker");
-        assert!(
-            err.to_string()
-                .contains("implement_solution has enough read/search evidence")
-        );
+            .expect("late reads remain agent-controlled despite edit-pressure hints");
 
         state
             .prepare_main_tool_call(
@@ -33543,7 +33239,7 @@ projects.csv\n"
     }
 
     #[test]
-    fn implement_dependency_evidence_needs_edit_immediately_after_inspect_transition() {
+    fn implement_dependency_evidence_marks_edit_pressure_without_blocking_reads() {
         let mut state = ActionMapRuntimeState::default();
         let owner = ThreadId::new();
         state.set_mode(MapRuntimeMode::Experiment);
@@ -33615,7 +33311,7 @@ projects.csv\n"
             state.current_main_implement_progress_needs_edit(),
             "implementation node should inherit dependency evidence pressure"
         );
-        let err = state
+        state
             .prepare_main_tool_call(
                 owner,
                 ToolActionDescriptor::new(
@@ -33625,12 +33321,11 @@ projects.csv\n"
                 )
                 .with_call_id("implement-read"),
             )
-            .expect_err("dependency evidence should block implementation reads until edit");
-        assert!(err.to_string().contains("dependency_working_evidence"));
+            .expect("dependency evidence pressure does not block implementation reads");
     }
 
     #[test]
-    fn implement_dependency_input_data_evidence_blocks_rediscovery_reads() {
+    fn implement_dependency_input_data_evidence_marks_pressure_without_blocking_reads() {
         let mut state = ActionMapRuntimeState::default();
         let owner = ThreadId::new();
         state.set_mode(MapRuntimeMode::Experiment);
@@ -33712,7 +33407,7 @@ projects.csv\n"
         assert!(context.contains("verified_paths=task_deps/generator.log"));
         assert!(context.contains("prediction"));
 
-        let err = state
+        state
             .prepare_main_tool_call(
                 owner,
                 ToolActionDescriptor::new(
@@ -33725,8 +33420,7 @@ projects.csv\n"
                 )
                 .with_call_id("implement-raw-log-read"),
             )
-            .expect_err("dependency input evidence should block implementation reads until edit");
-        assert!(err.to_string().contains("dependency_working_evidence"));
+            .expect("dependency input evidence pressure does not block implementation reads");
     }
 
     #[test]
@@ -37901,7 +37595,7 @@ organization.json generated successfully.\n"
                 "import sqlite3\nprint('recover rows')\n".to_string(),
             )
             .expect("targeted rework read result records");
-        let repeated_read = state
+        let repeated_read_events = state
             .prepare_main_tool_call(
                 owner,
                 ToolActionDescriptor::new(
@@ -37913,11 +37607,12 @@ organization.json generated successfully.\n"
                     .to_string(),
                 ),
             )
-            .expect_err("same validation rework artifact should not be reread before edit");
-        let repeated_message = repeated_read.to_string();
-        assert!(repeated_message.contains("validation_rework_duplicate_artifact_read"));
-        assert!(repeated_message.contains("recover.py"));
-        assert!(repeated_message.contains("apply_patch"));
+            .expect("same target read without complete-read summary remains agent-controlled");
+        assert!(
+            repeated_read_events
+                .iter()
+                .all(|event| !matches!(event, MapRuntimeEvent::ToolActionBlocked(_)))
+        );
     }
 
     #[test]
@@ -38156,7 +37851,7 @@ raw_output:\n\
             "{actions:?}"
         );
 
-        let schema_read_error = state
+        let schema_read_events = state
             .prepare_main_tool_call(
                 owner,
                 ToolActionDescriptor::new(
@@ -38168,15 +37863,13 @@ raw_output:\n\
                     .to_string(),
                 ),
             )
-            .expect_err("schema rediscovery should be blocked with repair contract");
-        let schema_read_message = schema_read_error.to_string();
+            .expect(
+                "schema rediscovery remains agent-controlled while repair contract is projected",
+            );
         assert!(
-            schema_read_message.contains("validation_rework_contract"),
-            "{schema_read_message}"
-        );
-        assert!(
-            schema_read_message.contains("projectStatusDistribution"),
-            "{schema_read_message}"
+            schema_read_events
+                .iter()
+                .all(|event| !matches!(event, MapRuntimeEvent::ToolActionBlocked(_)))
         );
 
         state
@@ -38208,7 +37901,7 @@ projects.append({'name': row['name'], 'member_ids': row['member_ids'].split(';')
                     .to_string(),
             )
             .expect("target read records");
-        let duplicate_read_error = state
+        let duplicate_read_events = state
             .prepare_main_tool_call(
                 owner,
                 ToolActionDescriptor::new(
@@ -38220,19 +37913,11 @@ projects.append({'name': row['name'], 'member_ids': row['member_ids'].split(';')
                     .to_string(),
                 ),
             )
-            .expect_err("duplicate target read should surface repair contract");
-        let duplicate_read_message = duplicate_read_error.to_string();
+            .expect("same target read without complete-read summary remains agent-controlled");
         assert!(
-            duplicate_read_message.contains("validation_rework_duplicate_artifact_read"),
-            "{duplicate_read_message}"
-        );
-        assert!(
-            duplicate_read_message.contains("Validation repair contract"),
-            "{duplicate_read_message}"
-        );
-        assert!(
-            duplicate_read_message.contains("projectStatusDistribution"),
-            "{duplicate_read_message}"
+            duplicate_read_events
+                .iter()
+                .all(|event| !matches!(event, MapRuntimeEvent::ToolActionBlocked(_)))
         );
     }
 
@@ -38365,7 +38050,7 @@ projects.append({'name': row['name'], 'member_ids': row['member_ids'].split(';')
             "{actions:?}"
         );
 
-        let broad_read_error = state
+        let broad_read_events = state
             .prepare_main_tool_call(
                 owner,
                 ToolActionDescriptor::new(
@@ -38377,15 +38062,11 @@ projects.append({'name': row['name'], 'member_ids': row['member_ids'].split(';')
                     .to_string(),
                 ),
             )
-            .expect_err("non-target schema read remains blocked on validation rework");
-        let broad_read_message = broad_read_error.to_string();
+            .expect("non-target schema read remains agent-controlled on validation rework");
         assert!(
-            broad_read_message.contains("enough read/search evidence"),
-            "{broad_read_message}"
-        );
-        assert!(
-            broad_read_message.contains("generate_org.py"),
-            "{broad_read_message}"
+            broad_read_events
+                .iter()
+                .all(|event| !matches!(event, MapRuntimeEvent::ToolActionBlocked(_)))
         );
 
         state
@@ -38439,7 +38120,7 @@ TaskSpaceReadFileSummaryV1: path=generate_org.py lines_read=210 eof_reached=true
             projection_next_valid_actions(map, Some(&rework_node_id), None, &[]);
         assert!(
             actions_after_read.iter().any(|action| action
-                .contains("use existing validation rework target read result")
+                .contains("existing validation rework target read result")
                 && action.contains("generate_org.py")
                 && action.contains("complete_read")
                 && action.contains("eof_reached=true")),
@@ -38501,11 +38182,12 @@ TaskSpaceReadFileSummaryV1: path=generate_org.py lines_read=210 eof_reached=true
         );
         let rework_node_after_read = map.nodes.get(&rework_node_id).expect("rework node");
         let allowed_actions = projection_allowed_actions_for_node(map, rework_node_after_read);
-        assert!(allowed_actions.contains("edit, control"));
-        assert!(allowed_actions.contains("read/search"));
-        assert!(allowed_actions.contains("will be blocked"));
+        assert!(allowed_actions.contains("read"));
+        assert!(allowed_actions.contains("search"));
+        assert!(allowed_actions.contains("edit"));
+        assert!(allowed_actions.contains("control"));
 
-        let schema_after_read_error = state
+        let schema_after_read_events = state
             .prepare_main_tool_call(
                 owner,
                 ToolActionDescriptor::new(
@@ -38517,20 +38199,11 @@ TaskSpaceReadFileSummaryV1: path=generate_org.py lines_read=210 eof_reached=true
                     .to_string(),
                 ),
             )
-            .expect_err("non-target schema read remains blocked after target source is visible");
-        let schema_after_read_message = schema_after_read_error.to_string();
+            .expect("different concrete evidence reads remain agent-controlled");
         assert!(
-            schema_after_read_message.contains("use existing validation rework target read result"),
-            "{schema_after_read_message}"
-        );
-        assert!(
-            schema_after_read_message.contains("read/search is no longer a valid next action"),
-            "{schema_after_read_message}"
-        );
-        assert!(
-            !schema_after_read_message
-                .contains("read_file validation rework target artifact `generate_org.py`"),
-            "{schema_after_read_message}"
+            schema_after_read_events
+                .iter()
+                .all(|event| !matches!(event, MapRuntimeEvent::ToolActionBlocked(_)))
         );
 
         let repeated_read_error = state
@@ -38552,27 +38225,9 @@ TaskSpaceReadFileSummaryV1: path=generate_org.py lines_read=210 eof_reached=true
             "{repeated_message}"
         );
         assert!(repeated_message.contains("generate_org.py"));
-        assert!(repeated_message.contains("apply_patch"));
         assert!(repeated_message.contains("complete read_file context"));
         assert!(repeated_message.contains("eof_reached=true"));
         assert!(repeated_message.contains("no additional file lines are hidden"));
-
-        let missing_visibility_blocker = state
-            .block_main_node(
-                owner,
-                &rework_node_id,
-                "Need to view full current generate_org.py content and schema.json to apply correct fix for smoke test failure"
-                    .to_string(),
-            )
-            .expect_err("post-target-read validation rework must patch instead of blocking for read access");
-        assert!(
-            missing_visibility_blocker.contains("missing source visibility"),
-            "{missing_visibility_blocker}"
-        );
-        assert!(
-            missing_visibility_blocker.contains("apply_patch"),
-            "{missing_visibility_blocker}"
-        );
 
         state
             .record_main_tool_result_with_class(
@@ -38593,9 +38248,14 @@ TaskSpaceReadFileSummaryV1: path=generate_org.py lines_read=210 eof_reached=true
                 .iter()
                 .any(|action| action.contains("failed_edit_feedback")
                     && action.contains("failed-context-patch")
-                    && action.contains("apply_patch")
-                    && action.contains("existing complete target-read evidence")
-                    && action.contains("eof_reached=true")),
+                    && action.contains("preserve this failed edit result")),
+            "{actions_after_failed_edit:?}"
+        );
+        assert!(
+            actions_after_failed_edit.iter().any(|action| action
+                .contains("existing validation rework target read result")
+                && action.contains("generate_org.py")
+                && action.contains("eof_reached=true")),
             "{actions_after_failed_edit:?}"
         );
         assert!(
@@ -38606,14 +38266,14 @@ TaskSpaceReadFileSummaryV1: path=generate_org.py lines_read=210 eof_reached=true
         );
         assert!(
             actions_after_failed_edit.iter().any(|action| action
-                .contains("use existing validation rework target read result")
+                .contains("existing validation rework target read result")
                 && action.contains("generate_org.py")),
             "{actions_after_failed_edit:?}"
         );
         assert!(
             actions_after_failed_edit
                 .iter()
-                .any(|action| action.contains("read/search is no longer a valid next action")),
+                .any(|action| action.contains("read/search/list_files remain available")),
             "{actions_after_failed_edit:?}"
         );
         assert!(
@@ -38659,16 +38319,11 @@ TaskSpaceReadFileSummaryV1: path=generate_org.py lines_read=210 eof_reached=true
         let rework_node_after_failed_edit = map.nodes.get(&rework_node_id).expect("rework node");
         let allowed_after_failed_edit =
             projection_allowed_actions_for_node(map, rework_node_after_failed_edit);
-        assert!(allowed_after_failed_edit.contains("edit, control"));
-        assert!(
-            allowed_after_failed_edit.contains("read/search"),
-            "{allowed_after_failed_edit}"
-        );
-        assert!(
-            allowed_after_failed_edit.contains("will be blocked"),
-            "{allowed_after_failed_edit}"
-        );
-        let repeated_read_after_failed_edit_error = state
+        assert!(allowed_after_failed_edit.contains("read"));
+        assert!(allowed_after_failed_edit.contains("search"));
+        assert!(allowed_after_failed_edit.contains("edit"));
+        assert!(allowed_after_failed_edit.contains("control"));
+        let repeated_read_after_failed_edit_events = state
             .prepare_main_tool_call(
                 owner,
                 ToolActionDescriptor::new(
@@ -38680,106 +38335,11 @@ TaskSpaceReadFileSummaryV1: path=generate_org.py lines_read=210 eof_reached=true
                     .to_string(),
                 ),
             )
-            .expect_err(
-                "complete validation rework target read should not refresh after failed edit",
-            );
-        let repeated_read_after_failed_edit_message =
-            repeated_read_after_failed_edit_error.to_string();
+            .expect("same target refresh remains agent-controlled after a failed edit");
         assert!(
-            repeated_read_after_failed_edit_message
-                .contains("validation_rework_duplicate_artifact_read"),
-            "{repeated_read_after_failed_edit_message}"
-        );
-        assert!(
-            repeated_read_after_failed_edit_message.contains("complete read_file context"),
-            "{repeated_read_after_failed_edit_message}"
-        );
-        assert!(
-            repeated_read_after_failed_edit_message.contains("eof_reached=true"),
-            "{repeated_read_after_failed_edit_message}"
-        );
-        assert!(
-            repeated_read_after_failed_edit_message.contains("apply_patch"),
-            "{repeated_read_after_failed_edit_message}"
-        );
-        let truncated_blocker = state
-            .block_main_node(
-                owner,
-                &rework_node_id,
-                "Existing read_file result for generate_org.py was truncated at line 56, missing critical trailing content. Need full file content to fix the IndentationError."
-                    .to_string(),
-            )
-            .expect_err("truncated source blocker should be rejected after editable failure");
-        assert!(
-            truncated_blocker.contains("cannot be blocked"),
-            "{truncated_blocker}"
-        );
-        assert!(
-            truncated_blocker.contains("apply_patch") || truncated_blocker.contains("read_file"),
-            "{truncated_blocker}"
-        );
-        let partial_excerpt_blocker = state
-            .block_main_node(
-                owner,
-                &rework_node_id,
-                "Insufficient file content visibility for generate_org.py; only partial excerpt available in projection, and full content is needed to construct a correct apply_patch. Reading is disallowed by current node contract until a successful edit records progress. Blocked to request clarification or ability to read the full file."
-                    .to_string(),
-            )
-            .expect_err(
-                "partial-excerpt source blocker should be rejected after complete target read",
-            );
-        assert!(
-            partial_excerpt_blocker.contains("missing source visibility"),
-            "{partial_excerpt_blocker}"
-        );
-        assert!(
-            partial_excerpt_blocker.contains("complete_read/eof_reached=true"),
-            "{partial_excerpt_blocker}"
-        );
-        assert!(
-            partial_excerpt_blocker.contains("apply_patch"),
-            "{partial_excerpt_blocker}"
-        );
-        assert!(
-            !partial_excerpt_blocker.contains("read_file the same validation rework target"),
-            "{partial_excerpt_blocker}"
-        );
-        let schema_context_blocker = state
-            .block_main_node(
-                owner,
-                &rework_node_id,
-                "Need full content of schema.json to validate required output structure; current projection excerpt of generate_org.py is insufficient to determine correct edit."
-                    .to_string(),
-            )
-            .expect_err(
-                "schema-context visibility blocker should be rejected after complete target read",
-            );
-        assert!(
-            schema_context_blocker.contains("missing source visibility"),
-            "{schema_context_blocker}"
-        );
-        assert!(
-            schema_context_blocker.contains("complete_read/eof_reached=true"),
-            "{schema_context_blocker}"
-        );
-        assert!(
-            schema_context_blocker.contains("apply_patch"),
-            "{schema_context_blocker}"
-        );
-        let live_schema_knowledge_blocker = state
-            .block_main_node(
-                owner,
-                &rework_node_id,
-                "Cannot apply a valid patch without knowing the schema definition".to_string(),
-            )
-            .expect_err("schema-knowledge blocker should be rejected after complete target read");
-        assert!(
-            live_schema_knowledge_blocker.contains("missing source visibility"),
-            "{live_schema_knowledge_blocker}"
-        );
-        assert!(
-            live_schema_knowledge_blocker.contains("apply_patch"),
-            "{live_schema_knowledge_blocker}"
+            repeated_read_after_failed_edit_events
+                .iter()
+                .all(|event| !matches!(event, MapRuntimeEvent::ToolActionBlocked(_)))
         );
     }
 
@@ -39095,20 +38655,20 @@ Traceback (most recent call last):\n",
             .expect("failed validation should bind rework");
         assert_ne!(rework_node_id, validation_node_id);
 
-        let error = state
+        let (result_id, events) = state
             .block_main_node(
                 owner,
                 &rework_node_id,
                 "Test failure: pytest collected 0 items; evidence from run_test output shows no tests discovered. Need to create a proper test file or adjust the test command before proceeding.".to_string(),
             )
-            .expect_err("rework node must patch implementation instead of blocking on test procedure");
+            .expect("runtime should record Agent blocker without validator-procedure strategy rejection");
 
-        assert!(error.contains("cannot be blocked for validator procedure"));
-        assert!(error.contains("apply_patch"));
+        assert!(result_id.as_str().starts_with("result-"));
+        assert!(!events.is_empty());
     }
 
     #[test]
-    fn validation_rework_rejects_stale_schema_and_validator_unavailable_blockers() {
+    fn validation_rework_allows_stale_schema_blocker_without_strategy_rejection() {
         let mut state = ActionMapRuntimeState::default();
         let owner = ThreadId::new();
         state.set_mode(MapRuntimeMode::Experiment);
@@ -39205,31 +38765,15 @@ Traceback (most recent call last):\n",
             .expect("failed validation should bind rework");
         assert_ne!(rework_node_id, validation_node_id);
 
-        let stale_schema_block = state
+        let (result_id, events) = state
             .block_main_node(
                 owner,
                 &rework_node_id,
                 "The generated output structure in process.js may not match schema.json. We have not read schema.json, so we cannot validate the required fields. Previous patch failed, and further patching without schema knowledge risks repeated failure.".to_string(),
             )
-            .expect_err("schema evidence is already available through validation rework");
-        assert!(
-            stale_schema_block.contains("cannot be blocked for missing source visibility"),
-            "{stale_schema_block}"
-        );
-        assert!(stale_schema_block.contains("apply_patch"));
-
-        let stale_validator_block = state
-            .block_main_node(
-                owner,
-                &rework_node_id,
-                "Local infrastructure evidence: JSON schema validator tool is unavailable in this environment, preventing validation of organization.json against schema.json.".to_string(),
-            )
-            .expect_err("validator-unavailable claim cannot replace editable schema failure");
-        assert!(
-            stale_validator_block.contains("cannot be blocked for validator procedure"),
-            "{stale_validator_block}"
-        );
-        assert!(stale_validator_block.contains("apply_patch"));
+            .expect("runtime should record Agent blocker without missing-source strategy rejection");
+        assert!(result_id.as_str().starts_with("result-"));
+        assert!(!events.is_empty());
     }
 
     #[test]
@@ -39314,17 +38858,16 @@ Traceback (most recent call last):\n",
             .expect("failed validation should bind rework");
         assert_ne!(rework_node_id, validation_node_id);
 
-        let error = state
+        let (result_id, events) = state
             .block_main_node(
                 owner,
                 &rework_node_id,
                 "Test failed with IndentationError; cannot read files to diagnose because read actions are not allowed in current narrowed state".to_string(),
             )
-            .expect_err("editable validation failure should require implementation patch");
+            .expect("runtime should record Agent blocker without editable-failure strategy rejection");
 
-        assert!(error.contains("cannot be blocked for editable validation failure"));
-        assert!(error.contains("apply_patch"));
-        assert!(error.contains("whole affected file"));
+        assert!(result_id.as_str().starts_with("result-"));
+        assert!(!events.is_empty());
     }
 
     #[test]
@@ -39738,7 +39281,7 @@ Traceback (most recent call last):\n",
     }
 
     #[test]
-    fn blocked_validation_rework_requires_edit_before_rediscovery() {
+    fn blocked_validation_rework_keeps_rediscovery_reads_agent_controlled() {
         let mut state = ActionMapRuntimeState::default();
         let owner = ThreadId::new();
         state.set_mode(MapRuntimeMode::Experiment);
@@ -39777,7 +39320,7 @@ Traceback (most recent call last):\n",
             .expect("provider snapshot");
         assert!(snapshot.current_node_has_dependency_working_evidence);
 
-        let read_error = state
+        let read_events = state
             .prepare_main_tool_call(
                 owner,
                 ToolActionDescriptor::new(
@@ -39789,14 +39332,15 @@ Traceback (most recent call last):\n",
                     .to_string(),
                 ),
             )
-            .expect_err("rework must patch, block, or read the failed artifact instead of rediscovery reads");
+            .expect(
+                "runtime should not reject rediscovery reads on implementation strategy grounds",
+            );
 
         assert!(
-            read_error
-                .to_string()
-                .contains("validation_rework_evidence")
+            read_events
+                .iter()
+                .all(|event| !matches!(event, MapRuntimeEvent::ToolActionBlocked(_)))
         );
-        assert!(read_error.to_string().contains("apply_patch"));
         state
             .prepare_main_tool_call(
                 owner,
@@ -42483,7 +42027,6 @@ OK: 0 rows"
         let context = state.build_developer_context().expect("context");
         assert!(context.contains("ContextProjectionV1 active replacement:"));
         assert!(context.contains("current_node: none"));
-        assert!(context.contains("taskspace_control(action=bind_node or create_node)"));
 
         let (assignment, _) =
             prepare_test_spawn_assignment(&mut state, owner, "parallel review", None)
@@ -43588,7 +43131,7 @@ OK: 0 rows"
         assert!(restored_snapshot.routing_required);
         assert!(!restored_snapshot.bootstrap_required);
         let context = restored.build_developer_context().expect("context");
-        assert!(context.contains("No active TaskSpace path is bound"));
+        assert!(context.contains("no active TaskSpace path is bound"));
         assert!(!context.contains("Active task path:"));
         assert!(!context.contains("Task cognitive state (MVP):"));
     }
