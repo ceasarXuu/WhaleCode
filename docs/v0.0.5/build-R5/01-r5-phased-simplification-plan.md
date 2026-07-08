@@ -10,12 +10,13 @@
 Created: 2026-07-09
 Updated: 2026-07-09
 Version: v0.0.5 build-R5
-Status: Draft
+Status: In Progress - R5-A completed and plan adjusted
 Owner / Responsible: WhaleCode core runtime
 Related Systems: TaskSpace runtime, action_map runtime, taskspace_control,
   context projection, provider-visible context, benchmark harness
 Related Links:
   docs/v0.0.5/build-R5/00-r5-taskspace-simplification-charter.md
+  docs/v0.0.5/build-R5/02-r5-phase-a-current-state-inventory.md
   docs/v0.0.5/build-R4/10-r4-request-convergence-engineering-plan.md
 Risk Level: High
 Plan Type: Full
@@ -78,10 +79,10 @@ TaskSpace 拉回三个职责：
 | Phase | Theme | Main Output | Exit Gate |
 |---|---|---|---|
 | R5-A | Current-state inventory and baseline | 过度设计清单、活跃代码路径、R4 正负样本基线 | 每个复杂结构有 owner、active path、保留/降级/删除候选 |
-| R5-B | Minimal map/event contract | 最小 TaskSpaceMap / NodeEvent 契约 | 工具结果可按 node 忠实归档并可 ref 读取 |
+| R5-B | Minimal map/event contract | 基于 `NodeResult/TaskSpaceTraceEvent` 的兼容 NodeEvent overlay | 工具结果可按 node 忠实归档并可 ref 读取 |
 | R5-C | Projection thin mode | active projection 改为 map skeleton + current node + events/refs | provider-visible diff 无策略提示、无语义重写 |
-| R5-D | Semantic ledger deactivation | 降级 `problem_ledger/cognitive_state/initial_*` active 控制权 | 局部任务文本不再变成 canonical truth |
-| R5-E | Runtime gate pruning | 删除/降级越界语义 gate 和 next-action guidance | 拒绝只保留硬状态机/协议/安全底线 |
+| R5-D | Semantic ledger deactivation | D1 降级 `initial_*`，D2 降级 `problem_ledger/cognitive_state` active 控制权 | 局部任务文本不再变成 canonical truth |
+| R5-E | Runtime gate pruning | E1 清除策略性提示，E2 建 hard-gate classifier 并删除/降级语义 gate | 拒绝只保留硬状态机/协议/安全底线 |
 | R5-F | Compatibility cleanup and code split | 旧结构隔离、模块拆分、兼容读路径 | 生产路径不依赖旧语义控制，代码边界清楚 |
 | R5-G | Regression and benefit gate | 正向/负向样本对照、成本和语义传递报告 | 不引入明确负收益，失败可解释 |
 | R5-H | Closeout | R5 收口报告和后续 backlog | 文档、测试、代码、证据一致 |
@@ -167,7 +168,7 @@ event 有 raw_ref 或 visible_excerpt。
 负收益防线：
 
 ```text
-旧 NodeResult 可暂时作为 event 后端，不能先删再补。
+旧 NodeResult/TaskSpaceTraceEvent 必须先作为 event 后端，不能先删再补。
 ```
 
 ## 1.8 Phase R5-C：Projection thin mode
@@ -219,6 +220,13 @@ H203/H204 中 `/app` 不再因 projection 被强化为 canonical truth。
 把 `problem_ledger`、`cognitive_state`、`facts`、`decisions`、`fact_sources`、`output_contracts` 从
 active runtime 控制路径降级。
 
+执行拆分：
+
+| Subphase | Scope | Exit Gate |
+|---|---|---|
+| R5-D1 | `start_task initial_*` 不再自动提升为 canonical truth | H203/H204 中局部 `/app` 文本不再进入 fact/source coverage authority |
+| R5-D2 | `problem_ledger/cognitive_state` 从 active projection/gate 移出 | 普通工作不依赖 facts/decisions/adoption 继续推进 |
+
 处理策略：
 
 | Structure | R5 Direction |
@@ -268,6 +276,13 @@ closeout 不依赖 runtime 的 accepted semantic facts。
 根据 validation failure 推断必须如何修的 gate。
 根据 coverage/fact_source 判断 Agent 必须读什么的 gate。
 ```
+
+执行拆分：
+
+| Subphase | Scope | Exit Gate |
+|---|---|---|
+| R5-E1 | 移除 model-visible 策略性 recovery text 和 next-valid-actions | blocked message 只含 hard reason，不含下一步策略 |
+| R5-E2 | 为剩余拒绝建立 hard-gate classifier | 每个拒绝都可归类为状态机、协议、权限、安全或资源底线 |
 
 退出门禁：
 
@@ -383,7 +398,7 @@ R5 closeout 文档
 
 | Phase | Independent Verification | Forbidden Future Dependency | Exit Evidence | Completion Required Before Next Phase | Proceed Decision |
 |---|---|---|---|---|---|
-| R5-A | 静态审计、baseline artifact | 不依赖 R5-B contract | 结构清单、样本基线 | 100% 完成或记录 residual risk | pause |
+| R5-A | 静态审计、baseline artifact | 不依赖 R5-B contract | `02-r5-phase-a-current-state-inventory.md` | 100% 完成 | proceed to R5-B |
 | R5-B | unit/fixture 证明 node event 归档 | 不依赖 thin projection | event/ref 测试和 snapshot | 100% 完成 | pause |
 | R5-C | provider-visible payload diff | 不依赖 ledger 删除 | thin projection diff、反馈完整性测试 | 100% 完成 | pause |
 | R5-D | initial/state_commit 降级测试 | 不依赖 gate pruning | ledger 非 active path 证据 | 100% 完成 | pause |
@@ -396,7 +411,7 @@ R5 closeout 文档
 
 | Plan Item | Expected Behavior | Production Code Path | Integration Entry | Test Evidence | Runtime / Log Evidence | Mock / Stub Exposure | Status |
 |---|---|---|---|---|---|---|---|
-| R5-A inventory | 明确旧结构用途和拆除候选 | `core/src/action_map/*`, `tools/handlers/taskspace_control.rs` | docs/CoE | audit doc + baseline commands | baseline artifact paths | none | planned |
+| R5-A inventory | 明确旧结构用途和拆除候选 | `core/src/action_map/*`, `tools/handlers/taskspace_control.rs` | docs/CoE | `02-r5-phase-a-current-state-inventory.md` | baseline artifact paths | none | landed |
 | R5-B node events | 工具反馈忠实归档到 node | new/refactored node event path | ordinary tools under TaskSpace | direct success/failure fixtures | node_event trace/ref | none | planned |
 | R5-C thin projection | model-visible 只含 map/node/events/refs | projection renderer | provider request | payload snapshot/diff | omission audit | none | planned |
 | R5-D ledger deactivation | semantic ledger 不控制 active path | state_commit/start_task handling | taskspace_control | initial_* and state_commit tests | state update traces | legacy read only | planned |
@@ -426,11 +441,21 @@ R5 closeout 文档
 
 ## 1.18 第一批执行建议
 
-建议从 R5-A 开始，不直接改 runtime：
+R5-A 已按不改 runtime 的方式完成：
 
-1. 建立 active 语义结构清单。
-2. 从 R4 H203/H204、large-output、simple success 选最小 baseline。
-3. 标出必须先保留的 replay/debug refs。
-4. 产出 R5-B 的最小 `NodeEvent` contract 细案。
+1. 已建立 active 语义结构清单。
+2. 已从 R4 H203/H204、large-output、simple success 选出最小 baseline。
+3. 已标出必须先保留的 replay/debug refs。
+4. R5-B 的最小 `NodeEvent` contract 需要以兼容 overlay 方式实现。
 
-只有 R5-A 关闭后，才进入 R5-B 的生产代码修改。
+下一步进入 R5-B，但只做兼容 event/ref overlay，不先删除旧结构。
+
+## 1.19 R5-A 后计划校准
+
+| Finding | Plan Adjustment |
+|---|---|
+| `initial_*` 会把局部任务文本提升为结构化 fact/source/contract | R5-D 拆出 D1，先关闭 canonical truth 提升 |
+| active projection 混合 ledger、coverage、tool feedback、strategy hints | R5-C 先做 thin projection，再进入 ledger 删除 |
+| `NodeResult/TaskSpaceTraceEvent` 已接近 node event 后端 | R5-B 先做 overlay，不重写或删除存储 |
+| R4 large-output/ref 是正向收益 | R5-B/C 必须保留 raw_ref/excerpt，不和语义 gate 一起删除 |
+| gate 消息含策略性纠错 | R5-E 先清 model-visible guidance，再建立 hard-gate classifier |
