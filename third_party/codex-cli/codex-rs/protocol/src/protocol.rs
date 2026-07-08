@@ -2119,6 +2119,8 @@ pub struct ActionMapSnapshotMap {
     pub leases: Vec<ActionMapSnapshotLease>,
     pub results: Vec<ActionMapSnapshotResult>,
     #[serde(default)]
+    pub node_events: Vec<ActionMapSnapshotNodeEvent>,
+    #[serde(default)]
     pub subagent_plans: Vec<ActionMapSnapshotSubagentPlan>,
 }
 
@@ -2137,6 +2139,8 @@ pub struct ActionMapSnapshotNode {
     pub source_refs: Vec<String>,
     pub active_lease: Option<String>,
     pub result_ids: Vec<String>,
+    #[serde(default)]
+    pub node_event_ids: Vec<String>,
     pub origin_node_id: Option<String>,
 }
 
@@ -2183,6 +2187,31 @@ pub struct ActionMapSnapshotResult {
     pub created_at_ms: i64,
     #[serde(default)]
     pub subagent_plan_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct ActionMapSnapshotNodeEvent {
+    pub id: String,
+    pub map_id: String,
+    pub node_id: String,
+    pub event_kind: String,
+    pub source: String,
+    #[serde(default)]
+    pub action_class: Option<String>,
+    #[serde(default)]
+    pub tool_success: Option<bool>,
+    pub body: String,
+    pub visible_excerpt: String,
+    #[serde(default)]
+    pub raw_ref: Option<String>,
+    #[serde(default)]
+    pub artifact_refs: Vec<String>,
+    #[serde(default)]
+    pub call_id: Option<String>,
+    pub source_thread_id: ThreadId,
+    pub created_at_ms: i64,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
@@ -2479,6 +2508,22 @@ pub struct MapRuntimeNodeResultRecordedEvent {
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(rename_all = "camelCase")]
+pub struct MapRuntimeNodeEventRecordedEvent {
+    pub map_id: String,
+    pub node_id: String,
+    pub lease_id: String,
+    pub node_event_id: String,
+    pub event_kind: String,
+    #[serde(default)]
+    pub action_class: Option<String>,
+    #[serde(default)]
+    pub tool_success: Option<bool>,
+    pub source_thread_id: ThreadId,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
 pub struct MapRuntimeTraceEventRecordedEvent {
     pub trace_event_id: String,
     pub kind: String,
@@ -2598,6 +2643,7 @@ pub enum MapRuntimeEvent {
     LeaseAttached(MapRuntimeLeaseAttachedEvent),
     LeaseReleased(MapRuntimeLeaseReleasedEvent),
     NodeResultRecorded(MapRuntimeNodeResultRecordedEvent),
+    NodeEventRecorded(MapRuntimeNodeEventRecordedEvent),
     TaskspaceTraceEventRecorded(MapRuntimeTraceEventRecordedEvent),
     SentinelWarningRaised(MapRuntimeSentinelWarningRaisedEvent),
     CognitiveStateUpdated(MapRuntimeCognitiveStateUpdatedEvent),
@@ -6528,6 +6574,7 @@ mod tests {
                     source_thread_id: ThreadId::new(),
                     created_at_ms: 1234,
                 }],
+                node_events: Vec::new(),
                 subagent_plans: Vec::new(),
             }],
             maintenance_barriers: Vec::new(),

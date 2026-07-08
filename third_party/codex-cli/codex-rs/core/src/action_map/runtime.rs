@@ -15,6 +15,7 @@ use codex_protocol::protocol::ActionMapSnapshotLease;
 use codex_protocol::protocol::ActionMapSnapshotMaintenanceBarrier;
 use codex_protocol::protocol::ActionMapSnapshotMap;
 use codex_protocol::protocol::ActionMapSnapshotNode;
+use codex_protocol::protocol::ActionMapSnapshotNodeEvent;
 use codex_protocol::protocol::ActionMapSnapshotOutputContract;
 use codex_protocol::protocol::ActionMapSnapshotProblemBlocker;
 use codex_protocol::protocol::ActionMapSnapshotProblemDecision;
@@ -41,12 +42,12 @@ use codex_protocol::protocol::MapRuntimeLeaseAttachedEvent;
 use codex_protocol::protocol::MapRuntimeLeaseCreatedEvent;
 use codex_protocol::protocol::MapRuntimeLeaseReleasedEvent;
 use codex_protocol::protocol::MapRuntimeMaintenanceBarrierClearedEvent;
-use codex_protocol::protocol::MapRuntimeMaintenanceBarrierRaisedEvent;
 use codex_protocol::protocol::MapRuntimeMapCreatedEvent;
 #[cfg(test)]
 use codex_protocol::protocol::MapRuntimeMapStatusChangedEvent;
 use codex_protocol::protocol::MapRuntimeMode;
 use codex_protocol::protocol::MapRuntimeModeChangedEvent;
+use codex_protocol::protocol::MapRuntimeNodeEventRecordedEvent;
 use codex_protocol::protocol::MapRuntimeNodeResultRecordedEvent;
 use codex_protocol::protocol::MapRuntimeNodeStatusChangedEvent;
 use codex_protocol::protocol::MapRuntimeResultValidityChangedEvent;
@@ -96,6 +97,9 @@ use super::map::MapNode;
 use super::map::MapNodeId;
 use super::map::MapStatus;
 use super::map::NodeContext;
+use super::map::NodeEvent;
+use super::map::NodeEventId;
+use super::map::NodeEventRef;
 use super::map::NodeKind;
 use super::map::NodeResult;
 use super::map::NodeResultId;
@@ -814,6 +818,7 @@ pub(crate) struct ActionMapRuntimeState {
     next_map_seq: u64,
     next_node_seq: u64,
     next_lease_seq: u64,
+    next_node_event_seq: u64,
     next_result_seq: u64,
     next_subagent_plan_seq: u64,
     next_trace_event_seq: u64,
@@ -846,7 +851,7 @@ struct MainToolTraceDraft {
     task_id: Option<TaskId>,
     map_id: ActionMapId,
     node_id: MapNodeId,
-    result_id: NodeResultId,
+    node_event_id: NodeEventId,
     call_id: String,
     tool_name: String,
     action_class: Option<ActionClass>,
@@ -975,6 +980,7 @@ impl Default for ActionMapRuntimeState {
             next_map_seq: 1,
             next_node_seq: 1,
             next_lease_seq: 1,
+            next_node_event_seq: 1,
             next_result_seq: 1,
             next_subagent_plan_seq: 1,
             next_trace_event_seq: 1,
@@ -1645,8 +1651,12 @@ impl ActionMapRuntimeState {
                                 .model_request_count_by_node
                                 .insert(event.node_id.clone(), node_count);
                         }
-                        if trace_tag_value(&event.tags, "request_phase") == Some("budget_recovery")
-                        {
+                        if provider_request_counts_against_post_budget_grace(
+                            trace_tag_value(&event.tags, "request_phase"),
+                            trace_tag_usize(&event.tags, "request_count_before")
+                                .unwrap_or_default(),
+                            trace_tag_usize(&event.tags, "max_requests").unwrap_or_default(),
+                        ) {
                             counters.post_budget_grace_request_count += 1;
                         }
                     }
@@ -1943,6 +1953,35 @@ impl ActionMapRuntimeState {
                         ))
                     })
                     .collect();
+                instance.node_events = map
+                    .node_events
+                    .into_iter()
+                    .map(|event| {
+                        let action_class = event
+                            .action_class
+                            .as_deref()
+                            .and_then(ActionClass::from_str);
+                        (
+                            event.id.clone(),
+                            NodeEvent {
+                                id: event.id,
+                                map_id: event.map_id,
+                                node_id: event.node_id,
+                                event_kind: event.event_kind,
+                                source: event.source,
+                                action_class,
+                                tool_success: event.tool_success,
+                                body: event.body,
+                                visible_excerpt: event.visible_excerpt,
+                                raw_ref: event.raw_ref,
+                                artifact_refs: event.artifact_refs,
+                                call_id: event.call_id,
+                                source_thread_id: event.source_thread_id,
+                                created_at_ms: event.created_at_ms,
+                            },
+                        )
+                    })
+                    .collect();
                 instance.nodes = map
                     .nodes
                     .into_iter()
@@ -1976,6 +2015,17 @@ impl ActionMapRuntimeState {
                                 },
                                 active_lease: node.active_lease,
                                 result_context,
+                                node_events: node
+                                    .node_event_ids
+                                    .into_iter()
+                                    .filter_map(|node_event_id| {
+                                        let event = instance.node_events.get(&node_event_id)?;
+                                        Some(NodeEventRef {
+                                            id: node_event_id,
+                                            kind: event.event_kind.clone(),
+                                        })
+                                    })
+                                    .collect(),
                                 origin_node_id: node.origin_node_id,
                             },
                         )
@@ -2065,6 +2115,10 @@ impl ActionMapRuntimeState {
         self.next_lease_seq = next_numeric_seq(
             self.maps.values().flat_map(|map| map.leases.keys()),
             "lease-",
+        );
+        self.next_node_event_seq = next_numeric_seq(
+            self.maps.values().flat_map(|map| map.node_events.keys()),
+            "node-event-",
         );
         self.next_result_seq = next_numeric_seq(
             self.maps.values().flat_map(|map| map.results.keys()),
@@ -2563,7 +2617,7 @@ impl ActionMapRuntimeState {
         tool_name: &str,
         success: bool,
         preview: String,
-    ) -> Result<Option<(NodeResultId, Vec<MapRuntimeEvent>)>, String> {
+    ) -> Result<Option<(NodeEventId, Vec<MapRuntimeEvent>)>, String> {
         self.record_main_tool_result_with_class(
             owner_session_id,
             call_id,
@@ -2582,7 +2636,7 @@ impl ActionMapRuntimeState {
         action_class: Option<ActionClass>,
         success: bool,
         preview: String,
-    ) -> Result<Option<(NodeResultId, Vec<MapRuntimeEvent>)>, String> {
+    ) -> Result<Option<(NodeEventId, Vec<MapRuntimeEvent>)>, String> {
         if self.mode != MapRuntimeMode::Experiment {
             return Ok(None);
         }
@@ -2637,7 +2691,7 @@ impl ActionMapRuntimeState {
                 String::new(),
             )
         };
-        let result_id = self.next_result_id();
+        let node_event_id = self.next_node_event_id();
         let created_at_ms = now_ms();
         let action_preview_block = main_tool_result_action_preview_block(
             &recorded_tool_name,
@@ -2657,7 +2711,7 @@ preview:\n\
                 .map(ActionClass::as_str)
                 .unwrap_or("unspecified")
         );
-        let artifact_refs = match (recorded_action_class, success) {
+        let mut artifact_refs = match (recorded_action_class, success) {
             (Some(ActionClass::Edit), true) => merge_artifact_refs(
                 reserved_artifact_refs,
                 extract_edit_changed_artifacts_from_tool_body(&body),
@@ -2665,8 +2719,20 @@ preview:\n\
             (Some(ActionClass::Read), true) => reserved_artifact_refs,
             _ => Vec::new(),
         };
-        let evidence_package = node_result_evidence_package_for_artifact_refs(&artifact_refs);
-        let (task_id, raised_barrier) = {
+        if recorded_action_class == Some(ActionClass::Read) && success {
+            for artifact in result_body_taskspace_marker_artifact_refs(&body) {
+                push_unique_artifact_ref(&mut artifact_refs, artifact);
+            }
+            if let Some(command) = result_body_command_from_body(&body)
+                && let Some(artifact) = read_command_artifact_ref(&command)
+            {
+                push_unique_artifact_ref(&mut artifact_refs, artifact);
+            }
+        }
+        let visible_excerpt =
+            working_evidence_body_excerpt(&body, TASKSPACE_NODE_EVENT_VISIBLE_EXCERPT_MAX_CHARS);
+        let raw_ref = first_output_ref_in_text(&body);
+        let task_id = {
             let map = self
                 .maps
                 .get_mut(&map_id)
@@ -2677,33 +2743,35 @@ preview:\n\
                 .get_mut(&node_id)
                 .ok_or_else(|| format!("TaskSpace current node `{node_id}` is missing."))?;
 
-            let result = NodeResult {
-                id: result_id.clone(),
-                assignment_id: lease_id.clone(),
-                subagent_plan_id: None,
+            let node_event = NodeEvent {
+                id: node_event_id.clone(),
                 map_id: map_id.clone(),
                 node_id: node_id.clone(),
-                kind: NodeResultKind::MainToolCall,
+                event_kind: "tool_result".to_string(),
+                source: "main_tool".to_string(),
                 action_class: recorded_action_class,
                 tool_success: Some(success),
                 body: body.clone(),
-                evidence_package,
+                visible_excerpt,
+                raw_ref,
+                artifact_refs: artifact_refs.clone(),
+                call_id: Some(call_id.to_string()),
                 source_thread_id: owner_session_id,
                 created_at_ms,
             };
-            map.results.insert(result_id.clone(), result);
-            node.result_context.push(NodeResultRef {
-                id: result_id.clone(),
-                kind: NodeResultKind::MainToolCall,
+            map.node_events.insert(node_event_id.clone(), node_event);
+            node.node_events.push(NodeEventRef {
+                id: node_event_id.clone(),
+                kind: "tool_result".to_string(),
             });
-            (task_id, None)
+            task_id
         };
         self.clear_blocked_action_repeats_for_node(&map_id, &node_id);
         let trace_events = self.append_main_tool_trace_events(MainToolTraceDraft {
             task_id,
             map_id: map_id.clone(),
             node_id: node_id.clone(),
-            result_id: result_id.clone(),
+            node_event_id: node_event_id.clone(),
             call_id: call_id.to_string(),
             tool_name: recorded_tool_name,
             action_class: recorded_action_class,
@@ -2712,22 +2780,19 @@ preview:\n\
             artifact_refs,
             created_at_ms,
         });
-        let mut events = vec![MapRuntimeEvent::NodeResultRecorded(
-            MapRuntimeNodeResultRecordedEvent {
+        let mut events = vec![MapRuntimeEvent::NodeEventRecorded(
+            MapRuntimeNodeEventRecordedEvent {
                 map_id: map_id.clone(),
                 node_id: node_id.clone(),
                 lease_id,
-                result_id: result_id.clone(),
-                kind: NodeResultKind::MainToolCall.as_str().to_string(),
+                node_event_id: node_event_id.clone(),
+                event_kind: "tool_result".to_string(),
                 action_class: recorded_action_class.map(|class| class.as_str().to_string()),
+                tool_success: Some(success),
                 source_thread_id: owner_session_id,
             },
         )];
         events.extend(trace_events);
-        if let Some(barrier) = raised_barrier {
-            events.push(maintenance_barrier_raised_event(&barrier));
-            self.maintenance_barriers.insert(map_id.clone(), barrier);
-        }
         if !success
             && matches!(
                 recorded_action_class,
@@ -2737,11 +2802,6 @@ preview:\n\
                 self.current_main_validation_node_local_infra_failure_summary()
             && validation_node_id == node_id
         {
-            if let Some(validity_event) =
-                self.invalidate_local_infra_validation_result(&map_id, &result_id)?
-            {
-                events.push(validity_event);
-            }
             let (_, mut blocker_events) =
                 self.block_main_node(owner_session_id, &validation_node_id, blocker_summary)?;
             events.append(&mut blocker_events);
@@ -2787,7 +2847,7 @@ preview:\n\
                 self.auto_accept_validation_result_for_finish(owner_session_id, &node_id, &body)?;
             events.append(&mut validation_accept_events);
         }
-        Ok(Some((result_id, events)))
+        Ok(Some((node_event_id, events)))
     }
 
     pub(crate) fn record_output_ref_trace_event(
@@ -3122,7 +3182,11 @@ preview:\n\
                         .model_request_count_by_node
                         .insert(node_id.clone(), next_node_count);
                 }
-                if input.request_phase.as_deref() == Some("budget_recovery") {
+                if provider_request_counts_against_post_budget_grace(
+                    input.request_phase.as_deref(),
+                    input.request_count_before,
+                    input.max_requests,
+                ) {
                     self.budget_counters.post_budget_grace_request_count += 1;
                 }
             }
@@ -4495,57 +4559,6 @@ preview:\n\
         )
     }
 
-    fn invalidate_local_infra_validation_result(
-        &mut self,
-        map_id: &str,
-        result_id: &str,
-    ) -> Result<Option<MapRuntimeEvent>, String> {
-        let map = self
-            .maps
-            .get_mut(map_id)
-            .ok_or_else(|| format!("TaskSpace task path `{map_id}` is missing."))?;
-        let task_id = map.task_id.clone();
-        let result = map.results.get_mut(result_id).ok_or_else(|| {
-            format!("TaskSpace result `{result_id}` does not exist on task path `{map_id}`.")
-        })?;
-        if result.evidence_package.validity != ResultValidity::Unreviewed {
-            return Ok(None);
-        }
-        let mut adoption = NodeResultAdoption::default();
-        adoption.refresh_state(ResultValidity::Invalid);
-        let evidence_ref = EvidenceRef {
-            result_id: Some(result_id.to_string()),
-            claim_id: None,
-            fact_source_id: None,
-            trace_event_id: None,
-            artifact_ref: None,
-            validator_ref: None,
-        };
-        result.evidence_package = NodeResultEvidencePackage {
-            claims: Vec::new(),
-            evidence_refs: vec![evidence_ref],
-            changed_artifacts: Vec::new(),
-            validator_refs: Vec::new(),
-            remaining_uncertainty: vec![
-                "Local validator infrastructure failed before validation could prove or disprove the changed artifacts.".to_string(),
-            ],
-            validity: ResultValidity::Invalid,
-            validity_reason:
-                "Runtime marked local validator infrastructure failure as invalid validation evidence."
-                    .to_string(),
-            adoption,
-        };
-        Ok(Some(MapRuntimeEvent::ResultValidityChanged(
-            MapRuntimeResultValidityChangedEvent {
-                task_id,
-                map_id: map_id.to_string(),
-                node_id: result.node_id.clone(),
-                result_id: result_id.to_string(),
-                validity: ResultValidity::Invalid.as_str().to_string(),
-            },
-        )))
-    }
-
     pub(crate) fn prepare_child_tool_call(
         &mut self,
         child_thread_id: ThreadId,
@@ -5045,6 +5058,7 @@ preview:\n\
                 },
                 active_lease: None,
                 result_context: Vec::new(),
+                node_events: Vec::new(),
                 origin_node_id: manual_validation_rework_origin.clone(),
             },
         );
@@ -10826,7 +10840,7 @@ preview:\n\
             task_id: draft.task_id,
             map_id: draft.map_id,
             node_id: draft.node_id,
-            result_id: Some(draft.result_id),
+            result_id: Some(draft.node_event_id),
             call_id: Some(draft.call_id),
             action_class: draft.action_class,
             tool_success: Some(draft.tool_success),
@@ -10983,6 +10997,12 @@ preview:\n\
     fn next_lease_id(&mut self) -> AssignmentLeaseId {
         let id = format!("lease-{}", self.next_lease_seq);
         self.next_lease_seq += 1;
+        id
+    }
+
+    fn next_node_event_id(&mut self) -> NodeEventId {
+        let id = format!("node-event-{}", self.next_node_event_seq);
+        self.next_node_event_seq += 1;
         id
     }
 
@@ -11520,16 +11540,30 @@ fn projection_evidence_node_ids<'a>(
     let Some(current_node_id) = current_node_id else {
         let mut seen = HashSet::new();
         let mut node_ids = Vec::new();
-        for result_id in ordered_result_ids(map).into_iter().rev() {
-            let Some(result) = map.results.get(&result_id) else {
+        for event_id in ordered_node_event_ids(map).into_iter().rev() {
+            let Some(event) = map.node_events.get(&event_id) else {
                 continue;
             };
-            let node_id = result.node_id.as_str();
+            let node_id = event.node_id.as_str();
             if seen.insert(node_id) {
                 node_ids.push(node_id);
             }
             if node_ids.len() >= 3 {
                 break;
+            }
+        }
+        if node_ids.is_empty() {
+            for result_id in ordered_result_ids(map).into_iter().rev() {
+                let Some(result) = map.results.get(&result_id) else {
+                    continue;
+                };
+                let node_id = result.node_id.as_str();
+                if seen.insert(node_id) {
+                    node_ids.push(node_id);
+                }
+                if node_ids.len() >= 3 {
+                    break;
+                }
             }
         }
         node_ids.reverse();
@@ -11556,15 +11590,15 @@ fn projection_recent_tool_feedback(
         return Vec::new();
     }
 
-    let mut selected = ordered_result_ids(map)
+    let mut selected = ordered_node_event_ids(map)
         .into_iter()
         .rev()
-        .filter_map(|result_id| map.results.get(&result_id))
-        .filter(|result| {
-            result.kind == NodeResultKind::MainToolCall
+        .filter_map(|event_id| map.node_events.get(&event_id))
+        .filter(|event| {
+            event.source == "main_tool"
                 && node_ids
                     .iter()
-                    .any(|node_id| *node_id == result.node_id.as_str())
+                    .any(|node_id| *node_id == event.node_id.as_str())
         })
         .take(max_results)
         .collect::<Vec<_>>();
@@ -11572,9 +11606,9 @@ fn projection_recent_tool_feedback(
 
     selected
         .into_iter()
-        .map(|result| {
-            let mut artifacts = result_visible_artifact_refs(result);
-            for artifact in result_input_data_artifact_refs(result) {
+        .map(|event| {
+            let mut artifacts = node_event_visible_artifact_refs(event);
+            for artifact in node_event_input_data_artifact_refs(event) {
                 push_unique_artifact_ref(&mut artifacts, artifact);
             }
             let artifact_text = if artifacts.is_empty() {
@@ -11582,28 +11616,36 @@ fn projection_recent_tool_feedback(
             } else {
                 artifacts.join(",")
             };
-            let action_class = result
+            let action_class = event
                 .action_class
                 .map(|action| action.as_str())
                 .unwrap_or("none");
-            let tool_success = result
+            let tool_success = event
                 .tool_success
                 .map(|success| success.to_string())
                 .unwrap_or_else(|| "none".to_string());
-            let command = result_body_command(result)
+            let command = node_event_body_command(event)
                 .map(|command| format!(" command={}", single_line_preview(&command, 180)))
                 .unwrap_or_default();
-            let body_chars = result.body.chars().count();
-            let excerpt = working_evidence_body_excerpt(&result.body, max_excerpt_chars);
+            let body_chars = event.body.chars().count();
+            let excerpt = if event.visible_excerpt.chars().count() <= max_excerpt_chars {
+                event.visible_excerpt.clone()
+            } else if diagnostic_output_is_tail_sensitive(&event.body) {
+                bounded_head_tail_excerpt(&event.visible_excerpt, max_excerpt_chars)
+            } else {
+                bounded_line_preserving_excerpt(&event.visible_excerpt, max_excerpt_chars)
+            };
             let excerpt_chars = excerpt.chars().count();
             let excerpt_truncated = body_chars > excerpt_chars;
             let omitted_chars = body_chars.saturating_sub(excerpt_chars);
             format!(
-                "{} node={} action_class={} tool_success={} artifacts={}{} body_chars={} excerpt_chars={} excerpt_truncated={} body_omitted_chars={}\nexcerpt:\n{}",
-                result.id,
-                result.node_id,
+                "{} node={} event_kind={} action_class={} tool_success={} raw_ref={} artifacts={}{} body_chars={} excerpt_chars={} excerpt_truncated={} body_omitted_chars={}\nexcerpt:\n{}",
+                event.id,
+                event.node_id,
+                event.event_kind,
                 action_class,
                 tool_success,
+                event.raw_ref.as_deref().unwrap_or("none"),
                 artifact_text,
                 command,
                 body_chars,
@@ -11645,6 +11687,36 @@ fn projection_verified_input_evidence(
         let Some(node) = map.nodes.get(node_id) else {
             continue;
         };
+        for event_ref in &node.node_events {
+            let Some(event) = map.node_events.get(&event_ref.id) else {
+                continue;
+            };
+            if !successful_read_node_event_has_working_evidence(event) {
+                continue;
+            }
+            let artifacts = node_event_input_data_artifact_refs(event);
+            if artifacts.is_empty() {
+                continue;
+            }
+            let key = format!("{}:{}", event.id, artifacts.join("|"));
+            if !seen.insert(key) {
+                continue;
+            }
+            let read_context = validation_rework_read_context_status(&event.body)
+                .map(|status| format!("\ncontent_visibility: {status}"))
+                .unwrap_or_default();
+            evidence.push(format!(
+                "{} node={} verified_paths={}{}\nexcerpt:\n{}",
+                event.id,
+                event.node_id,
+                artifacts.join(","),
+                read_context,
+                working_evidence_body_excerpt(&event.body, max_excerpt_chars)
+            ));
+            if evidence.len() >= max_results {
+                return evidence;
+            }
+        }
         for result_ref in &node.result_context {
             let Some(result) = map.results.get(&result_ref.id) else {
                 continue;
@@ -11705,6 +11777,34 @@ fn projection_dependency_read_evidence(
         };
         if dependency.kind != NodeKind::InspectCodeContext {
             continue;
+        }
+        for event_ref in &dependency.node_events {
+            let Some(event) = map.node_events.get(&event_ref.id) else {
+                continue;
+            };
+            if !successful_inspect_node_event_has_working_evidence(event) {
+                continue;
+            }
+            let artifacts = node_event_visible_artifact_refs(event);
+            let artifact_key = artifacts.join("|");
+            if !seen.insert(format!("{}:{artifact_key}", event.id)) {
+                continue;
+            }
+            let artifact_label = if artifacts.is_empty() {
+                "inline_tool_output".to_string()
+            } else {
+                artifacts.join(",")
+            };
+            evidence.push(format!(
+                "{} node={} artifacts={}\nexcerpt:\n{}",
+                event.id,
+                dependency.id,
+                artifact_label,
+                working_evidence_body_excerpt(&event.body, max_excerpt_chars)
+            ));
+            if evidence.len() >= max_results {
+                return evidence;
+            }
         }
         for result_ref in &dependency.result_context {
             let Some(result) = map.results.get(&result_ref.id) else {
@@ -11803,6 +11903,37 @@ fn projection_critical_artifact_evidence(
         let Some(node) = map.nodes.get(node_id) else {
             continue;
         };
+        for event_ref in &node.node_events {
+            let Some(event) = map.node_events.get(&event_ref.id) else {
+                continue;
+            };
+            if !successful_inspect_node_event_has_working_evidence(event) {
+                continue;
+            }
+            let Some(signal) = mandatory_evidence_signal(&event.body) else {
+                continue;
+            };
+            let artifacts = node_event_visible_artifact_refs(event);
+            let key = format!("{}:{}", event.id, artifacts.join("|"));
+            if !seen.insert(key) {
+                continue;
+            }
+            let artifact_label = if artifacts.is_empty() {
+                "inline_tool_output".to_string()
+            } else {
+                artifacts.join(",")
+            };
+            evidence.push(format!(
+                "{} artifacts={} signal={}\nexcerpt:\n{}",
+                event.id,
+                artifact_label,
+                signal,
+                working_evidence_body_excerpt(&event.body, max_excerpt_chars)
+            ));
+            if evidence.len() >= max_results {
+                return evidence;
+            }
+        }
         for result_ref in &node.result_context {
             let Some(result) = map.results.get(&result_ref.id) else {
                 continue;
@@ -11949,15 +12080,15 @@ fn projection_all_inspect_failed_workspace_alias_artifact_refs(
 }
 
 fn projection_result_refs_available(map: &ActionMapInstance, max_results: usize) -> Vec<String> {
-    let result_ids = ordered_result_ids(map);
-    let start = result_ids.len().saturating_sub(max_results);
-    result_ids
+    let event_ids = ordered_node_event_ids(map);
+    let start = event_ids.len().saturating_sub(max_results);
+    event_ids
         .into_iter()
         .skip(start)
-        .filter_map(|result_id| map.results.get(&result_id))
-        .map(|result| {
-            let mut artifacts = result_visible_artifact_refs(result);
-            for artifact in result_input_data_artifact_refs(result) {
+        .filter_map(|event_id| map.node_events.get(&event_id))
+        .map(|event| {
+            let mut artifacts = node_event_visible_artifact_refs(event);
+            for artifact in node_event_input_data_artifact_refs(event) {
                 push_unique_artifact_ref(&mut artifacts, artifact);
             }
             let artifact_text = if artifacts.is_empty() {
@@ -11965,23 +12096,26 @@ fn projection_result_refs_available(map: &ActionMapInstance, max_results: usize)
             } else {
                 artifacts.join(",")
             };
-            let action_class = result
+            let action_class = event
                 .action_class
                 .map(|action| action.as_str())
                 .unwrap_or("none");
-            let tool_success = result
+            let tool_success = event
                 .tool_success
                 .map(|success| success.to_string())
                 .unwrap_or_else(|| "none".to_string());
             format!(
-                "{} node={} kind={} action_class={} tool_success={} artifacts={} body_chars={}",
-                result.id,
-                result.node_id,
-                result.kind.as_str(),
+                "{} node={} event_kind={} source={} action_class={} tool_success={} raw_ref={} artifacts={} body_chars={} excerpt_chars={}",
+                event.id,
+                event.node_id,
+                event.event_kind,
+                event.source,
                 action_class,
                 tool_success,
+                event.raw_ref.as_deref().unwrap_or("none"),
                 artifact_text,
-                result.body.chars().count()
+                event.body.chars().count(),
+                event.visible_excerpt.chars().count()
             )
         })
         .collect()
@@ -13368,6 +13502,7 @@ fn seed_map(
                 },
                 active_lease: None,
                 result_context: Vec::new(),
+                node_events: Vec::new(),
                 origin_node_id: Some((*node_id).to_string()),
             },
         );
@@ -13417,6 +13552,13 @@ fn ordered_result_ids(map: &ActionMapInstance) -> Vec<NodeResultId> {
     let mut result_ids = map.results.keys().cloned().collect::<Vec<_>>();
     result_ids.sort_by(|left, right| result_id_sort_key(left).cmp(&result_id_sort_key(right)));
     result_ids
+}
+
+fn ordered_node_event_ids(map: &ActionMapInstance) -> Vec<NodeEventId> {
+    let mut event_ids = map.node_events.keys().cloned().collect::<Vec<_>>();
+    event_ids
+        .sort_by(|left, right| node_event_id_sort_key(left).cmp(&node_event_id_sort_key(right)));
+    event_ids
 }
 
 fn ordered_task_ids(tasks: &HashMap<TaskId, TaskState>) -> Vec<TaskId> {
@@ -13575,6 +13717,16 @@ fn result_id_sort_key(result_id: &str) -> (u8, u64, &str) {
         return (0, number, result_id);
     }
     (1, 0, result_id)
+}
+
+fn node_event_id_sort_key(event_id: &str) -> (u8, u64, &str) {
+    if let Some(number) = event_id
+        .strip_prefix("node-event-")
+        .and_then(|suffix| suffix.parse::<u64>().ok())
+    {
+        return (0, number, event_id);
+    }
+    (1, 0, event_id)
 }
 
 fn require_nonempty(field: &str, value: &str) -> Result<String, String> {
@@ -14884,6 +15036,11 @@ fn snapshot_map(map: &ActionMapInstance) -> ActionMapSnapshotMap {
                 .iter()
                 .map(|result| result.id.clone())
                 .collect(),
+            node_event_ids: node
+                .node_events
+                .iter()
+                .map(|event| event.id.clone())
+                .collect(),
             origin_node_id: node.origin_node_id.clone(),
         })
         .collect::<Vec<_>>();
@@ -14924,6 +15081,30 @@ fn snapshot_map(map: &ActionMapInstance) -> ActionMapSnapshotMap {
         })
         .collect::<Vec<_>>();
     results.sort_by(|left, right| left.id.cmp(&right.id));
+
+    let mut node_events = map
+        .node_events
+        .values()
+        .map(|event| ActionMapSnapshotNodeEvent {
+            id: event.id.clone(),
+            map_id: event.map_id.clone(),
+            node_id: event.node_id.clone(),
+            event_kind: event.event_kind.clone(),
+            source: event.source.clone(),
+            action_class: event.action_class.map(|class| class.as_str().to_string()),
+            tool_success: event.tool_success,
+            body: event.body.clone(),
+            visible_excerpt: event.visible_excerpt.clone(),
+            raw_ref: event.raw_ref.clone(),
+            artifact_refs: event.artifact_refs.clone(),
+            call_id: event.call_id.clone(),
+            source_thread_id: event.source_thread_id,
+            created_at_ms: event.created_at_ms,
+        })
+        .collect::<Vec<_>>();
+    node_events.sort_by(|left, right| {
+        node_event_id_sort_key(&left.id).cmp(&node_event_id_sort_key(&right.id))
+    });
 
     let mut subagent_plans = map
         .subagent_plans
@@ -14972,6 +15153,7 @@ fn snapshot_map(map: &ActionMapInstance) -> ActionMapSnapshotMap {
             .collect(),
         leases,
         results,
+        node_events,
         subagent_plans,
     }
 }
@@ -15315,6 +15497,16 @@ fn budget_state_for_counter(counter_value: usize, counter_limit: usize) -> TaskS
     TaskSpaceBudgetState::Normal
 }
 
+fn provider_request_counts_against_post_budget_grace(
+    request_phase: Option<&str>,
+    request_count_before: usize,
+    max_requests: usize,
+) -> bool {
+    request_phase == Some(TaskSpaceProviderRequestPhase::BudgetRecovery.as_str())
+        && max_requests > 0
+        && request_count_before >= max_requests
+}
+
 fn completed_main_inspect_has_broad_accepted_result(
     map: &ActionMapInstance,
     node_id: &str,
@@ -15362,24 +15554,6 @@ fn accepted_result_artifact_refs(result: &NodeResult) -> HashSet<String> {
         }
     }
     artifact_refs
-}
-
-fn node_result_evidence_package_for_artifact_refs(
-    artifact_refs: &[String],
-) -> NodeResultEvidencePackage {
-    if artifact_refs.is_empty() {
-        return NodeResultEvidencePackage::default();
-    }
-    NodeResultEvidencePackage {
-        evidence_refs: artifact_refs
-            .iter()
-            .map(|artifact_ref| EvidenceRef {
-                artifact_ref: Some(artifact_ref.clone()),
-                ..Default::default()
-            })
-            .collect(),
-        ..Default::default()
-    }
 }
 
 fn merge_artifact_refs(mut left: Vec<String>, right: Vec<String>) -> Vec<String> {
@@ -16198,9 +16372,15 @@ fn tool_action_descriptor_matching_artifact_ref(
 }
 
 fn result_body_command(result: &NodeResult) -> Option<String> {
-    result
-        .body
-        .lines()
+    result_body_command_from_body(&result.body)
+}
+
+fn node_event_body_command(event: &NodeEvent) -> Option<String> {
+    result_body_command_from_body(&event.body)
+}
+
+fn result_body_command_from_body(body: &str) -> Option<String> {
+    body.lines()
         .find_map(|line| line.strip_prefix("command: ").map(str::trim))
         .map(str::to_string)
 }
@@ -16737,6 +16917,16 @@ fn observed_required_fact_source_artifacts(
         return Vec::new();
     }
     let mut observed = Vec::new();
+    for event in map.node_events.values() {
+        for artifact in node_event_observed_source_artifact_refs(event) {
+            if required
+                .iter()
+                .any(|required| artifact_refs_match(required, &artifact))
+            {
+                push_unique_artifact_ref(&mut observed, artifact);
+            }
+        }
+    }
     for result in map.results.values() {
         for artifact in result_observed_source_artifact_refs(result) {
             if required
@@ -16752,6 +16942,11 @@ fn observed_required_fact_source_artifacts(
 
 fn observed_successful_read_search_artifacts(map: &ActionMapInstance) -> Vec<String> {
     let mut observed = Vec::new();
+    for event in map.node_events.values() {
+        for artifact in node_event_observed_source_artifact_refs(event) {
+            push_unique_artifact_ref(&mut observed, artifact);
+        }
+    }
     for result in map.results.values() {
         for artifact in result_observed_source_artifact_refs(result) {
             push_unique_artifact_ref(&mut observed, artifact);
@@ -16762,11 +16957,36 @@ fn observed_successful_read_search_artifacts(map: &ActionMapInstance) -> Vec<Str
 
 fn inspect_node_observed_artifact_refs(map: &ActionMapInstance, node: &MapNode) -> Vec<String> {
     let mut artifact_refs = Vec::new();
+    for event_ref in &node.node_events {
+        let Some(event) = map.node_events.get(&event_ref.id) else {
+            continue;
+        };
+        for artifact in node_event_observed_source_artifact_refs(event) {
+            push_unique_artifact_ref(&mut artifact_refs, artifact);
+        }
+    }
     for result_ref in &node.result_context {
         let Some(result) = map.results.get(&result_ref.id) else {
             continue;
         };
         for artifact in result_observed_source_artifact_refs(result) {
+            push_unique_artifact_ref(&mut artifact_refs, artifact);
+        }
+    }
+    artifact_refs
+}
+
+fn node_event_observed_source_artifact_refs(event: &NodeEvent) -> Vec<String> {
+    if !node_event_has_observed_source_content(event) {
+        return Vec::new();
+    }
+
+    let mut artifact_refs = node_event_visible_artifact_refs(event);
+    for artifact in node_event_input_data_artifact_refs(event) {
+        push_unique_artifact_ref(&mut artifact_refs, artifact);
+    }
+    if let Some(command) = node_event_body_command(event) {
+        for artifact in command_artifact_refs(&command) {
             push_unique_artifact_ref(&mut artifact_refs, artifact);
         }
     }
@@ -16808,9 +17028,30 @@ fn result_has_observed_source_content(result: &NodeResult) -> bool {
     }
 }
 
+fn node_event_has_observed_source_content(event: &NodeEvent) -> bool {
+    if event.source != "main_tool" || event.tool_success != Some(true) {
+        return false;
+    }
+    if structured_file_preview_is_unsuccessful(&event.body)
+        || read_result_body_is_path_listing_only(&event.body)
+    {
+        return false;
+    }
+    match event.action_class {
+        Some(ActionClass::Read | ActionClass::Search) => true,
+        Some(ActionClass::Build | ActionClass::Test) => {
+            diagnostic_body_has_source_content_signal(&event.body)
+        }
+        _ => false,
+    }
+}
+
 fn diagnostic_result_has_source_content_signal(result: &NodeResult) -> bool {
-    result_body_has_successful_file_marker(&result.body)
-        || result_body_has_hex_dump_content(&result.body)
+    diagnostic_body_has_source_content_signal(&result.body)
+}
+
+fn diagnostic_body_has_source_content_signal(body: &str) -> bool {
+    result_body_has_successful_file_marker(body) || result_body_has_hex_dump_content(body)
 }
 
 fn result_body_has_successful_file_marker(body: &str) -> bool {
@@ -17283,16 +17524,6 @@ fn node_status_changed_event(
     })
 }
 
-fn maintenance_barrier_raised_event(barrier: &ActionMapMaintenanceBarrier) -> MapRuntimeEvent {
-    MapRuntimeEvent::MaintenanceBarrierRaised(MapRuntimeMaintenanceBarrierRaisedEvent {
-        map_id: barrier.map_id.clone(),
-        node_id: barrier.node_id.clone(),
-        reason: barrier.reason.as_str().to_string(),
-        result_count: barrier.result_count,
-        budget: barrier.budget,
-    })
-}
-
 fn maintenance_barrier_cleared_event(
     barrier: &ActionMapMaintenanceBarrier,
     reason: impl Into<String>,
@@ -17305,10 +17536,20 @@ fn maintenance_barrier_cleared_event(
 }
 
 fn count_node_results_of_kind(node: &MapNode, kind: NodeResultKind) -> usize {
-    node.result_context
+    let result_count = node
+        .result_context
         .iter()
         .filter(|result| result.kind == kind)
-        .count()
+        .count();
+    let event_count = if kind == NodeResultKind::MainToolCall {
+        node.node_events
+            .iter()
+            .filter(|event| event.kind == "tool_result")
+            .count()
+    } else {
+        0
+    };
+    result_count + event_count
 }
 
 fn node_has_successful_action(
@@ -17316,7 +17557,14 @@ fn node_has_successful_action(
     node: &MapNode,
     action_class: ActionClass,
 ) -> bool {
-    node.result_context.iter().any(|result_ref| {
+    node.node_events.iter().any(|event_ref| {
+        let Some(event) = map.node_events.get(&event_ref.id) else {
+            return false;
+        };
+        event.source == "main_tool"
+            && event.action_class == Some(action_class)
+            && event.tool_success == Some(true)
+    }) || node.result_context.iter().any(|result_ref| {
         let Some(result) = map.results.get(&result_ref.id) else {
             return false;
         };
@@ -18442,6 +18690,25 @@ fn result_visible_artifact_refs(result: &NodeResult) -> Vec<String> {
     artifacts
 }
 
+fn node_event_visible_artifact_refs(event: &NodeEvent) -> Vec<String> {
+    let mut artifacts = event
+        .artifact_refs
+        .iter()
+        .map(|artifact| normalize_artifact_ref(artifact))
+        .filter(|artifact| !artifact.is_empty())
+        .collect::<Vec<_>>();
+    for artifact_ref in result_body_section_artifact_refs(&event.body) {
+        push_unique_artifact_ref(&mut artifacts, artifact_ref);
+    }
+    for artifact_ref in result_body_taskspace_marker_artifact_refs(&event.body) {
+        push_unique_artifact_ref(&mut artifacts, artifact_ref);
+    }
+    for artifact_ref in result_body_inline_artifact_refs(&event.body) {
+        push_unique_artifact_ref(&mut artifacts, artifact_ref);
+    }
+    artifacts
+}
+
 fn result_body_inline_artifact_refs(body: &str) -> Vec<String> {
     let mut artifacts = Vec::new();
     for segment in body.split("artifacts=").skip(1) {
@@ -18496,6 +18763,14 @@ fn result_body_raw_output_section(body: &str) -> &str {
         .map(|(_, rest)| rest)
         .or_else(|| body.split_once("\r\nraw_output:\r\n").map(|(_, rest)| rest))
         .unwrap_or(body)
+}
+
+fn first_output_ref_in_text(body: &str) -> Option<String> {
+    body.split_whitespace()
+        .find(|token| token.starts_with("output-ref://"))
+        .map(|token| token.trim_matches(|ch: char| matches!(ch, ',' | ';' | ')' | ']' | '}')))
+        .filter(|token| !token.is_empty())
+        .map(str::to_string)
 }
 
 fn taskspace_marker_field(line: &str, field: &str) -> Option<String> {
@@ -18554,6 +18829,23 @@ fn successful_read_result_has_working_evidence(result: &NodeResult) -> bool {
         || !result_input_data_artifact_refs(result).is_empty()
 }
 
+fn successful_read_node_event_has_working_evidence(event: &NodeEvent) -> bool {
+    if event.source != "main_tool"
+        || event.tool_success != Some(true)
+        || event.action_class != Some(ActionClass::Read)
+    {
+        return false;
+    }
+    if structured_file_preview_is_unsuccessful(&event.body) {
+        return false;
+    }
+    if read_result_body_is_path_listing_only(&event.body) {
+        return false;
+    }
+    code_or_test_read_body_has_content_signal(&event.body)
+        || !node_event_input_data_artifact_refs(event).is_empty()
+}
+
 fn successful_inspect_result_has_working_evidence(result: &NodeResult) -> bool {
     if result.kind != NodeResultKind::MainToolCall
         || result.tool_success != Some(true)
@@ -18572,6 +18864,26 @@ fn successful_inspect_result_has_working_evidence(result: &NodeResult) -> bool {
     }
     code_or_test_read_body_has_content_signal(&result.body)
         || !result_input_data_artifact_refs(result).is_empty()
+}
+
+fn successful_inspect_node_event_has_working_evidence(event: &NodeEvent) -> bool {
+    if event.source != "main_tool"
+        || event.tool_success != Some(true)
+        || !matches!(
+            event.action_class,
+            Some(ActionClass::Read | ActionClass::Search)
+        )
+    {
+        return false;
+    }
+    if read_result_body_is_path_listing_only(&event.body) {
+        return false;
+    }
+    if structured_file_preview_is_unsuccessful(&event.body) {
+        return false;
+    }
+    code_or_test_read_body_has_content_signal(&event.body)
+        || !node_event_input_data_artifact_refs(event).is_empty()
 }
 
 fn structured_file_preview_is_unsuccessful(body: &str) -> bool {
@@ -18712,6 +19024,21 @@ fn result_input_data_artifact_refs(result: &NodeResult) -> Vec<String> {
     artifacts
 }
 
+fn node_event_input_data_artifact_refs(event: &NodeEvent) -> Vec<String> {
+    let mut artifacts = node_event_visible_artifact_refs(event)
+        .into_iter()
+        .filter(|artifact| is_input_data_artifact_ref(artifact))
+        .collect::<Vec<_>>();
+    if let Some(command) = node_event_body_command(event) {
+        for artifact in command_input_data_artifact_refs(&command) {
+            if !artifacts.iter().any(|existing| existing == &artifact) {
+                artifacts.push(artifact);
+            }
+        }
+    }
+    artifacts
+}
+
 fn command_input_data_artifact_refs(command: &str) -> Vec<String> {
     let mut artifacts = Vec::new();
     for token in command.split_whitespace() {
@@ -18772,6 +19099,7 @@ const TASKSPACE_WORKING_EVIDENCE_SUMMARY_MAX_RESULTS: usize = 8;
 const TASKSPACE_WORKING_EVIDENCE_SUMMARY_MAX_CHARS: usize = 1200;
 const TASKSPACE_COMPLETE_READ_INLINE_MAX_CHARS: usize = 6000;
 const TASKSPACE_EDIT_ACTION_PREVIEW_MAX_CHARS: usize = 6000;
+const TASKSPACE_NODE_EVENT_VISIBLE_EXCERPT_MAX_CHARS: usize = 6000;
 const TASKSPACE_VALIDATION_REWORK_TARGET_READ_MAX_CHARS: usize = 16_000;
 #[cfg(test)]
 const TASKSPACE_VALIDATION_REWORK_TARGET_READ_SUMMARY_MAX_CHARS: usize = 6000;
@@ -21001,6 +21329,64 @@ TaskSpaceReadFileSummaryV1: path=data.csv lines_read=2 eof_reached=true max_line
                 .iter()
                 .any(|item| item == "post_budget_grace:1/1")
         );
+    }
+
+    #[test]
+    fn post_budget_grace_counter_ignores_pre_limit_budget_recovery_request() {
+        let owner = ThreadId::new();
+        let mut state = ActionMapRuntimeState::default();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (_task_id, _map_id, _node_id, _events) = state
+            .start_task_for_main(
+                owner,
+                "budget grace task".to_string(),
+                "verify post-budget grace accounting".to_string(),
+                "inspect".to_string(),
+                "inspect post-budget grace accounting".to_string(),
+                true,
+            )
+            .expect("start task");
+        let snapshot = state
+            .provider_request_budget_snapshot()
+            .expect("active budget snapshot");
+
+        state
+            .record_provider_request_budget_events(
+                &snapshot,
+                vec![provider_request_budget_input(
+                    "provider-request-pre-limit",
+                    "provider-request:turn-a:logical-pre-limit",
+                    "started",
+                    9,
+                    10,
+                    Some(TaskSpaceProviderRequestPhase::BudgetRecovery.as_str()),
+                )],
+            )
+            .expect("pre-limit budget recovery event");
+        let snapshot = state
+            .provider_request_budget_snapshot()
+            .expect("snapshot after pre-limit recovery");
+        assert_eq!(snapshot.request_count, 10);
+        assert_eq!(snapshot.post_budget_grace_request_count, 0);
+
+        state
+            .record_provider_request_budget_events(
+                &snapshot,
+                vec![provider_request_budget_input(
+                    "provider-request-post-limit",
+                    "provider-request:turn-a:logical-post-limit",
+                    "started",
+                    10,
+                    11,
+                    Some(TaskSpaceProviderRequestPhase::BudgetRecovery.as_str()),
+                )],
+            )
+            .expect("post-limit budget recovery event");
+        let snapshot = state
+            .provider_request_budget_snapshot()
+            .expect("snapshot after post-limit recovery");
+        assert_eq!(snapshot.request_count, 11);
+        assert_eq!(snapshot.post_budget_grace_request_count, 1);
     }
 
     #[test]
@@ -24233,6 +24619,99 @@ sample rows from {artifact}"
                 Some(action_class.as_str())
             );
         }
+    }
+
+    #[test]
+    fn main_tool_feedback_records_node_event_without_node_result() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (_task_id, _map_id, node_id, _) = start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::InspectCodeContext,
+            "Read source",
+            "Preserve tool feedback in node events.",
+            "Inspect source",
+            "Read source file.",
+            true,
+        );
+
+        state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new(
+                    "shell_command",
+                    ActionClass::Read,
+                    "sed -n '1,20p' -- src/lib.rs",
+                )
+                .with_call_id("read-source"),
+            )
+            .expect("read is allowed");
+        let (node_event_id, events) = state
+            .record_main_tool_result_with_class(
+                owner,
+                "read-source",
+                "shell_command",
+                Some(ActionClass::Read),
+                true,
+                "TaskSpaceToolInvocationV1:\n\
+tool: shell_command\n\
+command: sed -n '1,20p' -- src/lib.rs\n\
+raw_output:\n\
+Exit code: 0\n\
+Output:\n\
+pub fn answer() -> i32 { 42 }\n\
+TaskSpaceReadFileSummaryV1: path=src/lib.rs lines_read=1 eof_reached=true max_lines=20\n"
+                    .to_string(),
+            )
+            .expect("tool feedback records")
+            .expect("node event is recorded");
+
+        assert!(node_event_id.starts_with("node-event-"));
+        assert!(events.iter().any(|event| {
+            matches!(
+                event,
+                MapRuntimeEvent::NodeEventRecorded(recorded)
+                    if recorded.node_event_id == node_event_id
+                        && recorded.node_id == node_id
+                        && recorded.event_kind == "tool_result"
+                        && recorded.action_class.as_deref() == Some("read")
+                        && recorded.tool_success == Some(true)
+            )
+        }));
+        assert!(!events.iter().any(|event| matches!(
+            event,
+            MapRuntimeEvent::NodeResultRecorded(recorded)
+                if recorded.kind == NodeResultKind::MainToolCall.as_str()
+        )));
+
+        let snapshot = state.snapshot();
+        let map = snapshot.maps.first().expect("snapshot has active map");
+        assert!(map.results.is_empty());
+        assert_eq!(map.node_events.len(), 1);
+        let event = map.node_events.first().expect("node event is snapshotted");
+        assert_eq!(event.id, node_event_id);
+        assert_eq!(event.event_kind, "tool_result");
+        assert_eq!(event.source, "main_tool");
+        assert_eq!(event.action_class.as_deref(), Some("read"));
+        assert_eq!(event.tool_success, Some(true));
+        assert!(event.body.contains("pub fn answer()"));
+        assert!(event.visible_excerpt.contains("pub fn answer()"));
+        assert!(event.artifact_refs.contains(&"src/lib.rs".to_string()));
+        let node = map
+            .nodes
+            .iter()
+            .find(|node| node.id == node_id)
+            .expect("snapshot node exists");
+        assert_eq!(node.node_event_ids, vec![node_event_id.clone()]);
+        assert!(node.result_ids.is_empty());
+
+        let context = state.build_developer_context().expect("developer context");
+        assert!(context.contains("recent_tool_feedback:"), "{context}");
+        assert!(context.contains(&node_event_id), "{context}");
+        assert!(context.contains("event_kind=tool_result"), "{context}");
+        assert!(context.contains("pub fn answer()"), "{context}");
     }
 
     #[test]
@@ -27924,7 +28403,7 @@ Output:\n\
         assert!(context.contains("./data/source_b/users.csv"), "{context}");
         assert!(
             context.contains(
-                "action_class=test tool_success=false artifacts=none command=python3 recover.py"
+                "action_class=test tool_success=false raw_ref=none artifacts=none command=python3 recover.py"
             ),
             "{context}"
         );

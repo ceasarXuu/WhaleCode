@@ -17,6 +17,7 @@ Related Systems: TaskSpace runtime, action_map runtime, taskspace_control,
 Related Links:
   docs/v0.0.5/build-R5/00-r5-taskspace-simplification-charter.md
   docs/v0.0.5/build-R5/02-r5-phase-a-current-state-inventory.md
+  docs/v0.0.5/build-R5/03-r5-phase-b-node-event-contract.md
   docs/v0.0.5/build-R4/10-r4-request-convergence-engineering-plan.md
 Risk Level: High
 Plan Type: Full
@@ -410,12 +411,28 @@ R5 closeout 文档
 | R5-G | targeted paired runs | 不依赖 closeout | 指标报告、失败分类 | 100% 完成 | pause |
 | R5-H | closeout review | 无 | closeout 文档和 clean git | 完成 | pause |
 
+### 1.14.1 每阶段样本验证规则
+
+每个 R5 phase 必须选择 1 到 2 个适合本阶段改动的 sample，各执行 1 次，并横向记录：
+
+```text
+standard 当前版本
+R4 历史基线或同样本重跑
+R5 当前阶段版本
+```
+
+单次样本只作为 E1 诊断证据，不计入 utility aggregate，也不得把偶然成功写成收益定论。
+每次记录必须包含 scenario、命令、run dir、pair report、standard/R4/R5 outcome、
+tool count、model request count、wall time、失败分类、以及 feedback/event/ref 是否忠实透传。
+若 R5 失败，第一优先级检查上下文语义是否丢失、扭曲、过度结构化或被预算/裁剪截断；
+不得为了让样本通过新增 runtime 语义约束。
+
 ## 1.15 Implementation Completeness Matrix
 
 | Plan Item | Expected Behavior | Production Code Path | Integration Entry | Test Evidence | Runtime / Log Evidence | Mock / Stub Exposure | Status |
 |---|---|---|---|---|---|---|---|
 | R5-A inventory | 明确旧结构用途和拆除候选 | `core/src/action_map/*`, `tools/handlers/taskspace_control.rs` | docs/CoE | `02-r5-phase-a-current-state-inventory.md` | baseline artifact paths | none | landed |
-| R5-B node events | 工具反馈忠实归档到 node | new/refactored node event path | ordinary tools under TaskSpace | direct success/failure fixtures | node_event trace/ref | none | planned |
+| R5-B node events | 工具反馈忠实归档到 node | `NodeEvent` direct path | ordinary tools under TaskSpace | direct success/failure fixtures | node_event trace/ref | none | implemented, sample blocker open |
 | R5-C thin projection | model-visible 只含 map/node/events/refs | projection renderer | provider request | payload snapshot/diff | omission audit | none | planned |
 | R5-D ledger deactivation | semantic ledger 不控制 active path | state_commit/start_task handling | taskspace_control | initial_* and state_commit tests | state update traces | none | planned |
 | R5-E gate pruning | 只保留硬底线拒绝 | state machine gate path | ordinary tool preflight | gate classification tests | blocked reason taxonomy | none | planned |

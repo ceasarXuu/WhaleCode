@@ -11,6 +11,7 @@ use super::ledger::ProblemStateLedger;
 pub(crate) type ActionMapId = String;
 pub(crate) type AssignmentLeaseId = String;
 pub(crate) type MapNodeId = String;
+pub(crate) type NodeEventId = String;
 pub(crate) type NodeResultId = String;
 pub(crate) type SubagentPlanId = String;
 pub(crate) type TaskId = String;
@@ -246,6 +247,12 @@ pub(crate) struct NodeResultRef {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct NodeEventRef {
+    pub(crate) id: NodeEventId,
+    pub(crate) kind: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct MapNode {
     pub(crate) id: MapNodeId,
     pub(crate) title: String,
@@ -254,6 +261,7 @@ pub(crate) struct MapNode {
     pub(crate) context: NodeContext,
     pub(crate) active_lease: Option<AssignmentLeaseId>,
     pub(crate) result_context: Vec<NodeResultRef>,
+    pub(crate) node_events: Vec<NodeEventRef>,
     pub(crate) origin_node_id: Option<MapNodeId>,
 }
 
@@ -303,6 +311,7 @@ pub(crate) struct ActionMapInstance {
     pub(crate) created_from: Option<ActionMapId>,
     pub(crate) leases: HashMap<AssignmentLeaseId, AssignmentLease>,
     pub(crate) results: HashMap<NodeResultId, NodeResult>,
+    pub(crate) node_events: HashMap<NodeEventId, NodeEvent>,
     pub(crate) subagent_plans: HashMap<SubagentPlanId, SubagentPlan>,
 }
 
@@ -382,6 +391,24 @@ pub(crate) struct NodeResult {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct NodeEvent {
+    pub(crate) id: NodeEventId,
+    pub(crate) map_id: ActionMapId,
+    pub(crate) node_id: MapNodeId,
+    pub(crate) event_kind: String,
+    pub(crate) source: String,
+    pub(crate) action_class: Option<ActionClass>,
+    pub(crate) tool_success: Option<bool>,
+    pub(crate) body: String,
+    pub(crate) visible_excerpt: String,
+    pub(crate) raw_ref: Option<String>,
+    pub(crate) artifact_refs: Vec<String>,
+    pub(crate) call_id: Option<String>,
+    pub(crate) source_thread_id: ThreadId,
+    pub(crate) created_at_ms: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct TaskSpaceTraceEvent {
     pub(crate) id: TaskSpaceTraceEventId,
     pub(crate) kind: String,
@@ -416,6 +443,7 @@ impl ActionMapInstance {
             created_from: None,
             leases: HashMap::new(),
             results: HashMap::new(),
+            node_events: HashMap::new(),
             subagent_plans: HashMap::new(),
         }
     }

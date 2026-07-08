@@ -1668,6 +1668,14 @@ fn taskspace_message_has_gate_recovery(message: Option<&str>) -> bool {
     message.is_some_and(|message| message.contains(TASKSPACE_GATE_RECOVERY_MARKER))
 }
 
+fn taskspace_message_has_state_machine_rejection(message: Option<&str>) -> bool {
+    message.is_some_and(|message| {
+        message.contains("TaskSpaceActionV1 rejected:")
+            || message.contains("TaskSpaceFinalAnswerRejectedV1:")
+            || message.contains("TaskSpaceBlockedResponseRejectedV1:")
+    })
+}
+
 #[cfg(test)]
 fn taskspace_message_has_gate_recovery_reason(message: Option<&str>, reason: &str) -> bool {
     message.is_some_and(|message| {
@@ -2765,6 +2773,20 @@ fn taskspace_provider_budget_limit_reached(
     snapshot: &crate::action_map::ActionMapProviderRequestBudgetSnapshot,
 ) -> bool {
     snapshot.max_requests > 0 && snapshot.request_count >= snapshot.max_requests
+}
+
+fn taskspace_feedback_needs_budget_recovery_followup(
+    snapshot: &crate::action_map::ActionMapProviderRequestBudgetSnapshot,
+    needs_follow_up: bool,
+    saw_actionable_output: bool,
+    last_agent_message: Option<&str>,
+) -> bool {
+    needs_follow_up
+        && taskspace_provider_budget_limit_reached(snapshot)
+        && snapshot.post_budget_grace_request_count < snapshot.post_budget_grace_requests
+        && (saw_actionable_output
+            || taskspace_message_has_gate_recovery(last_agent_message)
+            || taskspace_message_has_state_machine_rejection(last_agent_message))
 }
 
 #[cfg(test)]
@@ -10445,6 +10467,61 @@ TaskSpaceGateRecoveryV1: {\"schema_version\":\"TaskSpaceGateRecoveryV1\",\"allow
     }
 
     #[test]
+    fn actionable_feedback_at_rollout_limit_requests_budget_recovery_followup() {
+        let mut snapshot = provider_snapshot("implement_solution");
+        snapshot.request_count = snapshot.max_requests;
+        snapshot.post_budget_grace_request_count = 0;
+        snapshot.post_budget_grace_requests = 1;
+
+        assert!(taskspace_feedback_needs_budget_recovery_followup(
+            &snapshot, true, true, None
+        ));
+        assert!(!taskspace_feedback_needs_budget_recovery_followup(
+            &snapshot, false, true, None
+        ));
+        assert!(!taskspace_feedback_needs_budget_recovery_followup(
+            &snapshot, true, false, None
+        ));
+
+        snapshot.post_budget_grace_request_count = 1;
+        assert!(!taskspace_feedback_needs_budget_recovery_followup(
+            &snapshot, true, true, None
+        ));
+
+        snapshot.post_budget_grace_request_count = 0;
+        snapshot.request_count = snapshot.max_requests.saturating_sub(1);
+        assert!(!taskspace_feedback_needs_budget_recovery_followup(
+            &snapshot, true, true, None
+        ));
+    }
+
+    #[test]
+    fn state_machine_rejection_at_rollout_limit_requests_budget_recovery_followup() {
+        let mut snapshot = provider_snapshot("inspect_code_context");
+        snapshot.request_count = snapshot.max_requests;
+        snapshot.post_budget_grace_request_count = 0;
+        snapshot.post_budget_grace_requests = 1;
+        let rejection = Some(
+            "TaskSpaceActionV1 rejected: node_policy_violation:inspect_code_context:apply_patch. Return exactly one valid taskspace-action-v1 JSON object.",
+        );
+
+        assert!(taskspace_feedback_needs_budget_recovery_followup(
+            &snapshot, true, false, rejection,
+        ));
+        assert!(!taskspace_feedback_needs_budget_recovery_followup(
+            &snapshot, false, false, rejection,
+        ));
+        assert!(!taskspace_feedback_needs_budget_recovery_followup(
+            &snapshot, true, false, None,
+        ));
+
+        snapshot.post_budget_grace_request_count = 1;
+        assert!(!taskspace_feedback_needs_budget_recovery_followup(
+            &snapshot, true, false, rejection,
+        ));
+    }
+
+    #[test]
     fn validation_rework_duplicate_read_remains_recoverable_after_one_recovery() {
         let last_message = "TaskSpace blocked this read because validation rework node `node-4` already read failure artifact `generate_org.py` in result `result-11` and no successful edit has been recorded after that read. The previous complete read result remains available as duplicate evidence; choose any state-machine-legal action using the visible facts, or record blocked with the exact blocker. Validation repair contract: missing_required_properties=members, averageDepartmentBudget | target_artifacts=generate_org.py\nTaskSpaceGateRecoveryV1: {\"schema_version\":\"TaskSpaceGateRecoveryV1\",\"allowed\":false,\"reason\":\"validation_rework_duplicate_artifact_read\",\"next_valid_actions\":[\"reuse `result-11` or choose another state-machine-legal action\"]}";
         let recovery = build_taskspace_validation_rework_duplicate_read_recovery_item(
@@ -15489,10 +15566,10 @@ async fn try_run_sampling_request(
                     provider_budget_exhausted_followup,
                 );
                 let taskspace_no_action_recovery_item = None;
-                if let Some(snapshot) = current_budget_snapshot {
+                if let Some(snapshot) = current_budget_snapshot.as_ref() {
                     sess.record_action_map_provider_response_actionability(
                         &turn_context,
-                        snapshot,
+                        snapshot.clone(),
                         ActionMapProviderResponseActionabilityInput {
                             response_actionability: response_actionability.as_str().to_string(),
                             end_turn,
@@ -15520,6 +15597,20 @@ async fn try_run_sampling_request(
                         &turn_context,
                         &turn_diff_tracker,
                         snapshot.request_count,
+                    )
+                    .await;
+                }
+                if let Some(snapshot) = current_budget_snapshot.as_ref()
+                    && taskspace_feedback_needs_budget_recovery_followup(
+                        snapshot,
+                        needs_follow_up,
+                        saw_actionable_output,
+                        last_agent_message.as_deref(),
+                    )
+                {
+                    sess.action_map_mark_next_provider_request_budget_recovery(
+                        &turn_context,
+                        "taskspace_feedback_after_provider_budget_limit",
                     )
                     .await;
                 }
