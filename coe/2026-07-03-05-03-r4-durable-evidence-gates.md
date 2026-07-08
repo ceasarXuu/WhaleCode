@@ -12763,3 +12763,77 @@
 - Boundary interpretation:
   - This repair follows the clarified R4 principle: when the Agent fails or takes low-quality actions, first suspect feedback/context transfer.
   - Projection remains a constructor for facts, references, and bounded excerpts. It does not synthesize repair plans, rank next actions, or add runtime semantic controls.
+
+# Hypothesis H-200: response actionability recovery injection is a runtime boundary violation
+
+- Claim: The response-completion path treats `response_actionability.needs_recovery()` as both observability and model-visible recovery guidance. This injects no-action/path-correction/transition/validation-closeout developer items after ordinary provider responses and crosses the R4 boundary: runtime should record facts and enforce hard baselines, not choose semantic next steps for the Agent.
+- Predictions:
+  1. Source inspection will show response actionability classification constructing developer recovery items in production paths.
+  2. Focused tests can prove actionability remains traceable without creating a model-visible recovery item.
+  3. A targeted `sqlite-db-truncate` right-only rerun after repair will show `TaskSpaceProviderResponseActionabilityV1 recovery_action=none` for ordinary actionability and no "non-cap recovery guidance" insertion.
+- Status: confirmed and fixed.
+
+# Evidence E-382: H-200 repair removes non-cap runtime recovery guidance while preserving budget hard-stop
+
+- Prediction tested: H-200 predictions 1-3.
+- Repair:
+  - `session/turn.rs` no longer constructs developer recovery items from `response_actionability.needs_recovery()`.
+  - final/blocked gate rejection feedback is now a neutral state error containing `accepted=false`, `rejection_reason`, and `state_effect`.
+  - post-completed automatic transition / validation-closeout / implementation recovery insertions were removed from production paths.
+  - response actionability remains recorded as trace telemetry, with `recovery_action=developer_recovery` only when an actual recovery item exists.
+- Validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo check -p codex-core --lib --locked
+    passed, no warnings
+
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib provider_response_actionability --locked
+    passed: 12 tests
+
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib terminal_gate_rejection_feedback --locked
+    passed: 1 test
+
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib taskspace_action_contract --locked
+    passed: 77 tests
+
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib action_contract_prompt --locked
+    passed: 31 tests
+
+  cargo build -p codex-cli --bin whale --locked
+    passed without CODEX_SKIP_VENDORED_BWRAP
+  ```
+- Targeted sample:
+  - RunDir: `target/r4-h200-boundary-sqlite-right-20260708/runs/terminal_bench__sqlite-db-truncate/20260708-183418-789/pair-001`.
+  - TaskSpace right-only business success passed; `recover.json` was generated and both public/hidden validation exit codes were 0.
+  - `TaskSpaceProviderResponseActionabilityV1` entries had `recovery_action=none`; ordinary actionability did not create `developer_recovery`.
+  - No "TaskSpace inserted non-cap TaskSpace recovery guidance" warning remained.
+  - The only runtime insertion was the allowed hard baseline `TaskSpaceProviderBudgetHardStopV1 reason=provider_request_hard_limit_exceeded request_count=20/20`.
+- Boundary interpretation:
+  - H-200 is closed for the response-recovery boundary.
+  - The remaining sqlite lifecycle failure is a separate evidence-fidelity issue, not a reason to restore runtime semantic guidance.
+
+# Hypothesis H-202: fact-source coverage ignores successful diagnostic reads of workspace-relative aliases
+
+- Claim: `sqlite-db-truncate` still spends the full request budget because the inspect closeout gate requires declared fact-source artifacts to have successful read/search evidence only. In action-contract mode, binary/structured input inspection often happens through `run_test`; those successful diagnostic reads can prove the same artifact was observed, but `inspect_missing_required_fact_source_artifacts` does not count them. For `/app/trunc.db`, projection knows the workspace-relative alias `trunc.db`, while the completion gate still reports `/app/trunc.db` as unread.
+- Predictions:
+  1. The rerun transcript will contain a visible `function_call_output` for `finish_node`, so the control result was not lost.
+  2. The rejection text will cite `/app/trunc.db` missing read/search evidence.
+  3. Earlier successful node results will show commands over `trunc.db` that read or parse binary contents and output page/cell evidence.
+  4. Source inspection will show `inspect_node_observed_artifact_refs` filters coverage to successful `Read` or `Search` results and excludes successful diagnostic `Test` results.
+- Status: confirmed; repair in progress.
+
+# Evidence E-383: H-202 is a coverage fidelity gap, not missing taskspace_control feedback
+
+- Prediction tested: H-202 predictions 1-4.
+- Runtime evidence:
+  - `whale-exec.jsonl` contains `item_60` and `item_87`, both explicit `taskspace_control(action=finish_node, next_node_kind=implement_solution)` messages.
+  - `rollout.jsonl` contains `function_call` and `function_call_output` for `taskspace-action-contract-18-taskspace_control`.
+  - The output says: `TaskSpace inspect_code_context node node-1 cannot be completed while declared fact-source artifact(s) remain unread: /app/trunc.db. state_machine_requirement: declared fact-source artifacts must have concrete read/search evidence before inspect closeout.`
+  - Earlier results include successful `xxd trunc.db`, size/type checks, and Python parsing of `trunc.db`; later `result-17` parsed all 10 rows and wrote `recover.json`.
+  - The active projection showed `fact_source_coverage: /app/trunc.db status=not_observed workspace_relative_alias_from_failed_path=trunc.db`.
+- Source evidence:
+  - `validate_completion_evidence_for` calls `inspect_missing_required_fact_source_artifacts` for inspect closeout.
+  - `inspect_node_observed_artifact_refs` only considers successful `ActionClass::Read | ActionClass::Search` results and skips successful `ActionClass::Test` diagnostics.
+- Interpretation:
+  - The Agent did receive the `finish_node` rejection and tried to satisfy it, so this is not a tool-output loss bug.
+  - The ledger is failing to faithfully represent concrete diagnostic evidence over the required input artifact.
+  - Repair should add a narrow, mechanical evidence path for successful binary/structured diagnostic reads of required artifacts or aliases; it should not add runtime next-step guidance or force transitions.

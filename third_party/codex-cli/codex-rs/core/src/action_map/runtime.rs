@@ -7127,42 +7127,6 @@ preview:\n\
         self.current_node_progress_signature(map_id, node_id)
     }
 
-    pub(crate) fn current_main_inspect_progress_ready_for_transition(&self) -> bool {
-        let Some(map_id) = self.active_map_id.as_ref() else {
-            return false;
-        };
-        let Some(node_id) = self.current_main_node_id.as_ref() else {
-            return false;
-        };
-        let Some(map) = self.maps.get(map_id) else {
-            return false;
-        };
-        let Some(node) = map.nodes.get(node_id) else {
-            return false;
-        };
-        if node.kind != NodeKind::InspectCodeContext
-            || !node_has_successful_code_or_test_inspect_result(map, node)
-        {
-            return false;
-        }
-        if map
-            .task_id
-            .as_deref()
-            .and_then(|task_id| self.tasks.get(task_id))
-            .is_some_and(|task| {
-                !inspect_missing_required_fact_source_artifacts(task, map, node).is_empty()
-            })
-        {
-            return false;
-        }
-        self.current_node_progress_signature(map_id, node_id)
-            .is_some_and(|progress| {
-                progress
-                    >= contract_for(NodeKind::InspectCodeContext)
-                        .max_main_tool_results_before_split_hint
-            })
-    }
-
     #[cfg(test)]
     pub(crate) fn current_main_inspect_has_successful_diagnostic_and_working_evidence(
         &self,
@@ -7237,6 +7201,7 @@ preview:\n\
             .unwrap_or_default()
     }
 
+    #[cfg(test)]
     pub(crate) fn current_main_implement_progress_needs_edit(&self) -> bool {
         let Some(map_id) = self.active_map_id.as_ref() else {
             return false;
@@ -7266,6 +7231,7 @@ preview:\n\
                 })
     }
 
+    #[cfg(test)]
     pub(crate) fn current_main_recent_failed_edit_summary(&self) -> Option<String> {
         let map_id = self.active_map_id.as_ref()?;
         let node_id = self.current_main_node_id.as_ref()?;
@@ -7285,6 +7251,7 @@ preview:\n\
         node_recent_failed_action_summary_with_limit(map, node, ActionClass::Read, 2400)
     }
 
+    #[cfg(test)]
     pub(crate) fn current_main_working_evidence_summary(&self) -> Option<String> {
         let map_id = self.active_map_id.as_ref()?;
         let node_id = self.current_main_node_id.as_ref()?;
@@ -7365,6 +7332,7 @@ preview:\n\
         Some(successful_main_tool_results + problem_state_progress)
     }
 
+    #[cfg(test)]
     pub(crate) fn current_main_node_has_successful_action(
         &self,
         action_class: ActionClass,
@@ -7503,6 +7471,7 @@ preview:\n\
         Ok(Some(vec![map_runtime_event_from_trace_event(trace_event)]))
     }
 
+    #[cfg(test)]
     pub(crate) fn current_main_validation_node_has_local_infra_failure(&self) -> bool {
         self.current_main_validation_node_local_infra_failure_summary()
             .is_some()
@@ -18754,11 +18723,14 @@ fn code_or_test_read_body_has_content_signal(body: &str) -> bool {
     read_body_line_has_code_content_signal(&body) || body.contains("test_")
 }
 
+#[cfg(test)]
 const TASKSPACE_WORKING_EVIDENCE_SUMMARY_MAX_RESULTS: usize = 8;
+#[cfg(test)]
 const TASKSPACE_WORKING_EVIDENCE_SUMMARY_MAX_CHARS: usize = 1200;
 const TASKSPACE_COMPLETE_READ_INLINE_MAX_CHARS: usize = 6000;
 const TASKSPACE_EDIT_ACTION_PREVIEW_MAX_CHARS: usize = 6000;
 const TASKSPACE_VALIDATION_REWORK_TARGET_READ_MAX_CHARS: usize = 16_000;
+#[cfg(test)]
 const TASKSPACE_VALIDATION_REWORK_TARGET_READ_SUMMARY_MAX_CHARS: usize = 6000;
 
 #[cfg(test)]
@@ -18771,6 +18743,7 @@ fn inspect_code_or_test_read_summary(map: &ActionMapInstance, node: &MapNode) ->
     }
 }
 
+#[cfg(test)]
 fn working_evidence_node_ids_for_current_node<'a>(
     map: &'a ActionMapInstance,
     node: &'a MapNode,
@@ -18799,6 +18772,7 @@ fn working_evidence_node_ids_for_current_node<'a>(
     ordered
 }
 
+#[cfg(test)]
 fn working_evidence_summary_for_nodes(map: &ActionMapInstance, node_ids: &[&str]) -> String {
     let mut summaries: Vec<(usize, usize, String)> = node_ids
         .iter()
@@ -18850,6 +18824,7 @@ fn working_evidence_summary_for_nodes(map: &ActionMapInstance, node_ids: &[&str]
         .join(" | ")
 }
 
+#[cfg(test)]
 fn validation_rework_target_read_evidence_summary(
     map: &ActionMapInstance,
     node: &MapNode,
@@ -18910,6 +18885,7 @@ fn validation_rework_target_read_excerpt_and_visibility(
     (excerpt, visibility)
 }
 
+#[cfg(test)]
 fn working_evidence_priority(body: &str) -> usize {
     let lower = body.to_ascii_lowercase();
     if lower.contains("#!/bin/nonexistent")

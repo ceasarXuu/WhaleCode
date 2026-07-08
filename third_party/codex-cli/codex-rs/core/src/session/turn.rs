@@ -144,10 +144,13 @@ const TASKSPACE_DEEPSEEK_CACHE_ANCHOR_LINES: usize = 4200;
 const TASKSPACE_IMPLEMENT_PROGRESS_BEFORE_EDIT_HINT: usize = 10;
 const TASKSPACE_NO_ACTION_RECOVERY_MARKER: &str = "TaskSpaceNoActionRecoveryV1:";
 const TASKSPACE_GATE_RECOVERY_MARKER: &str = "TaskSpaceGateRecoveryV1:";
+#[cfg(test)]
 const TASKSPACE_INSPECT_TRANSITION_AVAILABLE_MARKER: &str =
     "TaskSpaceInspectTransitionAvailableV1:";
+#[cfg(test)]
 const TASKSPACE_IMPLEMENT_VALIDATION_AVAILABLE_MARKER: &str =
     "TaskSpaceImplementValidationAvailableV1:";
+#[cfg(test)]
 const TASKSPACE_VALIDATION_CLOSEOUT_AVAILABLE_MARKER: &str =
     "TaskSpaceValidationCloseoutAvailableV1:";
 const TASKSPACE_IMPLEMENT_NEEDS_EDIT_MARKER: &str = "TaskSpaceImplementNeedsEditRecoveryV1:";
@@ -603,7 +606,6 @@ pub(crate) async fn run_turn(
                     last_agent_message: sampling_request_last_agent_message,
                     taskspace_no_action_recovery_item,
                     path_correction_cleared_this_request,
-                    saw_actionable_output: _,
                 } = sampling_request_output;
                 can_drain_pending_input = true;
                 if let Some(recovery_item) = taskspace_no_action_recovery_item {
@@ -1591,6 +1593,7 @@ hard_baseline_effect:\n\
     }
 }
 
+#[cfg(test)]
 fn build_taskspace_no_action_recovery_item(last_message: Option<&str>) -> ResponseItem {
     let previous = last_message
         .filter(|message| !message.trim().is_empty())
@@ -1617,6 +1620,7 @@ This recovery item does not add task semantics beyond the captured previous mess
     }
 }
 
+#[cfg(test)]
 fn build_taskspace_final_readiness_recovery_item(last_message: Option<&str>) -> ResponseItem {
     let previous = last_message
         .filter(|message| !message.trim().is_empty())
@@ -1645,6 +1649,7 @@ This item preserves the final-readiness gate output as model-visible state feedb
     }
 }
 
+#[cfg(test)]
 fn taskspace_gate_recovery_context(message: &str) -> String {
     let Some(marker_start) = message.find(TASKSPACE_GATE_RECOVERY_MARKER) else {
         return String::new();
@@ -1670,6 +1675,7 @@ fn taskspace_message_has_gate_recovery_reason(message: Option<&str>, reason: &st
     })
 }
 
+#[cfg(test)]
 fn build_taskspace_apply_patch_format_recovery_item(targets: &str) -> ResponseItem {
     let targets = targets.trim();
     let targets = if targets.is_empty() {
@@ -1696,6 +1702,7 @@ Feedback boundary: this item preserves patch-format facts and target locator dat
     }
 }
 
+#[cfg(test)]
 fn build_taskspace_apply_patch_missing_target_recovery_item(targets: &str) -> ResponseItem {
     let targets = targets.trim();
     let targets = if targets.is_empty() {
@@ -1722,6 +1729,7 @@ Feedback boundary: this item preserves patch-format facts and target locator dat
     }
 }
 
+#[cfg(test)]
 fn build_taskspace_apply_patch_unanchored_update_recovery_item(targets: &str) -> ResponseItem {
     let targets = targets.trim();
     let targets = if targets.is_empty() {
@@ -1748,6 +1756,7 @@ Feedback boundary: this item preserves patch-format facts and target locator dat
     }
 }
 
+#[cfg(test)]
 fn build_taskspace_apply_patch_native_hunk_recovery_item(
     targets: &str,
     force_complete_replacement: bool,
@@ -1921,6 +1930,7 @@ fn taskspace_relative_candidate_for_absolute_workspace_path(path: &str) -> Optio
         .filter(|path| !path.trim().is_empty())
 }
 
+#[cfg(test)]
 fn build_taskspace_path_correction_recovery_item(
     correction: &TaskspacePathCorrection,
     node_kind: Option<&str>,
@@ -2075,6 +2085,7 @@ fn taskspace_workspace_alias_root(path: &str) -> Option<&'static str> {
         .find(|root| normalized == *root || normalized.starts_with(&format!("{root}/")))
 }
 
+#[cfg(test)]
 fn build_taskspace_apply_patch_replacement_required_recovery_item(
     targets: &str,
     evidence_summary: Option<&str>,
@@ -2118,6 +2129,7 @@ Feedback boundary: this item preserves patch-format facts and target locator dat
     }
 }
 
+#[cfg(test)]
 fn build_taskspace_patch_intent_format_recovery_item(
     evidence_summary: Option<&str>,
     raw_preview: Option<&str>,
@@ -2163,6 +2175,7 @@ Already visible evidence remains available as ordinary input."
     }
 }
 
+#[cfg(test)]
 fn build_taskspace_inspect_transition_available_item() -> ResponseItem {
     let text = format!(
         "{TASKSPACE_INSPECT_TRANSITION_AVAILABLE_MARKER}\n\
@@ -2184,6 +2197,7 @@ visible_evidence_status: inspected evidence remains available; no implementation
     }
 }
 
+#[cfg(test)]
 fn build_taskspace_implement_validation_available_item() -> ResponseItem {
     let text = format!(
         "{TASKSPACE_IMPLEMENT_VALIDATION_AVAILABLE_MARKER}\n\
@@ -2205,6 +2219,7 @@ visible_evidence_status: successful edit evidence remains available; no validati
     }
 }
 
+#[cfg(test)]
 fn build_taskspace_validation_closeout_available_item() -> ResponseItem {
     let text = format!(
         "{TASKSPACE_VALIDATION_CLOSEOUT_AVAILABLE_MARKER}\n\
@@ -2227,6 +2242,7 @@ State facts:\n\
     }
 }
 
+#[cfg(test)]
 fn build_taskspace_validation_infra_recovery_item() -> ResponseItem {
     let text = format!(
         "{TASKSPACE_VALIDATION_INFRA_RECOVERY_MARKER}\n\
@@ -2247,6 +2263,7 @@ duplicate_evidence_boundary: repeated bash, PowerShell, Docker, or shell-discove
     }
 }
 
+#[cfg(test)]
 fn build_taskspace_validation_needs_test_recovery_item(last_message: Option<&str>) -> ResponseItem {
     let gate_context = last_message
         .filter(|value| value.contains(TASKSPACE_GATE_RECOVERY_MARKER))
@@ -2283,6 +2300,7 @@ The runtime may reject non-validation action classes on validation nodes under n
     }
 }
 
+#[cfg(test)]
 fn build_taskspace_implement_needs_edit_recovery_item(
     evidence_summary: Option<&str>,
 ) -> ResponseItem {
@@ -2320,6 +2338,7 @@ Runtime boundary:\n\
     }
 }
 
+#[cfg(test)]
 fn build_taskspace_validation_rework_duplicate_read_recovery_item(
     last_message: Option<&str>,
     evidence_summary: Option<&str>,
@@ -2386,6 +2405,7 @@ Previous blocked feedback:\n{previous_excerpt}\n\
     }
 }
 
+#[cfg(test)]
 fn build_taskspace_validation_rework_patch_only_recovery_item(
     last_message: Option<&str>,
     evidence_summary: Option<&str>,
@@ -2471,6 +2491,7 @@ Previous blocked feedback:\n{previous_excerpt}\n\
     }
 }
 
+#[cfg(test)]
 fn taskspace_validation_rework_schema_contract_facts(evidence_summary: Option<&str>) -> String {
     let Some(evidence_summary) = evidence_summary else {
         return String::new();
@@ -2500,6 +2521,7 @@ fn taskspace_validation_rework_schema_contract_facts(evidence_summary: Option<&s
     )
 }
 
+#[cfg(test)]
 fn build_taskspace_implementation_recovery_item(
     last_agent_message: Option<&str>,
     evidence_summary: Option<&str>,
@@ -2526,6 +2548,7 @@ fn build_taskspace_implementation_recovery_item(
     }
 }
 
+#[cfg(test)]
 fn build_taskspace_edit_failure_recovery_item(
     failure_summary: Option<&str>,
     evidence_summary: Option<&str>,
@@ -2587,6 +2610,7 @@ fn build_taskspace_edit_failure_recovery_item(
     }
 }
 
+#[cfg(test)]
 fn taskspace_edit_failure_recovery_contract(failure_summary: Option<&str>) -> String {
     let Some(text) = failure_summary
         .map(str::trim)
@@ -2652,6 +2676,7 @@ fn taskspace_edit_failure_recovery_contract(failure_summary: Option<&str>) -> St
     format!("\nStructured failed-edit contract:\n{}\n", lines.join("\n"))
 }
 
+#[cfg(test)]
 fn taskspace_tool_feedback_field(text: &str, field: &str) -> Option<String> {
     let prefix = format!("{field}:");
     text.lines().find_map(|line| {
@@ -2660,6 +2685,7 @@ fn taskspace_tool_feedback_field(text: &str, field: &str) -> Option<String> {
     })
 }
 
+#[cfg(test)]
 fn taskspace_failure_expected_lines_mismatch(failure_summary: Option<&str>) -> bool {
     failure_summary
         .map(|value| value.to_ascii_lowercase())
@@ -2670,6 +2696,7 @@ fn taskspace_failure_expected_lines_mismatch(failure_summary: Option<&str>) -> b
         })
 }
 
+#[cfg(test)]
 fn taskspace_evidence_has_full_visible_validation_rework_target_read(
     evidence_summary: Option<&str>,
 ) -> bool {
@@ -2853,6 +2880,7 @@ fn taskspace_special_recovery_warning_message(item: &ResponseItem) -> String {
     }
 }
 
+#[cfg(test)]
 fn taskspace_message_hit_implementation_needs_edit(message: Option<&str>) -> bool {
     message.is_some_and(|message| {
         message.contains("implementation_needs_edit")
@@ -2864,10 +2892,12 @@ fn taskspace_message_hit_implementation_needs_edit(message: Option<&str>) -> boo
     })
 }
 
+#[cfg(test)]
 fn taskspace_evidence_has_validation_rework_target_read(evidence_summary: Option<&str>) -> bool {
     evidence_summary.is_some_and(|text| text.contains("validation_rework_target_read"))
 }
 
+#[cfg(test)]
 fn taskspace_validation_rework_patch_only_artifacts(text: &str) -> Vec<String> {
     let explicit_targets = taskspace_validation_rework_explicit_target_artifacts(text);
     if !explicit_targets.is_empty() {
@@ -2897,6 +2927,7 @@ fn taskspace_validation_rework_patch_only_artifacts(text: &str) -> Vec<String> {
     artifacts
 }
 
+#[cfg(test)]
 fn taskspace_validation_rework_explicit_target_artifacts(text: &str) -> Vec<String> {
     let mut artifacts = Vec::new();
     let mut seen = HashSet::new();
@@ -2923,6 +2954,7 @@ fn taskspace_validation_rework_explicit_target_artifacts(text: &str) -> Vec<Stri
     artifacts
 }
 
+#[cfg(test)]
 fn taskspace_clean_artifact_token(value: &str) -> String {
     value
         .trim()
@@ -2977,6 +3009,7 @@ fn taskspace_backtick_value_after(text: &str, marker: &str) -> Option<String> {
     (!value.is_empty()).then(|| value.to_string())
 }
 
+#[cfg(test)]
 fn taskspace_message_hit_validation_needs_test(message: Option<&str>) -> bool {
     message.is_some_and(|message| {
         (message.contains("node_policy_violation:smoke_test:")
@@ -3005,12 +3038,14 @@ fn taskspace_text_mentions_validation_finish_missing_current_test(text: &str) ->
     text.contains("cannot be completed without a recorded successful test or build action")
 }
 
+#[cfg(test)]
 fn taskspace_message_hit_apply_patch_intent_format_rejection(message: Option<&str>) -> bool {
     message.is_some_and(|message| {
         message.contains("action_contract_output_not_strict_json:apply_patch_intent")
     })
 }
 
+#[cfg(test)]
 fn taskspace_rejected_apply_patch_intent_preview(message: Option<&str>) -> Option<&str> {
     let message = message?;
     let (_, preview) = message.split_once("Rejected assistant output preview:")?;
@@ -3029,6 +3064,7 @@ fn taskspace_raw_text_mentions_apply_patch_intent(raw_text: &str) -> bool {
         && raw_text.contains("taskspace-action-v1")
 }
 
+#[cfg(test)]
 fn taskspace_existing_file_add_targets_from_rejection(message: Option<&str>) -> Option<String> {
     let message = message?;
     let (_, rest) = message.split_once("apply_patch_existing_file_as_add:")?;
@@ -3040,6 +3076,7 @@ fn taskspace_existing_file_add_targets_from_rejection(message: Option<&str>) -> 
     (!targets.is_empty()).then(|| targets.to_string())
 }
 
+#[cfg(test)]
 fn taskspace_unanchored_update_targets_from_rejection(message: Option<&str>) -> Option<String> {
     let message = message?;
     let (_, rest) = message.split_once("apply_patch_unanchored_update:")?;
@@ -3072,6 +3109,7 @@ fn taskspace_native_hunk_targets_from_rejection(message: Option<&str>) -> Option
     None
 }
 
+#[cfg(test)]
 fn taskspace_replacement_required_targets_from_rejection(message: Option<&str>) -> Option<String> {
     let message = message?;
     let (_, rest) = message.split_once("apply_patch_replacement_required:")?;
@@ -3083,6 +3121,7 @@ fn taskspace_replacement_required_targets_from_rejection(message: Option<&str>) 
     (!targets.is_empty()).then(|| targets.to_string())
 }
 
+#[cfg(test)]
 fn taskspace_missing_update_targets_from_apply_patch_error(
     message: Option<&str>,
 ) -> Option<String> {
@@ -3983,6 +4022,7 @@ fn taskspace_text_mentions_obsolete_runtime_boundary_strategy_feedback(text: &st
             && text.contains("failed validation evidence"))
 }
 
+#[cfg(test)]
 fn taskspace_previous_feedback_excerpt(previous: &str, max_chars: usize) -> String {
     let trimmed = previous.trim();
     if taskspace_text_mentions_obsolete_runtime_boundary_strategy_feedback(trimmed)
@@ -3995,6 +4035,7 @@ fn taskspace_previous_feedback_excerpt(previous: &str, max_chars: usize) -> Stri
     trimmed.chars().take(max_chars).collect::<String>()
 }
 
+#[cfg(test)]
 fn taskspace_text_mentions_projection_strategy_injection(text: &str) -> bool {
     let lower = text.to_ascii_lowercase();
     let snake_next_action = ["next_valid", "_action:"].concat();
@@ -10320,46 +10361,6 @@ python: can't open file '/workspace/process.py': [Errno 2] No such file or direc
     }
 
     #[test]
-    fn generic_no_action_recovery_requires_no_actionable_output() {
-        let mut result = SamplingRequestResult {
-            needs_follow_up: true,
-            last_agent_message: Some("Read source_c parquet file.".to_string()),
-            taskspace_no_action_recovery_item: None,
-            path_correction_cleared_this_request: false,
-            saw_actionable_output: true,
-        };
-
-        assert!(
-            !taskspace_should_insert_generic_no_action_recovery_after_request(
-                &result,
-                Some(5),
-                Some(5),
-            ),
-            "failed tool feedback is still actionable progress and must not consume no-action recovery"
-        );
-
-        result.saw_actionable_output = false;
-        assert!(
-            taskspace_should_insert_generic_no_action_recovery_after_request(
-                &result,
-                Some(5),
-                Some(5),
-            )
-        );
-
-        result.taskspace_no_action_recovery_item = Some(build_taskspace_no_action_recovery_item(
-            result.last_agent_message.as_deref(),
-        ));
-        assert!(
-            !taskspace_should_insert_generic_no_action_recovery_after_request(
-                &result,
-                Some(5),
-                Some(5),
-            )
-        );
-    }
-
-    #[test]
     fn no_action_recovery_preserves_recent_gate_recovery_context() {
         let blocked_output = "TaskSpace blocked this validation command.\n\
 TaskSpaceGateRecoveryV1: {\"schema_version\":\"TaskSpaceGateRecoveryV1\",\"allowed\":false,\"reason\":\"validation_test_missing_changed_artifact_coverage\",\"next_valid_actions\":[\"run_test with command `python recover_logs.py` to execute changed artifact `recover_logs.py`\"]}";
@@ -10700,6 +10701,38 @@ TaskSpaceGateRecoveryV1: {\"schema_version\":\"TaskSpaceGateRecoveryV1\",\"allow
         );
         assert!(classification.needs_recovery());
         assert_eq!(classification.as_str(), "final_rejected");
+    }
+
+    #[test]
+    fn provider_response_actionability_does_not_imply_developer_recovery() {
+        let classification = classify_taskspace_provider_response_actionability(
+            true, false, true, false, false, true, false,
+        );
+        let recovery_item = None;
+
+        assert!(classification.needs_recovery());
+        assert_eq!(
+            taskspace_provider_response_recovery_action(&recovery_item),
+            "none"
+        );
+    }
+
+    #[test]
+    fn terminal_gate_rejection_feedback_is_neutral_state_error() {
+        let final_feedback = taskspace_final_answer_gate_rejection_followup("missing criterion");
+        let blocked_feedback = taskspace_blocked_gate_rejection_followup("missing evidence");
+
+        assert!(final_feedback.contains("TaskSpaceFinalAnswerRejectedV1"));
+        assert!(final_feedback.contains("accepted: false"));
+        assert!(final_feedback.contains("state_effect: final_answer was not recorded"));
+        assert!(!final_feedback.contains("Continue the same task"));
+        assert!(!final_feedback.contains("Correct the specific rejection reason"));
+
+        assert!(blocked_feedback.contains("TaskSpaceBlockedResponseRejectedV1"));
+        assert!(blocked_feedback.contains("accepted: false"));
+        assert!(blocked_feedback.contains("state_effect: blocked response was not recorded"));
+        assert!(!blocked_feedback.contains("Continue the same task"));
+        assert!(!blocked_feedback.contains("Correct the specific rejection reason"));
     }
 
     #[test]
@@ -11347,19 +11380,6 @@ struct SamplingRequestResult {
     last_agent_message: Option<String>,
     taskspace_no_action_recovery_item: Option<ResponseItem>,
     path_correction_cleared_this_request: bool,
-    saw_actionable_output: bool,
-}
-
-fn taskspace_should_insert_generic_no_action_recovery_after_request(
-    result: &SamplingRequestResult,
-    progress_before_request: Option<usize>,
-    progress_after_request: Option<usize>,
-) -> bool {
-    result.needs_follow_up
-        && result.taskspace_no_action_recovery_item.is_none()
-        && !result.saw_actionable_output
-        && progress_before_request.is_some()
-        && progress_after_request == progress_before_request
 }
 
 /// Ephemeral per-response state for streaming a single proposed plan.
@@ -14697,16 +14717,30 @@ fn apply_taskspace_terminal_action_message(
 
 fn taskspace_final_answer_gate_rejection_followup(error: &str) -> String {
     format!(
-        "TaskSpace final_answer rejected by final readiness gate. Rejection reason: {error}\n\
-Continue the same task; do not treat the previous response as final. Correct the specific rejection reason before final_answer."
+        "TaskSpaceFinalAnswerRejectedV1:\n\
+accepted: false\n\
+rejection_reason: {error}\n\
+state_effect: final_answer was not recorded; TaskSpace state is unchanged."
     )
 }
 
 fn taskspace_blocked_gate_rejection_followup(error: &str) -> String {
     format!(
-        "TaskSpace blocked response rejected by terminal blocker gate. Rejection reason: {error}\n\
-Continue the same task; do not treat the previous response as final blocked. Correct the specific rejection reason before emitting blocked again."
+        "TaskSpaceBlockedResponseRejectedV1:\n\
+accepted: false\n\
+rejection_reason: {error}\n\
+state_effect: blocked response was not recorded; TaskSpace state is unchanged."
     )
+}
+
+fn taskspace_provider_response_recovery_action(
+    taskspace_no_action_recovery_item: &Option<ResponseItem>,
+) -> &'static str {
+    if taskspace_no_action_recovery_item.is_some() {
+        "developer_recovery"
+    } else {
+        "none"
+    }
 }
 
 async fn record_taskspace_observed_implement_edit(
@@ -14825,7 +14859,6 @@ async fn try_run_sampling_request(
                     build_taskspace_provider_budget_hard_stop_item(snapshot, &gate),
                 ),
                 path_correction_cleared_this_request: false,
-                saw_actionable_output: false,
             });
         }
     }
@@ -14912,7 +14945,7 @@ async fn try_run_sampling_request(
     let mut assistant_message_stream_parsers = AssistantMessageStreamParsers::new(plan_mode);
     let mut plan_mode_state = plan_mode.then(|| PlanModeStreamState::new(&turn_context.sub_id));
     let receiving_span = trace_span!("receiving_stream");
-    let mut outcome: CodexResult<SamplingRequestResult> = loop {
+    let outcome: CodexResult<SamplingRequestResult> = loop {
         let handle_responses = trace_span!(
             parent: &receiving_span,
             "handle_responses",
@@ -15236,7 +15269,6 @@ async fn try_run_sampling_request(
                         last_agent_message,
                         taskspace_no_action_recovery_item: None,
                         path_correction_cleared_this_request,
-                        saw_actionable_output,
                     });
                 }
             }
@@ -15456,121 +15488,8 @@ async fn try_run_sampling_request(
                         || budget_pressure_silent_action_transition,
                     provider_budget_exhausted_followup,
                 );
-                let mut taskspace_no_action_recovery_item = if response_actionability
-                    .needs_recovery()
-                    && current_budget_snapshot.is_some()
-                {
-                    if let Some(correction) = tool_path_correction_feedback.as_ref() {
-                        Some(build_taskspace_path_correction_recovery_item(
-                            correction,
-                            current_budget_snapshot
-                                .as_ref()
-                                .and_then(|snapshot| snapshot.node_kind.as_deref()),
-                        ))
-                    } else if let Some(targets) = taskspace_existing_file_add_targets_from_rejection(
-                        last_agent_message.as_deref(),
-                    ) {
-                        Some(build_taskspace_apply_patch_format_recovery_item(&targets))
-                    } else if let Some(targets) =
-                        taskspace_replacement_required_targets_from_rejection(
-                            last_agent_message.as_deref(),
-                        )
-                    {
-                        let evidence_summary =
-                            sess.action_map_current_working_evidence_summary().await;
-                        Some(
-                            build_taskspace_apply_patch_replacement_required_recovery_item(
-                                &targets,
-                                evidence_summary.as_deref(),
-                            ),
-                        )
-                    } else if let Some(targets) =
-                        taskspace_native_hunk_targets_from_rejection(last_agent_message.as_deref())
-                    {
-                        let evidence_summary =
-                            sess.action_map_current_working_evidence_summary().await;
-                        let force_complete_replacement =
-                            taskspace_evidence_has_full_visible_validation_rework_target_read(
-                                evidence_summary.as_deref(),
-                            );
-                        Some(build_taskspace_apply_patch_native_hunk_recovery_item(
-                            &targets,
-                            force_complete_replacement,
-                        ))
-                    } else if let Some(targets) = taskspace_unanchored_update_targets_from_rejection(
-                        last_agent_message.as_deref(),
-                    ) {
-                        Some(build_taskspace_apply_patch_unanchored_update_recovery_item(
-                            &targets,
-                        ))
-                    } else if current_budget_snapshot.as_ref().is_some_and(|snapshot| {
-                        snapshot.node_kind.as_deref() == Some("implement_solution")
-                    }) && let Some(targets) =
-                        taskspace_missing_update_targets_from_apply_patch_error(
-                            last_agent_message.as_deref(),
-                        )
-                    {
-                        Some(build_taskspace_apply_patch_missing_target_recovery_item(
-                            &targets,
-                        ))
-                    } else if current_budget_snapshot.as_ref().is_some_and(|snapshot| {
-                        snapshot.node_kind.as_deref() == Some("implement_solution")
-                            && taskspace_message_hit_apply_patch_intent_format_rejection(
-                                last_agent_message.as_deref(),
-                            )
-                    }) {
-                        let evidence_summary =
-                            sess.action_map_current_working_evidence_summary().await;
-                        Some(build_taskspace_patch_intent_format_recovery_item(
-                            evidence_summary.as_deref(),
-                            taskspace_rejected_apply_patch_intent_preview(
-                                last_agent_message.as_deref(),
-                            ),
-                        ))
-                    } else if current_budget_snapshot.as_ref().is_some_and(|snapshot| {
-                        snapshot.node_kind.as_deref() == Some("implement_solution")
-                            && taskspace_message_hit_implementation_needs_edit(
-                                last_agent_message.as_deref(),
-                            )
-                    }) {
-                        let evidence_summary =
-                            sess.action_map_current_working_evidence_summary().await;
-                        let failed_edit_summary =
-                            sess.action_map_current_recent_failed_edit_summary().await;
-                        Some(build_taskspace_implementation_recovery_item(
-                            last_agent_message.as_deref(),
-                            evidence_summary.as_deref(),
-                            failed_edit_summary.as_deref(),
-                        ))
-                    } else if current_budget_snapshot.as_ref().is_some_and(|snapshot| {
-                        matches!(
-                            snapshot.node_kind.as_deref(),
-                            Some("smoke_test" | "regression_test")
-                        ) && taskspace_message_hit_validation_needs_test(
-                            last_agent_message.as_deref(),
-                        )
-                    }) {
-                        Some(build_taskspace_validation_needs_test_recovery_item(
-                            last_agent_message.as_deref(),
-                        ))
-                    } else if final_response_rejected {
-                        Some(build_taskspace_final_readiness_recovery_item(
-                            last_agent_message.as_deref(),
-                        ))
-                    } else {
-                        Some(build_taskspace_no_action_recovery_item(
-                            last_agent_message.as_deref(),
-                        ))
-                    }
-                } else {
-                    None
-                };
+                let taskspace_no_action_recovery_item = None;
                 if let Some(snapshot) = current_budget_snapshot {
-                    let recovery_action = if taskspace_no_action_recovery_item.is_some() {
-                        "developer_recovery"
-                    } else {
-                        "none"
-                    };
                     sess.record_action_map_provider_response_actionability(
                         &turn_context,
                         snapshot,
@@ -15579,7 +15498,10 @@ async fn try_run_sampling_request(
                             end_turn,
                             saw_actionable_output,
                             assistant_message_present,
-                            recovery_action: recovery_action.to_string(),
+                            recovery_action: taskspace_provider_response_recovery_action(
+                                &taskspace_no_action_recovery_item,
+                            )
+                            .to_string(),
                             last_agent_message_preview: taskspace_last_message_preview(
                                 last_agent_message.as_deref(),
                             ),
@@ -15591,25 +15513,15 @@ async fn try_run_sampling_request(
                     && (budget_pressure_follow_up_intent
                         || budget_pressure_silent_action_transition)
                     && let Some(snapshot) = sess.action_map_provider_request_budget_snapshot().await
+                    && snapshot.node_kind.as_deref() == Some("implement_solution")
                 {
-                    match snapshot.node_kind.as_deref() {
-                        Some("inspect_code_context") => {
-                            taskspace_no_action_recovery_item =
-                                Some(build_taskspace_inspect_transition_available_item());
-                        }
-                        Some("implement_solution") => {
-                            record_taskspace_observed_implement_edit(
-                                &sess,
-                                &turn_context,
-                                &turn_diff_tracker,
-                                snapshot.request_count,
-                            )
-                            .await;
-                            taskspace_no_action_recovery_item =
-                                Some(build_taskspace_implement_validation_available_item());
-                        }
-                        _ => {}
-                    }
+                    record_taskspace_observed_implement_edit(
+                        &sess,
+                        &turn_context,
+                        &turn_diff_tracker,
+                        snapshot.request_count,
+                    )
+                    .await;
                 }
                 if final_response_rejected {
                     last_agent_message = None;
@@ -15619,7 +15531,6 @@ async fn try_run_sampling_request(
                     last_agent_message,
                     taskspace_no_action_recovery_item,
                     path_correction_cleared_this_request,
-                    saw_actionable_output,
                 });
             }
             ResponseEvent::OutputTextDelta(delta) => {
@@ -15729,96 +15640,17 @@ async fn try_run_sampling_request(
     .await;
 
     drain_in_flight(&mut in_flight, sess.clone(), turn_context.clone()).await?;
-    if let Ok(result) = &mut outcome
+    if outcome.is_ok()
         && let Some(snapshot) = sess.action_map_provider_request_budget_snapshot().await
         && snapshot.node_kind.as_deref() == Some("implement_solution")
     {
-        let recorded_diff_edit = record_taskspace_observed_implement_edit(
+        let _ = record_taskspace_observed_implement_edit(
             &sess,
             &turn_context,
             &turn_diff_tracker,
             snapshot.request_count,
         )
         .await;
-        let has_successful_edit = recorded_diff_edit
-            || sess
-                .action_map_current_main_node_has_successful_action(ActionClass::Edit)
-                .await;
-        if has_successful_edit && result.taskspace_no_action_recovery_item.is_none() {
-            result.taskspace_no_action_recovery_item =
-                Some(build_taskspace_implement_validation_available_item());
-        }
-    }
-    if let Ok(result) = &mut outcome
-        && result.taskspace_no_action_recovery_item.is_none()
-        && let Some(snapshot) = sess.action_map_provider_request_budget_snapshot().await
-        && matches!(
-            snapshot.node_kind.as_deref(),
-            Some("smoke_test" | "regression_test")
-        )
-        && (sess
-            .action_map_current_main_node_has_successful_action(ActionClass::Test)
-            .await
-            || sess
-                .action_map_current_main_node_has_successful_action(ActionClass::Build)
-                .await)
-    {
-        result.taskspace_no_action_recovery_item =
-            Some(build_taskspace_validation_closeout_available_item());
-    }
-    if let Ok(result) = &mut outcome
-        && result.taskspace_no_action_recovery_item.is_none()
-        && let Some(snapshot) = sess.action_map_provider_request_budget_snapshot().await
-        && snapshot.node_kind.as_deref() == Some("implement_solution")
-        && sess
-            .action_map_current_implement_progress_needs_edit()
-            .await
-    {
-        let evidence_summary = sess.action_map_current_working_evidence_summary().await;
-        let failed_edit_summary = sess.action_map_current_recent_failed_edit_summary().await;
-        result.taskspace_no_action_recovery_item =
-            Some(build_taskspace_implementation_recovery_item(
-                result.last_agent_message.as_deref(),
-                evidence_summary.as_deref(),
-                failed_edit_summary.as_deref(),
-            ));
-    }
-    if let Ok(result) = &mut outcome
-        && result.taskspace_no_action_recovery_item.is_none()
-        && let Some(snapshot) = sess.action_map_provider_request_budget_snapshot().await
-        && snapshot.node_kind.as_deref() == Some("inspect_code_context")
-        && sess
-            .action_map_current_inspect_progress_ready_for_transition()
-            .await
-    {
-        result.taskspace_no_action_recovery_item =
-            Some(build_taskspace_inspect_transition_available_item());
-    }
-    if let Ok(result) = &mut outcome
-        && result.needs_follow_up
-        && result.taskspace_no_action_recovery_item.is_none()
-        && let Some(snapshot) = sess.action_map_provider_request_budget_snapshot().await
-        && matches!(
-            snapshot.node_kind.as_deref(),
-            Some("smoke_test" | "regression_test")
-        )
-        && sess
-            .action_map_current_validation_node_has_local_infra_failure()
-            .await
-    {
-        result.taskspace_no_action_recovery_item =
-            Some(build_taskspace_validation_infra_recovery_item());
-    }
-    if let Ok(result) = &mut outcome
-        && taskspace_should_insert_generic_no_action_recovery_after_request(
-            result,
-            taskspace_progress_before_request,
-            sess.action_map_current_main_node_progress_signature().await,
-        )
-    {
-        result.taskspace_no_action_recovery_item = Some(build_taskspace_no_action_recovery_item(
-            result.last_agent_message.as_deref(),
-        ));
     }
 
     if cancellation_token.is_cancelled() {

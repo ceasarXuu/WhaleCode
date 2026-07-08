@@ -3,7 +3,7 @@
 - Created: 2026-07-08
 - Updated: 2026-07-08
 - Version: v0.0.5 build-R4 post-closeout
-- Status: Active - Phase 1-4 implemented; Phase 5 targeted diagnostics complete with benefit no-go; Phase 6 no-go recorded, full public-10 deferred
+- Status: Active - Phase 1-4 implemented; H-200 runtime response-recovery boundary fix verified on targeted sample; Phase 5 targeted diagnostics benefit no-go; H-202 fact-source coverage repair in progress
 - Owner / Responsible: WhaleCode core runtime
 - Related Systems: TaskSpace runtime, ActionMapRuntime, session turn loop, action-contract feedback, active projection, context compiler, benchmark harness
 - Related Links:
@@ -136,7 +136,7 @@ what_feedback_path_was_used:
 |---|---|---|
 | Provider budget | pre-dispatch hard gate exists | budget stops cap cost but do not prove good convergence |
 | Non-budget hard stops | removed in latest closure | loop-level tests still need hardening |
-| Feedback classification | `ToolFeedbackRecovery` split from no-action | other feedback classes still need request-reason proof |
+| Feedback classification | `ToolFeedbackRecovery` split from no-action; response actionability is now observational only | H-200 targeted rerun passed: ordinary response actionability no longer creates model-visible recovery guidance |
 | Projection | shifted toward factual constructor | some historical paths still require text audits and fixtures |
 | Sample evidence | public-10 reports request multipliers; three targeted reruns now complete diagnostically | benefit no-go: org/sqlite paired reruns standard solved but TaskSpace wrong; full public-10 deferred |
 
@@ -269,6 +269,7 @@ Phase 1 已落地为观测账本，不是新的语义控制策略。
 6. request reason ledger 和 public report extractor 增加 request-reason coverage / unknown / repeated-no-delta 汇总字段，供 Phase 5/6 判断请求放大是否来自语义传递问题。
 7. 对抗性审查发现 action-contract transport 仍残留 validation rework duplicate target read 硬拒绝；已删除 `taskspace_closed_validation_rework_read_reject_reason` 生产分支，并把相关 contract/recovery 文案改为低信息量事实 marker，重复 read_file 仍保持 state-machine-legal。
 8. H-196 补充清理 feedback/projection 里残留的动作建议句式：`available_actions`、`apply_patch is available`、条件式 `read_file ... only if ...` 等生产文案改为 `state_machine_requirement`、`validation_command_source`、`action_space_source`、`validation_rework_target_read_result`、`duplicate_complete_target_read_signal` 等事实字段。
+9. H-200 删除 response actionability 驱动的 model-visible recovery 注入：`response_actionability` 只记录 trace，不再构造 no-action/path-correction/apply-patch/rework/transition/validation recovery item；final/blocked gate rejection 只返回中性 state error。
 
 边界审计：
 
@@ -278,6 +279,7 @@ Phase 1 已落地为观测账本，不是新的语义控制策略。
 | validation rework duplicate complete read | exact duplicate read 被硬拒绝并生成 recovery | runtime overreach candidate | production block removed; duplicate read remains agent-controlled |
 | action-contract duplicate target read | cache-optimized transport 可在 shell read 前硬拒绝重复 target read | runtime overreach candidate | production reject removed after adversarial review; retained only factual low-information marker |
 | feedback/projection action-suggestion wording | `available_actions`/`apply_patch is available`/条件式 target read 文案可能像 runtime 策略建议 | feedback constructor overreach candidate | production wording converted to fact/source fields; tests assert old phrases absent |
+| provider response actionability recovery | runtime 按 actionability 分类向模型注入 developer recovery / transition-available / validation-closeout item | runtime overreach candidate | production injection removed; actionability remains trace-only |
 | successful validation adoption | 成功 test/build 可自动标记 validation result validity | ledger adoption | retained; does not create semantic next node by itself |
 | provider budget pre-dispatch | 达到总请求预算停止本 turn provider sampling | hard baseline | retained with reason ledger tags |
 | active projection next actions | 混合事实和策略指令 | feedback constructor | rewritten to factual markers plus state-machine tool facts |
@@ -308,6 +310,12 @@ CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib action_contract_promp
 
 CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib implementation_recovery --locked
   passed: 9 tests
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib provider_response_actionability --locked
+  passed: 12 tests
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib terminal_gate_rejection_feedback --locked
+  passed: 1 test
 ```
 
 当前解释：
@@ -384,7 +392,108 @@ CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale --locked
   passed
 ```
 
-注意：无 `CODEX_SKIP_VENDORED_BWRAP=1` 的本机构建会因缺少 `libcap.pc` 失败，这是本机 vendored bubblewrap 依赖问题，不是本次修复失败。
+本机健康构建环境已补全，无需 `CODEX_SKIP_VENDORED_BWRAP=1` 的 `cargo build -p codex-cli --bin whale --locked` 已通过。`CODEX_SKIP_VENDORED_BWRAP=1` 仅作为 focused test 的提速/隔离选项使用。
+
+H-199 后验 targeted sample 诊断：
+
+| Sample | Run Root | Standard | TaskSpace | Key Finding |
+|---|---|---|---|---|
+| `organization-json-generator` | `target/r4-h199-postfix-org-20260708/.../pair-001` | wrong | wrong | TaskSpace 已生成 `organization.json`，但 `members` 使用姓名而非 id；该 paired run 不能作为 standard-solved 对比 |
+| `sqlite-db-truncate` | `target/r4-h199-postfix-sqlite-20260708/.../pair-001` | solved | wrong | TaskSpace 20/20 provider requests 后仍未生成 `recover.json`；trace 暴露 `developer_recovery` 与非 cap recovery guidance 注入 |
+
+该后验结果说明 H-199 已改善一部分反馈可见性，但未解决 runtime response-recovery 越界。尤其是 `sqlite-db-truncate` 中，失败已经不是“没有 request reason”或“exact payload scan 不干净”：`unknown=0`，active projection small 且 replacement confirmed；直接问题是 runtime 把 actionability 分类继续转化成 model-visible recovery guidance，污染了 Agent 的上下文和动作选择。
+
+### H-200 Runtime Response-Recovery Boundary Closure - 2026-07-08
+
+根因：
+
+- `response_actionability.needs_recovery()` 原本不仅用于 trace，还会构造 model-visible developer recovery item。
+- 这些 recovery item 包括 no-action、path correction、apply_patch grammar、implementation recovery、inspect transition available、validation closeout available、validation infra recovery 等，已经超出“工具反馈忠实透传 + 状态机硬基线”的边界。
+- terminal gate rejection 文字也曾包含“Continue / Correct ...”类动作性提示，属于 runtime 对 Agent 思考层的干扰。
+
+修复：
+
+1. `response_actionability` 保留为观测账本；生产路径不再因 actionability 分类生成 developer recovery。
+2. provider response trace 里的 `recovery_action` 只有实际存在 recovery item 时才为 `developer_recovery`；普通 actionability recovery 现在记录为 `none`。
+3. 删除 post-completed 阶段基于成功 edit/test/inspect progress 自动插入 transition/validation closeout guidance 的路径；仅保留 provider budget hard-stop。
+4. `TaskSpaceFinalAnswerRejectedV1` / `TaskSpaceBlockedResponseRejectedV1` 改为中性 state error，只说明 accepted=false、rejection_reason 和 state_effect。
+5. 删除 `Session` 层旧语义查询 wrapper；ActionMap 中只服务历史 recovery prompt 的查询 helper 降为 test-only 或删除。
+6. 旧 recovery text builder 降为 `#[cfg(test)]` fixture，普通 `codex-core` lib 构建不再编译这些提示构造器。
+
+边界结论：
+
+- 保留：真实工具结果、state-machine/tool contract 错误、权限/协议错误、provider budget hard baseline。
+- 删除：runtime 根据“Agent 可能没理解”而注入下一步建议、纠正路径、transition availability、validation closeout availability。
+- 设计倾向更新：当 Agent 低级失败或重复动作时，优先怀疑上下文语义传递、裁剪、引用和工具反馈可见性，而不是优先新增 runtime 约束或提示。
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo check -p codex-core --lib --locked
+  passed, no warnings
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib provider_response_actionability --locked
+  passed: 12 tests
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib terminal_gate_rejection_feedback --locked
+  passed: 1 test
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib taskspace_action_contract --locked
+  passed: 77 tests
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib action_contract_prompt --locked
+  passed: 31 tests
+```
+
+H-200 targeted sample rerun 已完成：
+
+- RunDir: `target/r4-h200-boundary-sqlite-right-20260708/runs/terminal_bench__sqlite-db-truncate/20260708-183418-789/pair-001`
+- right-only diagnostic；TaskSpace business success passed，`recover.json` 生成且 public/hidden validation exit code 都为 0。
+- `TaskSpaceProviderResponseActionabilityV1 recovery_action=none`，普通 actionability 不再产生 `developer_recovery`。
+- 未再出现 “TaskSpace inserted non-cap TaskSpace recovery guidance”。
+- 唯一 runtime 插入项是允许保留的 provider budget hard-stop：`TaskSpaceProviderBudgetHardStopV1 reason=provider_request_hard_limit_exceeded request_count=20/20`。
+
+该结果验证 H-200 的边界修复目标已经达成。剩余失败形态已经转移：业务产物正确，但 TaskSpace 生命周期没有收敛，原因不是 response-recovery 注入，而是 H-202 的 fact-source coverage 证据采纳问题。
+
+### H-202 Fact-Source Coverage Alias / Diagnostic Evidence Gap - 2026-07-08
+
+现象：
+
+- `sqlite-db-truncate` right-only rerun 中，Agent 两次显式发出 `taskspace_control(action=finish_node, next_node_kind=implement_solution)`。
+- `rollout.jsonl` 确认第二次 `finish_node` 有对应 `function_call_output`，不是控制工具结果丢失。
+- runtime 拒绝原因是：`/app/trunc.db` 这个 declared fact-source artifact 仍未有 read/search evidence。
+- 同一 run 中，Agent 已多次通过 workspace-relative `trunc.db` 执行二进制诊断读取，并成功解析出 10 行，还写出了正确的 `recover.json`。
+- active projection 已能显示 `fact_source_coverage: /app/trunc.db status=not_observed workspace_relative_alias_from_failed_path=trunc.db`，说明 alias 信息存在，但 coverage gate 没有把成功的二进制诊断读取采纳为 source coverage。
+
+根因假设：
+
+- `inspect_missing_required_fact_source_artifacts` 只把成功 `read/search` 结果计为 observed artifact。
+- action-contract 下二进制诊断命令通过 `run_test` 发出，因此结果 `action_class=test`，即使命令和输出已经机械证明读取了 `trunc.db`，也不会进入 fact-source coverage。
+- 对二进制/结构化输入来说，“必须 read/search”这个实现细节过窄；底线应是“有具体工具证据证明 declared input 被观察过”，而不是限定某个 action class。
+
+边界结论：
+
+- 不应恢复 runtime 强制 transition 或 recovery guidance。
+- 修复方向是让 ledger/coverage 忠实承认已有工具证据：成功的二进制/结构化诊断读取可以满足 fact-source coverage；路径 listing、stat-only 或失败的 absolute path 不应满足。
+- 这是反馈/账本 fidelity 问题，不是 Agent 智能不足，也不是需要给 Agent 增加新约束。
+
+下一步：
+
+- 在 `inspect_node_observed_artifact_refs` 或等价 helper 中增加保守的 diagnostic-source evidence 判定。
+- 添加 fixture：`/app/trunc.db` required，`xxd trunc.db` 成功并输出 hex/cell evidence 后，`finish_node -> implement_solution` 应通过。
+- 添加负例：`rg --files`、`ls/wc/file`、失败 `/app/trunc.db` 不应满足 coverage。
+
+### H-201 Candidate: Provider Payload Attribution
+
+H-199/H-200 诊断还暴露一个独立成本问题：active projection 本身较小，但 provider payload 每轮仍约 448KB-474KB，且 `input_tokens` 大部分来自稳定 cached prefix。
+
+当前判断：
+
+- 这不是 H-200 的直接 runtime recovery 注入问题。
+- 直接付费成本部分被 cache 缓解，但 request count、latency、provider budget 仍受影响。
+- 后续需要单独追踪 provider payload composition：区分 stable prefix、dynamic suffix、active projection、tool schema、history/cache anchor 的占比，避免误把大 cached prefix 当作 projection 失败。
+
+H-201 暂不进入当前修复闭环；H-200 的优先验证目标仍是“非 cap recovery guidance 是否消失”。
 
 ### Phase 6 Report Gate Status - 2026-07-08
 
