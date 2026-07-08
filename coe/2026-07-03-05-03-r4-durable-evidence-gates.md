@@ -12518,7 +12518,7 @@
   2. TaskSpace request attribution will be complete (`unknown=0`) and repeated same-reason no-delta will be 0, ruling out the H-190/H-192 observability loop class.
   3. Validation will fail because the required output file is missing, while stderr shows repeated patch hunk verification failures after an earlier concrete Python exception.
   4. The next repair should improve failed-edit feedback usability or edit affordance fidelity without blocking Agent attempts or forcing a strategy.
-- Status: confirmed as next-slice blocker; not repaired in this phase.
+- Status: confirmed; repaired by H-199 / E-381 as a feedback-fidelity and boundary cleanup slice.
 
 # Evidence E-375: `organization-json-generator` paired diagnostic records failed-edit actionability no-go
 
@@ -12551,8 +12551,8 @@
   1. A paired rerun will show standard solves while TaskSpace remains wrong.
   2. TaskSpace request attribution will be complete (`unknown=0`) and repeated same-reason no-delta will be 0.
   3. TaskSpace will create `recover.py` and `recover.json`, proving it moved into implementation, but validation will show an insufficient recovery score.
-  4. The next repair should improve progressive exposure and synthesis of long inspect evidence without auto-transitioning, blocking reads, or forcing implementation.
-- Status: confirmed as next-slice blocker; not repaired in this phase.
+  4. The next repair should improve progressive exposure, mechanical truncation metadata, and retrievable references for long inspect evidence without synthesizing a repair plan, auto-transitioning, blocking reads, or forcing implementation.
+- Status: confirmed; repaired by H-199 / E-381 at the projection/feedback-fidelity layer. Real sample rerun remains a separate benefit-validation step.
 
 # Evidence E-376: `sqlite-db-truncate` paired diagnostic records long-inspect implementation no-go
 
@@ -12703,3 +12703,63 @@
 - Boundary interpretation:
   - This is observability/accounting cleanup, not a new runtime control.
   - It makes Phase 5 no-go evidence auditable and prevents accidental overclaiming from mixed count semantics.
+
+# Hypothesis H-199: H-193/H-194 repair must preserve tool facts without projection semantic synthesis
+
+- Claim: The H-193/H-194 failure repair should not make projection or recovery feedback "smarter" by summarizing repair strategy, choosing next actions, or re-organizing schema/patch facts into runtime advice. The boundary-safe repair is to preserve raw tool failures, target locators, visible context status, patch grammar facts, and mechanical truncation metadata while removing strategy fields such as `correction_options`, "Available correction paths", and schema repair summaries.
+- Predictions:
+  1. Production feedback strings for apply_patch failures will expose `tool_feedback_locator`, raw output, and grammar facts, but no `correction_options` or action-path recommendations.
+  2. Validation rework patch-only feedback will copy schema contract evidence snippets from current context instead of synthesizing missing/type/rename repair summaries.
+  3. Recent tool feedback projection will include mechanical visibility metadata (`body_chars`, `excerpt_chars`, `excerpt_truncated`, `body_omitted_chars`) so long evidence is transparently bounded.
+  4. Focused action-contract, implementation-recovery, apply_patch, validation-rework, and projection tests will pass, with negative assertions preventing old strategy phrases from returning.
+- Status: confirmed and fixed locally.
+
+# Evidence E-381: feedback projection repaired as a factual constructor
+
+- Prediction tested: H-199 predictions 1-4.
+- Repair:
+  - `session/turn.rs` apply_patch failure summaries now use `tool_feedback_locator`, `content_visibility_source`, `patch_format_facts`, and raw output preservation instead of `correction_options`.
+  - Failed-edit recovery text now records raw failure, target locator facts, visible-context facts, and patch grammar facts without selecting whether to patch, re-read, block, or take another legal state-machine action.
+  - Validation rework patch-only feedback no longer performs `schema_repair_synthesis`; it copies bounded schema contract evidence snippets from existing context and keeps apply_patch grammar as tool-format facts.
+  - `action_map/runtime.rs` recent tool feedback now reports `body_chars`, `excerpt_chars`, `excerpt_truncated`, and `body_omitted_chars` beside the excerpt.
+  - Projection test coverage now includes a long tool-output result that asserts truncation metadata is visible.
+- Focused validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib action_contract_prompt --locked
+    passed: 31 tests
+
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib implementation_recovery --locked
+    passed: 9 tests
+
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib apply_patch --locked
+    passed: 55 tests
+
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib projection_ --locked
+    passed: 22 tests
+
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib validation_rework --locked
+    passed: 33 tests
+
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib action_contract_recent_output --locked
+    passed: 2 tests
+
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib taskspace_action_contract --locked
+    passed: 77 tests
+
+  cargo fmt --all -- --check
+    passed with existing stable-rustfmt warnings for nightly-only imports_granularity config
+
+  git diff --check
+    passed
+
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale --locked
+    passed
+  ```
+- Static scan:
+  - `schema_repair_synthesis`, `schema_repair_fact_summary`, `Schema validation facts from current failure`, `correction_options`, and `Available correction paths` are absent from production feedback strings.
+  - Remaining matches are negative test assertions or historical fixture strings used to verify obsolete strategy feedback is omitted.
+- Environment note:
+  - A build without `CODEX_SKIP_VENDORED_BWRAP=1` failed because the local system lacks `libcap.pc` for vendored bubblewrap. This is an environment dependency issue, not a code failure; the project-local focused tests and whale build passed with the established skip flag.
+- Boundary interpretation:
+  - This repair follows the clarified R4 principle: when the Agent fails or takes low-quality actions, first suspect feedback/context transfer.
+  - Projection remains a constructor for facts, references, and bounded excerpts. It does not synthesize repair plans, rank next actions, or add runtime semantic controls.

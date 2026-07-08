@@ -348,6 +348,44 @@ target/r4-phase5-request-convergence-sqlite-20260708/runs/terminal_bench__sqlite
 - Phase 5 不支持 benefit pass：两个 paired 样本都证明标准侧可解而 TaskSpace 侧未解，并且均耗尽 20/20 provider request。
 - 这两个 no-go 样本不是 request-reason 观测盲区：request reason coverage 为 100%，unknown 为 0，exact payload scan clean。剩余问题更接近 failed-edit/large-inspect feedback 的可用性和 Agent 对反馈的采纳效率，而不是 H-192 stale recovery 或 repeated-no-delta loop。
 
+### H-199 Feedback Fidelity Repair - 2026-07-08
+
+H-193/H-194 后续收敛不采用“让 projection 更会总结修法”的方向。修复原则是反馈层只做事实构造：保留工具原始失败、目标定位、可见性/截断元数据和工具语法事实，不注入 `correction_options`、动作路径建议或 schema repair synthesis。
+
+已落地：
+
+- `apply_patch` 失败反馈改为 `tool_feedback_locator`、`content_visibility_source`、`patch_format_facts` 和 `raw_output`，删除 `correction_options` / `Available correction paths` 类策略字段。
+- validation rework patch-only feedback 删除 schema repair synthesis，只复制当前上下文中的 schema contract 证据片段。
+- recent tool feedback projection 增加 `body_chars`、`excerpt_chars`、`excerpt_truncated`、`body_omitted_chars`，长输出裁剪变成透明机械事实。
+- 新增长输出 projection 回归断言，防止 H-194 类大 evidence 被裁剪但缺少可见性元数据。
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib action_contract_prompt --locked
+  passed: 31 tests
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib implementation_recovery --locked
+  passed: 9 tests
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib apply_patch --locked
+  passed: 55 tests
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib projection_ --locked
+  passed: 22 tests
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib validation_rework --locked
+  passed: 33 tests
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib taskspace_action_contract --locked
+  passed: 77 tests
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo build -p codex-cli --bin whale --locked
+  passed
+```
+
+注意：无 `CODEX_SKIP_VENDORED_BWRAP=1` 的本机构建会因缺少 `libcap.pc` 失败，这是本机 vendored bubblewrap 依赖问题，不是本次修复失败。
+
 ### Phase 6 Report Gate Status - 2026-07-08
 
 public-10 report/gate 已支持 request reason coverage 字段：
@@ -1020,6 +1058,7 @@ No E3 progression is allowed from this plan until Phase 6 records a measured go 
 
 | Date | Change |
 |---|---|
+| 2026-07-08 | Added H-199 feedback fidelity repair: failed-edit / long-inspect feedback now preserves facts, locators, and truncation metadata without projection repair synthesis |
 | 2026-07-08 | Ran `organization-json-generator` and `sqlite-db-truncate` paired diagnostics; both recorded as Phase 5 benefit no-go |
 | 2026-07-08 | Added H-192 stale final-readiness recovery repair and `heterogeneous-dates` right-only diagnostic rerun results |
 | 2026-07-08 | Implemented Phase 1 provider request reason ledger in ActionMap trace; repeated same-reason is detector-only |

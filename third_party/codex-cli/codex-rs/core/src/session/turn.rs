@@ -1684,7 +1684,7 @@ Tool feedback facts:\n\
 - Native apply_patch `*** Add File` is only for files that do not already exist.\n\
 - Existing files use `*** Update File: <path>` hunks with exact existing context and replacement lines.\n\
 - Unified diff input for existing files uses `--- a/<path>` and `+++ b/<path>`, never `--- /dev/null`.\n\
-Available correction paths remain state-machine governed: retry apply_patch with valid existing-file grammar, request different concrete evidence if needed, or record blocked with the exact blocker."
+Feedback boundary: this item preserves patch-format facts and target locator data; it does not select the next action."
     );
 
     ResponseItem::Message {
@@ -1706,12 +1706,11 @@ fn build_taskspace_apply_patch_missing_target_recovery_item(targets: &str) -> Re
     let text = format!(
         "{TASKSPACE_APPLY_PATCH_MISSING_TARGET_MARKER}\n\
 The previous apply_patch tried to update missing file(s): {targets}\n\
-This usually means the patch used unified-diff new-file syntax such as `--- /dev/null` / `+++ b/<path>`, which TaskSpace's native apply_patch grammar treats as an update.\n\
 Tool feedback facts:\n\
 - Missing files are created with native `*** Add File: <relative/path>` syntax and `+`-prefixed content lines.\n\
 - Already inspected existing artifacts are modified with native `*** Update File: <relative/path>` syntax.\n\
 - Native apply_patch add-file syntax does not use `--- /dev/null`, `+++ b/<path>`, or `@@ -0,0 +...` unified-diff headers.\n\
-Available correction paths remain state-machine governed: create the missing file, target a real existing file, request different concrete evidence if needed, or record blocked with the exact blocker."
+Feedback boundary: this item preserves patch-format facts and target locator data; it does not select whether the target should be created, updated, re-read, or blocked."
     );
 
     ResponseItem::Message {
@@ -1733,12 +1732,11 @@ fn build_taskspace_apply_patch_unanchored_update_recovery_item(targets: &str) ->
     let text = format!(
         "{TASKSPACE_APPLY_PATCH_UNANCHORED_UPDATE_MARKER}\n\
 The previous apply_patch used `*** Update File` without a valid native update hunk for: {targets}\n\
-That patch shape is ambiguous for an existing file: it can insert new text without replacing the broken code that validation reported, or it can send non-diff command text to the patch tool.\n\
 Tool feedback facts:\n\
 - In-place native updates need existing context lines plus exact `-old` / `+new` replacement lines.\n\
-- Small or generated files with fully known intended contents can be replaced with `*** Delete File: <path>` followed by `*** Add File: <path>`.\n\
+- Native complete replacement grammar uses `*** Delete File: <path>` followed by `*** Add File: <path>`.\n\
 - Shell, Python, or JSON transformation commands are not valid apply_patch payload content.\n\
-Available correction paths remain state-machine governed: retry apply_patch with anchored native grammar, request different concrete evidence if needed, or record blocked with the exact blocker."
+Feedback boundary: this item preserves patch-format facts and target locator data; it does not select the next action."
     );
 
     ResponseItem::Message {
@@ -1763,10 +1761,10 @@ fn build_taskspace_apply_patch_native_hunk_recovery_item(
     let recovery_mode = if force_complete_replacement {
         "\
 Tool feedback facts for complete replacement:\n\
-- Whole-file native replacement uses `*** Delete File: <relative/path>` followed by `*** Add File: <relative/path>` with complete corrected file contents.\n\
+- Whole-file native replacement grammar uses `*** Delete File: <relative/path>` followed by `*** Add File: <relative/path>` with replacement file contents.\n\
 - Every added replacement line must be prefixed with `+`.\n\
 - Native replacement payloads do not contain `--- a/...`, `+++ b/...`, or `@@ -old,+new @@` unified-diff range headers.\n\
-Available correction paths remain state-machine governed: retry apply_patch with valid replacement grammar, request different concrete evidence if needed, or record blocked with the exact blocker."
+Feedback boundary: this item preserves patch-format facts and target locator data; it does not select the next action."
     } else {
         "\
 Tool feedback facts for native update:\n\
@@ -1782,8 +1780,8 @@ Tool feedback facts for native update:\n\
 +new exact line\n\
 *** End Patch\n\
 ```\n\
-- If exact context may be stale, complete replacement with `*** Delete File: <relative/path>` followed by `*** Add File: <relative/path>` is valid for small/generated files.\n\
-Available correction paths remain state-machine governed: retry apply_patch with valid native grammar, request different concrete evidence if needed, or record blocked with the exact blocker."
+- Native complete replacement grammar uses `*** Delete File: <relative/path>` followed by `*** Add File: <relative/path>`.\n\
+Feedback boundary: this item preserves patch-format facts and target locator data; it does not select whether to update, replace, re-read, or block."
     };
     let text = format!(
         "{TASKSPACE_APPLY_PATCH_NATIVE_HUNK_MARKER}\n\
@@ -2090,11 +2088,10 @@ fn build_taskspace_apply_patch_replacement_required_recovery_item(
     let complete_target_replacement =
         if taskspace_evidence_has_full_visible_validation_rework_target_read(evidence_summary) {
             format!(
-                "\nComplete target-read replacement scaffold:\n\
+                "\nComplete target-read visibility facts:\n\
 - The validation rework target has full visible content (content_visibility=full_content_visible).\n\
-- Start the patch exactly with `*** Begin Patch`, `*** Delete File: {targets}`, then `*** Add File: {targets}`.\n\
-- Reconstruct the complete corrected file from the visible target read plus validation failure; prefix every replacement file line with `+`.\n\
-- End with `*** End Patch`.\n"
+- The visible target path is `{targets}`.\n\
+- Native whole-file replacement grammar for that path is `*** Delete File: {targets}` followed by `*** Add File: {targets}` with `+`-prefixed added lines.\n"
             )
         } else {
             String::new()
@@ -2102,13 +2099,13 @@ fn build_taskspace_apply_patch_replacement_required_recovery_item(
     let text = format!(
         "{TASKSPACE_APPLY_PATCH_REPLACEMENT_REQUIRED_MARKER}\n\
 The previous apply_patch used `*** Update File` for: {targets}\n\
-The active validation rework recovery previously preferred a whole-file native replacement for this target.\n\
+The previous validation rework feedback recorded this target as a whole-file replacement candidate.\n\
 Tool feedback facts:\n\
-- Whole-file native replacement uses `*** Delete File: <relative/path>` followed by `*** Add File: <relative/path>` with complete corrected file contents.\n\
+- Whole-file native replacement grammar uses `*** Delete File: <relative/path>` followed by `*** Add File: <relative/path>` with replacement file contents.\n\
 - Every added replacement line must be prefixed with `+`.\n\
-- A syntactically valid native `*** Update File` is still accepted by TaskSpace when it includes exact existing context and exact `-old` / `+new` lines.\n\
+- Native `*** Update File` grammar includes exact existing context and exact `-old` / `+new` lines.\n\
 - Native apply_patch payloads do not contain `*** Context Lines`, `---`, `--- a/...`, `+++ b/...`, `--- Update File:`, or `@@ -old,+new @@` unified-diff headers.\n\
-Available correction paths remain state-machine governed: retry apply_patch with valid native grammar, request different concrete evidence if needed, or record blocked with the exact blocker.\
+Feedback boundary: this item preserves patch-format facts and target locator data; it does not select the next action.\
 {complete_target_replacement}"
     );
 
@@ -2428,40 +2425,37 @@ fn build_taskspace_validation_rework_patch_only_recovery_item(
     let complete_target_replacement =
         if taskspace_evidence_has_full_visible_validation_rework_target_read(evidence_summary) {
             format!(
-                "\nComplete target-read note:\n\
+                "\nComplete target-read visibility facts:\n\
 - The target file is already fully visible (content_visibility=full_content_visible).\n\
-- If the agent chooses a whole-file native replacement for `{target_artifact_label}`, apply_patch uses `*** Delete File: {target_artifact_label}` followed by `*** Add File: {target_artifact_label}` and every added replacement line is prefixed with `+`.\n"
+- Native whole-file replacement grammar for `{target_artifact_label}` is `*** Delete File: {target_artifact_label}` followed by `*** Add File: {target_artifact_label}` with `+`-prefixed added lines.\n"
             )
         } else {
             String::new()
         };
-    let schema_repair_facts = taskspace_validation_rework_schema_repair_synthesis(
-        evidence_summary,
-        &target_artifact_label,
-    );
-    let schema_repair_fact_summary = if schema_repair_facts.is_empty() {
+    let schema_contract_facts = taskspace_validation_rework_schema_contract_facts(evidence_summary);
+    let schema_contract_visible = if schema_contract_facts.is_empty() {
         String::new()
     } else {
-        "schema_repair_fact_summary=true\n".to_string()
+        "schema_contract_evidence_visible=true\n".to_string()
     };
     let text = format!(
         "{TASKSPACE_VALIDATION_REWORK_PATCH_ONLY_MARKER}\n\
 failure_kind: validation_rework_evidence_after_target_read\n\
 target_artifacts: {target_artifact_label}\n\
 boundary_mode: evidence_only\n\
-{schema_repair_fact_summary}\
-TaskSpace preserves the validation failure, target-read result, and schema repair facts below without forcing a repair strategy.\n\
+{schema_contract_visible}\
+TaskSpace preserves the validation failure, target-read result, and schema contract evidence below without selecting a repair strategy.\n\
 Available evidence facts:\n\
-- The visible validation failure, schema repair contract, and validation_rework_target_read evidence already shown in context remain available.\n\
+- The visible validation failure, schema contract, and validation_rework_target_read evidence already shown in context remain available.\n\
 - If the validation_rework_target_read evidence says content_visibility=full_content_visible, no additional file lines are hidden for that target in the current projection.\n\
 - Exact duplicate read_file for `{target_artifact_label}` is a low-information evidence signal when it adds no new state/tool delta.\n\
 - action_space_source: active node contract for implement_solution; this recovery item does not narrow or expand that action space.\n\
-{schema_repair_facts}\
-Apply_patch grammar reminder:\n\
+{schema_contract_facts}\
+Apply_patch grammar facts:\n\
 - Native apply_patch starts with `*** Begin Patch` and ends with `*** End Patch`.\n\
-- For a narrow edit use `*** Update File: <target>` plus context lines with `+`/`-` edits.\n\
-- For a complete replacement use `*** Delete File: <target>` followed by `*** Add File: <target>`.\n\
-- Do not put markdown fences, shell commands, JSON generation scripts, or prose inside the patch payload.\n\
+- Native update grammar uses `*** Update File: <target>` plus context lines with `+`/`-` edits.\n\
+- Native complete replacement grammar uses `*** Delete File: <target>` followed by `*** Add File: <target>`.\n\
+- Patch payload grammar contains patch sections and changed file lines, not markdown fences, shell commands, JSON generation scripts, or prose.\n\
 {complete_target_replacement}\
 Previous blocked feedback:\n{previous_excerpt}\n\
 {failed_edit}\
@@ -2477,98 +2471,33 @@ Previous blocked feedback:\n{previous_excerpt}\n\
     }
 }
 
-fn taskspace_validation_rework_schema_repair_synthesis(
-    evidence_summary: Option<&str>,
-    target_artifact_label: &str,
-) -> String {
+fn taskspace_validation_rework_schema_contract_facts(evidence_summary: Option<&str>) -> String {
     let Some(evidence_summary) = evidence_summary else {
         return String::new();
     };
-    let missing = taskspace_schema_repair_values(evidence_summary, "missing_required_properties=");
-    let missing = if missing.is_empty() {
-        taskspace_schema_repair_values(evidence_summary, "missing_required_properties:")
-    } else {
-        missing
-    };
-    let rename_hints =
-        taskspace_schema_repair_values(evidence_summary, "schema_property_rename_hints=");
-    let type_mismatches =
-        taskspace_schema_repair_values(evidence_summary, "schema_type_mismatches=");
-    let type_mismatches = if type_mismatches.is_empty() {
-        taskspace_schema_repair_values(evidence_summary, "schema_type_mismatches:")
-    } else {
-        type_mismatches
-    };
-    if missing.is_empty() && rename_hints.is_empty() && type_mismatches.is_empty() {
+
+    let snippets = evidence_summary
+        .split(['\n', '|'])
+        .map(str::trim)
+        .filter(|segment| {
+            !segment.is_empty()
+                && (segment.contains("validation_schema_repair_contract")
+                    || segment.contains("missing_required_properties")
+                    || segment.contains("schema_property_rename_hints")
+                    || segment.contains("schema_type_mismatches"))
+        })
+        .take(6)
+        .map(|segment| format!("- {segment}"))
+        .collect::<Vec<_>>();
+
+    if snippets.is_empty() {
         return String::new();
     }
 
-    let missing_label = if missing.is_empty() {
-        "(none captured)".to_string()
-    } else {
-        missing
-            .iter()
-            .map(|property| format!("`{property}`"))
-            .collect::<Vec<_>>()
-            .join(", ")
-    };
-    let rename_label = if rename_hints.is_empty() {
-        "(none captured)".to_string()
-    } else {
-        rename_hints
-            .iter()
-            .map(|hint| format!("`{hint}`"))
-            .collect::<Vec<_>>()
-            .join(", ")
-    };
-    let type_mismatch_label = if type_mismatches.is_empty() {
-        "(none captured)".to_string()
-    } else {
-        type_mismatches
-            .iter()
-            .map(|mismatch| format!("`{mismatch}`"))
-            .collect::<Vec<_>>()
-            .join(", ")
-    };
-
     format!(
-        "Schema validation facts from current failure:\n\
-- Target artifact label: `{target_artifact_label}`.\n\
-- Missing required output properties captured in evidence: {missing_label}.\n\
-- Output-key rename hints captured in evidence: {rename_label}.\n\
-- Schema type mismatches captured in evidence: {type_mismatch_label}.\n"
+        "Schema contract evidence snippets copied from current context:\n{}\n",
+        snippets.join("\n")
     )
-}
-
-fn taskspace_schema_repair_values(text: &str, marker: &str) -> Vec<String> {
-    let mut values = Vec::new();
-    for segment in text.split(['\n', '|']) {
-        let Some((_, rest)) = segment.split_once(marker) else {
-            continue;
-        };
-        let rest = rest
-            .split(" schema_")
-            .next()
-            .unwrap_or(rest)
-            .split(" target_artifacts")
-            .next()
-            .unwrap_or(rest)
-            .split(" patch_requirement")
-            .next()
-            .unwrap_or(rest);
-        for value in rest.split(',') {
-            let value = value
-                .trim()
-                .trim_matches(|ch| matches!(ch, '`' | '"' | '\'' | '[' | ']' | '.' | ';'));
-            if value.is_empty() || value.len() > 96 {
-                continue;
-            }
-            if !values.iter().any(|existing| existing == value) {
-                values.push(value.to_string());
-            }
-        }
-    }
-    values
 }
 
 fn build_taskspace_implementation_recovery_item(
@@ -2604,17 +2533,16 @@ fn build_taskspace_edit_failure_recovery_item(
     let should_force_complete_rewrite = taskspace_failure_expected_lines_mismatch(failure_summary)
         && taskspace_evidence_has_full_visible_validation_rework_target_read(evidence_summary);
     let complete_rewrite = if should_force_complete_rewrite {
-        "\nComplete target-read recovery facts:\n- The validation rework target already has full visible target content (content_visibility=full_content_visible).\n- The previous apply_patch failed to find expected lines in that real file snapshot.\n- Native whole-file replacement is available for small/generated repair targets: `*** Delete File: <path>` followed by `*** Add File: <path>` and every new file line prefixed with `+`.\n"
+        "\nComplete target-read visibility facts:\n- The validation rework target already has full visible target content (content_visibility=full_content_visible).\n- The previous apply_patch failed to find expected lines in that real file snapshot.\n- Native whole-file replacement grammar is `*** Delete File: <path>` followed by `*** Add File: <path>` and `+`-prefixed added lines.\n"
     } else {
         ""
     };
-    let recovery_action = if should_force_complete_rewrite {
-        "- Available correction paths include native whole-file replacement, a different valid state-machine action if more concrete evidence is needed, or taskspace_control blocked with the exact blocker.\n\
-- Repeating the same failed hunk is unlikely to add new tool information because it already failed against the real file snapshot.\n\
-- Native apply_patch payloads do not use unified/range hunk headers (`@@ -...`), placeholder hunk headers, markdown fences, shell commands, or prose.\n"
+    let patch_format_facts = if should_force_complete_rewrite {
+        "- failed_edit_observation: previous hunk failed against a full visible file snapshot.\n\
+- patch_format_facts: native apply_patch payloads do not use unified/range hunk headers (`@@ -...`), placeholder hunk headers, markdown fences, shell commands, or prose.\n"
     } else {
-        "- Available correction paths include corrected apply_patch using the inspected existing artifact path and native grammar, a narrow read_file when existing context is stale or truncated, another legal evidence action if needed, or taskspace_control blocked with the exact blocker.\n\
-- If the failure says `Failed to find expected lines`, repeating the same hunk is unlikely to add new tool information. Use exact existing context if known, or whole-file replacement for a small/generated file whose full intended contents are known.\n"
+        "- failed_edit_observation: previous edit failed; target/context freshness is a fact to derive from visible read summaries and raw tool feedback.\n\
+- patch_format_facts: native apply_patch accepts Add File / Update File / Delete File sections according to its grammar; exact tool failure text remains below.\n"
     };
     let failure = failure_summary
         .map(str::trim)
@@ -2638,15 +2566,15 @@ fn build_taskspace_edit_failure_recovery_item(
         .unwrap_or_default();
     let text = format!(
         "{TASKSPACE_EDIT_FAILURE_MARKER}\n\
-	The previous edit tool call failed. Treat the tool result exactly like standard mode feedback: inspect the failure text, correct the patch target/grammar/context, and retry the edit if the intended change is still valid.\n\
+	The previous edit tool call failed. This item preserves the raw tool failure, target locator facts, visible-context facts, and patch grammar facts without selecting the next action.\n\
 	{failure}\
 	{structured_failure}\
 	{evidence}\
 	{complete_rewrite}\
         Feedback boundary:\n\
-- Preserve and account for the failed edit result when choosing the next action.\n\
+- The failed edit result remains part of the visible tool-result history.\n\
 - This recovery item does not close the action space; it only exposes the tool failure and grammar facts.\n\
-{recovery_action}\
+{patch_format_facts}\
 		- If the failure says the target file is missing, the already listed/read existing path remains available evidence."
     );
 
@@ -2708,14 +2636,18 @@ fn taskspace_edit_failure_recovery_contract(failure_summary: Option<&str>) -> St
         lines.push(
             "tool_feedback_facts: the failed hunk did not match the target snapshot".to_string(),
         );
-        lines.push("correction_options: use exact current context, refresh stale/truncated target context, or use a complete native Delete File/Add File replacement for a small/generated target".to_string());
+        lines.push("tool_feedback_locator: failed_hunk_target_snapshot_mismatch".to_string());
+        lines.push(
+            "context_freshness_source: visible read summaries and raw failed-edit output"
+                .to_string(),
+        );
     }
     if lines.iter().any(|line| {
         line.contains("apply_patch_native_hunk_header")
             || line.contains("apply_patch_unified_hunk_header_in_native_patch")
     }) {
         lines.push("tool_feedback_facts: native apply_patch rejected unified-diff markers (`--- a/...`, `+++ b/...`, `@@ -old,+new @@`)".to_string());
-        lines.push("correction_options: use native apply_patch grammar, different concrete evidence, taskspace_control, or blocked according to the active node contract".to_string());
+        lines.push("tool_feedback_locator: native_patch_grammar_rejection".to_string());
     }
     format!("\nStructured failed-edit contract:\n{}\n", lines.join("\n"))
 }
@@ -4148,15 +4080,21 @@ fn taskspace_action_contract_recent_tool_outputs_item(
             break;
         }
         let char_count = text.chars().count();
+        let allowed_chars = remaining_chars;
         let mut output = text.chars().take(remaining_chars).collect::<String>();
-        if char_count > remaining_chars {
+        let truncated = char_count > remaining_chars;
+        let omitted_chars = char_count.saturating_sub(allowed_chars);
+        if truncated {
             output.push_str("\n[truncated]");
             output = append_taskspace_tool_tail_sentinels(output, &text);
             remaining_chars = 0;
         } else {
             remaining_chars = remaining_chars.saturating_sub(char_count);
         }
-        sections.push(format!("call_id: {call_id}\noutput:\n{output}"));
+        sections.push(format!(
+            "call_id: {call_id}\noutput_chars: {char_count}\noutput_visible_chars: {}\noutput_truncated: {truncated}\noutput_omitted_chars: {omitted_chars}\noutput:\n{output}",
+            if truncated { allowed_chars } else { char_count }
+        ));
     }
     if sections.is_empty() {
         return None;
@@ -4331,7 +4269,8 @@ tool_result: blocked\n\
 failure_kind: apply_patch_native_hunk_header\n\
 target: {targets}\n\
 tool_feedback_facts: native apply_patch grammar rejected a mixed unified-diff hunk/header for the listed target(s).\n\
-correction_options: use native `@@` context hunks, or replace a small/generated file with `*** Delete File: <path>` followed by `*** Add File: <path>` and complete contents. Different evidence actions or blocked remain governed by the active node contract.\n\
+tool_feedback_locator: target_path={targets}; raw_error_preserved=true; grammar_error=native_hunk_header\n\
+patch_format_facts: native apply_patch grammar uses `*** Begin Patch` / file sections / `*** End Patch`; unified-diff range headers are rejected by this tool.\n\
 raw_output:\n{text}"
         );
     }
@@ -4346,7 +4285,8 @@ tool_result: failed\n\
 failure_kind: apply_patch_missing_update_target\n\
 target: {target}\n\
 tool_feedback_facts: apply_patch tried to update a target file that the tool could not read.\n\
-correction_options: use `*** Add File: <relative/path>` if the file should be created, correct the path and use `*** Update File: <relative/path>` if the file exists elsewhere, or gather different evidence / block according to the active node contract.\n\
+tool_feedback_locator: target_path={target}; raw_error_preserved=true; target_read_status=missing_for_update\n\
+patch_format_facts: native `*** Add File` and `*** Update File` are different tool grammar forms; this field does not decide which semantic action applies.\n\
 raw_output:\n{text}"
         );
     }
@@ -4361,7 +4301,8 @@ tool_result: failed\n\
 failure_kind: apply_patch_expected_lines_mismatch\n\
 target: {target}\n\
 tool_feedback_facts: apply_patch could not find the expected existing lines in `{target}`.\n\
-correction_options: use exact current context in an `*** Update File: {target}` hunk, replace a small/generated file with `*** Delete File: {target}` followed by `*** Add File: {target}` and complete contents, or refresh `{target}` only when the visible context is stale/truncated after this failed edit. Other legal evidence/control/block actions remain governed by the active node contract.\n\
+tool_feedback_locator: target_path={target}; raw_error_preserved=true; expected_lines_present_in_tool_error=true\n\
+content_visibility_source: current read summaries and raw tool feedback; this field does not infer whether context is stale.\n\
 raw_output:\n{text}"
         );
     }
@@ -4376,7 +4317,8 @@ tool_result: failed\n\
 failure_kind: apply_patch_context_mismatch\n\
 target: {target}\n\
 tool_feedback_facts: apply_patch context did not match `{target}`; unified-diff range headers are not native apply_patch hunks.\n\
-correction_options: use native `@@` grammar with exact current context, replace a small/generated file with `*** Delete File: {target}` followed by `*** Add File: {target}` and complete contents, or refresh `{target}` only when the visible context is stale/truncated after this failed edit. Other legal evidence/control/block actions remain governed by the active node contract.\n\
+tool_feedback_locator: target_path={target}; raw_error_preserved=true; context_mismatch_reported=true\n\
+content_visibility_source: current read summaries and raw tool feedback; this field does not infer whether context is stale.\n\
 raw_output:\n{text}"
         );
     }
@@ -4388,7 +4330,8 @@ tool_action: apply_patch\n\
 tool_result: failed\n\
 failure_kind: apply_patch_unified_hunk_header_in_native_patch\n\
 tool_feedback_facts: apply_patch rejected a unified-diff range header in native patch input.\n\
-correction_options: use native `@@` hunks, `*** Add File: <path>` for new files, and prefix every added file content line with `+`. Other legal evidence/control/block actions remain governed by the active node contract.\n\
+tool_feedback_locator: raw_error_preserved=true; grammar_error=unified_hunk_header_in_native_patch\n\
+patch_format_facts: native apply_patch grammar rejects unified-diff range headers; this field does not select the next action.\n\
 raw_output:\n{text}"
         );
     }
@@ -6090,12 +6033,13 @@ Then I will inspect the file."#,
         assert!(text.contains("boundary_mode: evidence_only"));
         assert!(text.contains("target_artifacts: generate_org.py"));
         assert!(text.contains("no additional file lines are hidden"));
-        assert!(text.contains("Schema validation facts from current failure:"));
-        assert!(text.contains("schema_repair_fact_summary=true"));
-        assert!(text.contains("Missing required output properties captured"));
-        assert!(text.contains("`members`"));
-        assert!(text.contains("`averageDepartmentBudget`"));
-        assert!(text.contains("Apply_patch grammar reminder:"));
+        assert!(text.contains("Schema contract evidence snippets copied from current context:"));
+        assert!(text.contains("schema_contract_evidence_visible=true"));
+        assert!(text.contains("missing_required_properties: members, averageDepartmentBudget"));
+        assert!(text.contains("Apply_patch grammar facts:"));
+        assert!(!text.contains("Schema validation facts from current failure:"));
+        assert!(!text.contains("Missing required output properties captured"));
+        assert!(!text.contains("schema_repair_fact_summary=true"));
         assert!(text.contains("action_space_source: active node contract for implement_solution"));
         assert!(!text.contains("Patch construction scaffold:"));
         assert!(!text.contains("Final action lock:"));
@@ -6125,9 +6069,10 @@ Then I will inspect the file."#,
         let text = item_text(item.clone());
 
         assert!(text.contains(TASKSPACE_VALIDATION_REWORK_PATCH_ONLY_MARKER));
-        assert!(text.contains("Schema validation facts from current failure:"));
-        assert!(text.contains("schema_repair_fact_summary=true"));
-        assert!(text.contains("`skillDistribution expected object`"));
+        assert!(text.contains("Schema contract evidence snippets copied from current context:"));
+        assert!(text.contains("schema_contract_evidence_visible=true"));
+        assert!(text.contains("schema_type_mismatches=skillDistribution expected object"));
+        assert!(!text.contains("Schema validation facts from current failure:"));
         assert!(text.contains("target_artifacts: generate_organization.py"));
         assert!(is_taskspace_validation_rework_patch_only_recovery_item(
             &item
@@ -6144,8 +6089,9 @@ Then I will inspect the file."#,
             build_taskspace_implementation_recovery_item(Some(last_message), Some(evidence), None);
         let text = item_text(item);
 
-        assert!(text.contains("`members expected string items`"));
-        assert!(text.contains("schema_repair_fact_summary=true"));
+        assert!(text.contains("schema_type_mismatches=members expected string items"));
+        assert!(text.contains("schema_contract_evidence_visible=true"));
+        assert!(!text.contains("schema_repair_fact_summary=true"));
     }
 
     #[test]
@@ -6174,18 +6120,23 @@ Then I will inspect the file."#,
 
         assert!(text.contains(TASKSPACE_VALIDATION_REWORK_PATCH_ONLY_MARKER));
         assert!(text.contains("target_artifacts: generate_organization.py"));
-        assert!(text.contains("schema_repair_fact_summary=true"));
+        assert!(text.contains("schema_contract_evidence_visible=true"));
         assert!(text.contains("boundary_mode: evidence_only"));
         assert!(text.contains("no additional file lines are hidden"));
-        assert!(text.contains("Schema validation facts from current failure:"));
-        assert!(text.contains("`members`"));
-        assert!(text.contains("`averageYearsOfService`"));
-        assert!(text.contains("`member_ids->members`"));
-        assert!(text.contains("Complete target-read note"));
+        assert!(text.contains("Schema contract evidence snippets copied from current context:"));
+        assert!(text.contains("missing_required_properties=members, averageDepartmentBudget"));
+        assert!(text.contains("averageYearsOfService"));
+        assert!(text.contains("schema_property_rename_hints=member_ids->members"));
+        assert!(text.contains("Complete target-read visibility facts"));
         assert!(text.contains("*** Delete File: generate_organization.py"));
         assert!(text.contains("*** Add File: generate_organization.py"));
-        assert!(text.find("Complete target-read note") < text.find("Previous blocked feedback"));
-        assert!(text.contains("Do not put markdown fences"));
+        assert!(
+            text.find("Complete target-read visibility facts")
+                < text.find("Previous blocked feedback")
+        );
+        assert!(text.contains("Patch payload grammar contains patch sections"));
+        assert!(!text.contains("Do not put markdown fences"));
+        assert!(!text.contains("schema_repair_fact_summary=true"));
         assert!(!text.contains(TASKSPACE_IMPLEMENT_NEEDS_EDIT_MARKER));
         assert!(is_taskspace_validation_rework_patch_only_recovery_item(
             &item
@@ -6218,11 +6169,14 @@ Then I will inspect the file."#,
         assert!(text.contains("failure_kind: apply_patch_expected_lines_mismatch"));
         assert!(text.contains("failed_target: process.py"));
         assert!(text.contains("tool_feedback_facts: the failed hunk did not match"));
-        assert!(text.contains("correction_options: use exact current context"));
-        assert!(text.contains("Complete target-read recovery facts"));
+        assert!(text.contains("tool_feedback_locator: failed_hunk_target_snapshot_mismatch"));
+        assert!(text.contains("Complete target-read visibility facts"));
         assert!(text.contains("*** Delete File"));
         assert!(text.contains("*** Add File"));
-        assert!(text.contains("Available correction paths include"));
+        assert!(text.contains("Feedback boundary:"));
+        assert!(text.contains("The failed edit result remains part"));
+        assert!(!text.contains("correction_options:"));
+        assert!(!text.contains("Available correction paths include"));
         assert!(!text.contains("Do not emit `*** Update File`"));
         assert!(!text.contains("Do not call read_file"));
         assert!(!text.contains("Emit exactly one recovery action now"));
@@ -6541,9 +6495,10 @@ TaskSpace implement_solution node `node-6` cannot be blocked for missing source 
         assert!(summary.contains("failure_kind: apply_patch_expected_lines_mismatch"));
         assert!(summary.contains("target: generate_org.py"));
         assert!(summary.contains("tool_feedback_facts: apply_patch could not find"));
-        assert!(summary.contains(
-            "refresh `generate_org.py` only when the visible context is stale/truncated"
-        ));
+        assert!(summary.contains("tool_feedback_locator: target_path=generate_org.py"));
+        assert!(summary.contains("content_visibility_source: current read summaries"));
+        assert!(!summary.contains("correction_options:"));
+        assert!(!summary.contains("refresh `generate_org.py`"));
 
         let recovery = build_taskspace_edit_failure_recovery_item(
             Some(
@@ -6553,8 +6508,11 @@ TaskSpace implement_solution node `node-6` cannot be blocked for missing source 
         );
         let text = item_text(recovery);
         assert!(text.contains(TASKSPACE_EDIT_FAILURE_MARKER));
-        assert!(text.contains("Available correction paths include corrected apply_patch"));
-        assert!(text.contains("a narrow read_file when existing context is stale or truncated"));
+        assert!(text.contains("patch_format_facts: native apply_patch accepts"));
+        assert!(text.contains("Feedback boundary:"));
+        assert!(text.contains("The failed edit result remains part"));
+        assert!(!text.contains("Available correction paths include"));
+        assert!(!text.contains("a narrow read_file when existing context is stale or truncated"));
     }
 
     #[test]
@@ -6570,11 +6528,12 @@ TaskSpace implement_solution node `node-6` cannot be blocked for missing source 
         let text = item_text(recovery);
 
         assert!(text.contains(TASKSPACE_EDIT_FAILURE_MARKER));
-        assert!(text.contains("Complete target-read recovery facts"));
+        assert!(text.contains("Complete target-read visibility facts"));
         assert!(text.contains("content_visibility=full_content_visible"));
         assert!(text.contains("*** Delete File: <path>"));
         assert!(text.contains("*** Add File: <path>"));
-        assert!(text.contains("Available correction paths include native whole-file replacement"));
+        assert!(text.contains("tool_feedback_locator: failed_hunk_target_snapshot_mismatch"));
+        assert!(!text.contains("Available correction paths include"));
         assert!(!text.contains("do not refresh read"));
         assert!(!text.contains("Do not emit `*** Update File`"));
     }
@@ -6592,8 +6551,9 @@ TaskSpace implement_solution node `node-6` cannot be blocked for missing source 
         let text = item_text(recovery);
 
         assert!(text.contains(TASKSPACE_EDIT_FAILURE_MARKER));
-        assert!(!text.contains("Complete target-read recovery facts"));
-        assert!(text.contains("a narrow read_file when existing context is stale or truncated"));
+        assert!(!text.contains("Complete target-read visibility facts"));
+        assert!(text.contains("patch_format_facts: native apply_patch accepts"));
+        assert!(!text.contains("a narrow read_file when existing context is stale or truncated"));
     }
 
     #[test]
@@ -8004,7 +7964,8 @@ TaskSpace implement_solution node `node-6` cannot be blocked for missing source 
         assert_eq!(targets, "recover.py");
         assert!(text.contains(TASKSPACE_APPLY_PATCH_NATIVE_HUNK_MARKER));
         assert!(text.contains("recover.py"));
-        assert!(text.contains("Available correction paths remain state-machine governed"));
+        assert!(text.contains("Feedback boundary: this item preserves patch-format facts"));
+        assert!(!text.contains("Available correction paths"));
         assert!(text.contains("`--- Update File:`"));
         assert!(text.contains("*** Delete File: <relative/path>"));
         assert!(!is_taskspace_no_action_recovery_item(&item));
@@ -8343,11 +8304,12 @@ TaskSpace implement_solution node `node-6` cannot be blocked for missing source 
 
         assert_eq!(targets, "generate_organization.py");
         assert!(text.contains(TASKSPACE_APPLY_PATCH_REPLACEMENT_REQUIRED_MARKER));
-        assert!(text.contains("whole-file native replacement"));
+        assert!(text.contains("Whole-file native replacement grammar"));
         assert!(text.contains("*** Delete File: <relative/path>"));
         assert!(text.contains("*** Add File: <relative/path>"));
-        assert!(text.contains("A syntactically valid native `*** Update File` is still accepted"));
+        assert!(text.contains("Native `*** Update File` grammar includes exact existing context"));
         assert!(text.contains("Native apply_patch payloads do not contain `*** Context Lines`"));
+        assert!(!text.contains("A syntactically valid native `*** Update File` is still accepted"));
         assert!(!text.contains(TASKSPACE_APPLY_PATCH_NATIVE_HUNK_MARKER));
         assert!(warning.contains("TaskSpaceApplyPatchReplacementRequiredRecoveryV1"));
         assert!(!warning.contains("TaskSpaceApplyPatchNativeHunkRecoveryV1"));
@@ -8371,11 +8333,12 @@ TaskSpace implement_solution node `node-6` cannot be blocked for missing source 
         );
         let text = item_text(item);
 
-        assert!(text.contains("Complete target-read replacement scaffold"));
+        assert!(text.contains("Complete target-read visibility facts"));
         assert!(text.contains("*** Delete File: csv_to_json.py"));
         assert!(text.contains("*** Add File: csv_to_json.py"));
         assert!(text.contains("content_visibility=full_content_visible"));
-        assert!(text.contains("Reconstruct the complete corrected file"));
+        assert!(text.contains("replacement grammar"));
+        assert!(!text.contains("Reconstruct the complete corrected file"));
     }
 
     #[test]
@@ -9404,7 +9367,11 @@ next_valid_actions:\n\
         assert!(joined.contains("failure_kind: apply_patch_missing_update_target"));
         assert!(joined.contains("target: call_stack_counter/__main__.py"));
         assert!(joined.contains("tool_feedback_facts: apply_patch tried to update"));
-        assert!(joined.contains("correction_options: use `*** Add File: <relative/path>`"));
+        assert!(
+            joined.contains("tool_feedback_locator: target_path=call_stack_counter/__main__.py")
+        );
+        assert!(joined.contains("patch_format_facts: native `*** Add File`"));
+        assert!(!joined.contains("correction_options:"));
         assert!(!joined.contains("next_valid_action: emit exactly one apply_patch"));
         assert!(joined.contains("raw_output:"));
         assert!(joined.contains("Failed to read file to update"));
@@ -9438,9 +9405,11 @@ next_valid_actions:\n\
         assert!(joined.contains("failure_kind: apply_patch_expected_lines_mismatch"));
         assert!(joined.contains("target: convert.py"));
         assert!(joined.contains("tool_feedback_facts: apply_patch could not find"));
-        assert!(joined.contains("correction_options: use exact current context"));
-        assert!(joined.contains("*** Delete File: convert.py"));
-        assert!(joined.contains("*** Add File: convert.py"));
+        assert!(joined.contains("tool_feedback_locator: target_path=convert.py"));
+        assert!(joined.contains("content_visibility_source: current read summaries"));
+        assert!(!joined.contains("correction_options:"));
+        assert!(!joined.contains("*** Delete File: convert.py"));
+        assert!(!joined.contains("*** Add File: convert.py"));
         assert!(!joined.contains("Do not repeat the same context hunk"));
     }
 
@@ -9472,7 +9441,9 @@ next_valid_actions:\n\
         assert!(joined.contains("failure_kind: apply_patch_context_mismatch"));
         assert!(joined.contains("target: recover.py"));
         assert!(joined.contains("tool_feedback_facts: apply_patch context did not match"));
-        assert!(joined.contains("use native `@@` grammar"));
+        assert!(joined.contains("tool_feedback_locator: target_path=recover.py"));
+        assert!(joined.contains("content_visibility_source: current read summaries"));
+        assert!(!joined.contains("correction_options:"));
         assert!(!joined.contains("Do not repeat the same context hunk"));
     }
 
@@ -9503,8 +9474,10 @@ next_valid_actions:\n\
         assert!(joined.contains(TASKSPACE_TOOL_FEEDBACK_MARKER));
         assert!(joined.contains("failure_kind: apply_patch_unified_hunk_header_in_native_patch"));
         assert!(joined.contains("tool_feedback_facts: apply_patch rejected"));
-        assert!(joined.contains("correction_options: use native `@@` hunks"));
-        assert!(joined.contains("prefix every added file content line with `+`"));
+        assert!(joined.contains("tool_feedback_locator: raw_error_preserved=true"));
+        assert!(joined.contains("patch_format_facts: native apply_patch grammar rejects"));
+        assert!(!joined.contains("correction_options:"));
+        assert!(!joined.contains("prefix every added file content line with `+`"));
     }
 
     #[test]

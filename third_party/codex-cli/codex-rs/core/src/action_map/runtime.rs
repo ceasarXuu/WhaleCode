@@ -11624,15 +11624,24 @@ fn projection_recent_tool_feedback(
             let command = result_body_command(result)
                 .map(|command| format!(" command={}", single_line_preview(&command, 180)))
                 .unwrap_or_default();
+            let body_chars = result.body.chars().count();
+            let excerpt = working_evidence_body_excerpt(&result.body, max_excerpt_chars);
+            let excerpt_chars = excerpt.chars().count();
+            let excerpt_truncated = body_chars > excerpt_chars;
+            let omitted_chars = body_chars.saturating_sub(excerpt_chars);
             format!(
-                "{} node={} action_class={} tool_success={} artifacts={}{}\nexcerpt:\n{}",
+                "{} node={} action_class={} tool_success={} artifacts={}{} body_chars={} excerpt_chars={} excerpt_truncated={} body_omitted_chars={}\nexcerpt:\n{}",
                 result.id,
                 result.node_id,
                 action_class,
                 tool_success,
                 artifact_text,
                 command,
-                working_evidence_body_excerpt(&result.body, max_excerpt_chars)
+                body_chars,
+                excerpt_chars,
+                excerpt_truncated,
+                omitted_chars,
+                excerpt
             )
         })
         .collect()
@@ -27704,11 +27713,41 @@ sed: can't read /data/source_a/users.json: No such file or directory\n"
                     .to_string(),
             )
             .expect("failed read result records");
+        let long_log = format!(
+            "TaskSpaceToolInvocationV1:\n\
+tool: shell_command\n\
+command: python3 recover.py\n\
+raw_output:\n\
+Exit code: 1\n\
+Output:\n\
+{}",
+            "validator detail ".repeat(120)
+        );
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "long-validator-log",
+                "shell_command",
+                Some(ActionClass::Test),
+                false,
+                long_log,
+            )
+            .expect("long validation result records");
 
         let context = state.build_developer_context().expect("developer context");
         assert!(context.contains("recent_tool_feedback:"), "{context}");
         assert!(context.contains("command=rg --files ."), "{context}");
         assert!(context.contains("./data/source_b/users.csv"), "{context}");
+        assert!(
+            context.contains(
+                "action_class=test tool_success=false artifacts=none command=python3 recover.py"
+            ),
+            "{context}"
+        );
+        assert!(context.contains("body_chars="), "{context}");
+        assert!(context.contains("excerpt_chars="), "{context}");
+        assert!(context.contains("excerpt_truncated=true"), "{context}");
+        assert!(context.contains("body_omitted_chars="), "{context}");
         assert!(
             context.contains("sed: can't read /data/source_a/users.json"),
             "{context}"
