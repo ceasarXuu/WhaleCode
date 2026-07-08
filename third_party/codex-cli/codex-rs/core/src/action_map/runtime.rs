@@ -5773,7 +5773,7 @@ preview:\n\
             blocker_missing_observed_fact_source_artifacts(blocker_summary, &observed_artifacts);
         if !contradicted.is_empty() {
             return Err(format!(
-                "TaskSpace block_node on `{node_id}` cannot claim artifact(s) are missing because recorded read/search evidence already observed them: {}. state_machine_requirement: blocker evidence must not contradict recorded evidence.",
+                "TaskSpace block_node on `{node_id}` cannot claim artifact(s) are missing because recorded source evidence already observed them: {}. recorded-evidence contradiction. state_machine_requirement: blocker evidence must not contradict recorded evidence.",
                 contradicted.join(", ")
             ));
         }
@@ -16738,22 +16738,7 @@ fn observed_required_fact_source_artifacts(
     }
     let mut observed = Vec::new();
     for result in map.results.values() {
-        if result.kind != NodeResultKind::MainToolCall
-            || result.tool_success != Some(true)
-            || !matches!(
-                result.action_class,
-                Some(ActionClass::Read | ActionClass::Search)
-            )
-            || read_result_body_is_path_listing_only(&result.body)
-        {
-            continue;
-        }
-        let mut artifacts = result_visible_artifact_refs(result);
-        artifacts.extend(result_input_data_artifact_refs(result));
-        if let Some(command) = result_body_command(result) {
-            artifacts.extend(command_artifact_refs(&command));
-        }
-        for artifact in artifacts {
+        for artifact in result_observed_source_artifact_refs(result) {
             if required
                 .iter()
                 .any(|required| artifact_refs_match(required, &artifact))
@@ -16768,26 +16753,8 @@ fn observed_required_fact_source_artifacts(
 fn observed_successful_read_search_artifacts(map: &ActionMapInstance) -> Vec<String> {
     let mut observed = Vec::new();
     for result in map.results.values() {
-        if result.kind != NodeResultKind::MainToolCall
-            || result.tool_success != Some(true)
-            || !matches!(
-                result.action_class,
-                Some(ActionClass::Read | ActionClass::Search)
-            )
-            || read_result_body_is_path_listing_only(&result.body)
-        {
-            continue;
-        }
-        for artifact in result_visible_artifact_refs(result) {
+        for artifact in result_observed_source_artifact_refs(result) {
             push_unique_artifact_ref(&mut observed, artifact);
-        }
-        for artifact in result_input_data_artifact_refs(result) {
-            push_unique_artifact_ref(&mut observed, artifact);
-        }
-        if let Some(command) = result_body_command(result) {
-            for artifact in command_artifact_refs(&command) {
-                push_unique_artifact_ref(&mut observed, artifact);
-            }
         }
     }
     observed
@@ -16799,31 +16766,91 @@ fn inspect_node_observed_artifact_refs(map: &ActionMapInstance, node: &MapNode) 
         let Some(result) = map.results.get(&result_ref.id) else {
             continue;
         };
-        if result.kind != NodeResultKind::MainToolCall
-            || result.tool_success != Some(true)
-            || !matches!(
-                result.action_class,
-                Some(ActionClass::Read | ActionClass::Search)
-            )
-        {
-            continue;
-        }
-        if read_result_body_is_path_listing_only(&result.body) {
-            continue;
-        }
-        for artifact in result_visible_artifact_refs(result) {
+        for artifact in result_observed_source_artifact_refs(result) {
             push_unique_artifact_ref(&mut artifact_refs, artifact);
-        }
-        for artifact in result_input_data_artifact_refs(result) {
-            push_unique_artifact_ref(&mut artifact_refs, artifact);
-        }
-        if let Some(command) = result_body_command(result) {
-            for artifact in command_artifact_refs(&command) {
-                push_unique_artifact_ref(&mut artifact_refs, artifact);
-            }
         }
     }
     artifact_refs
+}
+
+fn result_observed_source_artifact_refs(result: &NodeResult) -> Vec<String> {
+    if !result_has_observed_source_content(result) {
+        return Vec::new();
+    }
+
+    let mut artifact_refs = result_visible_artifact_refs(result);
+    for artifact in result_input_data_artifact_refs(result) {
+        push_unique_artifact_ref(&mut artifact_refs, artifact);
+    }
+    if let Some(command) = result_body_command(result) {
+        for artifact in command_artifact_refs(&command) {
+            push_unique_artifact_ref(&mut artifact_refs, artifact);
+        }
+    }
+    artifact_refs
+}
+
+fn result_has_observed_source_content(result: &NodeResult) -> bool {
+    if result.kind != NodeResultKind::MainToolCall || result.tool_success != Some(true) {
+        return false;
+    }
+    if structured_file_preview_is_unsuccessful(&result.body)
+        || read_result_body_is_path_listing_only(&result.body)
+    {
+        return false;
+    }
+    match result.action_class {
+        Some(ActionClass::Read | ActionClass::Search) => true,
+        Some(ActionClass::Build | ActionClass::Test) => {
+            diagnostic_result_has_source_content_signal(result)
+        }
+        _ => false,
+    }
+}
+
+fn diagnostic_result_has_source_content_signal(result: &NodeResult) -> bool {
+    result_body_has_successful_file_marker(&result.body)
+        || result_body_has_hex_dump_content(&result.body)
+}
+
+fn result_body_has_successful_file_marker(body: &str) -> bool {
+    result_body_raw_output_section(body)
+        .lines()
+        .map(str::trim)
+        .any(|line| {
+            line.starts_with("TaskSpaceReadFileSummaryV1:")
+                || (line.starts_with("TaskSpaceStructuredFilePreviewV1:")
+                    && taskspace_marker_field(line, "status").as_deref() == Some("ok"))
+        })
+}
+
+fn result_body_has_hex_dump_content(body: &str) -> bool {
+    result_body_raw_output_section(body)
+        .lines()
+        .map(str::trim)
+        .any(hex_dump_content_line)
+}
+
+fn hex_dump_content_line(line: &str) -> bool {
+    if let Some((address, rest)) = line.split_once(':') {
+        return hex_address_token(address.trim(), 4)
+            && rest.split_whitespace().take(4).any(hex_data_token);
+    }
+
+    let mut parts = line.split_whitespace();
+    let Some(address) = parts.next() else {
+        return false;
+    };
+    hex_address_token(address, 6) && parts.take(4).any(hex_data_token)
+}
+
+fn hex_address_token(token: &str, min_len: usize) -> bool {
+    token.len() >= min_len && token.chars().all(|ch| ch.is_ascii_hexdigit())
+}
+
+fn hex_data_token(token: &str) -> bool {
+    let token = token.trim_matches(|ch: char| !ch.is_ascii_hexdigit());
+    matches!(token.len(), 2 | 4 | 8) && token.chars().all(|ch| ch.is_ascii_hexdigit())
 }
 
 fn command_artifact_refs(command: &str) -> Vec<String> {
@@ -16909,6 +16936,9 @@ fn artifact_like_token(token: &str) -> bool {
                 | "csv"
                 | "tsv"
                 | "parquet"
+                | "db"
+                | "sqlite"
+                | "sqlite3"
                 | "txt"
                 | "md"
                 | "yaml"
@@ -18714,7 +18744,20 @@ fn is_input_data_artifact_ref(artifact_ref: &str) -> bool {
     }
     matches!(
         normalized.rsplit_once('.').map(|(_, ext)| ext),
-        Some("log" | "jsonl" | "json" | "csv" | "tsv" | "yaml" | "yml" | "txt" | "parquet")
+        Some(
+            "log"
+                | "jsonl"
+                | "json"
+                | "csv"
+                | "tsv"
+                | "yaml"
+                | "yml"
+                | "txt"
+                | "parquet"
+                | "db"
+                | "sqlite"
+                | "sqlite3",
+        )
     )
 }
 
@@ -21877,6 +21920,84 @@ sample rows from {artifact}"
                 ),
             )
             .expect("successful read records");
+    }
+
+    fn start_sqlite_fact_source_fixture(
+        state: &mut ActionMapRuntimeState,
+        owner: ThreadId,
+    ) -> MapNodeId {
+        let (_, _, node_id, _) = state
+            .start_task_for_main_with_kind_and_criteria(
+                owner,
+                NodeKind::InspectCodeContext,
+                "Inspect sqlite data".to_string(),
+                "Inspect the sqlite database input before implementation.".to_string(),
+                Vec::new(),
+                vec![ActionMapStateCommitOutputContractInput {
+                    id: "output-contract-1".to_string(),
+                    kind: "artifact".to_string(),
+                    description: "The file /app/recover.json must be generated.".to_string(),
+                    status: "open".to_string(),
+                    evidence_refs: vec![ActionMapEvidenceRefInput {
+                        artifact_ref: Some("user-request".to_string()),
+                        ..Default::default()
+                    }],
+                }],
+                vec![ActionMapStateCommitFactSourceInput {
+                    id: "fact-source-db".to_string(),
+                    provenance: "provided_by_user".to_string(),
+                    description: "Database path: /app/trunc.db".to_string(),
+                    evidence_refs: vec![ActionMapEvidenceRefInput {
+                        artifact_ref: Some("/app/trunc.db".to_string()),
+                        ..Default::default()
+                    }],
+                }],
+                "Inspect sqlite data".to_string(),
+                "Inspect the required database input before implementation.".to_string(),
+                true,
+            )
+            .expect("sqlite fixture task starts");
+        record_test_node_scope_question(state, owner, &node_id);
+
+        let task_id = state.active_task_id.clone().expect("active task");
+        let task = state.tasks.get(&task_id).expect("task");
+        let sqlite_source = task
+            .cognitive_state
+            .fact_sources
+            .iter()
+            .find(|source| source.description.contains("/app/trunc.db"))
+            .expect("sqlite source");
+        assert!(!fact_source_is_optional(sqlite_source), "{sqlite_source:?}");
+        assert!(
+            extract_artifact_like_refs(&sqlite_source.description)
+                .iter()
+                .any(|artifact| artifact == "/app/trunc.db"),
+            "{:?}",
+            extract_artifact_like_refs(&sqlite_source.description)
+        );
+        assert!(required_fact_source_artifact_ref("/app/trunc.db"));
+        let output_targets = task_output_contract_artifact_targets(task);
+        assert!(
+            !output_targets
+                .iter()
+                .any(|target| artifact_refs_match(target, "/app/trunc.db")),
+            "fixture unexpectedly treats /app/trunc.db as output target: {output_targets:?}"
+        );
+        let required_fact_sources = task_required_fact_source_artifact_refs(task);
+        assert!(
+            required_fact_sources
+                .iter()
+                .any(|artifact| artifact_refs_match(artifact, "/app/trunc.db")),
+            "fixture must declare /app/trunc.db as a required fact source: {required_fact_sources:?}"
+        );
+
+        record_successful_read_result(state, owner, "task", "task.yaml");
+        assert_eq!(
+            state.current_main_inspect_missing_required_fact_source_artifacts(),
+            vec!["/app/trunc.db".to_string()],
+            "fixture must start with /app/trunc.db uncovered"
+        );
+        node_id
     }
 
     fn snapshot_trace_for_result(
@@ -27162,6 +27283,93 @@ data/source_a/users.json\n"
             actions.iter().any(|action| action
                 .contains("workspace-relative candidate for `/data/source_a/users.json`")),
             "{actions:?}"
+        );
+    }
+
+    #[test]
+    fn inspect_fact_source_coverage_accepts_binary_diagnostic_read_alias() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let node_id = start_sqlite_fact_source_fixture(&mut state, owner);
+
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "dump-sqlite",
+                "shell_command",
+                Some(ActionClass::Test),
+                true,
+                "TaskSpaceToolInvocationV1:\n\
+tool: shell_command\n\
+command: xxd trunc.db 2>&1 | head -60\n\
+raw_output:\n\
+Exit code: 0\n\
+Wall time: 0.1 seconds\n\
+Output:\n\
+00000000: 0d00 0000 0a0f 4900 0ff0 0fdf 0fce 0fbd  ......I.........\n\
+00000010: 0fac 0f9b 0f8a 0f79 0f61 0f49 0000 0000  .......y.a.I....\n"
+                    .to_string(),
+            )
+            .expect("binary diagnostic result records");
+
+        assert!(
+            state
+                .current_main_inspect_missing_required_fact_source_artifacts()
+                .is_empty(),
+            "successful binary diagnostic content read of trunc.db should satisfy /app/trunc.db coverage"
+        );
+
+        let outcome = state
+            .finish_main_node_with_next(
+                owner,
+                &node_id,
+                "Inspected sqlite page bytes.".to_string(),
+                None,
+                Some(ActionMapNextNodeDraft {
+                    kind: NodeKind::ImplementSolution,
+                    title: "Recover sqlite rows".to_string(),
+                    context_summary: "Generate recover.json from the inspected sqlite page."
+                        .to_string(),
+                    dependency_node_ids: vec![node_id.clone()],
+                }),
+            )
+            .expect("finish_node should accept diagnostic source coverage");
+        assert_eq!(outcome.0.next_node_id.as_deref(), Some("node-2"));
+    }
+
+    #[test]
+    fn inspect_fact_source_coverage_rejects_stat_only_diagnostic_alias() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let _node_id = start_sqlite_fact_source_fixture(&mut state, owner);
+
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                "stat-sqlite",
+                "shell_command",
+                Some(ActionClass::Test),
+                true,
+                "TaskSpaceToolInvocationV1:\n\
+tool: shell_command\n\
+command: ls -la trunc.db && wc -c trunc.db && file trunc.db\n\
+raw_output:\n\
+Exit code: 0\n\
+Wall time: 0.1 seconds\n\
+Output:\n\
+-rw-rw-r-- 1 zhangxu zhangxu 4096 Jul  8 03:12 trunc.db\n\
+4096 trunc.db\n\
+trunc.db: data\n"
+                    .to_string(),
+            )
+            .expect("stat-only diagnostic result records");
+
+        assert_eq!(
+            state.current_main_inspect_missing_required_fact_source_artifacts(),
+            vec!["/app/trunc.db".to_string()],
+            "stat/listing-only diagnostics must not satisfy source coverage"
         );
     }
 

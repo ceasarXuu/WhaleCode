@@ -12819,7 +12819,7 @@
   2. The rejection text will cite `/app/trunc.db` missing read/search evidence.
   3. Earlier successful node results will show commands over `trunc.db` that read or parse binary contents and output page/cell evidence.
   4. Source inspection will show `inspect_node_observed_artifact_refs` filters coverage to successful `Read` or `Search` results and excludes successful diagnostic `Test` results.
-- Status: confirmed; repair in progress.
+- Status: confirmed and fixed locally.
 
 # Evidence E-383: H-202 is a coverage fidelity gap, not missing taskspace_control feedback
 
@@ -12837,3 +12837,68 @@
   - The Agent did receive the `finish_node` rejection and tried to satisfy it, so this is not a tool-output loss bug.
   - The ledger is failing to faithfully represent concrete diagnostic evidence over the required input artifact.
   - Repair should add a narrow, mechanical evidence path for successful binary/structured diagnostic reads of required artifacts or aliases; it should not add runtime next-step guidance or force transitions.
+
+# Evidence E-384: H-202 coverage now accepts content diagnostics and rejects stat-only diagnostics
+
+- Prediction tested: H-202 predictions 3-4 plus fix-validation for the sqlite alias mechanism.
+- Repair:
+  - `.db`, `.sqlite`, and `.sqlite3` are now input artifact tokens.
+  - `result_observed_source_artifact_refs` is the shared source-evidence helper for fact-source coverage and blocker contradiction checks.
+  - successful `read/search` results remain eligible only when they are not path-listing-only and do not contain unsuccessful structured preview markers.
+  - successful `test/build` diagnostics contribute source evidence only when the tool output contains a mechanical content signal: `TaskSpaceReadFileSummaryV1`, `TaskSpaceStructuredFilePreviewV1 status=ok`, or hex-dump content lines.
+  - stat-only diagnostics such as `ls -la trunc.db && wc -c trunc.db && file trunc.db` do not satisfy source coverage.
+  - `block_node` contradiction text now says `recorded source evidence` and includes the `recorded-evidence contradiction` marker.
+- Focused validation:
+  ```text
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib inspect_fact_source_coverage_ --locked
+    passed: 2 tests
+
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib fact_source --locked
+    passed: 23 tests
+
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib taskspace_action_contract --locked
+    passed: 77 tests
+
+  CODEX_SKIP_VENDORED_BWRAP=1 cargo check -p codex-core --lib --locked
+    passed
+  ```
+- Boundary interpretation:
+  - The fix changes the fidelity of recorded source coverage; it does not add runtime semantic guidance, force node transitions, or decide a next action for the Agent.
+  - The state-machine bottom line remains intact: declared input artifacts must be observed before inspect closeout, but observation is now defined by concrete source evidence rather than a narrow action-class label.
+
+# Evidence E-385: H-202 live sqlite rerun exposed a separate `/app` capability gap
+
+- Prediction tested: H-202 live validation on the original sqlite sample should either pass or fail for a cause outside the repaired fact-source coverage rule.
+- Run:
+  ```text
+  scripts/taskspace-benchmark/run-taskspace-external-benchmark.ps1
+    -Benchmark terminal-bench
+    -TaskDir target/external-sources/terminal-bench-core-0.1.1/tasks/sqlite-db-truncate
+    -SampleId sqlite-db-truncate
+    -RunRoot target/r4-h202-fact-source-sqlite-right-20260708
+    -RunSide right
+  ```
+- Observed result:
+  - Pair report: `right / taskspace business_success: False`, `public_validation_exit_code: 1`, `hidden_oracle_exit_code: 0`.
+  - Output file `/app/recover.json` was not generated; changed paths were `.python-version`, `main.py`, `pyproject.toml`, `README.md`, and `uv.lock`.
+  - TaskSpace remained on one open inspect node: `node_count: 1`, `open_leaf_nodes: 1`, `taskspace_control_count: 1`, `action_counts: start_task=1`.
+  - Request count reached the hard budget: `provider_request_distinct_count: 20`.
+- Diagnostic observations:
+  - `user-prompt.txt` contained the harness note: `Treat the current working directory as the task's /app directory`.
+  - Early tool evidence showed `trunc.db` exists through relative path: `rg --files .` returned `./trunc.db`, and `file trunc.db && wc -c trunc.db && od ... trunc.db` succeeded.
+  - Subsequent commands using `/app/trunc.db` failed mechanically because `/app` did not exist in the tool execution environment: Python `sqlite3.connect('/app/trunc.db')`, `xxd /app/trunc.db`, and `read_file /app/trunc.db` all reported no such file or unable to open database.
+  - The terminal-bench validator itself runs Docker with `-v repo:/app -w /app`, so the validator has a hard `/app` alias while the Agent tool runtime on Linux only had cwd set to the repo directory.
+- Interpretation:
+  - H-202 remains a focused coverage-fidelity fix, but the live sample is not verified.
+  - The new failure is a tools capability mismatch: the local Agent tool environment does not provide the same `/app` absolute-path affordance that Terminal-Bench instructions and validator semantics assume.
+  - A prompt note is only a soft semantic workaround. The capability layer should expose the declared benchmark filesystem affordance directly, without adding runtime semantic correction or next-action guidance.
+
+# Hypothesis H-203: Linux terminal-bench runs lack a hard `/app` execution alias
+
+- Claim: On non-Windows terminal-bench external runs, `Mount-TaskspaceExecutionAlias` returns the direct repo directory and does not provide an absolute `/app` alias. Agents that legitimately use `/app/...` from the task instruction hit false `No such file` tool failures, wasting request budget and sometimes preventing completion.
+- Predictions:
+  1. `whale-argv.json` for the failed run will show `mount_strategy=direct_repo_dir_non_windows` and `execution_repo_dir=.../right/app`.
+  2. The generated validator wrapper will still prove `container_workdir=/app` and mount `repo:/app`.
+  3. A sandbox-level opt-in bind of command cwd to `/app` will make `/app/trunc.db` readable by Agent tool commands without changing task semantics, state-machine gates, or action guidance.
+  4. The fix can be validated by bwrap argv tests and a targeted terminal-bench harness test that proves the non-Windows alias request is recorded.
+- Status: confirmed; repair in progress.

@@ -3,7 +3,7 @@
 - Created: 2026-07-08
 - Updated: 2026-07-08
 - Version: v0.0.5 build-R4 post-closeout
-- Status: Active - Phase 1-4 implemented; H-200 runtime response-recovery boundary fix verified on targeted sample; Phase 5 targeted diagnostics benefit no-go; H-202 fact-source coverage repair in progress
+- Status: Active - Phase 1-4 implemented; H-200 runtime response-recovery boundary fix verified on targeted sample; Phase 5 targeted diagnostics benefit no-go; H-202 fact-source coverage repair implemented; live sqlite rerun exposed H-203 `/app` capability gap
 - Owner / Responsible: WhaleCode core runtime
 - Related Systems: TaskSpace runtime, ActionMapRuntime, session turn loop, action-contract feedback, active projection, context compiler, benchmark harness
 - Related Links:
@@ -477,11 +477,63 @@ H-200 targeted sample rerun 已完成：
 - 修复方向是让 ledger/coverage 忠实承认已有工具证据：成功的二进制/结构化诊断读取可以满足 fact-source coverage；路径 listing、stat-only 或失败的 absolute path 不应满足。
 - 这是反馈/账本 fidelity 问题，不是 Agent 智能不足，也不是需要给 Agent 增加新约束。
 
-下一步：
+修复：
 
-- 在 `inspect_node_observed_artifact_refs` 或等价 helper 中增加保守的 diagnostic-source evidence 判定。
-- 添加 fixture：`/app/trunc.db` required，`xxd trunc.db` 成功并输出 hex/cell evidence 后，`finish_node -> implement_solution` 应通过。
-- 添加负例：`rg --files`、`ls/wc/file`、失败 `/app/trunc.db` 不应满足 coverage。
+1. `.db` / `.sqlite` / `.sqlite3` 纳入 input artifact token，避免 SQLite 数据库源文件从 fact-source 提取中消失。
+2. 新增 `result_observed_source_artifact_refs` 统一入口，fact-source coverage、blocker contradiction、terminal blocker contradiction 都从同一 source-evidence 规则读取。
+3. `read/search` 结果仍需成功且不能是 path listing only。
+4. `test/build` 结果只有在存在机械内容证据信号时才可贡献 source coverage：
+   - `TaskSpaceReadFileSummaryV1`
+   - `TaskSpaceStructuredFilePreviewV1 status=ok`
+   - hex dump 内容行，例如 `xxd` / `od` 输出
+5. `ls/wc/file` 这类 stat-only 诊断不满足 coverage。
+6. blocker contradiction 文案从 `recorded read/search evidence` 调整为 `recorded source evidence`，并保留 `recorded-evidence contradiction` marker。
+
+验证：
+
+```text
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib inspect_fact_source_coverage_ --locked
+  passed: 2 tests
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib fact_source --locked
+  passed: 23 tests
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo test -p codex-core --lib taskspace_action_contract --locked
+  passed: 77 tests
+
+CODEX_SKIP_VENDORED_BWRAP=1 cargo check -p codex-core --lib --locked
+  passed
+```
+
+边界结论：
+
+- 该修复不让 runtime 强制 transition，也不新增 action guidance。
+- runtime 只修正账本：已经由工具结果机械证明读过/预览过/hex dump 过的 source artifact，应被 fact-source coverage 采纳。
+- 负例保留：路径 listing、stat-only、失败 absolute path 仍不能满足 declared source coverage。
+
+Live 复跑边界：
+
+- H-202 focused tests / check 已通过，但 sqlite-db-truncate right-only live 样本没有通过，不能把 H-202 宣称为 live verified。
+- 复跑路径：`target/r4-h202-fact-source-sqlite-right-20260708/runs/terminal_bench__sqlite-db-truncate/20260708-190750-449/pair-001/pair-report.md`。
+- 结果：TaskSpace `business_success=False`，`public_validation_exit_code=1`，没有生成 `recover.json`，单 inspect node 保持 open，并耗尽 20 次 provider request。
+- 新证据显示失败主因转移到工具能力层：Terminal-Bench 指令和 validator 语义使用 `/app`，但 Linux Agent 工具执行环境只有 cwd 指向 `right/app`，没有硬 `/app` 绝对路径别名。Agent 先成功看到 `./trunc.db`，随后多次使用 `/app/trunc.db` 得到真实但误导性的 `No such file` / `unable to open database file`。
+- 这不是要让 projection 注入路径纠错，也不是让 runtime 纠正 Agent 行为；它是 harness/tool runtime 没有忠实提供外部 benchmark 声明的文件系统能力。
+
+### H-203 Terminal-Bench `/app` Capability Gap - 2026-07-08
+
+症状：
+
+- `user-prompt.txt` 已有 `Treat the current working directory as the task's /app directory`，但这只是软提示。
+- `whale-argv.json` 显示 Linux 非 Windows 路径为 `mount_strategy=direct_repo_dir_non_windows`，`execution_repo_dir=.../right/app`。
+- Agent 执行 `python3 ... /app/trunc.db`、`xxd /app/trunc.db`、`read_file /app/trunc.db` 时，工具结果机械失败。
+- validator wrapper 仍按 Docker 等价语义运行：`-v repo:/app -w /app`。
+
+修复方向：
+
+1. 在 benchmark harness 识别 Terminal-Bench equivalent Docker `/app` 样本时，显式打开一个工具能力 opt-in。
+2. 在 Linux bwrap 沙箱中，仅当 opt-in 打开时，把 command cwd 绑定到 `/app`。
+3. 不改任务语义、不替 Agent 重写动作、不在 projection 增加思考层提示。
+4. 保留 prompt note 作为人类可读说明，但能力层必须让 `/app/<path>` 真实可用。
 
 ### H-201 Candidate: Provider Payload Attribution
 
