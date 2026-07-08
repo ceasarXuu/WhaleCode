@@ -7369,6 +7369,42 @@ TaskSpace implement_solution node `node-6` cannot be blocked for missing source 
     }
 
     #[test]
+    fn taskspace_action_contract_normalizes_unified_diff_with_trailing_end_only() {
+        let raw = serde_json::json!({
+            "schema_version": "taskspace-action-v1",
+            "action": "apply_patch",
+            "node_id": "node-1",
+            "args": {
+                "patch": "*** Update File: src/call_stack_counter.py\n--- a/src/call_stack_counter.py\n+++ b/src/call_stack_counter.py\n@@ -5,7 +5,7 @@ import inspect\n def count_stack_depth() -> int:\n     return len(inspect.stack())\n \n-def format_depth() -> str:\n-    return f\"depth: {count_stack_depth()}\"\n+def format_depth() -> str:\n+    return f\"CALL_STACK_DEPTH={count_stack_depth()}\"\n \n def main() -> None:\n     print(format_depth())\n*** End Patch\n"
+            },
+            "rationale": "fix format"
+        })
+        .to_string();
+        let action = parse_taskspace_action_v1(&raw).expect("valid json");
+        let call = taskspace_action_to_tool_call(&action, &provider_snapshot("implement_solution"))
+            .expect("trailing End Patch without Begin Patch should normalize")
+            .expect("tool call");
+
+        match call.payload {
+            ToolPayload::Custom { input } => {
+                assert!(input.starts_with("*** Begin Patch\n"));
+                assert!(input.ends_with("*** End Patch\n"));
+                assert_eq!(input.matches("*** End Patch").count(), 1);
+                assert_eq!(
+                    input
+                        .matches("*** Update File: src/call_stack_counter.py")
+                        .count(),
+                    1
+                );
+                assert!(!input.contains("--- a/src/call_stack_counter.py"));
+                assert!(!input.contains("+++ b/src/call_stack_counter.py"));
+                assert!(!input.contains("@@ -5,7 +5,7 @@"));
+            }
+            other => panic!("expected custom payload, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn taskspace_action_contract_apply_patch_normalizes_bare_multi_file_unified_diff() {
         let raw = serde_json::json!({
             "schema_version": "taskspace-action-v1",
@@ -12970,6 +13006,8 @@ fn normalize_taskspace_unified_diff_patch(patch: &str) -> Option<String> {
     let mut lines = normalized.lines().collect::<Vec<_>>();
     if lines.first() == Some(&"*** Begin Patch") && lines.last() == Some(&"*** End Patch") {
         lines = lines[1..lines.len().saturating_sub(1)].to_vec();
+    } else if lines.last() == Some(&"*** End Patch") {
+        lines.pop();
     }
     if lines.is_empty() || !lines.iter().any(|line| line.starts_with("--- ")) {
         return None;

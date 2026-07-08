@@ -1345,7 +1345,13 @@ impl ActionMapRuntimeState {
                 == Some(TaskSpaceProviderRequestPhase::BudgetRecovery.as_str());
         let validation_rework_patch_feedback_grace =
             Self::taskspace_validation_rework_patch_feedback_grace_available(snapshot);
-        if rollout_limit_exceeded && !grace_remaining && !validation_rework_patch_feedback_grace {
+        let fresh_node_first_request_grace =
+            Self::taskspace_fresh_node_first_request_grace_available(snapshot);
+        if rollout_limit_exceeded
+            && !grace_remaining
+            && !validation_rework_patch_feedback_grace
+            && !fresh_node_first_request_grace
+        {
             let reason = "provider_request_hard_limit_exceeded";
             self.record_provider_request_budget_hard_stop_trace_event(snapshot, reason);
             let node_id = snapshot
@@ -1387,7 +1393,9 @@ impl ActionMapRuntimeState {
         TaskSpaceBudgetGateDecision {
             allowed: true,
             budget_state: self.budget_state,
-            reason: if validation_rework_patch_feedback_grace {
+            reason: if fresh_node_first_request_grace {
+                "provider_fresh_node_first_request_grace".to_string()
+            } else if validation_rework_patch_feedback_grace {
                 "provider_validation_rework_patch_feedback_grace".to_string()
             } else if !rollout_limit_exceeded && !node_limit_exceeded {
                 "provider_request_budget_available".to_string()
@@ -1623,6 +1631,19 @@ impl ActionMapRuntimeState {
             && !snapshot.current_node_validation_rework_artifacts.is_empty()
     }
 
+    fn taskspace_fresh_node_first_request_grace_available(
+        snapshot: &ActionMapProviderRequestBudgetSnapshot,
+    ) -> bool {
+        taskspace_fresh_executable_node_first_request(
+            snapshot.node_kind.as_deref(),
+            snapshot.provider_request_context_missing_reason.as_deref(),
+            snapshot.request_count,
+            snapshot.max_requests,
+            snapshot.node_request_count,
+            snapshot.max_model_requests_per_node,
+        )
+    }
+
     fn reconstruct_budget_state_from_trace_events(&mut self) {
         let mut route_mode = None;
         let mut profile_name = None;
@@ -1651,12 +1672,27 @@ impl ActionMapRuntimeState {
                                 .model_request_count_by_node
                                 .insert(event.node_id.clone(), node_count);
                         }
+                        let fresh_node_first_request =
+                            taskspace_fresh_executable_node_first_request(
+                                trace_tag_value(&event.tags, "node_kind"),
+                                trace_tag_value(
+                                    &event.tags,
+                                    "provider_request_context_missing_reason",
+                                ),
+                                trace_tag_usize(&event.tags, "request_count_before")
+                                    .unwrap_or_default(),
+                                trace_tag_usize(&event.tags, "max_requests").unwrap_or_default(),
+                                node_count.saturating_sub(1),
+                                trace_tag_usize(&event.tags, "max_model_requests_per_node")
+                                    .unwrap_or_default(),
+                            );
                         if provider_request_counts_against_post_budget_grace(
                             trace_tag_value(&event.tags, "request_phase"),
                             trace_tag_usize(&event.tags, "request_count_before")
                                 .unwrap_or_default(),
                             trace_tag_usize(&event.tags, "max_requests").unwrap_or_default(),
-                        ) {
+                        ) && !fresh_node_first_request
+                        {
                             counters.post_budget_grace_request_count += 1;
                         }
                     }
@@ -3170,13 +3206,26 @@ preview:\n\
                 .clone()
                 .or_else(|| snapshot.node_id.clone())
                 .unwrap_or_else(|| "provider-context-missing".to_string());
+            let node_request_count_before = if node_id == "provider-context-missing" {
+                snapshot.node_request_count
+            } else {
+                node_request_counts
+                    .get(&node_id)
+                    .copied()
+                    .unwrap_or(snapshot.node_request_count)
+            };
+            let fresh_node_first_request = input.status == "started"
+                && taskspace_fresh_executable_node_first_request(
+                    snapshot.node_kind.as_deref(),
+                    snapshot.provider_request_context_missing_reason.as_deref(),
+                    input.request_count_before,
+                    input.max_requests,
+                    node_request_count_before,
+                    snapshot.max_model_requests_per_node,
+                );
             if input.status == "started" {
                 if node_id != "provider-context-missing" {
-                    let next_node_count = node_request_counts
-                        .get(&node_id)
-                        .copied()
-                        .unwrap_or(snapshot.node_request_count)
-                        + 1;
+                    let next_node_count = node_request_count_before + 1;
                     node_request_counts.insert(node_id.clone(), next_node_count);
                     self.budget_counters
                         .model_request_count_by_node
@@ -3186,7 +3235,8 @@ preview:\n\
                     input.request_phase.as_deref(),
                     input.request_count_before,
                     input.max_requests,
-                ) {
+                ) && !fresh_node_first_request
+                {
                     self.budget_counters.post_budget_grace_request_count += 1;
                 }
             }
@@ -3329,6 +3379,10 @@ preview:\n\
             }
             if request_phase == "unknown" {
                 tags.push("request_phase_missing_reason:provider_context_missing".to_string());
+            }
+            if fresh_node_first_request {
+                tags.push("fresh_node_first_request_grace:true".to_string());
+                tags.push("post_budget_grace_counted:false".to_string());
             }
             if !provider_context_missing_reason.is_empty() {
                 tags.push(format!(
@@ -15507,6 +15561,31 @@ fn provider_request_counts_against_post_budget_grace(
         && request_count_before >= max_requests
 }
 
+fn taskspace_fresh_executable_node_first_request(
+    node_kind: Option<&str>,
+    provider_request_context_missing_reason: Option<&str>,
+    request_count_before: usize,
+    max_requests: usize,
+    node_request_count_before: usize,
+    max_model_requests_per_node: usize,
+) -> bool {
+    let executable_node_kind = node_kind.and_then(NodeKind::from_str).is_some_and(|kind| {
+        matches!(
+            kind,
+            NodeKind::ImplementSolution
+                | NodeKind::SmokeTest
+                | NodeKind::RegressionTest
+                | NodeKind::FinalSynthesis
+        )
+    });
+    provider_request_context_missing_reason.is_none()
+        && executable_node_kind
+        && max_requests > 0
+        && request_count_before >= max_requests
+        && max_model_requests_per_node > 0
+        && node_request_count_before == 0
+}
+
 fn completed_main_inspect_has_broad_accepted_result(
     map: &ActionMapInstance,
     node_id: &str,
@@ -21390,6 +21469,90 @@ TaskSpaceReadFileSummaryV1: path=data.csv lines_read=2 eof_reached=true max_line
     }
 
     #[test]
+    fn post_budget_grace_counter_ignores_fresh_executable_node_first_request() {
+        let mut state = ActionMapRuntimeState::default();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let snapshot = ActionMapProviderRequestBudgetSnapshot {
+            task_id: None,
+            map_id: "map-1".to_string(),
+            node_id: Some("node-implement".to_string()),
+            node_kind: Some(NodeKind::ImplementSolution.as_str().to_string()),
+            current_node_progress_signature: Some(0),
+            current_node_has_successful_edit: false,
+            current_node_has_dependency_working_evidence: true,
+            current_node_has_uncovered_mandatory_evidence: false,
+            current_node_uncovered_mandatory_evidence: Vec::new(),
+            current_node_validation_rework_artifacts: Vec::new(),
+            route_mode: Some(TaskSpaceRouteMode::VerificationFirst.as_str().to_string()),
+            profile_name: Some("taskspace-v005-verification_first".to_string()),
+            request_phase: Some(
+                TaskSpaceProviderRequestPhase::BudgetRecovery
+                    .as_str()
+                    .to_string(),
+            ),
+            provider_request_context_missing_reason: None,
+            request_count: 6,
+            max_requests: 6,
+            node_request_count: 0,
+            max_model_requests_per_node: 2,
+            post_budget_grace_requests: 1,
+            post_budget_grace_request_count: 0,
+            budget_state: TaskSpaceBudgetState::OverProfileHint.as_str().to_string(),
+        };
+
+        let mut fresh_node_event = provider_request_budget_input(
+            "provider-request-fresh-node",
+            "provider-request:turn-a:logical-fresh-node",
+            "started",
+            6,
+            7,
+            Some(TaskSpaceProviderRequestPhase::BudgetRecovery.as_str()),
+        );
+        fresh_node_event.max_requests = 6;
+        let events = state
+            .record_provider_request_budget_events(&snapshot, vec![fresh_node_event])
+            .expect("fresh node provider request event");
+
+        assert_eq!(state.budget_counters.post_budget_grace_request_count, 0);
+        let MapRuntimeEvent::TaskspaceTraceEventRecorded(started) =
+            events.first().expect("fresh node started event")
+        else {
+            panic!("expected provider budget trace event");
+        };
+        assert!(
+            started
+                .tags
+                .iter()
+                .any(|tag| tag == "fresh_node_first_request_grace:true"),
+            "{:?}",
+            started.tags
+        );
+        assert!(
+            started
+                .tags
+                .iter()
+                .any(|tag| tag == "post_budget_grace_counted:false"),
+            "{:?}",
+            started.tags
+        );
+
+        let mut feedback_event = provider_request_budget_input(
+            "provider-request-feedback",
+            "provider-request:turn-a:logical-feedback",
+            "started",
+            7,
+            8,
+            Some(TaskSpaceProviderRequestPhase::BudgetRecovery.as_str()),
+        );
+        feedback_event.max_requests = 6;
+        state
+            .record_provider_request_budget_events(&snapshot, vec![feedback_event])
+            .expect("feedback provider request event");
+
+        assert_eq!(state.budget_counters.post_budget_grace_request_count, 1);
+    }
+
+    #[test]
     fn taskspace_active_budget_allows_validation_rework_patch_feedback_grace() {
         let mut state = ActionMapRuntimeState::default();
         state.set_mode(MapRuntimeMode::Experiment);
@@ -21436,6 +21599,55 @@ TaskSpaceReadFileSummaryV1: path=data.csv lines_read=2 eof_reached=true max_line
 
         snapshot.node_request_count = 1;
         snapshot.current_node_validation_rework_artifacts.clear();
+        let decision = state.gate_provider_request_pre_dispatch(&snapshot);
+        assert!(!decision.allowed);
+        assert_eq!(decision.reason, "provider_request_hard_limit_exceeded");
+    }
+
+    #[test]
+    fn taskspace_active_budget_allows_fresh_executable_node_first_request() {
+        let mut state = ActionMapRuntimeState::default();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let mut snapshot = ActionMapProviderRequestBudgetSnapshot {
+            task_id: None,
+            map_id: "map-1".to_string(),
+            node_id: Some("node-implement".to_string()),
+            node_kind: Some(NodeKind::ImplementSolution.as_str().to_string()),
+            current_node_progress_signature: Some(0),
+            current_node_has_successful_edit: false,
+            current_node_has_dependency_working_evidence: true,
+            current_node_has_uncovered_mandatory_evidence: false,
+            current_node_uncovered_mandatory_evidence: Vec::new(),
+            current_node_validation_rework_artifacts: Vec::new(),
+            route_mode: Some(TaskSpaceRouteMode::VerificationFirst.as_str().to_string()),
+            profile_name: Some("taskspace-v005-verification_first".to_string()),
+            request_phase: Some(
+                TaskSpaceProviderRequestPhase::ModelSampling
+                    .as_str()
+                    .to_string(),
+            ),
+            provider_request_context_missing_reason: None,
+            request_count: 7,
+            max_requests: 6,
+            node_request_count: 0,
+            max_model_requests_per_node: 2,
+            post_budget_grace_requests: 1,
+            post_budget_grace_request_count: 1,
+            budget_state: TaskSpaceBudgetState::OverProfileHint.as_str().to_string(),
+        };
+
+        let decision = state.gate_provider_request_pre_dispatch(&snapshot);
+
+        assert!(decision.allowed);
+        assert_eq!(decision.reason, "provider_fresh_node_first_request_grace");
+
+        snapshot.node_request_count = 1;
+        let decision = state.gate_provider_request_pre_dispatch(&snapshot);
+        assert!(!decision.allowed);
+        assert_eq!(decision.reason, "provider_request_hard_limit_exceeded");
+
+        snapshot.node_request_count = 0;
+        snapshot.node_kind = Some(NodeKind::InspectCodeContext.as_str().to_string());
         let decision = state.gate_provider_request_pre_dispatch(&snapshot);
         assert!(!decision.allowed);
         assert_eq!(decision.reason, "provider_request_hard_limit_exceeded");

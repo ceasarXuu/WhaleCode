@@ -7,7 +7,7 @@
 
 ```text
 Phase: R5-B
-Status: implemented, live sample blocker open
+Status: implemented, live sample blocker closed by R5-C0
 Updated: 2026-07-09
 Primary code:
   third_party/codex-cli/codex-rs/core/src/action_map/map.rs
@@ -20,8 +20,9 @@ COE:
 
 PhaseB 的代码契约已经落地：ordinary main tool feedback 直接进入 `NodeEvent`，
 projection/debug snapshot 从 `node_events` 读取 recent feedback、refs 和 artifact refs。
-本阶段仍未关闭 live sample gate，因为 `count-call-stack` 暴露了请求预算对 TaskSpace
-多节点生命周期的截断。
+本阶段曾暴露 `count-call-stack` 请求预算对 TaskSpace 多节点生命周期的截断；
+该 blocker 已在 R5-C0 关闭，详见
+`docs/v0.0.5/build-R5/04-r5-phase-c0-cadence-parity.md`。
 
 ## 2. 实现内容
 
@@ -67,6 +68,7 @@ cargo build -p codex-cli --bin whale
 | R5-B 初跑 | `target/r5-phaseB-samples/count-call-stack/20260709-045241-275` | solved, 39962ms, 17 tools | wrong, 58014ms, 5 tools | failed `apply_patch` 已入 `node-event-5`，但反馈被 hard stop 截断 |
 | R5-B grace 修复后 | `target/r5-phaseB-samples-after-grace/count-call-stack/20260709-050448-661` | solved, 20214ms, 9 tools | wrong, 152930ms, 5 tools | 状态机拒绝反馈在预算临界点仍可能被截断 |
 | R5-B rejection follow-up 后 | `target/r5-phaseB-samples-after-rejection-grace/count-call-stack/20260709-051151-818` | solved, 19735ms, 11 tools | wrong, 37838ms, 6 tools | Agent 成功 `finish_node` 到 implement，但全局请求预算 7/6 后截断，未执行 patch |
+| R5-C0 收敛后 | `target/r5c0runs3/count-call-stack/20260709-070533-898` | solved, 29287ms, 11 tools | solved, 77214ms, 6 tools | budget lifecycle 和 action-contract patch 归一化 blocker 已关闭 |
 
 第三次 R5 rerun 的关键变化：
 
@@ -83,7 +85,7 @@ remaining: implement 节点创建后没有预算再进行 patch
 1. pre-limit `budget_recovery` 被错误计入 post-budget grace。
 2. `TaskSpaceActionV1 rejected` 等硬拒绝反馈在预算临界点没有 follow-up 机会。
 
-仍未关闭：
+已由 R5-C0 关闭：
 
 ```text
 request budget lifecycle cliff:
@@ -94,8 +96,9 @@ request budget lifecycle cliff:
 ```
 
 这不是 PhaseB NodeEvent 契约失败：读取结果、工具结果和状态机反馈都进入了上下文。
-它是预算 hard baseline 与多节点 TaskSpace 生命周期的边界问题，建议在 R5-C/E 之间单独收敛：
-预算只能保护资源底线，不能把已经完成的状态转移截断成不可执行半成品。
+它是预算 hard baseline 与多节点 TaskSpace 生命周期的边界问题。R5-C0 已将
+fresh executable node 首轮请求与 post-budget feedback grace 分账，并修复 action-contract
+patch trailing-only End 归一化缺陷；`count-call-stack` 二次复验 standard/R5 均 solved。
 
 ## 6. 操作记录
 

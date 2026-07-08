@@ -10,7 +10,7 @@
 Created: 2026-07-09
 Updated: 2026-07-09
 Version: v0.0.5 build-R5
-Status: In Progress - R5-B implemented, cadence blocker identified
+Status: In Progress - R5-C0 implemented and validated
 Owner / Responsible: WhaleCode core runtime
 Related Systems: TaskSpace runtime, action_map runtime, taskspace_control,
   context projection, provider-visible context, benchmark harness
@@ -18,6 +18,7 @@ Related Links:
   docs/v0.0.5/build-R5/00-r5-taskspace-simplification-charter.md
   docs/v0.0.5/build-R5/02-r5-phase-a-current-state-inventory.md
   docs/v0.0.5/build-R5/03-r5-phase-b-node-event-contract.md
+  docs/v0.0.5/build-R5/04-r5-phase-c0-cadence-parity.md
   docs/v0.0.5/build-R4/10-r4-request-convergence-engineering-plan.md
 Risk Level: High
 Plan Type: Full
@@ -83,7 +84,7 @@ TaskSpace 拉回三个职责：
 |---|---|---|---|
 | R5-A | Current-state inventory and baseline | 过度设计清单、活跃代码路径、R4 正负样本基线 | 每个复杂结构有 owner、active path、保留/降级/删除候选 |
 | R5-B | Minimal map/event contract | 直接 NodeEvent 契约和写入路径 | 工具结果可按 node 忠实归档并可 ref 读取 |
-| R5-C0 | Execution cadence parity | standard-like tool loop / action sequence 方案 | 简单任务不因一小步一请求在 implement 前 hard stop |
+| R5-C0 | Execution cadence parity | budget lifecycle 修复和 action-contract patch 语法归一化 | `count-call-stack` standard/R5 单样本均 solved，不再停在 implement 首轮或 malformed patch 归一化点 |
 | R5-C | Projection thin mode | active projection 改为 map skeleton + current node + events/refs | provider-visible diff 无策略提示、无语义重写 |
 | R5-D | Semantic ledger deactivation | D1 降级 `initial_*`，D2 降级 `problem_ledger/cognitive_state` active 控制权 | 局部任务文本不再变成 canonical truth |
 | R5-E | Runtime gate pruning | E1 清除策略性提示，E2 建 hard-gate classifier 并删除/降级语义 gate | 拒绝只保留硬状态机/协议/安全底线 |
@@ -97,7 +98,7 @@ TaskSpace 拉回三个职责：
 |---|---|---|---|
 | R5-A | 所有 active 复杂结构被标记为 `keep/thin/deactivate/delete/unknown`，且 `unknown` 有后续诊断 | 降低架构不确定性，避免盲删或继续堆补丁 | 结构清单覆盖 `state/projection/gate/tool feedback`；`unknown` 不允许进入删除 phase |
 | R5-B | ordinary tool success/failure 都能归档为 node-local event，并保留 excerpt/ref | 提升反馈可追踪性，后续 projection 不必重新解释工具语义 | fixture 中 tool result -> node event attribution 覆盖率 100%；raw/ref 可恢复 |
-| R5-C0 | TaskSpace 不再强制一小步一 provider request，或预算模型不再把状态机生命周期误计为 Agent 推理浪费 | 降低 request 放大，避免简单任务在 implement 前耗尽预算 | `count-call-stack` R5 能进入 implement 并至少执行一次合法 edit；standard/R5 request cadence 有同口径日志 |
+| R5-C0 | 预算模型不再把状态机生命周期和反馈交付窗口互相误扣；action-contract patch 归一化不再制造双 `End Patch` | 降低 request lifecycle cliff，避免简单任务在 implement 前或 patch 归一化处失败 | `count-call-stack` R5 已进入 implement、执行 edit，并在单样本中与 standard 均 solved；standard/R5 request cadence 有同口径日志 |
 | R5-C | active projection 只含 map skeleton、current node、events、refs、hard status | 减少上下文污染和策略注入，让 Agent 直接面对忠实反馈 | `projection_strategy_hint_count=0`；provider-visible payload diff 通过 |
 | R5-D | `initial_*`、ledger、cognitive state 不再作为 active canonical truth 或语义 gate | 防止任务文本局部细节被 runtime 固化放大 | H203/H204 path case 中 `/app` 不再由 projection/ledger 强化；state_commit 不要求 facts/decisions/adoption |
 | R5-E | 保留 gate 都能归类为状态机、协议、权限、安全或资源底线 | 清晰 runtime 边界，减少 Agent 被 runtime 纠错/引导 | `semantic_gate_block_count=0`；hard gate 分类测试通过 |
@@ -506,7 +507,7 @@ tool count、provider request count、state-machine action count、wall time、�
 |---|---|---|---|---|---|---|---|
 | R5-A inventory | 明确旧结构用途和拆除候选 | `core/src/action_map/*`, `tools/handlers/taskspace_control.rs` | docs/CoE | `02-r5-phase-a-current-state-inventory.md` | baseline artifact paths | none | landed |
 | R5-B node events | 工具反馈忠实归档到 node | `NodeEvent` direct path | ordinary tools under TaskSpace | direct success/failure fixtures | node_event trace/ref | none | landed |
-| R5-C0 cadence parity | TaskSpace 不因一小步一请求在 implement 前 hard stop | provider/tool loop 或 action sequence carrier | whale exec taskspace mode | cadence focused tests | provider request/tool/action metrics | none | planned |
+| R5-C0 cadence parity | TaskSpace 不因一小步一请求在 implement 前或 patch 归一化处 hard stop | budget lifecycle accounting + action-contract patch normalization | whale exec taskspace mode | cadence focused tests, patch normalization test | provider request/tool/action metrics, `count-call-stack` paired report | none | landed |
 | R5-C thin projection | model-visible 只含 map/node/events/refs | projection renderer | provider request | payload snapshot/diff | omission audit | none | planned |
 | R5-D ledger deactivation | semantic ledger 不控制 active path | state_commit/start_task handling | taskspace_control | initial_* and state_commit tests | state update traces | none | planned |
 | R5-E gate pruning | 只保留硬底线拒绝 | state machine gate path | ordinary tool preflight | gate classification tests | blocked reason taxonomy | none | planned |
@@ -545,9 +546,11 @@ R5-A 已按不改 runtime 的方式完成：
 3. 已标出必须先保留的 replay/debug refs。
 4. R5-B 的最小 `NodeEvent` contract 需要直接实现，不做兼容 overlay。
 
-R5-B 已完成最小 `NodeEvent` 直接路径，并在 `count-call-stack` 中暴露新的 request cadence
-blocker。下一步先进入 R5-C0，解决 TaskSpace 一小步一 provider request 的执行节奏问题；
-在 C0 关闭前，不进入 projection thin 的收益判断。
+R5-B 已完成最小 `NodeEvent` 直接路径，并在 `count-call-stack` 中暴露 request cadence
+blocker。R5-C0 已关闭该 blocker：fresh executable node 首轮请求与 post-budget feedback
+grace 已分账，action-contract patch trailing-only End 归一化缺陷已修复，单样本复验
+standard/R5 均 solved。下一步进入 R5-C thin projection，但仍需继续跟踪 action-contract
+一步一请求的结构性成本。
 
 ## 1.20 R5-A/B 后计划校准
 
@@ -556,6 +559,6 @@ blocker。下一步先进入 R5-C0，解决 TaskSpace 一小步一 provider requ
 | `initial_*` 会把局部任务文本提升为结构化 fact/source/contract | R5-D 拆出 D1，先关闭 canonical truth 提升 |
 | active projection 混合 ledger、coverage、tool feedback、strategy hints | R5-C 做 thin projection，但必须排在 C0 cadence 收敛之后 |
 | `NodeResult/TaskSpaceTraceEvent` 暴露了正确的 node-event 方向，但不应作为兼容层保留 | R5-B 直接实现最小 NodeEvent，并切断旧结构 active 依赖 |
-| R5-B live sample 显示 TaskSpace 一小步一 provider request，`verification_first` 在 implement 前 hard stop | 新增 R5-C0，先恢复接近 standard 的工具循环节奏和同口径 telemetry |
+| R5-B live sample 显示 TaskSpace 一小步一 provider request，`verification_first` 在 implement 前 hard stop | R5-C0 已先修复 budget lifecycle cliff 和 patch 归一化缺陷；完整 standard-like tool loop 仍留给后续 Phase C/E 评估 |
 | R4 large-output/ref 是正向收益 | R5-B/C 必须保留 raw_ref/excerpt，不和语义 gate 一起删除 |
 | gate 消息含策略性纠错 | R5-E 先清 model-visible guidance，再建立 hard-gate classifier |
