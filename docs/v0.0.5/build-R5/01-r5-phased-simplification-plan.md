@@ -61,7 +61,8 @@ TaskSpace 拉回三个职责：
 ```text
 不在 R5 追求新的 benchmark 分数峰值。
 不把失败样本通过 runtime 禁止动作来做 pass。
-不要求一次性删除所有旧结构；必须先证明替代路径稳定。
+不要求一次性大爆炸改完所有代码；每个 phase 可以独立切断一类 active path。
+不得为了历史数据或旧 schema 增加 runtime 兼容层、legacy adapter 或双写路径。
 不重写整个 Codex upstream substrate。
 ```
 
@@ -71,7 +72,7 @@ TaskSpace 拉回三个职责：
 |---|---|---|
 | TaskSpace 当前核心代码集中在 `action_map/runtime.rs` 和 `taskspace_control.rs` | R5-A 代码审计 | 先补模块边界图，再进入拆除 |
 | R4 正向样本可作为回归防线 | R5-A 基线复用或重跑 | 选取更小 targeted baseline，不进入移除 phase |
-| 简洁模型能保留必要 replay/debug refs | R5-B event/ref schema 验证 | 暂缓删除旧结果结构，只做 projection 降级 |
+| 简洁模型能保留当前运行必要 replay/debug refs | R5-B event/ref schema 验证 | 修正 NodeEvent 直接 schema，不增加旧结果结构兼容层 |
 | Agent 能承担语义判断 | paired sample 观察 | 优先检查上下文透传，不回退到 runtime 策略控制 |
 
 ## 1.5 Phase 总览
@@ -79,11 +80,11 @@ TaskSpace 拉回三个职责：
 | Phase | Theme | Main Output | Exit Gate |
 |---|---|---|---|
 | R5-A | Current-state inventory and baseline | 过度设计清单、活跃代码路径、R4 正负样本基线 | 每个复杂结构有 owner、active path、保留/降级/删除候选 |
-| R5-B | Minimal map/event contract | 基于 `NodeResult/TaskSpaceTraceEvent` 的兼容 NodeEvent overlay | 工具结果可按 node 忠实归档并可 ref 读取 |
+| R5-B | Minimal map/event contract | 直接 NodeEvent 契约和写入路径 | 工具结果可按 node 忠实归档并可 ref 读取 |
 | R5-C | Projection thin mode | active projection 改为 map skeleton + current node + events/refs | provider-visible diff 无策略提示、无语义重写 |
 | R5-D | Semantic ledger deactivation | D1 降级 `initial_*`，D2 降级 `problem_ledger/cognitive_state` active 控制权 | 局部任务文本不再变成 canonical truth |
 | R5-E | Runtime gate pruning | E1 清除策略性提示，E2 建 hard-gate classifier 并删除/降级语义 gate | 拒绝只保留硬状态机/协议/安全底线 |
-| R5-F | Compatibility cleanup and code split | 旧结构隔离、模块拆分、兼容读路径 | 生产路径不依赖旧语义控制，代码边界清楚 |
+| R5-F | Dead code cleanup and code split | 删除旧结构、模块拆分、移除兼容分支 | 生产路径不依赖旧语义控制，代码边界清楚 |
 | R5-G | Regression and benefit gate | 正向/负向样本对照、成本和语义传递报告 | 不引入明确负收益，失败可解释 |
 | R5-H | Closeout | R5 收口报告和后续 backlog | 文档、测试、代码、证据一致 |
 
@@ -96,7 +97,7 @@ TaskSpace 拉回三个职责：
 | R5-C | active projection 只含 map skeleton、current node、events、refs、hard status | 减少上下文污染和策略注入，让 Agent 直接面对忠实反馈 | `projection_strategy_hint_count=0`；provider-visible payload diff 通过 |
 | R5-D | `initial_*`、ledger、cognitive state 不再作为 active canonical truth 或语义 gate | 防止任务文本局部细节被 runtime 固化放大 | H203/H204 path case 中 `/app` 不再由 projection/ledger 强化；state_commit 不要求 facts/decisions/adoption |
 | R5-E | 保留 gate 都能归类为状态机、协议、权限、安全或资源底线 | 清晰 runtime 边界，减少 Agent 被 runtime 纠错/引导 | `semantic_gate_block_count=0`；hard gate 分类测试通过 |
-| R5-F | active path 不依赖 legacy semantic ledger，模块边界测试通过 | 提升可维护性，降低 `runtime.rs` 混合职责继续扩张风险 | call/import 审计证明 projection 不调用 cognitive coverage helper；cargo check/test 通过 |
+| R5-F | active path 不依赖旧 semantic ledger，模块边界测试通过 | 提升可维护性，降低 `runtime.rs` 混合职责继续扩张风险 | call/import 审计证明 projection 不调用 cognitive coverage helper；cargo check/test 通过 |
 | R5-G | targeted paired runs 无明确 correctness 回退，成本无无解释放大 | 用样本证明简化不是单纯删功能，而是降低干扰且保留收益 | business success、tool/model request、tokens、wall time、feedback completeness 对比报告 |
 | R5-H | closeout 列出已删/降级/保留结构和后续删除条件，git clean | 形成可交接的架构边界和后续路线，避免 R5 结论再次散落 | closeout 文档、证据索引、clean git、保留复杂结构 owner/exit condition |
 
@@ -168,7 +169,8 @@ event 有 raw_ref 或 visible_excerpt。
 负收益防线：
 
 ```text
-旧 NodeResult/TaskSpaceTraceEvent 必须先作为 event 后端，不能先删再补。
+直接建立 NodeEvent 写入路径；旧 NodeResult/TaskSpaceTraceEvent 只能作为被替换对象，
+不得引入兼容后端、双写或历史读取分支。
 ```
 
 ## 1.8 Phase R5-C：Projection thin mode
@@ -299,11 +301,12 @@ blocked message 不包含策略性纠错指令。
 不得第一反应重新加 runtime 语义约束。
 ```
 
-## 1.11 Phase R5-F：兼容清理和模块拆分
+## 1.11 Phase R5-F：死代码清理和模块拆分
 
 目标：
 
-把旧的大型 runtime 混合逻辑拆成清晰模块，避免再次把 projection、gate、ledger、工具反馈缠在一起。
+把旧的大型 runtime 混合逻辑拆成清晰模块，并删除不再被 active path 使用的旧结构。
+R5 不做历史数据兼容，不保留 legacy adapter。
 
 建议边界：
 
@@ -312,15 +315,15 @@ map_state.rs        只管理 task/map/node/edge/status
 node_events.rs     只管理事件、工具反馈、raw refs
 state_machine.rs   只做硬规则校验
 projection.rs      只渲染薄上下文和 omission audit
-legacy_ledger.rs   只读兼容旧数据，不参与 active 控制
 ```
 
 退出门禁：
 
 ```text
-active provider path 不依赖 legacy semantic ledger。
+active provider path 不依赖旧 semantic ledger。
 projection 代码不能调用语义 gate/cognitive coverage helper。
 单元测试覆盖模块边界。
+不存在 legacy read/compat adapter 或双写路径。
 ```
 
 负收益防线：
@@ -414,7 +417,7 @@ R5 closeout 文档
 | R5-A inventory | 明确旧结构用途和拆除候选 | `core/src/action_map/*`, `tools/handlers/taskspace_control.rs` | docs/CoE | `02-r5-phase-a-current-state-inventory.md` | baseline artifact paths | none | landed |
 | R5-B node events | 工具反馈忠实归档到 node | new/refactored node event path | ordinary tools under TaskSpace | direct success/failure fixtures | node_event trace/ref | none | planned |
 | R5-C thin projection | model-visible 只含 map/node/events/refs | projection renderer | provider request | payload snapshot/diff | omission audit | none | planned |
-| R5-D ledger deactivation | semantic ledger 不控制 active path | state_commit/start_task handling | taskspace_control | initial_* and state_commit tests | state update traces | legacy read only | planned |
+| R5-D ledger deactivation | semantic ledger 不控制 active path | state_commit/start_task handling | taskspace_control | initial_* and state_commit tests | state update traces | none | planned |
 | R5-E gate pruning | 只保留硬底线拒绝 | state machine gate path | ordinary tool preflight | gate classification tests | blocked reason taxonomy | none | planned |
 | R5-F module split | map/event/gate/projection 边界清晰 | action_map modules | whale exec --taskspace | cargo check/test | trace fields stable | none | planned |
 | R5-G benefit gate | 简化无明确负收益 | benchmark harness | targeted samples | paired report | metrics json/report | none | planned |
@@ -427,14 +430,14 @@ R5 closeout 文档
 | raw ref creation | ref_created | `raw_ref.created` | `raw_ref.failed` | `error_code` | `event_id/ref_id/call_id` | info/error | runtime/debug |
 | projection render | rendered | `projection.thin.rendered` | `projection.thin.failed` | `reason` | `projection_id/task_id/map_id/node_id` | info/error | benchmark/debug |
 | hard gate reject | rejected | n/a | `state_machine.hard_reject` | `rule_id` | `task_id/map_id/node_id/call_id` | warn | Agent/debug |
-| legacy ledger fallback | fallback_used | `legacy_ledger.read_compat` | `legacy_ledger.active_dependency` | `legacy_field` | `task_id/map_id` | warn/error | R5 owner |
+| old semantic path removal | removed | `taskspace.old_semantic_path_removed` | `taskspace.old_semantic_path_still_active` | `old_path` | `task_id/map_id` | warn/error | R5 owner |
 
 ## 1.17 风险
 
 | Risk | Probability | Impact | Trigger Signal | Mitigation | Fallback |
 |---|---:|---:|---|---|---|
 | 简化后 Agent 漏掉重要约束 | Medium | High | validation failure 增加 | 先查 event/ref 透传和 node objective | 恢复为 node note，不恢复 semantic gate |
-| 删除 ledger 破坏旧测试 | High | Medium | fixture 大量失败 | 分阶段降级，先兼容读 | 保留 legacy adapter |
+| 删除 ledger 破坏旧测试 | High | Medium | fixture 大量失败 | 区分旧设计断言和新边界断言，删除或重写旧设计测试 | 回退本 phase commit 后重拆，不加兼容层 |
 | projection 太薄导致反馈不可见 | Medium | High | Agent 重复低级错误 | 增加忠实 excerpt/ref，不加策略提示 | 回退 R5-C，不回退 R5-D/E |
 | gate pruning 放大循环 | Medium | Medium | repeated same action 增加 | 先诊断上下文是否丢失/扭曲 | 加硬资源底线，不加语义纠错 |
 | 模块拆分引入行为回归 | Medium | Medium | cargo/test failure | 行为变化与拆文件分 phase | revert 单 phase commit |
@@ -446,9 +449,9 @@ R5-A 已按不改 runtime 的方式完成：
 1. 已建立 active 语义结构清单。
 2. 已从 R4 H203/H204、large-output、simple success 选出最小 baseline。
 3. 已标出必须先保留的 replay/debug refs。
-4. R5-B 的最小 `NodeEvent` contract 需要以兼容 overlay 方式实现。
+4. R5-B 的最小 `NodeEvent` contract 需要直接实现，不做兼容 overlay。
 
-下一步进入 R5-B，但只做兼容 event/ref overlay，不先删除旧结构。
+下一步进入 R5-B，直接建立最小 event/ref 路径，并删除或切断旧 result/trace active 依赖。
 
 ## 1.19 R5-A 后计划校准
 
@@ -456,6 +459,6 @@ R5-A 已按不改 runtime 的方式完成：
 |---|---|
 | `initial_*` 会把局部任务文本提升为结构化 fact/source/contract | R5-D 拆出 D1，先关闭 canonical truth 提升 |
 | active projection 混合 ledger、coverage、tool feedback、strategy hints | R5-C 先做 thin projection，再进入 ledger 删除 |
-| `NodeResult/TaskSpaceTraceEvent` 已接近 node event 后端 | R5-B 先做 overlay，不重写或删除存储 |
+| `NodeResult/TaskSpaceTraceEvent` 暴露了正确的 node-event 方向，但不应作为兼容层保留 | R5-B 直接实现最小 NodeEvent，并切断旧结构 active 依赖 |
 | R4 large-output/ref 是正向收益 | R5-B/C 必须保留 raw_ref/excerpt，不和语义 gate 一起删除 |
 | gate 消息含策略性纠错 | R5-E 先清 model-visible guidance，再建立 hard-gate classifier |

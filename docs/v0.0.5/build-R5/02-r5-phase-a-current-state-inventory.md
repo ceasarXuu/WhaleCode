@@ -20,7 +20,7 @@ R5-A 已完成静态盘点和 baseline 归档。本阶段没有修改 runtime �
 
 1. 当前 TaskSpace 已经不是单纯的 map/state-machine 工具，而是把 problem ledger、cognitive state、fact coverage、rework guidance、next-valid-actions 等语义控制放进 active path。
 2. H203/H204 这类问题的风险点不是“状态机不够强”，而是局部上下文被结构化成 canonical truth 后，又被 projection/gate 放大。
-3. R5 不能先删除旧结构；必须先建立兼容的 node event/ref 表达，再把 projection 变薄，再逐步降级 ledger/gate。
+3. R5 不做兼容层；应直接建立最小 node event/ref 路径，再把 projection 变薄，并逐步删除或切断 ledger/gate active path。
 4. R4 中已经验证有效的能力主要是工具反馈保真和 large output/ref。R5 必须保留这些底线，不能把它们和语义控制一起删掉。
 
 R5-A 退出门禁状态：
@@ -28,7 +28,7 @@ R5-A 退出门禁状态：
 | Gate | Status | Evidence |
 |---|---|---|
 | active 复杂结构已分类 | pass | 本文第 4-6 节 |
-| unknown 不阻塞 R5-B | pass | 未发现必须先删除才能建立 node event overlay 的未知项 |
+| unknown 不阻塞 R5-B | pass | 未发现阻塞直接建立最小 node event/ref 路径的未知项 |
 | baseline 覆盖 simple、feedback、path、large-output | pass | 本文第 7 节 |
 | 生产行为不变 | pass | 本阶段仅文档变更 |
 
@@ -69,9 +69,9 @@ R5-A 退出门禁状态：
 | `ActionMapInstance.nodes/edges/leases/results` | map graph and execution records | keep/thin | R5 简洁模型的主体 |
 | `MapNode.id/title/kind/status/context/deps` | node-local work context | keep | taskspace 的图化组织核心 |
 | `SubagentPlan.why_parallelizable/expected_artifact/acceptance_check/...` | subagent semantic planning | thin/deactivate | 这些字段可作为 Agent-authored note，不能控制普通主路径 |
-| `NodeResult.body/tool_success/action_class` | tool feedback record | keep as NodeEvent backend | 最接近忠实 event/ref 模型 |
+| `NodeResult.body/tool_success/action_class` | tool feedback record | replace by direct NodeEvent | 方向正确，但不应作为兼容后端长期保留 |
 | `NodeResultEvidencePackage.claims/validity/adoption` | result semantic trust/adoption | deactivate | runtime 不应维护语义采纳链 |
-| `TaskSpaceTraceEvent` | replay/debug trace | keep/extend | 可承接 node event/ref 索引 |
+| `TaskSpaceTraceEvent` | replay/debug trace | replace/collapse into minimal NodeEvent trace | 不为历史 trace 兼容保留旧结构 |
 | `initial_success_criteria/output_contracts/fact_sources` | start_task 初始语义结构 | deactivate as canonical truth | 局部任务文本不应被自动提升为强事实/合同 |
 
 关键发现：
@@ -145,27 +145,27 @@ R5-A 盘点后，后续 phase 需要按以下顺序调整：
 
 | Adjustment | New Plan |
 |---|---|
-| R5-B 不直接重写存储 | 先用现有 `NodeResult/TaskSpaceTraceEvent` 做兼容 NodeEvent overlay |
+| R5-B 直接重写最小事件路径 | 新建或收敛为直接 NodeEvent，不做 `NodeResult/TaskSpaceTraceEvent` 兼容 overlay |
 | R5-C 先于 ledger 删除 | 先证明 thin projection 能忠实显示 tool event/ref，再降级 ledger |
 | R5-D 拆成 D1/D2 | D1 关闭 `initial_*` canonical truth；D2 降级 `problem_ledger/cognitive_state` active path |
 | R5-E 拆成 E1/E2 | E1 移除 model-visible strategy/recovery text；E2 建 hard-gate classifier 再删 semantic gate |
-| R5-G 不依赖历史路径 | 重跑最小 targeted samples，并记录历史 artifact 是否仍可用 |
+| R5-G 不依赖历史路径 | 重跑最小 targeted samples；历史 artifact 只作为背景参考，不作为门禁数据 |
 
-R5-B 的直接目标不是“删除字段”，而是建立一个可验证的兼容事件表面：
+R5-B 的直接目标是建立一个可验证的最小事件表面，并同步切断旧 result/trace active 依赖：
 
 ```text
 ordinary tool call/result -> current node event
 event -> bounded visible excerpt
 large output -> raw_ref + excerpt
 projection -> map skeleton + current node + recent node events + refs
-legacy ledger -> read-only compatibility, not active authority
+old ledger/result/trace -> no compatibility adapter; delete or inactive
 ```
 
 ## 9. Phase A 关闭判定
 
 R5-A 可以关闭，进入 R5-B，但带以下执行约束：
 
-1. 不允许在 R5-B 删除 `NodeResult`、`TaskSpaceTraceEvent` 或 large-output/ref 路径。
+1. R5-B 允许删除或切断 `NodeResult`、`TaskSpaceTraceEvent` active 依赖；不得删除当前运行需要的 large-output/ref 能力。
 2. 不允许为了 H203/H204 加新的 runtime 语义纠错规则。
 3. 所有 R5-B/C 的测试必须同时检查工具失败语义、路径、stderr/exit/ref 可见。
 4. 若 Agent 继续低级重复，第一优先级检查 provider-visible event/ref 是否丢失、裁剪过度或被结构化扭曲。

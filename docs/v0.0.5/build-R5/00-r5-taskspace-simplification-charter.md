@@ -131,8 +131,8 @@ path correction controller
 | Agent 主权 | Agent 决定语义、策略、状态推进；runtime 不替 Agent “更聪明” |
 | 状态机底线 | runtime 只维护 map、节点生命周期、归属、依赖、工具配对和协议硬规则 |
 | 简洁优先 | 新结构必须证明比旧结构少、更透明、更可测，不能为了修单点失败继续堆语义层 |
-| 渐进拆除 | 每个 phase 拆掉一类过度设计，并用 paired/targeted 样本证明没有负收益 |
-| 可回滚 | 每次收敛保留清晰回退点，旧结构移除前先有兼容读或迁移证据 |
+| 渐进拆除 | 每个 phase 直接切断或删除一类过度设计，并用 paired/targeted 样本证明没有负收益 |
+| 无兼容债 | 本产品为实验性产品，不保留历史 TaskSpace 数据兼容；风险控制依赖小提交、测试和 git 回退，不依赖 runtime 兼容层 |
 | 日志驱动 | 记录 map 状态、node event 归属、projection 裁剪、硬规则拒绝，不记录主观策略判断 |
 
 ## 0.6 明确非目标
@@ -142,7 +142,7 @@ path correction controller
 不让 runtime 自动纠正 Agent 的错误工具选择。
 不新增更强 prompt 让 Agent “应该如何思考”。
 不把 benchmark 任务文本中的局部细节提升成无 provenance 的 canonical truth。
-不删除 replay/debug 需要的 raw refs。
+不在当前运行中丢弃 Agent 需要的工具反馈和 raw refs。
 不为了降低成本静默丢弃工具反馈。
 不以 sample pass 证明架构正确，必须同时看负收益和语义传递质量。
 ```
@@ -159,4 +159,4 @@ R5 完成时必须满足：
 5. 状态机拒绝只发生在硬规则底线：无 task/node 归属、状态非法、工具协议/配对非法、权限/沙箱/安全基线非法。
 6. R4 已有正向样本不发生明确回退；已知失败样本的失败形态不能变成反馈丢失或上下文扭曲。
 7. 成本指标不因“少结构”显著恶化：request count、tool count、input tokens、wall time 至少不出现无解释放大。
-8. R5 closeout 必须列出仍保留的复杂结构、保留原因、后续删除条件。
+8. R5 closeout 必须列出仍保留的复杂结构、保留原因、后续删除条件；默认不为历史数据兼容保留复杂结构。
