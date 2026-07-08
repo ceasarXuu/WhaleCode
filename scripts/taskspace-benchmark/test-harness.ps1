@@ -928,6 +928,9 @@ Assert-True ([bool]$adapterScenario.external_benchmark.validator_fidelity.agent_
 Assert-True ([bool]$adapterScenario.external_benchmark.validator_fidelity.docker_runtime) "terminal-bench Docker runtime capability was not recorded"
 Assert-True ([string]$adapterScenario.external_benchmark.adapter_metadata.instruction_extraction_mode -eq "literal") "terminal-bench literal instruction mode was not recorded"
 Assert-True (@($adapterScenario.prompt_guard.source_spans).Count -eq 2) "terminal-bench prompt guard source spans were not recorded"
+$adapterPromptText = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $adapterScenarioDir "prompt.txt")
+Assert-True ($adapterPromptText -match "Local tools start in the directory that the public validator later mounts as /app") "terminal-bench prompt did not describe local /app path mapping"
+Assert-True ($adapterPromptText -match "the matching local path is <path> under the current working directory") "terminal-bench prompt did not map /app paths to cwd-relative paths"
 Assert-True (@($adapterScenario.external_benchmark.adapter_metadata.generated_fixture_allowlist) -contains "task-deps/input.csv") "terminal-bench recursive fixture allowlist missed public file"
 Assert-True (@($adapterScenario.external_benchmark.adapter_metadata.generated_fixture_allowlist) -contains "input.csv") "terminal-bench fixture allowlist missed projected app file"
 Assert-True ([bool]$adapterScenario.external_benchmark.adapter_metadata.agent_app_fixture_projection.projected) "terminal-bench fixture projection metadata was not recorded"
@@ -966,6 +969,7 @@ try {
     if ([System.Environment]::OSVersion.Platform -eq [System.PlatformID]::Win32NT) {
         powershell -NoProfile -Command "Set-Location '$($aliasMount.execution_repo_dir)'; New-Item -ItemType File -Force -Path /app/subst-smoke.txt | Out-Null"
     } else {
+        Assert-True ([string]$aliasMount.app_root_alias_env -eq "") "Terminal-Bench non-Windows /app alias should not request an unverified sandbox env"
         powershell -NoProfile -Command "Set-Location '$($aliasMount.execution_repo_dir)'; New-Item -ItemType File -Force -Path subst-smoke.txt | Out-Null"
     }
 } finally {

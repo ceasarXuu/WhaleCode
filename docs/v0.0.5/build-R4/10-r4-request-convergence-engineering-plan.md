@@ -3,7 +3,7 @@
 - Created: 2026-07-08
 - Updated: 2026-07-08
 - Version: v0.0.5 build-R4 post-closeout
-- Status: Active - Phase 1-4 implemented; H-200 runtime response-recovery boundary fix verified on targeted sample; Phase 5 targeted diagnostics benefit no-go; H-202 fact-source coverage repair implemented; live sqlite rerun exposed H-203 `/app` capability gap
+- Status: Active - Phase 1-4 implemented; H-200 runtime response-recovery boundary fix verified on targeted sample; Phase 5 targeted diagnostics benefit no-go; H-202 fact-source coverage repair implemented; H-203 adapter path-fact repair implemented; live sqlite rerun exposed H-204 path/body reversion plus long-request cost no-go
 - Owner / Responsible: WhaleCode core runtime
 - Related Systems: TaskSpace runtime, ActionMapRuntime, session turn loop, action-contract feedback, active projection, context compiler, benchmark harness
 - Related Links:
@@ -519,7 +519,7 @@ Live 复跑边界：
 - 新证据显示失败主因转移到工具能力层：Terminal-Bench 指令和 validator 语义使用 `/app`，但 Linux Agent 工具执行环境只有 cwd 指向 `right/app`，没有硬 `/app` 绝对路径别名。Agent 先成功看到 `./trunc.db`，随后多次使用 `/app/trunc.db` 得到真实但误导性的 `No such file` / `unable to open database file`。
 - 这不是要让 projection 注入路径纠错，也不是让 runtime 纠正 Agent 行为；它是 harness/tool runtime 没有忠实提供外部 benchmark 声明的文件系统能力。
 
-### H-203 Terminal-Bench `/app` Capability Gap - 2026-07-08
+### H-203 Terminal-Bench `/app` Path-Fact Gap - 2026-07-08
 
 症状：
 
@@ -528,12 +528,58 @@ Live 复跑边界：
 - Agent 执行 `python3 ... /app/trunc.db`、`xxd /app/trunc.db`、`read_file /app/trunc.db` 时，工具结果机械失败。
 - validator wrapper 仍按 Docker 等价语义运行：`-v repo:/app -w /app`。
 
-修复方向：
+方案收敛：
 
-1. 在 benchmark harness 识别 Terminal-Bench equivalent Docker `/app` 样本时，显式打开一个工具能力 opt-in。
-2. 在 Linux bwrap 沙箱中，仅当 opt-in 打开时，把 command cwd 绑定到 `/app`。
-3. 不改任务语义、不替 Agent 重写动作、不在 projection 增加思考层提示。
-4. 保留 prompt note 作为人类可读说明，但能力层必须让 `/app/<path>` 真实可用。
+1. 硬 `/app` alias 是能力层上更理想的形态，但当前本机 bwrap 真实执行 `--symlink <cwd> /app` 失败：`bwrap: setting up uid map: Permission denied`。
+2. 因此不能把默认 harness 绑定到一个当前不可验证的 runtime 分支；未验证的 `WHALE_TASKSPACE_SYMLINK_CWD_TO_APP` / bwrap alias 路径已从修复 diff 中撤回。
+3. 当前落地修复改为 adapter 层的路径事实表达：本地工具从将被 validator 挂载为 `/app` 的目录启动；本地 tool call 使用相对路径或 cwd 路径；`/app/<path>` 对应 cwd 下的 `<path>`。
+4. 非 Windows `Mount-TaskspaceExecutionAlias` 仍记录 validator `/app` 语义，但不再向 Whale 子进程注入未验证的 sandbox env。
+5. 这不是 projection next-action guidance，也不是 runtime 纠正 Agent；它只修正 benchmark adapter 对本地工具环境事实的表达。
+
+验证：
+
+```text
+pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/taskspace-benchmark/test-harness.ps1
+  passed
+
+cargo build -p codex-cli --bin whale --locked
+  passed
+
+pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/taskspace-benchmark/write-whale-binary-attestation.ps1 ...
+  attestation refreshed
+```
+
+Live 复跑：
+
+- RunDir: `target/r4-h203-app-path-prompt-sqlite-right-20260708-r2/runs/terminal_bench__sqlite-db-truncate/20260708-193611-035/pair-001`
+- Prompt 已包含新路径事实说明。
+- Agent 仍两次回退到 `/app` 绝对路径，但每次工具失败后都能恢复到相对路径继续诊断。
+- 结果仍 no-go：`business_success=False`，`public_validation_exit_code=1`，`recover.json` 未生成，`wall_time_ms=801871`，`tool_call_count=19`。
+
+边界结论：
+
+- H-203 的“路径事实说明”已修复；硬 `/app` capability 仍是可选后续能力，但不能在当前环境作为默认修复。
+- Live no-go 已转移到 H-204：任务正文反复带回 `/app` 绝对路径、Agent 仍会局部回退；同时长二进制输出和长模型等待放大成本。
+
+### H-204 Path Body Reversion And Long-Request Cost No-Go - 2026-07-08
+
+症状：
+
+- 新 prompt 已说明本地路径映射，但 Agent 读取 `task.yaml` 后仍根据任务正文发出 `xxd /app/trunc.db`、`cd /app && ...`、最终 `last-message.md` 仍包含 `with open('/app/trunc.db','rb')`。
+- 工具反馈没有丢失：`/app` 失败结果进入上下文，后续 Agent 会改用 `trunc.db` 并继续解析。
+- 成本问题仍明显：该 right-only run wall time 约 802s，rollout trace 21 次模型请求，输入 tokens 约 2.54M，其中 cached tokens 约 2.497M。
+- validator 真正跑到 tests completed，失败原因是 `/app/recover.json` 不存在，不是环境 preflight 或 validator infra 失败。
+
+根因判断：
+
+- 不是 runtime 应该拒绝 `/app` 动作，也不是 projection 应该注入更强思考提示。
+- 当前问题仍属于语义有效性/效率：外部任务正文和本地工具路径事实之间存在持续张力；Agent 能从失败反馈恢复，但会反复被任务正文拉回绝对路径，且大输出/长等待把请求成本放大。
+
+后续修复方向：
+
+1. 优先做 benchmark adapter / tool capability 的边界清晰化：要么证明硬 `/app` alias 可用并默认启用，要么在生成任务上下文时把路径映射作为机械事实保留在更稳定的位置，避免被后续 `task.yaml` 原文覆盖。
+2. 对二进制/hex 大输出继续走透明 output-ref / 渐进读取，而不是让全量 `xxd` 直接进入模型上下文。
+3. 不新增 runtime semantic stop，不阻止 Agent 选择错误路径；只改进事实传递、引用检索和能力层一致性。
 
 ### H-201 Candidate: Provider Payload Attribution
 

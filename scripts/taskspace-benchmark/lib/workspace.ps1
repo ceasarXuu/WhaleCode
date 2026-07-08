@@ -132,7 +132,7 @@ function Mount-TaskspaceExecutionAlias {
     param([Parameter(Mandatory = $true)]$Side)
     $aliasRoot = if ($Side.PSObject.Properties.Name -contains "ExecutionAliasRoot") { [string]$Side.ExecutionAliasRoot } else { "" }
     if ([string]::IsNullOrWhiteSpace($aliasRoot)) {
-        return [pscustomobject]@{ mounted = $false; drive = ""; execution_repo_dir = $Side.RepoDir }
+        return [pscustomobject]@{ mounted = $false; drive = ""; execution_repo_dir = $Side.RepoDir; app_root_alias = ""; app_root_alias_env = "" }
     }
     if ([System.Environment]::OSVersion.Platform -ne [System.PlatformID]::Win32NT) {
         return [pscustomobject]@{
@@ -141,6 +141,8 @@ function Mount-TaskspaceExecutionAlias {
             alias_root = $aliasRoot
             execution_repo_dir = $Side.RepoDir
             mount_strategy = "direct_repo_dir_non_windows"
+            app_root_alias = "/app"
+            app_root_alias_env = ""
         }
     }
     $drive = Get-TaskspaceFreeSubstDrive
@@ -151,6 +153,8 @@ function Mount-TaskspaceExecutionAlias {
         drive = $drive
         alias_root = $aliasRoot
         execution_repo_dir = (Join-Path "$drive\" "app")
+        app_root_alias = "/app"
+        app_root_alias_env = ""
     }
 }
 

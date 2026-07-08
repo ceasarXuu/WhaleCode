@@ -174,7 +174,7 @@ $upstreamPromptText = $originalPromptText.TrimEnd()
 $runnerNote = @"
 
 Local runner environment note:
-Treat the current working directory as the task's /app directory. If the instruction names /app/<path>, create or update <path> in the current working directory rather than creating a nested app/ directory or C:\app.
+Local tools start in the directory that the public validator later mounts as /app. In local tool calls, use relative paths or current-working-directory paths for task files. If the instruction names /app/<path>, the matching local path is <path> under the current working directory; do not create a nested app/ directory or C:\app.
 "@
 $adaptedPromptText = $upstreamPromptText + $runnerNote
 Set-Content -LiteralPath $adaptedPrompt -Encoding UTF8 -Value $adaptedPromptText

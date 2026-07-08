@@ -466,12 +466,15 @@ for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
                 $executionRepoDir = [string]$mount.execution_repo_dir
                 $args = New-TaskspaceWhaleArgv $side.LogicalMode $Model $executionRepoDir $lastMessagePath $SandboxMode $ConfigOverride
                 $commonArgs = @($args | Where-Object { $_ -ne "--taskspace" })
-                Write-TaskspaceJson ([pscustomobject]@{ logical_mode = $side.LogicalMode; argv = @($args); common_argv_without_treatment = @($commonArgs); treatment_delta = @("--taskspace"); execution_alias = $mount }) (Join-Path $side.ArtifactDir "whale-argv.json")
                 $childEnvironment = @{}
+                if ($mount.PSObject.Properties.Name -contains "app_root_alias_env" -and -not [string]::IsNullOrWhiteSpace([string]$mount.app_root_alias_env)) {
+                    $childEnvironment[[string]$mount.app_root_alias_env] = "1"
+                }
                 if ($side.LogicalMode -eq "taskspace") {
                     $childEnvironment["WHALE_TASKSPACE_ROUTE_MODE"] = [string]$routingDecision.recommended_mode
                     $childEnvironment["WHALE_TASKSPACE_PROFILE_NAME"] = "taskspace-v005-$($routingDecision.recommended_mode)"
                 }
+                Write-TaskspaceJson ([pscustomobject]@{ logical_mode = $side.LogicalMode; argv = @($args); common_argv_without_treatment = @($commonArgs); treatment_delta = @("--taskspace"); execution_alias = $mount; child_environment = $childEnvironment }) (Join-Path $side.ArtifactDir "whale-argv.json")
                 $started = Get-Date
                 $timedOut = $false
                 try {

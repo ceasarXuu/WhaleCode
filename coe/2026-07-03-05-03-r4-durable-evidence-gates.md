@@ -12901,4 +12901,70 @@
   2. The generated validator wrapper will still prove `container_workdir=/app` and mount `repo:/app`.
   3. A sandbox-level opt-in bind of command cwd to `/app` will make `/app/trunc.db` readable by Agent tool commands without changing task semantics, state-machine gates, or action guidance.
   4. The fix can be validated by bwrap argv tests and a targeted terminal-bench harness test that proves the non-Windows alias request is recorded.
-- Status: confirmed; repair in progress.
+- Status: confirmed; hard-alias repair rejected for current environment; adapter path-fact repair implemented; live benefit no-go exposed H-204.
+
+# Evidence E-386: H-203 hard `/app` alias is not a healthy default in current Linux environment
+
+- Prediction tested: H-203 prediction 3, by direct sandbox smoke.
+- Direct smoke:
+  ```text
+  WHALE_TASKSPACE_SYMLINK_CWD_TO_APP=1 codex-linux-sandbox ...
+    bwrap: setting up uid map: Permission denied
+  ```
+- Interpretation:
+  - A bwrap `--symlink <cwd> /app` implementation would make `/app` faithful when the host supports it.
+  - This machine cannot execute that path because bwrap user namespace setup is denied.
+  - Defaulting the benchmark harness to an unverified bwrap alias would turn the repair into a tool bootstrap failure.
+- Repair decision:
+  - Removed the unverified `WHALE_TASKSPACE_SYMLINK_CWD_TO_APP` / bwrap alias changes from the active diff.
+  - Kept the fix at the adapter/harness boundary: generated Terminal-Bench prompts now state the mechanical path fact that local tools start in the directory later mounted as `/app`, and `/app/<path>` maps to `<path>` under cwd.
+  - Non-Windows `Mount-TaskspaceExecutionAlias` records the validator `/app` alias but leaves `app_root_alias_env` empty, so Whale child processes do not receive an unsupported sandbox env.
+- Validation:
+  ```text
+  pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/taskspace-benchmark/test-harness.ps1
+    passed
+
+  cargo build -p codex-cli --bin whale --locked
+    passed
+
+  scripts/taskspace-benchmark/write-whale-binary-attestation.ps1
+    refreshed whale.build-attestation.json
+  ```
+- Boundary interpretation:
+  - The fix does not rewrite Agent actions, add projection strategy text, or make runtime reject `/app` commands.
+  - It corrects the adapter's factual description of the local tool environment.
+
+# Evidence E-387: H-203 live rerun improved recovery but did not produce utility pass
+
+- Run:
+  ```text
+  target/r4-h203-app-path-prompt-sqlite-right-20260708-r2/runs/terminal_bench__sqlite-db-truncate/20260708-193611-035/pair-001
+  ```
+- Observed result:
+  - `reported_evidence_level=E1`, `included_in_e3_aggregate=False`.
+  - right/taskspace: `business_success=False`, `exec_exit_code=0`, `exec_timed_out=False`, `public_validation_exit_code=1`, `hidden_oracle_exit_code=0`.
+  - `recover.json` was not generated; validator reached `tests_completed` and failed with `FileNotFoundError: /app/recover.json`.
+  - changed paths were `.python-version`, `main.py`, `pyproject.toml`, `README.md`, and `uv.lock`.
+  - `wall_time_ms=801871`, `tool_call_count=19`, rollout trace model request count 21, input tokens about 2.54M with about 2.497M cached.
+- Path behavior:
+  - New `user-prompt.txt` contains the path-fact note: local tools start in the directory later mounted as `/app`; `/app/<path>` maps to cwd-relative `<path>`.
+  - Agent still tried `/app/trunc.db` and `cd /app` after reading task text, but the mechanical failures entered context and it recovered to `trunc.db`.
+  - Final `last-message.md` still contained an action using `/app/trunc.db`; no final artifact was written.
+- Interpretation:
+  - H-203 path fact repair reduced hard path dead-end behavior, but did not fully overcome task-body reversion.
+  - This is not missing tool feedback: the Agent received and reacted to `/app` failures.
+  - The remaining issue is semantic durability and efficiency: task text repeatedly reintroduces `/app`, while large binary output and long model waits consume budget.
+
+# Hypothesis H-204: task-body `/app` reversion and large binary output keep sqlite recovery no-go
+
+- Claim: After H-203, the local path mapping is stated faithfully, but the task body itself still uses `/app/...`; the Agent can recover from failed absolute-path tool results yet continues to re-enter `/app` later. Combined with full binary/hex output and long provider waits, this prevents a reliable utility pass.
+- Predictions:
+  1. The latest run will show at least one failed `/app` command followed by successful relative `trunc.db` diagnostics.
+  2. `last-message.md` or late actions will still contain `/app/trunc.db`.
+  3. Validator will fail for missing `/app/recover.json`, not for environment preflight or Docker wrapper failure.
+  4. Metrics will show high wall time / request cost despite high cached-token ratio.
+- Status: confirmed; repair not started.
+- Boundary rule:
+  - Do not add a runtime semantic stop that rejects `/app` actions.
+  - Do not make projection synthesize a stronger strategy prompt.
+  - Repair should target capability consistency if hard alias can be made portable, or context fact durability and progressive output exposure if it cannot.
