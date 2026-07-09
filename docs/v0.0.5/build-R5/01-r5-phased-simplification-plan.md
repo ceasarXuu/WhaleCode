@@ -647,6 +647,47 @@ runtime 只校验空 map、id、status、dependency、lease 等硬规则，不�
 退出门禁：复杂样本的 Agent-authored 分解实际进入 map；root objective 不再保持 pending；
 read/edit/test 不再无解释地全部归入机械 inspect node。简单任务仍允许 Agent 选择单节点。
 
+G2 初始化 contract：
+
+```json
+{
+  "action": "initialize_map",
+  "task_title": "Agent-authored task title",
+  "task_objective": "Agent-authored task objective",
+  "initial_nodes": [
+    {
+      "node_key": "inspect",
+      "kind": "inspect_code_context",
+      "title": "Inspect current behavior",
+      "context_summary": "Read product rules, source and failing tests.",
+      "dependency_keys": []
+    },
+    {
+      "node_key": "implement",
+      "kind": "implement_solution",
+      "title": "Apply the repair",
+      "context_summary": "Implement the evidence-backed changes.",
+      "dependency_keys": ["inspect"]
+    }
+  ],
+  "current_node_key": "inspect"
+}
+```
+
+约束：
+
+```text
+initialize_map 只允许作用于 runtime_mechanical_blank 且没有 node/result/lease 的 map。
+node_key 只用于本次调用内引用；runtime 生成正式 node id，并在输出中返回 key -> id 映射。
+initial_nodes 至少一个，node_key 唯一，dependency_keys 必须存在且图无环。
+current_node_key 必须指向无未完成依赖、可立即绑定的节点。
+整个初始化在 clone 上验证后原子提交；任一结构错误不得留下部分 node/edge。
+TaskSpace provider tool surface 不暴露 update_plan；standard 保持原行为。
+runtime 不读取、转换或推断 update_plan 文本，也不自动生成节点标题、目标或依赖。
+```
+
+实施状态（2026-07-10）：代码、工具 schema、原子性测试和 standard/TaskSpace 工具面隔离测试已完成；复杂样本收益验证归入 G3，未验证前不得宣称 map collapse 已关闭。
+
 ### R5-G3：复杂样本与提取完整性
 
 ```text

@@ -36,6 +36,7 @@ fn action_values(profile: TaskSpaceControlToolProfile) -> Vec<serde_json::Value>
     match profile {
         TaskSpaceControlToolProfile::Full => vec![
             json!("start_task"),
+            json!("initialize_map"),
             json!("route_task"),
             json!("create_node"),
             json!("bind_node"),
@@ -56,6 +57,7 @@ fn action_values(profile: TaskSpaceControlToolProfile) -> Vec<serde_json::Value>
         ],
         TaskSpaceControlToolProfile::Compact => vec![
             json!("start_task"),
+            json!("initialize_map"),
             json!("route_task"),
             json!("create_node"),
             json!("bind_node"),
@@ -69,10 +71,10 @@ fn action_values(profile: TaskSpaceControlToolProfile) -> Vec<serde_json::Value>
 fn action_description(profile: TaskSpaceControlToolProfile) -> &'static str {
     match profile {
         TaskSpaceControlToolProfile::Full => {
-            "One of: start_task, route_task, create_node, bind_node, finish_node, block_node, record_output_contract, record_fact_source, record_fact, record_success_criteria, record_open_question, close_open_question, record_decision, record_next_best_action, mark_result_validity, adopt_result, read_output_ref, state_commit. Use only for TaskSpace runtime control."
+            "One of: start_task, initialize_map, route_task, create_node, bind_node, finish_node, block_node, record_output_contract, record_fact_source, record_fact, record_success_criteria, record_open_question, close_open_question, record_decision, record_next_best_action, mark_result_validity, adopt_result, read_output_ref, state_commit. Use only for TaskSpace runtime control."
         }
         TaskSpaceControlToolProfile::Compact => {
-            "Mechanical TaskSpace map actions: start_task, route_task, create_node, bind_node, finish_node, block_node, read_output_ref."
+            "Mechanical TaskSpace map actions: start_task, initialize_map, route_task, create_node, bind_node, finish_node, block_node, read_output_ref."
         }
     }
 }
@@ -83,6 +85,8 @@ fn compact_top_level_fields() -> &'static [&'static str] {
         "task_id",
         "task_title",
         "task_objective",
+        "initial_nodes",
+        "current_node_key",
         "node_kind",
         "node_title",
         "node_context_summary",
@@ -261,6 +265,52 @@ fn state_commit_node_schema() -> JsonSchema {
             ),
         ]),
         Some(vec![
+            "kind".to_string(),
+            "title".to_string(),
+            "context_summary".to_string(),
+        ]),
+        Some(false.into()),
+    )
+}
+
+fn initial_map_node_schema() -> JsonSchema {
+    JsonSchema::object(
+        BTreeMap::from([
+            (
+                "node_key".to_string(),
+                JsonSchema::string(Some(
+                    "Unique key used only within this initialize_map call.".to_string(),
+                )),
+            ),
+            (
+                "kind".to_string(),
+                JsonSchema::string_enum(
+                    node_kind_values(),
+                    Some("Agent-selected runtime node kind.".to_string()),
+                ),
+            ),
+            (
+                "title".to_string(),
+                JsonSchema::string(Some("Agent-authored node title.".to_string())),
+            ),
+            (
+                "context_summary".to_string(),
+                JsonSchema::string(Some(
+                    "Agent-authored context carried by this node.".to_string(),
+                )),
+            ),
+            (
+                "dependency_keys".to_string(),
+                JsonSchema::array(
+                    JsonSchema::string(Some(
+                        "Upstream node_key from the same initialize_map call.".to_string(),
+                    )),
+                    Some("Optional dependency keys.".to_string()),
+                ),
+            ),
+        ]),
+        Some(vec![
+            "node_key".to_string(),
             "kind".to_string(),
             "title".to_string(),
             "context_summary".to_string(),
@@ -695,15 +745,31 @@ pub fn create_taskspace_control_tool_with_profile(
         (
             "task_title".to_string(),
             JsonSchema::string(Some(
-                "Required for start_task. Human-readable title for the new semantic task."
+                "Required for start_task and initialize_map. Agent-authored task title."
                     .to_string(),
             )),
         ),
         (
             "task_objective".to_string(),
             JsonSchema::string(Some(
-                "Optional for start_task. Concise objective for the new semantic task."
+                "Required for start_task and initialize_map. Agent-authored objective."
                     .to_string(),
+            )),
+        ),
+        (
+            "initial_nodes".to_string(),
+            JsonSchema::array(
+                initial_map_node_schema(),
+                Some(
+                    "Required for initialize_map. Complete Agent-authored initial node graph."
+                        .to_string(),
+                ),
+            ),
+        ),
+        (
+            "current_node_key".to_string(),
+            JsonSchema::string(Some(
+                "Required for initialize_map. node_key to bind for immediate work.".to_string(),
             )),
         ),
         (
@@ -1162,6 +1228,7 @@ TaskSpace reorganizes the ordinary conversation into a task map. The Agent owns 
 
 Actions:
 - `start_task`: create a task map and first current node when no task exists. Include `task_title`, `task_objective`, `node_kind`, `node_title`, and `node_context_summary`.
+- `initialize_map`: fill the runtime mechanical blank map in one Agent-authored operation. Include `task_title`, `task_objective`, `initial_nodes`, and `current_node_key`. Each initial node has `node_key`, `kind`, `title`, `context_summary`, and optional `dependency_keys`. Runtime validates structure and returns key-to-node-id mappings without choosing task semantics.
 - `route_task`: select an existing task by `task_id`.
 - `create_node`: create a node with `kind`, `title`, `context_summary`, optional `dependency_node_ids`, and optional `bind_current`.
 - `bind_node`: bind the Agent to an existing node by `node_id`.
@@ -1182,6 +1249,7 @@ Runtime preflight blocks ordinary tools and spawn_agent until the active task ha
 
 Supported actions:
 - `start_task`: create a new semantic task, its active task path, and the first concrete node. Use this when the current user request does not belong to an existing task in the TaskSpace task inventory. Must include `node_kind`. Include `initial_success_criteria` whenever the user request gives enough information to define completion; if omitted, runtime will block ordinary work until `record_success_criteria` is called.
+- `initialize_map`: atomically fill the runtime mechanical blank map with an Agent-authored task objective, node graph, dependencies, and current node. Runtime validates only structural state and returns the generated node ids.
 - `route_task`: switch the active task path to an existing task chosen by the agent from the TaskSpace task inventory. Runtime validates the id but does not perform semantic matching.
 - `create_node`: create a concrete node in the active task path. This requires an existing active task path; use `start_task` first when the current request starts a new semantic task. Must include `kind` with one of: inspect_code_context, implement_solution, smoke_test, regression_test, final_synthesis. BaseMap candidate nodes are guidance, not automatic graph nodes.
 - `bind_node`: bind the main agent's next ordinary action to an existing ready or blocked node that is not held by a subagent.
@@ -1252,6 +1320,7 @@ mod tests {
             actions,
             vec![
                 "start_task",
+                "initialize_map",
                 "route_task",
                 "create_node",
                 "bind_node",
@@ -1385,6 +1454,7 @@ mod tests {
             actions,
             vec![
                 "start_task",
+                "initialize_map",
                 "route_task",
                 "create_node",
                 "bind_node",
@@ -1416,6 +1486,8 @@ mod tests {
             "task_id",
             "task_title",
             "task_objective",
+            "initial_nodes",
+            "current_node_key",
             "node_id",
             "kind",
             "title",
@@ -1429,8 +1501,13 @@ mod tests {
 
         let description = value["description"].as_str().expect("description");
         assert!(description.contains("final response requires no running current node"));
+        assert!(description.contains("initialize_map"));
         assert!(description.contains("does not choose the Agent's next action"));
         assert!(!description.contains("cognitive"));
         assert!(!description.contains("state_commit"));
+        assert_eq!(
+            properties["initial_nodes"]["items"]["required"],
+            serde_json::json!(["node_key", "kind", "title", "context_summary"])
+        );
     }
 }

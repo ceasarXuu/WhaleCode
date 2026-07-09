@@ -3,6 +3,8 @@ use serde_json::Value as JsonValue;
 
 use crate::action_map::ActionMapCognitiveClaimInput;
 use crate::action_map::ActionMapEvidenceRefInput;
+use crate::action_map::ActionMapInitializeInput;
+use crate::action_map::ActionMapInitializeNodeInput;
 use crate::action_map::ActionMapLedgerDecisionInput;
 use crate::action_map::ActionMapNextNodeDraft;
 use crate::action_map::ActionMapResultAdoptionInput;
@@ -51,6 +53,12 @@ enum TaskSpaceControlArgs {
         node_context_summary: String,
         #[serde(default)]
         bind_current: Option<bool>,
+    },
+    InitializeMap {
+        task_title: String,
+        task_objective: String,
+        initial_nodes: Vec<TaskSpaceInitializeNodeArgs>,
+        current_node_key: String,
     },
     RouteTask {
         task_id: String,
@@ -343,6 +351,16 @@ struct TaskSpaceStateCommitNodeArgs {
 }
 
 #[derive(Debug, Deserialize)]
+struct TaskSpaceInitializeNodeArgs {
+    node_key: String,
+    kind: String,
+    title: String,
+    context_summary: String,
+    #[serde(default)]
+    dependency_keys: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
 struct TaskSpaceStateCommitFinishNodeArgs {
     node_id: String,
     result_summary: String,
@@ -501,6 +519,47 @@ impl ToolHandler for TaskSpaceControlHandler {
                 } else {
                     format!("TaskSpace task started: task={task_id} map={map_id} node={node_id}")
                 }
+            }
+            TaskSpaceControlArgs::InitializeMap {
+                task_title,
+                task_objective,
+                initial_nodes,
+                current_node_key,
+            } => {
+                let nodes = initial_nodes
+                    .into_iter()
+                    .map(|node| {
+                        Ok(ActionMapInitializeNodeInput {
+                            key: node.node_key,
+                            kind: parse_node_kind("initial_nodes.kind", &node.kind)?,
+                            title: node.title,
+                            context_summary: node.context_summary,
+                            dependency_keys: node.dependency_keys,
+                        })
+                    })
+                    .collect::<Result<Vec<_>, FunctionCallError>>()?;
+                let outcome = session
+                    .initialize_action_map_for_main(
+                        &turn,
+                        ActionMapInitializeInput {
+                            task_title,
+                            task_objective,
+                            nodes,
+                            current_node_key,
+                        },
+                    )
+                    .await
+                    .map_err(taskspace_state_machine_gate_error)?;
+                let mappings = outcome
+                    .node_ids
+                    .iter()
+                    .map(|(key, node_id)| format!("{key}={node_id}"))
+                    .collect::<Vec<_>>()
+                    .join(",");
+                format!(
+                    "TaskSpace map initialized: task={} map={} current_node={} node_ids=[{}]",
+                    outcome.task_id, outcome.map_id, outcome.current_node_id, mappings
+                )
             }
             TaskSpaceControlArgs::RouteTask { task_id } => {
                 session
@@ -2227,6 +2286,47 @@ mod tests {
         }));
 
         assert!(parsed.is_err());
+    }
+
+    #[test]
+    fn initialize_map_parses_agent_authored_graph() {
+        let args: TaskSpaceControlArgs = serde_json::from_value(serde_json::json!({
+            "action": "initialize_map",
+            "task_title": "Repair billing",
+            "task_objective": "Inspect, repair, and verify billing.",
+            "initial_nodes": [
+                {
+                    "node_key": "inspect",
+                    "kind": "inspect_code_context",
+                    "title": "Inspect billing",
+                    "context_summary": "Read the implementation and tests."
+                },
+                {
+                    "node_key": "implement",
+                    "kind": "implement_solution",
+                    "title": "Repair billing",
+                    "context_summary": "Apply the inspected repair.",
+                    "dependency_keys": ["inspect"]
+                }
+            ],
+            "current_node_key": "inspect"
+        }))
+        .expect("initialize_map args parse");
+
+        match args {
+            TaskSpaceControlArgs::InitializeMap {
+                task_title,
+                initial_nodes,
+                current_node_key,
+                ..
+            } => {
+                assert_eq!(task_title, "Repair billing");
+                assert_eq!(initial_nodes.len(), 2);
+                assert_eq!(initial_nodes[1].dependency_keys, vec!["inspect"]);
+                assert_eq!(current_node_key, "inspect");
+            }
+            other => panic!("unexpected args: {other:?}"),
+        }
     }
 
     #[test]

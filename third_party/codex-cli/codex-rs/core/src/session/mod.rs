@@ -1402,6 +1402,22 @@ impl Session {
         Ok(())
     }
 
+    pub(crate) async fn initialize_action_map_for_main(
+        &self,
+        turn_context: &TurnContext,
+        input: crate::action_map::ActionMapInitializeInput,
+    ) -> Result<crate::action_map::ActionMapInitializeOutcome, String> {
+        let (outcome, events) = {
+            let mut state = self.state.lock().await;
+            state
+                .action_map_runtime
+                .initialize_map_for_main(self.conversation_id, input)
+        }?;
+        self.emit_action_map_events_for_turn(turn_context, events)
+            .await;
+        Ok(outcome)
+    }
+
     #[allow(dead_code)]
     pub(crate) async fn create_action_map_node_for_main(
         &self,

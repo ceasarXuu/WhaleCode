@@ -203,6 +203,7 @@ enum TaskspaceProviderResponseActionability {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum TaskspaceProviderToolVisibility {
     All,
+    TaskspaceNative,
     None,
 }
 
@@ -1106,6 +1107,26 @@ pub(crate) fn build_prompt(
     )
 }
 
+fn apply_provider_tool_visibility(
+    tools: Vec<ToolSpec>,
+    tool_visibility: TaskspaceProviderToolVisibility,
+) -> Vec<ToolSpec> {
+    match tool_visibility {
+        TaskspaceProviderToolVisibility::All => tools,
+        TaskspaceProviderToolVisibility::TaskspaceNative => {
+            trace!(
+                target = "codex_core::taskspace",
+                "taskspace_linear_plan_tool_hidden"
+            );
+            tools
+                .into_iter()
+                .filter(|spec| spec.name() != "update_plan")
+                .collect()
+        }
+        TaskspaceProviderToolVisibility::None => Vec::new(),
+    }
+}
+
 fn build_prompt_with_tool_visibility(
     input: Vec<ResponseItem>,
     router: &ToolRouter,
@@ -1128,15 +1149,12 @@ fn build_prompt_with_tool_visibility(
             .filter_map(|spec| filter_deferred_dynamic_tool_spec(spec, &deferred_dynamic_tools))
             .collect()
     };
-    let tools = match tool_visibility {
-        TaskspaceProviderToolVisibility::All => tools,
-        TaskspaceProviderToolVisibility::None => Vec::new(),
-    };
+    let tools = apply_provider_tool_visibility(tools, tool_visibility);
 
     Prompt {
         input,
         tools,
-        parallel_tool_calls: matches!(tool_visibility, TaskspaceProviderToolVisibility::All)
+        parallel_tool_calls: !matches!(tool_visibility, TaskspaceProviderToolVisibility::None)
             && turn_context.model_info.supports_parallel_tool_calls,
         tool_choice: "auto".to_string(),
         base_instructions,
@@ -1203,7 +1221,7 @@ Action argument rules:
 - read_file args: {\"path\":\"relative/path\"}; reads text files and supported structured previews such as .parquet with bounded rows/schema.
 - apply_patch args: {\"patch\":\"*** Begin Patch\\n...\\n*** End Patch\\n\"}; create new files with native `*** Add File: <path>` plus `+` content lines, and update existing files with `*** Update File: <path>` hunks.
 - run_test args: {\"command\":\"test command\",\"timeout_ms\":120000}
-- taskspace_control args: {\"action\":\"start_task|finish_node|create_node|bind_node|block_node|record_fact|record_fact_source|record_output_contract|record_success_criteria|state_commit\",...}; use canonical key \"action\", not \"action_name\" or \"command\", for lifecycle commands.
+- taskspace_control args: {\"action\":\"start_task|initialize_map|finish_node|create_node|bind_node|block_node|record_fact|record_fact_source|record_output_contract|record_success_criteria|state_commit\",...}; use canonical key \"action\", not \"action_name\" or \"command\", for lifecycle commands.
 - create_node args include {\"kind\":\"inspect_code_context|implement_solution|smoke_test|regression_test|final_synthesis\",\"title\":\"short title\",\"context_summary\":\"scope\",\"dependency_node_ids\":[\"node-id\"],\"bind_current\":true}
 - finish_node args include {\"result_summary\":\"what was completed\",\"next_node_kind\":\"implement_solution|smoke_test|regression_test|final_synthesis\",\"next_node_title\":\"short title\",\"next_node_context_summary\":\"scope\",\"next_dependency_node_ids\":[\"node-id\"]} when the same action should create and bind a next node.
 - final_answer args: {\"message\":\"user-facing final answer\"}
@@ -3150,7 +3168,13 @@ async fn run_sampling_request(
             }
         };
         let tool_visibility = match transport_mode {
-            TaskspaceProviderTransportMode::NativeTools => TaskspaceProviderToolVisibility::All,
+            TaskspaceProviderTransportMode::NativeTools => {
+                if taskspace_context_visible || provider_budget_snapshot.is_some() {
+                    TaskspaceProviderToolVisibility::TaskspaceNative
+                } else {
+                    TaskspaceProviderToolVisibility::All
+                }
+            }
             TaskspaceProviderTransportMode::CacheOptimizedActionContract => {
                 TaskspaceProviderToolVisibility::None
             }
@@ -4636,6 +4660,33 @@ fn function_call_output_body_texts_contain(
 mod active_context_replacement_tests {
     use super::*;
     use codex_protocol::models::FunctionCallOutputPayload;
+
+    #[test]
+    fn taskspace_native_tools_hide_linear_plan_but_keep_map_control() {
+        let tools = vec![
+            codex_tools::create_update_plan_tool(),
+            codex_tools::create_taskspace_control_tool(),
+        ];
+
+        let filtered =
+            apply_provider_tool_visibility(tools, TaskspaceProviderToolVisibility::TaskspaceNative);
+        let names = filtered.iter().map(ToolSpec::name).collect::<Vec<_>>();
+
+        assert_eq!(names, vec!["taskspace_control"]);
+    }
+
+    #[test]
+    fn standard_native_tools_keep_linear_plan_and_map_control() {
+        let tools = vec![
+            codex_tools::create_update_plan_tool(),
+            codex_tools::create_taskspace_control_tool(),
+        ];
+
+        let visible = apply_provider_tool_visibility(tools, TaskspaceProviderToolVisibility::All);
+        let names = visible.iter().map(ToolSpec::name).collect::<Vec<_>>();
+
+        assert_eq!(names, vec!["update_plan", "taskspace_control"]);
+    }
 
     fn message(role: &str, text: &str) -> ResponseItem {
         ResponseItem::Message {

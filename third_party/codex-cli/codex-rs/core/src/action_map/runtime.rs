@@ -120,9 +120,6 @@ use super::sentinel::TaskSpaceSentinelWarningType;
 const TASKSPACE_MECHANICAL_BLANK_TASK_TITLE: &str = "TaskSpace blank task";
 const TASKSPACE_MECHANICAL_BLANK_MAP_TITLE: &str = "TaskSpace blank map";
 const TASKSPACE_MECHANICAL_BLANK_OBJECTIVE: &str = "Agent-authored objective pending";
-const TASKSPACE_MECHANICAL_BLANK_NODE_TITLE: &str = "Blank inspect node";
-const TASKSPACE_MECHANICAL_BLANK_NODE_CONTEXT: &str =
-    "Agent-authored node objective and plan are not recorded yet.";
 use super::sentinel::warning_drafts_for_trace_event;
 
 const SEED_NODE_IDS: &[&str] = &[
@@ -363,6 +360,31 @@ pub(crate) struct ActionMapStateCommitNodeInput {
     pub(crate) context_summary: String,
     pub(crate) dependency_node_ids: Vec<String>,
     pub(crate) bind_current: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ActionMapInitializeNodeInput {
+    pub(crate) key: String,
+    pub(crate) kind: NodeKind,
+    pub(crate) title: String,
+    pub(crate) context_summary: String,
+    pub(crate) dependency_keys: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ActionMapInitializeInput {
+    pub(crate) task_title: String,
+    pub(crate) task_objective: String,
+    pub(crate) nodes: Vec<ActionMapInitializeNodeInput>,
+    pub(crate) current_node_key: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ActionMapInitializeOutcome {
+    pub(crate) task_id: TaskId,
+    pub(crate) map_id: ActionMapId,
+    pub(crate) node_ids: Vec<(String, MapNodeId)>,
+    pub(crate) current_node_id: MapNodeId,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1440,7 +1462,6 @@ impl ActionMapRuntimeState {
 
         let task_id = self.next_task_id();
         let map_id = self.next_map_id();
-        let node_id = self.next_node_id();
         let task = TaskState {
             id: task_id.clone(),
             title: TASKSPACE_MECHANICAL_BLANK_TASK_TITLE.to_string(),
@@ -1463,24 +1484,6 @@ impl ActionMapRuntimeState {
             BASE_MAP.version,
         );
         map.task_id = Some(task_id.clone());
-        map.nodes.insert(
-            node_id.clone(),
-            MapNode {
-                id: node_id.clone(),
-                title: TASKSPACE_MECHANICAL_BLANK_NODE_TITLE.to_string(),
-                kind: NodeKind::InspectCodeContext,
-                status: NodeStatus::Ready,
-                context: NodeContext {
-                    summary: TASKSPACE_MECHANICAL_BLANK_NODE_CONTEXT.to_string(),
-                    source_refs: Vec::new(),
-                },
-                active_lease: None,
-                result_context: Vec::new(),
-                node_events: Vec::new(),
-                origin_node_id: None,
-            },
-        );
-
         self.tasks.insert(task_id.clone(), task);
         self.maps.insert(map_id.clone(), map);
         self.register_map_to_task(&task_id, &map_id);
@@ -1498,26 +1501,12 @@ impl ActionMapRuntimeState {
             .maps
             .get(&map_id)
             .expect("mechanical blank map must exist before event emission");
-        let mut events = vec![
-            task_created_event(task),
-            map_created_event(map),
-            node_status_changed_event(
-                &map_id,
-                &node_id,
-                TASKSPACE_MECHANICAL_BLANK_NODE_TITLE,
-                NodeStatus::Pending,
-                NodeStatus::Ready,
-            ),
-        ];
-        events.extend(
-            self.claim_main_node(owner_session_id, &map_id, &node_id)
-                .expect("mechanical blank node must be claimable by the main session"),
-        );
+        let mut events = vec![task_created_event(task), map_created_event(map)];
         events.push(self.record_runtime_budget_trace_event(
             "mechanical_blank_map_initialized",
             Some(task_id),
             map_id,
-            node_id,
+            "map-uninitialized".to_string(),
             None,
             true,
             vec![
@@ -4023,6 +4012,226 @@ preview:\n\
             dependency_node_ids,
             bind_current,
         )
+    }
+
+    pub(crate) fn initialize_map_for_main(
+        &mut self,
+        owner_session_id: ThreadId,
+        input: ActionMapInitializeInput,
+    ) -> Result<(ActionMapInitializeOutcome, Vec<MapRuntimeEvent>), String> {
+        let mut candidate = self.clone();
+        let outcome = candidate.initialize_map_for_main_inner(owner_session_id, input)?;
+        *self = candidate;
+        Ok(outcome)
+    }
+
+    fn initialize_map_for_main_inner(
+        &mut self,
+        owner_session_id: ThreadId,
+        input: ActionMapInitializeInput,
+    ) -> Result<(ActionMapInitializeOutcome, Vec<MapRuntimeEvent>), String> {
+        if self.mode != MapRuntimeMode::Experiment {
+            return Err("TaskSpace mode is not active.".to_string());
+        }
+        self.validate_routing_complete()?;
+        let task_id = self.active_task_id.clone().ok_or_else(|| {
+            "TaskSpace has no active task. hard_state: no_active_task_path.".to_string()
+        })?;
+        let map_id = self.active_map_id.clone().ok_or_else(|| {
+            "TaskSpace has no active map. hard_state: no_active_task_path.".to_string()
+        })?;
+        {
+            let task = self
+                .tasks
+                .get(&task_id)
+                .ok_or_else(|| format!("TaskSpace active task `{task_id}` is missing."))?;
+            let map = self
+                .maps
+                .get(&map_id)
+                .ok_or_else(|| format!("TaskSpace active task path `{map_id}` is missing."))?;
+            if task.owner_session_id != Some(owner_session_id)
+                || map.owner_session_id != Some(owner_session_id)
+            {
+                return Err(
+                    "TaskSpace mechanical blank map is owned by another session. hard_state: map_owner_mismatch."
+                        .to_string(),
+                );
+            }
+            if !taskspace_task_path_is_mechanical_blank(task, map) {
+                return Err(
+                    "TaskSpace initialize_map requires an untouched runtime mechanical blank map. hard_state: map_already_initialized."
+                        .to_string(),
+                );
+            }
+        }
+
+        let task_title = require_nonempty_owned("task_title", input.task_title)?;
+        let task_objective = require_nonempty_owned("task_objective", input.task_objective)?;
+        let current_node_key = require_nonempty_owned("current_node_key", input.current_node_key)?;
+        if input.nodes.is_empty() {
+            return Err(
+                "TaskSpace initialize_map requires at least one initial node. hard_state: active_task_path_without_nodes."
+                    .to_string(),
+            );
+        }
+
+        let mut keys = HashSet::new();
+        let mut normalized_nodes = Vec::with_capacity(input.nodes.len());
+        for node in input.nodes {
+            validate_live_node_kind(node.kind)?;
+            let key = require_nonempty_owned("node_key", node.key)?;
+            if !keys.insert(key.clone()) {
+                return Err(format!(
+                    "TaskSpace initialize_map node_key `{key}` is duplicated."
+                ));
+            }
+            let title = require_nonempty_owned("node title", node.title)?;
+            let context_summary =
+                require_nonempty_owned("node context_summary", node.context_summary)?;
+            let mut dependency_keys = Vec::new();
+            let mut node_dependencies = HashSet::new();
+            for dependency in node.dependency_keys {
+                let dependency = require_nonempty_owned("dependency_key", dependency)?;
+                if dependency == key {
+                    return Err(format!(
+                        "TaskSpace initialize_map node `{key}` cannot depend on itself."
+                    ));
+                }
+                if !node_dependencies.insert(dependency.clone()) {
+                    return Err(format!(
+                        "TaskSpace initialize_map node `{key}` repeats dependency `{dependency}`."
+                    ));
+                }
+                dependency_keys.push(dependency);
+            }
+            normalized_nodes.push(ActionMapInitializeNodeInput {
+                key,
+                kind: node.kind,
+                title,
+                context_summary,
+                dependency_keys,
+            });
+        }
+        if !keys.contains(&current_node_key) {
+            return Err(format!(
+                "TaskSpace initialize_map current_node_key `{current_node_key}` does not exist."
+            ));
+        }
+        for node in &normalized_nodes {
+            for dependency in &node.dependency_keys {
+                if !keys.contains(dependency) {
+                    return Err(format!(
+                        "TaskSpace initialize_map node `{}` references missing dependency key `{dependency}`.",
+                        node.key
+                    ));
+                }
+            }
+        }
+
+        {
+            let task = self
+                .tasks
+                .get_mut(&task_id)
+                .expect("mechanical blank task was validated");
+            task.title = task_title.clone();
+            task.objective = task_objective.clone();
+            task.cognitive_state = TaskCognitiveState::default();
+            task.problem_ledger =
+                ProblemStateLedger::new(task_objective.clone(), Vec::new(), now_ms());
+            let map = self
+                .maps
+                .get_mut(&map_id)
+                .expect("mechanical blank map was validated");
+            map.title = task_title;
+        }
+
+        let input_order = normalized_nodes
+            .iter()
+            .map(|node| node.key.clone())
+            .collect::<Vec<_>>();
+        let mut pending = normalized_nodes;
+        let mut node_ids_by_key: HashMap<String, MapNodeId> = HashMap::new();
+        let mut events = Vec::new();
+        while !pending.is_empty() {
+            let ready_index = pending.iter().position(|node| {
+                node.dependency_keys
+                    .iter()
+                    .all(|dependency| node_ids_by_key.contains_key(dependency))
+            });
+            let Some(ready_index) = ready_index else {
+                return Err(
+                    "TaskSpace initialize_map dependency graph contains a cycle.".to_string(),
+                );
+            };
+            let node = pending.remove(ready_index);
+            let dependency_node_ids = node
+                .dependency_keys
+                .iter()
+                .map(|dependency| {
+                    node_ids_by_key
+                        .get(dependency)
+                        .expect("dependency was checked before node creation")
+                        .clone()
+                })
+                .collect::<Vec<_>>();
+            let (node_id, mut node_events) = self.create_node_for_main_with_kind(
+                owner_session_id,
+                node.kind,
+                node.title,
+                node.context_summary,
+                dependency_node_ids,
+                false,
+            )?;
+            node_ids_by_key.insert(node.key, node_id);
+            events.append(&mut node_events);
+        }
+
+        let current_node_id = node_ids_by_key
+            .get(&current_node_key)
+            .expect("current node key was validated")
+            .clone();
+        events.extend(self.bind_main_node(owner_session_id, &current_node_id)?);
+        let edge_count = self
+            .maps
+            .get(&map_id)
+            .map(|map| map.edges.len())
+            .unwrap_or_default();
+        events.push(self.record_runtime_budget_trace_event(
+            "agent_map_initialized",
+            Some(task_id.clone()),
+            map_id.clone(),
+            current_node_id.clone(),
+            None,
+            true,
+            vec![
+                "schema:taskspace-agent-map-initialized-v1".to_string(),
+                "producer:agent_taskspace_control".to_string(),
+                "action:initialize_map".to_string(),
+                format!("node_count:{}", node_ids_by_key.len()),
+                format!("edge_count:{edge_count}"),
+                "semantic_source:agent".to_string(),
+                "runtime_inferred_semantics:false".to_string(),
+            ],
+        ));
+        let node_ids = input_order
+            .into_iter()
+            .map(|key| {
+                let node_id = node_ids_by_key
+                    .get(&key)
+                    .expect("all initialized keys have node ids")
+                    .clone();
+                (key, node_id)
+            })
+            .collect();
+        Ok((
+            ActionMapInitializeOutcome {
+                task_id,
+                map_id,
+                node_ids,
+                current_node_id,
+            },
+            events,
+        ))
     }
 
     pub(crate) fn create_node_for_main_with_kind(
@@ -6976,6 +7185,17 @@ preview:\n\
             .maps
             .get(&map_id)
             .ok_or_else(|| format!("TaskSpace active task path `{map_id}` is missing."))?;
+        let task = map
+            .task_id
+            .as_ref()
+            .and_then(|task_id| self.tasks.get(task_id))
+            .ok_or_else(|| format!("TaskSpace active task for map `{map_id}` is missing."))?;
+        if taskspace_task_path_is_mechanical_blank(task, map) {
+            return Err(
+                "TaskSpace final response is unavailable while the task map is mechanically blank. hard_state: active_task_path_without_nodes."
+                    .to_string(),
+            );
+        }
         if let Some(node_id) = self.current_main_node_id.as_deref() {
             let node = map
                 .nodes
@@ -7655,7 +7875,7 @@ preview:\n\
             }
             if taskspace_task_path_is_mechanical_blank(task, map) {
                 context.push_str(
-                    "Map initialization:\n- source: runtime_mechanical_blank\n- semantic_state: agent-authored objective and node plan are not recorded yet\n",
+                    "Map initialization:\n- source: runtime_mechanical_blank\n- semantic_state: agent-authored objective and node plan are not recorded yet\n- hard_state: active_task_path_without_nodes\n- initialization_contract: taskspace_control(action=initialize_map)\n",
                 );
             }
             if let Some(barrier) = self.active_maintenance_barrier() {
@@ -7995,6 +8215,12 @@ preview:\n\
             return Err(format!(
                 "TaskSpace active task path `{map_id}` is not active."
             ));
+        }
+        if map.nodes.is_empty() {
+            return Err(
+                "TaskSpace active task path has no nodes. hard_state: active_task_path_without_nodes."
+                    .to_string(),
+            );
         }
         let Some(node_id) = self.current_main_node_id.as_ref() else {
             return Err(
@@ -9303,8 +9529,11 @@ fn taskspace_task_path_is_mechanical_blank(task: &TaskState, map: &ActionMapInst
     task.title == TASKSPACE_MECHANICAL_BLANK_TASK_TITLE
         && task.objective == TASKSPACE_MECHANICAL_BLANK_OBJECTIVE
         && map.title == TASKSPACE_MECHANICAL_BLANK_MAP_TITLE
-        && map.nodes.len() == 1
+        && map.nodes.is_empty()
+        && map.edges.is_empty()
+        && map.leases.is_empty()
         && map.results.is_empty()
+        && map.node_events.is_empty()
 }
 
 fn append_context_projection_shadow(
@@ -9430,6 +9659,9 @@ fn append_context_projection_with_header(
             projection.push_str("\n- initialization_source: runtime_mechanical_blank");
             projection
                 .push_str("\n- semantic_state: agent-authored objective and node plan pending");
+            projection.push_str("\n- hard_state: active_task_path_without_nodes");
+            projection
+                .push_str("\n- initialization_contract: taskspace_control(action=initialize_map)");
         }
         projection.push_str("\n- current_node: ");
         projection.push_str(&current_node);
@@ -19008,6 +19240,37 @@ TaskSpaceReadFileSummaryV1: path=data.csv lines_read=2 eof_reached=true max_line
         outcome
     }
 
+    fn initial_test_map_input(current_node_key: &str) -> ActionMapInitializeInput {
+        ActionMapInitializeInput {
+            task_title: "Repair billing workflow".to_string(),
+            task_objective: "Inspect, repair, and verify the billing workflow.".to_string(),
+            nodes: vec![
+                ActionMapInitializeNodeInput {
+                    key: "inspect".to_string(),
+                    kind: NodeKind::InspectCodeContext,
+                    title: "Inspect billing code".to_string(),
+                    context_summary: "Read the billing implementation and tests.".to_string(),
+                    dependency_keys: Vec::new(),
+                },
+                ActionMapInitializeNodeInput {
+                    key: "implement".to_string(),
+                    kind: NodeKind::ImplementSolution,
+                    title: "Repair billing code".to_string(),
+                    context_summary: "Apply the repair found during inspection.".to_string(),
+                    dependency_keys: vec!["inspect".to_string()],
+                },
+                ActionMapInitializeNodeInput {
+                    key: "regression".to_string(),
+                    kind: NodeKind::RegressionTest,
+                    title: "Verify billing repair".to_string(),
+                    context_summary: "Run the billing regression checks.".to_string(),
+                    dependency_keys: vec!["implement".to_string()],
+                },
+            ],
+            current_node_key: current_node_key.to_string(),
+        }
+    }
+
     fn start_unseeded_test_task(
         state: &mut ActionMapRuntimeState,
         owner: ThreadId,
@@ -20638,7 +20901,7 @@ sample rows from {artifact}"
         assert!(outcome.mode.changed);
         assert_eq!(outcome.active_map_id.as_deref(), Some("map-1"));
         assert!(state.active_map().is_some());
-        assert_eq!(state.current_main_node_id.as_deref(), Some("node-1"));
+        assert!(state.current_main_node_id.is_none());
         let snapshot = state.snapshot();
         assert!(!snapshot.routing_required);
         assert!(!snapshot.bootstrap_required);
@@ -20649,6 +20912,9 @@ sample rows from {artifact}"
             TASKSPACE_MECHANICAL_BLANK_TASK_TITLE
         );
         assert_eq!(snapshot.maps[0].title, TASKSPACE_MECHANICAL_BLANK_MAP_TITLE);
+        assert!(snapshot.maps[0].nodes.is_empty());
+        assert!(snapshot.maps[0].edges.is_empty());
+        assert!(snapshot.maps[0].leases.is_empty());
         assert!(events.iter().any(|event| {
             matches!(
                 event,
@@ -20656,13 +20922,11 @@ sample rows from {artifact}"
                     if event.title == TASKSPACE_MECHANICAL_BLANK_TASK_TITLE
             )
         }));
-        assert!(events.iter().any(|event| {
-            matches!(
-                event,
-                MapRuntimeEvent::LeaseCreated(event)
-                    if event.map_id == "map-1" && event.node_id == "node-1"
-            )
-        }));
+        assert!(
+            !events
+                .iter()
+                .any(|event| matches!(event, MapRuntimeEvent::LeaseCreated(_)))
+        );
         assert!(events.iter().all(|event| {
             !matches!(
                 event,
@@ -20673,13 +20937,161 @@ sample rows from {artifact}"
         let context = state.build_developer_context().expect("developer context");
         assert!(context.contains("source: runtime_mechanical_blank"));
         assert!(context.contains("agent-authored objective and node plan"));
+        assert!(context.contains("hard_state: active_task_path_without_nodes"));
+        assert!(context.contains("taskspace_control(action=initialize_map)"));
+
+        let tool_error = state
+            .prepare_main_tool_call(owner, "shell")
+            .expect_err("ordinary tools require an initialized map");
+        assert!(tool_error.contains("hard_state: active_task_path_without_nodes"));
+        let final_error = state
+            .record_main_final_response(owner, "Done.")
+            .expect_err("final response requires an initialized map");
+        assert!(final_error.contains("hard_state: active_task_path_without_nodes"));
     }
 
     #[test]
-    fn ordinary_tool_call_is_not_blocked_by_node_action_contract() {
+    fn initialize_map_records_agent_graph_and_binds_current_node() {
         let mut state = ActionMapRuntimeState::default();
         let owner = ThreadId::new();
         state.set_mode_for_session(MapRuntimeMode::Experiment, owner);
+
+        let (outcome, events) = state
+            .initialize_map_for_main(owner, initial_test_map_input("inspect"))
+            .expect("agent-authored map initializes");
+
+        assert_eq!(outcome.task_id, "task-1");
+        assert_eq!(outcome.map_id, "map-1");
+        assert_eq!(
+            outcome.node_ids,
+            vec![
+                ("inspect".to_string(), "node-1".to_string()),
+                ("implement".to_string(), "node-2".to_string()),
+                ("regression".to_string(), "node-3".to_string()),
+            ]
+        );
+        assert_eq!(outcome.current_node_id, "node-1");
+        assert_eq!(state.current_main_node_id.as_deref(), Some("node-1"));
+        let task = state.tasks.get("task-1").expect("initialized task");
+        assert_eq!(task.title, "Repair billing workflow");
+        assert_eq!(
+            task.objective,
+            "Inspect, repair, and verify the billing workflow."
+        );
+        let map = state.maps.get("map-1").expect("initialized map");
+        assert_eq!(map.nodes.len(), 3);
+        assert_eq!(map.edges.len(), 2);
+        assert!(
+            map.edges
+                .iter()
+                .any(|edge| { edge.from == "node-1" && edge.to == "node-2" })
+        );
+        assert!(
+            map.edges
+                .iter()
+                .any(|edge| { edge.from == "node-2" && edge.to == "node-3" })
+        );
+        assert_eq!(map.nodes["node-1"].status, NodeStatus::Running);
+        assert_eq!(map.nodes["node-2"].status, NodeStatus::Pending);
+        assert_eq!(map.nodes["node-3"].status, NodeStatus::Pending);
+        assert!(events.iter().any(|event| {
+            matches!(
+                event,
+                MapRuntimeEvent::TaskspaceTraceEventRecorded(recorded)
+                    if recorded.kind == "agent_map_initialized"
+                        && recorded.tags.iter().any(|tag| tag == "node_count:3")
+                        && recorded.tags.iter().any(|tag| tag == "edge_count:2")
+                        && recorded.tags.iter().any(|tag| tag == "semantic_source:agent")
+                        && recorded.tags.iter().any(|tag| tag == "runtime_inferred_semantics:false")
+            )
+        }));
+    }
+
+    #[test]
+    fn initialize_map_rejects_second_initialization() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode_for_session(MapRuntimeMode::Experiment, owner);
+        state
+            .initialize_map_for_main(owner, initial_test_map_input("inspect"))
+            .expect("first initialization succeeds");
+
+        let error = state
+            .initialize_map_for_main(owner, initial_test_map_input("inspect"))
+            .expect_err("initialized map cannot be replaced");
+
+        assert!(error.contains("hard_state: map_already_initialized"));
+        assert_eq!(state.maps["map-1"].nodes.len(), 3);
+    }
+
+    #[test]
+    fn initialize_map_cycle_failure_is_atomic() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode_for_session(MapRuntimeMode::Experiment, owner);
+        let cyclic = ActionMapInitializeInput {
+            task_title: "Cyclic task".to_string(),
+            task_objective: "This graph must be rejected.".to_string(),
+            nodes: vec![
+                ActionMapInitializeNodeInput {
+                    key: "a".to_string(),
+                    kind: NodeKind::InspectCodeContext,
+                    title: "A".to_string(),
+                    context_summary: "A depends on B.".to_string(),
+                    dependency_keys: vec!["b".to_string()],
+                },
+                ActionMapInitializeNodeInput {
+                    key: "b".to_string(),
+                    kind: NodeKind::ImplementSolution,
+                    title: "B".to_string(),
+                    context_summary: "B depends on A.".to_string(),
+                    dependency_keys: vec!["a".to_string()],
+                },
+            ],
+            current_node_key: "a".to_string(),
+        };
+
+        let error = state
+            .initialize_map_for_main(owner, cyclic)
+            .expect_err("cyclic map is rejected");
+
+        assert!(error.contains("dependency graph contains a cycle"));
+        assert!(state.maps["map-1"].nodes.is_empty());
+        assert_eq!(
+            state.tasks["task-1"].title,
+            TASKSPACE_MECHANICAL_BLANK_TASK_TITLE
+        );
+        assert!(state.current_main_node_id.is_none());
+
+        let (outcome, _) = state
+            .initialize_map_for_main(owner, initial_test_map_input("inspect"))
+            .expect("valid initialization still succeeds after rollback");
+        assert_eq!(outcome.current_node_id, "node-1");
+    }
+
+    #[test]
+    fn initialize_map_rejects_pending_current_node_atomically() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode_for_session(MapRuntimeMode::Experiment, owner);
+
+        let error = state
+            .initialize_map_for_main(owner, initial_test_map_input("implement"))
+            .expect_err("current node dependencies must already be complete");
+
+        assert!(error.contains("target_node_dependencies_incomplete"));
+        assert!(state.maps["map-1"].nodes.is_empty());
+        assert!(state.current_main_node_id.is_none());
+    }
+
+    #[test]
+    fn ordinary_tool_call_is_not_blocked_by_node_action_contract_after_map_initialization() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode_for_session(MapRuntimeMode::Experiment, owner);
+        state
+            .initialize_map_for_main(owner, initial_test_map_input("inspect"))
+            .expect("map initializes");
 
         state
             .prepare_main_tool_call(

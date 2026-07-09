@@ -246,6 +246,7 @@ fn taskspace_compact_tool_schema_is_the_default_taskspace_control_schema() {
         actions,
         vec![
             "start_task",
+            "initialize_map",
             "route_task",
             "create_node",
             "bind_node",
