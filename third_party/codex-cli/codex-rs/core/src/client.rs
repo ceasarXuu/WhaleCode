@@ -177,6 +177,7 @@ pub(crate) struct ExactPayloadScanEventV1 {
     pub(crate) checked_byte_ranges: Vec<(usize, usize)>,
     pub(crate) negative_checks_performed: Vec<String>,
     pub(crate) active_projection_present: bool,
+    pub(crate) active_projection_count: usize,
     pub(crate) context_bundle_present: bool,
     pub(crate) exact_context_bundle_verified: bool,
     pub(crate) cache_plan_verified: bool,
@@ -225,6 +226,7 @@ pub(crate) struct ProviderRequestBudgetEvent {
     pub(crate) dynamic_suffix_hash: Option<String>,
     pub(crate) exact_payload_scan_passed: Option<bool>,
     pub(crate) active_projection_present: Option<bool>,
+    pub(crate) active_projection_count: Option<usize>,
     pub(crate) legacy_taskspace_history_present: Option<bool>,
     pub(crate) large_raw_output_tokens: Option<usize>,
     pub(crate) protected_items_present: Option<bool>,
@@ -491,6 +493,7 @@ impl ProviderRequestBudgetContext {
             dynamic_suffix_hash: None,
             exact_payload_scan_passed: None,
             active_projection_present: None,
+            active_projection_count: None,
             legacy_taskspace_history_present: None,
             large_raw_output_tokens: None,
             protected_items_present: None,
@@ -592,6 +595,7 @@ impl ProviderRequestBudgetContext {
             dynamic_suffix_hash: active_request.dynamic_suffix_hash,
             exact_payload_scan_passed: scan.as_ref().map(|scan| scan.passed),
             active_projection_present: scan.as_ref().map(|scan| scan.active_projection_present),
+            active_projection_count: scan.as_ref().map(|scan| scan.active_projection_count),
             legacy_taskspace_history_present: scan
                 .as_ref()
                 .map(|scan| scan.legacy_taskspace_history_present),
@@ -656,6 +660,10 @@ impl ProviderRequestBudgetContext {
                     .payload_scan
                     .as_ref()
                     .map(|scan| scan.active_projection_present),
+                active_projection_count: active_request
+                    .payload_scan
+                    .as_ref()
+                    .map(|scan| scan.active_projection_count),
                 legacy_taskspace_history_present: active_request
                     .payload_scan
                     .as_ref()
@@ -831,6 +839,9 @@ impl ProviderRequestBudgetDispatch {
                 active_projection_present: payload_scan
                     .as_ref()
                     .map(|scan| scan.active_projection_present),
+                active_projection_count: payload_scan
+                    .as_ref()
+                    .map(|scan| scan.active_projection_count),
                 legacy_taskspace_history_present: payload_scan
                     .as_ref()
                     .map(|scan| scan.legacy_taskspace_history_present),
@@ -915,8 +926,9 @@ fn scan_provider_payload_text(
     text: &str,
     value: &serde_json::Value,
 ) -> ExactPayloadScanEventV1 {
-    let active_projection_present = text.contains(TASKSPACE_ACTIVE_PROJECTION_MARKER)
-        || text.contains(TASKSPACE_AGENT_CONTEXT_BUNDLE_MARKER);
+    let active_projection_count = text.matches(TASKSPACE_ACTIVE_PROJECTION_MARKER).count();
+    let active_projection_present =
+        active_projection_count > 0 || text.contains(TASKSPACE_AGENT_CONTEXT_BUNDLE_MARKER);
     let context_bundle_present = text.contains(TASKSPACE_AGENT_CONTEXT_BUNDLE_MARKER)
         && text.contains(TASKSPACE_AGENT_CONTEXT_BUNDLE_END_MARKER);
     let cache_plan_verified = context_bundle_present && text.contains("cache_plan_verified: true");
@@ -964,7 +976,7 @@ fn scan_provider_payload_text(
     .filter(|marker| text.contains(marker))
     .map(str::to_string)
     .collect::<Vec<_>>();
-    let replacement_confirmed = active_projection_present
+    let replacement_confirmed = active_projection_count == 1
         && !legacy_taskspace_history_present
         && large_raw_output_tokens == 0
         && protected_items_present;
@@ -975,6 +987,9 @@ fn scan_provider_payload_text(
     let mut failure_reasons = Vec::new();
     if !active_projection_present {
         failure_reasons.push("active_projection_missing".to_string());
+    }
+    if active_projection_count != 1 {
+        failure_reasons.push("active_projection_not_unique".to_string());
     }
     if legacy_taskspace_history_present {
         failure_reasons.push("legacy_taskspace_history_present".to_string());
@@ -1002,10 +1017,11 @@ fn scan_provider_payload_text(
         scan_event_id: format!("scan:{request_id}:{sha256}"),
         request_id: request_id.to_string(),
         provider_payload_sha256: sha256.to_string(),
-        scanner_version: "v005-exact-scan-2".to_string(),
-        matcher_version: "v005-marker-and-structural-negative-checks-2".to_string(),
+        scanner_version: "v005-exact-scan-3".to_string(),
+        matcher_version: "v005-marker-structural-and-projection-uniqueness-checks-3".to_string(),
         checked_byte_ranges: vec![(0, text.len())],
         negative_checks_performed: vec![
+            "active_projection_uniqueness".to_string(),
             "legacy_taskspace_history".to_string(),
             "raw_taskspace_control_history".to_string(),
             "completed_stale_node_history".to_string(),
@@ -1014,6 +1030,7 @@ fn scan_provider_payload_text(
             "runtime_boundary_forbidden_markers".to_string(),
         ],
         active_projection_present,
+        active_projection_count,
         context_bundle_present,
         exact_context_bundle_verified,
         cache_plan_verified,

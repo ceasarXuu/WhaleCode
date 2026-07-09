@@ -563,6 +563,7 @@ pub(crate) struct ActionMapProviderRequestBudgetEventInput {
     pub(crate) dynamic_suffix_hash: Option<String>,
     pub(crate) exact_payload_scan_passed: Option<bool>,
     pub(crate) active_projection_present: Option<bool>,
+    pub(crate) active_projection_count: Option<usize>,
     pub(crate) legacy_taskspace_history_present: Option<bool>,
     pub(crate) large_raw_output_tokens: Option<usize>,
     pub(crate) protected_items_present: Option<bool>,
@@ -584,6 +585,7 @@ pub(crate) struct ActionMapExactPayloadScanEventInput {
     pub(crate) checked_byte_ranges: Vec<(usize, usize)>,
     pub(crate) negative_checks_performed: Vec<String>,
     pub(crate) active_projection_present: bool,
+    pub(crate) active_projection_count: usize,
     pub(crate) context_bundle_present: bool,
     pub(crate) exact_context_bundle_verified: bool,
     pub(crate) cache_plan_verified: bool,
@@ -2896,6 +2898,9 @@ feedback:\n\
                     "active_projection_present:{active_projection_present}"
                 ));
             }
+            if let Some(active_projection_count) = input.active_projection_count {
+                tags.push(format!("active_projection_count:{active_projection_count}"));
+            }
             if let Some(legacy_taskspace_history_present) = input.legacy_taskspace_history_present {
                 tags.push(format!(
                     "legacy_taskspace_history_present:{legacy_taskspace_history_present}"
@@ -3012,6 +3017,7 @@ feedback:\n\
                         "active_projection_present:{}",
                         scan.active_projection_present
                     ),
+                    format!("active_projection_count:{}", scan.active_projection_count),
                     format!("context_bundle_present:{}", scan.context_bundle_present),
                     format!(
                         "exact_context_bundle_verified:{}",
@@ -12726,6 +12732,7 @@ fn is_known_trace_tag(tag: &str) -> bool {
         || tag.starts_with("dynamic_suffix_hash:")
         || tag.starts_with("exact_payload_scan_passed:")
         || tag.starts_with("active_projection_present:")
+        || tag.starts_with("active_projection_count:")
         || tag.starts_with("context_bundle_present:")
         || tag.starts_with("exact_context_bundle_verified:")
         || tag.starts_with("cache_plan_verified:")
@@ -17651,6 +17658,7 @@ mod tests {
             dynamic_suffix_hash: None,
             exact_payload_scan_passed: None,
             active_projection_present: None,
+            active_projection_count: None,
             legacy_taskspace_history_present: None,
             large_raw_output_tokens: None,
             protected_items_present: None,
@@ -17721,6 +17729,7 @@ mod tests {
                         dynamic_suffix_hash: None,
                         exact_payload_scan_passed: None,
                         active_projection_present: None,
+                        active_projection_count: None,
                         legacy_taskspace_history_present: None,
                         large_raw_output_tokens: None,
                         protected_items_present: None,
@@ -17767,6 +17776,7 @@ mod tests {
                         dynamic_suffix_hash: Some("dynamic-suffix-hash".to_string()),
                         exact_payload_scan_passed: Some(true),
                         active_projection_present: Some(true),
+                        active_projection_count: Some(1),
                         legacy_taskspace_history_present: Some(false),
                         large_raw_output_tokens: Some(0),
                         protected_items_present: Some(true),
@@ -17787,6 +17797,7 @@ mod tests {
                                 "large_raw_output".to_string(),
                             ],
                             active_projection_present: true,
+                            active_projection_count: 1,
                             context_bundle_present: true,
                             exact_context_bundle_verified: true,
                             cache_plan_verified: true,
@@ -17956,6 +17967,12 @@ mod tests {
             blocked
                 .tags
                 .iter()
+                .any(|tag| tag == "active_projection_count:1")
+        );
+        assert!(
+            blocked
+                .tags
+                .iter()
                 .any(|tag| tag == "legacy_taskspace_history_present:false")
         );
         assert!(
@@ -17978,6 +17995,11 @@ mod tests {
         assert_eq!(scan.kind, "exact_payload_scan");
         assert_eq!(scan.call_id.as_deref(), Some("provider-request-2"));
         assert_eq!(scan.tool_success, Some(true));
+        assert!(
+            scan.tags
+                .iter()
+                .any(|tag| tag == "active_projection_count:1")
+        );
         assert!(
             scan.tags
                 .iter()
@@ -18480,6 +18502,7 @@ TaskSpaceReadFileSummaryV1: path=data.csv lines_read=2 eof_reached=true max_line
                         dynamic_suffix_hash: None,
                         exact_payload_scan_passed: None,
                         active_projection_present: None,
+                        active_projection_count: None,
                         legacy_taskspace_history_present: None,
                         large_raw_output_tokens: None,
                         protected_items_present: None,
@@ -18523,6 +18546,7 @@ TaskSpaceReadFileSummaryV1: path=data.csv lines_read=2 eof_reached=true max_line
                         dynamic_suffix_hash: None,
                         exact_payload_scan_passed: None,
                         active_projection_present: None,
+                        active_projection_count: None,
                         legacy_taskspace_history_present: None,
                         large_raw_output_tokens: None,
                         protected_items_present: None,
@@ -18599,6 +18623,7 @@ TaskSpaceReadFileSummaryV1: path=data.csv lines_read=2 eof_reached=true max_line
                     dynamic_suffix_hash: None,
                     exact_payload_scan_passed: None,
                     active_projection_present: None,
+                    active_projection_count: None,
                     legacy_taskspace_history_present: None,
                     large_raw_output_tokens: None,
                     protected_items_present: None,
@@ -18940,6 +18965,7 @@ TaskSpaceReadFileSummaryV1: path=data.csv lines_read=2 eof_reached=true max_line
                     dynamic_suffix_hash: None,
                     exact_payload_scan_passed: None,
                     active_projection_present: None,
+                    active_projection_count: None,
                     legacy_taskspace_history_present: None,
                     large_raw_output_tokens: None,
                     protected_items_present: None,

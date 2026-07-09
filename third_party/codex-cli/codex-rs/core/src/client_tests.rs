@@ -418,7 +418,22 @@ fn provider_payload_scan_rejects_shadow_or_legacy_taskspace_history() {
         "scan failure reasons: {:?}",
         active.scan.failure_reasons
     );
+    assert_eq!(active.scan.active_projection_count, 1);
     assert!(active.scan.replacement_confirmed);
+
+    let duplicate_active = provider_payload_digest(&json!({
+        "input": format!("{active_projection}\n{active_projection}")
+    }))
+    .expect("duplicate active payload digest");
+    assert_eq!(duplicate_active.scan.active_projection_count, 2);
+    assert!(!duplicate_active.scan.passed);
+    assert!(!duplicate_active.scan.replacement_confirmed);
+    assert!(
+        duplicate_active
+            .scan
+            .failure_reasons
+            .contains(&"active_projection_not_unique".to_string())
+    );
 
     let active_with_transition_notice = provider_payload_digest(&json!({
         "input": format!(

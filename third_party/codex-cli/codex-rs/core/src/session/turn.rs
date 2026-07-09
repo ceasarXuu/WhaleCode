@@ -4084,13 +4084,15 @@ fn compose_provider_visible_history(items: Vec<ResponseItem>) -> ProviderVisible
         })
         .map(|(index, _, _, _)| *index)
         .next_back();
-    let latest_active_projection_item = classified_items
+    let latest_active_projection = classified_items
         .iter()
         .filter(|(_, _, category, _)| {
             matches!(category, ProviderVisibleItemCategory::ActiveProjection)
         })
-        .map(|(_, item, _, _)| item.clone())
+        .map(|(index, item, _, _)| (*index, item.clone()))
         .next_back();
+    let latest_active_projection_index = latest_active_projection.as_ref().map(|(index, _)| *index);
+    let latest_active_projection_item = latest_active_projection.as_ref().map(|(_, item)| item);
 
     let mut prepared = Vec::with_capacity(classified_items.len());
     let mut latest_final_readiness_recovery_item: Option<ResponseItem> = None;
@@ -4098,6 +4100,11 @@ fn compose_provider_visible_history(items: Vec<ResponseItem>) -> ProviderVisible
     for (index, item, category, base_action) in classified_items {
         let mut action =
             provider_visible_history_pair_action(&item, base_action, &paired_omitted_tool_call_ids);
+        if matches!(category, ProviderVisibleItemCategory::ActiveProjection)
+            && latest_active_projection_index != Some(index)
+        {
+            action = ProviderVisibleHistoryAction::Omit("stale_active_projection_replaced");
+        }
         if matches!(
             category,
             ProviderVisibleItemCategory::FinalReadinessRecovery
@@ -4105,7 +4112,7 @@ fn compose_provider_visible_history(items: Vec<ResponseItem>) -> ProviderVisible
             if latest_final_readiness_recovery_index == Some(index) {
                 if taskspace_final_readiness_recovery_still_applies(
                     &item,
-                    latest_active_projection_item.as_ref(),
+                    latest_active_projection_item,
                 ) {
                     latest_final_readiness_recovery_item = Some(item);
                 } else {
@@ -10117,6 +10124,55 @@ TaskSpaceGateRecoveryV1: {\"schema_version\":\"TaskSpaceGateRecoveryV1\",\"allow
         );
         assert_eq!(
             composition.decisions[2].action,
+            ProviderVisibleHistoryAction::Include
+        );
+    }
+
+    #[test]
+    fn active_context_replacement_keeps_only_latest_projection_and_current_feedback() {
+        let stale_projection = format!(
+            "{TASKSPACE_ACTIVE_THIN_PROJECTION_MARKER}\n{TASKSPACE_ACTIVE_PROJECTION_MARKER}\ncurrent_node: node-1 status=running"
+        );
+        let latest_projection = format!(
+            "{TASKSPACE_ACTIVE_THIN_PROJECTION_MARKER}\n{TASKSPACE_ACTIVE_PROJECTION_MARKER}\ncurrent_node: none\n- node-1 status=completed"
+        );
+        let items = vec![
+            message("developer", &stale_projection),
+            tool_call("shell_command", "blocked-call"),
+            tool_output_with_call_id(
+                "blocked-call",
+                "TaskSpace blocked this tool call.\nTaskSpaceGateRecoveryV1: {\"allowed\":false,\"gate_class\":\"state_machine\",\"reason\":\"no_current_node_binding\"}",
+            ),
+            message("developer", &latest_projection),
+            message("user", "Keep the direct user requirement."),
+        ];
+
+        let composition = compose_provider_visible_history(items);
+        let joined = item_texts(&composition.items).join("\n");
+
+        assert_eq!(
+            joined.matches(TASKSPACE_ACTIVE_PROJECTION_MARKER).count(),
+            1
+        );
+        assert!(!joined.contains("current_node: node-1 status=running"));
+        assert!(joined.contains("current_node: none"));
+        assert!(joined.contains("node-1 status=completed"));
+        assert!(joined.contains("TaskSpaceGateRecoveryV1"));
+        assert!(joined.contains("Keep the direct user requirement."));
+        assert_eq!(
+            composition.decisions[0].action,
+            ProviderVisibleHistoryAction::Omit("stale_active_projection_replaced")
+        );
+        assert_eq!(
+            composition.decisions[1].action,
+            ProviderVisibleHistoryAction::Include
+        );
+        assert_eq!(
+            composition.decisions[2].action,
+            ProviderVisibleHistoryAction::Include
+        );
+        assert_eq!(
+            composition.decisions[3].action,
             ProviderVisibleHistoryAction::Include
         );
     }
