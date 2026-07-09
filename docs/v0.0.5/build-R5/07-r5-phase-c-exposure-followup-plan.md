@@ -109,7 +109,7 @@ large-output-ref-smoke:
 ## 6. 当前优先级
 
 1. R5-D0 已完成首轮：provider-visible semantic residue inventory 和明显越界文案清理见 `08-r5-phase-d0-semantic-residue-inventory.md`。
-2. R5-D1/D2：降级 `initial_*`、ledger、cognitive_state active path。
+2. R5-D1/D2 已完成：降级 `initial_*`、ledger、cognitive_state active path，见 `09-r5-phase-d-ledger-deactivation.md`。
 3. R5-E：为剩余拒绝建立 hard baseline classifier，删除策略性 recovery/sentinel 文案。
 4. R5-G：用 targeted samples 区分 correctness、semantic cleanliness、request cadence 三类结果。
 

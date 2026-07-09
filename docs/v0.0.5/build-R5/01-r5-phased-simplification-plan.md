@@ -590,7 +590,7 @@ R5 closeout 文档
 | R5-C0 | 同口径 request/tool cadence 日志、focused paired sample | 不依赖 R5-C thin projection | cadence report、budget cliff 不复现 | 100% 完成 | pause |
 | R5-C | provider-visible payload diff、action sequence live sample | 不依赖 ledger 删除 | thin projection diff、反馈完整性测试、`count-call-stack` paired run | 100% 完成 | proceed to R5-D |
 | R5-C1 | native tool-loop focused sample、projection boundary scan | 不依赖 ledger 删除 | native alias tests、`count-call-stack` paired run、旧 action-class contract 扫描 | 100% 完成 | proceed to R5-D |
-| R5-D | D0 provider-visible residue inventory、initial/state_commit 降级测试 | 不依赖 gate pruning | 语义残留分类表、ledger 非 active path 证据 | 100% 完成 | pause |
+| R5-D | D0 provider-visible residue inventory、initial/state_commit 降级测试 | 不依赖 gate pruning | 语义残留分类表、ledger 非 active path 证据 | 100% 完成 | proceed to benefit sample / R5-E |
 | R5-E | gate 分类测试、payload scan、负例 | 不依赖模块拆分 | 仅硬底线 gate 列表；model-visible recovery/sentinel 无策略指令 | 100% 完成 | pause |
 | R5-F | 模块边界测试、cargo check | 不依赖 benchmark 总跑 | active path import/call graph | 100% 完成 | pause |
 | R5-G | targeted paired runs | 不依赖 closeout | 指标报告、失败分类 | 100% 完成 | pause |
@@ -623,7 +623,7 @@ tool count、provider request count、state-machine action count、wall time、�
 | R5-C thin projection and action sequence | model-visible 只含 map/node/events/refs；单次 response 可承载多个 Agent 明确动作；routing prompt report-only | projection renderer, action-contract parser/executor, benchmark routing prompt | provider request, whale exec taskspace mode | active_projection, taskspace_action_contract, routing harness tests | `target/r5cphase6/count-call-stack/20260709-183144-389` | none | landed |
 | R5-C1 native tool loop boundary | DeepSeek 默认 native tools；机械空 map；projection 不再暴露 action-class contract | session turn transport, action_map runtime projection, tools router/parallel alias | whale exec taskspace mode | native alias tests, active_projection, taskspace_action_contract | `target/r5c1-native-tool-loop-no-action-contract/count-call-stack/20260709-215916-052` | none | landed |
 | R5-D0 provider-visible residue inventory | provider-visible 旧语义标签和策略提示完成首轮清理；semantic ledger 仍待 D1/D2 降级 | projection/recovery/action-contract/gate recovery text | provider-visible context, ordinary tool feedback | `taskspace_action_contract`, `gate_recovery`, `active_projection`, D0 forbidden scan | `target/r5d0-semantic-residue-clean/count-call-stack/20260709-232508-447` | legacy/test-only `next_valid_actions` parser/helper remains internal | landed |
-| R5-D1/D2 ledger deactivation | `initial_*`、`problem_ledger/cognitive_state` 不控制 active path | state_commit/start_task/projection | taskspace_control, provider-visible context | initial_* and state_commit tests | state update traces | none | planned |
+| R5-D1/D2 ledger deactivation | `initial_*`、`problem_ledger/cognitive_state` 不控制 active path | start_task/projection/closeout/final gate | taskspace_control, provider-visible context | `start_task_`, active projection, D2 closeout/final boundary tests, `taskspace_action_contract`, `gate_recovery` | `target/r5d-ledger-deactivation/count-call-stack/20260710-002316-050` both_success；forbidden scan 无命中 | legacy validation/rework tests still contain old semantic-control assertions | landed |
 | R5-E hard-baseline pruning | 只保留硬底线拒绝；model-visible recovery/sentinel 不含策略指令 | state machine gate path, sentinel/recovery renderer | ordinary tool preflight, payload construction | gate classification tests, forbidden phrase scan | blocked reason taxonomy, rollout/payload scan | none | planned |
 | R5-F module split | map/event/gate/projection 边界清晰 | action_map modules | whale exec --taskspace | cargo check/test | trace fields stable | none | planned |
 | R5-G benefit gate | 简化无明确负收益 | benchmark harness | targeted samples | paired report | metrics json/report | none | planned |
@@ -671,9 +671,12 @@ DeepSeek native tools，补齐 `exec_command`/`read_file` alias，允许 runtime
 `docs/v0.0.5/build-R5/07-r5-phase-c-exposure-followup-plan.md`。R5-D0 已完成首轮
 provider-visible semantic residue inventory 和明显越界文案清理，记录在
 `docs/v0.0.5/build-R5/08-r5-phase-d0-semantic-residue-inventory.md`；`count-call-stack`
-D0 样本 standard/R5 均 solved，forbidden scan 无命中。下一步进入 R5-D1/D2，处理
-`initial_*`、ledger、cognitive state 的 active canonical truth 降级；R5-E 继续建立
-hard-baseline classifier 并清理剩余 spawn/validation/recovery/sentinel gate。
+D0 样本 standard/R5 均 solved，forbidden scan 无命中。R5-D1/D2 已完成，记录在
+`docs/v0.0.5/build-R5/09-r5-phase-d-ledger-deactivation.md`：`initial_*` 不再提升为
+canonical truth，ledger/cognitive state 不再控制 active projection、closeout、final response
+或 broad delegation strategy；Phase D benefit sample `count-call-stack` 复验 standard/R5
+均 solved，TaskSpace tool ratio 0.79，wall ratio 0.66，forbidden scan 无命中。下一步进入
+R5-E 建立 hard-baseline classifier 并清理剩余 spawn/validation/recovery/sentinel gate。
 
 ## 1.20 R5-A/B 后计划校准
 

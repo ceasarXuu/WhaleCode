@@ -60,7 +60,6 @@ use codex_protocol::protocol::MapRuntimeTraceEventRecordedEvent;
 
 use super::basemap::BASE_MAP;
 use super::basemap::base_map_metadata_prompt;
-use super::basemap::cognitive_state_protocol_prompt;
 use super::basemap::node_kind_selection_prompt;
 use super::cognitive::COGNITIVE_SCHEMA_VERSION;
 use super::cognitive::CognitiveClaim;
@@ -2700,15 +2699,6 @@ preview:\n\
             let (_, mut blocker_events) =
                 self.block_main_node(owner_session_id, &validation_node_id, blocker_summary)?;
             events.append(&mut blocker_events);
-        } else if success
-            && matches!(
-                recorded_action_class,
-                Some(ActionClass::Build | ActionClass::Test)
-            )
-        {
-            let mut validation_accept_events =
-                self.auto_accept_validation_result_for_finish(owner_session_id, &node_id, &body)?;
-            events.append(&mut validation_accept_events);
         }
         Ok(Some((node_event_id, events)))
     }
@@ -5167,14 +5157,10 @@ preview:\n\
         } else {
             task_objective.to_string()
         };
-        let mut initial_success_criteria = initial_success_criteria;
-        let mut initial_output_contracts = initial_output_contracts;
-        let mut initial_fact_sources = initial_fact_sources;
-        seed_missing_start_task_scaffold(
-            &objective,
-            &mut initial_success_criteria,
-            &mut initial_output_contracts,
-            &mut initial_fact_sources,
+        let _ = (
+            initial_success_criteria,
+            initial_output_contracts,
+            initial_fact_sources,
         );
         self.tasks.insert(
             task_id.clone(),
@@ -5214,29 +5200,6 @@ preview:\n\
             .get(&map_id)
             .expect("new TaskSpace map must be inserted before event emission");
         events.push(map_created_event(map));
-        if !initial_success_criteria.is_empty() {
-            events.extend(
-                self.record_success_criteria_for_main(owner_session_id, initial_success_criteria)?,
-            );
-        }
-        for contract in initial_output_contracts {
-            events.extend(self.record_output_contract_for_main(
-                owner_session_id,
-                &contract.id,
-                &contract.kind,
-                contract.description,
-                contract.evidence_refs,
-            )?);
-        }
-        for source in initial_fact_sources {
-            events.extend(self.record_fact_source_for_main(
-                owner_session_id,
-                &source.id,
-                &source.provenance,
-                source.description,
-                source.evidence_refs,
-            )?);
-        }
 
         let (node_id, mut node_events) = self.create_node_for_main_with_kind(
             owner_session_id,
@@ -5416,12 +5379,6 @@ preview:\n\
             next_node_draft.as_ref(),
         )?;
         self.validate_validation_finish_failure_has_current_result(node_id, result_summary)?;
-        let mut validation_events = self.auto_accept_validation_result_for_finish(
-            owner_session_id,
-            node_id,
-            result_summary,
-        )?;
-        self.validate_existing_validation_criteria_for_finish(node_id)?;
         self.validate_completion_evidence(node_id)?;
         if self.active_node_kind(node_id)? == NodeKind::FinalSynthesis {
             self.validate_final_response_ready(owner_session_id, result_summary, false)?;
@@ -5434,9 +5391,6 @@ preview:\n\
             NodeStatus::Completed,
             true,
         )?;
-        events.extend(self.accept_validation_closeout_result_for_finish(node_id, &result_id)?);
-        validation_events.append(&mut events);
-        let mut events = validation_events;
         let mut bound_next_node_id = None;
         if let Some(next_node_id) = next_node_id {
             let bind_events = self.bind_main_node(owner_session_id, next_node_id)?;
@@ -5466,232 +5420,6 @@ preview:\n\
             },
             events,
         ))
-    }
-
-    fn auto_accept_validation_result_for_finish(
-        &mut self,
-        owner_session_id: ThreadId,
-        node_id: &str,
-        result_summary: &str,
-    ) -> Result<Vec<MapRuntimeEvent>, String> {
-        let Some(map_id) = self.active_map_id.clone() else {
-            return Ok(Vec::new());
-        };
-        let Some((node_kind, result_id, result_already_accepted, criterion_already_satisfied)) =
-            self.maps.get(&map_id).and_then(|map| {
-                let node = map.nodes.get(node_id)?;
-                if !matches!(node.kind, NodeKind::SmokeTest | NodeKind::RegressionTest) {
-                    return None;
-                }
-                let result_id = latest_successful_validation_result_id(map, node)?;
-                let result_already_accepted = map.results.get(&result_id).is_some_and(|result| {
-                    result.evidence_package.validity == ResultValidity::Accepted
-                });
-                let criterion_already_satisfied = map
-                    .task_id
-                    .as_deref()
-                    .and_then(|task_id| self.tasks.get(task_id))
-                    .is_some_and(|task| {
-                        node_satisfies_success_criterion_with_validation_result(task, map, node)
-                    });
-                Some((
-                    node.kind,
-                    result_id,
-                    result_already_accepted,
-                    criterion_already_satisfied,
-                ))
-            })
-        else {
-            return Ok(Vec::new());
-        };
-
-        let mut events = Vec::new();
-        if !result_already_accepted {
-            events.extend(self.mark_result_validity_for_main(
-                owner_session_id,
-                &result_id,
-                "accepted",
-                format!("{} succeeded before node finish.", node_kind.as_str()),
-                vec![ActionMapCognitiveClaimInput {
-                    id: format!("claim-{result_id}-validation-pass"),
-                    statement: format!(
-                        "{} passed: {}",
-                        node_kind.as_str(),
-                        single_line_preview(result_summary, 160)
-                    ),
-                    evidence_refs: vec![ActionMapEvidenceRefInput {
-                        result_id: Some(result_id.clone()),
-                        validator_ref: Some(node_kind.as_str().to_string()),
-                        ..Default::default()
-                    }],
-                }],
-                vec![ActionMapEvidenceRefInput {
-                    result_id: Some(result_id.clone()),
-                    validator_ref: Some(node_kind.as_str().to_string()),
-                    ..Default::default()
-                }],
-                Vec::new(),
-                vec![node_kind.as_str().to_string()],
-                Vec::new(),
-            )?);
-        }
-        if !criterion_already_satisfied {
-            events.extend(self.record_success_criteria_for_main(
-                owner_session_id,
-                vec![ActionMapSuccessCriterionInput {
-                    id: format!("sc-{node_id}-validation-pass"),
-                    kind: "test".to_string(),
-                    description: format!("{} passed before node finish.", node_kind.as_str()),
-                    status: "satisfied".to_string(),
-                    evidence_refs: vec![ActionMapEvidenceRefInput {
-                        result_id: Some(result_id),
-                        validator_ref: Some(node_kind.as_str().to_string()),
-                        ..Default::default()
-                    }],
-                }],
-            )?);
-        }
-        Ok(events)
-    }
-
-    fn accept_validation_closeout_result_for_finish(
-        &mut self,
-        node_id: &str,
-        closeout_result_id: &str,
-    ) -> Result<Vec<MapRuntimeEvent>, String> {
-        let Some(map_id) = self.active_map_id.clone() else {
-            return Ok(Vec::new());
-        };
-        let Some((task_id, node_kind, validation_result_id)) =
-            self.maps.get(&map_id).and_then(|map| {
-                let node = map.nodes.get(node_id)?;
-                if !matches!(node.kind, NodeKind::SmokeTest | NodeKind::RegressionTest) {
-                    return None;
-                }
-                let validation_result_id =
-                    latest_accepted_successful_validation_result_id(map, node)?;
-                Some((map.task_id.clone(), node.kind, validation_result_id))
-            })
-        else {
-            return Ok(Vec::new());
-        };
-        let map = self
-            .maps
-            .get_mut(&map_id)
-            .ok_or_else(|| format!("TaskSpace task path `{map_id}` is missing."))?;
-        let result = map.results.get_mut(closeout_result_id).ok_or_else(|| {
-            format!(
-                "TaskSpace result `{closeout_result_id}` does not exist on task path `{map_id}`."
-            )
-        })?;
-        if result.evidence_package.validity != ResultValidity::Unreviewed {
-            return Ok(Vec::new());
-        }
-        let mut adoption = NodeResultAdoption::default();
-        adoption.refresh_state(ResultValidity::Accepted);
-        let closeout_ref = EvidenceRef {
-            result_id: Some(closeout_result_id.to_string()),
-            claim_id: None,
-            fact_source_id: None,
-            trace_event_id: None,
-            artifact_ref: None,
-            validator_ref: None,
-        };
-        let validation_ref = EvidenceRef {
-            result_id: Some(validation_result_id.clone()),
-            claim_id: None,
-            fact_source_id: None,
-            trace_event_id: None,
-            artifact_ref: None,
-            validator_ref: Some(node_kind.as_str().to_string()),
-        };
-        result.evidence_package = NodeResultEvidencePackage {
-            claims: vec![CognitiveClaim {
-                id: format!("claim-{closeout_result_id}-validation-closeout"),
-                statement: format!(
-                    "{} closeout summary is supported by accepted validation result `{validation_result_id}`.",
-                    node_kind.as_str()
-                ),
-                evidence_refs: vec![validation_ref.clone(), closeout_ref.clone()],
-            }],
-            evidence_refs: vec![validation_ref, closeout_ref],
-            changed_artifacts: Vec::new(),
-            validator_refs: vec![node_kind.as_str().to_string()],
-            remaining_uncertainty: Vec::new(),
-            validity: ResultValidity::Accepted,
-            validity_reason: format!(
-                "{} closeout accepted because validation result `{validation_result_id}` was already accepted.",
-                node_kind.as_str()
-            ),
-            adoption,
-        };
-        Ok(vec![MapRuntimeEvent::ResultValidityChanged(
-            MapRuntimeResultValidityChangedEvent {
-                task_id,
-                map_id,
-                node_id: result.node_id.clone(),
-                result_id: closeout_result_id.to_string(),
-                validity: ResultValidity::Accepted.as_str().to_string(),
-            },
-        )])
-    }
-
-    fn validate_existing_validation_criteria_for_finish(
-        &self,
-        node_id: &str,
-    ) -> Result<(), String> {
-        let Some(map_id) = self.active_map_id.as_deref() else {
-            return Ok(());
-        };
-        let Some(map) = self.maps.get(map_id) else {
-            return Ok(());
-        };
-        let Some(node) = map.nodes.get(node_id) else {
-            return Ok(());
-        };
-        if !matches!(node.kind, NodeKind::SmokeTest | NodeKind::RegressionTest) {
-            return Ok(());
-        }
-        let Some(task) = map
-            .task_id
-            .as_deref()
-            .and_then(|task_id| self.tasks.get(task_id))
-        else {
-            return Ok(());
-        };
-        let has_invalid_validation_criterion =
-            task.problem_ledger
-                .success_criteria
-                .iter()
-                .any(|criterion| {
-                    if criterion.status != "satisfied"
-                        || !matches!(criterion.kind.as_str(), "test" | "validator")
-                    {
-                        return false;
-                    }
-                    criterion.evidence_refs.iter().any(|evidence_ref| {
-                        let Some(result_id) = evidence_ref.result_id.as_deref() else {
-                            return false;
-                        };
-                        !map.results.get(result_id).is_some_and(|result| {
-                            result.node_id == node.id
-                                && node_has_result_id(node, result_id)
-                                && result.kind == NodeResultKind::MainToolCall
-                                && matches!(
-                                    result.action_class,
-                                    Some(ActionClass::Build | ActionClass::Test)
-                                )
-                                && result.tool_success == Some(true)
-                        })
-                    })
-                });
-        if has_invalid_validation_criterion {
-            return Err(format!(
-                "TaskSpace {} node `{node_id}` cannot be completed because a satisfied test/validator criterion is not tied to this validation node's successful test/build result.",
-                node.kind.as_str()
-            ));
-        }
-        Ok(())
     }
 
     fn validate_validation_finish_failure_has_current_result(
@@ -7585,27 +7313,12 @@ preview:\n\
             .ok_or_else(|| format!("TaskSpace node `{node_id}` does not exist."))?;
         match node.kind {
             NodeKind::InspectCodeContext => {
-                let task = map
-                    .task_id
-                    .as_deref()
-                    .and_then(|task_id| self.tasks.get(task_id));
                 if !node_has_successful_action(map, node, ActionClass::Read)
                     && !node_has_successful_action(map, node, ActionClass::Search)
-                    && !task.is_some_and(|task| node_has_problem_state_effect(task, map, node))
                 {
                     return Err(format!(
-                        "TaskSpace inspect_code_context node `{node_id}` cannot be completed without a recorded successful read/search action or a problem-state update tied to this node. Record a fact, open question, decision, or evidence-backed finding before finishing."
+                        "TaskSpace inspect_code_context node `{node_id}` cannot be completed without a recorded successful read/search action. hard_state: inspect_node_without_successful_read_or_search_result."
                     ));
-                }
-                if let Some(task) = task {
-                    let missing_fact_source_artifacts =
-                        inspect_missing_required_fact_source_artifacts(task, map, node);
-                    if !missing_fact_source_artifacts.is_empty() {
-                        return Err(format!(
-                            "TaskSpace inspect_code_context node `{node_id}` cannot be completed while declared fact-source artifact(s) remain unread: {}. hard_state: declared_fact_source_artifact_unread.",
-                            missing_fact_source_artifacts.join(", ")
-                        ));
-                    }
                 }
             }
             NodeKind::ImplementSolution => {
@@ -7631,44 +7344,8 @@ preview:\n\
                         node.kind.as_str()
                     ));
                 }
-                let task = map
-                    .task_id
-                    .as_deref()
-                    .and_then(|task_id| self.tasks.get(task_id));
-                if !task.is_some_and(|task| {
-                    node_satisfies_success_criterion_with_validation_result(task, map, node)
-                }) {
-                    return Err(format!(
-                        "TaskSpace {} node `{node_id}` cannot be completed without a satisfied success criterion tied to this validation node's successful test/build result. hard_state: validation_success_criterion_not_recorded_for_node_result.",
-                        node.kind.as_str()
-                    ));
-                }
             }
-            NodeKind::FinalSynthesis => {
-                let task = map
-                    .task_id
-                    .as_deref()
-                    .and_then(|task_id| self.tasks.get(task_id))
-                    .ok_or_else(|| {
-                        "TaskSpace final_synthesis cannot be completed without an active task ledger."
-                            .to_string()
-                    })?;
-                if !task_success_criteria_complete_for_final(task, map) {
-                    return Err(format!(
-                        "TaskSpace final_synthesis node `{node_id}` cannot be completed until every success criterion is satisfied or waived with evidence."
-                    ));
-                }
-                if task.problem_ledger.decisions.is_empty() {
-                    return Err(format!(
-                        "TaskSpace final_synthesis node `{node_id}` cannot be completed without at least one recorded decision in the problem ledger."
-                    ));
-                }
-                if let Some(question_id) = task_open_blocking_question_id(task) {
-                    return Err(format!(
-                        "TaskSpace final_synthesis node `{node_id}` cannot be completed while blocking open question `{question_id}` is still open. Close it or block the final_synthesis node."
-                    ));
-                }
-            }
+            NodeKind::FinalSynthesis => {}
             NodeKind::Custom => {}
         }
         Ok(())
@@ -8452,8 +8129,7 @@ preview:\n\
         let node_id = match self.current_main_node_id.clone() {
             Some(node_id) => node_id,
             None => {
-                if has_completed_final_synthesis || self.active_task_requires_final_readiness_gate()
-                {
+                if has_completed_final_synthesis {
                     self.validate_final_response_ready(owner_session_id, message, true)?;
                 }
                 return Ok(None);
@@ -8490,113 +8166,8 @@ preview:\n\
         message: &str,
         ignore_completed_final_synthesis_result: bool,
     ) -> Result<(), String> {
-        self.validate_cognitive_preflight()?;
-        self.validate_lifecycle_result_reviewed_for_final_response(
-            ignore_completed_final_synthesis_result,
-            false,
-        )?;
-        self.validate_no_unresolved_broad_delegation_debt(
-            owner_session_id,
-            "finish final_synthesis",
-        )?;
-        self.validate_no_open_blocking_questions()?;
-        self.validate_decision_result_dependencies_ready()?;
-        self.validate_final_success_criteria_ready()?;
-        self.validate_final_synthesis_has_validation_after_edit()?;
+        let _ = (owner_session_id, ignore_completed_final_synthesis_result);
         self.validate_final_answer_no_internal_orchestration_terms(message)?;
-        Ok(())
-    }
-
-    fn active_task_requires_final_readiness_gate(&self) -> bool {
-        let Some(task_id) = self.active_task_id.as_deref() else {
-            return false;
-        };
-        let Some(task) = self.tasks.get(task_id) else {
-            return false;
-        };
-        task.problem_ledger.has_success_criteria()
-            || !task.cognitive_state.output_contracts.is_empty()
-    }
-
-    fn validate_final_success_criteria_ready(&self) -> Result<(), String> {
-        let Some(task_id) = self.active_task_id.as_deref() else {
-            return Ok(());
-        };
-        let Some(map_id) = self.active_map_id.as_deref() else {
-            return Ok(());
-        };
-        let Some(task) = self.tasks.get(task_id) else {
-            return Ok(());
-        };
-        let Some(map) = self.maps.get(map_id) else {
-            return Ok(());
-        };
-        if task_success_criteria_complete_for_final(task, map) {
-            return Ok(());
-        }
-        Err(final_readiness_missing_ledger_message(task, map))
-    }
-
-    fn validate_no_open_blocking_questions(&self) -> Result<(), String> {
-        let Some(task_id) = self.active_task_id.as_deref() else {
-            return Ok(());
-        };
-        let Some(task) = self.tasks.get(task_id) else {
-            return Ok(());
-        };
-        if let Some(question_id) = task_open_blocking_question_id(task) {
-            return Err(format!(
-                "TaskSpace final_synthesis blocked by open blocking question `{question_id}`. Close it or explain why final output is not ready."
-            ));
-        }
-        Ok(())
-    }
-
-    fn validate_decision_result_dependencies_ready(&self) -> Result<(), String> {
-        let Some(task_id) = self.active_task_id.as_deref() else {
-            return Ok(());
-        };
-        let Some(map_id) = self.active_map_id.as_deref() else {
-            return Ok(());
-        };
-        let Some(task) = self.tasks.get(task_id) else {
-            return Ok(());
-        };
-        let Some(map) = self.maps.get(map_id) else {
-            return Ok(());
-        };
-        for decision in &task.problem_ledger.decisions {
-            for result_id in &decision.depends_on_results {
-                let result = map.results.get(result_id).ok_or_else(|| {
-                    format!(
-                        "TaskSpace decision `{}` depends on missing result `{result_id}`.",
-                        decision.id
-                    )
-                })?;
-                match result.evidence_package.validity {
-                    ResultValidity::Accepted => {}
-                    ResultValidity::Questioned => {
-                        let has_supporting_refs = !decision.depends_on_facts.is_empty()
-                            || !decision.resolves_questions.is_empty()
-                            || !decision.supports_criteria.is_empty()
-                            || decision.depends_on_results.len() > 1;
-                        if !has_supporting_refs {
-                            return Err(format!(
-                                "TaskSpace decision `{}` depends only on questioned result `{result_id}`.",
-                                decision.id
-                            ));
-                        }
-                    }
-                    ResultValidity::Invalid | ResultValidity::Unreviewed => {
-                        return Err(format!(
-                            "TaskSpace decision `{}` depends on {} result `{result_id}`.",
-                            decision.id,
-                            result.evidence_package.validity.as_str()
-                        ));
-                    }
-                }
-            }
-        }
         Ok(())
     }
 
@@ -9085,7 +8656,7 @@ preview:\n\
             "Path evidence facts: exact path discovery can come from rg --files, Get-ChildItem -Name, narrow directory listings, read results, or search results. Truncated shell output is low-confidence path evidence.\n",
         );
         context.push_str(
-            "Validation rework facts: smoke_test/regression_test failures are recorded on validation nodes; implementation fixes are represented by implement_solution nodes; rerun validation is represented by smoke_test/regression_test nodes. final_synthesis closeout requires satisfied or waived criteria.\n",
+            "Validation rework facts: smoke_test/regression_test failures are recorded on validation nodes; implementation fixes are represented by implement_solution nodes; rerun validation is represented by smoke_test/regression_test nodes.\n",
         );
         context.push_str(
             "final_synthesis facts: final_synthesis is an optional answer-only synthesis node; its node kind is read-only and ordinary tool boundaries follow node kind.\n",
@@ -9149,10 +8720,6 @@ preview:\n\
             );
         }
         if let Some(map) = self.active_map() {
-            if !map.nodes.is_empty() {
-                context.push_str(cognitive_state_protocol_prompt());
-                context.push('\n');
-            }
             context.push_str("Active task path:\n");
             context.push_str("- id: ");
             context.push_str(&map.id);
@@ -9170,13 +8737,9 @@ preview:\n\
                 .or(self.active_task_id.as_ref())
                 .and_then(|task_id| self.tasks.get(task_id))
             {
-                append_context_projection_shadow(
-                    &mut context,
-                    task,
-                    map,
-                    self.current_main_node_id.as_deref(),
-                );
-                append_task_cognitive_context(&mut context, task, map);
+                context.push_str("\n- active objective: ");
+                context.push_str(&single_line_preview(&task.objective, 220));
+                context.push('\n');
             }
             if let Some(node_id) = self.current_main_node_id.as_ref()
                 && let Some(node) = map.nodes.get(node_id)
@@ -9208,7 +8771,7 @@ preview:\n\
                 context.push_str(&base_map_metadata_prompt());
             }
             context.push_str(
-                "Active task path facts: main-agent ordinary tool calls are attributed to the current main action node; subagent actions are bound to ready nodes at spawn time. spawn_agent can claim ready nodes with unused taskspace_control(action=record_subagent_plan) records; the plan names parent_node_id, why the work is parallelizable, expected_artifact, acceptance_check, and max_scope. Multiple ready nodes require spawn_agent node_id selection; a single ready node may be bound automatically by runtime. Newly discovered subtasks can be represented by taskspace_control(action=create_node). state_commit(schema_version=taskspace-state-commit-v1) can record multiple nodes, success criteria, output contracts, fact sources, decisions, result validities, or adoptions in one checkpoint. Node result context remains attached to the node as evidence context.\n",
+                "Active task path facts: main-agent ordinary tool calls are attributed to the current main action node; subagent actions are bound to ready nodes at spawn time. spawn_agent can claim ready nodes with unused taskspace_control(action=record_subagent_plan) records; the plan names parent_node_id, why the work is parallelizable, expected_artifact, acceptance_check, and max_scope. Multiple ready nodes require spawn_agent node_id selection; a single ready node may be bound automatically by runtime. Newly discovered subtasks can be represented by taskspace_control(action=create_node). state_commit(schema_version=taskspace-state-commit-v1) can record multiple nodes and optional Agent-authored state notes in one checkpoint. Node result context remains attached to the node as evidence context.\n",
             );
             context.push_str(
                 "Independent-track facts: distinct evidence surfaces such as subsystems, packages, files, validators, or ownership areas can be represented as separate inspect_code_context nodes with explicit dependency edges. The Agent chooses whether independent-track structure is useful before implementation.\n",
@@ -9687,165 +9250,7 @@ preview:\n\
         Ok(())
     }
 
-    fn validate_lifecycle_result_reviewed_for_final_response(
-        &self,
-        ignore_completed_final_synthesis_result: bool,
-        allow_active_rework_input_blocker: bool,
-    ) -> Result<(), String> {
-        let Some(map_id) = self.active_map_id.as_deref() else {
-            return Ok(());
-        };
-        let Some(map) = self.maps.get(map_id) else {
-            return Ok(());
-        };
-        if let Some(result) = map
-            .results
-            .values()
-            .filter(|result| {
-                if ignore_completed_final_synthesis_result
-                    && map.nodes.get(&result.node_id).is_some_and(|node| {
-                        node.kind == NodeKind::FinalSynthesis
-                            && node.status == NodeStatus::Completed
-                    })
-                {
-                    return false;
-                }
-                if allow_active_rework_input_blocker
-                    && self.unreviewed_result_is_active_rework_input_blocker(map, result)
-                {
-                    return false;
-                }
-                if self.unreviewed_result_is_current_final_dependency_lifecycle_summary(map, result)
-                {
-                    return false;
-                }
-                matches!(
-                    result.kind,
-                    NodeResultKind::Result
-                        | NodeResultKind::Blocker
-                        | NodeResultKind::MapUpdateRequest
-                        | NodeResultKind::TimeoutSummary
-                ) && result.evidence_package.validity == ResultValidity::Unreviewed
-            })
-            .min_by_key(|result| result.created_at_ms)
-        {
-            return Err(format!(
-                "TaskSpace result `{}` on node `{}` is still unreviewed. Before final response or a decision that relies on this result, call taskspace_control(action=state_commit) with result_validities including claims, evidence_refs, changed_artifacts, validator_refs, and remaining_uncertainty so the main agent explicitly accepts, questions, or rejects the node result before relying on it.",
-                result.id, result.node_id
-            ));
-        }
-        Ok(())
-    }
-
-    fn unreviewed_result_is_current_final_dependency_lifecycle_summary(
-        &self,
-        map: &ActionMapInstance,
-        result: &NodeResult,
-    ) -> bool {
-        if result.kind != NodeResultKind::Result
-            || result.action_class.is_some()
-            || result.tool_success.is_some()
-        {
-            return false;
-        }
-        let Some(current_node_id) = self.current_main_node_id.as_deref() else {
-            return false;
-        };
-        let Some(current_node) = map.nodes.get(current_node_id) else {
-            return false;
-        };
-        if current_node.kind != NodeKind::FinalSynthesis
-            || current_node.status != NodeStatus::Running
-        {
-            return false;
-        }
-        let Some(result_node) = map.nodes.get(&result.node_id) else {
-            return false;
-        };
-        result_node.status == NodeStatus::Completed
-            && Self::dependency_chain_contains_node(map, &current_node.id, &result.node_id)
-    }
-
-    fn unreviewed_result_is_active_rework_input_blocker(
-        &self,
-        map: &ActionMapInstance,
-        result: &NodeResult,
-    ) -> bool {
-        if result.kind == NodeResultKind::Result {
-            return self.unreviewed_result_is_active_rework_dependency_finish(map, result);
-        }
-        if result.kind != NodeResultKind::Blocker {
-            return false;
-        }
-        let Some(current_node_id) = self.current_main_node_id.as_deref() else {
-            return false;
-        };
-        let Some(current_node) = map.nodes.get(current_node_id) else {
-            return false;
-        };
-        if current_node.kind != NodeKind::ImplementSolution
-            || current_node.status != NodeStatus::Running
-            || current_node.origin_node_id.as_deref() != Some(result.node_id.as_str())
-        {
-            if current_node.kind == NodeKind::ImplementSolution
-                && current_node.status == NodeStatus::Running
-                && Self::active_rework_chain_contains_blocked_validation_node(
-                    map,
-                    current_node,
-                    &result.node_id,
-                )
-            {
-                return true;
-            }
-            return Self::current_node_is_validation_after_rework_input_blocker(
-                map,
-                current_node,
-                result,
-            );
-        }
-        map.nodes.get(&result.node_id).is_some_and(|origin| {
-            matches!(origin.kind, NodeKind::SmokeTest | NodeKind::RegressionTest)
-                && origin.status == NodeStatus::Blocked
-        })
-    }
-
-    fn current_node_is_validation_after_rework_input_blocker(
-        map: &ActionMapInstance,
-        current_node: &MapNode,
-        result: &NodeResult,
-    ) -> bool {
-        if !matches!(
-            current_node.kind,
-            NodeKind::ImplementSolution | NodeKind::SmokeTest | NodeKind::RegressionTest
-        ) || current_node.status != NodeStatus::Running
-        {
-            return false;
-        }
-        if !map.nodes.get(&result.node_id).is_some_and(|origin| {
-            matches!(origin.kind, NodeKind::SmokeTest | NodeKind::RegressionTest)
-                && origin.status == NodeStatus::Blocked
-        }) {
-            return false;
-        }
-        if Self::active_rework_chain_contains_blocked_validation_node(
-            map,
-            current_node,
-            &result.node_id,
-        ) {
-            return true;
-        }
-        map.edges
-            .iter()
-            .filter(|edge| edge.to == current_node.id)
-            .any(|edge| {
-                map.nodes.get(&edge.from).is_some_and(|dependency| {
-                    dependency.kind == NodeKind::ImplementSolution
-                        && dependency.status == NodeStatus::Completed
-                        && dependency.origin_node_id.as_deref() == Some(result.node_id.as_str())
-                })
-            })
-    }
-
+    #[cfg(test)]
     fn active_rework_chain_contains_blocked_validation_node(
         map: &ActionMapInstance,
         current_node: &MapNode,
@@ -9887,6 +9292,7 @@ preview:\n\
         false
     }
 
+    #[cfg(test)]
     fn dependency_chain_contains_node(
         map: &ActionMapInstance,
         current_node_id: &str,
@@ -9917,6 +9323,7 @@ preview:\n\
         false
     }
 
+    #[cfg(test)]
     fn unreviewed_result_is_active_rework_dependency_finish(
         &self,
         map: &ActionMapInstance,
@@ -10298,42 +9705,8 @@ preview:\n\
         owner_session_id: ThreadId,
         action_label: &str,
     ) -> Result<(), String> {
-        let Some(map) = self.active_map() else {
-            return Ok(());
-        };
-        let broad_completed_inspects = broad_completed_inspect_node_ids(map, owner_session_id);
-        if broad_completed_inspects.is_empty() {
-            return Ok(());
-        }
-        if related_completed_accepted_subagent_inspect_node_ids(
-            map,
-            owner_session_id,
-            &broad_completed_inspects,
-        )
-        .len()
-            >= 2
-        {
-            return Ok(());
-        }
-        Err(format!(
-            "TaskSpace cannot {action_label} while the active task has unresolved broad inspect delegation debt. Continue on the current task: create ready inspect_code_context nodes for the independent evidence tracks, call spawn_agent with explicit node_id for each track, mark those results accepted, then continue."
-        ))
-    }
-
-    fn validate_final_synthesis_has_validation_after_edit(&self) -> Result<(), String> {
-        let Some(map) = self.active_map() else {
-            return Ok(());
-        };
-        if !map_has_successful_edit(map) {
-            return Ok(());
-        }
-        if map_has_accepted_successful_validation_result(map) {
-            return Ok(());
-        }
-        Err(
-            "TaskSpace cannot finish final_synthesis after repository edits without an accepted smoke_test or regression_test result. Create or bind a validation node, run a successful test/build action there, finish the node, and mark the validation result accepted before final answer."
-                .to_string(),
-        )
+        let _ = (owner_session_id, action_label);
+        Ok(())
     }
 
     fn validate_maintenance_barrier_for_node(&self, _node_id: &str) -> Result<(), String> {
@@ -11117,60 +10490,6 @@ pub(crate) fn format_action_map_snapshot(snapshot: &ActionMapSnapshot) -> String
     }
 
     output
-}
-
-fn append_task_cognitive_context(context: &mut String, task: &TaskState, map: &ActionMapInstance) {
-    append_problem_ledger_context(context, &task.problem_ledger);
-    let cognitive = &task.cognitive_state;
-    context.push_str("\nTask cognitive state (MVP):\n");
-    if cognitive.output_contracts.is_empty()
-        && cognitive.fact_sources.is_empty()
-        && cognitive.facts.is_empty()
-    {
-        context.push_str(
-            "- no records yet; before relying on user requirements, external data, validator output, or node results, record output contracts, fact sources, facts, or result validity through taskspace_control.\n",
-        );
-    }
-    if !cognitive.output_contracts.is_empty() {
-        context.push_str("- output contracts:\n");
-        for contract in cognitive.output_contracts.iter().take(6) {
-            context.push_str("  - ");
-            context.push_str(&contract.id);
-            context.push_str(" kind=");
-            context.push_str(contract.kind.as_str());
-            context.push_str(" evidence_refs=");
-            context.push_str(&contract.evidence_refs.len().to_string());
-            context.push_str(": ");
-            context.push_str(&single_line_preview(&contract.description, 160));
-            context.push('\n');
-        }
-        append_omitted_count(
-            context,
-            cognitive.output_contracts.len(),
-            6,
-            "output contracts",
-        );
-    }
-    if !cognitive.fact_sources.is_empty() {
-        context.push_str("- fact sources:\n");
-        for source in cognitive.fact_sources.iter().take(6) {
-            context.push_str("  - ");
-            context.push_str(&source.id);
-            context.push_str(" provenance=");
-            context.push_str(source.provenance.as_str());
-            context.push_str(" evidence_refs=");
-            context.push_str(&source.evidence_refs.len().to_string());
-            context.push_str(": ");
-            context.push_str(&single_line_preview(&source.description, 160));
-            context.push('\n');
-        }
-        append_omitted_count(context, cognitive.fact_sources.len(), 6, "fact sources");
-    }
-    if !cognitive.facts.is_empty() {
-        context.push_str("- active facts:\n");
-        append_claim_preview_list(context, &cognitive.facts, 6);
-    }
-    append_result_evidence_context(context, map);
 }
 
 fn taskspace_task_path_is_mechanical_blank(task: &TaskState, map: &ActionMapInstance) -> bool {
@@ -13198,180 +12517,6 @@ fn projection_no_current_next_valid_actions(map: &ActionMapInstance) -> Vec<Stri
 
 fn approx_projection_tokens(text: &str) -> usize {
     text.len().div_ceil(4)
-}
-
-fn append_problem_ledger_context(context: &mut String, ledger: &ProblemStateLedger) {
-    context.push_str("\nTask problem-state ledger (v1):\n");
-    if ledger.schema_incomplete {
-        context.push_str("- schema_incomplete=true; this task was restored from legacy state or lacks full problem-state records.\n");
-    }
-    if ledger.objective.trim().is_empty() {
-        context.push_str("- objective: missing; hard_state: task_objective_blank.\n");
-    } else {
-        context.push_str("- objective: ");
-        context.push_str(&single_line_preview(&ledger.objective, 220));
-        context.push('\n');
-    }
-    if ledger.success_criteria.is_empty() {
-        context.push_str("- success criteria: none recorded in task ledger.\n");
-    } else {
-        context.push_str("- success criteria:\n");
-        for criterion in ledger.success_criteria.iter().take(6) {
-            context.push_str("  - ");
-            context.push_str(&criterion.id);
-            context.push_str(" kind=");
-            context.push_str(&criterion.kind);
-            context.push_str(" status=");
-            context.push_str(&criterion.status);
-            context.push_str(" evidence_refs=");
-            context.push_str(&criterion.evidence_refs.len().to_string());
-            context.push_str(": ");
-            context.push_str(&single_line_preview(&criterion.description, 160));
-            context.push('\n');
-        }
-        append_omitted_count(
-            context,
-            ledger.success_criteria.len(),
-            6,
-            "success criteria",
-        );
-    }
-    if !ledger.known_facts.is_empty() {
-        context.push_str("- known facts:\n");
-        for fact in ledger.known_facts.iter().take(6) {
-            context.push_str("  - ");
-            context.push_str(&fact.id);
-            context.push_str(" evidence_refs=");
-            context.push_str(&fact.evidence_refs.len().to_string());
-            context.push_str(": ");
-            context.push_str(&single_line_preview(&fact.statement, 160));
-            context.push('\n');
-        }
-        append_omitted_count(context, ledger.known_facts.len(), 6, "known facts");
-    }
-    if !ledger.open_questions.is_empty() {
-        context.push_str("- open questions:\n");
-        for question in ledger.open_questions.iter().take(6) {
-            context.push_str("  - ");
-            context.push_str(&question.id);
-            context.push_str(" status=");
-            context.push_str(&question.status);
-            context.push_str(" blocking=");
-            context.push_str(if question.blocking { "true" } else { "false" });
-            context.push_str(": ");
-            context.push_str(&single_line_preview(&question.question, 160));
-            context.push('\n');
-        }
-        append_omitted_count(context, ledger.open_questions.len(), 6, "open questions");
-    }
-    if !ledger.decisions.is_empty() {
-        context.push_str("- decisions:\n");
-        for decision in ledger.decisions.iter().take(6) {
-            context.push_str("  - ");
-            context.push_str(&decision.id);
-            context.push_str(" kind=");
-            context.push_str(&decision.decision_kind);
-            context.push_str(" results=");
-            context.push_str(&decision.depends_on_results.len().to_string());
-            context.push_str(" facts=");
-            context.push_str(&decision.depends_on_facts.len().to_string());
-            context.push_str(": ");
-            context.push_str(&single_line_preview(&decision.decision, 160));
-            context.push('\n');
-        }
-        append_omitted_count(context, ledger.decisions.len(), 6, "decisions");
-    }
-    if let Some(action) = ledger.next_best_action.as_ref() {
-        context.push_str("- next best action");
-        if let Some(node_id) = action.node_id.as_deref() {
-            context.push_str(" node=");
-            context.push_str(node_id);
-        }
-        context.push_str(": ");
-        context.push_str(&single_line_preview(&action.action_summary, 180));
-        context.push_str(" reason=");
-        context.push_str(&single_line_preview(&action.reason, 120));
-        context.push('\n');
-    }
-}
-
-fn append_result_evidence_context(context: &mut String, map: &ActionMapInstance) {
-    let result_ids = ordered_result_ids(map);
-    let evidence_result_ids = result_ids
-        .into_iter()
-        .filter(|result_id| {
-            map.results
-                .get(result_id)
-                .is_some_and(result_has_evidence_package)
-        })
-        .collect::<Vec<_>>();
-    if evidence_result_ids.is_empty() {
-        context.push_str("- result evidence packages: none recorded.\n");
-        return;
-    }
-
-    context.push_str("- result evidence packages:\n");
-    for result_id in evidence_result_ids.iter().take(8) {
-        let Some(result) = map.results.get(result_id) else {
-            continue;
-        };
-        let evidence = &result.evidence_package;
-        context.push_str("  - ");
-        context.push_str(&result.id);
-        context.push_str(" node=");
-        context.push_str(&result.node_id);
-        context.push_str(" validity=");
-        context.push_str(evidence.validity.as_str());
-        context.push_str(" claims=");
-        context.push_str(&evidence.claims.len().to_string());
-        context.push_str(" evidence_refs=");
-        context.push_str(&evidence.evidence_refs.len().to_string());
-        context.push_str(" changed_artifacts=");
-        context.push_str(&evidence.changed_artifacts.len().to_string());
-        context.push_str(" validators=");
-        context.push_str(&evidence.validator_refs.len().to_string());
-        context.push_str(" uncertainty=");
-        context.push_str(&evidence.remaining_uncertainty.len().to_string());
-        context.push_str("\n    summary: ");
-        context.push_str(&single_line_preview(&result.body, 180));
-        context.push('\n');
-        if !evidence.claims.is_empty() {
-            context.push_str("    claims:\n");
-            append_claim_preview_list(context, &evidence.claims, 3);
-        }
-        if !evidence.remaining_uncertainty.is_empty() {
-            context.push_str("    uncertainty: ");
-            context.push_str(
-                &evidence
-                    .remaining_uncertainty
-                    .iter()
-                    .take(3)
-                    .map(|item| single_line_preview(item, 80))
-                    .collect::<Vec<_>>()
-                    .join("; "),
-            );
-            context.push('\n');
-        }
-    }
-    append_omitted_count(
-        context,
-        evidence_result_ids.len(),
-        8,
-        "result evidence packages",
-    );
-}
-
-fn append_claim_preview_list(context: &mut String, claims: &[CognitiveClaim], limit: usize) {
-    for claim in claims.iter().take(limit) {
-        context.push_str("  - ");
-        context.push_str(&claim.id);
-        context.push_str(" evidence_refs=");
-        context.push_str(&claim.evidence_refs.len().to_string());
-        context.push_str(": ");
-        context.push_str(&single_line_preview(&claim.statement, 160));
-        context.push('\n');
-    }
-    append_omitted_count(context, claims.len(), limit, "claims");
 }
 
 fn append_omitted_count(context: &mut String, len: usize, limit: usize, label: &str) {
@@ -16563,6 +15708,7 @@ fn required_fact_source_artifact_ref(artifact_ref: &str) -> bool {
     artifact_like_token(&normalized)
 }
 
+#[cfg(test)]
 fn inspect_missing_required_fact_source_artifacts(
     task: &TaskState,
     map: &ActionMapInstance,
@@ -16584,6 +15730,7 @@ fn inspect_required_fact_source_artifacts(
     required
 }
 
+#[cfg(test)]
 fn inspect_missing_required_fact_source_artifacts_from_required(
     required: &[String],
     map: &ActionMapInstance,
@@ -19096,160 +18243,6 @@ fn node_has_problem_state_effect(
         })
 }
 
-fn node_satisfies_success_criterion_with_validation_result(
-    task: &TaskState,
-    map: &ActionMapInstance,
-    node: &MapNode,
-) -> bool {
-    task.problem_ledger
-        .success_criteria
-        .iter()
-        .any(|criterion| {
-            criterion.status == "satisfied"
-                && evidence_refs_include_successful_validation_result(
-                    map,
-                    node,
-                    &criterion.evidence_refs,
-                )
-        })
-}
-
-fn task_success_criteria_complete_for_final(task: &TaskState, map: &ActionMapInstance) -> bool {
-    let criteria = &task.problem_ledger.success_criteria;
-    !criteria.is_empty()
-        && criteria
-            .iter()
-            .all(|criterion| success_criterion_complete_for_final(criterion, map))
-}
-
-fn success_criterion_complete_for_final(
-    criterion: &ProblemSuccessCriterion,
-    map: &ActionMapInstance,
-) -> bool {
-    if matches!(criterion.status.as_str(), "satisfied" | "waived")
-        && !criterion.evidence_refs.is_empty()
-    {
-        return true;
-    }
-    matches!(criterion.kind.as_str(), "test" | "validator")
-        && criterion.status == "open"
-        && !criterion.evidence_refs.is_empty()
-        && map_has_accepted_successful_validation_result(map)
-        || matches!(criterion.kind.as_str(), "artifact" | "behavior")
-            && criterion.status == "open"
-            && !criterion.evidence_refs.is_empty()
-            && map_has_accepted_implementation_result(map)
-            && map_has_accepted_successful_validation_result(map)
-}
-
-fn final_readiness_missing_ledger_message(task: &TaskState, map: &ActionMapInstance) -> String {
-    let mut missing = task
-        .problem_ledger
-        .success_criteria
-        .iter()
-        .filter(|criterion| !success_criterion_complete_for_final(criterion, map))
-        .map(|criterion| {
-            let label = if task
-                .cognitive_state
-                .output_contracts
-                .iter()
-                .any(|contract| contract.id == criterion.id)
-                || criterion.id.starts_with("output-contract")
-                || criterion.id.starts_with("oc-")
-            {
-                "output_contract"
-            } else {
-                "success_criterion"
-            };
-            format!(
-                "{} id={} kind={} status={} evidence_refs={} description=\"{}\"",
-                label,
-                criterion.id,
-                criterion.kind,
-                criterion.status,
-                criterion.evidence_refs.len(),
-                single_line_preview(&criterion.description, 140)
-            )
-        })
-        .collect::<Vec<_>>();
-    if missing.is_empty() {
-        missing.push("none listed; final readiness evidence join failed".to_string());
-    }
-    let omitted = missing.len().saturating_sub(8);
-    missing.truncate(8);
-    let omitted = if omitted > 0 {
-        format!("; omitted_missing_items={omitted}")
-    } else {
-        String::new()
-    };
-    format!(
-        "TaskSpace final answer cannot be emitted until every success criterion and output contract is satisfied or waived with evidence. Missing ledger items: {}{}. Recent result refs available to cite: {}. State record schema available: taskspace_control action=state_commit schema_version=taskspace-state-commit-v1 accepts success_criteria/output_contracts entries with explicit id, status, kind, description, and evidence_refs. Final readiness is evaluated from the latest ledger state.",
-        missing.join("; "),
-        omitted,
-        final_readiness_recent_result_refs(map)
-    )
-}
-
-fn final_readiness_recent_result_refs(map: &ActionMapInstance) -> String {
-    let mut results = map.results.values().collect::<Vec<_>>();
-    results.sort_by_key(|result| result.created_at_ms);
-    let mut refs = Vec::new();
-    for result in results.iter().rev() {
-        let Some(action_class) = result.action_class else {
-            continue;
-        };
-        if result.tool_success != Some(true) {
-            continue;
-        }
-        if !matches!(
-            action_class,
-            ActionClass::Edit | ActionClass::Build | ActionClass::Test | ActionClass::Read
-        ) {
-            continue;
-        }
-        refs.push(format!(
-            "{}:{} node={} artifacts={} preview=\"{}\"",
-            result.id,
-            action_class.as_str(),
-            result.node_id,
-            format_result_artifact_refs(result),
-            single_line_preview(&result.body, 120)
-        ));
-        if refs.len() >= 5 {
-            break;
-        }
-    }
-    if refs.is_empty() {
-        "none".to_string()
-    } else {
-        refs.join("; ")
-    }
-}
-
-fn format_result_artifact_refs(result: &NodeResult) -> String {
-    let artifacts = result
-        .evidence_package
-        .evidence_refs
-        .iter()
-        .filter_map(|evidence_ref| evidence_ref.artifact_ref.as_deref())
-        .filter(|artifact_ref| !artifact_ref.trim().is_empty())
-        .take(4)
-        .collect::<Vec<_>>();
-    if artifacts.is_empty() {
-        "none".to_string()
-    } else {
-        artifacts.join(",")
-    }
-}
-
-fn task_open_blocking_question_id(task: &TaskState) -> Option<&str> {
-    task.problem_ledger
-        .open_questions
-        .iter()
-        .find(|question| question.blocking && question.status == "open")
-        .map(|question| question.id.as_str())
-}
-
 fn evidence_refs_include_node_result(
     map: &ActionMapInstance,
     node: &MapNode,
@@ -19266,6 +18259,7 @@ fn evidence_refs_include_node_result(
     })
 }
 
+#[cfg(test)]
 fn evidence_refs_include_successful_validation_result(
     map: &ActionMapInstance,
     node: &MapNode,
@@ -19356,12 +18350,6 @@ fn state_commit_has_validation_failure_rework(
                 .as_ref()
                 .is_some_and(|draft| draft.kind == NodeKind::ImplementSolution))
     })
-}
-
-fn map_has_successful_edit(map: &ActionMapInstance) -> bool {
-    map.nodes
-        .values()
-        .any(|node| node_has_successful_action(map, node, ActionClass::Edit))
 }
 
 #[cfg(test)]
@@ -19673,6 +18661,7 @@ fn text_mentions_missing_pytest_runner_dependency(text: &str) -> bool {
     command_mentions_pytest_runner && missing_pytest
 }
 
+#[cfg(test)]
 fn map_has_accepted_implementation_result(map: &ActionMapInstance) -> bool {
     map.nodes.values().any(|node| {
         node.kind == NodeKind::ImplementSolution
@@ -19708,6 +18697,7 @@ fn latest_successful_validation_result_id(
     })
 }
 
+#[cfg(test)]
 fn latest_accepted_successful_validation_result_id(
     map: &ActionMapInstance,
     node: &MapNode,
@@ -19860,152 +18850,6 @@ fn now_ms() -> i64 {
         .duration_since(UNIX_EPOCH)
         .map(|duration| duration.as_millis() as i64)
         .unwrap_or_default()
-}
-
-fn seed_missing_start_task_scaffold(
-    objective: &str,
-    success_criteria: &mut Vec<ActionMapSuccessCriterionInput>,
-    output_contracts: &mut Vec<ActionMapStateCommitOutputContractInput>,
-    fact_sources: &mut Vec<ActionMapStateCommitFactSourceInput>,
-) {
-    let objective = single_line_preview(objective.trim(), 240);
-    let user_request_evidence = || {
-        vec![ActionMapEvidenceRefInput {
-            artifact_ref: Some("user-request".to_string()),
-            ..Default::default()
-        }]
-    };
-    if success_criteria.is_empty() {
-        success_criteria.push(ActionMapSuccessCriterionInput {
-            id: "sc-user-request".to_string(),
-            kind: "artifact".to_string(),
-            description: format!("Complete the user request: {objective}"),
-            status: "open".to_string(),
-            evidence_refs: user_request_evidence(),
-        });
-    }
-    if output_contracts.is_empty() {
-        output_contracts.push(ActionMapStateCommitOutputContractInput {
-            id: "oc-user-request".to_string(),
-            kind: "artifact".to_string(),
-            description: format!("User-visible result satisfies the task objective: {objective}"),
-            status: "open".to_string(),
-            evidence_refs: user_request_evidence(),
-        });
-    }
-    if fact_sources.is_empty() {
-        fact_sources.push(ActionMapStateCommitFactSourceInput {
-            id: "fs-user-request".to_string(),
-            provenance: "provided_by_user".to_string(),
-            description: format!("Current user request and task objective: {objective}"),
-            evidence_refs: user_request_evidence(),
-        });
-    }
-    seed_start_task_derived_output_contracts(
-        &objective,
-        success_criteria,
-        output_contracts,
-        user_request_evidence(),
-    );
-}
-
-fn seed_start_task_derived_output_contracts(
-    objective: &str,
-    success_criteria: &[ActionMapSuccessCriterionInput],
-    output_contracts: &mut Vec<ActionMapStateCommitOutputContractInput>,
-    evidence_refs: Vec<ActionMapEvidenceRefInput>,
-) {
-    let mut artifacts = Vec::new();
-    for artifact in extract_artifact_like_refs(objective) {
-        if requirement_text_declares_generated_output_artifact(objective, &artifact)
-            || output_contract_artifact_ref_looks_like_schema_or_validator(&artifact)
-        {
-            push_unique_artifact_ref(&mut artifacts, artifact);
-        }
-    }
-    for criterion in success_criteria {
-        for artifact in extract_artifact_like_refs(&criterion.description) {
-            if requirement_text_declares_generated_output_artifact(
-                &criterion.description,
-                &artifact,
-            ) || output_contract_artifact_ref_looks_like_schema_or_validator(&artifact)
-            {
-                push_unique_artifact_ref(&mut artifacts, artifact);
-            }
-        }
-        for evidence in &criterion.evidence_refs {
-            if let Some(artifact_ref) = evidence.artifact_ref.as_deref() {
-                let artifact = normalize_artifact_ref(artifact_ref);
-                if output_contract_artifact_ref_looks_like_schema_or_validator(&artifact) {
-                    push_unique_artifact_ref(&mut artifacts, artifact);
-                }
-            }
-        }
-    }
-    for artifact in artifacts {
-        if output_contract_artifact_ref_looks_like_generated_json_output(&artifact) {
-            push_derived_start_task_output_contract(
-                output_contracts,
-                &artifact,
-                "artifact",
-                format!("Generated output artifact `{artifact}` required by the task objective."),
-                evidence_refs.clone(),
-            );
-        } else if output_contract_artifact_ref_looks_like_schema_or_validator(&artifact) {
-            push_derived_start_task_output_contract(
-                output_contracts,
-                &artifact,
-                "schema",
-                format!(
-                    "Schema or validator artifact `{artifact}` must validate the generated output contract."
-                ),
-                evidence_refs.clone(),
-            );
-        }
-    }
-}
-
-fn push_derived_start_task_output_contract(
-    output_contracts: &mut Vec<ActionMapStateCommitOutputContractInput>,
-    artifact: &str,
-    kind: &str,
-    description: String,
-    evidence_refs: Vec<ActionMapEvidenceRefInput>,
-) {
-    if output_contracts.iter().any(|contract| {
-        [&contract.id, &contract.description]
-            .iter()
-            .flat_map(|value| extract_artifact_like_refs(value))
-            .any(|existing| artifact_refs_match(&existing, artifact))
-            || contract.evidence_refs.iter().any(|evidence| {
-                evidence
-                    .artifact_ref
-                    .as_deref()
-                    .is_some_and(|existing| artifact_refs_match(existing, artifact))
-            })
-    }) {
-        return;
-    }
-    output_contracts.push(ActionMapStateCommitOutputContractInput {
-        id: format!(
-            "oc-derived-{}",
-            artifact
-                .chars()
-                .map(|ch| {
-                    if ch.is_ascii_alphanumeric() {
-                        ch.to_ascii_lowercase()
-                    } else {
-                        '-'
-                    }
-                })
-                .collect::<String>()
-                .trim_matches('-')
-        ),
-        kind: kind.to_string(),
-        description,
-        status: "open".to_string(),
-        evidence_refs,
-    });
 }
 
 fn transition_notice(previous_mode: MapRuntimeMode, current_mode: MapRuntimeMode) -> String {
@@ -26505,7 +25349,7 @@ def build_organization():\n\
     }
 
     #[test]
-    fn start_task_derives_output_contracts_from_objective_when_model_records_inspect_outputs() {
+    fn start_task_does_not_derive_output_contracts_from_objective_or_initial_records() {
         let mut state = ActionMapRuntimeState::default();
         let owner = ThreadId::new();
         state.set_mode(MapRuntimeMode::Experiment);
@@ -26553,20 +25397,8 @@ def build_organization():\n\
 
         let task = state.tasks.get(&task_id).expect("task");
         let requirements = task_output_contract_validation_requirements(task);
-        assert!(
-            requirements
-                .targets
-                .iter()
-                .any(|target| target == "organization.json"),
-            "{requirements:?}"
-        );
-        assert!(
-            requirements
-                .schema_targets
-                .iter()
-                .any(|target| target == "schema.json"),
-            "{requirements:?}"
-        );
+        assert!(requirements.targets.is_empty(), "{requirements:?}");
+        assert!(requirements.schema_targets.is_empty(), "{requirements:?}");
     }
 
     #[test]
@@ -36582,7 +35414,7 @@ fi\n"
     }
 
     #[test]
-    fn start_task_initializes_problem_ledger_with_success_criteria() {
+    fn start_task_initial_inputs_do_not_seed_problem_ledger_or_cognitive_state() {
         let mut state = ActionMapRuntimeState::default();
         let owner = ThreadId::new();
         state.set_mode(MapRuntimeMode::Experiment);
@@ -36609,7 +35441,7 @@ fi\n"
                 "Read the validator and expected artifacts.".to_string(),
                 true,
             )
-            .expect("task starts with initial criteria");
+            .expect("task starts while treating initial records as non-canonical");
 
         let snapshot = state.snapshot();
         let task = snapshot.tasks.first().expect("task snapshot");
@@ -36622,19 +35454,13 @@ fi\n"
             "Recover validator-visible log artifacts."
         );
         assert!(!task.problem_ledger.schema_incomplete);
-        assert_eq!(task.problem_ledger.success_criteria.len(), 2);
-        assert_eq!(task.problem_ledger.success_criteria[0].id, "sc-1");
-        assert_eq!(task.problem_ledger.success_criteria[0].kind, "validator");
-        assert_eq!(
-            task.problem_ledger.success_criteria[1].id,
-            "oc-user-request"
-        );
-        assert_eq!(task.cognitive_state.output_contracts.len(), 1);
-        assert_eq!(task.cognitive_state.fact_sources.len(), 1);
+        assert!(task.problem_ledger.success_criteria.is_empty());
+        assert!(task.cognitive_state.output_contracts.is_empty());
+        assert!(task.cognitive_state.fact_sources.is_empty());
     }
 
     #[test]
-    fn start_task_seeds_missing_scaffold_from_user_request() {
+    fn start_task_does_not_seed_missing_scaffold_from_user_request() {
         let mut state = ActionMapRuntimeState::default();
         let owner = ThreadId::new();
         state.set_mode(MapRuntimeMode::Experiment);
@@ -36649,26 +35475,20 @@ fi\n"
                 "Read the validator and expected artifacts.".to_string(),
                 true,
             )
-            .expect("task starts with seeded scaffold");
+            .expect("task starts without seeded scaffold");
 
         state
             .validate_cognitive_preflight()
-            .expect("seeded scaffold satisfies preflight");
+            .expect("missing semantic ledger records are not an active preflight gate");
         let snapshot = state.snapshot();
         let task = snapshot.tasks.first().expect("task snapshot");
-        assert_eq!(
-            task.problem_ledger.success_criteria[0].id,
-            "sc-user-request"
-        );
-        assert_eq!(
-            task.cognitive_state.output_contracts[0].id,
-            "oc-user-request"
-        );
-        assert_eq!(task.cognitive_state.fact_sources[0].id, "fs-user-request");
+        assert!(task.problem_ledger.success_criteria.is_empty());
+        assert!(task.cognitive_state.output_contracts.is_empty());
+        assert!(task.cognitive_state.fact_sources.is_empty());
     }
 
     #[test]
-    fn start_task_initial_scaffold_satisfies_problem_preflight() {
+    fn start_task_initial_scaffold_is_not_active_preflight_input() {
         let mut state = ActionMapRuntimeState::default();
         let owner = ThreadId::new();
         state.set_mode(MapRuntimeMode::Experiment);
@@ -36712,16 +35532,119 @@ fi\n"
                 "Read the validator and expected artifacts.".to_string(),
                 true,
             )
-            .expect("task starts with initial scaffold");
+            .expect("task starts while ignoring initial semantic scaffold");
 
         state
             .validate_cognitive_preflight()
-            .expect("initial scaffold satisfies preflight");
+            .expect("initial semantic scaffold is not required for active work");
         let snapshot = state.snapshot();
         let task = snapshot.tasks.first().expect("task snapshot");
-        assert_eq!(task.problem_ledger.success_criteria.len(), 2);
-        assert_eq!(task.cognitive_state.output_contracts.len(), 1);
-        assert_eq!(task.cognitive_state.fact_sources.len(), 1);
+        assert!(task.problem_ledger.success_criteria.is_empty());
+        assert!(task.cognitive_state.output_contracts.is_empty());
+        assert!(task.cognitive_state.fact_sources.is_empty());
+    }
+
+    #[test]
+    fn validation_finish_does_not_require_success_criterion_or_auto_acceptance() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (_, map_id, node_id, _) = state
+            .start_task_for_main_with_kind(
+                owner,
+                NodeKind::SmokeTest,
+                "Validate without ledger".to_string(),
+                "Run one validation command without semantic ledger records.".to_string(),
+                "Run smoke validation".to_string(),
+                "Run the focused validation command.".to_string(),
+                true,
+            )
+            .expect("validation task starts");
+
+        let (_, tool_events) = state
+            .record_main_tool_result_with_class(
+                owner,
+                "call-validation-pass",
+                "shell_command",
+                Some(ActionClass::Test),
+                true,
+                "Exit code: 0\nOutput:\nvalidation passed".to_string(),
+            )
+            .expect("validation tool result records")
+            .expect("validation node event");
+        assert!(
+            !tool_events
+                .iter()
+                .any(|event| { matches!(event, MapRuntimeEvent::ResultValidityChanged(_)) })
+        );
+
+        let (_, finish_events) = state
+            .finish_main_node(
+                owner,
+                &node_id,
+                "Validation command passed.".to_string(),
+                None,
+            )
+            .expect("successful validation can finish without semantic ledger records");
+        assert!(
+            !finish_events
+                .iter()
+                .any(|event| { matches!(event, MapRuntimeEvent::ResultValidityChanged(_)) })
+        );
+
+        let map = state.maps.get(&map_id).expect("map");
+        assert_eq!(
+            map.nodes.get(&node_id).expect("validation node").status,
+            NodeStatus::Completed
+        );
+        let task = state.tasks.get("task-1").expect("task");
+        assert!(task.problem_ledger.success_criteria.is_empty());
+        assert!(task.cognitive_state.output_contracts.is_empty());
+        assert!(task.cognitive_state.fact_sources.is_empty());
+    }
+
+    #[test]
+    fn final_response_does_not_require_ledger_readiness_or_decision_records() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (_, map_id, node_id, _) = state
+            .start_task_for_main_with_kind(
+                owner,
+                NodeKind::FinalSynthesis,
+                "Summarize without ledger".to_string(),
+                "Return a concise final answer without semantic ledger records.".to_string(),
+                "Final summary".to_string(),
+                "Summarize the completed work.".to_string(),
+                true,
+            )
+            .expect("final synthesis task starts");
+        state
+            .record_open_question_for_main(
+                owner,
+                "q-agent-owned",
+                "Agent-owned unresolved note should not be a runtime final gate.".to_string(),
+                "The Agent owns whether this matters to the final answer.".to_string(),
+                true,
+                Some(node_id.clone()),
+                vec![ActionMapEvidenceRefInput {
+                    artifact_ref: Some("test-fixture:user-note".to_string()),
+                    ..Default::default()
+                }],
+            )
+            .expect("optional open question records");
+
+        let recorded = state
+            .record_main_final_response(owner, "Final answer is ready.")
+            .expect("final response should not require ledger readiness")
+            .expect("running final_synthesis records final response");
+
+        let map = state.maps.get(&map_id).expect("map");
+        assert_eq!(
+            map.nodes.get(&node_id).expect("final node").status,
+            NodeStatus::Completed
+        );
+        assert!(map.results.contains_key(&recorded.0));
     }
 
     #[test]
@@ -36864,7 +35787,7 @@ fi\n"
                     decision: "Stay on the narrow main-agent path.".to_string(),
                     rationale: "The task has one implementation surface.".to_string(),
                     depends_on_results: Vec::new(),
-                    depends_on_facts: vec!["fs-user-request".to_string()],
+                    depends_on_facts: vec!["source-test".to_string()],
                     resolves_questions: Vec::new(),
                     supports_criteria: Vec::new(),
                     risks: Vec::new(),
@@ -37739,13 +36662,9 @@ fi\n"
                     result.evidence_package.validity == ResultValidity::Accepted
                 })
         );
-        assert!(
-            task_success_criteria_complete_for_final(state.tasks.get("task-1").expect("task"), map),
-            "validated artifact work should satisfy final readiness without another node"
-        );
         state
             .record_main_final_response(owner, "Validation passed; avg_temp.txt is ready.")
-            .expect("final answer readiness should pass");
+            .expect("final answer should not depend on ledger readiness");
     }
 
     #[test]
@@ -37866,7 +36785,6 @@ fi\n"
             .expect("forced validation closeout should be valid")
             .expect("successful validation should close the node");
 
-        let map = state.maps.get(&map_id).expect("map");
         let task = state.tasks.get("task-1").expect("task");
         for criterion_id in ["criterion-1", "criterion-2", "criterion-3", "contract-test"] {
             let criterion = task
@@ -37883,13 +36801,9 @@ fi\n"
                 evidence_ref.result_id.as_deref() == Some(edit_result_id.as_str())
             }));
         }
-        assert!(
-            task_success_criteria_complete_for_final(task, map),
-            "validated artifact criteria should satisfy final readiness"
-        );
         state
             .record_main_final_response(owner, "Validation passed; avg_temp.txt is ready.")
-            .expect("final answer readiness should pass");
+            .expect("final answer should not depend on ledger readiness");
     }
 
     #[test]
@@ -44464,7 +43378,7 @@ OK: 0 rows"
     }
 
     #[test]
-    fn start_task_rejects_broad_delegation_debt_bypass_without_mutation() {
+    fn start_task_allows_agent_to_bypass_broad_delegation_debt() {
         let mut state = ActionMapRuntimeState::default();
         state.set_mode(MapRuntimeMode::Experiment);
         let owner = ThreadId::new();
@@ -44476,6 +43390,7 @@ OK: 0 rows"
             true,
         );
         fill_main_tool_budget(&mut state, owner);
+        record_successful_read_result(&mut state, owner, "scope", "src/lib.rs");
         let (outcome, _) = state
             .finish_main_node(
                 owner,
@@ -44486,7 +43401,7 @@ OK: 0 rows"
             .expect("finish broad inspect");
         accept_broad_inspect_result(&mut state, owner, &outcome.result_id);
 
-        let error = state
+        state
             .start_task_for_main(
                 owner,
                 "Bypass task".to_string(),
@@ -44495,17 +43410,16 @@ OK: 0 rows"
                 "Apply fixes without delegation.".to_string(),
                 true,
             )
-            .expect_err("broad delegation debt should block start_task bypass");
+            .expect("broad delegation debt is not a runtime strategy gate");
 
-        assert!(error.contains("unresolved broad inspect delegation debt"));
-        assert_eq!(state.tasks.len(), 1);
-        assert_eq!(state.maps.len(), 1);
-        assert_eq!(state.active_task_id.as_deref(), Some("task-1"));
-        assert_eq!(state.active_map_id.as_deref(), Some("map-1"));
+        assert_eq!(state.tasks.len(), 2);
+        assert_eq!(state.maps.len(), 2);
+        assert_eq!(state.active_task_id.as_deref(), Some("task-2"));
+        assert_eq!(state.active_map_id.as_deref(), Some("map-2"));
     }
 
     #[test]
-    fn route_task_rejects_broad_delegation_debt_bypass_without_mutation() {
+    fn route_task_allows_agent_to_bypass_broad_delegation_debt() {
         let mut state = ActionMapRuntimeState::default();
         state.set_mode(MapRuntimeMode::Experiment);
         let owner = ThreadId::new();
@@ -44534,6 +43448,7 @@ OK: 0 rows"
             .bind_main_node(owner, "node-1")
             .expect("bind first task node");
         fill_main_tool_budget(&mut state, owner);
+        record_successful_read_result(&mut state, owner, "scope", "src/lib.rs");
         let (outcome, _) = state
             .finish_main_node(
                 owner,
@@ -44544,14 +43459,12 @@ OK: 0 rows"
             .expect("finish broad inspect");
         accept_broad_inspect_result(&mut state, owner, &outcome.result_id);
 
-        let error = state
+        state
             .route_task_for_main(owner, "task-2")
-            .expect_err("broad delegation debt should block route_task bypass");
+            .expect("broad delegation debt is not a runtime strategy gate");
 
-        assert!(error.contains("unresolved broad inspect delegation debt"));
-        assert_eq!(state.active_task_id.as_deref(), Some("task-1"));
-        assert_eq!(state.active_map_id.as_deref(), Some("map-1"));
-        assert_eq!(state.current_main_node_id, None);
+        assert_eq!(state.active_task_id.as_deref(), Some("task-2"));
+        assert_eq!(state.active_map_id.as_deref(), Some("map-2"));
     }
 
     #[test]

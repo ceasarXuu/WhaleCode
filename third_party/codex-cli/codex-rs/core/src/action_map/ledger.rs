@@ -47,10 +47,6 @@ impl ProblemStateLedger {
         }
     }
 
-    pub(crate) fn has_success_criteria(&self) -> bool {
-        !self.success_criteria.is_empty()
-    }
-
     pub(crate) fn upsert_success_criterion(&mut self, record: ProblemSuccessCriterion, now: i64) {
         let id = record.id.clone();
         upsert_by_id(&mut self.success_criteria, &id, record);

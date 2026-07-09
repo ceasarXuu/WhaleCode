@@ -103,12 +103,11 @@ forbidden scan: no matches
 
 ## 6. 仍需后续处理
 
-1. R5-D1：`start_task initial_*` 不再自动提升为 canonical truth。
-2. R5-D2：`problem_ledger/cognitive_state` 从 active projection/gate 移出，保留为 Agent-authored note/event。
-3. R5-E：剩余 gate 建立 hard-baseline classifier，所有保留拒绝都要可归类为状态机、协议、权限、安全或资源底线。
-4. R5-F：删除 legacy/test-only `next_valid_actions` helper/sync 字段或移入纯调试结构。
-5. 样本 telemetry 中 `ordinary_before_binding=True` 需要后续核对口径：当前任务已通过，但该字段可能把机械空 map 初始化期算作 ordinary-before-binding。
+1. R5-D1/D2 已完成，见 `09-r5-phase-d-ledger-deactivation.md`。
+2. R5-E：剩余 gate 建立 hard-baseline classifier，所有保留拒绝都要可归类为状态机、协议、权限、安全或资源底线。
+3. R5-F：删除 legacy/test-only `next_valid_actions` helper/sync 字段或移入纯调试结构。
+4. 样本 telemetry 中 `ordinary_before_binding=True` 需要后续核对口径：当前任务已通过，但该字段可能把机械空 map 初始化期算作 ordinary-before-binding。
 
 ## 7. 结论
 
-D0 已完成首轮 provider-visible 语义残留清理：明显越界的动作菜单、下一步建议、action-space 来源说明和 forced transition 测试都已移除或反向约束。Phase D 可以继续进入 D1/D2，重点拆 `initial_*`、ledger、cognitive state 的 active canonical truth。
+D0 已完成首轮 provider-visible 语义残留清理：明显越界的动作菜单、下一步建议、action-space 来源说明和 forced transition 测试都已移除或反向约束。D1/D2 已在后续 Phase D 文档中完成，重点拆除了 `initial_*`、ledger、cognitive state 的 active canonical truth。

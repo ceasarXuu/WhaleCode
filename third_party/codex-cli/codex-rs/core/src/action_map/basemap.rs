@@ -99,7 +99,6 @@ pub(crate) fn base_map_metadata_prompt() -> String {
     }
     prompt.push_str("Candidate nodes are a task decomposition menu, not a checklist. taskspace_control(start_task/create_node) accepts one runtime node_kind value. BaseMap candidates outside the hard-gated values are node title/decomposition labels, not separate runtime kinds. Runtime rejects live custom nodes except restored legacy nodes.");
     prompt.push('\n');
-    prompt.push_str(cognitive_state_protocol_prompt());
     prompt
 }
 
@@ -119,25 +118,11 @@ pub(crate) fn node_kind_selection_prompt() -> &'static str {
 - live TaskSpace node_kind values are hard-gated to inspect_code_context, implement_solution, smoke_test, regression_test, and final_synthesis; custom nodes are reserved for restored legacy nodes.
 
 Typed node finish contracts:
-- inspect_code_context/discover finish requires successful read/search evidence or a problem-state update tied to the node, such as a fact, open question, or decision.
+- inspect_code_context/discover finish requires successful read/search evidence.
 - implement_solution/patch finish requires a successful edit action, unless the node is blocked with an explicit no-edit reason.
-- smoke_test/regression_test/validate finish requires a successful test/build result and a satisfied success criterion that cites this validation node's result.
-- final_synthesis finish requires at least one success criterion satisfied or waived with evidence and at least one decision recorded.
-- unmet contract state is represented by blocker evidence or a correctly typed follow-up node."
-}
-
-pub(crate) fn cognitive_state_protocol_prompt() -> &'static str {
-    "TaskSpace cognitive protocol (MVP):
-- The main agent is the task's problem-state and model manager, not a linear worker. Maintain the task map, assign bounded nodes, integrate evidence, and update the task's current model before acting.
-- Ordinary work and subagent spawn require cognitive preflight: at start_task or after route_task and before the first non-control action, record at least one output contract and one fact source with non-empty evidence_refs.
-- At task start or when requirements change, user-stated acceptance criteria, required artifact/format/schema/validator/non-goals are output contracts with evidence_refs before the task can rely on them. start_task can include initial_success_criteria, initial_output_contracts, and initial_fact_sources directly. Evidence ref examples: artifact_ref for the current user request, README/spec/test/source paths, validator_ref for observed checks when no result_id exists yet.
-- state_commit(schema_version=taskspace-state-commit-v1) can update multiple problem-state or lifecycle records at cognitive checkpoints. Valid sections include related nodes, finished_nodes, blockers, result_validities, result_adoptions, success_criteria, output_contracts, fact_sources, facts, decisions, and next_best_action. Runtime accepts valid sections, rejects invalid sections with structured errors, and keeps legacy record_* actions available for focused corrections.
-- Record fact sources for user-provided facts, observed environment facts, and test/validator outputs. Keep generated_for_test_only, inferred, and unknown provenance out of active task facts and final user claims unless they are explicitly rechecked against observed/provided evidence.
-- Subagent and node results are evidence packages, not final truth. After finish_node/block_node or subagent completion, result validity is required before further ordinary work, spawn, or final answer can rely on that result. Accepted implementation results include claims, evidence refs, and changed_artifacts for modified files.
-- Active facts must cite accepted results or observed/provided fact sources. Questioned, invalid, unreviewed, generated, inferred, or unknown material may guide investigation but cannot anchor the final answer.
-- Direct trace events are an internal audit log for observability and replay. User-facing output hides task/map/node/subagent terminology unless the user is explicitly debugging TaskSpace.
-- final_synthesis is optional answer-only synthesis work; direct final answers are valid when accepted validation evidence and required criteria are already satisfied.
-- Final answers are user-facing product output. Hidden orchestration is collapsed into ordinary phrases such as investigation, implementation, and validation; internal terms such as subagent, explorer, delegated, parallel, evidence track, fan-out, spawn, lease, taskspace_control, task, map, or node are hidden unless explicitly requested."
+- smoke_test/regression_test/validate finish requires a successful test/build result.
+- final_synthesis is answer-only synthesis; it does not require ledger criteria or decisions.
+- unmet hard state is represented by blocker evidence or a correctly typed follow-up node."
 }
 
 #[cfg(test)]
@@ -161,11 +146,11 @@ mod tests {
                 .any(|node| node.id == "smoke_test")
         );
         let prompt = base_map_metadata_prompt();
-        assert!(prompt.contains("TaskSpace cognitive protocol (MVP)"));
-        assert!(prompt.contains("problem-state and model manager"));
+        assert!(!prompt.contains("TaskSpace cognitive protocol (MVP)"));
+        assert!(!prompt.contains("problem-state and model manager"));
         assert!(prompt.contains("Typed node finish contracts"));
-        assert!(prompt.contains("Do not split work into micro-nodes"));
-        assert!(prompt.contains("generated_for_test_only"));
+        assert!(prompt.contains("finish requires successful read/search evidence"));
+        assert!(prompt.contains("does not require ledger criteria or decisions"));
         assert!(!prompt.contains("promote_taskspace"));
         assert!(!prompt.contains("promotion_not_in_mvp"));
     }
