@@ -1,6 +1,6 @@
 # R5 Phase D Ledger Deactivation
 
-Status: D1/D2 landed
+Status: D1/D2 landed; live benefit sample reclassified as benefit-tainted
 
 Date: 2026-07-09
 
@@ -98,10 +98,12 @@ Phase D 的收益不是“让 runtime 更会纠错”，而是减少上下文污
 3. request/tool count 是否没有负向放大。
 4. 失败时优先检查上下文传递，而不是新增 semantic gate。
 
-## 7. 样本收益验证
+## 7. 样本验证与收益资格复核
 
-本阶段选择 `count-call-stack`，因为它覆盖普通工具读取、编辑、验证和反馈闭环；同时它是
-R4/R5 前序阶段反复使用过的正向回归样本。
+本阶段选择 `count-call-stack`，原计划覆盖普通工具读取、编辑、验证和反馈闭环。事后审计发现
+TaskSpace side 在成功 edit 后被 profile request hard stop 截断，没有由 Agent 执行验证和最终
+收尾。因此该运行仍可验证 patch correctness 和 provider-visible semantic cleanup，但不能作为
+Phase D 的性能、成本或 Agent 完整完成收益证据。
 
 命令：
 
@@ -120,10 +122,11 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/taskspace-benchmark/run-ta
 ```text
 RunDir: target/r5d-ledger-deactivation/count-call-stack/20260710-002316-050
 PairReport: target/r5d-ledger-deactivation/count-call-stack/20260710-002316-050/pair-001/pair-report.md
-reported_evidence_level: E2-candidate
-utility_direction: both_success
-failure_taxonomy: none
-engineering_unclean: False
+harness_reported_evidence_level: E2-candidate
+harness_reported_utility_direction: both_success
+post_audit_classification: patch_validated_externally_but_agent_budget_interrupted
+benefit_eligibility: tainted
+coe: coe/2026-07-10-01-54-r5-normal-progress-budget-hard-stop.md
 ```
 
 横向对照：
@@ -132,13 +135,14 @@ engineering_unclean: False
 |---|---|---:|---:|---:|---:|
 | standard 当前 | 同次 left | solved | 26197ms | 14 | outer exec 1 |
 | R4 历史基线 | `target/r4-d-count-call-stack-dependency-read-20260630/count-call-stack/20260630-204427-136` 文档记录 | solved | 154525ms | 11 | 未记录同口径 |
-| R5-D 当前 | 同次 right | solved | 17346ms | 11 | outer exec 1；rollout 内部 7 |
+| R5-D 当前 | 同次 right | patch 外部验证通过；Agent 被中断 | 17346ms（不可用于收益比较） | 11（不可用于收益比较） | outer exec 1；rollout 内部 7 后 hard stop |
 
-收益信号：
+技术事实与收益隔离：
 
-- TaskSpace 当前样本 business success、public validation、hidden oracle 均通过。
-- TaskSpace tool call ratio 为 0.79，wall time ratio 为 0.66；没有出现 Phase D 引入的负向放大。
-- `taskspace_control_count=0`、`state_commit_count=0`，说明本样本只依赖机械空 map 和普通工具反馈即可完成，未依赖 ledger/cognitive 语义控制。
+- public validation 和 hidden oracle 均通过，只能证明最终 patch 正确。
+- `taskspace_control_count=0`、`state_commit_count=0`，可证明正确 patch 未依赖 ledger/cognitive 语义控制。
+- 最新 node event 是成功 edit；随后 `TaskSpaceProviderBudgetHardStopV1 request_count=7/6`，Agent 没有执行本地验证、node finish/state commit 或最终回答。
+- tool call ratio 0.79、wall time ratio 0.66 受到提前终止影响，撤销其收益资格；不能据此判断 TaskSpace 优于 standard，也不能据此证明 Phase D 无负向收益。
 - provider-visible forbidden scan 无命中：
 
 ```text
@@ -162,8 +166,9 @@ success criterion
 - standard side 没有 `rollout.jsonl`，只能用外层 `whale-exec` token/request 汇总；TaskSpace side 同时有外层汇总和内部 rollout provider lifecycle。
 - 因此本阶段不声明 request parity，只记录：外层 exec 口径双方均为 1；TaskSpace 内部 provider lifecycle 为 7。
 - R4 历史基线来自既有文档记录，不是本轮同机重跑；只作为回归方向参考。
+- benchmark 当前把 external validation success 与 Agent completion 混为 `solved`；R5-E0 修复前，所有同类样本统一标记为 `benefit-tainted`。
 
 ## 8. 结论
 
 Phase D 的 D1/D2 已完成：TaskSpace active path 不再依赖旧 semantic ledger。`problem_ledger` /
-`cognitive_state` 仍可作为 Agent-authored 可选记录存在，但不再是 runtime projection、closeout、final response 或 broad strategy gate 的依据。
+`cognitive_state` 仍可作为 Agent-authored 可选记录存在，但不再是 runtime projection、closeout、final response 或 broad strategy gate 的依据。Phase D 的代码边界结论由单测和 forbidden scan 支持；live sample 的收益结论暂停，必须在 R5-E0 移除普通 request hard stop 并修正完成分类后重跑。

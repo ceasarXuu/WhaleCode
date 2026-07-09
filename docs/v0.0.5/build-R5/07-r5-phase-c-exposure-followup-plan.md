@@ -10,7 +10,9 @@ Date: 2026-07-09
 Owner: Codex
 Related:
   - `docs/v0.0.5/build-R5/06-r5-phase-c1-native-tool-loop-boundary.md`
+  - `docs/v0.0.5/build-R5/09-r5-phase-d-ledger-deactivation.md`
   - `coe/2026-07-09-21-50-r5-native-tool-loop-agent-no-patch.md`
+  - `coe/2026-07-10-01-54-r5-normal-progress-budget-hard-stop.md`
 
 ## 1. Phase C/C1 暴露的问题
 
@@ -18,7 +20,7 @@ Related:
 |---|---|---|
 | runtime 执行层去掉 gate 后，projection 仍可能残留旧语义约束 | C1 前 `Current node contract` 显示 inspect node 允许 `read/search/build/test/control`，不含 `edit` | 这是 model-visible 语义污染，不是 Agent 或 native tool-loop 的根因 |
 | 旧文案比旧代码更隐蔽 | runtime 不拦 edit，但 Agent 仍被 visible allowed-actions 带向 test/env probe | 后续不能只审查 preflight gate，还必须审查 provider-visible 文案 |
-| budget hard stop 会放大上游语义污染 | Agent 已识别 bug 后未 patch，后续环境探测触发 hard stop | request budget 是放大器；不能用新增语义约束修复 |
+| 普通 request profile hard stop 本身就是 runtime 越界，并会污染收益判断 | R5-D 中 Agent 成功 edit 后，`request_count=7/6` 仍触发 hard stop；Agent 未验证/收尾，但 harness 标为 solved | 不能继续修 grace 或调高阈值；必须移除正常路径 hard stop，并拆分 Agent completion、runtime interruption、external validation |
 | native tool-loop 路径需要 ABI 兼容，但不需要语义假设 | `exec_command` / `read_file` alias 归一后可执行 | 工具 alias 是能力层问题，不是策略层问题 |
 | 机械空 map 可接受，但必须克制 | C1 允许 runtime 初始化 blank task/map/node/lease | 只允许表达 pending，不允许 seed 任务事实或策略 |
 
@@ -26,7 +28,7 @@ Related:
 
 1. **先查上下文，再加约束。** Agent 低级失败时，第一优先级检查工具结果、projection、裁剪、引用和失败反馈是否丢失、扭曲、残缺或过度结构化。
 2. **model-visible 文案等同运行时行为。** 即使 runtime 不再拒绝，只要 projection/recovery/sentinel 文案暗示下一步策略，仍按越界处理。
-3. **硬底线白名单。** Runtime 只允许拒绝机制性错误：无 active map、无 node/lease、协议非法、权限/安全、资源上限、输出过大转 ref。
+3. **硬底线白名单。** Runtime 只允许拒绝机制性错误：无 active map、无 node/lease、协议非法、权限/安全、输出过大转 ref，以及用户显式取消/绝对预算、provider/进程不可恢复故障等有明确来源的严重外部资源异常。TaskSpace route/profile 的普通 request count 不属于硬底线。
 4. **语义内容只作为 Agent-authored event/note。** `facts`、`decisions`、`output_contracts`、`result_validity` 不再成为 runtime 的 canonical truth。
 5. **成本优化不走语义 batch。** request count 高时，优先减少重复 projection、改善 event/ref 透传和裁剪效率；runtime 不替 Agent 合并、排序或跳过动作。
 
@@ -48,7 +50,7 @@ D0 判定规则：
 - missing task path
 - invalid node state
 - protocol/schema parse failure
-- permission/sandbox/security/resource limit
+- permission/sandbox/security/explicit external resource failure
 - output ref/crop explanation
 
 删除或降级：
@@ -61,10 +63,13 @@ D0 判定规则：
 
 ## 4. R5-E 方向调整
 
-R5-E 从“gate pruning”细化为“hard baseline classifier + model-visible cleanup”。
+R5-E 从“gate pruning”细化为“先移除普通请求 hard stop，再做 hard baseline classifier +
+model-visible cleanup”。R5-E0 未完成前，后续样本只能诊断，不能声明性能或成本收益。
 
 | Work Item | Expected Result | Verification |
 |---|---|---|
+| E0 profile hard-stop removal | route/profile 请求数只观测，不再阻止正常 sampling；`post_budget_grace` 等补丁退出 active 决策 | 超过 verification_first 6 次仍继续的 focused test；`count-call-stack` 无 profile hard stop |
+| E0 completion semantics | Agent completion、runtime interruption、external validation 独立记录；外部 validator 通过不覆盖 Agent 未完成 | harness fixture 将 `external validation passed + agent interrupted` 标为 benefit-tainted / utility-ineligible |
 | hard-gate classifier | 每个拒绝都有 `gate_type`：state_machine / protocol / permission / security / resource | 单元测试枚举所有 blocked/recovery message |
 | model-visible cleanup | recovery text 只写 hard reason 和机械状态，不写下一步策略 | `rg` 扫描 forbidden phrases；payload fixture diff |
 | sentinel cleanup | sentinel 只做 offline observability 或忠实 event，不生成策略性 Agent 指令 | observability artifact 可见；rollout provider text 不含 sentinel guidance |
@@ -79,6 +84,8 @@ validation_needs_test
 rejected_by_state_baseline: <semantic tool list>
 finish_node_blocker as strategy hint
 coverage/fact_source/rework_target as model-visible instruction
+TaskSpace route/profile request count as pre-dispatch hard stop
+runtime hard-stop text as Agent final or normal task_complete
 ```
 
 ## 5. R5-G 方向调整
@@ -87,6 +94,7 @@ R5-G 需要把 correctness 和成本分开验收。
 
 | Dimension | Gate | Acceptable Result |
 |---|---|---|
+| Agent lifecycle integrity | completion/interruption/validation audit | 三种状态独立；interrupted sample 不进入 utility |
 | correctness | targeted samples standard/R5 对照 | R5 无明确 correctness 回退；失败先归因上下文/反馈 |
 | semantic cleanliness | provider-visible scan | 无策略提示、无 action-class contract、无 old recovery hints |
 | feedback fidelity | tool result event/ref audit | stdout/stderr/exit/path/ref 可恢复，不主观摘要成策略 |
@@ -110,8 +118,9 @@ large-output-ref-smoke:
 
 1. R5-D0 已完成首轮：provider-visible semantic residue inventory 和明显越界文案清理见 `08-r5-phase-d0-semantic-residue-inventory.md`。
 2. R5-D1/D2 已完成：降级 `initial_*`、ledger、cognitive_state active path，见 `09-r5-phase-d-ledger-deactivation.md`。
-3. R5-E：为剩余拒绝建立 hard baseline classifier，删除策略性 recovery/sentinel 文案。
-4. R5-G：用 targeted samples 区分 correctness、semantic cleanliness、request cadence 三类结果。
+3. R5-E0：移除普通 route/profile 请求 hard stop，删除 grace 补丁，并修正 interruption/completion/validation 分类。
+4. R5-E1/E2/E3：清理策略性 recovery/sentinel 文案、建立 hard baseline classifier、审计 fallback。
+5. R5-G：只用未被 runtime 中断且 Agent 生命周期完整的 targeted samples 验收收益。
 
 ## 7. 不做的事
 
