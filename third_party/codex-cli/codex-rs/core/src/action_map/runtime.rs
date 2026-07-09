@@ -4849,7 +4849,7 @@ preview:\n\
             && self.current_main_lease_id.is_some()
         {
             return Err(format!(
-                "TaskSpace current main node `{current_node_id}` is still running. Finish it with taskspace_control(action=finish_node) or block it with taskspace_control(action=block_node) before creating and binding a new node."
+                "TaskSpace current main node `{current_node_id}` is still running. hard_state: current_main_node_running. create-and-bind requires no active main lease on another node."
             ));
         }
         if self.active_map().is_none()
@@ -4864,7 +4864,7 @@ preview:\n\
         }
         let mut events = Vec::new();
         let map_id = self.active_map_id.clone().ok_or_else(|| {
-            "TaskSpace mode is active but no active task path exists. Call taskspace_control(action=start_task) to create a new semantic task before creating extra nodes."
+            "TaskSpace mode is active but no active task path exists. hard_state: no_active_task_path. node creation requires an active task path."
                 .to_string()
         })?;
         let (node_count_before, failed_validation_rework) = {
@@ -4882,7 +4882,7 @@ preview:\n\
                 failed_validation_rework
         {
             return Err(format!(
-                "validation_failed_requires_rework_routing: TaskSpace cannot create a {} node because validation node `{validation_node_id}` already has failed test/build result `{failed_result_id}`. Do not route failed validation to inspect rediscovery or another validation branch. Block the validation node or create/bind an implement_solution rework node that depends on the failed validation evidence. Failure preview: {failed_summary}",
+                "validation_failed_requires_rework_routing: TaskSpace cannot create a {} node because validation node `{validation_node_id}` already has failed test/build result `{failed_result_id}`. hard_state: failed_validation_rework_open. Failure preview: {failed_summary}",
                 kind.as_str()
             ));
         }
@@ -5715,7 +5715,7 @@ preview:\n\
             return Ok(());
         }
         Err(format!(
-            "TaskSpace {} node `{node_id}` cannot be finished as failed validation before this node records a test/build result. state_machine_requirement: same-node test/build result is required before failed-validation finish; same-node successful validation result also satisfies validation closeout.",
+            "TaskSpace {} node `{node_id}` cannot be finished as failed validation before this node records a test/build result. hard_state: validation_node_without_same_node_test_or_build_result.",
             node.kind.as_str()
         ))
     }
@@ -5746,7 +5746,7 @@ preview:\n\
             blocker_missing_observed_fact_source_artifacts(blocker_summary, &observed_artifacts);
         if !contradicted.is_empty() {
             return Err(format!(
-                "TaskSpace block_node on `{node_id}` cannot claim artifact(s) are missing because recorded source evidence already observed them: {}. recorded-evidence contradiction. state_machine_requirement: blocker evidence must not contradict recorded evidence.",
+                "TaskSpace block_node on `{node_id}` cannot claim artifact(s) are missing because recorded source evidence already observed them: {}. hard_state: blocker_evidence_contradicts_recorded_evidence.",
                 contradicted.join(", ")
             ));
         }
@@ -5754,7 +5754,7 @@ preview:\n\
             && node_has_successful_validation_action(map, node)
         {
             return Err(format!(
-                "TaskSpace {} node `{node_id}` already has a successful test/build result, so it cannot be blocked as failed validation. state_machine_requirement: result_validities for the validator result, success_criteria status=satisfied with evidence_refs from this node's successful validator result, and finished_nodes for `{node_id}` must be recorded before closeout.",
+                "TaskSpace {} node `{node_id}` already has a successful test/build result, so it cannot be blocked as failed validation. hard_state: validation_node_has_successful_test_or_build_result.",
                 node.kind.as_str()
             ));
         }
@@ -5768,7 +5768,7 @@ preview:\n\
             && blocker_claims_missing_validation_command_visibility(blocker_summary)
         {
             return Err(format!(
-                "TaskSpace {} node `{node_id}` cannot be blocked for missing validator/test command visibility because runtime can derive the required validation command from changed artifacts and output contracts. validation_command_source: `{command}`.",
+                "TaskSpace {} node `{node_id}` cannot be blocked for missing validator/test command visibility because runtime can derive the required validation command from changed artifacts and output contracts. hard_state: validation_command_available_from_recorded_artifacts. derived_command: `{command}`.",
                 node.kind.as_str()
             ));
         }
@@ -5777,7 +5777,7 @@ preview:\n\
             && blocker_claims_validation_failure_without_current_result(blocker_summary)
         {
             return Err(format!(
-                "TaskSpace {} node `{node_id}` cannot be blocked as failed validation before this node records a test/build result. state_machine_requirement: current validation node must record its own test/build result before failed-validation block; exact external blockers remain separate blocker evidence.",
+                "TaskSpace {} node `{node_id}` cannot be blocked as failed validation before this node records a test/build result. hard_state: validation_node_without_same_node_test_or_build_result.",
                 node.kind.as_str()
             ));
         }
@@ -7602,7 +7602,7 @@ preview:\n\
                         inspect_missing_required_fact_source_artifacts(task, map, node);
                     if !missing_fact_source_artifacts.is_empty() {
                         return Err(format!(
-                            "TaskSpace inspect_code_context node `{node_id}` cannot be completed while declared fact-source artifact(s) remain unread: {}. state_machine_requirement: declared fact-source artifacts must have concrete read/search evidence before inspect closeout.",
+                            "TaskSpace inspect_code_context node `{node_id}` cannot be completed while declared fact-source artifact(s) remain unread: {}. hard_state: declared_fact_source_artifact_unread.",
                             missing_fact_source_artifacts.join(", ")
                         ));
                     }
@@ -7611,13 +7611,13 @@ preview:\n\
             NodeKind::ImplementSolution => {
                 if !node_has_successful_action(map, node, ActionClass::Edit) {
                     return Err(format!(
-                        "TaskSpace implement_solution node `{node_id}` cannot be completed without a recorded successful edit action. state_machine_requirement: successful edit evidence is required before implementation closeout; no-edit blockers must cite the exact blocker."
+                        "TaskSpace implement_solution node `{node_id}` cannot be completed without a recorded successful edit action. hard_state: implementation_node_without_successful_edit_result."
                     ));
                 }
                 let uncovered = implement_node_uncovered_mandatory_evidence(map, node);
                 if !uncovered.is_empty() {
                     return Err(format!(
-                        "TaskSpace implement_solution node `{node_id}` cannot be completed while high-signal inspected evidence remains uncovered by successful edits: {}. state_machine_requirement: successful edits must cover the named evidence before implementation closeout; impossible coverage requires exact blocker evidence.",
+                        "TaskSpace implement_solution node `{node_id}` cannot be completed while high-signal inspected evidence remains uncovered by successful edits: {}. hard_state: mandatory_inspected_evidence_uncovered_by_edit_result.",
                         uncovered.join(", ")
                     ));
                 }
@@ -7627,7 +7627,7 @@ preview:\n\
                     && !node_has_successful_action(map, node, ActionClass::Build)
                 {
                     return Err(format!(
-                        "TaskSpace {} node `{node_id}` cannot be completed without a recorded successful test or build action. state_machine_requirement: validation closeout requires same-node test/build evidence; failed validation can be recorded as blocker evidence.",
+                        "TaskSpace {} node `{node_id}` cannot be completed without a recorded successful test or build action. hard_state: validation_node_without_successful_test_or_build_result.",
                         node.kind.as_str()
                     ));
                 }
@@ -7639,7 +7639,7 @@ preview:\n\
                     node_satisfies_success_criterion_with_validation_result(task, map, node)
                 }) {
                     return Err(format!(
-                        "TaskSpace {} node `{node_id}` cannot be completed without a satisfied success criterion tied to this validation node's successful test/build result. state_machine_requirement: sections.result_validities for the validator result, sections.success_criteria status=satisfied with evidence_refs from this node's successful validator result, and sections.finished_nodes for `{node_id}` must be recorded before closeout.",
+                        "TaskSpace {} node `{node_id}` cannot be completed without a satisfied success criterion tied to this validation node's successful test/build result. hard_state: validation_success_criterion_not_recorded_for_node_result.",
                         node.kind.as_str()
                     ));
                 }
@@ -7682,7 +7682,7 @@ preview:\n\
             return Err("TaskSpace mode is not active.".to_string());
         }
         let task_id = self.active_task_id.clone().ok_or_else(|| {
-            "TaskSpace mode is active but no active task exists. state_machine_allowed_actions: taskspace_control(action=start_task), taskspace_control(action=route_task) before recording cognitive state."
+            "TaskSpace mode is active but no active task exists. hard_state: no_active_task. ordinary records require an active task path."
                 .to_string()
         })?;
         let task = self
@@ -7697,7 +7697,7 @@ preview:\n\
             ));
         }
         let map_id = self.active_map_id.clone().ok_or_else(|| {
-            "TaskSpace mode is active but no active task path exists. state_machine_allowed_actions: taskspace_control(action=start_task), taskspace_control(action=route_task) before recording cognitive state."
+            "TaskSpace mode is active but no active task path exists. hard_state: no_active_task_path. ordinary records require an active task path."
                 .to_string()
         })?;
         if task.active_map_id.as_deref() != Some(map_id.as_str())
@@ -8677,7 +8677,7 @@ preview:\n\
         let mut events = Vec::new();
         let Some(map_id) = self.active_map_id.clone() else {
             return Err(
-                "TaskSpace mode is active but no active task path exists. Call taskspace_control(action=start_task) for a new task or taskspace_control(action=route_task) for an existing task before spawning a subagent."
+                "TaskSpace mode is active but no active task path exists. hard_state: no_active_task_path. subagent spawn requires an active task path and bindable node."
                     .to_string(),
             );
         };
@@ -9088,7 +9088,7 @@ preview:\n\
             "Validation rework facts: smoke_test/regression_test failures are recorded on validation nodes; implementation fixes are represented by implement_solution nodes; rerun validation is represented by smoke_test/regression_test nodes. final_synthesis closeout requires satisfied or waived criteria.\n",
         );
         context.push_str(
-            "final_synthesis facts: final_synthesis is optional answer-only synthesis work; final_synthesis is read-only and ordinary tools are rejected by state baseline. Final answers describe user-visible phases, files, tests, outcomes, and residual risk; internal TaskSpace terms are hidden unless the user explicitly asks to debug TaskSpace.\n",
+            "final_synthesis facts: final_synthesis is an optional answer-only synthesis node; its node kind is read-only and ordinary tool boundaries follow node kind.\n",
         );
         context.push_str(node_kind_selection_prompt());
         context.push('\n');
@@ -9108,7 +9108,7 @@ preview:\n\
         }
         if self.tasks.is_empty() {
             context.push_str(
-                "No TaskSpace tasks exist yet. state_machine_allowed_actions: taskspace_control(action=start_task), blocked. start_task supports a concrete first node plus initial_success_criteria, initial_output_contracts, and initial_fact_sources when requirements are already known.\n",
+                "No TaskSpace tasks exist yet. hard_state: no_task_path. ordinary tools require an active task path, current node binding, and lease.\n",
             );
         } else {
             context.push_str("Task inventory:\n");
@@ -9145,7 +9145,7 @@ preview:\n\
             context.push_str(" / budget ");
             context.push_str(&barrier.budget.to_string());
             context.push_str(
-                "\nOrdinary tools and spawn_agent are blocked. Recover by using taskspace_control to create or bind a different narrower node, or stop and ask the user to restart/reframe the task.\n",
+                "\nordinary_tool_boundary: ordinary tools and spawn_agent require a bindable active node outside the maintenance barrier.\n",
             );
         }
         if let Some(map) = self.active_map() {
@@ -9203,7 +9203,7 @@ preview:\n\
             }
             if map.nodes.is_empty() {
                 context.push_str(
-                    "No nodes exist yet. state_machine_allowed_actions before ordinary work: taskspace_control(action=create_node) with a concrete node derived from the active task and bind_current=true, or blocked with exact blocker evidence.\n",
+                    "No nodes exist yet. hard_state: active_task_path_without_nodes. ordinary tools require a current node binding and lease.\n",
                 );
                 context.push_str(&base_map_metadata_prompt());
             }
@@ -9215,7 +9215,7 @@ preview:\n\
             );
         } else {
             context.push_str(
-                "No active task path exists. state_machine_allowed_actions before ordinary work: taskspace_control(action=start_task), taskspace_control(action=route_task), or blocked with exact blocker evidence.\n",
+                "No active task path exists. hard_state: no_active_task_path. ordinary tools require an active task path, current node binding, and lease.\n",
             );
             context.push_str(&base_map_metadata_prompt());
         }
@@ -9251,7 +9251,7 @@ preview:\n\
         }
         if self.reborn_requested {
             context.push_str(
-                "Task reborn status: requested. state_machine_allowed_actions before ordinary work: taskspace_control(action=route_task) for the reborn path, taskspace_control(action=start_task) for a new path, or blocked with exact blocker evidence.\n",
+                "Task reborn status: requested. hard_state: reborn_route_unbound. ordinary tools require an active task path, current node binding, and lease.\n",
             );
         }
         context
@@ -9609,7 +9609,7 @@ preview:\n\
         self.validate_routing_complete()?;
         let Some(map_id) = self.active_map_id.as_ref() else {
             return Err(
-                "TaskSpace mode is active but no active task path exists. Call taskspace_control(action=start_task) for a new task or taskspace_control(action=route_task) for an existing task before ordinary work."
+                "TaskSpace mode is active but no active task path exists. hard_state: no_active_task_path. ordinary tools require an active task path, current node binding, and lease."
                     .to_string(),
             );
         };
@@ -9623,7 +9623,7 @@ preview:\n\
         }
         let Some(node_id) = self.current_main_node_id.as_ref() else {
             return Err(
-                "TaskSpace mode is active but no current node binding exists. Call taskspace_control(action=create_node, bind_current=true) or taskspace_control(action=bind_node) before ordinary work."
+                "TaskSpace mode is active but no current node binding exists. hard_state: no_current_node_binding. ordinary tools require a current node binding and lease."
                     .to_string(),
             );
         };
@@ -9632,7 +9632,7 @@ preview:\n\
         };
         if node.status == NodeStatus::Pending {
             return Err(format!(
-                "TaskSpace current node `{node_id}` is still pending; complete dependencies before ordinary work."
+                "TaskSpace current node `{node_id}` is still pending. hard_state: current_node_dependencies_incomplete."
             ));
         }
         if node.status == NodeStatus::Completed {
@@ -9663,20 +9663,20 @@ preview:\n\
             return Ok(());
         }
         Err(format!(
-            "TaskSpace current node `{node_id}` has no main lease. Bind it with taskspace_control(action=bind_node) before ordinary work."
+            "TaskSpace current node `{node_id}` has no main lease. hard_state: no_current_main_lease. ordinary tools require a current node binding and lease."
         ))
     }
 
     fn validate_routing_complete(&self) -> Result<(), String> {
         if self.bootstrap_required {
             return Err(
-                "TaskSpace bootstrap is required for this turn. Call taskspace_control(action=start_task) with a concrete first node before ordinary work or subagent spawn."
+                "TaskSpace bootstrap is required for this turn. hard_state: no_task_path. ordinary tools and subagent spawn require an active task path, current node binding, and lease."
                     .to_string(),
             );
         }
         if self.routing_required {
             return Err(
-                "TaskSpace task routing is required for this user turn. Call taskspace_control(action=route_task) for an existing task or taskspace_control(action=start_task) for a new semantic task before ordinary work or subagent spawn."
+                "TaskSpace task routing is required for this user turn. hard_state: route_unbound. ordinary tools and subagent spawn require an active task path, current node binding, and lease."
                     .to_string(),
             );
         }
@@ -9979,7 +9979,7 @@ preview:\n\
             "TaskSpace mode is active but no active task path exists.".to_string()
         })?;
         let current_node_id = self.current_main_node_id.clone().ok_or_else(|| {
-            "TaskSpace mode is active but no current node binding exists. state_machine_allowed_actions before finish/block: taskspace_control(action=create_node, bind_current=true), taskspace_control(action=bind_node), or blocked with exact blocker evidence."
+            "TaskSpace mode is active but no current node binding exists. hard_state: no_current_node_binding. lifecycle records require a current node binding and lease."
                 .to_string()
         })?;
         if current_node_id != node_id {
@@ -9988,11 +9988,11 @@ preview:\n\
                 && node.status == NodeStatus::Completed
             {
                 return Err(format!(
-                    "TaskSpace node `{node_id}` is already completed. state_machine_requirement: finish/block applies to current main node `{current_node_id}` or to a follow-up node that is explicitly created and bound."
+                    "TaskSpace node `{node_id}` is already completed. hard_state: lifecycle_target_already_completed. lifecycle records apply to current bound node `{current_node_id}`."
                 ));
             }
             return Err(format!(
-                "TaskSpace node `{node_id}` is not the current main action node `{current_node_id}`. state_machine_requirement: target node must be current/bound before finish or block."
+                "TaskSpace node `{node_id}` is not the current main action node `{current_node_id}`. hard_state: lifecycle_target_not_current. lifecycle records apply to the current bound node."
             ));
         }
         let current_lease_id = self.current_main_lease_id.clone().ok_or_else(|| {
@@ -11342,7 +11342,6 @@ fn append_context_projection_with_header(
             "cognitive_state.fact_sources".to_string(),
             "cognitive_state.facts".to_string(),
             "projection.fact_source_coverage".to_string(),
-            "projection.next_valid_actions".to_string(),
         ];
         append_projection_list(&mut projection, "omission_audit", &omitted_sections);
         projection.push_str("- estimated_tokens: ");
@@ -12836,11 +12835,11 @@ fn projection_next_valid_actions(
                 {
                     if refresh_target_reads.is_empty() {
                         actions.push(format!(
-                            "failed_edit_feedback: {failed_edit}; latest failed edit result remains model-visible. Existing complete target-read evidence remains available. action_space_source: active node contract plus hard state baseline"
+                            "failed_edit_feedback: {failed_edit}; latest failed edit result remains model-visible. Existing complete target-read evidence remains available."
                         ));
                     } else {
                         actions.push(format!(
-                            "failed_edit_feedback: {failed_edit}; latest failed edit result remains model-visible. target_context_refresh_evidence: available when the failed hunk was stale/truncated. action_space_source: active node contract plus hard state baseline"
+                            "failed_edit_feedback: {failed_edit}; latest failed edit result remains model-visible. target_context_refresh_evidence: available when the failed hunk was stale/truncated."
                         ));
                     }
                 }
@@ -13141,7 +13140,7 @@ fn gate_recovery_message(
     message: &str,
     reason: &str,
     blocking_items: Vec<String>,
-    next_valid_actions: Vec<String>,
+    _next_valid_actions: Vec<String>,
     missing_evidence: Vec<String>,
 ) -> String {
     let recovery = serde_json::json!({
@@ -13149,7 +13148,6 @@ fn gate_recovery_message(
         "allowed": false,
         "reason": reason,
         "blocking_items": blocking_items,
-        "next_valid_actions": next_valid_actions,
         "missing_evidence": missing_evidence,
     });
     format!("{message}\nTaskSpaceGateRecoveryV1: {recovery}")
@@ -13195,7 +13193,7 @@ fn projection_no_current_next_valid_actions(map: &ActionMapInstance) -> Vec<Stri
         ];
     }
 
-    vec!["action_space_source: taskspace_control bind_node/create_node hard baseline".to_string()]
+    vec!["hard_state: no_current_node_binding".to_string()]
 }
 
 fn approx_projection_tokens(text: &str) -> usize {
@@ -13208,16 +13206,14 @@ fn append_problem_ledger_context(context: &mut String, ledger: &ProblemStateLedg
         context.push_str("- schema_incomplete=true; this task was restored from legacy state or lacks full problem-state records.\n");
     }
     if ledger.objective.trim().is_empty() {
-        context.push_str(
-            "- objective: missing; record or route a concrete task before ordinary work.\n",
-        );
+        context.push_str("- objective: missing; hard_state: task_objective_blank.\n");
     } else {
         context.push_str("- objective: ");
         context.push_str(&single_line_preview(&ledger.objective, 220));
         context.push('\n');
     }
     if ledger.success_criteria.is_empty() {
-        context.push_str("- success criteria: missing; state_machine_requirement: sections.success_criteria plus fact_sources/output-contract records before ordinary work can rely on the task ledger.\n");
+        context.push_str("- success criteria: none recorded in task ledger.\n");
     } else {
         context.push_str("- success criteria:\n");
         for criterion in ledger.success_criteria.iter().take(6) {
@@ -20017,7 +20013,7 @@ fn transition_notice(previous_mode: MapRuntimeMode, current_mode: MapRuntimeMode
         (MapRuntimeMode::Standard, MapRuntimeMode::Experiment) => {
             "TaskSpace mode is now active.\n\
 Previous standard-mode conversation remains background context only.\n\
-state_machine_requirement: ordinary tools and multi-agent actions require a TaskSpace task path and a current ready/running node.\n\
+hard_state: ordinary tools and multi-agent actions require an active TaskSpace task path, current node binding, and lease.\n\
 map_runtime_boundary: runtime manages the task map, node binding, tool/event attribution, and hard state-machine rules; task strategy remains Agent-owned."
                 .to_string()
         }
@@ -26271,7 +26267,7 @@ TaskSpaceReadFileSummaryV1: path=src/lib.rs lines_read=1 eof_reached=true max_li
     }
 
     #[test]
-    fn node_contract_blocks_edit_inside_inspect_node() {
+    fn node_contract_allows_edit_inside_inspect_node_after_boundary_reduction() {
         let mut state = ActionMapRuntimeState::default();
         let owner = ThreadId::new();
         state.set_mode(MapRuntimeMode::Experiment);
@@ -26289,35 +26285,41 @@ TaskSpaceReadFileSummaryV1: path=src/lib.rs lines_read=1 eof_reached=true max_li
                 ToolActionDescriptor::new("shell_command", ActionClass::Test, "pytest"),
             )
             .expect("inspect nodes allow diagnostic tests as evidence");
-        let error = state
+        let events = state
             .prepare_main_tool_call(
                 owner,
                 ToolActionDescriptor::new("apply_patch", ActionClass::Edit, "patch"),
             )
-            .expect_err("inspect nodes cannot edit");
-        let (message, events) = error.into_parts();
+            .expect("runtime should not semantically reject an edit solely because the node is inspect_code_context");
 
-        assert!(message.contains("inspect_code_context"));
-        assert!(message.contains("edit"));
-        assert!(message.contains("next_node_kind=\"implement_solution\""));
-        assert!(message.contains("Do not create a recovery/reborn inspect node"));
         assert!(
-            message.contains("retry the edit only after the current node is implement_solution")
-        );
-        assert!(message.contains("TaskSpaceGateRecoveryV1:"));
-        assert!(message.contains("\"allowed\":false"));
-        assert!(message.contains("\"blocking_items\""));
-        assert!(message.contains("\"next_valid_actions\""));
-        assert!(message.contains("\"missing_evidence\""));
-        assert!(events.iter().any(|event| {
-            matches!(
+            !events.iter().any(|event| matches!(
                 event,
                 MapRuntimeEvent::ToolActionBlocked(blocked)
                     if blocked.node_id == "node-1"
                         && blocked.node_kind == "inspect_code_context"
                         && blocked.action_class == "edit"
-            )
-        }));
+            )),
+            "inspect-node edit should not be converted into semantic runtime guidance"
+        );
+    }
+
+    #[test]
+    fn gate_recovery_message_omits_next_valid_actions_from_visible_payload() {
+        let message = gate_recovery_message(
+            "TaskSpace blocked this action.",
+            "taskspace_gate_blocked",
+            vec!["current_node:node-1:inspect_code_context".to_string()],
+            vec!["taskspace_control(action=finish_node)".to_string()],
+            vec!["result-1".to_string()],
+        );
+
+        assert!(message.contains("TaskSpaceGateRecoveryV1:"));
+        assert!(message.contains("\"reason\":\"taskspace_gate_blocked\""));
+        assert!(message.contains("\"blocking_items\""));
+        assert!(message.contains("\"missing_evidence\""));
+        assert!(!message.contains("next_valid_actions"));
+        assert!(!message.contains("finish_node"));
     }
 
     #[test]
@@ -33526,7 +33528,7 @@ TaskSpaceReadFileSummaryV1: path=projects.csv lines_read=2 eof_reached=true max_
     }
 
     #[test]
-    fn forced_inspect_transition_accepts_duplicate_read_search_gate_recovery() {
+    fn duplicate_read_search_gate_recovery_does_not_force_inspect_transition() {
         let mut state = ActionMapRuntimeState::default();
         let owner = ThreadId::new();
         state.set_mode(MapRuntimeMode::Experiment);
@@ -33587,22 +33589,17 @@ def build_organization():\n\
                 "inspect_duplicate_read_search_gate_recovery",
             )
             .expect("duplicate read/search gate recovery should not error")
-            .expect("duplicate read/search gate recovery should force inspect transition");
+            .is_none();
 
-        assert_eq!(forced.0.next_node_id.as_deref(), Some("node-2"));
-        assert_eq!(state.current_main_node_id.as_deref(), Some("node-2"));
-        assert!(forced.1.iter().any(|event| {
-            matches!(
-                event,
-                MapRuntimeEvent::TaskspaceTraceEventRecorded(recorded)
-                    if recorded.kind == "forced_inspect_transition"
-                        && recorded.tags.iter().any(|tag| tag == "trigger:inspect_duplicate_read_search_gate_recovery")
-            )
-        }));
+        assert!(
+            forced,
+            "runtime must not force an Agent-owned inspect transition"
+        );
+        assert_eq!(state.current_main_node_id.as_deref(), Some("node-1"));
     }
 
     #[test]
-    fn forced_inspect_transition_accepts_duplicate_diagnostic_gate_recovery() {
+    fn duplicate_diagnostic_gate_recovery_does_not_force_inspect_transition() {
         let mut state = ActionMapRuntimeState::default();
         let owner = ThreadId::new();
         state.set_mode(MapRuntimeMode::Experiment);
@@ -33718,17 +33715,15 @@ def normalize_status(value: str) -> str:\n\
                 "inspect_repeated_blocked_action_with_evidence",
             )
             .expect("repeated blocked gate recovery should not error")
-            .expect(
-                "repeated blocked action plus bounded search evidence should force inspect transition",
-            );
+            .is_none();
 
-        assert_eq!(
-            repeated_forced_with_search.0.next_node_id.as_deref(),
-            Some("node-2")
+        assert!(
+            repeated_forced_with_search,
+            "bounded search evidence must remain Agent-owned context, not a forced transition"
         );
         assert_eq!(
             search_evidence_state.current_main_node_id.as_deref(),
-            Some("node-2")
+            Some(node_id.as_str())
         );
 
         state
@@ -33756,29 +33751,25 @@ def test_normalize_status_strips_and_lowercases():\n\
                 "inspect_duplicate_diagnostic_gate_recovery",
             )
             .expect("duplicate diagnostic gate recovery should not error")
-            .expect(
-                "successful diagnostic plus source/test evidence should force inspect transition",
-            );
+            .is_none();
 
-        assert_eq!(forced.0.next_node_id.as_deref(), Some("node-2"));
-        assert_eq!(state.current_main_node_id.as_deref(), Some("node-2"));
+        assert!(
+            forced,
+            "source/test evidence must not force an Agent-owned transition"
+        );
+        assert_eq!(
+            state.current_main_node_id.as_deref(),
+            Some(node_id.as_str())
+        );
         let map = state.maps.get(&map_id).expect("map");
         assert_eq!(
             map.nodes.get(&node_id).expect("source node").status,
-            NodeStatus::Completed
+            NodeStatus::Running
         );
-        assert_eq!(
-            map.nodes.get("node-2").expect("next node").kind,
-            NodeKind::ImplementSolution
+        assert!(
+            map.nodes.get("node-2").is_none(),
+            "runtime should not create an implementation node from gate recovery evidence"
         );
-        assert!(forced.1.iter().any(|event| {
-            matches!(
-                event,
-                MapRuntimeEvent::TaskspaceTraceEventRecorded(recorded)
-                    if recorded.kind == "forced_inspect_transition"
-                        && recorded.tags.iter().any(|tag| tag == "trigger:inspect_duplicate_diagnostic_gate_recovery")
-            )
-        }));
 
         let repeated_forced = repeated_state
             .force_finish_inspect_for_provider_budget(
@@ -33787,23 +33778,16 @@ def test_normalize_status_strips_and_lowercases():\n\
                 "inspect_repeated_blocked_action_with_evidence",
             )
             .expect("repeated blocked gate recovery should not error")
-            .expect(
-                "repeated blocked action plus source/test evidence should force inspect transition",
-            );
+            .is_none();
 
-        assert_eq!(repeated_forced.0.next_node_id.as_deref(), Some("node-2"));
+        assert!(
+            repeated_forced,
+            "repeated blocked action evidence must not force an Agent-owned transition"
+        );
         assert_eq!(
             repeated_state.current_main_node_id.as_deref(),
-            Some("node-2")
+            Some(node_id.as_str())
         );
-        assert!(repeated_forced.1.iter().any(|event| {
-            matches!(
-                event,
-                MapRuntimeEvent::TaskspaceTraceEventRecorded(recorded)
-                    if recorded.kind == "forced_inspect_transition"
-                        && recorded.tags.iter().any(|tag| tag == "trigger:inspect_repeated_blocked_action_with_evidence")
-            )
-        }));
     }
 
     #[test]

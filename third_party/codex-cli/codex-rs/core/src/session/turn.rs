@@ -171,7 +171,7 @@ const TASKSPACE_APPLY_PATCH_REPLACEMENT_REQUIRED_MARKER: &str =
     "TaskSpaceApplyPatchReplacementRequiredRecoveryV1:";
 const TASKSPACE_PATCH_INTENT_FORMAT_MARKER: &str = "TaskSpacePatchIntentFormatRecoveryV1:";
 const TASKSPACE_VALIDATION_INFRA_RECOVERY_MARKER: &str = "TaskSpaceValidationInfraRecoveryV1:";
-const TASKSPACE_VALIDATION_NEEDS_TEST_MARKER: &str = "TaskSpaceValidationNeedsTestRecoveryV1:";
+const TASKSPACE_VALIDATION_NODE_FEEDBACK_MARKER: &str = "TaskSpaceValidationNodeFeedbackV1:";
 const TASKSPACE_FINAL_READINESS_RECOVERY_MARKER: &str = "TaskSpaceFinalReadinessRecoveryV1:";
 const TASKSPACE_PROVIDER_BUDGET_HARD_STOP_MARKER: &str = "TaskSpaceProviderBudgetHardStopV1:";
 const TASKSPACE_PATH_CORRECTION_MARKER: &str = "TaskSpacePathCorrectionRecoveryV1:";
@@ -1392,17 +1392,15 @@ Active node kind: {node_kind}"
     );
     if snapshot.task_id.is_some() && snapshot.node_id.is_none() {
         text.push_str(
-            "\nExisting TaskSpace task has no active bound node.\nstate_machine_allowed_actions: final_answer, taskspace_control, blocked.\nstate_transition_fact: creating or binding another node changes the task path and requires unresolved work evidence.",
+            "\nhard_state: active_task_without_active_node.\nordinary_tool_boundary: ordinary tools require an active node binding and lease.\nstate_transition_fact: creating or binding another node changes the task path.",
         );
     }
     if taskspace_snapshot_requires_implementation_edit(snapshot) {
         text.push_str(
-            "\nImplementation convergence fact: implementation_needs_edit. TaskSpace has recorded evidence suggesting the implementation node still lacks a successful edit. implement_solution still accepts list_files, search, read_file, apply_patch, run_test, taskspace_control, or blocked. Exact duplicate complete reads are recorded as low-information evidence when they add no new state/tool delta.",
+            "\nImplementation node event status: no successful edit event is recorded on the current node.",
         );
         if !snapshot.current_node_validation_rework_artifacts.is_empty() {
-            text.push_str(
-                "\nValidation rework target artifacts already associated with this node:",
-            );
+            text.push_str("\nAssociated validation rework artifact refs:");
             for artifact in &snapshot.current_node_validation_rework_artifacts {
                 text.push_str("\n- ");
                 text.push_str(artifact);
@@ -1412,13 +1410,13 @@ Active node kind: {node_kind}"
             .current_node_uncovered_mandatory_evidence
             .is_empty()
         {
-            text.push_str("\nRequired edit targets from uncovered mandatory evidence:");
+            text.push_str("\nUncovered mandatory evidence refs:");
             for item in &snapshot.current_node_uncovered_mandatory_evidence {
                 text.push_str("\n- ");
                 text.push_str(item);
             }
             text.push_str(
-                "\nAn apply_patch that claims to repair this mandatory evidence must update the exact artifact path(s) named above.",
+                "\nAction-contract fallback validates patch target coverage against these refs when an apply_patch action is submitted.",
             );
         }
     } else if matches!(
@@ -1426,7 +1424,7 @@ Active node kind: {node_kind}"
         Some("smoke_test" | "regression_test")
     ) {
         text.push_str(
-            "\nValidation convergence state: validation_needs_test.\nstate_machine_allowed_actions: run_test, taskspace_control, blocked.\nrejected_by_state_baseline: list_files, search, read_file, shell discovery, apply_patch, spawn_agent from a validation node.\nvalidator_command_source: discovered local validator entries in projection or recent tool feedback, when present, are the strongest validation command facts.",
+            "\nValidation node event status: no accepted validation tool result is recorded on the current validation node.\nordinary_tool_boundary: ordinary tool calls and results remain attributed to the active node.",
         );
     }
     ResponseItem::Message {
@@ -1443,8 +1441,8 @@ fn taskspace_action_contract_bootstrap_state_item() -> ResponseItem {
 Active node id: none\n\
 Active node kind: bootstrap\n\
 No active TaskSpace task exists yet.\n\
-state_machine_allowed_actions: taskspace_control(action=start_task), blocked.\n\
-action_space_source: TaskSpace bootstrap hard baseline."
+required_protocol: taskspace_control(action=start_task) creates the initial task path.\n\
+ordinary_tool_boundary: ordinary tools require an active task path, current node binding, and lease."
         .to_string();
     ResponseItem::Message {
         id: None,
@@ -1458,9 +1456,9 @@ action_space_source: TaskSpace bootstrap hard baseline."
 fn taskspace_action_contract_closed_validation_item() -> ResponseItem {
     let text = "TaskSpaceActionContractClosedValidationV1:\n\
 Existing TaskSpace task has no active bound node because validation is closed as blocked by local infrastructure evidence.\n\
-state_machine_allowed_actions: final_answer, blocked.\n\
-rejected_by_state_baseline: start_task, create_node, bind_node, list_files, read_file, search, apply_patch, run_test, spawn_agent.\n\
-final_response_fact_sources: exact validator infrastructure blocker and implementation evidence already recorded."
+hard_state: active_task_without_active_node.\n\
+closure_reason: validation_closed_by_local_infrastructure_evidence.\n\
+recorded_blocker_source: exact validator infrastructure blocker and implementation evidence already recorded."
         .to_string();
     ResponseItem::Message {
         id: None,
@@ -1489,9 +1487,9 @@ fn taskspace_completed_task_action_should_force_final_answer(action: &TaskSpaceA
 fn taskspace_action_contract_tool_runtime_bootstrap_failure_item() -> ResponseItem {
     let text = "TaskSpaceActionContractToolRuntimeBootstrapFailureV1:\n\
 Existing TaskSpace task has no active bound node because ordinary tools are blocked by sandbox/tool runtime bootstrap failure evidence.\n\
-state_machine_allowed_actions: final_answer, blocked.\n\
-rejected_by_state_baseline: start_task, create_node, bind_node, list_files, read_file, search, apply_patch, run_test, spawn_agent.\n\
-final_response_fact_sources: exact sandbox/tool runtime blocker and tool failure evidence already recorded."
+hard_state: active_task_without_active_node.\n\
+closure_reason: ordinary_tools_blocked_by_sandbox_or_tool_runtime_bootstrap_failure.\n\
+recorded_blocker_source: exact sandbox/tool runtime blocker and tool failure evidence already recorded."
         .to_string();
     ResponseItem::Message {
         id: None,
@@ -1506,16 +1504,15 @@ fn taskspace_action_contract_inspect_unread_scripts_item(scripts: &[String]) -> 
     let mut text = String::from(
         "TaskSpaceActionContractInspectMissingScriptsV1:\n\
 Inspect convergence is blocked because already-read script evidence references script(s) that have not been read yet.\n\
-state_machine_allowed_actions: read_file, blocked.\n\
-rejected_by_state_baseline_until_missing_scripts_read: list_files, search, apply_patch, run_test, taskspace_control finish_node, re-read already inspected files.\n\
-Required read_file targets:",
+hard_state: inspect_script_reference_without_matching_read_event.\n\
+Observed script refs without matching read events:",
     );
     for script in scripts {
         text.push_str("\n- ");
         text.push_str(script);
     }
     if let Some(first) = scripts.first() {
-        text.push_str("\nfirst_missing_required_read_file_target: `");
+        text.push_str("\nfirst_observed_unread_script_ref: `");
         text.push_str(first);
         text.push_str("`");
     }
@@ -1555,16 +1552,6 @@ fn build_taskspace_provider_budget_hard_stop_item(
             .collect::<Vec<_>>()
             .join("\n")
     };
-    let state_machine_options = if decision.next_valid_actions.is_empty() {
-        "- stop provider sampling for this turn".to_string()
-    } else {
-        decision
-            .next_valid_actions
-            .iter()
-            .map(|item| format!("- {item}"))
-            .collect::<Vec<_>>()
-            .join("\n")
-    };
     let node_id = snapshot
         .node_id
         .as_deref()
@@ -1588,10 +1575,9 @@ node_request_count: {node_request_count}/{max_model_requests_per_node}\n\
 post_budget_grace: {post_budget_grace_request_count}/{post_budget_grace_requests}\n\
 quality_impact_required: {quality_impact_required}\n\
 blocking_items:\n{blocking_items}\n\
-state_machine_options:\n{state_machine_options}\n\
 hard_baseline_effect:\n\
 - provider sampling for this turn is stopped by the request budget baseline.\n\
-- bounded evidence is preserved; a later turn can continue only after TaskSpace state changes or the hard baseline permits it.",
+- bounded evidence is preserved for later context reconstruction.",
         reason = decision.reason,
         budget_state = decision.budget_state.as_str(),
         request_count = snapshot.request_count,
@@ -1989,7 +1975,7 @@ The previous tool failed because it used an absolute container path that is not 
 Path correction facts, not a runtime-selected strategy:\n\
 - Workspace-relative candidate: `{suggested_relative_path}`.\n\
 - Candidate path context: {candidate_path_context}.\n\
-- action_space_source: active node contract plus hard state baseline.\n\
+- ordinary_tool_boundary: ordinary tool use remains governed by the active node binding and lease.\n\
 - TaskSpace will not block other state-machine-legal tool actions only because they differ from this suggestion; further failures remain ordinary tool feedback for the Agent to interpret.\n",
         failed_path = correction.failed_path,
         suggested_relative_path = correction.suggested_relative_path,
@@ -2189,7 +2175,7 @@ Tool feedback facts:\n\
 - TaskSpace accepted neither prose nor a raw patch because this turn requires exactly one valid taskspace-action-v1 JSON object.\n\
 - taskspace-action-v1 JSON is the required transport shape; the rejected patch intent remains visible as raw evidence.\n\
 - The JSON object must not be wrapped in markdown fences, prose before or after the object, or a second action.\n\
-action_space_source: active node contract plus hard state baseline.\n\
+ordinary_tool_boundary: ordinary tool use remains governed by the active node binding and lease.\n\
 Already visible evidence remains available as ordinary input."
     );
 
@@ -2211,7 +2197,7 @@ Runtime boundary:\n\
 - TaskSpace did not finish the inspect node or create an implementation node automatically.\n\
 - The agent remains responsible for the next explicit state-machine-legal action.\n\
 state_transition_contract: finish_node can bind implement_solution only if the agent chooses to close inspect_code_context.\n\
-action_space_source: active node contract plus hard state baseline.\n\
+ordinary_tool_boundary: ordinary tool use remains governed by the active node binding and lease.\n\
 visible_evidence_status: inspected evidence remains available; no implementation node was created by runtime."
     );
 
@@ -2233,7 +2219,7 @@ Runtime boundary:\n\
 - TaskSpace did not finish the implementation node or create a validation node automatically.\n\
 - The agent remains responsible for the next explicit state-machine-legal action.\n\
 state_transition_contract: finish_node can bind smoke_test or regression_test only if the agent chooses to close implement_solution.\n\
-action_space_source: active node contract plus hard state baseline.\n\
+ordinary_tool_boundary: ordinary tool use remains governed by the active node binding and lease.\n\
 visible_evidence_status: successful edit evidence remains available; no validation node was created by runtime."
     );
 
@@ -2274,10 +2260,9 @@ fn build_taskspace_validation_infra_recovery_item() -> ResponseItem {
     let text = format!(
         "{TASKSPACE_VALIDATION_INFRA_RECOVERY_MARKER}\n\
 The latest validation command failed because local validator infrastructure or the host shell failed, not because new code evidence was found.\n\
-state_machine_requirement: this local infrastructure failure cannot be treated as implementation-code validation evidence.\n\
-state_record_fact: the failed run_test result can be recorded as invalid infrastructure evidence.\n\
-blocker_fact: blocked closeout requires the exact local infrastructure evidence, such as Bash/Service/CreateInstance/E_ACCESSDENIED.\n\
-action_space_source: active validation node contract plus hard state baseline.\n\
+hard_state: local_validation_infrastructure_failure.\n\
+state_record_fact: the failed validation result can be recorded as invalid infrastructure evidence.\n\
+recorded_blocker_source: exact local infrastructure evidence, such as Bash/Service/CreateInstance/E_ACCESSDENIED.\n\
 duplicate_evidence_boundary: repeated bash, PowerShell, Docker, or shell-discovery commands for the same local validator failure are duplicate infrastructure evidence unless new state/tool evidence changes the failure."
     );
 
@@ -2307,15 +2292,15 @@ fn build_taskspace_validation_needs_test_recovery_item(last_message: Option<&str
         })
         .unwrap_or_default();
     let text = format!(
-        "{TASKSPACE_VALIDATION_NEEDS_TEST_MARKER}\n\
+        "{TASKSPACE_VALIDATION_NODE_FEEDBACK_MARKER}\n\
 The current node is smoke_test/regression_test.\n\
 {gate_context}\
 {last}\
-TaskSpace validation progress forms accepted by the runtime:\n\
-- a run_test or build tool result recorded on the current validation node;\n\
-- taskspace_control that records validation lifecycle/ledger state after validator evidence;\n\
-- a blocked-with-evidence result that states why validation cannot run.\n\
-The runtime may reject non-validation action classes on validation nodes under node policy. This recovery item preserves prior validation feedback without selecting a command for the Agent."
+TaskSpace validation-node feedback:\n\
+- ordinary tool results remain recorded under the current validation node;\n\
+- taskspace_control records remain available for node lifecycle or notes;\n\
+- blocked-with-evidence remains available when validation cannot run.\n\
+This item preserves prior validation feedback without selecting a command for the Agent."
     );
 
     ResponseItem::Message {
@@ -2352,7 +2337,7 @@ TaskSpace implement_solution progress fact: no successful edit has been recorded
 Runtime boundary:\n\
 - This is a state/progress fact, not a closed action space and not a command to edit.\n\
 - TaskSpace has not executed or rejected any tool solely because of this fact.\n\
-- Action-space source of truth: the active node contract and hard state baseline.\n\
+- ordinary_tool_boundary: ordinary tool use remains governed by the active node binding and lease.\n\
 - Already visible evidence and any later tool results are preserved as ordinary inputs to the agent's next state-machine-legal action."
     );
 
@@ -2416,7 +2401,7 @@ Projection boundary:\n\
 - This item preserves the blocked tool feedback and visible evidence; it does not select an implementation strategy.\n\
 - The prior complete read_file result remains available as `{previous_result}`.\n\
 - repair_contract, when present, is copied as an evidence fact rather than a strategy instruction.\n\
-action_space_source: active node contract plus hard state baseline; this item does not narrow or expand that action space.\n\
+ordinary_tool_boundary: ordinary tool use remains governed by the active node binding and lease.\n\
 duplicate_complete_read_signal: the same complete read_file request has no recorded new state/tool evidence delta yet.\n\
 Previous blocked feedback:\n{previous_excerpt}\n\
 {gate_recovery}\
@@ -2496,7 +2481,7 @@ Available evidence facts:\n\
 - The visible validation failure, schema contract, and validation_rework_target_read evidence already shown in context remain available.\n\
 - If the validation_rework_target_read evidence says content_visibility=full_content_visible, no additional file lines are hidden for that target in the current projection.\n\
 - Exact duplicate read_file for `{target_artifact_label}` is a low-information evidence signal when it adds no new state/tool delta.\n\
-- action_space_source: active node contract for implement_solution; this recovery item does not narrow or expand that action space.\n\
+- ordinary_tool_boundary: ordinary tool use remains governed by the active node binding and lease.\n\
 {schema_contract_facts}\
 Apply_patch grammar facts:\n\
 - Native apply_patch starts with `*** Begin Patch` and ends with `*** End Patch`.\n\
@@ -2912,8 +2897,8 @@ fn taskspace_special_recovery_warning_message(item: &ResponseItem) -> String {
         "TaskSpace inserted TaskSpacePatchIntentFormatRecoveryV1 after an apply_patch intent was rejected for non-strict JSON. This guidance does not consume the no-action recovery allowance.".to_string()
     } else if response_item_text_contains(item, TASKSPACE_VALIDATION_INFRA_RECOVERY_MARKER) {
         "TaskSpace inserted TaskSpaceValidationInfraRecoveryV1 after local validator infrastructure failed. This guidance does not consume the no-action recovery allowance.".to_string()
-    } else if response_item_text_contains(item, TASKSPACE_VALIDATION_NEEDS_TEST_MARKER) {
-        "TaskSpace inserted TaskSpaceValidationNeedsTestRecoveryV1 after a validation node needed a current run_test or build result. This guidance does not consume the no-action recovery allowance.".to_string()
+    } else if response_item_text_contains(item, TASKSPACE_VALIDATION_NODE_FEEDBACK_MARKER) {
+        "TaskSpace inserted validation-node feedback after a rejected validation-node action. This feedback does not consume the no-action recovery allowance.".to_string()
     } else if response_item_text_contains(item, TASKSPACE_FINAL_READINESS_RECOVERY_MARKER) {
         "TaskSpace inserted TaskSpaceFinalReadinessRecoveryV1 after final readiness rejected a final_answer. This guidance does not consume the no-action recovery allowance.".to_string()
     } else {
@@ -4184,20 +4169,20 @@ fn taskspace_action_contract_recent_tool_outputs_item(
 
     let in_implement_rework = current_node_kind == Some("implement_solution");
     let progress_fact = if implement_missing_edit_before_finish_seen {
-        "progress_fact: A previous finish_node action was rejected because the implement_solution node has no successful edit. State baseline requires a successful edit before finish_node can close this implementation node. Action-space source of truth: active node contract.\n"
+        "progress_fact: A previous finish_node action was rejected because the implement_solution node has no successful edit.\nhard_state: implementation_node_without_successful_edit_result.\nordinary_tool_boundary: ordinary tool use remains governed by the active node binding and lease.\n"
     } else if validation_rework_duplicate_read_seen || validation_rework_duplicate_target_read_seen
     {
-        "progress_fact: Earlier feedback marked a read_file as a duplicate complete read of the same validation rework target. The prior result id/context remains visible as evidence; all implement_solution state-machine-legal actions remain governed by the active node contract.\n"
+        "progress_fact: Earlier feedback marked a read_file as a duplicate complete read of the same validation rework target. The prior result id/context remains visible as evidence.\nordinary_tool_boundary: ordinary tool use remains governed by the active node binding and lease.\n"
     } else if implementation_needs_edit_seen {
-        "progress_fact: TaskSpace has recorded implementation_needs_edit evidence: the implementation node still lacks a successful edit. Action-space source of truth: active node contract.\n"
+        "progress_fact: TaskSpace has recorded implementation_needs_edit evidence: the implementation node still lacks a successful edit.\nhard_state: implementation_node_without_successful_edit_result.\n"
     } else if unreviewed_result_blocker_seen {
-        "progress_fact: A previous ordinary tool was blocked because a TaskSpace node result is still unreviewed. State baseline requires result_validities for the named result before dependent ordinary tool actions can rely on it. This fact records the blocker and does not select the next action.\n"
+        "progress_fact: A previous ordinary tool was blocked because a TaskSpace node result is still unreviewed.\nhard_state: result_validity_unreviewed_for_dependent_record.\nThis fact records the blocker and does not select the next action.\n"
     } else if validation_current_test_required_seen {
-        "progress_fact: A previous block_node or finish_node action tried to close the current validation node using failure text before this node had its own test/build result. State baseline requires the current validation node to record its own test/build result before closing or handing off that failure. Action-space source of truth: active validation node contract.\n"
+        "progress_fact: A previous block_node or finish_node action tried to close the current validation node using failure text before this node had its own test/build result.\nhard_state: validation_node_without_current_test_or_build_result.\nordinary_tool_boundary: ordinary tool use remains governed by the active node binding and lease.\n"
     } else if validation_command_missing_script_seen {
-        "progress_fact: The previous run_test did not start the validator because the command referenced a missing script. Changed scripts and output contracts in the current TaskSpace projection remain evidence facts; action-space source of truth: active validation node contract.\n"
+        "progress_fact: The previous run_test did not start the validator because the command referenced a missing script.\ntool_feedback_facts: the command referenced a missing script path; raw tool output remains available.\nordinary_tool_boundary: ordinary tool use remains governed by the active node binding and lease.\n"
     } else if uncovered_high_signal_seen {
-        "progress_fact: A previous finish_node was rejected because high-signal inspected evidence is still uncovered. State baseline still requires coverage for the named mandatory evidence before finish_node. Action-space source of truth: active node contract.\n"
+        "progress_fact: A previous finish_node was rejected because high-signal inspected evidence is still uncovered.\nhard_state: mandatory_inspected_evidence_uncovered_by_edit_result.\n"
     } else if in_implement_rework
         && unrecoverable_local_validator_infra_failure_seen
         && !recoverable_local_validator_command_failure_seen
@@ -4209,13 +4194,13 @@ fn taskspace_action_contract_recent_tool_outputs_item(
     {
         "progress_fact: Local validation infrastructure failed earlier and that failure is already recorded. The current node is implementation rework, not the closed validation node. State baseline rejects reusing the same infrastructure failure as an implementation blocker unless new evidence changes the state.\n"
     } else if in_implement_rework && local_validator_infra_failure_seen {
-        "progress_fact: The previous validation command hit local validator infrastructure or host-shell syntax, but the current node is implementation rework. That evidence alone is not an implementation-code failure. Action-space source of truth: active node contract.\n"
+        "progress_fact: The previous validation command hit local validator infrastructure or host-shell syntax, but the current node is implementation rework. That evidence alone is not an implementation-code failure.\nordinary_tool_boundary: ordinary tool use remains governed by the active node binding and lease.\n"
     } else if local_validator_infra_failure_seen && local_validator_infra_state_commit_seen {
-        "progress_fact: Local validation already failed because the host validator infrastructure or shell is unavailable, and that failure has been recorded. Repeating shell discovery for the same local validator failure is low-value duplicate evidence. Action-space source of truth: active validation node contract.\n"
+        "progress_fact: Local validation already failed because the host validator infrastructure or shell is unavailable, and that failure has been recorded. Repeating shell discovery for the same local validator failure is low-value duplicate evidence.\nordinary_tool_boundary: ordinary tool use remains governed by the active node binding and lease.\n"
     } else if local_validator_infra_failure_seen {
         "progress_fact: The last run_test failed because local validator infrastructure or the host shell failed, not because new code evidence was found. State ledger can record that failed run_test result as invalid infrastructure evidence.\n"
     } else if edit_success_seen {
-        "progress_fact: A file edit already succeeded. TaskSpace will not finish the implementation node automatically. Action-space source of truth: active node contract and current state baseline.\n"
+        "progress_fact: A file edit already succeeded. TaskSpace will not finish the implementation node automatically.\nordinary_tool_boundary: ordinary tool use remains governed by the active node binding and lease.\n"
     } else {
         ""
     };
@@ -4272,9 +4257,9 @@ tool_source: action_contract_internal\n\
 tool_action: {action}\n\
 tool_result: blocked\n\
 failure_kind: validation_stale_failure_without_current_test\n\
-state_machine_requirement: the current validation node must record its own current test/build result before it can close, block on the stale failure, or hand off implementation rework for that failure.\n\
-validation_command_source: current TaskSpace projection.\n\
-action_space_source: active validation node contract plus hard state baseline.\n\
+hard_state: validation_node_without_current_test_or_build_result.\n\
+tool_feedback_facts: the current validation node has no current same-node test/build result recorded.\n\
+ordinary_tool_boundary: ordinary tool use remains governed by the active node binding and lease.\n\
 raw_output:\n{text}"
         );
     }
@@ -4285,9 +4270,9 @@ tool_source: action_contract_internal\n\
 tool_action: {action}\n\
 tool_result: blocked\n\
 failure_kind: validation_finish_missing_current_test_result\n\
-state_machine_requirement: the current validation node needs its own current test/build result before finish_node or implementation rework can rely on the validation outcome.\n\
-validation_command_source: current TaskSpace projection.\n\
-action_space_source: active validation node contract plus hard state baseline.\n\
+hard_state: validation_node_without_current_test_or_build_result.\n\
+tool_feedback_facts: the current validation node has no current same-node test/build result recorded.\n\
+ordinary_tool_boundary: ordinary tool use remains governed by the active node binding and lease.\n\
 raw_output:\n{text}"
         );
     }
@@ -4309,7 +4294,7 @@ target_artifact: {artifact}\n\
 previous_read_result: {previous_result}\n\
 {repair_contract}\
 feedback_semantics: duplicate evidence only; the previous result already contains the target contents for `{artifact}`.\n\
-available_evidence: previous_read_result `{previous_result}` remains visible; the active node action set remains governed by the state machine.\n\
+available_evidence: previous_read_result `{previous_result}` remains visible.\n\
 raw_output:\n{text}"
         );
     }
@@ -4337,8 +4322,8 @@ tool_action: {action}\n\
 tool_result: blocked\n\
 failure_kind: implementation_needs_edit\n\
 {repair_contract}\
-feedback_semantics: implementation_needs_edit is a convergence fact, not a closed action space.\n\
-action_space_source: active node contract plus hard state baseline; this feedback item does not narrow or expand that action space.\n\
+tool_feedback_facts: no successful edit result is recorded on the current implementation node.\n\
+ordinary_tool_boundary: ordinary tool use remains governed by the active node binding and lease.\n\
 raw_output:\n{text}"
         );
     }
@@ -4427,8 +4412,8 @@ tool_action: run_test\n\
 tool_result: failed\n\
 failure_kind: validation_command_missing_script\n\
 missing_script: {missing_script}\n\
-tool_feedback_facts: the validation command references a script path that the shell cannot open. Current TaskSpace projection may name changed scripts and output contracts as evidence facts.\n\
-action_space_source: active validation node contract plus hard state baseline.\n\
+tool_feedback_facts: the validation command references a script path that the shell cannot open.\n\
+ordinary_tool_boundary: ordinary tool use remains governed by the active node binding and lease.\n\
 raw_output:\n{text}"
         );
     }
@@ -4442,8 +4427,8 @@ tool_result: blocked\n\
 failure_kind: taskspace_unreviewed_result_blocker\n\
 blocked_result: {result_id}\n\
 blocked_node: {node_id}\n\
-state_machine_requirement: result_validities for `{result_id}` must be committed before dependent read/search/edit/test/control actions can rely on that result.\n\
-action_space_source: active node contract plus hard state baseline; this feedback item does not select the next action.\n\
+hard_state: result_validity_unreviewed_for_dependent_record.\n\
+tool_feedback_facts: result `{result_id}` is still unreviewed in node `{node_id}`.\n\
 raw_output:\n{text}"
         );
     }
@@ -4456,8 +4441,8 @@ tool_source: action_contract_internal\n\
 tool_action: {action}\n\
 tool_result: blocked\n\
 failure_kind: implement_missing_edit_before_finish\n\
-state_machine_requirement: finish_node for this implementation node requires a recorded successful edit first.\n\
-action_space_source: active node contract plus hard state baseline; this feedback item does not select the next action.\n\
+hard_state: implementation_node_without_successful_edit_result.\n\
+tool_feedback_facts: finish_node for this implementation node has no successful edit result recorded.\n\
 raw_output:\n{text}"
         );
     }
@@ -4468,7 +4453,7 @@ tool_action: {action}\n\
 tool_result: failed\n\
 failure_kind: tool_execution_failed\n\
 feedback_semantics: the tool result is a failed action result and remains available as raw evidence.\n\
-action_space_source: active node contract plus hard state baseline.\n\
+ordinary_tool_boundary: ordinary tool use remains governed by the active node binding and lease.\n\
 raw_output:\n{text}"
     )
 }
@@ -5453,10 +5438,11 @@ mod active_context_replacement_tests {
         let text = item_text(taskspace_action_contract_state_item(&snapshot));
 
         assert!(text.contains("Active node id: none"));
-        assert!(text.contains("Existing TaskSpace task has no active bound node"));
-        assert!(text.contains("state_machine_allowed_actions: final_answer"));
+        assert!(text.contains("hard_state: active_task_without_active_node"));
+        assert!(text.contains("ordinary_tool_boundary: ordinary tools require an active node"));
         assert!(text.contains("state_transition_fact:"));
         assert!(!text.contains("action=start_task"));
+        assert!(!text.contains("state_machine_allowed_actions"));
         assert!(!text.contains("Do not create"));
     }
 
@@ -5465,10 +5451,14 @@ mod active_context_replacement_tests {
         let text = item_text(taskspace_action_contract_closed_validation_item());
 
         assert!(text.contains("TaskSpaceActionContractClosedValidationV1"));
-        assert!(text.contains("state_machine_allowed_actions: final_answer, blocked"));
-        assert!(text.contains("rejected_by_state_baseline: start_task"));
+        assert!(text.contains("hard_state: active_task_without_active_node"));
+        assert!(
+            text.contains("closure_reason: validation_closed_by_local_infrastructure_evidence")
+        );
+        assert!(text.contains("recorded_blocker_source"));
+        assert!(!text.contains("state_machine_allowed_actions"));
+        assert!(!text.contains("rejected_by_state_baseline"));
         assert!(!text.contains("Do not call start_task"));
-        assert!(text.contains("create_node"));
         assert!(text.contains("validator infrastructure blocker"));
     }
 
@@ -5493,10 +5483,14 @@ mod active_context_replacement_tests {
         let text = item_text(taskspace_action_contract_tool_runtime_bootstrap_failure_item());
 
         assert!(text.contains("TaskSpaceActionContractToolRuntimeBootstrapFailureV1"));
-        assert!(text.contains("state_machine_allowed_actions: final_answer, blocked"));
-        assert!(text.contains("rejected_by_state_baseline: start_task"));
+        assert!(text.contains("hard_state: active_task_without_active_node"));
+        assert!(text.contains(
+            "closure_reason: ordinary_tools_blocked_by_sandbox_or_tool_runtime_bootstrap_failure"
+        ));
+        assert!(text.contains("recorded_blocker_source"));
+        assert!(!text.contains("state_machine_allowed_actions"));
+        assert!(!text.contains("rejected_by_state_baseline"));
         assert!(!text.contains("Do not call start_task"));
-        assert!(text.contains("create_node"));
         assert!(text.contains("sandbox/tool runtime blocker"));
     }
 
@@ -5508,10 +5502,11 @@ mod active_context_replacement_tests {
         ));
 
         assert!(text.contains("TaskSpaceActionContractInspectMissingScriptsV1"));
-        assert!(text.contains("state_machine_allowed_actions: read_file, blocked"));
+        assert!(text.contains("hard_state: inspect_script_reference_without_matching_read_event"));
         assert!(text.contains("generate_report.sh"));
-        assert!(text.contains("first_missing_required_read_file_target"));
-        assert!(text.contains("rejected_by_state_baseline_until_missing_scripts_read"));
+        assert!(text.contains("first_observed_unread_script_ref"));
+        assert!(!text.contains("state_machine_allowed_actions"));
+        assert!(!text.contains("rejected_by_state_baseline"));
         assert!(!text.contains("The next action must be read_file"));
         assert!(!text.contains("Do not call list_files"));
     }
@@ -5537,6 +5532,13 @@ mod active_context_replacement_tests {
             "Current request allowed actions are narrowed",
             "Next valid action",
             "Preferred fix",
+            "rejected_by_state_baseline",
+            "state_machine_allowed_actions",
+            "state_machine_requirement",
+            "validation_command_source",
+            "validation_needs_test",
+            "action_space_source",
+            "Action-space source",
             "The next action must",
             "Suggested recovery",
             "Suggested action",
@@ -5560,13 +5562,15 @@ mod active_context_replacement_tests {
 
         let text = item_text(taskspace_action_contract_state_item(&snapshot));
 
-        assert!(text.contains("Implementation convergence fact: implementation_needs_edit"));
-        assert!(text.contains("implement_solution still accepts list_files, search, read_file"));
-        assert!(text.contains("low-information evidence"));
+        assert!(
+            text.contains("Implementation node event status: no successful edit event is recorded")
+        );
+        assert!(!text.contains("implement_solution still accepts"));
+        assert!(!text.contains("implementation_needs_edit"));
 
         snapshot.current_node_has_successful_edit = true;
         let text_after_edit = item_text(taskspace_action_contract_state_item(&snapshot));
-        assert!(!text_after_edit.contains("implementation_needs_edit"));
+        assert!(!text_after_edit.contains("no successful edit event is recorded"));
     }
 
     #[test]
@@ -5576,8 +5580,10 @@ mod active_context_replacement_tests {
 
         let text = item_text(taskspace_action_contract_state_item(&snapshot));
 
-        assert!(text.contains("Implementation convergence fact: implementation_needs_edit"));
-        assert!(text.contains("implement_solution still accepts"));
+        assert!(
+            text.contains("Implementation node event status: no successful edit event is recorded")
+        );
+        assert!(!text.contains("implement_solution still accepts"));
 
         let read = parse_taskspace_action_v1(
             r#"{"schema_version":"taskspace-action-v1","action":"read_file","node_id":"node-1","args":{"path":"generate_report.sh"},"rationale":"read more"}"#,
@@ -5599,8 +5605,11 @@ mod active_context_replacement_tests {
 
         let text = item_text(taskspace_action_contract_state_item(&snapshot));
 
-        assert!(text.contains("Implementation convergence fact: implementation_needs_edit"));
-        assert!(text.contains("An apply_patch that claims to repair this mandatory evidence"));
+        assert!(
+            text.contains("Implementation node event status: no successful edit event is recorded")
+        );
+        assert!(text.contains("Uncovered mandatory evidence refs"));
+        assert!(text.contains("Action-contract fallback validates patch target coverage"));
 
         let read = parse_taskspace_action_v1(
             r#"{"schema_version":"taskspace-action-v1","action":"read_file","node_id":"node-1","args":{"path":"collect_data.sh"},"rationale":"read more"}"#,
@@ -5621,7 +5630,7 @@ mod active_context_replacement_tests {
             vec!["generate_report.sh (invalid_shebang, result-13)".to_string()];
 
         let text = item_text(taskspace_action_contract_state_item(&snapshot));
-        assert!(text.contains("Required edit targets from uncovered mandatory evidence"));
+        assert!(text.contains("Uncovered mandatory evidence refs"));
         assert!(text.contains("generate_report.sh (invalid_shebang, result-13)"));
 
         let wrong = parse_taskspace_action_v1(
@@ -6025,7 +6034,8 @@ Then I will inspect the file."#,
 
         let state_text = item_text(taskspace_action_contract_state_item(&snapshot));
         assert!(state_text.contains("generate_org.py"));
-        assert!(state_text.contains("already associated with this node"));
+        assert!(state_text.contains("Associated validation rework artifact refs"));
+        assert!(!state_text.contains("already associated with this node"));
     }
 
     #[test]
@@ -6076,7 +6086,8 @@ Then I will inspect the file."#,
 
         assert!(text.contains(TASKSPACE_IMPLEMENT_NEEDS_EDIT_MARKER));
         assert!(text.contains("recover.py"));
-        assert!(text.contains("Action-space source of truth: the active node contract"));
+        assert!(text.contains("ordinary_tool_boundary: ordinary tool use remains governed"));
+        assert!(!text.contains("Action-space source of truth"));
         assert!(!is_taskspace_no_action_recovery_item(&item));
         assert!(is_taskspace_implement_needs_edit_recovery_item(&item));
     }
@@ -6105,7 +6116,8 @@ Then I will inspect the file."#,
         );
         assert!(text.contains("Projection boundary:"));
         assert!(text.contains("does not select an implementation strategy"));
-        assert!(text.contains("action_space_source: active node contract"));
+        assert!(text.contains("ordinary_tool_boundary: ordinary tool use remains governed"));
+        assert!(!text.contains("action_space_source"));
         assert!(text.contains("duplicate_complete_read_signal"));
         assert!(!text.contains("Current required behavior:"));
         assert!(!text.contains("read_file/context refresh is not a valid recovery"));
@@ -6214,7 +6226,8 @@ Then I will inspect the file."#,
         assert!(!text.contains("Schema validation facts from current failure:"));
         assert!(!text.contains("Missing required output properties captured"));
         assert!(!text.contains("schema_repair_fact_summary=true"));
-        assert!(text.contains("action_space_source: active node contract for implement_solution"));
+        assert!(text.contains("ordinary_tool_boundary: ordinary tool use remains governed"));
+        assert!(!text.contains("action_space_source"));
         assert!(!text.contains("Patch construction scaffold:"));
         assert!(!text.contains("Final action lock:"));
         assert!(!text.contains(TASKSPACE_IMPLEMENT_NEEDS_EDIT_MARKER));
@@ -6550,7 +6563,8 @@ TaskSpace implement_solution node `node-6` cannot be blocked for missing source 
 
         assert!(text.contains(TASKSPACE_IMPLEMENT_NEEDS_EDIT_MARKER));
         assert!(text.contains("KeyError"));
-        assert!(text.contains("Action-space source of truth: the active node contract"));
+        assert!(text.contains("ordinary_tool_boundary: ordinary tool use remains governed"));
+        assert!(!text.contains("Action-space source of truth"));
         assert!(text.contains("employee_id,name,department_id,title"));
         assert!(!is_taskspace_no_action_recovery_item(&item));
         assert!(is_taskspace_implement_needs_edit_recovery_item(&item));
@@ -6920,10 +6934,12 @@ TaskSpace implement_solution node `node-6` cannot be blocked for missing source 
         let text = item_text(recent);
 
         assert!(summary.contains("failure_kind: validation_stale_failure_without_current_test"));
-        assert!(summary.contains("state_machine_requirement:"));
-        assert!(summary.contains("validation_command_source: current TaskSpace projection"));
-        assert!(summary.contains("action_space_source: active validation node contract"));
-        assert!(text.contains("State baseline requires the current validation node"));
+        assert!(
+            summary.contains("hard_state: validation_node_without_current_test_or_build_result")
+        );
+        assert!(summary.contains("tool_feedback_facts:"));
+        assert!(summary.contains("ordinary_tool_boundary: ordinary tool use remains governed"));
+        assert!(text.contains("hard_state: validation_node_without_current_test_or_build_result"));
         assert!(!text.contains("blocked is available with an exact external blocker"));
         assert!(!text.contains("Next action must be run_test"));
         assert!(taskspace_message_hit_validation_needs_test(Some(&summary)));
@@ -6953,10 +6969,12 @@ TaskSpace implement_solution node `node-6` cannot be blocked for missing source 
         let text = item_text(recent);
 
         assert!(summary.contains("failure_kind: validation_finish_missing_current_test_result"));
-        assert!(summary.contains("state_machine_requirement:"));
-        assert!(summary.contains("validation_command_source: current TaskSpace projection"));
-        assert!(summary.contains("action_space_source: active validation node contract"));
-        assert!(text.contains("State baseline requires the current validation node"));
+        assert!(
+            summary.contains("hard_state: validation_node_without_current_test_or_build_result")
+        );
+        assert!(summary.contains("tool_feedback_facts:"));
+        assert!(summary.contains("ordinary_tool_boundary: ordinary tool use remains governed"));
+        assert!(text.contains("hard_state: validation_node_without_current_test_or_build_result"));
         assert!(!text.contains("Next action must be run_test"));
         assert!(taskspace_message_hit_validation_needs_test(Some(&summary)));
     }
@@ -8304,9 +8322,8 @@ TaskSpace implement_solution node `node-6` cannot be blocked for missing source 
         assert!(text.contains("failed_path: /data/source_a"));
         assert!(text.contains("suggested_relative_path: data/source_a"));
         assert!(text.contains("Path correction facts, not a runtime-selected strategy"));
-        assert!(
-            text.contains("action_space_source: active node contract plus hard state baseline")
-        );
+        assert!(text.contains("ordinary_tool_boundary: ordinary tool use remains governed"));
+        assert!(!text.contains("action_space_source"));
         assert!(text.contains("Workspace-relative candidate: `data/source_a`"));
         assert!(!text.contains("Suggested recovery"));
         assert!(
@@ -9891,8 +9908,11 @@ python: can't open file '/workspace/process.py': [Errno 2] No such file or direc
         assert!(
             joined.contains("progress_fact: The previous run_test did not start the validator")
         );
-        assert!(joined.contains("Changed scripts and output contracts"));
-        assert!(joined.contains("action_space_source: active validation node contract"));
+        assert!(
+            joined.contains("tool_feedback_facts: the command referenced a missing script path")
+        );
+        assert!(joined.contains("ordinary_tool_boundary: ordinary tool use remains governed"));
+        assert!(!joined.contains("action_space_source"));
         assert!(!joined.contains("failure_kind: tool_execution_failed"));
     }
 
@@ -9927,8 +9947,9 @@ python: can't open file '/workspace/process.py': [Errno 2] No such file or direc
         assert!(joined.contains("blocked_result: result-8"));
         assert!(joined.contains("blocked_node: node-2"));
         assert!(joined.contains("progress_fact: A previous ordinary tool was blocked"));
-        assert!(joined.contains("state_machine_requirement: result_validities"));
-        assert!(joined.contains("action_space_source: active node contract"));
+        assert!(joined.contains("hard_state: result_validity_unreviewed_for_dependent_record"));
+        assert!(joined.contains("tool_feedback_facts: result `result-8` is still unreviewed"));
+        assert!(!joined.contains("action_space_source"));
         assert!(!joined.contains("taskspace_control action=state_commit is available"));
         assert!(!joined.contains("Next action must be taskspace_control"));
         assert!(!joined.contains("failure_kind: tool_execution_failed"));
@@ -9996,8 +10017,8 @@ python: can't open file '/workspace/process.py': [Errno 2] No such file or direc
         assert!(joined.contains(TASKSPACE_TOOL_FEEDBACK_MARKER));
         assert!(joined.contains("failure_kind: implement_missing_edit_before_finish"));
         assert!(joined.contains("progress_fact: A previous finish_node action was rejected"));
-        assert!(joined.contains("state_machine_requirement: finish_node"));
-        assert!(joined.contains("requires a recorded successful edit first"));
+        assert!(joined.contains("hard_state: implementation_node_without_successful_edit_result"));
+        assert!(joined.contains("tool_feedback_facts: finish_node for this implementation node"));
         assert!(!joined.contains("next_valid_action: emit exactly one apply_patch action"));
         assert!(!joined.contains("failure_kind: tool_execution_failed"));
     }
@@ -10232,7 +10253,8 @@ python: can't open file '/workspace/process.py': [Errno 2] No such file or direc
 
         assert!(joined.contains("A file edit already succeeded"));
         assert!(joined.contains("will not finish the implementation node automatically"));
-        assert!(joined.contains("Action-space source of truth: active node contract"));
+        assert!(joined.contains("ordinary_tool_boundary: ordinary tool use remains governed"));
+        assert!(!joined.contains("Action-space source of truth"));
         assert!(!joined.contains("taskspace_control action=finish_node is available"));
     }
 
@@ -10258,7 +10280,10 @@ python: can't open file '/workspace/process.py': [Errno 2] No such file or direc
         let joined = item_texts(&prepared).join("\n");
 
         assert!(joined.contains("high-signal inspected evidence is still uncovered"));
-        assert!(joined.contains("Action-space source of truth: active node contract"));
+        assert!(
+            joined.contains("hard_state: mandatory_inspected_evidence_uncovered_by_edit_result")
+        );
+        assert!(!joined.contains("Action-space source of truth"));
         assert!(!joined.contains("taskspace_control action=finish_node is available"));
     }
 
@@ -10282,7 +10307,8 @@ python: can't open file '/workspace/process.py': [Errno 2] No such file or direc
 
         assert!(text.contains("high-signal inspected evidence is still uncovered"));
         assert!(text.contains("generate_report.sh"));
-        assert!(text.contains("Action-space source of truth: active node contract"));
+        assert!(text.contains("hard_state: mandatory_inspected_evidence_uncovered_by_edit_result"));
+        assert!(!text.contains("Action-space source of truth"));
     }
 
     #[test]
@@ -10467,7 +10493,8 @@ python: can't open file '/workspace/process.py': [Errno 2] No such file or direc
         assert!(joined.contains("Local validation already failed"));
         assert!(joined.contains("that failure has been recorded"));
         assert!(joined.contains("Repeating shell discovery"));
-        assert!(joined.contains("Action-space source of truth: active validation node contract"));
+        assert!(joined.contains("ordinary_tool_boundary: ordinary tool use remains governed"));
+        assert!(!joined.contains("Action-space source of truth"));
         assert!(!joined.contains("blocked with the exact infrastructure evidence"));
     }
 
@@ -10798,7 +10825,7 @@ TaskSpaceGateRecoveryV1: {\"schema_version\":\"TaskSpaceGateRecoveryV1\",\"allow
     fn extracts_projection_sync_from_recovery_message_gate_recovery() {
         let item = message(
             "developer",
-            "TaskSpaceValidationNeedsTestRecoveryV1:\nTaskSpaceGateRecoveryV1: {\"schema_version\":\"TaskSpaceGateRecoveryV1\",\"allowed\":false,\"reason\":\"validation_test_missing_output_contract_coverage\",\"next_valid_actions\":[\"run_test with command `python generate_json.py && python -m jsonschema -i organization.json schema.json`\"]}",
+            "TaskSpaceValidationNodeFeedbackV1:\nTaskSpaceGateRecoveryV1: {\"schema_version\":\"TaskSpaceGateRecoveryV1\",\"allowed\":false,\"reason\":\"validation_test_missing_output_contract_coverage\",\"next_valid_actions\":[\"run_test with command `python generate_json.py && python -m jsonschema -i organization.json schema.json`\"]}",
         );
 
         let sync = taskspace_gate_recovery_projection_sync_from_item(&item)
@@ -10862,8 +10889,8 @@ TaskSpaceGateRecoveryV1: {\"schema_version\":\"TaskSpaceGateRecoveryV1\",\"allow
 
         assert!(text.contains(TASKSPACE_VALIDATION_INFRA_RECOVERY_MARKER));
         assert!(text.contains("local validator infrastructure"));
-        assert!(text.contains("state_machine_requirement"));
-        assert!(text.contains("blocked can close the validation node only with the exact local infrastructure evidence"));
+        assert!(text.contains("hard_state: local_validation_infrastructure_failure"));
+        assert!(text.contains("recorded_blocker_source: exact local infrastructure evidence"));
         assert!(text.contains("Bash/Service/CreateInstance/E_ACCESSDENIED"));
         assert!(!is_taskspace_no_action_recovery_item(&item));
     }
@@ -10874,13 +10901,14 @@ TaskSpaceGateRecoveryV1: {\"schema_version\":\"TaskSpaceGateRecoveryV1\",\"allow
         let item = build_taskspace_validation_needs_test_recovery_item(Some(last));
         let text = item_text(item.clone());
 
-        assert!(text.contains(TASKSPACE_VALIDATION_NEEDS_TEST_MARKER));
-        assert!(text.contains("TaskSpace validation progress forms accepted by the runtime"));
-        assert!(text.contains("run_test or build tool result"));
+        assert!(text.contains(TASKSPACE_VALIDATION_NODE_FEEDBACK_MARKER));
+        assert!(text.contains("TaskSpace validation-node feedback"));
+        assert!(text.contains("ordinary tool results remain recorded"));
         assert!(text.contains("preserves prior validation feedback"));
         assert!(!text.contains("Emit exactly one run_test action now"));
         assert!(!text.contains("Do not call list_files"));
         assert!(!text.contains("python scripts/validate.py"));
+        assert!(!text.contains("validation_needs_test"));
         assert!(!is_taskspace_no_action_recovery_item(&item));
         assert!(taskspace_message_hit_validation_needs_test(Some(last)));
     }

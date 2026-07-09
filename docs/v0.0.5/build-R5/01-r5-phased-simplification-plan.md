@@ -622,7 +622,8 @@ tool count、provider request count、state-machine action count、wall time、�
 | R5-C0 cadence parity | TaskSpace 不因一小步一请求在 implement 前或 patch 归一化处 hard stop | budget lifecycle accounting + action-contract patch normalization | whale exec taskspace mode | cadence focused tests, patch normalization test | provider request/tool/action metrics, `count-call-stack` paired report | none | landed |
 | R5-C thin projection and action sequence | model-visible 只含 map/node/events/refs；单次 response 可承载多个 Agent 明确动作；routing prompt report-only | projection renderer, action-contract parser/executor, benchmark routing prompt | provider request, whale exec taskspace mode | active_projection, taskspace_action_contract, routing harness tests | `target/r5cphase6/count-call-stack/20260709-183144-389` | none | landed |
 | R5-C1 native tool loop boundary | DeepSeek 默认 native tools；机械空 map；projection 不再暴露 action-class contract | session turn transport, action_map runtime projection, tools router/parallel alias | whale exec taskspace mode | native alias tests, active_projection, taskspace_action_contract | `target/r5c1-native-tool-loop-no-action-contract/count-call-stack/20260709-215916-052` | none | landed |
-| R5-D residue inventory and ledger deactivation | provider-visible 旧语义残留完成分类；semantic ledger 不控制 active path | state_commit/start_task/projection/recovery text | taskspace_control, provider-visible context | D0 scan tests, initial_* and state_commit tests | residue inventory, state update traces | none | planned |
+| R5-D0 provider-visible residue inventory | provider-visible 旧语义标签和策略提示完成首轮清理；semantic ledger 仍待 D1/D2 降级 | projection/recovery/action-contract/gate recovery text | provider-visible context, ordinary tool feedback | `taskspace_action_contract`, `gate_recovery`, `active_projection`, D0 forbidden scan | `target/r5d0-semantic-residue-clean/count-call-stack/20260709-232508-447` | legacy/test-only `next_valid_actions` parser/helper remains internal | landed |
+| R5-D1/D2 ledger deactivation | `initial_*`、`problem_ledger/cognitive_state` 不控制 active path | state_commit/start_task/projection | taskspace_control, provider-visible context | initial_* and state_commit tests | state update traces | none | planned |
 | R5-E hard-baseline pruning | 只保留硬底线拒绝；model-visible recovery/sentinel 不含策略指令 | state machine gate path, sentinel/recovery renderer | ordinary tool preflight, payload construction | gate classification tests, forbidden phrase scan | blocked reason taxonomy, rollout/payload scan | none | planned |
 | R5-F module split | map/event/gate/projection 边界清晰 | action_map modules | whale exec --taskspace | cargo check/test | trace fields stable | none | planned |
 | R5-G benefit gate | 简化无明确负收益 | benchmark harness | targeted samples | paired report | metrics json/report | none | planned |
@@ -667,10 +668,12 @@ bootstrap 收敛；`count-call-stack` 单样本复验 standard/R5 均 solved。R
 DeepSeek native tools，补齐 `exec_command`/`read_file` alias，允许 runtime 机械空 map 初始化，
 并删除 active projection 中残留的 action-class contract；`count-call-stack` 复验 standard/R5
 均 solved。Phase C/C1 暴露的问题已被单独归档到
-`docs/v0.0.5/build-R5/07-r5-phase-c-exposure-followup-plan.md`。下一步进入 R5-D0，先完成
-provider-visible semantic residue inventory，再处理 `initial_*`、ledger、cognitive state 的 active
-canonical truth 降级；R5-E 继续用 hard-baseline 白名单清理 `state_machine_allowed_actions`、
-spawn/validation/recovery/sentinel 文案。
+`docs/v0.0.5/build-R5/07-r5-phase-c-exposure-followup-plan.md`。R5-D0 已完成首轮
+provider-visible semantic residue inventory 和明显越界文案清理，记录在
+`docs/v0.0.5/build-R5/08-r5-phase-d0-semantic-residue-inventory.md`；`count-call-stack`
+D0 样本 standard/R5 均 solved，forbidden scan 无命中。下一步进入 R5-D1/D2，处理
+`initial_*`、ledger、cognitive state 的 active canonical truth 降级；R5-E 继续建立
+hard-baseline classifier 并清理剩余 spawn/validation/recovery/sentinel gate。
 
 ## 1.20 R5-A/B 后计划校准
 
