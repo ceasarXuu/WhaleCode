@@ -686,7 +686,7 @@ TaskSpace provider tool surface 不暴露 update_plan；standard 保持原行为
 runtime 不读取、转换或推断 update_plan 文本，也不自动生成节点标题、目标或依赖。
 ```
 
-实施状态（2026-07-10）：代码、工具 schema、原子性测试和 standard/TaskSpace 工具面隔离测试已完成。复杂样本已证明 5 节点 Agent plan 进入 map 且 `update_plan` 不再出现，但收尾因 `finish_node` 当前绑定契约不一致进入 final rejection loop；G2 尚未关闭。
+实施状态（2026-07-10）：G2 已关闭。TaskSpace 隐藏 `update_plan`，机械初始化只创建空 task/map，Agent 通过 `initialize_map` 原子提交 root objective/nodes/edges/current binding。复杂样本最终为单 map、4 nodes、3 edges，`update_plan/start_task/route_task=0`，Agent 完整结束且无 final rejection loop。
 
 G2.1 当前绑定机械简写：
 
@@ -697,6 +697,15 @@ finish_node 的语义对象本来就是 current main node；node_id 省略时，
 日志和 tool output 必须返回实际解析到的 node id，便于 replay。
 ```
 
+G2.2 单一根生命周期协议：
+
+```text
+initialize_map 是 TaskSpace 对 Agent 暴露的唯一根 map 初始化入口。
+start_task/route_task 从 Full/Compact schema、native handler、action-contract bootstrap 和 provider 文案中移除。
+不把旧 action 翻译为 initialize_map，不保留兼容别名或自动迁移。
+runtime 内部历史方法如仍有测试/重放依赖，只能作为 R5-F 物理删除对象，不得重新暴露给 Agent。
+```
+
 ### R5-G3：复杂样本与提取完整性
 
 ```text
@@ -704,6 +713,8 @@ finish_node 的语义对象本来就是 current main node；node_id 省略时，
 同时记录 standard、R4、R5 的 hidden/public validation、request/cache、map nodes/edges/events。
 rollout 超过 32MB 时 extractor 必须流式扫描，不能把 projection/control/request 计数静默写成 0。
 ```
+
+实施状态（2026-07-10）：第一个复杂样本已完成 Agent-authored map 验证；34,225,949-byte rollout 再次触发 32MB skip，报表把真实的 24 requests/6 control calls 写成 unavailable/0。流式 extractor 和第二个复杂依赖样本仍待完成。
 
 优先样本：
 
@@ -847,8 +858,9 @@ provider request count、state-machine action count、wall time、失败分类�
 | R5-E0 request hard-stop removal | route/profile 请求计数只观测；真实中断不伪装 Agent completion；外部验证不覆盖 Agent 生命周期 | provider pre-dispatch gate、turn completion path、benchmark classifier | whale exec TaskSpace mode、paired report | profile-over-limit continuation、interruption semantics、harness eligibility tests | `target/r5e-phase-e-final-clean/count-call-stack/20260710-043411-389`：13 requests 后 Agent complete、无 hard stop、map closed | no compatibility/grace fallback | landed |
 | R5-E1/E2/E3 hard-baseline pruning | 只保留硬底线拒绝；model-visible recovery/sentinel 不含策略指令；action-contract 不重解释 Agent 动作 | state machine gate path, sentinel/recovery renderer, native control parser, action-contract fallback | ordinary tool preflight, payload construction | gate classification、raw feedback、no-auto-rework、forbidden scan tests | E0-E3 live run forbidden marker 0；旧 scanner 的 replacement 结论已由 E4 废弃并重验 | 旧未调用 semantic helpers/tests 留给 R5-F 物理删除 | landed |
 | R5-E4 active projection uniqueness | provider history 只保留 latest active projection；旧快照不与最新 map 状态并存；scanner 拒绝 projection count != 1 | provider-visible history composer、pre-wire request scanner、benchmark extractor/report | every TaskSpace provider request | 双 projection regression、current feedback pair、scanner uniqueness tests | 修复后 `target/r5e4-projection-latest-only/.../20260710-051931-572`：9/9 requests projection count=1；input 100365，wall 23649ms，均较污染样本显著下降 | 不做 projection 语义压缩或兼容分支 | landed |
+| R5-G2 single map initialization | TaskSpace 根 map 只能由 Agent 通过 `initialize_map` 初始化；线性 plan 和旧 root lifecycle 均不可旁路 | provider tool visibility、taskspace_control handler、action-contract bootstrap、mechanical blank map | whale exec `--taskspace` | tools 139/0/1；focused core 5/0；scenario fixtures 2/0 | `target/r5-g2-single-map-validation/.../20260710-074551-730`：maps=1、nodes=4、edges=3、24 requests、complete | 无 update_plan bridge；无 start_task/route_task compatibility | landed |
 | R5-F module split | map/event/gate/projection 边界清晰 | action_map modules | whale exec --taskspace | cargo check/test | trace fields stable | none | planned |
-| R5-G benefit gate | 简化无明确负收益 | benchmark harness | targeted samples | paired report | metrics json/report | none | planned |
+| R5-G benefit gate | 简化无明确负收益 | benchmark harness | targeted samples | paired report | metrics json/report | none | in progress: G2 landed; G0/G1/G3 pending |
 
 ## 1.17 Change-chain Logging Matrix
 
@@ -907,7 +919,7 @@ tool ratio 0.79、wall ratio 0.66 和 harness solved 不再作为收益证据。
 请求次数 hard stop、拆分生命周期并收清策略性 gate/recovery；E4 进一步修复 active projection
 追加而非替换的问题。最终 `count-call-stack` 单样本 standard/R5 均 solved，R5 的 9 个 provider
 payload 均只有一份最新 projection，输入 token 由污染样本的 269093 降至 100365，wall time
-由 46971ms 降至 23649ms。下一步进入 R5-F，物理删除旧语义控制死代码和过时测试。
+由 46971ms 降至 23649ms。随后插入完成 R5-G2：TaskSpace 根 map 只保留 Agent-authored `initialize_map`，复杂样本单 map 完成。下一步推进 R5-F 的死代码/旧测试物理删除，并在 G3 修复大 rollout 流式提取后补第二个复杂样本。
 
 ## 1.20 R5-A/B 后计划校准
 

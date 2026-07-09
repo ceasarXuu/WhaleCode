@@ -130,6 +130,13 @@ task objective 最终仍是 `Agent-authored objective pending`。
 node 又允许普通工作持续推进。修复归入 R5-G2，原则是提供 Agent-authored 的机械批量 map
 初始化并消除双状态源，不让 runtime 从计划文本推断节点或自动拆任务。
 
+G2 后续已在 commit `137766c`、`006e9c5`、`17adc5b` 收敛：TaskSpace provider 隐藏
+`update_plan`，runtime 创建零节点机械空 map，Agent 用 `initialize_map` 原子提交图；
+`finish_node.node_id` 可机械解析当前绑定；旧 `start_task/route_task` 从 Agent schema、handler
+和 action-contract 移除，不做兼容。复验 `20260710-074551-730` 最终只有 1 个 map、4 nodes、
+3 edges，24 requests 后 Agent complete，未再出现 final rejection loop。该复验不改变 Phase E
+收益结论，只关闭后续 G2；34.2MB rollout 再次触发 extractor 32MB skip，仍归 G3。
+
 ## 7. Phase E 收益判定
 
 | 假设 | 结果 | 证据 |
@@ -145,10 +152,10 @@ node 又允许普通工作持续推进。修复归入 R5-G2，原则是提供 Ag
 
 1. Phase F 删除 184 个 warning 所暴露的旧 semantic normalizer、validation/rework policy、context compiler 和相关历史测试，并拆分 map/event/gate/projection 模块；把当前 `2161 passed / 224 failed / 3 ignored` 恢复为新边界下的全量绿色基线，不做兼容。
 2. Phase G0/G1 建立实际 Chat wire LCP trace，并把每轮 snapshot replacement 改为 cache-preserving 的 append-only map delta/compaction epoch；不得扩展成 projection 语义压缩。
-3. Phase G2 修复 mechanical blank map、`update_plan` 旁路和 compact map 初始化能力缺口；runtime 只保留空 map/id/status/dependency/lease 硬校验。
-4. Phase G3 用 `subscription-billing-repair` 和另一个复杂依赖样本验证 Agent-authored map；修复 >32MB rollout 被 extractor 静默跳过后指标归零的问题。
+3. Phase G2 已完成：mechanical blank map、`update_plan` 旁路、compact map 初始化能力和旧 `start_task/route_task` 双协议均已收敛。
+4. Phase G3 继续用另一个复杂依赖样本验证 Agent-authored map，并修复 >32MB rollout 被 extractor 静默跳过后指标归零的问题。
 5. 为 standard 补齐真实 rollout/request telemetry 后再比较 request ratio；当前禁止用 token record 或 outer exec 猜测。
-6. 本次尚未执行用户授权的对抗性审查；执行前不把它记为已完成 gate。
+6. 本次尚未执行对抗性审查；执行前不把它记为已完成 gate。
 
 ## 9. 退出决定
 
