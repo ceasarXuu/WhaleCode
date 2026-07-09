@@ -9,7 +9,6 @@ mod sentinel;
 
 pub(crate) use context_compiler::TASKSPACE_AGENT_CONTEXT_BUNDLE_END_MARKER;
 pub(crate) use context_compiler::TASKSPACE_AGENT_CONTEXT_BUNDLE_MARKER;
-pub(crate) use context_compiler::compile_taskspace_agent_context_text;
 pub(crate) use map::ActionClass;
 pub(crate) use map::NodeKind;
 pub(crate) use map::ToolActionDescriptor;
@@ -36,6 +35,5 @@ pub(crate) use runtime::ActionMapStateCommitOutputContractInput;
 pub(crate) use runtime::ActionMapStateCommitResultValidityInput;
 pub(crate) use runtime::ActionMapSubagentPlanInput;
 pub(crate) use runtime::ActionMapSuccessCriterionInput;
-pub(crate) use runtime::TaskSpaceBudgetGateDecision;
-pub(crate) use runtime::TaskSpaceProviderRequestPhase;
+pub(crate) use runtime::TaskSpaceHardGateClass;
 pub(crate) use runtime::format_action_map_snapshot;

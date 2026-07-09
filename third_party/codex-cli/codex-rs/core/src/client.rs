@@ -151,14 +151,11 @@ const TASKSPACE_ACTIVE_PROJECTION_MARKER: &str = "ContextProjectionV1 active rep
 const TASKSPACE_SHADOW_PROJECTION_MARKER: &str =
     "ContextProjectionV1 shadow (not active replacement):";
 const TASKSPACE_PROJECTION_REQUIRED_SECTIONS: &[&str] = &[
-    "success_criteria",
+    "task_id",
+    "map_id",
     "current_node",
-    "blockers",
-    "decisions",
-    "facts",
-    "relevant_results",
-    "verified_input_evidence",
-    "fact_source_coverage",
+    "map_nodes",
+    "current_node_recent_events",
     "result_refs_available",
 ];
 // `/responses/compact` is unary, so the timeout covers the full response rather than one idle
@@ -188,6 +185,7 @@ pub(crate) struct ExactPayloadScanEventV1 {
     pub(crate) completed_stale_node_history_tokens: usize,
     pub(crate) rejected_subagent_body_tokens: usize,
     pub(crate) large_raw_output_tokens: usize,
+    pub(crate) runtime_boundary_forbidden_markers: Vec<String>,
     pub(crate) protected_items_present: bool,
     pub(crate) replacement_confirmed: bool,
     pub(crate) passed: bool,
@@ -249,8 +247,6 @@ pub(crate) struct ProviderRequestBudgetLimits {
     pub(crate) max_requests: usize,
     pub(crate) node_request_count: usize,
     pub(crate) max_model_requests_per_node: usize,
-    pub(crate) post_budget_grace_requests: usize,
-    pub(crate) post_budget_grace_request_count: usize,
     pub(crate) budget_state: String,
 }
 
@@ -390,8 +386,6 @@ impl ProviderRequestBudgetContext {
                 max_requests,
                 node_request_count: 0,
                 max_model_requests_per_node: usize::MAX,
-                post_budget_grace_requests: 1,
-                post_budget_grace_request_count: 0,
                 budget_state: provider_request_budget_state_for(starting_count, max_requests)
                     .to_string(),
             },
@@ -927,11 +921,18 @@ fn scan_provider_payload_text(
         && text.contains(TASKSPACE_AGENT_CONTEXT_BUNDLE_END_MARKER);
     let cache_plan_verified = context_bundle_present && text.contains("cache_plan_verified: true");
     let legacy_scan_text = remove_taskspace_agent_context_bundle_sections(text);
+    let current_activation_notice_present = active_projection_present
+        && legacy_scan_text.contains("TaskSpace mode is now active.")
+        && legacy_scan_text
+            .contains("Previous standard-mode conversation remains background context only.")
+        && legacy_scan_text.contains("hard_state:")
+        && legacy_scan_text.contains("map_runtime_boundary:");
     let legacy_taskspace_history_present = legacy_scan_text
         .contains(TASKSPACE_SHADOW_PROJECTION_MARKER)
         || legacy_scan_text.contains("TaskSpace Bootstrap")
         || legacy_scan_text.contains("TaskSpace ContextProjectionV1 shadow update")
-        || legacy_scan_text.contains("TaskSpace mode is now active")
+        || (legacy_scan_text.contains("TaskSpace mode is now active")
+            && !current_activation_notice_present)
         || legacy_scan_text.contains("taskspace_control(");
     let active_projection_block = text
         .split(TASKSPACE_ACTIVE_PROJECTION_MARKER)
@@ -949,12 +950,28 @@ fn scan_provider_payload_text(
     let rejected_subagent_body_tokens =
         estimate_marker_context_tokens(&legacy_scan_text, "rejected subagent");
     let large_raw_output_tokens = estimate_large_raw_output_tokens(value);
+    let runtime_boundary_forbidden_markers = [
+        "TaskSpaceProviderBudgetHardStopV1",
+        "provider_request_hard_limit_exceeded",
+        "TaskSpaceAgentContextBundleV1",
+        "TaskSpaceToolSemanticSummaryV1",
+        "schema_property_rename_hints=",
+        "next_valid_actions",
+        "validation_needs_test",
+        "rejected_by_state_baseline",
+    ]
+    .into_iter()
+    .filter(|marker| text.contains(marker))
+    .map(str::to_string)
+    .collect::<Vec<_>>();
     let replacement_confirmed = active_projection_present
         && !legacy_taskspace_history_present
         && large_raw_output_tokens == 0
         && protected_items_present;
-    let exact_context_bundle_verified =
-        replacement_confirmed && context_bundle_present && cache_plan_verified;
+    let exact_context_bundle_verified = replacement_confirmed
+        && context_bundle_present
+        && cache_plan_verified
+        && runtime_boundary_forbidden_markers.is_empty();
     let mut failure_reasons = Vec::new();
     if !active_projection_present {
         failure_reasons.push("active_projection_missing".to_string());
@@ -974,6 +991,9 @@ fn scan_provider_payload_text(
     if large_raw_output_tokens > 0 {
         failure_reasons.push("large_raw_output_present".to_string());
     }
+    if !runtime_boundary_forbidden_markers.is_empty() {
+        failure_reasons.push("runtime_boundary_forbidden_marker_present".to_string());
+    }
     if !protected_items_present {
         failure_reasons.push("projection_required_sections_missing".to_string());
     }
@@ -991,6 +1011,7 @@ fn scan_provider_payload_text(
             "completed_stale_node_history".to_string(),
             "rejected_subagent_body".to_string(),
             "large_raw_output".to_string(),
+            "runtime_boundary_forbidden_markers".to_string(),
         ],
         active_projection_present,
         context_bundle_present,
@@ -1001,6 +1022,7 @@ fn scan_provider_payload_text(
         completed_stale_node_history_tokens,
         rejected_subagent_body_tokens,
         large_raw_output_tokens,
+        runtime_boundary_forbidden_markers,
         protected_items_present,
         replacement_confirmed,
         passed: failure_reasons.is_empty(),
@@ -1017,9 +1039,12 @@ fn projection_block_contains_required_sections(block: &str) -> bool {
 
 fn projection_block_contains_section(block: &str, section: &str) -> bool {
     let section_prefix = format!("{section}:");
-    block
-        .lines()
-        .any(|line| line.trim_start().starts_with(&section_prefix))
+    block.lines().any(|line| {
+        line.trim_start()
+            .strip_prefix("- ")
+            .unwrap_or_else(|| line.trim_start())
+            .starts_with(&section_prefix)
+    })
 }
 
 fn remove_taskspace_agent_context_bundle_sections(text: &str) -> String {

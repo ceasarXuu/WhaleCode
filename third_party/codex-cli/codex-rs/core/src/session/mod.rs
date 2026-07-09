@@ -20,8 +20,6 @@ use crate::action_map::ActionMapProviderRequestBudgetSnapshot;
 use crate::action_map::ActionMapProviderResponseActionabilityInput;
 use crate::action_map::ActionMapRuntimeState;
 use crate::action_map::NodeKind;
-use crate::action_map::TaskSpaceBudgetGateDecision;
-use crate::action_map::TaskSpaceProviderRequestPhase;
 use crate::action_map::ToolActionDescriptor;
 use crate::agent::AgentControl;
 use crate::agent::AgentStatus;
@@ -1175,51 +1173,6 @@ impl Session {
         state.action_map_runtime.provider_request_budget_snapshot()
     }
 
-    pub(crate) async fn record_action_map_gate_recovery_projection_sync(
-        &self,
-        turn_context: &TurnContext,
-        snapshot: &ActionMapProviderRequestBudgetSnapshot,
-        reason: Option<&str>,
-        next_valid_actions: &[String],
-    ) {
-        let events = {
-            let mut state = self.state.lock().await;
-            state
-                .action_map_runtime
-                .record_gate_recovery_projection_sync(snapshot, reason, next_valid_actions)
-        };
-        if let Some(events) = events {
-            self.emit_action_map_events_for_turn(turn_context, events)
-                .await;
-        }
-    }
-
-    pub(crate) async fn action_map_gate_provider_request_pre_dispatch(
-        &self,
-        snapshot: &ActionMapProviderRequestBudgetSnapshot,
-    ) -> TaskSpaceBudgetGateDecision {
-        let mut state = self.state.lock().await;
-        state
-            .action_map_runtime
-            .gate_provider_request_pre_dispatch(snapshot)
-    }
-
-    pub(crate) async fn action_map_mark_next_provider_request_budget_recovery(
-        &self,
-        turn_context: &TurnContext,
-        reason: impl Into<String>,
-    ) {
-        let events = {
-            let mut state = self.state.lock().await;
-            state.action_map_runtime.set_next_provider_request_phase(
-                TaskSpaceProviderRequestPhase::BudgetRecovery,
-                reason,
-            )
-        };
-        self.emit_action_map_events_for_turn(turn_context, events)
-            .await;
-    }
-
     pub(crate) async fn record_action_map_provider_request_budget_events(
         &self,
         turn_context: &TurnContext,
@@ -1310,6 +1263,7 @@ impl Session {
                             .completed_stale_node_history_tokens,
                         rejected_subagent_body_tokens: scan.rejected_subagent_body_tokens,
                         large_raw_output_tokens: scan.large_raw_output_tokens,
+                        runtime_boundary_forbidden_markers: scan.runtime_boundary_forbidden_markers,
                         protected_items_present: scan.protected_items_present,
                         replacement_confirmed: scan.replacement_confirmed,
                         passed: scan.passed,
@@ -1955,30 +1909,9 @@ impl Session {
             Ok(None) => Ok(false),
             Err(error) => {
                 warn!(%error, "failed to record TaskSpace final response");
-                self.record_action_map_final_response_gate_failure(turn_context, &error)
-                    .await;
                 Err(error)
             }
         }
-    }
-
-    async fn record_action_map_final_response_gate_failure(
-        &self,
-        turn_context: &TurnContext,
-        error: &str,
-    ) {
-        let item = ResponseItem::Message {
-            id: None,
-            role: "developer".to_string(),
-            content: vec![ContentItem::InputText {
-                text: format!(
-                    "TaskSpace final answer gate rejected the previous assistant response: {error}\nContinue the same turn. Do not treat the previous response as final. Use taskspace_control or the required tools to clear the gate, then provide a corrected final answer only after the gate is satisfied."
-                ),
-            }],
-            end_turn: None,
-            phase: None,
-        };
-        self.record_into_history(&[item], turn_context).await;
     }
 
     #[cfg(test)]

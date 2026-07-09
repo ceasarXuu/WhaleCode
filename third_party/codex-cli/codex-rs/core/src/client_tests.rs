@@ -146,8 +146,6 @@ fn provider_request_budget_preserves_final_synthesis_phase_at_profile_hint() {
             max_requests: 2,
             node_request_count: 0,
             max_model_requests_per_node: usize::MAX,
-            post_budget_grace_requests: 1,
-            post_budget_grace_request_count: 0,
             budget_state: "compact_checkpoint_required".to_string(),
         },
         ProviderRequestAttribution {
@@ -190,8 +188,6 @@ fn provider_request_budget_node_profile_hint_does_not_force_recovery_phase() {
             max_requests: 10,
             node_request_count: 1,
             max_model_requests_per_node: 1,
-            post_budget_grace_requests: 1,
-            post_budget_grace_request_count: 0,
             budget_state: "normal".to_string(),
         },
         ProviderRequestAttribution {
@@ -229,8 +225,6 @@ fn provider_request_budget_explicit_budget_recovery_phase_remains_advisory() {
             max_requests: 10,
             node_request_count: 1,
             max_model_requests_per_node: 1,
-            post_budget_grace_requests: 1,
-            post_budget_grace_request_count: 0,
             budget_state: "normal".to_string(),
         },
         ProviderRequestAttribution {
@@ -267,8 +261,6 @@ fn provider_request_budget_allows_rebuilt_context_after_recovery_grace_spent() {
             max_requests: 10,
             node_request_count: 2,
             max_model_requests_per_node: 2,
-            post_budget_grace_requests: 1,
-            post_budget_grace_request_count: 1,
             budget_state: "normal".to_string(),
         },
         ProviderRequestAttribution {
@@ -392,10 +384,16 @@ fn provider_request_budget_records_started_and_terminal_status() {
 fn provider_payload_scan_rejects_shadow_or_legacy_taskspace_history() {
     let active_projection = concat!(
         "ContextProjectionV1 active replacement:\n",
+        "- task_id: task-1\n",
+        "- map_id: map-1\n",
         "- sections:\n",
         "  success_criteria:\n",
         "    - criterion\n",
         "  current_node: node-1\n",
+        "  map_nodes:\n",
+        "    - node-1 kind=inspect_code_context status=running\n",
+        "  current_node_recent_events:\n",
+        "    - none\n",
         "  blockers:\n",
         "    - none\n",
         "  decisions:\n",
@@ -415,10 +413,44 @@ fn provider_payload_scan_rejects_shadow_or_legacy_taskspace_history() {
         "input": active_projection
     }))
     .expect("active payload digest");
-    assert!(active.scan.passed);
+    assert!(
+        active.scan.passed,
+        "scan failure reasons: {:?}",
+        active.scan.failure_reasons
+    );
     assert!(active.scan.replacement_confirmed);
 
-    let bundled_active_with_structured_control = provider_payload_digest(&json!({
+    let active_with_transition_notice = provider_payload_digest(&json!({
+        "input": format!(
+            "TaskSpace mode is now active.\n\
+             Previous standard-mode conversation remains background context only.\n\
+             hard_state: current node binding is required.\n\
+             map_runtime_boundary: runtime manages the task map.\n\
+             {active_projection}"
+        )
+    }))
+    .expect("active payload with transition notice");
+    assert!(active_with_transition_notice.scan.passed);
+    assert!(
+        !active_with_transition_notice
+            .scan
+            .legacy_taskspace_history_present
+    );
+
+    let incomplete_legacy_transition = provider_payload_digest(&json!({
+        "input": format!(
+            "TaskSpace mode is now active.\nLegacy activation text without the current boundary fields.\n{active_projection}"
+        )
+    }))
+    .expect("legacy transition payload");
+    assert!(
+        incomplete_legacy_transition
+            .scan
+            .legacy_taskspace_history_present
+    );
+    assert!(!incomplete_legacy_transition.scan.passed);
+
+    let bundled_active_with_forbidden_strategy = provider_payload_digest(&json!({
         "input": concat!(
             "ContextProjectionV1 active replacement:\n",
             "TaskSpaceAgentContextBundleV1:\n",
@@ -434,32 +466,47 @@ fn provider_payload_scan_rejects_shadow_or_legacy_taskspace_history() {
         )
     }))
     .expect("bundled active payload digest");
-    assert!(bundled_active_with_structured_control.scan.passed);
+    assert!(!bundled_active_with_forbidden_strategy.scan.passed);
     assert!(
-        bundled_active_with_structured_control
+        bundled_active_with_forbidden_strategy
             .scan
             .context_bundle_present
     );
     assert!(
-        bundled_active_with_structured_control
+        !bundled_active_with_forbidden_strategy
             .scan
             .exact_context_bundle_verified
     );
     assert!(
-        bundled_active_with_structured_control
+        bundled_active_with_forbidden_strategy
             .scan
             .cache_plan_verified
     );
     assert_eq!(
-        bundled_active_with_structured_control
+        bundled_active_with_forbidden_strategy
             .scan
             .raw_taskspace_control_history_tokens,
         0
     );
     assert!(
-        bundled_active_with_structured_control
+        bundled_active_with_forbidden_strategy
             .scan
             .protected_items_present
+    );
+    assert_eq!(
+        bundled_active_with_forbidden_strategy
+            .scan
+            .runtime_boundary_forbidden_markers,
+        vec![
+            "TaskSpaceAgentContextBundleV1".to_string(),
+            "next_valid_actions".to_string(),
+        ]
+    );
+    assert!(
+        bundled_active_with_forbidden_strategy
+            .scan
+            .failure_reasons
+            .contains(&"runtime_boundary_forbidden_marker_present".to_string())
     );
 
     let legacy = provider_payload_digest(&json!({

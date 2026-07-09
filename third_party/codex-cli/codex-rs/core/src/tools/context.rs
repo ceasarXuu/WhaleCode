@@ -114,10 +114,6 @@ pub trait ToolOutput: Send {
     fn code_mode_result(&self, payload: &ToolPayload) -> JsonValue {
         response_input_to_code_mode_result(self.to_response_item("", payload))
     }
-
-    fn taskspace_semantic_summary(&self) -> Option<String> {
-        None
-    }
 }
 
 pub(crate) fn tool_output_model_visible_preview(
@@ -128,10 +124,6 @@ pub(crate) fn tool_output_model_visible_preview(
     let response = output.to_response_item(call_id, payload);
     let model_visible_text = response_input_item_model_visible_text(&response);
     let preview = bounded_model_visible_text_preview(&model_visible_text);
-    let semantic_summary = output
-        .taskspace_semantic_summary()
-        .or_else(|| super::taskspace_tool_semantic_summary(&model_visible_text));
-    let preview = super::prepend_taskspace_semantic_summary(preview, semantic_summary);
     super::append_taskspace_tool_tail_sentinels(preview, &model_visible_text)
 }
 
@@ -529,11 +521,6 @@ impl ToolOutput for ExecCommandToolOutput {
         serde_json::to_value(result).unwrap_or_else(|err| {
             JsonValue::String(format!("failed to serialize exec result: {err}"))
         })
-    }
-
-    fn taskspace_semantic_summary(&self) -> Option<String> {
-        let text = String::from_utf8_lossy(&self.raw_output);
-        super::taskspace_tool_semantic_summary(&text)
     }
 }
 

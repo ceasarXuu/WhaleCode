@@ -431,7 +431,7 @@ fn model_visible_preview_uses_response_item_not_log_preview() {
 }
 
 #[test]
-fn taskspace_preview_preserves_required_properties_from_untruncated_exec_output() {
+fn taskspace_preview_preserves_raw_exec_output_without_semantic_summary() {
     let raw_output = format!(
         "{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}",
         "{'name': 'Madrid', 'member_ids': ['E001']}: 'members' is a required property",
@@ -465,10 +465,8 @@ fn taskspace_preview_preserves_required_properties_from_untruncated_exec_output(
 
     let preview = tool_output_model_visible_preview(&output, "call-1", &payload);
 
-    assert!(preview.starts_with("TaskSpaceToolSemanticSummaryV1"));
-    assert!(preview.contains(
-        "missing_required_properties: members, averageDepartmentBudget, totalEmployees, skillDistribution, departmentSizes, projectStatusDistribution, averageYearsOfService"
-    ));
+    assert!(!preview.contains("TaskSpaceToolSemanticSummaryV1"));
+    assert!(preview.contains("'members' is a required property"));
     assert!(preview.contains(TELEMETRY_PREVIEW_TRUNCATION_NOTICE));
 }
 

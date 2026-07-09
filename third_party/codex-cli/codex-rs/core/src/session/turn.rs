@@ -10,7 +10,6 @@ use crate::SkillInjections;
 use crate::SkillLoadOutcome;
 use crate::action_map::ActionClass;
 use crate::action_map::ActionMapProviderResponseActionabilityInput;
-use crate::action_map::compile_taskspace_agent_context_text;
 use crate::build_skill_injections;
 use crate::client::ModelClientSession;
 use crate::client::ProviderRequestAttribution;
@@ -144,6 +143,7 @@ const TASKSPACE_ACTION_CONTRACT_MAX_RECENT_TOOL_OUTPUT_CHARS: usize = 2400;
 const TASKSPACE_ACTION_CONTRACT_MAX_SEQUENCE_ACTIONS: usize = 8;
 const TASKSPACE_DEEPSEEK_CACHE_ANCHOR_LINES: usize = 4200;
 const TASKSPACE_IMPLEMENT_PROGRESS_BEFORE_EDIT_HINT: usize = 10;
+#[cfg(test)]
 const TASKSPACE_NO_ACTION_RECOVERY_MARKER: &str = "TaskSpaceNoActionRecoveryV1:";
 const TASKSPACE_GATE_RECOVERY_MARKER: &str = "TaskSpaceGateRecoveryV1:";
 #[cfg(test)]
@@ -155,25 +155,37 @@ const TASKSPACE_IMPLEMENT_VALIDATION_AVAILABLE_MARKER: &str =
 #[cfg(test)]
 const TASKSPACE_VALIDATION_CLOSEOUT_AVAILABLE_MARKER: &str =
     "TaskSpaceValidationCloseoutAvailableV1:";
+#[cfg(test)]
 const TASKSPACE_IMPLEMENT_NEEDS_EDIT_MARKER: &str = "TaskSpaceImplementNeedsEditRecoveryV1:";
+#[cfg(test)]
 const TASKSPACE_VALIDATION_REWORK_DUPLICATE_READ_MARKER: &str =
     "TaskSpaceValidationReworkDuplicateReadRecoveryV1:";
+#[cfg(test)]
 const TASKSPACE_VALIDATION_REWORK_PATCH_ONLY_MARKER: &str =
     "TaskSpaceValidationReworkPatchOnlyRecoveryV1:";
+#[cfg(test)]
 const TASKSPACE_EDIT_FAILURE_MARKER: &str = "TaskSpaceEditFailureRecoveryV1:";
+#[cfg(test)]
 const TASKSPACE_APPLY_PATCH_FORMAT_MARKER: &str = "TaskSpaceApplyPatchFormatRecoveryV1:";
+#[cfg(test)]
 const TASKSPACE_APPLY_PATCH_MISSING_TARGET_MARKER: &str =
     "TaskSpaceApplyPatchMissingTargetRecoveryV1:";
+#[cfg(test)]
 const TASKSPACE_APPLY_PATCH_UNANCHORED_UPDATE_MARKER: &str =
     "TaskSpaceApplyPatchUnanchoredUpdateRecoveryV1:";
+#[cfg(test)]
 const TASKSPACE_APPLY_PATCH_NATIVE_HUNK_MARKER: &str = "TaskSpaceApplyPatchNativeHunkRecoveryV1:";
+#[cfg(test)]
 const TASKSPACE_APPLY_PATCH_REPLACEMENT_REQUIRED_MARKER: &str =
     "TaskSpaceApplyPatchReplacementRequiredRecoveryV1:";
+#[cfg(test)]
 const TASKSPACE_PATCH_INTENT_FORMAT_MARKER: &str = "TaskSpacePatchIntentFormatRecoveryV1:";
+#[cfg(test)]
 const TASKSPACE_VALIDATION_INFRA_RECOVERY_MARKER: &str = "TaskSpaceValidationInfraRecoveryV1:";
+#[cfg(test)]
 const TASKSPACE_VALIDATION_NODE_FEEDBACK_MARKER: &str = "TaskSpaceValidationNodeFeedbackV1:";
 const TASKSPACE_FINAL_READINESS_RECOVERY_MARKER: &str = "TaskSpaceFinalReadinessRecoveryV1:";
-const TASKSPACE_PROVIDER_BUDGET_HARD_STOP_MARKER: &str = "TaskSpaceProviderBudgetHardStopV1:";
+#[cfg(test)]
 const TASKSPACE_PATH_CORRECTION_MARKER: &str = "TaskSpacePathCorrectionRecoveryV1:";
 const TASKSPACE_TOOL_FEEDBACK_MARKER: &str = "TaskSpaceToolFeedbackV1:";
 const TASKSPACE_ACTIVE_MAX_RAW_TOOL_OUTPUT_CHARS: usize = 12_000;
@@ -198,13 +210,6 @@ enum TaskspaceProviderToolVisibility {
 enum TaskspaceProviderTransportMode {
     NativeTools,
     CacheOptimizedActionContract,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct TaskspaceProviderTransportBudgetLimits {
-    max_requests: usize,
-    max_model_requests_per_node: usize,
-    post_budget_grace_requests: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
@@ -239,6 +244,7 @@ impl TaskspaceProviderResponseActionability {
         }
     }
 
+    #[cfg(test)]
     fn needs_recovery(self) -> bool {
         matches!(
             self,
@@ -495,14 +501,6 @@ pub(crate) async fn run_turn(
         .await;
     let mut last_agent_message: Option<String> = None;
     let mut stop_hook_active = false;
-    let mut taskspace_no_action_recovery_count = 0usize;
-    let mut taskspace_no_action_recovery_key: Option<String> = None;
-    let mut taskspace_implement_needs_edit_recovery_count = 0usize;
-    let mut taskspace_implement_needs_edit_recovery_key: Option<String> = None;
-    let mut taskspace_path_correction_recovery_count = 0usize;
-    let mut taskspace_path_correction_recovery_key: Option<String> = None;
-    let mut taskspace_validation_rework_duplicate_read_recovery_count = 0usize;
-    let mut taskspace_validation_rework_duplicate_read_recovery_key: Option<String> = None;
     // Although from the perspective of codex.rs, TurnDiffTracker has the lifecycle of a Task which contains
     // many turns, from the perspective of the user, it is a single turn.
     let turn_diff_tracker = Arc::new(tokio::sync::Mutex::new(TurnDiffTracker::new()));
@@ -614,128 +612,8 @@ pub(crate) async fn run_turn(
                 let SamplingRequestResult {
                     needs_follow_up: model_needs_follow_up,
                     last_agent_message: sampling_request_last_agent_message,
-                    taskspace_no_action_recovery_item,
-                    path_correction_cleared_this_request,
                 } = sampling_request_output;
                 can_drain_pending_input = true;
-                if let Some(recovery_item) = taskspace_no_action_recovery_item {
-                    let current_recovery_snapshot =
-                        sess.action_map_provider_request_budget_snapshot().await;
-                    let is_provider_budget_hard_stop =
-                        is_taskspace_provider_budget_hard_stop_item(&recovery_item);
-                    let counts_against_no_action_cap =
-                        is_taskspace_no_action_recovery_item(&recovery_item);
-                    let counts_against_implement_needs_edit_cap =
-                        is_taskspace_implement_needs_edit_recovery_item(&recovery_item)
-                            || is_taskspace_validation_rework_patch_only_recovery_item(
-                                &recovery_item,
-                            );
-                    let is_validation_rework_duplicate_read_recovery =
-                        is_taskspace_validation_rework_duplicate_read_recovery_item(&recovery_item);
-                    let is_path_correction_recovery =
-                        is_taskspace_path_correction_recovery_item(&recovery_item);
-                    if is_path_correction_recovery {
-                        taskspace_reset_recovery_count_for_snapshot_node(
-                            &mut taskspace_path_correction_recovery_key,
-                            &mut taskspace_path_correction_recovery_count,
-                            current_recovery_snapshot.as_ref(),
-                        );
-                        if path_correction_cleared_this_request {
-                            taskspace_path_correction_recovery_count = 0;
-                        }
-                    }
-                    if is_validation_rework_duplicate_read_recovery {
-                        taskspace_reset_recovery_count_for_snapshot_node(
-                            &mut taskspace_validation_rework_duplicate_read_recovery_key,
-                            &mut taskspace_validation_rework_duplicate_read_recovery_count,
-                            current_recovery_snapshot.as_ref(),
-                        );
-                    }
-                    let no_action_recovery_cap = current_recovery_snapshot
-                        .as_ref()
-                        .and_then(|snapshot| snapshot.node_kind.clone())
-                        .as_deref()
-                        .map(taskspace_no_action_recovery_cap_for_node_kind)
-                        .unwrap_or(1usize);
-                    if counts_against_no_action_cap {
-                        taskspace_reset_recovery_count_for_snapshot_node(
-                            &mut taskspace_no_action_recovery_key,
-                            &mut taskspace_no_action_recovery_count,
-                            current_recovery_snapshot.as_ref(),
-                        );
-                        taskspace_no_action_recovery_count += 1;
-                    }
-                    let no_action_recovery_over_advisory = counts_against_no_action_cap
-                        && taskspace_no_action_recovery_count > no_action_recovery_cap;
-                    if counts_against_implement_needs_edit_cap {
-                        let recovery_key = current_recovery_snapshot
-                            .as_ref()
-                            .and_then(|snapshot| snapshot.node_id.as_deref())
-                            .map(str::to_string)
-                            .unwrap_or_else(|| "unknown-node".to_string());
-                        if taskspace_implement_needs_edit_recovery_key.as_deref()
-                            != Some(recovery_key.as_str())
-                        {
-                            taskspace_implement_needs_edit_recovery_key = Some(recovery_key);
-                            taskspace_implement_needs_edit_recovery_count = 0;
-                        }
-                        taskspace_implement_needs_edit_recovery_count += 1;
-                    }
-                    if is_path_correction_recovery {
-                        taskspace_path_correction_recovery_count += 1;
-                    }
-                    if is_validation_rework_duplicate_read_recovery {
-                        taskspace_validation_rework_duplicate_read_recovery_count += 1;
-                    }
-                    if let Some(snapshot) = current_recovery_snapshot.as_ref()
-                        && let Some(sync) =
-                            taskspace_gate_recovery_projection_sync_from_item(&recovery_item)
-                    {
-                        sess.record_action_map_gate_recovery_projection_sync(
-                            &turn_context,
-                            snapshot,
-                            sync.reason.as_deref(),
-                            &sync.next_valid_actions,
-                        )
-                        .await;
-                    }
-                    sess.send_event(
-                        &turn_context,
-                        EventMsg::Warning(WarningEvent {
-                            message: if counts_against_no_action_cap {
-                                if no_action_recovery_over_advisory {
-                                    format!("TaskSpace inserted TaskSpaceNoActionRecoveryV1 beyond the advisory recovery threshold because the provider still requested follow-up without effective TaskSpace progress. Recovery attempt {} is being used after advisory threshold {}. The turn will continue; TaskSpace progress can be recorded through a tool call, taskspace_control transition, or blocked-with-evidence result.", taskspace_no_action_recovery_count, no_action_recovery_cap)
-                                } else {
-                                    format!("TaskSpace inserted TaskSpaceNoActionRecoveryV1 because the provider response requested follow-up or was rejected by the final-response gate without an actionable tool/control/final result. Recovery attempt {}/{} is being used.", taskspace_no_action_recovery_count, no_action_recovery_cap)
-                                }
-                            } else if counts_against_implement_needs_edit_cap {
-                                taskspace_implement_recovery_advisory_warning_message(
-                                    &recovery_item,
-                                    taskspace_implement_needs_edit_recovery_count,
-                                )
-                            } else {
-                                taskspace_special_recovery_warning_message(&recovery_item)
-                            },
-                        }),
-                    )
-                    .await;
-                    sess.record_conversation_items(&turn_context, &[recovery_item])
-                        .await;
-                    if is_provider_budget_hard_stop {
-                        last_agent_message = sampling_request_last_agent_message;
-                        break;
-                    }
-                    if let Some(snapshot) = current_recovery_snapshot.as_ref()
-                        && taskspace_provider_budget_limit_reached(snapshot)
-                    {
-                        sess.action_map_mark_next_provider_request_budget_recovery(
-                            &turn_context,
-                            "taskspace_recovery_item_after_provider_budget_limit",
-                        )
-                        .await;
-                    }
-                    continue;
-                }
                 let has_pending_input = sess.has_pending_input().await;
                 let needs_follow_up = model_needs_follow_up || has_pending_input;
                 let total_usage_tokens = sess.get_total_token_usage().await;
@@ -1270,17 +1148,6 @@ fn build_prompt_with_tool_visibility(
     }
 }
 
-fn taskspace_provider_tool_visibility_for_budget(
-    _request_count: usize,
-    _max_requests: usize,
-    _node_request_count: usize,
-    _max_model_requests_per_node: usize,
-    _request_phase: Option<&str>,
-    _node_kind: Option<&str>,
-) -> TaskspaceProviderToolVisibility {
-    TaskspaceProviderToolVisibility::All
-}
-
 fn taskspace_provider_transport_mode(
     turn_context: &TurnContext,
     snapshot: Option<&crate::action_map::ActionMapProviderRequestBudgetSnapshot>,
@@ -1316,16 +1183,6 @@ fn taskspace_provider_transport_mode_for_request(
     }
 }
 
-fn taskspace_transport_budget_limits(
-    snapshot: &crate::action_map::ActionMapProviderRequestBudgetSnapshot,
-) -> TaskspaceProviderTransportBudgetLimits {
-    TaskspaceProviderTransportBudgetLimits {
-        max_requests: snapshot.max_requests,
-        max_model_requests_per_node: snapshot.max_model_requests_per_node,
-        post_budget_grace_requests: snapshot.post_budget_grace_requests,
-    }
-}
-
 fn taskspace_static_action_contract_instructions() -> &'static str {
     "TaskSpaceActionContractV1:
 You are running in TaskSpace cache-optimized action-contract transport.
@@ -1340,14 +1197,6 @@ Sequence execution:
 - Runtime executes actions in listed order, using the latest TaskSpace state before each action.
 - Runtime stops the sequence after the first rejected action, failed edit/test tool result, failed tool runtime dispatch, blocked terminal action, or accepted terminal final_answer/blocked action.
 - Runtime does not reorder, infer, merge, or skip actions.
-Allowed actions by active node kind:
-- bootstrap/no active task: taskspace_control, blocked
-- existing task with no active node: final_answer, taskspace_control, blocked
-- inspect_code_context: list_files, search, read_file, run_test, taskspace_control, blocked; use run_test only for pre-edit diagnostic or baseline evidence, not final validation closeout
-- implement_solution: list_files, search, read_file, apply_patch, run_test, taskspace_control, blocked; run_test here records ordinary execution feedback and does not replace smoke_test/regression_test closeout
-- validation rework duplicate baseline: TaskSpaceActionContractStateV1, projection, or recent feedback may report that a validation rework target was already read completely; an exact duplicate read_file for that target is a low-information evidence signal, but read_file remains governed by the active node action set.
-- smoke_test/regression_test: run_test, taskspace_control, blocked
-- final_synthesis: final_answer, taskspace_control, blocked
 Action argument rules:
 - list_files args: {\"path\":\".\"}
 - search args: {\"pattern\":\"literal or regex\",\"path\":\".\"}
@@ -1360,7 +1209,7 @@ Action argument rules:
 - final_answer args: {\"message\":\"user-facing final answer\"}
 - blocked args: {\"reason\":\"exact missing evidence or blocker\"}
 Validation invariants:
-- Unknown actions or actions disallowed for the active node will be rejected and no tool will execute.
+- Unknown actions or malformed action arguments are protocol errors and no tool will execute.
 - If provider-native tool-call markup appears after the JSON object, TaskSpace ignores that markup and executes only the JSON action or action sequence."
 }
 
@@ -1393,38 +1242,6 @@ Active node kind: {node_kind}"
     if snapshot.task_id.is_some() && snapshot.node_id.is_none() {
         text.push_str(
             "\nhard_state: active_task_without_active_node.\nordinary_tool_boundary: ordinary tools require an active node binding and lease.\nstate_transition_fact: creating or binding another node changes the task path.",
-        );
-    }
-    if taskspace_snapshot_requires_implementation_edit(snapshot) {
-        text.push_str(
-            "\nImplementation node event status: no successful edit event is recorded on the current node.",
-        );
-        if !snapshot.current_node_validation_rework_artifacts.is_empty() {
-            text.push_str("\nAssociated validation rework artifact refs:");
-            for artifact in &snapshot.current_node_validation_rework_artifacts {
-                text.push_str("\n- ");
-                text.push_str(artifact);
-            }
-        }
-        if !snapshot
-            .current_node_uncovered_mandatory_evidence
-            .is_empty()
-        {
-            text.push_str("\nUncovered mandatory evidence refs:");
-            for item in &snapshot.current_node_uncovered_mandatory_evidence {
-                text.push_str("\n- ");
-                text.push_str(item);
-            }
-            text.push_str(
-                "\nAction-contract fallback validates patch target coverage against these refs when an apply_patch action is submitted.",
-            );
-        }
-    } else if matches!(
-        snapshot.node_kind.as_deref(),
-        Some("smoke_test" | "regression_test")
-    ) {
-        text.push_str(
-            "\nValidation node event status: no accepted validation tool result is recorded on the current validation node.\nordinary_tool_boundary: ordinary tool calls and results remain attributed to the active node.",
         );
     }
     ResponseItem::Message {
@@ -1525,79 +1342,6 @@ Observed script refs without matching read events:",
     }
 }
 
-fn build_taskspace_provider_budget_guidance_item(
-    _request_count: usize,
-    _max_requests: usize,
-    _node_request_count: usize,
-    _max_model_requests_per_node: usize,
-    _request_phase: Option<&str>,
-    _node_kind: Option<&str>,
-    _node_id: Option<&str>,
-    _tool_visibility: TaskspaceProviderToolVisibility,
-) -> Option<ResponseItem> {
-    return None;
-}
-
-fn build_taskspace_provider_budget_hard_stop_item(
-    snapshot: &crate::action_map::ActionMapProviderRequestBudgetSnapshot,
-    decision: &crate::action_map::TaskSpaceBudgetGateDecision,
-) -> ResponseItem {
-    let blocking_items = if decision.blocking_items.is_empty() {
-        "- (none)".to_string()
-    } else {
-        decision
-            .blocking_items
-            .iter()
-            .map(|item| format!("- {item}"))
-            .collect::<Vec<_>>()
-            .join("\n")
-    };
-    let node_id = snapshot
-        .node_id
-        .as_deref()
-        .unwrap_or("provider-context-missing");
-    let node_kind = snapshot.node_kind.as_deref().unwrap_or("unknown");
-    let request_phase = snapshot.request_phase.as_deref().unwrap_or("unknown");
-    let recovery_phase = decision
-        .recovery_request_phase
-        .as_deref()
-        .unwrap_or("budget_recovery");
-    let text = format!(
-        "{TASKSPACE_PROVIDER_BUDGET_HARD_STOP_MARKER}\n\
-reason: {reason}\n\
-budget_state: {budget_state}\n\
-node_id: {node_id}\n\
-node_kind: {node_kind}\n\
-request_phase: {request_phase}\n\
-recovery_request_phase: {recovery_phase}\n\
-request_count: {request_count}/{max_requests}\n\
-node_request_count: {node_request_count}/{max_model_requests_per_node}\n\
-post_budget_grace: {post_budget_grace_request_count}/{post_budget_grace_requests}\n\
-quality_impact_required: {quality_impact_required}\n\
-blocking_items:\n{blocking_items}\n\
-hard_baseline_effect:\n\
-- provider sampling for this turn is stopped by the request budget baseline.\n\
-- bounded evidence is preserved for later context reconstruction.",
-        reason = decision.reason,
-        budget_state = decision.budget_state.as_str(),
-        request_count = snapshot.request_count,
-        max_requests = snapshot.max_requests,
-        node_request_count = snapshot.node_request_count,
-        max_model_requests_per_node = snapshot.max_model_requests_per_node,
-        post_budget_grace_request_count = snapshot.post_budget_grace_request_count,
-        post_budget_grace_requests = snapshot.post_budget_grace_requests,
-        quality_impact_required = decision.quality_impact_required,
-    );
-
-    ResponseItem::Message {
-        id: None,
-        role: "developer".to_string(),
-        content: vec![ContentItem::InputText { text }],
-        end_turn: None,
-        phase: None,
-    }
-}
-
 #[cfg(test)]
 fn build_taskspace_no_action_recovery_item(last_message: Option<&str>) -> ResponseItem {
     let previous = last_message
@@ -1673,6 +1417,7 @@ fn taskspace_message_has_gate_recovery(message: Option<&str>) -> bool {
     message.is_some_and(|message| message.contains(TASKSPACE_GATE_RECOVERY_MARKER))
 }
 
+#[cfg(test)]
 fn taskspace_message_has_state_machine_rejection(message: Option<&str>) -> bool {
     message.is_some_and(|message| {
         message.contains("TaskSpaceActionV1 rejected:")
@@ -2721,22 +2466,22 @@ fn taskspace_evidence_has_full_visible_validation_rework_target_read(
         })
 }
 
+#[cfg(test)]
 fn is_taskspace_no_action_recovery_item(item: &ResponseItem) -> bool {
     response_item_text_contains(item, TASKSPACE_NO_ACTION_RECOVERY_MARKER)
 }
 
+#[cfg(test)]
 fn is_taskspace_path_correction_recovery_item(item: &ResponseItem) -> bool {
     response_item_text_contains(item, TASKSPACE_PATH_CORRECTION_MARKER)
 }
 
-fn is_taskspace_provider_budget_hard_stop_item(item: &ResponseItem) -> bool {
-    response_item_text_contains(item, TASKSPACE_PROVIDER_BUDGET_HARD_STOP_MARKER)
-}
-
+#[cfg(test)]
 fn is_taskspace_validation_rework_duplicate_read_recovery_item(item: &ResponseItem) -> bool {
     response_item_text_contains(item, TASKSPACE_VALIDATION_REWORK_DUPLICATE_READ_MARKER)
 }
 
+#[cfg(test)]
 fn is_taskspace_validation_rework_patch_only_recovery_item(item: &ResponseItem) -> bool {
     response_item_text_contains(item, TASKSPACE_VALIDATION_REWORK_PATCH_ONLY_MARKER)
 }
@@ -2752,6 +2497,7 @@ fn is_taskspace_apply_patch_recovery_item(item: &ResponseItem) -> bool {
         || response_item_text_contains(item, TASKSPACE_PATCH_INTENT_FORMAT_MARKER)
 }
 
+#[cfg(test)]
 fn taskspace_recovery_snapshot_node_key(
     snapshot: Option<&crate::action_map::ActionMapProviderRequestBudgetSnapshot>,
 ) -> String {
@@ -2761,6 +2507,7 @@ fn taskspace_recovery_snapshot_node_key(
         .to_string()
 }
 
+#[cfg(test)]
 fn taskspace_reset_recovery_count_for_snapshot_node(
     current_key: &mut Option<String>,
     recovery_count: &mut usize,
@@ -2773,31 +2520,12 @@ fn taskspace_reset_recovery_count_for_snapshot_node(
     }
 }
 
-fn taskspace_provider_budget_limit_reached(
-    snapshot: &crate::action_map::ActionMapProviderRequestBudgetSnapshot,
-) -> bool {
-    snapshot.max_requests > 0 && snapshot.request_count >= snapshot.max_requests
-}
-
-fn taskspace_feedback_needs_budget_recovery_followup(
-    snapshot: &crate::action_map::ActionMapProviderRequestBudgetSnapshot,
-    needs_follow_up: bool,
-    saw_actionable_output: bool,
-    last_agent_message: Option<&str>,
-) -> bool {
-    needs_follow_up
-        && taskspace_provider_budget_limit_reached(snapshot)
-        && snapshot.post_budget_grace_request_count < snapshot.post_budget_grace_requests
-        && (saw_actionable_output
-            || taskspace_message_has_gate_recovery(last_agent_message)
-            || taskspace_message_has_state_machine_rejection(last_agent_message))
-}
-
 #[cfg(test)]
 fn is_taskspace_plain_implement_needs_edit_recovery_item(item: &ResponseItem) -> bool {
     response_item_text_contains(item, TASKSPACE_IMPLEMENT_NEEDS_EDIT_MARKER)
 }
 
+#[cfg(test)]
 fn is_taskspace_implement_needs_edit_recovery_item(item: &ResponseItem) -> bool {
     response_item_text_contains(item, TASKSPACE_IMPLEMENT_NEEDS_EDIT_MARKER)
         || response_item_text_contains(item, TASKSPACE_VALIDATION_REWORK_DUPLICATE_READ_MARKER)
@@ -2809,6 +2537,7 @@ fn is_taskspace_implement_needs_edit_recovery_item(item: &ResponseItem) -> bool 
         || response_item_text_contains(item, TASKSPACE_PATCH_INTENT_FORMAT_MARKER)
 }
 
+#[cfg(test)]
 fn taskspace_implement_recovery_advisory_warning_message(
     item: &ResponseItem,
     attempt: usize,
@@ -2862,6 +2591,7 @@ fn taskspace_implement_recovery_advisory_warning_message(
     }
 }
 
+#[cfg(test)]
 fn taskspace_duplicate_read_recovery_preserves_patch_grammar_failure(item: &ResponseItem) -> bool {
     response_item_text_contains(item, "Most recent failed edit feedback to preserve")
         && response_item_texts_contain(item, &|text| {
@@ -2872,10 +2602,9 @@ fn taskspace_duplicate_read_recovery_preserves_patch_grammar_failure(item: &Resp
         })
 }
 
+#[cfg(test)]
 fn taskspace_special_recovery_warning_message(item: &ResponseItem) -> String {
-    if response_item_text_contains(item, TASKSPACE_PROVIDER_BUDGET_HARD_STOP_MARKER) {
-        "TaskSpace inserted TaskSpaceProviderBudgetHardStopV1 because provider request budget was exhausted before dispatch. The current turn will stop without another model request.".to_string()
-    } else if response_item_text_contains(item, TASKSPACE_APPLY_PATCH_FORMAT_MARKER) {
+    if response_item_text_contains(item, TASKSPACE_APPLY_PATCH_FORMAT_MARKER) {
         "TaskSpace inserted TaskSpaceApplyPatchFormatRecoveryV1 after apply_patch tried to add an existing file. This guidance does not consume the no-action recovery allowance.".to_string()
     } else if response_item_text_contains(item, TASKSPACE_APPLY_PATCH_MISSING_TARGET_MARKER) {
         "TaskSpace inserted TaskSpaceApplyPatchMissingTargetRecoveryV1 after apply_patch tried to update a missing file. This guidance does not consume the no-action recovery allowance.".to_string()
@@ -3258,108 +2987,6 @@ fn taskspace_strip_common_workspace_patch_prefix(path: &str) -> &str {
         .unwrap_or(path)
 }
 
-fn taskspace_snapshot_requires_implementation_edit(
-    snapshot: &crate::action_map::ActionMapProviderRequestBudgetSnapshot,
-) -> bool {
-    snapshot.node_kind.as_deref() == Some("implement_solution")
-        && (snapshot.current_node_has_uncovered_mandatory_evidence
-            || (!snapshot.current_node_has_successful_edit
-                && (snapshot.current_node_has_dependency_working_evidence
-                    || snapshot
-                        .current_node_progress_signature
-                        .is_some_and(|progress| {
-                            progress >= TASKSPACE_IMPLEMENT_PROGRESS_BEFORE_EDIT_HINT
-                        }))))
-}
-
-fn taskspace_no_action_recovery_cap_for_node_kind(node_kind: &str) -> usize {
-    match node_kind {
-        "inspect_code_context" => 3,
-        "implement_solution" => 3,
-        _ => 1,
-    }
-}
-
-fn taskspace_budget_pressure_follow_up_intent(
-    request_count: usize,
-    max_requests: usize,
-    node_kind: Option<&str>,
-    last_message: Option<&str>,
-) -> bool {
-    if !taskspace_budget_pressure_active_for_node_kind(request_count, max_requests, node_kind) {
-        return false;
-    }
-    let Some(message) = last_message else {
-        return false;
-    };
-    taskspace_budget_pressure_message_has_follow_up_intent(message)
-}
-
-fn taskspace_budget_pressure_silent_action_requires_transition(
-    request_count: usize,
-    max_requests: usize,
-    node_kind: Option<&str>,
-    assistant_message_present: bool,
-    saw_actionable_output: bool,
-) -> bool {
-    if !matches!(
-        node_kind,
-        Some("inspect_code_context" | "implement_solution")
-    ) || assistant_message_present
-        || !saw_actionable_output
-    {
-        return false;
-    }
-    taskspace_budget_pressure_active_for_node_kind(request_count, max_requests, node_kind)
-}
-
-fn taskspace_budget_pressure_active_for_node_kind(
-    request_count: usize,
-    max_requests: usize,
-    node_kind: Option<&str>,
-) -> bool {
-    if max_requests < 10 {
-        return false;
-    }
-    match node_kind {
-        Some("inspect_code_context") => request_count.saturating_mul(2) >= max_requests,
-        Some("implement_solution") => {
-            request_count.saturating_mul(10) >= max_requests.saturating_mul(7)
-        }
-        _ => false,
-    }
-}
-
-fn taskspace_budget_pressure_message_has_follow_up_intent(message: &str) -> bool {
-    let normalized = message.to_ascii_lowercase();
-    const FOLLOW_UP_MARKERS: &[&str] = &[
-        "let me check",
-        "let me verify",
-        "let me inspect",
-        "let me run",
-        "let me try",
-        "i need to check",
-        "i should check",
-        "try running",
-        "read current",
-        "read generator",
-        "read raw",
-        "read the",
-        "inspect raw",
-        "examine ",
-        "verify output",
-        "run validation",
-        "\u{5148}\u{8dd1}",
-        "\u{8dd1}\u{6d4b}\u{8bd5}",
-        "\u{8fd0}\u{884c}\u{6d4b}\u{8bd5}",
-        "\u{6267}\u{884c}\u{6d4b}\u{8bd5}",
-        "\u{786e}\u{8ba4}\u{5f53}\u{524d}\u{5931}\u{8d25}",
-    ];
-    FOLLOW_UP_MARKERS
-        .iter()
-        .any(|marker| normalized.contains(marker))
-}
-
 fn classify_taskspace_provider_response_actionability(
     needs_follow_up: bool,
     saw_actionable_output: bool,
@@ -3522,71 +3149,16 @@ async fn run_sampling_request(
                 )
             }
         };
-        let budget_tool_visibility = provider_budget_snapshot
-            .as_ref()
-            .map(|snapshot| {
-                let limits = taskspace_transport_budget_limits(snapshot);
-                taskspace_provider_tool_visibility_for_budget(
-                    snapshot.request_count,
-                    limits.max_requests,
-                    snapshot.node_request_count,
-                    limits.max_model_requests_per_node,
-                    snapshot.request_phase.as_deref(),
-                    snapshot.node_kind.as_deref(),
-                )
-            })
-            .unwrap_or(TaskspaceProviderToolVisibility::All);
         let tool_visibility = match transport_mode {
-            TaskspaceProviderTransportMode::NativeTools => budget_tool_visibility,
+            TaskspaceProviderTransportMode::NativeTools => TaskspaceProviderToolVisibility::All,
             TaskspaceProviderTransportMode::CacheOptimizedActionContract => {
                 TaskspaceProviderToolVisibility::None
             }
         };
         if let Some(snapshot) = provider_budget_snapshot.as_ref()
-            && let Some(item) = build_taskspace_provider_budget_guidance_item(
-                snapshot.request_count,
-                taskspace_transport_budget_limits(snapshot).max_requests,
-                snapshot.node_request_count,
-                taskspace_transport_budget_limits(snapshot).max_model_requests_per_node,
-                snapshot.request_phase.as_deref(),
-                snapshot.node_kind.as_deref(),
-                snapshot.node_id.as_deref(),
-                budget_tool_visibility,
-            )
-        {
-            prompt_input.push(item);
-        }
-        if let Some(snapshot) = provider_budget_snapshot.as_ref()
             && transport_mode == TaskspaceProviderTransportMode::CacheOptimizedActionContract
         {
             prompt_input.push(taskspace_action_contract_state_item(snapshot));
-            if snapshot.node_id.is_none() {
-                let has_successful_validation = sess
-                    .action_map_has_accepted_successful_validation_result()
-                    .await;
-                if !has_successful_validation
-                    && sess.action_map_has_tool_runtime_bootstrap_failure().await
-                {
-                    prompt_input
-                        .push(taskspace_action_contract_tool_runtime_bootstrap_failure_item());
-                } else if taskspace_closed_validation_blocker_applies(
-                    sess.action_map_has_blocked_validation_result().await,
-                    has_successful_validation,
-                    sess.action_map_has_ready_recovery_node().await,
-                ) {
-                    prompt_input.push(taskspace_action_contract_closed_validation_item());
-                }
-            }
-            if snapshot.node_kind.as_deref() == Some("inspect_code_context") {
-                let unread_scripts = sess
-                    .action_map_current_inspect_unread_referenced_scripts()
-                    .await;
-                if !unread_scripts.is_empty() {
-                    prompt_input.push(taskspace_action_contract_inspect_unread_scripts_item(
-                        &unread_scripts,
-                    ));
-                }
-            }
         } else if provider_budget_snapshot.is_none()
             && transport_mode == TaskspaceProviderTransportMode::CacheOptimizedActionContract
         {
@@ -3863,18 +3435,15 @@ fn prepare_taskspace_action_contract_prompt_items(items: Vec<ResponseItem>) -> V
 
 fn prepare_taskspace_action_contract_prompt_items_for_node(
     items: Vec<ResponseItem>,
-    current_node_kind: Option<&str>,
+    _current_node_kind: Option<&str>,
 ) -> Vec<ResponseItem> {
     let mut latest_user_input: Option<(usize, ResponseItem)> = None;
     let mut latest_taskspace_context: Option<(usize, ResponseItem)> = None;
-    let mut latest_final_readiness_recovery: Option<(usize, ResponseItem)> = None;
     let mut tool_outputs: Vec<(usize, ResponseItem)> = Vec::new();
 
     for (index, item) in items.into_iter().enumerate() {
         if is_taskspace_active_context_item(&item) {
-            latest_taskspace_context = Some((index, compile_taskspace_context_item(item)));
-        } else if is_taskspace_final_readiness_recovery_item(&item) {
-            latest_final_readiness_recovery = Some((index, item));
+            latest_taskspace_context = Some((index, item));
         } else if is_protected_user_input(&item) {
             latest_user_input = Some((index, item));
         } else if is_tool_output_item(&item) {
@@ -3890,59 +3459,14 @@ fn prepare_taskspace_action_contract_prompt_items_for_node(
     if let Some((_, item)) = latest_user_input {
         prepared.push(item);
     }
-    let latest_context_index = latest_taskspace_context
-        .as_ref()
-        .map(|(index, _)| *index)
-        .unwrap_or(latest_user_index);
-    let validation_rework_target_reads = latest_taskspace_context
-        .as_ref()
-        .map(|(_, item)| taskspace_validation_rework_target_read_artifacts_from_item(item))
-        .unwrap_or_default();
-    let final_readiness_recovery_applies =
-        latest_final_readiness_recovery
-            .as_ref()
-            .is_some_and(|(index, item)| {
-                *index > latest_user_index
-                    && taskspace_final_readiness_recovery_still_applies(
-                        item,
-                        latest_taskspace_context
-                            .as_ref()
-                            .map(|(_, context_item)| context_item),
-                    )
-            });
     if let Some((_, item)) = latest_taskspace_context {
         prepared.push(item);
     }
-    if let Some((index, item)) = latest_final_readiness_recovery
-        && index > latest_user_index
-        && final_readiness_recovery_applies
-    {
-        prepared.push(item);
-    }
-    let recent_tool_output_floor = latest_user_index.max(latest_context_index);
     let recent_tool_outputs = tool_outputs
         .into_iter()
-        .filter_map(|(index, item)| {
-            let is_recent_candidate =
-                is_taskspace_action_contract_latest_tool_output_candidate(&item);
-            let is_current_rework_target_read = index > latest_user_index
-                && !validation_rework_target_reads.is_empty()
-                && is_taskspace_validation_rework_target_read_output(
-                    &item,
-                    &validation_rework_target_reads,
-                );
-            if (index > recent_tool_output_floor && is_recent_candidate)
-                || is_current_rework_target_read
-            {
-                Some(item)
-            } else {
-                None
-            }
-        })
+        .filter_map(|(index, item)| (index > latest_user_index).then_some(item))
         .collect::<Vec<_>>();
-    if let Some(item) =
-        taskspace_action_contract_recent_tool_outputs_item(&recent_tool_outputs, current_node_kind)
-    {
+    if let Some(item) = taskspace_action_contract_recent_tool_outputs_item(&recent_tool_outputs) {
         prepared.push(item);
     }
     prepared
@@ -4082,7 +3606,6 @@ fn taskspace_text_mentions_projection_strategy_injection(text: &str) -> bool {
 
 fn taskspace_action_contract_recent_tool_outputs_item(
     items: &[ResponseItem],
-    current_node_kind: Option<&str>,
 ) -> Option<ResponseItem> {
     let summaries = items
         .iter()
@@ -4093,53 +3616,6 @@ fn taskspace_action_contract_recent_tool_outputs_item(
     if summaries.is_empty() {
         return None;
     }
-    let edit_success_seen = summaries
-        .iter()
-        .any(|(_, text)| text.contains("Success. Updated the following files"));
-    let uncovered_high_signal_seen = summaries.iter().any(|(_, text)| {
-        text.contains("high-signal inspected evidence") && text.contains("uncovered")
-    });
-    let local_validator_infra_failure_seen = summaries
-        .iter()
-        .any(|(_, text)| taskspace_output_mentions_local_validator_infra_failure(text));
-    let recoverable_local_validator_command_failure_seen = summaries.iter().any(|(_, text)| {
-        taskspace_output_mentions_recoverable_local_validator_command_failure(text)
-    });
-    let unrecoverable_local_validator_infra_failure_seen = summaries.iter().any(|(_, text)| {
-        taskspace_output_mentions_unrecoverable_local_validator_infra_failure(text)
-    });
-    let local_validator_infra_state_commit_seen = summaries
-        .iter()
-        .any(|(_, text)| taskspace_output_mentions_local_validator_infra_state_commit(text));
-    let validation_command_missing_script_seen = summaries
-        .iter()
-        .any(|(_, text)| text.contains("validation_command_missing_script"));
-    let validation_current_test_required_seen = summaries.iter().any(|(_, text)| {
-        text.contains("validation_stale_failure_without_current_test")
-            || text.contains("validation_finish_missing_current_test_result")
-            || taskspace_text_mentions_current_validation_test_required(text)
-    });
-    let unreviewed_result_blocker_seen = summaries.iter().any(|(_, text)| {
-        text.contains("taskspace_unreviewed_result_blocker")
-            || (text.contains("still unreviewed") && text.contains("result_validities"))
-    });
-    let implement_missing_edit_before_finish_seen = summaries.iter().any(|(_, text)| {
-        text.contains("implement_missing_edit_before_finish")
-            || (text.contains("cannot be completed without a recorded successful edit action")
-                && text.contains("Execute the edit in this node"))
-    });
-    let validation_rework_duplicate_read_seen = summaries
-        .iter()
-        .any(|(_, text)| taskspace_text_mentions_validation_rework_duplicate_artifact_read(text));
-    let validation_rework_duplicate_target_read_seen = summaries
-        .iter()
-        .any(|(_, text)| text.contains("validation_rework_closed_action_space_read_disallowed"));
-    let implementation_needs_edit_seen = summaries.iter().any(|(_, text)| {
-        text.contains("failure_kind: implementation_needs_edit")
-            || text.contains("implementation_needs_edit")
-            || (text.contains("has enough read/search evidence")
-                && text.contains("no successful edit"))
-    });
     let mut remaining_chars = TASKSPACE_ACTION_CONTRACT_MAX_RECENT_TOOL_OUTPUT_CHARS;
     let mut sections = Vec::new();
     for (call_id, text) in summaries.into_iter().rev() {
@@ -4167,45 +3643,8 @@ fn taskspace_action_contract_recent_tool_outputs_item(
         return None;
     }
 
-    let in_implement_rework = current_node_kind == Some("implement_solution");
-    let progress_fact = if implement_missing_edit_before_finish_seen {
-        "progress_fact: A previous finish_node action was rejected because the implement_solution node has no successful edit.\nhard_state: implementation_node_without_successful_edit_result.\nordinary_tool_boundary: ordinary tool use remains governed by the active node binding and lease.\n"
-    } else if validation_rework_duplicate_read_seen || validation_rework_duplicate_target_read_seen
-    {
-        "progress_fact: Earlier feedback marked a read_file as a duplicate complete read of the same validation rework target. The prior result id/context remains visible as evidence.\nordinary_tool_boundary: ordinary tool use remains governed by the active node binding and lease.\n"
-    } else if implementation_needs_edit_seen {
-        "progress_fact: TaskSpace has recorded implementation_needs_edit evidence: the implementation node still lacks a successful edit.\nhard_state: implementation_node_without_successful_edit_result.\n"
-    } else if unreviewed_result_blocker_seen {
-        "progress_fact: A previous ordinary tool was blocked because a TaskSpace node result is still unreviewed.\nhard_state: result_validity_unreviewed_for_dependent_record.\nThis fact records the blocker and does not select the next action.\n"
-    } else if validation_current_test_required_seen {
-        "progress_fact: A previous block_node or finish_node action tried to close the current validation node using failure text before this node had its own test/build result.\nhard_state: validation_node_without_current_test_or_build_result.\nordinary_tool_boundary: ordinary tool use remains governed by the active node binding and lease.\n"
-    } else if validation_command_missing_script_seen {
-        "progress_fact: The previous run_test did not start the validator because the command referenced a missing script.\ntool_feedback_facts: the command referenced a missing script path; raw tool output remains available.\nordinary_tool_boundary: ordinary tool use remains governed by the active node binding and lease.\n"
-    } else if uncovered_high_signal_seen {
-        "progress_fact: A previous finish_node was rejected because high-signal inspected evidence is still uncovered.\nhard_state: mandatory_inspected_evidence_uncovered_by_edit_result.\n"
-    } else if in_implement_rework
-        && unrecoverable_local_validator_infra_failure_seen
-        && !recoverable_local_validator_command_failure_seen
-    {
-        "progress_fact: Local validation failed because the host validator service or shell executor was unavailable, not because implementation code produced a test failure. State baseline treats this as infrastructure evidence, not implementation failure evidence.\n"
-    } else if in_implement_rework
-        && local_validator_infra_failure_seen
-        && local_validator_infra_state_commit_seen
-    {
-        "progress_fact: Local validation infrastructure failed earlier and that failure is already recorded. The current node is implementation rework, not the closed validation node. State baseline rejects reusing the same infrastructure failure as an implementation blocker unless new evidence changes the state.\n"
-    } else if in_implement_rework && local_validator_infra_failure_seen {
-        "progress_fact: The previous validation command hit local validator infrastructure or host-shell syntax, but the current node is implementation rework. That evidence alone is not an implementation-code failure.\nordinary_tool_boundary: ordinary tool use remains governed by the active node binding and lease.\n"
-    } else if local_validator_infra_failure_seen && local_validator_infra_state_commit_seen {
-        "progress_fact: Local validation already failed because the host validator infrastructure or shell is unavailable, and that failure has been recorded. Repeating shell discovery for the same local validator failure is low-value duplicate evidence.\nordinary_tool_boundary: ordinary tool use remains governed by the active node binding and lease.\n"
-    } else if local_validator_infra_failure_seen {
-        "progress_fact: The last run_test failed because local validator infrastructure or the host shell failed, not because new code evidence was found. State ledger can record that failed run_test result as invalid infrastructure evidence.\n"
-    } else if edit_success_seen {
-        "progress_fact: A file edit already succeeded. TaskSpace will not finish the implementation node automatically.\nordinary_tool_boundary: ordinary tool use remains governed by the active node binding and lease.\n"
-    } else {
-        ""
-    };
     let text = format!(
-        "TaskSpaceActionContractRecentToolOutputsV1:\n{progress_fact}{}",
+        "TaskSpaceActionContractRecentToolOutputsV1:\n{}",
         sections.join("\n---\n")
     );
     Some(ResponseItem::Message {
@@ -4218,7 +3657,7 @@ fn taskspace_action_contract_recent_tool_outputs_item(
 }
 
 fn taskspace_action_contract_tool_output_summary(item: &ResponseItem) -> Option<(String, String)> {
-    let (call_id, text, success) = match item {
+    let (call_id, text) = match item {
         ResponseItem::FunctionCallOutput {
             call_id, output, ..
         }
@@ -4227,7 +3666,6 @@ fn taskspace_action_contract_tool_output_summary(item: &ResponseItem) -> Option<
         } => (
             call_id.as_str(),
             function_call_output_body_text(&output.body),
-            output.success,
         ),
         _ => return None,
     };
@@ -4235,12 +3673,10 @@ fn taskspace_action_contract_tool_output_summary(item: &ResponseItem) -> Option<
     if text.is_empty() {
         return None;
     }
-    Some((
-        call_id.to_string(),
-        taskspace_action_contract_tool_feedback_summary(call_id, text, success),
-    ))
+    Some((call_id.to_string(), text.to_string()))
 }
 
+#[cfg(test)]
 fn taskspace_action_contract_tool_feedback_summary(
     call_id: &str,
     text: &str,
@@ -4590,6 +4026,7 @@ enum ProviderVisibleHistoryAction {
 enum ProviderVisibleItemCategory {
     ActiveProjection,
     FinalReadinessRecovery,
+    CurrentTaskspaceRuntimeFeedback,
     ProtectedUserInput,
     ProtectedDeveloperOrSystemInput,
     ShadowProjection,
@@ -4614,12 +4051,24 @@ fn compose_provider_visible_history(items: Vec<ResponseItem>) -> ProviderVisible
         return ProviderVisibleHistoryComposition { items, decisions };
     }
 
+    let current_feedback_tool_call_ids = items
+        .iter()
+        .filter(|item| is_current_taskspace_runtime_feedback_item(item))
+        .filter_map(response_item_tool_call_id)
+        .map(str::to_string)
+        .collect::<HashSet<_>>();
     let classified_items = items
         .into_iter()
         .enumerate()
         .map(|(index, item)| {
             let category = classify_provider_visible_item(&item);
-            let action = provider_visible_history_action(&category);
+            let action = if response_item_tool_call_id(&item)
+                .is_some_and(|call_id| current_feedback_tool_call_ids.contains(call_id))
+            {
+                ProviderVisibleHistoryAction::Include
+            } else {
+                provider_visible_history_action(&category)
+            };
             (index, item, category, action)
         })
         .collect::<Vec<_>>();
@@ -4676,12 +4125,7 @@ fn compose_provider_visible_history(items: Vec<ResponseItem>) -> ProviderVisible
             continue;
         }
         if matches!(action, ProviderVisibleHistoryAction::Include) {
-            prepared.push(match category {
-                ProviderVisibleItemCategory::ActiveProjection => {
-                    compile_taskspace_context_item(item)
-                }
-                _ => item,
-            });
+            prepared.push(item);
         }
         decisions.push(ProviderVisibleHistoryDecision {
             index,
@@ -4720,6 +4164,7 @@ fn provider_visible_history_action(
         }
         ProviderVisibleItemCategory::ActiveProjection
         | ProviderVisibleItemCategory::FinalReadinessRecovery
+        | ProviderVisibleItemCategory::CurrentTaskspaceRuntimeFeedback
         | ProviderVisibleItemCategory::ProtectedUserInput
         | ProviderVisibleItemCategory::ProtectedDeveloperOrSystemInput
         | ProviderVisibleItemCategory::Other => ProviderVisibleHistoryAction::Include,
@@ -4768,6 +4213,9 @@ fn classify_provider_visible_item(item: &ResponseItem) -> ProviderVisibleItemCat
     if is_taskspace_final_readiness_recovery_item(item) {
         return ProviderVisibleItemCategory::FinalReadinessRecovery;
     }
+    if is_current_taskspace_runtime_feedback_item(item) {
+        return ProviderVisibleItemCategory::CurrentTaskspaceRuntimeFeedback;
+    }
     if response_item_text_contains(item, TASKSPACE_SHADOW_PROJECTION_MARKER) {
         return ProviderVisibleItemCategory::ShadowProjection;
     }
@@ -4800,47 +4248,6 @@ fn response_item_text_contains_taskspace_active_marker(item: &ResponseItem) -> b
     response_item_text_contains(item, TASKSPACE_ACTIVE_PROFILE_MARKER)
         || response_item_text_contains(item, TASKSPACE_ACTIVE_COMPACT_PROJECTION_MARKER)
         || response_item_text_contains(item, TASKSPACE_ACTIVE_THIN_PROJECTION_MARKER)
-}
-
-fn compile_taskspace_context_item(item: ResponseItem) -> ResponseItem {
-    match item {
-        ResponseItem::Message {
-            id,
-            role,
-            content,
-            end_turn,
-            phase,
-        } => {
-            let content = content
-                .into_iter()
-                .map(|content_item| match content_item {
-                    ContentItem::InputText { text } => {
-                        if let Some(compiled) = compile_taskspace_agent_context_text(&text) {
-                            ContentItem::InputText { text: compiled }
-                        } else {
-                            ContentItem::InputText { text }
-                        }
-                    }
-                    ContentItem::OutputText { text } => {
-                        if let Some(compiled) = compile_taskspace_agent_context_text(&text) {
-                            ContentItem::OutputText { text: compiled }
-                        } else {
-                            ContentItem::OutputText { text }
-                        }
-                    }
-                    other => other,
-                })
-                .collect();
-            ResponseItem::Message {
-                id,
-                role,
-                content,
-                end_turn,
-                phase,
-            }
-        }
-        other => other,
-    }
 }
 
 fn is_protected_user_input(item: &ResponseItem) -> bool {
@@ -4949,6 +4356,19 @@ fn is_legacy_taskspace_tool_output(item: &ResponseItem) -> bool {
     ) && (response_item_text_contains(item, "TaskSpace")
         || response_item_text_contains(item, "ActionMap")
         || response_item_text_contains(item, "taskspace_control"))
+}
+
+fn is_current_taskspace_runtime_feedback_item(item: &ResponseItem) -> bool {
+    matches!(
+        item,
+        ResponseItem::FunctionCallOutput { .. } | ResponseItem::CustomToolCallOutput { .. }
+    ) && [
+        TASKSPACE_GATE_RECOVERY_MARKER,
+        "TaskSpaceFinalAnswerRejectedV1:",
+        "TaskSpaceBlockedRejectedV1:",
+    ]
+    .iter()
+    .any(|marker| response_item_text_contains(item, marker))
 }
 
 fn is_large_raw_tool_output(item: &ResponseItem) -> bool {
@@ -5148,56 +4568,6 @@ fn taskspace_shell_output_has_nonzero_exit_code(text: &str) -> bool {
     })
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct TaskSpaceGateRecoveryProjectionSync {
-    reason: Option<String>,
-    next_valid_actions: Vec<String>,
-}
-
-fn taskspace_gate_recovery_projection_sync_from_item(
-    item: &ResponseItem,
-) -> Option<TaskSpaceGateRecoveryProjectionSync> {
-    let text = response_item_text(item)?;
-    taskspace_gate_recovery_projection_sync_from_text(&text)
-}
-
-fn taskspace_gate_recovery_projection_sync_from_text(
-    text: &str,
-) -> Option<TaskSpaceGateRecoveryProjectionSync> {
-    let (_, rest) = text.split_once(TASKSPACE_GATE_RECOVERY_MARKER)?;
-    let payload = rest.trim_start();
-    if !payload.starts_with('{') {
-        return None;
-    }
-    let json_end = taskspace_leading_json_object_end(payload)?;
-    let value = serde_json::from_str::<serde_json::Value>(&payload[..json_end]).ok()?;
-    let next_valid_actions = value
-        .get("next_valid_actions")
-        .and_then(|actions| actions.as_array())
-        .map(|actions| {
-            actions
-                .iter()
-                .filter_map(|action| action.as_str().map(str::trim))
-                .filter(|action| !action.is_empty())
-                .map(str::to_string)
-                .collect::<Vec<_>>()
-        })
-        .unwrap_or_default();
-    if next_valid_actions.is_empty() {
-        return None;
-    }
-    let reason = value
-        .get("reason")
-        .and_then(|reason| reason.as_str())
-        .map(str::trim)
-        .filter(|reason| !reason.is_empty())
-        .map(str::to_string);
-    Some(TaskSpaceGateRecoveryProjectionSync {
-        reason,
-        next_valid_actions,
-    })
-}
-
 fn response_item_texts_contain(item: &ResponseItem, predicate: &dyn Fn(&str) -> bool) -> bool {
     match item {
         ResponseItem::Message { role, content, .. } => {
@@ -5331,12 +4701,6 @@ mod active_context_replacement_tests {
             map_id: "map-1".to_string(),
             node_id: Some("node-1".to_string()),
             node_kind: Some(node_kind.to_string()),
-            current_node_progress_signature: None,
-            current_node_has_successful_edit: false,
-            current_node_has_dependency_working_evidence: false,
-            current_node_has_uncovered_mandatory_evidence: false,
-            current_node_uncovered_mandatory_evidence: Vec::new(),
-            current_node_validation_rework_artifacts: Vec::new(),
             route_mode: Some("thin".to_string()),
             profile_name: Some("taskspace-v005-active".to_string()),
             request_phase: Some("model_sampling".to_string()),
@@ -5345,8 +4709,6 @@ mod active_context_replacement_tests {
             max_requests: 8,
             node_request_count: 0,
             max_model_requests_per_node: 3,
-            post_budget_grace_requests: 1,
-            post_budget_grace_request_count: 0,
             budget_state: "normal".to_string(),
         }
     }
@@ -5555,35 +4917,27 @@ mod active_context_replacement_tests {
     }
 
     #[test]
-    fn taskspace_action_contract_state_exposes_implementation_edit_fact_after_progress() {
+    fn taskspace_action_contract_state_is_mechanical_after_implementation_progress() {
         let mut snapshot = provider_snapshot("implement_solution");
-        snapshot.current_node_progress_signature =
-            Some(TASKSPACE_IMPLEMENT_PROGRESS_BEFORE_EDIT_HINT);
 
         let text = item_text(taskspace_action_contract_state_item(&snapshot));
 
-        assert!(
-            text.contains("Implementation node event status: no successful edit event is recorded")
-        );
-        assert!(!text.contains("implement_solution still accepts"));
+        assert!(text.contains("Active node id: node-1"));
+        assert!(text.contains("Active node kind: implement_solution"));
+        assert!(!text.contains("Implementation node event status"));
         assert!(!text.contains("implementation_needs_edit"));
-
-        snapshot.current_node_has_successful_edit = true;
         let text_after_edit = item_text(taskspace_action_contract_state_item(&snapshot));
         assert!(!text_after_edit.contains("no successful edit event is recorded"));
     }
 
     #[test]
-    fn taskspace_action_contract_state_keeps_reads_open_from_dependency_evidence() {
+    fn taskspace_action_contract_state_does_not_interpret_dependency_evidence() {
         let mut snapshot = provider_snapshot("implement_solution");
-        snapshot.current_node_has_dependency_working_evidence = true;
 
         let text = item_text(taskspace_action_contract_state_item(&snapshot));
 
-        assert!(
-            text.contains("Implementation node event status: no successful edit event is recorded")
-        );
-        assert!(!text.contains("implement_solution still accepts"));
+        assert!(text.contains("Active node kind: implement_solution"));
+        assert!(!text.contains("Implementation node event status"));
 
         let read = parse_taskspace_action_v1(
             r#"{"schema_version":"taskspace-action-v1","action":"read_file","node_id":"node-1","args":{"path":"generate_report.sh"},"rationale":"read more"}"#,
@@ -5596,20 +4950,14 @@ mod active_context_replacement_tests {
     }
 
     #[test]
-    fn taskspace_action_contract_state_keeps_uncovered_mandatory_evidence_edit_pressure() {
+    fn taskspace_action_contract_state_does_not_project_mandatory_evidence_strategy() {
         let mut snapshot = provider_snapshot("implement_solution");
-        snapshot.current_node_has_successful_edit = true;
-        snapshot.current_node_has_uncovered_mandatory_evidence = true;
-        snapshot.current_node_uncovered_mandatory_evidence =
-            vec!["collect_data.sh (required_output_contract, result-9)".to_string()];
 
         let text = item_text(taskspace_action_contract_state_item(&snapshot));
 
-        assert!(
-            text.contains("Implementation node event status: no successful edit event is recorded")
-        );
-        assert!(text.contains("Uncovered mandatory evidence refs"));
-        assert!(text.contains("Action-contract fallback validates patch target coverage"));
+        assert!(text.contains("Active node kind: implement_solution"));
+        assert!(!text.contains("Uncovered mandatory evidence refs"));
+        assert!(!text.contains("patch target coverage"));
 
         let read = parse_taskspace_action_v1(
             r#"{"schema_version":"taskspace-action-v1","action":"read_file","node_id":"node-1","args":{"path":"collect_data.sh"},"rationale":"read more"}"#,
@@ -5622,27 +4970,20 @@ mod active_context_replacement_tests {
     }
 
     #[test]
-    fn taskspace_apply_patch_must_cover_uncovered_mandatory_evidence_target() {
+    fn taskspace_apply_patch_is_not_rejected_by_semantic_evidence_coverage() {
         let mut snapshot = provider_snapshot("implement_solution");
-        snapshot.current_node_has_successful_edit = true;
-        snapshot.current_node_has_uncovered_mandatory_evidence = true;
-        snapshot.current_node_uncovered_mandatory_evidence =
-            vec!["generate_report.sh (invalid_shebang, result-13)".to_string()];
 
         let text = item_text(taskspace_action_contract_state_item(&snapshot));
-        assert!(text.contains("Uncovered mandatory evidence refs"));
-        assert!(text.contains("generate_report.sh (invalid_shebang, result-13)"));
+        assert!(!text.contains("Uncovered mandatory evidence refs"));
+        assert!(!text.contains("generate_report.sh (invalid_shebang, result-13)"));
 
         let wrong = parse_taskspace_action_v1(
             r#"{"schema_version":"taskspace-action-v1","action":"apply_patch","node_id":"node-1","args":{"patch":"*** Begin Patch\n*** Update File: report_generation.sh\n@@\n-#!/bin/nonexistent\n+#!/bin/bash\n*** End Patch\n"},"rationale":"fix shebang"}"#,
         )
         .expect("valid wrong patch action");
-        let err = taskspace_action_to_tool_call(&wrong, &snapshot)
-            .expect_err("wrong artifact must not satisfy mandatory evidence");
-        assert_eq!(
-            err,
-            "apply_patch_missing_mandatory_evidence_targets:generate_report.sh"
-        );
+        taskspace_action_to_tool_call(&wrong, &snapshot)
+            .expect("semantic evidence coverage must not reject Agent patch intent")
+            .expect("tool call");
 
         let right = parse_taskspace_action_v1(
             r#"{"schema_version":"taskspace-action-v1","action":"apply_patch","node_id":"node-1","args":{"patch":"*** Begin Patch\n*** Update File: generate_report.sh\n@@\n-#!/bin/nonexistent\n+#!/bin/bash\n*** End Patch\n"},"rationale":"fix shebang"}"#,
@@ -5780,22 +5121,6 @@ mod active_context_replacement_tests {
             }
             other => panic!("expected function payload, got {other:?}"),
         }
-    }
-
-    #[test]
-    fn taskspace_action_contract_transport_preserves_existing_budget_limits() {
-        let snapshot = provider_snapshot("inspect_code_context");
-        let limits = taskspace_transport_budget_limits(&snapshot);
-
-        assert_eq!(limits.max_requests, snapshot.max_requests);
-        assert_eq!(
-            limits.max_model_requests_per_node,
-            snapshot.max_model_requests_per_node
-        );
-        assert_eq!(
-            limits.post_budget_grace_requests,
-            snapshot.post_budget_grace_requests
-        );
     }
 
     #[test]
@@ -5991,16 +5316,11 @@ Then I will inspect the file."#,
         )
         .expect("valid json");
         let mut snapshot = provider_snapshot("implement_solution");
-        snapshot.current_node_progress_signature =
-            Some(TASKSPACE_IMPLEMENT_PROGRESS_BEFORE_EDIT_HINT);
-        snapshot.current_node_has_successful_edit = false;
 
         let call = taskspace_action_to_tool_call(&action, &snapshot)
             .expect("implementation convergence fact should not block reads")
             .expect("read_file maps to a shell command");
         assert_eq!(call.tool_name.name, "shell_command");
-
-        snapshot.current_node_has_successful_edit = true;
         let call = taskspace_action_to_tool_call(&action, &snapshot)
             .expect("successful edit keeps read action available")
             .expect("read_file still maps to a shell command after edit");
@@ -6014,9 +5334,6 @@ Then I will inspect the file."#,
         )
         .expect("valid json");
         let mut snapshot = provider_snapshot("implement_solution");
-        snapshot.current_node_progress_signature =
-            Some(TASKSPACE_IMPLEMENT_PROGRESS_BEFORE_EDIT_HINT);
-        snapshot.current_node_validation_rework_artifacts = vec!["generate_org.py".to_string()];
 
         let call = taskspace_action_to_tool_call(&action, &snapshot)
             .expect("named validation rework target read should be allowed")
@@ -6890,7 +6207,7 @@ TaskSpace implement_solution node `node-6` cannot be blocked for missing source 
     }
 
     #[test]
-    fn action_contract_failed_validation_finish_normalizes_to_block_node() {
+    fn action_contract_failed_validation_finish_is_not_reinterpreted() {
         let snapshot = provider_snapshot("smoke_test");
         let args = serde_json::json!({
             "action": "finish_node",
@@ -6899,19 +6216,15 @@ TaskSpace implement_solution node `node-6` cannot be blocked for missing source 
         });
 
         let normalized = normalize_taskspace_action_contract_control_args(&args, Some(&snapshot))
-            .expect("failed validation finish should normalize");
+            .expect("mechanical control shape should parse");
 
-        assert_eq!(normalized["action"], "block_node");
-        assert_eq!(normalized["node_id"], "node-1");
-        assert_eq!(
-            normalized["blocker_summary"],
-            "Test failed with IndentationError on process.py line 1."
-        );
-        assert!(normalized.get("reason").is_none());
+        assert_eq!(normalized, args);
+        assert!(normalized.get("node_id").is_none());
+        assert!(normalized.get("blocker_summary").is_none());
     }
 
     #[test]
-    fn action_contract_feedback_requires_current_test_after_stale_validation_block() {
+    fn action_contract_feedback_preserves_stale_validation_block_verbatim() {
         let tool_call = ToolCall {
             tool_name: ToolName::plain("taskspace_control"),
             call_id: "taskspace-action-contract-17-blocked".to_string(),
@@ -6926,27 +6239,18 @@ TaskSpace implement_solution node `node-6` cannot be blocked for missing source 
         let response_item: ResponseItem = response_input.into();
         let (_, summary) = taskspace_action_contract_tool_output_summary(&response_item)
             .expect("failed action-contract output summarizes");
-        let recent = taskspace_action_contract_recent_tool_outputs_item(
-            &[response_item],
-            Some("smoke_test"),
-        )
-        .expect("recent feedback should be produced");
+        let recent = taskspace_action_contract_recent_tool_outputs_item(&[response_item])
+            .expect("recent feedback should be produced");
         let text = item_text(recent);
 
-        assert!(summary.contains("failure_kind: validation_stale_failure_without_current_test"));
-        assert!(
-            summary.contains("hard_state: validation_node_without_current_test_or_build_result")
-        );
-        assert!(summary.contains("tool_feedback_facts:"));
-        assert!(summary.contains("ordinary_tool_boundary: ordinary tool use remains governed"));
-        assert!(text.contains("hard_state: validation_node_without_current_test_or_build_result"));
-        assert!(!text.contains("blocked is available with an exact external blocker"));
-        assert!(!text.contains("Next action must be run_test"));
-        assert!(taskspace_message_hit_validation_needs_test(Some(&summary)));
+        assert!(summary.contains("cannot be blocked as failed validation"));
+        assert!(text.contains("cannot be blocked as failed validation"));
+        assert!(!summary.contains(TASKSPACE_TOOL_FEEDBACK_MARKER));
+        assert!(!text.contains("progress_fact:"));
     }
 
     #[test]
-    fn action_contract_feedback_requires_current_test_after_validation_finish_without_result() {
+    fn action_contract_feedback_preserves_validation_finish_rejection_verbatim() {
         let tool_call = ToolCall {
             tool_name: ToolName::plain("taskspace_control"),
             call_id: "taskspace-action-contract-18-taskspace_control".to_string(),
@@ -6961,26 +6265,18 @@ TaskSpace implement_solution node `node-6` cannot be blocked for missing source 
         let response_item: ResponseItem = response_input.into();
         let (_, summary) = taskspace_action_contract_tool_output_summary(&response_item)
             .expect("failed action-contract output summarizes");
-        let recent = taskspace_action_contract_recent_tool_outputs_item(
-            &[response_item],
-            Some("smoke_test"),
-        )
-        .expect("recent feedback should be produced");
+        let recent = taskspace_action_contract_recent_tool_outputs_item(&[response_item])
+            .expect("recent feedback should be produced");
         let text = item_text(recent);
 
-        assert!(summary.contains("failure_kind: validation_finish_missing_current_test_result"));
-        assert!(
-            summary.contains("hard_state: validation_node_without_current_test_or_build_result")
-        );
-        assert!(summary.contains("tool_feedback_facts:"));
-        assert!(summary.contains("ordinary_tool_boundary: ordinary tool use remains governed"));
-        assert!(text.contains("hard_state: validation_node_without_current_test_or_build_result"));
-        assert!(!text.contains("Next action must be run_test"));
-        assert!(taskspace_message_hit_validation_needs_test(Some(&summary)));
+        assert!(summary.contains("cannot be completed without a recorded successful test"));
+        assert!(text.contains("cannot be completed without a recorded successful test"));
+        assert!(!summary.contains(TASKSPACE_TOOL_FEEDBACK_MARKER));
+        assert!(!text.contains("progress_fact:"));
     }
 
     #[test]
-    fn action_contract_feedback_preserves_duplicate_rework_read_semantics() {
+    fn action_contract_feedback_preserves_duplicate_rework_read_verbatim() {
         let tool_call = ToolCall {
             tool_name: ToolName::plain("shell_command"),
             call_id: "taskspace-action-contract-19-read_file".to_string(),
@@ -6995,31 +6291,23 @@ TaskSpace implement_solution node `node-6` cannot be blocked for missing source 
         let response_item: ResponseItem = response_input.into();
         let (_, summary) = taskspace_action_contract_tool_output_summary(&response_item)
             .expect("failed action-contract output summarizes");
-        let recent = taskspace_action_contract_recent_tool_outputs_item(
-            &[response_item],
-            Some("implement_solution"),
-        )
-        .expect("recent feedback should be produced");
+        let recent = taskspace_action_contract_recent_tool_outputs_item(&[response_item])
+            .expect("recent feedback should be produced");
         let text = item_text(recent);
 
-        assert!(summary.contains("failure_kind: validation_rework_duplicate_artifact_read"));
-        assert!(summary.contains("target_artifact: process.py"));
-        assert!(summary.contains("previous_read_result: result-10"));
-        assert!(summary.contains("repair_contract: missing_required_properties=members"));
-        assert!(summary.contains("projectStatusDistribution"));
-        assert!(summary.contains("feedback_semantics: duplicate evidence only"));
-        assert!(summary.contains("available_evidence: previous_read_result `result-10`"));
-        assert!(text.contains("Earlier feedback marked a read_file as a duplicate complete read"));
+        assert!(summary.contains("already read failure artifact `process.py`"));
+        assert!(summary.contains("in result `result-10`"));
         assert!(
-            text.contains("all implement_solution state-machine-legal actions remain governed")
+            summary.contains("Validation repair contract: missing_required_properties=members")
         );
-        assert!(taskspace_message_hit_implementation_needs_edit(Some(
-            &summary
-        )));
+        assert!(summary.contains("projectStatusDistribution"));
+        assert!(text.contains("already read failure artifact `process.py`"));
+        assert!(!summary.contains("feedback_semantics:"));
+        assert!(!text.contains("progress_fact:"));
     }
 
     #[test]
-    fn action_contract_feedback_preserves_implementation_needs_edit_as_fact() {
+    fn action_contract_feedback_does_not_reinterpret_implementation_rejection() {
         let tool_call = ToolCall {
             tool_name: ToolName::plain("shell_command"),
             call_id: "taskspace-action-contract-20-read_file".to_string(),
@@ -7034,28 +6322,26 @@ TaskSpace implement_solution node `node-6` cannot be blocked for missing source 
         let response_item: ResponseItem = response_input.into();
         let (_, summary) = taskspace_action_contract_tool_output_summary(&response_item)
             .expect("failed action-contract output summarizes");
-        let recent = taskspace_action_contract_recent_tool_outputs_item(
-            &[response_item],
-            Some("implement_solution"),
-        )
-        .expect("recent feedback should be produced");
+        let recent = taskspace_action_contract_recent_tool_outputs_item(&[response_item])
+            .expect("recent feedback should be produced");
         let text = item_text(recent);
 
-        assert!(summary.contains("failure_kind: implementation_needs_edit"));
-        assert!(summary.contains("repair_contract: missing_required_properties=members"));
-        assert!(summary.contains("projectStatusDistribution"));
+        assert!(summary.contains(
+            "node_policy_violation:implement_solution:read_file:implementation_needs_edit"
+        ));
         assert!(
-            summary.contains("feedback_semantics: implementation_needs_edit is a convergence fact")
+            summary.contains("Validation repair contract: missing_required_properties=members")
         );
-        assert!(summary.contains("list_files/search/read_file"));
-        assert!(text.contains("action space remains open"));
-        assert!(taskspace_message_hit_implementation_needs_edit(Some(
-            &summary
-        )));
+        assert!(summary.contains("projectStatusDistribution"));
+        assert!(text.contains(
+            "node_policy_violation:implement_solution:read_file:implementation_needs_edit"
+        ));
+        assert!(!summary.contains("feedback_semantics:"));
+        assert!(!text.contains("progress_fact:"));
     }
 
     #[test]
-    fn taskspace_action_contract_run_test_prefixes_bare_pytest_file() {
+    fn taskspace_action_contract_run_test_preserves_bare_pytest_command() {
         let action = parse_taskspace_action_v1(
             r#"{"schema_version":"taskspace-action-v1","action":"run_test","node_id":"node-1","args":{"command":"pytest test_tax_calc.py -v"}}"#,
         )
@@ -7067,7 +6353,7 @@ TaskSpace implement_solution node `node-6` cannot be blocked for missing source 
         match call.payload {
             ToolPayload::Function { arguments } => {
                 let value: serde_json::Value = serde_json::from_str(&arguments).expect("json");
-                assert_eq!(value["command"], "pytest tests/test_tax_calc.py -v");
+                assert_eq!(value["command"], "pytest test_tax_calc.py -v");
             }
             other => panic!("expected function payload, got {other:?}"),
         }
@@ -7086,26 +6372,19 @@ TaskSpace implement_solution node `node-6` cannot be blocked for missing source 
         match call.payload {
             ToolPayload::Function { arguments } => {
                 let value: serde_json::Value = serde_json::from_str(&arguments).expect("json");
-                assert_eq!(
-                    value["command"],
-                    "python -m pytest tests/test_tax_calc.py -v"
-                );
+                assert_eq!(value["command"], "python -m pytest test_tax_calc.py -v");
             }
             other => panic!("expected function payload, got {other:?}"),
         }
     }
 
     #[test]
-    fn taskspace_action_contract_run_test_prefixes_bare_shell_script() {
+    fn taskspace_action_contract_run_test_preserves_shell_command() {
         let cases = [
-            ("./run_pipeline.sh", "bash run_pipeline.sh"),
+            ("./run_pipeline.sh", "./run_pipeline.sh"),
             (
                 "cd /app && ./run_pipeline.sh",
-                if cfg!(windows) {
-                    "cd /app; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; bash run_pipeline.sh"
-                } else {
-                    "cd /app && bash run_pipeline.sh"
-                },
+                "cd /app && ./run_pipeline.sh",
             ),
         ];
         for (input, expected) in cases {
@@ -7129,7 +6408,7 @@ TaskSpace implement_solution node `node-6` cannot be blocked for missing source 
     }
 
     #[test]
-    fn taskspace_action_contract_run_test_normalizes_powershell_and_chain() {
+    fn taskspace_action_contract_run_test_preserves_and_chain() {
         let action = parse_taskspace_action_v1(
             r#"{"schema_version":"taskspace-action-v1","action":"run_test","node_id":"node-1","args":{"command":"python merge_users.py && python -c 'print(\"ok\")'"}}"#,
         )
@@ -7141,24 +6420,17 @@ TaskSpace implement_solution node `node-6` cannot be blocked for missing source 
         match call.payload {
             ToolPayload::Function { arguments } => {
                 let value: serde_json::Value = serde_json::from_str(&arguments).expect("json");
-                if cfg!(windows) {
-                    assert_eq!(
-                        value["command"],
-                        "python merge_users.py; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; python -c 'print(\"ok\")'"
-                    );
-                } else {
-                    assert_eq!(
-                        value["command"],
-                        "python merge_users.py && python -c 'print(\"ok\")'"
-                    );
-                }
+                assert_eq!(
+                    value["command"],
+                    "python merge_users.py && python -c 'print(\"ok\")'"
+                );
             }
             other => panic!("expected function payload, got {other:?}"),
         }
     }
 
     #[test]
-    fn taskspace_action_contract_run_test_normalizes_powershell_or_chain() {
+    fn taskspace_action_contract_run_test_preserves_or_chain() {
         let command = r#"sqlite3 trunc.db ".tables" 2>&1 || echo 'sqlite3 not available, trying python'; python -c "print('fallback')""#;
         let action = parse_taskspace_action_v1(&format!(
             r#"{{"schema_version":"taskspace-action-v1","action":"run_test","node_id":"node-1","args":{{"command":{}}}}}"#,
@@ -7173,14 +6445,7 @@ TaskSpace implement_solution node `node-6` cannot be blocked for missing source 
         match call.payload {
             ToolPayload::Function { arguments } => {
                 let value: serde_json::Value = serde_json::from_str(&arguments).expect("json");
-                if cfg!(windows) {
-                    assert_eq!(
-                        value["command"],
-                        "sqlite3 trunc.db \".tables\" 2>&1; if ($LASTEXITCODE -ne 0) { echo 'sqlite3 not available, trying python' }; python -c \"print('fallback')\""
-                    );
-                } else {
-                    assert_eq!(value["command"], command);
-                }
+                assert_eq!(value["command"], command);
             }
             other => panic!("expected function payload, got {other:?}"),
         }
@@ -7709,7 +6974,6 @@ TaskSpace implement_solution node `node-6` cannot be blocked for missing source 
         .to_string();
         let action = parse_taskspace_action_v1(&raw).expect("valid json");
         let mut snapshot = provider_snapshot("implement_solution");
-        snapshot.current_node_validation_rework_artifacts = vec!["process.py".to_string()];
 
         let call = taskspace_action_to_tool_call(&action, &snapshot)
             .expect("state-machine-legal native update should dispatch for rework target")
@@ -7761,7 +7025,6 @@ TaskSpace implement_solution node `node-6` cannot be blocked for missing source 
         .to_string();
         let action = parse_taskspace_action_v1(&raw).expect("valid json");
         let mut snapshot = provider_snapshot("implement_solution");
-        snapshot.current_node_validation_rework_artifacts = vec!["process_csv.py".to_string()];
 
         let call = taskspace_action_to_tool_call(&action, &snapshot)
             .expect("mechanically actionable rework mixed patch should dispatch")
@@ -7793,7 +7056,6 @@ TaskSpace implement_solution node `node-6` cannot be blocked for missing source 
         .to_string();
         let action = parse_taskspace_action_v1(&raw).expect("valid json");
         let mut snapshot = provider_snapshot("implement_solution");
-        snapshot.current_node_validation_rework_artifacts = vec!["process.py".to_string()];
 
         let err = taskspace_action_to_tool_call(&action, &snapshot)
             .expect_err("unanchored rework target Update File must keep grammar feedback");
@@ -7814,7 +7076,6 @@ TaskSpace implement_solution node `node-6` cannot be blocked for missing source 
         .to_string();
         let action = parse_taskspace_action_v1(&raw).expect("valid json");
         let mut snapshot = provider_snapshot("implement_solution");
-        snapshot.current_node_validation_rework_artifacts = vec!["process.py".to_string()];
 
         let err = taskspace_action_to_tool_call(&action, &snapshot)
             .expect_err("placeholder range hunks are not mechanically actionable");
@@ -7835,7 +7096,6 @@ TaskSpace implement_solution node `node-6` cannot be blocked for missing source 
         .to_string();
         let action = parse_taskspace_action_v1(&raw).expect("valid json");
         let mut snapshot = provider_snapshot("implement_solution");
-        snapshot.current_node_validation_rework_artifacts = vec!["process.py".to_string()];
 
         let err = taskspace_action_to_tool_call(&action, &snapshot)
             .expect_err("placeholder ellipsis hunks are not mechanically actionable");
@@ -8939,8 +8199,6 @@ tax_calc.py\n\
     #[test]
     fn taskspace_action_contract_allows_first_validation_rework_target_read() {
         let mut snapshot = provider_snapshot("implement_solution");
-        snapshot.current_node_validation_rework_artifacts =
-            vec!["generate_organization.py".to_string()];
         let action = parse_taskspace_action_v1(
             r#"{"schema_version":"taskspace-action-v1","action":"read_file","node_id":"node-1","args":{"path":"generate_organization.py"}}"#,
         )
@@ -8956,13 +8214,10 @@ tax_calc.py\n\
     #[test]
     fn taskspace_action_contract_allows_duplicate_validation_rework_target_read() {
         let mut snapshot = provider_snapshot("implement_solution");
-        snapshot.current_node_validation_rework_artifacts =
-            vec!["generate_organization.py".to_string()];
         let action = parse_taskspace_action_v1(
             r#"{"schema_version":"taskspace-action-v1","action":"read_file","node_id":"node-1","args":{"path":"generate_organization.py"}}"#,
         )
         .expect("valid action");
-        snapshot.current_node_has_successful_edit = false;
 
         let call = taskspace_action_to_tool_call(&action, &snapshot)
             .expect("duplicate target read remains state-machine legal")
@@ -9145,289 +8400,6 @@ tax_calc.py\n\
     }
 
     #[test]
-    fn provider_budget_guidance_is_absent_before_warning_threshold() {
-        assert!(
-            build_taskspace_provider_budget_guidance_item(
-                9,
-                20,
-                0,
-                3,
-                Some("model_sampling"),
-                None,
-                None,
-                TaskspaceProviderToolVisibility::All,
-            )
-            .is_none()
-        );
-    }
-
-    #[test]
-    fn provider_budget_guidance_is_advisory_only_at_half_profile_hint() {
-        assert!(
-            build_taskspace_provider_budget_guidance_item(
-                10,
-                20,
-                0,
-                3,
-                Some("model_sampling"),
-                None,
-                None,
-                TaskspaceProviderToolVisibility::All,
-            )
-            .is_none()
-        );
-    }
-
-    #[test]
-    fn provider_budget_guidance_does_not_force_thin_implementation_priority() {
-        assert!(
-            build_taskspace_provider_budget_guidance_item(
-                15,
-                20,
-                0,
-                3,
-                Some("model_sampling"),
-                None,
-                None,
-                TaskspaceProviderToolVisibility::All,
-            )
-            .is_none()
-        );
-    }
-
-    #[test]
-    fn provider_budget_guidance_does_not_force_implementation_node_patch_order() {
-        assert!(
-            build_taskspace_provider_budget_guidance_item(
-                4,
-                20,
-                0,
-                3,
-                Some("model_sampling"),
-                Some("implement_solution"),
-                Some("node-2"),
-                TaskspaceProviderToolVisibility::All,
-            )
-            .is_none()
-        );
-    }
-
-    #[test]
-    fn provider_budget_guidance_does_not_make_inspect_control_only() {
-        assert!(
-            build_taskspace_provider_budget_guidance_item(
-                3,
-                20,
-                3,
-                3,
-                Some("budget_recovery"),
-                Some("inspect_code_context"),
-                Some("inspect_code_context"),
-                TaskspaceProviderToolVisibility::All,
-            )
-            .is_none()
-        );
-    }
-
-    #[test]
-    fn provider_budget_guidance_does_not_mark_last_dispatch_as_budget_recovery() {
-        assert!(
-            build_taskspace_provider_budget_guidance_item(
-                19,
-                20,
-                0,
-                3,
-                Some("model_sampling"),
-                None,
-                None,
-                TaskspaceProviderToolVisibility::None,
-            )
-            .is_none()
-        );
-    }
-
-    #[test]
-    fn provider_budget_does_not_hide_tools_on_final_non_synthesis_request() {
-        assert_eq!(
-            taskspace_provider_tool_visibility_for_budget(
-                19,
-                20,
-                0,
-                3,
-                Some("model_sampling"),
-                Some("inspect_code_context")
-            ),
-            TaskspaceProviderToolVisibility::All
-        );
-    }
-
-    #[test]
-    fn provider_budget_does_not_force_taskspace_control_for_late_inspect_request() {
-        assert_eq!(
-            taskspace_provider_tool_visibility_for_budget(
-                3,
-                20,
-                3,
-                3,
-                Some("budget_recovery"),
-                Some("inspect_code_context")
-            ),
-            TaskspaceProviderToolVisibility::All
-        );
-    }
-
-    #[test]
-    fn action_contract_late_inspect_allows_file_reads_past_profile_hint() {
-        let mut snapshot = provider_snapshot("inspect_code_context");
-        snapshot.request_count = 5;
-        snapshot.node_request_count = 5;
-        snapshot.max_requests = 14;
-        snapshot.max_model_requests_per_node = 4;
-        let read_file = parse_taskspace_action_v1(
-            r#"{"schema_version":"taskspace-action-v1","action":"read_file","node_id":"node-1","args":{"path":"README.md"}}"#,
-        )
-        .expect("valid action shape");
-
-        let call = taskspace_action_to_tool_call(&read_file, &snapshot)
-            .expect("late inspect should remain advisory-only")
-            .expect("read_file should execute shell_command");
-        assert_eq!(call.tool_name.name, "shell_command");
-    }
-
-    #[test]
-    fn action_contract_read_file_uses_host_platform_command() {
-        let snapshot = provider_snapshot("inspect_code_context");
-        let read_file = parse_taskspace_action_v1(
-            r#"{"schema_version":"taskspace-action-v1","action":"read_file","node_id":"node-1","args":{"path":"dir/schema file.json"}}"#,
-        )
-        .expect("valid action shape");
-
-        let call = taskspace_action_to_tool_call(&read_file, &snapshot)
-            .expect("read_file should be valid")
-            .expect("read_file should execute shell_command");
-        let ToolPayload::Function { arguments } = call.payload else {
-            panic!("expected function payload");
-        };
-        let value: serde_json::Value = serde_json::from_str(&arguments).expect("json payload");
-        let command = value["command"].as_str().expect("command");
-        if cfg!(windows) {
-            assert!(command.starts_with("Get-Content -LiteralPath "));
-            assert!(command.contains("-TotalCount 240"));
-            assert!(command.contains("TaskSpaceReadFileSummaryV1"));
-            assert!(command.contains("eof_reached=$TaskSpaceReadEof"));
-        } else {
-            assert!(command.starts_with("sed -n "));
-            assert!(command.contains("1,240p"));
-            assert!(command.contains(" -- "));
-            assert!(command.contains("'dir/schema file.json'"));
-            assert!(command.contains("&& awk "));
-            assert!(command.contains("TaskSpaceReadFileSummaryV1"));
-            assert!(command.contains("eof_reached=%s"));
-            assert!(!command.contains("Get-Content"));
-        }
-    }
-
-    #[test]
-    fn action_contract_read_file_uses_structured_preview_for_parquet() {
-        let snapshot = provider_snapshot("inspect_code_context");
-        let read_file = parse_taskspace_action_v1(
-            r#"{"schema_version":"taskspace-action-v1","action":"read_file","node_id":"node-1","args":{"path":"data/source_c/users.parquet"}}"#,
-        )
-        .expect("valid action shape");
-
-        let call = taskspace_action_to_tool_call(&read_file, &snapshot)
-            .expect("read_file should be valid")
-            .expect("read_file should execute shell_command");
-        let ToolPayload::Function { arguments } = call.payload else {
-            panic!("expected function payload");
-        };
-        let value: serde_json::Value = serde_json::from_str(&arguments).expect("json payload");
-        let command = value["command"].as_str().expect("command");
-
-        assert!(command.contains("TaskSpaceStructuredFilePreviewV1"));
-        assert!(command.contains("format=parquet"));
-        assert!(command.contains("TaskSpaceReadFileSummaryV1"));
-        assert!(command.contains("structured_preview=true"));
-        assert!(command.contains("raise SystemExit(1)"));
-        assert!(command.contains("data/source_c/users.parquet"));
-        assert!(!command.contains("sed -n 1,240p"));
-    }
-
-    #[test]
-    fn action_contract_static_text_exposes_structured_file_reads() {
-        let text = taskspace_static_action_contract_instructions();
-
-        assert!(text.contains("read_file args"));
-        assert!(text.contains(".parquet"));
-        assert!(text.contains("bounded rows/schema"));
-        assert!(text.contains("create_node args include"));
-        assert!(text.contains("finish_node args include"));
-        assert!(text.contains("next_node_kind"));
-    }
-
-    #[test]
-    fn provider_budget_does_not_reduce_tools_for_implementation_request() {
-        assert_eq!(
-            taskspace_provider_tool_visibility_for_budget(
-                15,
-                20,
-                0,
-                3,
-                Some("model_sampling"),
-                Some("implement_solution")
-            ),
-            TaskspaceProviderToolVisibility::All
-        );
-    }
-
-    #[test]
-    fn provider_budget_does_not_reduce_tools_for_normal_model_sampling() {
-        assert_eq!(
-            taskspace_provider_tool_visibility_for_budget(
-                1,
-                20,
-                0,
-                3,
-                Some("model_sampling"),
-                Some("inspect_code_context")
-            ),
-            TaskspaceProviderToolVisibility::All
-        );
-    }
-
-    #[test]
-    fn provider_budget_keeps_tools_for_final_synthesis() {
-        assert_eq!(
-            taskspace_provider_tool_visibility_for_budget(
-                19,
-                20,
-                0,
-                3,
-                Some("final_synthesis"),
-                Some("final_synthesis")
-            ),
-            TaskspaceProviderToolVisibility::All
-        );
-    }
-
-    #[test]
-    fn provider_budget_guidance_does_not_override_final_synthesis() {
-        assert!(
-            build_taskspace_provider_budget_guidance_item(
-                19,
-                20,
-                0,
-                3,
-                Some("final_synthesis"),
-                Some("final_synthesis"),
-                Some("final_synthesis"),
-                TaskspaceProviderToolVisibility::All,
-            )
-            .is_none()
-        );
-    }
-
-    #[test]
     fn active_context_replacement_does_not_inject_provider_budget_guidance() {
         let active_projection = format!(
             "{TASKSPACE_ACTIVE_PROFILE_MARKER}\n{TASKSPACE_ACTIVE_PROJECTION_MARKER}\nactive_objective: fix the bug"
@@ -9586,11 +8558,8 @@ next_valid_actions:\n\
             ),
         );
 
-        let recent = taskspace_action_contract_recent_tool_outputs_item(
-            &[response_item],
-            Some("implement_solution"),
-        )
-        .expect("recent feedback should be produced");
+        let recent = taskspace_action_contract_recent_tool_outputs_item(&[response_item])
+            .expect("recent feedback should be produced");
         let text = item_text(recent);
 
         assert!(text.contains("[truncated]"));
@@ -10301,18 +9270,18 @@ python: can't open file '/workspace/process.py': [Errno 2] No such file or direc
         );
         let response_input = response_input_for_taskspace_action_tool_error(&tool_call, &err);
         let response_item: ResponseItem = response_input.into();
-        let recent = taskspace_action_contract_recent_tool_outputs_item(&[response_item], None)
+        let recent = taskspace_action_contract_recent_tool_outputs_item(&[response_item])
             .expect("recent feedback should be produced");
         let text = item_text(recent);
 
-        assert!(text.contains("high-signal inspected evidence is still uncovered"));
+        assert!(text.contains("high-signal inspected evidence remains uncovered"));
         assert!(text.contains("generate_report.sh"));
-        assert!(text.contains("hard_state: mandatory_inspected_evidence_uncovered_by_edit_result"));
-        assert!(!text.contains("Action-space source of truth"));
+        assert!(!text.contains("hard_state:"));
+        assert!(!text.contains("progress_fact:"));
     }
 
     #[test]
-    fn action_contract_control_normalizes_block_node_snapshot_fields() {
+    fn action_contract_control_keeps_block_node_fields_verbatim() {
         let snapshot = provider_snapshot("smoke_test");
         let args = serde_json::json!({
             "action": "block_node",
@@ -10320,19 +9289,15 @@ python: can't open file '/workspace/process.py': [Errno 2] No such file or direc
         });
 
         let normalized = normalize_taskspace_action_contract_control_args(&args, Some(&snapshot))
-            .expect("block node args should normalize");
+            .expect("block node args should remain structurally valid");
 
-        assert_eq!(normalized["action"], "block_node");
-        assert_eq!(normalized["node_id"], "node-1");
-        assert_eq!(
-            normalized["blocker_summary"],
-            "validation failed with IndentationError"
-        );
-        assert!(normalized.get("reason").is_none());
+        assert_eq!(normalized, args);
+        assert!(normalized.get("node_id").is_none());
+        assert!(normalized.get("blocker_summary").is_none());
     }
 
     #[test]
-    fn action_contract_control_rewrites_failed_validation_finish_to_block() {
+    fn action_contract_control_keeps_failed_validation_finish_verbatim() {
         let snapshot = provider_snapshot("smoke_test");
         let args = serde_json::json!({
             "action": "finish_node",
@@ -10345,18 +9310,13 @@ python: can't open file '/workspace/process.py': [Errno 2] No such file or direc
         });
 
         let normalized = normalize_taskspace_action_contract_control_args(&args, Some(&snapshot))
-            .expect("failed validation finish should normalize");
+            .expect("failed validation finish should remain structurally valid");
 
-        assert_eq!(normalized["action"], "block_node");
-        assert_eq!(normalized["node_id"], "node-1");
-        assert_eq!(
-            normalized["blocker_summary"],
-            "Test failed because merge_users.py used the wrong data path."
-        );
+        assert_eq!(normalized, args);
     }
 
     #[test]
-    fn action_contract_control_normalizes_create_node_aliases() {
+    fn action_contract_control_does_not_rewrite_create_node_fields() {
         let args = serde_json::json!({
             "action": "create_node",
             "node_kind": "implement_solution",
@@ -10366,21 +9326,13 @@ python: can't open file '/workspace/process.py': [Errno 2] No such file or direc
         });
 
         let normalized = normalize_taskspace_action_contract_control_args(&args, None)
-            .expect("create node args should normalize");
+            .expect("create node args should remain structurally valid");
 
-        assert_eq!(normalized["action"], "create_node");
-        assert_eq!(normalized["kind"], "implement_solution");
-        assert_eq!(normalized["title"], "Fix failed validation");
-        assert_eq!(
-            normalized["context_summary"],
-            "Patch merge_users.py after smoke_test failure"
-        );
-        assert!(normalized.get("node_kind").is_none());
-        assert!(normalized.get("description").is_none());
+        assert_eq!(normalized, args);
     }
 
     #[test]
-    fn action_contract_control_defaults_create_node_title_and_bind_when_no_active_node() {
+    fn action_contract_control_does_not_default_create_node_fields() {
         let mut snapshot = provider_snapshot("unknown");
         snapshot.node_id = None;
         snapshot.node_kind = None;
@@ -10391,22 +9343,16 @@ python: can't open file '/workspace/process.py': [Errno 2] No such file or direc
         });
 
         let normalized = normalize_taskspace_action_contract_control_args(&args, Some(&snapshot))
-            .expect("create node args should normalize");
+            .expect("create node args should remain structurally valid");
 
-        assert_eq!(normalized["action"], "create_node");
-        assert_eq!(normalized["kind"], "inspect_code_context");
-        assert_eq!(normalized["title"], "Inspect source files");
-        assert!(
-            normalized["context_summary"]
-                .as_str()
-                .expect("context summary")
-                .contains("Inspect source files")
-        );
-        assert_eq!(normalized["bind_current"], true);
+        assert_eq!(normalized, args);
+        assert!(normalized.get("title").is_none());
+        assert!(normalized.get("context_summary").is_none());
+        assert!(normalized.get("bind_current").is_none());
     }
 
     #[test]
-    fn action_contract_control_rewrites_bind_node_without_id_to_create_node() {
+    fn action_contract_control_does_not_rewrite_bind_node_intent() {
         let mut snapshot = provider_snapshot("unknown");
         snapshot.node_id = None;
         snapshot.node_kind = None;
@@ -10417,12 +9363,11 @@ python: can't open file '/workspace/process.py': [Errno 2] No such file or direc
         });
 
         let normalized = normalize_taskspace_action_contract_control_args(&args, Some(&snapshot))
-            .expect("bind node args should normalize to create node");
+            .expect("bind node args should remain structurally valid");
 
-        assert_eq!(normalized["action"], "create_node");
-        assert_eq!(normalized["kind"], "inspect_code_context");
-        assert_eq!(normalized["title"], "inspect_sources");
-        assert_eq!(normalized["bind_current"], true);
+        assert_eq!(normalized, args);
+        assert_eq!(normalized["action"], "bind_node");
+        assert!(normalized.get("node_id").is_none());
     }
 
     #[test]
@@ -10618,118 +9563,6 @@ TaskSpaceGateRecoveryV1: {\"schema_version\":\"TaskSpaceGateRecoveryV1\",\"allow
     }
 
     #[test]
-    fn provider_budget_hard_stop_item_is_terminal_recovery_guidance() {
-        let mut snapshot = provider_snapshot("inspect_code_context");
-        snapshot.request_count = 8;
-        snapshot.max_requests = 8;
-        snapshot.node_request_count = 3;
-        snapshot.max_model_requests_per_node = 3;
-        snapshot.budget_state = "over_profile_hint".to_string();
-        let mut state = crate::action_map::ActionMapRuntimeState::default();
-        let mut decision =
-            state.gate_create_node_budget("map-1", crate::action_map::NodeKind::InspectCodeContext);
-        decision.allowed = false;
-        decision.reason = "provider_request_hard_limit_exceeded".to_string();
-        decision.blocking_items = vec![
-            "current_node:node-1".to_string(),
-            "request_count:8/8".to_string(),
-            "node_request_count:3/3".to_string(),
-        ];
-        decision.next_valid_actions = vec!["stop provider sampling for this turn".to_string()];
-        decision.recovery_request_phase = Some("budget_recovery".to_string());
-        decision.quality_impact_required = true;
-
-        let item = build_taskspace_provider_budget_hard_stop_item(&snapshot, &decision);
-        let text = item_text(item.clone());
-
-        assert!(text.contains(TASKSPACE_PROVIDER_BUDGET_HARD_STOP_MARKER));
-        assert!(text.contains("reason: provider_request_hard_limit_exceeded"));
-        assert!(text.contains("request_count: 8/8"));
-        assert!(text.contains("node_request_count: 3/3"));
-        assert!(text.contains("Do not send another provider request for this turn"));
-        assert!(is_taskspace_provider_budget_hard_stop_item(&item));
-        assert!(!is_taskspace_no_action_recovery_item(&item));
-        assert!(!is_taskspace_implement_needs_edit_recovery_item(&item));
-        assert!(
-            taskspace_special_recovery_warning_message(&item)
-                .contains("current turn will stop without another model request")
-        );
-    }
-
-    #[test]
-    fn provider_budget_limit_reached_detects_rollout_limit_only() {
-        let mut snapshot = provider_snapshot("inspect_code_context");
-
-        assert!(!taskspace_provider_budget_limit_reached(&snapshot));
-
-        snapshot.request_count = snapshot.max_requests;
-        assert!(taskspace_provider_budget_limit_reached(&snapshot));
-
-        snapshot.request_count = 1;
-        snapshot.node_request_count = snapshot.max_model_requests_per_node;
-        assert!(!taskspace_provider_budget_limit_reached(&snapshot));
-
-        snapshot.max_requests = 0;
-        snapshot.max_model_requests_per_node = 0;
-        assert!(!taskspace_provider_budget_limit_reached(&snapshot));
-    }
-
-    #[test]
-    fn actionable_feedback_at_rollout_limit_requests_budget_recovery_followup() {
-        let mut snapshot = provider_snapshot("implement_solution");
-        snapshot.request_count = snapshot.max_requests;
-        snapshot.post_budget_grace_request_count = 0;
-        snapshot.post_budget_grace_requests = 1;
-
-        assert!(taskspace_feedback_needs_budget_recovery_followup(
-            &snapshot, true, true, None
-        ));
-        assert!(!taskspace_feedback_needs_budget_recovery_followup(
-            &snapshot, false, true, None
-        ));
-        assert!(!taskspace_feedback_needs_budget_recovery_followup(
-            &snapshot, true, false, None
-        ));
-
-        snapshot.post_budget_grace_request_count = 1;
-        assert!(!taskspace_feedback_needs_budget_recovery_followup(
-            &snapshot, true, true, None
-        ));
-
-        snapshot.post_budget_grace_request_count = 0;
-        snapshot.request_count = snapshot.max_requests.saturating_sub(1);
-        assert!(!taskspace_feedback_needs_budget_recovery_followup(
-            &snapshot, true, true, None
-        ));
-    }
-
-    #[test]
-    fn state_machine_rejection_at_rollout_limit_requests_budget_recovery_followup() {
-        let mut snapshot = provider_snapshot("inspect_code_context");
-        snapshot.request_count = snapshot.max_requests;
-        snapshot.post_budget_grace_request_count = 0;
-        snapshot.post_budget_grace_requests = 1;
-        let rejection = Some(
-            "TaskSpaceActionV1 rejected: node_policy_violation:inspect_code_context:apply_patch. Return exactly one valid taskspace-action-v1 JSON object.",
-        );
-
-        assert!(taskspace_feedback_needs_budget_recovery_followup(
-            &snapshot, true, false, rejection,
-        ));
-        assert!(!taskspace_feedback_needs_budget_recovery_followup(
-            &snapshot, false, false, rejection,
-        ));
-        assert!(!taskspace_feedback_needs_budget_recovery_followup(
-            &snapshot, true, false, None,
-        ));
-
-        snapshot.post_budget_grace_request_count = 1;
-        assert!(!taskspace_feedback_needs_budget_recovery_followup(
-            &snapshot, true, false, rejection,
-        ));
-    }
-
-    #[test]
     fn validation_rework_duplicate_read_remains_recoverable_after_one_recovery() {
         let last_message = "TaskSpace blocked this read because validation rework node `node-4` already read failure artifact `generate_org.py` in result `result-11` and no successful edit has been recorded after that read. The previous complete read result remains available as duplicate evidence; choose any state-machine-legal action using the visible facts, or record blocked with the exact blocker. Validation repair contract: missing_required_properties=members, averageDepartmentBudget | target_artifacts=generate_org.py\nTaskSpaceGateRecoveryV1: {\"schema_version\":\"TaskSpaceGateRecoveryV1\",\"allowed\":false,\"reason\":\"validation_rework_duplicate_artifact_read\",\"next_valid_actions\":[\"reuse `result-11` or choose another state-machine-legal action\"]}";
         let recovery = build_taskspace_validation_rework_duplicate_read_recovery_item(
@@ -10819,28 +9652,6 @@ TaskSpaceGateRecoveryV1: {\"schema_version\":\"TaskSpaceGateRecoveryV1\",\"allow
 
         assert!(extracted.contains(TASKSPACE_GATE_RECOVERY_MARKER));
         assert!(extracted.contains("run python recover_logs.py"));
-    }
-
-    #[test]
-    fn extracts_projection_sync_from_recovery_message_gate_recovery() {
-        let item = message(
-            "developer",
-            "TaskSpaceValidationNodeFeedbackV1:\nTaskSpaceGateRecoveryV1: {\"schema_version\":\"TaskSpaceGateRecoveryV1\",\"allowed\":false,\"reason\":\"validation_test_missing_output_contract_coverage\",\"next_valid_actions\":[\"run_test with command `python generate_json.py && python -m jsonschema -i organization.json schema.json`\"]}",
-        );
-
-        let sync = taskspace_gate_recovery_projection_sync_from_item(&item)
-            .expect("message recovery should expose gate recovery projection sync");
-
-        assert_eq!(
-            sync.reason.as_deref(),
-            Some("validation_test_missing_output_contract_coverage")
-        );
-        assert_eq!(
-            sync.next_valid_actions,
-            vec![
-                "run_test with command `python generate_json.py && python -m jsonschema -i organization.json schema.json`",
-            ]
-        );
     }
 
     #[test]
@@ -10944,38 +9755,6 @@ TaskSpaceGateRecoveryV1: {\"schema_version\":\"TaskSpaceGateRecoveryV1\",\"allow
     }
 
     #[test]
-    fn no_action_recovery_cap_allows_inspect_and_implement_retries() {
-        assert_eq!(
-            taskspace_no_action_recovery_cap_for_node_kind("inspect_code_context"),
-            3
-        );
-        assert_eq!(
-            taskspace_no_action_recovery_cap_for_node_kind("implement_solution"),
-            3
-        );
-        assert_eq!(
-            taskspace_no_action_recovery_cap_for_node_kind("smoke_test"),
-            1
-        );
-    }
-
-    #[test]
-    fn budget_pressure_follow_up_intent_forces_late_implementation_follow_up() {
-        assert!(taskspace_budget_pressure_follow_up_intent(
-            32,
-            40,
-            Some("implement_solution"),
-            Some("Let me check the environment and verify the exact problems."),
-        ));
-        assert!(!taskspace_budget_pressure_follow_up_intent(
-            19,
-            40,
-            Some("implement_solution"),
-            Some("Let me check the environment."),
-        ));
-    }
-
-    #[test]
     fn provider_response_actionability_classifies_final_gate_rejection_as_recovery() {
         let classification = classify_taskspace_provider_response_actionability(
             true, false, true, false, false, true, false,
@@ -10990,17 +9769,26 @@ TaskSpaceGateRecoveryV1: {\"schema_version\":\"TaskSpaceGateRecoveryV1\",\"allow
     }
 
     #[test]
-    fn provider_response_actionability_does_not_imply_developer_recovery() {
-        let classification = classify_taskspace_provider_response_actionability(
-            true, false, true, false, false, true, false,
+    fn final_gate_rejection_item_is_provider_visible_mechanical_feedback() {
+        let active_projection = message(
+            "developer",
+            &format!(
+                "{TASKSPACE_ACTIVE_PROFILE_MARKER}\n{TASKSPACE_ACTIVE_PROJECTION_MARKER}\ncurrent_node: node-1 kind=inspect_code_context status=running"
+            ),
         );
-        let recovery_item = None;
+        let rejection = taskspace_final_answer_gate_rejection_item(
+            "TaskSpace final response is unavailable while node `node-1` is running. hard_state: active_node_open.",
+        )
+        .expect("rejection item");
 
-        assert!(classification.needs_recovery());
-        assert_eq!(
-            taskspace_provider_response_recovery_action(&recovery_item),
-            "none"
-        );
+        let composition = compose_provider_visible_history(vec![active_projection, rejection]);
+        let joined = item_texts(&composition.items).join("\n");
+
+        assert!(joined.contains("TaskSpaceFinalAnswerRejectedV1"));
+        assert!(joined.contains("hard_state: active_node_open"));
+        assert!(joined.contains("TaskSpace state is unchanged"));
+        assert!(!joined.contains("next action"));
+        assert!(!joined.contains("must call"));
     }
 
     #[test]
@@ -11091,96 +9879,6 @@ TaskSpaceGateRecoveryV1: {\"schema_version\":\"TaskSpaceGateRecoveryV1\",\"allow
             TaskspaceProviderResponseActionability::FinalCandidate
         );
         assert!(!classification.needs_recovery());
-    }
-
-    #[test]
-    fn budget_pressure_follow_up_intent_forces_late_inspect_follow_up() {
-        assert!(taskspace_budget_pressure_follow_up_intent(
-            30,
-            40,
-            Some("inspect_code_context"),
-            Some("Now I have enough context. Let me run the pipeline.")
-        ));
-        assert!(!taskspace_budget_pressure_follow_up_intent(
-            19,
-            40,
-            Some("inspect_code_context"),
-            Some("Let me run the pipeline.")
-        ));
-        assert!(!taskspace_budget_pressure_follow_up_intent(
-            19,
-            40,
-            Some("implement_solution"),
-            Some("Let me run the pipeline.")
-        ));
-    }
-
-    #[test]
-    fn budget_pressure_follow_up_intent_forces_repeated_inspect_reads() {
-        assert!(taskspace_budget_pressure_follow_up_intent(
-            10,
-            20,
-            Some("inspect_code_context"),
-            Some("Read generator.log to understand data structure and verify 30 events"),
-        ));
-        assert!(!taskspace_budget_pressure_follow_up_intent(
-            9,
-            20,
-            Some("inspect_code_context"),
-            Some("Read generator.log to understand data structure and verify 30 events"),
-        ));
-    }
-
-    #[test]
-    fn budget_pressure_follow_up_intent_ignores_chinese_test_intent() {
-        assert!(!taskspace_budget_pressure_follow_up_intent(
-            3,
-            6,
-            Some("inspect_code_context"),
-            Some(
-                "\u{6211}\u{5df2}\u{7ecf}\u{770b}\u{5230}\u{4e86}\u{95ee}\u{9898}\u{6240}\u{5728}\u{3002}\u{5148}\u{8dd1}\u{6d4b}\u{8bd5}\u{786e}\u{8ba4}\u{5f53}\u{524d}\u{5931}\u{8d25}\u{3002}",
-            )
-        ));
-    }
-
-    #[test]
-    fn budget_pressure_silent_action_does_not_force_transition() {
-        assert!(
-            !taskspace_budget_pressure_silent_action_requires_transition(
-                4,
-                8,
-                Some("inspect_code_context"),
-                false,
-                true
-            )
-        );
-        assert!(
-            !taskspace_budget_pressure_silent_action_requires_transition(
-                3,
-                8,
-                Some("inspect_code_context"),
-                false,
-                true
-            )
-        );
-        assert!(
-            !taskspace_budget_pressure_silent_action_requires_transition(
-                4,
-                8,
-                Some("implement_solution"),
-                false,
-                true
-            )
-        );
-        assert!(
-            !taskspace_budget_pressure_silent_action_requires_transition(
-                6,
-                8,
-                Some("implement_solution"),
-                false,
-                true
-            )
-        );
     }
 
     #[test]
@@ -11359,7 +10057,7 @@ TaskSpaceGateRecoveryV1: {\"schema_version\":\"TaskSpaceGateRecoveryV1\",\"allow
         assert_eq!(prepared.len(), 2);
         assert!(joined.contains(TASKSPACE_ACTIVE_THIN_PROJECTION_MARKER));
         assert!(joined.contains(TASKSPACE_ACTIVE_PROJECTION_MARKER));
-        assert!(joined.contains("TaskSpaceAgentContextBundleV1:"));
+        assert!(!joined.contains("TaskSpaceAgentContextBundleV1:"));
         assert!(joined.contains("Preserve the current bug-fix requirement."));
         assert!(!joined.contains("Bootstrap status: no TaskSpace task exists"));
         assert!(!joined.contains("TaskSpace mode is now active."));
@@ -11388,7 +10086,7 @@ TaskSpaceGateRecoveryV1: {\"schema_version\":\"TaskSpaceGateRecoveryV1\",\"allow
     }
 
     #[test]
-    fn active_context_replacement_omits_paired_call_when_tool_output_is_replaced() {
+    fn active_context_replacement_preserves_current_gate_feedback_pair() {
         let active_projection = format!(
             "{TASKSPACE_ACTIVE_PROFILE_MARKER}\n{TASKSPACE_ACTIVE_PROJECTION_MARKER}\nactive_objective: fix the bug"
         );
@@ -11397,7 +10095,7 @@ TaskSpaceGateRecoveryV1: {\"schema_version\":\"TaskSpaceGateRecoveryV1\",\"allow
             tool_call("shell_command", "blocked-call"),
             tool_output_with_call_id(
                 "blocked-call",
-                "TaskSpace blocked this tool call.\nTaskSpaceGateRecoveryV1: retry with inspect_code_context",
+                "TaskSpace blocked this tool call.\nTaskSpaceGateRecoveryV1: {\"allowed\":false,\"gate_class\":\"state_machine\",\"reason\":\"current_node_binding_missing\"}",
             ),
             message("user", "Keep the direct user requirement."),
         ];
@@ -11406,22 +10104,20 @@ TaskSpaceGateRecoveryV1: {\"schema_version\":\"TaskSpaceGateRecoveryV1\",\"allow
         let texts = item_texts(&composition.items);
         let joined = texts.join("\n");
 
-        assert!(!composition.items.iter().any(|item| matches!(
+        assert!(composition.items.iter().any(|item| matches!(
             item,
             ResponseItem::FunctionCall { call_id, .. }
                 if call_id == "blocked-call"
         )));
-        assert!(!joined.contains("TaskSpaceGateRecoveryV1"));
+        assert!(joined.contains("TaskSpaceGateRecoveryV1"));
         assert!(joined.contains("Keep the direct user requirement."));
         assert_eq!(
             composition.decisions[1].action,
-            ProviderVisibleHistoryAction::Omit(
-                "paired_tool_call_or_output_replaced_by_active_projection"
-            )
+            ProviderVisibleHistoryAction::Include
         );
         assert_eq!(
             composition.decisions[2].action,
-            ProviderVisibleHistoryAction::Omit("legacy_taskspace_tool_output_replaced")
+            ProviderVisibleHistoryAction::Include
         );
     }
 
@@ -11720,8 +10416,6 @@ success_criteria:\n\
 struct SamplingRequestResult {
     needs_follow_up: bool,
     last_agent_message: Option<String>,
-    taskspace_no_action_recovery_item: Option<ResponseItem>,
-    path_correction_cleared_this_request: bool,
 }
 
 /// Ephemeral per-response state for streaming a single proposed plan.
@@ -13559,47 +12253,6 @@ fn rewrite_taskspace_apply_patch_unique_update_paths(patch: &str) -> String {
     }
 }
 
-fn taskspace_apply_patch_missing_mandatory_targets(
-    patch: &str,
-    snapshot: &crate::action_map::ActionMapProviderRequestBudgetSnapshot,
-) -> Option<Vec<String>> {
-    let required = taskspace_uncovered_mandatory_artifacts(snapshot);
-    if required.is_empty() {
-        return None;
-    }
-    let patch_targets = taskspace_apply_patch_declared_targets(patch)
-        .into_iter()
-        .map(|target| normalize_taskspace_patch_target_key(&target))
-        .collect::<HashSet<_>>();
-    let missing = required
-        .into_iter()
-        .filter(|target| {
-            let required_key = normalize_taskspace_patch_target_key(target);
-            !patch_targets.iter().any(|patch_target| {
-                taskspace_patch_target_covers_required(patch_target, &required_key)
-            })
-        })
-        .collect::<Vec<_>>();
-    (!missing.is_empty()).then_some(missing)
-}
-
-fn taskspace_uncovered_mandatory_artifacts(
-    snapshot: &crate::action_map::ActionMapProviderRequestBudgetSnapshot,
-) -> Vec<String> {
-    snapshot
-        .current_node_uncovered_mandatory_evidence
-        .iter()
-        .filter_map(|item| {
-            item.split_once(" (")
-                .map(|(artifact, _)| artifact)
-                .or(Some(item))
-        })
-        .map(str::trim)
-        .filter(|artifact| !artifact.is_empty())
-        .map(str::to_string)
-        .collect::<Vec<_>>()
-}
-
 fn taskspace_apply_patch_declared_targets(patch: &str) -> Vec<String> {
     let mut targets = Vec::new();
     for line in patch.lines() {
@@ -13611,19 +12264,6 @@ fn taskspace_apply_patch_declared_targets(patch: &str) -> Vec<String> {
             && !target.is_empty()
             && !targets.iter().any(|existing| existing == target)
         {
-            targets.push(target.to_string());
-        }
-    }
-    targets
-}
-
-fn taskspace_apply_patch_update_file_targets(patch: &str) -> Vec<String> {
-    let mut targets = Vec::new();
-    for line in patch.lines() {
-        let Some(target) = line.strip_prefix("*** Update File: ").map(str::trim) else {
-            continue;
-        };
-        if !target.is_empty() && !targets.iter().any(|existing| existing == target) {
             targets.push(target.to_string());
         }
     }
@@ -13662,55 +12302,6 @@ fn taskspace_apply_patch_misordered_begin_targets(patch: &str) -> Vec<String> {
         vec!["(missing patch target)".to_string()]
     } else {
         targets
-    }
-}
-
-fn taskspace_current_validation_rework_targets(
-    targets: &[String],
-    snapshot: &crate::action_map::ActionMapProviderRequestBudgetSnapshot,
-) -> Vec<String> {
-    if snapshot.node_kind.as_deref() != Some("implement_solution")
-        || snapshot.current_node_validation_rework_artifacts.is_empty()
-    {
-        return Vec::new();
-    }
-    targets
-        .iter()
-        .filter(|target| {
-            snapshot
-                .current_node_validation_rework_artifacts
-                .iter()
-                .any(|artifact| artifact == *target)
-        })
-        .cloned()
-        .collect()
-}
-
-fn taskspace_validation_rework_update_file_mechanically_actionable_patch(
-    patch: &str,
-    snapshot: &crate::action_map::ActionMapProviderRequestBudgetSnapshot,
-) -> Option<String> {
-    let rework_targets = taskspace_current_validation_rework_targets(
-        &taskspace_apply_patch_update_file_targets(patch),
-        snapshot,
-    );
-    if rework_targets.is_empty() {
-        return None;
-    }
-    if !taskspace_apply_patch_placeholder_range_hunk_targets(patch).is_empty() {
-        return None;
-    }
-
-    let normalized = normalize_taskspace_unified_diff_patch(patch)
-        .unwrap_or_else(|| normalize_taskspace_apply_patch(patch));
-    if taskspace_apply_patch_native_hunk_header_targets(&normalized).is_empty()
-        && taskspace_apply_patch_mixed_native_unified_targets(&normalized).is_empty()
-        && taskspace_apply_patch_unanchored_update_targets(&normalized).is_empty()
-        && taskspace_apply_patch_placeholder_range_hunk_targets(&normalized).is_empty()
-    {
-        Some(normalized)
-    } else {
-        None
     }
 }
 
@@ -13891,18 +12482,6 @@ fn taskspace_apply_patch_unanchored_update_targets(patch: &str) -> Vec<String> {
     targets
 }
 
-fn normalize_taskspace_patch_target_key(target: &str) -> String {
-    target
-        .trim()
-        .trim_start_matches("./")
-        .replace('\\', "/")
-        .to_ascii_lowercase()
-}
-
-fn taskspace_patch_target_covers_required(patch_target: &str, required: &str) -> bool {
-    patch_target == required || patch_target.ends_with(&format!("/{required}"))
-}
-
 fn resolve_unique_existing_relative_path_from(root: &Path, path: &str) -> Option<String> {
     if path.is_empty() || root.join(path).exists() {
         return None;
@@ -14024,13 +12603,6 @@ fn taskspace_action_to_tool_call_with_sequence_index(
     if action_name == "final_answer" {
         return Ok(None);
     }
-    if !taskspace_action_allowed_for_node(action_name, snapshot.node_kind.as_deref()) {
-        return Err(format!(
-            "node_policy_violation:{}:{}",
-            snapshot.node_kind.as_deref().unwrap_or("unknown"),
-            action_name
-        ));
-    }
     if let (Some(expected), Some(actual)) = (snapshot.node_id.as_deref(), action.node_id.as_deref())
         && expected != actual
     {
@@ -14088,14 +12660,6 @@ fn taskspace_action_to_tool_call_with_sequence_index(
         "apply_patch" => {
             let raw_patch = taskspace_action_arg_string(args, "patch")
                 .ok_or_else(|| "missing_apply_patch_patch".to_string())?;
-            let mechanically_actionable_rework_patch =
-                taskspace_validation_rework_update_file_mechanically_actionable_patch(
-                    &raw_patch, snapshot,
-                );
-            let mut patch = mechanically_actionable_rework_patch
-                .clone()
-                .unwrap_or_else(|| raw_patch.clone());
-            let allow_rework_update_file = mechanically_actionable_rework_patch.is_some();
             let misordered_begin_targets =
                 taskspace_apply_patch_misordered_begin_targets(&raw_patch);
             if !misordered_begin_targets.is_empty() {
@@ -14139,10 +12703,8 @@ fn taskspace_action_to_tool_call_with_sequence_index(
                     placeholder_range_hunk_targets.join(",")
                 ));
             }
-            if !allow_rework_update_file {
-                patch = normalize_taskspace_unified_diff_patch(&raw_patch)
-                    .unwrap_or_else(|| normalize_taskspace_apply_patch(&raw_patch));
-            }
+            let patch = normalize_taskspace_unified_diff_patch(&raw_patch)
+                .unwrap_or_else(|| normalize_taskspace_apply_patch(&raw_patch));
             let native_hunk_header_targets =
                 taskspace_apply_patch_native_hunk_header_targets(&patch);
             if !native_hunk_header_targets.is_empty() {
@@ -14174,14 +12736,6 @@ fn taskspace_action_to_tool_call_with_sequence_index(
                     unanchored_update_targets.join(",")
                 ));
             }
-            if let Some(missing_targets) =
-                taskspace_apply_patch_missing_mandatory_targets(&patch, snapshot)
-            {
-                return Err(format!(
-                    "apply_patch_missing_mandatory_evidence_targets:{}",
-                    missing_targets.join(",")
-                ));
-            }
             Ok(Some(ToolCall {
                 tool_name: ToolName::plain("apply_patch"),
                 call_id,
@@ -14191,7 +12745,6 @@ fn taskspace_action_to_tool_call_with_sequence_index(
         "run_test" => {
             let command = taskspace_action_arg_string(args, "command")
                 .ok_or_else(|| "missing_run_test_command".to_string())?;
-            let command = normalize_taskspace_action_contract_test_command(&command);
             let arguments = serde_json::json!({
                 "command": command,
                 "timeout_ms": taskspace_action_arg_u64(args, "timeout_ms", 120000),
@@ -14219,10 +12772,15 @@ fn taskspace_action_to_tool_call_with_sequence_index(
                     root.entry("action".to_string())
                         .or_insert_with(|| serde_json::Value::String(control_action.to_string()));
                 }
-                normalize_taskspace_start_task_rationale_into_objective(
-                    &mut normalized,
-                    action.rationale.as_deref(),
-                );
+                if let (Some(root), Some(node_id)) =
+                    (normalized.as_object_mut(), action.node_id.as_deref())
+                    && !root.contains_key("node_id")
+                {
+                    root.insert(
+                        "node_id".to_string(),
+                        serde_json::Value::String(node_id.to_string()),
+                    );
+                }
                 normalized
             };
             let arguments =
@@ -14361,22 +12919,13 @@ fn taskspace_action_contract_visible_text(raw_text: &str) -> Option<String> {
 
 fn normalize_taskspace_action_contract_control_args(
     args: &serde_json::Value,
-    snapshot: Option<&crate::action_map::ActionMapProviderRequestBudgetSnapshot>,
+    _snapshot: Option<&crate::action_map::ActionMapProviderRequestBudgetSnapshot>,
 ) -> Result<serde_json::Value, String> {
     let mut normalized = args.clone();
     let Some(root) = normalized.as_object_mut() else {
         return Err(TASKSPACE_CONTROL_ARGS_NOT_OBJECT_ERROR.to_string());
     };
-    let inner_action = canonicalize_taskspace_control_action_arg(root)?;
-    if inner_action == "state_commit" {
-        normalize_taskspace_action_contract_state_commit_args(root, snapshot);
-        return Ok(normalized);
-    }
-    if inner_action == "record_fact" {
-        normalize_taskspace_action_contract_record_fact_as_state_commit(root, snapshot);
-        return Ok(normalized);
-    }
-    normalize_taskspace_action_contract_lifecycle_args(root, &inner_action, snapshot);
+    canonicalize_taskspace_control_action_arg(root)?;
     Ok(normalized)
 }
 
@@ -15237,6 +13786,12 @@ state_effect: final_answer was not recorded; TaskSpace state is unchanged."
     )
 }
 
+fn taskspace_final_answer_gate_rejection_item(error: &str) -> Option<ResponseItem> {
+    crate::context_manager::updates::build_developer_update_item(vec![
+        taskspace_final_answer_gate_rejection_followup(error),
+    ])
+}
+
 fn taskspace_blocked_gate_rejection_followup(error: &str) -> String {
     format!(
         "TaskSpaceBlockedResponseRejectedV1:\n\
@@ -15246,14 +13801,10 @@ state_effect: blocked response was not recorded; TaskSpace state is unchanged."
     )
 }
 
-fn taskspace_provider_response_recovery_action(
-    taskspace_no_action_recovery_item: &Option<ResponseItem>,
-) -> &'static str {
-    if taskspace_no_action_recovery_item.is_some() {
-        "developer_recovery"
-    } else {
-        "none"
-    }
+fn taskspace_blocked_gate_rejection_item(error: &str) -> Option<ResponseItem> {
+    crate::context_manager::updates::build_developer_update_item(vec![
+        taskspace_blocked_gate_rejection_followup(error),
+    ])
 }
 
 async fn record_taskspace_observed_implement_edit(
@@ -15340,47 +13891,11 @@ async fn try_run_sampling_request(
         turn_context.provider.info().name.as_str(),
     );
     let provider_budget_snapshot = sess.action_map_provider_request_budget_snapshot().await;
-    if let Some(snapshot) = provider_budget_snapshot.as_ref() {
-        let gate = sess
-            .action_map_gate_provider_request_pre_dispatch(snapshot)
-            .await;
-        if !gate.allowed {
-            sess.send_event(
-                &turn_context,
-                EventMsg::Warning(WarningEvent {
-                    message: format!(
-                        "TaskSpaceProviderBudgetHardStopV1 reason={} request_count={}/{} node_request_count={}/{} state={} node_kind={} phase={}",
-                        gate.reason,
-                        snapshot.request_count,
-                        snapshot.max_requests,
-                        snapshot.node_request_count,
-                        snapshot.max_model_requests_per_node,
-                        snapshot.budget_state,
-                        snapshot.node_kind.as_deref().unwrap_or("unknown"),
-                        snapshot.request_phase.as_deref().unwrap_or("unknown"),
-                    ),
-                }),
-            )
-            .await;
-            return Ok(SamplingRequestResult {
-                needs_follow_up: false,
-                last_agent_message: Some(format!(
-                    "TaskSpace provider budget hard stop: {}",
-                    gate.reason
-                )),
-                taskspace_no_action_recovery_item: Some(
-                    build_taskspace_provider_budget_hard_stop_item(snapshot, &gate),
-                ),
-                path_correction_cleared_this_request: false,
-            });
-        }
-    }
     let provider_request_budget = provider_budget_snapshot
         .as_ref()
         .map(|snapshot| {
             let transport_mode =
                 taskspace_provider_transport_mode(&turn_context, Some(snapshot), true);
-            let limits = taskspace_transport_budget_limits(snapshot);
             let budget_state = match transport_mode {
                 TaskspaceProviderTransportMode::NativeTools => snapshot.budget_state.clone(),
                 TaskspaceProviderTransportMode::CacheOptimizedActionContract => String::new(),
@@ -15388,11 +13903,9 @@ async fn try_run_sampling_request(
             ProviderRequestBudgetContext::enabled_with_attribution(
                 ProviderRequestBudgetLimits {
                     request_count: snapshot.request_count,
-                    max_requests: limits.max_requests,
+                    max_requests: snapshot.max_requests,
                     node_request_count: snapshot.node_request_count,
-                    max_model_requests_per_node: limits.max_model_requests_per_node,
-                    post_budget_grace_requests: limits.post_budget_grace_requests,
-                    post_budget_grace_request_count: snapshot.post_budget_grace_request_count,
+                    max_model_requests_per_node: snapshot.max_model_requests_per_node,
                     budget_state,
                 },
                 ProviderRequestAttribution::from_snapshot(snapshot, turn_context.sub_id.as_str()),
@@ -15759,19 +14272,34 @@ async fn try_run_sampling_request(
                                         if let Some(error) = terminal_gate_error {
                                             needs_follow_up = true;
                                             saw_actionable_output = false;
-                                            if action.action == "final_answer" {
+                                            let (feedback, feedback_item) = if action.action
+                                                == "final_answer"
+                                            {
                                                 taskspace_final_response_rejected_in_request = true;
-                                            }
-                                            last_agent_message =
-                                                Some(if action.action == "blocked" {
-                                                    taskspace_blocked_gate_rejection_followup(
-                                                        &error,
-                                                    )
-                                                } else {
+                                                (
                                                     taskspace_final_answer_gate_rejection_followup(
                                                         &error,
-                                                    )
-                                                });
+                                                    ),
+                                                    taskspace_final_answer_gate_rejection_item(
+                                                        &error,
+                                                    ),
+                                                )
+                                            } else {
+                                                (
+                                                    taskspace_blocked_gate_rejection_followup(
+                                                        &error,
+                                                    ),
+                                                    taskspace_blocked_gate_rejection_item(&error),
+                                                )
+                                            };
+                                            if let Some(item) = feedback_item {
+                                                sess.record_conversation_items(
+                                                    &turn_context,
+                                                    std::slice::from_ref(&item),
+                                                )
+                                                .await;
+                                            }
+                                            last_agent_message = Some(feedback);
                                         } else {
                                             apply_taskspace_terminal_action_message(
                                                 &mut needs_follow_up,
@@ -15844,8 +14372,6 @@ async fn try_run_sampling_request(
                     break Ok(SamplingRequestResult {
                         needs_follow_up: true,
                         last_agent_message,
-                        taskspace_no_action_recovery_item: None,
-                        path_correction_cleared_this_request,
                     });
                 }
             }
@@ -16000,8 +14526,15 @@ async fn try_run_sampling_request(
                         Err(error) => {
                             needs_follow_up = true;
                             final_response_rejected = true;
-                            last_agent_message =
-                                Some(taskspace_final_answer_gate_rejection_followup(&error));
+                            let feedback = taskspace_final_answer_gate_rejection_followup(&error);
+                            if let Some(item) = taskspace_final_answer_gate_rejection_item(&error) {
+                                sess.record_conversation_items(
+                                    &turn_context,
+                                    std::slice::from_ref(&item),
+                                )
+                                .await;
+                            }
+                            last_agent_message = Some(feedback);
                         }
                     }
                 }
@@ -16017,30 +14550,6 @@ async fn try_run_sampling_request(
                 ) {
                     needs_follow_up = true;
                 }
-                let provider_budget_exhausted_followup = false;
-                let budget_pressure_follow_up_intent = current_budget_snapshot
-                    .as_ref()
-                    .map(|snapshot| {
-                        taskspace_budget_pressure_follow_up_intent(
-                            snapshot.request_count,
-                            snapshot.max_requests,
-                            snapshot.node_kind.as_deref(),
-                            last_agent_message.as_deref(),
-                        )
-                    })
-                    .unwrap_or(false);
-                let budget_pressure_silent_action_transition = current_budget_snapshot
-                    .as_ref()
-                    .map(|snapshot| {
-                        taskspace_budget_pressure_silent_action_requires_transition(
-                            snapshot.request_count,
-                            snapshot.max_requests,
-                            snapshot.node_kind.as_deref(),
-                            assistant_message_present,
-                            saw_actionable_output,
-                        )
-                    })
-                    .unwrap_or(false);
                 let taskspace_progress_after_request =
                     sess.action_map_current_main_node_progress_signature().await;
                 if taskspace_should_refill_path_correction_from_failed_read_summary(
@@ -16060,12 +14569,9 @@ async fn try_run_sampling_request(
                     assistant_message_present,
                     taskspace_message_has_gate_recovery(last_agent_message.as_deref()),
                     tool_path_correction_feedback.is_some(),
-                    final_response_rejected
-                        || budget_pressure_follow_up_intent
-                        || budget_pressure_silent_action_transition,
-                    provider_budget_exhausted_followup,
+                    final_response_rejected,
+                    false,
                 );
-                let taskspace_no_action_recovery_item = None;
                 if let Some(snapshot) = current_budget_snapshot.as_ref() {
                     sess.record_action_map_provider_response_actionability(
                         &turn_context,
@@ -16075,42 +14581,11 @@ async fn try_run_sampling_request(
                             end_turn,
                             saw_actionable_output,
                             assistant_message_present,
-                            recovery_action: taskspace_provider_response_recovery_action(
-                                &taskspace_no_action_recovery_item,
-                            )
-                            .to_string(),
+                            recovery_action: "none".to_string(),
                             last_agent_message_preview: taskspace_last_message_preview(
                                 last_agent_message.as_deref(),
                             ),
                         },
-                    )
-                    .await;
-                }
-                if response_actionability.needs_recovery()
-                    && (budget_pressure_follow_up_intent
-                        || budget_pressure_silent_action_transition)
-                    && let Some(snapshot) = sess.action_map_provider_request_budget_snapshot().await
-                    && snapshot.node_kind.as_deref() == Some("implement_solution")
-                {
-                    record_taskspace_observed_implement_edit(
-                        &sess,
-                        &turn_context,
-                        &turn_diff_tracker,
-                        snapshot.request_count,
-                    )
-                    .await;
-                }
-                if let Some(snapshot) = current_budget_snapshot.as_ref()
-                    && taskspace_feedback_needs_budget_recovery_followup(
-                        snapshot,
-                        needs_follow_up,
-                        saw_actionable_output,
-                        last_agent_message.as_deref(),
-                    )
-                {
-                    sess.action_map_mark_next_provider_request_budget_recovery(
-                        &turn_context,
-                        "taskspace_feedback_after_provider_budget_limit",
                     )
                     .await;
                 }
@@ -16120,8 +14595,6 @@ async fn try_run_sampling_request(
                 break Ok(SamplingRequestResult {
                     needs_follow_up,
                     last_agent_message,
-                    taskspace_no_action_recovery_item,
-                    path_correction_cleared_this_request,
                 });
             }
             ResponseEvent::OutputTextDelta(delta) => {

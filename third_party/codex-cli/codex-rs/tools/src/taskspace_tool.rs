@@ -62,7 +62,6 @@ fn action_values(profile: TaskSpaceControlToolProfile) -> Vec<serde_json::Value>
             json!("finish_node"),
             json!("block_node"),
             json!("read_output_ref"),
-            json!("state_commit"),
         ],
     }
 }
@@ -73,7 +72,7 @@ fn action_description(profile: TaskSpaceControlToolProfile) -> &'static str {
             "One of: start_task, route_task, create_node, bind_node, finish_node, block_node, record_output_contract, record_fact_source, record_fact, record_success_criteria, record_open_question, close_open_question, record_decision, record_next_best_action, mark_result_validity, adopt_result, read_output_ref, state_commit. Use only for TaskSpace runtime control."
         }
         TaskSpaceControlToolProfile::Compact => {
-            "Compact active-profile actions: start_task, route_task, create_node, bind_node, finish_node, block_node, read_output_ref, state_commit. Prefer state_commit for cognitive/lifecycle updates."
+            "Mechanical TaskSpace map actions: start_task, route_task, create_node, bind_node, finish_node, block_node, read_output_ref."
         }
     }
 }
@@ -81,27 +80,12 @@ fn action_description(profile: TaskSpaceControlToolProfile) -> &'static str {
 fn compact_top_level_fields() -> &'static [&'static str] {
     &[
         "action",
-        "commit_id",
-        "schema_version",
-        "active_node_id",
-        "nodes",
-        "finished_nodes",
-        "blockers",
-        "result_validities",
-        "result_adoptions",
-        "success_criteria",
-        "output_contracts",
-        "fact_sources",
-        "facts",
-        "decisions",
-        "next_best_action",
         "task_id",
         "task_title",
         "task_objective",
         "node_kind",
         "node_title",
         "node_context_summary",
-        "initial_success_criteria",
         "kind",
         "title",
         "context_summary",
@@ -1171,7 +1155,24 @@ pub fn create_taskspace_control_tool_with_profile(
 
     ToolSpec::Function(ResponsesApiTool {
         name: "taskspace_control".to_string(),
-        description: r#"Internal TaskSpace control tool.
+        description: if profile == TaskSpaceControlToolProfile::Compact {
+            r#"Mandatory mechanical task-map tool used only while TaskSpace is enabled.
+
+TaskSpace reorganizes the ordinary conversation into a task map. The Agent owns all task semantics and decides when and how work advances. Runtime only validates map ids, node status, bindings, leases, tool/result pairing, and other hard protocol state.
+
+Actions:
+- `start_task`: create a task map and first current node when no task exists. Include `task_title`, `task_objective`, `node_kind`, `node_title`, and `node_context_summary`.
+- `route_task`: select an existing task by `task_id`.
+- `create_node`: create a node with `kind`, `title`, `context_summary`, optional `dependency_node_ids`, and optional `bind_current`.
+- `bind_node`: bind the Agent to an existing node by `node_id`.
+- `finish_node`: record `result_summary` and complete the current node. It may also bind `next_node_id`, or atomically create and bind a next node with `next_node_kind`, `next_node_title`, `next_node_context_summary`, and optional `next_dependency_node_ids`.
+- `block_node`: record `blocker_summary` and block the current node.
+- `read_output_ref`: read a bounded part of `output_ref` using `head`, `tail`, `line_range`, or `grep`.
+
+Ordinary tools require a current node binding. A final response requires no running current node. The runtime reports hard state errors exactly and does not choose the Agent's next action, infer task strategy, or reinterpret tool feedback."#
+                .to_string()
+        } else {
+            r#"Internal TaskSpace control tool.
 
 Use this only when TaskSpace is enabled and you need to update task-map structure or cognitive state before ordinary work.
 
@@ -1218,7 +1219,8 @@ Node kind selection:
 
 Do not expose this tool's internal map/node terminology to the user unless debugging TaskSpace itself.
 "#
-        .to_string(),
+            .to_string()
+        },
         strict: false,
         defer_loading: None,
         parameters: JsonSchema::object(
@@ -1367,7 +1369,7 @@ mod tests {
     }
 
     #[test]
-    fn compact_taskspace_control_schema_hides_legacy_single_record_actions() {
+    fn compact_taskspace_control_schema_is_map_lifecycle_only() {
         let value = serde_json::to_value(create_taskspace_control_tool_with_profile(
             TaskSpaceControlToolProfile::Compact,
         ))
@@ -1389,25 +1391,46 @@ mod tests {
                 "finish_node",
                 "block_node",
                 "read_output_ref",
-                "state_commit",
             ]
         );
 
         let properties = value["parameters"]["properties"]
             .as_object()
             .expect("properties object");
-        assert!(properties.contains_key("schema_version"));
-        assert!(properties.contains_key("output_contracts"));
-        assert!(properties.contains_key("fact_sources"));
-        assert!(properties.contains_key("result_validities"));
-        assert!(properties.contains_key("initial_success_criteria"));
-        assert!(!properties.contains_key("record_success_criteria"));
-        assert!(!properties.contains_key("output_contract_id"));
-        assert!(!properties.contains_key("fact_source_id"));
-        assert!(!properties.contains_key("decision_id"));
-        assert_eq!(
-            properties["output_contracts"]["items"]["properties"]["output_contract_id"]["type"],
-            "string"
-        );
+        for removed in [
+            "schema_version",
+            "nodes",
+            "finished_nodes",
+            "result_validities",
+            "success_criteria",
+            "output_contracts",
+            "fact_sources",
+            "facts",
+            "decisions",
+            "next_best_action",
+            "initial_success_criteria",
+        ] {
+            assert!(!properties.contains_key(removed), "unexpected `{removed}`");
+        }
+        for kept in [
+            "task_id",
+            "task_title",
+            "task_objective",
+            "node_id",
+            "kind",
+            "title",
+            "context_summary",
+            "result_summary",
+            "blocker_summary",
+            "output_ref",
+        ] {
+            assert!(properties.contains_key(kept), "missing `{kept}`");
+        }
+
+        let description = value["description"].as_str().expect("description");
+        assert!(description.contains("final response requires no running current node"));
+        assert!(description.contains("does not choose the Agent's next action"));
+        assert!(!description.contains("cognitive"));
+        assert!(!description.contains("state_commit"));
     }
 }

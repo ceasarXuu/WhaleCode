@@ -17,6 +17,7 @@ use crate::action_map::ActionMapStateCommitResultValidityInput;
 use crate::action_map::ActionMapSubagentPlanInput;
 use crate::action_map::ActionMapSuccessCriterionInput;
 use crate::action_map::NodeKind;
+use crate::action_map::TaskSpaceHardGateClass;
 use crate::function_tool::FunctionCallError;
 use crate::tools::context::ToolInvocation;
 use crate::tools::context::ToolOutput;
@@ -38,9 +39,7 @@ pub struct TaskSpaceControlHandler;
 enum TaskSpaceControlArgs {
     StartTask {
         task_title: String,
-        #[serde(default)]
         task_objective: String,
-        #[serde(default)]
         node_kind: String,
         #[serde(default)]
         initial_success_criteria: Vec<TaskSpaceSuccessCriterionArgs>,
@@ -445,13 +444,15 @@ impl ToolHandler for TaskSpaceControlHandler {
         let arguments = match payload {
             ToolPayload::Function { arguments } => arguments,
             _ => {
-                return Err(FunctionCallError::RespondToModel(
+                return Err(taskspace_protocol_gate_error(
                     "taskspace_control handler received unsupported payload".to_string(),
+                    "unsupported_payload",
                 ));
             }
         };
-        let normalized_arguments = normalize_taskspace_arguments(&arguments)?;
-        let args: TaskSpaceControlArgs = parse_arguments(&normalized_arguments)?;
+        let args: TaskSpaceControlArgs = parse_arguments(&arguments).map_err(|error| {
+            taskspace_protocol_gate_error(error.to_string(), "invalid_arguments")
+        })?;
         if let Some(action) = legacy_state_action_name(&args) {
             let _ = session
                 .record_action_map_legacy_state_action_attempt(
@@ -492,7 +493,7 @@ impl ToolHandler for TaskSpaceControlHandler {
                         bind_current,
                     )
                     .await
-                    .map_err(FunctionCallError::RespondToModel)?;
+                    .map_err(taskspace_state_machine_gate_error)?;
                 if bind_current {
                     format!(
                         "TaskSpace task started and bound: task={task_id} map={map_id} node={node_id}"
@@ -505,7 +506,7 @@ impl ToolHandler for TaskSpaceControlHandler {
                 session
                     .route_action_map_task_for_main(&turn, &task_id)
                     .await
-                    .map_err(FunctionCallError::RespondToModel)?;
+                    .map_err(taskspace_state_machine_gate_error)?;
                 format!("TaskSpace task routed: {task_id}")
             }
             TaskSpaceControlArgs::CreateNode {
@@ -526,7 +527,7 @@ impl ToolHandler for TaskSpaceControlHandler {
                         bind_current,
                     )
                     .await
-                    .map_err(FunctionCallError::RespondToModel)?;
+                    .map_err(taskspace_state_machine_gate_error)?;
                 if bind_current {
                     format!("TaskSpace node created and bound: {node_id}")
                 } else {
@@ -537,7 +538,7 @@ impl ToolHandler for TaskSpaceControlHandler {
                 session
                     .bind_action_map_main_node(&turn, &node_id)
                     .await
-                    .map_err(FunctionCallError::RespondToModel)?;
+                    .map_err(taskspace_state_machine_gate_error)?;
                 format!("TaskSpace main node bound: {node_id}")
             }
             TaskSpaceControlArgs::FinishNode {
@@ -549,10 +550,6 @@ impl ToolHandler for TaskSpaceControlHandler {
                 next_node_context_summary,
                 next_dependency_node_ids,
             } => {
-                let auto_accept_handoff = matches!(
-                    next_node_kind.as_deref(),
-                    Some("implement_solution") | Some("smoke_test") | Some("regression_test")
-                );
                 let next_node_draft = build_next_node_draft(
                     next_node_kind,
                     next_node_title,
@@ -568,33 +565,7 @@ impl ToolHandler for TaskSpaceControlHandler {
                         next_node_draft,
                     )
                     .await
-                    .map_err(FunctionCallError::RespondToModel)?;
-                if auto_accept_handoff {
-                    let evidence_ref = ActionMapEvidenceRefInput {
-                        result_id: Some(outcome.result_id.clone()),
-                        ..ActionMapEvidenceRefInput::default()
-                    };
-                    session
-                        .mark_action_map_result_validity(
-                            &turn,
-                            &outcome.result_id,
-                            "accepted",
-                            "main-path node handoff accepted by taskspace_control".to_string(),
-                            vec![ActionMapCognitiveClaimInput {
-                                id: format!("claim-{}-handoff", outcome.result_id),
-                                statement:
-                                    "Main-path node result is sufficient to continue into the next task phase."
-                                        .to_string(),
-                                evidence_refs: vec![evidence_ref.clone()],
-                            }],
-                            vec![evidence_ref],
-                            Vec::new(),
-                            Vec::new(),
-                            Vec::new(),
-                        )
-                        .await
-                        .map_err(FunctionCallError::RespondToModel)?;
-                }
+                    .map_err(taskspace_state_machine_gate_error)?;
                 if let Some(next_node_id) = outcome.next_node_id {
                     format!(
                         "TaskSpace node finished: {node_id} result {}. Next node created and bound: {next_node_id}",
@@ -614,7 +585,7 @@ impl ToolHandler for TaskSpaceControlHandler {
                 let result_id = session
                     .block_action_map_main_node(&turn, &node_id, blocker_summary)
                     .await
-                    .map_err(FunctionCallError::RespondToModel)?;
+                    .map_err(taskspace_state_machine_gate_error)?;
                 format!("TaskSpace node blocked: {node_id} result {result_id}")
             }
             TaskSpaceControlArgs::RecordOutputContract {
@@ -632,7 +603,7 @@ impl ToolHandler for TaskSpaceControlHandler {
                         convert_evidence_refs(evidence_refs),
                     )
                     .await
-                    .map_err(FunctionCallError::RespondToModel)?;
+                    .map_err(taskspace_state_machine_gate_error)?;
                 format!("TaskSpace output contract recorded: {output_contract_id}")
             }
             TaskSpaceControlArgs::RecordFactSource {
@@ -650,7 +621,7 @@ impl ToolHandler for TaskSpaceControlHandler {
                         convert_evidence_refs(evidence_refs),
                     )
                     .await
-                    .map_err(FunctionCallError::RespondToModel)?;
+                    .map_err(taskspace_state_machine_gate_error)?;
                 format!("TaskSpace fact source recorded: {fact_source_id}")
             }
             TaskSpaceControlArgs::RecordFact {
@@ -666,7 +637,7 @@ impl ToolHandler for TaskSpaceControlHandler {
                         convert_evidence_refs(evidence_refs),
                     )
                     .await
-                    .map_err(FunctionCallError::RespondToModel)?;
+                    .map_err(taskspace_state_machine_gate_error)?;
                 format!("TaskSpace fact recorded: {claim_id}")
             }
             TaskSpaceControlArgs::RecordSuccessCriteria { criteria } => {
@@ -674,7 +645,7 @@ impl ToolHandler for TaskSpaceControlHandler {
                 session
                     .record_action_map_success_criteria(&turn, convert_success_criteria(criteria))
                     .await
-                    .map_err(FunctionCallError::RespondToModel)?;
+                    .map_err(taskspace_state_machine_gate_error)?;
                 format!("TaskSpace success criteria recorded: {count}")
             }
             TaskSpaceControlArgs::RecordOpenQuestion {
@@ -696,7 +667,7 @@ impl ToolHandler for TaskSpaceControlHandler {
                         convert_evidence_refs(evidence_refs),
                     )
                     .await
-                    .map_err(FunctionCallError::RespondToModel)?;
+                    .map_err(taskspace_state_machine_gate_error)?;
                 format!("TaskSpace open question recorded: {question_id}")
             }
             TaskSpaceControlArgs::CloseOpenQuestion {
@@ -714,7 +685,7 @@ impl ToolHandler for TaskSpaceControlHandler {
                         convert_evidence_refs(evidence_refs),
                     )
                     .await
-                    .map_err(FunctionCallError::RespondToModel)?;
+                    .map_err(taskspace_state_machine_gate_error)?;
                 format!("TaskSpace open question closed: {question_id}")
             }
             TaskSpaceControlArgs::RecordDecision {
@@ -744,7 +715,7 @@ impl ToolHandler for TaskSpaceControlHandler {
                         },
                     )
                     .await
-                    .map_err(FunctionCallError::RespondToModel)?;
+                    .map_err(taskspace_state_machine_gate_error)?;
                 format!("TaskSpace decision recorded: {decision_id}")
             }
             TaskSpaceControlArgs::RecordNextBestAction {
@@ -764,7 +735,7 @@ impl ToolHandler for TaskSpaceControlHandler {
                         blocked_by,
                     )
                     .await
-                    .map_err(FunctionCallError::RespondToModel)?;
+                    .map_err(taskspace_state_machine_gate_error)?;
                 "TaskSpace next best action recorded".to_string()
             }
             TaskSpaceControlArgs::RecordSubagentPlan {
@@ -792,7 +763,7 @@ impl ToolHandler for TaskSpaceControlHandler {
                         },
                     )
                     .await
-                    .map_err(FunctionCallError::RespondToModel)?;
+                    .map_err(taskspace_state_machine_gate_error)?;
                 format!("TaskSpace subagent plan recorded: {plan_id}")
             }
             TaskSpaceControlArgs::MarkResultValidity {
@@ -818,7 +789,7 @@ impl ToolHandler for TaskSpaceControlHandler {
                         remaining_uncertainty,
                     )
                     .await
-                    .map_err(FunctionCallError::RespondToModel)?;
+                    .map_err(taskspace_state_machine_gate_error)?;
                 format!("TaskSpace result validity recorded: {result_id} validity={validity}")
             }
             TaskSpaceControlArgs::AdoptResult {
@@ -842,7 +813,7 @@ impl ToolHandler for TaskSpaceControlHandler {
                         },
                     )
                     .await
-                    .map_err(FunctionCallError::RespondToModel)?;
+                    .map_err(taskspace_state_machine_gate_error)?;
                 format!("TaskSpace result adoption recorded: {result_id}")
             }
             TaskSpaceControlArgs::ReadOutputRef {
@@ -858,14 +829,21 @@ impl ToolHandler for TaskSpaceControlHandler {
                     mode: parse_output_slice_mode(&mode, start_line, end_line, pattern)?,
                     max_bytes: max_bytes.unwrap_or(OUTPUT_SLICE_MAX_BYTES),
                 };
-                let rollout_path = session
-                    .current_rollout_path()
-                    .await
-                    .map_err(|err| FunctionCallError::RespondToModel(err.to_string()))?;
+                let rollout_path = session.current_rollout_path().await.map_err(|err| {
+                    taskspace_resource_gate_error(
+                        err.to_string(),
+                        "output_reference_store_unavailable",
+                    )
+                })?;
                 let slice =
                     read_output_artifact_slice(rollout_path.as_deref(), &output_ref, request)
                         .await
-                        .map_err(|err| FunctionCallError::RespondToModel(err.to_string()))?;
+                        .map_err(|err| {
+                            taskspace_resource_gate_error(
+                                err.to_string(),
+                                "output_reference_read_failed",
+                            )
+                        })?;
                 session
                     .record_action_map_output_ref_trace_event(
                         &turn,
@@ -900,8 +878,8 @@ impl ToolHandler for TaskSpaceControlHandler {
                 next_best_action,
             } => {
                 validate_state_commit_schema(schema_version.as_deref())?;
-                let commit_id = commit_id
-                    .unwrap_or_else(|| auto_state_commit_id_from_arguments(&normalized_arguments));
+                let commit_id =
+                    commit_id.unwrap_or_else(|| auto_state_commit_id_from_arguments(&arguments));
                 let outcome = session
                     .state_commit_action_map(
                         &turn,
@@ -929,7 +907,7 @@ impl ToolHandler for TaskSpaceControlHandler {
                         },
                     )
                     .await
-                    .map_err(FunctionCallError::RespondToModel)?;
+                    .map_err(taskspace_state_machine_gate_error)?;
                 format!(
                     "TaskSpace state_commit {}: status={} dry_run={} replayed={} accepted_sections=[{}] rejected_sections=[{}]",
                     outcome.commit_id,
@@ -966,6 +944,45 @@ fn legacy_state_action_name(args: &TaskSpaceControlArgs) -> Option<&'static str>
     }
 }
 
+fn taskspace_state_machine_gate_error(message: String) -> FunctionCallError {
+    let reason = taskspace_hard_state_reason(&message)
+        .unwrap_or_else(|| "state_machine_transition_rejected".to_string());
+    taskspace_gate_error(message, TaskSpaceHardGateClass::StateMachine, &reason)
+}
+
+fn taskspace_protocol_gate_error(message: String, reason: &str) -> FunctionCallError {
+    taskspace_gate_error(message, TaskSpaceHardGateClass::Protocol, reason)
+}
+
+fn taskspace_resource_gate_error(message: String, reason: &str) -> FunctionCallError {
+    taskspace_gate_error(message, TaskSpaceHardGateClass::Resource, reason)
+}
+
+fn taskspace_gate_error(
+    message: String,
+    gate_class: TaskSpaceHardGateClass,
+    reason: &str,
+) -> FunctionCallError {
+    let metadata = serde_json::json!({
+        "schema_version": "TaskSpaceGateRecoveryV1",
+        "allowed": false,
+        "gate_class": gate_class.as_str(),
+        "reason": reason,
+    });
+    FunctionCallError::RespondToModel(format!("{message}\nTaskSpaceGateRecoveryV1: {metadata}"))
+}
+
+fn taskspace_hard_state_reason(message: &str) -> Option<String> {
+    let (_, after_marker) = message.split_once("hard_state:")?;
+    let reason = after_marker
+        .trim_start()
+        .split(|character: char| character.is_whitespace() || matches!(character, '.' | ',' | ';'))
+        .next()
+        .unwrap_or_default()
+        .trim();
+    (!reason.is_empty()).then(|| reason.to_string())
+}
+
 #[cfg(test)]
 fn reject_legacy_state_action_for_active_profile(
     args: &TaskSpaceControlArgs,
@@ -977,9 +994,10 @@ fn reject_legacy_state_action_for_active_profile(
 }
 
 fn legacy_state_action_rejection(action: &str) -> FunctionCallError {
-    FunctionCallError::RespondToModel(format!(
-        "TaskSpace active profile blocks legacy state action `{action}`. Use taskspace_control(action=state_commit, schema_version=taskspace-state-commit-v1) to batch state changes; start_task initial_* fields remain allowed for new-task setup."
-    ))
+    taskspace_protocol_gate_error(
+        format!("taskspace_control action `{action}` is not available in the active tool schema."),
+        "action_not_in_active_schema",
+    )
 }
 
 fn parse_output_slice_mode(
@@ -993,35 +1011,42 @@ fn parse_output_slice_mode(
         "tail" => Ok(OutputSliceMode::Tail),
         "line_range" => Ok(OutputSliceMode::LineRange {
             start_line: start_line.ok_or_else(|| {
-                FunctionCallError::RespondToModel(
+                taskspace_protocol_gate_error(
                     "taskspace_control read_output_ref line_range requires start_line.".to_string(),
+                    "missing_required_argument",
                 )
             })?,
             end_line: end_line.ok_or_else(|| {
-                FunctionCallError::RespondToModel(
+                taskspace_protocol_gate_error(
                     "taskspace_control read_output_ref line_range requires end_line.".to_string(),
+                    "missing_required_argument",
                 )
             })?,
         }),
         "grep" => Ok(OutputSliceMode::Grep {
             pattern: pattern.ok_or_else(|| {
-                FunctionCallError::RespondToModel(
+                taskspace_protocol_gate_error(
                     "taskspace_control read_output_ref grep requires pattern.".to_string(),
+                    "missing_required_argument",
                 )
             })?,
         }),
-        _ => Err(FunctionCallError::RespondToModel(
+        _ => Err(taskspace_protocol_gate_error(
             "taskspace_control read_output_ref mode must be one of: head, tail, line_range, grep."
                 .to_string(),
+            "invalid_argument_value",
         )),
     }
 }
 
 fn parse_node_kind(field: &str, value: &str) -> Result<NodeKind, FunctionCallError> {
     NodeKind::from_str(value).ok_or_else(|| {
-        FunctionCallError::RespondToModel(format!(
-            "taskspace_control {field} must be one of: inspect_code_context, implement_solution, smoke_test, regression_test, final_synthesis."
-        ))
+        taskspace_protocol_gate_error(
+            format!(
+                "taskspace_control {field} must be one of: inspect_code_context, implement_solution, smoke_test, regression_test, final_synthesis."
+            ),
+            "invalid_argument_value",
+        )
     })
 }
 
@@ -1049,9 +1074,10 @@ fn build_next_node_draft(
     let title = next_node_title.unwrap_or_default();
     let context_summary = next_node_context_summary.unwrap_or_default();
     if title.trim().is_empty() || context_summary.trim().is_empty() {
-        return Err(FunctionCallError::RespondToModel(
+        return Err(taskspace_protocol_gate_error(
             "taskspace_control finish_node next node draft requires next_node_kind, next_node_title, and next_node_context_summary."
                 .to_string(),
+            "missing_required_argument",
         ));
     }
     Ok(Some(ActionMapNextNodeDraft {
@@ -2162,9 +2188,10 @@ fn validate_state_commit_schema(schema_version: Option<&str>) -> Result<(), Func
     {
         return Ok(());
     }
-    Err(FunctionCallError::RespondToModel(
+    Err(taskspace_protocol_gate_error(
         "taskspace_control state_commit schema_version must be taskspace-state-commit-v1."
             .to_string(),
+        "invalid_schema_version",
     ))
 }
 
@@ -2175,6 +2202,32 @@ fn default_success_criterion_status() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn protocol_errors_are_typed_without_action_guidance() {
+        let error = taskspace_protocol_gate_error(
+            "taskspace_control start_task is missing task_objective.".to_string(),
+            "invalid_arguments",
+        )
+        .to_string();
+
+        assert!(error.contains("\"gate_class\":\"protocol\""));
+        assert!(error.contains("\"reason\":\"invalid_arguments\""));
+        assert!(!error.contains("next_valid_actions"));
+        assert!(!error.contains("must call"));
+    }
+
+    #[test]
+    fn start_task_missing_semantic_fields_is_a_parse_error() {
+        let parsed = serde_json::from_value::<TaskSpaceControlArgs>(serde_json::json!({
+            "action": "start_task",
+            "task_title": "Audit",
+            "node_title": "Inspect",
+            "node_context_summary": "Read the project shape"
+        }));
+
+        assert!(parsed.is_err());
+    }
 
     #[test]
     fn start_task_accepts_missing_initial_success_criteria_for_gate_recovery() {

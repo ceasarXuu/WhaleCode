@@ -267,16 +267,13 @@ fn multi_agent_is_stable_and_enabled_by_default() {
 }
 
 #[test]
-fn taskspace_compact_tool_schema_is_under_development() {
+fn taskspace_compact_tool_schema_is_stable_and_enabled_by_default() {
     assert_eq!(
         feature_for_key("taskspace_compact_tool_schema"),
         Some(Feature::TaskSpaceCompactToolSchema)
     );
-    assert_eq!(
-        Feature::TaskSpaceCompactToolSchema.stage(),
-        Stage::UnderDevelopment
-    );
-    assert_eq!(Feature::TaskSpaceCompactToolSchema.default_enabled(), false);
+    assert_eq!(Feature::TaskSpaceCompactToolSchema.stage(), Stage::Stable);
+    assert_eq!(Feature::TaskSpaceCompactToolSchema.default_enabled(), true);
 }
 
 #[test]

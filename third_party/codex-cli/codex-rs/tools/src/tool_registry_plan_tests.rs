@@ -18,7 +18,6 @@ use crate::ToolRegistryPlanDeferredTool;
 use crate::ToolRegistryPlanMcpTool;
 use crate::ToolsConfigParams;
 use crate::WaitAgentTimeoutOptions;
-use crate::create_taskspace_control_tool;
 use crate::mcp_call_tool_result_output_schema;
 use codex_app_server_protocol::AppInfo;
 use codex_features::Feature;
@@ -136,7 +135,12 @@ fn test_full_toolset_specs_for_gpt5_codex_unified_exec_web_search() {
         expected.insert(spec.name().to_string(), spec);
     }
     if config.collab_tools {
-        let spec = create_taskspace_control_tool();
+        let profile = if config.taskspace_control_compact_schema {
+            TaskSpaceControlToolProfile::Compact
+        } else {
+            TaskSpaceControlToolProfile::Full
+        };
+        let spec = create_taskspace_control_tool_with_profile(profile);
         expected.insert(spec.name().to_string(), spec);
     }
     if !config.multi_agent_v2 {
@@ -204,11 +208,10 @@ fn test_build_specs_collab_tools_enabled() {
 }
 
 #[test]
-fn taskspace_compact_tool_schema_feature_narrows_taskspace_control_schema() {
+fn taskspace_compact_tool_schema_is_the_default_taskspace_control_schema() {
     let model_info = model_info();
     let mut features = Features::with_defaults();
     features.enable(Feature::Collab);
-    features.enable(Feature::TaskSpaceCompactToolSchema);
     let available_models = Vec::new();
     let tools_config = ToolsConfig::new(&ToolsConfigParams {
         model_info: &model_info,
@@ -249,10 +252,10 @@ fn taskspace_compact_tool_schema_feature_narrows_taskspace_control_schema() {
             "finish_node",
             "block_node",
             "read_output_ref",
-            "state_commit",
         ]
     );
-    assert!(properties.contains_key("output_contracts"));
+    assert!(!properties.contains_key("output_contracts"));
+    assert!(!properties.contains_key("state_commit"));
     assert!(!properties.contains_key("output_contract_id"));
 }
 

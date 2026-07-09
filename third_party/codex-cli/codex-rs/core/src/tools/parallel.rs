@@ -302,10 +302,20 @@ impl ToolCallRuntime {
                 .await
                 .map_err(FunctionCallError::RespondToModel)?;
         } else {
-            session
+            if let Err(message) = session
                 .prepare_action_map_main_tool_call(turn, descriptor)
                 .await
-                .map_err(FunctionCallError::RespondToModel)?;
+            {
+                session
+                    .record_action_map_runtime_feedback(
+                        turn,
+                        "hard_gate_rejection",
+                        false,
+                        message.clone(),
+                    )
+                    .await;
+                return Err(FunctionCallError::RespondToModel(message));
+            }
         }
         Ok(())
     }
