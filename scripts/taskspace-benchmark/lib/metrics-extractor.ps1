@@ -470,6 +470,10 @@ function Get-TaskspaceBenchmarkMetrics {
     Write-TaskspaceGraphHealthReport $graphHealthReport $graphHealthPath
     $observabilityJsonPath = if ($ObservabilityResult) { [string]$ObservabilityResult.observability_json } else { "" }
     $costInstrumentation = Write-TaskspaceCostInstrumentationArtifacts $Side.ArtifactDir $Exec.jsonl_path $observabilityJsonPath
+    $activeReplacementReport = $costInstrumentation.active_context_replacement_report
+    if ($activeReplacementReport -and [int]$activeReplacementReport.active_projection_uniqueness_violation_count -gt 0) {
+        $metricsTaints += "active_projection_not_unique:$([int]$activeReplacementReport.active_projection_uniqueness_violation_count)"
+    }
     $agentCompletion = Get-TaskspaceAgentCompletionEvidence $Exec.jsonl_path $Side.LogicalMode
     $profileHardStopSeen = $false
     $lifecycleScanPaths = @(
@@ -564,6 +568,8 @@ function Get-TaskspaceBenchmarkMetrics {
                 [string]$_.runtime_boundary_forbidden_markers -ne "none"
             }).Count
         exact_payload_scan_event_count = @($costInstrumentation.exact_payload_scan_events).Count
+        active_projection_count_max = if ($activeReplacementReport) { [int]$activeReplacementReport.active_projection_count_max } else { 0 }
+        active_projection_uniqueness_violation_count = if ($activeReplacementReport) { [int]$activeReplacementReport.active_projection_uniqueness_violation_count } else { 0 }
         taskspace_control_count_source = [string]$costInstrumentation.taskspace_control_usage.taskspace_control_count_source
         taskspace_control_count_source_mismatch = [bool]$costInstrumentation.taskspace_control_usage.taskspace_control_count_source_mismatch
         whale_exec_taskspace_control_count = [int]$costInstrumentation.taskspace_control_usage.whale_exec_taskspace_control_count

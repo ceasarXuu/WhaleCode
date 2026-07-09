@@ -302,6 +302,7 @@ function New-TaskspaceBudgetArtifacts {
             exact_payload_scan_event_id = [string]$tags.exact_payload_scan_event_id
             exact_payload_scan_passed = Convert-TaskspaceTraceBool $tags.exact_payload_scan_passed $false
             active_projection_present = Convert-TaskspaceTraceBool $tags.active_projection_present $false
+            active_projection_count = Convert-TaskspaceTraceInt $tags.active_projection_count
             context_bundle_present = Convert-TaskspaceTraceBool $tags.context_bundle_present $false
             exact_context_bundle_verified = Convert-TaskspaceTraceBool $tags.exact_context_bundle_verified $false
             cache_plan_verified = Convert-TaskspaceTraceBool $tags.cache_plan_verified $false
@@ -403,6 +404,7 @@ function New-TaskspaceExactPayloadScanEvents {
             checked_byte_ranges = [string]$tags.checked_byte_ranges
             negative_checks_performed = [string]$tags.negative_checks_performed
             active_projection_present = Convert-TaskspaceTraceBool $tags.active_projection_present $false
+            active_projection_count = Convert-TaskspaceTraceInt $tags.active_projection_count
             context_bundle_present = Convert-TaskspaceTraceBool $tags.context_bundle_present $false
             exact_context_bundle_verified = Convert-TaskspaceTraceBool $tags.exact_context_bundle_verified $false
             cache_plan_verified = Convert-TaskspaceTraceBool $tags.cache_plan_verified $false
@@ -444,19 +446,36 @@ function New-TaskspaceActiveReplacementArtifacts {
         $selected = @($scanEvents | Select-Object -First 1)
     }
     $first = if ($selected.Count -gt 0) { $selected[0] } else { $null }
+    $matchingScanEvents = @($scanEvents |
+        Where-Object { [bool]$_.matching_provider_event } |
+        Group-Object -Property scan_event_id |
+        ForEach-Object { $_.Group | Select-Object -First 1 })
+    $failedMatchingScanEvents = @($matchingScanEvents | Where-Object { -not [bool]$_.passed })
+    $unconfirmedMatchingScanEvents = @($matchingScanEvents | Where-Object { -not [bool]$_.replacement_confirmed })
+    $projectionUniquenessViolations = @($matchingScanEvents | Where-Object { [int]$_.active_projection_count -ne 1 })
+    $projectionCountMaximum = if ($matchingScanEvents.Count -gt 0) {
+        [int](($matchingScanEvents | Measure-Object -Property active_projection_count -Maximum).Maximum)
+    } else { 0 }
+    $allMatchingPayloadScansPassed = ($matchingScanEvents.Count -gt 0 -and $failedMatchingScanEvents.Count -eq 0)
+    $replacementConfirmed = ($allMatchingPayloadScansPassed -and $unconfirmedMatchingScanEvents.Count -eq 0 -and $projectionUniquenessViolations.Count -eq 0)
     $report = [pscustomobject]@{
         schema_version = "taskspace-active-context-replacement-report-v1"
         provider_payload_available = ($null -ne $first -and -not [string]::IsNullOrWhiteSpace([string]$first.provider_payload_sha256))
         request_id = if ($null -ne $first) { [string]$first.request_id } else { "" }
         provider_payload_sha256 = if ($null -ne $first) { [string]$first.provider_payload_sha256 } else { "" }
-        exact_payload_scan_passed = if ($null -ne $first) { [bool]$first.passed } else { $false }
+        exact_payload_scan_passed = [bool]$allMatchingPayloadScansPassed
         exact_payload_scan_event_id = if ($null -ne $first) { [string]$first.scan_event_id } else { "" }
         exact_payload_scan_producer = if ($null -ne $first) { [string]$first.producer } else { "" }
         exact_payload_scan_matching_provider_event = if ($null -ne $first) { [bool]$first.matching_provider_event } else { $false }
         context_bundle_present = if ($null -ne $first) { [bool]$first.context_bundle_present } else { $false }
         exact_context_bundle_verified = if ($null -ne $first) { [bool]$first.exact_context_bundle_verified } else { $false }
         cache_plan_verified = if ($null -ne $first) { [bool]$first.cache_plan_verified } else { $false }
-        replacement_confirmed = if ($null -ne $first) { [bool]$first.replacement_confirmed } else { $false }
+        active_projection_count = if ($null -ne $first) { [int]$first.active_projection_count } else { 0 }
+        active_projection_count_max = $projectionCountMaximum
+        active_projection_uniqueness_violation_count = $projectionUniquenessViolations.Count
+        matching_payload_scan_count = $matchingScanEvents.Count
+        failed_matching_payload_scan_count = $failedMatchingScanEvents.Count
+        replacement_confirmed = [bool]$replacementConfirmed
         legacy_taskspace_history_present = if ($null -ne $first) { [bool]$first.legacy_taskspace_history_present } else { $true }
         raw_taskspace_control_history_tokens = if ($null -ne $first) { [int]$first.raw_taskspace_control_history_tokens } else { 0 }
         completed_stale_node_history_tokens = if ($null -ne $first) { [int]$first.completed_stale_node_history_tokens } else { 0 }

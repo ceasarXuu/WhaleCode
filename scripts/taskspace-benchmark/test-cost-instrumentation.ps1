@@ -97,6 +97,7 @@ $obs = [pscustomobject]@{
                 "exact_payload_scan_passed:true",
                 "exact_payload_scan_event_id:scan-provider-request-1",
                 "active_projection_present:true",
+                "active_projection_count:1",
                 "context_bundle_present:true",
                 "exact_context_bundle_verified:true",
                 "cache_plan_verified:true",
@@ -128,6 +129,7 @@ $obs = [pscustomobject]@{
                 "checked_byte_ranges:0-4321",
                 "negative_checks_performed:legacy_taskspace_history,raw_taskspace_control_history,large_raw_output",
                 "active_projection_present:true",
+                "active_projection_count:1",
                 "context_bundle_present:true",
                 "exact_context_bundle_verified:true",
                 "cache_plan_verified:true",
@@ -504,6 +506,7 @@ Assert-True ([string]$qualityEvents[1].logical_request_id -eq "logical-2" -and [
 Assert-True ($scanEvents.Count -eq 1 -and [bool]$scanEvents[0].passed -and [string]$scanEvents[0].producer -eq "provider_payload_scanner") "exact payload scan event was not read from provider-owned runtime trace"
 Assert-True ([bool]$scanEvents[0].protected_items_present) "exact payload scan should preserve protected item proof"
 Assert-True ([bool]$scanEvents[0].exact_context_bundle_verified) "exact payload scan should preserve bundle proof"
+Assert-True ([int]$scanEvents[0].active_projection_count -eq 1) "exact payload scan should preserve active projection count"
 Assert-True ($providerEvents.Count -eq 3 -and [string]$providerEvents[0].schema_version -eq "taskspace-provider-request-budget-event-v1") "provider request events were not derived from runtime budget trace"
 Assert-True (@($providerEvents | Where-Object { [string]$_.producer -eq "provider_lifecycle" }).Count -eq 3) "provider request events did not preserve provider_lifecycle producer"
 Assert-True ([string]$providerEvents[0].provider_wire_api -eq "ChatCompletions" -and [int]$providerEvents[0].tools_count -eq 24 -and [string]$providerEvents[0].request_shape_classifier -eq "native_tools_schema_hot_path") "provider request events did not preserve cache request shape fields"
@@ -514,10 +517,35 @@ Assert-True ([int]$providerEvents[2].repeated_same_reason_count -eq 1 -and [stri
 Assert-True ($cacheTraceEvents.Count -eq 3 -and [string]$cacheTraceEvents[0].schema_version -eq "TaskSpaceProviderCacheTraceV1" -and [double]$cacheTraceEvents[0].hit_rate -eq 0.2) "provider cache trace events were not derived from terminal provider requests"
 Assert-True ([int]$cacheTraceSummary.native_tools_schema_hot_path_count -eq 1 -and [int]$cacheTraceSummary.tool_free_action_contract_count -eq 2 -and [double]$cacheTraceSummary.trace_coverage -eq 1.0) "provider cache trace summary did not classify completed request shapes"
 Assert-True ([bool]$replacement.exact_payload_scan_passed -and [bool]$replacement.replacement_confirmed) "active replacement report did not use exact payload scan"
+Assert-True ([int]$replacement.active_projection_count_max -eq 1 -and [int]$replacement.active_projection_uniqueness_violation_count -eq 0) "active replacement report did not enforce projection uniqueness"
 Assert-True ([bool]$replacement.context_bundle_present -and [bool]$replacement.exact_context_bundle_verified -and [bool]$replacement.cache_plan_verified) "active replacement report did not preserve bundle proof"
 Assert-True ([bool]$replacement.protected_items_present -and [bool]$replacement.exact_payload_scan_matching_provider_event) "active replacement report did not preserve exact scan join evidence"
+$repeatedLifecycleReplacement = New-TaskspaceActiveReplacementArtifacts $budgetEvents @($scanEvents[0], $scanEvents[0])
+Assert-True ([int]$repeatedLifecycleReplacement.active_context_replacement_report.matching_payload_scan_count -eq 1) "repeated lifecycle scans should be deduplicated by scan event id"
 $budgetOnlyReplacement = New-TaskspaceActiveReplacementArtifacts $budgetEvents @()
 Assert-True (-not [bool]$budgetOnlyReplacement.active_context_replacement_report.exact_payload_scan_passed -and @($budgetOnlyReplacement.exact_payload_scan_events).Count -eq 0) "budget-only payload booleans should not synthesize exact scan evidence"
+$duplicateProjectionScan = [pscustomobject]@{
+    scan_event_id = "scan-provider-request-duplicate"
+    request_id = [string]$scanEvents[0].request_id
+    provider_payload_sha256 = [string]$scanEvents[0].provider_payload_sha256
+    producer = "provider_payload_scanner"
+    matching_provider_event = $true
+    passed = $false
+    replacement_confirmed = $false
+    active_projection_count = 2
+    context_bundle_present = $false
+    exact_context_bundle_verified = $false
+    cache_plan_verified = $false
+    legacy_taskspace_history_present = $false
+    raw_taskspace_control_history_tokens = 0
+    completed_stale_node_history_tokens = 0
+    rejected_subagent_body_tokens = 0
+    large_raw_output_tokens = 0
+    protected_items_present = $true
+}
+$duplicateProjectionReplacement = New-TaskspaceActiveReplacementArtifacts $budgetEvents @($duplicateProjectionScan)
+Assert-True (-not [bool]$duplicateProjectionReplacement.active_context_replacement_report.replacement_confirmed) "duplicate active projection should not confirm replacement"
+Assert-True ([int]$duplicateProjectionReplacement.active_context_replacement_report.active_projection_uniqueness_violation_count -eq 1) "duplicate active projection violation was not reported"
 Assert-True ([int]$phaseSummary.provider_request_hook_coverage -eq 100 -and [int]$phaseSummary.request_phase_attribution_coverage -eq 100) "request phase summary did not reflect provider events"
 Assert-True ([int]$phaseSummary.provider_request_terminal_coverage -eq 100 -and [int]$phaseSummary.expected_model_request_count -eq 3 -and [int]$phaseSummary.provider_request_distinct_count -eq 3) "request phase summary did not use expected provider request denominator"
 Assert-True ([int]$phaseSummary.phase_counts.model_sampling -eq 1 -and [int]$phaseSummary.phase_counts.validation_recovery -eq 1 -and [int]$phaseSummary.phase_counts.state_commit -eq 1) "request phase summary did not expose phase counts"

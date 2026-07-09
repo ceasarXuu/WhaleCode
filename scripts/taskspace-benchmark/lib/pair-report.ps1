@@ -479,6 +479,8 @@ function Write-TaskspacePairReport {
             @("taskspace_control_count_source", $(if ($sideMetrics.PSObject.Properties.Name -contains "taskspace_control_count_source") { $sideMetrics.taskspace_control_count_source } else { "unavailable" })),
             @("taskspace_control_count_source_mismatch", $(if ($sideMetrics.PSObject.Properties.Name -contains "taskspace_control_count_source_mismatch") { $sideMetrics.taskspace_control_count_source_mismatch } else { $false })),
             @("exact_payload_scan_event_count", $(if ($sideMetrics.PSObject.Properties.Name -contains "exact_payload_scan_event_count") { $sideMetrics.exact_payload_scan_event_count } else { 0 })),
+            @("active_projection_count_max", $(if ($sideMetrics.PSObject.Properties.Name -contains "active_projection_count_max") { $sideMetrics.active_projection_count_max } else { 0 })),
+            @("active_projection_uniqueness_violation_count", $(if ($sideMetrics.PSObject.Properties.Name -contains "active_projection_uniqueness_violation_count") { $sideMetrics.active_projection_uniqueness_violation_count } else { 0 })),
             @("runtime_boundary_forbidden_marker_count", $(if ($sideMetrics.PSObject.Properties.Name -contains "runtime_boundary_forbidden_marker_count") { $sideMetrics.runtime_boundary_forbidden_marker_count } else { 0 })),
             @("changed_paths", (@($sideMetrics.changed_paths) -join ", ")),
             @("changed_file_inventory", (@($sideMetrics.changed_file_inventory | ForEach-Object { "$($_.path)[$($_.status)] sha256=$($_.sha256) size=$($_.size_bytes)" }) -join "; ")),
