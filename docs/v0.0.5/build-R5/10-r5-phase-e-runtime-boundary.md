@@ -1,14 +1,14 @@
 # R5 Phase E：Runtime 硬边界收敛与验收
 
 > 日期：2026-07-10
-> 状态：实现与单样本验收完成；未执行用户授权的对抗性审查
+> 状态：E0-E4 实现与单样本验收完成；未执行用户授权的对抗性审查
 > 目标：删除普通请求预算 hard stop 和 runtime 语义决策，只保留状态机、协议、权限、安全、资源硬底线，并保证拒绝反馈忠实进入 Agent 上下文。
 
 ## 1. 结论
 
 Phase E 的边界目标已完成：route/profile request count 只观测、不再终止正常采样；Agent completion、sampling interruption、external validation 已拆分；projection、tool output、action-contract 和 `taskspace_control` 活动路径不再合成策略、证据或下一步动作；当前拒绝会以原始机械反馈进入 provider history。
 
-最终 `count-call-stack` 单样本中，R5 在 13 次内部 provider request 后自行完成，map 闭合、Agent final 可见、外部验证通过，未出现 profile hard stop 或 runtime 禁用语义标记。该样本同时显示明显成本回退：R5 wall time 为 standard 的 3.11 倍。Phase E 只证明“不会被错误截断且语义边界更干净”，不证明 TaskSpace 已有成本收益。
+E0-E3 首次验收样本后来被确认存在 E4 污染：history composer 把每轮 active projection 全部追加到 provider payload，导致旧 running 与新 completed 快照并存。E4 只做机械 latest-only 替换，不压缩、不重写 projection 内容，并把唯一性纳入 exact payload gate。修复后 `count-call-stack` 的 9 个 provider request 全部只有一份 projection，standard/R5 均 solved；R5 wall ratio 从污染样本的 3.11 降至 1.40，总 input token 从 269093 降至 100365。
 
 ## 2. 子阶段完成情况
 
@@ -16,9 +16,10 @@ Phase E 的边界目标已完成：route/profile request count 只观测、不�
 |---|---|---|---|
 | E0 请求 hard stop 退场 | 删除 profile-count pre-dispatch 拒绝及 grace 控制；请求 profile 只写 trace | 超过旧 profile 后仍完成；无 `TaskSpaceProviderBudgetHardStopV1` | 完成 |
 | E0 生命周期拆分 | completion、interruption、external validation 独立提取和报告 | 两侧均为 Agent complete；外部验证不覆盖 completion | 完成 |
-| E1 反馈收薄 | tool output 不再生成 semantic summary；recovery 不含策略性 next action | 39 次 exact payload scan 全部通过，禁用标记 0 | 完成 |
+| E1 反馈收薄 | tool output 不再生成 semantic summary；recovery 不含策略性 next action | E0-E3 样本禁用标记 0；其旧 scanner 的 replacement 结论废弃，E4 scanner v3 重新验收唯一性 | 完成 |
 | E2 硬门禁分类 | 拒绝分类为 state machine、protocol、permission、safety、resource | focused taxonomy/protocol tests 通过 | 完成 |
 | E3 fallback 审计 | action-contract 只做显式动作机械映射；不再把 finish 改成 block、自动建 validation/rework 或伪造事实 | fallback 和 failed validation focused tests 通过 | 完成 |
+| E4 projection 唯一性 | provider history 只保留最新 active projection，旧快照以稳定 reason 省略；scanner 和 benchmark 强制唯一性 | 9/9 真实请求 `active_projection_count=1`；当前 gate/tool feedback 回归通过 | 完成 |
 
 ## 3. 活动路径边界
 
@@ -56,7 +57,7 @@ Phase E 的边界目标已完成：route/profile request count 只观测、不�
 | `cargo fmt --all -- --check` | PASS；stable rustfmt 仅提示 workspace nightly 配置不可用 |
 | `cargo test -p codex-core --no-run` | PASS；184 个旧策略 dead-code warning 留给 Phase F 物理删除 |
 | Phase E focused core tests | PASS：当前拒绝反馈、hard taxonomy、protocol、raw output、无自动 rework、无 action 重解释、Agent 自主并行选择等 |
-| `cargo test -p codex-core --lib` | FAIL：2160 passed、224 failed、3 ignored；失败集中在已撤销的自动 validation/rework、node-kind 策略 gate、semantic action-contract normalization、ledger/final 约束及少量历史 guardian/session 测试 |
+| `cargo test -p codex-core --lib` | FAIL：2161 passed、224 failed、3 ignored；新增 E4 回归通过，失败数与 E0-E3 基线一致；失败集中在已撤销的自动 validation/rework、node-kind 策略 gate、semantic action-contract normalization、ledger/final 约束及少量历史 guardian/session 测试 |
 | `cargo test -p codex-features` | PASS，37/37 |
 | `cargo test -p codex-tools` | PASS，139/139，1 ignored |
 | benchmark metrics/cost/E3-validity/harness selftests | 4/4 PASS |
@@ -69,29 +70,30 @@ Phase E 的边界目标已完成：route/profile request count 只观测、不�
 最终运行：
 
 ```text
-target/r5e-phase-e-final-clean/count-call-stack/20260710-043411-389
+target/r5e4-projection-latest-only/count-call-stack/20260710-051931-572
 ```
 
 | 版本 | 证据来源 | outcome | Agent completion | interruption | external validation | wall time | 普通 tools | provider requests | control calls |
 |---|---|---|---|---|---|---:|---:|---:|---:|
-| standard 当前 | 同次 left | solved | complete | false | passed | 15098ms | 10 | unavailable | 0 |
+| standard 当前 | 同次 left | solved | complete | false | passed | 16906ms | 10 | unavailable | 0 |
 | R4 历史 | `target/r4-d-count-call-stack-dependency-read-20260630/count-call-stack/20260630-204427-136` | solved | 旧口径未拆分 | 旧口径未拆分 | passed | 154525ms | 11 | unavailable | 旧口径 |
-| R5 Phase E | 同次 right | solved | complete | false | passed | 46971ms | 12 | 13，rollout trace | 2，rollout trace |
+| R5 Phase E4 | 同次 right | solved | complete | false | passed | 23649ms | 9 | 9，rollout trace | 1，rollout trace |
 
 证据限制：R4 是历史文档基线，不是本轮同机运行；standard 没有 rollout telemetry，因此 request count 必须为 unavailable。单次样本只用于阶段诊断，不进入 utility aggregate，也不构成成功率或成本统计结论。
 
 ## 6. 样本行为分析
 
-R5 比 standard 多做了两类普通动作：pytest 缺失后尝试联网安装 pytest，以及额外执行一次直接函数验证。它还在首次 `finish_node` 成功、projection 已显示 `current_node: none` 和 `status=completed` 后错误判断“node is still running”，再次调用 `finish_node`。runtime 只按硬状态机拒绝第二次调用，并返回 `no_current_node_binding`；下一轮 Agent 读取 projection 和拒绝后自行纠正并完成。
+E0-E3 样本中的重复 `finish_node` 不能归因于 Agent 已看到唯一、清晰状态后仍理解错误。第一次 finish 的成功输出和最新 completed projection 确实存在，但 composer 同时保留了此前所有 running projection；Agent 面对的是相互冲突的多个“active replacement”。根因属于上下文语义未正确替换，不应通过 runtime 增加动作约束修复。
 
-这个重复动作不是反馈丢失：第一次 finish 的成功输出和 completed projection 都已进入 provider history。它是 Agent 对可见状态的错误理解。按照 R5 原则，runtime 不应为此增加策略约束；当前状态机拒绝只守住不可重复完成无绑定节点的硬底线，边界正确。
+E4 在 history item 层按顺序只保留最新 projection，旧项记录 `stale_active_projection_replaced`；当前 tool/gate call-output pair、用户输入和 projection 原文均不改写。真实样本的 9 个请求全部通过 uniqueness scan，未再出现重复 finish，R5 以 9 次普通工具和 1 次 control 完成，少于 standard 的 10 次普通工具。
 
-成本放大的主要可见因素：
+成本变化：
 
-- R5 普通工具 12 次，对 standard 10 次；另有 2 次状态机 control。
-- R5 provider input 从首轮 8389 tokens 增长到末轮 33631 tokens，13 次请求累计 input 269093 tokens。
-- projection 虽已去除策略字段，但每轮仍重复携带增长中的 node event excerpts 和 result refs。
-- standard 缺少同口径 provider request telemetry，不能计算可信 request ratio。
+- R5 总 input 从污染样本 269093 降至 100365，下降 62.7%；请求数从 13 降至 9，下降 30.8%。
+- R5 wall time 从 46971ms 降至 23649ms，下降 49.7%；相对同轮 standard 为 1.40 倍。
+- 单请求 input 从 8021 增长到 12297，后段约 12K 平台；修复前从 8389 增长到 33631。
+- R5 cached input 仅 9728、uncached input 90637，缓存与自然历史增长仍是 Phase G 成本审计项。
+- standard 缺少同口径 provider request telemetry，仍不能计算可信 request ratio。
 
 ## 7. Phase E 收益判定
 
@@ -100,16 +102,17 @@ R5 比 standard 多做了两类普通动作：pytest 缺失后尝试联网安装
 | 正常执行不再被 profile 截断 | PASS | R5 超过旧 6-request profile 后继续到 13 并完成；hard-stop 标记 0 |
 | 中断不再伪装成 Agent completion | PASS | completion/interruption/validation 独立字段和 harness fixtures 通过 |
 | 不通过新语义策略控制成本 | PASS | forbidden marker 0；action-contract/control/tool feedback 活动路径无语义合成 |
-| feedback 拒绝能进入下一轮上下文 | PASS | final/gate feedback pair test；live 第二次 finish rejection 后 Agent 自行纠正 |
-| 简单任务成本不回退 | FAIL，非 Phase E 退出门禁 | wall ratio 3.11；输入上下文逐轮增长；进入 Phase F/G 分析 |
+| feedback 拒绝能进入下一轮上下文 | PASS | final/gate feedback pair focused tests；E4 composer 回归证明当前 call/output 不被 stale projection replacement 误删 |
+| stale projection 不再放大成本 | PASS | 9/9 projection 唯一；input -62.7%，requests -30.8%，wall -49.7%（相对污染样本） |
+| 简单任务达到 standard 成本 parity | 未证明，非 Phase E 退出门禁 | 单样本 wall ratio 1.40、input ratio 1.56；进入 Phase G 聚合验证 |
 
 ## 8. 遗留项
 
-1. Phase F 删除 184 个 warning 所暴露的旧 semantic normalizer、validation/rework policy、context compiler 和相关历史测试，并拆分 map/event/gate/projection 模块；把当前 `2160 passed / 224 failed / 3 ignored` 恢复为新边界下的全量绿色基线，不做兼容。
-2. Phase G 对 projection 的重复 event/ref 体积和 request cadence 做同口径收益审计，优先保证可恢复语义，再做机械去重、引用和渐进暴露。
+1. Phase F 删除 184 个 warning 所暴露的旧 semantic normalizer、validation/rework policy、context compiler 和相关历史测试，并拆分 map/event/gate/projection 模块；把当前 `2161 passed / 224 failed / 3 ignored` 恢复为新边界下的全量绿色基线，不做兼容。
+2. Phase G 对自然 tool history、event/ref 体积、缓存命中和 request cadence 做同口径收益审计；不得把 latest-only 快照替换扩展成 projection 语义压缩。
 3. 为 standard 补齐真实 rollout/request telemetry 后再比较 request ratio；当前禁止用 token record 或 outer exec 猜测。
 4. 本次尚未执行用户授权的对抗性审查；执行前不把它记为已完成 gate。
 
 ## 9. 退出决定
 
-Phase E 的活动路径退出门禁通过，可以进入 Phase F；但全量 core suite 尚未绿色，R5 整体不能跳过 Phase F 进入最终回归。禁止因当前成本回退或旧测试失败恢复 route/profile hard stop、node-kind 策略 gate、semantic summary 或 runtime 自动 rework；后续优化首先检查重复上下文、引用策略和 feedback 效率。
+Phase E 的 E0-E4 退出门禁通过，可以进入 Phase F；但全量 core suite 尚未绿色，R5 整体不能跳过 Phase F 进入最终回归。禁止因剩余成本差距或旧测试失败恢复 route/profile hard stop、node-kind 策略 gate、semantic summary 或 runtime 自动 rework；后续优化首先检查自然历史体积、缓存和 feedback/ref 效率。

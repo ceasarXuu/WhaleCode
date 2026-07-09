@@ -10,7 +10,7 @@
 Created: 2026-07-09
 Updated: 2026-07-10
 Version: v0.0.5 build-R5
-Status: In Progress - R5-E implemented and verified; R5-F is the next mandatory gate
+Status: In Progress - R5-E4 completed; R5-F is ready
 Owner / Responsible: WhaleCode core runtime
 Related Systems: TaskSpace runtime, action_map runtime, taskspace_control,
   context projection, provider-visible context, benchmark harness
@@ -24,6 +24,7 @@ Related Links:
   docs/v0.0.5/build-R5/07-r5-phase-c-exposure-followup-plan.md
   docs/v0.0.5/build-R5/09-r5-phase-d-ledger-deactivation.md
   coe/2026-07-10-01-54-r5-normal-progress-budget-hard-stop.md
+  coe/2026-07-10-05-03-r5-stale-active-projection-accumulation.md
   docs/v0.0.5/build-R4/10-r4-request-convergence-engineering-plan.md
 Risk Level: High
 Plan Type: Full
@@ -94,7 +95,7 @@ TaskSpace 拉回三个职责：
 | R5-C | Projection thin mode and action sequence carrier | active projection 改为 map skeleton + current node + events/refs；action sequence 承载 Agent 明确多动作 | provider-visible diff 无策略提示、无语义重写；`count-call-stack` standard/R5 均 solved |
 | R5-C1 | Native tool loop and projection boundary | DeepSeek 默认 native tools、机械空 map 初始化、删除 action-class projection 残留 | `count-call-stack` standard/R5 均 solved；rollout 无 `allowed action classes` / `hard action-class constraints` |
 | R5-D | Semantic residue inventory and ledger deactivation | D0 审计 provider-visible 语义残留；D1 降级 `initial_*`；D2 降级 `problem_ledger/cognitive_state` active 控制权 | 局部任务文本和旧文案不再变成 canonical truth 或策略约束 |
-| R5-E | Runtime hard-baseline pruning | E0 移除普通请求次数 hard stop 并修正中断/完成语义；E1 清除策略性 recovery/sentinel text；E2 建 hard-gate classifier；E3 审计 fallback | route profile 不再终止正常执行；拒绝只保留状态机/协议/权限/安全及可证明的严重外部资源底线 |
+| R5-E | Runtime hard-baseline pruning and projection uniqueness | E0 移除普通请求次数 hard stop 并修正中断/完成语义；E1 清除策略性 recovery/sentinel text；E2 建 hard-gate classifier；E3 审计 fallback；E4 active projection latest-only 替换 | route profile 不再终止正常执行；拒绝只保留硬底线；每个 provider payload 恰好一份最新 active projection |
 | R5-F | Dead code cleanup and code split | 删除旧结构、模块拆分、移除兼容分支 | 生产路径不依赖旧语义控制，代码边界清楚 |
 | R5-G | Regression and benefit gate | 正向/负向样本对照、成本和语义传递报告 | 不引入明确负收益，失败可解释 |
 | R5-H | Closeout | R5 收口报告和后续 backlog | 文档、测试、代码、证据一致 |
@@ -109,7 +110,7 @@ TaskSpace 拉回三个职责：
 | R5-C | active projection 只含 map skeleton、current node、events、refs、hard status；routing prompt 不再 model-visible 注入策略 | 减少上下文污染和策略注入，让 Agent 直接面对忠实反馈；一次响应可承载多个 Agent 明确动作 | `projection_strategy_hint_count=0`；provider-visible payload diff 通过；`count-call-stack` R5-C live sample solved |
 | R5-C1 | DeepSeek native tools 成为默认路径；TaskSpace 可机械初始化空 map；projection 不再暴露 node kind -> action class 合同 | 进一步贴近 standard tool loop，同时消除“runtime 不拦但 projection 还暗示不能做”的边界错位 | native alias/unit tests 通过；`count-call-stack` paired run both_success；文本扫描无旧 action-class contract |
 | R5-D | 先完成 provider-visible semantic residue inventory，再让 `initial_*`、ledger、cognitive state 退出 active canonical truth | 防止旧文案或任务文本局部细节被 runtime 固化放大 | `state_machine_allowed_actions`、validation/recovery/sentinel/spawn 文案完成分类；H203/H204 path case 中 `/app` 不再由 projection/ledger 强化；state_commit 不要求 facts/decisions/adoption |
-| R5-E | 普通 route/profile 请求计数不再 hard stop；真实中断不伪装 Agent 完成；其余保留 gate 都能归类为状态机、协议、权限、安全或有明确来源的严重资源底线 | 清晰 runtime 边界，避免正常执行被截断，也避免 benchmark 把中断误判为效率收益 | `profile_budget_hard_stop_count=0`；超过 profile 的 focused test 继续采样；`agent_completion_status` 与 external validation 分离；rollout/payload scan 无策略文案 |
+| R5-E | 普通 route/profile 请求计数不再 hard stop；真实中断不伪装 Agent 完成；保留 gate 只含硬底线；active projection 机械替换旧快照 | 清晰 runtime 边界，避免正常执行被截断、旧状态冲突和 projection 二次累积 | `profile_budget_hard_stop_count=0`；completion/validation 分离；`active_projection_count=1`；stale projection omission 可审计；rollout/payload scan 无策略文案 |
 | R5-F | active path 不依赖旧 semantic ledger，模块边界测试通过 | 提升可维护性，降低 `runtime.rs` 混合职责继续扩张风险 | call/import 审计证明 projection 不调用 cognitive coverage helper；cargo check/test 通过 |
 | R5-G | targeted paired runs 无明确 correctness 回退，成本无无解释放大；只有 Agent 生命周期完整且未被 runtime 中断的样本可进入收益统计 | 用未污染样本证明简化降低干扰且保留收益 | Agent completion、external validation、tool/model request、tokens、wall time、feedback completeness 分项对比报告 |
 | R5-H | closeout 列出已删/降级/保留结构和后续删除条件，git clean | 形成可交接的架构边界和后续路线，避免 R5 结论再次散落 | closeout 文档、证据索引、clean git、保留复杂结构 owner/exit condition |
@@ -474,6 +475,12 @@ TaskSpace route/profile 推导出的普通 request count。
 | R5-E1 | 移除 model-visible 策略性 recovery/sentinel text 和 next-valid-actions | blocked message 只含 hard reason 和机械状态，不含下一步策略 |
 | R5-E2 | 为剩余拒绝建立 hard-gate classifier | 每个拒绝都可归类为状态机、协议、权限、安全或资源底线 |
 | R5-E3 | action-contract fallback audit | action-contract 仅作为显式 fallback，不恢复默认语义策略层 |
+| R5-E4 | 修复 provider history 中 stale active projection 累积；只保留 latest projection，保留当前 tool/gate feedback；补 uniqueness scanner | 每个 TaskSpace provider payload 恰好一份最新 active projection；旧 running 与新 completed 状态不再并存；同一样本 token 增长显著下降或残差有独立证据 |
+
+R5-E4 为 2026-07-10 插入并已关闭的阻断门。`target/r5e-phase-e-final-clean/...` 虽证明 hard stop
+已退场，但其 14 份 active projection 使成本与重复 finish 行为 `projection-tainted`，只保留为
+修复前证据。修复后的 `target/r5e4-projection-latest-only/.../20260710-051931-572` 在 9 个
+provider request 中均只有一份 active projection，standard/R5 均 solved，可以进入 R5-F。
 
 R5-E0 实施边界：
 
@@ -532,6 +539,7 @@ R5-E0 审查、回退和下一门禁：
 blocked message 不包含策略性纠错指令。
 rollout/payload scan 不含 next_valid_actions、validation_needs_test、rejected_by_state_baseline 语义动作列表。
 Agent completion、sampling interruption、external validation 三种状态不可互相覆盖。
+每个 provider payload 中 active projection 数量必须等于 1；旧 projection 必须以 stale replacement reason 被排除。
 ```
 
 负收益防线：
@@ -682,7 +690,8 @@ R5 closeout 文档
 | R5-C1 | native tool-loop focused sample、projection boundary scan | 不依赖 ledger 删除 | native alias tests、`count-call-stack` paired run、旧 action-class contract 扫描 | 100% 完成 | proceed to R5-D |
 | R5-D | D0 provider-visible residue inventory、initial/state_commit 降级测试 | 不依赖 gate pruning | 语义残留分类表、ledger 非 active path 证据；D 阶段 live sample 因 profile hard stop 仅保留诊断资格 | 100% 完成 | proceed to R5-E0，不进入 benefit claim |
 | R5-E0 | profile-over-limit focused tests、interruption/completion harness fixtures、`count-call-stack` live sample | 不依赖 E1/E2 文案清理或 R5-G | profile count 不再 hard stop；中断不伪装完成；样本资格分类正确 | 100% 完成 | proceed to R5-E1 |
-| R5-E1/E2/E3 | gate 分类测试、payload scan、负例 | 不依赖模块拆分 | 仅硬底线 gate 列表；model-visible recovery/sentinel 无策略指令 | 100% 完成 | pause |
+| R5-E1/E2/E3 | gate 分类测试、payload scan、负例 | 不依赖模块拆分 | 仅硬底线 gate 列表；model-visible recovery/sentinel 无策略指令 | 100% 完成 | proceed to R5-E4 |
+| R5-E4 | 双 projection provider-history 测试、exact payload uniqueness scan、同一样本重跑 | 不依赖模块拆分或语义压缩 | latest-only projection；当前 feedback pair 保留；token/payload 增长重新计量 | 100% 完成 | proceed to R5-F |
 | R5-F | 模块边界测试、cargo check | 不依赖 benchmark 总跑 | active path import/call graph | 100% 完成 | pause |
 | R5-G | targeted paired runs | 不依赖 closeout | 指标报告、失败分类 | 100% 完成 | pause |
 | R5-H | closeout review | 无 | closeout 文档和 clean git | 完成 | pause |
@@ -720,7 +729,8 @@ provider request count、state-machine action count、wall time、失败分类�
 | R5-D0 provider-visible residue inventory | provider-visible 旧语义标签和策略提示完成首轮清理；semantic ledger 仍待 D1/D2 降级 | projection/recovery/action-contract/gate recovery text | provider-visible context, ordinary tool feedback | `taskspace_action_contract`, `gate_recovery`, `active_projection`, D0 forbidden scan | `target/r5d0-semantic-residue-clean/count-call-stack/20260709-232508-447` | legacy/test-only `next_valid_actions` parser/helper remains internal | landed |
 | R5-D1/D2 ledger deactivation | `initial_*`、`problem_ledger/cognitive_state` 不控制 active path | start_task/projection/closeout/final gate | taskspace_control, provider-visible context | `start_task_`, active projection, D2 closeout/final boundary tests, `taskspace_action_contract`, `gate_recovery` | `target/r5d-ledger-deactivation/count-call-stack/20260710-002316-050` forbidden scan 无命中；TaskSpace side 被 profile hard stop，收益证据 tainted | legacy validation/rework tests still contain old semantic-control assertions | landed |
 | R5-E0 request hard-stop removal | route/profile 请求计数只观测；真实中断不伪装 Agent completion；外部验证不覆盖 Agent 生命周期 | provider pre-dispatch gate、turn completion path、benchmark classifier | whale exec TaskSpace mode、paired report | profile-over-limit continuation、interruption semantics、harness eligibility tests | `target/r5e-phase-e-final-clean/count-call-stack/20260710-043411-389`：13 requests 后 Agent complete、无 hard stop、map closed | no compatibility/grace fallback | landed |
-| R5-E1/E2/E3 hard-baseline pruning | 只保留硬底线拒绝；model-visible recovery/sentinel 不含策略指令；action-contract 不重解释 Agent 动作 | state machine gate path, sentinel/recovery renderer, native control parser, action-contract fallback | ordinary tool preflight, payload construction | gate classification、raw feedback、no-auto-rework、forbidden scan tests | 同一 live run 的 39 次 exact payload scan 全部通过，forbidden marker 0 | 旧未调用 semantic helpers/tests 留给 R5-F 物理删除 | landed |
+| R5-E1/E2/E3 hard-baseline pruning | 只保留硬底线拒绝；model-visible recovery/sentinel 不含策略指令；action-contract 不重解释 Agent 动作 | state machine gate path, sentinel/recovery renderer, native control parser, action-contract fallback | ordinary tool preflight, payload construction | gate classification、raw feedback、no-auto-rework、forbidden scan tests | E0-E3 live run forbidden marker 0；旧 scanner 的 replacement 结论已由 E4 废弃并重验 | 旧未调用 semantic helpers/tests 留给 R5-F 物理删除 | landed |
+| R5-E4 active projection uniqueness | provider history 只保留 latest active projection；旧快照不与最新 map 状态并存；scanner 拒绝 projection count != 1 | provider-visible history composer、exact payload scanner、benchmark extractor/report | every TaskSpace provider request | 双 projection regression、current feedback pair、scanner uniqueness tests | 修复后 `target/r5e4-projection-latest-only/.../20260710-051931-572`：9/9 requests projection count=1；input 100365，wall 23649ms，均较污染样本显著下降 | 不做 projection 语义压缩或兼容分支 | landed |
 | R5-F module split | map/event/gate/projection 边界清晰 | action_map modules | whale exec --taskspace | cargo check/test | trace fields stable | none | planned |
 | R5-G benefit gate | 简化无明确负收益 | benchmark harness | targeted samples | paired report | metrics json/report | none | planned |
 
@@ -777,8 +787,11 @@ D0 样本 standard/R5 均 solved，forbidden scan 无命中。R5-D1/D2 已完成
 canonical truth，ledger/cognitive state 不再控制 active projection、closeout、final response
 或 broad delegation strategy；Phase D `count-call-stack` 的 patch correctness 和 forbidden scan
 仍有效，但 TaskSpace side 在成功 edit 后被 profile hard stop，Agent 未自行验证/收尾，因此
-tool ratio 0.79、wall ratio 0.66 和 harness solved 不再作为收益证据。下一步必须先执行 R5-E0，
-移除普通请求次数 hard stop 并修正 interruption/completion/validation 分类，再进入 E1/E2/E3。
+tool ratio 0.79、wall ratio 0.66 和 harness solved 不再作为收益证据。R5-E0 至 E3 已移除普通
+请求次数 hard stop、拆分生命周期并收清策略性 gate/recovery；E4 进一步修复 active projection
+追加而非替换的问题。最终 `count-call-stack` 单样本 standard/R5 均 solved，R5 的 9 个 provider
+payload 均只有一份最新 projection，输入 token 由污染样本的 269093 降至 100365，wall time
+由 46971ms 降至 23649ms。下一步进入 R5-F，物理删除旧语义控制死代码和过时测试。
 
 ## 1.20 R5-A/B 后计划校准
 
@@ -790,3 +803,4 @@ tool ratio 0.79、wall ratio 0.66 和 harness solved 不再作为收益证据。
 | R5-B live sample 显示 TaskSpace 一小步一 provider request，`verification_first` 在 implement 前 hard stop；R5-D 又在成功 edit 后复现 7/6 hard stop | R5-C0 只延后了 cliff，没有修正抽象；R5-E0 移除普通 route/profile 请求 hard stop 和 grace 补丁，并隔离被中断样本；request cadence 继续作为观测项，不转成 runtime 约束 |
 | R4 large-output/ref 是正向收益 | R5-B/C 必须保留 raw_ref/excerpt，不和语义 gate 一起删除 |
 | gate 消息含策略性纠错 | R5-E0 先清除会污染执行/评估的普通请求 hard stop；E1 再清 model-visible guidance；E2 建立 hard-gate classifier |
+| active projection 名为 replacement 但历史 composer 实际追加全部快照 | R5-E4 只按 item identity 机械保留最新 projection，当前 tool/gate feedback 原样保留；scanner 强制 `active_projection_count=1`，不做语义压缩或重写 |
