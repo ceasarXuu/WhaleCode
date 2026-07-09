@@ -21,6 +21,7 @@ Related Links:
   docs/v0.0.5/build-R5/04-r5-phase-c0-cadence-parity.md
   docs/v0.0.5/build-R5/05-r5-phase-c-thin-projection-action-sequence.md
   docs/v0.0.5/build-R5/06-r5-phase-c1-native-tool-loop-boundary.md
+  docs/v0.0.5/build-R5/07-r5-phase-c-exposure-followup-plan.md
   docs/v0.0.5/build-R4/10-r4-request-convergence-engineering-plan.md
 Risk Level: High
 Plan Type: Full
@@ -89,8 +90,8 @@ TaskSpace 拉回三个职责：
 | R5-C0 | Execution cadence parity | budget lifecycle 修复和 action-contract patch 语法归一化 | `count-call-stack` standard/R5 单样本均 solved，不再停在 implement 首轮或 malformed patch 归一化点 |
 | R5-C | Projection thin mode and action sequence carrier | active projection 改为 map skeleton + current node + events/refs；action sequence 承载 Agent 明确多动作 | provider-visible diff 无策略提示、无语义重写；`count-call-stack` standard/R5 均 solved |
 | R5-C1 | Native tool loop and projection boundary | DeepSeek 默认 native tools、机械空 map 初始化、删除 action-class projection 残留 | `count-call-stack` standard/R5 均 solved；rollout 无 `allowed action classes` / `hard action-class constraints` |
-| R5-D | Semantic ledger deactivation | D1 降级 `initial_*`，D2 降级 `problem_ledger/cognitive_state` active 控制权 | 局部任务文本不再变成 canonical truth |
-| R5-E | Runtime gate pruning | E1 清除策略性提示，E2 建 hard-gate classifier 并删除/降级语义 gate | 拒绝只保留硬状态机/协议/安全底线 |
+| R5-D | Semantic residue inventory and ledger deactivation | D0 审计 provider-visible 语义残留；D1 降级 `initial_*`；D2 降级 `problem_ledger/cognitive_state` active 控制权 | 局部任务文本和旧文案不再变成 canonical truth 或策略约束 |
+| R5-E | Runtime hard-baseline pruning | E1 清除策略性 recovery/sentinel text；E2 建 hard-gate classifier 并删除/降级语义 gate | 拒绝只保留状态机/协议/权限/安全/资源底线 |
 | R5-F | Dead code cleanup and code split | 删除旧结构、模块拆分、移除兼容分支 | 生产路径不依赖旧语义控制，代码边界清楚 |
 | R5-G | Regression and benefit gate | 正向/负向样本对照、成本和语义传递报告 | 不引入明确负收益，失败可解释 |
 | R5-H | Closeout | R5 收口报告和后续 backlog | 文档、测试、代码、证据一致 |
@@ -104,8 +105,8 @@ TaskSpace 拉回三个职责：
 | R5-C0 | 预算模型不再把状态机生命周期和反馈交付窗口互相误扣；action-contract patch 归一化不再制造双 `End Patch` | 降低 request lifecycle cliff，避免简单任务在 implement 前或 patch 归一化处失败 | `count-call-stack` R5 已进入 implement、执行 edit，并在单样本中与 standard 均 solved；standard/R5 request cadence 有同口径日志 |
 | R5-C | active projection 只含 map skeleton、current node、events、refs、hard status；routing prompt 不再 model-visible 注入策略 | 减少上下文污染和策略注入，让 Agent 直接面对忠实反馈；一次响应可承载多个 Agent 明确动作 | `projection_strategy_hint_count=0`；provider-visible payload diff 通过；`count-call-stack` R5-C live sample solved |
 | R5-C1 | DeepSeek native tools 成为默认路径；TaskSpace 可机械初始化空 map；projection 不再暴露 node kind -> action class 合同 | 进一步贴近 standard tool loop，同时消除“runtime 不拦但 projection 还暗示不能做”的边界错位 | native alias/unit tests 通过；`count-call-stack` paired run both_success；文本扫描无旧 action-class contract |
-| R5-D | `initial_*`、ledger、cognitive state 不再作为 active canonical truth 或语义 gate | 防止任务文本局部细节被 runtime 固化放大 | H203/H204 path case 中 `/app` 不再由 projection/ledger 强化；state_commit 不要求 facts/decisions/adoption |
-| R5-E | 保留 gate 都能归类为状态机、协议、权限、安全或资源底线 | 清晰 runtime 边界，减少 Agent 被 runtime 纠错/引导 | `semantic_gate_block_count=0`；hard gate 分类测试通过 |
+| R5-D | 先完成 provider-visible semantic residue inventory，再让 `initial_*`、ledger、cognitive state 退出 active canonical truth | 防止旧文案或任务文本局部细节被 runtime 固化放大 | `state_machine_allowed_actions`、validation/recovery/sentinel/spawn 文案完成分类；H203/H204 path case 中 `/app` 不再由 projection/ledger 强化；state_commit 不要求 facts/decisions/adoption |
+| R5-E | 保留 gate 都能归类为状态机、协议、权限、安全或资源底线；model-visible text 不含策略指令 | 清晰 runtime 边界，减少 Agent 被 runtime 纠错/引导 | `semantic_gate_block_count=0`；hard gate 分类测试通过；rollout/payload scan 无 next-valid-actions/action-class/rework strategy 文案 |
 | R5-F | active path 不依赖旧 semantic ledger，模块边界测试通过 | 提升可维护性，降低 `runtime.rs` 混合职责继续扩张风险 | call/import 审计证明 projection 不调用 cognitive coverage helper；cargo check/test 通过 |
 | R5-G | targeted paired runs 无明确 correctness 回退，成本无无解释放大 | 用样本证明简化不是单纯删功能，而是降低干扰且保留收益 | business success、tool/model request、tokens、wall time、feedback completeness 对比报告 |
 | R5-H | closeout 列出已删/降级/保留结构和后续删除条件，git clean | 形成可交接的架构边界和后续路线，避免 R5 结论再次散落 | closeout 文档、证据索引、clean git、保留复杂结构 owner/exit condition |
@@ -239,14 +240,15 @@ provider budget 保护资源底线，但不能把已完成的状态转移截断�
 同口径日志显示 R5 不再是一小步一 provider request 的强制节奏。
 standard/R4/R5 对比记录包含 provider request、tool call、state-machine action 三个维度。
 没有新增“指导 Agent 少读/必须改”的 runtime 语义提示。
-状态机硬约束仍生效：inspect 不能直接 edit，非法 action 仍被拒绝并忠实反馈。
+状态机硬约束仍生效：无 active map/node/lease、协议非法、权限/安全/资源上限仍被拒绝并忠实反馈。
 ```
 
 负收益防线：
 
 ```text
-如果 native tool-loop 难以稳定，先保留 action-contract 并修 budget lifecycle；
-但不得把 C0 标记为完成，直到 request cadence 放大有可验证收敛。
+如果 native tool-loop 路径出现具体可复现的工具 ABI 或反馈透传失败，先按能力层/反馈层修复；
+不得预设 native tool-loop 不稳定，也不得回退到 runtime 语义约束。
+request cadence 放大若仍存在，作为 R5-G 成本项解释和优化，不阻塞已验证的 correctness gate。
 若多 action 执行导致反馈丢失，回退到单 action，但保留 NodeEvent 证据和问题记录。
 ```
 
@@ -355,13 +357,15 @@ rollout no matches: allowed action classes / hard action-class constraints / Cur
 
 目标：
 
-把 `problem_ledger`、`cognitive_state`、`facts`、`decisions`、`fact_sources`、`output_contracts` 从
-active runtime 控制路径降级。
+把 Phase C/C1 暴露出的 provider-visible 语义残留先盘清，再把
+`problem_ledger`、`cognitive_state`、`facts`、`decisions`、`fact_sources`、
+`output_contracts` 从 active runtime 控制路径降级。
 
 执行拆分：
 
 | Subphase | Scope | Exit Gate |
 |---|---|---|
+| R5-D0 | Provider-visible semantic residue inventory | 扫描并分类所有 `state_machine_allowed_actions`、validation/recovery/sentinel/spawn 文案；每条归为 hard baseline、mechanical status、semantic residue、debug-only |
 | R5-D1 | `start_task initial_*` 不再自动提升为 canonical truth | H203/H204 中局部 `/app` 文本不再进入 fact/source coverage authority |
 | R5-D2 | `problem_ledger/cognitive_state` 从 active projection/gate 移出 | 普通工作不依赖 facts/decisions/adoption 继续推进 |
 
@@ -378,9 +382,27 @@ active runtime 控制路径降级。
 退出门禁：
 
 ```text
+provider-visible 文案残留完成分类，明显越界项进入删除清单或已删除。
 start_task initial_* 不再把任务文本细节提升成 active canonical truth。
 state_commit 不再要求 Agent 维护 facts/decisions/adoption 才能继续普通工作。
 closeout 不依赖 runtime 的 accepted semantic facts。
+```
+
+D0 分类白名单：
+
+```text
+允许保留：
+- no active map/node/lease
+- invalid node state
+- protocol/schema parse failure
+- permission/sandbox/security/resource limit
+- output ref/crop explanation
+
+必须删除或降级：
+- 告诉 Agent 该 read/search/edit/test/final
+- validation_needs_test 这类策略状态
+- rejected_by_state_baseline: list_files/search/read_file/apply_patch 这类语义动作禁止
+- coverage/fact_source/rework_target 作为 model-visible 指令
 ```
 
 负收益防线：
@@ -394,7 +416,8 @@ closeout 不依赖 runtime 的 accepted semantic facts。
 
 目标：
 
-保留硬状态机底线，删除或降级语义干预 gate。
+保留硬状态机底线，删除或降级语义干预 gate，并把所有 model-visible recovery/sentinel
+文案纳入同一边界审计。
 
 硬底线允许：
 
@@ -419,8 +442,9 @@ closeout 不依赖 runtime 的 accepted semantic facts。
 
 | Subphase | Scope | Exit Gate |
 |---|---|---|
-| R5-E1 | 移除 model-visible 策略性 recovery text 和 next-valid-actions | blocked message 只含 hard reason，不含下一步策略 |
+| R5-E1 | 移除 model-visible 策略性 recovery/sentinel text 和 next-valid-actions | blocked message 只含 hard reason 和机械状态，不含下一步策略 |
 | R5-E2 | 为剩余拒绝建立 hard-gate classifier | 每个拒绝都可归类为状态机、协议、权限、安全或资源底线 |
+| R5-E3 | action-contract fallback audit | action-contract 仅作为显式 fallback，不恢复默认语义策略层 |
 
 退出门禁：
 
@@ -428,6 +452,7 @@ closeout 不依赖 runtime 的 accepted semantic facts。
 所有保留 gate 都能归类为状态机/协议/权限/安全/资源底线。
 所有语义 gate 要么删除，要么变成忠实 event/note，不阻止 Agent 动作。
 blocked message 不包含策略性纠错指令。
+rollout/payload scan 不含 next_valid_actions、validation_needs_test、rejected_by_state_baseline 语义动作列表。
 ```
 
 负收益防线：
@@ -473,6 +498,29 @@ projection 代码不能调用语义 gate/cognitive coverage helper。
 目标：
 
 证明简化没有带来明确负收益，并记录真实收益/代价。
+
+Phase C 后，R5-G 必须把 correctness、semantic cleanliness、request cadence 分开验收：
+
+| Dimension | Gate | Acceptable Result |
+|---|---|---|
+| correctness | targeted samples standard/R5 对照 | R5 无明确 correctness 回退；失败先归因上下文/反馈 |
+| semantic cleanliness | provider-visible scan | 无策略提示、无 action-class contract、无 old recovery hints |
+| feedback fidelity | tool result event/ref audit | stdout/stderr/exit/path/ref 可恢复，不主观摘要成策略 |
+| request cadence | request/tool/action metrics | 记录真实放大来源；不要求一次性解决，但必须解释 |
+| cost regression | token/projection metrics | projection tokens 不因重复旧结构无解释增长 |
+
+优先样本：
+
+```text
+count-call-stack:
+  native tool loop、projection boundary、patch + validation。
+
+sqlite-db-truncate / H203 path case:
+  局部路径文本不被 canonical truth 放大。
+
+large-output-ref-smoke:
+  ref/crop 忠实传递，不回退到语义摘要。
+```
 
 样本矩阵：
 
@@ -542,8 +590,8 @@ R5 closeout 文档
 | R5-C0 | 同口径 request/tool cadence 日志、focused paired sample | 不依赖 R5-C thin projection | cadence report、budget cliff 不复现 | 100% 完成 | pause |
 | R5-C | provider-visible payload diff、action sequence live sample | 不依赖 ledger 删除 | thin projection diff、反馈完整性测试、`count-call-stack` paired run | 100% 完成 | proceed to R5-D |
 | R5-C1 | native tool-loop focused sample、projection boundary scan | 不依赖 ledger 删除 | native alias tests、`count-call-stack` paired run、旧 action-class contract 扫描 | 100% 完成 | proceed to R5-D |
-| R5-D | initial/state_commit 降级测试 | 不依赖 gate pruning | ledger 非 active path 证据 | 100% 完成 | pause |
-| R5-E | gate 分类测试和负例 | 不依赖模块拆分 | 仅硬底线 gate 列表 | 100% 完成 | pause |
+| R5-D | D0 provider-visible residue inventory、initial/state_commit 降级测试 | 不依赖 gate pruning | 语义残留分类表、ledger 非 active path 证据 | 100% 完成 | pause |
+| R5-E | gate 分类测试、payload scan、负例 | 不依赖模块拆分 | 仅硬底线 gate 列表；model-visible recovery/sentinel 无策略指令 | 100% 完成 | pause |
 | R5-F | 模块边界测试、cargo check | 不依赖 benchmark 总跑 | active path import/call graph | 100% 完成 | pause |
 | R5-G | targeted paired runs | 不依赖 closeout | 指标报告、失败分类 | 100% 完成 | pause |
 | R5-H | closeout review | 无 | closeout 文档和 clean git | 完成 | pause |
@@ -574,8 +622,8 @@ tool count、provider request count、state-machine action count、wall time、�
 | R5-C0 cadence parity | TaskSpace 不因一小步一请求在 implement 前或 patch 归一化处 hard stop | budget lifecycle accounting + action-contract patch normalization | whale exec taskspace mode | cadence focused tests, patch normalization test | provider request/tool/action metrics, `count-call-stack` paired report | none | landed |
 | R5-C thin projection and action sequence | model-visible 只含 map/node/events/refs；单次 response 可承载多个 Agent 明确动作；routing prompt report-only | projection renderer, action-contract parser/executor, benchmark routing prompt | provider request, whale exec taskspace mode | active_projection, taskspace_action_contract, routing harness tests | `target/r5cphase6/count-call-stack/20260709-183144-389` | none | landed |
 | R5-C1 native tool loop boundary | DeepSeek 默认 native tools；机械空 map；projection 不再暴露 action-class contract | session turn transport, action_map runtime projection, tools router/parallel alias | whale exec taskspace mode | native alias tests, active_projection, taskspace_action_contract | `target/r5c1-native-tool-loop-no-action-contract/count-call-stack/20260709-215916-052` | none | landed |
-| R5-D ledger deactivation | semantic ledger 不控制 active path | state_commit/start_task handling | taskspace_control | initial_* and state_commit tests | state update traces | none | planned |
-| R5-E gate pruning | 只保留硬底线拒绝 | state machine gate path | ordinary tool preflight | gate classification tests | blocked reason taxonomy | none | planned |
+| R5-D residue inventory and ledger deactivation | provider-visible 旧语义残留完成分类；semantic ledger 不控制 active path | state_commit/start_task/projection/recovery text | taskspace_control, provider-visible context | D0 scan tests, initial_* and state_commit tests | residue inventory, state update traces | none | planned |
+| R5-E hard-baseline pruning | 只保留硬底线拒绝；model-visible recovery/sentinel 不含策略指令 | state machine gate path, sentinel/recovery renderer | ordinary tool preflight, payload construction | gate classification tests, forbidden phrase scan | blocked reason taxonomy, rollout/payload scan | none | planned |
 | R5-F module split | map/event/gate/projection 边界清晰 | action_map modules | whale exec --taskspace | cargo check/test | trace fields stable | none | planned |
 | R5-G benefit gate | 简化无明确负收益 | benchmark harness | targeted samples | paired report | metrics json/report | none | planned |
 
@@ -618,8 +666,11 @@ thin projection、action sequence carrier、runtime feedback event、routing pro
 bootstrap 收敛；`count-call-stack` 单样本复验 standard/R5 均 solved。R5-C1 继续把默认路径切到
 DeepSeek native tools，补齐 `exec_command`/`read_file` alias，允许 runtime 机械空 map 初始化，
 并删除 active projection 中残留的 action-class contract；`count-call-stack` 复验 standard/R5
-均 solved。下一步进入 R5-D，处理 `initial_*`、ledger、cognitive state 的 active canonical truth
-降级，并继续审计 `state_machine_allowed_actions`、spawn/validation 文案是否仍越界。
+均 solved。Phase C/C1 暴露的问题已被单独归档到
+`docs/v0.0.5/build-R5/07-r5-phase-c-exposure-followup-plan.md`。下一步进入 R5-D0，先完成
+provider-visible semantic residue inventory，再处理 `initial_*`、ledger、cognitive state 的 active
+canonical truth 降级；R5-E 继续用 hard-baseline 白名单清理 `state_machine_allowed_actions`、
+spawn/validation/recovery/sentinel 文案。
 
 ## 1.20 R5-A/B 后计划校准
 
