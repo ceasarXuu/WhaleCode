@@ -4,6 +4,7 @@ use std::sync::Arc;
 use crate::session::tests::make_session_and_context;
 use crate::tools::context::ToolPayload;
 use codex_protocol::models::ResponseItem;
+use codex_protocol::models::ShellCommandToolCallParams;
 use codex_tools::ToolName;
 
 use super::ToolCall;
@@ -87,6 +88,79 @@ async fn build_tool_call_uses_namespace_for_registry_name() -> anyhow::Result<()
     match call.payload {
         ToolPayload::Function { arguments } => {
             assert_eq!(arguments, "{}");
+        }
+        other => panic!("expected function payload, got {other:?}"),
+    }
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn build_tool_call_normalizes_exec_command_alias_to_shell_command() -> anyhow::Result<()> {
+    let (session, _) = make_session_and_context().await;
+    let session = Arc::new(session);
+
+    let call = ToolRouter::build_tool_call(
+        &session,
+        ResponseItem::FunctionCall {
+            id: None,
+            name: "exec_command".to_string(),
+            namespace: None,
+            arguments: serde_json::json!({
+                "cmd": "cat README.md",
+                "workdir": "."
+            })
+            .to_string(),
+            call_id: "call-exec-command".to_string(),
+        },
+    )
+    .await?
+    .expect("function_call should produce a tool call");
+
+    assert_eq!(call.tool_name, ToolName::plain("shell_command"));
+    match call.payload {
+        ToolPayload::Function { arguments } => {
+            let params: ShellCommandToolCallParams = serde_json::from_str(&arguments)?;
+            assert_eq!(params.command, "cat README.md");
+            assert_eq!(params.workdir.as_deref(), Some("."));
+        }
+        other => panic!("expected function payload, got {other:?}"),
+    }
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn build_tool_call_normalizes_read_file_alias_to_shell_command() -> anyhow::Result<()> {
+    let (session, _) = make_session_and_context().await;
+    let session = Arc::new(session);
+
+    let call = ToolRouter::build_tool_call(
+        &session,
+        ResponseItem::FunctionCall {
+            id: None,
+            name: "read_file".to_string(),
+            namespace: None,
+            arguments: serde_json::json!({
+                "file_path": "README.md",
+                "workdir": ".",
+                "timeout_ms": 30000
+            })
+            .to_string(),
+            call_id: "call-read-file".to_string(),
+        },
+    )
+    .await?
+    .expect("function_call should produce a tool call");
+
+    assert_eq!(call.tool_name, ToolName::plain("shell_command"));
+    match call.payload {
+        ToolPayload::Function { arguments } => {
+            let params: ShellCommandToolCallParams = serde_json::from_str(&arguments)?;
+            assert!(params.command.contains("README.md"));
+            assert!(params.command.contains("ReadFileSummaryV1"));
+            assert_eq!(params.workdir.as_deref(), Some("."));
+            assert_eq!(params.timeout_ms, Some(30000));
         }
         other => panic!("expected function payload, got {other:?}"),
     }

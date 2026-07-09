@@ -133,6 +133,10 @@ Phase C 已关闭薄投影和多动作承载的当前 blocker，但还没有解�
 3. 最终出现 provider budget hard stop，但发生在 patch 已正确落地且 public/hidden validation 均通过之后。
 ```
 
+Phase C 后续发现 active projection 仍残留 `hard action-class constraints` /
+`allowed action classes`，该残留在 R5-C1 已关闭，见
+`docs/v0.0.5/build-R5/06-r5-phase-c1-native-tool-loop-boundary.md`。
+
 这些残余不能通过 runtime 增加语义约束解决。下一阶段应继续优先检查：
 
 ```text

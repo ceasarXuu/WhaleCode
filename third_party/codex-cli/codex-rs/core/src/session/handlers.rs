@@ -970,9 +970,10 @@ pub async fn set_map_runtime_mode(sess: &Arc<Session>, sub_id: String, mode: Map
     let status = if outcome.mode.changed {
         if outcome.mode.current_mode == MapRuntimeMode::Experiment {
             match outcome.active_map_id.as_deref() {
-                Some(map_id) => format!("TaskSpace enabled. Active task path {map_id} is ready."),
-                None => "TaskSpace enabled. The next agent turn must create an active task path."
-                    .to_string(),
+                Some(map_id) => {
+                    format!("TaskSpace enabled. Mechanical blank task path {map_id} is ready.")
+                }
+                None => "TaskSpace enabled, but no active task path is available.".to_string(),
             }
         } else {
             format!(

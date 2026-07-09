@@ -25,21 +25,18 @@ pub(crate) struct TaskSpaceSentinelWarning {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum TaskSpaceSentinelWarningType {
     ValidatorFailure,
-    UnclassifiedShellAction,
 }
 
 impl TaskSpaceSentinelWarningType {
     pub(crate) fn as_str(self) -> &'static str {
         match self {
             Self::ValidatorFailure => "validator_failure",
-            Self::UnclassifiedShellAction => "unclassified_shell_action",
         }
     }
 
     pub(crate) fn from_str(value: &str) -> Option<Self> {
         match value {
             "validator_failure" => Some(Self::ValidatorFailure),
-            "unclassified_shell_action" => Some(Self::UnclassifiedShellAction),
             _ => None,
         }
     }
@@ -106,18 +103,6 @@ pub(crate) fn warning_drafts_for_trace_event(
             severity: TaskSpaceSentinelSeverity::Warning,
             reason: "Validator-class action failed; inspect the node result before using it as accepted evidence.",
             clearance_action: "Run a successful validator, revise the contract, or explicitly accept the risk before final artifact audit.",
-        });
-    }
-    if event
-        .tags
-        .iter()
-        .any(|tag| tag == "unclassified_shell_action")
-    {
-        drafts.push(TaskSpaceSentinelWarningDraft {
-            warning_type: TaskSpaceSentinelWarningType::UnclassifiedShellAction,
-            severity: TaskSpaceSentinelSeverity::Warning,
-            reason: "Shell action was not structurally classified; do not infer output, provenance, or final-artifact semantics from it.",
-            clearance_action: "Record explicit output contract or fact source metadata before relying on this action as final evidence.",
         });
     }
     drafts

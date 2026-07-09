@@ -271,7 +271,12 @@ impl ToolCallRuntime {
         if call.tool_name.namespace.is_none()
             && matches!(
                 call.tool_name.name.as_str(),
-                "shell" | "container.exec" | "local_shell" | "shell_command" | "unified_exec"
+                "shell"
+                    | "container.exec"
+                    | "exec_command"
+                    | "local_shell"
+                    | "shell_command"
+                    | "unified_exec"
             )
         {
             format!("Wall time: {secs:.1} seconds\naborted by user")
@@ -478,7 +483,12 @@ fn taskspace_parent_thread_id(session_source: &SessionSource) -> Option<ThreadId
 fn is_shell_like_tool(tool_name: &str) -> bool {
     matches!(
         tool_name,
-        "shell" | "container.exec" | "local_shell" | "shell_command" | "unified_exec"
+        "shell"
+            | "container.exec"
+            | "exec_command"
+            | "local_shell"
+            | "shell_command"
+            | "unified_exec"
     ) || tool_name.ends_with(".shell_command")
         || tool_name.ends_with(".shell")
 }
@@ -779,6 +789,7 @@ fn taskspace_compact_ascii_signal(text: &str) -> String {
 mod tests {
     use super::ToolCallRuntime;
     use super::classify_shell_text;
+    use super::classify_tool_payload;
     use super::taskspace_action_contract_class;
     use super::taskspace_tool_result_preview_with_invocation;
     use crate::action_map::ActionClass;
@@ -996,6 +1007,28 @@ mod tests {
         assert_eq!(
             classify_shell_text("some-unknown-tool"),
             ActionClass::Unknown
+        );
+    }
+
+    #[test]
+    fn exec_command_alias_uses_shell_action_classification() {
+        assert_eq!(
+            classify_tool_payload(
+                "exec_command",
+                &ToolPayload::Function {
+                    arguments: serde_json::json!({ "cmd": "cat README.md" }).to_string(),
+                },
+            ),
+            ActionClass::Read
+        );
+        assert_eq!(
+            classify_tool_payload(
+                "exec_command",
+                &ToolPayload::Function {
+                    arguments: serde_json::json!({ "cmd": "pytest -q" }).to_string(),
+                },
+            ),
+            ActionClass::Test
         );
     }
 

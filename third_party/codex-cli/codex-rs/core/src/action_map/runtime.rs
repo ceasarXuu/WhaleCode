@@ -56,7 +56,6 @@ use codex_protocol::protocol::MapRuntimeTaskCreatedEvent;
 use codex_protocol::protocol::MapRuntimeTaskRoutedEvent;
 use codex_protocol::protocol::MapRuntimeTaskStatusChangedEvent;
 use codex_protocol::protocol::MapRuntimeTimeoutSummaryRequestedEvent;
-use codex_protocol::protocol::MapRuntimeToolActionBlockedEvent;
 use codex_protocol::protocol::MapRuntimeTraceEventRecordedEvent;
 
 use super::basemap::BASE_MAP;
@@ -118,6 +117,13 @@ use super::sentinel::TaskSpaceSentinelSeverity;
 use super::sentinel::TaskSpaceSentinelWarning;
 use super::sentinel::TaskSpaceSentinelWarningStatus;
 use super::sentinel::TaskSpaceSentinelWarningType;
+
+const TASKSPACE_MECHANICAL_BLANK_TASK_TITLE: &str = "TaskSpace blank task";
+const TASKSPACE_MECHANICAL_BLANK_MAP_TITLE: &str = "TaskSpace blank map";
+const TASKSPACE_MECHANICAL_BLANK_OBJECTIVE: &str = "Agent-authored objective pending";
+const TASKSPACE_MECHANICAL_BLANK_NODE_TITLE: &str = "Blank inspect node";
+const TASKSPACE_MECHANICAL_BLANK_NODE_CONTEXT: &str =
+    "Agent-authored node objective and plan are not recorded yet.";
 use super::sentinel::warning_drafts_for_trace_event;
 
 const SEED_NODE_IDS: &[&str] = &[
@@ -1009,33 +1015,6 @@ impl ActionMapRuntimeState {
         }
     }
 
-    fn record_blocked_action_repeat(
-        &mut self,
-        map_id: &str,
-        node_id: &str,
-        progress_signature: usize,
-        reason: &str,
-        descriptor: &ToolActionDescriptor,
-    ) -> BlockedActionRepeatReport {
-        let command = tool_action_descriptor_command(descriptor)
-            .map(|command| normalize_command_for_repeat_detection(&command))
-            .unwrap_or_default();
-        let fingerprint = format!(
-            "{}|{}|{}|{}",
-            reason,
-            descriptor.tool_name,
-            descriptor.action_class.as_str(),
-            single_line_preview(&command, 240)
-        );
-        let key = format!("{map_id}\x1f{node_id}\x1f{progress_signature}\x1f{fingerprint}");
-        let count = self.blocked_action_repeats.entry(key).or_insert(0);
-        *count += 1;
-        BlockedActionRepeatReport {
-            fingerprint,
-            count: *count,
-        }
-    }
-
     fn clear_blocked_action_repeats_for_node(&mut self, map_id: &str, node_id: &str) {
         let prefix = format!("{map_id}\x1f{node_id}\x1f");
         self.blocked_action_repeats
@@ -1783,15 +1762,18 @@ impl ActionMapRuntimeState {
     pub(crate) fn set_mode_for_session(
         &mut self,
         mode: MapRuntimeMode,
-        _owner_session_id: ThreadId,
+        owner_session_id: ThreadId,
     ) -> (SetTaskSpaceModeOutcome, Vec<MapRuntimeEvent>) {
         let trace_len_before = self.taskspace_trace_events.len();
         let mode_outcome = self.set_mode(mode);
-        let events = self.taskspace_trace_events[trace_len_before..]
+        let mut events = self.taskspace_trace_events[trace_len_before..]
             .iter()
             .cloned()
             .map(map_runtime_event_from_trace_event)
-            .collect();
+            .collect::<Vec<_>>();
+        if mode == MapRuntimeMode::Experiment {
+            events.extend(self.ensure_mechanical_blank_task_path_for_main(owner_session_id));
+        }
         (
             SetTaskSpaceModeOutcome {
                 mode: mode_outcome,
@@ -1799,6 +1781,106 @@ impl ActionMapRuntimeState {
             },
             events,
         )
+    }
+
+    fn ensure_mechanical_blank_task_path_for_main(
+        &mut self,
+        owner_session_id: ThreadId,
+    ) -> Vec<MapRuntimeEvent> {
+        if self.mode != MapRuntimeMode::Experiment || self.active_map().is_some() {
+            return Vec::new();
+        }
+
+        let task_id = self.next_task_id();
+        let map_id = self.next_map_id();
+        let node_id = self.next_node_id();
+        let task = TaskState {
+            id: task_id.clone(),
+            title: TASKSPACE_MECHANICAL_BLANK_TASK_TITLE.to_string(),
+            objective: TASKSPACE_MECHANICAL_BLANK_OBJECTIVE.to_string(),
+            status: TaskStatus::Active,
+            owner_session_id: Some(owner_session_id),
+            active_map_id: None,
+            map_ids: Vec::new(),
+            cognitive_state: TaskCognitiveState::default(),
+            problem_ledger: ProblemStateLedger::new(
+                TASKSPACE_MECHANICAL_BLANK_OBJECTIVE,
+                Vec::new(),
+                now_ms(),
+            ),
+        };
+        let mut map = ActionMapInstance::new(
+            map_id.clone(),
+            TASKSPACE_MECHANICAL_BLANK_MAP_TITLE.to_string(),
+            Some(owner_session_id),
+            BASE_MAP.version,
+        );
+        map.task_id = Some(task_id.clone());
+        map.nodes.insert(
+            node_id.clone(),
+            MapNode {
+                id: node_id.clone(),
+                title: TASKSPACE_MECHANICAL_BLANK_NODE_TITLE.to_string(),
+                kind: NodeKind::InspectCodeContext,
+                status: NodeStatus::Ready,
+                context: NodeContext {
+                    summary: TASKSPACE_MECHANICAL_BLANK_NODE_CONTEXT.to_string(),
+                    source_refs: Vec::new(),
+                },
+                active_lease: None,
+                result_context: Vec::new(),
+                node_events: Vec::new(),
+                origin_node_id: None,
+            },
+        );
+
+        self.tasks.insert(task_id.clone(), task);
+        self.maps.insert(map_id.clone(), map);
+        self.register_map_to_task(&task_id, &map_id);
+        self.active_task_id = Some(task_id.clone());
+        self.active_map_id = Some(map_id.clone());
+        self.current_main_node_id = None;
+        self.current_main_lease_id = None;
+        self.mark_routing_complete();
+
+        let task = self
+            .tasks
+            .get(&task_id)
+            .expect("mechanical blank task must exist before event emission");
+        let map = self
+            .maps
+            .get(&map_id)
+            .expect("mechanical blank map must exist before event emission");
+        let mut events = vec![
+            task_created_event(task),
+            map_created_event(map),
+            node_status_changed_event(
+                &map_id,
+                &node_id,
+                TASKSPACE_MECHANICAL_BLANK_NODE_TITLE,
+                NodeStatus::Pending,
+                NodeStatus::Ready,
+            ),
+        ];
+        events.extend(
+            self.claim_main_node(owner_session_id, &map_id, &node_id)
+                .expect("mechanical blank node must be claimable by the main session"),
+        );
+        events.push(self.record_runtime_budget_trace_event(
+            "mechanical_blank_map_initialized",
+            Some(task_id),
+            map_id,
+            node_id,
+            None,
+            true,
+            vec![
+                "schema:taskspace-mechanical-init-v1".to_string(),
+                "producer:runtime".to_string(),
+                "initialization:mechanical_blank".to_string(),
+                "semantic_seed:false".to_string(),
+            ],
+        ));
+        events
     }
 
     pub(crate) fn restore_mode(&mut self, mode: MapRuntimeMode) {
@@ -1814,9 +1896,15 @@ impl ActionMapRuntimeState {
             return false;
         }
         let previous = (self.routing_required, self.bootstrap_required);
-        self.routing_required = true;
-        if self.tasks.is_empty() {
-            self.bootstrap_required = true;
+        if self.reborn_requested {
+            self.routing_required = true;
+            self.bootstrap_required = self.tasks.is_empty();
+        } else if self.active_map().is_some() {
+            self.routing_required = false;
+            self.bootstrap_required = false;
+        } else {
+            self.routing_required = true;
+            self.bootstrap_required = self.tasks.is_empty();
         }
         previous != (self.routing_required, self.bootstrap_required)
     }
@@ -2355,9 +2443,6 @@ impl ActionMapRuntimeState {
             self.validate_cognitive_preflight()?;
         }
         self.validate_main_binding(owner_session_id)?;
-        if descriptor.action_class != ActionClass::Control {
-            self.validate_broad_inspect_delegation(owner_session_id)?;
-        }
         let map_id = self.active_map_id.clone().ok_or_else(|| {
             ActionMapGateError::from("TaskSpace mode is active but no active task path exists.")
         })?;
@@ -2367,264 +2452,6 @@ impl ActionMapRuntimeState {
         let lease_id = self.current_main_lease_id.clone().ok_or_else(|| {
             ActionMapGateError::from("TaskSpace mode is active but no current main lease exists.")
         })?;
-        let progress_signature = self
-            .current_node_progress_signature(&map_id, &node_id)
-            .unwrap_or_default();
-        let map = self.maps.get(&map_id).ok_or_else(|| {
-            ActionMapGateError::from(format!("TaskSpace active task path `{map_id}` is missing."))
-        })?;
-        let node = map.nodes.get(&node_id).ok_or_else(|| {
-            ActionMapGateError::from(format!("TaskSpace current node `{node_id}` is missing."))
-        })?;
-        let contract = contract_for(node.kind);
-        if !contract.allows(descriptor.action_class) {
-            let reason = format!(
-                "{} does not allow {}",
-                node.kind.as_str(),
-                descriptor.action_class.as_str()
-            );
-            let implement_has_edit = node.kind == NodeKind::ImplementSolution
-                && node_has_successful_action(map, node, ActionClass::Edit);
-            let message = if node.kind == NodeKind::InspectCodeContext
-                && descriptor.action_class == ActionClass::Edit
-            {
-                format!(
-                    "TaskSpace blocked this edit because current node `{}` kind: inspect_code_context is read-only. Requested tool `{}` action class: edit. Reason: {}. state_machine_requirement: repository edits require an implement_solution node; inspect_code_context evidence remains available for any later state-machine-legal transition.",
-                    node.id, descriptor.tool_name, reason
-                )
-            } else {
-                blocked_action_recovery_message(node, &descriptor, &reason, implement_has_edit)
-            };
-            let next_valid_action = if node.kind == NodeKind::InspectCodeContext
-                && descriptor.action_class == ActionClass::Edit
-            {
-                "state_transition_contract: inspect_code_context is read-only; implement_solution is the node kind that permits repository edits".to_string()
-            } else if node.kind == NodeKind::ImplementSolution
-                && descriptor.action_class == ActionClass::Test
-                && !implement_has_edit
-            {
-                "state_machine_requirement: implementation test reliance requires prior successful edit evidence on this node".to_string()
-            } else {
-                "action_space_source: active node contract plus hard state baseline".to_string()
-            };
-            let current_node_item = format!("current_node:{}:{}", node.id, node.kind.as_str());
-            let blocked_node_kind = node.kind.as_str().to_string();
-            let repeated_block = self.record_blocked_action_repeat(
-                &map_id,
-                &node_id,
-                progress_signature,
-                &reason,
-                &descriptor,
-            );
-            let recovery = gate_recovery_message_with_repeated_block(
-                &message,
-                &reason,
-                vec![current_node_item],
-                vec![next_valid_action],
-                Vec::new(),
-                Some(&repeated_block),
-            );
-            return Err(ActionMapGateError::new(
-                recovery,
-                vec![MapRuntimeEvent::ToolActionBlocked(
-                    MapRuntimeToolActionBlockedEvent {
-                        map_id,
-                        node_id,
-                        node_kind: blocked_node_kind,
-                        tool_name: descriptor.tool_name,
-                        action_class: descriptor.action_class.as_str().to_string(),
-                        reason,
-                    },
-                )],
-            ));
-        }
-        if node.kind == NodeKind::InspectCodeContext
-            && descriptor.action_class != ActionClass::Control
-        {
-            let unread_script_refs = inspect_node_unread_referenced_scripts(map, node);
-            if !unread_script_refs.is_empty()
-                && (descriptor.action_class != ActionClass::Read
-                    || !tool_action_descriptor_targets_any_artifact(
-                        &descriptor,
-                        &unread_script_refs,
-                    ))
-            {
-                let reason = format!(
-                    "inspect_code_context has unread referenced scripts: {}",
-                    unread_script_refs.join(", ")
-                );
-                let message = format!(
-                    "TaskSpace blocked this {} because current node `{}` has already read a script that references unread script(s): {}. Before more discovery, edits, or validation, read the missing referenced script with read_file.",
-                    descriptor.action_class.as_str(),
-                    node.id,
-                    unread_script_refs.join(", ")
-                );
-                let current_node_item = format!("current_node:{}:{}", node.id, node.kind.as_str());
-                let blocked_node_kind = node.kind.as_str().to_string();
-                let repeated_block = self.record_blocked_action_repeat(
-                    &map_id,
-                    &node_id,
-                    progress_signature,
-                    &reason,
-                    &descriptor,
-                );
-                let next_actions = unread_script_refs
-                    .iter()
-                    .map(|script| format!("read_file({script})"))
-                    .collect::<Vec<_>>();
-                let recovery = gate_recovery_message_with_repeated_block(
-                    &message,
-                    &reason,
-                    vec![current_node_item],
-                    next_actions,
-                    Vec::new(),
-                    Some(&repeated_block),
-                );
-                return Err(ActionMapGateError::new(
-                    recovery,
-                    vec![MapRuntimeEvent::ToolActionBlocked(
-                        MapRuntimeToolActionBlockedEvent {
-                            map_id,
-                            node_id,
-                            node_kind: blocked_node_kind,
-                            tool_name: descriptor.tool_name,
-                            action_class: descriptor.action_class.as_str().to_string(),
-                            reason,
-                        },
-                    )],
-                ));
-            }
-        }
-        if node.kind == NodeKind::ImplementSolution
-            && descriptor.action_class == ActionClass::Edit
-            && !node_has_successful_action(map, node, ActionClass::Edit)
-            && let Some(requirement) =
-                implement_node_dependency_validation_rework_corrected_alias_requirement(map, node)
-            && !patch_removes_corrected_absolute_alias(&descriptor.preview, &requirement)
-        {
-            let reason = "validation_rework_patch_misses_failed_alias".to_string();
-            let message = format!(
-                "TaskSpace blocked this edit because validation rework node `{}` has failed validation evidence showing corrected input alias `{}` while workspace evidence already observed `{}`. The first rework patch must remove or replace that failed alias in `{}` before addressing secondary issues.",
-                node.id,
-                requirement.absolute_alias,
-                requirement.relative_candidate,
-                requirement.target_artifacts.join(", ")
-            );
-            let current_node_item = format!("current_node:{}:{}", node.id, node.kind.as_str());
-            let blocked_node_kind = node.kind.as_str().to_string();
-            let repeated_block = self.record_blocked_action_repeat(
-                &map_id,
-                &node_id,
-                progress_signature,
-                &reason,
-                &descriptor,
-            );
-            let recovery = gate_recovery_message_with_repeated_block(
-                &message,
-                &reason,
-                vec![
-                    current_node_item,
-                    format!("failed_absolute_alias:{}", requirement.absolute_alias),
-                    format!("workspace_relative_candidate:{}", requirement.relative_candidate),
-                ],
-                vec![
-                    format!(
-                        "failed_alias_target_artifacts:{}",
-                        requirement.target_artifacts.join(", "),
-                    ),
-                    format!(
-                        "workspace_relative_candidate:{}",
-                        requirement.relative_candidate
-                    ),
-                    format!("failed_absolute_alias:{}", requirement.absolute_alias),
-                    "state_machine_requirement: failed absolute alias remains unresolved for this validation rework".to_string(),
-                ],
-                Vec::new(),
-                Some(&repeated_block),
-            );
-            return Err(ActionMapGateError::new(
-                recovery,
-                vec![MapRuntimeEvent::ToolActionBlocked(
-                    MapRuntimeToolActionBlockedEvent {
-                        map_id,
-                        node_id,
-                        node_kind: blocked_node_kind,
-                        tool_name: descriptor.tool_name,
-                        action_class: descriptor.action_class.as_str().to_string(),
-                        reason,
-                    },
-                )],
-            ));
-        }
-        if matches!(node.kind, NodeKind::SmokeTest | NodeKind::RegressionTest)
-            && descriptor.action_class != ActionClass::Control
-            && let Some((failed_result_id, failed_summary)) =
-                validation_node_failed_noninfra_result(map, node)
-                    .or_else(|| validation_node_semantic_failure_result(map, node))
-        {
-            let reason = "validation_failed_requires_rework_routing".to_string();
-            let message = format!(
-                "TaskSpace blocked this {} because validation node `{}` already has a failed test/build result `{}`. Do not continue validation retries or rediscovery on the failed validation node. Runtime marked this validation node blocked and routed to an implement_solution rework node that depends on the failed validation evidence. Failure preview: {}",
-                descriptor.action_class.as_str(),
-                node.id,
-                failed_result_id,
-                failed_summary
-            );
-            let current_node_item = format!("current_node:{}:{}", node.id, node.kind.as_str());
-            let blocked_node_kind = node.kind.as_str().to_string();
-            let repeated_block = self.record_blocked_action_repeat(
-                &map_id,
-                &node_id,
-                progress_signature,
-                &reason,
-                &descriptor,
-            );
-            let recovery = gate_recovery_message_with_repeated_block(
-                &message,
-                &reason,
-                vec![
-                    current_node_item,
-                    format!("failed_validation_result:{failed_result_id}"),
-                ],
-                vec![
-                    "continue on the runtime-created implement_solution rework node".to_string(),
-                    "apply the smallest implementation edit that addresses the failed validation evidence".to_string(),
-                ],
-                Vec::new(),
-                Some(&repeated_block),
-            );
-            let mut events = vec![MapRuntimeEvent::ToolActionBlocked(
-                MapRuntimeToolActionBlockedEvent {
-                    map_id: map_id.clone(),
-                    node_id: node_id.clone(),
-                    node_kind: blocked_node_kind.clone(),
-                    tool_name: descriptor.tool_name,
-                    action_class: descriptor.action_class.as_str().to_string(),
-                    reason: reason.clone(),
-                },
-            )];
-            match self.block_main_node(
-                owner_session_id,
-                &node_id,
-                format!(
-                    "Validation failed in `{}` with `{}`. Failure preview: {}",
-                    node_id, failed_result_id, failed_summary
-                ),
-            ) {
-                Ok((_, mut block_events)) => events.append(&mut block_events),
-                Err(block_error) => events.push(MapRuntimeEvent::ToolActionBlocked(
-                    MapRuntimeToolActionBlockedEvent {
-                        map_id: map_id.clone(),
-                        node_id: node_id.clone(),
-                        node_kind: blocked_node_kind,
-                        tool_name: "taskspace_runtime".to_string(),
-                        action_class: ActionClass::Control.as_str().to_string(),
-                        reason: format!("auto_validation_rework_block_failed:{block_error}"),
-                    },
-                )),
-            }
-            return Err(ActionMapGateError::new(recovery, events));
-        }
         if descriptor.action_class != ActionClass::Control
             && let Some(call_id) = descriptor.call_id.as_deref()
         {
@@ -4763,35 +4590,6 @@ feedback:\n\
             )));
         }
 
-        let contract = contract_for(node.kind);
-        if !contract.allows(descriptor.action_class) {
-            let reason = format!(
-                "{} does not allow {}",
-                node.kind.as_str(),
-                descriptor.action_class.as_str()
-            );
-            let message = format!(
-                "TaskSpace blocked this subagent tool call. Node `{}` kind: {}. Requested tool `{}` action class: {}. Reason: {}. Return a blocker/result for the current node or ask the parent agent to create and assign a suitable node before retrying.",
-                node.id,
-                node.kind.as_str(),
-                descriptor.tool_name,
-                descriptor.action_class.as_str(),
-                reason
-            );
-            return Err(ActionMapGateError::new(
-                message,
-                vec![MapRuntimeEvent::ToolActionBlocked(
-                    MapRuntimeToolActionBlockedEvent {
-                        map_id,
-                        node_id,
-                        node_kind: node.kind.as_str().to_string(),
-                        tool_name: descriptor.tool_name,
-                        action_class: descriptor.action_class.as_str().to_string(),
-                        reason,
-                    },
-                )],
-            ));
-        }
         if descriptor.action_class != ActionClass::Control
             && let Some(call_id) = descriptor.call_id.as_deref()
         {
@@ -8907,25 +8705,6 @@ preview:\n\
         let max_nodes = active_budget.max_nodes;
         let spawn_count_before = self.budget_counters.spawn_agent_call_count;
         let gate_decision = self.gate_spawn_budget(&map_id, &budget_trace_node_id);
-        if let Some(current_node_id) = self.current_main_node_id.as_deref() {
-            let map = self
-                .maps
-                .get(&map_id)
-                .ok_or_else(|| format!("TaskSpace active task path `{map_id}` is missing."))?;
-            let node = map
-                .nodes
-                .get(current_node_id)
-                .ok_or_else(|| format!("TaskSpace current node `{current_node_id}` is missing."))?;
-            let contract = contract_for(node.kind);
-            if !contract.allows(ActionClass::Spawn) {
-                return Err(format!(
-                    "TaskSpace blocked spawn_agent. Current node `{}` kind: {}. Requested action class: spawn. Reason: {} does not allow spawn. Call taskspace_control(action=finish_node) to finish the current node and bind or create a suitable node before retrying.",
-                    node.id,
-                    node.kind.as_str(),
-                    node.kind.as_str()
-                ));
-            }
-        }
         let requested_node_id = requested_node_id
             .map(str::trim)
             .filter(|node_id| !node_id.is_empty());
@@ -9406,8 +9185,6 @@ preview:\n\
                 context.push_str(node_id);
                 context.push_str(" kind=");
                 context.push_str(node.kind.as_str());
-                context.push_str("\nCurrent node contract:\n- allowed action classes: ");
-                context.push_str(&compact_projection_allowed_actions_for_node(node.kind));
                 context.push('\n');
             }
             context.push_str("\nNodes:\n");
@@ -9490,7 +9267,7 @@ preview:\n\
                 .or(self.active_task_id.as_ref())
                 .and_then(|task_id| self.tasks.get(task_id))?;
             let mut context = String::from(
-                "TaskSpace v0.0.5 active thin projection. This surface contains the TaskSpace map skeleton, current-node event excerpts, result references, and hard action-class constraints. Runtime state remains authoritative.\n",
+                "TaskSpace v0.0.5 active thin projection. This surface contains the TaskSpace map skeleton, current-node event excerpts, result references, and hard state-machine status. Runtime state remains authoritative.\n",
             );
             if self.bootstrap_required {
                 context.push_str(
@@ -9499,6 +9276,11 @@ preview:\n\
             } else if self.routing_required {
                 context.push_str(
                     "Task routing status: required before ordinary tools or subagent spawn.\n",
+                );
+            }
+            if taskspace_task_path_is_mechanical_blank(task, map) {
+                context.push_str(
+                    "Map initialization:\n- source: runtime_mechanical_blank\n- semantic_state: agent-authored objective and node plan are not recorded yet\n",
                 );
             }
             if let Some(barrier) = self.active_maintenance_barrier() {
@@ -9517,17 +9299,6 @@ preview:\n\
                 self.current_main_node_id.as_deref(),
                 self.active_budget.as_ref(),
             );
-            if let Some(node_id) = self.current_main_node_id.as_ref()
-                && let Some(node) = map.nodes.get(node_id)
-            {
-                context.push_str("\nCurrent node contract:\n- node: ");
-                context.push_str(node_id);
-                context.push_str(" kind=");
-                context.push_str(node.kind.as_str());
-                context.push_str("\n- allowed action classes: ");
-                context.push_str(&compact_projection_allowed_actions_for_node(node.kind));
-                context.push('\n');
-            }
             (
                 task.id.clone(),
                 self.current_main_node_id
@@ -9913,29 +9684,7 @@ preview:\n\
     }
 
     fn validate_cognitive_preflight(&self) -> Result<(), String> {
-        let Some(task_id) = self.active_task_id.as_deref() else {
-            return Ok(());
-        };
-        let Some(task) = self.tasks.get(task_id) else {
-            return Ok(());
-        };
-        let mut missing = Vec::new();
-        if !task.problem_ledger.has_success_criteria() {
-            missing.push("record_success_criteria");
-        }
-        if task.cognitive_state.output_contracts.is_empty() {
-            missing.push("record_output_contract");
-        }
-        if task.cognitive_state.fact_sources.is_empty() {
-            missing.push("record_fact_source");
-        }
-        if missing.is_empty() {
-            return Ok(());
-        }
-        Err(format!(
-            "TaskSpace problem-state preflight is required before ordinary work or subagent spawn on task `{task_id}`. Missing: {}. state_machine_requirement: sections.success_criteria, sections.output_contracts, sections.fact_sources, and any related facts/decisions/next_best_action that are ready must be recorded before ordinary work can rely on the task ledger. evidence_ref_examples: artifact_ref for the current user request, README/test/source paths, validator_ref for observed checks.",
-            missing.join(", ")
-        ))
+        Ok(())
     }
 
     fn validate_lifecycle_result_reviewed_for_final_response(
@@ -10544,25 +10293,6 @@ preview:\n\
         Ok(())
     }
 
-    fn validate_broad_inspect_delegation(&self, owner_session_id: ThreadId) -> Result<(), String> {
-        let Some(map) = self.active_map() else {
-            return Ok(());
-        };
-        let broad_completed_inspects = broad_completed_inspect_node_ids(map, owner_session_id);
-        if !broad_completed_inspects.is_empty()
-            && related_completed_accepted_subagent_inspect_node_ids(
-                map,
-                owner_session_id,
-                &broad_completed_inspects,
-            )
-            .len()
-                < 2
-        {
-            return Err(broad_delegation_recovery_message(&broad_completed_inspects));
-        }
-        Ok(())
-    }
-
     fn validate_no_unresolved_broad_delegation_debt(
         &self,
         owner_session_id: ThreadId,
@@ -10988,12 +10718,7 @@ preview:\n\
 
     fn append_main_tool_trace_events(&mut self, draft: MainToolTraceDraft) -> Vec<MapRuntimeEvent> {
         let id = self.next_trace_event_id();
-        let tags = trace_tags_for(
-            draft.action_class,
-            draft.tool_success,
-            &draft.tool_name,
-            &draft.body,
-        );
+        let tags = trace_tags_for(draft.action_class, draft.tool_success, &draft.body);
         let event = TaskSpaceTraceEvent {
             id: id.clone(),
             kind: "main_tool_result".to_string(),
@@ -11448,6 +11173,14 @@ fn append_task_cognitive_context(context: &mut String, task: &TaskState, map: &A
     append_result_evidence_context(context, map);
 }
 
+fn taskspace_task_path_is_mechanical_blank(task: &TaskState, map: &ActionMapInstance) -> bool {
+    task.title == TASKSPACE_MECHANICAL_BLANK_TASK_TITLE
+        && task.objective == TASKSPACE_MECHANICAL_BLANK_OBJECTIVE
+        && map.title == TASKSPACE_MECHANICAL_BLANK_MAP_TITLE
+        && map.nodes.len() == 1
+        && map.results.is_empty()
+}
+
 fn append_context_projection_shadow(
     context: &mut String,
     task: &TaskState,
@@ -11576,6 +11309,11 @@ fn append_context_projection_with_header(
         }
         projection.push_str("\n- active_objective: ");
         projection.push_str(&single_line_preview(&task.objective, 220));
+        if taskspace_task_path_is_mechanical_blank(task, map) {
+            projection.push_str("\n- initialization_source: runtime_mechanical_blank");
+            projection
+                .push_str("\n- semantic_state: agent-authored objective and node plan pending");
+        }
         projection.push_str("\n- current_node: ");
         projection.push_str(&current_node);
         projection.push_str("\n- sections:\n");
@@ -13399,55 +13137,6 @@ fn failed_workspace_alias_supports_artifact(artifact: &str, failed_alias: &str) 
         .is_some_and(|suffix| suffix.starts_with('/'))
 }
 
-fn compact_projection_allowed_actions_for_node(kind: NodeKind) -> String {
-    match kind {
-        NodeKind::SmokeTest | NodeKind::RegressionTest => "test, control".to_string(),
-        NodeKind::FinalSynthesis => "final_response, control".to_string(),
-        NodeKind::ImplementSolution => "read, search, edit, test, control".to_string(),
-        NodeKind::InspectCodeContext => "read, search, build, test, control".to_string(),
-        NodeKind::Custom => contract_for(kind)
-            .allowed_actions
-            .iter()
-            .map(|action| action.as_str())
-            .collect::<Vec<_>>()
-            .join(", "),
-    }
-}
-
-#[cfg(test)]
-fn projection_allowed_actions_for_node(_map: &ActionMapInstance, node: &MapNode) -> String {
-    compact_projection_allowed_actions_for_node(node.kind)
-}
-
-fn blocked_action_recovery_message(
-    node: &MapNode,
-    descriptor: &ToolActionDescriptor,
-    reason: &str,
-    implement_has_edit: bool,
-) -> String {
-    if node.kind == NodeKind::ImplementSolution && descriptor.action_class == ActionClass::Test {
-        if !implement_has_edit {
-            return format!(
-                "TaskSpace blocked this tool call. Current node `{}` kind: implement_solution. Requested tool `{}` action class: test. Reason: {}. This implementation node has no successful edit result yet. Do not finish the node, create another inspect node, or run validation now. First apply the smallest implementation edit with an edit-capable tool such as apply_patch; after the edit succeeds, finish this implementation node and create or bind a smoke_test or regression_test node for validation.",
-                node.id, descriptor.tool_name, reason
-            );
-        }
-        return format!(
-            "TaskSpace blocked this tool call. Current node `{}` kind: implement_solution. Requested tool `{}` action class: test. Reason: {}. Do not block this implementation node or create another inspect node. First call taskspace_control(action=finish_node, node_id=\"{}\", result_summary=\"implementation edit is applied\", next_node_kind=\"smoke_test\", next_node_title=\"Run validation\", next_node_context_summary=\"Run tests for the implementation from {}\", next_dependency_node_ids=[\"{}\"]), then run the test only after current_node is smoke_test or regression_test.",
-            node.id, descriptor.tool_name, reason, node.id, node.id, node.id
-        );
-    }
-
-    format!(
-        "TaskSpace blocked this tool call. Current node `{}` kind: {}. Requested tool `{}` action class: {}. Reason: {}. Call taskspace_control(action=finish_node) to finish the current node and bind or create a suitable node before retrying.",
-        node.id,
-        node.kind.as_str(),
-        descriptor.tool_name,
-        descriptor.action_class.as_str(),
-        reason
-    )
-}
-
 fn gate_recovery_message(
     message: &str,
     reason: &str,
@@ -13455,34 +13144,7 @@ fn gate_recovery_message(
     next_valid_actions: Vec<String>,
     missing_evidence: Vec<String>,
 ) -> String {
-    gate_recovery_message_with_repeated_block(
-        message,
-        reason,
-        blocking_items,
-        next_valid_actions,
-        missing_evidence,
-        None,
-    )
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct BlockedActionRepeatReport {
-    fingerprint: String,
-    count: usize,
-}
-
-fn gate_recovery_message_with_repeated_block(
-    message: &str,
-    reason: &str,
-    mut blocking_items: Vec<String>,
-    next_valid_actions: Vec<String>,
-    missing_evidence: Vec<String>,
-    repeated_block: Option<&BlockedActionRepeatReport>,
-) -> String {
-    if let Some(repeated) = repeated_block.filter(|repeated| repeated.count > 1) {
-        blocking_items.push(format!("repeated_blocked_action:{}", repeated.fingerprint));
-    }
-    let mut recovery = serde_json::json!({
+    let recovery = serde_json::json!({
         "schema_version": "TaskSpaceGateRecoveryV1",
         "allowed": false,
         "reason": reason,
@@ -13490,14 +13152,6 @@ fn gate_recovery_message_with_repeated_block(
         "next_valid_actions": next_valid_actions,
         "missing_evidence": missing_evidence,
     });
-    if let Some(repeated) = repeated_block.filter(|repeated| repeated.count > 1) {
-        recovery["repeated_blocked_action"] = serde_json::json!({
-            "fingerprint": repeated.fingerprint,
-            "repeat_count": repeated.count,
-            "same_action_allowed": false,
-            "excluded_until": "current node records new successful evidence or changes state",
-        });
-    }
     format!("{message}\nTaskSpaceGateRecoveryV1: {recovery}")
 }
 
@@ -14925,12 +14579,7 @@ fn sentinel_warning_raised_event(
     }
 }
 
-fn trace_tags_for(
-    action_class: Option<ActionClass>,
-    success: bool,
-    tool_name: &str,
-    body: &str,
-) -> Vec<String> {
+fn trace_tags_for(action_class: Option<ActionClass>, success: bool, body: &str) -> Vec<String> {
     let mut tags = Vec::new();
     tags.push(if success {
         "tool_success".to_string()
@@ -14956,9 +14605,6 @@ fn trace_tags_for(
         }
         Some(ActionClass::Build | ActionClass::Test) => {
             tags.push("validator_failure".to_string());
-        }
-        Some(ActionClass::Unknown) | None if looks_like_shell_tool(tool_name) => {
-            tags.push("unclassified_shell_action".to_string());
         }
         Some(ActionClass::Unknown) | None => {
             tags.push("unclassified_tool_action".to_string());
@@ -15189,7 +14835,6 @@ fn is_known_trace_tag(tag: &str) -> bool {
             | "validator_failure"
             | "validator_infra_failure"
             | "validator_unconfirmed"
-            | "unclassified_shell_action"
             | "unclassified_tool_action"
     ) || tag.starts_with("schema:")
         || tag.starts_with("producer:")
@@ -15286,11 +14931,6 @@ fn is_known_trace_tag(tag: &str) -> bool {
         || tag.starts_with("state_commit_section_count:")
         || tag.starts_with("projection_tokens")
         || tag.starts_with("max_projection_tokens:")
-}
-
-fn looks_like_shell_tool(tool_name: &str) -> bool {
-    let normalized = tool_name.to_ascii_lowercase();
-    normalized.contains("shell") || normalized.contains("command")
 }
 
 fn snapshot_map(map: &ActionMapInstance) -> ActionMapSnapshotMap {
@@ -15693,27 +15333,6 @@ fn has_unresolved_broad_delegation_debt(
         )
         .len()
             < 2
-}
-
-fn broad_delegation_recovery_message(broad_completed_inspects: &[String]) -> String {
-    let message = "TaskSpace blocked ordinary main-agent work because a broad inspect_code_context node exhausted its main-tool budget or produced broad structural findings without two accepted subagent inspect results on dependent investigation tracks. Delegate the remaining independent investigation tracks: create two ready inspect_code_context nodes if needed, record a subagent plan for each ready track, call spawn_agent with explicit node_id for each track, then mark the subagent results accepted before continuing ordinary tools.";
-    let blocking_items = broad_completed_inspects
-        .iter()
-        .map(|node_id| format!("broad_inspect_delegation_debt:{node_id}"))
-        .collect::<Vec<_>>();
-    gate_recovery_message(
-        message,
-        "broad_inspect_delegation_debt",
-        blocking_items,
-        vec![
-            "taskspace_control(action=create_node, node_kind=\"inspect_code_context\", bind_current=false) for first independent track".to_string(),
-            "taskspace_control(action=create_node, node_kind=\"inspect_code_context\", bind_current=false) for second independent track".to_string(),
-            "taskspace_control(action=record_subagent_plan, parent_node_id=\"<ready inspect node>\") for each track".to_string(),
-            "spawn_agent(node_id=\"<ready inspect node>\") for each planned track".to_string(),
-            "taskspace_control(action=mark_result_validity, status=\"accepted\") for two completed subagent inspect results".to_string(),
-        ],
-        vec!["two accepted subagent inspect results related to the broad inspect node".to_string()],
-    )
 }
 
 #[cfg(test)]
@@ -16433,80 +16052,6 @@ fn implement_node_dependency_validation_rework_corrected_alias_requirement(
     None
 }
 
-fn patch_removes_corrected_absolute_alias(
-    patch_preview: &str,
-    requirement: &CorrectedAliasRepairRequirement,
-) -> bool {
-    let patch = patch_preview.replace("\\n", "\n");
-    let removes_failed_alias = patch.lines().any(|line| {
-        line.starts_with('-')
-            && !line.starts_with("---")
-            && line.contains(&requirement.absolute_alias)
-    });
-    let readds_failed_alias = patch.lines().any(|line| {
-        line.starts_with('+')
-            && !line.starts_with("+++")
-            && line.contains(&requirement.absolute_alias)
-    });
-    (removes_failed_alias && !readds_failed_alias)
-        || patch_replaces_corrected_absolute_alias_root(&patch, requirement)
-}
-
-fn patch_replaces_corrected_absolute_alias_root(
-    patch: &str,
-    requirement: &CorrectedAliasRepairRequirement,
-) -> bool {
-    let Some((absolute_root, relative_root)) = corrected_absolute_alias_root_pair(requirement)
-    else {
-        return false;
-    };
-    let removes_root = patch.lines().any(|line| {
-        line.starts_with('-')
-            && !line.starts_with("---")
-            && line_contains_standalone_path_token(line, &absolute_root)
-    });
-    let adds_relative_root = patch.lines().any(|line| {
-        line.starts_with('+')
-            && !line.starts_with("+++")
-            && line_contains_standalone_path_token(line, &relative_root)
-    });
-    let readds_absolute_root = patch.lines().any(|line| {
-        line.starts_with('+')
-            && !line.starts_with("+++")
-            && line_contains_standalone_path_token(line, &absolute_root)
-    });
-    removes_root && adds_relative_root && !readds_absolute_root
-}
-
-fn corrected_absolute_alias_root_pair(
-    requirement: &CorrectedAliasRepairRequirement,
-) -> Option<(String, String)> {
-    let absolute = normalize_artifact_ref(&requirement.absolute_alias);
-    let relative = normalize_artifact_ref(&requirement.relative_candidate);
-    if absolute.starts_with("/data/") && relative.starts_with("data/") {
-        return Some(("/data".to_string(), "data".to_string()));
-    }
-    None
-}
-
-fn line_contains_standalone_path_token(line: &str, token: &str) -> bool {
-    let line = line.replace('\\', "/").to_ascii_lowercase();
-    let token = token.to_ascii_lowercase();
-    line.match_indices(&token).any(|(start, _)| {
-        let before = if start == 0 {
-            None
-        } else {
-            line[..start].chars().next_back()
-        };
-        let after = line[start + token.len()..].chars().next();
-        before.is_none_or(|ch| !path_token_char(ch)) && after.is_none_or(|ch| !path_token_char(ch))
-    })
-}
-
-fn path_token_char(ch: char) -> bool {
-    ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-' | '.' | '/')
-}
-
 fn validation_failure_is_missing_command_script_error(result: &NodeResult) -> bool {
     let body = result.body.replace('\\', "/").to_ascii_lowercase();
     if !body.contains("can't open file") && !body.contains("cannot open file") {
@@ -16635,42 +16180,6 @@ fn unresolved_validation_rework_requirement(
     })
 }
 
-fn tool_action_descriptor_command(descriptor: &ToolActionDescriptor) -> Option<String> {
-    serde_json::from_str::<serde_json::Value>(&descriptor.preview)
-        .ok()
-        .and_then(|value| {
-            value
-                .get("command")
-                .and_then(serde_json::Value::as_str)
-                .map(str::to_string)
-        })
-        .or_else(|| {
-            let preview = descriptor.preview.trim();
-            (!preview.is_empty()).then(|| preview.to_string())
-        })
-}
-
-fn tool_action_descriptor_targets_any_artifact(
-    descriptor: &ToolActionDescriptor,
-    artifact_refs: &[String],
-) -> bool {
-    tool_action_descriptor_matching_artifact_ref(descriptor, artifact_refs).is_some()
-}
-
-fn tool_action_descriptor_matching_artifact_ref(
-    descriptor: &ToolActionDescriptor,
-    artifact_refs: &[String],
-) -> Option<String> {
-    let Some(command) = tool_action_descriptor_command(descriptor) else {
-        return None;
-    };
-    let normalized_command = normalize_artifact_ref(&command).to_ascii_lowercase();
-    artifact_refs.iter().find_map(|artifact_ref| {
-        let key = artifact_key(artifact_ref);
-        (!key.is_empty() && normalized_command.contains(&key)).then(|| artifact_ref.clone())
-    })
-}
-
 fn result_body_command(result: &NodeResult) -> Option<String> {
     result_body_command_from_body(&result.body)
 }
@@ -16683,14 +16192,6 @@ fn result_body_command_from_body(body: &str) -> Option<String> {
     body.lines()
         .find_map(|line| line.strip_prefix("command: ").map(str::trim))
         .map(str::to_string)
-}
-
-fn normalize_command_for_repeat_detection(command: &str) -> String {
-    command
-        .split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ")
-        .to_ascii_lowercase()
 }
 
 fn latest_gate_recovery_key(map_id: &str, node_id: &str) -> String {
@@ -20293,12 +19794,6 @@ fn assignment_prompt(
     lease_id: &str,
     subagent_plan: &SubagentPlan,
 ) -> String {
-    let allowed_actions = contract_for(node_kind)
-        .allowed_actions
-        .iter()
-        .map(|action| action.as_str())
-        .collect::<Vec<_>>()
-        .join(", ");
     format!(
         "TaskSpace node assignment\n\
 Map: {map_id}\n\
@@ -20312,19 +19807,10 @@ Maximum scope: {}\n\
 Supports questions: {}\n\
 Tests hypotheses: {}\n\
 Depends on results: {}\n\
-Allowed action classes: {allowed_actions}\n\
 \n\
-Node assignment contract:\n\
-- scope_boundary: this node's subtask and Maximum scope.\n\
-- result_package_fields: supported claims, evidence refs or concrete files/commands/validators, changed artifacts if any, remaining uncertainty, blockers if any.\n\
-- weak_evidence_semantics: weak or missing evidence remains uncertainty, not final truth.\n\
-- allowed_action_classes_source: Runtime enforces the allowed action classes listed above.\n\
-- inspect_evidence_requirement: concrete read/search evidence or a clear problem-state finding.\n\
-- implementation_evidence_requirement: changed artifacts, relevant execution feedback when useful, or explicit no-edit blocker evidence.\n\
-- validation_evidence_requirement: command, exit status, and validator/test evidence.\n\
-- final_evidence_requirement: satisfied criteria, accepted decisions, and remaining risks.\n\
-- read_only_node_kinds: inspect_code_context, smoke_test, regression_test, final_synthesis.\n\
-- parent_review_contract: findings return to the parent agent for result validity review and task path updates.\n\n",
+Runtime map notes:\n\
+- tool calls and results are recorded under this leased node.\n\
+- parent agent owns task path updates and result validity review.\n\n",
         node_kind.as_str(),
         subagent_plan.id,
         subagent_plan.expected_artifact,
@@ -24138,15 +23624,40 @@ sample rows from {artifact}"
     }
 
     #[test]
-    fn set_experiment_mode_for_session_does_not_create_task_path() {
+    fn set_experiment_mode_for_session_creates_mechanical_blank_task_path() {
         let mut state = ActionMapRuntimeState::default();
         let owner = ThreadId::new();
 
         let (outcome, events) = state.set_mode_for_session(MapRuntimeMode::Experiment, owner);
 
         assert!(outcome.mode.changed);
-        assert!(outcome.active_map_id.is_none());
-        assert!(state.active_map().is_none());
+        assert_eq!(outcome.active_map_id.as_deref(), Some("map-1"));
+        assert!(state.active_map().is_some());
+        assert_eq!(state.current_main_node_id.as_deref(), Some("node-1"));
+        let snapshot = state.snapshot();
+        assert!(!snapshot.routing_required);
+        assert!(!snapshot.bootstrap_required);
+        assert_eq!(snapshot.tasks.len(), 1);
+        assert_eq!(snapshot.maps.len(), 1);
+        assert_eq!(
+            snapshot.tasks[0].title,
+            TASKSPACE_MECHANICAL_BLANK_TASK_TITLE
+        );
+        assert_eq!(snapshot.maps[0].title, TASKSPACE_MECHANICAL_BLANK_MAP_TITLE);
+        assert!(events.iter().any(|event| {
+            matches!(
+                event,
+                MapRuntimeEvent::TaskCreated(event)
+                    if event.title == TASKSPACE_MECHANICAL_BLANK_TASK_TITLE
+            )
+        }));
+        assert!(events.iter().any(|event| {
+            matches!(
+                event,
+                MapRuntimeEvent::LeaseCreated(event)
+                    if event.map_id == "map-1" && event.node_id == "node-1"
+            )
+        }));
         assert!(events.iter().all(|event| {
             !matches!(
                 event,
@@ -24154,7 +23665,39 @@ sample rows from {artifact}"
                     if recorded.kind == "active_budget"
             )
         }));
-        assert!(state.current_main_node_id.is_none());
+        let context = state.build_developer_context().expect("developer context");
+        assert!(context.contains("source: runtime_mechanical_blank"));
+        assert!(context.contains("agent-authored objective and node plan"));
+    }
+
+    #[test]
+    fn ordinary_tool_call_is_not_blocked_by_node_action_contract() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode_for_session(MapRuntimeMode::Experiment, owner);
+
+        state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new("apply_patch", ActionClass::Edit, "patch")
+                    .with_call_id("call-edit"),
+            )
+            .expect("runtime records but does not block action-class mismatch");
+        let recorded = state
+            .record_main_tool_result_with_class(
+                owner,
+                "call-edit",
+                "apply_patch",
+                Some(ActionClass::Edit),
+                true,
+                "patch ok".to_string(),
+            )
+            .expect("tool result records")
+            .expect("node event is recorded");
+
+        let map = state.maps.get("map-1").expect("map");
+        let node_event = map.node_events.get(&recorded.0).expect("node event");
+        assert_eq!(node_event.action_class, Some(ActionClass::Edit));
     }
 
     #[test]
@@ -24724,7 +24267,6 @@ sample rows from {artifact}"
         let tags = trace_tags_for(
             Some(ActionClass::Test),
             false,
-            "shell_command",
             "The token '&&' is not a valid statement separator in this version. \
              FullyQualifiedErrorId : InvalidEndOfLine",
         );
@@ -25356,15 +24898,22 @@ TaskSpaceReadFileSummaryV1: path=src/lib.rs lines_read=1 eof_reached=true max_li
             .iter()
             .find(|event| event.call_id.as_deref() == Some("call-shell"))
             .expect("trace event is exposed");
-        assert_eq!(snapshot.trace_summary.unclassified_shell_action_count, 1);
-        assert_eq!(snapshot.sentinel_summary.total_warning_count, 1);
+        assert_eq!(snapshot.trace_summary.unclassified_shell_action_count, 0);
+        assert_eq!(snapshot.sentinel_summary.total_warning_count, 0);
         assert_eq!(
             snapshot.sentinel_summary.unclassified_shell_warning_count,
-            1
+            0
         );
+        assert!(snapshot.sentinel_warnings.is_empty());
         assert!(trace.tags.iter().any(|tag| tag == "tool_success"));
         assert!(
             trace
+                .tags
+                .iter()
+                .any(|tag| tag == "unclassified_tool_action")
+        );
+        assert!(
+            !trace
                 .tags
                 .iter()
                 .any(|tag| tag == "unclassified_shell_action")
@@ -25375,16 +24924,9 @@ TaskSpaceReadFileSummaryV1: path=src/lib.rs lines_read=1 eof_reached=true max_li
         assert!(value.get("body").is_none());
         assert!(!trace.tags.iter().any(|tag| tag.contains("output_contract")));
         assert!(!trace.tags.iter().any(|tag| tag.contains("fake-report")));
-        let warning = snapshot
-            .sentinel_warnings
-            .first()
-            .expect("unclassified shell warning is exposed");
-        assert_eq!(warning.sentinel_type, "unclassified_shell_action");
-        assert_eq!(warning.trace_event_ids, vec![trace.id.clone()]);
-        assert!(!warning.reason.contains("fake-report"));
         let formatted = format_action_map_snapshot(&snapshot);
         assert!(formatted.contains("trace events: total=2"));
-        assert!(formatted.contains("sentinel warnings: total=1"));
+        assert!(formatted.contains("sentinel warnings: total=0"));
     }
 
     #[test]
@@ -29160,10 +28702,6 @@ Traceback (most recent call last):\n",
         let actions = projection_next_valid_actions(map, Some(&node_id), None, &[]);
         assert_projection_actions_are_factual(&actions);
 
-        assert_eq!(
-            compact_projection_allowed_actions_for_node(NodeKind::SmokeTest),
-            "test, control"
-        );
         assert!(
             actions
                 .iter()
@@ -37381,6 +36919,9 @@ fi\n"
         assert!(context.contains("estimated_tokens:"));
         assert!(!context.contains("Active task path:"));
         assert!(!context.contains("Task cognitive state (MVP):"));
+        assert!(!context.contains("hard action-class constraints"));
+        assert!(!context.contains("Current node contract:"));
+        assert!(!context.contains("allowed action classes"));
     }
 
     #[test]
@@ -37407,7 +36948,7 @@ fi\n"
     }
 
     #[test]
-    fn cognitive_preflight_requires_problem_success_criteria() {
+    fn missing_cognitive_ledger_records_do_not_block_ordinary_work() {
         let mut state = ActionMapRuntimeState::default();
         let owner = ThreadId::new();
         state.set_mode(MapRuntimeMode::Experiment);
@@ -37438,13 +36979,9 @@ fi\n"
         task.problem_ledger.success_criteria.clear();
         task.cognitive_state.output_contracts.clear();
 
-        let error = state
+        state
             .prepare_main_tool_call(owner, "shell")
-            .expect_err("missing migrated problem-state should block ordinary work");
-
-        assert!(error.contains("record_success_criteria"));
-        assert!(error.contains("record_output_contract"));
-        assert!(error.contains("state_commit"));
+            .expect("semantic ledger completeness is not an ordinary-work hard gate");
     }
 
     #[test]
@@ -40201,13 +39738,6 @@ TaskSpaceReadFileSummaryV1: path=generate_org.py lines_read=210 eof_reached=true
             working_summary.contains("averageDepartmentBudget"),
             "{working_summary}"
         );
-        let rework_node_after_read = map.nodes.get(&rework_node_id).expect("rework node");
-        let allowed_actions = projection_allowed_actions_for_node(map, rework_node_after_read);
-        assert!(allowed_actions.contains("read"));
-        assert!(allowed_actions.contains("search"));
-        assert!(allowed_actions.contains("edit"));
-        assert!(allowed_actions.contains("control"));
-
         let schema_after_read_events = state
             .prepare_main_tool_call(
                 owner,
@@ -40336,13 +39866,6 @@ TaskSpaceReadFileSummaryV1: path=generate_org.py lines_read=210 eof_reached=true
                 < working_summary_after_failed_edit.find("validation_rework:"),
             "{working_summary_after_failed_edit}"
         );
-        let rework_node_after_failed_edit = map.nodes.get(&rework_node_id).expect("rework node");
-        let allowed_after_failed_edit =
-            projection_allowed_actions_for_node(map, rework_node_after_failed_edit);
-        assert!(allowed_after_failed_edit.contains("read"));
-        assert!(allowed_after_failed_edit.contains("search"));
-        assert!(allowed_after_failed_edit.contains("edit"));
-        assert!(allowed_after_failed_edit.contains("control"));
         let repeated_read_after_failed_edit_events = state
             .prepare_main_tool_call(
                 owner,
@@ -44670,7 +44193,7 @@ OK: 0 rows"
     }
 
     #[test]
-    fn subagent_tool_calls_are_gated_by_assigned_node_contract() {
+    fn subagent_tool_calls_are_recorded_under_assigned_lease() {
         let mut state = ActionMapRuntimeState::default();
         state.set_mode(MapRuntimeMode::Experiment);
         let owner = ThreadId::new();
@@ -44693,18 +44216,14 @@ OK: 0 rows"
                 .message_prefix
                 .contains("Node kind: inspect_code_context")
         );
+        assert!(assignment.message_prefix.contains("Lease:"));
+        assert!(assignment.message_prefix.contains("Runtime map notes:"));
         assert!(
-            assignment
+            !assignment
                 .message_prefix
                 .contains("Allowed action classes:")
         );
-        assert!(assignment.message_prefix.contains("Runtime enforces"));
-        assert!(assignment.message_prefix.contains("result package"));
-        assert!(assignment.message_prefix.contains("claims"));
-        assert!(assignment.message_prefix.contains("evidence refs"));
-        assert!(assignment.message_prefix.contains("remaining uncertainty"));
-        assert!(assignment.message_prefix.contains("mark result validity"));
-        assert!(!assignment.message_prefix.contains("free-form result"));
+        assert!(!assignment.message_prefix.contains("Runtime enforces"));
         state.attach_agent_to_lease(
             &assignment.lease_id,
             child,
@@ -44741,24 +44260,29 @@ OK: 0 rows"
         assert_eq!(result.source_thread_id, child);
         assert_eq!(result.action_class, Some(ActionClass::Read));
 
-        let error = state
+        state
             .prepare_child_tool_call(
                 child,
                 ToolActionDescriptor::new("apply_patch", ActionClass::Edit, "patch")
                     .with_call_id("child-edit"),
             )
-            .expect_err("inspect subagent cannot edit");
-        let (message, events) = error.into_parts();
-        assert!(message.contains("does not allow edit"));
-        assert!(events.iter().any(|event| {
-            matches!(
-                event,
-                MapRuntimeEvent::ToolActionBlocked(event)
-                    if event.node_id == "node-1"
-                        && event.node_kind == "inspect_code_context"
-                        && event.action_class == "edit"
+            .expect("runtime records but does not block child action-class mismatch");
+        let (edit_result_id, _) = state
+            .record_child_tool_result_with_class(
+                child,
+                "child-edit",
+                "apply_patch",
+                Some(ActionClass::Edit),
+                true,
+                "patch ok".to_string(),
             )
-        }));
+            .expect("child edit result record succeeds")
+            .expect("child edit result recorded");
+
+        let map = state.maps.get("map-1").expect("map");
+        let result = map.results.get(&edit_result_id).expect("result");
+        assert_eq!(result.source_thread_id, child);
+        assert_eq!(result.action_class, Some(ActionClass::Edit));
     }
 
     #[test]
@@ -45047,7 +44571,7 @@ OK: 0 rows"
     }
 
     #[test]
-    fn user_turn_requires_routing_before_work_and_spawn() {
+    fn user_turn_keeps_existing_active_path_available_for_work() {
         let mut state = ActionMapRuntimeState::default();
         state.set_mode(MapRuntimeMode::Experiment);
         let owner = ThreadId::new();
@@ -45064,33 +44588,16 @@ OK: 0 rows"
         seed_test_cognitive_preflight(&mut state, owner);
 
         state.begin_user_turn();
-        let work_error = state
-            .prepare_main_tool_call(owner, "shell")
-            .expect_err("ordinary work must wait for routing");
-        assert!(work_error.contains("TaskSpace task routing is required"));
-        let spawn_error = state
-            .prepare_spawn_assignment(owner, "parallel", None)
-            .expect_err("spawn must wait for routing");
-        assert!(spawn_error.contains("TaskSpace task routing is required"));
-
-        let events = state
-            .route_task_for_main(owner, "task-1")
-            .expect("same task routing clears the turn gate");
-        assert!(events.iter().any(|event| {
-            matches!(
-                event,
-                MapRuntimeEvent::TaskRouted(event)
-                    if event.current_task_id == "task-1"
-                        && event.current_map_id == "map-1"
-            )
-        }));
         state
             .prepare_main_tool_call(owner, "shell")
-            .expect("routing cleared");
+            .expect("active path remains available without a routing round-trip");
+        let snapshot = state.snapshot();
+        assert!(!snapshot.routing_required);
+        assert!(!snapshot.bootstrap_required);
     }
 
     #[test]
-    fn snapshot_restore_preserves_routing_gate() {
+    fn snapshot_restore_preserves_available_active_path() {
         let mut state = ActionMapRuntimeState::default();
         state.set_mode(MapRuntimeMode::Experiment);
         let owner = ThreadId::new();
@@ -45107,15 +44614,14 @@ OK: 0 rows"
         state.begin_user_turn();
 
         let snapshot = state.snapshot();
-        assert!(snapshot.routing_required);
+        assert!(!snapshot.routing_required);
         assert!(!snapshot.bootstrap_required);
 
         let mut restored = ActionMapRuntimeState::default();
         restored.restore_snapshot(snapshot);
-        let error = restored
+        restored
             .prepare_main_tool_call(owner, "shell")
-            .expect_err("restored routing gate should block ordinary work");
-        assert!(error.contains("TaskSpace task routing is required"));
+            .expect("restored active path remains available");
     }
 
     #[test]

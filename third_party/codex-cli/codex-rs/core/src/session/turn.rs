@@ -1303,13 +1303,16 @@ fn taskspace_provider_transport_mode(
 }
 
 fn taskspace_provider_transport_mode_for_request(
-    deepseek_chat: bool,
+    _deepseek_chat: bool,
     configured: &str,
 ) -> TaskspaceProviderTransportMode {
-    if !deepseek_chat || configured == "native_tools" {
-        TaskspaceProviderTransportMode::NativeTools
-    } else {
-        TaskspaceProviderTransportMode::CacheOptimizedActionContract
+    match configured.trim().to_ascii_lowercase().as_str() {
+        "action_contract"
+        | "cache_optimized_action_contract"
+        | "cache-optimized-action-contract" => {
+            TaskspaceProviderTransportMode::CacheOptimizedActionContract
+        }
+        _ => TaskspaceProviderTransportMode::NativeTools,
     }
 }
 
@@ -8794,14 +8797,18 @@ tax_calc.py\n\
     }
 
     #[test]
-    fn taskspace_provider_transport_defaults_deepseek_to_action_contract() {
+    fn taskspace_provider_transport_defaults_deepseek_to_native_tools() {
         assert_eq!(
             taskspace_provider_transport_mode_for_request(true, ""),
-            TaskspaceProviderTransportMode::CacheOptimizedActionContract
+            TaskspaceProviderTransportMode::NativeTools
         );
         assert_eq!(
             taskspace_provider_transport_mode_for_request(true, "native_tools"),
             TaskspaceProviderTransportMode::NativeTools
+        );
+        assert_eq!(
+            taskspace_provider_transport_mode_for_request(true, "action_contract"),
+            TaskspaceProviderTransportMode::CacheOptimizedActionContract
         );
         assert_eq!(
             taskspace_provider_transport_mode_for_request(false, ""),
