@@ -482,6 +482,13 @@ R5-E4 为 2026-07-10 插入并已关闭的阻断门。`target/r5e-phase-e-final-
 修复前证据。修复后的 `target/r5e4-projection-latest-only/.../20260710-051931-572` 在 9 个
 provider request 中均只有一份 active projection，standard/R5 均 solved，可以进入 R5-F。
 
+2026-07-10 的后续成本审计补充了一个重要边界：E4 只证明“每次请求唯一”，不证明
+“provider history 保持可缓存的单调追加”。当前 composer 会删除上一轮已发送的 projection，
+再把新版追加到本轮自然历史末尾；因此下一轮不再包含上一轮完整 input/output prefix。
+这属于上下文布局破坏，不是 projection 文本动态变化本身。另一个观测缺口是当前
+`exact payload scan` 扫描 Chat 转换前的 `ResponsesApiRequest`，不能当作最终 Chat wire
+message LCP 证据。E4 唯一性结论继续有效，缓存结构修复转入 R5-G0/G1。
+
 R5-E0 实施边界：
 
 | Work Item | Production Behavior | Verification Evidence |
@@ -598,6 +605,55 @@ Phase C 后，R5-G 必须把 Agent lifecycle、correctness、semantic cleanlines
 | feedback fidelity | tool result event/ref audit | stdout/stderr/exit/path/ref 可恢复，不主观摘要成策略 |
 | request cadence | request/tool/action metrics | 记录真实放大来源；不要求一次性解决，但必须解释 |
 | cost regression | token/projection metrics | projection tokens 不因重复旧结构无解释增长 |
+| map structure | raw map/node lifecycle + Agent planning calls | 复杂任务不能把语义计划写入旁路、同时把全部工具归入一个机械 blank node |
+
+### R5-G0：实际 wire 结构观测
+
+```text
+把结构 trace 放到 build_chat_completions_body 之后。
+只记录 request id、message index、role、content hash/bytes、tools hash 和相邻请求 LCP；禁止记录正文。
+区分 Responses input hash、Chat messages hash 和 tools schema hash，不再把前者命名为 exact wire payload。
+standard 与 TaskSpace 使用同一采集路径。
+```
+
+退出门禁：能够指出相邻请求第一个变化的 Chat message/JSON path，并解释 provider cached token
+落点；在完成该门禁前，不把 projection placement 之外的实际 wire 稳定性写成已证明。
+
+### R5-G1：cache-preserving TaskSpace history
+
+```text
+禁止每轮删除历史中已经发送给 provider 的 map 快照。
+优先使用 append-only、忠实的 map/node/event delta；runtime 不生成语义摘要或下一步提示。
+完整快照只允许在正常 context compaction/new epoch 边界建立，随后继续 append delta。
+裁剪只遵循既有上下文底线和透明 output ref，不为缓存命中重写工具反馈。
+```
+
+退出门禁：同一任务的 request N+1 在无 compaction 时包含 request N 的完整 provider-visible
+input/output prefix；`count-call-stack` 两次 TaskSpace controlled run 不再稳定落在约 10% cache hit。
+
+### R5-G2：map 防旁路与 Agent-owned 初始化
+
+`subscription-billing-repair` 已确认 Agent 在 `update_plan` 中维护 6 阶段计划，但 TaskSpace map
+只有一个 `Blank inspect node`，36 个普通工具结果全部归入该节点。修复必须坚持：
+
+```text
+TaskSpace active 时只有一个任务状态源，不能同时保留可承载完整任务语义的 update_plan 旁路。
+runtime 可机械创建空 map，但不能创建一个可无限吸收工作的语义伪节点。
+Agent 必须拥有一次原子初始化 task objective、nodes、edges/current binding 的机械工具能力。
+runtime 只校验空 map、id、status、dependency、lease 等硬规则，不解释节点目标或替 Agent 拆分。
+批量初始化用于降低工具/request 成本，不允许从自然语言 plan 自动推断 map。
+```
+
+退出门禁：复杂样本的 Agent-authored 分解实际进入 map；root objective 不再保持 pending；
+read/edit/test 不再无解释地全部归入机械 inspect node。简单任务仍允许 Agent 选择单节点。
+
+### R5-G3：复杂样本与提取完整性
+
+```text
+至少运行 subscription-billing-repair 和一个包含并行/依赖关系的复杂 sample。
+同时记录 standard、R4、R5 的 hidden/public validation、request/cache、map nodes/edges/events。
+rollout 超过 32MB 时 extractor 必须流式扫描，不能把 projection/control/request 计数静默写成 0。
+```
 
 优先样本：
 
@@ -610,6 +666,9 @@ sqlite-db-truncate / H203 path case:
 
 large-output-ref-smoke:
   ref/crop 忠实传递，不回退到语义摘要。
+
+subscription-billing-repair:
+  检查 Agent-authored map、update_plan 旁路、跨 read/edit/test/validation 的节点边界。
 ```
 
 样本矩阵：
@@ -641,6 +700,10 @@ provider-visible feedback completeness
 projection_strategy_hint_count
 semantic_gate_block_count
 raw_ref_recoverability
+wire_message_lcp_tokens / first_changed_message_index
+taskspace_plan_bypass_count
+mechanical_blank_node_event_count
+agent_authored_node_count / edge_count
 ```
 
 退出门禁：
@@ -652,6 +715,9 @@ semantic_gate_block_count 只包含硬底线分类。
 无明确 correctness 回退；若有回退，必须能证明不是上下文丢失/扭曲。
 所有收益统计样本 `agent_completion_status = complete` 且 `sampling_interrupted = false`。
 `business_success = true` 不能单独满足 Agent 完整完成或 utility eligibility。
+无 compaction 时 provider history 必须保持 append-only；wire trace 不得只扫描 Responses pre-wire request。
+复杂样本不得存在 `update_plan` 有多阶段语义而 TaskSpace 仅有机械 blank node 的双状态源。
+大 rollout 的 request/projection/control 指标不得因扫描上限显示为 0 或 unavailable 后仍进入收益结论。
 ```
 
 ## 1.14 Phase R5-H：收口
@@ -691,7 +757,7 @@ R5 closeout 文档
 | R5-D | D0 provider-visible residue inventory、initial/state_commit 降级测试 | 不依赖 gate pruning | 语义残留分类表、ledger 非 active path 证据；D 阶段 live sample 因 profile hard stop 仅保留诊断资格 | 100% 完成 | proceed to R5-E0，不进入 benefit claim |
 | R5-E0 | profile-over-limit focused tests、interruption/completion harness fixtures、`count-call-stack` live sample | 不依赖 E1/E2 文案清理或 R5-G | profile count 不再 hard stop；中断不伪装完成；样本资格分类正确 | 100% 完成 | proceed to R5-E1 |
 | R5-E1/E2/E3 | gate 分类测试、payload scan、负例 | 不依赖模块拆分 | 仅硬底线 gate 列表；model-visible recovery/sentinel 无策略指令 | 100% 完成 | proceed to R5-E4 |
-| R5-E4 | 双 projection provider-history 测试、exact payload uniqueness scan、同一样本重跑 | 不依赖模块拆分或语义压缩 | latest-only projection；当前 feedback pair 保留；token/payload 增长重新计量 | 100% 完成 | proceed to R5-F |
+| R5-E4 | 双 projection provider-history 测试、pre-wire request uniqueness scan、同一样本重跑 | 不依赖模块拆分或语义压缩 | latest-only projection；当前 feedback pair 保留；token/payload 增长重新计量 | 100% 完成 | proceed to R5-F |
 | R5-F | 模块边界测试、cargo check | 不依赖 benchmark 总跑 | active path import/call graph | 100% 完成 | pause |
 | R5-G | targeted paired runs | 不依赖 closeout | 指标报告、失败分类 | 100% 完成 | pause |
 | R5-H | closeout review | 无 | closeout 文档和 clean git | 完成 | pause |
@@ -730,7 +796,7 @@ provider request count、state-machine action count、wall time、失败分类�
 | R5-D1/D2 ledger deactivation | `initial_*`、`problem_ledger/cognitive_state` 不控制 active path | start_task/projection/closeout/final gate | taskspace_control, provider-visible context | `start_task_`, active projection, D2 closeout/final boundary tests, `taskspace_action_contract`, `gate_recovery` | `target/r5d-ledger-deactivation/count-call-stack/20260710-002316-050` forbidden scan 无命中；TaskSpace side 被 profile hard stop，收益证据 tainted | legacy validation/rework tests still contain old semantic-control assertions | landed |
 | R5-E0 request hard-stop removal | route/profile 请求计数只观测；真实中断不伪装 Agent completion；外部验证不覆盖 Agent 生命周期 | provider pre-dispatch gate、turn completion path、benchmark classifier | whale exec TaskSpace mode、paired report | profile-over-limit continuation、interruption semantics、harness eligibility tests | `target/r5e-phase-e-final-clean/count-call-stack/20260710-043411-389`：13 requests 后 Agent complete、无 hard stop、map closed | no compatibility/grace fallback | landed |
 | R5-E1/E2/E3 hard-baseline pruning | 只保留硬底线拒绝；model-visible recovery/sentinel 不含策略指令；action-contract 不重解释 Agent 动作 | state machine gate path, sentinel/recovery renderer, native control parser, action-contract fallback | ordinary tool preflight, payload construction | gate classification、raw feedback、no-auto-rework、forbidden scan tests | E0-E3 live run forbidden marker 0；旧 scanner 的 replacement 结论已由 E4 废弃并重验 | 旧未调用 semantic helpers/tests 留给 R5-F 物理删除 | landed |
-| R5-E4 active projection uniqueness | provider history 只保留 latest active projection；旧快照不与最新 map 状态并存；scanner 拒绝 projection count != 1 | provider-visible history composer、exact payload scanner、benchmark extractor/report | every TaskSpace provider request | 双 projection regression、current feedback pair、scanner uniqueness tests | 修复后 `target/r5e4-projection-latest-only/.../20260710-051931-572`：9/9 requests projection count=1；input 100365，wall 23649ms，均较污染样本显著下降 | 不做 projection 语义压缩或兼容分支 | landed |
+| R5-E4 active projection uniqueness | provider history 只保留 latest active projection；旧快照不与最新 map 状态并存；scanner 拒绝 projection count != 1 | provider-visible history composer、pre-wire request scanner、benchmark extractor/report | every TaskSpace provider request | 双 projection regression、current feedback pair、scanner uniqueness tests | 修复后 `target/r5e4-projection-latest-only/.../20260710-051931-572`：9/9 requests projection count=1；input 100365，wall 23649ms，均较污染样本显著下降 | 不做 projection 语义压缩或兼容分支 | landed |
 | R5-F module split | map/event/gate/projection 边界清晰 | action_map modules | whale exec --taskspace | cargo check/test | trace fields stable | none | planned |
 | R5-G benefit gate | 简化无明确负收益 | benchmark harness | targeted samples | paired report | metrics json/report | none | planned |
 

@@ -8,7 +8,7 @@
 
 Phase E 的边界目标已完成：route/profile request count 只观测、不再终止正常采样；Agent completion、sampling interruption、external validation 已拆分；projection、tool output、action-contract 和 `taskspace_control` 活动路径不再合成策略、证据或下一步动作；当前拒绝会以原始机械反馈进入 provider history。
 
-E0-E3 首次验收样本后来被确认存在 E4 污染：history composer 把每轮 active projection 全部追加到 provider payload，导致旧 running 与新 completed 快照并存。E4 只做机械 latest-only 替换，不压缩、不重写 projection 内容，并把唯一性纳入 exact payload gate。修复后 `count-call-stack` 的 9 个 provider request 全部只有一份 projection，standard/R5 均 solved；R5 wall ratio 从污染样本的 3.11 降至 1.40，总 input token 从 269093 降至 100365。
+E0-E3 首次验收样本后来被确认存在 E4 污染：history composer 把每轮 active projection 全部追加到 provider payload，导致旧 running 与新 completed 快照并存。E4 只做机械 latest-only 替换，不压缩、不重写 projection 内容，并把唯一性纳入 pre-wire request scan gate。修复后 `count-call-stack` 的 9 个 provider request 全部只有一份 projection，standard/R5 均 solved；R5 wall ratio 从污染样本的 3.11 降至 1.40，总 input token 从 269093 降至 100365。
 
 ## 2. 子阶段完成情况
 
@@ -95,6 +95,41 @@ E4 在 history item 层按顺序只保留最新 projection，旧项记录 `stale
 - R5 cached input 仅 9728、uncached input 90637，缓存与自然历史增长仍是 Phase G 成本审计项。
 - standard 缺少同口径 provider request telemetry，仍不能计算可信 request ratio。
 
+### 6.1 E4 后续结构审计修正
+
+E4 的 latest-only 修复解决了旧、新 projection 同时进入一次请求的问题，但后续审计证明
+“唯一性”不等于“缓存结构正确”：
+
+```text
+request 1: H0 + P1
+request 2: H0 + A1/T1 + P2
+```
+
+上一轮已经发送的 `P1` 被删除，新的自然对话项插入其位置后，`P2` 再追加到末尾。
+因此 request 2 不包含 request 1 的完整 input/output prefix；standard history 则持续 append-only。
+DeepSeek 的 cache 依赖从 token 0 开始的公共前缀，这一非单调布局会丢失上一轮 input/model-output
+边界的直接复用。controlled 的 TaskSpace/standard/TaskSpace 三次 right-side 运行中，两次 TaskSpace
+cache hit 约 14.0%/9.9%，中间 standard 约 90.7%，已排除单纯 warm-up/运行顺序解释。
+
+同时，当前 `taskspace-exact-payload-scan-event-v1` 在 core 层序列化的是
+`ResponsesApiRequest`；最终 `build_chat_completions_body` 仍在下游。因此它可以继续作为
+projection 唯一性/禁用 marker scanner，但不能再被当作最终 Chat wire message layout 证明。
+实际 wire role/hash/LCP trace 纳入 R5-G0。
+
+该结论不回退 E4：重复 projection 污染确已修复，E4 仍完成；但 E4 不能再被表述为缓存问题已解决。
+
+### 6.2 复杂样本 map 坍缩
+
+L3 `subscription-billing-repair` 暴露了独立的 map 结构问题：Agent 通过四次 `update_plan`
+维护 6 阶段语义计划，但 TaskSpace 最终只有一个 runtime mechanical init 创建的
+`Blank inspect node`。35 次模型请求和 36 个普通工具结果中的 read/edit/test 全部归入 node-1，
+task objective 最终仍是 `Agent-authored objective pending`。
+
+根因不是 Agent 没有拆解，而是状态面分裂：通用 `update_plan` 构成 map 旁路；compact
+`taskspace_control` 没有原子填充 blank task objective/map/nodes 的动作；已绑定的 blank inspect
+node 又允许普通工作持续推进。修复归入 R5-G2，原则是提供 Agent-authored 的机械批量 map
+初始化并消除双状态源，不让 runtime 从计划文本推断节点或自动拆任务。
+
 ## 7. Phase E 收益判定
 
 | 假设 | 结果 | 证据 |
@@ -103,15 +138,17 @@ E4 在 history item 层按顺序只保留最新 projection，旧项记录 `stale
 | 中断不再伪装成 Agent completion | PASS | completion/interruption/validation 独立字段和 harness fixtures 通过 |
 | 不通过新语义策略控制成本 | PASS | forbidden marker 0；action-contract/control/tool feedback 活动路径无语义合成 |
 | feedback 拒绝能进入下一轮上下文 | PASS | final/gate feedback pair focused tests；E4 composer 回归证明当前 call/output 不被 stale projection replacement 误删 |
-| stale projection 不再放大成本 | PASS | 9/9 projection 唯一；input -62.7%，requests -30.8%，wall -49.7%（相对污染样本） |
+| stale projection 累积不再放大成本 | PASS | 9/9 projection 唯一；input -62.7%，requests -30.8%，wall -49.7%（相对污染样本）；不代表 cache prefix 已修复 |
 | 简单任务达到 standard 成本 parity | 未证明，非 Phase E 退出门禁 | 单样本 wall ratio 1.40、input ratio 1.56；进入 Phase G 聚合验证 |
 
 ## 8. 遗留项
 
 1. Phase F 删除 184 个 warning 所暴露的旧 semantic normalizer、validation/rework policy、context compiler 和相关历史测试，并拆分 map/event/gate/projection 模块；把当前 `2161 passed / 224 failed / 3 ignored` 恢复为新边界下的全量绿色基线，不做兼容。
-2. Phase G 对自然 tool history、event/ref 体积、缓存命中和 request cadence 做同口径收益审计；不得把 latest-only 快照替换扩展成 projection 语义压缩。
-3. 为 standard 补齐真实 rollout/request telemetry 后再比较 request ratio；当前禁止用 token record 或 outer exec 猜测。
-4. 本次尚未执行用户授权的对抗性审查；执行前不把它记为已完成 gate。
+2. Phase G0/G1 建立实际 Chat wire LCP trace，并把每轮 snapshot replacement 改为 cache-preserving 的 append-only map delta/compaction epoch；不得扩展成 projection 语义压缩。
+3. Phase G2 修复 mechanical blank map、`update_plan` 旁路和 compact map 初始化能力缺口；runtime 只保留空 map/id/status/dependency/lease 硬校验。
+4. Phase G3 用 `subscription-billing-repair` 和另一个复杂依赖样本验证 Agent-authored map；修复 >32MB rollout 被 extractor 静默跳过后指标归零的问题。
+5. 为 standard 补齐真实 rollout/request telemetry 后再比较 request ratio；当前禁止用 token record 或 outer exec 猜测。
+6. 本次尚未执行用户授权的对抗性审查；执行前不把它记为已完成 gate。
 
 ## 9. 退出决定
 
