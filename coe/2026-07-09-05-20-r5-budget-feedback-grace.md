@@ -554,3 +554,296 @@
   ```
 - Interpretation: hard stop 发生在工具失败反馈记录之后、Agent 下一次看到反馈之前。
 - Time: 2026-07-09 05:20
+
+## Hypothesis H-006: action-contract 单动作承载放大 provider request
+- Status: fixed
+- Parent: P-001
+- Claim: TaskSpace action-contract 原先一次 provider response 只能承载一个 action，导致无依赖读文件、测试/结束等连续动作被拆成多个 provider request；这不是 Agent 智能问题，也不是 runtime 应该强行替 Agent 决策的问题，而是 transport 承载能力不足。
+- Layer: contributing-factor
+- Factor relation: all_of
+- Depends on:
+  - H-003
+  - H-004
+- Evidence gate: satisfied
+- Related evidence:
+  - E-014
+  - E-021
+- Conclusion: fixed
+- Repair design readiness: implemented
+- Repair:
+  - 增加 `taskspace-action-sequence-v1`，最多承载 8 个 Agent 明确动作。
+  - runtime 按顺序执行，不合并、不重排、不生成动作。
+  - 遇到 action 拒绝、edit/test 失败、final/blocked 或 gate recovery 即停止当前 sequence。
+- Close reason:
+  - fixed by action sequence parser/executor and sequence-indexed call ids.
+
+## Hypothesis H-007: active projection marker mismatch 导致薄投影未替换
+- Status: fixed
+- Parent: P-001
+- Claim: R5-C 初跑中 active projection 已生成，但 context compiler 仍依赖旧 `active compact profile` marker，导致 provider-visible payload 没有用最新 thin projection 替换旧上下文，历史 bootstrap/status 内容继续污染上下文。
+- Layer: root-cause
+- Factor relation: all_of
+- Depends on:
+  - H-006
+- Evidence gate: satisfied
+- Related evidence:
+  - E-015
+  - E-016
+- Conclusion: fixed
+- Repair:
+  - active replacement 改为结构识别 `ContextProjectionV1 active replacement:`。
+  - 增加测试 `active_context_replacement_recognizes_thin_projection_without_legacy_profile_marker`。
+- Close reason:
+  - fixed by structural active projection detection.
+
+## Hypothesis H-008: sequence 内失败后继续执行后续动作会扭曲反馈
+- Status: fixed
+- Parent: P-001
+- Claim: action sequence 若在 `apply_patch` 或 `run_test` 失败后继续执行后续动作，会让 Agent 收到混合反馈并误以为后续步骤也有执行意义；runtime 应停止当前 Agent 给出的 sequence，但不替 Agent 决定下一步。
+- Layer: root-cause
+- Factor relation: all_of
+- Depends on:
+  - H-006
+- Evidence gate: satisfied
+- Related evidence:
+  - E-017
+  - E-018
+- Conclusion: fixed
+- Repair:
+  - 增加 `taskspace_sequence_failure_feedback_from_response_item`。
+  - `apply_patch verification failed` 或 `Exit code:` 非零测试反馈后停止 sequence。
+- Close reason:
+  - fixed by sequence fail-stop on failed edit/test.
+
+## Hypothesis H-009: 状态机拒绝反馈只在 trace 中可见，未进入 active projection
+- Status: fixed
+- Parent: P-001
+- Claim: inspect 节点尝试 edit 被正确拒绝，但拒绝语义只在 provider_response_actionability/whale-exec trace 中可见，未作为 node-local feedback 进入 active projection，Agent 下一轮容易重复或误判。
+- Layer: root-cause
+- Factor relation: all_of
+- Depends on:
+  - H-007
+- Evidence gate: satisfied
+- Related evidence:
+  - E-019
+  - E-021
+- Conclusion: fixed
+- Repair:
+  - 新增 `runtime_feedback` node event。
+  - action-contract parse/reject branch 调用 `record_action_map_runtime_feedback`。
+  - active projection recent events 显示 `source=runtime_feedback`。
+- Close reason:
+  - fixed by runtime feedback node event path.
+
+## Hypothesis H-010: prose/f-string braces 抢占 JSON 起点导致合法 action sequence 解析失败
+- Status: fixed
+- Parent: P-001
+- Claim: Agent 输出合法 action sequence 前若有 prose 或 f-string 示例 `{count_stack_depth()}`，旧 parser 会从第一个 `{` 开始解析，返回 malformed JSON；这是 parser 起点选择缺陷，不应通过提示 Agent 不写 prose 解决。
+- Layer: root-cause
+- Factor relation: all_of
+- Depends on:
+  - H-006
+- Evidence gate: satisfied
+- Related evidence:
+  - E-020
+- Conclusion: fixed
+- Repair:
+  - 增加 `taskspace_prefixed_action_json_start`，只接受首字段为 `schema_version` 的 JSON object 起点。
+  - 增加测试 `taskspace_action_contract_parser_recovers_sequence_after_prose_with_braces`。
+- Close reason:
+  - fixed by schema-version anchored JSON start scanning.
+
+## Hypothesis H-011: unified diff hunk context 过脆导致正确 patch 被 native apply_patch 拒绝
+- Status: fixed
+- Parent: P-001
+- Claim: Agent 给出的 unified diff hunk header 带行号/函数上下文且包含多余空行上下文，native apply_patch 对这些上下文要求更严格，导致语义正确的 patch 失败。
+- Layer: capability-gap
+- Factor relation: all_of
+- Depends on:
+  - H-006
+- Evidence gate: satisfied
+- Related evidence:
+  - E-018
+  - E-021
+- Conclusion: fixed
+- Repair:
+  - unified hunk header 归一为 native `@@`。
+  - update hunk 最小化为最近稳定锚点和 change lines，避免函数上下文/空行数量误差。
+- Close reason:
+  - fixed by native patch hunk normalization.
+
+## Hypothesis H-012: benchmark routing prompt 仍在 model-visible 注入策略
+- Status: fixed
+- Parent: P-001
+- Claim: `TaskShapeRouterV1` 虽然标记为 report-only，但 benchmark 仍把 routing constraints 追加到 TaskSpace prompt，造成 Phase C active projection 之外的 model-visible 策略注入。
+- Layer: boundary-violation
+- Factor relation: all_of
+- Depends on:
+  - H-007
+- Evidence gate: satisfied
+- Related evidence:
+  - E-021
+- Conclusion: fixed
+- Repair:
+  - `New-TaskspaceRoutingPrompt` 保留函数但返回空串。
+  - routing decision 继续写 artifact/report，不再进入模型上下文。
+  - PowerShell harness tests 改为防回归断言 report-only。
+- Close reason:
+  - fixed by report-only routing prompt.
+
+## Hypothesis H-013: bootstrap context 仍暴露旧 compact/cognitive 语义要求
+- Status: fixed
+- Parent: P-001
+- Claim: 即使 active projection 已 thin，TaskSpace bootstrap/transition context 仍出现 `active compact profile`、`cognitive_preflight_requirement`、`result_validity_requirement` 等旧语义要求，违反 R5 的薄构造器边界。
+- Layer: boundary-violation
+- Factor relation: all_of
+- Depends on:
+  - H-012
+- Evidence gate: satisfied
+- Related evidence:
+  - E-021
+- Conclusion: fixed
+- Repair:
+  - bootstrap 文案改为 `TaskSpace v0.0.5 thin bootstrap`。
+  - transition notice 只声明 task path/current node 硬入口和 map runtime boundary。
+  - 移除旧 compact/result-validity/cognitive preflight model-visible 文案。
+- Close reason:
+  - fixed by thin bootstrap and transition notice cleanup.
+
+## Hypothesis H-014: patch 成功后 Agent 仍消耗预算重试环境不可用测试
+- Status: open
+- Parent: P-001
+- Claim: R5-C 最新样本中 patch 已正确落地且 public/hidden validation 均通过，但 Agent 仍反复尝试环境不可用的测试路径并最终触发 provider budget hard stop；这是残余反馈使用/执行节奏效率问题，不应通过 runtime 语义约束禁止 Agent 行为。
+- Layer: residual-efficiency
+- Factor relation: all_of
+- Depends on:
+  - H-006
+  - H-009
+- Evidence gate: satisfied
+- Related evidence:
+  - E-021
+- Conclusion: open
+- Repair design readiness: not-ready
+- Next step:
+  - 后续优先检查 test feedback 的上下文呈现、native tool-loop carrier、以及环境/validator 反馈的效率，不新增 runtime 策略性 hard-stop。
+- Blocker:
+  - none
+
+## Evidence E-014: action sequence parser/executor focused tests passed
+- Related hypotheses:
+  - H-006
+- Direction: supports
+- Type: unit-test
+- Source: `cargo test -p codex-core taskspace_action_contract -- --nocapture`
+- Matched signal:
+  - 82 passed
+- Raw content:
+  ```text
+  taskspace_action_contract_parser_accepts_action_sequence ... ok
+  taskspace_action_contract_sequence_call_ids_are_unique ... ok
+  ```
+- Interpretation: action-contract 可解析 sequence，并为 sequence 内 action 生成唯一 call id。
+- Time: 2026-07-09 18:30
+
+## Evidence E-015: C phase1 暴露 active projection replacement marker mismatch
+- Related hypotheses:
+  - H-007
+- Direction: supports
+- Type: benchmark-log
+- Source: `target/r5cphase1/count-call-stack/20260709-175326-337`
+- Matched signal:
+  - `active_projection_present=false`、`context_bundle=false`、`legacy_taskspace_history_present=true`
+- Interpretation: thin projection 未被 context compiler 识别为 active replacement，旧历史污染 provider payload。
+- Time: 2026-07-09 17:53
+
+## Evidence E-016: structural active projection replacement focused test passed
+- Related hypotheses:
+  - H-007
+- Direction: supports
+- Type: unit-test
+- Source: `cargo test -p codex-core active_projection -- --nocapture`
+- Matched signal:
+  - 11 passed
+- Interpretation: active projection replacement 不再依赖旧 compact marker，并保留反馈 excerpt/ref。
+- Time: 2026-07-09 18:30
+
+## Evidence E-017: failed edit/test sequence fail-stop focused test passed
+- Related hypotheses:
+  - H-008
+- Direction: supports
+- Type: unit-test
+- Source: `cargo test -p codex-core taskspace_action_contract -- --nocapture`
+- Matched signal:
+  - `action_sequence_failure_feedback_detects_failed_edit_and_test ... ok`
+- Interpretation: sequence 内失败反馈可被识别，后续依赖动作不继续执行。
+- Time: 2026-07-09 18:30
+
+## Evidence E-018: C phase2 暴露 patch hunk 归一化和失败后续执行问题
+- Related hypotheses:
+  - H-008
+  - H-011
+- Direction: supports
+- Type: benchmark-log
+- Source: `target/r5cphase2/count-call-stack/20260709-180007-217`
+- Matched signal:
+  - Agent 输出 `apply_patch + run_test + validate` sequence；`apply_patch` 因 hunk context/header 失败，旧路径仍继续执行后续动作。
+- Interpretation: failure fail-stop 与 unified hunk normalization 都是能力/反馈层问题，不应通过 projection 提示修复。
+- Time: 2026-07-09 18:00
+
+## Evidence E-019: runtime feedback projection focused test passed
+- Related hypotheses:
+  - H-009
+- Direction: supports
+- Type: unit-test
+- Source: `cargo test -p codex-core runtime_feedback_records_node_event_and_active_projection -- --nocapture`
+- Matched signal:
+  - test passed
+- Interpretation: 状态机拒绝/parse 拒绝反馈可进入 node event，并在 active projection 可见。
+- Time: 2026-07-09 18:30
+
+## Evidence E-020: prose braces parser recovery focused test passed
+- Related hypotheses:
+  - H-010
+- Direction: supports
+- Type: unit-test
+- Source: `cargo test -p codex-core taskspace_action_contract_parser_recovers_sequence_after_prose_with_braces -- --nocapture`
+- Matched signal:
+  - test passed
+- Interpretation: parser 不再被 action JSON 前的 f-string braces 抢占。
+- Time: 2026-07-09 18:30
+
+## Evidence E-021: R5-C live sample standard/R5 both solved with old prompt hits removed
+- Related hypotheses:
+  - H-006
+  - H-009
+  - H-011
+  - H-012
+  - H-013
+  - H-014
+- Direction: supports
+- Type: benchmark-log
+- Source: `target/r5cphase6/count-call-stack/20260709-183144-389/pair-001/pair-report.md`
+- Matched signal:
+  - `outcome_standard: solved`
+  - `outcome_taskspace: solved`
+  - `taskspace_tool_call_ratio: 1`
+  - right `public_validation_exit_code: 0`
+  - right `hidden_oracle_exit_code: 0`
+  - old routing/compact prompt hits: 0
+- Correlation keys:
+  - `target/r5cphase6/count-call-stack/20260709-183144-389`
+  - `src/call_stack_counter.py`
+- Raw content:
+  ```text
+  standard current: solved, 15135ms, 10 tools
+  R5-C current: solved, 45228ms, 10 tools
+  right rollout_trace.model_request_count: 8
+  agent_messages: 8
+  agent_actions: 15
+  multi_action_messages: 4
+  TaskShapeRouterV1 active profile constraints: 0
+  active compact profile: 0
+  cognitive_preflight_requirement: 0
+  ```
+- Interpretation: Phase C 修复通过 targeted live gate。残余 hard stop 发生在 patch 正确落地且 external validation 通过之后，归入 H-014 后续效率问题。
+- Time: 2026-07-09 18:32

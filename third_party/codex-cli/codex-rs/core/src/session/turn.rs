@@ -135,11 +135,13 @@ use tracing::warn;
 const TASKSPACE_ACTIVE_PROFILE_MARKER: &str = "TaskSpace v0.0.5 active compact profile is enabled.";
 const TASKSPACE_ACTIVE_COMPACT_PROJECTION_MARKER: &str =
     "TaskSpace v0.0.5 active compact projection.";
+const TASKSPACE_ACTIVE_THIN_PROJECTION_MARKER: &str = "TaskSpace v0.0.5 active thin projection.";
 const TASKSPACE_ACTIVE_PROJECTION_MARKER: &str = "ContextProjectionV1 active replacement:";
 const TASKSPACE_SHADOW_PROJECTION_MARKER: &str =
     "ContextProjectionV1 shadow (not active replacement):";
 const TASKSPACE_ACTION_CONTRACT_MAX_RECENT_TOOL_OUTPUT_ITEMS: usize = 3;
 const TASKSPACE_ACTION_CONTRACT_MAX_RECENT_TOOL_OUTPUT_CHARS: usize = 2400;
+const TASKSPACE_ACTION_CONTRACT_MAX_SEQUENCE_ACTIONS: usize = 8;
 const TASKSPACE_DEEPSEEK_CACHE_ANCHOR_LINES: usize = 4200;
 const TASKSPACE_IMPLEMENT_PROGRESS_BEFORE_EDIT_HINT: usize = 10;
 const TASKSPACE_NO_ACTION_RECOVERY_MARKER: &str = "TaskSpaceNoActionRecoveryV1:";
@@ -213,6 +215,14 @@ struct TaskSpaceActionV1 {
     node_id: Option<String>,
     #[serde(default)]
     args: serde_json::Value,
+    #[serde(default)]
+    rationale: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
+struct TaskSpaceActionSequenceV1 {
+    schema_version: String,
+    actions: Vec<TaskSpaceActionV1>,
     #[serde(default)]
     rationale: Option<String>,
 }
@@ -1317,10 +1327,16 @@ fn taskspace_static_action_contract_instructions() -> &'static str {
     "TaskSpaceActionContractV1:
 You are running in TaskSpace cache-optimized action-contract transport.
 Provider-native tools are intentionally disabled for this request.
-Return one taskspace-action-v1 JSON object as the assistant message body.
+Return either one taskspace-action-v1 JSON object or one taskspace-action-sequence-v1 JSON envelope as the assistant message body.
 Do not emit markdown fences, DSML tool calls, XML tags, prose before JSON, or prose after JSON.
-Required JSON shape:
+Single-action JSON shape:
 {\"schema_version\":\"taskspace-action-v1\",\"action\":\"<action>\",\"node_id\":\"<active node id or null>\",\"args\":{},\"rationale\":\"short reason\"}
+Sequence JSON shape:
+{\"schema_version\":\"taskspace-action-sequence-v1\",\"actions\":[{\"schema_version\":\"taskspace-action-v1\",\"action\":\"<action>\",\"node_id\":\"<active node id or null>\",\"args\":{},\"rationale\":\"short reason\"}]}
+Sequence execution:
+- Runtime executes actions in listed order, using the latest TaskSpace state before each action.
+- Runtime stops the sequence after the first rejected action, failed edit/test tool result, failed tool runtime dispatch, blocked terminal action, or accepted terminal final_answer/blocked action.
+- Runtime does not reorder, infer, merge, or skip actions.
 Allowed actions by active node kind:
 - bootstrap/no active task: taskspace_control, blocked
 - existing task with no active node: final_answer, taskspace_control, blocked
@@ -1342,7 +1358,7 @@ Action argument rules:
 - blocked args: {\"reason\":\"exact missing evidence or blocker\"}
 Validation invariants:
 - Unknown actions or actions disallowed for the active node will be rejected and no tool will execute.
-- If provider-native tool-call markup appears after the JSON object, TaskSpace ignores that markup and executes only the JSON action."
+- If provider-native tool-call markup appears after the JSON object, TaskSpace ignores that markup and executes only the JSON action or action sequence."
 }
 
 fn taskspace_deepseek_cache_anchor() -> String {
@@ -1987,7 +2003,7 @@ Path correction facts, not a runtime-selected strategy:\n\
 
 fn taskspace_action_contract_rejection_followup(reason: &str) -> String {
     format!(
-        "TaskSpaceActionV1 rejected: {reason}. Return exactly one valid taskspace-action-v1 JSON object."
+        "TaskSpaceActionV1 rejected: {reason}. Return exactly one valid taskspace-action-v1 JSON object or one valid taskspace-action-sequence-v1 envelope."
     )
 }
 
@@ -4789,13 +4805,13 @@ fn classify_provider_visible_item(item: &ResponseItem) -> ProviderVisibleItemCat
 }
 
 fn is_active_context_projection_item(item: &ResponseItem) -> bool {
-    response_item_text_contains_taskspace_active_marker(item)
-        && response_item_text_contains(item, TASKSPACE_ACTIVE_PROJECTION_MARKER)
+    response_item_text_contains(item, TASKSPACE_ACTIVE_PROJECTION_MARKER)
 }
 
 fn response_item_text_contains_taskspace_active_marker(item: &ResponseItem) -> bool {
     response_item_text_contains(item, TASKSPACE_ACTIVE_PROFILE_MARKER)
         || response_item_text_contains(item, TASKSPACE_ACTIVE_COMPACT_PROJECTION_MARKER)
+        || response_item_text_contains(item, TASKSPACE_ACTIVE_THIN_PROJECTION_MARKER)
 }
 
 fn compile_taskspace_context_item(item: ResponseItem) -> ResponseItem {
@@ -5120,6 +5136,30 @@ fn taskspace_gate_recovery_from_response_item(item: &ResponseItem) -> Option<Str
         .then(|| output.chars().take(2200).collect::<String>())
 }
 
+fn taskspace_sequence_failure_feedback_from_response_item(
+    action_name: &str,
+    item: &ResponseItem,
+) -> Option<String> {
+    let text = response_item_text(item)?;
+    let failed = match action_name {
+        "apply_patch" => text.contains("apply_patch verification failed"),
+        "run_test" => taskspace_shell_output_has_nonzero_exit_code(&text),
+        _ => false,
+    };
+    failed.then(|| text.chars().take(2200).collect::<String>())
+}
+
+fn taskspace_shell_output_has_nonzero_exit_code(text: &str) -> bool {
+    text.lines().any(|line| {
+        let Some(code) = line.trim().strip_prefix("Exit code: ") else {
+            return false;
+        };
+        code.split_whitespace()
+            .next()
+            .is_some_and(|code| code != "0")
+    })
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct TaskSpaceGateRecoveryProjectionSync {
     reason: Option<String>,
@@ -5335,6 +5375,60 @@ mod active_context_replacement_tests {
         assert_eq!(
             taskspace_action_arg_string(&action.args, "path").as_deref(),
             Some("src/lib.rs")
+        );
+    }
+
+    #[test]
+    fn taskspace_action_contract_parser_accepts_action_sequence() {
+        let actions = parse_taskspace_actions_v1(
+            r#"{"schema_version":"taskspace-action-sequence-v1","actions":[{"schema_version":"taskspace-action-v1","action":"read_file","node_id":"node-1","args":{"path":"src/lib.rs"},"rationale":"inspect lib"},{"schema_version":"taskspace-action-v1","action":"read_file","node_id":"node-1","args":{"path":"src/main.rs"},"rationale":"inspect main"}],"rationale":"read independent files"}"#,
+        )
+        .expect("valid action sequence");
+
+        assert_eq!(actions.len(), 2);
+        assert_eq!(actions[0].action, "read_file");
+        assert_eq!(
+            taskspace_action_arg_string(&actions[1].args, "path").as_deref(),
+            Some("src/main.rs")
+        );
+        assert_eq!(
+            parse_taskspace_action_v1(
+                r#"{"schema_version":"taskspace-action-sequence-v1","actions":[{"schema_version":"taskspace-action-v1","action":"read_file","node_id":"node-1","args":{"path":"src/lib.rs"}},{"schema_version":"taskspace-action-v1","action":"read_file","node_id":"node-1","args":{"path":"src/main.rs"}}]}"#
+            )
+            .expect_err("multi-action envelope is not a single action"),
+            "action_sequence_not_single_action"
+        );
+    }
+
+    #[test]
+    fn taskspace_action_contract_sequence_call_ids_are_unique() {
+        let snapshot = provider_snapshot("inspect_code_context");
+        let first = parse_taskspace_action_v1(
+            r#"{"schema_version":"taskspace-action-v1","action":"read_file","node_id":"node-1","args":{"path":"src/lib.rs"}}"#,
+        )
+        .expect("valid first action");
+        let second = parse_taskspace_action_v1(
+            r#"{"schema_version":"taskspace-action-v1","action":"read_file","node_id":"node-1","args":{"path":"src/main.rs"}}"#,
+        )
+        .expect("valid second action");
+
+        let first_call =
+            taskspace_action_to_tool_call_with_sequence_index(&first, &snapshot, Some(1))
+                .expect("first action maps")
+                .expect("first tool call");
+        let second_call =
+            taskspace_action_to_tool_call_with_sequence_index(&second, &snapshot, Some(2))
+                .expect("second action maps")
+                .expect("second tool call");
+
+        assert_ne!(first_call.call_id, second_call.call_id);
+        assert_eq!(
+            taskspace_action_contract_action_name_from_call_id(&first_call.call_id),
+            Some("read_file")
+        );
+        assert_eq!(
+            taskspace_action_contract_action_name_from_call_id(&second_call.call_id),
+            Some("read_file")
         );
     }
 
@@ -5757,6 +5851,20 @@ Then I will inspect the file."#,
             taskspace_action_arg_string(&action.args, "path").as_deref(),
             Some("README.md")
         );
+    }
+
+    #[test]
+    fn taskspace_action_contract_parser_recovers_sequence_after_prose_with_braces() {
+        let actions = parse_taskspace_actions_v1(
+            r#"I can see the issue: `format_depth()` returns `f"depth: {count_stack_depth()}"`.
+
+{"schema_version":"taskspace-action-sequence-v1","actions":[{"schema_version":"taskspace-action-v1","action":"apply_patch","node_id":"node-2","args":{"patch":"*** Update File: src/call_stack_counter.py\n@@\n def format_depth() -> str:\n-    return f\"depth: {count_stack_depth()}\"\n+    return f\"CALL_STACK_DEPTH={count_stack_depth()}\"\n"},"rationale":"fix output"},{"schema_version":"taskspace-action-v1","action":"run_test","node_id":"node-2","args":{"command":"python scripts/validate.py","timeout_ms":30000},"rationale":"validate"}]}"#,
+        )
+        .expect("json sequence after prose prefix should be recoverable");
+
+        assert_eq!(actions.len(), 2);
+        assert_eq!(actions[0].action, "apply_patch");
+        assert_eq!(actions[1].action, "run_test");
     }
 
     #[test]
@@ -7308,6 +7416,32 @@ TaskSpace implement_solution node `node-6` cannot be blocked for missing source 
     }
 
     #[test]
+    fn taskspace_action_contract_apply_patch_drops_unified_function_context_header() {
+        let action = parse_taskspace_action_v1(
+            r#"{"schema_version":"taskspace-action-v1","action":"apply_patch","node_id":"node-1","args":{"patch":"*** Begin Patch\n--- a/src/call_stack_counter.py\n+++ b/src/call_stack_counter.py\n@@ -4,7 +4,7 @@ def count_stack_depth() -> int:\n     return len(inspect.stack())\n \n def format_depth() -> str:\n-    return f\"depth: {count_stack_depth()}\"\n+    return f\"CALL_STACK_DEPTH={count_stack_depth()}\"\n*** End Patch\n"}}"#,
+        )
+        .expect("valid json");
+        let call = taskspace_action_to_tool_call(&action, &provider_snapshot("implement_solution"))
+            .expect("policy ok")
+            .expect("tool call");
+
+        match call.payload {
+            ToolPayload::Custom { input } => {
+                assert!(input.contains("*** Update File: src/call_stack_counter.py"));
+                assert!(input.contains("\n@@\n"));
+                assert!(input.contains(" def format_depth() -> str:\n"));
+                assert!(input.contains("-    return f\"depth: {count_stack_depth()}\""));
+                assert!(input.contains("+    return f\"CALL_STACK_DEPTH={count_stack_depth()}\""));
+                assert!(!input.contains("     return len(inspect.stack())"));
+                assert!(!input.contains(" def main() -> None:"));
+                assert!(!input.contains("@@ def count_stack_depth() -> int:"));
+                assert!(!input.contains("@@ -4,7 +4,7 @@"));
+            }
+            other => panic!("expected custom payload, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn taskspace_action_contract_normalizes_native_unified_update_hunk_headers() {
         let action = parse_taskspace_action_v1(
             r#"{"schema_version":"taskspace-action-v1","action":"apply_patch","node_id":"node-1","args":{"patch":"*** Begin Patch\n*** Update File: core/src/session/turn.rs\n@@ -1,1 +1,1 @@\n-old\n+new\n*** End Patch\n"}}"#,
@@ -8537,7 +8671,8 @@ tax_calc.py\n\
         );
 
         assert!(patch.starts_with("*** Begin Patch\n*** Update File: src/tax_calc.py\n"));
-        assert!(patch.contains("@@ def calculate_tax(subtotal, region):"));
+        assert!(patch.contains("@@\n"));
+        assert!(!patch.contains("@@ def calculate_tax(subtotal, region):"));
         assert!(!patch.contains("@@ -5,7 +5,7 @@"));
         assert!(patch.ends_with("*** End Patch\n"));
     }
@@ -8678,6 +8813,9 @@ tax_calc.py\n\
     fn taskspace_static_contract_exposes_duplicate_validation_rework_baseline() {
         let instructions = taskspace_static_action_contract_instructions();
 
+        assert!(instructions.contains("taskspace-action-sequence-v1"));
+        assert!(instructions.contains("Runtime executes actions in listed order"));
+        assert!(!instructions.contains("Return one taskspace-action-v1 JSON object"));
         assert!(instructions.contains("validation rework duplicate baseline"));
         assert!(instructions.contains("exact duplicate read_file"));
         assert!(instructions.contains("low-information evidence signal"));
@@ -11066,6 +11204,34 @@ TaskSpaceGateRecoveryV1: {\"schema_version\":\"TaskSpaceGateRecoveryV1\",\"allow
     }
 
     #[test]
+    fn action_sequence_failure_feedback_detects_failed_edit_and_test() {
+        let failed_patch = tool_output_with_call_id(
+            "patch-call",
+            "apply_patch verification failed: Failed to find expected lines in src/lib.rs",
+        );
+        let failed_test =
+            tool_output_with_call_id("test-call", "Exit code: 1\nOutput:\nfailed assertion");
+        let successful_test = tool_output_with_call_id("test-call", "Exit code: 0\nOutput:\nok");
+
+        assert!(
+            taskspace_sequence_failure_feedback_from_response_item("apply_patch", &failed_patch)
+                .is_some()
+        );
+        assert!(
+            taskspace_sequence_failure_feedback_from_response_item("run_test", &failed_test)
+                .is_some()
+        );
+        assert!(
+            taskspace_sequence_failure_feedback_from_response_item("run_test", &successful_test)
+                .is_none()
+        );
+        assert!(
+            taskspace_sequence_failure_feedback_from_response_item("read_file", &failed_test)
+                .is_none()
+        );
+    }
+
+    #[test]
     fn provider_response_actionability_treats_profile_hint_overrun_as_actionable() {
         let classification = classify_taskspace_provider_response_actionability(
             true, true, true, false, false, false, true,
@@ -11135,6 +11301,34 @@ TaskSpaceGateRecoveryV1: {\"schema_version\":\"TaskSpaceGateRecoveryV1\",\"allow
         assert!(!joined.contains("TaskSpace mode is now active"));
         assert!(!joined.contains(TASKSPACE_SHADOW_PROJECTION_MARKER));
         assert!(!joined.contains("ActionMap node state"));
+    }
+
+    #[test]
+    fn active_context_replacement_recognizes_thin_projection_without_legacy_profile_marker() {
+        let active_projection = format!(
+            "{TASKSPACE_ACTIVE_THIN_PROJECTION_MARKER}\n{TASKSPACE_ACTIVE_PROJECTION_MARKER}\ncurrent_node: node-1 kind=inspect_code_context"
+        );
+        let items = vec![
+            message(
+                "developer",
+                "TaskSpace mode is now active.\nBootstrap status: no TaskSpace task exists. taskspace_control(action=start_task) is required before ordinary tools.",
+            ),
+            message("developer", &active_projection),
+            message("user", "Preserve the current bug-fix requirement."),
+        ];
+
+        let prepared = prepare_provider_visible_prompt_items(items);
+        let texts = item_texts(&prepared);
+        let joined = texts.join("\n");
+
+        assert_eq!(prepared.len(), 2);
+        assert!(joined.contains(TASKSPACE_ACTIVE_THIN_PROJECTION_MARKER));
+        assert!(joined.contains(TASKSPACE_ACTIVE_PROJECTION_MARKER));
+        assert!(joined.contains("TaskSpaceAgentContextBundleV1:"));
+        assert!(joined.contains("Preserve the current bug-fix requirement."));
+        assert!(!joined.contains("Bootstrap status: no TaskSpace task exists"));
+        assert!(!joined.contains("TaskSpace mode is now active."));
+        assert!(!joined.contains("taskspace_control(action=start_task)"));
     }
 
     #[test]
@@ -12074,41 +12268,86 @@ fn response_input_for_taskspace_action_tool_error(
 }
 
 fn parse_taskspace_action_v1(text: &str) -> Result<TaskSpaceActionV1, String> {
+    let mut actions = parse_taskspace_actions_v1(text)?;
+    if actions.len() != 1 {
+        return Err("action_sequence_not_single_action".to_string());
+    }
+    Ok(actions.remove(0))
+}
+
+fn parse_taskspace_actions_v1(text: &str) -> Result<Vec<TaskSpaceActionV1>, String> {
     let trimmed = text.trim();
     if trimmed.is_empty() {
         return Err("empty_action_contract_output".to_string());
     }
     if trimmed.starts_with("```") {
         if let Some(fenced_json) = taskspace_single_fenced_json_body(trimmed) {
-            return parse_taskspace_action_v1(fenced_json);
+            return parse_taskspace_actions_v1(fenced_json);
         }
         return Err("action_contract_output_not_strict_json".to_string());
     }
     if !trimmed.starts_with('{') {
-        if let Some(json_start) = trimmed.find('{') {
-            return parse_taskspace_action_v1(&trimmed[json_start..]);
+        if let Some(json_start) = taskspace_prefixed_action_json_start(trimmed) {
+            return parse_taskspace_actions_v1(&trimmed[json_start..]);
         }
         return taskspace_action_from_deepseek_dsml(trimmed)
+            .map(|action| vec![action])
             .ok_or_else(|| "action_contract_output_not_strict_json".to_string());
     }
     let json_end = taskspace_leading_json_object_end(trimmed)
         .ok_or_else(|| "malformed_action_json:unterminated_object".to_string())?;
-    let action = serde_json::from_str::<TaskSpaceActionV1>(&trimmed[..json_end])
+    let value = serde_json::from_str::<serde_json::Value>(&trimmed[..json_end])
         .map_err(|err| format!("malformed_action_json:{err}"))?;
     let suffix = trimmed[json_end..].trim();
+    let action_name_for_suffix = value
+        .get("action")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default();
     if !suffix.is_empty()
         && !suffix.contains("DSML")
-        && !(suffix == "\"" && action.action == "apply_patch")
+        && !(suffix == "\"" && action_name_for_suffix == "apply_patch")
     {
         return Err("action_contract_output_not_strict_json".to_string());
     }
-    if action.schema_version != "taskspace-action-v1" {
-        return Err("unsupported_action_schema_version".to_string());
+    let schema_version = value
+        .get("schema_version")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default();
+    let actions = if schema_version == "taskspace-action-sequence-v1" {
+        let sequence = serde_json::from_value::<TaskSpaceActionSequenceV1>(value)
+            .map_err(|err| format!("malformed_action_json:{err}"))?;
+        if sequence.actions.is_empty() {
+            return Err("empty_action_sequence".to_string());
+        }
+        if sequence.actions.len() > TASKSPACE_ACTION_CONTRACT_MAX_SEQUENCE_ACTIONS {
+            return Err("action_sequence_too_long".to_string());
+        }
+        sequence.actions
+    } else {
+        vec![
+            serde_json::from_value::<TaskSpaceActionV1>(value)
+                .map_err(|err| format!("malformed_action_json:{err}"))?,
+        ]
+    };
+    for action in &actions {
+        if action.schema_version != "taskspace-action-v1" {
+            return Err("unsupported_action_schema_version".to_string());
+        }
+        if action.action.trim().is_empty() {
+            return Err("missing_action".to_string());
+        }
     }
-    if action.action.trim().is_empty() {
-        return Err("missing_action".to_string());
-    }
-    Ok(action)
+    Ok(actions)
+}
+
+fn taskspace_prefixed_action_json_start(text: &str) -> Option<usize> {
+    text.match_indices('{').find_map(|(index, _)| {
+        let candidate = text.get(index..)?;
+        let after_open = candidate.strip_prefix('{')?.trim_start();
+        after_open
+            .starts_with("\"schema_version\"")
+            .then_some(index)
+    })
 }
 
 fn taskspace_single_fenced_json_body(text: &str) -> Option<&str> {
@@ -13032,7 +13271,7 @@ fn normalize_taskspace_unified_diff_patch(patch: &str) -> Option<String> {
         rewritten.push(format!("*** Update File: {path}"));
         index += 2;
 
-        let mut saw_hunk = false;
+        let mut file_hunk_lines = Vec::new();
         while index < lines.len() {
             if lines[index].starts_with("--- ")
                 && lines
@@ -13041,15 +13280,15 @@ fn normalize_taskspace_unified_diff_patch(patch: &str) -> Option<String> {
             {
                 break;
             }
-            if lines[index].starts_with("@@") {
-                saw_hunk = true;
-            }
-            rewritten.push(normalize_taskspace_unified_hunk_line(lines[index]));
+            file_hunk_lines.push(lines[index]);
             index += 1;
         }
-        if !saw_hunk {
+        let normalized_hunk_lines =
+            normalize_taskspace_unified_diff_hunks_for_native_patch(&file_hunk_lines);
+        if !normalized_hunk_lines.iter().any(|line| line == "@@") {
             return None;
         }
+        rewritten.extend(normalized_hunk_lines);
         converted_files += 1;
     }
     if converted_files == 0 {
@@ -13057,6 +13296,94 @@ fn normalize_taskspace_unified_diff_patch(patch: &str) -> Option<String> {
     }
     rewritten.push("*** End Patch".to_string());
     Some(rewritten.join("\n") + "\n")
+}
+
+fn normalize_taskspace_unified_diff_hunks_for_native_patch(lines: &[&str]) -> Vec<String> {
+    let mut rewritten = Vec::new();
+    let mut index = 0usize;
+    while index < lines.len() {
+        if !lines[index].starts_with("@@") {
+            rewritten.push(normalize_taskspace_unified_hunk_line(lines[index]));
+            index += 1;
+            continue;
+        }
+        let hunk_start = index;
+        index += 1;
+        while index < lines.len() && !lines[index].starts_with("@@") {
+            index += 1;
+        }
+        rewritten.extend(normalize_taskspace_unified_diff_hunk_for_native_patch(
+            &lines[hunk_start..index],
+        ));
+    }
+    rewritten
+}
+
+fn normalize_taskspace_unified_diff_hunk_for_native_patch(hunk: &[&str]) -> Vec<String> {
+    let Some(header) = hunk.first() else {
+        return Vec::new();
+    };
+    let body = &hunk[1..];
+    let has_add = body
+        .iter()
+        .any(|line| line.starts_with('+') && !line.starts_with("+++"));
+    let has_delete = body
+        .iter()
+        .any(|line| line.starts_with('-') && !line.starts_with("---"));
+    if !has_add || !has_delete {
+        return hunk
+            .iter()
+            .map(|line| normalize_taskspace_unified_hunk_line(line))
+            .collect();
+    }
+
+    let Some(first_change) = body
+        .iter()
+        .position(|line| taskspace_unified_hunk_change_line(line))
+    else {
+        return vec![normalize_taskspace_unified_hunk_line(header)];
+    };
+    let Some(last_change) = body
+        .iter()
+        .rposition(|line| taskspace_unified_hunk_change_line(line))
+    else {
+        return vec![normalize_taskspace_unified_hunk_line(header)];
+    };
+
+    let leading_anchor = body[..first_change]
+        .iter()
+        .rposition(|line| taskspace_unified_hunk_nonempty_context_line(line));
+    let trailing_anchor = (leading_anchor.is_none()).then(|| {
+        body[last_change.saturating_add(1)..]
+            .iter()
+            .position(|line| taskspace_unified_hunk_nonempty_context_line(line))
+            .map(|offset| last_change + 1 + offset)
+    });
+
+    let mut rewritten = vec![normalize_taskspace_unified_hunk_line(header)];
+    if let Some(anchor_index) = leading_anchor {
+        rewritten.push(body[anchor_index].to_string());
+    }
+    rewritten.extend(body[first_change..=last_change].iter().map(|line| {
+        if line.starts_with("@@") {
+            normalize_taskspace_unified_hunk_line(line)
+        } else {
+            (*line).to_string()
+        }
+    }));
+    if let Some(Some(anchor_index)) = trailing_anchor {
+        rewritten.push(body[anchor_index].to_string());
+    }
+    rewritten
+}
+
+fn taskspace_unified_hunk_change_line(line: &str) -> bool {
+    (line.starts_with('+') && !line.starts_with("+++"))
+        || (line.starts_with('-') && !line.starts_with("---"))
+}
+
+fn taskspace_unified_hunk_nonempty_context_line(line: &str) -> bool {
+    line.starts_with(' ') && !line.trim().is_empty()
 }
 
 fn taskspace_unified_diff_new_path(line: &str) -> Option<&str> {
@@ -13100,17 +13427,10 @@ fn normalize_taskspace_relative_patch_path_from(root: &Path, path: &str) -> Stri
 }
 
 fn normalize_taskspace_unified_hunk_line(line: &str) -> String {
-    let Some(rest) = line.strip_prefix("@@") else {
-        return line.to_string();
-    };
-    let Some((_, trailing)) = rest.split_once("@@") else {
-        return "@@".to_string();
-    };
-    let trailing = trailing.trim();
-    if trailing.is_empty() {
+    if line.starts_with("@@") {
         "@@".to_string()
     } else {
-        format!("@@ {trailing}")
+        line.to_string()
     }
 }
 
@@ -13651,9 +13971,18 @@ fn collect_unique_suffix_matches(
     remaining
 }
 
+#[cfg(test)]
 fn taskspace_action_to_tool_call(
     action: &TaskSpaceActionV1,
     snapshot: &crate::action_map::ActionMapProviderRequestBudgetSnapshot,
+) -> Result<Option<ToolCall>, String> {
+    taskspace_action_to_tool_call_with_sequence_index(action, snapshot, None)
+}
+
+fn taskspace_action_to_tool_call_with_sequence_index(
+    action: &TaskSpaceActionV1,
+    snapshot: &crate::action_map::ActionMapProviderRequestBudgetSnapshot,
+    sequence_index: Option<usize>,
 ) -> Result<Option<ToolCall>, String> {
     let raw_action_name = action.action.as_str();
     let action_name = taskspace_canonical_action_name(raw_action_name);
@@ -13673,10 +14002,10 @@ fn taskspace_action_to_tool_call(
         return Err("node_id_mismatch".to_string());
     }
     let args = &action.args;
-    let call_id = format!(
-        "taskspace-action-contract-{}-{}",
+    let call_id = taskspace_action_contract_call_id(
         snapshot.request_count.saturating_add(1),
-        raw_action_name
+        raw_action_name,
+        sequence_index,
     );
     match action_name {
         "list_files" => {
@@ -13889,6 +14218,18 @@ fn taskspace_action_to_tool_call(
             }))
         }
         _ => Err(format!("unsupported_action:{action_name}")),
+    }
+}
+
+fn taskspace_action_contract_call_id(
+    request_index: usize,
+    raw_action_name: &str,
+    sequence_index: Option<usize>,
+) -> String {
+    if let Some(sequence_index) = sequence_index {
+        format!("taskspace-action-contract-{request_index}-{sequence_index}-{raw_action_name}")
+    } else {
+        format!("taskspace-action-contract-{request_index}-{raw_action_name}")
     }
 }
 
@@ -14748,8 +15089,16 @@ fn split_first_shell_word(value: &str) -> Option<(&str, &str)> {
     }
 }
 
+#[cfg(test)]
 fn taskspace_bootstrap_action_to_tool_call(
     action: &TaskSpaceActionV1,
+) -> Result<Option<ToolCall>, String> {
+    taskspace_bootstrap_action_to_tool_call_with_sequence_index(action, None)
+}
+
+fn taskspace_bootstrap_action_to_tool_call_with_sequence_index(
+    action: &TaskSpaceActionV1,
+    sequence_index: Option<usize>,
 ) -> Result<Option<ToolCall>, String> {
     let raw_action_name = action.action.as_str();
     let action_name = taskspace_canonical_action_name(raw_action_name);
@@ -14767,7 +15116,10 @@ fn taskspace_bootstrap_action_to_tool_call(
             }
             Ok(Some(ToolCall {
                 tool_name: ToolName::plain("taskspace_control"),
-                call_id: format!("taskspace-action-contract-bootstrap-{raw_action_name}"),
+                call_id: taskspace_action_contract_bootstrap_call_id(
+                    raw_action_name,
+                    sequence_index,
+                ),
                 payload: ToolPayload::Function {
                     arguments: normalize_taskspace_action_contract_control_args(&args, None)?
                         .to_string(),
@@ -14776,6 +15128,17 @@ fn taskspace_bootstrap_action_to_tool_call(
         }
         "blocked" => Ok(None),
         _ => Err(format!("unsupported_bootstrap_action:{raw_action_name}")),
+    }
+}
+
+fn taskspace_action_contract_bootstrap_call_id(
+    raw_action_name: &str,
+    sequence_index: Option<usize>,
+) -> String {
+    if let Some(sequence_index) = sequence_index {
+        format!("taskspace-action-contract-bootstrap-{sequence_index}-{raw_action_name}")
+    } else {
+        format!("taskspace-action-contract-bootstrap-{raw_action_name}")
     }
 }
 
@@ -15216,138 +15579,194 @@ async fn try_run_sampling_request(
                     && let Some(raw_text) = raw_assistant_text.as_deref()
                     && !raw_text.trim().is_empty()
                 {
-                    let parsed_action = match parse_taskspace_action_v1(raw_text) {
-                        Ok(action) => Ok(action),
-                        Err(reason) => Err(reason),
-                    };
-                    let action_result = match parsed_action {
-                        Ok(action) => {
-                            let final_message = taskspace_action_final_message(&action);
-                            let tool_call =
-                                if let Some(snapshot) = provider_budget_snapshot.as_ref() {
-                                    taskspace_action_to_tool_call(&action, snapshot)
-                                } else {
-                                    taskspace_bootstrap_action_to_tool_call(&action)
-                                };
-                            tool_call.map(|tool_call| (action, final_message, tool_call))
-                        }
-                        Err(reason) => Err(reason),
-                    };
-                    match action_result {
-                        Ok((action, _final_message, Some(tool_call))) => {
-                            let call_item =
-                                response_item_for_taskspace_action_tool_call(&tool_call);
-                            record_completed_response_item(
-                                sess.as_ref(),
-                                turn_context.as_ref(),
-                                &call_item,
-                            )
-                            .await;
-                            saw_actionable_output = true;
-                            needs_follow_up = true;
-                            let mut tool_error_message: Option<String> = None;
-                            let mut tool_gate_recovery_message: Option<String> = None;
-                            match tool_runtime
-                                .clone()
-                                .handle_tool_call(
-                                    tool_call.clone(),
-                                    cancellation_token.child_token(),
-                                )
-                                .await
-                            {
-                                Ok(response_input) => {
-                                    let response_item = record_response_input_item(
-                                        sess.as_ref(),
-                                        turn_context.as_ref(),
-                                        response_input,
-                                    )
-                                    .await;
-                                    if let Some(correction) =
-                                        taskspace_path_correction_from_response_item(&response_item)
-                                    {
-                                        tool_path_correction_feedback = Some(correction);
-                                    } else if taskspace_action_can_clear_path_correction_feedback(
+                    match parse_taskspace_actions_v1(raw_text) {
+                        Ok(actions) => {
+                            let action_count = actions.len();
+                            for (action_index, action) in actions.into_iter().enumerate() {
+                                let sequence_index = (action_count > 1).then_some(action_index + 1);
+                                let action_name =
+                                    taskspace_canonical_action_name(action.action.as_str())
+                                        .to_string();
+                                let final_message = taskspace_action_final_message(&action);
+                                let current_snapshot = sess
+                                    .action_map_provider_request_budget_snapshot()
+                                    .await
+                                    .or_else(|| provider_budget_snapshot.clone());
+                                let tool_call = if let Some(snapshot) = current_snapshot.as_ref() {
+                                    taskspace_action_to_tool_call_with_sequence_index(
                                         &action,
-                                    ) {
-                                        tool_path_correction_feedback = None;
-                                        path_correction_cleared_this_request = true;
-                                    }
-                                    tool_gate_recovery_message =
-                                        taskspace_gate_recovery_from_response_item(&response_item);
-                                }
-                                Err(err) => {
-                                    let response_input =
-                                        response_input_for_taskspace_action_tool_error(
-                                            &tool_call, &err,
-                                        );
-                                    record_response_input_item(
-                                        sess.as_ref(),
-                                        turn_context.as_ref(),
-                                        response_input,
+                                        snapshot,
+                                        sequence_index,
                                     )
-                                    .await;
-                                    tool_error_message =
-                                        Some(format!("TaskSpace tool call failed: {err}"));
-                                    tool_path_correction_feedback =
-                                        taskspace_path_correction_from_text(&err.to_string());
-                                }
-                            }
-                            if let Some(message) = tool_gate_recovery_message {
-                                last_agent_message = Some(message);
-                            } else if let Some(message) = tool_error_message {
-                                last_agent_message = Some(message);
-                            } else if let Some(rationale) = action.rationale.as_deref()
-                                && !rationale.trim().is_empty()
-                            {
-                                last_agent_message = Some(rationale.to_string());
-                            }
-                        }
-                        Ok((action, Some(final_message), None)) => {
-                            let terminal_gate_error = if action.action == "final_answer" {
-                                match sess
-                                    .record_action_map_main_final_response(
-                                        &turn_context,
-                                        &final_message,
-                                    )
-                                    .await
-                                {
-                                    Ok(_) => None,
-                                    Err(error) => Some(error),
-                                }
-                            } else if action.action == "blocked" {
-                                match sess
-                                    .validate_action_map_terminal_blocker(&final_message)
-                                    .await
-                                {
-                                    Ok(_) => None,
-                                    Err(error) => Some(error),
-                                }
-                            } else {
-                                None
-                            };
-                            if let Some(error) = terminal_gate_error {
-                                needs_follow_up = true;
-                                saw_actionable_output = false;
-                                if action.action == "final_answer" {
-                                    taskspace_final_response_rejected_in_request = true;
-                                }
-                                last_agent_message = Some(if action.action == "blocked" {
-                                    taskspace_blocked_gate_rejection_followup(&error)
                                 } else {
-                                    taskspace_final_answer_gate_rejection_followup(&error)
-                                });
-                            } else {
-                                apply_taskspace_terminal_action_message(
-                                    &mut needs_follow_up,
-                                    &mut saw_actionable_output,
-                                    &mut last_agent_message,
-                                    final_message,
-                                );
-                                taskspace_terminal_action_observed = true;
-                                taskspace_terminal_action_observed_in_request = true;
+                                    taskspace_bootstrap_action_to_tool_call_with_sequence_index(
+                                        &action,
+                                        sequence_index,
+                                    )
+                                };
+                                match tool_call {
+                                    Ok(Some(tool_call)) => {
+                                        let call_item =
+                                            response_item_for_taskspace_action_tool_call(
+                                                &tool_call,
+                                            );
+                                        record_completed_response_item(
+                                            sess.as_ref(),
+                                            turn_context.as_ref(),
+                                            &call_item,
+                                        )
+                                        .await;
+                                        saw_actionable_output = true;
+                                        needs_follow_up = true;
+                                        let mut tool_error_message: Option<String> = None;
+                                        let mut tool_gate_recovery_message: Option<String> = None;
+                                        let mut tool_failed_result_message: Option<String> = None;
+                                        match tool_runtime
+                                            .clone()
+                                            .handle_tool_call(
+                                                tool_call.clone(),
+                                                cancellation_token.child_token(),
+                                            )
+                                            .await
+                                        {
+                                            Ok(response_input) => {
+                                                let response_item = record_response_input_item(
+                                                    sess.as_ref(),
+                                                    turn_context.as_ref(),
+                                                    response_input,
+                                                )
+                                                .await;
+                                                if let Some(correction) =
+                                                    taskspace_path_correction_from_response_item(
+                                                        &response_item,
+                                                    )
+                                                {
+                                                    tool_path_correction_feedback =
+                                                        Some(correction);
+                                                } else if taskspace_action_can_clear_path_correction_feedback(
+                                                    &action,
+                                                ) {
+                                                    tool_path_correction_feedback = None;
+                                                    path_correction_cleared_this_request = true;
+                                                }
+                                                tool_gate_recovery_message =
+                                                    taskspace_gate_recovery_from_response_item(
+                                                        &response_item,
+                                                    );
+                                                tool_failed_result_message =
+                                                    taskspace_sequence_failure_feedback_from_response_item(
+                                                        action_name.as_str(),
+                                                        &response_item,
+                                                    );
+                                            }
+                                            Err(err) => {
+                                                let response_input =
+                                                    response_input_for_taskspace_action_tool_error(
+                                                        &tool_call, &err,
+                                                    );
+                                                record_response_input_item(
+                                                    sess.as_ref(),
+                                                    turn_context.as_ref(),
+                                                    response_input,
+                                                )
+                                                .await;
+                                                tool_error_message = Some(format!(
+                                                    "TaskSpace tool call failed: {err}"
+                                                ));
+                                                tool_path_correction_feedback =
+                                                    taskspace_path_correction_from_text(
+                                                        &err.to_string(),
+                                                    );
+                                            }
+                                        }
+                                        if let Some(message) = tool_gate_recovery_message {
+                                            last_agent_message = Some(message);
+                                            break;
+                                        } else if let Some(message) = tool_failed_result_message {
+                                            last_agent_message = Some(message);
+                                            break;
+                                        } else if let Some(message) = tool_error_message {
+                                            last_agent_message = Some(message);
+                                            break;
+                                        } else if let Some(rationale) = action.rationale.as_deref()
+                                            && !rationale.trim().is_empty()
+                                        {
+                                            last_agent_message = Some(rationale.to_string());
+                                        }
+                                    }
+                                    Ok(None) if final_message.is_some() => {
+                                        let final_message = final_message.unwrap_or_default();
+                                        let terminal_gate_error = if action.action == "final_answer"
+                                        {
+                                            match sess
+                                                .record_action_map_main_final_response(
+                                                    &turn_context,
+                                                    &final_message,
+                                                )
+                                                .await
+                                            {
+                                                Ok(_) => None,
+                                                Err(error) => Some(error),
+                                            }
+                                        } else if action.action == "blocked" {
+                                            match sess
+                                                .validate_action_map_terminal_blocker(
+                                                    &final_message,
+                                                )
+                                                .await
+                                            {
+                                                Ok(_) => None,
+                                                Err(error) => Some(error),
+                                            }
+                                        } else {
+                                            None
+                                        };
+                                        if let Some(error) = terminal_gate_error {
+                                            needs_follow_up = true;
+                                            saw_actionable_output = false;
+                                            if action.action == "final_answer" {
+                                                taskspace_final_response_rejected_in_request = true;
+                                            }
+                                            last_agent_message =
+                                                Some(if action.action == "blocked" {
+                                                    taskspace_blocked_gate_rejection_followup(
+                                                        &error,
+                                                    )
+                                                } else {
+                                                    taskspace_final_answer_gate_rejection_followup(
+                                                        &error,
+                                                    )
+                                                });
+                                        } else {
+                                            apply_taskspace_terminal_action_message(
+                                                &mut needs_follow_up,
+                                                &mut saw_actionable_output,
+                                                &mut last_agent_message,
+                                                final_message,
+                                            );
+                                            taskspace_terminal_action_observed = true;
+                                            taskspace_terminal_action_observed_in_request = true;
+                                        }
+                                        break;
+                                    }
+                                    Ok(None) => {}
+                                    Err(reason) => {
+                                        needs_follow_up = true;
+                                        let rejection =
+                                            taskspace_action_contract_rejection_followup(&reason);
+                                        sess.record_action_map_runtime_feedback(
+                                            &turn_context,
+                                            "action_contract_rejection",
+                                            false,
+                                            rejection.clone(),
+                                        )
+                                        .await;
+                                        last_agent_message = Some(rejection);
+                                        break;
+                                    }
+                                }
                             }
                         }
-                        Ok((_action, None, None)) => {}
                         Err(reason) => {
                             needs_follow_up = true;
                             let patch_intent_suffix = if reason
@@ -15364,13 +15783,21 @@ async fn try_run_sampling_request(
                             } else {
                                 String::new()
                             };
-                            last_agent_message = Some(if patch_intent_suffix.is_empty() {
+                            let rejection = if patch_intent_suffix.is_empty() {
                                 taskspace_action_contract_rejection_followup(&reason)
                             } else {
                                 format!(
-                                    "TaskSpaceActionV1 rejected: {reason}{patch_intent_suffix}. Return exactly one valid taskspace-action-v1 JSON object."
+                                    "TaskSpaceActionV1 rejected: {reason}{patch_intent_suffix}. Return exactly one valid taskspace-action-v1 JSON object or one valid taskspace-action-sequence-v1 envelope."
                                 )
-                            });
+                            };
+                            sess.record_action_map_runtime_feedback(
+                                &turn_context,
+                                "action_contract_rejection",
+                                false,
+                                rejection.clone(),
+                            )
+                            .await;
+                            last_agent_message = Some(rejection);
                         }
                     }
                 }

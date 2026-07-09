@@ -107,40 +107,6 @@ function New-TaskspaceRoutingDecision {
 
 function New-TaskspaceRoutingPrompt {
     param([Parameter(Mandatory = $true)]$RoutingDecision)
-    $mode = [string]$RoutingDecision.recommended_mode
-    $constraints = $RoutingDecision.initial_constraints
-    $nodeBudget = if ($constraints -and $constraints.PSObject.Properties.Name -contains "node_budget") { [int]$constraints.node_budget } else { 8 }
-    $stateCommitBudget = if ($constraints -and $constraints.PSObject.Properties.Name -contains "state_commit_budget") { [int]$constraints.state_commit_budget } else { 8 }
-    $lines = New-Object System.Collections.Generic.List[string]
-    [void]$lines.Add("")
-    [void]$lines.Add("TaskShapeRouterV1 active profile constraints:")
-    [void]$lines.Add("- recommended_mode: $mode")
-    [void]$lines.Add("- node_budget: $nodeBudget")
-    [void]$lines.Add("- state_commit_budget: $stateCommitBudget")
-    [void]$lines.Add("- Use the smallest evidence path that can satisfy the visible validator and hidden oracle.")
-    if ($mode -eq "verification_first") {
-        [void]$lines.Add("- Verification-first rule: read the validator/test contract before editing and identify the exact expected output format.")
-        [void]$lines.Add("- Use at most three TaskSpace nodes unless validation fails: inspect contract, implement patch, validate.")
-        [void]$lines.Add("- Batch obvious read-only inspection into one bounded command when practical: README, tests, source, and validator.")
-        [void]$lines.Add("- After inspection identifies the expected format and target function, do not stop for a separate findings checkpoint; proceed to the implementation patch.")
-        [void]$lines.Add("- Batch final validation into one bounded command when practical: unit tests and the visible validator.")
-        [void]$lines.Add("- Do not run an extra direct CLI-output check after the visible validator passes. The visible validator is the final format check for this route.")
-        [void]$lines.Add("- After validation passes, use one state_commit for result_validities, success_criteria, finished_nodes, decisions/adoptions that are ready, then answer directly.")
-    } elseif ($mode -eq "thin") {
-        [void]$lines.Add("- Thin rule: no subagents by default; stay on the main-agent path unless validation failure reveals a new independent track.")
-        [void]$lines.Add("- Use at most three TaskSpace nodes for a clear single-file fix: inspect, implement, validate.")
-        [void]$lines.Add("- After validation passes, avoid summary-only final_synthesis; answer directly.")
-    } elseif ($mode -eq "subagent_assisted") {
-        [void]$lines.Add("- Subagent-assisted rule: create explicit independent inspect_code_context nodes before spawning subagents.")
-        [void]$lines.Add("- Use subagents only for bounded evidence tracks with acceptance checks and expected artifacts.")
-        [void]$lines.Add("- The main agent must review subagent results before implementation or final validation.")
-    } elseif ($mode -eq "deep") {
-        [void]$lines.Add("- Deep rule: use a broader evidence plan, but keep output references and projection compact.")
-        [void]$lines.Add("- Record blockers, hypotheses, and decisions through state_commit checkpoints.")
-        [void]$lines.Add("- Escalate validation coverage before final synthesis; do not hide unresolved blockers.")
-    } else {
-        [void]$lines.Add("- Default compact rule: prefer state_commit checkpoints and avoid duplicate summary-only nodes.")
-    }
-    [void]$lines.Add("")
-    ($lines.ToArray() -join [Environment]::NewLine)
+    $null = $RoutingDecision
+    ""
 }

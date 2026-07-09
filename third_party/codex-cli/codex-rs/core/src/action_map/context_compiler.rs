@@ -5,14 +5,11 @@ pub(crate) const TASKSPACE_AGENT_CONTEXT_BUNDLE_MARKER: &str = "TaskSpaceAgentCo
 pub(crate) const TASKSPACE_AGENT_CONTEXT_BUNDLE_END_MARKER: &str =
     "TaskSpaceAgentContextBundleV1 end.";
 
-const TASKSPACE_ACTIVE_PROFILE_MARKER: &str = "TaskSpace v0.0.5 active compact profile is enabled.";
 const TASKSPACE_ACTIVE_PROJECTION_MARKER: &str = "ContextProjectionV1 active replacement:";
 const COMPILER_VERSION: &str = "r3-context-compiler-1";
 
 pub(crate) fn compile_taskspace_agent_context_text(text: &str) -> Option<String> {
-    if !text.contains(TASKSPACE_ACTIVE_PROFILE_MARKER)
-        || !text.contains(TASKSPACE_ACTIVE_PROJECTION_MARKER)
-    {
+    if !text.contains(TASKSPACE_ACTIVE_PROJECTION_MARKER) {
         return None;
     }
     if text.contains(TASKSPACE_AGENT_CONTEXT_BUNDLE_MARKER) {
@@ -65,9 +62,7 @@ mod tests {
 
     #[test]
     fn compiler_wraps_active_projection_with_bundle_and_cache_plan() {
-        let input = format!(
-            "{TASKSPACE_ACTIVE_PROFILE_MARKER}\n{TASKSPACE_ACTIVE_PROJECTION_MARKER}\nactive_objective: fix"
-        );
+        let input = format!("{TASKSPACE_ACTIVE_PROJECTION_MARKER}\nactive_objective: fix");
         let compiled = compile_taskspace_agent_context_text(&input).expect("compiled");
 
         assert!(compiled.contains(TASKSPACE_AGENT_CONTEXT_BUNDLE_MARKER));
@@ -79,9 +74,7 @@ mod tests {
 
     #[test]
     fn compiler_is_idempotent_for_bundle_text() {
-        let input = format!(
-            "{TASKSPACE_ACTIVE_PROFILE_MARKER}\n{TASKSPACE_ACTIVE_PROJECTION_MARKER}\nactive_objective: fix"
-        );
+        let input = format!("{TASKSPACE_ACTIVE_PROJECTION_MARKER}\nactive_objective: fix");
         let compiled = compile_taskspace_agent_context_text(&input).expect("compiled");
         let compiled_again = compile_taskspace_agent_context_text(&compiled).expect("compiled");
 

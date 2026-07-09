@@ -2886,6 +2886,113 @@ preview:\n\
         Ok(Some((node_event_id, events)))
     }
 
+    pub(crate) fn record_runtime_feedback_for_current_node(
+        &mut self,
+        owner_session_id: ThreadId,
+        feedback_kind: &str,
+        success: bool,
+        feedback: String,
+    ) -> Result<Option<(NodeEventId, Vec<MapRuntimeEvent>)>, String> {
+        if self.mode != MapRuntimeMode::Experiment {
+            return Ok(None);
+        }
+
+        self.validate_main_binding(owner_session_id)?;
+        let map_id = self.active_map_id.clone().ok_or_else(|| {
+            "TaskSpace mode is active but no active task path exists.".to_string()
+        })?;
+        let node_id = self.current_main_node_id.clone().ok_or_else(|| {
+            "TaskSpace mode is active but no current node binding exists.".to_string()
+        })?;
+        let lease_id = self.current_main_lease_id.clone().ok_or_else(|| {
+            "TaskSpace mode is active but no current main lease exists.".to_string()
+        })?;
+        let node_event_id = self.next_node_event_id();
+        let created_at_ms = now_ms();
+        let body = format!(
+            "TaskSpace runtime feedback\n\
+feedback_kind: {}\n\
+success: {success}\n\
+feedback:\n\
+{feedback}",
+            single_line_preview(feedback_kind, 80),
+        );
+        let visible_excerpt =
+            working_evidence_body_excerpt(&body, TASKSPACE_NODE_EVENT_VISIBLE_EXCERPT_MAX_CHARS);
+        let task_id = {
+            let map = self
+                .maps
+                .get_mut(&map_id)
+                .ok_or_else(|| format!("TaskSpace active task path `{map_id}` is missing."))?;
+            let task_id = map.task_id.clone();
+            let node = map
+                .nodes
+                .get_mut(&node_id)
+                .ok_or_else(|| format!("TaskSpace current node `{node_id}` is missing."))?;
+
+            let node_event = NodeEvent {
+                id: node_event_id.clone(),
+                map_id: map_id.clone(),
+                node_id: node_id.clone(),
+                event_kind: "runtime_feedback".to_string(),
+                source: "runtime_feedback".to_string(),
+                action_class: None,
+                tool_success: Some(success),
+                body: body.clone(),
+                visible_excerpt,
+                raw_ref: None,
+                artifact_refs: Vec::new(),
+                call_id: None,
+                source_thread_id: owner_session_id,
+                created_at_ms,
+            };
+            map.node_events.insert(node_event_id.clone(), node_event);
+            node.node_events.push(NodeEventRef {
+                id: node_event_id.clone(),
+                kind: "runtime_feedback".to_string(),
+            });
+            task_id
+        };
+
+        let trace_event = TaskSpaceTraceEvent {
+            id: self.next_trace_event_id(),
+            kind: "runtime_feedback".to_string(),
+            task_id,
+            map_id: map_id.clone(),
+            node_id: node_id.clone(),
+            result_id: Some(node_event_id.clone()),
+            call_id: None,
+            action_class: None,
+            tool_success: Some(success),
+            tags: vec![
+                "schema:taskspace-runtime-feedback-v1".to_string(),
+                "producer:runtime_feedback".to_string(),
+                format!(
+                    "feedback_kind:{}",
+                    sanitize_provider_response_trace_tag_value(feedback_kind)
+                ),
+            ],
+            artifact_refs: Vec::new(),
+            created_at_ms,
+        };
+        self.taskspace_trace_events.push(trace_event.clone());
+
+        let mut events = vec![MapRuntimeEvent::NodeEventRecorded(
+            MapRuntimeNodeEventRecordedEvent {
+                map_id: map_id.clone(),
+                node_id: node_id.clone(),
+                lease_id,
+                node_event_id: node_event_id.clone(),
+                event_kind: "runtime_feedback".to_string(),
+                action_class: None,
+                tool_success: Some(success),
+                source_thread_id: owner_session_id,
+            },
+        )];
+        events.push(map_runtime_event_from_trace_event(trace_event));
+        Ok(Some((node_event_id, events)))
+    }
+
     pub(crate) fn record_output_ref_trace_event(
         &mut self,
         kind: &str,
@@ -9331,7 +9438,7 @@ preview:\n\
             );
         } else {
             context.push_str(
-                "No active task path exists. state_machine_allowed_actions before ordinary work: taskspace_control(action=start_task), taskspace_control(action=route_task), or blocked with exact blocker evidence. start_task supports initial_success_criteria, initial_output_contracts, and initial_fact_sources for clear requirements.\n",
+                "No active task path exists. state_machine_allowed_actions before ordinary work: taskspace_control(action=start_task), taskspace_control(action=route_task), or blocked with exact blocker evidence.\n",
             );
             context.push_str(&base_map_metadata_prompt());
         }
@@ -9339,16 +9446,15 @@ preview:\n\
     }
 
     fn build_bootstrap_compact_developer_context(&self) -> String {
-        let mut context = String::from(
-            "TaskSpace v0.0.5 active compact profile is enabled. Runtime state is authoritative.\n",
-        );
+        let mut context =
+            String::from("TaskSpace v0.0.5 thin bootstrap. Runtime state is authoritative.\n");
         if self.tasks.is_empty() {
             context.push_str(
-                "Bootstrap status: no TaskSpace task exists. taskspace_control(action=start_task) is required before ordinary tools or spawn_agent. start_task accepts initial_success_criteria, initial_output_contracts, and initial_fact_sources when those fields are already known.\n",
+                "Bootstrap status: no TaskSpace task exists. taskspace_control(action=start_task) is required before ordinary tools or spawn_agent.\n",
             );
         } else {
             context.push_str(
-                "Routing status: no active TaskSpace path is bound for this turn. taskspace_control(action=route_task) can bind a listed task; taskspace_control(action=start_task) can create a new semantic task.\n",
+                "Routing status: no active TaskSpace path is bound for this turn. taskspace_control(action=route_task) can bind a listed task; taskspace_control(action=start_task) can create a new task.\n",
             );
             context.push_str("Task inventory compact:\n");
             for task_id in ordered_task_ids(&self.tasks).into_iter().take(6) {
@@ -9368,7 +9474,7 @@ preview:\n\
         }
         if self.reborn_requested {
             context.push_str(
-                "Task reborn status: requested. state_machine_allowed_actions before ordinary work: taskspace_control(action=route_task) for the reborn path, taskspace_control(action=start_task) for a new path, or blocked with exact blocker evidence. The old path is historical unless the current user request cancels the reborn request.\n",
+                "Task reborn status: requested. state_machine_allowed_actions before ordinary work: taskspace_control(action=route_task) for the reborn path, taskspace_control(action=start_task) for a new path, or blocked with exact blocker evidence.\n",
             );
         }
         context
@@ -9384,7 +9490,7 @@ preview:\n\
                 .or(self.active_task_id.as_ref())
                 .and_then(|task_id| self.tasks.get(task_id))?;
             let mut context = String::from(
-                "TaskSpace v0.0.5 active compact projection. This surface contains TaskSpace state, bounded tool-result excerpts, result references, and hard action-class constraints. Runtime state remains authoritative.\n",
+                "TaskSpace v0.0.5 active thin projection. This surface contains the TaskSpace map skeleton, current-node event excerpts, result references, and hard action-class constraints. Runtime state remains authoritative.\n",
             );
             if self.bootstrap_required {
                 context.push_str(
@@ -11393,14 +11499,129 @@ fn append_context_projection_with_header(
         .and_then(|node_id| map.nodes.get(node_id))
         .map(|node| {
             format!(
-                "{} kind={} status={} title={}",
+                "{} kind={} status={} title={} objective={}",
                 node.id,
                 node.kind.as_str(),
                 node.status.as_str(),
-                single_line_preview(&node.title, 120)
+                single_line_preview(&node.title, 120),
+                single_line_preview(&node.context.summary, 160)
             )
         })
         .unwrap_or_else(|| "none".to_string());
+    if header == "ContextProjectionV1 active replacement:" {
+        let node_skeleton = ordered_node_ids(map)
+            .into_iter()
+            .take(16)
+            .filter_map(|node_id| map.nodes.get(&node_id))
+            .map(|node| {
+                format!(
+                    "{} kind={} status={} title={} objective={} results={} events={}",
+                    node.id,
+                    node.kind.as_str(),
+                    node.status.as_str(),
+                    single_line_preview(&node.title, 100),
+                    single_line_preview(&node.context.summary, 140),
+                    node.result_context.len(),
+                    node.node_events.len()
+                )
+            })
+            .collect::<Vec<_>>();
+        let current_node_dependencies = current_node_id
+            .map(|current_node_id| {
+                map.edges
+                    .iter()
+                    .filter(|edge| edge.to == current_node_id)
+                    .filter_map(|edge| map.nodes.get(&edge.from))
+                    .map(|node| {
+                        format!(
+                            "{} kind={} status={} title={}",
+                            node.id,
+                            node.kind.as_str(),
+                            node.status.as_str(),
+                            single_line_preview(&node.title, 100)
+                        )
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        let recent_tool_feedback = projection_recent_tool_feedback(map, current_node_id, 6, 1200);
+        let result_refs_available = projection_result_refs_available(map, 8);
+
+        let mut projection = String::new();
+        projection.push('\n');
+        projection.push_str(header);
+        projection.push('\n');
+        projection.push_str("- projection_id: ");
+        projection.push_str(&projection_id);
+        projection.push_str("\n- task_id: ");
+        projection.push_str(&task.id);
+        projection.push_str("\n- task_title: ");
+        projection.push_str(&single_line_preview(&task.title, 120));
+        projection.push_str("\n- task_status: ");
+        projection.push_str(task.status.as_str());
+        projection.push_str("\n- map_id: ");
+        projection.push_str(&map.id);
+        projection.push_str("\n- map_title: ");
+        projection.push_str(&single_line_preview(&map.title, 120));
+        projection.push_str("\n- map_status: ");
+        projection.push_str(map.status.as_str());
+        projection.push_str("\n- mode: ");
+        projection.push_str(profile);
+        if let Some(budget) = active_budget {
+            projection.push_str("\n- active_budget_source: runtime");
+            projection.push_str("\n- max_projection_tokens: ");
+            projection.push_str(&budget.max_projection_tokens.to_string());
+            projection.push_str("\n- max_avg_input_tokens_per_request: ");
+            projection.push_str(&budget.max_avg_input_tokens_per_request.to_string());
+        }
+        projection.push_str("\n- active_objective: ");
+        projection.push_str(&single_line_preview(&task.objective, 220));
+        projection.push_str("\n- current_node: ");
+        projection.push_str(&current_node);
+        projection.push_str("\n- sections:\n");
+        append_projection_list(&mut projection, "map_nodes", &node_skeleton);
+        append_projection_list(
+            &mut projection,
+            "current_node_dependencies",
+            &current_node_dependencies,
+        );
+        append_projection_multiline_list(
+            &mut projection,
+            "current_node_recent_events",
+            &recent_tool_feedback,
+        );
+        append_projection_list(
+            &mut projection,
+            "result_refs_available",
+            &result_refs_available,
+        );
+        let omitted_sections = vec![
+            "problem_ledger.success_criteria".to_string(),
+            "problem_ledger.blockers".to_string(),
+            "problem_ledger.decisions".to_string(),
+            "problem_ledger.known_facts".to_string(),
+            "cognitive_state.output_contracts".to_string(),
+            "cognitive_state.fact_sources".to_string(),
+            "cognitive_state.facts".to_string(),
+            "projection.fact_source_coverage".to_string(),
+            "projection.next_valid_actions".to_string(),
+        ];
+        append_projection_list(&mut projection, "omission_audit", &omitted_sections);
+        projection.push_str("- estimated_tokens: ");
+        let estimated_tokens = approx_projection_tokens(&projection);
+        projection.push_str(&estimated_tokens.to_string());
+        if let Some(budget) = active_budget {
+            projection.push_str("\n- projection_budget_status: ");
+            projection.push_str(if estimated_tokens <= budget.max_projection_tokens {
+                "within_budget"
+            } else {
+                "over_budget"
+            });
+        }
+        projection.push('\n');
+        context.push_str(&projection);
+        return estimated_tokens;
+    }
     let success_criteria = task
         .problem_ledger
         .success_criteria
@@ -11649,7 +11870,7 @@ fn projection_recent_tool_feedback(
         .rev()
         .filter_map(|event_id| map.node_events.get(&event_id))
         .filter(|event| {
-            event.source == "main_tool"
+            (event.source == "main_tool" || event.source == "runtime_feedback")
                 && node_ids
                     .iter()
                     .any(|node_id| *node_id == event.node_id.as_str())
@@ -11693,10 +11914,11 @@ fn projection_recent_tool_feedback(
             let excerpt_truncated = body_chars > excerpt_chars;
             let omitted_chars = body_chars.saturating_sub(excerpt_chars);
             format!(
-                "{} node={} event_kind={} action_class={} tool_success={} raw_ref={} artifacts={}{} body_chars={} excerpt_chars={} excerpt_truncated={} body_omitted_chars={}\nexcerpt:\n{}",
+                "{} node={} event_kind={} source={} action_class={} tool_success={} raw_ref={} artifacts={}{} body_chars={} excerpt_chars={} excerpt_truncated={} body_omitted_chars={}\nexcerpt:\n{}",
                 event.id,
                 event.node_id,
                 event.event_kind,
+                event.source,
                 action_class,
                 tool_success,
                 event.raw_ref.as_deref().unwrap_or("none"),
@@ -13434,9 +13656,7 @@ fn append_result_evidence_context(context: &mut String, map: &ActionMapInstance)
         })
         .collect::<Vec<_>>();
     if evidence_result_ids.is_empty() {
-        context.push_str(
-            "- result evidence packages: none recorded; result_validity_requirement: node or subagent summaries are not accepted facts until mark_result_validity records claims and evidence refs.\n",
-        );
+        context.push_str("- result evidence packages: none recorded.\n");
         return;
     }
 
@@ -14987,6 +15207,7 @@ fn is_known_trace_tag(tag: &str) -> bool {
         || tag.starts_with("request_phase_missing_reason:")
         || tag.starts_with("provider_request_context_missing_reason:")
         || tag.starts_with("node_kind:")
+        || tag.starts_with("feedback_kind:")
         || tag.starts_with("trigger_kind:")
         || tag.starts_with("response_actionability_previous:")
         || tag.starts_with("previous_response_recovery_action:")
@@ -20310,11 +20531,8 @@ fn transition_notice(previous_mode: MapRuntimeMode, current_mode: MapRuntimeMode
         (MapRuntimeMode::Standard, MapRuntimeMode::Experiment) => {
             "TaskSpace mode is now active.\n\
 Previous standard-mode conversation remains background context only.\n\
-state_machine_requirement: multi-agent action requires a task path and ready node.\n\
-cognitive_preflight_requirement: before ordinary work or subagent spawn, the active task needs at least one success criterion, output contract, and fact source. start_task can carry initial_success_criteria, initial_output_contracts, and initial_fact_sources. state_commit(schema_version=taskspace-state-commit-v1) can record multiple problem-state records.\n\
-result_validity_requirement: node-level results require validity review before later work can rely on them.\n\
-implementation_result_contract: accepted implementation results include changed_artifacts for modified files.\n\
-subagent_binding_requirement: future subagent work is task/node driven."
+state_machine_requirement: ordinary tools and multi-agent actions require a TaskSpace task path and a current ready/running node.\n\
+map_runtime_boundary: runtime manages the task map, node binding, tool/event attribution, and hard state-machine rules; task strategy remains Agent-owned."
                 .to_string()
         }
         (MapRuntimeMode::Experiment, MapRuntimeMode::Standard) => {
@@ -24920,10 +25138,83 @@ TaskSpaceReadFileSummaryV1: path=src/lib.rs lines_read=1 eof_reached=true max_li
         assert!(node.result_ids.is_empty());
 
         let context = state.build_developer_context().expect("developer context");
-        assert!(context.contains("recent_tool_feedback:"), "{context}");
+        assert!(context.contains("current_node_recent_events:"), "{context}");
         assert!(context.contains(&node_event_id), "{context}");
         assert!(context.contains("event_kind=tool_result"), "{context}");
         assert!(context.contains("pub fn answer()"), "{context}");
+    }
+
+    #[test]
+    fn runtime_feedback_records_node_event_and_active_projection() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode(MapRuntimeMode::Experiment);
+        let (_task_id, _map_id, node_id, _) = start_test_task_with_kind(
+            &mut state,
+            owner,
+            NodeKind::InspectCodeContext,
+            "Rejected action feedback",
+            "Preserve runtime feedback in node context.",
+            "Inspect contract",
+            "Read contract files before editing.",
+            true,
+        );
+        let rejection = "TaskSpaceActionV1 rejected: node_policy_violation:inspect_code_context:apply_patch. Return exactly one valid taskspace-action-v1 JSON object or one valid taskspace-action-sequence-v1 envelope.".to_string();
+
+        let (node_event_id, events) = state
+            .record_runtime_feedback_for_current_node(
+                owner,
+                "action_contract_rejection",
+                false,
+                rejection.clone(),
+            )
+            .expect("runtime feedback records")
+            .expect("node event is recorded");
+
+        assert!(events.iter().any(|event| {
+            matches!(
+                event,
+                MapRuntimeEvent::NodeEventRecorded(recorded)
+                    if recorded.node_event_id == node_event_id
+                        && recorded.node_id == node_id
+                        && recorded.event_kind == "runtime_feedback"
+                        && recorded.action_class.is_none()
+                        && recorded.tool_success == Some(false)
+            )
+        }));
+        assert!(events.iter().any(|event| {
+            matches!(
+                event,
+                MapRuntimeEvent::TaskspaceTraceEventRecorded(recorded)
+                    if recorded.kind == "runtime_feedback"
+                        && recorded.result_id.as_deref() == Some(node_event_id.as_str())
+                        && recorded.tags.iter().any(|tag| tag == "feedback_kind:action_contract_rejection")
+            )
+        }));
+
+        let snapshot = state.snapshot();
+        let map = snapshot.maps.first().expect("snapshot has active map");
+        let event = map
+            .node_events
+            .iter()
+            .find(|event| event.id == node_event_id)
+            .expect("runtime feedback node event is snapshotted");
+        assert_eq!(event.event_kind, "runtime_feedback");
+        assert_eq!(event.source, "runtime_feedback");
+        assert_eq!(event.tool_success, Some(false));
+        assert!(event.body.contains(&rejection));
+        assert!(event.visible_excerpt.contains("TaskSpaceActionV1 rejected"));
+
+        let context = state.build_developer_context().expect("developer context");
+        assert!(context.contains("current_node_recent_events:"), "{context}");
+        assert!(context.contains(&node_event_id), "{context}");
+        assert!(context.contains("event_kind=runtime_feedback"), "{context}");
+        assert!(context.contains("source=runtime_feedback"), "{context}");
+        assert!(context.contains("TaskSpaceActionV1 rejected"), "{context}");
+        assert!(
+            context.contains("node_policy_violation:inspect_code_context:apply_patch"),
+            "{context}"
+        );
     }
 
     #[test]
@@ -25679,10 +25970,11 @@ TaskSpaceReadFileSummaryV1: path=src/lib.rs lines_read=1 eof_reached=true max_li
 
         let context = state.build_developer_context().expect("developer context");
         assert!(context.contains("ContextProjectionV1 active replacement:"));
-        assert!(context.contains("facts:"));
-        assert!(context.contains("fact-final-encoding"));
-        assert!(context.contains("relevant_results:"));
-        assert!(context.contains("validity=accepted"));
+        assert!(context.contains("omission_audit:"));
+        assert!(!context.contains("facts:"));
+        assert!(!context.contains("fact-final-encoding"));
+        assert!(!context.contains("relevant_results:"));
+        assert!(!context.contains("validity=accepted"));
     }
 
     #[test]
@@ -26421,7 +26713,7 @@ TaskSpaceReadFileSummaryV1: path=src/lib.rs lines_read=1 eof_reached=true max_li
 
         let context = state.build_developer_context().expect("developer context");
 
-        assert!(context.contains("TaskSpace v0.0.5 active compact projection."));
+        assert!(context.contains("TaskSpace v0.0.5 active thin projection."));
         assert!(!context.contains("then direct final answer after accepted validation"));
         assert!(!context.contains("Do not create final_synthesis only to summarize thin work"));
         assert!(
@@ -28451,28 +28743,14 @@ TaskSpaceReadFileSummaryV1: path=/data/source_c/users.parquet lines_read=0 eof_r
             .expect("source_c failed preview records");
 
         let context = state.build_developer_context().expect("developer context");
-        assert!(context.contains("verified_input_evidence:"), "{context}");
-        assert!(
-            context.contains("verified_paths=data/source_a/users.json"),
-            "{context}"
-        );
-        assert!(
-            context.contains("content_visibility: complete_read"),
-            "{context}"
-        );
+        assert!(context.contains("current_node_recent_events:"), "{context}");
+        assert!(!context.contains("verified_input_evidence:"), "{context}");
+        assert!(!context.contains("verified_paths="), "{context}");
         assert!(context.contains("John Doe"), "{context}");
         assert!(context.contains("john@a.com"), "{context}");
         assert!(context.contains("eof_reached=true"), "{context}");
-        assert!(
-            context.contains("verified_paths=data/source_c/users.parquet"),
-            "{context}"
-        );
         assert!(context.contains("John D."), "{context}");
         assert!(context.contains("Alice Brown"), "{context}");
-        assert!(
-            !context.contains("verified_paths=/data/source_c/users.parquet"),
-            "{context}"
-        );
         assert!(context.contains("result_refs_available:"), "{context}");
     }
 
@@ -28521,16 +28799,13 @@ TaskSpaceReadFileSummaryV1: path=data/source_a/users.json lines_read=1 eof_reach
 
         let context = state.build_developer_context().expect("developer context");
         assert!(context.contains("current_node: none"), "{context}");
-        assert!(context.contains("recent_tool_feedback:"), "{context}");
+        assert!(context.contains("current_node_recent_events:"), "{context}");
         assert!(
             context.contains("command=sed -n '1,240p' -- data/source_a/users.json"),
             "{context}"
         );
-        assert!(context.contains("verified_input_evidence:"), "{context}");
-        assert!(
-            context.contains("verified_paths=data/source_a/users.json"),
-            "{context}"
-        );
+        assert!(!context.contains("verified_input_evidence:"), "{context}");
+        assert!(!context.contains("verified_paths="), "{context}");
         assert!(context.contains("John Doe"), "{context}");
         assert!(context.contains("john@a.com"), "{context}");
     }
@@ -28610,7 +28885,7 @@ Output:\n\
             .expect("long validation result records");
 
         let context = state.build_developer_context().expect("developer context");
-        assert!(context.contains("recent_tool_feedback:"), "{context}");
+        assert!(context.contains("current_node_recent_events:"), "{context}");
         assert!(context.contains("command=rg --files ."), "{context}");
         assert!(context.contains("./data/source_b/users.csv"), "{context}");
         assert!(
@@ -28671,7 +28946,7 @@ Output:\n\
             .expect("edit result records");
 
         let context = state.build_developer_context().expect("developer context");
-        assert!(context.contains("recent_tool_feedback:"), "{context}");
+        assert!(context.contains("current_node_recent_events:"), "{context}");
         assert!(context.contains("action_preview:"), "{context}");
         assert!(
             context.contains("return [dict(zip(table.column_names, row))"),
@@ -28731,7 +29006,7 @@ Traceback (most recent call last):\n",
             .expect("failed test result records");
 
         let context = state.build_developer_context().expect("developer context");
-        assert!(context.contains("recent_tool_feedback:"), "{context}");
+        assert!(context.contains("current_node_recent_events:"), "{context}");
         assert!(
             context.contains("Traceback (most recent call last)"),
             "{context}"
@@ -34981,7 +35256,7 @@ projects.csv\n"
         let snapshot = ActionMapProviderRequestBudgetSnapshot {
             task_id: state.active_task_id.clone(),
             map_id,
-            node_id: Some(inspect_node_id),
+            node_id: Some(inspect_node_id.clone()),
             node_kind: Some(NodeKind::InspectCodeContext.as_str().to_string()),
             current_node_progress_signature: None,
             current_node_has_successful_edit: false,
@@ -35002,18 +35277,26 @@ projects.csv\n"
             budget_state: "warned".to_string(),
         };
 
+        let _ = snapshot;
         state
-            .force_finish_inspect_for_provider_budget(
+            .finish_main_node_with_next(
                 owner,
-                &snapshot,
-                "inspect_no_action_with_evidence",
+                &inspect_node_id,
+                "Inspection complete; implementation is Agent-selected.".to_string(),
+                None,
+                Some(ActionMapNextNodeDraft {
+                    kind: NodeKind::ImplementSolution,
+                    title: "Apply inspected fix".to_string(),
+                    context_summary: "Apply the implementation selected from inspected evidence."
+                        .to_string(),
+                    dependency_node_ids: vec![inspect_node_id.clone()],
+                }),
             )
-            .expect("inspect transition should be allowed")
-            .expect("inspect transition should create implement node");
+            .expect("explicit finish_node should create implement node");
 
         assert!(
-            state.current_main_implement_progress_needs_edit(),
-            "implementation node should inherit dependency evidence pressure"
+            !state.current_main_implement_progress_needs_edit(),
+            "thin TaskSpace should not derive implementation pressure from dependency evidence"
         );
         state
             .prepare_main_tool_call(
@@ -35072,7 +35355,7 @@ projects.csv\n"
         let snapshot = ActionMapProviderRequestBudgetSnapshot {
             task_id: state.active_task_id.clone(),
             map_id,
-            node_id: Some(inspect_node_id),
+            node_id: Some(inspect_node_id.clone()),
             node_kind: Some(NodeKind::InspectCodeContext.as_str().to_string()),
             current_node_progress_signature: None,
             current_node_has_successful_edit: false,
@@ -35093,22 +35376,32 @@ projects.csv\n"
             budget_state: "normal".to_string(),
         };
 
+        let _ = snapshot;
         state
-            .force_finish_inspect_for_provider_budget(
+            .finish_main_node_with_next(
                 owner,
-                &snapshot,
-                "inspect_no_action_with_evidence",
+                &inspect_node_id,
+                "Inspection complete; implementation is Agent-selected.".to_string(),
+                None,
+                Some(ActionMapNextNodeDraft {
+                    kind: NodeKind::ImplementSolution,
+                    title: "Apply inspected fix".to_string(),
+                    context_summary: "Apply the implementation selected from inspected evidence."
+                        .to_string(),
+                    dependency_node_ids: vec![inspect_node_id.clone()],
+                }),
             )
-            .expect("input data inspect transition should be allowed")
-            .expect("input data inspect transition should create implement node");
+            .expect("explicit finish_node should create implement node");
 
         assert!(
-            state.current_main_implement_progress_needs_edit(),
-            "implementation node should inherit input data evidence pressure"
+            !state.current_main_implement_progress_needs_edit(),
+            "thin TaskSpace should not derive implementation pressure from input data evidence"
         );
         let context = state.build_developer_context().expect("developer context");
-        assert!(context.contains("verified_input_evidence:"));
-        assert!(context.contains("verified_paths=task_deps/generator.log"));
+        assert!(context.contains("current_node_recent_events:"));
+        assert!(!context.contains("verified_input_evidence:"));
+        assert!(!context.contains("verified_paths=task_deps/generator.log"));
+        assert!(context.contains("artifacts=task_deps/generator.log"));
         assert!(context.contains("prediction"));
 
         state
@@ -35176,7 +35469,7 @@ projects.csv\n"
         let snapshot = ActionMapProviderRequestBudgetSnapshot {
             task_id: state.active_task_id.clone(),
             map_id,
-            node_id: Some(inspect_node_id),
+            node_id: Some(inspect_node_id.clone()),
             node_kind: Some(NodeKind::InspectCodeContext.as_str().to_string()),
             current_node_progress_signature: None,
             current_node_has_successful_edit: false,
@@ -35196,14 +35489,22 @@ projects.csv\n"
             post_budget_grace_request_count: 0,
             budget_state: "warned".to_string(),
         };
+        let _ = snapshot;
         state
-            .force_finish_inspect_for_provider_budget(
+            .finish_main_node_with_next(
                 owner,
-                &snapshot,
-                "inspect_no_action_with_evidence",
+                &inspect_node_id,
+                "Inspection complete; implementation is Agent-selected.".to_string(),
+                None,
+                Some(ActionMapNextNodeDraft {
+                    kind: NodeKind::ImplementSolution,
+                    title: "Apply inspected fix".to_string(),
+                    context_summary: "Apply the implementation selected from inspected evidence."
+                        .to_string(),
+                    dependency_node_ids: vec![inspect_node_id.clone()],
+                }),
             )
-            .expect("inspect transition should be allowed")
-            .expect("inspect transition should create implement node");
+            .expect("explicit finish_node should create implement node");
         let implement_node_id = state
             .current_main_node_id
             .clone()
@@ -35300,7 +35601,7 @@ fi\n"
         let snapshot = ActionMapProviderRequestBudgetSnapshot {
             task_id: state.active_task_id.clone(),
             map_id,
-            node_id: Some(inspect_node_id),
+            node_id: Some(inspect_node_id.clone()),
             node_kind: Some(NodeKind::InspectCodeContext.as_str().to_string()),
             current_node_progress_signature: None,
             current_node_has_successful_edit: false,
@@ -35320,20 +35621,29 @@ fi\n"
             post_budget_grace_request_count: 0,
             budget_state: "warned".to_string(),
         };
+        let _ = snapshot;
         state
-            .force_finish_inspect_for_provider_budget(
+            .finish_main_node_with_next(
                 owner,
-                &snapshot,
-                "inspect_no_action_with_evidence",
+                &inspect_node_id,
+                "Inspection complete; implementation is Agent-selected.".to_string(),
+                None,
+                Some(ActionMapNextNodeDraft {
+                    kind: NodeKind::ImplementSolution,
+                    title: "Apply inspected fix".to_string(),
+                    context_summary: "Apply the implementation selected from inspected evidence."
+                        .to_string(),
+                    dependency_node_ids: vec![inspect_node_id.clone()],
+                }),
             )
-            .expect("inspect transition should be allowed")
-            .expect("inspect transition should create implement node");
+            .expect("explicit finish_node should create implement node");
 
         let context = state.build_developer_context().expect("developer context");
         assert!(context.contains("ContextProjectionV1 active replacement:"));
-        assert!(context.contains("critical_artifact_evidence:"));
+        assert!(context.contains("current_node_recent_events:"));
+        assert!(!context.contains("critical_artifact_evidence:"));
         assert!(context.contains("artifacts=generate_report.sh"));
-        assert!(context.contains("signal=invalid_shebang"));
+        assert!(!context.contains("signal=invalid_shebang"));
         assert!(context.contains("#!/bin/nonexistent"));
         assert!(context.contains("/data/output/final_report.txt"));
     }
@@ -37005,9 +37315,10 @@ fi\n"
         );
         let context = state.build_developer_context().expect("context");
         assert!(context.contains("ContextProjectionV1 active replacement:"));
-        assert!(context.contains("success_criteria:"));
-        assert!(context.contains("decisions:"));
-        assert!(context.contains("Generate recovered output artifacts from parsed logs."));
+        assert!(context.contains("omission_audit:"));
+        assert!(!context.contains("success_criteria:"));
+        assert!(!context.contains("decisions:"));
+        assert!(!context.contains("Generate recovered output artifacts from parsed logs."));
     }
 
     #[test]
@@ -37051,16 +37362,20 @@ fi\n"
 
         let context = state.build_developer_context().expect("context");
 
-        assert!(context.contains("TaskSpace v0.0.5 active compact projection."));
+        assert!(context.contains("TaskSpace v0.0.5 active thin projection."));
         assert!(context.contains("ContextProjectionV1 active replacement:"));
         assert!(context.contains("projection_id: projection-default_compact-task-1-map-1"));
         assert!(context.contains("mode: default_compact"));
         assert!(context.contains("active_objective: Verify ContextProjectionV1 shadow coverage."));
-        assert!(context.contains("success_criteria:"));
         assert!(context.contains("current_node: node-1 kind=inspect_code_context"));
-        assert!(context.contains("decisions:"));
-        assert!(context.contains("Stay on the narrow main-agent path."));
-        assert!(context.contains("fact_source_coverage:"));
+        assert!(context.contains("map_nodes:"));
+        assert!(context.contains("current_node_dependencies:"));
+        assert!(context.contains("current_node_recent_events:"));
+        assert!(context.contains("omission_audit:"));
+        assert!(!context.contains("success_criteria:"));
+        assert!(!context.contains("decisions:"));
+        assert!(!context.contains("Stay on the narrow main-agent path."));
+        assert!(!context.contains("fact_source_coverage:"));
         assert!(context.contains("result_refs_available:"));
         assert!(!context.contains("next_valid_actions:"));
         assert!(context.contains("estimated_tokens:"));
@@ -43501,8 +43816,11 @@ OK: 0 rows"
 
         state.set_mode(MapRuntimeMode::Experiment);
         let context = state.build_developer_context().expect("experiment context");
-        assert!(context.contains("TaskSpace v0.0.5 active compact profile is enabled"));
+        assert!(context.contains("TaskSpace v0.0.5 thin bootstrap."));
         assert!(context.contains("Bootstrap status: no TaskSpace task exists."));
+        assert!(!context.contains("active compact profile"));
+        assert!(!context.contains("cognitive_preflight_requirement"));
+        assert!(!context.contains("result_validity_requirement"));
         assert!(!context.contains("Use the minimum sufficient map"));
         assert!(!context.contains("inspect_code_context -> implement_solution"));
     }

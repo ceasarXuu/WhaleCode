@@ -21,10 +21,7 @@ $routing = New-TaskspaceRoutingDecision $manifest "Fix exact CLI output format."
 Assert-True ([string]$routing.recommended_mode -eq "verification_first") "count-call-stack did not route to verification_first"
 Assert-True ([bool]$routing.initial_constraints.must_read_validator_first) "verification_first did not require validator-first"
 $routingPrompt = New-TaskspaceRoutingPrompt $routing
-Assert-True ($routingPrompt.Contains("recommended_mode: verification_first")) "verification-first prompt did not include mode"
-Assert-True ($routingPrompt.Contains("read the validator/test contract before editing")) "verification-first prompt did not require validator-first inspection"
-Assert-True ($routingPrompt.Contains("do not stop for a separate findings checkpoint")) "verification-first prompt did not suppress inspect checkpoint"
-Assert-True ($routingPrompt.Contains("Do not run an extra direct CLI-output check")) "verification-first prompt did not suppress duplicate direct check"
+Assert-True ([string]::IsNullOrEmpty($routingPrompt)) "routing prompt should remain report-only and not inject model-visible strategy"
 
 $reportDir = Join-Path $RunRoot "verification-routing-report"
 New-Item -ItemType Directory -Path (Join-Path $reportDir "pair-001\left\artifacts\vprobe") -Force | Out-Null

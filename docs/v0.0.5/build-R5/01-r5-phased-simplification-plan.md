@@ -10,7 +10,7 @@
 Created: 2026-07-09
 Updated: 2026-07-09
 Version: v0.0.5 build-R5
-Status: In Progress - R5-C0 implemented and validated
+Status: In Progress - R5-C implemented and validated
 Owner / Responsible: WhaleCode core runtime
 Related Systems: TaskSpace runtime, action_map runtime, taskspace_control,
   context projection, provider-visible context, benchmark harness
@@ -19,6 +19,7 @@ Related Links:
   docs/v0.0.5/build-R5/02-r5-phase-a-current-state-inventory.md
   docs/v0.0.5/build-R5/03-r5-phase-b-node-event-contract.md
   docs/v0.0.5/build-R5/04-r5-phase-c0-cadence-parity.md
+  docs/v0.0.5/build-R5/05-r5-phase-c-thin-projection-action-sequence.md
   docs/v0.0.5/build-R4/10-r4-request-convergence-engineering-plan.md
 Risk Level: High
 Plan Type: Full
@@ -85,7 +86,7 @@ TaskSpace 拉回三个职责：
 | R5-A | Current-state inventory and baseline | 过度设计清单、活跃代码路径、R4 正负样本基线 | 每个复杂结构有 owner、active path、保留/降级/删除候选 |
 | R5-B | Minimal map/event contract | 直接 NodeEvent 契约和写入路径 | 工具结果可按 node 忠实归档并可 ref 读取 |
 | R5-C0 | Execution cadence parity | budget lifecycle 修复和 action-contract patch 语法归一化 | `count-call-stack` standard/R5 单样本均 solved，不再停在 implement 首轮或 malformed patch 归一化点 |
-| R5-C | Projection thin mode | active projection 改为 map skeleton + current node + events/refs | provider-visible diff 无策略提示、无语义重写 |
+| R5-C | Projection thin mode and action sequence carrier | active projection 改为 map skeleton + current node + events/refs；action sequence 承载 Agent 明确多动作 | provider-visible diff 无策略提示、无语义重写；`count-call-stack` standard/R5 均 solved |
 | R5-D | Semantic ledger deactivation | D1 降级 `initial_*`，D2 降级 `problem_ledger/cognitive_state` active 控制权 | 局部任务文本不再变成 canonical truth |
 | R5-E | Runtime gate pruning | E1 清除策略性提示，E2 建 hard-gate classifier 并删除/降级语义 gate | 拒绝只保留硬状态机/协议/安全底线 |
 | R5-F | Dead code cleanup and code split | 删除旧结构、模块拆分、移除兼容分支 | 生产路径不依赖旧语义控制，代码边界清楚 |
@@ -99,7 +100,7 @@ TaskSpace 拉回三个职责：
 | R5-A | 所有 active 复杂结构被标记为 `keep/thin/deactivate/delete/unknown`，且 `unknown` 有后续诊断 | 降低架构不确定性，避免盲删或继续堆补丁 | 结构清单覆盖 `state/projection/gate/tool feedback`；`unknown` 不允许进入删除 phase |
 | R5-B | ordinary tool success/failure 都能归档为 node-local event，并保留 excerpt/ref | 提升反馈可追踪性，后续 projection 不必重新解释工具语义 | fixture 中 tool result -> node event attribution 覆盖率 100%；raw/ref 可恢复 |
 | R5-C0 | 预算模型不再把状态机生命周期和反馈交付窗口互相误扣；action-contract patch 归一化不再制造双 `End Patch` | 降低 request lifecycle cliff，避免简单任务在 implement 前或 patch 归一化处失败 | `count-call-stack` R5 已进入 implement、执行 edit，并在单样本中与 standard 均 solved；standard/R5 request cadence 有同口径日志 |
-| R5-C | active projection 只含 map skeleton、current node、events、refs、hard status | 减少上下文污染和策略注入，让 Agent 直接面对忠实反馈 | `projection_strategy_hint_count=0`；provider-visible payload diff 通过 |
+| R5-C | active projection 只含 map skeleton、current node、events、refs、hard status；routing prompt 不再 model-visible 注入策略 | 减少上下文污染和策略注入，让 Agent 直接面对忠实反馈；一次响应可承载多个 Agent 明确动作 | `projection_strategy_hint_count=0`；provider-visible payload diff 通过；`count-call-stack` R5-C live sample solved |
 | R5-D | `initial_*`、ledger、cognitive state 不再作为 active canonical truth 或语义 gate | 防止任务文本局部细节被 runtime 固化放大 | H203/H204 path case 中 `/app` 不再由 projection/ledger 强化；state_commit 不要求 facts/decisions/adoption |
 | R5-E | 保留 gate 都能归类为状态机、协议、权限、安全或资源底线 | 清晰 runtime 边界，减少 Agent 被 runtime 纠错/引导 | `semantic_gate_block_count=0`；hard gate 分类测试通过 |
 | R5-F | active path 不依赖旧 semantic ledger，模块边界测试通过 | 提升可维护性，降低 `runtime.rs` 混合职责继续扩张风险 | call/import 审计证明 projection 不调用 cognitive coverage helper；cargo check/test 通过 |
@@ -246,7 +247,7 @@ standard/R4/R5 对比记录包含 provider request、tool call、state-machine a
 若多 action 执行导致反馈丢失，回退到单 action，但保留 NodeEvent 证据和问题记录。
 ```
 
-## 1.9 Phase R5-C：Projection thin mode
+## 1.9 Phase R5-C：Projection thin mode and action sequence carrier
 
 目标：
 
@@ -280,6 +281,32 @@ path correction instruction
 provider-visible payload diff 证明：thin projection 不包含策略性 next-action hints。
 工具失败的 exit/path/stderr/ref 仍可见。
 H203/H204 中 `/app` 不再因 projection 被强化为 canonical truth。
+```
+
+Phase C 实现补充：
+
+```text
+1. active projection 已收敛为 map skeleton、current node、node-local recent events、result refs、
+   omission audit 和预算字段。
+2. 支持 taskspace-action-sequence-v1，一次 provider response 可以携带多个 Agent 明确动作；
+   runtime 逐个执行并只做硬状态机校验，遇到失败反馈停止本 sequence。
+3. action-contract parse/reject、状态机拒绝、工具失败均保留为 node-local feedback/event。
+4. benchmark routing 决策保持 artifact/report-only，不再通过 prompt 注入策略。
+5. bootstrap developer context 改为 thin bootstrap，只保留 start/route 入口和硬状态机边界。
+```
+
+Phase C live evidence：
+
+```text
+RunDir: target/r5cphase6/count-call-stack/20260709-183144-389
+standard current: solved, 15135ms, 10 tools
+R5-C current: solved, 45228ms, 10 tools
+R4-D historical: solved, 154525ms, 11 tools
+right rollout_trace.model_request_count: 8
+agent_messages: 8
+agent_actions: 15
+multi_action_messages: 4
+old routing/compact prompt hits: 0
 ```
 
 负收益防线：
@@ -477,7 +504,7 @@ R5 closeout 文档
 | R5-A | 静态审计、baseline artifact | 不依赖 R5-B contract | `02-r5-phase-a-current-state-inventory.md` | 100% 完成 | proceed to R5-B |
 | R5-B | unit/fixture 证明 node event 归档 | 不依赖 thin projection 或 C0 cadence | event/ref 测试和 snapshot | 100% 完成 | proceed to R5-C0 |
 | R5-C0 | 同口径 request/tool cadence 日志、focused paired sample | 不依赖 R5-C thin projection | cadence report、budget cliff 不复现 | 100% 完成 | pause |
-| R5-C | provider-visible payload diff | 不依赖 ledger 删除 | thin projection diff、反馈完整性测试 | 100% 完成 | pause |
+| R5-C | provider-visible payload diff、action sequence live sample | 不依赖 ledger 删除 | thin projection diff、反馈完整性测试、`count-call-stack` paired run | 100% 完成 | proceed to R5-D |
 | R5-D | initial/state_commit 降级测试 | 不依赖 gate pruning | ledger 非 active path 证据 | 100% 完成 | pause |
 | R5-E | gate 分类测试和负例 | 不依赖模块拆分 | 仅硬底线 gate 列表 | 100% 完成 | pause |
 | R5-F | 模块边界测试、cargo check | 不依赖 benchmark 总跑 | active path import/call graph | 100% 完成 | pause |
@@ -508,7 +535,7 @@ tool count、provider request count、state-machine action count、wall time、�
 | R5-A inventory | 明确旧结构用途和拆除候选 | `core/src/action_map/*`, `tools/handlers/taskspace_control.rs` | docs/CoE | `02-r5-phase-a-current-state-inventory.md` | baseline artifact paths | none | landed |
 | R5-B node events | 工具反馈忠实归档到 node | `NodeEvent` direct path | ordinary tools under TaskSpace | direct success/failure fixtures | node_event trace/ref | none | landed |
 | R5-C0 cadence parity | TaskSpace 不因一小步一请求在 implement 前或 patch 归一化处 hard stop | budget lifecycle accounting + action-contract patch normalization | whale exec taskspace mode | cadence focused tests, patch normalization test | provider request/tool/action metrics, `count-call-stack` paired report | none | landed |
-| R5-C thin projection | model-visible 只含 map/node/events/refs | projection renderer | provider request | payload snapshot/diff | omission audit | none | planned |
+| R5-C thin projection and action sequence | model-visible 只含 map/node/events/refs；单次 response 可承载多个 Agent 明确动作；routing prompt report-only | projection renderer, action-contract parser/executor, benchmark routing prompt | provider request, whale exec taskspace mode | active_projection, taskspace_action_contract, routing harness tests | `target/r5cphase6/count-call-stack/20260709-183144-389` | none | landed |
 | R5-D ledger deactivation | semantic ledger 不控制 active path | state_commit/start_task handling | taskspace_control | initial_* and state_commit tests | state update traces | none | planned |
 | R5-E gate pruning | 只保留硬底线拒绝 | state machine gate path | ordinary tool preflight | gate classification tests | blocked reason taxonomy | none | planned |
 | R5-F module split | map/event/gate/projection 边界清晰 | action_map modules | whale exec --taskspace | cargo check/test | trace fields stable | none | planned |
@@ -547,18 +574,19 @@ R5-A 已按不改 runtime 的方式完成：
 4. R5-B 的最小 `NodeEvent` contract 需要直接实现，不做兼容 overlay。
 
 R5-B 已完成最小 `NodeEvent` 直接路径，并在 `count-call-stack` 中暴露 request cadence
-blocker。R5-C0 已关闭该 blocker：fresh executable node 首轮请求与 post-budget feedback
-grace 已分账，action-contract patch trailing-only End 归一化缺陷已修复，单样本复验
-standard/R5 均 solved。下一步进入 R5-C thin projection，但仍需继续跟踪 action-contract
-一步一请求的结构性成本。
+blocker。R5-C0 已关闭预算 lifecycle blocker：fresh executable node 首轮请求与 post-budget
+feedback grace 已分账，action-contract patch trailing-only End 归一化缺陷已修复。R5-C 已完成
+thin projection、action sequence carrier、runtime feedback event、routing prompt report-only 和 thin
+bootstrap 收敛；`count-call-stack` 单样本复验 standard/R5 均 solved。下一步进入 R5-D，处理
+`initial_*`、ledger、cognitive state 的 active canonical truth 降级。
 
 ## 1.20 R5-A/B 后计划校准
 
 | Finding | Plan Adjustment |
 |---|---|
 | `initial_*` 会把局部任务文本提升为结构化 fact/source/contract | R5-D 拆出 D1，先关闭 canonical truth 提升 |
-| active projection 混合 ledger、coverage、tool feedback、strategy hints | R5-C 做 thin projection，但必须排在 C0 cadence 收敛之后 |
+| active projection 混合 ledger、coverage、tool feedback、strategy hints | R5-C 已完成 thin projection，并把 routing prompt 改为 report-only；下一步 R5-D 继续处理 ledger/cognitive state 写入和 canonical truth |
 | `NodeResult/TaskSpaceTraceEvent` 暴露了正确的 node-event 方向，但不应作为兼容层保留 | R5-B 直接实现最小 NodeEvent，并切断旧结构 active 依赖 |
-| R5-B live sample 显示 TaskSpace 一小步一 provider request，`verification_first` 在 implement 前 hard stop | R5-C0 已先修复 budget lifecycle cliff 和 patch 归一化缺陷；完整 standard-like tool loop 仍留给后续 Phase C/E 评估 |
+| R5-B live sample 显示 TaskSpace 一小步一 provider request，`verification_first` 在 implement 前 hard stop | R5-C0 已修复 budget lifecycle cliff 和 patch 归一化缺陷；R5-C action sequence 降低无依赖动作拆请求，但完整 standard-like native tool loop 仍是后续优化方向 |
 | R4 large-output/ref 是正向收益 | R5-B/C 必须保留 raw_ref/excerpt，不和语义 gate 一起删除 |
 | gate 消息含策略性纠错 | R5-E 先清 model-visible guidance，再建立 hard-gate classifier |

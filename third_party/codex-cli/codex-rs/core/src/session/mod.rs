@@ -1111,6 +1111,40 @@ impl Session {
         }
     }
 
+    pub(crate) async fn record_action_map_runtime_feedback(
+        &self,
+        turn_context: &TurnContext,
+        feedback_kind: &str,
+        success: bool,
+        feedback: String,
+    ) {
+        let result = {
+            let mut state = self.state.lock().await;
+            state
+                .action_map_runtime
+                .record_runtime_feedback_for_current_node(
+                    self.conversation_id,
+                    feedback_kind,
+                    success,
+                    feedback,
+                )
+        };
+        match result {
+            Ok(Some((_, events))) => {
+                self.emit_action_map_events_for_turn(turn_context, events)
+                    .await;
+            }
+            Ok(None) => {}
+            Err(error) => {
+                warn!(
+                    %error,
+                    feedback_kind,
+                    "failed to record TaskSpace runtime feedback"
+                );
+            }
+        }
+    }
+
     pub(crate) async fn record_action_map_output_ref_trace_event(
         &self,
         turn_context: &TurnContext,

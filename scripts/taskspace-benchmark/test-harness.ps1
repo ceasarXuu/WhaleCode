@@ -62,9 +62,7 @@ $verificationRouting = New-TaskspaceRoutingDecision $verificationManifest "Produ
 Assert-True ([string]$verificationRouting.recommended_mode -eq "verification_first") "format-sensitive scenario did not route to verification_first"
 Assert-True ([bool]$verificationRouting.initial_constraints.must_read_validator_first) "verification_first did not require validator-first"
 $verificationPrompt = New-TaskspaceRoutingPrompt $verificationRouting
-Assert-True ($verificationPrompt.Contains("recommended_mode: verification_first")) "verification prompt omitted mode"
-Assert-True ($verificationPrompt.Contains("Use at most three TaskSpace nodes")) "verification prompt omitted node budget guidance"
-Assert-True ($verificationPrompt.Contains("visible validator is the final format check")) "verification prompt omitted final validator guidance"
+Assert-True ([string]::IsNullOrEmpty($verificationPrompt)) "verification routing prompt should remain report-only"
 $subagentManifest = [pscustomobject]@{
     Id = "parallel-evidence"; Level = "L2"; HiddenOracleStrategy = "independent evidence tracks"
     PublicValidation = [pscustomobject]@{ command = "python"; args = @("validator.py") }
@@ -73,8 +71,7 @@ $subagentManifest = [pscustomobject]@{
 $subagentRouting = New-TaskspaceRoutingDecision $subagentManifest "Investigate two independent failing modules."
 Assert-True ([string]$subagentRouting.recommended_mode -eq "subagent_assisted") "spawn-budget scenario did not route to subagent_assisted"
 $subagentPrompt = New-TaskspaceRoutingPrompt $subagentRouting
-Assert-True ($subagentPrompt.Contains("recommended_mode: subagent_assisted")) "subagent-assisted prompt omitted mode"
-Assert-True ($subagentPrompt.Contains("explicit independent inspect_code_context nodes")) "subagent-assisted prompt omitted node-before-spawn rule"
+Assert-True ([string]::IsNullOrEmpty($subagentPrompt)) "subagent routing prompt should remain report-only"
 $deepManifest = [pscustomobject]@{
     Id = "deep-cross-module"; Level = "L3"; HiddenOracleStrategy = "long-horizon cross-module ambiguity"
     PublicValidation = [pscustomobject]@{ command = "python"; args = @("validator.py") }
@@ -84,8 +81,7 @@ $deepRouting = New-TaskspaceRoutingDecision $deepManifest "Repair a long-horizon
 Assert-True ([string]$deepRouting.recommended_mode -eq "deep") "L3 ambiguous scenario did not route to deep"
 Assert-True ([int]$deepRouting.initial_constraints.state_commit_budget -eq 12) "deep route did not raise state_commit budget"
 $deepPrompt = New-TaskspaceRoutingPrompt $deepRouting
-Assert-True ($deepPrompt.Contains("recommended_mode: deep")) "deep prompt omitted mode"
-Assert-True ($deepPrompt.Contains("broader evidence plan")) "deep prompt omitted evidence-plan guidance"
+Assert-True ([string]::IsNullOrEmpty($deepPrompt)) "deep routing prompt should remain report-only"
 
 $routingReportDir = Join-Path $RunRoot "routing-report-selftest"
 New-Item -ItemType Directory -Path (Join-Path $routingReportDir "pair-001\left\artifacts") -Force | Out-Null
@@ -551,7 +547,7 @@ ContextProjectionV1 active replacement:
   blockers:
     - none
   decisions:
-    - decision: use active compact profile
+    - decision: use thin projection
   facts:
     - fact: output refs active
   relevant_results:

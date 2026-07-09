@@ -7,13 +7,15 @@
 
 ```text
 Phase: R5-C0
-Status: implemented, live sample validation passed
+Status: implemented, live sample validation passed; superseded by R5-C validation
 Updated: 2026-07-09
 Primary code:
   third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs
   third_party/codex-cli/codex-rs/core/src/session/turn.rs
 COE:
   coe/2026-07-09-05-20-r5-budget-feedback-grace.md
+Follow-up:
+  docs/v0.0.5/build-R5/05-r5-phase-c-thin-projection-action-sequence.md
 ```
 
 Phase C0 不改变 Agent 的动作选择，不自动修正 malformed patch，也不向 projection
@@ -143,3 +145,19 @@ TaskSpace 的状态机生命周期可以跨 node 正常推进。
 runtime 不承担语义纠错、不替 Agent 决定下一步。
 后续 R5-C thin projection 可以专注于上下文透传和结构瘦身，不需要继续背 budget cliff。
 ```
+
+## 7. R5-C 后续验证
+
+R5-C 在 C0 基础上继续完成 thin projection、action sequence carrier、runtime feedback event、
+routing prompt report-only 和 thin bootstrap 收敛。最新单样本：
+
+```text
+target/r5cphase6/count-call-stack/20260709-183144-389
+standard current: solved, 15135ms, 10 tools
+R5-C current: solved, 45228ms, 10 tools
+old routing/compact prompt hits: 0
+right rollout_trace.model_request_count: 8
+```
+
+C0 的预算生命周期修复仍保留；Phase C 的新增残余是 provider request 仍为 8 次，说明
+action sequence 已能承载无依赖多动作，但尚未达到完整 native tool-loop parity。
