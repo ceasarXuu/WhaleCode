@@ -3979,6 +3979,20 @@ preview:\n\
         Ok(events)
     }
 
+    pub(crate) fn current_main_node_id_for_owner(
+        &self,
+        owner_session_id: ThreadId,
+    ) -> Result<MapNodeId, String> {
+        if self.mode != MapRuntimeMode::Experiment {
+            return Err("TaskSpace mode is not active.".to_string());
+        }
+        self.validate_main_binding(owner_session_id)?;
+        self.current_main_node_id.clone().ok_or_else(|| {
+            "TaskSpace mode is active but no current node binding exists. hard_state: no_current_node_binding."
+                .to_string()
+        })
+    }
+
     pub(crate) fn prepare_child_spawn(&self, child_thread_id: ThreadId) -> Result<(), String> {
         if self.mode != MapRuntimeMode::Experiment {
             return Ok(());
@@ -21115,6 +21129,26 @@ sample rows from {artifact}"
         let map = state.maps.get("map-1").expect("map");
         let node_event = map.node_events.get(&recorded.0).expect("node event");
         assert_eq!(node_event.action_class, Some(ActionClass::Edit));
+    }
+
+    #[test]
+    fn current_main_node_id_for_owner_resolves_existing_binding_only() {
+        let mut state = ActionMapRuntimeState::default();
+        let owner = ThreadId::new();
+        state.set_mode_for_session(MapRuntimeMode::Experiment, owner);
+        state
+            .initialize_map_for_main(owner, initial_test_map_input("inspect"))
+            .expect("map initializes");
+
+        let node_id = state
+            .current_main_node_id_for_owner(owner)
+            .expect("current owner resolves binding");
+        assert_eq!(node_id, "node-1");
+
+        let error = state
+            .current_main_node_id_for_owner(ThreadId::new())
+            .expect_err("different owner cannot reuse current binding");
+        assert!(error.contains("hard_state: current_node_lease_mismatch"));
     }
 
     #[test]

@@ -686,7 +686,16 @@ TaskSpace provider tool surface 不暴露 update_plan；standard 保持原行为
 runtime 不读取、转换或推断 update_plan 文本，也不自动生成节点标题、目标或依赖。
 ```
 
-实施状态（2026-07-10）：代码、工具 schema、原子性测试和 standard/TaskSpace 工具面隔离测试已完成；复杂样本收益验证归入 G3，未验证前不得宣称 map collapse 已关闭。
+实施状态（2026-07-10）：代码、工具 schema、原子性测试和 standard/TaskSpace 工具面隔离测试已完成。复杂样本已证明 5 节点 Agent plan 进入 map 且 `update_plan` 不再出现，但收尾因 `finish_node` 当前绑定契约不一致进入 final rejection loop；G2 尚未关闭。
+
+G2.1 当前绑定机械简写：
+
+```text
+finish_node 的语义对象本来就是 current main node；node_id 省略时，runtime 只读取已有 current binding。
+显式 node_id 继续按现有 owner/lease/status 硬规则校验。
+不得因省略 node_id 自动选择 ready node、完成其他节点、重写 result_summary 或推断下一步。
+日志和 tool output 必须返回实际解析到的 node id，便于 replay。
+```
 
 ### R5-G3：复杂样本与提取完整性
 

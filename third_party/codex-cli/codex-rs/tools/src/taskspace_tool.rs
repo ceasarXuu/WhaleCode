@@ -838,7 +838,7 @@ pub fn create_taskspace_control_tool_with_profile(
         (
             "node_id".to_string(),
             JsonSchema::string(Some(
-                "Required for bind_node, finish_node, and block_node. Existing node id."
+                "Required for bind_node and block_node. Optional for finish_node; when omitted, the existing current main node binding is used."
                     .to_string(),
             )),
         ),
@@ -1232,7 +1232,7 @@ Actions:
 - `route_task`: select an existing task by `task_id`.
 - `create_node`: create a node with `kind`, `title`, `context_summary`, optional `dependency_node_ids`, and optional `bind_current`.
 - `bind_node`: bind the Agent to an existing node by `node_id`.
-- `finish_node`: record `result_summary` and complete the current node. It may also bind `next_node_id`, or atomically create and bind a next node with `next_node_kind`, `next_node_title`, `next_node_context_summary`, and optional `next_dependency_node_ids`.
+- `finish_node`: record `result_summary` and complete the current node. `node_id` is optional and defaults mechanically to the current main node binding. It may also bind `next_node_id`, or atomically create and bind a next node with `next_node_kind`, `next_node_title`, `next_node_context_summary`, and optional `next_dependency_node_ids`.
 - `block_node`: record `blocker_summary` and block the current node.
 - `read_output_ref`: read a bounded part of `output_ref` using `head`, `tail`, `line_range`, or `grep`.
 
@@ -1253,7 +1253,7 @@ Supported actions:
 - `route_task`: switch the active task path to an existing task chosen by the agent from the TaskSpace task inventory. Runtime validates the id but does not perform semantic matching.
 - `create_node`: create a concrete node in the active task path. This requires an existing active task path; use `start_task` first when the current request starts a new semantic task. Must include `kind` with one of: inspect_code_context, implement_solution, smoke_test, regression_test, final_synthesis. BaseMap candidate nodes are guidance, not automatic graph nodes.
 - `bind_node`: bind the main agent's next ordinary action to an existing ready or blocked node that is not held by a subagent.
-- `finish_node`: record the current main node's result, mark it completed, and optionally bind an existing next node with `next_node_id` or create and bind a new next node with `next_node_kind`, `next_node_title`, and `next_node_context_summary`.
+- `finish_node`: record the current main node's result and mark it completed. `node_id` is optional and defaults mechanically to the current main node binding. Optionally bind an existing next node with `next_node_id` or create and bind a new next node with `next_node_kind`, `next_node_title`, and `next_node_context_summary`.
 - `block_node`: record why the current main node cannot proceed and mark it blocked.
 - `record_output_contract`: record a task-level output contract with stable `output_contract_id`, `output_contract_kind`, `description`, and `evidence_refs`. Use one of: artifact, format, encoding, schema, validator, non_goal. Do not use node kinds here.
 - `record_fact_source`: record a task-level data source with stable `fact_source_id`, `provenance`, `description`, and `evidence_refs`.
@@ -1505,6 +1505,12 @@ mod tests {
         assert!(description.contains("does not choose the Agent's next action"));
         assert!(!description.contains("cognitive"));
         assert!(!description.contains("state_commit"));
+        assert!(
+            properties["node_id"]["description"]
+                .as_str()
+                .expect("node_id description")
+                .contains("Optional for finish_node")
+        );
         assert_eq!(
             properties["initial_nodes"]["items"]["required"],
             serde_json::json!(["node_key", "kind", "title", "context_summary"])

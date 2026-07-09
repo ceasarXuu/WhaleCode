@@ -76,7 +76,8 @@ enum TaskSpaceControlArgs {
         node_id: String,
     },
     FinishNode {
-        node_id: String,
+        #[serde(default)]
+        node_id: Option<String>,
         result_summary: String,
         #[serde(default)]
         next_node_id: Option<String>,
@@ -615,10 +616,10 @@ impl ToolHandler for TaskSpaceControlHandler {
                     next_node_context_summary,
                     next_dependency_node_ids,
                 )?;
-                let outcome = session
-                    .finish_action_map_main_node_with_next(
+                let (node_id, outcome) = session
+                    .finish_action_map_current_or_named_node_with_next(
                         &turn,
-                        &node_id,
+                        node_id.as_deref(),
                         result_summary,
                         next_node_id,
                         next_node_draft,
@@ -2324,6 +2325,27 @@ mod tests {
                 assert_eq!(initial_nodes.len(), 2);
                 assert_eq!(initial_nodes[1].dependency_keys, vec!["inspect"]);
                 assert_eq!(current_node_key, "inspect");
+            }
+            other => panic!("unexpected args: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn finish_node_defaults_to_current_binding_when_node_id_is_omitted() {
+        let args: TaskSpaceControlArgs = serde_json::from_value(serde_json::json!({
+            "action": "finish_node",
+            "result_summary": "Inspection and repair are complete."
+        }))
+        .expect("finish_node args parse");
+
+        match args {
+            TaskSpaceControlArgs::FinishNode {
+                node_id,
+                result_summary,
+                ..
+            } => {
+                assert!(node_id.is_none());
+                assert_eq!(result_summary, "Inspection and repair are complete.");
             }
             other => panic!("unexpected args: {other:?}"),
         }

@@ -1602,6 +1602,36 @@ impl Session {
         Ok(outcome)
     }
 
+    pub(crate) async fn finish_action_map_current_or_named_node_with_next(
+        &self,
+        turn_context: &TurnContext,
+        node_id: Option<&str>,
+        result_summary: String,
+        next_node_id: Option<String>,
+        next_node_draft: Option<ActionMapNextNodeDraft>,
+    ) -> Result<(String, ActionMapFinishNodeOutcome), String> {
+        let (node_id, outcome, events) = {
+            let mut state = self.state.lock().await;
+            let node_id = match node_id {
+                Some(node_id) => node_id.to_string(),
+                None => state
+                    .action_map_runtime
+                    .current_main_node_id_for_owner(self.conversation_id)?,
+            };
+            let (outcome, events) = state.action_map_runtime.finish_main_node_with_next(
+                self.conversation_id,
+                &node_id,
+                result_summary,
+                next_node_id,
+                next_node_draft,
+            )?;
+            (node_id, outcome, events)
+        };
+        self.emit_action_map_events_for_turn(turn_context, events)
+            .await;
+        Ok((node_id, outcome))
+    }
+
     pub(crate) async fn block_action_map_main_node(
         &self,
         turn_context: &TurnContext,
