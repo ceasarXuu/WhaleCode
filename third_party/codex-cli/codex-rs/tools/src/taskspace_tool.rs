@@ -35,9 +35,7 @@ pub enum TaskSpaceControlToolProfile {
 fn action_values(profile: TaskSpaceControlToolProfile) -> Vec<serde_json::Value> {
     match profile {
         TaskSpaceControlToolProfile::Full => vec![
-            json!("start_task"),
             json!("initialize_map"),
-            json!("route_task"),
             json!("create_node"),
             json!("bind_node"),
             json!("finish_node"),
@@ -56,9 +54,7 @@ fn action_values(profile: TaskSpaceControlToolProfile) -> Vec<serde_json::Value>
             json!("state_commit"),
         ],
         TaskSpaceControlToolProfile::Compact => vec![
-            json!("start_task"),
             json!("initialize_map"),
-            json!("route_task"),
             json!("create_node"),
             json!("bind_node"),
             json!("finish_node"),
@@ -71,10 +67,10 @@ fn action_values(profile: TaskSpaceControlToolProfile) -> Vec<serde_json::Value>
 fn action_description(profile: TaskSpaceControlToolProfile) -> &'static str {
     match profile {
         TaskSpaceControlToolProfile::Full => {
-            "One of: start_task, initialize_map, route_task, create_node, bind_node, finish_node, block_node, record_output_contract, record_fact_source, record_fact, record_success_criteria, record_open_question, close_open_question, record_decision, record_next_best_action, mark_result_validity, adopt_result, read_output_ref, state_commit. Use only for TaskSpace runtime control."
+            "One of: initialize_map, create_node, bind_node, finish_node, block_node, record_output_contract, record_fact_source, record_fact, record_success_criteria, record_open_question, close_open_question, record_decision, record_next_best_action, mark_result_validity, adopt_result, read_output_ref, state_commit. Use only for TaskSpace runtime control."
         }
         TaskSpaceControlToolProfile::Compact => {
-            "Mechanical TaskSpace map actions: start_task, initialize_map, route_task, create_node, bind_node, finish_node, block_node, read_output_ref."
+            "Mechanical TaskSpace map actions: initialize_map, create_node, bind_node, finish_node, block_node, read_output_ref."
         }
     }
 }
@@ -82,14 +78,10 @@ fn action_description(profile: TaskSpaceControlToolProfile) -> &'static str {
 fn compact_top_level_fields() -> &'static [&'static str] {
     &[
         "action",
-        "task_id",
         "task_title",
         "task_objective",
         "initial_nodes",
         "current_node_key",
-        "node_kind",
-        "node_title",
-        "node_context_summary",
         "kind",
         "title",
         "context_summary",
@@ -736,24 +728,15 @@ pub fn create_taskspace_control_tool_with_profile(
             next_best_action_schema(),
         ),
         (
-            "task_id".to_string(),
-            JsonSchema::string(Some(
-                "Required for route_task. Existing task id from the TaskSpace task inventory."
-                    .to_string(),
-            )),
-        ),
-        (
             "task_title".to_string(),
             JsonSchema::string(Some(
-                "Required for start_task and initialize_map. Agent-authored task title."
-                    .to_string(),
+                "Required for initialize_map. Agent-authored task title.".to_string(),
             )),
         ),
         (
             "task_objective".to_string(),
             JsonSchema::string(Some(
-                "Required for start_task and initialize_map. Agent-authored objective."
-                    .to_string(),
+                "Required for initialize_map. Agent-authored objective.".to_string(),
             )),
         ),
         (
@@ -771,36 +754,6 @@ pub fn create_taskspace_control_tool_with_profile(
             JsonSchema::string(Some(
                 "Required for initialize_map. node_key to bind for immediate work.".to_string(),
             )),
-        ),
-        (
-            "node_kind".to_string(),
-            JsonSchema::string_enum(
-                node_kind_values(),
-                Some(
-                    "Required for start_task. Runtime kind for the first node."
-                        .to_string(),
-                ),
-            ),
-        ),
-        (
-            "node_title".to_string(),
-            JsonSchema::string(Some(
-                "Required for start_task. Human-readable title for the first concrete node."
-                    .to_string(),
-            )),
-        ),
-        (
-            "node_context_summary".to_string(),
-            JsonSchema::string(Some(
-                "Required for start_task. Concise context the first node should carry."
-                    .to_string(),
-            )),
-        ),
-        (
-            "initial_success_criteria".to_string(),
-            success_criteria_schema(
-                "Optional for start_task. Provide initial explicit completion standards when available; ordinary work is blocked until criteria exist.",
-            ),
         ),
         (
             "kind".to_string(),
@@ -831,8 +784,7 @@ pub fn create_taskspace_control_tool_with_profile(
         (
             "bind_current".to_string(),
             JsonSchema::boolean(Some(
-                "For start_task or create_node, bind the main agent to the new node immediately."
-                    .to_string(),
+                "For create_node, bind the main agent to the new node immediately.".to_string(),
             )),
         ),
         (
@@ -1227,9 +1179,7 @@ pub fn create_taskspace_control_tool_with_profile(
 TaskSpace reorganizes the ordinary conversation into a task map. The Agent owns all task semantics and decides when and how work advances. Runtime only validates map ids, node status, bindings, leases, tool/result pairing, and other hard protocol state.
 
 Actions:
-- `start_task`: create a task map and first current node when no task exists. Include `task_title`, `task_objective`, `node_kind`, `node_title`, and `node_context_summary`.
 - `initialize_map`: fill the runtime mechanical blank map in one Agent-authored operation. Include `task_title`, `task_objective`, `initial_nodes`, and `current_node_key`. Each initial node has `node_key`, `kind`, `title`, `context_summary`, and optional `dependency_keys`. Runtime validates structure and returns key-to-node-id mappings without choosing task semantics.
-- `route_task`: select an existing task by `task_id`.
 - `create_node`: create a node with `kind`, `title`, `context_summary`, optional `dependency_node_ids`, and optional `bind_current`.
 - `bind_node`: bind the Agent to an existing node by `node_id`.
 - `finish_node`: record `result_summary` and complete the current node. `node_id` is optional and defaults mechanically to the current main node binding. It may also bind `next_node_id`, or atomically create and bind a next node with `next_node_kind`, `next_node_title`, `next_node_context_summary`, and optional `next_dependency_node_ids`.
@@ -1248,10 +1198,8 @@ The main agent is the TaskSpace problem-state and model manager. Use this tool t
 Runtime preflight blocks ordinary tools and spawn_agent until the active task has at least one success criterion, one output contract, and one fact source. After finish_node, block_node, or subagent completion records a node-level result, runtime blocks further ordinary tools and spawn_agent until mark_result_validity records whether that result is accepted, questioned, or invalid.
 
 Supported actions:
-- `start_task`: create a new semantic task, its active task path, and the first concrete node. Use this when the current user request does not belong to an existing task in the TaskSpace task inventory. Must include `node_kind`. Include `initial_success_criteria` whenever the user request gives enough information to define completion; if omitted, runtime will block ordinary work until `record_success_criteria` is called.
 - `initialize_map`: atomically fill the runtime mechanical blank map with an Agent-authored task objective, node graph, dependencies, and current node. Runtime validates only structural state and returns the generated node ids.
-- `route_task`: switch the active task path to an existing task chosen by the agent from the TaskSpace task inventory. Runtime validates the id but does not perform semantic matching.
-- `create_node`: create a concrete node in the active task path. This requires an existing active task path; use `start_task` first when the current request starts a new semantic task. Must include `kind` with one of: inspect_code_context, implement_solution, smoke_test, regression_test, final_synthesis. BaseMap candidate nodes are guidance, not automatic graph nodes.
+- `create_node`: create a concrete node in the active task path after `initialize_map`. Must include `kind` with one of: inspect_code_context, implement_solution, smoke_test, regression_test, final_synthesis. BaseMap candidate nodes are guidance, not automatic graph nodes.
 - `bind_node`: bind the main agent's next ordinary action to an existing ready or blocked node that is not held by a subagent.
 - `finish_node`: record the current main node's result and mark it completed. `node_id` is optional and defaults mechanically to the current main node binding. Optionally bind an existing next node with `next_node_id` or create and bind a new next node with `next_node_kind`, `next_node_title`, and `next_node_context_summary`.
 - `block_node`: record why the current main node cannot proceed and mark it blocked.
@@ -1269,7 +1217,7 @@ Supported actions:
 - `state_commit`: batch related lifecycle and cognitive updates in one checkpoint. Must include `schema_version=taskspace-state-commit-v1`. Use top-level section fields: `nodes`, `finished_nodes`, `blockers`, `result_validities`, `result_adoptions`, `success_criteria`, `output_contracts`, `fact_sources`, `facts`, `decisions`, and `next_best_action`. Prefer this over several single-record actions when closing an inspect/implement/test phase.
 
 Cognitive-state rules:
-- After start_task or route_task, record user-stated acceptance criteria, output format, schema, validator, artifact, and non-goal requirements as success criteria and output contracts before ordinary work. Use evidence_refs where available; artifact_ref may cite the current user request, README/spec/test/source path, or expected artifact.
+- After initialize_map, record user-stated acceptance criteria, output format, schema, validator, artifact, and non-goal requirements as success criteria and output contracts before ordinary work. Use evidence_refs where available; artifact_ref may cite the current user request, README/spec/test/source path, or expected artifact.
 - Use open questions for real unknowns that affect the task model. Use decisions before patching or final synthesis so the task path records why this direction is justified.
 - Record user-provided facts, observed environment facts, and validator/test outputs as fact sources before turning them into active facts. Use non-empty evidence_refs; artifact_ref or validator_ref is acceptable before any node result exists.
 - `generated_for_test_only`, `inferred`, and `unknown` provenance may guide investigation but must not anchor active facts or final user claims unless rechecked against observed or user-provided evidence.
@@ -1319,9 +1267,7 @@ mod tests {
         assert_eq!(
             actions,
             vec![
-                "start_task",
                 "initialize_map",
-                "route_task",
                 "create_node",
                 "bind_node",
                 "finish_node",
@@ -1357,7 +1303,6 @@ mod tests {
             "provenance",
             "claim_id",
             "statement",
-            "initial_success_criteria",
             "criteria",
             "question_id",
             "question",
@@ -1453,9 +1398,7 @@ mod tests {
         assert_eq!(
             actions,
             vec![
-                "start_task",
                 "initialize_map",
-                "route_task",
                 "create_node",
                 "bind_node",
                 "finish_node",
@@ -1478,12 +1421,15 @@ mod tests {
             "facts",
             "decisions",
             "next_best_action",
+            "task_id",
+            "node_kind",
+            "node_title",
+            "node_context_summary",
             "initial_success_criteria",
         ] {
             assert!(!properties.contains_key(removed), "unexpected `{removed}`");
         }
         for kept in [
-            "task_id",
             "task_title",
             "task_objective",
             "initial_nodes",

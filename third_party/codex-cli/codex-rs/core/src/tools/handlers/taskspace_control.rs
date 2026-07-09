@@ -39,29 +39,11 @@ pub struct TaskSpaceControlHandler;
 #[derive(Debug, Deserialize)]
 #[serde(tag = "action", rename_all = "snake_case")]
 enum TaskSpaceControlArgs {
-    StartTask {
-        task_title: String,
-        task_objective: String,
-        node_kind: String,
-        #[serde(default)]
-        initial_success_criteria: Vec<TaskSpaceSuccessCriterionArgs>,
-        #[serde(default)]
-        initial_output_contracts: Vec<TaskSpaceOutputContractArgs>,
-        #[serde(default)]
-        initial_fact_sources: Vec<TaskSpaceFactSourceArgs>,
-        node_title: String,
-        node_context_summary: String,
-        #[serde(default)]
-        bind_current: Option<bool>,
-    },
     InitializeMap {
         task_title: String,
         task_objective: String,
         initial_nodes: Vec<TaskSpaceInitializeNodeArgs>,
         current_node_key: String,
-    },
-    RouteTask {
-        task_id: String,
     },
     CreateNode {
         kind: String,
@@ -485,42 +467,6 @@ impl ToolHandler for TaskSpaceControlHandler {
             return Err(legacy_state_action_rejection(action));
         }
         let message = match args {
-            TaskSpaceControlArgs::StartTask {
-                task_title,
-                task_objective,
-                node_kind,
-                initial_success_criteria,
-                initial_output_contracts,
-                initial_fact_sources,
-                node_title,
-                node_context_summary,
-                bind_current,
-            } => {
-                let bind_current = bind_current.unwrap_or(true);
-                let node_kind = parse_node_kind("node_kind", &node_kind)?;
-                let (task_id, map_id, node_id) = session
-                    .start_action_map_task_for_main_with_kind_and_criteria(
-                        &turn,
-                        node_kind,
-                        task_title,
-                        task_objective,
-                        convert_success_criteria(initial_success_criteria),
-                        convert_state_commit_output_contracts(initial_output_contracts),
-                        convert_fact_sources(initial_fact_sources),
-                        node_title,
-                        node_context_summary,
-                        bind_current,
-                    )
-                    .await
-                    .map_err(taskspace_state_machine_gate_error)?;
-                if bind_current {
-                    format!(
-                        "TaskSpace task started and bound: task={task_id} map={map_id} node={node_id}"
-                    )
-                } else {
-                    format!("TaskSpace task started: task={task_id} map={map_id} node={node_id}")
-                }
-            }
             TaskSpaceControlArgs::InitializeMap {
                 task_title,
                 task_objective,
@@ -561,13 +507,6 @@ impl ToolHandler for TaskSpaceControlHandler {
                     "TaskSpace map initialized: task={} map={} current_node={} node_ids=[{}]",
                     outcome.task_id, outcome.map_id, outcome.current_node_id, mappings
                 )
-            }
-            TaskSpaceControlArgs::RouteTask { task_id } => {
-                session
-                    .route_action_map_task_for_main(&turn, &task_id)
-                    .await
-                    .map_err(taskspace_state_machine_gate_error)?;
-                format!("TaskSpace task routed: {task_id}")
             }
             TaskSpaceControlArgs::CreateNode {
                 kind,
@@ -1193,40 +1132,6 @@ fn normalize_taskspace_argument_aliases(root: &mut serde_json::Map<String, JsonV
         .unwrap_or_default()
         .to_string();
     match action.as_str() {
-        "start_task" => {
-            move_alias(root, "task_name", "task_title");
-            move_alias(root, "task_description", "task_objective");
-            move_alias(root, "summary", "task_objective");
-            move_alias(root, "first_node", "node_title");
-            move_alias(root, "first_node_kind", "node_kind");
-            move_alias(root, "initial_node_kind", "node_kind");
-            move_alias(root, "first_node_id", "node_title");
-            move_alias(root, "first_node_title", "node_title");
-            move_alias(root, "first_node_description", "node_context_summary");
-            move_alias(root, "first_node_context", "node_context_summary");
-            move_alias(root, "initial_node_context", "node_context_summary");
-            move_alias(root, "description", "node_context_summary");
-            move_alias(root, "success_criteria", "initial_success_criteria");
-            move_alias(root, "initial_criteria", "initial_success_criteria");
-            move_alias(root, "criteria", "initial_success_criteria");
-            move_alias(root, "output_contracts", "initial_output_contracts");
-            move_alias(root, "initial_contracts", "initial_output_contracts");
-            move_alias(root, "contracts", "initial_output_contracts");
-            move_alias(root, "fact_sources", "initial_fact_sources");
-            root.entry("node_kind".to_string())
-                .or_insert_with(|| JsonValue::String("inspect_code_context".to_string()));
-            root.entry("task_title".to_string())
-                .or_insert_with(|| JsonValue::String("TaskSpace task".to_string()));
-            root.entry("node_title".to_string())
-                .or_insert_with(|| JsonValue::String("Inspect code context".to_string()));
-            root.entry("node_context_summary".to_string())
-                .or_insert_with(|| {
-                    JsonValue::String(
-                        "Inspect the repository context for the user request.".to_string(),
-                    )
-                });
-            normalize_start_task_initial_sections(root);
-        }
         "create_node" => {
             move_alias(root, "node_kind", "kind");
             move_alias(root, "node_title", "title");
@@ -1742,163 +1647,6 @@ fn normalize_state_commit_described_objects(
     }
 }
 
-fn normalize_start_task_initial_sections(root: &mut serde_json::Map<String, JsonValue>) {
-    normalize_string_or_array_field(root, "initial_success_criteria");
-    normalize_string_or_array_field(root, "initial_output_contracts");
-    normalize_string_or_array_field(root, "initial_fact_sources");
-    if let Some(criteria) = root.get_mut("initial_success_criteria") {
-        normalize_success_criteria_value(criteria);
-        normalize_success_criteria_objects(criteria);
-    }
-    normalize_output_contract_array(root, "initial_output_contracts");
-    normalize_fact_source_array(root, "initial_fact_sources");
-    if let Some(JsonValue::Array(items)) = root.get_mut("initial_fact_sources") {
-        for item in items {
-            let JsonValue::Object(object) = item else {
-                continue;
-            };
-            normalize_fact_source_provenance(object);
-            normalize_fact_source_inline_artifact_refs(object);
-        }
-    }
-}
-
-fn normalize_string_or_array_field(root: &mut serde_json::Map<String, JsonValue>, field: &str) {
-    let Some(value) = root.get_mut(field) else {
-        return;
-    };
-    if value.is_string() {
-        let text = value.as_str().unwrap_or_default().trim().to_string();
-        *value = if text.is_empty() {
-            JsonValue::Array(Vec::new())
-        } else {
-            JsonValue::Array(vec![JsonValue::String(text)])
-        };
-    } else if value.is_object() {
-        let object = std::mem::replace(value, JsonValue::Null);
-        *value = JsonValue::Array(vec![object]);
-    }
-}
-
-fn normalize_output_contract_array(root: &mut serde_json::Map<String, JsonValue>, field: &str) {
-    let Some(JsonValue::Array(items)) = root.get_mut(field) else {
-        return;
-    };
-    for (index, item) in items.iter_mut().enumerate() {
-        match item {
-            JsonValue::String(text) => {
-                let description = text.trim().to_string();
-                let evidence_refs = string_output_contract_artifact_ref(&description)
-                    .map(|artifact_ref| {
-                        JsonValue::Array(vec![serde_json::json!({ "artifact_ref": artifact_ref })])
-                    })
-                    .unwrap_or_else(|| {
-                        JsonValue::Array(vec![
-                            serde_json::json!({ "artifact_ref": "user-request" }),
-                        ])
-                    });
-                *item = serde_json::json!({
-                    "id": format!("output-contract-{}", index + 1),
-                    "kind": "artifact",
-                    "description": description,
-                    "evidence_refs": evidence_refs,
-                });
-            }
-            JsonValue::Object(object) => {
-                object
-                    .entry("id".to_string())
-                    .or_insert_with(|| JsonValue::String(format!("output-contract-{}", index + 1)));
-                object
-                    .entry("kind".to_string())
-                    .or_insert_with(|| JsonValue::String("artifact".to_string()));
-                object.entry("description".to_string()).or_insert_with(|| {
-                    JsonValue::String(format!(
-                        "initial_output_contracts output-contract-{}",
-                        index + 1
-                    ))
-                });
-                normalize_output_contract_inline_artifact_refs(object);
-                let needs_default = match object.get("evidence_refs") {
-                    Some(JsonValue::Array(existing)) => existing.is_empty(),
-                    Some(_) => false,
-                    None => true,
-                };
-                if needs_default {
-                    object.insert(
-                        "evidence_refs".to_string(),
-                        JsonValue::Array(vec![
-                            serde_json::json!({ "artifact_ref": "user-request" }),
-                        ]),
-                    );
-                }
-            }
-            _ => {}
-        }
-    }
-}
-
-fn string_output_contract_artifact_ref(description: &str) -> Option<String> {
-    let value = description.trim();
-    if value.is_empty() || value.chars().any(char::is_whitespace) {
-        return None;
-    }
-    let file_name = value
-        .rsplit(['/', '\\'])
-        .next()
-        .unwrap_or(value)
-        .trim_matches('.');
-    if value.contains('/') || value.contains('\\') || file_name.contains('.') {
-        Some(value.to_string())
-    } else {
-        None
-    }
-}
-
-fn normalize_fact_source_array(root: &mut serde_json::Map<String, JsonValue>, field: &str) {
-    let Some(JsonValue::Array(items)) = root.get_mut(field) else {
-        return;
-    };
-    for (index, item) in items.iter_mut().enumerate() {
-        match item {
-            JsonValue::String(text) => {
-                let description = text.trim().to_string();
-                *item = serde_json::json!({
-                    "id": format!("fact-source-{}", index + 1),
-                    "provenance": "observed_from_environment",
-                    "description": description,
-                    "evidence_refs": [{ "artifact_ref": "user-request" }],
-                });
-            }
-            JsonValue::Object(object) => {
-                object
-                    .entry("id".to_string())
-                    .or_insert_with(|| JsonValue::String(format!("fact-source-{}", index + 1)));
-                object
-                    .entry("provenance".to_string())
-                    .or_insert_with(|| JsonValue::String("observed_from_environment".to_string()));
-                object.entry("description".to_string()).or_insert_with(|| {
-                    JsonValue::String(format!("initial_fact_sources fact-source-{}", index + 1))
-                });
-                normalize_fact_source_inline_artifact_refs(object);
-                let needs_default = match object.get("evidence_refs") {
-                    Some(JsonValue::Array(existing)) => existing.is_empty(),
-                    Some(_) => false,
-                    None => true,
-                };
-                if needs_default {
-                    object.insert(
-                        "evidence_refs".to_string(),
-                        JsonValue::Array(vec![
-                            serde_json::json!({ "artifact_ref": "user-request" }),
-                        ]),
-                    );
-                }
-            }
-            _ => {}
-        }
-    }
-}
-
 fn normalize_state_commit_evidence_array(
     root: &mut serde_json::Map<String, JsonValue>,
     field: &str,
@@ -2266,7 +2014,7 @@ mod tests {
     #[test]
     fn protocol_errors_are_typed_without_action_guidance() {
         let error = taskspace_protocol_gate_error(
-            "taskspace_control start_task is missing task_objective.".to_string(),
+            "taskspace_control initialize_map is missing task_objective.".to_string(),
             "invalid_arguments",
         )
         .to_string();
@@ -2278,15 +2026,23 @@ mod tests {
     }
 
     #[test]
-    fn start_task_missing_semantic_fields_is_a_parse_error() {
-        let parsed = serde_json::from_value::<TaskSpaceControlArgs>(serde_json::json!({
-            "action": "start_task",
-            "task_title": "Audit",
-            "node_title": "Inspect",
-            "node_context_summary": "Read the project shape"
-        }));
+    fn obsolete_root_lifecycle_actions_are_rejected() {
+        for action in ["start_task", "route_task"] {
+            let parsed = serde_json::from_value::<TaskSpaceControlArgs>(serde_json::json!({
+                "action": action,
+                "task_id": "task-2",
+                "task_title": "Audit",
+                "task_objective": "Audit the codebase",
+                "node_kind": "inspect_code_context",
+                "node_title": "Inspect",
+                "node_context_summary": "Read the project shape"
+            }));
 
-        assert!(parsed.is_err());
+            assert!(
+                parsed.is_err(),
+                "obsolete action `{action}` must be rejected"
+            );
+        }
     }
 
     #[test]
@@ -2346,139 +2102,6 @@ mod tests {
             } => {
                 assert!(node_id.is_none());
                 assert_eq!(result_summary, "Inspection and repair are complete.");
-            }
-            other => panic!("unexpected args: {other:?}"),
-        }
-    }
-
-    #[test]
-    fn start_task_accepts_missing_initial_success_criteria_for_gate_recovery() {
-        let args: TaskSpaceControlArgs = serde_json::from_value(serde_json::json!({
-            "action": "start_task",
-            "task_title": "Audit",
-            "task_objective": "Audit the codebase",
-            "node_kind": "inspect_code_context",
-            "node_title": "Inspect",
-            "node_context_summary": "Read the project shape",
-            "bind_current": true
-        }))
-        .expect("start_task args parse");
-
-        match args {
-            TaskSpaceControlArgs::StartTask {
-                initial_success_criteria,
-                ..
-            } => assert!(initial_success_criteria.is_empty()),
-            other => panic!("unexpected args: {other:?}"),
-        }
-    }
-
-    #[test]
-    fn start_task_defaults_missing_bind_current_for_main_path() {
-        let args: TaskSpaceControlArgs = serde_json::from_value(serde_json::json!({
-            "action": "start_task",
-            "task_title": "Fix test",
-            "task_objective": "Fix the failing test",
-            "node_kind": "inspect_code_context",
-            "node_title": "Inspect",
-            "node_context_summary": "Read the README and tests"
-        }))
-        .expect("start_task args parse");
-
-        match args {
-            TaskSpaceControlArgs::StartTask { bind_current, .. } => {
-                assert_eq!(bind_current.unwrap_or(true), true)
-            }
-            other => panic!("unexpected args: {other:?}"),
-        }
-    }
-
-    #[test]
-    fn start_task_parses_initial_success_criteria_when_present() {
-        let args: TaskSpaceControlArgs = serde_json::from_value(serde_json::json!({
-            "action": "start_task",
-            "task_title": "Audit",
-            "task_objective": "Audit the codebase",
-            "node_kind": "inspect_code_context",
-            "initial_success_criteria": [{
-                "id": "sc-1",
-                "kind": "validator",
-                "description": "Public validator exits 0",
-                "evidence_refs": [{"artifact_ref": "user-request"}]
-            }],
-            "node_title": "Inspect",
-            "node_context_summary": "Read the project shape"
-        }))
-        .expect("start_task criteria parse");
-
-        match args {
-            TaskSpaceControlArgs::StartTask {
-                initial_success_criteria,
-                ..
-            } => {
-                assert_eq!(initial_success_criteria.len(), 1);
-                assert_eq!(initial_success_criteria[0].id, "sc-1");
-                assert_eq!(initial_success_criteria[0].status, "open");
-            }
-            other => panic!("unexpected args: {other:?}"),
-        }
-    }
-
-    #[test]
-    fn start_task_normalizes_initial_scaffold_aliases() {
-        let raw = serde_json::json!({
-            "action": "start_task",
-            "task_title": "Audit",
-            "task_objective": "Audit the codebase",
-            "success_criteria": ["Validator passes"],
-            "output_contracts": [{
-                "id": "oc-1",
-                "kind": "validator",
-                "description": "Final answer reports validator status"
-            }],
-            "fact_sources": [{
-                "id": "fs-1",
-                "provenance": "repo",
-                "description": "Repository state at task start",
-                "evidence_refs": []
-            }],
-            "node_title": "Inspect",
-            "node_context_summary": "Read the project shape"
-        })
-        .to_string();
-
-        let normalized =
-            normalize_taskspace_arguments(&raw).expect("start_task scaffold normalizes");
-        let args: TaskSpaceControlArgs =
-            serde_json::from_str(&normalized).expect("start_task scaffold parses");
-
-        match args {
-            TaskSpaceControlArgs::StartTask {
-                initial_success_criteria,
-                initial_output_contracts,
-                initial_fact_sources,
-                ..
-            } => {
-                assert_eq!(initial_success_criteria.len(), 1);
-                assert_eq!(initial_success_criteria[0].id, "criterion-1");
-                assert_eq!(initial_output_contracts.len(), 1);
-                assert_eq!(
-                    initial_output_contracts[0].evidence_refs[0]
-                        .artifact_ref
-                        .as_deref(),
-                    Some("user-request")
-                );
-                assert_eq!(initial_fact_sources.len(), 1);
-                assert_eq!(
-                    initial_fact_sources[0].provenance,
-                    "observed_from_environment"
-                );
-                assert_eq!(
-                    initial_fact_sources[0].evidence_refs[0]
-                        .artifact_ref
-                        .as_deref(),
-                    Some("user-request")
-                );
             }
             other => panic!("unexpected args: {other:?}"),
         }
@@ -2838,292 +2461,6 @@ mod tests {
     }
 
     #[test]
-    fn smoke_style_start_task_aliases_normalize() {
-        let raw = serde_json::json!({
-            "action": "start_task",
-            "payload": {
-                "task_name": "fix-failing-test",
-                "first_node": "diagnose-and-inspect",
-                "description": "Run diagnostic command, inspect README and tests."
-            }
-        });
-        let normalized = normalize_taskspace_arguments(&raw.to_string()).expect("normalize");
-        let args: TaskSpaceControlArgs =
-            serde_json::from_str(&normalized).expect("start_task aliases parse");
-
-        match args {
-            TaskSpaceControlArgs::StartTask {
-                task_title,
-                node_kind,
-                node_title,
-                node_context_summary,
-                ..
-            } => {
-                assert_eq!(task_title, "fix-failing-test");
-                assert_eq!(node_kind, "inspect_code_context");
-                assert_eq!(node_title, "diagnose-and-inspect");
-                assert!(node_context_summary.contains("diagnostic command"));
-            }
-            other => panic!("unexpected args: {other:?}"),
-        }
-    }
-
-    #[test]
-    fn start_task_accepts_action_name_alias() {
-        let raw = serde_json::json!({
-            "action_name": "start_task",
-            "first_node_id": "inspect_context",
-            "first_node_kind": "inspect_code_context",
-            "initial_success_criteria": "Tax calculation tests pass",
-            "initial_fact_sources": ["README", "test files", "source files"]
-        });
-
-        let normalized = normalize_taskspace_arguments(&raw.to_string()).expect("normalize");
-        let value: JsonValue = serde_json::from_str(&normalized).expect("json");
-        assert_eq!(value["action"], "start_task");
-        assert!(value.get("action_name").is_none());
-
-        let args: TaskSpaceControlArgs =
-            serde_json::from_str(&normalized).expect("start_task action_name alias parses");
-        match args {
-            TaskSpaceControlArgs::StartTask {
-                node_kind,
-                node_title,
-                initial_success_criteria,
-                initial_fact_sources,
-                ..
-            } => {
-                assert_eq!(node_kind, "inspect_code_context");
-                assert_eq!(node_title, "inspect_context");
-                assert_eq!(initial_success_criteria[0].id, "criterion-1");
-                assert_eq!(initial_fact_sources.len(), 3);
-            }
-            other => panic!("unexpected args: {other:?}"),
-        }
-    }
-
-    #[test]
-    fn start_task_accepts_natural_task_payload_aliases() {
-        let raw = serde_json::json!({
-            "action": "start_task",
-            "task_description": "Create a JSON processor that transforms departments.csv, employees.csv, and projects.csv into organization.json following schema.json.",
-            "initial_criteria": [
-                "Read schema.json",
-                "Verify organization.json structure matches schema"
-            ],
-            "initial_contracts": [
-                "organization.json file with correct structure and data",
-                "Code for JSON processor that can reproduce the output"
-            ],
-            "initial_fact_sources": [
-                "schema.json",
-                "departments.csv",
-                "employees.csv",
-                "projects.csv"
-            ],
-            "first_node_kind": "inspect_code_context",
-            "first_node_description": "Explore the provided CSV files and schema.json."
-        });
-
-        let normalized = normalize_taskspace_arguments(&raw.to_string()).expect("normalize");
-        let value: JsonValue = serde_json::from_str(&normalized).expect("json");
-        assert_eq!(
-            value["task_objective"],
-            "Create a JSON processor that transforms departments.csv, employees.csv, and projects.csv into organization.json following schema.json."
-        );
-        assert!(value.get("task_description").is_none());
-        assert!(value.get("initial_criteria").is_none());
-        assert!(value.get("initial_contracts").is_none());
-        assert_eq!(value["node_kind"], "inspect_code_context");
-
-        let args: TaskSpaceControlArgs =
-            serde_json::from_str(&normalized).expect("natural start task aliases parse");
-        match args {
-            TaskSpaceControlArgs::StartTask {
-                task_objective,
-                node_kind,
-                initial_success_criteria,
-                initial_output_contracts,
-                initial_fact_sources,
-                node_context_summary,
-                ..
-            } => {
-                assert!(task_objective.contains("organization.json"));
-                assert_eq!(node_kind, "inspect_code_context");
-                assert_eq!(initial_success_criteria.len(), 2);
-                assert_eq!(initial_output_contracts.len(), 2);
-                assert_eq!(initial_fact_sources.len(), 4);
-                assert_eq!(initial_fact_sources[0].description, "schema.json");
-                assert!(node_context_summary.contains("CSV files"));
-            }
-            other => panic!("unexpected args: {other:?}"),
-        }
-    }
-
-    #[test]
-    fn start_task_wraps_single_initial_section_objects() {
-        let raw = serde_json::json!({
-            "action": "start_task",
-            "task_description": "Validate organization.json with schema.json",
-            "initial_contracts": {
-                "description": "organization.json follows schema.json"
-            },
-            "initial_fact_sources": {
-                "path": "schema.json"
-            },
-            "first_node_kind": "inspect_code_context"
-        });
-
-        let normalized = normalize_taskspace_arguments(&raw.to_string()).expect("normalize");
-        let args: TaskSpaceControlArgs =
-            serde_json::from_str(&normalized).expect("single object sections parse");
-        match args {
-            TaskSpaceControlArgs::StartTask {
-                initial_output_contracts,
-                initial_fact_sources,
-                ..
-            } => {
-                assert_eq!(initial_output_contracts.len(), 1);
-                assert_eq!(
-                    initial_output_contracts[0].description,
-                    "organization.json follows schema.json"
-                );
-                assert_eq!(initial_fact_sources.len(), 1);
-                assert_eq!(
-                    initial_fact_sources[0].description,
-                    "initial_fact_sources fact-source-1"
-                );
-                assert_eq!(
-                    initial_fact_sources[0].evidence_refs[0]
-                        .artifact_ref
-                        .as_deref(),
-                    Some("schema.json")
-                );
-            }
-            other => panic!("unexpected args: {other:?}"),
-        }
-    }
-
-    #[test]
-    fn start_task_output_contract_path_normalizes_to_artifact_ref() {
-        let raw = serde_json::json!({
-            "action": "start_task",
-            "task_description": "Merge users and output merged_users.parquet",
-            "initial_output_contracts": [{
-                "path": "merged_users.parquet",
-                "description": "Merged user dataset with required columns"
-            }],
-            "first_node_kind": "inspect_code_context"
-        });
-
-        let normalized = normalize_taskspace_arguments(&raw.to_string()).expect("normalize");
-        let args: TaskSpaceControlArgs =
-            serde_json::from_str(&normalized).expect("start_task output-contract path parses");
-        match args {
-            TaskSpaceControlArgs::StartTask {
-                initial_output_contracts,
-                ..
-            } => {
-                assert_eq!(initial_output_contracts.len(), 1);
-                assert_eq!(
-                    initial_output_contracts[0].evidence_refs[0]
-                        .artifact_ref
-                        .as_deref(),
-                    Some("merged_users.parquet")
-                );
-            }
-            other => panic!("unexpected args: {other:?}"),
-        }
-    }
-
-    #[test]
-    fn start_task_string_output_contract_paths_normalize_to_artifact_refs() {
-        let raw = serde_json::json!({
-            "action": "start_task",
-            "task_description": "Merge users and produce declared files",
-            "initial_output_contracts": [
-                "/app/merged_users.parquet",
-                "/app/conflicts.json",
-                "Fixed implementation"
-            ],
-            "first_node_kind": "inspect_code_context"
-        });
-
-        let normalized = normalize_taskspace_arguments(&raw.to_string()).expect("normalize");
-        let args: TaskSpaceControlArgs =
-            serde_json::from_str(&normalized).expect("start_task string path contracts parse");
-        match args {
-            TaskSpaceControlArgs::StartTask {
-                initial_output_contracts,
-                ..
-            } => {
-                assert_eq!(initial_output_contracts.len(), 3);
-                assert_eq!(
-                    initial_output_contracts[0].evidence_refs[0]
-                        .artifact_ref
-                        .as_deref(),
-                    Some("/app/merged_users.parquet")
-                );
-                assert_eq!(
-                    initial_output_contracts[1].evidence_refs[0]
-                        .artifact_ref
-                        .as_deref(),
-                    Some("/app/conflicts.json")
-                );
-                assert_eq!(
-                    initial_output_contracts[2].evidence_refs[0]
-                        .artifact_ref
-                        .as_deref(),
-                    Some("user-request")
-                );
-            }
-            other => panic!("unexpected args: {other:?}"),
-        }
-    }
-
-    #[test]
-    fn start_task_fact_source_path_normalizes_to_artifact_ref() {
-        let raw = serde_json::json!({
-            "action": "start_task",
-            "node_kind": "inspect_code_context",
-            "initial_fact_sources": [{
-                "path": "schema.json",
-                "description": "Defines the expected organization.json schema"
-            }, {
-                "path": "employees.csv",
-                "description": "Input CSV with employee data"
-            }]
-        });
-
-        let normalized = normalize_taskspace_arguments(&raw.to_string()).expect("normalize");
-        let args: TaskSpaceControlArgs =
-            serde_json::from_str(&normalized).expect("start_task fact-source paths parse");
-
-        match args {
-            TaskSpaceControlArgs::StartTask {
-                initial_fact_sources,
-                ..
-            } => {
-                assert_eq!(initial_fact_sources.len(), 2);
-                assert_eq!(initial_fact_sources[0].id, "fact-source-1");
-                assert_eq!(
-                    initial_fact_sources[0].evidence_refs[0]
-                        .artifact_ref
-                        .as_deref(),
-                    Some("schema.json")
-                );
-                assert_eq!(
-                    initial_fact_sources[1].evidence_refs[0]
-                        .artifact_ref
-                        .as_deref(),
-                    Some("employees.csv")
-                );
-            }
-            other => panic!("unexpected args: {other:?}"),
-        }
-    }
-
-    #[test]
     fn finish_node_accepts_command_alias() {
         let raw = serde_json::json!({
             "command": "finish_node",
@@ -3170,51 +2507,6 @@ mod tests {
         match args {
             TaskSpaceControlArgs::FinishNode { result_summary, .. } => {
                 assert!(result_summary.contains("TaskSpace node completed"));
-            }
-            other => panic!("unexpected args: {other:?}"),
-        }
-    }
-
-    #[test]
-    fn start_task_direct_string_sections_normalize() {
-        let raw = serde_json::json!({
-            "action": "start_task",
-            "node_kind": "inspect_code_context",
-            "initial_success_criteria": "All tax tests pass",
-            "initial_output_contracts": "Fixed implementation",
-            "initial_fact_sources": ["README", "tests"],
-        });
-        let normalized = normalize_taskspace_arguments(&raw.to_string()).expect("normalize");
-        let args: TaskSpaceControlArgs =
-            serde_json::from_str(&normalized).expect("start_task direct strings parse");
-
-        match args {
-            TaskSpaceControlArgs::StartTask {
-                task_title,
-                node_title,
-                node_context_summary,
-                initial_success_criteria,
-                initial_output_contracts,
-                initial_fact_sources,
-                ..
-            } => {
-                assert!(!task_title.is_empty());
-                assert!(!node_title.is_empty());
-                assert!(!node_context_summary.is_empty());
-                assert_eq!(initial_success_criteria[0].id, "criterion-1");
-                assert_eq!(initial_success_criteria[0].status, "open");
-                assert_eq!(initial_output_contracts[0].id, "output-contract-1");
-                assert_eq!(
-                    initial_output_contracts[0].evidence_refs[0]
-                        .artifact_ref
-                        .as_deref(),
-                    Some("user-request")
-                );
-                assert_eq!(initial_fact_sources[0].id, "fact-source-1");
-                assert_eq!(
-                    initial_fact_sources[0].provenance,
-                    "observed_from_environment"
-                );
             }
             other => panic!("unexpected args: {other:?}"),
         }

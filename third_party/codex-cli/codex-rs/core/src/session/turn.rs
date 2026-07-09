@@ -1221,7 +1221,7 @@ Action argument rules:
 - read_file args: {\"path\":\"relative/path\"}; reads text files and supported structured previews such as .parquet with bounded rows/schema.
 - apply_patch args: {\"patch\":\"*** Begin Patch\\n...\\n*** End Patch\\n\"}; create new files with native `*** Add File: <path>` plus `+` content lines, and update existing files with `*** Update File: <path>` hunks.
 - run_test args: {\"command\":\"test command\",\"timeout_ms\":120000}
-- taskspace_control args: {\"action\":\"start_task|initialize_map|finish_node|create_node|bind_node|block_node|record_fact|record_fact_source|record_output_contract|record_success_criteria|state_commit\",...}; use canonical key \"action\", not \"action_name\" or \"command\", for lifecycle commands.
+- taskspace_control args: {\"action\":\"initialize_map|finish_node|create_node|bind_node|block_node|record_fact|record_fact_source|record_output_contract|record_success_criteria|state_commit\",...}; use canonical key \"action\", not \"action_name\" or \"command\", for lifecycle commands.
 - create_node args include {\"kind\":\"inspect_code_context|implement_solution|smoke_test|regression_test|final_synthesis\",\"title\":\"short title\",\"context_summary\":\"scope\",\"dependency_node_ids\":[\"node-id\"],\"bind_current\":true}
 - finish_node args include {\"result_summary\":\"what was completed\",\"next_node_kind\":\"implement_solution|smoke_test|regression_test|final_synthesis\",\"next_node_title\":\"short title\",\"next_node_context_summary\":\"scope\",\"next_dependency_node_ids\":[\"node-id\"]} when the same action should create and bind a next node.
 - final_answer args: {\"message\":\"user-facing final answer\"}
@@ -1275,8 +1275,8 @@ fn taskspace_action_contract_bootstrap_state_item() -> ResponseItem {
     let text = "TaskSpaceActionContractStateV1:\n\
 Active node id: none\n\
 Active node kind: bootstrap\n\
-No active TaskSpace task exists yet.\n\
-required_protocol: taskspace_control(action=start_task) creates the initial task path.\n\
+No Agent-authored TaskSpace map exists yet.\n\
+required_protocol: taskspace_control(action=initialize_map) fills the runtime mechanical blank map.\n\
 ordinary_tool_boundary: ordinary tools require an active task path, current node binding, and lease."
         .to_string();
     ResponseItem::Message {
@@ -4841,12 +4841,12 @@ mod active_context_replacement_tests {
     }
 
     #[test]
-    fn taskspace_action_contract_bootstrap_state_requires_start_task() {
+    fn taskspace_action_contract_bootstrap_state_requires_initialize_map() {
         let text = item_text(taskspace_action_contract_bootstrap_state_item());
 
         assert!(text.contains("Active node kind: bootstrap"));
         assert!(text.contains("taskspace_control"));
-        assert!(text.contains("action=start_task"));
+        assert!(text.contains("action=initialize_map"));
     }
 
     #[test]
@@ -4861,7 +4861,7 @@ mod active_context_replacement_tests {
         assert!(text.contains("hard_state: active_task_without_active_node"));
         assert!(text.contains("ordinary_tool_boundary: ordinary tools require an active node"));
         assert!(text.contains("state_transition_fact:"));
-        assert!(!text.contains("action=start_task"));
+        assert!(!text.contains("action=initialize_map"));
         assert!(!text.contains("state_machine_allowed_actions"));
         assert!(!text.contains("Do not create"));
     }
@@ -4878,7 +4878,7 @@ mod active_context_replacement_tests {
         assert!(text.contains("recorded_blocker_source"));
         assert!(!text.contains("state_machine_allowed_actions"));
         assert!(!text.contains("rejected_by_state_baseline"));
-        assert!(!text.contains("Do not call start_task"));
+        assert!(!text.contains("Do not call initialize_map"));
         assert!(text.contains("validator infrastructure blocker"));
     }
 
@@ -4910,7 +4910,7 @@ mod active_context_replacement_tests {
         assert!(text.contains("recorded_blocker_source"));
         assert!(!text.contains("state_machine_allowed_actions"));
         assert!(!text.contains("rejected_by_state_baseline"));
-        assert!(!text.contains("Do not call start_task"));
+        assert!(!text.contains("Do not call initialize_map"));
         assert!(text.contains("sandbox/tool runtime blocker"));
     }
 
@@ -5054,15 +5054,23 @@ mod active_context_replacement_tests {
 
     #[test]
     fn taskspace_action_contract_bootstrap_allows_only_taskspace_control() {
-        let start_task = parse_taskspace_action_v1(
-            r#"{"schema_version":"taskspace-action-v1","action":"taskspace_control","node_id":null,"args":{"action":"start_task","title":"Fix test","objective":"Fix the failing test"},"rationale":"bootstrap"}"#,
+        let initialize_map = parse_taskspace_action_v1(
+            r#"{"schema_version":"taskspace-action-v1","action":"taskspace_control","node_id":null,"args":{"action":"initialize_map","task_title":"Fix test","task_objective":"Fix the failing test","initial_nodes":[{"node_key":"inspect","kind":"inspect_code_context","title":"Inspect","context_summary":"Read the repository"}],"current_node_key":"inspect"},"rationale":"bootstrap"}"#,
         )
         .expect("valid bootstrap action");
-        let call = taskspace_bootstrap_action_to_tool_call(&start_task)
+        let call = taskspace_bootstrap_action_to_tool_call(&initialize_map)
             .expect("taskspace control should be allowed")
             .expect("taskspace control should execute");
 
         assert_eq!(call.tool_name.name, "taskspace_control");
+        match call.payload {
+            ToolPayload::Function { arguments } => {
+                let value: serde_json::Value = serde_json::from_str(&arguments).expect("json");
+                assert_eq!(value["action"], "initialize_map");
+                assert_eq!(value["initial_nodes"][0]["node_key"], "inspect");
+            }
+            other => panic!("expected function payload, got {other:?}"),
+        }
 
         let read_file = parse_taskspace_action_v1(
             r#"{"schema_version":"taskspace-action-v1","action":"read_file","node_id":null,"args":{"path":"README.md"}}"#,
@@ -5071,114 +5079,6 @@ mod active_context_replacement_tests {
         let err = taskspace_bootstrap_action_to_tool_call(&read_file)
             .expect_err("bootstrap must not allow ordinary tools");
         assert!(err.contains("bootstrap_policy_violation"));
-    }
-
-    #[test]
-    fn taskspace_action_contract_bootstrap_canonicalizes_action_name_alias() {
-        let start_task = parse_taskspace_action_v1(
-            r#"{"schema_version":"taskspace-action-v1","action":"taskspace_control","node_id":null,"args":{"action_name":"start_task","first_node_id":"inspect_context","first_node_kind":"inspect_code_context","initial_success_criteria":"Tax calculation tests pass","initial_fact_sources":["README","test files","source files"]},"rationale":"Initialize task"}"#,
-        )
-        .expect("valid bootstrap action");
-        let call = taskspace_bootstrap_action_to_tool_call(&start_task)
-            .expect("taskspace control should be allowed")
-            .expect("taskspace control should execute");
-
-        match call.payload {
-            ToolPayload::Function { arguments } => {
-                let value: serde_json::Value = serde_json::from_str(&arguments).expect("json");
-                assert_eq!(value["action"], "start_task");
-                assert!(value.get("action_name").is_none());
-            }
-            other => panic!("expected function payload, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn taskspace_action_contract_bootstrap_accepts_top_level_start_task_alias() {
-        let start_task = parse_taskspace_action_v1(
-            r#"{"schema_version":"taskspace-action-v1","action":"start_task","node_id":null,"args":{"initial_success_criteria":["Generate /app/merged_users.parquet","Generate /app/conflicts.json"],"initial_output_contracts":["/app/merged_users.parquet","/app/conflicts.json"],"initial_fact_sources":["/data/source_a/users.json","/data/source_b/users.csv","/data/source_c/users.parquet"]},"rationale":"Bootstrap the merge task."}"#,
-        )
-        .expect("valid top-level lifecycle action");
-        let call = taskspace_bootstrap_action_to_tool_call(&start_task)
-            .expect("top-level start_task should normalize to taskspace_control")
-            .expect("start_task should execute");
-
-        assert_eq!(call.tool_name.name, "taskspace_control");
-        match call.payload {
-            ToolPayload::Function { arguments } => {
-                let value: serde_json::Value = serde_json::from_str(&arguments).expect("json");
-                assert_eq!(value["action"], "start_task");
-                assert_eq!(
-                    value["initial_output_contracts"][0],
-                    "/app/merged_users.parquet"
-                );
-                assert_eq!(
-                    value["initial_fact_sources"][2],
-                    "/data/source_c/users.parquet"
-                );
-            }
-            other => panic!("expected function payload, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn taskspace_action_contract_canonicalizes_natural_start_task_aliases() {
-        let start_task = parse_taskspace_action_v1(
-            r#"{"schema_version":"taskspace-action-v1","action":"taskspace_control","node_id":null,"args":{"action":"start_task","task_description":"Create a JSON processor that transforms CSV data into organization.json following schema.json.","initial_criteria":["Read schema.json","Verify organization.json structure matches schema"],"initial_contracts":["organization.json file with correct structure and data"],"initial_fact_sources":["schema.json","departments.csv"],"first_node_kind":"inspect_code_context","first_node_description":"Explore the provided CSV files and schema.json."},"rationale":"Start task and inspect inputs."}"#,
-        )
-        .expect("valid start task action");
-        let snapshot = provider_snapshot("inspect_code_context");
-        let call = taskspace_action_to_tool_call(&start_task, &snapshot)
-            .expect("start task normalizes")
-            .expect("tool call");
-
-        match call.payload {
-            ToolPayload::Function { arguments } => {
-                let value: serde_json::Value = serde_json::from_str(&arguments).expect("json");
-                assert_eq!(value["action"], "start_task");
-                assert_eq!(
-                    value["task_objective"],
-                    "Create a JSON processor that transforms CSV data into organization.json following schema.json."
-                );
-                assert_eq!(value["node_kind"], "inspect_code_context");
-                assert_eq!(
-                    value["node_context_summary"],
-                    "Explore the provided CSV files and schema.json."
-                );
-                assert!(value.get("task_description").is_none());
-                assert!(value.get("initial_criteria").is_none());
-                assert!(value.get("initial_contracts").is_none());
-                assert!(value.get("first_node_kind").is_none());
-                assert!(value.get("first_node_description").is_none());
-                assert!(value["initial_success_criteria"].is_array());
-                assert!(value["initial_output_contracts"].is_array());
-                assert!(value["initial_fact_sources"].is_array());
-            }
-            other => panic!("expected function payload, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn taskspace_action_contract_preserves_start_task_rationale_as_objective() {
-        let start_task = parse_taskspace_action_v1(
-            r#"{"schema_version":"taskspace-action-v1","action":"taskspace_control","node_id":null,"args":{"action":"start_task","initial_node_kind":"inspect_code_context","initial_success_criteria":["found schema.json"],"initial_output_contracts":["schema structure summary"],"initial_fact_sources":["schema.json at root"]},"rationale":"Build a CSV-to-JSON processor that produces organization.json following schema.json."}"#,
-        )
-        .expect("valid start task action");
-        let snapshot = provider_snapshot("inspect_code_context");
-        let call = taskspace_action_to_tool_call(&start_task, &snapshot)
-            .expect("start task normalizes")
-            .expect("tool call");
-
-        match call.payload {
-            ToolPayload::Function { arguments } => {
-                let value: serde_json::Value = serde_json::from_str(&arguments).expect("json");
-                assert_eq!(value["action"], "start_task");
-                let objective = value["objective"].as_str().unwrap_or_default();
-                assert!(objective.contains("organization.json"), "{objective}");
-                assert!(objective.contains("schema.json"), "{objective}");
-            }
-            other => panic!("expected function payload, got {other:?}"),
-        }
     }
 
     #[test]
@@ -6600,7 +6500,7 @@ TaskSpace implement_solution node `node-6` cannot be blocked for missing source 
     #[test]
     fn taskspace_action_contract_conflicting_control_action_aliases_are_rejected() {
         let action = parse_taskspace_action_v1(
-            r#"{"schema_version":"taskspace-action-v1","action":"taskspace_control","node_id":"node-1","args":{"action":"finish_node","command":"start_task"}}"#,
+            r#"{"schema_version":"taskspace-action-v1","action":"taskspace_control","node_id":"node-1","args":{"action":"finish_node","command":"initialize_map"}}"#,
         )
         .expect("valid action shape");
         let err =
@@ -9560,7 +9460,7 @@ python: can't open file '/workspace/process.py': [Errno 2] No such file or direc
     #[test]
     fn action_contract_prompt_keeps_bootstrap_taskspace_profile() {
         let bootstrap_profile = format!(
-            "{TASKSPACE_ACTIVE_PROFILE_MARKER}\nNo TaskSpace task exists yet. Before ordinary tools, call taskspace_control(action=start_task)."
+            "{TASKSPACE_ACTIVE_PROFILE_MARKER}\nNo Agent-authored TaskSpace map exists yet. Before ordinary tools, call taskspace_control(action=initialize_map)."
         );
         let items = vec![
             message("developer", "unrelated developer text"),
@@ -9574,7 +9474,7 @@ python: can't open file '/workspace/process.py': [Errno 2] No such file or direc
         assert_eq!(prepared.len(), 2);
         assert!(joined.contains("Fix the failing test"));
         assert!(joined.contains(TASKSPACE_ACTIVE_PROFILE_MARKER));
-        assert!(joined.contains("action=start_task"));
+        assert!(joined.contains("action=initialize_map"));
         assert!(!joined.contains("unrelated developer text"));
     }
 
@@ -10102,7 +10002,7 @@ TaskSpaceGateRecoveryV1: {\"schema_version\":\"TaskSpaceGateRecoveryV1\",\"allow
         let items = vec![
             message(
                 "developer",
-                "TaskSpace mode is now active.\nBootstrap status: no TaskSpace task exists. taskspace_control(action=start_task) is required before ordinary tools.",
+                "TaskSpace mode is now active.\nBootstrap status: no Agent-authored map exists. taskspace_control(action=initialize_map) is required before ordinary tools.",
             ),
             message("developer", &active_projection),
             message("user", "Preserve the current bug-fix requirement."),
@@ -10119,7 +10019,7 @@ TaskSpaceGateRecoveryV1: {\"schema_version\":\"TaskSpaceGateRecoveryV1\",\"allow
         assert!(joined.contains("Preserve the current bug-fix requirement."));
         assert!(!joined.contains("Bootstrap status: no TaskSpace task exists"));
         assert!(!joined.contains("TaskSpace mode is now active."));
-        assert!(!joined.contains("taskspace_control(action=start_task)"));
+        assert!(!joined.contains("taskspace_control(action=initialize_map)"));
     }
 
     #[test]
@@ -11395,7 +11295,6 @@ fn taskspace_action_control_action(action: &TaskSpaceActionV1) -> Option<&str> {
 
 fn taskspace_top_level_control_action(action: &str) -> Option<&'static str> {
     match action {
-        "start_task" => Some("start_task"),
         "create_node" => Some("create_node"),
         "bind_node" => Some("bind_node"),
         "finish_node" => Some("finish_node"),
@@ -13036,206 +12935,6 @@ fn normalize_taskspace_action_contract_control_args(
     Ok(normalized)
 }
 
-fn normalize_taskspace_start_task_rationale_into_objective(
-    args: &mut serde_json::Value,
-    rationale: Option<&str>,
-) {
-    let Some(rationale) = rationale.map(str::trim).filter(|value| !value.is_empty()) else {
-        return;
-    };
-    let Some(root) = args.as_object_mut() else {
-        return;
-    };
-    if taskspace_control_action_from_root(root) != Some("start_task") {
-        return;
-    }
-    let objective_key = if root.contains_key("objective") {
-        "objective"
-    } else if root.contains_key("task_objective") {
-        "task_objective"
-    } else {
-        "objective"
-    };
-    match root.get_mut(objective_key) {
-        Some(serde_json::Value::String(existing)) => {
-            if !existing.contains(rationale) {
-                let merged = if existing.trim().is_empty() {
-                    rationale.to_string()
-                } else {
-                    format!("{} Rationale: {}", existing.trim(), rationale)
-                };
-                *existing = merged;
-            }
-        }
-        Some(_) => {}
-        None => {
-            root.insert(
-                objective_key.to_string(),
-                serde_json::Value::String(rationale.to_string()),
-            );
-        }
-    }
-}
-
-fn normalize_taskspace_action_contract_lifecycle_args(
-    root: &mut serde_json::Map<String, serde_json::Value>,
-    inner_action: &str,
-    snapshot: Option<&crate::action_map::ActionMapProviderRequestBudgetSnapshot>,
-) {
-    let current_node_id = snapshot.and_then(|snapshot| snapshot.node_id.as_deref());
-    match inner_action {
-        "start_task" => {
-            move_taskspace_json_alias(root, "task_name", "task_title");
-            move_taskspace_json_alias(root, "task_description", "task_objective");
-            move_taskspace_json_alias(root, "summary", "task_objective");
-            move_taskspace_json_alias(root, "first_node", "node_title");
-            move_taskspace_json_alias(root, "first_node_kind", "node_kind");
-            move_taskspace_json_alias(root, "initial_node_kind", "node_kind");
-            move_taskspace_json_alias(root, "first_node_id", "node_title");
-            move_taskspace_json_alias(root, "first_node_title", "node_title");
-            move_taskspace_json_alias(root, "first_node_description", "node_context_summary");
-            move_taskspace_json_alias(root, "first_node_context", "node_context_summary");
-            move_taskspace_json_alias(root, "initial_node_context", "node_context_summary");
-            move_taskspace_json_alias(root, "description", "node_context_summary");
-            move_taskspace_json_alias(root, "success_criteria", "initial_success_criteria");
-            move_taskspace_json_alias(root, "initial_criteria", "initial_success_criteria");
-            move_taskspace_json_alias(root, "criteria", "initial_success_criteria");
-            move_taskspace_json_alias(root, "output_contracts", "initial_output_contracts");
-            move_taskspace_json_alias(root, "initial_contracts", "initial_output_contracts");
-            move_taskspace_json_alias(root, "contracts", "initial_output_contracts");
-            move_taskspace_json_alias(root, "fact_sources", "initial_fact_sources");
-        }
-        "create_node" => {
-            move_taskspace_json_alias(root, "child_kind", "kind");
-            move_taskspace_json_alias(root, "node_kind", "kind");
-            move_taskspace_json_alias(root, "child_name", "title");
-            move_taskspace_json_alias(root, "label", "title");
-            move_taskspace_json_alias(root, "name", "title");
-            move_taskspace_json_alias(root, "node_title", "title");
-            move_taskspace_json_alias(root, "objective", "context_summary");
-            move_taskspace_json_alias(root, "node_context_summary", "context_summary");
-            move_taskspace_json_alias(root, "summary", "context_summary");
-            move_taskspace_json_alias(root, "description", "context_summary");
-            root.entry("kind".to_string())
-                .or_insert_with(|| serde_json::Value::String("inspect_code_context".to_string()));
-            let kind = root
-                .get("kind")
-                .and_then(serde_json::Value::as_str)
-                .unwrap_or("inspect_code_context")
-                .to_string();
-            root.entry("title".to_string()).or_insert_with(|| {
-                serde_json::Value::String(default_taskspace_action_node_title(&kind).to_string())
-            });
-            let title = root
-                .get("title")
-                .and_then(serde_json::Value::as_str)
-                .unwrap_or("TaskSpace node")
-                .to_string();
-            root.entry("context_summary".to_string())
-                .or_insert_with(|| {
-                    serde_json::Value::String(format!(
-                        "{title}. Continue the current TaskSpace task."
-                    ))
-                });
-            if snapshot.is_some_and(|snapshot| snapshot.node_id.is_none()) {
-                root.entry("bind_current".to_string())
-                    .or_insert_with(|| serde_json::Value::Bool(true));
-            }
-        }
-        "bind_node" if !root.contains_key("node_id") => {
-            if root.contains_key("node_kind")
-                || root.contains_key("kind")
-                || root.contains_key("child_kind")
-                || root.contains_key("objective")
-                || root.contains_key("label")
-                || root.contains_key("description")
-            {
-                root.insert(
-                    "action".to_string(),
-                    serde_json::Value::String("create_node".to_string()),
-                );
-                normalize_taskspace_action_contract_lifecycle_args(root, "create_node", snapshot);
-            }
-        }
-        "bind_node" | "block_node" | "finish_node" => {
-            if !root.contains_key("node_id")
-                && let Some(node_id) = current_node_id
-            {
-                root.insert(
-                    "node_id".to_string(),
-                    serde_json::Value::String(node_id.to_string()),
-                );
-            }
-            let effective_action = if inner_action == "finish_node"
-                && taskspace_finish_node_should_block_failed_validation(root, snapshot)
-            {
-                root.insert(
-                    "action".to_string(),
-                    serde_json::Value::String("block_node".to_string()),
-                );
-                "block_node"
-            } else {
-                inner_action
-            };
-            if effective_action == "block_node" {
-                move_taskspace_json_alias(root, "reason", "blocker_summary");
-                move_taskspace_json_alias(root, "summary", "blocker_summary");
-                move_taskspace_json_alias(root, "result", "blocker_summary");
-                if !root.contains_key("blocker_summary") {
-                    root.insert(
-                        "blocker_summary".to_string(),
-                        serde_json::Value::String(taskspace_failed_validation_blocker_summary(
-                            root,
-                        )),
-                    );
-                }
-            }
-            if effective_action == "finish_node" {
-                move_taskspace_json_alias(root, "result", "result_summary");
-                move_taskspace_json_alias(root, "summary", "result_summary");
-                move_taskspace_json_alias(root, "reason", "result_summary");
-                root.entry("result_summary".to_string()).or_insert_with(|| {
-                    serde_json::Value::String(
-                        "TaskSpace node completed with the inspected evidence.".to_string(),
-                    )
-                });
-                if snapshot.is_some_and(|snapshot| {
-                    snapshot.node_kind.as_deref() == Some("implement_solution")
-                }) {
-                    root.entry("next_node_kind".to_string())
-                        .or_insert_with(|| serde_json::Value::String("smoke_test".to_string()));
-                    if root
-                        .get("next_node_kind")
-                        .and_then(serde_json::Value::as_str)
-                        == Some("smoke_test")
-                    {
-                        root.entry("next_node_title".to_string())
-                            .or_insert_with(|| {
-                                serde_json::Value::String("Run focused validation".to_string())
-                            });
-                        root.entry("next_node_context_summary".to_string())
-                            .or_insert_with(|| {
-                                serde_json::Value::String(
-                                    "Run the focused test command after the implementation edit."
-                                        .to_string(),
-                                )
-                            });
-                        if !root.contains_key("next_dependency_node_ids")
-                            && let Some(node_id) = current_node_id
-                        {
-                            root.insert(
-                                "next_dependency_node_ids".to_string(),
-                                serde_json::json!([node_id]),
-                            );
-                        }
-                    }
-                }
-            }
-        }
-        _ => {}
-    }
-}
-
 fn taskspace_finish_node_should_block_failed_validation(
     root: &serde_json::Map<String, serde_json::Value>,
     snapshot: Option<&crate::action_map::ActionMapProviderRequestBudgetSnapshot>,
@@ -13346,31 +13045,6 @@ fn taskspace_failed_validation_blocker_summary(
         }
     }
     "Validation failed; route to implementation rework.".to_string()
-}
-
-fn default_taskspace_action_node_title(kind: &str) -> &'static str {
-    match kind {
-        "inspect_code_context" => "Inspect code context",
-        "implement_solution" => "Apply implementation",
-        "smoke_test" => "Run focused validation",
-        "regression_test" => "Run regression validation",
-        "final_synthesis" => "Summarize final outcome",
-        _ => "TaskSpace node",
-    }
-}
-
-fn move_taskspace_json_alias(
-    root: &mut serde_json::Map<String, serde_json::Value>,
-    alias: &str,
-    canonical: &str,
-) {
-    if root.contains_key(canonical) {
-        root.remove(alias);
-        return;
-    }
-    if let Some(value) = root.remove(alias) {
-        root.insert(canonical.to_string(), value);
-    }
 }
 
 fn normalize_taskspace_action_contract_record_fact_as_state_commit(

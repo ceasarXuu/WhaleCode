@@ -7661,7 +7661,7 @@ preview:\n\
             "Runtime slash commands such as /task-reborn and /task-show are UI commands, not shell commands; shell_command cannot execute them.\n",
         );
         context.push_str(
-            "Task routing boundary: runtime exposes task ids and validates structure only. Semantic routing remains an Agent decision represented through taskspace_control(action=route_task) or taskspace_control(action=start_task).\n",
+            "Task map boundary: runtime validates the active map structure only. The Agent authors task semantics through taskspace_control(action=initialize_map) and subsequent node lifecycle actions.\n",
         );
         context.push_str(
             "Task map capability facts: nodes can represent inspect_code_context, implement_solution, smoke_test, regression_test, and final_synthesis work. The Agent chooses whether the task needs one chain or multiple independent tracks.\n",
@@ -7825,11 +7825,11 @@ preview:\n\
             String::from("TaskSpace v0.0.5 thin bootstrap. Runtime state is authoritative.\n");
         if self.tasks.is_empty() {
             context.push_str(
-                "Bootstrap status: no TaskSpace task exists. taskspace_control(action=start_task) is required before ordinary tools or spawn_agent.\n",
+                "Hard state: runtime mechanical blank map is missing. ordinary tools and spawn_agent are unavailable.\n",
             );
         } else {
             context.push_str(
-                "Routing status: no active TaskSpace path is bound for this turn. taskspace_control(action=route_task) can bind a listed task; taskspace_control(action=start_task) can create a new task.\n",
+                "Hard state: no active TaskSpace path is bound for this turn. ordinary tools and spawn_agent require an active task path.\n",
             );
             context.push_str("Task inventory compact:\n");
             for task_id in ordered_task_ids(&self.tasks).into_iter().take(6) {
@@ -21184,7 +21184,8 @@ sample rows from {artifact}"
             .prepare_main_tool_call(owner, "shell")
             .expect_err("ordinary work requires task node first");
 
-        assert!(error.contains("taskspace_control(action=start_task"));
+        assert!(error.contains("no active task path"));
+        assert!(!error.contains("taskspace_control(action=start_task"));
         assert!(state.maps.is_empty());
     }
 
@@ -39371,7 +39372,8 @@ OK: 0 rows"
             .prepare_spawn_assignment(owner, "standard task", None)
             .expect_err("spawn requires a task path first");
 
-        assert!(error.contains("taskspace_control(action=start_task"));
+        assert!(error.contains("no active task path"));
+        assert!(!error.contains("taskspace_control(action=start_task"));
         assert!(state.active_map_id.is_none());
         assert!(state.maps.is_empty());
     }
@@ -40245,7 +40247,7 @@ OK: 0 rows"
     }
 
     #[test]
-    fn developer_context_exposes_task_inventory_for_agent_routing() {
+    fn developer_context_reports_missing_active_path_without_legacy_routing_actions() {
         let mut state = ActionMapRuntimeState::default();
         state.set_mode(MapRuntimeMode::Experiment);
         let owner = ThreadId::new();
@@ -40268,9 +40270,9 @@ OK: 0 rows"
         assert!(context.contains("Task inventory compact:"));
         assert!(context.contains("task-1 [active] Architecture review"));
         assert!(context.contains("objective=Find structural risks."));
-        assert!(context.contains("Routing status: no active TaskSpace path is bound"));
-        assert!(context.contains("taskspace_control(action=route_task)"));
-        assert!(context.contains("taskspace_control(action=start_task)"));
+        assert!(context.contains("Hard state: no active TaskSpace path is bound"));
+        assert!(!context.contains("taskspace_control(action=route_task)"));
+        assert!(!context.contains("taskspace_control(action=start_task)"));
     }
 
     #[test]

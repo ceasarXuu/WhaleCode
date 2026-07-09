@@ -97,7 +97,7 @@ pub(crate) fn base_map_metadata_prompt() -> String {
         prompt.push_str(node.when_to_use);
         prompt.push('\n');
     }
-    prompt.push_str("Candidate nodes are a task decomposition menu, not a checklist. taskspace_control(start_task/create_node) accepts one runtime node_kind value. BaseMap candidates outside the hard-gated values are node title/decomposition labels, not separate runtime kinds. Runtime rejects live custom nodes except restored legacy nodes.");
+    prompt.push_str("Candidate nodes are a task decomposition menu, not a checklist. taskspace_control(initialize_map/create_node) accepts runtime node_kind values. BaseMap candidates outside the hard-gated values are node title/decomposition labels, not separate runtime kinds. Runtime rejects live custom nodes except restored legacy nodes.");
     prompt.push('\n');
     prompt
 }

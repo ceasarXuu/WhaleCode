@@ -53,12 +53,24 @@ async fn map_runtime_conversation_records_node_bound_subagent_events() -> Result
 
     let server = start_mock_server().await;
     let create_node_args = serde_json::to_string(&json!({
-        "action": "start_task",
+        "action": "initialize_map",
         "task_title": "缓存模块边界调查",
         "task_objective": "调查缓存模块边界，然后由主 agent 继续推进。",
-        "node_title": "调查缓存模块边界",
-        "node_context_summary": "创建一个用于子 agent 调查缓存模块边界的 TaskSpace 节点。",
-        "bind_current": false,
+        "initial_nodes": [
+            {
+                "node_key": "coordinate",
+                "kind": "inspect_code_context",
+                "title": "协调缓存模块调查",
+                "context_summary": "等待并整合缓存模块边界调查结果。"
+            },
+            {
+                "node_key": "investigate",
+                "kind": "inspect_code_context",
+                "title": "调查缓存模块边界",
+                "context_summary": "供子 agent 调查缓存模块边界。"
+            }
+        ],
+        "current_node_key": "coordinate",
     }))?;
     let spawn_args = serde_json::to_string(&json!({
         "message": CHILD_PROMPT,
@@ -77,7 +89,7 @@ async fn map_runtime_conversation_records_node_bound_subagent_events() -> Result
     .await;
     responses::mount_sse_once_match(
         &server,
-        |req: &Request| body_contains(req, CREATE_NODE_CALL_ID),
+        |req: &Request| body_contains(req, "协调缓存模块调查"),
         sse(vec![
             ev_response_created("resp-parent-2"),
             ev_function_call(SPAWN_CALL_ID, "spawn_agent", &spawn_args),
@@ -126,16 +138,11 @@ async fn map_runtime_conversation_records_node_bound_subagent_events() -> Result
     })
     .await;
     let initial_snapshot = test.codex.action_map_snapshot().await;
-    assert!(initial_snapshot.routing_required);
-    assert!(initial_snapshot.bootstrap_required);
-    assert!(
-        initial_snapshot.tasks.is_empty(),
-        "TaskSpace enable must not create a default task: {initial_snapshot:#?}"
-    );
-    assert!(
-        initial_snapshot.maps.is_empty(),
-        "TaskSpace enable must not create a default map: {initial_snapshot:#?}"
-    );
+    assert!(!initial_snapshot.routing_required);
+    assert!(!initial_snapshot.bootstrap_required);
+    assert_eq!(initial_snapshot.tasks.len(), 1);
+    assert_eq!(initial_snapshot.maps.len(), 1);
+    assert!(initial_snapshot.maps[0].nodes.is_empty());
 
     test.submit_turn(USER_PROMPT).await?;
     let rollout_path = test.codex.rollout_path().context("rollout path")?;
@@ -152,11 +159,8 @@ async fn map_runtime_conversation_records_node_bound_subagent_events() -> Result
 
     let lease_created_count = count_event(&timeline, "lease_created");
     let lease_released_count = count_event(&timeline, "lease_released");
-    assert_eq!(lease_created_count, 1);
-    assert_eq!(
-        lease_created_count, lease_released_count,
-        "node-bound subagent lease should be released when result is recorded"
-    );
+    assert_eq!(lease_created_count, 2);
+    assert_eq!(lease_released_count, 1);
 
     write_basic_artifacts(&timeline, &rollout_path, &initial_snapshot)?;
 
@@ -190,16 +194,11 @@ async fn realistic_user_bugfix_runs_agent_actions_with_action_map() -> Result<()
     })
     .await;
     let initial_snapshot = harness.test().codex.action_map_snapshot().await;
-    assert!(initial_snapshot.routing_required);
-    assert!(initial_snapshot.bootstrap_required);
-    assert!(
-        initial_snapshot.tasks.is_empty(),
-        "TaskSpace enable must not create a default task: {initial_snapshot:#?}"
-    );
-    assert!(
-        initial_snapshot.maps.is_empty(),
-        "TaskSpace enable must not create a default map: {initial_snapshot:#?}"
-    );
+    assert!(!initial_snapshot.routing_required);
+    assert!(!initial_snapshot.bootstrap_required);
+    assert_eq!(initial_snapshot.tasks.len(), 1);
+    assert_eq!(initial_snapshot.maps.len(), 1);
+    assert!(initial_snapshot.maps[0].nodes.is_empty());
 
     harness.submit(REALISTIC_USER_PROMPT).await?;
 
@@ -244,7 +243,7 @@ async fn realistic_user_bugfix_runs_agent_actions_with_action_map() -> Result<()
     assert!(
         request_bodies.iter().any(|body| {
             let text = body.to_string();
-            text.contains("TaskSpace node assignment") && text.contains("Node: node-1")
+            text.contains("TaskSpace node assignment") && text.contains("Node: node-2")
         }),
         "child model request should include the TaskSpace node assignment"
     );
@@ -269,10 +268,10 @@ async fn realistic_user_bugfix_runs_agent_actions_with_action_map() -> Result<()
     ] {
         assert_event_present(&timeline, event_type);
     }
-    assert_eq!(count_event(&timeline, "lease_created"), 2);
-    assert_eq!(count_event(&timeline, "lease_released"), 2);
+    assert_eq!(count_event(&timeline, "lease_created"), 3);
+    assert_eq!(count_event(&timeline, "lease_released"), 3);
     assert_eq!(count_lease_released_by_holder(&timeline, "subagent"), 1);
-    assert_eq!(count_lease_released_by_holder(&timeline, "main"), 1);
+    assert_eq!(count_lease_released_by_holder(&timeline, "main"), 2);
     assert!(
         timeline.iter().any(|event| {
             let text = event.to_string();
@@ -280,7 +279,7 @@ async fn realistic_user_bugfix_runs_agent_actions_with_action_map() -> Result<()
                 && text.contains("node-2")
                 && text.contains("main_tool_call")
         }),
-        "parent patch and validation results should be recorded on the follow-up implementation node"
+        "subagent tool evidence should remain attached to its initialized investigation node"
     );
 
     write_realistic_artifacts(
@@ -320,12 +319,24 @@ def test_cache_key_normalizes_key():\n    assert cache_key(\"Users\", \"ABC\") =
 
 async fn mount_realistic_user_bugfix_responses(harness: &TestCodexHarness) -> Result<()> {
     let create_node_args = serde_json::to_string(&json!({
-        "action": "start_task",
+        "action": "initialize_map",
         "task_title": "缓存 key 回归修复",
         "task_objective": "调查缓存 key 失败边界，修复代码并验证。",
-        "node_title": "调查缓存 key 失败边界",
-        "node_context_summary": "创建一个用于子 agent 阅读缓存代码和测试的 TaskSpace 节点。",
-        "bind_current": false,
+        "initial_nodes": [
+            {
+                "node_key": "coordinate",
+                "kind": "inspect_code_context",
+                "title": "协调缓存 key 回归修复",
+                "context_summary": "等待并整合边界调查结果。"
+            },
+            {
+                "node_key": "investigate",
+                "kind": "inspect_code_context",
+                "title": "调查缓存 key 失败边界",
+                "context_summary": "供子 agent 阅读缓存代码和测试。"
+            }
+        ],
+        "current_node_key": "coordinate",
     }))?;
     let spawn_args = serde_json::to_string(&json!({
         "message": REALISTIC_CHILD_PROMPT,
@@ -348,7 +359,7 @@ async fn mount_realistic_user_bugfix_responses(harness: &TestCodexHarness) -> Re
 
     responses::mount_sse_once_match(
         harness.server(),
-        |req: &Request| body_contains(req, REALISTIC_CREATE_NODE_CALL_ID),
+        |req: &Request| body_contains(req, "协调缓存 key 回归修复"),
         sse(vec![
             ev_response_created("resp-parent-spawn"),
             ev_function_call(REALISTIC_SPAWN_CALL_ID, "spawn_agent", &spawn_args),
@@ -390,10 +401,11 @@ async fn mount_realistic_user_bugfix_responses(harness: &TestCodexHarness) -> Re
 
     let wait_args = serde_json::to_string(&json!({ "timeout_ms": 10_000 }))?;
     let implementation_node_args = serde_json::to_string(&json!({
-        "action": "create_node",
-        "title": "Fix cache key normalization",
-        "context_summary": "Implement the cache key namespace normalization fix after the boundary investigation finished.",
-        "bind_current": true,
+        "action": "finish_node",
+        "result_summary": "缓存 key 边界调查已完成。",
+        "next_node_kind": "implement_solution",
+        "next_node_title": "Fix cache key normalization",
+        "next_node_context_summary": "Implement the cache key namespace normalization fix after the boundary investigation finished.",
     }))?;
     responses::mount_sse_once_match(
         harness.server(),
@@ -436,7 +448,7 @@ async fn mount_realistic_user_bugfix_responses(harness: &TestCodexHarness) -> Re
 
     responses::mount_sse_once_match(
         harness.server(),
-        |req: &Request| body_contains(req, REALISTIC_IMPLEMENT_NODE_CALL_ID),
+        |req: &Request| body_contains(req, "Fix cache key normalization"),
         sse(vec![
             ev_response_created("resp-parent-patch"),
             ev_apply_patch_function_call(REALISTIC_PATCH_CALL_ID, patch),
@@ -469,7 +481,6 @@ async fn mount_realistic_user_bugfix_responses(harness: &TestCodexHarness) -> Re
                 "taskspace_control",
                 &serde_json::to_string(&json!({
                     "action": "finish_node",
-                    "node_id": "node-2",
                     "result_summary": "Cache key namespace normalization was implemented and validated.",
                 }))?,
             ),
@@ -480,7 +491,12 @@ async fn mount_realistic_user_bugfix_responses(harness: &TestCodexHarness) -> Re
 
     responses::mount_sse_once_match(
         harness.server(),
-        |req: &Request| body_contains(req, REALISTIC_FINISH_NODE_CALL_ID),
+        |req: &Request| {
+            body_contains(
+                req,
+                "Cache key namespace normalization was implemented and validated.",
+            )
+        },
         sse(vec![
             ev_response_created("resp-parent-final"),
             ev_assistant_message(
