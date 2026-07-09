@@ -508,13 +508,15 @@ $outputRefEventLines = @(Get-Content -LiteralPath $costArtifacts.output_ref_even
 Assert-True (($outputRefEventLines -join "`n").Contains('"kind":"output_ref.created"')) "output-ref-events.jsonl omitted output_ref.created"
 Assert-True (($outputRefEventLines -join "`n").Contains('"kind":"output_ref.slice_read"')) "output-ref-events.jsonl omitted output_ref.slice_read"
 Assert-True ([string]$costArtifacts.token_summary.availability -eq "partial") "partial token usage was not marked partial"
-Assert-True ([int]$costArtifacts.request_summary.model_request_count -eq 2) "model request count did not come from usage events"
-Assert-True ([int]$costArtifacts.request_summary.max_input_tokens_per_request -eq 120) "max input tokens per request was not reported"
-Assert-True ([int]$costArtifacts.request_summary.p95_input_tokens_per_request -eq 120) "p95 input tokens per request was not reported"
-Assert-True ([int]$costArtifacts.request_summary.first_input_tokens_per_request -eq 120) "first input tokens per request was not reported"
-Assert-True ([int]$costArtifacts.request_summary.max_output_tokens_per_request -eq 30) "max output tokens per request was not reported"
-Assert-True ([int]$costArtifacts.request_summary.p95_output_tokens_per_request -eq 30) "p95 output tokens per request was not reported"
-Assert-True ([int]$costArtifacts.request_summary.last_output_tokens_per_request -eq 7) "last output tokens per request was not reported"
+Assert-True ([int]$costArtifacts.request_summary.model_request_count -eq 2) "model request count did not come from rollout request events"
+Assert-True ([string]$costArtifacts.request_summary.model_request_count_source -eq "rollout_trace") "model request source was not recorded"
+Assert-True ([int]$costArtifacts.request_summary.token_usage_record_count -eq 2) "turn usage record count was not preserved separately"
+Assert-True ([int]$costArtifacts.request_summary.max_input_tokens_per_request -eq 300) "max input tokens per request was not reported"
+Assert-True ([int]$costArtifacts.request_summary.p95_input_tokens_per_request -eq 300) "p95 input tokens per request was not reported"
+Assert-True ([int]$costArtifacts.request_summary.first_input_tokens_per_request -eq 100) "first input tokens per request was not reported"
+Assert-True ([int]$costArtifacts.request_summary.max_output_tokens_per_request -eq 21) "max output tokens per request was not reported"
+Assert-True ([int]$costArtifacts.request_summary.p95_output_tokens_per_request -eq 21) "p95 output tokens per request was not reported"
+Assert-True ([int]$costArtifacts.request_summary.last_output_tokens_per_request -eq 21) "last output tokens per request was not reported"
 Assert-True ([string]$costArtifacts.request_summary.rollout_trace.availability -eq "measured") "rollout request trace was not measured"
 Assert-True ([int]$costArtifacts.request_summary.rollout_trace.model_request_count -eq 2) "rollout request trace count was not parsed"
 Assert-True ([int]$costArtifacts.request_summary.rollout_trace.input_tokens -eq 400) "rollout request trace input tokens were not summed"
@@ -536,29 +538,20 @@ Assert-True ([int]$costArtifacts.replay_summary.large_output_replay_count -eq 0)
 $projectionJsonl = Join-Path $costDir "projection-source.jsonl"
 $activeProjectionBlock = @"
 ContextProjectionV1 active replacement:
-- projection_id: projection-active-task-1-map-1
+- projection_id: projection-taskspace-task-1-map-1
 - task_id: task-1
-- mode: default_compact
+- map_id: map-1
+- mode: taskspace
 - active_objective: Verify projection metrics.
+- current_node: node-1 kind=inspect_code_context status=running
 - sections:
-  success_criteria:
-    - projected criteria
-  current_node: node-1
-  blockers:
-    - none
-  decisions:
-    - decision: use thin projection
-  facts:
-    - fact: output refs active
-  relevant_results:
-    - result:abc
-  verified_input_evidence:
-    - none
-  fact_source_coverage:
-    - /data/source_a/users.json status=observed
+  map_nodes:
+    - node-1 kind=inspect_code_context status=running
+  current_node_recent_events:
+    - node-event-1 source=main_tool tool_success=true
   result_refs_available:
     - result:abc
-- estimated_tokens: 123
+ContextProjectionV1 active replacement end.
 "@
 $shadowProjectionBlock = @"
 ContextProjectionV1 shadow (not active replacement):
@@ -592,13 +585,13 @@ ContextProjectionV1 shadow (not active replacement):
 $projectionArtifacts = Write-TaskspaceCostInstrumentationArtifacts (Join-Path $costDir "projection") $projectionJsonl ""
 Assert-True ([string]$projectionArtifacts.context_projection_summary.availability -eq "measured") "context projection summary was not marked measured"
 Assert-True ([int]$projectionArtifacts.context_projection_summary.projection_count -eq 1) "context projection block was not counted"
-Assert-True ([int]$projectionArtifacts.context_projection_summary.projection_tokens_total -eq 123) "context projection tokens were not parsed"
+Assert-True ($null -eq $projectionArtifacts.context_projection_summary.projection_tokens_total) "active projection should not expose an estimated token field"
 Assert-True ([int]$projectionArtifacts.context_projection_summary.protected_miss_count -eq 0) "context projection protected sections were reported missing"
 Assert-True ([int]$projectionArtifacts.context_projection_summary.active_projection_count -eq 1) "active projection count was not reported"
 Assert-True ([int]$projectionArtifacts.context_projection_summary.shadow_projection_count -eq 0) "active projection fixture was counted as shadow"
 $projectionEventLine = Get-Content -LiteralPath $projectionArtifacts.projection_events_path -Encoding UTF8 | Select-Object -First 1
 $projectionEvent = $projectionEventLine | ConvertFrom-Json
-Assert-True ([string]$projectionEvent.projection_id -eq "projection-active-task-1-map-1") "active projection event id was not parsed"
+Assert-True ([string]$projectionEvent.projection_id -eq "projection-taskspace-task-1-map-1") "active projection event id was not parsed"
 Assert-True ([string]$projectionEvent.projection_kind -eq "active_replacement") "active projection kind was not parsed"
 $shadowProjectionJsonl = Join-Path $costDir "projection-shadow-source.jsonl"
 @(
@@ -1133,11 +1126,21 @@ foreach ($side in @("left", "right")) {
 $resumeLeftMetrics = $metrics.PSObject.Copy()
 $resumeLeftMetrics.mode = "left"; $resumeLeftMetrics.logical_mode = "standard"; $resumeLeftMetrics.business_success = $true
 $resumeLeftMetrics.public_validation_exit_code = 0; $resumeLeftMetrics.hidden_oracle_exit_code = 0
+$resumeLeftMetrics | Add-Member -NotePropertyName agent_final_observed -NotePropertyValue $true -Force
+$resumeLeftMetrics | Add-Member -NotePropertyName agent_completion_status -NotePropertyValue "complete" -Force
+$resumeLeftMetrics | Add-Member -NotePropertyName sampling_interrupted -NotePropertyValue $false -Force
+$resumeLeftMetrics | Add-Member -NotePropertyName external_validation_status -NotePropertyValue "passed" -Force
+$resumeLeftMetrics | Add-Member -NotePropertyName utility_eligible -NotePropertyValue $true -Force
 $resumeLeftMetrics | Add-Member -NotePropertyName validator_environment_failures -NotePropertyValue @() -Force
 $resumeLeftMetrics | Add-Member -NotePropertyName metrics_taints -NotePropertyValue @() -Force
 $resumeRightMetrics = $rightMetrics.PSObject.Copy()
 $resumeRightMetrics.mode = "right"; $resumeRightMetrics.logical_mode = "taskspace"; $resumeRightMetrics.business_success = $true
 $resumeRightMetrics.public_validation_exit_code = 0; $resumeRightMetrics.hidden_oracle_exit_code = 0
+$resumeRightMetrics | Add-Member -NotePropertyName agent_final_observed -NotePropertyValue $true -Force
+$resumeRightMetrics | Add-Member -NotePropertyName agent_completion_status -NotePropertyValue "complete" -Force
+$resumeRightMetrics | Add-Member -NotePropertyName sampling_interrupted -NotePropertyValue $false -Force
+$resumeRightMetrics | Add-Member -NotePropertyName external_validation_status -NotePropertyValue "passed" -Force
+$resumeRightMetrics | Add-Member -NotePropertyName utility_eligible -NotePropertyValue $true -Force
 $resumeRightMetrics | Add-Member -NotePropertyName validator_environment_failures -NotePropertyValue @() -Force
 $resumeRightMetrics | Add-Member -NotePropertyName metrics_taints -NotePropertyValue @() -Force
 Write-TaskspaceJson $resumeLeftMetrics (Join-Path $resumeClassifyPair "left\artifacts\metrics.json")

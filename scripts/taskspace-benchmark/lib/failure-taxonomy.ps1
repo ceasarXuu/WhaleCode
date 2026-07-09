@@ -82,6 +82,9 @@ function Get-TaskspaceEngineeringUncleanReasons {
     )
     $reasons = New-Object System.Collections.Generic.List[string]
     if ($Metrics) {
+        if (Get-TaskspaceMetricBool $Metrics "taskspace_profile_hard_stop_seen") {
+            Add-TaskspaceFailureClass $reasons "taskspace_profile_hard_stop"
+        }
         if (Get-TaskspaceMetricBool $Metrics "public_validation_skipped") {
             $skipReason = if ($Metrics.PSObject.Properties.Name -contains "public_validation_skip_reason") { [string]$Metrics.public_validation_skip_reason } else { "" }
             $probeStatus = if ($Metrics.PSObject.Properties.Name -contains "pre_agent_validator_probe_status") { [string]$Metrics.pre_agent_validator_probe_status } else { "" }
@@ -150,6 +153,8 @@ function Get-TaskspaceAgentOutcome {
     )
     if (@($EngineeringUncleanReasons).Count -gt 0) { return "engineering_unclean" }
     if (Get-TaskspaceMetricBool $Metrics "exec_timed_out") { return "agent_exec_timeout" }
+    if (Get-TaskspaceMetricBool $Metrics "sampling_interrupted") { return "runtime_interrupted" }
+    if ($Metrics -and $Metrics.PSObject.Properties.Name -contains "agent_completion_status" -and [string]$Metrics.agent_completion_status -ne "complete") { return "agent_incomplete" }
     if (Test-TaskspaceMetricSuccess $Metrics) { return "solved" }
     "wrong"
 }

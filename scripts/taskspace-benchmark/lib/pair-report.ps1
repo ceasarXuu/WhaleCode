@@ -21,13 +21,15 @@ function Get-TaskspaceEvidenceGate {
         $ExternalProof = $null,
         $SideOutcomes = $null,
         [string[]]$MetricsTaints = @(),
-        [string[]]$EnvironmentFailures = @()
+        [string[]]$EnvironmentFailures = @(),
+        [bool]$AgentLifecycleEligible = $true
     )
     $failures = New-Object System.Collections.Generic.List[string]
     $e3Failures = New-Object System.Collections.Generic.List[string]
     $effectiveE3MinimumRepeats = [Math]::Max(5, $E3MinimumRepeats)
     if ($InvalidPair) { $failures.Add("invalid_pair") }
     if (-not $BusinessSuccess) { $failures.Add("business_success_false") }
+    if (-not $AgentLifecycleEligible) { $failures.Add("agent_lifecycle_ineligible") }
     if ($Repeats -lt 3) { $failures.Add("repeats_lt_3") }
     if ($PromptGuard.invalid_prompt) { $failures.Add("invalid_prompt") }
     if ($PromptGuard.manual_review_required) { $failures.Add("manual_review_required") }
@@ -177,6 +179,7 @@ function Get-TaskspaceEvidenceGate {
         human_review_decision = $HumanReviewDecision
         human_review_disagreement = $HumanReviewDisagreement
         oracle_isolation_policy = $OracleIsolationPolicy
+        agent_lifecycle_eligible = $AgentLifecycleEligible
     }
 }
 
@@ -456,11 +459,27 @@ function Write-TaskspacePairReport {
             @("business_success", $sideMetrics.business_success),
             @("exec_exit_code", $sideMetrics.exec_exit_code),
             @("exec_timed_out", $sideMetrics.exec_timed_out),
+            @("agent_completion_status", $(if ($sideMetrics.PSObject.Properties.Name -contains "agent_completion_status") { $sideMetrics.agent_completion_status } else { "unknown" })),
+            @("agent_final_observed", $(if ($sideMetrics.PSObject.Properties.Name -contains "agent_final_observed") { $sideMetrics.agent_final_observed } else { $false })),
+            @("agent_completion_source", $(if ($sideMetrics.PSObject.Properties.Name -contains "agent_completion_source") { $sideMetrics.agent_completion_source } else { "unknown" })),
+            @("last_provider_response_actionability", $(if ($sideMetrics.PSObject.Properties.Name -contains "last_provider_response_actionability") { $sideMetrics.last_provider_response_actionability } else { "unknown" })),
+            @("sampling_interrupted", $(if ($sideMetrics.PSObject.Properties.Name -contains "sampling_interrupted") { $sideMetrics.sampling_interrupted } else { $false })),
+            @("interruption_source", $(if ($sideMetrics.PSObject.Properties.Name -contains "interruption_source") { $sideMetrics.interruption_source } else { "unknown" })),
+            @("external_validation_status", $(if ($sideMetrics.PSObject.Properties.Name -contains "external_validation_status") { $sideMetrics.external_validation_status } else { "unknown" })),
+            @("utility_eligible", $(if ($sideMetrics.PSObject.Properties.Name -contains "utility_eligible") { $sideMetrics.utility_eligible } else { $false })),
             @("public_validation_exit_code", $sideMetrics.public_validation_exit_code),
             @("hidden_oracle_exit_code", $sideMetrics.hidden_oracle_exit_code),
             @("oracle_isolation_level", $sideMetrics.oracle_isolation_level),
             @("wall_time_ms", $sideMetrics.wall_time_ms),
             @("tool_call_count", $sideMetrics.tool_call_count),
+            @("model_request_count", $(if ($sideMetrics.PSObject.Properties.Name -contains "model_request_count") { $sideMetrics.model_request_count } else { $null })),
+            @("model_request_count_source", $(if ($sideMetrics.PSObject.Properties.Name -contains "model_request_count_source") { $sideMetrics.model_request_count_source } else { "unavailable" })),
+            @("token_usage_record_count", $(if ($sideMetrics.PSObject.Properties.Name -contains "token_usage_record_count") { $sideMetrics.token_usage_record_count } else { 0 })),
+            @("taskspace_control_count", $(if ($sideMetrics.PSObject.Properties.Name -contains "taskspace_control_count") { $sideMetrics.taskspace_control_count } else { 0 })),
+            @("taskspace_control_count_source", $(if ($sideMetrics.PSObject.Properties.Name -contains "taskspace_control_count_source") { $sideMetrics.taskspace_control_count_source } else { "unavailable" })),
+            @("taskspace_control_count_source_mismatch", $(if ($sideMetrics.PSObject.Properties.Name -contains "taskspace_control_count_source_mismatch") { $sideMetrics.taskspace_control_count_source_mismatch } else { $false })),
+            @("exact_payload_scan_event_count", $(if ($sideMetrics.PSObject.Properties.Name -contains "exact_payload_scan_event_count") { $sideMetrics.exact_payload_scan_event_count } else { 0 })),
+            @("runtime_boundary_forbidden_marker_count", $(if ($sideMetrics.PSObject.Properties.Name -contains "runtime_boundary_forbidden_marker_count") { $sideMetrics.runtime_boundary_forbidden_marker_count } else { 0 })),
             @("changed_paths", (@($sideMetrics.changed_paths) -join ", ")),
             @("changed_file_inventory", (@($sideMetrics.changed_file_inventory | ForEach-Object { "$($_.path)[$($_.status)] sha256=$($_.sha256) size=$($_.size_bytes)" }) -join "; ")),
             @("metrics_warnings", (@($sideMetrics.metrics_warnings) -join ", ")),

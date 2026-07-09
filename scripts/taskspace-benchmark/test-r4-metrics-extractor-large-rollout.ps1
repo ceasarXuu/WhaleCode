@@ -26,19 +26,19 @@ $ordinaryBeforeBinding = Join-Path $RunRoot "ordinary-before-binding.jsonl"
 @(
     '{"type":"response_item","payload":{"type":"message","role":"user","content":[]}}',
     '{"type":"response_item","payload":{"type":"function_call","name":"shell_command","arguments":"{\"command\":\"rg --files\"}"}}',
-    '{"type":"response_item","payload":{"type":"function_call","name":"taskspace_control","arguments":"{\"action\":\"start_task\"}"}}'
+    '{"type":"event_msg","payload":{"type":"lease_created","mapId":"map-1","nodeId":"node-1","leaseId":"lease-1"}}'
 ) | Set-Content -Encoding UTF8 -LiteralPath $ordinaryBeforeBinding
 
 $bindingFirst = Join-Path $RunRoot "binding-first.jsonl"
 @(
-    '{"type":"response_item","payload":{"type":"function_call","name":"taskspace_control","arguments":"{\"action\":\"start_task\"}"}}',
+    '{"type":"event_msg","payload":{"type":"lease_created","mapId":"map-1","nodeId":"node-1","leaseId":"lease-1"}}',
     '{"type":"response_item","payload":{"type":"function_call","name":"shell_command","arguments":"{\"command\":\"rg --files\"}"}}'
 ) | Set-Content -Encoding UTF8 -LiteralPath $bindingFirst
 
 $largeBindingFirst = Join-Path $RunRoot "large-binding-first.jsonl"
 $writer = [System.IO.StreamWriter]::new($largeBindingFirst, $false, [System.Text.UTF8Encoding]::new($false))
 try {
-    $writer.WriteLine('{"type":"response_item","payload":{"type":"function_call","name":"taskspace_control","arguments":"{\"action\":\"start_task\"}"}}')
+    $writer.WriteLine('{"type":"event_msg","payload":{"type":"taskspace_trace_event_recorded","kind":"mechanical_blank_map_initialized","taskId":"task-1","mapId":"map-1","nodeId":"node-1"}}')
     for ($i = 0; $i -lt 20000; $i++) {
         $writer.WriteLine('{"type":"event_msg","payload":{"type":"message","text":"' + ('x' * 200) + '"}}')
     }
@@ -83,5 +83,34 @@ $obsRuntimeStats = Get-TaskspaceObservabilityToolStats ([pscustomobject]@{
     })
 Assert-Equal $obsRuntimeStats.Completed 5 "observability runtime-count fallback did not count calls"
 Assert-Equal $obsRuntimeStats.Availability "observability_runtime_counts" "observability runtime fallback did not record source"
+
+$completionDir = Join-Path $RunRoot "completion"
+New-Item -ItemType Directory -Force -Path $completionDir | Out-Null
+$standardFinal = Join-Path $completionDir "standard-final.jsonl"
+@(
+    '{"type":"item.completed","item":{"type":"command_execution","status":"completed"}}',
+    '{"type":"item.completed","item":{"type":"agent_message","text":"Done."}}',
+    '{"type":"turn.completed","usage":{"input_tokens":10}}'
+) | Set-Content -Encoding UTF8 -LiteralPath $standardFinal
+$taskspaceFinal = Join-Path $completionDir "taskspace-final.jsonl"
+@(
+    '{"type":"item.completed","item":{"type":"agent_message","text":"Done."}}',
+    '{"type":"item.completed","item":{"type":"error","message":"TaskSpaceProviderResponseActionabilityV1 actionability=final_candidate recovery_action=none"}}'
+) | Set-Content -Encoding UTF8 -LiteralPath $taskspaceFinal
+$taskspaceRejected = Join-Path $completionDir "taskspace-rejected.jsonl"
+@(
+    '{"type":"item.completed","item":{"type":"agent_message","text":"Done."}}',
+    '{"type":"item.completed","item":{"type":"error","message":"TaskSpaceProviderResponseActionabilityV1 actionability=final_rejected recovery_action=none"}}'
+) | Set-Content -Encoding UTF8 -LiteralPath $taskspaceRejected
+$messageThenTool = Join-Path $completionDir "message-then-tool.jsonl"
+@(
+    '{"type":"item.completed","item":{"type":"agent_message","text":"Let me verify."}}',
+    '{"type":"item.completed","item":{"type":"command_execution","status":"completed"}}'
+) | Set-Content -Encoding UTF8 -LiteralPath $messageThenTool
+
+Assert-Equal (Get-TaskspaceAgentCompletionEvidence $standardFinal "standard").agent_final_observed $true "terminal standard Agent message was not detected"
+Assert-Equal (Get-TaskspaceAgentCompletionEvidence $taskspaceFinal "taskspace").agent_final_observed $true "TaskSpace final candidate was not detected"
+Assert-Equal (Get-TaskspaceAgentCompletionEvidence $taskspaceRejected "taskspace").agent_final_observed $false "rejected TaskSpace final was classified complete"
+Assert-Equal (Get-TaskspaceAgentCompletionEvidence $messageThenTool "standard").agent_final_observed $false "nonterminal Agent progress message was classified complete"
 
 Write-Host "PASS: R4 metrics extractor large rollout gate passed"

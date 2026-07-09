@@ -4,6 +4,7 @@ $ErrorActionPreference = "Stop"
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 . (Join-Path $PSScriptRoot "lib\harness-health.ps1")
 . (Join-Path $PSScriptRoot "lib\run-state.ps1")
+. (Join-Path $PSScriptRoot "lib\metrics-extractor.ps1")
 . (Join-Path $PSScriptRoot "lib\failure-taxonomy.ps1")
 . (Join-Path $PSScriptRoot "lib\audit-manifest.ps1")
 . (Join-Path $PSScriptRoot "lib\aggregate-report.ps1")
@@ -44,6 +45,9 @@ function New-Metrics {
         business_success = $Success
         exec_exit_code = 0
         exec_timed_out = $ExecTimedOut
+        agent_final_observed = $true
+        agent_completion_source = "fixture_agent_final"
+        last_agent_message_source = "agent_message"
         public_validation_exit_code = $PublicExit
         hidden_oracle_exit_code = 0
         wall_time_ms = 1000
@@ -87,6 +91,40 @@ Assert-Outcome "agent timeout skip missing probe" (New-Metrics "left" "taskspace
 Assert-Outcome "agent timeout skip failed probe" (New-Metrics "left" "taskspace" -ExecTimedOut $true -PublicExit 0 -PublicValidationSkipped $true -PublicValidationSkipReason "agent_exec_timeout" -PreAgentProbeStatus "failed" -PreAgentProbeHash ("a" * 64)) "engineering_unclean" $false
 Assert-Outcome "validator timeout" (New-Metrics "left" "standard" -PublicExit 124 -Failures @("public_validation_timeout")) "engineering_unclean" $false
 Assert-Outcome "docker failure before tests" (New-Metrics "left" "standard" -PublicExit 1 -Failures @("docker_run_failure") -PretestFailure $true) "engineering_unclean" $false
+
+$profileHardStopMetrics = New-Metrics "right" "taskspace" -Success $true -PublicExit 0
+$profileHardStopMetrics | Add-Member -NotePropertyName taskspace_profile_hard_stop_seen -NotePropertyValue $true -Force
+Set-TaskspaceLifecycleClassification $profileHardStopMetrics | Out-Null
+Assert-True ([string]$profileHardStopMetrics.agent_completion_status -eq "interrupted") "profile hard stop was not classified as interrupted"
+Assert-True ([bool]$profileHardStopMetrics.sampling_interrupted) "profile hard stop did not set sampling_interrupted"
+Assert-True ([string]$profileHardStopMetrics.interruption_source -eq "taskspace_profile_hard_stop") "profile hard stop interruption source was lost"
+Assert-True ([string]$profileHardStopMetrics.external_validation_status -eq "passed") "external validation status was not kept independent"
+Assert-True (-not [bool]$profileHardStopMetrics.utility_eligible) "profile hard stop entered utility despite interrupted Agent lifecycle"
+Assert-Outcome "profile hard stop with passing validation" $profileHardStopMetrics "engineering_unclean" $false
+
+$noFinalMetrics = New-Metrics "right" "taskspace" -Success $true -PublicExit 0
+$noFinalMetrics.agent_final_observed = $false
+$noFinalMetrics.agent_completion_source = "none"
+$noFinalMetrics.last_agent_message_source = "none"
+Set-TaskspaceLifecycleClassification $noFinalMetrics | Out-Null
+Assert-True ([string]$noFinalMetrics.agent_completion_status -eq "incomplete") "exec zero without Agent final was classified complete"
+Assert-True (-not [bool]$noFinalMetrics.sampling_interrupted) "missing Agent final was incorrectly classified as an interruption"
+Assert-True (-not [bool]$noFinalMetrics.utility_eligible) "external validation success overrode missing Agent completion"
+
+$completedMetrics = New-Metrics "right" "taskspace" -Success $true -PublicExit 0
+Set-TaskspaceLifecycleClassification $completedMetrics | Out-Null
+Assert-True ([string]$completedMetrics.agent_completion_status -eq "complete") "observed Agent final was not classified complete"
+Assert-True ([bool]$completedMetrics.utility_eligible) "completed Agent with passing validation was excluded from utility"
+
+$failedValidationMetrics = New-Metrics "right" "taskspace" -Success $false -PublicExit 1
+Set-TaskspaceLifecycleClassification $failedValidationMetrics | Out-Null
+Assert-True ([string]$failedValidationMetrics.agent_completion_status -eq "complete") "validation failure overwrote Agent completion"
+Assert-True ([string]$failedValidationMetrics.external_validation_status -eq "failed") "failed validation lifecycle was not preserved"
+Assert-True (-not [bool]$failedValidationMetrics.utility_eligible) "failed validation entered utility"
+
+$lifecycleGate = Get-TaskspaceEvidenceGate 3 ([pscustomobject]@{ invalid_prompt = $false; manual_review_required = $false }) "hard_sandbox" "known" $false $true $false $true "deferred_materialization_allowed" "E2" $null $null $null $false $false 5 "" $false $null $null @() @() $false
+Assert-True (@($lifecycleGate.evidence_gate_failures) -contains "agent_lifecycle_ineligible") "interrupted lifecycle was not excluded from utility evidence"
+Assert-True (-not [bool]$lifecycleGate.included_in_utility_aggregate) "interrupted lifecycle remained utility eligible"
 
 $abortRun = Join-Path $RunRoot ("score-validity-abort-{0}" -f (Get-Date -Format "yyyyMMdd-HHmmss-fff"))
 $abortPair = Join-Path $abortRun "pair-001"

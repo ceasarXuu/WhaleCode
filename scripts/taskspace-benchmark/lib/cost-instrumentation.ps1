@@ -310,6 +310,7 @@ function New-TaskspaceBudgetArtifacts {
             completed_stale_node_history_tokens = Convert-TaskspaceTraceInt $tags.completed_stale_node_history_tokens
             rejected_subagent_body_tokens = Convert-TaskspaceTraceInt $tags.rejected_subagent_body_tokens
             large_raw_output_tokens = Convert-TaskspaceTraceInt $tags.large_raw_output_tokens
+            runtime_boundary_forbidden_markers = [string]$tags.runtime_boundary_forbidden_markers
             protected_items_present = Convert-TaskspaceTraceBool $tags.protected_items_present $false
             replacement_confirmed = Convert-TaskspaceTraceBool $tags.replacement_confirmed $false
         })
@@ -1125,22 +1126,28 @@ function New-TaskspaceRolloutRequestTraceSummary {
 function New-TaskspaceRequestSummary {
     param([string]$JsonlPath, $TokenSummary, [AllowEmptyString()][string]$RolloutJsonlPath = "")
     $rolloutTrace = New-TaskspaceRolloutRequestTraceSummary $RolloutJsonlPath
+    $requestTraceMeasured = [string]$rolloutTrace.availability -eq "measured" -and
+        $null -ne $rolloutTrace.model_request_count -and
+        [int]$rolloutTrace.model_request_count -gt 0
+    $requestCount = if ($requestTraceMeasured) { [int]$rolloutTrace.model_request_count } else { $null }
     [pscustomobject]@{
         schema_version = "taskspace-request-summary-v1"
         source_path = $JsonlPath
         rollout_source_path = $RolloutJsonlPath
-        availability = [string]$TokenSummary.availability
-        model_request_count = $TokenSummary.model_request_count
-        avg_input_tokens_per_request = if ($TokenSummary.model_request_count -and $TokenSummary.input_tokens -ne $null) { [Math]::Round([double]$TokenSummary.input_tokens / [double]$TokenSummary.model_request_count, 4) } else { $null }
-        avg_output_tokens_per_request = if ($TokenSummary.model_request_count -and $TokenSummary.output_tokens -ne $null) { [Math]::Round([double]$TokenSummary.output_tokens / [double]$TokenSummary.model_request_count, 4) } else { $null }
-        max_input_tokens_per_request = $TokenSummary.request_distribution.max_input_tokens
-        p95_input_tokens_per_request = $TokenSummary.request_distribution.p95_input_tokens
-        first_input_tokens_per_request = $TokenSummary.request_distribution.first_input_tokens
-        last_input_tokens_per_request = $TokenSummary.request_distribution.last_input_tokens
-        max_output_tokens_per_request = $TokenSummary.request_distribution.max_output_tokens
-        p95_output_tokens_per_request = $TokenSummary.request_distribution.p95_output_tokens
-        first_output_tokens_per_request = $TokenSummary.request_distribution.first_output_tokens
-        last_output_tokens_per_request = $TokenSummary.request_distribution.last_output_tokens
+        availability = if ($requestTraceMeasured) { "measured" } else { "request_trace_unavailable" }
+        model_request_count_source = if ($requestTraceMeasured) { "rollout_trace" } else { "unavailable" }
+        model_request_count = $requestCount
+        token_usage_record_count = $TokenSummary.model_request_count
+        avg_input_tokens_per_request = if ($requestTraceMeasured -and $null -ne $rolloutTrace.input_tokens) { [Math]::Round([double]$rolloutTrace.input_tokens / [double]$requestCount, 4) } else { $null }
+        avg_output_tokens_per_request = if ($requestTraceMeasured -and $null -ne $rolloutTrace.output_tokens) { [Math]::Round([double]$rolloutTrace.output_tokens / [double]$requestCount, 4) } else { $null }
+        max_input_tokens_per_request = $rolloutTrace.max_input_tokens_per_request
+        p95_input_tokens_per_request = $rolloutTrace.p95_input_tokens_per_request
+        first_input_tokens_per_request = $rolloutTrace.first_input_tokens_per_request
+        last_input_tokens_per_request = $rolloutTrace.last_input_tokens_per_request
+        max_output_tokens_per_request = $rolloutTrace.max_output_tokens_per_request
+        p95_output_tokens_per_request = $rolloutTrace.p95_output_tokens_per_request
+        first_output_tokens_per_request = $rolloutTrace.first_output_tokens_per_request
+        last_output_tokens_per_request = $rolloutTrace.last_output_tokens_per_request
         rollout_trace = $rolloutTrace
         parse_status = [string]$TokenSummary.parse_status
         parse_errors = [int]$TokenSummary.parse_errors
@@ -1177,7 +1184,11 @@ function New-TaskspaceProviderInputVisibilitySummary {
 }
 
 function New-TaskspaceControlUsageSummary {
-    param([string]$JsonlPath, [string]$ObservabilityJsonPath = "")
+    param(
+        [string]$JsonlPath,
+        [string]$ObservabilityJsonPath = "",
+        [AllowEmptyString()][string]$RolloutJsonlPath = ""
+    )
     $parsed = Get-TaskspaceCostJsonlRows $JsonlPath
     $actions = @{}
     $total = 0
@@ -1249,11 +1260,70 @@ function New-TaskspaceControlUsageSummary {
     $stateCommit = $script:taskspaceCostStateCommit
     $nativeTotal = $script:taskspaceCostNativeControlTotal
     $actionContractTotal = $script:taskspaceCostActionContractControlTotal
+    $execNativeTotal = [int]$nativeTotal
+    $execActionContractTotal = [int]$actionContractTotal
+    $execTotal = [int]$total
     Remove-Variable -Name taskspaceCostActions -Scope Script -ErrorAction SilentlyContinue
     Remove-Variable -Name taskspaceCostControlTotal -Scope Script -ErrorAction SilentlyContinue
     Remove-Variable -Name taskspaceCostStateCommit -Scope Script -ErrorAction SilentlyContinue
     Remove-Variable -Name taskspaceCostNativeControlTotal -Scope Script -ErrorAction SilentlyContinue
     Remove-Variable -Name taskspaceCostActionContractControlTotal -Scope Script -ErrorAction SilentlyContinue
+    $rolloutParsed = Get-TaskspaceCostJsonlRows $RolloutJsonlPath
+    $rolloutActions = @{}
+    $rolloutNativeCallIds = [System.Collections.Generic.HashSet[string]]::new()
+    $rolloutActionContractCallIds = [System.Collections.Generic.HashSet[string]]::new()
+    $rolloutResponseItemCount = 0
+    foreach ($row in @($rolloutParsed.rows)) {
+        if ([string](Get-TaskspaceCostProperty $row @("type")) -ne "response_item") { continue }
+        $rolloutResponseItemCount++
+        $payload = Get-TaskspaceCostProperty $row @("payload")
+        if ($null -eq $payload -or [string](Get-TaskspaceCostProperty $payload @("type")) -notin @("function_call", "custom_tool_call")) { continue }
+        if ([string](Get-TaskspaceCostProperty $payload @("name")) -ne "taskspace_control") { continue }
+        $callId = [string](Get-TaskspaceCostProperty $payload @("call_id"))
+        if ([string]::IsNullOrWhiteSpace($callId)) { continue }
+        $isActionContract = $callId.StartsWith("taskspace-action-contract-")
+        $added = if ($isActionContract) {
+            $rolloutActionContractCallIds.Add($callId)
+        } else {
+            $rolloutNativeCallIds.Add($callId)
+        }
+        if (-not $added) { continue }
+        $action = ""
+        $arguments = Get-TaskspaceCostProperty $payload @("arguments", "args")
+        if ($arguments -is [string]) {
+            try {
+                $parsedArguments = $arguments | ConvertFrom-Json
+                $action = [string](Get-TaskspaceCostProperty $parsedArguments @("action"))
+            } catch {}
+        } elseif ($null -ne $arguments) {
+            $action = [string](Get-TaskspaceCostProperty $arguments @("action"))
+        }
+        Add-TaskspaceCostCount $rolloutActions $action
+    }
+    $rolloutNativeTotal = [int]$rolloutNativeCallIds.Count
+    $rolloutActionContractTotal = [int]$rolloutActionContractCallIds.Count
+    $rolloutTotal = $rolloutNativeTotal + $rolloutActionContractTotal
+    $rolloutControlTelemetryMeasured = ($rolloutParsed.source_status -eq "read" -and $rolloutResponseItemCount -gt 0)
+    $controlCountSource = "unavailable"
+    if ($rolloutControlTelemetryMeasured) {
+        $nativeTotal = $rolloutNativeTotal
+        $actionContractTotal = $rolloutActionContractTotal
+        $total = $rolloutTotal
+        $actions = $rolloutActions
+        $controlCountSource = "rollout_trace"
+    } elseif ($parsed.source_status -eq "read") {
+        $controlCountSource = "whale_exec_jsonl"
+    }
+    $stateCommit = if ($actions.ContainsKey("state_commit")) { [int]$actions["state_commit"] } else { 0 }
+    $controlCountSourceMismatch = (
+        $rolloutControlTelemetryMeasured -and
+        $parsed.source_status -eq "read" -and
+        $execTotal -gt 0 -and
+        $rolloutTotal -gt 0 -and
+        ($execTotal -ne $rolloutTotal -or
+            $execNativeTotal -ne $rolloutNativeTotal -or
+            $execActionContractTotal -ne $rolloutActionContractTotal)
+    )
     $runtimeEventCounts = @{}
     $runtimeEventTotal = 0
     $runtimeStateCommit = 0
@@ -1317,10 +1387,22 @@ function New-TaskspaceControlUsageSummary {
         schema_version = "taskspace-control-usage-v1"
         source_path = $JsonlPath
         observability_source_path = $ObservabilityJsonPath
+        rollout_source_path = $RolloutJsonlPath
         source_status = [string]$parsed.source_status
+        rollout_source_status = [string]$rolloutParsed.source_status
+        rollout_response_item_count = [int]$rolloutResponseItemCount
+        rollout_control_telemetry_measured = [bool]$rolloutControlTelemetryMeasured
         observability_source_status = $runtimeSourceStatus
         parse_errors = [int]$parsed.parse_errors
-        availability = if ($parsed.source_status -eq "read") { "measured" } else { "source_missing" }
+        availability = if ($parsed.source_status -eq "read" -or $rolloutParsed.source_status -eq "read") { "measured" } else { "source_missing" }
+        taskspace_control_count_source = $controlCountSource
+        taskspace_control_count_source_mismatch = [bool]$controlCountSourceMismatch
+        whale_exec_taskspace_control_count = $execTotal
+        rollout_taskspace_control_count = $rolloutTotal
+        whale_exec_native_taskspace_control_count = $execNativeTotal
+        rollout_native_taskspace_control_count = $rolloutNativeTotal
+        whale_exec_action_contract_taskspace_control_count = $execActionContractTotal
+        rollout_action_contract_taskspace_control_count = $rolloutActionContractTotal
         taskspace_control_count = [int]$total
         native_taskspace_control_count = [int]$nativeTotal
         action_contract_taskspace_control_count = [int]$actionContractTotal
@@ -1496,7 +1578,7 @@ function Get-TaskspaceContextProjectionBlocks {
     }
     $blocks = New-Object System.Collections.Generic.List[string]
     foreach ($text in @($texts.ToArray())) {
-        foreach ($match in [regex]::Matches($text, "(?s)ContextProjectionV1 (?:active replacement|shadow \(not active replacement\)):.*?- estimated_tokens:\s*\d+")) {
+        foreach ($match in [regex]::Matches($text, "(?s)ContextProjectionV1 active replacement:.*?ContextProjectionV1 active replacement end\.|ContextProjectionV1 shadow \(not active replacement\):.*?- estimated_tokens:\s*\d+")) {
             $block = [string]$match.Value
             if (-not [string]::IsNullOrWhiteSpace($block)) { $blocks.Add($block) }
         }
@@ -1506,22 +1588,16 @@ function Get-TaskspaceContextProjectionBlocks {
 
 function New-TaskspaceContextProjectionEvent {
     param([Parameter(Mandatory = $true)][string]$Block)
-    $requiredSections = @(
-        "success_criteria",
-        "current_node",
-        "blockers",
-        "decisions",
-        "facts",
-        "relevant_results",
-        "verified_input_evidence",
-        "fact_source_coverage",
-        "result_refs_available"
-    )
-    $missing = @($requiredSections | Where-Object { $Block -notmatch "(?m)^\s*$([regex]::Escape($_)):" })
+    $projectionKind = if ($Block -match "ContextProjectionV1 active replacement:") { "active_replacement" } elseif ($Block -match "ContextProjectionV1 shadow \(not active replacement\):") { "shadow" } else { "unknown" }
+    $requiredSections = if ($projectionKind -eq "active_replacement") {
+        @("task_id", "map_id", "current_node", "map_nodes", "current_node_recent_events", "result_refs_available")
+    } else {
+        @("success_criteria", "current_node", "blockers", "decisions", "facts", "relevant_results", "verified_input_evidence", "fact_source_coverage", "result_refs_available")
+    }
+    $missing = @($requiredSections | Where-Object { $Block -notmatch "(?m)^\s*(?:-\s*)?$([regex]::Escape($_)):" })
     $projectionId = ""
     $taskId = ""
     $mode = ""
-    $projectionKind = if ($Block -match "ContextProjectionV1 active replacement:") { "active_replacement" } elseif ($Block -match "ContextProjectionV1 shadow \(not active replacement\):") { "shadow" } else { "unknown" }
     $estimatedTokens = $null
     $projectionMatch = [regex]::Match($Block, "(?m)^-\s*projection_id:\s*(.+?)\s*$")
     if ($projectionMatch.Success) { $projectionId = $projectionMatch.Groups[1].Value.Trim() }
@@ -1618,7 +1694,7 @@ function Write-TaskspaceCostInstrumentationArtifacts {
     $request = New-TaskspaceRequestSummary $JsonlPath $token $rolloutScanPath
     $request | Add-Member -NotePropertyName rollout_scan_policy -NotePropertyValue $scanPolicy -Force
     $visibility = New-TaskspaceProviderInputVisibilitySummary $JsonlPath $token
-    $control = New-TaskspaceControlUsageSummary $JsonlPath $ObservabilityJsonPath
+    $control = New-TaskspaceControlUsageSummary $JsonlPath $ObservabilityJsonPath $rolloutScanPath
     $replay = New-TaskspaceReplaySummary $ArtifactDir
     $outputRefEvents = @(New-TaskspaceOutputRefEvents $ObservabilityJsonPath $ArtifactDir)
     $projection = New-TaskspaceContextProjectionSummary $JsonlPath $ObservabilityJsonPath $rolloutScanPath

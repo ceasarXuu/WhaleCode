@@ -33,23 +33,85 @@ function Test-TaskspaceOrdinaryToolBeforeBindingInRollout {
     if ([string]::IsNullOrWhiteSpace($RolloutPath)) { return $false }
     if (-not (Test-Path -LiteralPath $RolloutPath -PathType Leaf)) { return $false }
 
+    $bindingEstablished = $false
     foreach ($line in [System.IO.File]::ReadLines($RolloutPath)) {
-        if ($line -match '"name"\s*:\s*"taskspace_control"' -or
-            $line -match '"action"\s*:\s*"taskspace_control"' -or
-            $line -match 'taskspace-action-contract-bootstrap-taskspace_control') {
-            return $false
+        if ([string]::IsNullOrWhiteSpace($line)) { continue }
+        try { $event = $line | ConvertFrom-Json } catch { continue }
+        $payload = $event.payload
+        if ($null -eq $payload) { continue }
+        $payloadType = [string]$payload.type
+        if ($payloadType -eq "lease_created" -or
+            ($payloadType -eq "taskspace_trace_event_recorded" -and
+                [string]$payload.kind -eq "mechanical_blank_map_initialized")) {
+            $bindingEstablished = $true
+            continue
         }
-        if ($line -match '"type"\s*:\s*"function_call"' -and
-            $line -match '"name"\s*:\s*"' -and
-            $line -notmatch '"name"\s*:\s*"taskspace_control"') {
+        if ([string]$event.type -ne "response_item") { continue }
+        if ($payloadType -in @("function_call", "custom_tool_call") -and
+            [string]$payload.name -ne "taskspace_control" -and
+            -not $bindingEstablished) {
             return $true
         }
-        if ($line -match '"type"\s*:\s*"local_shell_call"' -or
-            $line -match '"type"\s*:\s*"custom_tool_call"') {
+        if ($payloadType -eq "local_shell_call" -and -not $bindingEstablished) {
             return $true
         }
     }
     return $false
+}
+
+function Get-TaskspaceAgentCompletionEvidence {
+    param(
+        [AllowEmptyString()][string]$JsonlPath = "",
+        [AllowEmptyString()][string]$LogicalMode = ""
+    )
+    $lastAgentMessageIndex = -1
+    $lastAgentActionIndex = -1
+    $agentMessageCount = 0
+    $lastActionability = ""
+    $rowIndex = 0
+    if (-not [string]::IsNullOrWhiteSpace($JsonlPath) -and (Test-Path -LiteralPath $JsonlPath -PathType Leaf)) {
+        foreach ($line in [System.IO.File]::ReadLines($JsonlPath)) {
+            $rowIndex++
+            if ([string]::IsNullOrWhiteSpace($line)) { continue }
+            try { $row = $line | ConvertFrom-Json } catch { continue }
+            if ([string]$row.type -notin @("item.started", "item.completed") -or $null -eq $row.item) { continue }
+            $itemType = [string]$row.item.type
+            if ([string]$row.type -eq "item.completed" -and $itemType -eq "agent_message") {
+                $lastAgentMessageIndex = $rowIndex
+                $agentMessageCount++
+                continue
+            }
+            if ($itemType -eq "error") {
+                $message = [string]$row.item.message
+                if ($message -match 'TaskSpaceProviderResponseActionabilityV1 actionability=([a-z_]+)') {
+                    $lastActionability = [string]$Matches[1]
+                }
+                continue
+            }
+            if ($itemType -notin @("todo_list", "reasoning")) {
+                $lastAgentActionIndex = $rowIndex
+            }
+        }
+    }
+    $terminalAgentMessage = $lastAgentMessageIndex -gt $lastAgentActionIndex
+    $finalObserved = if ($LogicalMode -eq "taskspace") {
+        $terminalAgentMessage -and $lastActionability -eq "final_candidate"
+    } else {
+        $terminalAgentMessage
+    }
+    [pscustomobject]@{
+        agent_final_observed = [bool]$finalObserved
+        agent_completion_source = if ($finalObserved -and $LogicalMode -eq "taskspace") {
+            "taskspace_final_candidate"
+        } elseif ($finalObserved) {
+            "terminal_agent_message"
+        } else {
+            "none"
+        }
+        last_agent_message_source = if ($lastAgentMessageIndex -ge 0) { "agent_message" } else { "none" }
+        agent_message_count = [int]$agentMessageCount
+        last_provider_response_actionability = $lastActionability
+    }
 }
 
 function Get-TaskspaceRolloutToolStats {
@@ -408,6 +470,23 @@ function Get-TaskspaceBenchmarkMetrics {
     Write-TaskspaceGraphHealthReport $graphHealthReport $graphHealthPath
     $observabilityJsonPath = if ($ObservabilityResult) { [string]$ObservabilityResult.observability_json } else { "" }
     $costInstrumentation = Write-TaskspaceCostInstrumentationArtifacts $Side.ArtifactDir $Exec.jsonl_path $observabilityJsonPath
+    $agentCompletion = Get-TaskspaceAgentCompletionEvidence $Exec.jsonl_path $Side.LogicalMode
+    $profileHardStopSeen = $false
+    $lifecycleScanPaths = @(
+        [string]$costInstrumentation.cost_scan_policy.rollout_effective_scan_path,
+        [string]$Exec.last_message_path,
+        [string]$Exec.stderr_path
+    ) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) -and (Test-Path -LiteralPath $_) } | Sort-Object -Unique
+    foreach ($scanPath in $lifecycleScanPaths) {
+        if (Select-String -LiteralPath $scanPath -SimpleMatch -Quiet -Pattern @(
+                "TaskSpaceProviderBudgetHardStopV1",
+                "TaskSpace provider budget hard stop",
+                "provider_request_hard_limit_exceeded"
+            )) {
+            $profileHardStopSeen = $true
+            break
+        }
+    }
     $rolloutToolStats = Get-TaskspaceRolloutToolStats ([string]$costInstrumentation.cost_scan_policy.rollout_effective_scan_path)
     $observabilityToolStats = Get-TaskspaceObservabilityToolStats $obs
     $toolCallCount = [Math]::Max([int]$commandStats.Completed, [Math]::Max([int]$rolloutToolStats.Completed, [int]$observabilityToolStats.Completed))
@@ -418,11 +497,17 @@ function Get-TaskspaceBenchmarkMetrics {
                 @($_.leases | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_.agentThreadId) } | ForEach-Object { [string]$_.agentThreadId })
             } | Sort-Object -Unique)
     }
-    [pscustomobject]@{
+    $metrics = [pscustomobject]@{
         mode = $Side.Name
         logical_mode = $Side.LogicalMode
         exec_exit_code = $Exec.exit_code
         exec_timed_out = ($Exec.PSObject.Properties.Name -contains "timed_out" -and [bool]$Exec.timed_out)
+        agent_final_observed = [bool]$agentCompletion.agent_final_observed
+        agent_completion_source = [string]$agentCompletion.agent_completion_source
+        last_agent_message_source = [string]$agentCompletion.last_agent_message_source
+        agent_message_count = [int]$agentCompletion.agent_message_count
+        last_provider_response_actionability = [string]$agentCompletion.last_provider_response_actionability
+        taskspace_profile_hard_stop_seen = [bool]$profileHardStopSeen
         public_validation_exit_code = $Validation.exit_code
         hidden_oracle_exit_code = $Oracle.exit_code
         wall_time_ms = $Exec.wall_time_ms
@@ -449,6 +534,8 @@ function Get-TaskspaceBenchmarkMetrics {
         jsonl_bytes = $costInstrumentation.provider_input_visibility.jsonl_bytes
         provider_input_tokens_per_jsonl_kb = $costInstrumentation.provider_input_visibility.provider_input_tokens_per_jsonl_kb
         provider_total_tokens_per_jsonl_kb = $costInstrumentation.provider_input_visibility.provider_total_tokens_per_jsonl_kb
+        model_request_count_source = [string]$costInstrumentation.request_summary.model_request_count_source
+        token_usage_record_count = $costInstrumentation.request_summary.token_usage_record_count
         model_request_count = $costInstrumentation.request_summary.model_request_count
         input_tokens = $costInstrumentation.token_summary.input_tokens
         output_tokens = $costInstrumentation.token_summary.output_tokens
@@ -472,6 +559,15 @@ function Get-TaskspaceBenchmarkMetrics {
         rollout_trace_p95_input_tokens_per_request = $costInstrumentation.request_summary.rollout_trace.p95_input_tokens_per_request
         rollout_trace_first_input_tokens_per_request = $costInstrumentation.request_summary.rollout_trace.first_input_tokens_per_request
         rollout_trace_last_input_tokens_per_request = $costInstrumentation.request_summary.rollout_trace.last_input_tokens_per_request
+        runtime_boundary_forbidden_marker_count = @($costInstrumentation.exact_payload_scan_events | Where-Object {
+                -not [string]::IsNullOrWhiteSpace([string]$_.runtime_boundary_forbidden_markers) -and
+                [string]$_.runtime_boundary_forbidden_markers -ne "none"
+            }).Count
+        exact_payload_scan_event_count = @($costInstrumentation.exact_payload_scan_events).Count
+        taskspace_control_count_source = [string]$costInstrumentation.taskspace_control_usage.taskspace_control_count_source
+        taskspace_control_count_source_mismatch = [bool]$costInstrumentation.taskspace_control_usage.taskspace_control_count_source_mismatch
+        whale_exec_taskspace_control_count = [int]$costInstrumentation.taskspace_control_usage.whale_exec_taskspace_control_count
+        rollout_taskspace_control_count = [int]$costInstrumentation.taskspace_control_usage.rollout_taskspace_control_count
         taskspace_control_count = [int]$costInstrumentation.taskspace_control_usage.taskspace_control_count
         native_taskspace_control_count = [int]$costInstrumentation.taskspace_control_usage.native_taskspace_control_count
         action_contract_taskspace_control_count = [int]$costInstrumentation.taskspace_control_usage.action_contract_taskspace_control_count
@@ -555,4 +651,65 @@ function Get-TaskspaceBenchmarkMetrics {
         observability_json = if ($ObservabilityResult) { $ObservabilityResult.observability_json } else { "" }
         rollout_path = if ($ObservabilityResult) { $ObservabilityResult.rollout_path } else { "" }
     }
+    Set-TaskspaceLifecycleClassification $metrics | Out-Null
+    $metrics
+}
+
+function Set-TaskspaceLifecycleClassification {
+    param([Parameter(Mandatory = $true)]$Metrics)
+
+    if (-not ($Metrics.PSObject.Properties.Name -contains "taskspace_profile_hard_stop_seen")) {
+        $legacyHardStopSeen = $false
+        foreach ($propertyName in @("rollout_path", "last_message_path", "stderr_path")) {
+            if (-not ($Metrics.PSObject.Properties.Name -contains $propertyName)) { continue }
+            $scanPath = [string]$Metrics.$propertyName
+            if ([string]::IsNullOrWhiteSpace($scanPath) -or -not (Test-Path -LiteralPath $scanPath)) { continue }
+            if (Select-String -LiteralPath $scanPath -SimpleMatch -Quiet -Pattern @(
+                    "TaskSpaceProviderBudgetHardStopV1",
+                    "TaskSpace provider budget hard stop",
+                    "provider_request_hard_limit_exceeded"
+                )) {
+                $legacyHardStopSeen = $true
+                break
+            }
+        }
+        $Metrics | Add-Member -NotePropertyName taskspace_profile_hard_stop_seen -NotePropertyValue $legacyHardStopSeen -Force
+    }
+    $execTimedOut = ($Metrics.PSObject.Properties.Name -contains "exec_timed_out" -and [bool]$Metrics.exec_timed_out)
+    $profileHardStop = ($Metrics.PSObject.Properties.Name -contains "taskspace_profile_hard_stop_seen" -and [bool]$Metrics.taskspace_profile_hard_stop_seen)
+    $execExitCode = if ($Metrics.PSObject.Properties.Name -contains "exec_exit_code") { [int]$Metrics.exec_exit_code } else { -1 }
+    $samplingInterrupted = ($execTimedOut -or $profileHardStop -or $execExitCode -ne 0)
+    $interruptionSource = if ($profileHardStop) {
+        "taskspace_profile_hard_stop"
+    } elseif ($execTimedOut) {
+        "agent_exec_timeout"
+    } elseif ($execExitCode -ne 0) {
+        "exec_nonzero"
+    } else {
+        "none"
+    }
+    $agentFinalObserved = ($Metrics.PSObject.Properties.Name -contains "agent_final_observed" -and [bool]$Metrics.agent_final_observed)
+    $completionStatus = if ($samplingInterrupted) { "interrupted" } elseif ($agentFinalObserved) { "complete" } else { "incomplete" }
+    $validationSkipped = ($Metrics.PSObject.Properties.Name -contains "public_validation_skipped" -and [bool]$Metrics.public_validation_skipped)
+    $publicExitCode = if ($Metrics.PSObject.Properties.Name -contains "public_validation_exit_code") { [int]$Metrics.public_validation_exit_code } else { -1 }
+    $oracleExitCode = if ($Metrics.PSObject.Properties.Name -contains "hidden_oracle_exit_code") { [int]$Metrics.hidden_oracle_exit_code } else { -1 }
+    $externalValidationStatus = if ($validationSkipped) {
+        "skipped"
+    } elseif ($publicExitCode -eq 124) {
+        "timeout"
+    } elseif ($publicExitCode -eq 0 -and $oracleExitCode -eq 0) {
+        "passed"
+    } else {
+        "failed"
+    }
+    $businessSuccess = ($Metrics.PSObject.Properties.Name -contains "business_success" -and [bool]$Metrics.business_success)
+    $utilityEligible = ($businessSuccess -and $completionStatus -eq "complete" -and -not $samplingInterrupted -and $externalValidationStatus -eq "passed")
+
+    $Metrics | Add-Member -NotePropertyName sampling_interrupted -NotePropertyValue $samplingInterrupted -Force
+    $Metrics | Add-Member -NotePropertyName interruption_source -NotePropertyValue $interruptionSource -Force
+    $Metrics | Add-Member -NotePropertyName agent_completion_status -NotePropertyValue $completionStatus -Force
+    $Metrics | Add-Member -NotePropertyName external_validation_status -NotePropertyValue $externalValidationStatus -Force
+    $Metrics | Add-Member -NotePropertyName validator_source -NotePropertyValue "benchmark_public_and_hidden" -Force
+    $Metrics | Add-Member -NotePropertyName utility_eligible -NotePropertyValue $utilityEligible -Force
+    $Metrics
 }

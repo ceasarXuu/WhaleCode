@@ -18,6 +18,7 @@ $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 . (Join-Path $repoRoot "scripts\taskspace-benchmark\lib\aggregate-report.ps1")
 . (Join-Path $repoRoot "scripts\taskspace-benchmark\lib\timing.ps1")
 . (Join-Path $repoRoot "scripts\taskspace-benchmark\lib\cost-instrumentation.ps1")
+. (Join-Path $repoRoot "scripts\taskspace-benchmark\lib\metrics-extractor.ps1")
 
 function Read-JsonFile {
     param([Parameter(Mandatory = $true)][string]$Path)

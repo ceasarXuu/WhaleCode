@@ -669,6 +669,23 @@ Assert-True ([string]$rolloutOnlySpawn.source_status -eq "runtime" -and [int]$ro
 Assert-True ([string]$rolloutOnlySpawn.subagent_review_debt_status -eq "not_measured" -and [int]$rolloutOnlySpawn.unreviewed_subagent_result_count -eq 0) "rollout-only spawn/node summary should make missing snapshot review evidence explicit"
 Assert-True ([int]$rolloutOnlyInstrumentation.budget_quality_impact_summary.blocked_by_budget_samples_count -eq 0) "returned rollout-only instrumentation should not classify profile hints as blocked_by_budget"
 
+$rolloutControlDir = Join-Path $RunRoot "rollout-control-artifacts"
+New-Item -ItemType Directory -Path $rolloutControlDir -Force | Out-Null
+$rolloutControlJsonl = Join-Path $RunRoot "rollout-control-whale-exec.jsonl"
+'{"type":"turn.completed","usage":{"input_tokens":10,"output_tokens":2}}' | Set-Content -LiteralPath $rolloutControlJsonl -Encoding UTF8
+@(
+    '{"type":"response_item","payload":{"type":"function_call","name":"taskspace_control","arguments":"{\"action\":\"finish_node\"}","call_id":"native-control-1"}}',
+    '{"type":"response_item","payload":{"type":"function_call","name":"taskspace_control","arguments":"{\"action\":\"finish_node\"}","call_id":"native-control-2"}}',
+    '{"type":"response_item","payload":{"type":"function_call","name":"taskspace_control","arguments":"{\"action\":\"bind_node\"}","call_id":"taskspace-action-contract-3-taskspace_control"}}'
+) | Set-Content -LiteralPath (Join-Path $rolloutControlDir "rollout.jsonl") -Encoding UTF8
+$rolloutControlInstrumentation = Write-TaskspaceCostInstrumentationArtifacts -ArtifactDir $rolloutControlDir -JsonlPath $rolloutControlJsonl -ObservabilityJsonPath ""
+Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.taskspace_control_count -eq 3) "rollout taskspace_control calls were not counted"
+Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.native_taskspace_control_count -eq 2) "rollout native taskspace_control calls were not counted"
+Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.action_contract_taskspace_control_count -eq 1) "rollout action-contract taskspace_control calls were not counted"
+Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.action_counts.finish_node -eq 2) "rollout control actions were not deduplicated by call id"
+Assert-True ([string]$rolloutControlInstrumentation.taskspace_control_usage.taskspace_control_count_source -eq "rollout_trace") "rollout trace should be the authoritative control-count source"
+Assert-True (-not [bool]$rolloutControlInstrumentation.taskspace_control_usage.taskspace_control_count_source_mismatch) "an exec file without response-item telemetry should not be treated as a conflicting control count"
+
 $aggregateCacheRoot = Join-Path $RunRoot "aggregate-cache-root"
 $leftArtifacts = Join-Path $aggregateCacheRoot "pair-001\left\artifacts"
 $rightArtifacts = Join-Path $aggregateCacheRoot "pair-001\right\artifacts"
