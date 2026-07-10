@@ -1,7 +1,7 @@
 # Problem P-001: R5 TaskSpace 最终 Chat wire 前缀与缓存命中失去可审计性
 - Status: open
 - Created: 2026-07-10 20:23
-- Updated: 2026-07-10 20:40
+- Updated: 2026-07-10 21:05
 - Objective: 在不改变 provider message 内容、顺序或 Agent 决策的前提下，定位 R5 request-2+ 缓存命中偏低的最终 wire 首差异，并以最终 Chat body 与 provider usage 证明根因。
 - Symptoms:
   - `subscription-billing-repair` R5 实跑总 input 501347、cached input 61184，累计命中约 12.2%。
@@ -27,6 +27,7 @@
   - E-002
   - E-003
   - E-004
+  - E-005
 - Ruled out:
   - 不能把低缓存继续归因于 E4 的多份 active projection 累积；E4 已保证单请求中 active projection 唯一。
   - 不能用 Responses pre-wire hash 证明最终 Chat wire 前缀关系。
@@ -36,7 +37,7 @@
   - G0 诊断不改变 message 内容、顺序、tool schema 或 provider 请求语义。
   - 根因经最终-wire 实跑证据确认后，才进入 G1 history 修复。
   - G1 后无 compaction 的相邻请求保持严格前缀，request-2+ cache hit 达到计划门禁且 correctness 不回退。
-- Current conclusion: H-001 已由代码路径和实跑 artifact 确认；H-002/H-003 仍需 G0 最终-wire trace 区分，当前禁止直接修改 history。
+- Current conclusion: H-001/H-002 已确认，H-003 已排除。最终 wire 证明 system 首消息与 tools schema 全程稳定，首个断点位于 request 1 的 epoch snapshot；composer 同时删除了 `taskspace_control` 调用/成功输出，使 Agent 在 100+ 轮中无法看到上一轮 bind 成功并持续重绑。G1 可以进入自然历史 append-only 修复。
 - Related hypotheses:
   - H-001
   - H-002
@@ -89,7 +90,7 @@
   - not closed
 
 ## Hypothesis H-002: 每轮替换历史中段 projection 是最终 wire 首个断点
-- Status: unverified
+- Status: confirmed
 - Parent: P-001
 - Claim: composer 删除上轮已发送的 active projection 并在末尾追加新 projection，使 request N 的 Chat message 序列不是 request N+1 的前缀。
 - Layer: root-cause
@@ -119,19 +120,19 @@
   - Instrumentation status: diagnostic-only
   - Instrumentation lifecycle:
     - LCP/usage 聚合保留为永久缓存审计
-- Evidence gate: pending
+- Evidence gate: satisfied
 - Related evidence:
   - E-002
-- Conclusion: unverified
-- Repair design readiness: blocked until G0 runtime evidence
-- Next step: 执行 G0 并采集同一样本相邻请求 trace。
+- Conclusion: confirmed by E-005
+- Repair design readiness: ready
+- Next step: epoch 仅保留首个 snapshot，后续保留自然 assistant/tool/control 调用与反馈作为机械 delta journal。
 - Blocker:
   - none
 - Close reason:
   - not closed
 
 ## Hypothesis H-003: system、tools 或 action-contract 表面在相邻请求间变化
-- Status: unverified
+- Status: refuted
 - Parent: P-001
 - Claim: projection 位置之外的 system message、tool schema 或 action-contract transport 变化更早破坏最终 wire 前缀，动态 projection 不是主要断点。
 - Layer: interaction
@@ -161,12 +162,12 @@
   - Instrumentation status: diagnostic-only
   - Instrumentation lifecycle:
     - 保留 hash，不保留正文
-- Evidence gate: pending
+- Evidence gate: satisfied
 - Related evidence:
   - E-001
-- Conclusion: unverified
-- Repair design readiness: blocked until G0 runtime evidence
-- Next step: 执行 G0 shared final-wire trace。
+- Conclusion: refuted by E-005；114 个 R5 request 的 tools hash 和首个 system message hash 各自只有一个唯一值。
+- Repair design readiness: not applicable
+- Next step: none
 - Blocker:
   - none
 - Close reason:
@@ -272,3 +273,32 @@
   ```
 - Interpretation: H-001 的错误观测点已被可运行的诊断替代；H-002/H-003 仍须真实 paired sample，不得仅凭单测确认。
 - Time: 2026-07-10 20:40
+
+## Evidence E-005: 最终 wire 证明 projection 替换和控制反馈删除共同触发循环
+- Related hypotheses:
+  - H-002
+  - H-003
+- Direction: supports H-002; refutes H-003
+- Type: reproduction
+- Source: `target/r5-g0-wire-diagnostic/count-call-stack/20260710-203648-680/pair-001` 与对应本地 rollout `019f4c08-0ec3-78c2-81b9-e55f9ab478b5`
+- Prediction or plan link:
+  - H-002 If true
+  - H-003 If false
+- Matched signal:
+  - standard 6 requests，request 2-6 全部严格前缀；request-2+ cached/input 为 52224/54450，95.91%。
+  - R5 在人工中止前产生 114 requests；113 次相邻比较仅 2 次保持前缀，111 次断裂；request-2+ cached/input 为 267392/1826369，14.64%。
+  - R5 request 2 的首差异为 `messages[4].message`，即 request 1 最后一条 epoch snapshot；tools hash 与首 system message hash 在 114 requests 中均只有一个唯一值。
+  - raw rollout 连续记录 `taskspace_control(bind_node node-2)` 和 `TaskSpace main node bound: node-2`，但 provider composer 删除 control call/output，只替换 snapshot；Agent 随后反复声明关闭生命周期并再次 bind 同一节点。
+- Correlation keys:
+  - standard epoch `019f4c07-d63f-75a2-8341-e5515ee6ea9a:0`
+  - R5 epoch `019f4c08-0ec3-78c2-81b9-e55f9ab478b5:0`
+- Raw content:
+  ```text
+  standard: 6 requests, prefix preserved 5/5, request-2+ hit 95.91%
+  R5: 114 requests, prefix preserved 2/113, request-2+ hit 14.64%
+  R5 request 2 first_diff_path=messages[4].message
+  R5 tools_hash unique=1, first system message hash unique=1
+  repeated raw feedback: TaskSpace main node bound: node-2
+  ```
+- Interpretation: 缓存断点不是动态内容本身，也不是 system/tools 抖动，而是 provider-visible history 删除已发送 snapshot 并丢弃自然状态工具反馈。语义丢失与缓存失效来自同一 composer 策略。
+- Time: 2026-07-10 21:05
