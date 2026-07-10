@@ -135,12 +135,7 @@ fn test_full_toolset_specs_for_gpt5_codex_unified_exec_web_search() {
         expected.insert(spec.name().to_string(), spec);
     }
     if config.collab_tools {
-        let profile = if config.taskspace_control_compact_schema {
-            TaskSpaceControlToolProfile::Compact
-        } else {
-            TaskSpaceControlToolProfile::Full
-        };
-        let spec = create_taskspace_control_tool_with_profile(profile);
+        let spec = create_taskspace_control_tool();
         expected.insert(spec.name().to_string(), spec);
     }
     if !config.multi_agent_v2 {
@@ -208,7 +203,7 @@ fn test_build_specs_collab_tools_enabled() {
 }
 
 #[test]
-fn taskspace_compact_tool_schema_is_the_default_taskspace_control_schema() {
+fn taskspace_map_lifecycle_schema_is_the_only_taskspace_control_schema() {
     let model_info = model_info();
     let mut features = Features::with_defaults();
     features.enable(Feature::Collab);
