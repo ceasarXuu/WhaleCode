@@ -104,89 +104,47 @@ async fn start_action_map_task_node(
     context_summary: &str,
     bind_current: bool,
 ) -> String {
-    let (_, _, node_id) = session
-        .start_action_map_task_for_main(
-            turn,
-            title.to_string(),
-            context_summary.to_string(),
-            title.to_string(),
-            context_summary.to_string(),
-            bind_current,
+    let target = crate::action_map::ActionMapInitializeNodeInput {
+        key: "target".to_string(),
+        kind: crate::action_map::NodeKind::InspectCodeContext,
+        title: title.to_string(),
+        context_summary: context_summary.to_string(),
+        dependency_keys: Vec::new(),
+    };
+    let (nodes, current_node_key) = if bind_current {
+        (vec![target], "target".to_string())
+    } else {
+        (
+            vec![
+                target,
+                crate::action_map::ActionMapInitializeNodeInput {
+                    key: "coordinator".to_string(),
+                    kind: crate::action_map::NodeKind::InspectCodeContext,
+                    title: "Coordinate delegated work".to_string(),
+                    context_summary: "Track the active delegated node.".to_string(),
+                    dependency_keys: Vec::new(),
+                },
+            ],
+            "coordinator".to_string(),
         )
-        .await
-        .expect("TaskSpace task should start");
-    let evidence_refs = vec![crate::action_map::ActionMapEvidenceRefInput {
-        artifact_ref: Some("test-fixture:user-request".to_string()),
-        ..Default::default()
-    }];
-    session
-        .record_action_map_output_contract(
+    };
+    let outcome = session
+        .initialize_action_map_for_main(
             turn,
-            "contract-test",
-            "artifact",
-            "Test fixture acceptance contract.".to_string(),
-            evidence_refs.clone(),
-        )
-        .await
-        .expect("TaskSpace output contract should record");
-    session
-        .record_action_map_fact_source(
-            turn,
-            "source-test",
-            "provided_by_user",
-            "Test fixture source facts.".to_string(),
-            evidence_refs,
-        )
-        .await
-        .expect("TaskSpace fact source should record");
-    node_id
-}
-
-async fn record_action_map_subagent_plan(
-    session: &Arc<crate::session::session::Session>,
-    turn: &Arc<TurnContext>,
-    node_id: &str,
-    track_name: &str,
-) {
-    session
-        .record_action_map_subagent_plan(
-            turn,
-            crate::action_map::ActionMapSubagentPlanInput {
-                parent_node_id: node_id.to_string(),
-                why_parallelizable: format!(
-                    "{track_name} is a bounded independent evidence track."
-                ),
-                expected_artifact: format!("{track_name} notes with claims and evidence."),
-                acceptance_check: "Parent can inspect and accept the node result.".to_string(),
-                max_scope: format!("Only {node_id}."),
-                supports_questions: vec![format!("q-{node_id}")],
-                tests_hypotheses: Vec::new(),
-                depends_on_results: Vec::new(),
+            crate::action_map::ActionMapInitializeInput {
+                task_title: title.to_string(),
+                task_objective: context_summary.to_string(),
+                nodes,
+                current_node_key,
             },
         )
         .await
-        .expect("subagent plan records before spawn");
-}
-
-async fn record_action_map_fact_from_result(
-    session: &Arc<crate::session::session::Session>,
-    turn: &Arc<TurnContext>,
-    claim_id: &str,
-    statement: &str,
-    result_id: &str,
-) {
-    session
-        .record_action_map_fact(
-            turn,
-            claim_id,
-            statement.to_string(),
-            vec![crate::action_map::ActionMapEvidenceRefInput {
-                result_id: Some(result_id.to_string()),
-                ..Default::default()
-            }],
-        )
-        .await
-        .expect("fact records from accepted result evidence");
+        .expect("TaskSpace map should initialize");
+    outcome
+        .node_ids
+        .into_iter()
+        .find_map(|(key, node_id)| (key == "target").then_some(node_id))
+        .expect("target node id")
 }
 
 fn active_action_map_snapshot_map(snapshot: &ActionMapSnapshot) -> &ActionMapSnapshotMap {
@@ -214,7 +172,11 @@ async fn active_action_map_node_statuses(
 
 async fn active_action_map_lease_count(session: &Arc<crate::session::session::Session>) -> usize {
     let snapshot = session.action_map_snapshot().await;
-    active_action_map_snapshot_map(&snapshot).leases.len()
+    active_action_map_snapshot_map(&snapshot)
+        .leases
+        .iter()
+        .filter(|lease| lease.holder == "subagent")
+        .count()
 }
 
 fn captured_op_for_thread(manager: &ThreadManager, thread_id: ThreadId) -> Option<Op> {
@@ -880,7 +842,7 @@ async fn spawn_agent_returns_agent_id_without_task_name() {
 }
 
 #[tokio::test]
-async fn legacy_spawn_agent_rejects_before_taskspace_routing() {
+async fn legacy_spawn_agent_rejects_before_map_initialization() {
     let (mut session, turn) = make_session_and_context().await;
     let manager = thread_manager();
     session.services.agent_control = manager.agent_control();
@@ -898,17 +860,17 @@ async fn legacy_spawn_agent_rejects_before_taskspace_routing() {
             })),
         ))
         .await
-        .expect_err("legacy spawn must be blocked until TaskSpace routing/start_task");
+        .expect_err("legacy spawn must be blocked until map initialization");
 
     let FunctionCallError::RespondToModel(message) = err else {
         panic!("TaskSpace gate should return a model-facing error");
     };
-    assert!(message.contains("TaskSpace bootstrap is required"));
+    assert!(message.contains("no ready node is available"));
     assert!(manager.captured_ops().is_empty());
 }
 
 #[tokio::test]
-async fn v2_spawn_agent_rejects_before_taskspace_routing() {
+async fn v2_spawn_agent_rejects_before_map_initialization() {
     let (mut session, mut turn) = make_session_and_context().await;
     let manager = thread_manager();
     session.services.agent_control = manager.agent_control();
@@ -933,12 +895,12 @@ async fn v2_spawn_agent_rejects_before_taskspace_routing() {
             })),
         ))
         .await
-        .expect_err("v2 spawn must be blocked until TaskSpace routing/start_task");
+        .expect_err("v2 spawn must be blocked until map initialization");
 
     let FunctionCallError::RespondToModel(message) = err else {
         panic!("TaskSpace gate should return a model-facing error");
     };
-    assert!(message.contains("TaskSpace bootstrap is required"));
+    assert!(message.contains("no ready node is available"));
     assert!(manager.captured_ops().is_empty());
 }
 
@@ -969,24 +931,6 @@ async fn legacy_spawn_agent_claims_taskspace_node_after_start_task() {
     )
     .await;
     assert_eq!(node_id, "node-1");
-    session
-        .record_action_map_subagent_plan(
-            &turn,
-            crate::action_map::ActionMapSubagentPlanInput {
-                parent_node_id: node_id.clone(),
-                why_parallelizable: "Legacy spawn fixture prepares a bounded independent review."
-                    .to_string(),
-                expected_artifact: "Review notes with claims and evidence.".to_string(),
-                acceptance_check: "Parent can inspect and accept the node result.".to_string(),
-                max_scope: "Only node-1.".to_string(),
-                supports_questions: vec!["q-legacy-spawn-review".to_string()],
-                tests_hypotheses: Vec::new(),
-                depends_on_results: Vec::new(),
-            },
-        )
-        .await
-        .expect("subagent plan records before legacy spawn");
-
     let output = SpawnAgentHandler
         .handle(invocation(
             session.clone(),
@@ -1006,7 +950,7 @@ async fn legacy_spawn_agent_claims_taskspace_node_after_start_task() {
     let content = inter_agent_content(&op).expect("child op should contain text");
     assert!(content.contains("TaskSpace node assignment"));
     assert!(content.contains("Node: node-1"));
-    assert!(content.contains("Lease: lease-1"));
+    assert!(content.contains("Lease: lease-2"));
 }
 
 #[tokio::test]
@@ -1040,7 +984,7 @@ async fn legacy_spawn_agent_requires_node_id_for_multiple_ready_nodes() {
         )
         .await
         .expect("second ready node should be created");
-    assert_eq!(second_node_id, "node-2");
+    assert_eq!(second_node_id, "node-3");
 
     let err = SpawnAgentHandler
         .handle(invocation(
@@ -1059,12 +1003,12 @@ async fn legacy_spawn_agent_requires_node_id_for_multiple_ready_nodes() {
     };
     assert!(message.contains("multiple ready nodes"));
     assert!(message.contains("node-1 (Review architecture)"));
-    assert!(message.contains("node-2 (Review tests)"));
+    assert!(message.contains("node-3 (Review tests)"));
     assert!(manager.captured_ops().is_empty());
     assert_eq!(active_action_map_lease_count(&session).await, 0);
     let statuses = active_action_map_node_statuses(&session).await;
     assert_eq!(statuses.get("node-1").map(String::as_str), Some("ready"));
-    assert_eq!(statuses.get("node-2").map(String::as_str), Some("ready"));
+    assert_eq!(statuses.get("node-3").map(String::as_str), Some("ready"));
 }
 
 #[tokio::test]
@@ -1093,7 +1037,7 @@ async fn legacy_spawn_agent_claims_explicit_node_id() {
         false,
     )
     .await;
-    session
+    let second_node_id = session
         .create_action_map_node_for_main(
             &turn,
             "Review tests".to_string(),
@@ -1103,24 +1047,6 @@ async fn legacy_spawn_agent_claims_explicit_node_id() {
         )
         .await
         .expect("second ready node should be created");
-    session
-        .record_action_map_subagent_plan(
-            &turn,
-            crate::action_map::ActionMapSubagentPlanInput {
-                parent_node_id: "node-2".to_string(),
-                why_parallelizable: "Test review is a bounded independent evidence track."
-                    .to_string(),
-                expected_artifact: "Test review notes with claims and evidence.".to_string(),
-                acceptance_check: "Parent can inspect and accept the node result.".to_string(),
-                max_scope: "Only node-2.".to_string(),
-                supports_questions: vec!["q-review-tests".to_string()],
-                tests_hypotheses: Vec::new(),
-                depends_on_results: Vec::new(),
-            },
-        )
-        .await
-        .expect("subagent plan records before explicit node spawn");
-
     let output = SpawnAgentHandler
         .handle(invocation(
             session.clone(),
@@ -1128,7 +1054,7 @@ async fn legacy_spawn_agent_claims_explicit_node_id() {
             "spawn_agent",
             function_payload(json!({
                 "message": "inspect tests",
-                "node_id": "node-2"
+                "node_id": second_node_id
             })),
         ))
         .await
@@ -1139,12 +1065,12 @@ async fn legacy_spawn_agent_claims_explicit_node_id() {
     let child_id = parse_agent_id(&result.agent_id);
     let op = captured_op_for_thread(&manager, child_id).expect("child op should be captured");
     let content = inter_agent_content(&op).expect("child op should contain text");
-    assert!(content.contains("Node: node-2 - Review tests"));
+    assert!(content.contains("Node: node-3 - Review tests"));
     assert!(content.contains("inspect tests"));
     assert_eq!(active_action_map_lease_count(&session).await, 1);
     let statuses = active_action_map_node_statuses(&session).await;
     assert_eq!(statuses.get("node-1").map(String::as_str), Some("ready"));
-    assert_eq!(statuses.get("node-2").map(String::as_str), Some("running"));
+    assert_eq!(statuses.get("node-3").map(String::as_str), Some("running"));
 }
 
 #[tokio::test]
@@ -1372,8 +1298,6 @@ async fn action_map_experiment_spawn_binds_first_ready_node() {
     )
     .await;
     assert_eq!(node_id, "node-1");
-    record_action_map_subagent_plan(&session, &turn, &node_id, "Repository scope inspection").await;
-
     let output = SpawnAgentHandlerV2
         .handle(invocation(
             session.clone(),
@@ -1406,7 +1330,7 @@ async fn action_map_experiment_spawn_binds_first_ready_node() {
     let content = inter_agent_content(&op).expect("child op should contain text");
     assert!(content.contains("TaskSpace node assignment"));
     assert!(content.contains("Node: node-1"));
-    assert!(content.contains("Lease: lease-1"));
+    assert!(content.contains("Lease: lease-2"));
     assert!(content.contains("inspect this repo"));
 }
 
@@ -1447,7 +1371,7 @@ async fn action_map_experiment_spawn_requires_node_id_for_multiple_ready_nodes()
         )
         .await
         .expect("second ready node should be created");
-    assert_eq!(second_node_id, "node-2");
+    assert_eq!(second_node_id, "node-3");
 
     let err = SpawnAgentHandlerV2
         .handle(invocation(
@@ -1467,12 +1391,12 @@ async fn action_map_experiment_spawn_requires_node_id_for_multiple_ready_nodes()
     };
     assert!(message.contains("multiple ready nodes"));
     assert!(message.contains("node-1 (Review architecture)"));
-    assert!(message.contains("node-2 (Review tests)"));
+    assert!(message.contains("node-3 (Review tests)"));
     assert!(manager.captured_ops().is_empty());
     assert_eq!(active_action_map_lease_count(&session).await, 0);
     let statuses = active_action_map_node_statuses(&session).await;
     assert_eq!(statuses.get("node-1").map(String::as_str), Some("ready"));
-    assert_eq!(statuses.get("node-2").map(String::as_str), Some("ready"));
+    assert_eq!(statuses.get("node-3").map(String::as_str), Some("ready"));
 }
 
 #[tokio::test]
@@ -1507,7 +1431,7 @@ async fn action_map_experiment_spawn_claims_explicit_node_id() {
         false,
     )
     .await;
-    session
+    let second_node_id = session
         .create_action_map_node_for_main(
             &turn,
             "Review tests".to_string(),
@@ -1517,8 +1441,6 @@ async fn action_map_experiment_spawn_claims_explicit_node_id() {
         )
         .await
         .expect("second ready node should be created");
-    record_action_map_subagent_plan(&session, &turn, "node-2", "Test evidence review").await;
-
     let output = SpawnAgentHandlerV2
         .handle(invocation(
             session.clone(),
@@ -1527,7 +1449,7 @@ async fn action_map_experiment_spawn_claims_explicit_node_id() {
             function_payload(json!({
                 "message": "inspect tests",
                 "task_name": "worker",
-                "node_id": "node-2"
+                "node_id": second_node_id
             })),
         ))
         .await
@@ -1548,12 +1470,12 @@ async fn action_map_experiment_spawn_claims_explicit_node_id() {
         .expect("spawned node agent should resolve");
     let op = captured_op_for_thread(&manager, child_id).expect("child op should be captured");
     let content = inter_agent_content(&op).expect("child op should contain text");
-    assert!(content.contains("Node: node-2 - Review tests"));
+    assert!(content.contains("Node: node-3 - Review tests"));
     assert!(content.contains("inspect tests"));
     assert_eq!(active_action_map_lease_count(&session).await, 1);
     let statuses = active_action_map_node_statuses(&session).await;
     assert_eq!(statuses.get("node-1").map(String::as_str), Some("ready"));
-    assert_eq!(statuses.get("node-2").map(String::as_str), Some("running"));
+    assert_eq!(statuses.get("node-3").map(String::as_str), Some("running"));
 }
 
 #[tokio::test]
@@ -1593,7 +1515,7 @@ async fn action_map_experiment_spawn_rejects_pending_explicit_node_id() {
         )
         .await
         .expect("dependent second node should be created");
-    assert_eq!(second_node_id, "node-2");
+    assert_eq!(second_node_id, "node-3");
 
     let err = SpawnAgentHandlerV2
         .handle(invocation(
@@ -1603,7 +1525,7 @@ async fn action_map_experiment_spawn_rejects_pending_explicit_node_id() {
             function_payload(json!({
                 "message": "inspect tests",
                 "task_name": "worker",
-                "node_id": "node-2"
+                "node_id": second_node_id
             })),
         ))
         .await
@@ -1612,12 +1534,12 @@ async fn action_map_experiment_spawn_rejects_pending_explicit_node_id() {
     let FunctionCallError::RespondToModel(message) = err else {
         panic!("TaskSpace node selection should return a model-facing error");
     };
-    assert!(message.contains("still pending"));
+    assert!(message.contains("is pending"));
     assert!(manager.captured_ops().is_empty());
     assert_eq!(active_action_map_lease_count(&session).await, 0);
     let statuses = active_action_map_node_statuses(&session).await;
     assert_eq!(statuses.get("node-1").map(String::as_str), Some("ready"));
-    assert_eq!(statuses.get("node-2").map(String::as_str), Some("pending"));
+    assert_eq!(statuses.get("node-3").map(String::as_str), Some("pending"));
 }
 
 #[tokio::test]
@@ -1653,7 +1575,7 @@ async fn action_map_experiment_hidden_metadata_spawn_claims_explicit_node_id() {
         false,
     )
     .await;
-    session
+    let second_node_id = session
         .create_action_map_node_for_main(
             &turn,
             "Review tests".to_string(),
@@ -1663,8 +1585,6 @@ async fn action_map_experiment_hidden_metadata_spawn_claims_explicit_node_id() {
         )
         .await
         .expect("second ready node should be created");
-    record_action_map_subagent_plan(&session, &turn, "node-2", "Hidden metadata test review").await;
-
     let output = SpawnAgentHandlerV2
         .handle(invocation(
             session.clone(),
@@ -1673,7 +1593,7 @@ async fn action_map_experiment_hidden_metadata_spawn_claims_explicit_node_id() {
             function_payload(json!({
                 "message": "inspect tests",
                 "task_name": "worker",
-                "node_id": "node-2"
+                "node_id": second_node_id
             })),
         ))
         .await
@@ -1696,7 +1616,7 @@ async fn action_map_experiment_hidden_metadata_spawn_claims_explicit_node_id() {
         .expect("spawned node agent should resolve");
     let op = captured_op_for_thread(&manager, child_id).expect("child op should be captured");
     let content = inter_agent_content(&op).expect("child op should contain text");
-    assert!(content.contains("Node: node-2 - Review tests"));
+    assert!(content.contains("Node: node-3 - Review tests"));
 }
 
 #[tokio::test]
@@ -1732,8 +1652,6 @@ async fn action_map_experiment_spawn_keeps_requested_task_name_for_dynamic_node(
     )
     .await;
     assert_eq!(node_id, "node-1");
-    record_action_map_subagent_plan(&session, &turn, &node_id, "Dynamic node review").await;
-
     let output = SpawnAgentHandlerV2
         .handle(invocation(
             session.clone(),
@@ -1764,7 +1682,7 @@ async fn action_map_experiment_spawn_keeps_requested_task_name_for_dynamic_node(
     let op = captured_op_for_thread(&manager, child_id).expect("child op should be captured");
     let content = inter_agent_content(&op).expect("child op should contain text");
     assert!(content.contains("Node: node-1 - Dynamic review"));
-    assert!(content.contains("Lease: lease-1"));
+    assert!(content.contains("Lease: lease-2"));
 }
 
 #[tokio::test]
@@ -1809,9 +1727,7 @@ async fn action_map_completion_watcher_advances_next_spawn_to_next_node() {
         )
         .await
         .expect("dependent second node should be created");
-    assert_eq!(second_node_id, "node-2");
-    record_action_map_subagent_plan(&session, &turn, &first_node_id, "Scope definition").await;
-
+    assert_eq!(second_node_id, "node-3");
     let first_output = SpawnAgentHandlerV2
         .handle(invocation(
             session.clone(),
@@ -1895,51 +1811,17 @@ async fn action_map_completion_watcher_advances_next_spawn_to_next_node() {
     })
     .await
     .expect("completion watcher should record the first node result");
-    session
-        .mark_action_map_result_validity(
-            &turn,
-            "result-2",
-            "accepted",
-            "Test fixture accepted the first node result.".to_string(),
-            vec![crate::action_map::ActionMapCognitiveClaimInput {
-                id: "claim-result-2".to_string(),
-                statement: "First node result is ready for downstream work.".to_string(),
-                evidence_refs: vec![crate::action_map::ActionMapEvidenceRefInput {
-                    result_id: Some("result-2".to_string()),
-                    ..Default::default()
-                }],
-            }],
-            vec![crate::action_map::ActionMapEvidenceRefInput {
-                result_id: Some("result-2".to_string()),
-                ..Default::default()
-            }],
-            Vec::new(),
-            Vec::new(),
-            Vec::new(),
-        )
-        .await
-        .expect("first node result should be accepted before downstream spawn");
-    record_action_map_fact_from_result(
-        &session,
-        &turn,
-        "fact-result-2-scope-ready",
-        "First node subagent result provides accepted scope evidence.",
-        "result-2",
-    )
-    .await;
     timeout(Duration::from_secs(5), async {
         loop {
             let statuses = active_action_map_node_statuses(&session).await;
-            if statuses.get("node-2").map(String::as_str) == Some("ready") {
+            if statuses.get("node-3").map(String::as_str) == Some("ready") {
                 break;
             }
             tokio::time::sleep(Duration::from_millis(25)).await;
         }
     })
     .await
-    .expect("completion watcher should make node-2 ready");
-    record_action_map_subagent_plan(&session, &turn, "node-2", "Code context inspection").await;
-
+    .expect("completion watcher should make node-3 ready");
     timeout(Duration::from_secs(5), async {
         loop {
             let second = SpawnAgentHandlerV2
@@ -1996,7 +1878,7 @@ async fn action_map_experiment_blocks_nested_spawn_from_node_bound_subagent() {
     let session = root.thread.codex.session.clone();
     let turn = session.new_default_turn().await;
     enable_action_map_experiment(&session).await;
-    let node_id = start_action_map_task_node(
+    let _node_id = start_action_map_task_node(
         &session,
         &turn,
         "Inspect parser",
@@ -2004,8 +1886,6 @@ async fn action_map_experiment_blocks_nested_spawn_from_node_bound_subagent() {
         false,
     )
     .await;
-    record_action_map_subagent_plan(&session, &turn, &node_id, "Parser behavior inspection").await;
-
     let child_output = SpawnAgentHandlerV2
         .handle(invocation(
             session.clone(),
@@ -4353,8 +4233,6 @@ async fn action_map_wait_timeout_requests_progress_summary_from_running_node_age
     )
     .await;
     assert_eq!(node_id, "node-1");
-    record_action_map_subagent_plan(&session, &turn, &node_id, "Timeout summary scope claim").await;
-
     let spawn_output = SpawnAgentHandlerV2
         .handle(invocation(
             session.clone(),
@@ -4682,9 +4560,6 @@ async fn action_map_close_agent_releases_node_lease_for_reclaim() {
     )
     .await;
     assert_eq!(node_id, "node-1");
-    record_action_map_subagent_plan(&session, &turn, &node_id, "Close and reclaim scope claim")
-        .await;
-
     let first_output = SpawnAgentHandlerV2
         .handle(invocation(
             session.clone(),
@@ -4710,8 +4585,6 @@ async fn action_map_close_agent_releases_node_lease_for_reclaim() {
         ))
         .await
         .expect("close_agent should release the Action Map lease");
-    record_action_map_subagent_plan(&session, &turn, &node_id, "Reclaimed scope claim").await;
-
     let second_output = SpawnAgentHandlerV2
         .handle(invocation(
             session.clone(),
@@ -4740,7 +4613,7 @@ async fn action_map_close_agent_releases_node_lease_for_reclaim() {
         .expect("second child should resolve");
     let op = captured_op_for_thread(&manager, second_child_id).expect("second op captured");
     let content = inter_agent_content(&op).expect("second op text");
-    assert!(content.contains("Lease: lease-2"));
+    assert!(content.contains("Lease: lease-3"));
 }
 
 #[tokio::test]

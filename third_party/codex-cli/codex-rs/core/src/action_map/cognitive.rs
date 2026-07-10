@@ -158,35 +158,12 @@ impl NodeResultAdoption {
         };
     }
 
-    pub(crate) fn merge_refs(
-        &mut self,
-        facts: Vec<String>,
-        hypotheses: Vec<String>,
-        decisions: Vec<String>,
-        criteria: Vec<String>,
-        nodes: Vec<String>,
-    ) {
-        merge_unique(&mut self.adopted_by_facts, facts);
-        merge_unique(&mut self.adopted_by_hypotheses, hypotheses);
-        merge_unique(&mut self.adopted_by_decisions, decisions);
-        merge_unique(&mut self.adopted_by_criteria, criteria);
-        merge_unique(&mut self.adopted_by_nodes, nodes);
-    }
-
     fn has_refs(&self) -> bool {
         !self.adopted_by_facts.is_empty()
             || !self.adopted_by_hypotheses.is_empty()
             || !self.adopted_by_decisions.is_empty()
             || !self.adopted_by_criteria.is_empty()
             || !self.adopted_by_nodes.is_empty()
-    }
-}
-
-fn merge_unique(target: &mut Vec<String>, refs: Vec<String>) {
-    for value in refs {
-        if !target.contains(&value) {
-            target.push(value);
-        }
     }
 }
 

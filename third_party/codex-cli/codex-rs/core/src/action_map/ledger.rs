@@ -46,58 +46,6 @@ impl ProblemStateLedger {
             ..Self::default()
         }
     }
-
-    pub(crate) fn upsert_success_criterion(&mut self, record: ProblemSuccessCriterion, now: i64) {
-        let id = record.id.clone();
-        upsert_by_id(&mut self.success_criteria, &id, record);
-        self.updated_at_ms = now;
-    }
-
-    pub(crate) fn upsert_known_fact(&mut self, record: ProblemLedgerFact, now: i64) {
-        let id = record.id.clone();
-        upsert_by_id(&mut self.known_facts, &id, record);
-        self.updated_at_ms = now;
-    }
-
-    pub(crate) fn upsert_open_question(&mut self, record: ProblemOpenQuestion, now: i64) {
-        let id = record.id.clone();
-        upsert_by_id(&mut self.open_questions, &id, record);
-        self.updated_at_ms = now;
-    }
-
-    pub(crate) fn close_open_question(
-        &mut self,
-        question_id: &str,
-        resolution: String,
-        closed_by_result_id: Option<String>,
-        evidence_refs: Vec<EvidenceRef>,
-        now: i64,
-    ) -> bool {
-        let Some(question) = self
-            .open_questions
-            .iter_mut()
-            .find(|question| question.id == question_id)
-        else {
-            return false;
-        };
-        question.status = "closed".to_string();
-        question.resolution = Some(resolution);
-        question.closed_by_result_id = closed_by_result_id;
-        question.evidence_refs = evidence_refs;
-        self.updated_at_ms = now;
-        true
-    }
-
-    pub(crate) fn upsert_decision(&mut self, record: ProblemDecision, now: i64) {
-        let id = record.id.clone();
-        upsert_by_id(&mut self.decisions, &id, record);
-        self.updated_at_ms = now;
-    }
-
-    pub(crate) fn set_next_best_action(&mut self, action: ProblemNextBestAction, now: i64) {
-        self.next_best_action = Some(action);
-        self.updated_at_ms = now;
-    }
 }
 
 impl Default for ProblemStateLedger {
@@ -192,46 +140,4 @@ pub(crate) struct ProblemNextBestAction {
     pub(crate) reason: String,
     pub(crate) expected_artifact: Option<String>,
     pub(crate) blocked_by: Vec<String>,
-}
-
-fn upsert_by_id<T>(records: &mut Vec<T>, id: &str, record: T)
-where
-    T: HasLedgerId,
-{
-    if let Some(existing) = records
-        .iter_mut()
-        .find(|existing| existing.ledger_id() == id)
-    {
-        *existing = record;
-    } else {
-        records.push(record);
-    }
-}
-
-trait HasLedgerId {
-    fn ledger_id(&self) -> &str;
-}
-
-impl HasLedgerId for ProblemSuccessCriterion {
-    fn ledger_id(&self) -> &str {
-        &self.id
-    }
-}
-
-impl HasLedgerId for ProblemLedgerFact {
-    fn ledger_id(&self) -> &str {
-        &self.id
-    }
-}
-
-impl HasLedgerId for ProblemOpenQuestion {
-    fn ledger_id(&self) -> &str {
-        &self.id
-    }
-}
-
-impl HasLedgerId for ProblemDecision {
-    fn ledger_id(&self) -> &str {
-        &self.id
-    }
 }

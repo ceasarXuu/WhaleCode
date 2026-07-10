@@ -1391,20 +1391,28 @@ async fn record_context_updates_keeps_one_taskspace_epoch_snapshot() {
     {
         let mut state = session.state.lock().await;
         state.set_reference_context_item(Some(turn_context.to_turn_context_item()));
+        state.action_map_runtime.set_mode_for_session(
+            codex_protocol::protocol::MapRuntimeMode::Experiment,
+            session.conversation_id,
+        );
         state
             .action_map_runtime
-            .set_mode(codex_protocol::protocol::MapRuntimeMode::Experiment);
-        state
-            .action_map_runtime
-            .start_task_for_main(
+            .initialize_map_for_main(
                 session.conversation_id,
-                "Architecture review".to_string(),
-                "Find structure risks.".to_string(),
-                "Scope review".to_string(),
-                "Collect current architecture scope.".to_string(),
-                false,
+                crate::action_map::ActionMapInitializeInput {
+                    task_title: "Architecture review".to_string(),
+                    task_objective: "Find structure risks.".to_string(),
+                    nodes: vec![crate::action_map::ActionMapInitializeNodeInput {
+                        key: "scope".to_string(),
+                        kind: NodeKind::InspectCodeContext,
+                        title: "Scope review".to_string(),
+                        context_summary: "Collect current architecture scope.".to_string(),
+                        dependency_keys: Vec::new(),
+                    }],
+                    current_node_key: "scope".to_string(),
+                },
             )
-            .expect("task starts");
+            .expect("map initializes");
     }
 
     session
@@ -1455,273 +1463,6 @@ async fn record_context_updates_keeps_one_taskspace_epoch_snapshot() {
         1,
         "steady-state context updates must not append replacement snapshots: {developer_text}"
     );
-}
-
-#[tokio::test]
-async fn action_map_final_gate_failure_records_developer_followup() {
-    let (session, turn_context) = make_session_and_context().await;
-    {
-        let mut state = session.state.lock().await;
-        state
-            .action_map_runtime
-            .set_mode(codex_protocol::protocol::MapRuntimeMode::Experiment);
-        state
-            .action_map_runtime
-            .start_task_for_main_with_kind(
-                session.conversation_id,
-                NodeKind::ImplementSolution,
-                "Patch bug".to_string(),
-                "Apply a code edit.".to_string(),
-                "Patch code".to_string(),
-                "Modify the target file.".to_string(),
-                true,
-            )
-            .expect("task starts");
-        let evidence_ref = crate::action_map::ActionMapEvidenceRefInput {
-            artifact_ref: Some("current user request".to_string()),
-            ..Default::default()
-        };
-        state
-            .action_map_runtime
-            .record_success_criteria_for_main(
-                session.conversation_id,
-                vec![crate::action_map::ActionMapSuccessCriterionInput {
-                    id: "sc-test".to_string(),
-                    kind: "test".to_string(),
-                    description: "Review scope is inspected.".to_string(),
-                    status: "open".to_string(),
-                    evidence_refs: vec![evidence_ref.clone()],
-                }],
-            )
-            .expect("success criteria records");
-        state
-            .action_map_runtime
-            .record_output_contract_for_main(
-                session.conversation_id,
-                "oc-test",
-                "artifact",
-                "A concise architecture risk summary.".to_string(),
-                vec![evidence_ref.clone()],
-            )
-            .expect("output contract records");
-        state
-            .action_map_runtime
-            .record_fact_source_for_main(
-                session.conversation_id,
-                "fs-test",
-                "provided_by_user",
-                "User asked to continue the architecture review.".to_string(),
-                vec![evidence_ref],
-            )
-            .expect("fact source records");
-    }
-    let source_evidence_refs = vec![crate::action_map::ActionMapEvidenceRefInput {
-        artifact_ref: Some("test-fixture:user-request".to_string()),
-        ..Default::default()
-    }];
-    session
-        .record_action_map_output_contract(
-            &turn_context,
-            "contract-test",
-            "artifact",
-            "Test fixture acceptance contract.".to_string(),
-            source_evidence_refs.clone(),
-        )
-        .await
-        .expect("output contract records");
-    session
-        .record_action_map_fact_source(
-            &turn_context,
-            "source-test",
-            "provided_by_user",
-            "Test fixture source facts.".to_string(),
-            source_evidence_refs,
-        )
-        .await
-        .expect("fact source records");
-    session
-        .prepare_action_map_main_tool_call(
-            &turn_context,
-            ToolActionDescriptor::new("apply_patch", ActionClass::Edit, "patch")
-                .with_call_id("call-edit"),
-        )
-        .await
-        .expect("edit is allowed");
-    session
-        .record_action_map_main_tool_result(
-            &turn_context,
-            "call-edit",
-            "apply_patch",
-            Some(ActionClass::Edit),
-            true,
-            "M src/lib.rs".to_string(),
-        )
-        .await;
-    let result_id = {
-        let mut state = session.state.lock().await;
-        let (outcome, _) = state
-            .action_map_runtime
-            .finish_main_node_with_next(
-                session.conversation_id,
-                "node-1",
-                "Patched target file.".to_string(),
-                None,
-                Some(crate::action_map::ActionMapNextNodeDraft {
-                    kind: NodeKind::FinalSynthesis,
-                    title: "Final summary".to_string(),
-                    context_summary: "Summarize the patch.".to_string(),
-                    dependency_node_ids: vec!["node-1".to_string()],
-                }),
-            )
-            .expect("finish into final synthesis");
-        outcome.result_id
-    };
-    session
-        .mark_action_map_result_validity(
-            &turn_context,
-            &result_id,
-            "accepted",
-            "Implementation result accepted.".to_string(),
-            vec![crate::action_map::ActionMapCognitiveClaimInput {
-                id: "claim-impl".to_string(),
-                statement: "The implementation edited the target file.".to_string(),
-                evidence_refs: vec![crate::action_map::ActionMapEvidenceRefInput {
-                    result_id: Some(result_id.clone()),
-                    ..Default::default()
-                }],
-            }],
-            vec![crate::action_map::ActionMapEvidenceRefInput {
-                result_id: Some(result_id.clone()),
-                ..Default::default()
-            }],
-            vec!["src/lib.rs".to_string()],
-            Vec::new(),
-            Vec::new(),
-        )
-        .await
-        .expect("implementation result validity records");
-
-    let error = session
-        .record_action_map_main_final_response(&turn_context, "Done.")
-        .await
-        .expect_err("final response gate failure must propagate to turn");
-
-    assert!(error.contains("accepted smoke_test or regression_test result"));
-    let history = session.clone_history().await;
-    let developer_text = developer_input_texts(history.raw_items()).join("\n");
-    assert!(developer_text.contains("TaskSpace final answer gate rejected"));
-    assert!(developer_text.contains("Do not treat the previous response as final"));
-    assert!(developer_text.contains("accepted smoke_test or regression_test result"));
-}
-
-#[tokio::test]
-async fn real_user_input_sets_taskspace_routing_gate_and_snapshot() {
-    let (session, turn_context, rx) = make_session_and_context_with_rx().await;
-    {
-        let mut state = session.state.lock().await;
-        state
-            .action_map_runtime
-            .set_mode(codex_protocol::protocol::MapRuntimeMode::Experiment);
-        state
-            .action_map_runtime
-            .start_task_for_main(
-                session.conversation_id,
-                "Architecture review".to_string(),
-                "Find structure risks.".to_string(),
-                "Scope review".to_string(),
-                "Collect current architecture scope.".to_string(),
-                true,
-            )
-            .expect("task starts");
-        let evidence_ref = crate::action_map::ActionMapEvidenceRefInput {
-            artifact_ref: Some("current user request".to_string()),
-            ..Default::default()
-        };
-        state
-            .action_map_runtime
-            .record_success_criteria_for_main(
-                session.conversation_id,
-                vec![crate::action_map::ActionMapSuccessCriterionInput {
-                    id: "sc-test".to_string(),
-                    kind: "test".to_string(),
-                    description: "Review scope is inspected.".to_string(),
-                    status: "open".to_string(),
-                    evidence_refs: vec![evidence_ref.clone()],
-                }],
-            )
-            .expect("success criteria records");
-        state
-            .action_map_runtime
-            .record_output_contract_for_main(
-                session.conversation_id,
-                "oc-test",
-                "artifact",
-                "A concise architecture risk summary.".to_string(),
-                vec![evidence_ref.clone()],
-            )
-            .expect("output contract records");
-        state
-            .action_map_runtime
-            .record_fact_source_for_main(
-                session.conversation_id,
-                "fs-test",
-                "provided_by_user",
-                "User asked to continue the architecture review.".to_string(),
-                vec![evidence_ref],
-            )
-            .expect("fact source records");
-    }
-    session
-        .prepare_action_map_main_tool_call(turn_context.as_ref(), "shell")
-        .await
-        .expect("existing binding should allow work before a new user turn");
-
-    handlers::user_input_or_turn(
-        &session,
-        "taskspace-user-turn".to_string(),
-        Op::UserInput {
-            environments: None,
-            items: vec![UserInput::Text {
-                text: "continue the review".to_string(),
-                text_elements: Vec::new(),
-            }],
-            final_output_json_schema: None,
-            responsesapi_client_metadata: None,
-        },
-    )
-    .await;
-
-    let mut emitted_snapshot = None;
-    let deadline = tokio::time::Instant::now() + StdDuration::from_secs(2);
-    while tokio::time::Instant::now() < deadline {
-        let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
-        let event = tokio::time::timeout(remaining, rx.recv())
-            .await
-            .expect("timeout waiting for TaskSpace snapshot event")
-            .expect("event");
-        if let EventMsg::MapRuntime(MapRuntimeEvent::SnapshotUpdated(payload)) = event.msg {
-            if payload.snapshot.routing_required {
-                emitted_snapshot = Some(payload.snapshot);
-                break;
-            }
-        }
-    }
-    let emitted_snapshot =
-        emitted_snapshot.expect("real user turn should emit a persisted TaskSpace snapshot");
-    assert!(emitted_snapshot.routing_required);
-    assert!(!emitted_snapshot.bootstrap_required);
-
-    let snapshot = session.action_map_snapshot().await;
-    assert!(snapshot.routing_required);
-    assert!(!snapshot.bootstrap_required);
-    assert!(
-        session
-            .prepare_action_map_main_tool_call(turn_context.as_ref(), "shell")
-            .await
-            .expect_err("new user turn must force task routing before ordinary work")
-            .contains("TaskSpace task routing is required")
-    );
-    session.abort_all_tasks(TurnAbortReason::Interrupted).await;
 }
 
 #[tokio::test]
@@ -1859,83 +1600,6 @@ async fn session_standard_mode_main_tool_result_does_not_record_trace() {
     assert!(snapshot.trace_events.is_empty());
     assert_eq!(snapshot.sentinel_summary.total_warning_count, 0);
     assert!(snapshot.sentinel_warnings.is_empty());
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn real_user_turn_sets_taskspace_routing_gate_and_snapshot() {
-    let (session, turn_context, rx) = make_session_and_context_with_rx().await;
-    let config = session.get_config().await;
-    {
-        let mut state = session.state.lock().await;
-        state
-            .action_map_runtime
-            .set_mode(codex_protocol::protocol::MapRuntimeMode::Experiment);
-        state
-            .action_map_runtime
-            .start_task_for_main(
-                session.conversation_id,
-                "Architecture review".to_string(),
-                "Find structure risks.".to_string(),
-                "Scope review".to_string(),
-                "Collect current architecture scope.".to_string(),
-                true,
-            )
-            .expect("task starts");
-    }
-    session
-        .prepare_action_map_main_tool_call(turn_context.as_ref(), "shell")
-        .await
-        .expect("existing binding should allow work before a new user turn");
-
-    handlers::user_input_or_turn(
-        &session,
-        "taskspace-user-turn-op".to_string(),
-        Op::UserTurn {
-            environments: None,
-            items: vec![UserInput::Text {
-                text: "continue the review".to_string(),
-                text_elements: Vec::new(),
-            }],
-            cwd: config.cwd.to_path_buf(),
-            approval_policy: config.permissions.approval_policy.value(),
-            approvals_reviewer: Some(codex_config::types::ApprovalsReviewer::AutoReview),
-            sandbox_policy: config.permissions.sandbox_policy.get().clone(),
-            permission_profile: None,
-            model: turn_context.model_info.slug.clone(),
-            effort: config.model_reasoning_effort,
-            summary: config.model_reasoning_summary,
-            service_tier: None,
-            final_output_json_schema: None,
-            collaboration_mode: None,
-            personality: config.personality,
-        },
-    )
-    .await;
-
-    let mut emitted_snapshot = None;
-    let deadline = tokio::time::Instant::now() + StdDuration::from_secs(2);
-    while tokio::time::Instant::now() < deadline {
-        let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
-        let event = tokio::time::timeout(remaining, rx.recv())
-            .await
-            .expect("timeout waiting for TaskSpace snapshot event")
-            .expect("event");
-        if let EventMsg::MapRuntime(MapRuntimeEvent::SnapshotUpdated(payload)) = event.msg {
-            if payload.snapshot.routing_required {
-                emitted_snapshot = Some(payload.snapshot);
-                break;
-            }
-        }
-    }
-    let emitted_snapshot =
-        emitted_snapshot.expect("real user turn should emit a persisted TaskSpace snapshot");
-    assert!(emitted_snapshot.routing_required);
-    assert!(!emitted_snapshot.bootstrap_required);
-
-    let snapshot = session.action_map_snapshot().await;
-    assert!(snapshot.routing_required);
-    assert!(!snapshot.bootstrap_required);
-    session.abort_all_tasks(TurnAbortReason::Interrupted).await;
 }
 
 #[tokio::test]

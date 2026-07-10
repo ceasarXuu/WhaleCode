@@ -87,17 +87,24 @@ async fn reconstruct_history_restores_latest_map_runtime_mode() {
 async fn reconstruct_history_restores_latest_map_runtime_snapshot() {
     let (session, turn_context) = make_session_and_context().await;
     let mut runtime = ActionMapRuntimeState::default();
-    runtime.set_mode(MapRuntimeMode::Experiment);
+    runtime.set_mode_for_session(MapRuntimeMode::Experiment, session.conversation_id);
     runtime
-        .start_task_for_main(
+        .initialize_map_for_main(
             session.conversation_id,
-            "Architecture review".to_string(),
-            "Find structure risks.".to_string(),
-            "Scope review".to_string(),
-            "Collect architecture scope.".to_string(),
-            false,
+            crate::action_map::ActionMapInitializeInput {
+                task_title: "Architecture review".to_string(),
+                task_objective: "Find structure risks.".to_string(),
+                nodes: vec![crate::action_map::ActionMapInitializeNodeInput {
+                    key: "scope".to_string(),
+                    kind: crate::action_map::NodeKind::InspectCodeContext,
+                    title: "Scope review".to_string(),
+                    context_summary: "Collect architecture scope.".to_string(),
+                    dependency_keys: Vec::new(),
+                }],
+                current_node_key: "scope".to_string(),
+            },
         )
-        .expect("task starts");
+        .expect("map initializes");
     let snapshot = runtime.snapshot();
     let rollout_items = vec![RolloutItem::EventMsg(EventMsg::MapRuntime(
         MapRuntimeEvent::SnapshotUpdated(MapRuntimeSnapshotUpdatedEvent {

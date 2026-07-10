@@ -523,9 +523,6 @@
             "steer": {
               "type": "boolean"
             },
-            "taskspace_compact_tool_schema": {
-              "type": "boolean"
-            },
             "telepathy": {
               "type": "boolean"
             },
@@ -2868,9 +2865,6 @@
           "type": "boolean"
         },
         "steer": {
-          "type": "boolean"
-        },
-        "taskspace_compact_tool_schema": {
           "type": "boolean"
         },
         "telepathy": {
