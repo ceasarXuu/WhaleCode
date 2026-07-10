@@ -29,7 +29,7 @@ function Get-TaskspaceCostJsonlRows {
     if ([string]::IsNullOrWhiteSpace($Path) -or -not (Test-Path -LiteralPath $Path)) {
         return [pscustomobject]@{ rows = @(); parse_errors = 0; source_status = "missing" }
     }
-    foreach ($line in @(Get-Content -Encoding UTF8 -LiteralPath $Path)) {
+    foreach ($line in [System.IO.File]::ReadLines($Path)) {
         if ([string]::IsNullOrWhiteSpace($line)) { continue }
         try {
             $rows.Add(($line | ConvertFrom-Json))
@@ -104,7 +104,7 @@ function Get-TaskspaceTraceEvents {
     } catch {}
     try {
         if (-not [string]::IsNullOrWhiteSpace($RolloutJsonlPath) -and (Test-Path -LiteralPath $RolloutJsonlPath)) {
-            foreach ($line in @(Get-Content -Encoding UTF8 -LiteralPath $RolloutJsonlPath)) {
+            foreach ($line in [System.IO.File]::ReadLines($RolloutJsonlPath)) {
                 if ([string]::IsNullOrWhiteSpace($line)) { continue }
                 $row = $null
                 try { $row = $line | ConvertFrom-Json } catch { continue }
@@ -1227,33 +1227,38 @@ function New-TaskspaceTokenSummary {
 
 function New-TaskspaceRolloutRequestTraceSummary {
     param([AllowEmptyString()][string]$RolloutJsonlPath = "")
-    $parsed = Get-TaskspaceCostJsonlRows $RolloutJsonlPath
+    $sourceStatus = if (-not [string]::IsNullOrWhiteSpace($RolloutJsonlPath) -and (Test-Path -LiteralPath $RolloutJsonlPath -PathType Leaf)) { "read" } else { "missing" }
+    $parseErrors = 0
     $inputValues = New-Object System.Collections.Generic.List[Int64]
     $outputValues = New-Object System.Collections.Generic.List[Int64]
     $cachedValues = New-Object System.Collections.Generic.List[Int64]
-    foreach ($row in @($parsed.rows)) {
-        if (-not ($row.PSObject.Properties.Name -contains "type" -and [string]$row.type -eq "event_msg")) { continue }
-        if (-not ($row.PSObject.Properties.Name -contains "payload" -and $null -ne $row.payload)) { continue }
-        if (-not ($row.payload.PSObject.Properties.Name -contains "type" -and [string]$row.payload.type -eq "token_count")) { continue }
-        $info = Get-TaskspaceCostProperty $row.payload @("info")
-        if (-not $info) { continue }
-        $last = Get-TaskspaceCostProperty $info @("last_token_usage")
-        if (-not $last) { continue }
-        $input = Get-TaskspaceUsageNumber $last @("input_tokens", "prompt_tokens")
-        $output = Get-TaskspaceUsageNumber $last @("output_tokens", "completion_tokens")
-        $cached = Get-TaskspaceCachedInputTokens $last
-        if ($null -ne $input) { $inputValues.Add([int64]$input) }
-        if ($null -ne $output) { $outputValues.Add([int64]$output) }
-        if ($null -ne $cached) { $cachedValues.Add([int64]$cached) }
+    if ($sourceStatus -eq "read") {
+        foreach ($line in [System.IO.File]::ReadLines($RolloutJsonlPath)) {
+            if ([string]::IsNullOrWhiteSpace($line)) { continue }
+            try { $row = $line | ConvertFrom-Json } catch { $parseErrors++; continue }
+            if (-not ($row.PSObject.Properties.Name -contains "type" -and [string]$row.type -eq "event_msg")) { continue }
+            if (-not ($row.PSObject.Properties.Name -contains "payload" -and $null -ne $row.payload)) { continue }
+            if (-not ($row.payload.PSObject.Properties.Name -contains "type" -and [string]$row.payload.type -eq "token_count")) { continue }
+            $info = Get-TaskspaceCostProperty $row.payload @("info")
+            if (-not $info) { continue }
+            $last = Get-TaskspaceCostProperty $info @("last_token_usage")
+            if (-not $last) { continue }
+            $input = Get-TaskspaceUsageNumber $last @("input_tokens", "prompt_tokens")
+            $output = Get-TaskspaceUsageNumber $last @("output_tokens", "completion_tokens")
+            $cached = Get-TaskspaceCachedInputTokens $last
+            if ($null -ne $input) { $inputValues.Add([int64]$input) }
+            if ($null -ne $output) { $outputValues.Add([int64]$output) }
+            if ($null -ne $cached) { $cachedValues.Add([int64]$cached) }
+        }
     }
     $inputArray = @($inputValues.ToArray())
     $outputArray = @($outputValues.ToArray())
     $cachedArray = @($cachedValues.ToArray())
     [pscustomobject]@{
         source_path = $RolloutJsonlPath
-        source_status = [string]$parsed.source_status
-        parse_errors = [int]$parsed.parse_errors
-        availability = if ($parsed.source_status -ne "read") { "source_missing" } elseif ($inputArray.Count -eq 0 -and $outputArray.Count -eq 0) { "usage_unavailable" } else { "measured" }
+        source_status = $sourceStatus
+        parse_errors = [int]$parseErrors
+        availability = if ($sourceStatus -ne "read") { "source_missing" } elseif ($inputArray.Count -eq 0 -and $outputArray.Count -eq 0) { "usage_unavailable" } else { "measured" }
         model_request_count = if ($inputArray.Count -gt 0 -or $outputArray.Count -gt 0) { [Math]::Max($inputArray.Count, $outputArray.Count) } else { $null }
         input_tokens = if ($inputArray.Count -gt 0) { ($inputArray | Measure-Object -Sum).Sum } else { $null }
         output_tokens = if ($outputArray.Count -gt 0) { ($outputArray | Measure-Object -Sum).Sum } else { $null }
@@ -1416,42 +1421,46 @@ function New-TaskspaceControlUsageSummary {
     Remove-Variable -Name taskspaceCostStateCommit -Scope Script -ErrorAction SilentlyContinue
     Remove-Variable -Name taskspaceCostNativeControlTotal -Scope Script -ErrorAction SilentlyContinue
     Remove-Variable -Name taskspaceCostActionContractControlTotal -Scope Script -ErrorAction SilentlyContinue
-    $rolloutParsed = Get-TaskspaceCostJsonlRows $RolloutJsonlPath
+    $rolloutSourceStatus = if (-not [string]::IsNullOrWhiteSpace($RolloutJsonlPath) -and (Test-Path -LiteralPath $RolloutJsonlPath -PathType Leaf)) { "read" } else { "missing" }
     $rolloutActions = @{}
     $rolloutNativeCallIds = [System.Collections.Generic.HashSet[string]]::new()
     $rolloutActionContractCallIds = [System.Collections.Generic.HashSet[string]]::new()
     $rolloutResponseItemCount = 0
-    foreach ($row in @($rolloutParsed.rows)) {
-        if ([string](Get-TaskspaceCostProperty $row @("type")) -ne "response_item") { continue }
-        $rolloutResponseItemCount++
-        $payload = Get-TaskspaceCostProperty $row @("payload")
-        if ($null -eq $payload -or [string](Get-TaskspaceCostProperty $payload @("type")) -notin @("function_call", "custom_tool_call")) { continue }
-        if ([string](Get-TaskspaceCostProperty $payload @("name")) -ne "taskspace_control") { continue }
-        $callId = [string](Get-TaskspaceCostProperty $payload @("call_id"))
-        if ([string]::IsNullOrWhiteSpace($callId)) { continue }
-        $isActionContract = $callId.StartsWith("taskspace-action-contract-")
-        $added = if ($isActionContract) {
-            $rolloutActionContractCallIds.Add($callId)
-        } else {
-            $rolloutNativeCallIds.Add($callId)
+    if ($rolloutSourceStatus -eq "read") {
+        foreach ($line in [System.IO.File]::ReadLines($RolloutJsonlPath)) {
+            if ([string]::IsNullOrWhiteSpace($line)) { continue }
+            try { $row = $line | ConvertFrom-Json } catch { continue }
+            if ([string](Get-TaskspaceCostProperty $row @("type")) -ne "response_item") { continue }
+            $rolloutResponseItemCount++
+            $payload = Get-TaskspaceCostProperty $row @("payload")
+            if ($null -eq $payload -or [string](Get-TaskspaceCostProperty $payload @("type")) -notin @("function_call", "custom_tool_call")) { continue }
+            if ([string](Get-TaskspaceCostProperty $payload @("name")) -ne "taskspace_control") { continue }
+            $callId = [string](Get-TaskspaceCostProperty $payload @("call_id"))
+            if ([string]::IsNullOrWhiteSpace($callId)) { continue }
+            $isActionContract = $callId.StartsWith("taskspace-action-contract-")
+            $added = if ($isActionContract) {
+                $rolloutActionContractCallIds.Add($callId)
+            } else {
+                $rolloutNativeCallIds.Add($callId)
+            }
+            if (-not $added) { continue }
+            $action = ""
+            $arguments = Get-TaskspaceCostProperty $payload @("arguments", "args")
+            if ($arguments -is [string]) {
+                try {
+                    $parsedArguments = $arguments | ConvertFrom-Json
+                    $action = [string](Get-TaskspaceCostProperty $parsedArguments @("action"))
+                } catch {}
+            } elseif ($null -ne $arguments) {
+                $action = [string](Get-TaskspaceCostProperty $arguments @("action"))
+            }
+            Add-TaskspaceCostCount $rolloutActions $action
         }
-        if (-not $added) { continue }
-        $action = ""
-        $arguments = Get-TaskspaceCostProperty $payload @("arguments", "args")
-        if ($arguments -is [string]) {
-            try {
-                $parsedArguments = $arguments | ConvertFrom-Json
-                $action = [string](Get-TaskspaceCostProperty $parsedArguments @("action"))
-            } catch {}
-        } elseif ($null -ne $arguments) {
-            $action = [string](Get-TaskspaceCostProperty $arguments @("action"))
-        }
-        Add-TaskspaceCostCount $rolloutActions $action
     }
     $rolloutNativeTotal = [int]$rolloutNativeCallIds.Count
     $rolloutActionContractTotal = [int]$rolloutActionContractCallIds.Count
     $rolloutTotal = $rolloutNativeTotal + $rolloutActionContractTotal
-    $rolloutControlTelemetryMeasured = ($rolloutParsed.source_status -eq "read" -and $rolloutResponseItemCount -gt 0)
+    $rolloutControlTelemetryMeasured = ($rolloutSourceStatus -eq "read" -and $rolloutResponseItemCount -gt 0)
     $controlCountSource = "unavailable"
     if ($rolloutControlTelemetryMeasured) {
         $nativeTotal = $rolloutNativeTotal
@@ -1537,12 +1546,12 @@ function New-TaskspaceControlUsageSummary {
         observability_source_path = $ObservabilityJsonPath
         rollout_source_path = $RolloutJsonlPath
         source_status = [string]$parsed.source_status
-        rollout_source_status = [string]$rolloutParsed.source_status
+        rollout_source_status = $rolloutSourceStatus
         rollout_response_item_count = [int]$rolloutResponseItemCount
         rollout_control_telemetry_measured = [bool]$rolloutControlTelemetryMeasured
         observability_source_status = $runtimeSourceStatus
         parse_errors = [int]$parsed.parse_errors
-        availability = if ($parsed.source_status -eq "read" -or $rolloutParsed.source_status -eq "read") { "measured" } else { "source_missing" }
+        availability = if ($parsed.source_status -eq "read" -or $rolloutSourceStatus -eq "read") { "measured" } else { "source_missing" }
         taskspace_control_count_source = $controlCountSource
         taskspace_control_count_source_mismatch = [bool]$controlCountSourceMismatch
         whale_exec_taskspace_control_count = $execTotal
@@ -1718,11 +1727,17 @@ function Get-TaskspaceContextProjectionBlocks {
         [AllowEmptyString()][string]$RolloutJsonlPath = ""
     )
     $texts = New-Object System.Collections.Generic.List[string]
-    foreach ($path in @($JsonlPath, $ObservabilityJsonPath, $RolloutJsonlPath)) {
+    foreach ($path in @($JsonlPath, $ObservabilityJsonPath)) {
         if ([string]::IsNullOrWhiteSpace($path) -or -not (Test-Path -LiteralPath $path)) { continue }
         $raw = Get-Content -Raw -Encoding UTF8 -LiteralPath $path
         $unescaped = $raw -replace "\\r\\n", "`n" -replace "\\n", "`n"
         $texts.Add($unescaped)
+    }
+    if (-not [string]::IsNullOrWhiteSpace($RolloutJsonlPath) -and (Test-Path -LiteralPath $RolloutJsonlPath -PathType Leaf)) {
+        foreach ($line in [System.IO.File]::ReadLines($RolloutJsonlPath)) {
+            if ($line -notmatch 'ContextProjectionV1') { continue }
+            $texts.Add(($line -replace "\\r\\n", "`n" -replace "\\n", "`n"))
+        }
     }
     $blocks = New-Object System.Collections.Generic.List[string]
     foreach ($text in @($texts.ToArray())) {
@@ -1817,12 +1832,12 @@ function Get-TaskspaceCostRolloutScanPolicy {
     }
     $large = ($null -ne $bytes -and [int64]$bytes -gt [int64]$thresholdBytes)
     [pscustomobject]@{
-        schema_version = "taskspace-cost-scan-policy-v1"
+        schema_version = "taskspace-cost-scan-policy-v2"
         rollout_source_path = $RolloutJsonlPath
-        rollout_effective_scan_path = if ($large) { "" } else { $RolloutJsonlPath }
+        rollout_effective_scan_path = $RolloutJsonlPath
         rollout_bytes = $bytes
         rollout_scan_max_bytes = [int64]$thresholdBytes
-        rollout_scan_mode = if ($large) { "skipped_large_rollout" } elseif ([string]::IsNullOrWhiteSpace($RolloutJsonlPath) -or -not (Test-Path -LiteralPath $RolloutJsonlPath)) { "missing" } else { "full" }
+        rollout_scan_mode = if ([string]::IsNullOrWhiteSpace($RolloutJsonlPath) -or -not (Test-Path -LiteralPath $RolloutJsonlPath)) { "missing" } elseif ($large) { "streaming_large_rollout" } else { "streaming" }
     }
 }
 

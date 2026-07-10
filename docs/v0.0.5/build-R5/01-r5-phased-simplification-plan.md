@@ -784,7 +784,11 @@ runtime 内部历史方法如仍有测试/重放依赖，只能作为 R5-F 物�
 rollout 超过 32MB 时 extractor 必须流式扫描，不能把 projection/control/request 计数静默写成 0。
 ```
 
-实施状态（2026-07-10）：第一个复杂样本已完成 Agent-authored map 验证；34,225,949-byte rollout 再次触发 32MB skip，报表把真实的 24 requests/6 control calls 写成 unavailable/0。流式 extractor 和第二个复杂依赖样本仍待完成。
+实施状态（2026-07-11）：流式 extractor 已完成。32MB 阈值现在只切换
+`streaming_large_rollout` 模式，不再清空 effective scan path；request/token、control、终态、tool 和选定
+trace event 均按 JSONL 行扫描，损坏行单独计数。已用 39,514,376-byte 真实 rollout 恢复出
+`30 requests / 21 control calls / final candidate`，并以含有效事件、损坏行和 2MB 单行的 fixture
+验证渐进扫描。第二个复杂依赖样本及最终性能判定仍待完成。
 
 优先样本：
 

@@ -52,7 +52,15 @@ $artifactDir = New-Dir (Join-Path $runDir "large-rollout-artifacts")
 $jsonlPath = Join-Path $artifactDir "whale-exec.jsonl"
 New-TestFile $jsonlPath ""
 $rolloutPath = Join-Path $artifactDir "rollout.jsonl"
-[System.IO.File]::WriteAllText($rolloutPath, ("x" * 2097152), [System.Text.UTF8Encoding]::new($false))
+$rolloutWriter = [System.IO.StreamWriter]::new($rolloutPath, $false, [System.Text.UTF8Encoding]::new($false))
+try {
+    $rolloutWriter.WriteLine('{"type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":100,"output_tokens":20,"cached_input_tokens":80}}}}')
+    $rolloutWriter.WriteLine('{"type":"response_item","payload":{"type":"function_call","name":"taskspace_control","call_id":"control-1","arguments":"{\"action\":\"initialize_map\"}"}}')
+    $rolloutWriter.WriteLine('malformed-line')
+    $rolloutWriter.WriteLine('{"type":"event_msg","payload":{"type":"fixture","content":"' + ('x' * 2097152) + '"}}')
+} finally {
+    $rolloutWriter.Dispose()
+}
 $oldThreshold = $env:TASKSPACE_COST_ROLLOUT_SCAN_MAX_BYTES
 try {
     $env:TASKSPACE_COST_ROLLOUT_SCAN_MAX_BYTES = "1048576"
@@ -60,7 +68,10 @@ try {
 } finally {
     if ($null -eq $oldThreshold) { Remove-Item Env:\TASKSPACE_COST_ROLLOUT_SCAN_MAX_BYTES -ErrorAction SilentlyContinue } else { $env:TASKSPACE_COST_ROLLOUT_SCAN_MAX_BYTES = $oldThreshold }
 }
-Assert-True ([string]$cost.cost_scan_policy.rollout_scan_mode -eq "skipped_large_rollout") "large rollout was not guarded by cost scan policy"
+Assert-True ([string]$cost.cost_scan_policy.rollout_scan_mode -eq "streaming_large_rollout") "large rollout did not use streaming scan policy"
+Assert-True ([string]$cost.cost_scan_policy.rollout_effective_scan_path -eq [string]$rolloutPath) "large rollout was removed from the effective scan path"
+Assert-True ([int]$cost.request_summary.model_request_count -eq 1) "streaming request extractor lost a valid token event"
+Assert-True ([int]$cost.taskspace_control_usage.taskspace_control_count -eq 1) "streaming control extractor lost a valid tool call"
 Assert-True (Test-Path -LiteralPath $cost.cost_scan_policy_path) "cost scan policy artifact was not written"
 
 if ($failures.Count -gt 0) {
