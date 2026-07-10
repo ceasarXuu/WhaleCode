@@ -7,7 +7,7 @@ param(
     [string]$Model = "deepseek-v4-flash",
     [int]$TimeoutSeconds = 900,
     [ValidateSet("bypass", "full-auto", "workspace-write")]
-    [string]$SandboxMode = "full-auto",
+    [string]$SandboxMode = "bypass",
     [string[]]$ConfigOverride = @('model_reasoning_effort="max"'),
     [switch]$AllowNonE2Result
 )

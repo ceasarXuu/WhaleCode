@@ -9,6 +9,16 @@ function New-TaskspaceContainerIdentity {
     }
 }
 
+function Assert-TaskspaceDockerWhaleArgv {
+    param([Parameter(Mandatory = $true)][string[]]$WhaleArgv)
+    if ($WhaleArgv -contains '--full-auto' -or $WhaleArgv -contains '--sandbox') {
+        throw 'container_agent_nested_sandbox_rejected: Docker is the hard sandbox boundary'
+    }
+    if ($WhaleArgv -notcontains '--dangerously-bypass-approvals-and-sandbox') {
+        throw 'container_agent_bypass_required: Docker agent must not start a nested sandbox'
+    }
+}
+
 function Invoke-TaskspaceDockerAgent {
     param(
         [string]$RunId,
@@ -23,6 +33,7 @@ function Invoke-TaskspaceDockerAgent {
         [string]$ProviderSecret,
         [int]$TimeoutSeconds
     )
+    Assert-TaskspaceDockerWhaleArgv $WhaleArgv
     $identity = New-TaskspaceContainerIdentity $RunId $SampleId $PairId $Side
     $secretPath = New-TaskspaceContainerSecret $Side.ArtifactDir $ProviderSecret
     $script = @'

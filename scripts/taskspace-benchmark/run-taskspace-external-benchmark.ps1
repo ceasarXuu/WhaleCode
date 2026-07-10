@@ -14,7 +14,7 @@ param(
     [int]$ValidationPretestTimeoutSeconds = 120,
     [int]$ValidationTestTimeoutSeconds = 420,
     [ValidateSet("bypass", "full-auto", "workspace-write")]
-    [string]$SandboxMode = "full-auto",
+    [string]$SandboxMode = "bypass",
     [string[]]$ConfigOverride = @('model_reasoning_effort="max"'),
     [string]$AuditReviewRoot = "",
     [string]$RunnerPath = "",
