@@ -1,4 +1,5 @@
 Set-StrictMode -Version Latest
+. (Join-Path $PSScriptRoot "native-cadence.ps1")
 
 function Get-PerformanceProperty {
     param($Object, [Parameter(Mandatory = $true)][string]$Name, $Default = $null)
@@ -174,6 +175,7 @@ function Get-PerformanceSideObservation {
     $cache = Read-PerformanceJson (Join-Path $artifactDir "provider-cache-trace-summary.json") $Events
     $requests = Get-PerformanceWireRequestCount $artifactDir $cache
     $actions = Get-PerformanceActionCounts $artifactDir $Events
+    $cadence = Get-TaskspaceNativeCadenceFacts $artifactDir $Events
     $warnings = New-Object System.Collections.Generic.List[string]
     $taints = @((Get-PerformanceProperty $metrics "metrics_taints" @()))
     $skipped = @($taints | Where-Object { [string]$_ -match '^side_selection_skipped:' }).Count -gt 0
@@ -208,6 +210,12 @@ function Get-PerformanceSideObservation {
             ordinary_tools = Get-PerformanceNumber (Get-PerformanceProperty $metrics "tool_call_count")
             failed_tools = Get-PerformanceNumber (Get-PerformanceProperty $metrics "failed_tool_call_count")
             shell = $actions.shell; patch = $actions.patch; taskspace_control = $map.control_count
+            tool_bearing_responses = $cadence.tool_bearing_response_count
+            control_only_responses = $cadence.control_only_response_count
+            mixed_barrier_batches = $cadence.mixed_barrier_batch_count
+            terminal_candidates = $cadence.terminal_candidate_count
+            terminal_extra_requests = $cadence.terminal_extra_request_count
+            cadence_source = $cadence.availability
             action_trace_source = $actions.source
         }
         cost = [pscustomobject]@{
@@ -239,7 +247,7 @@ function Get-PerformanceModeAggregate {
     $selected = @($observed | Where-Object { $_.comparison_eligible })
     if ($selected.Count -eq 0) { return $null }
     $sum = [ordered]@{}
-    foreach ($field in @("provider_requests", "ordinary_tools", "failed_tools", "taskspace_control")) {
+    foreach ($field in @("provider_requests", "ordinary_tools", "failed_tools", "taskspace_control", "tool_bearing_responses", "control_only_responses", "mixed_barrier_batches", "terminal_candidates", "terminal_extra_requests")) {
         $values = @($selected | ForEach-Object { Get-PerformanceNumber $_.actions.$field } | Where-Object { $null -ne $_ })
         $sum[$field] = if ($values.Count) { [double](($values | Measure-Object -Sum).Sum) } else { $null }
     }
@@ -351,6 +359,18 @@ function Write-TaskspacePerformanceObservation {
             $lines.Add("| $(Format-PerformanceValue $row.case_id) | $($row.logical_mode) | skipped | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A |")
         } else {
             $lines.Add("| $(Format-PerformanceValue $row.case_id) | $($row.logical_mode) | $($row.observation_status) | $result | $(Format-PerformanceValue $row.result.agent_completion_status) | $(Format-PerformanceValue $row.result.external_validation_status) | $(Format-PerformanceValue $row.result.public_validation_exit_code) | $(Format-PerformanceValue $row.result.hidden_oracle_exit_code) | $(Format-PerformanceValue $changed) | $(Format-PerformanceValue $row.actions.provider_requests) | $(Format-PerformanceValue $row.actions.ordinary_tools) | $(Format-PerformanceValue $row.actions.failed_tools) | $(Format-PerformanceValue $row.actions.shell) | $(Format-PerformanceValue $row.actions.patch) | $(Format-PerformanceValue $row.actions.taskspace_control) | $(Format-PerformanceValue $row.cost.wall_time_ms seconds) |")
+        }
+    }
+    $lines.Add("")
+    $lines.Add("## Native cadence")
+    $lines.Add("")
+    $lines.Add("| Repeat | Mode | Tool responses | Control-only | Mixed barriers | Terminal candidates | Extra final requests | Source |")
+    $lines.Add("|---:|---|---:|---:|---:|---:|---:|---|")
+    foreach ($row in $rows) {
+        if ($row.observation_status -eq "skipped") {
+            $lines.Add("| $(Format-PerformanceValue $row.repeat) | $($row.logical_mode) | N/A | N/A | N/A | N/A | N/A | N/A |")
+        } else {
+            $lines.Add("| $(Format-PerformanceValue $row.repeat) | $($row.logical_mode) | $(Format-PerformanceValue $row.actions.tool_bearing_responses) | $(Format-PerformanceValue $row.actions.control_only_responses) | $(Format-PerformanceValue $row.actions.mixed_barrier_batches) | $(Format-PerformanceValue $row.actions.terminal_candidates) | $(Format-PerformanceValue $row.actions.terminal_extra_requests) | $(Format-PerformanceValue $row.actions.cadence_source) |")
         }
     }
     $lines.Add("")

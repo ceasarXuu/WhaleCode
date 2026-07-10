@@ -107,7 +107,7 @@ pub(crate) async fn execute_response_tool_sequence(
                     segment_index,
                     call_id = call.call_id,
                     tool_name = call.tool_name.display(),
-                    "tool_response_barrier_started"
+                    "tool.barrier_started"
                 );
                 vec![
                     runtime
@@ -144,14 +144,14 @@ pub(crate) async fn execute_response_tool_sequence(
                     segment_index,
                     call_id,
                     failure_class = "tool_output_unsuccessful",
-                    "tool_response_barrier_failed"
+                    "tool.barrier_failed"
                 );
             } else {
                 tracing::info!(
                     target: "codex_core::taskspace",
                     segment_index,
                     call_id,
-                    "tool_response_barrier_completed"
+                    "tool.barrier_completed"
                 );
             }
         }

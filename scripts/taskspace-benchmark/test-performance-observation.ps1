@@ -75,6 +75,23 @@ function New-SideFixture {
     }
 }
 
+$cadenceFixture = Join-Path $RunRoot "cadence-fixture"
+$initializeArgs = @{ action = "initialize_map" } | ConvertTo-Json -Compress
+$terminalArgs = @{ action = "finish_node"; final_candidate = "Agent final" } | ConvertTo-Json -Compress
+Write-JsonLines @(
+    [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "function_call"; name = "taskspace_control"; call_id = "init"; arguments = $initializeArgs } },
+    [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "function_call"; name = "exec_command"; call_id = "read"; arguments = "{}" } },
+    [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "function_call_output"; call_id = "init"; output = "ok" } },
+    [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "function_call"; name = "taskspace_control"; call_id = "finish"; arguments = $terminalArgs } },
+    [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "function_call_output"; call_id = "finish"; output = "ok" } },
+    [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "message"; role = "assistant"; phase = "final_answer"; content = @([pscustomobject]@{ type = "output_text"; text = "Agent final" }) } }
+) (Join-Path $cadenceFixture "rollout.jsonl")
+$cadence = Get-TaskspaceNativeCadenceFacts $cadenceFixture $null
+Assert-True ($cadence.tool_bearing_response_count -eq 2) "cadence tool-bearing response count is incorrect"
+Assert-True ($cadence.control_only_response_count -eq 1) "cadence control-only response count is incorrect"
+Assert-True ($cadence.mixed_barrier_batch_count -eq 1) "cadence mixed barrier count is incorrect"
+Assert-True ($cadence.terminal_candidate_count -eq 1 -and $cadence.terminal_extra_request_count -eq 0) "terminal candidate cadence was not measured"
+
 if (Test-Path -LiteralPath $RunRoot) { Remove-Item -LiteralPath $RunRoot -Recurse -Force }
 $pair1 = Join-Path $RunRoot "pair-001"; $pair2 = Join-Path $RunRoot "pair-002"
 Write-Json ([pscustomobject]@{ repeat = 1; left = "standard"; right = "taskspace" }) (Join-Path $pair1 "logical-mode-map.json")
