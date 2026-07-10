@@ -1,0 +1,4 @@
+interface:
+  display_name: "Observe TaskSpace Performance"
+  short_description: "Generate evidence-based TaskSpace benchmark comparisons"
+  default_prompt: "Use $observe-taskspace-performance to generate a result, action, cost, cache, and map comparison for the selected benchmark run."
