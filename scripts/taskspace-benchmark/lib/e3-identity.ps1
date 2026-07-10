@@ -29,7 +29,6 @@ function New-TaskspaceE3ProfileIdentity {
         [int]$ValidationTimeoutSeconds = 0,
         [int]$ValidationPretestTimeoutSeconds = 0,
         [int]$ValidationTestTimeoutSeconds = 0,
-        [string]$SandboxMode = "",
         [string[]]$ConfigOverride = @(),
         [bool]$EnableDockerImageCache = $false,
         [int]$MaxParallelSamples = 1,
@@ -54,7 +53,7 @@ function New-TaskspaceE3ProfileIdentity {
         validation_timeout_seconds = $ValidationTimeoutSeconds
         validation_pretest_timeout_seconds = $ValidationPretestTimeoutSeconds
         validation_test_timeout_seconds = $ValidationTestTimeoutSeconds
-        sandbox_mode = $SandboxMode
+        execution_boundary = "docker_hard_boundary"
         config_override = @($ConfigOverride | Sort-Object)
         enable_docker_image_cache = $EnableDockerImageCache
         max_parallel_samples = $MaxParallelSamples

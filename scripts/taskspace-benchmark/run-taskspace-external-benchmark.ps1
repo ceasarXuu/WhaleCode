@@ -13,8 +13,6 @@ param(
     [int]$ValidationTimeoutSeconds = 420,
     [int]$ValidationPretestTimeoutSeconds = 120,
     [int]$ValidationTestTimeoutSeconds = 420,
-    [ValidateSet("bypass", "full-auto", "workspace-write")]
-    [string]$SandboxMode = "bypass",
     [string[]]$ConfigOverride = @('model_reasoning_effort="max"'),
     [string]$AuditReviewRoot = "",
     [string]$RunnerPath = "",
@@ -186,8 +184,7 @@ $args = @(
     "-TimeoutSeconds", $TimeoutSeconds,
     "-ValidationTimeoutSeconds", $ValidationTimeoutSeconds,
     "-ValidationPretestTimeoutSeconds", $ValidationPretestTimeoutSeconds,
-    "-ValidationTestTimeoutSeconds", $ValidationTestTimeoutSeconds,
-    "-SandboxMode", $SandboxMode
+    "-ValidationTestTimeoutSeconds", $ValidationTestTimeoutSeconds
 )
 if (-not [string]::IsNullOrWhiteSpace($TaskListHash)) { $args += @("-TaskListHash", $TaskListHash) }
 $args += @("-SourceVersion", $SourceVersion)

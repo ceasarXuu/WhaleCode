@@ -10,11 +10,11 @@ $artifacts = New-Dir (Join-Path $root 'artifacts')
 $side = [pscustomobject]@{ Name = 'left'; LogicalMode = 'standard'; RepoDir = $workspace; ArtifactDir = $artifacts }
 $identity = New-TaskspaceContainerIdentity 'selftest' 'benchmark-runner' 'pair-001' $side
 
-$bypassArgv = New-TaskspaceWhaleArgv 'standard' 'model-x' '/workspace' '/artifacts/last-message.md' 'bypass'
+$bypassArgv = New-TaskspaceWhaleArgv 'standard' 'model-x' '/workspace' '/artifacts/last-message.md'
 Assert-TaskspaceDockerWhaleArgv $bypassArgv
 $nestedSandboxRejected = $false
 try {
-    $nestedArgv = New-TaskspaceWhaleArgv 'standard' 'model-x' '/workspace' '/artifacts/last-message.md' 'full-auto'
+    $nestedArgv = @($bypassArgv | Where-Object { $_ -ne '--dangerously-bypass-approvals-and-sandbox' }) + @('--full-auto')
     Assert-TaskspaceDockerWhaleArgv $nestedArgv
 } catch {
     $nestedSandboxRejected = [string]$_.Exception.Message -match '^container_agent_nested_sandbox_rejected:'

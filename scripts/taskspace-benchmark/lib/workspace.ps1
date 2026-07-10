@@ -378,22 +378,13 @@ function New-TaskspaceWhaleArgv {
         [Parameter(Mandatory = $true)][string]$Model,
         [Parameter(Mandatory = $true)][string]$RepoDir,
         [Parameter(Mandatory = $true)][string]$LastMessagePath,
-        [string]$SandboxMode = "bypass",
         [string[]]$ConfigOverrides = @()
     )
     $args = @("exec", "--json")
     if ($LogicalMode -eq "taskspace") { $args += "--taskspace" }
     foreach ($override in @($ConfigOverrides)) { $args += @("-c", $override) }
     $args += @("-m", $Model, "-C", $RepoDir)
-    if ($SandboxMode -eq "full-auto") {
-        $args += "--full-auto"
-    } elseif ($SandboxMode -eq "workspace-write") {
-        $args += @("--sandbox", "workspace-write")
-    } elseif ($SandboxMode -eq "bypass") {
-        $args += "--dangerously-bypass-approvals-and-sandbox"
-    } else {
-        throw "Unsupported sandbox mode: $SandboxMode"
-    }
+    $args += "--dangerously-bypass-approvals-and-sandbox"
     $args += @("--output-last-message", $LastMessagePath, "-")
     @($args)
 }

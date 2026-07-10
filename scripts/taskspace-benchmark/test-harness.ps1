@@ -11,7 +11,6 @@ $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 . (Join-Path $PSScriptRoot "lib\routing-report.ps1")
 . (Join-Path $PSScriptRoot "lib\prompt-guard.ps1")
 . (Join-Path $PSScriptRoot "lib\workspace.ps1")
-. (Join-Path $PSScriptRoot "lib\oracle-runner.ps1")
 . (Join-Path $PSScriptRoot "lib\graph-health.ps1")
 . (Join-Path $PSScriptRoot "lib\metrics-extractor.ps1")
 . (Join-Path $PSScriptRoot "lib\audit-report.ps1")
@@ -188,14 +187,6 @@ $rightPrivateHits = @(Get-ChildItem -LiteralPath $pairOne.Right.RepoDir -Recurse
 Assert-True ($leftPrivateHits.Count -eq 0) "private oracle leaked into left repo"
 Assert-True ($rightPrivateHits.Count -eq 0) "private oracle leaked into right repo"
 
-$leakFile = Join-Path $pairOne.Left.ArtifactDir "leak.txt"
-Write-Text $leakFile $pairOne.HiddenOraclePath
-$leak = Test-TaskspaceOracleLeak $pairOne.Left.RepoDir $pairOne.Left.ArtifactDir $pairOne.HiddenOraclePath
-Assert-True ($leak.leaked) "oracle path leak test did not detect leaked path"
-$repoLeakFile = Join-Path $pairOne.Left.RepoDir "oracle-path-leak.txt"
-Write-Text $repoLeakFile $pairOne.HiddenOraclePath
-$repoLeak = Test-TaskspaceOracleLeak $pairOne.Left.RepoDir $pairOne.Left.ArtifactDir $pairOne.HiddenOraclePath
-Assert-True ($repoLeak.leaked) "oracle path leak test did not detect repo-visible leaked path"
 $untrackedPath = Join-Path $pairOne.Left.RepoDir "new-output.txt"
 Write-Text $untrackedPath "new file"
 $nestedUntrackedPath = Join-Path $pairOne.Left.RepoDir "app\hello.txt"

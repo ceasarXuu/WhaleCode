@@ -6,8 +6,6 @@ param(
     [string]$WhaleBin = "$env:USERPROFILE\.whale\bin\whale.exe",
     [string]$Model = "deepseek-v4-flash",
     [int]$TimeoutSeconds = 900, [int]$ValidationTimeoutSeconds = 420, [int]$ValidationPretestTimeoutSeconds = 120, [int]$ValidationTestTimeoutSeconds = 420,
-    [ValidateSet("bypass", "full-auto", "workspace-write")]
-    [string]$SandboxMode = "bypass",
     [string[]]$ConfigOverride = @('model_reasoning_effort="max"'),
     [ValidateSet("deferred_materialization_allowed", "hard_sandbox_only")]
     [string]$OracleIsolationPolicy = "deferred_materialization_allowed",
@@ -156,7 +154,7 @@ $providerParamStatus = [ordered]@{
     explicit = [ordered]@{
         model = $Model
         model_reasoning_effort = ""
-        sandbox_mode = $SandboxMode
+        sandbox_mode = "docker_hard_boundary"
     }
     missing = @()
 }
@@ -451,7 +449,7 @@ for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
         container_resource_contract = $containerContract.resources
         provider_param_status = $providerParamStatus
         config_overrides = @($effectiveConfigOverrides)
-        sandbox_mode = $SandboxMode
+        sandbox_mode = "docker_hard_boundary"
         oracle_isolation_policy = $OracleIsolationPolicy
         logical_mode_map = @{ left = $pair.Left.LogicalMode; right = $pair.Right.LogicalMode }
         run_side = $RunSide
@@ -478,7 +476,7 @@ for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
             Write-Text $stdinPath $sidePrompt
             $executionRepoDir = [string]$containerContract.paths.workspace
             $containerLastMessagePath = Join-Path ([string]$containerContract.paths.artifacts) "last-message.md"
-            $args = New-TaskspaceWhaleArgv $side.LogicalMode $Model $executionRepoDir $containerLastMessagePath $SandboxMode $effectiveConfigOverrides
+            $args = New-TaskspaceWhaleArgv $side.LogicalMode $Model $executionRepoDir $containerLastMessagePath $effectiveConfigOverrides
             $commonArgs = @($args | Where-Object { $_ -ne "--taskspace" })
             $childEnvironment = @{
                 WHALE_PROVIDER_WIRE_TRACE_PATH = "/artifacts/provider-wire-trace.jsonl"

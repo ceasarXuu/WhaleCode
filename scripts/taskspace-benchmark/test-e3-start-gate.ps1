@@ -438,7 +438,6 @@ try {
         -ValidationTimeoutSeconds 420 `
         -ValidationPretestTimeoutSeconds 120 `
         -ValidationTestTimeoutSeconds 420 `
-        -SandboxMode "full-auto" `
         -ConfigOverride @('model_reasoning_effort="max"') `
         -EnableDockerImageCache $false `
         -MaxParallelSamples 1 `

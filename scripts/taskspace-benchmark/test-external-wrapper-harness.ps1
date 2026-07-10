@@ -34,7 +34,6 @@ param(
     [int]$TimeoutSeconds,
     [int]$ValidationTimeoutSeconds,
     [string]$SourceVersion,
-    [string]$SandboxMode,
     [string[]]$ConfigOverride,
     [string]$AuditReviewRoot,
     [switch]$EnableAggregate,

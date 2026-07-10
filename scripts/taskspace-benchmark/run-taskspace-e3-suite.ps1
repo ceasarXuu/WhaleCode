@@ -12,8 +12,6 @@ param(
     [int]$ValidationTimeoutSeconds = 420,
     [int]$ValidationPretestTimeoutSeconds = 120,
     [int]$ValidationTestTimeoutSeconds = 420,
-    [ValidateSet("bypass", "full-auto", "workspace-write")]
-    [string]$SandboxMode = "bypass",
     [string[]]$ConfigOverride = @('model_reasoning_effort="max"'),
     [string]$AuditReviewRoot = "",
     [switch]$PlanOnly,
@@ -90,7 +88,6 @@ $profileIdentity = New-TaskspaceE3ProfileIdentity `
     -ValidationTimeoutSeconds $ValidationTimeoutSeconds `
     -ValidationPretestTimeoutSeconds $ValidationPretestTimeoutSeconds `
     -ValidationTestTimeoutSeconds $ValidationTestTimeoutSeconds `
-    -SandboxMode $SandboxMode `
     -ConfigOverride $ConfigOverride `
     -EnableDockerImageCache ([bool]$EnableDockerImageCache) `
     -MaxParallelSamples $MaxParallelSamples `
@@ -541,7 +538,6 @@ function New-SuiteChildArgs {
         "-ValidationTimeoutSeconds", $ValidationTimeoutSeconds,
         "-ValidationPretestTimeoutSeconds", $ValidationPretestTimeoutSeconds,
         "-ValidationTestTimeoutSeconds", $ValidationTestTimeoutSeconds,
-        "-SandboxMode", $SandboxMode,
         "-TaskListHash", $taskListHash,
         "-ProfileHash", $profileHash,
         "-SampleSetId", $sampleSetId,
