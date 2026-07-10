@@ -1,6 +1,5 @@
 mod basemap;
 mod cognitive;
-mod contracts;
 mod ledger;
 mod map;
 mod runtime;

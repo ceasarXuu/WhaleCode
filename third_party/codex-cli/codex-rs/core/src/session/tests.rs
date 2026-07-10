@@ -1311,9 +1311,10 @@ async fn build_initial_context_consumes_action_map_transition_notice_once() {
     let (session, turn_context) = make_session_and_context().await;
     {
         let mut state = session.state.lock().await;
-        state
-            .action_map_runtime
-            .set_mode(codex_protocol::protocol::MapRuntimeMode::Experiment);
+        state.action_map_runtime.set_mode_for_session(
+            codex_protocol::protocol::MapRuntimeMode::Experiment,
+            session.conversation_id,
+        );
     }
 
     let first_context = session.build_initial_context(&turn_context).await;
@@ -1728,46 +1729,29 @@ async fn session_main_tool_result_emits_taskspace_trace_event_and_snapshot() {
     let (session, turn_context, rx) = make_session_and_context_with_rx().await;
     {
         let mut state = session.state.lock().await;
+        state.action_map_runtime.set_mode_for_session(
+            codex_protocol::protocol::MapRuntimeMode::Experiment,
+            session.conversation_id,
+        );
         state
             .action_map_runtime
-            .set_mode(codex_protocol::protocol::MapRuntimeMode::Experiment);
-        state
-            .action_map_runtime
-            .start_task_for_main_with_kind(
+            .initialize_map_for_main(
                 session.conversation_id,
-                NodeKind::SmokeTest,
-                "Trace session path".to_string(),
-                "Record trace through the session event path.".to_string(),
-                "Run validation".to_string(),
-                "Run a validation command.".to_string(),
-                true,
+                crate::action_map::ActionMapInitializeInput {
+                    task_title: "Trace session path".to_string(),
+                    task_objective: "Record trace through the session event path.".to_string(),
+                    nodes: vec![crate::action_map::ActionMapInitializeNodeInput {
+                        key: "validate".to_string(),
+                        kind: NodeKind::SmokeTest,
+                        title: "Run validation".to_string(),
+                        context_summary: "Run a validation command.".to_string(),
+                        dependency_keys: Vec::new(),
+                    }],
+                    current_node_key: "validate".to_string(),
+                },
             )
-            .expect("task starts");
+            .expect("map initializes");
     }
-    let evidence_refs = vec![crate::action_map::ActionMapEvidenceRefInput {
-        artifact_ref: Some("test-fixture:user-request".to_string()),
-        ..Default::default()
-    }];
-    session
-        .record_action_map_output_contract(
-            turn_context.as_ref(),
-            "contract-test",
-            "artifact",
-            "Test fixture acceptance contract.".to_string(),
-            evidence_refs.clone(),
-        )
-        .await
-        .expect("output contract records");
-    session
-        .record_action_map_fact_source(
-            turn_context.as_ref(),
-            "source-test",
-            "provided_by_user",
-            "Test fixture source facts.".to_string(),
-            evidence_refs,
-        )
-        .await
-        .expect("fact source records");
 
     session
         .prepare_action_map_main_tool_call(
@@ -1789,23 +1773,20 @@ async fn session_main_tool_result_emits_taskspace_trace_event_and_snapshot() {
         .await;
 
     let mut trace_event_seen = false;
-    let mut sentinel_event_seen = false;
     let mut snapshot_seen = false;
     let mut main_trace_event_id = None;
     let mut map_runtime_order = Vec::new();
     let deadline = tokio::time::Instant::now() + StdDuration::from_secs(2);
-    while tokio::time::Instant::now() < deadline
-        && (!trace_event_seen || !sentinel_event_seen || !snapshot_seen)
-    {
+    while tokio::time::Instant::now() < deadline && (!trace_event_seen || !snapshot_seen) {
         let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
         let event = tokio::time::timeout(remaining, rx.recv())
             .await
             .expect("timeout waiting for TaskSpace trace events")
             .expect("event");
         match event.msg {
-            EventMsg::MapRuntime(MapRuntimeEvent::NodeResultRecorded(event)) => {
-                if event.result_id == "result-1" {
-                    map_runtime_order.push("node_result_recorded");
+            EventMsg::MapRuntime(MapRuntimeEvent::NodeEventRecorded(event)) => {
+                if event.node_event_id == "node-event-1" {
+                    map_runtime_order.push("node_event_recorded");
                 }
             }
             EventMsg::MapRuntime(MapRuntimeEvent::TaskspaceTraceEventRecorded(event)) => {
@@ -1814,46 +1795,25 @@ async fn session_main_tool_result_emits_taskspace_trace_event_and_snapshot() {
                 }
                 map_runtime_order.push("taskspace_trace_event_recorded");
                 assert_eq!(event.kind, "main_tool_result");
-                assert_eq!(event.result_id.as_deref(), Some("result-1"));
+                assert_eq!(event.result_id.as_deref(), Some("node-event-1"));
                 assert_eq!(event.call_id.as_deref(), Some("call-session-test"));
                 assert_eq!(event.action_class.as_deref(), Some("test"));
                 assert_eq!(event.tool_success, Some(false));
-                assert!(event.tags.iter().any(|tag| tag == "validator_failure"));
+                assert!(event.tags.iter().any(|tag| tag == "tool_failure"));
                 main_trace_event_id = Some(event.trace_event_id);
                 trace_event_seen = true;
             }
-            EventMsg::MapRuntime(MapRuntimeEvent::SentinelWarningRaised(event)) => {
-                map_runtime_order.push("sentinel_warning_raised");
-                assert_eq!(event.sentinel_id, "sentinel-1");
-                assert_eq!(event.sentinel_type, "validator_failure");
-                assert_eq!(event.status, "active");
-                assert_eq!(event.result_id.as_deref(), Some("result-1"));
-                assert_eq!(
-                    event.trace_event_ids,
-                    vec![
-                        main_trace_event_id
-                            .clone()
-                            .expect("trace id before sentinel")
-                    ]
-                );
-                sentinel_event_seen = true;
-            }
             EventMsg::MapRuntime(MapRuntimeEvent::SnapshotUpdated(payload)) => {
                 if let Some(trace_event_id) = main_trace_event_id.as_ref()
-                    && let Some(warning) = payload
-                        .snapshot
-                        .sentinel_warnings
-                        .iter()
-                        .find(|warning| warning.result_id.as_deref() == Some("result-1"))
-                {
-                    assert_eq!(warning.sentinel_type, "validator_failure");
-                    assert_eq!(warning.status, "active");
-                    assert_eq!(warning.result_id.as_deref(), Some("result-1"));
-                    assert_eq!(warning.trace_event_ids, vec![trace_event_id.clone()]);
-                    assert!(payload.snapshot.trace_events.iter().any(|event| {
+                    && payload.snapshot.trace_events.iter().any(|event| {
                         event.id == *trace_event_id
-                            && event.result_id.as_deref() == Some("result-1")
-                    }));
+                            && event.result_id.as_deref() == Some("node-event-1")
+                    })
+                {
+                    let map = payload.snapshot.maps.first().expect("snapshot map");
+                    let event = map.node_events.first().expect("node event snapshot");
+                    assert_eq!(event.id, "node-event-1");
+                    assert_eq!(event.body, "pytest failed");
                     snapshot_seen = true;
                 }
             }
@@ -1866,20 +1826,12 @@ async fn session_main_tool_result_emits_taskspace_trace_event_and_snapshot() {
         "expected TaskSpace trace event from session path"
     );
     assert!(
-        sentinel_event_seen,
-        "expected TaskSpace sentinel warning event from session path"
-    );
-    assert!(
         snapshot_seen,
         "expected snapshot with trace event from session path"
     );
     assert_eq!(
         map_runtime_order,
-        vec![
-            "node_result_recorded",
-            "taskspace_trace_event_recorded",
-            "sentinel_warning_raised"
-        ]
+        vec!["node_event_recorded", "taskspace_trace_event_recorded"]
     );
 }
 

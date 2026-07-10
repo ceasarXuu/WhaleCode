@@ -1000,13 +1000,6 @@ impl Session {
         }
     }
 
-    pub(crate) async fn action_map_current_main_node_progress_signature(&self) -> Option<usize> {
-        let state = self.state.lock().await;
-        state
-            .action_map_runtime
-            .current_main_node_progress_signature()
-    }
-
     pub(crate) async fn action_map_active_map_has_successful_edit_artifacts(&self) -> bool {
         let state = self.state.lock().await;
         state
@@ -1042,34 +1035,6 @@ impl Session {
                 false
             }
         }
-    }
-
-    pub(crate) async fn action_map_has_accepted_successful_validation_result(&self) -> bool {
-        let state = self.state.lock().await;
-        state
-            .action_map_runtime
-            .active_map_has_accepted_successful_validation_result()
-    }
-
-    pub(crate) async fn action_map_has_blocked_validation_result(&self) -> bool {
-        let state = self.state.lock().await;
-        state
-            .action_map_runtime
-            .active_map_has_blocked_validation_result()
-    }
-
-    pub(crate) async fn action_map_has_tool_runtime_bootstrap_failure(&self) -> bool {
-        let state = self.state.lock().await;
-        state
-            .action_map_runtime
-            .active_map_has_tool_runtime_bootstrap_failure()
-    }
-
-    pub(crate) async fn action_map_has_ready_recovery_node(&self) -> bool {
-        let state = self.state.lock().await;
-        state
-            .action_map_runtime
-            .active_map_has_ready_recovery_node()
     }
 
     pub(crate) async fn record_action_map_main_tool_result(
@@ -1331,20 +1296,6 @@ impl Session {
         }
     }
 
-    pub(crate) async fn action_map_current_inspect_unread_referenced_scripts(&self) -> Vec<String> {
-        let state = self.state.lock().await;
-        state
-            .action_map_runtime
-            .current_main_inspect_unread_referenced_scripts()
-    }
-
-    pub(crate) async fn action_map_current_recent_failed_read_summary(&self) -> Option<String> {
-        let state = self.state.lock().await;
-        state
-            .action_map_runtime
-            .current_main_recent_failed_read_summary()
-    }
-
     pub(crate) async fn record_action_map_child_tool_result(
         &self,
         child_thread_id: ThreadId,
@@ -1545,63 +1496,6 @@ impl Session {
         Ok((task_id, map_id, node_id))
     }
 
-    pub(crate) async fn route_action_map_task_for_main(
-        &self,
-        turn_context: &TurnContext,
-        task_id: &str,
-    ) -> Result<(), String> {
-        let events = {
-            let mut state = self.state.lock().await;
-            state
-                .action_map_runtime
-                .route_task_for_main(self.conversation_id, task_id)
-        }?;
-        self.emit_action_map_events_for_turn(turn_context, events)
-            .await;
-        Ok(())
-    }
-
-    #[allow(dead_code)]
-    pub(crate) async fn finish_action_map_main_node(
-        &self,
-        turn_context: &TurnContext,
-        node_id: &str,
-        result_summary: String,
-        next_node_id: Option<String>,
-    ) -> Result<ActionMapFinishNodeOutcome, String> {
-        self.finish_action_map_main_node_with_next(
-            turn_context,
-            node_id,
-            result_summary,
-            next_node_id,
-            None,
-        )
-        .await
-    }
-
-    pub(crate) async fn finish_action_map_main_node_with_next(
-        &self,
-        turn_context: &TurnContext,
-        node_id: &str,
-        result_summary: String,
-        next_node_id: Option<String>,
-        next_node_draft: Option<ActionMapNextNodeDraft>,
-    ) -> Result<ActionMapFinishNodeOutcome, String> {
-        let (outcome, events) = {
-            let mut state = self.state.lock().await;
-            state.action_map_runtime.finish_main_node_with_next(
-                self.conversation_id,
-                node_id,
-                result_summary,
-                next_node_id,
-                next_node_draft,
-            )
-        }?;
-        self.emit_action_map_events_for_turn(turn_context, events)
-            .await;
-        Ok(outcome)
-    }
-
     pub(crate) async fn finish_action_map_current_or_named_node_with_next(
         &self,
         turn_context: &TurnContext,
@@ -1647,16 +1541,6 @@ impl Session {
         self.emit_action_map_events_for_turn(turn_context, events)
             .await;
         Ok(result_id)
-    }
-
-    pub(crate) async fn validate_action_map_terminal_blocker(
-        &self,
-        blocker_summary: &str,
-    ) -> Result<(), String> {
-        let state = self.state.lock().await;
-        state
-            .action_map_runtime
-            .validate_terminal_blocker(blocker_summary)
     }
 
     pub(crate) async fn record_action_map_success_criteria(

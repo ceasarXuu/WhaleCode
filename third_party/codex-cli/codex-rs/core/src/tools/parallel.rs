@@ -133,8 +133,6 @@ impl ToolCallRuntime {
                                 &response.call_id,
                                 &response.payload,
                             );
-                            let preview =
-                                taskspace_tool_result_preview_with_invocation(&call, preview);
                             Self::record_taskspace_tool_result(
                                 &session,
                                 &turn,
@@ -174,8 +172,6 @@ impl ToolCallRuntime {
                                         &result.call_id,
                                         &result.payload,
                                     );
-                                    let preview =
-                                        taskspace_tool_result_preview_with_invocation(&call, preview);
                                     Self::record_taskspace_tool_result(
                                         &session,
                                         &turn,
@@ -193,8 +189,6 @@ impl ToolCallRuntime {
                                 if let Some(descriptor) = taskspace_descriptor.as_ref() {
                                     let response = Self::failure_response_for_error(&call, &err);
                                     let preview = response_input_model_visible_preview(&response);
-                                    let preview =
-                                        taskspace_tool_result_preview_with_invocation(&call, preview);
                                     Self::record_taskspace_tool_result(
                                         &session,
                                         &turn,
@@ -401,37 +395,6 @@ fn taskspace_action_contract_class(call_id: &str) -> Option<ActionClass> {
         "taskspace_control" => Some(ActionClass::Control),
         _ => None,
     }
-}
-
-fn taskspace_tool_result_preview_with_invocation(call: &ToolCall, preview: String) -> String {
-    let Some(command) = taskspace_tool_command_for_preview(call) else {
-        return preview;
-    };
-    format!(
-        "TaskSpaceToolInvocationV1:\n\
-tool: {}\n\
-command: {command}\n\
-raw_output:\n{preview}",
-        call.tool_name.display()
-    )
-}
-
-fn taskspace_tool_command_for_preview(call: &ToolCall) -> Option<String> {
-    let tool_name = call.tool_name.display().to_ascii_lowercase();
-    if !is_shell_like_tool(&tool_name) {
-        return None;
-    }
-    match &call.payload {
-        ToolPayload::Function { arguments }
-        | ToolPayload::Mcp {
-            raw_arguments: arguments,
-            ..
-        } => extract_command_from_json(arguments),
-        ToolPayload::LocalShell { params } => Some(params.command.join(" ")),
-        _ => None,
-    }
-    .map(|command| command.trim().to_string())
-    .filter(|command| !command.is_empty())
 }
 
 fn classify_tool_payload(tool_name: &str, payload: &ToolPayload) -> ActionClass {
@@ -756,43 +719,12 @@ fn contains_any(haystack: &str, needles: &[&str]) -> bool {
 
 fn function_call_error_model_visible_message(err: &FunctionCallError) -> String {
     match err {
-        FunctionCallError::RespondToModel(message) => {
-            taskspace_safe_local_validator_infra_error_summary(message)
-                .unwrap_or_else(|| message.clone())
-        }
+        FunctionCallError::RespondToModel(message) => message.clone(),
         FunctionCallError::MissingLocalShellCallId => {
             "Tool call failed because the shell call id was missing.".to_string()
         }
         FunctionCallError::Fatal(_) => "Tool call failed with a fatal runtime error.".to_string(),
     }
-}
-
-fn taskspace_safe_local_validator_infra_error_summary(message: &str) -> Option<String> {
-    let signal = taskspace_compact_ascii_signal(message);
-    let has_bash_access_denied = signal.contains("bashservicecreateinstanceeaccessdenied")
-        || signal.contains("bashservicecreateinstancee_accessdenied")
-        || signal.contains("eaccessdenied")
-        || signal.contains("e_accessdenied");
-    if has_bash_access_denied {
-        return Some(
-            "Tool call failed before producing a result. local_validator_infra_failure: Bash/Service/CreateInstance/E_ACCESSDENIED"
-                .to_string(),
-        );
-    }
-    if signal.contains("invalidendofline") || signal.contains("notavalidstatementseparator") {
-        return Some(
-            "Tool call failed before producing a result. local_validator_infra_failure: PowerShell InvalidEndOfLine"
-                .to_string(),
-        );
-    }
-    None
-}
-
-fn taskspace_compact_ascii_signal(text: &str) -> String {
-    text.chars()
-        .filter(|ch| ch.is_ascii_alphanumeric() || *ch == '_')
-        .flat_map(char::to_lowercase)
-        .collect()
 }
 
 #[cfg(test)]
@@ -801,7 +733,6 @@ mod tests {
     use super::classify_shell_text;
     use super::classify_tool_payload;
     use super::taskspace_action_contract_class;
-    use super::taskspace_tool_result_preview_with_invocation;
     use crate::action_map::ActionClass;
     use crate::function_tool::FunctionCallError;
     use crate::tools::context::ToolPayload;
@@ -841,7 +772,7 @@ mod tests {
     }
 
     #[test]
-    fn failure_response_preview_keeps_safe_local_validator_infra_signal() {
+    fn failure_response_preview_preserves_local_infra_error() {
         let nul_separated = "Bash/Service/CreateInstance/E_ACCESSDENIED"
             .chars()
             .flat_map(|ch| [ch, '\0'])
@@ -850,32 +781,9 @@ mod tests {
             "garbled host output: {nul_separated}"
         )));
 
-        assert!(preview.contains("local_validator_infra_failure"));
-        assert!(preview.contains("Bash/Service/CreateInstance/E_ACCESSDENIED"));
-        assert!(!preview.contains("garbled host output"));
-    }
-
-    #[test]
-    fn taskspace_tool_result_preview_keeps_shell_command_context() {
-        let call = ToolCall {
-            tool_name: ToolName::plain("shell_command"),
-            call_id: "taskspace-action-contract-16-run_test".to_string(),
-            payload: ToolPayload::Function {
-                arguments: serde_json::json!({
-                    "command": "python scripts/validate.py",
-                    "timeout_ms": 120000
-                })
-                .to_string(),
-            },
-        };
-        let preview =
-            taskspace_tool_result_preview_with_invocation(&call, "validator passed".to_string());
-
-        assert!(preview.contains("TaskSpaceToolInvocationV1"));
-        assert!(preview.contains("tool: shell_command"));
-        assert!(preview.contains("command: python scripts/validate.py"));
-        assert!(preview.contains("raw_output:"));
-        assert!(preview.contains("validator passed"));
+        assert!(preview.contains("garbled host output"));
+        assert!(preview.contains('\0'));
+        assert!(!preview.contains("local_validator_infra_failure"));
     }
 
     #[test]
