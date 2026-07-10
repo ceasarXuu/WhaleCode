@@ -177,6 +177,11 @@ container-cleanup-result.json
 
 **Exit:** `true`/preflight/forced failure/timeout/cleanup fixtures 均产生完整日志链；secret scan 为0；容器不存在残留。
 
+**实施结果（2026-07-11）：** 已完成。镜像
+`sha256:55a8ac465c574efb57d8bd53f286812a77f41fd428de1c3b0b18b7c5165ee0ca` 通过
+Python/pytest/git/rg preflight。真实 Docker 测试覆盖 success、nonzero exit、create failure、1s
+timeout、stats、secret、inspect/log collect 和 cleanup；secret scan 为0，残留容器为0。
+
 **Fallback:** git revert I1；不增加本机/Docker运行时 fallback 分支。
 
 ### R5-I2：Agent、Validator、Oracle 全链迁移
@@ -233,7 +238,7 @@ container-cleanup-result.json
 | Phase | Independent Verification | Forbidden Future Dependency | Exit Evidence | Required Before Next | Decision |
 |---|---|---|---|---|---|
 | I0 | schema/permission/resource baseline fixtures | 不依赖 container runner | contract fixture、I0 baseline、正反例测试 | 100% | passed |
-| I1 | lifecycle/secret/failure/cleanup smoke | 不依赖 Agent migration | substrate logs and scans | 100% | proceed I2 |
+| I1 | lifecycle/secret/failure/cleanup smoke | 不依赖 Agent migration | image digest、lifecycle/manifest/log/stats/cleanup artifacts | 100% | passed |
 | I2 | one paired real sample and oracle isolation | 不依赖 complex benchmark | pair report、container manifests、J fixed-topology baseline | 100% | proceed R5-J0 |
 | I3 | controlled repeats and complex pairs | 不依赖 default switch | performance observation、topology guard and parity report | R5-J4 已完成且 I3 100% | proceed I4 |
 | I4 | call-graph scan and Docker-only real run | 无 | default-path and clean-tree evidence | 100% | close |
@@ -243,8 +248,8 @@ container-cleanup-result.json
 | Plan Item | Expected Behavior | Production Code Path | Integration Entry | Test Evidence | Runtime / Log Evidence | Mock Exposure | Status |
 |---|---|---|---|---|---|---|---|
 | container contract | 固定 identity/path/resource/secret schema | `container-contract.ps1` | benchmark CLI | `test-container-contract.ps1` | I0 baseline | test-only invalid contract | landed |
-| image/preflight | digest 和依赖可复现 | Dockerfile/build module | run preflight | image/preflight tests | image lifecycle events | fake Docker blocks completion | planned |
-| log collector | 失败前后日志可恢复 | container log/stats collector | every container phase | timeout/truncation/rotation tests | lifecycle events/log artifacts | fake Docker then real smoke | planned |
+| image/preflight | digest 和依赖可复现 | `docker/Dockerfile`, `container-runtime.ps1` | run preflight | Python/pytest/git/rg real preflight | image id/digest/build duration | missing image create failure | landed |
+| log collector | 失败前后日志可恢复 | `container-runtime.ps1` | every container phase | success/nonzero/timeout/stats/cleanup/secret fixtures | lifecycle、manifest、inspect、logs、stats、cleanup | real Docker smoke | landed |
 | Agent runner | Standard/R5 同一容器路径 | benchmark side executor | `run-taskspace-benchmark.ps1` | paired smoke | agent container manifest | none at exit | planned |
 | validator/oracle | 私有边界容器化 | oracle/validation runner | post-Agent validation | leak/isolation tests | validator/oracle events | none at exit | planned |
 | Docker-only cutover | 本机路径不可达 | bootstrap/runner cleanup | all benchmark commands | call graph + real runs | runtime coverage | none | planned |
