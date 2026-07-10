@@ -62,7 +62,8 @@ function Test-TaskspaceOrdinaryToolBeforeBindingInRollout {
 function Get-TaskspaceAgentCompletionEvidence {
     param(
         [AllowEmptyString()][string]$JsonlPath = "",
-        [AllowEmptyString()][string]$LogicalMode = ""
+        [AllowEmptyString()][string]$LogicalMode = "",
+        [AllowEmptyString()][string]$RolloutPath = ""
     )
     $lastAgentMessageIndex = -1
     $lastAgentActionIndex = -1
@@ -94,8 +95,23 @@ function Get-TaskspaceAgentCompletionEvidence {
         }
     }
     $terminalAgentMessage = $lastAgentMessageIndex -gt $lastAgentActionIndex
+    $taskspaceFinalCandidateObserved = $false
+    if ($LogicalMode -eq "taskspace" -and
+        -not [string]::IsNullOrWhiteSpace($RolloutPath) -and
+        (Test-Path -LiteralPath $RolloutPath -PathType Leaf)) {
+        foreach ($line in [System.IO.File]::ReadLines($RolloutPath)) {
+            if ([string]::IsNullOrWhiteSpace($line)) { continue }
+            try { $row = $line | ConvertFrom-Json } catch { continue }
+            if ([string]$row.type -eq "response_item" -and
+                [string]$row.payload.type -eq "message" -and
+                [string]$row.payload.role -eq "assistant" -and
+                [string]$row.payload.phase -eq "final_answer") {
+                $taskspaceFinalCandidateObserved = $true
+            }
+        }
+    }
     $finalObserved = if ($LogicalMode -eq "taskspace") {
-        $terminalAgentMessage -and $lastActionability -eq "final_candidate"
+        $taskspaceFinalCandidateObserved -or ($terminalAgentMessage -and $lastActionability -eq "final_candidate")
     } else {
         $terminalAgentMessage
     }
@@ -489,7 +505,10 @@ function Get-TaskspaceBenchmarkMetrics {
     if ($activeReplacementReport -and [int]$activeReplacementReport.active_projection_uniqueness_violation_count -gt 0) {
         $metricsTaints += "active_projection_not_unique:$([int]$activeReplacementReport.active_projection_uniqueness_violation_count)"
     }
-    $agentCompletion = Get-TaskspaceAgentCompletionEvidence $Exec.jsonl_path $Side.LogicalMode
+    $agentCompletion = Get-TaskspaceAgentCompletionEvidence `
+        $Exec.jsonl_path `
+        $Side.LogicalMode `
+        ([string]$costInstrumentation.cost_scan_policy.rollout_effective_scan_path)
     $profileHardStopSeen = $false
     $lifecycleScanPaths = @(
         [string]$costInstrumentation.cost_scan_policy.rollout_effective_scan_path,

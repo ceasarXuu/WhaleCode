@@ -1,7 +1,7 @@
 # Problem P-001: Docker benchmark 内嵌套 sandbox 导致工具链失效
-- Status: open
+- Status: fixed
 - Created: 2026-07-11 05:40
-- Updated: 2026-07-11 05:40
+- Updated: 2026-07-11 05:49
 - Objective: 让统一 Docker benchmark 中的 Whale 工具可正常访问容器工作区，同时保持 Docker 硬隔离边界。
 - Symptoms:
   - `count-call-stack` Standard 首侧连续 51 次出现 bwrap namespace 权限错误，随后产生 253 次盲目 `apply_patch`。
@@ -24,13 +24,13 @@
 - Fix criteria:
   - Docker agent argv 固定使用 `--dangerously-bypass-approvals-and-sandbox`，并在启动前拒绝嵌套 sandbox 参数。
   - 容器内 smoke 能成功读取工作区；paired sample 不再出现 bwrap namespace 错误。
-- Current conclusion: Docker 已经提供硬隔离，但 benchmark 又在容器内启用 bwrap，两个隔离层能力不兼容；这是已由 argv 与原始工具输出共同确认的执行环境配置缺陷。
+- Current conclusion: Docker agent 已固定使用 Whale bypass，并在创建容器前拒绝嵌套 sandbox argv；同样本六侧验证无 bwrap 错误且 public/hidden validator 全部通过。
 - Related hypotheses:
   - H-001
 - Resolution basis:
-  - not satisfied
+  - E-004
 - Close reason:
-  - not closed
+  - 根因修复并通过原始症状复验
 
 ## Hypothesis H-001: `--full-auto` 在 Docker 内触发不可用的嵌套 bwrap
 - Status: confirmed
@@ -67,9 +67,10 @@
   - E-001
   - E-002
   - E-003
+  - E-004
 - Conclusion: argv 与原始工具反馈完整支持因果机制，并排除了 TaskSpace 专属链路。
 - Repair design readiness: ready
-- Next step: 固定 Docker agent 使用 bypass，增加拒绝嵌套 sandbox 的契约测试，并执行同样本验证。
+- Next step: none
 - Blocker:
   - none
 - Close reason:
@@ -135,3 +136,24 @@
   ```
 - Interpretation: 这是 Docker 执行基底故障导致的 Agent 退化，不是 TaskSpace Map 或 projection 对 Agent 的约束。
 - Time: 2026-07-11 05:39
+
+## Evidence E-004: bypass 后同样本六侧无 bwrap 错误且验证通过
+- Related hypotheses:
+  - H-001
+- Direction: supports
+- Type: fix-validation
+- Source: `target/r5-j4-fixed-topology-fixed/count-call-stack/20260711-054249-991`
+- Prediction or plan link:
+  - H-001 的 bypass 修复验证预测
+- Matched signal:
+  - 三次 Standard/R5 paired run 共六侧全部 `public_validation_exit_code=0`、`hidden_oracle_exit_code=0`，所有 `whale-exec.stderr.log` 均无 bwrap namespace 错误。
+- Correlation keys:
+  - run `20260711-054249-991`, pair `pair-001..003`
+- Raw content:
+  ```text
+  standard solved: 3/3
+  taskspace business_success: 3/3
+  bwrap namespace error: 0
+  ```
+- Interpretation: 在保持相同 Docker contract 的条件下，仅移除 Whale 嵌套 sandbox 即消除原始故障，修复验证支持根因闭环。
+- Time: 2026-07-11 05:49

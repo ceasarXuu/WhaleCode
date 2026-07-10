@@ -102,6 +102,17 @@ $taskspaceRejected = Join-Path $completionDir "taskspace-rejected.jsonl"
     '{"type":"item.completed","item":{"type":"agent_message","text":"Done."}}',
     '{"type":"item.completed","item":{"type":"error","message":"TaskSpaceProviderResponseActionabilityV1 actionability=final_rejected recovery_action=none"}}'
 ) | Set-Content -Encoding UTF8 -LiteralPath $taskspaceRejected
+$taskspaceJ3Jsonl = Join-Path $completionDir "taskspace-j3.jsonl"
+@(
+    '{"type":"item.completed","item":{"type":"agent_message","text":"Done."}}',
+    '{"type":"item.completed","item":{"type":"error","message":"TaskSpaceProviderResponseActionabilityV1 actionability=actionable recovery_action=none"}}'
+) | Set-Content -Encoding UTF8 -LiteralPath $taskspaceJ3Jsonl
+$taskspaceJ3Rollout = Join-Path $completionDir "taskspace-j3-rollout.jsonl"
+@(
+    '{"type":"response_item","payload":{"type":"function_call","name":"taskspace_control","call_id":"finish-1","arguments":"{\\"action\\":\\"finish_node\\",\\"final_candidate\\":\\"Done.\\"}"}}',
+    '{"type":"response_item","payload":{"type":"function_call_output","call_id":"finish-1","output":"ok"}}',
+    '{"type":"response_item","payload":{"type":"message","role":"assistant","phase":"final_answer","content":[{"type":"output_text","text":"Done."}]}}'
+) | Set-Content -Encoding UTF8 -LiteralPath $taskspaceJ3Rollout
 $messageThenTool = Join-Path $completionDir "message-then-tool.jsonl"
 @(
     '{"type":"item.completed","item":{"type":"agent_message","text":"Let me verify."}}',
@@ -111,6 +122,7 @@ $messageThenTool = Join-Path $completionDir "message-then-tool.jsonl"
 Assert-Equal (Get-TaskspaceAgentCompletionEvidence $standardFinal "standard").agent_final_observed $true "terminal standard Agent message was not detected"
 Assert-Equal (Get-TaskspaceAgentCompletionEvidence $taskspaceFinal "taskspace").agent_final_observed $true "TaskSpace final candidate was not detected"
 Assert-Equal (Get-TaskspaceAgentCompletionEvidence $taskspaceRejected "taskspace").agent_final_observed $false "rejected TaskSpace final was classified complete"
+Assert-Equal (Get-TaskspaceAgentCompletionEvidence $taskspaceJ3Jsonl "taskspace" $taskspaceJ3Rollout).agent_final_observed $true "J3 rollout final candidate was not detected"
 Assert-Equal (Get-TaskspaceAgentCompletionEvidence $messageThenTool "standard").agent_final_observed $false "nonterminal Agent progress message was classified complete"
 
 Write-Host "PASS: R4 metrics extractor large rollout gate passed"
