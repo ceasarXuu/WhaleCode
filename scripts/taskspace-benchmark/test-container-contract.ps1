@@ -22,11 +22,20 @@ if ($agent.oracle -ne 'none' -or $agent.provider_secret -ne 'ro') {
 if ($oracle.workspace -ne 'ro' -or $oracle.oracle -ne 'ro') {
     throw "Oracle mount policy is unsafe"
 }
+if (@($contract.agent_config_overrides) -notcontains 'features.plugins=false') {
+    throw "Benchmark plugin isolation override is missing"
+}
 
 $invalid = $contract | ConvertTo-Json -Depth 20 | ConvertFrom-Json
 $invalid.base_image = 'ubuntu:24.04'
 $failed = $false
 try { Assert-TaskspaceContainerContract $invalid } catch { $failed = $true }
 if (-not $failed) { throw "Unpinned image contract was accepted" }
+
+$invalidOverrides = $contract | ConvertTo-Json -Depth 20 | ConvertFrom-Json
+$invalidOverrides.agent_config_overrides = @('features.plugins=false')
+$failed = $false
+try { Assert-TaskspaceContainerContract $invalidOverrides } catch { $failed = $true }
+if (-not $failed) { throw "Incomplete agent config isolation was accepted" }
 
 Write-Host "container contract tests passed"

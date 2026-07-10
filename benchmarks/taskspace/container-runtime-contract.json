@@ -9,6 +9,11 @@
     "provider_secret": "/run/secrets/deepseek_api_key",
     "home": "/artifacts/home"
   },
+  "agent_config_overrides": [
+    "features.plugins=false",
+    "skills.bundled.enabled=false",
+    "skills.include_instructions=false"
+  ],
   "resources": {
     "cpus": 4.0,
     "memory_bytes": 8589934592,

@@ -130,6 +130,16 @@ function Get-TaskspaceContainerMountArg {
     @('--mount', $value)
 }
 
+function Get-TaskspaceContainerUserArg {
+    if ($IsWindows) { return @() }
+    $hostUid = (& id -u 2>&1).Trim()
+    $hostGid = (& id -g 2>&1).Trim()
+    if ($LASTEXITCODE -ne 0 -or $hostUid -notmatch '^\d+$' -or $hostGid -notmatch '^\d+$') {
+        throw 'container_preflight_failed: unable to resolve host uid/gid'
+    }
+    @('--user', "${hostUid}:${hostGid}")
+}
+
 function Invoke-TaskspaceContainerRole {
     param(
         [Parameter(Mandatory = $true)][ValidateSet('agent', 'validator', 'oracle')][string]$Role,
@@ -162,6 +172,8 @@ function Invoke-TaskspaceContainerRole {
     }
     $createArgs += @(Get-TaskspaceContainerResourceArgs $Contract)
     $createArgs += @(Get-TaskspaceContainerLogArgs $Contract)
+    $containerUserArgs = @(Get-TaskspaceContainerUserArg)
+    $createArgs += $containerUserArgs
     $createArgs += @(Get-TaskspaceContainerMountArg $WorkspaceDir ([string]$Contract.paths.workspace) -ReadOnly:$WorkspaceReadOnly)
     $createArgs += @(Get-TaskspaceContainerMountArg $ArtifactDir ([string]$Contract.paths.artifacts))
     if ($WhaleBin) { $createArgs += @(Get-TaskspaceContainerMountArg $WhaleBin ([string]$Contract.paths.whale_binary) -ReadOnly) }
@@ -224,6 +236,7 @@ function Invoke-TaskspaceContainerRole {
                 side = [string]$Identity.side; logical_mode = [string]$Identity.logical_mode
                 container_workdir = [string]$Contract.paths.workspace; workspace_mount_mode = if ($WorkspaceReadOnly) { 'ro' } else { 'rw' }
                 artifact_mount_mode = 'rw'; cpu_limit = [double]$Contract.resources.cpus; memory_limit = [int64]$Contract.resources.memory_bytes
+                container_user = if ($containerUserArgs.Count -eq 2) { [string]$containerUserArgs[1] } else { 'docker-default' }
                 started_at = $startedAt.ToUniversalTime().ToString('o'); finished_at = $finishedAt.ToUniversalTime().ToString('o')
                 duration_ms = [int64](($finishedAt - $startedAt).TotalMilliseconds); exit_code = $exitCode; timeout = $timedOut; reason_code = $reasonCode
             })

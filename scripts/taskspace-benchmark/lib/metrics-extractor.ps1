@@ -394,6 +394,19 @@ function Get-TaskspaceDockerValidationResult {
     }
 }
 
+function Resolve-TaskspaceRolloutSource {
+    param(
+        [Parameter(Mandatory = $true)][string]$ArtifactDir,
+        [Parameter(Mandatory = $true)][datetime]$StartedAt,
+        [AllowEmptyString()][string]$ThreadId = ""
+    )
+    $persisted = Join-Path $ArtifactDir "rollout.jsonl"
+    if (Test-Path -LiteralPath $persisted -PathType Leaf) {
+        return Get-Item -LiteralPath $persisted
+    }
+    Find-LatestRollout $StartedAt $ThreadId
+}
+
 function Export-TaskspaceObservabilityIfAvailable {
     param(
         [Parameter(Mandatory = $true)][string]$RepoRoot,
@@ -403,13 +416,15 @@ function Export-TaskspaceObservabilityIfAvailable {
         [Parameter(Mandatory = $true)][datetime]$StartedAt,
         [AllowEmptyString()][string]$ThreadId = ""
     )
-    $rollout = Find-LatestRollout $StartedAt $ThreadId
+    $rollout = Resolve-TaskspaceRolloutSource $ArtifactDir $StartedAt $ThreadId
     $rolloutPath = if ($rollout -and $rollout.PSObject.Properties.Name -contains "FullName") { [string]$rollout.FullName } else { "" }
     if ([string]::IsNullOrWhiteSpace($rolloutPath) -or -not (Test-Path -LiteralPath $rolloutPath)) {
         return [pscustomobject]@{ exit_code = -1; rollout_path = ""; observability_json = ""; observability = $null; availability = "rollout_not_found" }
     }
     $rolloutCopy = Join-Path $ArtifactDir "rollout.jsonl"
-    Copy-Item -LiteralPath $rolloutPath -Destination $rolloutCopy -Force
+    if (([System.IO.Path]::GetFullPath($rolloutPath)) -ne ([System.IO.Path]::GetFullPath($rolloutCopy))) {
+        Copy-Item -LiteralPath $rolloutPath -Destination $rolloutCopy -Force
+    }
     $obsDir = New-Dir (Join-Path $ArtifactDir "observability")
     $stdoutPath = Join-Path $ArtifactDir "observability.stdout.log"
     $stderrPath = Join-Path $ArtifactDir "observability.stderr.log"

@@ -41,6 +41,16 @@ function Assert-TaskspaceContainerContract {
     if ([string]$Contract.mount_policy.oracle.oracle -ne 'ro') {
         throw "Oracle container requires a read-only oracle mount"
     }
+    $requiredAgentOverrides = @(
+        'features.plugins=false',
+        'skills.bundled.enabled=false',
+        'skills.include_instructions=false'
+    )
+    foreach ($override in $requiredAgentOverrides) {
+        if (@($Contract.agent_config_overrides) -notcontains $override) {
+            throw "Container agent config override is missing: $override"
+        }
+    }
     $requiredCodes = @(
         'docker_unavailable',
         'container_preflight_failed',

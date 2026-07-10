@@ -268,6 +268,15 @@ if (($helpText -join [Environment]::NewLine) -notmatch "--taskspace") {
 }
 $whaleVersion = (& $WhaleBin --version 2>&1) -join " "
 $whaleSha = [string]$binaryHealth.whale_binary_sha256
+$containerContract = Read-TaskspaceContainerContract $repoRoot
+$containerImage = Resolve-TaskspaceContainerImage $repoRoot $containerContract
+$containerRunId = Split-Path -Leaf $runDir
+$effectiveConfigOverrides = @($ConfigOverride) + @($containerContract.agent_config_overrides | ForEach-Object { [string]$_ })
+Write-TaskspaceRunEvent $runDir "container_image_ready" @{
+    image_digest = [string]$containerImage.image_digest
+    docker_server_version = [string]$containerImage.docker_server_version
+    build_duration_ms = [int64]$containerImage.build_duration_ms
+}
 
 $pairReports = New-Object System.Collections.Generic.List[object]
 $probe = $null
@@ -371,7 +380,10 @@ for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
             $probeStderr = Join-Path $probeRoot "validator-probe.stderr.log"
             $probeProofDir = $probeRoot
             $probeStartedAt = Get-Date
-            $probeExit = Invoke-TaskspaceValidationCommand $side.RepoDir $manifest.PublicValidation $probeStdout $probeStderr ([Math]::Min($ValidationPretestTimeoutSeconds, [Math]::Max(30, $ValidationTimeoutSeconds))) $probeProofDir @("-ProbeOnly")
+            $probeResult = Invoke-TaskspaceDockerValidation $containerRunId $manifest.Id ("pair-{0:000}" -f $repeat) $side $containerImage $containerContract $manifest.PublicValidation ([Math]::Min($ValidationPretestTimeoutSeconds, [Math]::Max(30, $ValidationTimeoutSeconds))) @("-ProbeOnly") $probeRoot
+            $probeExit = [int]$probeResult.exit_code
+            $probeStdout = [string]$probeResult.stdout_path
+            $probeStderr = [string]$probeResult.stderr_path
             $probeFinishedAt = Get-Date
             $probeTimingBySide[$side.Name] = [int64](($probeFinishedAt - $probeStartedAt).TotalMilliseconds)
             $probeValidation = [pscustomobject]@{ exit_code = $probeExit; stdout_path = $probeStdout; stderr_path = $probeStderr }
@@ -433,8 +445,12 @@ for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
         validation_pretest_timeout_seconds = $ValidationPretestTimeoutSeconds
         validation_test_timeout_seconds = $ValidationTestTimeoutSeconds
         docker_image_cache_enabled = [bool]$EnableDockerImageCache
+        execution_substrate = "docker"
+        container_image_digest = [string]$containerImage.image_digest
+        container_base_image = [string]$containerImage.base_image
+        container_resource_contract = $containerContract.resources
         provider_param_status = $providerParamStatus
-        config_overrides = @($ConfigOverride)
+        config_overrides = @($effectiveConfigOverrides)
         sandbox_mode = $SandboxMode
         oracle_isolation_policy = $OracleIsolationPolicy
         logical_mode_map = @{ left = $pair.Left.LogicalMode; right = $pair.Right.LogicalMode }
@@ -460,39 +476,23 @@ for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
             $stdinPath = Join-Path $side.ArtifactDir "user-prompt.txt"
             $sidePrompt = if ($side.LogicalMode -eq "taskspace") { $taskspacePrompt } else { $prompt }
             Write-Text $stdinPath $sidePrompt
-            $mount = $null
-            try {
-                $mount = Mount-TaskspaceExecutionAlias $side
-                $executionRepoDir = [string]$mount.execution_repo_dir
-                $args = New-TaskspaceWhaleArgv $side.LogicalMode $Model $executionRepoDir $lastMessagePath $SandboxMode $ConfigOverride
-                $commonArgs = @($args | Where-Object { $_ -ne "--taskspace" })
-                $childEnvironment = @{
-                    WHALE_PROVIDER_WIRE_TRACE_PATH = (Join-Path $side.ArtifactDir "provider-wire-trace.jsonl")
-                }
-                if ($mount.PSObject.Properties.Name -contains "app_root_alias_env" -and -not [string]::IsNullOrWhiteSpace([string]$mount.app_root_alias_env)) {
-                    $childEnvironment[[string]$mount.app_root_alias_env] = "1"
-                }
-                if ($side.LogicalMode -eq "taskspace") {
-                    $childEnvironment["WHALE_TASKSPACE_ROUTE_MODE"] = [string]$routingDecision.recommended_mode
-                    $childEnvironment["WHALE_TASKSPACE_PROFILE_NAME"] = "taskspace-v005-$($routingDecision.recommended_mode)"
-                }
-                Write-TaskspaceJson ([pscustomobject]@{ logical_mode = $side.LogicalMode; argv = @($args); common_argv_without_treatment = @($commonArgs); treatment_delta = @("--taskspace"); execution_alias = $mount; child_environment = $childEnvironment }) (Join-Path $side.ArtifactDir "whale-argv.json")
-                $started = Get-Date
-                $timedOut = $false
-                try {
-                    $exitCode = Invoke-RealProcess $WhaleBin $args $executionRepoDir $jsonlPath $stderrPath $TimeoutSeconds $stdinPath $processTimingPath $childEnvironment
-                } catch {
-                    if ([string]$_.Exception.Message -notmatch "^Process timed out after ") { throw }
-                    $exitCode = 124
-                    $timedOut = $true
-                    if (-not (Test-Path -LiteralPath $jsonlPath)) { Write-Text $jsonlPath "" }
-                    $timeoutText = "Process timed out after $TimeoutSeconds seconds: $WhaleBin $($args -join ' ')`n$($_.Exception.Message)"
-                    Write-Text $stderrPath $timeoutText
-                }
-                $finished = Get-Date
-            } finally {
-                Dismount-TaskspaceExecutionAlias $mount
+            $executionRepoDir = [string]$containerContract.paths.workspace
+            $containerLastMessagePath = Join-Path ([string]$containerContract.paths.artifacts) "last-message.md"
+            $args = New-TaskspaceWhaleArgv $side.LogicalMode $Model $executionRepoDir $containerLastMessagePath $SandboxMode $effectiveConfigOverrides
+            $commonArgs = @($args | Where-Object { $_ -ne "--taskspace" })
+            $childEnvironment = @{
+                WHALE_PROVIDER_WIRE_TRACE_PATH = "/artifacts/provider-wire-trace.jsonl"
             }
+            if ($side.LogicalMode -eq "taskspace") {
+                $childEnvironment["WHALE_TASKSPACE_ROUTE_MODE"] = [string]$routingDecision.recommended_mode
+                $childEnvironment["WHALE_TASKSPACE_PROFILE_NAME"] = "taskspace-v005-$($routingDecision.recommended_mode)"
+            }
+            Write-TaskspaceJson ([pscustomobject]@{ logical_mode = $side.LogicalMode; argv = @($args); common_argv_without_treatment = @($commonArgs); treatment_delta = @("--taskspace"); execution_substrate = "docker"; container_workdir = $executionRepoDir; child_environment = $childEnvironment }) (Join-Path $side.ArtifactDir "whale-argv.json")
+            $started = Get-Date
+            $containerExec = Invoke-TaskspaceDockerAgent $containerRunId $manifest.Id ("pair-{0:000}" -f $repeat) $side $containerImage $containerContract $WhaleBin $args $childEnvironment $env:DEEPSEEK_API_KEY $TimeoutSeconds
+            $exitCode = [int]$containerExec.exit_code
+            $timedOut = [bool]$containerExec.timed_out
+            $finished = Get-Date
             $threadId = if (Test-Path -LiteralPath $jsonlPath) { Get-ThreadId (Get-Content -Raw -Encoding UTF8 -LiteralPath $jsonlPath) } else { "" }
             $obs = $null
             if ($side.LogicalMode -eq "taskspace") {
@@ -500,18 +500,15 @@ for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
             }
             $execBySide[$side.Name] = [pscustomobject]@{
                 exit_code = $exitCode
-                wall_time_ms = [int64](($finished - $started).TotalMilliseconds)
+                wall_time_ms = [int64]$containerExec.wall_time_ms
                 timed_out = $timedOut
                 jsonl_path = $jsonlPath
                 stderr_path = $stderrPath
                 last_message_path = $lastMessagePath
                 process_timing_path = $processTimingPath
-                process_launch_wait_ms = if (Test-Path -LiteralPath $processTimingPath) {
-                    try {
-                        $processTiming = Get-Content -Raw -Encoding UTF8 -LiteralPath $processTimingPath | ConvertFrom-Json
-                        if ($processTiming.PSObject.Properties.Name -contains "process_launch_wait_ms") { [int64]$processTiming.process_launch_wait_ms } else { $null }
-                    } catch { $null }
-                } else { $null }
+                process_launch_wait_ms = 0
+                execution_substrate = "docker"
+                container_id = [string]$containerExec.container_id
             }
             $obsBySide[$side.Name] = $obs
         }
@@ -519,7 +516,7 @@ for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
         $sourceGuard = Unprotect-TaskspaceExternalSensitiveSource $sourceGuard
     }
     $probe = if ($RunSide -eq "both") {
-        Invoke-TaskspaceOracleIsolationProbe $WhaleBin $pair.Left.RepoDir $pair.PairDir $pair.CanaryPath $pair.CanaryText $Model $SandboxMode $ConfigOverride 180
+        Get-TaskspaceDockerOracleIsolationProbe $pair.Left $pair.CanaryPath $pair.CanaryText
     } else {
         Write-TaskspaceRunEvent $runDir "oracle_isolation_probe_skipped" @{ repeat = $repeat; run_side = $RunSide; reason = "side_selection" }
         $null
@@ -594,11 +591,14 @@ for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
             $validationStartedAt = Get-Date
             $oldDockerImageCache = $env:TASKSPACE_DOCKER_IMAGE_CACHE
             try { if ($EnableDockerImageCache) { $env:TASKSPACE_DOCKER_IMAGE_CACHE = "1" } else { Remove-Item Env:\TASKSPACE_DOCKER_IMAGE_CACHE -ErrorAction SilentlyContinue }
-                $validationExit = Invoke-TaskspaceValidationCommand $side.RepoDir $manifest.PublicValidation $validationStdout $validationStderr $effectiveValidationTimeout $validationProofDir @() $ValidationPretestTimeoutSeconds $ValidationTestTimeoutSeconds
+                $validationResult = Invoke-TaskspaceDockerValidation $containerRunId $manifest.Id ("pair-{0:000}" -f $repeat) $side $containerImage $containerContract $manifest.PublicValidation $effectiveValidationTimeout
+                $validationExit = [int]$validationResult.exit_code
+                $validationStdout = [string]$validationResult.stdout_path
+                $validationStderr = [string]$validationResult.stderr_path
             } finally { if ($null -eq $oldDockerImageCache) { Remove-Item Env:\TASKSPACE_DOCKER_IMAGE_CACHE -ErrorAction SilentlyContinue } else { $env:TASKSPACE_DOCKER_IMAGE_CACHE = $oldDockerImageCache } }
             $validationFinishedAt = Get-Date
             $oracleStartedAt = Get-Date
-            $oracle = Invoke-TaskspaceHiddenOracle $side.RepoDir $side.ArtifactDir $pair.HiddenOraclePath "" -BypassSandbox:($SandboxMode -eq "bypass")
+            $oracle = Invoke-TaskspaceDockerOracle $containerRunId $manifest.Id ("pair-{0:000}" -f $repeat) $side $containerImage $containerContract $pair.HiddenOraclePath
             $oracleFinishedAt = Get-Date
         }
         $validation = [pscustomobject]@{ exit_code = $validationExit; stdout_path = $validationStdout; stderr_path = $validationStderr }

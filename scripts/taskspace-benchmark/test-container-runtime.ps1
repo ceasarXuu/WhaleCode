@@ -16,6 +16,10 @@ if ($success.exit_code -ne 0 -or $success.timed_out) { throw 'Success fixture fa
 if ((Get-Content -Raw -LiteralPath (Join-Path $artifacts 'probe.txt')).Trim() -ne 'artifact-ok') { throw 'Artifact mount failed' }
 if ((Get-Content -Raw -LiteralPath $success.stdout_path) -notmatch 'stdout-ok') { throw 'stdout collection failed' }
 if ((Get-Content -Raw -LiteralPath $success.stderr_path) -notmatch 'stderr-ok') { throw 'stderr collection failed' }
+$manifest = @(Get-Content -Raw -LiteralPath $success.manifest_path | ConvertFrom-Json)[0]
+if (-not $IsWindows -and [string]$manifest.container_user -ne "$(id -u):$(id -g)") {
+    throw 'Container did not use the host uid/gid'
+}
 
 $failure = Invoke-TaskspaceContainerRole -Role validator -Image $image -Contract $contract -WorkspaceDir $workspace -ArtifactDir $artifacts -Command @('bash', '-lc', 'exit 17') -TimeoutSeconds 20 -Identity $identity
 if ($failure.exit_code -ne 17 -or $failure.reason_code -ne 'container_nonzero_exit') { throw 'Failure fixture classification failed' }

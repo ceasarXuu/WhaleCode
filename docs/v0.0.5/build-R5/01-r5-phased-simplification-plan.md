@@ -8,9 +8,9 @@
 
 ```text
 Created: 2026-07-09
-Updated: 2026-07-10
+Updated: 2026-07-11
 Version: v0.0.5 build-R5
-Status: In Progress - E5/G0/G1 complete; R5-F is next, R5-J is planned after R5-I2
+Status: In Progress - R5-F and R5-I0/I1/I2 complete; R5-J0 is next
 Owner / Responsible: WhaleCode core runtime
 Related Systems: TaskSpace runtime, action_map runtime, taskspace_control,
   context projection, provider-visible context, benchmark harness
@@ -27,6 +27,7 @@ Related Links:
   docs/v0.0.5/build-R5/12-r5-performance-observation-tool.md
   docs/v0.0.5/build-R5/13-r5-unified-docker-benchmark-and-logging-plan.md
   docs/v0.0.5/build-R5/14-r5-native-control-cadence-plan.md
+  docs/v0.0.5/build-R5/16-r5-docker-i2-evidence.md
   coe/2026-07-10-01-54-r5-normal-progress-budget-hard-stop.md
   coe/2026-07-10-05-03-r5-stale-active-projection-accumulation.md
   coe/2026-07-10-22-56-r5-request-amplification.md
@@ -94,7 +95,7 @@ TaskSpace 拉回三个职责：
 
 ## 1.5 Phase 总览
 
-当前剩余执行顺序：`R5-F -> R5-I0/I1/I2 -> R5-J0..J4 -> R5-I3/I4 -> R5-G3 -> R5-H`。
+当前剩余执行顺序：`R5-J0..J4 -> R5-I3/I4 -> R5-G3 -> R5-H`。
 字母编号保留历史文档稳定性，实际推进只以 1.15 的依赖和门禁矩阵为准。
 
 | Phase | Theme | Main Output | Exit Gate |
@@ -111,8 +112,8 @@ TaskSpace 拉回三个职责：
 | R5-F | Dead code cleanup and code split | 删除旧结构、模块拆分、移除兼容分支 | 生产路径不依赖旧语义控制，代码边界清楚 |
 | R5-G | Regression and benefit gate | 正向/负向样本对照、成本和语义传递报告 | 不引入明确负收益，失败可解释 |
 | R5-H | Closeout | R5 收口报告和后续 backlog | 文档、测试、代码、证据一致 |
-| R5-I | Docker-only benchmark and logging | 统一容器执行 substrate、生命周期日志和本机路径删除 | Docker runtime/log coverage 100%，无本机 fallback；当前 planned/deferred |
-| R5-J | Native control cadence | hard-state tool selection、native ordered barrier、Agent-authored terminal transaction | 固定 Map 拓扑下 control-only response 显著下降；无 Map 坍缩、语义注入或工具反馈损失；当前 planned/deferred |
+| R5-I | Docker-only benchmark and logging | 统一容器执行 substrate、生命周期日志和本机路径删除 | I0/I1/I2 已完成；I3/I4 在 R5-J 后执行并删除本机 fallback |
+| R5-J | Native control cadence | hard-state tool selection、native ordered barrier、Agent-authored terminal transaction | 固定 Map 拓扑下 control-only response 显著下降；无 Map 坍缩、语义注入或工具反馈损失；当前进入 J0 |
 
 ### 1.5.1 Phase 验收和工程收益矩阵
 
@@ -975,8 +976,8 @@ provider request count、state-machine action count、wall time、失败分类�
 | R5-G2 single map initialization | TaskSpace 根 map 只能由 Agent 通过 `initialize_map` 初始化；线性 plan 和旧 root lifecycle 均不可旁路 | provider tool visibility、taskspace_control handler、action-contract bootstrap、mechanical blank map | whale exec `--taskspace` | tools 139/0/1；focused core 5/0；scenario fixtures 2/0 | `target/r5-g2-single-map-validation/.../20260710-074551-730`：maps=1、nodes=4、edges=3、24 requests、complete | 无 update_plan bridge；无 start_task/route_task compatibility | landed |
 | R5-F module split | active path 仅保留 map/node/event/ref；projection 为无语义决策构造器 | `action_map/map.rs`, `action_map/projection.rs`, `action_map/runtime.rs` | whale exec --taskspace | protocol 192/192；runtime 6/6；multi-agent 82/82；rollout 21/21 | raw body/ref 和 map lifecycle trace 保持 | 无 legacy snapshot adapter、semantic ledger 或双写 | landed |
 | R5-G benefit gate | 简化无明确负收益 | benchmark harness | targeted samples | paired report | metrics json/report | none | in progress: G0/G1/G2 landed; G3 pending after I/J |
-| R5-I Docker-only benchmark | 正式样本不再继承宿主 Python/pytest/PATH；容器日志可完整关联 | planned container substrate under `scripts/taskspace-benchmark/lib/` | all benchmark commands after cutover | I0-I4 fixtures + real paired Docker runs | container manifest/lifecycle/log/stats artifacts | no local fallback at exit | planned/deferred |
-| R5-J native control cadence | P0 hard-state tool selection；P1 ordered state barrier；P3 Agent-authored terminal transaction；P2 明确禁止 | provider request construction、native tool scheduler、TaskSpace preflight、turn completion | TaskSpace native tool loop | J0-J4 fixed-topology/order/failure/provenance tests | control-only response、barrier sequence、terminal source、map topology metrics | 不恢复 action-contract；无 map coarsening | planned/deferred after I2 |
+| R5-I Docker-only benchmark | 正式样本不再继承宿主 Python/pytest/PATH；容器日志可完整关联 | `container-runtime.ps1`、`container-benchmark-runner.ps1` | benchmark Docker roles | I0-I4 fixtures + real paired Docker runs | container manifest/lifecycle/log/stats/rollout artifacts | I4 删除本机 fallback | I0/I1/I2 landed；I3/I4 pending after J4 |
+| R5-J native control cadence | P0 hard-state tool selection；P1 ordered state barrier；P3 Agent-authored terminal transaction；P2 明确禁止 | provider request construction、native tool scheduler、TaskSpace preflight、turn completion | TaskSpace native tool loop | J0-J4 fixed-topology/order/failure/provenance tests | control-only response、barrier sequence、terminal source、map topology metrics | 不恢复 action-contract；无 map coarsening | J0 active after I2 |
 
 ## 1.17 Change-chain Logging Matrix
 

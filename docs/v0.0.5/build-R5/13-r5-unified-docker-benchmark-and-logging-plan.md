@@ -5,7 +5,7 @@
 - Created: 2026-07-10
 - Updated: 2026-07-11
 - Version: v0.0.5 build-R5 follow-up
-- Status: In progress - I0 complete, I1 active
+- Status: In progress - I0/I1/I2 complete, waiting for R5-J before I3
 - Owner / Responsible: WhaleCode benchmark harness
 - Related Systems: benchmark runner、workspace、Whale CLI、public validator、hidden oracle、performance observation
 - Related Links: `01-r5-phased-simplification-plan.md`、`12-r5-performance-observation-tool.md`、`14-r5-native-control-cadence-plan.md`
@@ -18,8 +18,8 @@
 
 迁移通过门禁后删除本机执行路径，不保留兼容分支或静默 fallback。Docker backend 不可用时，benchmark 必须在 preflight 阶段明确失败。
 
-本计划已由用户恢复执行。I0 已冻结 contract、权限矩阵、资源和日志阈值，I1 开始实现日志优先的
-容器 substrate。
+本计划已由用户恢复执行。I0 已冻结 contract、权限矩阵、资源和日志阈值，I1 已完成日志优先的
+容器 substrate，I2 已把 Agent、public validator 和 hidden oracle 迁入统一 Docker paired runner。
 
 执行依赖已调整为 `I0 -> I1 -> I2 -> J0..J4 -> I3 -> I4`。I2 先提供统一 paired runner；
 R5-J 在固定 Map 拓扑下实现 P0/P1/P3；I3/I4 再承担正式等价性、收益和 Docker-only 切换。
@@ -29,12 +29,12 @@ R5-J 在固定 Map 拓扑下实现 P0/P1/P3；I3/I4 再承担正式等价性、�
 
 | 路径 | 当前状态 | 问题 |
 |---|---|---|
-| 自定义 sample Agent | 本机 `target/.../repo` 下的 Whale 子进程 | 继承宿主机 PATH、Conda 和依赖状态 |
-| 自定义 public validator | 本机子进程 | `subscription-billing-repair` 已因本机 Miniconda 缺 pytest 失败 |
-| hidden oracle | 本机隔离进程 | 隔离由 harness 维护，但执行环境仍依赖宿主机 |
+| 自定义 sample Agent | 已迁入统一 Docker runner | I3/I4 后才删除旧本机 helper 定义 |
+| 自定义 public validator | 已迁入独立 Docker role | 复杂 sample 的依赖矩阵待 I3 验证 |
+| hidden oracle | 已迁入只读 workspace + 私有 oracle mount 容器 | I4 前仍需完成默认路径不可达扫描 |
 | Terminal-Bench validator | 已有 Docker equivalent path | 只覆盖外部 validator，不是统一 Agent 执行 substrate |
-| Docker timing | 已有 build/run/cleanup/cache 字段 | 没有统一覆盖所有 sample 和容器生命周期 |
-| 日志 | stdout/stderr、metrics、events 分散存在 | 缺少统一 container id/image digest/phase/correlation 证据链 |
+| Docker timing | Agent/validator/oracle 均有 role wall、stats 和 cleanup | I3 继续分离 setup 与 Agent/model 时间 |
+| 日志 | manifest/lifecycle/inspect/log/stats/rollout 已统一落盘 | I3/G3 继续验证复杂和超大 rollout |
 
 ## 4. 目标与非目标
 
@@ -198,6 +198,17 @@ timeout、stats、secret、inspect/log collect 和 cleanup；secret scan 为0，
 
 **Exit:** `count-call-stack` 单次 paired smoke 双方完成；image/resource/path parity 100%；oracle leak test 通过；日志覆盖100%；冻结可供 R5-J 使用的 fixed-topology baseline。
 
+**实施结果（2026-07-11）：** 已完成。`count-call-stack` paired smoke 的 Standard/R5 均完成
+patch，public validation 与 hidden oracle 均为0；两侧使用同一 image digest、4 CPU、8 GiB、
+`/workspace` 和 `/artifacts`。Agent inspect 中 oracle mount 为0，canary/path 泄漏为0，secret
+精确扫描为0，残留容器为0。容器以宿主 UID/GID 运行，并通过固定 config 关闭与 benchmark
+无关的插件和 bundled skill 自动装载，Whale home 从首轮的90--103 MiB降至2.3--17 MiB。
+
+I2 同时修复了容器 rollout 已落盘但 observability exporter 仍只搜索宿主 Whale home 的断链。
+集成回归从静默的0 map/0 node恢复为1 map/5 nodes/4 edges，23,184,714-byte rollout 完整扫描，
+无 metrics warning/taint。I2 不声明 cadence 收益；该回归仍为22 requests、12 control，作为
+J0-J4 的真实基线。详细证据见 `16-r5-docker-i2-evidence.md`。
+
 **Fallback:** revert I2；保持 I1 substrate 未接 default path，不做动态本机 fallback。
 
 ### R5-I3：等价性、性能与复杂样本门禁
@@ -250,8 +261,8 @@ timeout、stats、secret、inspect/log collect 和 cleanup；secret scan 为0，
 | container contract | 固定 identity/path/resource/secret schema | `container-contract.ps1` | benchmark CLI | `test-container-contract.ps1` | I0 baseline | test-only invalid contract | landed |
 | image/preflight | digest 和依赖可复现 | `docker/Dockerfile`, `container-runtime.ps1` | run preflight | Python/pytest/git/rg real preflight | image id/digest/build duration | missing image create failure | landed |
 | log collector | 失败前后日志可恢复 | `container-runtime.ps1` | every container phase | success/nonzero/timeout/stats/cleanup/secret fixtures | lifecycle、manifest、inspect、logs、stats、cleanup | real Docker smoke | landed |
-| Agent runner | Standard/R5 同一容器路径 | benchmark side executor | `run-taskspace-benchmark.ps1` | paired smoke | agent container manifest | none at exit | planned |
-| validator/oracle | 私有边界容器化 | oracle/validation runner | post-Agent validation | leak/isolation tests | validator/oracle events | none at exit | planned |
+| Agent runner | Standard/R5 同一容器路径 | `container-benchmark-runner.ps1` | `run-taskspace-benchmark.ps1` | paired smoke | agent container manifest、rollout | none | landed |
+| validator/oracle | 私有边界容器化 | `container-benchmark-runner.ps1` | post-Agent validation | leak/isolation tests | validator/oracle events | none | landed |
 | Docker-only cutover | 本机路径不可达 | bootstrap/runner cleanup | all benchmark commands | call graph + real runs | runtime coverage | none | planned |
 
 ## 11. 风险与缓解
@@ -279,5 +290,5 @@ timeout、stats、secret、inspect/log collect 和 cleanup；secret scan 为0，
 
 ## 13. 当前执行点
 
-I0 已完成，当前执行 I1。I1 未通过前不得接入 Agent 默认路径；I2 未通过前不得把容器结果写成
-TaskSpace 收益。
+I0/I1/I2 已完成，当前转入 R5-J0。I2 结果只证明统一执行与观测 substrate，不证明 TaskSpace
+收益；I3/I4 必须等待 J4 通过后再执行。
