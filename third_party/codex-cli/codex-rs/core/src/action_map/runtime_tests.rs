@@ -173,3 +173,54 @@ fn final_response_only_checks_mechanical_map_lifecycle() {
 
     assert_eq!(state.record_main_final_response(owner, "Done"), Ok(None));
 }
+
+#[test]
+fn terminal_candidate_commits_finish_and_final_gate_atomically() {
+    let (mut state, owner, outcome) = initialized_state(vec![inspect_node("inspect")], "inspect");
+    let (finished, _) = state
+        .finish_main_node_with_terminal_candidate(
+            owner,
+            &outcome.current_node_id,
+            "Inspection complete.".to_string(),
+            "Exact Agent final.",
+        )
+        .expect("terminal finish");
+
+    assert!(finished.next_node_id.is_none());
+    assert!(state.current_main_node_id.is_none());
+}
+
+#[test]
+fn rejected_terminal_candidate_leaves_node_open() {
+    let implement = ActionMapInitializeNodeInput {
+        key: "implement".to_string(),
+        kind: NodeKind::ImplementSolution,
+        title: "Implement".to_string(),
+        context_summary: "Apply the chosen change.".to_string(),
+        dependency_keys: vec!["inspect".to_string()],
+    };
+    let (mut state, owner, outcome) =
+        initialized_state(vec![inspect_node("inspect"), implement], "inspect");
+
+    state
+        .finish_main_node_with_terminal_candidate(
+            owner,
+            &outcome.current_node_id,
+            "Premature finish.".to_string(),
+            "Premature final.",
+        )
+        .expect_err("pending node must reject terminal candidate");
+
+    assert_eq!(
+        state.current_main_node_id,
+        Some(outcome.current_node_id.clone())
+    );
+    let map = state.maps.get(&outcome.map_id).expect("active map");
+    assert_eq!(
+        map.nodes
+            .get(&outcome.current_node_id)
+            .expect("current node")
+            .status,
+        NodeStatus::Running
+    );
+}

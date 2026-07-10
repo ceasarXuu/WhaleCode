@@ -112,6 +112,10 @@ pub(crate) struct AnyToolResult {
 }
 
 impl AnyToolResult {
+    pub(crate) fn terminal_agent_message(&self) -> Option<&str> {
+        self.result.terminal_agent_message()
+    }
+
     pub(crate) fn into_response(self) -> ResponseInputItem {
         let Self {
             call_id,
@@ -271,7 +275,7 @@ impl ToolRegistry {
         let call_id_owned = invocation.call_id.clone();
         let otel = invocation.turn.session_telemetry.clone();
         let payload_for_response = invocation.payload.clone();
-        let log_payload = payload_for_response.log_payload();
+        let log_payload = payload_for_response.log_payload_for_tool(&tool_name);
         let metric_tags = [
             (
                 "sandbox",

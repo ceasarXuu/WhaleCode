@@ -123,6 +123,13 @@ pub fn create_taskspace_control_tool() -> ToolSpec {
             JsonSchema::string(Some("Agent-authored summary for finish_node.".into())),
         ),
         (
+            "final_candidate".to_string(),
+            JsonSchema::string(Some(
+                "Optional Agent-authored final answer for a terminal finish_node; it is released unchanged only when the finish and final lifecycle gate succeed."
+                    .into(),
+            )),
+        ),
+        (
             "next_node_id".to_string(),
             JsonSchema::string(Some("Existing next node to bind after finish_node.".into())),
         ),
@@ -237,5 +244,6 @@ mod tests {
         ] {
             assert!(!properties.contains_key(removed));
         }
+        assert!(properties.contains_key("final_candidate"));
     }
 }

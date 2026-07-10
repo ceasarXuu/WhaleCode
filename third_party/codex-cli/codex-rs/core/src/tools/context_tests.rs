@@ -5,6 +5,25 @@ use pretty_assertions::assert_eq;
 use serde_json::json;
 
 #[test]
+fn terminal_candidate_is_redacted_only_from_tool_logs() {
+    let payload = ToolPayload::Function {
+        arguments: serde_json::json!({
+            "action": "finish_node",
+            "result_summary": "done",
+            "final_candidate": "private final text"
+        })
+        .to_string(),
+    };
+    let logged = payload
+        .log_payload_for_tool(&ToolName::plain("taskspace_control"))
+        .into_owned();
+
+    assert!(!logged.contains("private final text"));
+    assert!(logged.contains("\"redacted\":true"));
+    assert!(payload.log_payload().contains("private final text"));
+}
+
+#[test]
 fn custom_tool_calls_should_roundtrip_as_custom_outputs() {
     let payload = ToolPayload::Custom {
         input: "patch".to_string(),

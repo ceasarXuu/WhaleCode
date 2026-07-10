@@ -3636,7 +3636,43 @@ feedback:\n\
                 node.status.as_str()
             ));
         }
+        let mut open_node_ids = map
+            .nodes
+            .values()
+            .filter(|node| matches!(node.status, NodeStatus::Ready | NodeStatus::Running))
+            .map(|node| node.id.clone())
+            .collect::<Vec<_>>();
+        open_node_ids.sort();
+        if !open_node_ids.is_empty() {
+            return Err(format!(
+                "TaskSpace final response is unavailable while runnable nodes remain: {}. hard_state: active_map_has_open_nodes.",
+                open_node_ids.join(",")
+            ));
+        }
         Ok(None)
+    }
+
+    pub(crate) fn finish_main_node_with_terminal_candidate(
+        &mut self,
+        owner_session_id: ThreadId,
+        node_id: &str,
+        result_summary: String,
+        final_candidate: &str,
+    ) -> Result<(ActionMapFinishNodeOutcome, Vec<MapRuntimeEvent>), String> {
+        if final_candidate.trim().is_empty() {
+            return Err("TaskSpace terminal candidate must not be empty.".to_string());
+        }
+        let mut staged = self.clone();
+        let (outcome, events) = staged.finish_main_node_with_next(
+            owner_session_id,
+            node_id,
+            result_summary,
+            None,
+            None,
+        )?;
+        staged.record_main_final_response(owner_session_id, final_candidate)?;
+        *self = staged;
+        Ok((outcome, events))
     }
 
     pub(crate) fn prepare_spawn_assignment(

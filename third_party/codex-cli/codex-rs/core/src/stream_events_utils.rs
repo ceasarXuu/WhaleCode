@@ -223,7 +223,10 @@ pub(crate) async fn handle_output_item_done(
                 .accept_mailbox_delivery_for_current_turn(&ctx.turn_context.sub_id)
                 .await;
 
-            let payload_preview = call.payload.log_payload().into_owned();
+            let payload_preview = call
+                .payload
+                .log_payload_for_tool(&call.tool_name)
+                .into_owned();
             tracing::info!(
                 thread_id = %ctx.sess.conversation_id,
                 "ToolCall: {} {}",

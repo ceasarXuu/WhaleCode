@@ -40,6 +40,11 @@ pub(crate) struct ToolCallRuntime {
     parallel_execution: Arc<RwLock<()>>,
 }
 
+pub(crate) struct ToolCallExecution {
+    pub(crate) response: ResponseInputItem,
+    pub(crate) terminal_agent_message: Option<String>,
+}
+
 impl ToolCallRuntime {
     pub(crate) fn new(
         router: Arc<ToolRouter>,
@@ -68,19 +73,29 @@ impl ToolCallRuntime {
     }
 
     #[instrument(level = "trace", skip_all)]
-    pub(crate) fn handle_tool_call(
+    pub(crate) fn handle_tool_call_for_sequence(
         self,
         call: ToolCall,
         cancellation_token: CancellationToken,
-    ) -> impl std::future::Future<Output = Result<ResponseInputItem, CodexErr>> {
+    ) -> impl std::future::Future<Output = Result<ToolCallExecution, CodexErr>> {
         let error_call = call.clone();
         let future =
             self.handle_tool_call_with_source(call, ToolCallSource::Direct, cancellation_token);
         async move {
             match future.await {
-                Ok(response) => Ok(response.into_response()),
+                Ok(response) => {
+                    let terminal_agent_message =
+                        response.terminal_agent_message().map(str::to_string);
+                    Ok(ToolCallExecution {
+                        response: response.into_response(),
+                        terminal_agent_message,
+                    })
+                }
                 Err(FunctionCallError::Fatal(message)) => Err(CodexErr::Fatal(message)),
-                Err(other) => Ok(Self::failure_response(error_call, other)),
+                Err(other) => Ok(ToolCallExecution {
+                    response: Self::failure_response(error_call, other),
+                    terminal_agent_message: None,
+                }),
             }
         }
         .in_current_span()
@@ -249,13 +264,38 @@ impl ToolCallRuntime {
     }
 
     pub(crate) fn skipped_response(call: &ToolCall, prior_call_id: &str) -> ResponseInputItem {
-        let message = format!(
-            "TaskSpaceToolSkippedV1:\nstatus: skipped_due_to_prior_failure\nprior_call_id: {prior_call_id}"
-        );
+        Self::skipped_response_with_status(
+            call,
+            "skipped_due_to_prior_failure",
+            "prior_call_id",
+            prior_call_id,
+        )
+    }
+
+    pub(crate) fn terminal_completion_skipped_response(
+        call: &ToolCall,
+        terminal_call_id: &str,
+    ) -> ResponseInputItem {
+        Self::skipped_response_with_status(
+            call,
+            "skipped_due_to_terminal_completion",
+            "terminal_call_id",
+            terminal_call_id,
+        )
+    }
+
+    fn skipped_response_with_status(
+        call: &ToolCall,
+        status: &str,
+        cause_field: &str,
+        cause_call_id: &str,
+    ) -> ResponseInputItem {
+        let message =
+            format!("TaskSpaceToolSkippedV1:\nstatus: {status}\n{cause_field}: {cause_call_id}");
         match &call.payload {
             ToolPayload::ToolSearch { .. } => ResponseInputItem::ToolSearchOutput {
                 call_id: call.call_id.clone(),
-                status: "skipped_due_to_prior_failure".to_string(),
+                status: status.to_string(),
                 execution: "client".to_string(),
                 tools: Vec::new(),
             },
@@ -412,7 +452,10 @@ impl ToolCallRuntime {
 
     fn classify_taskspace_tool_action(call: &ToolCall) -> ToolActionDescriptor {
         let tool_name = call.tool_name.display();
-        let preview = call.payload.log_payload().to_string();
+        let preview = call
+            .payload
+            .log_payload_for_tool(&call.tool_name)
+            .to_string();
         let class = taskspace_action_contract_class(&call.call_id)
             .unwrap_or_else(|| classify_tool_payload(&tool_name, &call.payload));
         ToolActionDescriptor::new(tool_name, class, preview).with_call_id(call.call_id.clone())

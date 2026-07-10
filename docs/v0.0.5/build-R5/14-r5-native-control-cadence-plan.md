@@ -5,7 +5,7 @@
 - Created: 2026-07-10
 - Updated: 2026-07-11
 - Version: v0.0.5 build-R5 follow-up
-- Status: In progress - J0/J1/J2 complete, J3 next
+- Status: In progress - J0/J1/J2/J3 complete, J4 next
 - Owner / Responsible: WhaleCode core runtime
 - Related Systems: provider tool choice、native tool scheduler、TaskSpace hard state、taskspace_control、turn completion、benchmark observer
 - Related Links: `01-r5-phased-simplification-plan.md`、`13-r5-unified-docker-benchmark-and-logging-plan.md`、`coe/2026-07-10-22-56-r5-request-amplification.md`
@@ -204,6 +204,24 @@ unit tests 覆盖 provider 顺序分段、ordinary-only 并行段和 skipped out
 
 **Exit:** 成功路径不产生 finish 后额外 provider request；失败路径不泄漏 candidate、不伪装 Agent completion；自然语言 final 100%可追溯到模型输出；Standard completion path 不变。
 
+**实施结果（2026-07-11）：** J3 已完成。`finish_node` 增加可选 `final_candidate`，且不能与
+next-node 参数组合。ActionMap runtime 使用 clone-and-commit 对最后节点 finish 和既有 final lifecycle
+gate 做原子校验；候选为空、仍有 current/runnable 节点或状态转换失败时不提交 staged state。final gate
+补齐了既有硬状态缺口：除 current node 外，Map 中仍有 ready/running 节点时也不能结束；blocked 导致的
+pending 分支仍可由 Agent报告阻塞结果。
+
+候选通过 `ToolOutput -> AnyToolResult -> ToolCallExecution -> ToolSequenceOutcome` typed metadata 传递，
+turn 层只按原字节生成 Agent `final_answer` history item，不解析工具输出、不从 result summary 生成回答。
+候选发布后同 response 尾部调用得到 `skipped_due_to_terminal_completion` 机械反馈。日志只记录 call id 和
+字节数；`taskspace_control` diagnostic payload 中候选正文被结构化脱敏，provider history 保持原始参数。
+
+unit tests 覆盖 schema、解析、日志脱敏、原子成功和原子拒绝。真实 session 集成 fixture 仅产生2次
+provider requests：第一轮 initialize/read，第二轮 `finish_node(final_candidate)`，随后直接 TurnComplete；
+不存在第三次 final request，Map 单节点 completed，rollout 中 Agent 原文以 `phase=final_answer` 保存。
+相关 tools/core focused 与三条 ordered/failed/terminal session scenarios 全部通过。全量 core 在加载
+仓库 `.env.local` 后为1773 passed、2 failed、3 ignored；仅剩两条未改动 file-watcher mock 注册状态测试
+失败，J3 调用链不引用该模块，作为 J4 全局对抗审查的测试基线异常单独复核，不用于掩盖 J3 门禁。
+
 **Rollback:** revert J3 commit，保留 J1/J2；不维护双终态协议。
 
 ### R5-J4：固定拓扑收益与对抗性门禁
@@ -229,7 +247,7 @@ unit tests 覆盖 provider 顺序分段、ordinary-only 并行段和 skipped out
 | J0 | provider probe、fixed-topology fixture、failure contract | 不依赖 J1 code | capability/contract artifacts | 100% passed | proceed J1 |
 | J1 | hard-state tool-choice fixtures、wire/cache trace | 不依赖 barrier | first-response and tools-hash evidence | 100% passed | proceed J2 |
 | J2 | ordered barrier unit/integration/side-effect tests | 不依赖 terminal transaction | latest-state attribution and stop evidence | 100% passed | proceed J3 |
-| J3 | terminal success/rejection/history tests | 不依赖 benefit repeats | completion provenance evidence | 100% | proceed J4 |
+| J3 | terminal success/rejection/history tests | 不依赖 benefit repeats | completion provenance evidence | 100% passed | proceed J4 |
 | J4 | Docker fixed-topology repeats、complex sample、adversarial review | 无后续 phase 补证 | performance/map/semantic report | 100% | proceed I3 |
 
 ## 10. Implementation Completeness Matrix
@@ -238,7 +256,7 @@ unit tests 覆盖 provider 顺序分段、ordinary-only 并行段和 skipped out
 |---|---|---|---|---|---|---|---|
 | P0 tool selection | blank map 首响应只能选择 control tool | Chat body/provider request construction | TaskSpace initial request | named-choice/visibility fixtures | tool-choice trace + final wire | provider probe only in J0 | complete; Docker live evidence passed |
 | P1 ordered barrier | state change后的调用按最新状态执行 | native tool scheduler、TaskSpace preflight | multi-call provider response | order/failure/permission/attribution tests | barrier lifecycle events | none at exit | complete; positive/negative integration passed |
-| P3 terminal transaction | finish 成功后直接发布 Agent final | taskspace_control handler、turn completion/history | last running node | success/reject/replay/provenance tests | terminal candidate events | none at exit | planned |
+| P3 terminal transaction | finish 成功后直接发布 Agent final | taskspace_control handler、turn completion/history | last running node | success/reject/replay/provenance tests | terminal candidate events | none at exit | complete; two-request terminal fixture passed |
 | anti-collapse gate | 收益不来自节点减少 | benchmark fixed topology + graph health | J4 Docker runs | topology fixtures | map/node/edge/control metrics | none | planned |
 
 ## 11. Change-chain Logging Matrix
@@ -298,5 +316,5 @@ unit tests 覆盖 provider 顺序分段、ordinary-only 并行段和 skipped out
 
 ## 16. 当前暂停点
 
-R5-F、R5-I0/I1/I2 和 J0/J1/J2 已完成，当前进入 J3。不得通过
+R5-F、R5-I0/I1/I2 和 J0/J1/J2/J3 已完成，当前进入 J4。不得通过
 提示 Agent 少建节点、runtime 自动 finish 或节点粗化宣称请求收益。

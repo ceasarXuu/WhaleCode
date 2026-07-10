@@ -56,6 +56,75 @@ const FINISH_IMPLEMENT_CALL_ID: &str = "ordered-finish-implement";
 const TEST_AFTER_FINISH_CALL_ID: &str = "ordered-test";
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn terminal_candidate_finishes_turn_without_extra_provider_request() -> Result<()> {
+    skip_if_no_network!(Ok(()));
+
+    let harness = TestCodexHarness::new().await?;
+    harness
+        .write_file("README.md", "Terminal fixture.\n")
+        .await?;
+    let initialize = serde_json::to_string(&json!({
+        "action": "initialize_map",
+        "task_title": "Terminal candidate",
+        "task_objective": "Read the fixture and return the Agent final.",
+        "initial_nodes": [{
+            "node_key": "inspect",
+            "kind": "inspect_code_context",
+            "title": "Inspect fixture",
+            "context_summary": "Read README."
+        }],
+        "current_node_key": "inspect"
+    }))?;
+    responses::mount_sse_once_match(
+        harness.server(),
+        |req: &Request| body_contains(req, "验证终态候选"),
+        sse(vec![
+            ev_response_created("terminal-response-1"),
+            ev_function_call("terminal-init", "taskspace_control", &initialize),
+            ev_shell_command_call("terminal-read", "cat README.md"),
+            ev_completed("terminal-response-1"),
+        ]),
+    )
+    .await;
+
+    let exact_final = "Agent final line one.\nAgent final line two.";
+    let finish = serde_json::to_string(&json!({
+        "action": "finish_node",
+        "node_id": "node-1",
+        "result_summary": "Terminal fixture was read.",
+        "final_candidate": exact_final
+    }))?;
+    responses::mount_sse_once_match(
+        harness.server(),
+        |req: &Request| body_contains(req, "terminal-read"),
+        sse(vec![
+            ev_response_created("terminal-response-2"),
+            ev_function_call("terminal-finish", "taskspace_control", &finish),
+            ev_completed("terminal-response-2"),
+        ]),
+    )
+    .await;
+
+    enable_taskspace(&harness).await?;
+    harness.submit("验证终态候选").await?;
+
+    let requests = harness.request_bodies().await;
+    assert_eq!(requests.len(), 2, "terminal finish must not resample");
+    let snapshot = harness.test().codex.action_map_snapshot().await;
+    assert_eq!(snapshot.maps[0].nodes.len(), 1);
+    assert_eq!(snapshot.maps[0].nodes[0].status, "completed");
+    let rollout_path = harness
+        .test()
+        .codex
+        .rollout_path()
+        .context("rollout path")?;
+    let rollout = wait_for_rollout_fragment(&rollout_path, "Agent final line one.").await?;
+    assert!(rollout.contains("\"phase\":\"final_answer\""));
+    assert!(rollout.contains("Agent final line one.\\nAgent final line two."));
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn native_sequence_executes_dependent_tools_after_latest_state_barrier() -> Result<()> {
     skip_if_no_network!(Ok(()));
 

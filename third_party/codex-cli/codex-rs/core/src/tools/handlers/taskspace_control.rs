@@ -57,6 +57,8 @@ enum TaskSpaceControlArgs {
         next_node_context_summary: Option<String>,
         #[serde(default)]
         next_dependency_node_ids: Vec<String>,
+        #[serde(default)]
+        final_candidate: Option<String>,
     },
     BlockNode {
         node_id: String,
@@ -88,6 +90,7 @@ struct TaskSpaceInitializeNodeArgs {
 
 pub struct TaskSpaceControlOutput {
     message: String,
+    terminal_agent_message: Option<String>,
 }
 
 impl ToolOutput for TaskSpaceControlOutput {
@@ -106,6 +109,10 @@ impl ToolOutput for TaskSpaceControlOutput {
             call_id: call_id.to_string(),
             output,
         }
+    }
+
+    fn terminal_agent_message(&self) -> Option<&str> {
+        self.terminal_agent_message.as_deref()
     }
 
     fn code_mode_result(&self, _payload: &ToolPayload) -> JsonValue {
@@ -143,6 +150,7 @@ impl ToolHandler for TaskSpaceControlHandler {
         let args: TaskSpaceControlArgs = parse_arguments(&arguments)
             .map_err(|error| protocol_error(error.to_string(), "invalid_arguments"))?;
 
+        let mut terminal_agent_message = None;
         let message = match args {
             TaskSpaceControlArgs::InitializeMap {
                 task_title,
@@ -224,23 +232,50 @@ impl ToolHandler for TaskSpaceControlHandler {
                 next_node_title,
                 next_node_context_summary,
                 next_dependency_node_ids,
+                final_candidate,
             } => {
-                let draft = build_next_node_draft(
-                    next_node_kind,
-                    next_node_title,
-                    next_node_context_summary,
-                    next_dependency_node_ids,
-                )?;
-                let (node_id, outcome) = session
-                    .finish_action_map_current_or_named_node_with_next(
-                        &turn,
-                        node_id.as_deref(),
-                        result_summary,
-                        next_node_id,
-                        draft,
-                    )
-                    .await
-                    .map_err(state_machine_error)?;
+                let (node_id, outcome) = if let Some(candidate) = final_candidate {
+                    if next_node_id.is_some()
+                        || next_node_kind.is_some()
+                        || next_node_title.is_some()
+                        || next_node_context_summary.is_some()
+                        || !next_dependency_node_ids.is_empty()
+                    {
+                        return Err(protocol_error(
+                            "finish_node final_candidate cannot be combined with a next node"
+                                .into(),
+                            "terminal_candidate_with_next_node",
+                        ));
+                    }
+                    let outcome = session
+                        .finish_action_map_node_with_terminal_candidate(
+                            &turn,
+                            node_id.as_deref(),
+                            result_summary,
+                            &candidate,
+                        )
+                        .await
+                        .map_err(state_machine_error)?;
+                    terminal_agent_message = Some(candidate);
+                    outcome
+                } else {
+                    let draft = build_next_node_draft(
+                        next_node_kind,
+                        next_node_title,
+                        next_node_context_summary,
+                        next_dependency_node_ids,
+                    )?;
+                    session
+                        .finish_action_map_current_or_named_node_with_next(
+                            &turn,
+                            node_id.as_deref(),
+                            result_summary,
+                            next_node_id,
+                            draft,
+                        )
+                        .await
+                        .map_err(state_machine_error)?
+                };
                 match outcome.next_node_id {
                     Some(next) => format!(
                         "TaskSpace node finished: {node_id} result {} next_node={next}",
@@ -299,7 +334,10 @@ impl ToolHandler for TaskSpaceControlHandler {
                 slice
             }
         };
-        Ok(TaskSpaceControlOutput { message })
+        Ok(TaskSpaceControlOutput {
+            message,
+            terminal_agent_message,
+        })
     }
 }
 
@@ -441,6 +479,23 @@ mod tests {
         }))
         .expect("parse initialize_map");
         assert!(matches!(args, TaskSpaceControlArgs::InitializeMap { .. }));
+    }
+
+    #[test]
+    fn parses_agent_authored_terminal_candidate() {
+        let args: TaskSpaceControlArgs = serde_json::from_value(serde_json::json!({
+            "action": "finish_node",
+            "result_summary": "Validation passed.",
+            "final_candidate": "Exact final answer."
+        }))
+        .expect("parse terminal finish");
+        assert!(matches!(
+            args,
+            TaskSpaceControlArgs::FinishNode {
+                final_candidate: Some(candidate),
+                ..
+            } if candidate == "Exact final answer."
+        ));
     }
 
     #[test]

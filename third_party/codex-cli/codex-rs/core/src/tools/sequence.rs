@@ -6,6 +6,16 @@ use tokio_util::sync::CancellationToken;
 use crate::tools::parallel::ToolCallRuntime;
 use crate::tools::router::ToolCall;
 
+pub(crate) struct TerminalAgentMessage {
+    pub(crate) call_id: String,
+    pub(crate) message: String,
+}
+
+pub(crate) struct ToolSequenceOutcome {
+    pub(crate) outputs: Vec<ResponseInputItem>,
+    pub(crate) terminal_agent_message: Option<TerminalAgentMessage>,
+}
+
 #[derive(Debug, PartialEq, Eq)]
 enum SequenceSegment {
     Parallel { start: usize, end: usize },
@@ -16,9 +26,12 @@ pub(crate) async fn execute_response_tool_sequence(
     runtime: ToolCallRuntime,
     calls: Vec<ToolCall>,
     cancellation_token: CancellationToken,
-) -> Result<Vec<ResponseInputItem>> {
+) -> Result<ToolSequenceOutcome> {
     if calls.is_empty() {
-        return Ok(Vec::new());
+        return Ok(ToolSequenceOutcome {
+            outputs: Vec::new(),
+            terminal_agent_message: None,
+        });
     }
 
     let segments = sequence_segments(&calls);
@@ -31,7 +44,25 @@ pub(crate) async fn execute_response_tool_sequence(
 
     let mut outputs = Vec::with_capacity(calls.len());
     let mut prior_failure: Option<String> = None;
+    let mut terminal_agent_message: Option<TerminalAgentMessage> = None;
     for (segment_index, segment) in segments.into_iter().enumerate() {
+        if let Some(terminal) = terminal_agent_message.as_ref() {
+            for call in calls_for_segment(&calls, &segment) {
+                tracing::warn!(
+                    target: "codex_core::taskspace",
+                    segment_index,
+                    call_id = call.call_id,
+                    tool_name = call.tool_name.display(),
+                    terminal_call_id = terminal.call_id,
+                    "tool_response_sequence_call_skipped"
+                );
+                outputs.push(ToolCallRuntime::terminal_completion_skipped_response(
+                    call,
+                    &terminal.call_id,
+                ));
+            }
+            continue;
+        }
         if let Some(prior_call_id) = prior_failure.as_deref() {
             for call in calls_for_segment(&calls, &segment) {
                 tracing::warn!(
@@ -51,7 +82,7 @@ pub(crate) async fn execute_response_tool_sequence(
             SequenceSegment::Barrier { index } => Some(calls[*index].call_id.clone()),
             SequenceSegment::Parallel { .. } => None,
         };
-        let segment_outputs = match segment {
+        let segment_executions = match segment {
             SequenceSegment::Parallel { start, end } => {
                 tracing::info!(
                     target: "codex_core::taskspace",
@@ -62,7 +93,7 @@ pub(crate) async fn execute_response_tool_sequence(
                 let futures = calls[start..end].iter().cloned().map(|call| {
                     runtime
                         .clone()
-                        .handle_tool_call(call, cancellation_token.child_token())
+                        .handle_tool_call_for_sequence(call, cancellation_token.child_token())
                 });
                 join_all(futures)
                     .await
@@ -81,15 +112,29 @@ pub(crate) async fn execute_response_tool_sequence(
                 vec![
                     runtime
                         .clone()
-                        .handle_tool_call(call, cancellation_token.child_token())
+                        .handle_tool_call_for_sequence(call, cancellation_token.child_token())
                         .await?,
                 ]
             }
         };
 
-        for output in &segment_outputs {
+        for execution in &segment_executions {
+            let output = &execution.response;
             if !response_input_succeeded(output) && prior_failure.is_none() {
                 prior_failure = Some(response_input_call_id(output).to_string());
+            }
+            if let Some(message) = execution.terminal_agent_message.as_ref() {
+                let call_id = response_input_call_id(output).to_string();
+                terminal_agent_message = Some(TerminalAgentMessage {
+                    call_id: call_id.clone(),
+                    message: message.clone(),
+                });
+                tracing::info!(
+                    target: "codex_core::taskspace",
+                    call_id,
+                    candidate_bytes = message.len(),
+                    "taskspace_agent_final_staged"
+                );
             }
         }
         if let Some(call_id) = barrier_call_id {
@@ -116,7 +161,11 @@ pub(crate) async fn execute_response_tool_sequence(
             failed = prior_failure.is_some(),
             "tool_response_sequence_segment_completed"
         );
-        outputs.extend(segment_outputs);
+        outputs.extend(
+            segment_executions
+                .into_iter()
+                .map(|execution| execution.response),
+        );
     }
 
     tracing::info!(
@@ -125,7 +174,10 @@ pub(crate) async fn execute_response_tool_sequence(
         failed = prior_failure.is_some(),
         "tool_response_sequence_completed"
     );
-    Ok(outputs)
+    Ok(ToolSequenceOutcome {
+        outputs,
+        terminal_agent_message,
+    })
 }
 
 fn sequence_segments(calls: &[ToolCall]) -> Vec<SequenceSegment> {

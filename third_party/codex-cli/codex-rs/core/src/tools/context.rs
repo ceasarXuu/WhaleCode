@@ -91,6 +91,24 @@ impl ToolPayload {
             ToolPayload::Mcp { raw_arguments, .. } => Cow::Borrowed(raw_arguments),
         }
     }
+
+    pub fn log_payload_for_tool(&self, tool_name: &ToolName) -> Cow<'_, str> {
+        if tool_name.namespace.is_none()
+            && tool_name.name == "taskspace_control"
+            && let Self::Function { arguments } = self
+            && let Ok(mut value) = serde_json::from_str::<JsonValue>(arguments)
+            && let Some(object) = value.as_object_mut()
+            && let Some(candidate) = object.get_mut("final_candidate")
+            && let Some(text) = candidate.as_str()
+        {
+            *candidate = serde_json::json!({
+                "redacted": true,
+                "bytes": text.len(),
+            });
+            return Cow::Owned(value.to_string());
+        }
+        self.log_payload()
+    }
 }
 
 pub trait ToolOutput: Send {
@@ -99,6 +117,10 @@ pub trait ToolOutput: Send {
     fn success_for_logging(&self) -> bool;
 
     fn to_response_item(&self, call_id: &str, payload: &ToolPayload) -> ResponseInputItem;
+
+    fn terminal_agent_message(&self) -> Option<&str> {
+        None
+    }
 
     /// Returns the stable value exposed to `PostToolUse` hooks for this tool output.
     ///

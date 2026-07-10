@@ -3032,6 +3032,36 @@ async fn record_response_input_item(
     response_item
 }
 
+async fn publish_taskspace_terminal_agent_message(
+    sess: &Session,
+    turn_context: &TurnContext,
+    call_id: &str,
+    message: &str,
+) {
+    let item = ResponseItem::Message {
+        id: None,
+        role: "assistant".to_string(),
+        content: vec![ContentItem::OutputText {
+            text: message.to_string(),
+        }],
+        end_turn: Some(true),
+        phase: Some(MessagePhase::FinalAnswer),
+    };
+    if let Some(turn_item) =
+        handle_non_tool_response_item(sess, turn_context, &item, /*plan_mode*/ false).await
+    {
+        sess.emit_turn_item_started(turn_context, &turn_item).await;
+        sess.emit_turn_item_completed(turn_context, turn_item).await;
+    }
+    record_completed_response_item(sess, turn_context, &item).await;
+    tracing::info!(
+        target: "codex_core::taskspace",
+        call_id,
+        candidate_bytes = message.len(),
+        "taskspace_agent_final_released"
+    );
+}
+
 fn taskspace_final_answer_gate_rejection_followup(error: &str) -> String {
     format!(
         "TaskSpaceFinalAnswerRejectedV1:\n\
@@ -3185,7 +3215,7 @@ async fn try_run_sampling_request(
     let mut assistant_message_stream_parsers = AssistantMessageStreamParsers::new(plan_mode);
     let mut plan_mode_state = plan_mode.then(|| PlanModeStreamState::new(&turn_context.sub_id));
     let receiving_span = trace_span!("receiving_stream");
-    let outcome: CodexResult<SamplingRequestResult> = loop {
+    let mut outcome: CodexResult<SamplingRequestResult> = loop {
         let handle_responses = trace_span!(
             parent: &receiving_span,
             "handle_responses",
@@ -3473,16 +3503,31 @@ async fn try_run_sampling_request(
                     .await;
                 }
                 should_emit_turn_diff = true;
-                let tool_outputs = execute_response_tool_sequence(
+                let tool_outcome = execute_response_tool_sequence(
                     tool_runtime.clone(),
                     std::mem::take(&mut pending_tool_calls),
                     cancellation_token.child_token(),
                 )
                 .await?;
-                for output in tool_outputs {
+                for output in tool_outcome.outputs {
                     record_response_input_item(sess.as_ref(), turn_context.as_ref(), output).await;
                 }
-                if let Some(false) = end_turn {
+                let terminal_candidate_released =
+                    if let Some(terminal) = tool_outcome.terminal_agent_message {
+                        publish_taskspace_terminal_agent_message(
+                            sess.as_ref(),
+                            turn_context.as_ref(),
+                            &terminal.call_id,
+                            &terminal.message,
+                        )
+                        .await;
+                        last_agent_message = Some(terminal.message);
+                        needs_follow_up = false;
+                        true
+                    } else {
+                        false
+                    };
+                if !terminal_candidate_released && let Some(false) = end_turn {
                     needs_follow_up = true;
                 }
                 let assistant_message_present = last_agent_message
@@ -3490,7 +3535,10 @@ async fn try_run_sampling_request(
                     .map(|message| !message.trim().is_empty())
                     .unwrap_or(false);
                 let mut final_response_rejected = false;
-                if !needs_follow_up && let Some(message) = last_agent_message.as_deref() {
+                if !terminal_candidate_released
+                    && !needs_follow_up
+                    && let Some(message) = last_agent_message.as_deref()
+                {
                     match sess
                         .record_action_map_main_final_response(&turn_context, message)
                         .await
@@ -3663,14 +3711,27 @@ async fn try_run_sampling_request(
     .await;
 
     if outcome.is_ok() && !pending_tool_calls.is_empty() {
-        let tool_outputs = execute_response_tool_sequence(
+        let tool_outcome = execute_response_tool_sequence(
             tool_runtime.clone(),
             std::mem::take(&mut pending_tool_calls),
             cancellation_token.child_token(),
         )
         .await?;
-        for output in tool_outputs {
+        for output in tool_outcome.outputs {
             record_response_input_item(sess.as_ref(), turn_context.as_ref(), output).await;
+        }
+        if let Some(terminal) = tool_outcome.terminal_agent_message {
+            publish_taskspace_terminal_agent_message(
+                sess.as_ref(),
+                turn_context.as_ref(),
+                &terminal.call_id,
+                &terminal.message,
+            )
+            .await;
+            if let Ok(result) = &mut outcome {
+                result.needs_follow_up = false;
+                result.last_agent_message = Some(terminal.message);
+            }
         }
     }
 
