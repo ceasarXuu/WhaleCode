@@ -8,7 +8,7 @@
 - Status: Planned - explicitly deferred; do not execute until the user resumes this phase
 - Owner / Responsible: WhaleCode benchmark harness
 - Related Systems: benchmark runner、workspace、Whale CLI、public validator、hidden oracle、performance observation
-- Related Links: `01-r5-phased-simplification-plan.md`、`12-r5-performance-observation-tool.md`
+- Related Links: `01-r5-phased-simplification-plan.md`、`12-r5-performance-observation-tool.md`、`14-r5-native-control-cadence-plan.md`
 - Risk Level: High
 - Plan Type: Full
 
@@ -19,6 +19,10 @@
 迁移通过门禁后删除本机执行路径，不保留兼容分支或静默 fallback。Docker backend 不可用时，benchmark 必须在 preflight 阶段明确失败。
 
 本计划当前只登记，不执行镜像构建、容器启动、代码迁移或样本重跑。
+
+执行依赖已调整为 `I0 -> I1 -> I2 -> J0..J4 -> I3 -> I4`。I2 先提供统一 paired runner；
+R5-J 在固定 Map 拓扑下实现 P0/P1/P3；I3/I4 再承担正式等价性、收益和 Docker-only 切换。
+不得在 I2 与 J 之间用宿主机样本替代正式收益证据。
 
 ## 3. 当前事实
 
@@ -182,13 +186,13 @@ container-cleanup-result.json
 4. provider/cache/Map artifacts 通过 `/artifacts` 原样写回。
 5. 所有 container phase 的时间与 Agent/model/validation 时间分账。
 
-**Exit:** `count-call-stack` 单次 paired smoke 双方完成；image/resource/path parity 100%；oracle leak test 通过；日志覆盖100%。
+**Exit:** `count-call-stack` 单次 paired smoke 双方完成；image/resource/path parity 100%；oracle leak test 通过；日志覆盖100%；冻结可供 R5-J 使用的 fixed-topology baseline。
 
 **Fallback:** revert I2；保持 I1 substrate 未接 default path，不做动态本机 fallback。
 
 ### R5-I3：等价性、性能与复杂样本门禁
 
-**Entry:** I2 单样本正确性通过。
+**Entry:** I2 单样本正确性通过，且 `14-r5-native-control-cadence-plan.md` 的 J0-J4 已100%完成。
 
 **Tasks:**
 
@@ -197,6 +201,7 @@ container-cleanup-result.json
 3. Docker 下完整配对执行 `subscription-billing-repair` 和一个依赖/并行复杂样本。
 4. 验证 pytest 等依赖 preflight 在 Agent 前通过，运行期不再搜索宿主环境。
 5. 用 performance observer 分离 container setup 与 Agent 性能，量化日志/stats 观测开销。
+6. 固定拓扑报告 J 前后 control-only response、barrier batch、terminal extra request 和 map health；节点减少不得计入收益。
 
 **Exit:** correctness 无回退；host environment failure=0；paired image/resource parity=100%；container lifecycle/log coverage=100%；观测开销低于 I0 冻结阈值。
 
@@ -224,8 +229,8 @@ container-cleanup-result.json
 |---|---|---|---|---|---|
 | I0 | schema/permission/resource baseline fixtures | 不依赖 container runner | I0 contract artifacts | 100% | pause until user resumes |
 | I1 | lifecycle/secret/failure/cleanup smoke | 不依赖 Agent migration | substrate logs and scans | 100% | proceed I2 |
-| I2 | one paired real sample and oracle isolation | 不依赖 complex benchmark | pair report and container manifests | 100% | proceed I3 |
-| I3 | controlled repeats and complex pairs | 不依赖 default switch | performance observation and parity report | 100% | proceed I4 |
+| I2 | one paired real sample and oracle isolation | 不依赖 complex benchmark | pair report、container manifests、J fixed-topology baseline | 100% | proceed R5-J0 |
+| I3 | controlled repeats and complex pairs | 不依赖 default switch | performance observation、topology guard and parity report | R5-J4 已完成且 I3 100% | proceed I4 |
 | I4 | call-graph scan and Docker-only real run | 无 | default-path and clean-tree evidence | 100% | close |
 
 ## 10. Implementation Completeness Matrix

@@ -10,7 +10,7 @@
 Created: 2026-07-09
 Updated: 2026-07-10
 Version: v0.0.5 build-R5
-Status: In Progress - E5/G0/G1 complete; R5-F is the next blocking phase
+Status: In Progress - E5/G0/G1 complete; R5-F is next, R5-J is planned after R5-I2
 Owner / Responsible: WhaleCode core runtime
 Related Systems: TaskSpace runtime, action_map runtime, taskspace_control,
   context projection, provider-visible context, benchmark harness
@@ -26,8 +26,10 @@ Related Links:
   docs/v0.0.5/build-R5/11-r5-feedback-cache-priority-plan.md
   docs/v0.0.5/build-R5/12-r5-performance-observation-tool.md
   docs/v0.0.5/build-R5/13-r5-unified-docker-benchmark-and-logging-plan.md
+  docs/v0.0.5/build-R5/14-r5-native-control-cadence-plan.md
   coe/2026-07-10-01-54-r5-normal-progress-budget-hard-stop.md
   coe/2026-07-10-05-03-r5-stale-active-projection-accumulation.md
+  coe/2026-07-10-22-56-r5-request-amplification.md
   docs/v0.0.5/build-R4/10-r4-request-convergence-engineering-plan.md
 Risk Level: High
 Plan Type: Full
@@ -78,6 +80,7 @@ TaskSpace 拉回三个职责：
 不要求一次性大爆炸改完所有代码；每个 phase 可以独立切断一类 active path。
 不得为了历史数据或旧 schema 增加 runtime 兼容层、legacy adapter 或双写路径。
 不重写整个 Codex upstream substrate。
+不得用减少节点、自动合并节点、限制节点数量或提示 Agent 粗化 Map 来降低请求数。
 ```
 
 ## 1.4 约束和假设
@@ -90,6 +93,9 @@ TaskSpace 拉回三个职责：
 | Agent 能承担语义判断 | paired sample 观察 | 优先检查上下文透传，不回退到 runtime 策略控制 |
 
 ## 1.5 Phase 总览
+
+当前剩余执行顺序：`R5-F -> R5-I0/I1/I2 -> R5-J0..J4 -> R5-I3/I4 -> R5-G3 -> R5-H`。
+字母编号保留历史文档稳定性，实际推进只以 1.15 的依赖和门禁矩阵为准。
 
 | Phase | Theme | Main Output | Exit Gate |
 |---|---|---|---|
@@ -106,6 +112,7 @@ TaskSpace 拉回三个职责：
 | R5-G | Regression and benefit gate | 正向/负向样本对照、成本和语义传递报告 | 不引入明确负收益，失败可解释 |
 | R5-H | Closeout | R5 收口报告和后续 backlog | 文档、测试、代码、证据一致 |
 | R5-I | Docker-only benchmark and logging | 统一容器执行 substrate、生命周期日志和本机路径删除 | Docker runtime/log coverage 100%，无本机 fallback；当前 planned/deferred |
+| R5-J | Native control cadence | hard-state tool selection、native ordered barrier、Agent-authored terminal transaction | 固定 Map 拓扑下 control-only response 显著下降；无 Map 坍缩、语义注入或工具反馈损失；当前 planned/deferred |
 
 ### 1.5.1 Phase 验收和工程收益矩阵
 
@@ -124,6 +131,7 @@ TaskSpace 拉回三个职责：
 | R5-G | targeted paired runs 无明确 correctness 回退，成本无无解释放大；只有 Agent 生命周期完整且未被 runtime 中断的样本可进入收益统计 | 用未污染样本证明简化降低干扰且保留收益 | Agent completion、external validation、tool/model request、tokens、wall time、feedback completeness 分项对比报告 |
 | R5-H | closeout 列出已删/降级/保留结构和后续删除条件，git clean | 形成可交接的架构边界和后续路线，避免 R5 结论再次散落 | closeout 文档、证据索引、clean git、保留复杂结构 owner/exit condition |
 | R5-I | Agent、public validator、hidden oracle 全部进入隔离容器；日志、digest、资源和时间可审计 | 消除宿主环境干扰并建立正式 benchmark 的可复现证据链 | 详细门禁见 `13-r5-unified-docker-benchmark-and-logging-plan.md`；当前只登记，不执行 |
+| R5-J | P0 消除空 Map 无效工具选择；P1 合并 Agent 明确声明的状态迁移和后续动作；P3 合并最后 finish 和 Agent final candidate | 将 TaskSpace 固定状态工具往返从简单任务主要成本降为接近零，同时保持 Agent-owned Map | fixed-topology Docker repeats；`pre_init_ordinary=0`；`control_only_response<=1/run`；terminal extra request=0；详细门禁见 `14-r5-native-control-cadence-plan.md` |
 
 ## 1.6 Phase R5-A：当前结构盘点和基线
 
@@ -630,7 +638,8 @@ projection 代码不能调用语义 gate/cognitive coverage helper。
 证明简化没有带来明确负收益，并记录真实收益/代价。
 
 G0/G1 已提升为 R5-F 之前的缓存阻断门；详细计划见
-`docs/v0.0.5/build-R5/11-r5-feedback-cache-priority-plan.md`。G2 已完成，G3 保持在 F 之后。
+`docs/v0.0.5/build-R5/11-r5-feedback-cache-priority-plan.md`。G2 已完成；G3 调整到
+R5-I/J 完成之后，使用统一 Docker 路径验证复杂样本、提取完整性和 cadence 收益。
 
 Phase C 后，R5-G 必须把 Agent lifecycle、correctness、semantic cleanliness、request cadence
 分开验收。R5-E0 未完成或 `agent_completion_status != complete` 的样本只能作为诊断证据：
@@ -873,6 +882,25 @@ Standard/R5 使用相同 image digest、资源、路径、网络和日志配置�
 详细的 I0-I4 阶段、权限边界、日志 schema、验收、风险和回滚见
 `docs/v0.0.5/build-R5/13-r5-unified-docker-benchmark-and-logging-plan.md`。
 
+## 1.14.2 Phase R5-J：Native control cadence
+
+状态：`Planned / Deferred`。R5-F 和 R5-I2 完成前不得开始实现或用宿主机样本声明收益。
+
+纳入方向：
+
+```text
+P0：空 Map hard state 下，让 provider tool selection 与当前唯一合法的机械入口一致。
+P1：在 native tool scheduler 中加入 Agent-authored ordered state barrier；每步按最新状态机械 preflight 和执行。
+P3：最后节点允许 Agent 把 finish 和自己生成的 final candidate 作为显式终态事务提交。
+```
+
+明确排除 P2：不得通过更少节点、更粗节点、自动合并或提示 Agent 少拆任务来降低请求。所有收益
+必须在固定 Map 拓扑或 graph health 不下降时成立，节点减少不能计入 request-cadence 收益。
+
+边界：runtime 不插入、推断、重排或补全动作；不从工具输出自动 finish；不生成或改写 final；
+旧 `taskspace-action-sequence-v1` 不恢复。详细 J0-J4 phase、失败停止、日志、回滚和验收见
+`docs/v0.0.5/build-R5/14-r5-native-control-cadence-plan.md`。
+
 ## 1.15 Phase 依赖和门禁矩阵
 
 | Phase | Independent Verification | Forbidden Future Dependency | Exit Evidence | Completion Required Before Next Phase | Proceed Decision |
@@ -889,10 +917,12 @@ Standard/R5 使用相同 image digest、资源、路径、网络和日志配置�
 | R5-E5 | shell matrix、standard/TaskSpace provider-visible diff、pytest/ref samples | 不依赖 cache layout 或模块拆分 | `ExecOutcomeV2` 事实完整；无正文推断和自动 retry | 100% 完成 | proceed to R5-G0 |
 | R5-G0 | post-Chat-body hash/LCP trace、request cache usage | 不依赖 G1 修复 | 最终 wire 首差异和 telemetry coverage | 100% 完成 | proceed to R5-G1 |
 | R5-G1 | prefix/control-history/compaction tests、controlled 3-run | 不依赖 R5-F 或 G3 | epoch append-only、状态工具 journal、cache/LCP 证据 | 100% 完成 | proceed to R5-F |
-| R5-F | 模块边界测试、cargo check | 不依赖 benchmark 总跑 | active path import/call graph | 100% 完成 | proceed to R5-G3 |
+| R5-F | 模块边界测试、cargo check | 不依赖 benchmark 总跑 | active path import/call graph | 100% 完成 | proceed to R5-I0 |
+| R5-I0/I1/I2 | Docker contract、container lifecycle/log fixtures、单次 paired smoke | 不依赖 J cadence code | container manifests、日志链、统一 runner | 100% 完成 | proceed to R5-J0 |
+| R5-J0/J1/J2/J3/J4 | provider capability/fixed-topology fixtures、native barrier/terminal tests、Docker repeats | 不依赖 I3/I4 或 closeout 补证 | hard-state tool choice、latest-state attribution、terminal provenance、fixed-topology benefit report | 100% 完成 | proceed to R5-I3 |
+| R5-I3/I4 | Docker complex pairs、等价/性能门禁、Docker-only call graph | 不依赖 closeout | performance observation、container parity、default-path scan | 100% 完成 | proceed to R5-G3 |
 | R5-G3 | complex paired runs、streaming extractor tests | 不依赖 closeout | 完整指标报告、失败分类 | 100% 完成 | proceed to R5-H |
-| R5-H | closeout review | 无 | closeout 文档和 clean git | 完成 | pause |
-| R5-I | Docker contract、container lifecycle/log fixtures、paired Docker samples | 不依赖后续版本证明本 phase | Docker-only call graph、container manifests、performance observation | 每个 I0-I4 子阶段100%完成 | planned; pause before I0 |
+| R5-H | closeout review | 无 | closeout 文档和 clean git | R5-F/I/J/G3 全部完成 | pause |
 
 ### 1.15.1 每阶段样本验证规则
 
@@ -934,8 +964,9 @@ provider request count、state-machine action count、wall time、失败分类�
 | R5-G1 append-only history | epoch snapshot + Agent 原始状态工具 journal；不删除已发送历史 | provider history、projection、compaction | TaskSpace provider request | strict-prefix、control feedback、epoch snapshot tests | 3-repeat paired + complex right-only | 无语义摘要、双写或兼容层 | landed |
 | R5-G2 single map initialization | TaskSpace 根 map 只能由 Agent 通过 `initialize_map` 初始化；线性 plan 和旧 root lifecycle 均不可旁路 | provider tool visibility、taskspace_control handler、action-contract bootstrap、mechanical blank map | whale exec `--taskspace` | tools 139/0/1；focused core 5/0；scenario fixtures 2/0 | `target/r5-g2-single-map-validation/.../20260710-074551-730`：maps=1、nodes=4、edges=3、24 requests、complete | 无 update_plan bridge；无 start_task/route_task compatibility | landed |
 | R5-F module split | map/event/gate/projection 边界清晰 | action_map modules | whale exec --taskspace | cargo check/test | trace fields stable | none | planned; next gate |
-| R5-G benefit gate | 简化无明确负收益 | benchmark harness | targeted samples | paired report | metrics json/report | none | in progress: G0/G1/G2 landed; G3 pending after F |
+| R5-G benefit gate | 简化无明确负收益 | benchmark harness | targeted samples | paired report | metrics json/report | none | in progress: G0/G1/G2 landed; G3 pending after I/J |
 | R5-I Docker-only benchmark | 正式样本不再继承宿主 Python/pytest/PATH；容器日志可完整关联 | planned container substrate under `scripts/taskspace-benchmark/lib/` | all benchmark commands after cutover | I0-I4 fixtures + real paired Docker runs | container manifest/lifecycle/log/stats artifacts | no local fallback at exit | planned/deferred |
+| R5-J native control cadence | P0 hard-state tool selection；P1 ordered state barrier；P3 Agent-authored terminal transaction；P2 明确禁止 | provider request construction、native tool scheduler、TaskSpace preflight、turn completion | TaskSpace native tool loop | J0-J4 fixed-topology/order/failure/provenance tests | control-only response、barrier sequence、terminal source、map topology metrics | 不恢复 action-contract；无 map coarsening | planned/deferred after I2 |
 
 ## 1.17 Change-chain Logging Matrix
 
@@ -956,6 +987,10 @@ provider request count、state-machine action count、wall time、失败分类�
 | old semantic path removal | removed | `taskspace.old_semantic_path_removed` | `taskspace.old_semantic_path_still_active` | `old_path` | `task_id/map_id` | warn/error | R5 owner |
 | container lifecycle | created/preflighted/executed/collected/removed | `container.*_completed` | phase failure or missing logs | `reason_code` | `run_id/pair_id/side/container_id` | info/error | benchmark/operator |
 | container evidence collection | logs/inspect/stats collected | `container.logs_collected` | missing/truncated stream | `missing_stream` | `container_id/image_digest` | info/error | performance observer |
+| hard-state tool choice | selected/released | `provider.hard_state_tool_selected` | provider choice rejected | `reason_code` | `request_id/map_id` | info/error | runtime/cache audit |
+| ordered tool barrier | queued/executed/completed | `tool.barrier_completed` | barrier failed or tail escaped | `failure_class/skip_reason` | `request_id/barrier_id/call_id/node_id` | info/warn | runtime/debug |
+| Agent terminal candidate | staged/released/rejected | `taskspace.agent_final_released` | candidate source/gate invalid | `gate_reason` | `turn_id/node_id/call_id` | info/warn | lifecycle audit |
+| map topology guard | captured/compared | `taskspace.topology_preserved` | `taskspace.topology_regressed` | `topology_delta` | `run_id/pair_id/map_id` | info/error | benchmark gate |
 
 ## 1.18 风险
 
@@ -973,6 +1008,9 @@ provider request count、state-machine action count、wall time、失败分类�
 | 缓存优化重新引入 projection 语义压缩 | Medium | High | tool/event 正文被摘要或重写 | strict-prefix 与 provider-visible fidelity 双门禁 | 回退 G1 message layout，不恢复 snapshot replacement |
 | 模块拆分引入行为回归 | Medium | Medium | cargo/test failure | 行为变化与拆文件分 phase | revert 单 phase commit |
 | Docker 统一后宿主问题变成容器冷启动或日志污染 | Medium | High | setup 混入 Agent wall、日志缺失 | R5-I 分账 timing，日志优先建设，正式样本只认完整 container evidence | 暂停 I3/I4，不回退为静默本机执行 |
+| 请求优化诱导 Map 退化坍缩 | Medium | Critical | 节点/边/阶段覆盖下降但 request 变少 | R5-J 固定拓扑收益门；禁止 P2、自动合并和节点数量提示 | 阻止收益声明并回退 J phase |
+| ordered barrier 在旧状态做 preflight | Medium | Critical | barrier 后工具归属前一节点或越过失败 | preflight 下沉到逐步执行；首错停止和 tail side-effect tests | revert J2，不恢复旧 action sequence |
+| terminal transaction 被误标为 runtime 回答 | Medium | Critical | final 无法追溯到 Agent 原文 | exact Agent candidate + completion provenance gate | revert J3 |
 
 ## 1.19 第一批执行建议
 
