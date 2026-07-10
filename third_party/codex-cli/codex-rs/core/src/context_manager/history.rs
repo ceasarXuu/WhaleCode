@@ -182,19 +182,6 @@ impl ContextManager {
         }
     }
 
-    pub(crate) fn remove_items_matching(
-        &mut self,
-        mut should_remove: impl FnMut(&ResponseItem) -> bool,
-    ) -> usize {
-        let before = self.items.len();
-        self.items.retain(|item| !should_remove(item));
-        let removed = before.saturating_sub(self.items.len());
-        if removed > 0 {
-            self.history_version = self.history_version.saturating_add(1);
-        }
-        removed
-    }
-
     pub(crate) fn replace(&mut self, items: Vec<ResponseItem>) {
         self.items = items;
         self.history_version = self.history_version.saturating_add(1);

@@ -4068,26 +4068,11 @@ fn compose_provider_visible_history(items: Vec<ResponseItem>) -> ProviderVisible
         .collect::<Vec<_>>();
     let paired_omitted_tool_call_ids =
         omitted_provider_visible_tool_call_ids(classified_items.as_slice());
-    let epoch_snapshot_index = classified_items
-        .iter()
-        .filter(|(_, _, category, _)| {
-            matches!(category, ProviderVisibleItemCategory::ActiveProjection)
-        })
-        .map(|(index, _, _, _)| *index)
-        .next();
-
     let mut prepared = Vec::with_capacity(classified_items.len());
     let mut decisions = Vec::with_capacity(classified_items.len());
     for (index, item, category, base_action) in classified_items {
-        let mut action =
+        let action =
             provider_visible_history_pair_action(&item, base_action, &paired_omitted_tool_call_ids);
-        if matches!(category, ProviderVisibleItemCategory::ActiveProjection)
-            && epoch_snapshot_index != Some(index)
-        {
-            action = ProviderVisibleHistoryAction::Omit(
-                "subsequent_projection_redundant_with_natural_history",
-            );
-        }
         if matches!(action, ProviderVisibleHistoryAction::Include) {
             prepared.push(item);
         }
@@ -9961,7 +9946,7 @@ TaskSpaceGateRecoveryV1: {\"schema_version\":\"TaskSpaceGateRecoveryV1\",\"allow
     }
 
     #[test]
-    fn epoch_snapshot_keeps_first_projection_and_natural_feedback() {
+    fn duplicate_epoch_snapshots_are_not_hidden_by_composer() {
         let stale_projection = format!(
             "{TASKSPACE_ACTIVE_THIN_PROJECTION_MARKER}\n{TASKSPACE_ACTIVE_PROJECTION_MARKER}\ncurrent_node: node-1 status=running"
         );
@@ -9984,11 +9969,11 @@ TaskSpaceGateRecoveryV1: {\"schema_version\":\"TaskSpaceGateRecoveryV1\",\"allow
 
         assert_eq!(
             joined.matches(TASKSPACE_ACTIVE_PROJECTION_MARKER).count(),
-            1
+            2
         );
         assert!(joined.contains("current_node: node-1 status=running"));
-        assert!(!joined.contains("current_node: none"));
-        assert!(!joined.contains("node-1 status=completed"));
+        assert!(joined.contains("current_node: none"));
+        assert!(joined.contains("node-1 status=completed"));
         assert!(joined.contains("TaskSpaceGateRecoveryV1"));
         assert!(joined.contains("Keep the direct user requirement."));
         assert_eq!(
@@ -10005,9 +9990,7 @@ TaskSpaceGateRecoveryV1: {\"schema_version\":\"TaskSpaceGateRecoveryV1\",\"allow
         );
         assert_eq!(
             composition.decisions[3].action,
-            ProviderVisibleHistoryAction::Omit(
-                "subsequent_projection_redundant_with_natural_history"
-            )
+            ProviderVisibleHistoryAction::Include
         );
     }
 
@@ -10047,16 +10030,12 @@ TaskSpaceGateRecoveryV1: {\"schema_version\":\"TaskSpaceGateRecoveryV1\",\"allow
         let snapshot = format!(
             "{TASKSPACE_ACTIVE_PROFILE_MARKER}\n{TASKSPACE_ACTIVE_PROJECTION_MARKER}\ncurrent_node: node-1 status=running"
         );
-        let later_projection = format!(
-            "{TASKSPACE_ACTIVE_PROFILE_MARKER}\n{TASKSPACE_ACTIVE_PROJECTION_MARKER}\ncurrent_node: node-2 status=running"
-        );
         let previous = compose_provider_visible_history(vec![message("developer", &snapshot)]);
         let current = compose_provider_visible_history(vec![
             message("developer", &snapshot),
             message("assistant", "Bind the implementation node."),
             tool_call("taskspace_control", "bind-call"),
             tool_output_with_call_id("bind-call", "TaskSpace main node bound: node-2"),
-            message("developer", &later_projection),
         ]);
 
         let previous_values = previous
@@ -10080,12 +10059,6 @@ TaskSpaceGateRecoveryV1: {\"schema_version\":\"TaskSpaceGateRecoveryV1\",\"allow
                 .to_string()
                 .contains("TaskSpace main node bound: node-2")
         }));
-        assert_eq!(
-            current.decisions[4].action,
-            ProviderVisibleHistoryAction::Omit(
-                "subsequent_projection_redundant_with_natural_history"
-            )
-        );
     }
 
     #[test]
