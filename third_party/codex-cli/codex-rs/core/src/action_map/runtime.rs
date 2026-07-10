@@ -6,32 +6,15 @@ use std::time::UNIX_EPOCH;
 use codex_protocol::AgentPath;
 use codex_protocol::ThreadId;
 use codex_protocol::protocol::ActionMapSnapshot;
-use codex_protocol::protocol::ActionMapSnapshotCognitiveClaim;
-use codex_protocol::protocol::ActionMapSnapshotCognitiveState;
 use codex_protocol::protocol::ActionMapSnapshotEdge;
-use codex_protocol::protocol::ActionMapSnapshotEvidenceRef;
-use codex_protocol::protocol::ActionMapSnapshotFactSource;
 use codex_protocol::protocol::ActionMapSnapshotLease;
 use codex_protocol::protocol::ActionMapSnapshotMaintenanceBarrier;
 use codex_protocol::protocol::ActionMapSnapshotMap;
 use codex_protocol::protocol::ActionMapSnapshotNode;
 use codex_protocol::protocol::ActionMapSnapshotNodeEvent;
-use codex_protocol::protocol::ActionMapSnapshotOutputContract;
-use codex_protocol::protocol::ActionMapSnapshotProblemBlocker;
-use codex_protocol::protocol::ActionMapSnapshotProblemDecision;
-use codex_protocol::protocol::ActionMapSnapshotProblemFact;
-use codex_protocol::protocol::ActionMapSnapshotProblemHypothesis;
-use codex_protocol::protocol::ActionMapSnapshotProblemNextBestAction;
-use codex_protocol::protocol::ActionMapSnapshotProblemOpenQuestion;
-use codex_protocol::protocol::ActionMapSnapshotProblemRisk;
-use codex_protocol::protocol::ActionMapSnapshotProblemStateLedger;
-use codex_protocol::protocol::ActionMapSnapshotProblemSuccessCriterion;
 use codex_protocol::protocol::ActionMapSnapshotResult;
-use codex_protocol::protocol::ActionMapSnapshotResultAdoption;
-use codex_protocol::protocol::ActionMapSnapshotResultEvidencePackage;
 use codex_protocol::protocol::ActionMapSnapshotSentinelSummary;
 use codex_protocol::protocol::ActionMapSnapshotSentinelWarningRef;
-use codex_protocol::protocol::ActionMapSnapshotSubagentPlan;
 use codex_protocol::protocol::ActionMapSnapshotTask;
 use codex_protocol::protocol::ActionMapSnapshotTraceEventRef;
 use codex_protocol::protocol::ActionMapSnapshotTraceSummary;
@@ -52,31 +35,6 @@ use codex_protocol::protocol::MapRuntimeTaskCreatedEvent;
 use codex_protocol::protocol::MapRuntimeTimeoutSummaryRequestedEvent;
 use codex_protocol::protocol::MapRuntimeTraceEventRecordedEvent;
 
-use super::basemap::BASE_MAP;
-use super::basemap::base_map_metadata_prompt;
-use super::basemap::node_kind_selection_prompt;
-use super::cognitive::COGNITIVE_SCHEMA_VERSION;
-use super::cognitive::CognitiveClaim;
-use super::cognitive::DataProvenance;
-use super::cognitive::EvidenceRef;
-use super::cognitive::FactSource;
-use super::cognitive::NodeResultAdoption;
-use super::cognitive::NodeResultEvidencePackage;
-use super::cognitive::OutputContract;
-use super::cognitive::OutputContractKind;
-use super::cognitive::ResultAdoptionState;
-use super::cognitive::ResultValidity;
-use super::cognitive::TaskCognitiveState;
-use super::ledger::PROBLEM_STATE_LEDGER_VERSION;
-use super::ledger::ProblemBlocker;
-use super::ledger::ProblemDecision;
-use super::ledger::ProblemHypothesis;
-use super::ledger::ProblemLedgerFact;
-use super::ledger::ProblemNextBestAction;
-use super::ledger::ProblemOpenQuestion;
-use super::ledger::ProblemRisk;
-use super::ledger::ProblemStateLedger;
-use super::ledger::ProblemSuccessCriterion;
 use super::map::ActionClass;
 use super::map::ActionMapId;
 use super::map::ActionMapInstance;
@@ -97,13 +55,13 @@ use super::map::NodeResultId;
 use super::map::NodeResultKind;
 use super::map::NodeResultRef;
 use super::map::NodeStatus;
-use super::map::SubagentPlan;
-use super::map::SubagentPlanStatus;
 use super::map::TaskId;
 use super::map::TaskSpaceTraceEvent;
 use super::map::TaskState;
 use super::map::TaskStatus;
 use super::map::ToolActionDescriptor;
+use super::projection::ActiveProjectionInput;
+use super::projection::render_active_projection;
 use super::sentinel::TaskSpaceSentinelSeverity;
 use super::sentinel::TaskSpaceSentinelWarning;
 use super::sentinel::TaskSpaceSentinelWarningStatus;
@@ -112,6 +70,7 @@ use super::sentinel::TaskSpaceSentinelWarningType;
 const TASKSPACE_MECHANICAL_BLANK_TASK_TITLE: &str = "TaskSpace blank task";
 const TASKSPACE_MECHANICAL_BLANK_MAP_TITLE: &str = "TaskSpace blank map";
 const TASKSPACE_MECHANICAL_BLANK_OBJECTIVE: &str = "Agent-authored objective pending";
+const TASKSPACE_MAP_SCHEMA_VERSION: &str = "taskspace-map-v1";
 use super::sentinel::warning_drafts_for_trace_event;
 
 const SEED_NODE_IDS: &[&str] = &[
@@ -1104,18 +1063,12 @@ impl ActionMapRuntimeState {
             owner_session_id: Some(owner_session_id),
             active_map_id: None,
             map_ids: Vec::new(),
-            cognitive_state: TaskCognitiveState::default(),
-            problem_ledger: ProblemStateLedger::new(
-                TASKSPACE_MECHANICAL_BLANK_OBJECTIVE,
-                Vec::new(),
-                now_ms(),
-            ),
         };
         let mut map = ActionMapInstance::new(
             map_id.clone(),
             TASKSPACE_MECHANICAL_BLANK_MAP_TITLE.to_string(),
             Some(owner_session_id),
-            BASE_MAP.version,
+            TASKSPACE_MAP_SCHEMA_VERSION,
         );
         map.task_id = Some(task_id.clone());
         self.tasks.insert(task_id.clone(), task);
@@ -1197,8 +1150,6 @@ impl ActionMapRuntimeState {
     }
 
     pub(crate) fn restore_snapshot(&mut self, snapshot: ActionMapSnapshot) {
-        let cognitive_snapshot_supported =
-            snapshot.cognitive_schema_version.as_deref() == Some(COGNITIVE_SCHEMA_VERSION);
         self.mode = snapshot.mode;
         self.pending_transition_notice = None;
         self.routing_required = snapshot.routing_required;
@@ -1259,35 +1210,16 @@ impl ActionMapRuntimeState {
             .into_iter()
             .map(|task| {
                 let id = task.id;
-                let objective = task.objective;
-                let ledger_supported = task.problem_state_ledger_version.as_deref()
-                    == Some(PROBLEM_STATE_LEDGER_VERSION);
-                let cognitive_state = if cognitive_snapshot_supported {
-                    cognitive_state_from_snapshot(task.cognitive_state)
-                } else {
-                    TaskCognitiveState::default()
-                };
-                let problem_ledger = if ledger_supported {
-                    problem_ledger_from_snapshot(task.problem_ledger)
-                } else {
-                    legacy_problem_ledger_from_cognitive_state(
-                        &objective,
-                        &cognitive_state,
-                        now_ms(),
-                    )
-                };
                 (
                     id.clone(),
                     TaskState {
                         id,
                         title: task.title,
-                        objective: objective.clone(),
+                        objective: task.objective,
                         status: task_status_from_str(&task.status).unwrap_or(TaskStatus::Pending),
                         owner_session_id: task.owner_session_id,
                         active_map_id: task.active_map_id,
                         map_ids: task.map_ids,
-                        cognitive_state,
-                        problem_ledger,
                     },
                 )
             })
@@ -1329,18 +1261,12 @@ impl ActionMapRuntimeState {
                             NodeResult {
                                 id: result.id,
                                 assignment_id: result.assignment_id,
-                                subagent_plan_id: result.subagent_plan_id,
                                 map_id: result.map_id,
                                 node_id: result.node_id,
                                 kind,
                                 action_class,
                                 tool_success: result.tool_success,
                                 body: result.body,
-                                evidence_package: if cognitive_snapshot_supported {
-                                    evidence_package_from_snapshot(result.evidence_package)
-                                } else {
-                                    NodeResultEvidencePackage::default()
-                                },
                                 source_thread_id: result.source_thread_id,
                                 created_at_ms: result.created_at_ms,
                             },
@@ -1442,36 +1368,6 @@ impl ActionMapRuntimeState {
                                 previous_node_status,
                                 agent_thread_id: lease.agent_thread_id,
                                 agent_path: lease.agent_path,
-                                subagent_plan_id: lease.subagent_plan_id,
-                            },
-                        ))
-                    })
-                    .collect();
-                instance.subagent_plans = map
-                    .subagent_plans
-                    .into_iter()
-                    .filter_map(|plan| {
-                        let status = subagent_plan_status_from_str(&plan.status)?;
-                        Some((
-                            plan.id.clone(),
-                            SubagentPlan {
-                                id: plan.id,
-                                task_id: plan.task_id,
-                                map_id: plan.map_id,
-                                parent_node_id: plan.parent_node_id,
-                                why_parallelizable: plan.why_parallelizable,
-                                expected_artifact: plan.expected_artifact,
-                                acceptance_check: plan.acceptance_check,
-                                max_scope: plan.max_scope,
-                                supports_questions: plan.supports_questions,
-                                tests_hypotheses: plan.tests_hypotheses,
-                                depends_on_results: plan.depends_on_results,
-                                status,
-                                lease_id: plan.lease_id,
-                                child_thread_id: plan.child_thread_id,
-                                result_ids: plan.result_ids,
-                                created_at_ms: plan.created_at_ms,
-                                updated_at_ms: plan.updated_at_ms,
                             },
                         ))
                     })
@@ -1614,7 +1510,6 @@ impl ActionMapRuntimeState {
             .collect::<Vec<_>>();
         ActionMapSnapshot {
             mode: self.mode,
-            cognitive_schema_version: Some(COGNITIVE_SCHEMA_VERSION.to_string()),
             routing_required: self.routing_required,
             bootstrap_required: self.bootstrap_required,
             reborn_requested: self.reborn_requested,
@@ -1643,7 +1538,6 @@ impl ActionMapRuntimeState {
         self.validate_routing_complete()?;
         if descriptor.action_class != ActionClass::Control {
             self.validate_maintenance_barrier()?;
-            self.validate_cognitive_preflight()?;
         }
         self.validate_main_binding(owner_session_id)?;
         let map_id = self.active_map_id.clone().ok_or_else(|| {
@@ -2969,10 +2863,6 @@ feedback:\n\
             .maps
             .get_mut(&map_id)
             .ok_or_else(|| format!("TaskSpace child task path `{map_id}` is missing."))?;
-        let subagent_plan_id = map
-            .leases
-            .get(&lease_id)
-            .and_then(|lease| lease.subagent_plan_id.clone());
         let node = map
             .nodes
             .get_mut(&node_id)
@@ -2981,14 +2871,12 @@ feedback:\n\
         let result = NodeResult {
             id: result_id.clone(),
             assignment_id: lease_id.clone(),
-            subagent_plan_id,
             map_id: map_id.clone(),
             node_id: node_id.clone(),
             kind: NodeResultKind::MainToolCall,
             action_class: recorded_action_class,
             tool_success: Some(success),
             body,
-            evidence_package: NodeResultEvidencePackage::default(),
             source_thread_id: child_thread_id,
             created_at_ms: now_ms(),
         };
@@ -3239,9 +3127,6 @@ feedback:\n\
                 .expect("mechanical blank task was validated");
             task.title = task_title.clone();
             task.objective = task_objective.clone();
-            task.cognitive_state = TaskCognitiveState::default();
-            task.problem_ledger =
-                ProblemStateLedger::new(task_objective.clone(), Vec::new(), now_ms());
             let map = self
                 .maps
                 .get_mut(&map_id)
@@ -3632,10 +3517,10 @@ feedback:\n\
             return Ok(None);
         }
 
-        let (task_id, node_id, result_id, added_artifacts) = {
+        let (task_id, node_id, result_id) = {
             let map = self
                 .maps
-                .get_mut(&map_id)
+                .get(&map_id)
                 .ok_or_else(|| format!("TaskSpace active task path `{map_id}` is missing."))?;
             let mut candidate: Option<(MapNodeId, NodeResultId, i64)> = None;
             for node in map.nodes.values() {
@@ -3664,38 +3549,20 @@ feedback:\n\
             let Some((node_id, result_id, _)) = candidate else {
                 return Ok(None);
             };
-            let result = map
-                .results
-                .get_mut(&result_id)
-                .ok_or_else(|| format!("TaskSpace result `{result_id}` is missing."))?;
-            let mut added_artifacts = Vec::new();
-            for artifact in artifacts {
-                if !result
-                    .evidence_package
-                    .changed_artifacts
-                    .iter()
-                    .any(|existing| existing == &artifact)
-                {
-                    result
-                        .evidence_package
-                        .changed_artifacts
-                        .push(artifact.clone());
-                    added_artifacts.push(artifact.clone());
-                }
-                let has_ref = result
-                    .evidence_package
-                    .evidence_refs
-                    .iter()
-                    .any(|existing| existing.artifact_ref.as_deref() == Some(artifact.as_str()));
-                if !has_ref {
-                    result.evidence_package.evidence_refs.push(EvidenceRef {
-                        artifact_ref: Some(artifact),
-                        ..Default::default()
-                    });
-                }
-            }
-            (map.task_id.clone(), node_id, result_id, added_artifacts)
+            (map.task_id.clone(), node_id, result_id)
         };
+        let added_artifacts = artifacts
+            .into_iter()
+            .filter(|artifact| {
+                !self.taskspace_trace_events.iter().any(|event| {
+                    event.result_id.as_deref() == Some(result_id.as_str())
+                        && event
+                            .artifact_refs
+                            .iter()
+                            .any(|existing| existing == artifact)
+                })
+            })
+            .collect::<Vec<_>>();
 
         if added_artifacts.is_empty() {
             return Ok(None);
@@ -3777,7 +3644,6 @@ feedback:\n\
         }
 
         self.validate_routing_complete()?;
-        self.validate_cognitive_preflight()?;
         let mut events = Vec::new();
         let Some(map_id) = self.active_map_id.clone() else {
             return Err(
@@ -3840,7 +3706,6 @@ feedback:\n\
                 previous_node_status,
                 agent_thread_id: None,
                 agent_path: None,
-                subagent_plan_id: None,
             },
         );
         events.push(node_status_changed_event(
@@ -3924,12 +3789,6 @@ feedback:\n\
             }
             lease.agent_thread_id = Some(thread_id);
             lease.agent_path = agent_path.clone();
-            if let Some(plan_id) = lease.subagent_plan_id.clone()
-                && let Some(plan) = map.subagent_plans.get_mut(&plan_id)
-            {
-                plan.child_thread_id = Some(thread_id);
-                plan.updated_at_ms = now_ms();
-            }
             return Some(MapRuntimeEvent::LeaseAttached(
                 MapRuntimeLeaseAttachedEvent {
                     map_id: lease.map_id.clone(),
@@ -4018,22 +3877,15 @@ feedback:\n\
         if node.active_lease.as_deref() != Some(lease_id.as_str()) {
             return None;
         }
-        let subagent_plan_id = map
-            .leases
-            .get(&lease_id)
-            .and_then(|lease| lease.subagent_plan_id.clone());
-
         let result = NodeResult {
             id: result_id.clone(),
             assignment_id: lease_id.clone(),
-            subagent_plan_id: subagent_plan_id.clone(),
             map_id: map_id.clone(),
             node_id: node_id.clone(),
             kind,
             action_class: None,
             tool_success: None,
             body,
-            evidence_package: NodeResultEvidencePackage::default(),
             source_thread_id: child_thread_id,
             created_at_ms: now_ms(),
         };
@@ -4050,13 +3902,6 @@ feedback:\n\
             NodeResultKind::MainToolCall => NodeStatus::Running,
         };
         map.leases.remove(&lease_id);
-        if let Some(plan_id) = subagent_plan_id.as_ref()
-            && let Some(plan) = map.subagent_plans.get_mut(plan_id)
-        {
-            plan.status = SubagentPlanStatus::ResultRecorded;
-            plan.result_ids.push(result_id.clone());
-            plan.updated_at_ms = now_ms();
-        }
         self.child_tool_reservations
             .retain(|_, reservation| reservation.lease_id != lease_id);
         let mut events = vec![
@@ -4125,174 +3970,8 @@ feedback:\n\
         if let Some(context) = self.build_active_projection_developer_context() {
             return Some(context);
         }
-        if self.active_map().is_none() {
-            return Some(self.build_bootstrap_compact_developer_context());
-        }
-
-        let mut context = String::from("TaskSpace mode is active.\n");
-        context.push_str(
-            "Runtime slash commands such as /task-reborn and /task-show are UI commands, not shell commands; shell_command cannot execute them.\n",
-        );
-        context.push_str(
-            "Task map boundary: runtime validates the active map structure only. The Agent authors task semantics through taskspace_control(action=initialize_map) and subsequent node lifecycle actions.\n",
-        );
-        context.push_str(
-            "Task map capability facts: nodes can represent inspect_code_context, implement_solution, smoke_test, regression_test, and final_synthesis work. The Agent chooses whether the task needs one chain or multiple independent tracks.\n",
-        );
-        context.push_str(
-            "Collaboration capability facts: ready inspect_code_context nodes and spawn_agent can represent independent evidence tracks. The Agent remains responsible for deciding whether collaboration is useful for the current task.\n",
-        );
-        context.push_str(
-            "Evidence capability facts: path correction, file reads, search results, and serialized evidence can be recorded in the current TaskSpace path or in additional nodes according to the Agent's chosen task structure.\n",
-        );
-        context.push_str(
-            "Hard closeout baselines: implement_solution finish requires a successful edit action; smoke_test/regression_test finish requires a successful test or build action; blockers require exact blocker evidence.\n",
-        );
-        context.push_str(
-            "Validation evidence facts: diagnostic failures, post-edit validation, and blocker evidence are distinct evidence classes recorded on the node selected by the Agent.\n",
-        );
-        context.push_str(
-            "Evidence reconciliation facts: product docs, tests, implementation, and validator output can disagree; TaskSpace records the Agent's accepted claims, evidence refs, decisions, and remaining uncertainty.\n",
-        );
-        context.push_str(
-            "spawn_agent binding fact: spawn_agent can claim ready nodes with unused subagent plans; main-agent-bound nodes and subagent-owned ready nodes are distinct ownership states.\n",
-        );
-        context.push_str(
-            "Collaboration structure facts: independent evidence surfaces can be represented as separate ready inspect/review nodes with subagent plans. Main-agent integration records accepted node results and creates later implementation/validation nodes according to the Agent's chosen structure.\n",
-        );
-        context.push_str(
-            "Path evidence facts: exact path discovery can come from rg --files, Get-ChildItem -Name, narrow directory listings, read results, or search results. Truncated shell output is low-confidence path evidence.\n",
-        );
-        context.push_str(
-            "Validation rework facts: smoke_test/regression_test failures are recorded on validation nodes; implementation fixes are represented by implement_solution nodes; rerun validation is represented by smoke_test/regression_test nodes.\n",
-        );
-        context.push_str(
-            "final_synthesis facts: final_synthesis is an optional answer-only synthesis node; its node kind is read-only and ordinary tool boundaries follow node kind.\n",
-        );
-        context.push_str(node_kind_selection_prompt());
-        context.push('\n');
-        if self.bootstrap_required {
-            context.push_str(
-                "Bootstrap hard baseline: the first semantic task must exist before ordinary tools or subagent spawn.\n",
-            );
-        } else if self.routing_required {
-            context.push_str(
-                "Task routing hard baseline: this user turn requires an existing task route or a new semantic task before ordinary tools or subagent spawn.\n",
-            );
-        }
-        if self.reborn_requested {
-            context.push_str(
-                "task_reborn fact: runtime will not create a replacement task path automatically; the old path remains historical unless the Agent routes this turn there from user intent.\n",
-            );
-        }
-        if self.tasks.is_empty() {
-            context.push_str(
-                "No TaskSpace tasks exist yet. hard_state: no_task_path. ordinary tools require an active task path, current node binding, and lease.\n",
-            );
-        } else {
-            context.push_str("Task inventory:\n");
-            for task_id in ordered_task_ids(&self.tasks) {
-                if let Some(task) = self.tasks.get(&task_id) {
-                    context.push_str("- ");
-                    context.push_str(&task.id);
-                    context.push_str(" [");
-                    context.push_str(task.status.as_str());
-                    context.push_str("] ");
-                    context.push_str(&task.title);
-                    if let Some(map_id) = task.active_map_id.as_ref() {
-                        context.push_str(" active_map=");
-                        context.push_str(map_id);
-                    }
-                    context.push_str("\n  objective: ");
-                    context.push_str(&single_line_preview(&task.objective, 180));
-                    context.push('\n');
-                }
-            }
-            context.push_str(
-                "Task routing facts: listed task objectives and current conversation are available for Agent-owned semantic routing; runtime validates the selected route structure.\n",
-            );
-        }
-        if let Some(barrier) = self.active_maintenance_barrier() {
-            context.push_str("Maintenance barrier:\n- map: ");
-            context.push_str(&barrier.map_id);
-            context.push_str("\n- node: ");
-            context.push_str(&barrier.node_id);
-            context.push_str("\n- reason: ");
-            context.push_str(barrier.reason.as_str());
-            context.push_str("\n- main tool results: ");
-            context.push_str(&barrier.result_count.to_string());
-            context.push_str(" / budget ");
-            context.push_str(&barrier.budget.to_string());
-            context.push_str(
-                "\nordinary_tool_boundary: ordinary tools and spawn_agent require a bindable active node outside the maintenance barrier.\n",
-            );
-        }
-        if let Some(map) = self.active_map() {
-            context.push_str("Active task path:\n");
-            context.push_str("- id: ");
-            context.push_str(&map.id);
-            context.push_str("\n- title: ");
-            context.push_str(&map.title);
-            context.push_str("\n- status: active\n- ready nodes: ");
-            context.push_str(&map.ready_node_count().to_string());
-            context.push_str("\n- running nodes: ");
-            context.push_str(&map.running_node_count().to_string());
-            context.push_str("\n- completed nodes: ");
-            context.push_str(&map.completed_node_count().to_string());
-            if let Some(task) = map
-                .task_id
-                .as_ref()
-                .or(self.active_task_id.as_ref())
-                .and_then(|task_id| self.tasks.get(task_id))
-            {
-                context.push_str("\n- active objective: ");
-                context.push_str(&single_line_preview(&task.objective, 220));
-                context.push('\n');
-            }
-            if let Some(node_id) = self.current_main_node_id.as_ref()
-                && let Some(node) = map.nodes.get(node_id)
-            {
-                context.push_str("\n- current main action node: ");
-                context.push_str(node_id);
-                context.push_str(" kind=");
-                context.push_str(node.kind.as_str());
-                context.push('\n');
-            }
-            context.push_str("\nNodes:\n");
-            for node_id in ordered_node_ids(map) {
-                if let Some(node) = map.nodes.get(&node_id) {
-                    context.push_str("- ");
-                    context.push_str(&node.id);
-                    context.push_str(": ");
-                    context.push_str(&node.title);
-                    context.push_str(" kind=");
-                    context.push_str(node.kind.as_str());
-                    context.push_str(" [");
-                    context.push_str(node.status.as_str());
-                    context.push_str("]\n");
-                }
-            }
-            if map.nodes.is_empty() {
-                context.push_str(
-                    "No nodes exist yet. hard_state: active_task_path_without_nodes. ordinary tools require a current node binding and lease.\n",
-                );
-                context.push_str(&base_map_metadata_prompt());
-            }
-            context.push_str(
-                "Active task path facts: main-agent ordinary tool calls are attributed to the current main action node; subagent actions are bound to ready nodes at spawn time. spawn_agent can claim ready nodes with unused taskspace_control(action=record_subagent_plan) records; the plan names parent_node_id, why the work is parallelizable, expected_artifact, acceptance_check, and max_scope. Multiple ready nodes require spawn_agent node_id selection; a single ready node may be bound automatically by runtime. Newly discovered subtasks can be represented by taskspace_control(action=create_node). state_commit(schema_version=taskspace-state-commit-v1) can record multiple nodes and optional Agent-authored state notes in one checkpoint. Node result context remains attached to the node as evidence context.\n",
-            );
-            context.push_str(
-                "Independent-track facts: distinct evidence surfaces such as subsystems, packages, files, validators, or ownership areas can be represented as separate inspect_code_context nodes with explicit dependency edges. The Agent chooses whether independent-track structure is useful before implementation.\n",
-            );
-        } else {
-            context.push_str(
-                "No active task path exists. hard_state: no_active_task_path. ordinary tools require an active task path, current node binding, and lease.\n",
-            );
-            context.push_str(&base_map_metadata_prompt());
-        }
-        Some(context)
+        Some(self.build_bootstrap_compact_developer_context())
     }
-
     fn build_bootstrap_compact_developer_context(&self) -> String {
         let mut context =
             String::from("TaskSpace v0.0.5 thin bootstrap. Runtime state is authoritative.\n");
@@ -4435,29 +4114,6 @@ feedback:\n\
         Some(context)
     }
 
-    #[allow(dead_code)]
-    pub(crate) fn build_context_projection_shadow_context(&self) -> Option<String> {
-        if self.mode != MapRuntimeMode::Experiment {
-            return None;
-        }
-        let map = self.active_map()?;
-        let task = map
-            .task_id
-            .as_ref()
-            .or(self.active_task_id.as_ref())
-            .and_then(|task_id| self.tasks.get(task_id))?;
-        let mut context = String::from(
-            "TaskSpace ContextProjectionV1 shadow update. This is a compact model-visible projection only; legacy TaskSpace context remains authoritative until active profile rollout.\n",
-        );
-        append_context_projection_shadow(
-            &mut context,
-            task,
-            map,
-            self.current_main_node_id.as_deref(),
-        );
-        Some(context)
-    }
-
     pub(crate) fn timeout_summary_requested_event(
         target: &ActionMapTimeoutTarget,
     ) -> Option<MapRuntimeEvent> {
@@ -4550,7 +4206,6 @@ feedback:\n\
                 previous_node_status,
                 agent_thread_id: Some(owner_session_id),
                 agent_path: None,
-                subagent_plan_id: None,
             },
         );
         self.current_main_node_id = Some(node_id.to_string());
@@ -4656,10 +4311,6 @@ feedback:\n\
         Ok(())
     }
 
-    fn validate_cognitive_preflight(&self) -> Result<(), String> {
-        Ok(())
-    }
-
     fn record_main_node_lifecycle_result(
         &mut self,
         owner_session_id: ThreadId,
@@ -4758,14 +4409,12 @@ feedback:\n\
             let result = NodeResult {
                 id: result_id.clone(),
                 assignment_id: current_lease_id.clone(),
-                subagent_plan_id: None,
                 map_id: map_id.clone(),
                 node_id: node_id.to_string(),
                 kind,
                 action_class: None,
                 tool_success: None,
                 body,
-                evidence_package: NodeResultEvidencePackage::default(),
                 source_thread_id: owner_session_id,
                 created_at_ms: now_ms(),
             };
@@ -5500,17 +5149,6 @@ pub(crate) fn format_action_map_snapshot(snapshot: &ActionMapSnapshot) -> String
                     output.push_str(" action_class=");
                     output.push_str(action_class);
                 }
-                output.push_str(" validity=");
-                output.push_str(&result.evidence_package.validity);
-                output.push_str(" claims=");
-                output.push_str(&result.evidence_package.claims.len().to_string());
-                output.push_str(" evidence_refs=");
-                output.push_str(&result.evidence_package.evidence_refs.len().to_string());
-                output.push_str(" validators=");
-                output.push_str(&result.evidence_package.validator_refs.len().to_string());
-                if result.evidence_package.validity != "accepted" {
-                    output.push_str(" trust=not_accepted_fact");
-                }
                 output.push_str(" from=");
                 output.push_str(&result.source_thread_id.to_string());
                 output.push_str("\n  ");
@@ -5550,51 +5188,14 @@ fn taskspace_task_path_is_mechanical_blank(task: &TaskState, map: &ActionMapInst
         && map.node_events.is_empty()
 }
 
-fn append_context_projection_shadow(
-    context: &mut String,
-    task: &TaskState,
-    map: &ActionMapInstance,
-    current_node_id: Option<&str>,
-) {
-    append_context_projection_with_header(
-        context,
-        task,
-        map,
-        current_node_id,
-        "shadow",
-        "ContextProjectionV1 shadow (not active replacement):",
-        None,
-    );
-}
-
 fn append_context_projection_active(
     context: &mut String,
     task: &TaskState,
     map: &ActionMapInstance,
     current_node_id: Option<&str>,
-    active_budget: Option<&TaskSpaceActiveBudgetV1>,
+    _active_budget: Option<&TaskSpaceActiveBudgetV1>,
 ) -> usize {
-    append_context_projection_with_header(
-        context,
-        task,
-        map,
-        current_node_id,
-        "taskspace",
-        "ContextProjectionV1 epoch snapshot:",
-        active_budget,
-    )
-}
-
-fn append_context_projection_with_header(
-    context: &mut String,
-    task: &TaskState,
-    map: &ActionMapInstance,
-    current_node_id: Option<&str>,
-    profile: &str,
-    header: &str,
-    active_budget: Option<&TaskSpaceActiveBudgetV1>,
-) -> usize {
-    let projection_id = format!("projection-{profile}-{}-{}", task.id, map.id);
+    let projection_id = format!("projection-taskspace-{}-{}", task.id, map.id);
     let current_node = current_node_id
         .and_then(|node_id| map.nodes.get(node_id))
         .map(|node| {
@@ -5608,257 +5209,62 @@ fn append_context_projection_with_header(
             )
         })
         .unwrap_or_else(|| "none".to_string());
-    if header == "ContextProjectionV1 epoch snapshot:" {
-        let node_skeleton = ordered_node_ids(map)
-            .into_iter()
-            .take(16)
-            .filter_map(|node_id| map.nodes.get(&node_id))
-            .map(|node| {
-                format!(
-                    "{} kind={} status={} title={} objective={} results={} events={}",
-                    node.id,
-                    node.kind.as_str(),
-                    node.status.as_str(),
-                    single_line_preview(&node.title, 100),
-                    single_line_preview(&node.context.summary, 140),
-                    node.result_context.len(),
-                    node.node_events.len()
-                )
-            })
-            .collect::<Vec<_>>();
-        let current_node_dependencies = current_node_id
-            .map(|current_node_id| {
-                map.edges
-                    .iter()
-                    .filter(|edge| edge.to == current_node_id)
-                    .filter_map(|edge| map.nodes.get(&edge.from))
-                    .map(|node| {
-                        format!(
-                            "{} kind={} status={} title={}",
-                            node.id,
-                            node.kind.as_str(),
-                            node.status.as_str(),
-                            single_line_preview(&node.title, 100)
-                        )
-                    })
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_default();
-        let recent_tool_feedback = projection_recent_tool_feedback(map, current_node_id, 6, 1200);
-        let result_refs_available = projection_result_refs_available(map, 8);
-
-        let mut projection = String::new();
-        projection.push('\n');
-        projection.push_str(header);
-        projection.push('\n');
-        projection.push_str("- projection_id: ");
-        projection.push_str(&projection_id);
-        projection.push_str("\n- task_id: ");
-        projection.push_str(&task.id);
-        projection.push_str("\n- task_title: ");
-        projection.push_str(&single_line_preview(&task.title, 120));
-        projection.push_str("\n- task_status: ");
-        projection.push_str(task.status.as_str());
-        projection.push_str("\n- map_id: ");
-        projection.push_str(&map.id);
-        projection.push_str("\n- map_title: ");
-        projection.push_str(&single_line_preview(&map.title, 120));
-        projection.push_str("\n- map_status: ");
-        projection.push_str(map.status.as_str());
-        projection.push_str("\n- mode: ");
-        projection.push_str(profile);
-        projection.push_str("\n- active_objective: ");
-        projection.push_str(&single_line_preview(&task.objective, 220));
-        if taskspace_task_path_is_mechanical_blank(task, map) {
-            projection.push_str("\n- initialization_source: runtime_mechanical_blank");
-            projection
-                .push_str("\n- semantic_state: agent-authored objective and node plan pending");
-            projection.push_str("\n- hard_state: active_task_path_without_nodes");
-            projection
-                .push_str("\n- initialization_contract: taskspace_control(action=initialize_map)");
-        }
-        projection.push_str("\n- current_node: ");
-        projection.push_str(&current_node);
-        projection.push_str("\n- sections:\n");
-        append_projection_list(&mut projection, "map_nodes", &node_skeleton);
-        append_projection_list(
-            &mut projection,
-            "current_node_dependencies",
-            &current_node_dependencies,
-        );
-        append_projection_multiline_list(
-            &mut projection,
-            "current_node_recent_events",
-            &recent_tool_feedback,
-        );
-        append_projection_list(
-            &mut projection,
-            "result_refs_available",
-            &result_refs_available,
-        );
-        projection.push_str("ContextProjectionV1 epoch snapshot end.\n");
-        let estimated_tokens = approx_projection_tokens(&projection);
-        context.push_str(&projection);
-        return estimated_tokens;
-    }
-    let success_criteria = task
-        .problem_ledger
-        .success_criteria
-        .iter()
-        .take(6)
-        .map(|criterion| {
-            format!(
-                "{} status={} {}",
-                criterion.id,
-                criterion.status,
-                single_line_preview(&criterion.description, 140)
-            )
-        })
-        .collect::<Vec<_>>();
-    let blockers = task
-        .problem_ledger
-        .blockers
-        .iter()
-        .take(4)
-        .map(|blocker| {
-            format!(
-                "{} {}",
-                blocker.id,
-                single_line_preview(&blocker.description, 140)
-            )
-        })
-        .collect::<Vec<_>>();
-    let decisions = task
-        .problem_ledger
-        .decisions
-        .iter()
-        .take(6)
-        .map(|decision| {
-            format!(
-                "{} kind={} {}",
-                decision.id,
-                decision.decision_kind,
-                single_line_preview(&decision.decision, 140)
-            )
-        })
-        .collect::<Vec<_>>();
-    let facts = task
-        .problem_ledger
-        .known_facts
-        .iter()
-        .take(6)
-        .map(|fact| format!("{} {}", fact.id, single_line_preview(&fact.statement, 140)))
-        .collect::<Vec<_>>();
-    let relevant_results = ordered_result_ids(map)
+    let node_skeleton = ordered_node_ids(map)
         .into_iter()
-        .filter_map(|result_id| map.results.get(&result_id))
-        .filter(|result| result_has_evidence_package(result))
-        .take(6)
-        .map(|result| {
+        .take(16)
+        .filter_map(|node_id| map.nodes.get(&node_id))
+        .map(|node| {
             format!(
-                "{} node={} validity={} {}",
-                result.id,
-                result.node_id,
-                result.evidence_package.validity.as_str(),
-                single_line_preview(&result.body, 120)
+                "{} kind={} status={} title={} objective={} results={} events={}",
+                node.id,
+                node.kind.as_str(),
+                node.status.as_str(),
+                single_line_preview(&node.title, 100),
+                single_line_preview(&node.context.summary, 140),
+                node.result_context.len(),
+                node.node_events.len()
             )
         })
         .collect::<Vec<_>>();
-    let recent_tool_feedback = projection_recent_tool_feedback(map, current_node_id, 6, 1000);
+    let current_node_dependencies = current_node_id
+        .map(|current_node_id| {
+            map.edges
+                .iter()
+                .filter(|edge| edge.to == current_node_id)
+                .filter_map(|edge| map.nodes.get(&edge.from))
+                .map(|node| {
+                    format!(
+                        "{} kind={} status={} title={}",
+                        node.id,
+                        node.kind.as_str(),
+                        node.status.as_str(),
+                        single_line_preview(&node.title, 100)
+                    )
+                })
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    let recent_tool_feedback = projection_recent_tool_feedback(map, current_node_id, 6, 1200);
     let result_refs_available = projection_result_refs_available(map, 8);
 
-    let mut projection = String::new();
-    projection.push('\n');
-    projection.push_str(header);
-    projection.push('\n');
-    projection.push_str("- projection_id: ");
-    projection.push_str(&projection_id);
-    projection.push_str("\n- task_id: ");
-    projection.push_str(&task.id);
-    projection.push_str("\n- mode: ");
-    projection.push_str(profile);
-    if let Some(budget) = active_budget {
-        projection.push_str("\n- active_budget_source: runtime");
-        projection.push_str("\n- max_projection_tokens: ");
-        projection.push_str(&budget.max_projection_tokens.to_string());
-        projection.push_str("\n- max_avg_input_tokens_per_request: ");
-        projection.push_str(&budget.max_avg_input_tokens_per_request.to_string());
-    }
-    projection.push_str("\n- active_objective: ");
-    projection.push_str(&single_line_preview(&task.problem_ledger.objective, 220));
-    projection.push_str("\n- sections:\n");
-    append_projection_list(&mut projection, "success_criteria", &success_criteria);
-    projection.push_str("  current_node: ");
-    projection.push_str(&current_node);
-    projection.push('\n');
-    append_projection_list(&mut projection, "blockers", &blockers);
-    append_projection_list(&mut projection, "decisions", &decisions);
-    append_projection_list(&mut projection, "facts", &facts);
-    append_projection_list(&mut projection, "relevant_results", &relevant_results);
-    append_projection_multiline_list(
-        &mut projection,
-        "recent_tool_feedback",
-        &recent_tool_feedback,
-    );
-    append_projection_list(
-        &mut projection,
-        "result_refs_available",
-        &result_refs_available,
-    );
-    projection.push_str("- estimated_tokens: ");
-    let estimated_tokens = approx_projection_tokens(&projection);
-    projection.push_str(&estimated_tokens.to_string());
-    if let Some(budget) = active_budget {
-        projection.push_str("\n- projection_budget_status: ");
-        projection.push_str(if estimated_tokens <= budget.max_projection_tokens {
-            "within_budget"
-        } else {
-            "over_budget"
-        });
-    }
-    projection.push('\n');
-    context.push_str(&projection);
-    estimated_tokens
-}
-
-fn append_projection_list(context: &mut String, label: &str, values: &[String]) {
-    context.push_str("  ");
-    context.push_str(label);
-    context.push_str(":\n");
-    if values.is_empty() {
-        context.push_str("    - none\n");
-        return;
-    }
-    for value in values {
-        context.push_str("    - ");
-        context.push_str(value);
-        context.push('\n');
-    }
-}
-
-fn append_projection_multiline_list(context: &mut String, label: &str, values: &[String]) {
-    context.push_str("  ");
-    context.push_str(label);
-    context.push_str(":\n");
-    if values.is_empty() {
-        context.push_str("    - none\n");
-        return;
-    }
-    for value in values {
-        let mut lines = value.lines();
-        let Some(first_line) = lines.next() else {
-            context.push_str("    - \n");
-            continue;
-        };
-        context.push_str("    - ");
-        context.push_str(first_line);
-        context.push('\n');
-        for line in lines {
-            context.push_str("      ");
-            context.push_str(line);
-            context.push('\n');
-        }
-    }
+    let rendered = render_active_projection(ActiveProjectionInput {
+        projection_id,
+        task_id: task.id.clone(),
+        task_title: single_line_preview(&task.title, 120),
+        task_status: task.status.as_str().to_string(),
+        map_id: map.id.clone(),
+        map_title: single_line_preview(&map.title, 120),
+        map_status: map.status.as_str().to_string(),
+        active_objective: single_line_preview(&task.objective, 220),
+        current_node,
+        map_nodes: node_skeleton,
+        current_node_dependencies,
+        current_node_recent_events: recent_tool_feedback,
+        result_refs_available,
+        mechanically_blank: taskspace_task_path_is_mechanical_blank(task, map),
+    });
+    context.push_str(&rendered.body);
+    rendered.estimated_tokens
 }
 
 fn projection_evidence_node_ids<'a>(
@@ -6199,10 +5605,6 @@ fn read_file_summary_eof_reached(body: &str) -> Option<bool> {
     }
 }
 
-fn approx_projection_tokens(text: &str) -> usize {
-    text.len().div_ceil(4)
-}
-
 fn append_omitted_count(context: &mut String, len: usize, limit: usize, label: &str) {
     if len > limit {
         context.push_str("  - ... ");
@@ -6211,16 +5613,6 @@ fn append_omitted_count(context: &mut String, len: usize, limit: usize, label: &
         context.push_str(label);
         context.push_str(" omitted\n");
     }
-}
-
-fn result_has_evidence_package(result: &NodeResult) -> bool {
-    let evidence = &result.evidence_package;
-    evidence.validity != ResultValidity::Unreviewed
-        || !evidence.claims.is_empty()
-        || !evidence.evidence_refs.is_empty()
-        || !evidence.changed_artifacts.is_empty()
-        || !evidence.validator_refs.is_empty()
-        || !evidence.remaining_uncertainty.is_empty()
 }
 
 fn ordered_node_ids(map: &ActionMapInstance) -> Vec<MapNodeId> {
@@ -6323,15 +5715,6 @@ fn node_result_kind_from_str(kind: &str) -> Option<NodeResultKind> {
     }
 }
 
-fn subagent_plan_status_from_str(status: &str) -> Option<SubagentPlanStatus> {
-    match status {
-        "planned" => Some(SubagentPlanStatus::Planned),
-        "leased" => Some(SubagentPlanStatus::Leased),
-        "result_recorded" => Some(SubagentPlanStatus::ResultRecorded),
-        _ => None,
-    }
-}
-
 #[allow(dead_code)]
 fn maintenance_barrier_reason_from_str(reason: &str) -> Option<MaintenanceBarrierReason> {
     match reason {
@@ -6394,594 +5777,6 @@ fn require_nonempty_owned(field: &str, value: String) -> Result<String, String> 
     require_nonempty(field, &value)
 }
 
-fn legacy_problem_ledger_from_cognitive_state(
-    objective: &str,
-    cognitive_state: &TaskCognitiveState,
-    updated_at_ms: i64,
-) -> ProblemStateLedger {
-    let mut ledger =
-        ProblemStateLedger::legacy_from_objective(objective.to_string(), updated_at_ms);
-    for (index, criterion) in cognitive_state.success_criteria.iter().enumerate() {
-        let description = criterion.trim();
-        if description.is_empty() {
-            continue;
-        }
-        ledger.success_criteria.push(ProblemSuccessCriterion {
-            id: format!("legacy-sc-{}", index + 1),
-            kind: "behavior".to_string(),
-            description: description.to_string(),
-            status: "open".to_string(),
-            evidence_refs: Vec::new(),
-        });
-    }
-    for contract in &cognitive_state.output_contracts {
-        ledger.success_criteria.push(ProblemSuccessCriterion {
-            id: contract.id.clone(),
-            kind: contract.kind.as_str().to_string(),
-            description: contract.description.clone(),
-            status: "open".to_string(),
-            evidence_refs: contract.evidence_refs.clone(),
-        });
-    }
-    for source in &cognitive_state.fact_sources {
-        ledger.known_facts.push(ProblemLedgerFact {
-            id: source.id.clone(),
-            statement: source.description.clone(),
-            evidence_refs: source.evidence_refs.clone(),
-        });
-    }
-    ledger
-}
-
-fn snapshot_cognitive_state(state: &TaskCognitiveState) -> ActionMapSnapshotCognitiveState {
-    ActionMapSnapshotCognitiveState {
-        success_criteria: state.success_criteria.clone(),
-        fact_sources: state
-            .fact_sources
-            .iter()
-            .map(snapshot_fact_source)
-            .collect(),
-        output_contracts: state
-            .output_contracts
-            .iter()
-            .map(snapshot_output_contract)
-            .collect(),
-        facts: state.facts.iter().map(snapshot_cognitive_claim).collect(),
-        assumptions: state
-            .assumptions
-            .iter()
-            .map(snapshot_cognitive_claim)
-            .collect(),
-        risk_notes: state.risk_notes.clone(),
-    }
-}
-
-fn cognitive_state_from_snapshot(snapshot: ActionMapSnapshotCognitiveState) -> TaskCognitiveState {
-    TaskCognitiveState {
-        success_criteria: snapshot.success_criteria,
-        fact_sources: snapshot
-            .fact_sources
-            .into_iter()
-            .filter_map(fact_source_from_snapshot)
-            .collect(),
-        output_contracts: snapshot
-            .output_contracts
-            .into_iter()
-            .filter_map(output_contract_from_snapshot)
-            .collect(),
-        facts: snapshot
-            .facts
-            .into_iter()
-            .map(cognitive_claim_from_snapshot)
-            .collect(),
-        assumptions: snapshot
-            .assumptions
-            .into_iter()
-            .map(cognitive_claim_from_snapshot)
-            .collect(),
-        risk_notes: snapshot.risk_notes,
-    }
-}
-
-fn snapshot_fact_source(source: &FactSource) -> ActionMapSnapshotFactSource {
-    ActionMapSnapshotFactSource {
-        id: source.id.clone(),
-        provenance: source.provenance.as_str().to_string(),
-        description: source.description.clone(),
-        evidence_refs: source
-            .evidence_refs
-            .iter()
-            .map(snapshot_evidence_ref)
-            .collect(),
-    }
-}
-
-fn fact_source_from_snapshot(snapshot: ActionMapSnapshotFactSource) -> Option<FactSource> {
-    Some(FactSource {
-        id: snapshot.id,
-        provenance: DataProvenance::from_str(&snapshot.provenance)?,
-        description: snapshot.description,
-        evidence_refs: snapshot
-            .evidence_refs
-            .into_iter()
-            .map(evidence_ref_from_snapshot)
-            .collect(),
-    })
-}
-
-fn snapshot_output_contract(contract: &OutputContract) -> ActionMapSnapshotOutputContract {
-    ActionMapSnapshotOutputContract {
-        id: contract.id.clone(),
-        kind: contract.kind.as_str().to_string(),
-        description: contract.description.clone(),
-        evidence_refs: contract
-            .evidence_refs
-            .iter()
-            .map(snapshot_evidence_ref)
-            .collect(),
-    }
-}
-
-fn output_contract_from_snapshot(
-    snapshot: ActionMapSnapshotOutputContract,
-) -> Option<OutputContract> {
-    Some(OutputContract {
-        id: snapshot.id,
-        kind: OutputContractKind::from_str(&snapshot.kind)?,
-        description: snapshot.description,
-        evidence_refs: snapshot
-            .evidence_refs
-            .into_iter()
-            .map(evidence_ref_from_snapshot)
-            .collect(),
-    })
-}
-
-fn snapshot_cognitive_claim(claim: &CognitiveClaim) -> ActionMapSnapshotCognitiveClaim {
-    ActionMapSnapshotCognitiveClaim {
-        id: claim.id.clone(),
-        statement: claim.statement.clone(),
-        evidence_refs: claim
-            .evidence_refs
-            .iter()
-            .map(snapshot_evidence_ref)
-            .collect(),
-    }
-}
-
-fn cognitive_claim_from_snapshot(snapshot: ActionMapSnapshotCognitiveClaim) -> CognitiveClaim {
-    CognitiveClaim {
-        id: snapshot.id,
-        statement: snapshot.statement,
-        evidence_refs: snapshot
-            .evidence_refs
-            .into_iter()
-            .map(evidence_ref_from_snapshot)
-            .collect(),
-    }
-}
-
-fn snapshot_evidence_ref(evidence_ref: &EvidenceRef) -> ActionMapSnapshotEvidenceRef {
-    ActionMapSnapshotEvidenceRef {
-        result_id: evidence_ref.result_id.clone(),
-        claim_id: evidence_ref.claim_id.clone(),
-        fact_source_id: evidence_ref.fact_source_id.clone(),
-        trace_event_id: evidence_ref.trace_event_id.clone(),
-        artifact_ref: evidence_ref.artifact_ref.clone(),
-        validator_ref: evidence_ref.validator_ref.clone(),
-    }
-}
-
-fn evidence_ref_from_snapshot(snapshot: ActionMapSnapshotEvidenceRef) -> EvidenceRef {
-    EvidenceRef {
-        result_id: snapshot.result_id,
-        claim_id: snapshot.claim_id,
-        fact_source_id: snapshot.fact_source_id,
-        trace_event_id: snapshot.trace_event_id,
-        artifact_ref: snapshot.artifact_ref,
-        validator_ref: snapshot.validator_ref,
-    }
-}
-
-fn snapshot_problem_ledger(ledger: &ProblemStateLedger) -> ActionMapSnapshotProblemStateLedger {
-    ActionMapSnapshotProblemStateLedger {
-        objective: ledger.objective.clone(),
-        success_criteria: ledger
-            .success_criteria
-            .iter()
-            .map(snapshot_problem_success_criterion)
-            .collect(),
-        known_facts: ledger
-            .known_facts
-            .iter()
-            .map(snapshot_problem_fact)
-            .collect(),
-        open_questions: ledger
-            .open_questions
-            .iter()
-            .map(snapshot_problem_open_question)
-            .collect(),
-        hypotheses: ledger
-            .hypotheses
-            .iter()
-            .map(snapshot_problem_hypothesis)
-            .collect(),
-        decisions: ledger
-            .decisions
-            .iter()
-            .map(snapshot_problem_decision)
-            .collect(),
-        risks: ledger.risks.iter().map(snapshot_problem_risk).collect(),
-        blockers: ledger
-            .blockers
-            .iter()
-            .map(snapshot_problem_blocker)
-            .collect(),
-        next_best_action: ledger
-            .next_best_action
-            .as_ref()
-            .map(snapshot_problem_next_best_action),
-        updated_at_ms: ledger.updated_at_ms,
-        schema_incomplete: ledger.schema_incomplete,
-    }
-}
-
-fn problem_ledger_from_snapshot(
-    snapshot: ActionMapSnapshotProblemStateLedger,
-) -> ProblemStateLedger {
-    ProblemStateLedger {
-        objective: snapshot.objective,
-        success_criteria: snapshot
-            .success_criteria
-            .into_iter()
-            .map(problem_success_criterion_from_snapshot)
-            .collect(),
-        known_facts: snapshot
-            .known_facts
-            .into_iter()
-            .map(problem_fact_from_snapshot)
-            .collect(),
-        open_questions: snapshot
-            .open_questions
-            .into_iter()
-            .map(problem_open_question_from_snapshot)
-            .collect(),
-        hypotheses: snapshot
-            .hypotheses
-            .into_iter()
-            .map(problem_hypothesis_from_snapshot)
-            .collect(),
-        decisions: snapshot
-            .decisions
-            .into_iter()
-            .map(problem_decision_from_snapshot)
-            .collect(),
-        risks: snapshot
-            .risks
-            .into_iter()
-            .map(problem_risk_from_snapshot)
-            .collect(),
-        blockers: snapshot
-            .blockers
-            .into_iter()
-            .map(problem_blocker_from_snapshot)
-            .collect(),
-        next_best_action: snapshot
-            .next_best_action
-            .map(problem_next_best_action_from_snapshot),
-        updated_at_ms: snapshot.updated_at_ms,
-        schema_incomplete: snapshot.schema_incomplete,
-    }
-}
-
-fn snapshot_problem_success_criterion(
-    criterion: &ProblemSuccessCriterion,
-) -> ActionMapSnapshotProblemSuccessCriterion {
-    ActionMapSnapshotProblemSuccessCriterion {
-        id: criterion.id.clone(),
-        kind: criterion.kind.clone(),
-        description: criterion.description.clone(),
-        status: criterion.status.clone(),
-        evidence_refs: criterion
-            .evidence_refs
-            .iter()
-            .map(snapshot_evidence_ref)
-            .collect(),
-    }
-}
-
-fn problem_success_criterion_from_snapshot(
-    snapshot: ActionMapSnapshotProblemSuccessCriterion,
-) -> ProblemSuccessCriterion {
-    ProblemSuccessCriterion {
-        id: snapshot.id,
-        kind: snapshot.kind,
-        description: snapshot.description,
-        status: snapshot.status,
-        evidence_refs: snapshot
-            .evidence_refs
-            .into_iter()
-            .map(evidence_ref_from_snapshot)
-            .collect(),
-    }
-}
-
-fn snapshot_problem_fact(fact: &ProblemLedgerFact) -> ActionMapSnapshotProblemFact {
-    ActionMapSnapshotProblemFact {
-        id: fact.id.clone(),
-        statement: fact.statement.clone(),
-        evidence_refs: fact
-            .evidence_refs
-            .iter()
-            .map(snapshot_evidence_ref)
-            .collect(),
-    }
-}
-
-fn problem_fact_from_snapshot(snapshot: ActionMapSnapshotProblemFact) -> ProblemLedgerFact {
-    ProblemLedgerFact {
-        id: snapshot.id,
-        statement: snapshot.statement,
-        evidence_refs: snapshot
-            .evidence_refs
-            .into_iter()
-            .map(evidence_ref_from_snapshot)
-            .collect(),
-    }
-}
-
-fn snapshot_problem_open_question(
-    question: &ProblemOpenQuestion,
-) -> ActionMapSnapshotProblemOpenQuestion {
-    ActionMapSnapshotProblemOpenQuestion {
-        id: question.id.clone(),
-        question: question.question.clone(),
-        reason: question.reason.clone(),
-        blocking: question.blocking,
-        status: question.status.clone(),
-        opened_by_node_id: question.opened_by_node_id.clone(),
-        closed_by_result_id: question.closed_by_result_id.clone(),
-        resolution: question.resolution.clone(),
-        evidence_refs: question
-            .evidence_refs
-            .iter()
-            .map(snapshot_evidence_ref)
-            .collect(),
-    }
-}
-
-fn problem_open_question_from_snapshot(
-    snapshot: ActionMapSnapshotProblemOpenQuestion,
-) -> ProblemOpenQuestion {
-    ProblemOpenQuestion {
-        id: snapshot.id,
-        question: snapshot.question,
-        reason: snapshot.reason,
-        blocking: snapshot.blocking,
-        status: snapshot.status,
-        opened_by_node_id: snapshot.opened_by_node_id,
-        closed_by_result_id: snapshot.closed_by_result_id,
-        resolution: snapshot.resolution,
-        evidence_refs: snapshot
-            .evidence_refs
-            .into_iter()
-            .map(evidence_ref_from_snapshot)
-            .collect(),
-    }
-}
-
-fn snapshot_problem_hypothesis(
-    hypothesis: &ProblemHypothesis,
-) -> ActionMapSnapshotProblemHypothesis {
-    ActionMapSnapshotProblemHypothesis {
-        id: hypothesis.id.clone(),
-        statement: hypothesis.statement.clone(),
-        confidence: hypothesis.confidence.clone(),
-        status: hypothesis.status.clone(),
-        evidence_refs: hypothesis
-            .evidence_refs
-            .iter()
-            .map(snapshot_evidence_ref)
-            .collect(),
-        falsification_check: hypothesis.falsification_check.clone(),
-    }
-}
-
-fn problem_hypothesis_from_snapshot(
-    snapshot: ActionMapSnapshotProblemHypothesis,
-) -> ProblemHypothesis {
-    ProblemHypothesis {
-        id: snapshot.id,
-        statement: snapshot.statement,
-        confidence: snapshot.confidence,
-        status: snapshot.status,
-        evidence_refs: snapshot
-            .evidence_refs
-            .into_iter()
-            .map(evidence_ref_from_snapshot)
-            .collect(),
-        falsification_check: snapshot.falsification_check,
-    }
-}
-
-fn snapshot_problem_decision(decision: &ProblemDecision) -> ActionMapSnapshotProblemDecision {
-    ActionMapSnapshotProblemDecision {
-        id: decision.id.clone(),
-        decision_kind: decision.decision_kind.clone(),
-        decision: decision.decision.clone(),
-        rationale: decision.rationale.clone(),
-        depends_on_results: decision.depends_on_results.clone(),
-        depends_on_facts: decision.depends_on_facts.clone(),
-        resolves_questions: decision.resolves_questions.clone(),
-        supports_criteria: decision.supports_criteria.clone(),
-        risks: decision.risks.clone(),
-    }
-}
-
-fn problem_decision_from_snapshot(snapshot: ActionMapSnapshotProblemDecision) -> ProblemDecision {
-    ProblemDecision {
-        id: snapshot.id,
-        decision_kind: snapshot.decision_kind,
-        decision: snapshot.decision,
-        rationale: snapshot.rationale,
-        depends_on_results: snapshot.depends_on_results,
-        depends_on_facts: snapshot.depends_on_facts,
-        resolves_questions: snapshot.resolves_questions,
-        supports_criteria: snapshot.supports_criteria,
-        risks: snapshot.risks,
-    }
-}
-
-fn snapshot_problem_risk(risk: &ProblemRisk) -> ActionMapSnapshotProblemRisk {
-    ActionMapSnapshotProblemRisk {
-        id: risk.id.clone(),
-        description: risk.description.clone(),
-        mitigation: risk.mitigation.clone(),
-        evidence_refs: risk
-            .evidence_refs
-            .iter()
-            .map(snapshot_evidence_ref)
-            .collect(),
-    }
-}
-
-fn problem_risk_from_snapshot(snapshot: ActionMapSnapshotProblemRisk) -> ProblemRisk {
-    ProblemRisk {
-        id: snapshot.id,
-        description: snapshot.description,
-        mitigation: snapshot.mitigation,
-        evidence_refs: snapshot
-            .evidence_refs
-            .into_iter()
-            .map(evidence_ref_from_snapshot)
-            .collect(),
-    }
-}
-
-fn snapshot_problem_blocker(blocker: &ProblemBlocker) -> ActionMapSnapshotProblemBlocker {
-    ActionMapSnapshotProblemBlocker {
-        id: blocker.id.clone(),
-        description: blocker.description.clone(),
-        evidence_refs: blocker
-            .evidence_refs
-            .iter()
-            .map(snapshot_evidence_ref)
-            .collect(),
-    }
-}
-
-fn problem_blocker_from_snapshot(snapshot: ActionMapSnapshotProblemBlocker) -> ProblemBlocker {
-    ProblemBlocker {
-        id: snapshot.id,
-        description: snapshot.description,
-        evidence_refs: snapshot
-            .evidence_refs
-            .into_iter()
-            .map(evidence_ref_from_snapshot)
-            .collect(),
-    }
-}
-
-fn snapshot_problem_next_best_action(
-    action: &ProblemNextBestAction,
-) -> ActionMapSnapshotProblemNextBestAction {
-    ActionMapSnapshotProblemNextBestAction {
-        node_id: action.node_id.clone(),
-        action_summary: action.action_summary.clone(),
-        reason: action.reason.clone(),
-        expected_artifact: action.expected_artifact.clone(),
-        blocked_by: action.blocked_by.clone(),
-    }
-}
-
-fn problem_next_best_action_from_snapshot(
-    snapshot: ActionMapSnapshotProblemNextBestAction,
-) -> ProblemNextBestAction {
-    ProblemNextBestAction {
-        node_id: snapshot.node_id,
-        action_summary: snapshot.action_summary,
-        reason: snapshot.reason,
-        expected_artifact: snapshot.expected_artifact,
-        blocked_by: snapshot.blocked_by,
-    }
-}
-
-fn snapshot_evidence_package(
-    package: &NodeResultEvidencePackage,
-) -> ActionMapSnapshotResultEvidencePackage {
-    ActionMapSnapshotResultEvidencePackage {
-        claims: package
-            .claims
-            .iter()
-            .map(snapshot_cognitive_claim)
-            .collect(),
-        evidence_refs: package
-            .evidence_refs
-            .iter()
-            .map(snapshot_evidence_ref)
-            .collect(),
-        changed_artifacts: package.changed_artifacts.clone(),
-        validator_refs: package.validator_refs.clone(),
-        remaining_uncertainty: package.remaining_uncertainty.clone(),
-        validity: package.validity.as_str().to_string(),
-        validity_reason: package.validity_reason.clone(),
-        adoption: snapshot_result_adoption(&package.adoption),
-    }
-}
-
-fn snapshot_result_adoption(adoption: &NodeResultAdoption) -> ActionMapSnapshotResultAdoption {
-    ActionMapSnapshotResultAdoption {
-        adoption_state: adoption.adoption_state.as_str().to_string(),
-        adopted_by_facts: adoption.adopted_by_facts.clone(),
-        adopted_by_hypotheses: adoption.adopted_by_hypotheses.clone(),
-        adopted_by_decisions: adoption.adopted_by_decisions.clone(),
-        adopted_by_criteria: adoption.adopted_by_criteria.clone(),
-        adopted_by_nodes: adoption.adopted_by_nodes.clone(),
-    }
-}
-
-fn evidence_package_from_snapshot(
-    snapshot: ActionMapSnapshotResultEvidencePackage,
-) -> NodeResultEvidencePackage {
-    let validity =
-        ResultValidity::from_str(&snapshot.validity).unwrap_or(ResultValidity::Unreviewed);
-    NodeResultEvidencePackage {
-        claims: snapshot
-            .claims
-            .into_iter()
-            .map(cognitive_claim_from_snapshot)
-            .collect(),
-        evidence_refs: snapshot
-            .evidence_refs
-            .into_iter()
-            .map(evidence_ref_from_snapshot)
-            .collect(),
-        changed_artifacts: snapshot.changed_artifacts,
-        validator_refs: snapshot.validator_refs,
-        remaining_uncertainty: snapshot.remaining_uncertainty,
-        validity,
-        validity_reason: snapshot.validity_reason,
-        adoption: result_adoption_from_snapshot(snapshot.adoption, validity),
-    }
-}
-
-fn result_adoption_from_snapshot(
-    snapshot: ActionMapSnapshotResultAdoption,
-    validity: ResultValidity,
-) -> NodeResultAdoption {
-    let mut adoption = NodeResultAdoption {
-        adoption_state: ResultAdoptionState::from_str(&snapshot.adoption_state)
-            .unwrap_or(ResultAdoptionState::None),
-        adopted_by_facts: snapshot.adopted_by_facts,
-        adopted_by_hypotheses: snapshot.adopted_by_hypotheses,
-        adopted_by_decisions: snapshot.adopted_by_decisions,
-        adopted_by_criteria: snapshot.adopted_by_criteria,
-        adopted_by_nodes: snapshot.adopted_by_nodes,
-    };
-    adoption.refresh_state(validity);
-    adoption
-}
-
 fn snapshot_task(task: &TaskState) -> ActionMapSnapshotTask {
     ActionMapSnapshotTask {
         id: task.id.clone(),
@@ -6991,9 +5786,6 @@ fn snapshot_task(task: &TaskState) -> ActionMapSnapshotTask {
         owner_session_id: task.owner_session_id,
         active_map_id: task.active_map_id.clone(),
         map_ids: task.map_ids.clone(),
-        cognitive_state: snapshot_cognitive_state(&task.cognitive_state),
-        problem_state_ledger_version: Some(PROBLEM_STATE_LEDGER_VERSION.to_string()),
-        problem_ledger: snapshot_problem_ledger(&task.problem_ledger),
     }
 }
 
@@ -7386,7 +6178,6 @@ fn snapshot_map(map: &ActionMapInstance) -> ActionMapSnapshotMap {
             previous_node_status: lease.previous_node_status.as_str().to_string(),
             agent_thread_id: lease.agent_thread_id,
             agent_path: lease.agent_path.clone(),
-            subagent_plan_id: lease.subagent_plan_id.clone(),
         })
         .collect::<Vec<_>>();
     leases.sort_by(|left, right| left.id.cmp(&right.id));
@@ -7397,14 +6188,12 @@ fn snapshot_map(map: &ActionMapInstance) -> ActionMapSnapshotMap {
         .map(|result| ActionMapSnapshotResult {
             id: result.id.clone(),
             assignment_id: result.assignment_id.clone(),
-            subagent_plan_id: result.subagent_plan_id.clone(),
             map_id: result.map_id.clone(),
             node_id: result.node_id.clone(),
             kind: result.kind.as_str().to_string(),
             action_class: result.action_class.map(|class| class.as_str().to_string()),
             tool_success: result.tool_success,
             body: result.body.clone(),
-            evidence_package: snapshot_evidence_package(&result.evidence_package),
             source_thread_id: result.source_thread_id,
             created_at_ms: result.created_at_ms,
         })
@@ -7435,31 +6224,6 @@ fn snapshot_map(map: &ActionMapInstance) -> ActionMapSnapshotMap {
         node_event_id_sort_key(&left.id).cmp(&node_event_id_sort_key(&right.id))
     });
 
-    let mut subagent_plans = map
-        .subagent_plans
-        .values()
-        .map(|plan| ActionMapSnapshotSubagentPlan {
-            id: plan.id.clone(),
-            task_id: plan.task_id.clone(),
-            map_id: plan.map_id.clone(),
-            parent_node_id: plan.parent_node_id.clone(),
-            why_parallelizable: plan.why_parallelizable.clone(),
-            expected_artifact: plan.expected_artifact.clone(),
-            acceptance_check: plan.acceptance_check.clone(),
-            max_scope: plan.max_scope.clone(),
-            supports_questions: plan.supports_questions.clone(),
-            tests_hypotheses: plan.tests_hypotheses.clone(),
-            depends_on_results: plan.depends_on_results.clone(),
-            status: plan.status.as_str().to_string(),
-            lease_id: plan.lease_id.clone(),
-            child_thread_id: plan.child_thread_id,
-            result_ids: plan.result_ids.clone(),
-            created_at_ms: plan.created_at_ms,
-            updated_at_ms: plan.updated_at_ms,
-        })
-        .collect::<Vec<_>>();
-    subagent_plans.sort_by(|left, right| left.id.cmp(&right.id));
-
     ActionMapSnapshotMap {
         id: map.id.clone(),
         task_id: map.task_id.clone(),
@@ -7483,7 +6247,6 @@ fn snapshot_map(map: &ActionMapInstance) -> ActionMapSnapshotMap {
         leases,
         results,
         node_events,
-        subagent_plans,
     }
 }
 
@@ -7921,32 +6684,8 @@ fn successful_edit_artifact_set(map: &ActionMapInstance, node: &MapNode) -> Hash
         {
             continue;
         }
-        for artifact in result_artifact_refs(result) {
-            artifacts.insert(artifact_key(&artifact));
-        }
         for artifact in extract_edit_changed_artifacts_from_tool_body(&result.body) {
             artifacts.insert(artifact_key(&artifact));
-        }
-    }
-    artifacts
-}
-
-fn result_artifact_refs(result: &NodeResult) -> Vec<String> {
-    let mut artifacts = Vec::new();
-    for evidence_ref in &result.evidence_package.evidence_refs {
-        if let Some(artifact_ref) = evidence_ref.artifact_ref.as_deref() {
-            let artifact_ref = normalize_artifact_ref(artifact_ref);
-            if !artifact_ref.is_empty()
-                && !artifacts.iter().any(|existing| existing == &artifact_ref)
-            {
-                artifacts.push(artifact_ref);
-            }
-        }
-    }
-    for artifact_ref in &result.evidence_package.changed_artifacts {
-        let artifact_ref = normalize_artifact_ref(artifact_ref);
-        if !artifact_ref.is_empty() && !artifacts.iter().any(|existing| existing == &artifact_ref) {
-            artifacts.push(artifact_ref);
         }
     }
     artifacts

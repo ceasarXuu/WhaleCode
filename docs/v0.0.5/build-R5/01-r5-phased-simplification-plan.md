@@ -597,7 +597,7 @@ standard 与 TaskSpace 必须使用同一执行和反馈契约。
 R5-E5 -> R5-G0 -> R5-G1 -> R5-F -> R5-G3 -> R5-H
 ```
 
-E5/G0/G1 均已通过独立门禁，R5-F 现在可以开始；不得在 F 中恢复旧反馈解释或 history
+E5/G0/G1/F 均已通过独立门禁；后续阶段不得恢复旧反馈解释、semantic ledger 或 history
 replacement。
 
 ## 1.12 Phase R5-F：死代码清理和模块拆分
@@ -630,6 +630,16 @@ projection 代码不能调用语义 gate/cognitive coverage helper。
 ```text
 拆文件不能改变行为；行为变化必须已经在 R5-B/C/D/E 对应 phase 验证。
 ```
+
+实施结果（2026-07-11）：Phase F 已完成。`taskspace_control` 收敛为
+`initialize_map/create_node/bind_node/finish_node/block_node/read_output_ref` 六个机械动作；删除
+task cognitive state、problem ledger、result evidence package、subagent plan、BaseMap 语义菜单及其
+snapshot/restore/protocol 双写结构，不保留旧快照兼容。`projection.rs` 只接收 runtime 已取得的
+task/map/node/event/ref 字段并机械渲染，runtime 不再暴露旧语义提示或策略性 fallback context。
+
+验证证据：`cargo check -p codex-core --lib --locked` 零 warning；protocol `192/192`、TaskSpace
+runtime `6/6`、multi-agent `82/82`、tools lifecycle schema `2/2`、rollout reconstruction `21/21`、
+guardian `8/8` 通过。全量 core 回归结果记录在本阶段提交和 R5-G3 验收中。
 
 ## 1.13 Phase R5-G：回归和收益门禁
 
@@ -963,7 +973,7 @@ provider request count、state-machine action count、wall time、失败分类�
 | R5-G0 final wire telemetry | 对最终 Chat body 计算 message/tools hash 与相邻 LCP | post-`build_chat_completions_body` transport path | every standard/TaskSpace provider request | hash/LCP fixtures | G0 114-request root-cause trace | diagnostic-only | landed |
 | R5-G1 append-only history | epoch snapshot + Agent 原始状态工具 journal；不删除已发送历史 | provider history、projection、compaction | TaskSpace provider request | strict-prefix、control feedback、epoch snapshot tests | 3-repeat paired + complex right-only | 无语义摘要、双写或兼容层 | landed |
 | R5-G2 single map initialization | TaskSpace 根 map 只能由 Agent 通过 `initialize_map` 初始化；线性 plan 和旧 root lifecycle 均不可旁路 | provider tool visibility、taskspace_control handler、action-contract bootstrap、mechanical blank map | whale exec `--taskspace` | tools 139/0/1；focused core 5/0；scenario fixtures 2/0 | `target/r5-g2-single-map-validation/.../20260710-074551-730`：maps=1、nodes=4、edges=3、24 requests、complete | 无 update_plan bridge；无 start_task/route_task compatibility | landed |
-| R5-F module split | map/event/gate/projection 边界清晰 | action_map modules | whale exec --taskspace | cargo check/test | trace fields stable | none | planned; next gate |
+| R5-F module split | active path 仅保留 map/node/event/ref；projection 为无语义决策构造器 | `action_map/map.rs`, `action_map/projection.rs`, `action_map/runtime.rs` | whale exec --taskspace | protocol 192/192；runtime 6/6；multi-agent 82/82；rollout 21/21 | raw body/ref 和 map lifecycle trace 保持 | 无 legacy snapshot adapter、semantic ledger 或双写 | landed |
 | R5-G benefit gate | 简化无明确负收益 | benchmark harness | targeted samples | paired report | metrics json/report | none | in progress: G0/G1/G2 landed; G3 pending after I/J |
 | R5-I Docker-only benchmark | 正式样本不再继承宿主 Python/pytest/PATH；容器日志可完整关联 | planned container substrate under `scripts/taskspace-benchmark/lib/` | all benchmark commands after cutover | I0-I4 fixtures + real paired Docker runs | container manifest/lifecycle/log/stats artifacts | no local fallback at exit | planned/deferred |
 | R5-J native control cadence | P0 hard-state tool selection；P1 ordered state barrier；P3 Agent-authored terminal transaction；P2 明确禁止 | provider request construction、native tool scheduler、TaskSpace preflight、turn completion | TaskSpace native tool loop | J0-J4 fixed-topology/order/failure/provenance tests | control-only response、barrier sequence、terminal source、map topology metrics | 不恢复 action-contract；无 map coarsening | planned/deferred after I2 |

@@ -369,7 +369,7 @@ async fn guardian_allows_shell_additional_permissions_requests_past_policy_valid
 
     #[derive(Deserialize, PartialEq, Eq, Debug)]
     struct ResponseExecMetadata {
-        exit_code: i32,
+        shell_exit_code: Option<i32>,
     }
 
     #[derive(Deserialize)]
@@ -381,7 +381,12 @@ async fn guardian_allows_shell_additional_permissions_requests_past_policy_valid
     let exec_output: ResponseExecOutput =
         serde_json::from_str(&output).expect("valid exec output json");
 
-    assert_eq!(exec_output.metadata, ResponseExecMetadata { exit_code: 0 });
+    assert_eq!(
+        exec_output.metadata,
+        ResponseExecMetadata {
+            shell_exit_code: Some(0),
+        }
+    );
     assert!(exec_output.output.contains("hi"));
 }
 
@@ -669,7 +674,7 @@ async fn shell_handler_allows_sticky_turn_permissions_without_inline_request_per
 
             #[derive(Deserialize, PartialEq, Eq, Debug)]
             struct ResponseExecMetadata {
-                exit_code: i32,
+                shell_exit_code: Option<i32>,
             }
 
             #[derive(Deserialize)]
@@ -681,7 +686,12 @@ async fn shell_handler_allows_sticky_turn_permissions_without_inline_request_per
             let exec_output: ResponseExecOutput =
                 serde_json::from_str(&output).expect("valid exec output json");
 
-            assert_eq!(exec_output.metadata, ResponseExecMetadata { exit_code: 0 });
+            assert_eq!(
+                exec_output.metadata,
+                ResponseExecMetadata {
+                    shell_exit_code: Some(0),
+                }
+            );
             assert!(exec_output.output.contains("hi"));
         }
         Err(FunctionCallError::RespondToModel(output)) => {
