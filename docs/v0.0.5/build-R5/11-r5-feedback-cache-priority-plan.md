@@ -9,7 +9,7 @@
 Created: 2026-07-10
 Updated: 2026-07-10
 Version: v0.0.5 build-R5
-Status: In Progress - E5 complete, G0 active
+Status: Complete - E5/G0/G1 gates passed; proceed to R5-F
 Owner / Responsible: WhaleCode core runtime
 Related Systems: exec/unified_exec, tool result rendering, NodeEvent, provider history,
   Chat request conversion, benchmark cache telemetry
@@ -68,7 +68,7 @@ cache hit 为 `69504 / 398853 = 17.4%`，可比 standard 为
 | 暴露无歧义的机械执行事实 | Agent 能区分 shell 总状态、管道阶段状态和传输终止，不再被单一状态字段误导 | focused fixtures 和 provider-visible diff |
 | standard/TaskSpace 共用同一反馈契约 | 防止 TaskSpace 再做一层反馈解释 | 两种模式同命令输出结构一致 |
 | epoch 内 provider history append-only | 恢复 DeepSeek 公共前缀复用 | 最终 Chat wire message/hash LCP |
-| projection 更新改为忠实 delta | 降低输入成本且不压缩、改写语义 | snapshot/delta replay 等价测试 |
+| map 更新沿用自然工具历史 | 不增加 runtime 语义表面，并让 Agent 可回看自己已执行的状态动作 | 调用/反馈成对保留与严格前缀测试 |
 | 建立可审计收益门 | 缓存收益不再由累计 token 猜测 | request 级 cache/LCP telemetry 与 paired samples |
 
 非目标：
@@ -202,11 +202,17 @@ standard 与 TaskSpace request telemetry 覆盖率均为 100%。
 该 phase 只加诊断，不改变 message 内容和排序。
 ```
 
-实施状态（2026-07-10）：诊断代码已完成并通过 focused、harness 与 Whale build。新增
+实施结果（2026-07-10）：诊断代码和真实门禁均已完成。新增
 `provider-chat-wire-trace-v1` 从共享 `build_chat_completions_body` 结果记录无正文 message shape、
 tools hash、相邻 LCP/首差异和 request usage；standard/TaskSpace 由 benchmark 注入各自 trace path，
-不再依赖 action-map event 或 32MB rollout 扫描。真实 paired sample 是 G0 最后门禁，完成前不修改
-history。
+不再依赖 action-map event 或 32MB rollout 扫描。
+
+`count-call-stack` 真实 paired 诊断中，standard 6 个请求的 5 次相邻比较全部保持严格前缀，
+request-2+ cache hit 为 95.91%。修复前 R5 在人工中止前放大到 114 个请求，113 次相邻比较中
+只有 2 次保持前缀，request-2+ cache hit 为 14.64%。最终 wire 的首差异位于 request 1 的 epoch
+snapshot；114 个请求中的 tools hash 和首个 system message hash 各自始终唯一，排除了 tool/system
+表面抖动。raw rollout 还证明 composer 删除了 Agent 已成功执行的 `taskspace_control(bind_node)`
+调用与 `TaskSpace main node bound` 输出，缓存失效和重复绑定来自同一个历史改写机制。
 
 ## 8. Phase R5-G1：cache-preserving history
 
@@ -215,23 +221,24 @@ history。
 ```text
 epoch start: append one faithful map snapshot
 ordinary work: append natural assistant/tool messages
-map change: append mechanical map/node/event delta
+map change: preserve the Agent's exact taskspace_control call and tool output
 compaction: close current epoch and create one new faithful snapshot
 ```
 
 任务：
 
-1. 删除每轮 `stale_active_projection_replaced` 的历史中段删除路径。
-2. 定义只含 ID、revision、status、binding、edge 和 event/ref 变化的 delta；不生成语义摘要。
-3. 用 reducer 证明 `snapshot + ordered deltas` 与当前 map 状态完全一致。
-4. compaction 之外禁止删除、替换或重新排序已发送 message。
-5. projection uniqueness 从“每请求只有一个快照”改为“一个 epoch snapshot + ordered deltas”，避免旧门禁阻止 append-only。
+1. 删除每次 sampling 前“删除旧 projection、生成新 projection”的生产路径。
+2. 每个 epoch 只在历史缺少快照时写入一次机械 map snapshot；稳态请求不刷新快照。
+3. map/node 变化直接复用 Agent 原始 `taskspace_control` 调用参数和工具原始输出作为自然 delta journal；不新增 runtime delta 文本、摘要或 reducer。
+4. provider composer 忠实保留 TaskSpace control call/output pair、普通 assistant/tool 历史和状态机错误反馈；不为旧数据隐藏重复 projection，重复 snapshot 由 producer invariant 和 scanner 直接报错。
+5. compaction 之外禁止删除、替换或重新排序已经发送的 message；compaction 后由当前 map 建立一个新 epoch snapshot。
+6. TaskSpace 始终使用 provider native tools；禁用旧 action-contract transport，物理删除留在 Phase F。
 
 退出门禁：
 
 ```text
 无 compaction 时，request N 的完整最终 Chat input/output message 序列是 request N+1 的严格前缀。
-delta replay 与 runtime map revision/state 一致，缺 delta 或乱序会 hard fail 测试。
+initialize/create/bind/finish/state_commit 的调用参数和输出按原顺序留在后续请求中。
 工具 stdout/stderr/exit/ref 原文不因缓存修复被压缩或重写。
 controlled 3-run 中，R5 request-2+ cache hit >= 90%，且不低于同轮 standard 超过 5 个百分点。
 correctness、Agent completion、map nodes/edges/events 无回退。
@@ -242,7 +249,34 @@ correctness、Agent completion、map nodes/edges/events 无回退。
 | Sample | standard | R4 | R5 G1 | 主要观察 |
 |---|---|---|---|---|
 | `count-call-stack` | 1 次 | 历史基线或 1 次 | 1 次 | 简单多轮 LCP、缓存、完成语义 |
-| `subscription-billing-repair` | 1 次 | 历史基线或 1 次 | 1 次 | 复杂 map delta、工具反馈、缓存成本 |
+| `subscription-billing-repair` | 1 次 | 历史基线或 1 次 | 1 次 | 复杂状态工具 journal、工具反馈、缓存成本 |
+
+实施结果（2026-07-10）：G1 已完成。sampling loop 不再删除旧 projection 并逐请求写入新
+projection；稳态历史每个 epoch 只保留一个 snapshot。后续 map 变化直接沿用 Agent 原始
+`taskspace_control` call/output，不增加 runtime 生成的 delta、摘要或 reducer。TaskSpace transport
+固定为 provider native tools，旧 action-contract 物理删除留在 R5-F。
+
+首次 paired 验证中 standard/R5 均 solved 且各为 13 个请求；双方 12/12 相邻请求均保持严格
+前缀，R5 request-2+ cache hit 97.54%，standard 为 97.52%。随后受控 3-repeat 全部双方 solved：
+
+| Pair | standard requests / hit | R5 requests / hit | R5 prefix | R5 state control |
+|---|---:|---:|---:|---|
+| 1 | 8 / 96.69% | 13 / 97.01% | 12/12 | initialize 1, finish 3, bind 0 |
+| 2 | 8 / 96.75% | 21 / 98.03% | 20/20 | initialize 1, finish 3, bind 0 |
+| 3 | 6 / 96.27% | 17 / 97.66% | 16/16 | initialize 1, finish 3, bind 0 |
+
+运行目录：`target/r5-g1-repeats/count-call-stack/20260710-210444-351`。R4 仅有历史 solved
+基线，缺少同口径 final-wire trace，不能伪造 cache 对照。请求轮数仍高于 standard，但该 residual
+已经与反馈丢失/cache break 分离，禁止通过恢复 runtime hard stop 或语义约束处理。
+
+复杂样本采用 right-only 补验：25 个请求的 24/24 相邻前缀保持，request-2+ cache hit 98.14%，
+Agent complete，hidden oracle=0，状态工具为 initialize 1、finish 3、合法 bind 1，无重复 bind。
+公共 validator 因固定 Miniconda 环境缺 pytest 返回 1，与 E5 已知环境问题一致。原 paired run 的
+standard 侧在完成 2 个请求后静止约 3 分钟且无工具子进程，已人工中止，不纳入 utility 对照。
+
+运行操作经验：benchmark harness 的自测入口是 `test-harness.ps1`，不是
+`test-benchmark-harness.ps1`；PowerShell harness 不自动加载仓库 `.env.local`，真实运行前需在
+父 shell 中 `source .env.local` 并导出变量，禁止把 API key 写到命令行或 artifact。
 
 ## 9. 完整性矩阵
 
@@ -250,8 +284,8 @@ correctness、Agent completion、map nodes/edges/events 无回退。
 |---|---|---|---|---|
 | E5.0 outcome contract | exec launcher/render/event history | shell matrix fixtures | diagnostic trace | complete |
 | E5.1 faithful feedback | standard/TaskSpace shared exec path | focused + ref/projection tests | `tool.exec_outcome_recorded` | complete |
-| G0 final wire trace | post Chat-body conversion | hash/LCP fixtures | request-level trace | implementation complete; live gate pending |
-| G1 append-only history | provider history/projection/compaction | prefix + reducer + compaction tests | cache hit/miss + LCP | planned |
+| G0 final wire trace | post Chat-body conversion | hash/LCP fixtures | standard/R5 paired trace | complete |
+| G1 append-only history | provider history/projection/compaction | strict-prefix + natural control feedback tests | 3-repeat paired + complex right-only | complete |
 
 ## 10. 日志矩阵
 
@@ -261,7 +295,6 @@ correctness、Agent completion、map nodes/edges/events 无回退。
 | feedback projection | `tool.feedback_preserved` | `tool.feedback_fact_dropped` | call_id, event_id, ref_id, fact hash | runtime test/audit |
 | final wire trace | `provider.chat_wire_shape_recorded` | `provider.chat_wire_shape_missing` | request_id, epoch_id, message hashes, tools hash | cache audit |
 | adjacent request LCP | `provider.chat_wire_prefix_preserved` | `provider.chat_wire_prefix_broken` | previous/current request_id, first_diff_index/path | cache audit |
-| map delta replay | `taskspace.map_delta_replay_valid` | `taskspace.map_delta_replay_mismatch` | task_id, map_id, from/to revision, delta_id | runtime/replay |
 
 ## 11. 风险与回退
 
@@ -269,7 +302,7 @@ correctness、Agent completion、map nodes/edges/events 无回退。
 |---|---|---|
 | 全局 pipefail 把有意 SIGPIPE 当失败 | E5.0 先验证，不默认启用 | 只暴露 stage facts，不改变 shell 状态 |
 | 任意 shell 语法无法可靠采集 stage status | 明确 availability 和最后前台管道边界 | 标记 unavailable，保留 shell 原始状态 |
-| delta 缺失导致 map 视图不一致 | revision/reducer 强校验和 replay test | 回退 G1 commit，保留 G0 telemetry |
+| 自然状态工具历史缺失导致 Agent 无法回放 | control call/output pair 与 provider strict-prefix 测试 | 回退 G1 commit，保留 G0 telemetry |
 | 缓存目标诱发语义压缩 | forbidden scan + provider-visible diff | 回退消息布局改动，不恢复 snapshot replacement |
 | provider best-effort 缓存波动 | controlled 3-run + wire LCP 双证据 | 以 LCP 正确性关 phase，命中率标 residual |
 

@@ -1,15 +1,16 @@
 # R5 Phase E：Runtime 硬边界收敛与验收
 
 > 日期：2026-07-10
-> 状态：E0-E4 实现与单样本验收完成；E5 已插入为下一阻断门；未执行用户授权的对抗性审查
+> 状态：E0-E5 与后续 G0/G1 门禁完成；R5-F 为下一阶段；未执行用户授权的对抗性审查
 > 目标：删除普通请求预算 hard stop 和 runtime 语义决策，只保留状态机、协议、权限、安全、资源硬底线，并保证拒绝反馈忠实进入 Agent 上下文。
 
 ## 1. 结论
 
 Phase E 的边界目标已完成：route/profile request count 只观测、不再终止正常采样；Agent completion、sampling interruption、external validation 已拆分；projection、tool output、action-contract 和 `taskspace_control` 活动路径不再合成策略、证据或下一步动作；当前拒绝会以原始机械反馈进入 provider history。
 
-该结论只覆盖 E0-E4。后续 pytest/cache 复核新增了 E5 工具执行事实阻断门；E5 不回退上述
-边界，而是补齐 shell/pipeline/termination 的机械反馈契约。
+E5 已在不回退上述边界的前提下补齐 shell/pipeline/termination 机械反馈契约。后续 G0/G1
+又证明 E4 的 latest-only replacement 会同时删除成功状态工具反馈并破坏缓存前缀，现已改为单
+epoch snapshot 加 Agent 原始状态工具 journal。
 
 E0-E3 首次验收样本后来被确认存在 E4 污染：history composer 把每轮 active projection 全部追加到 provider payload，导致旧 running 与新 completed 快照并存。E4 只做机械 latest-only 替换，不压缩、不重写 projection 内容，并把唯一性纳入 pre-wire request scan gate。修复后 `count-call-stack` 的 9 个 provider request 全部只有一份 projection，standard/R5 均 solved；R5 wall ratio 从污染样本的 3.11 降至 1.40，总 input token 从 269093 降至 100365。
 
@@ -153,18 +154,15 @@ G2 后续已在 commit `137766c`、`006e9c5`、`17adc5b` 收敛：TaskSpace prov
 
 ## 8. 遗留项
 
-1. Phase E5 优先修复工具反馈事实完整性：区分 transport、shell exit、可机械取得的 pipeline stage exit、signal 和 output/ref；不得解析错误文本、自动 retry 或替 Agent 判断任务失败。
-2. Phase G0/G1 随后建立实际 Chat wire LCP trace，并把每轮 snapshot replacement 改为 cache-preserving 的 append-only map delta/compaction epoch；不得扩展成 projection 语义压缩。
-3. Phase F 在 E5/G0/G1 后删除 184 个 warning 所暴露的旧 semantic normalizer、validation/rework policy、context compiler 和相关历史测试，并拆分 map/event/gate/projection 模块；把当前 `2161 passed / 224 failed / 3 ignored` 恢复为新边界下的全量绿色基线，不做兼容。
-4. Phase G2 已完成：mechanical blank map、`update_plan` 旁路、compact map 初始化能力和旧 `start_task/route_task` 双协议均已收敛。
-5. Phase G3 继续用另一个复杂依赖样本验证 Agent-authored map，并修复 >32MB rollout 被 extractor 静默跳过后指标归零的问题。
-6. 为 standard 补齐真实 rollout/request telemetry 后再比较 request ratio；当前禁止用 token record 或 outer exec 猜测。
-7. 本次尚未执行对抗性审查；执行前不把它记为已完成 gate。
+1. Phase F 删除旧 semantic normalizer、validation/rework policy、context compiler、action-contract 和相关历史测试，并拆分 map/event/gate/projection 模块；恢复新边界下的全量绿色基线，不做兼容。
+2. Phase G2 已完成：mechanical blank map、`update_plan` 旁路、compact map 初始化能力和旧 `start_task/route_task` 双协议均已收敛。
+3. Phase G3 继续用另一个复杂依赖样本验证 Agent-authored map，并收敛剩余 request cadence 放大。
+4. complex sample 公共 validator 的 Miniconda pytest 缺失属于 harness 环境残余；hidden oracle 与 Agent lifecycle 必须分项记录。
+5. 本次尚未执行对抗性审查；执行前不把它记为已完成 gate。
 
 ## 9. 退出决定
 
-Phase E 的 E0-E4 退出门禁通过，但最新反馈/成本证据已经插入新的优先阻断门。后续强制顺序为
-`E5 -> G0 -> G1 -> F -> G3/H`，详细计划见
-`docs/v0.0.5/build-R5/11-r5-feedback-cache-priority-plan.md`。禁止因剩余成本差距或旧测试失败
+Phase E 的 E0-E5 和后续 G0/G1 退出门禁均已通过，下一步为 `F -> G3/H`。详细证据见
+`docs/v0.0.5/build-R5/11-r5-feedback-cache-priority-plan.md`。禁止因剩余请求轮数差距或旧测试失败
 恢复 route/profile hard stop、node-kind 策略 gate、semantic summary 或 runtime 自动 rework；反馈层
-只补机械事实，缓存层只修历史布局和透明 delta。
+只补机械事实，缓存层只保留单 epoch snapshot 与自然状态工具历史。

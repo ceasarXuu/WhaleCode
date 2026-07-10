@@ -1,7 +1,7 @@
 # Problem P-001: R5 TaskSpace 最终 Chat wire 前缀与缓存命中失去可审计性
-- Status: open
+- Status: fixed
 - Created: 2026-07-10 20:23
-- Updated: 2026-07-10 21:05
+- Updated: 2026-07-10 21:23
 - Objective: 在不改变 provider message 内容、顺序或 Agent 决策的前提下，定位 R5 request-2+ 缓存命中偏低的最终 wire 首差异，并以最终 Chat body 与 provider usage 证明根因。
 - Symptoms:
   - `subscription-billing-repair` R5 实跑总 input 501347、cached input 61184，累计命中约 12.2%。
@@ -28,6 +28,9 @@
   - E-003
   - E-004
   - E-005
+  - E-006
+  - E-007
+  - E-008
 - Ruled out:
   - 不能把低缓存继续归因于 E4 的多份 active projection 累积；E4 已保证单请求中 active projection 唯一。
   - 不能用 Responses pre-wire hash 证明最终 Chat wire 前缀关系。
@@ -37,15 +40,18 @@
   - G0 诊断不改变 message 内容、顺序、tool schema 或 provider 请求语义。
   - 根因经最终-wire 实跑证据确认后，才进入 G1 history 修复。
   - G1 后无 compaction 的相邻请求保持严格前缀，request-2+ cache hit 达到计划门禁且 correctness 不回退。
-- Current conclusion: H-001/H-002 已确认，H-003 已排除。最终 wire 证明 system 首消息与 tools schema 全程稳定，首个断点位于 request 1 的 epoch snapshot；composer 同时删除了 `taskspace_control` 调用/成功输出，使 Agent 在 100+ 轮中无法看到上一轮 bind 成功并持续重绑。G1 可以进入自然历史 append-only 修复。
+- Current conclusion: H-001/H-002/H-004 已确认，H-003 已排除。G1 删除 sampling loop 的 projection 替换路径，以单 epoch snapshot 加 Agent 原始状态工具 journal 取代。三次受控 `count-call-stack` 和一次复杂 R5 样本均为 100% strict-prefix，R5 request-2+ cache hit 为 97.01%-98.14%，没有成功 bind 后重复 bind；原问题已修复。请求轮数高于 standard 是独立残余，不由 cache/反馈丢失解释。
 - Related hypotheses:
   - H-001
   - H-002
   - H-003
+  - H-004
 - Resolution basis:
-  - not satisfied
+  - E-006
+  - E-007
+  - E-008
 - Close reason:
-  - not closed
+  - G1 live validation satisfied strict-prefix, cache, feedback visibility, and correctness criteria.
 
 ## Hypothesis H-001: 当前 exact payload 观测实际位于 Chat 转换前
 - Status: confirmed
@@ -168,6 +174,50 @@
 - Conclusion: refuted by E-005；114 个 R5 request 的 tools hash 和首个 system message hash 各自只有一个唯一值。
 - Repair design readiness: not applicable
 - Next step: none
+- Blocker:
+  - none
+- Close reason:
+  - not closed
+
+## Hypothesis H-004: 单 epoch snapshot 加自然状态工具历史可同时修复重复绑定和缓存前缀
+- Status: confirmed
+- Parent: P-001
+- Claim: 删除每次 sampling 前的旧 projection 删除/新 projection 写入，并保留 Agent 原始 `taskspace_control` call/output，可使后续请求既看到已成功状态动作，又以前一请求为严格前缀。
+- Layer: fix-validation
+- Factor relation: single
+- Depends on:
+  - H-002
+- Rationale:
+  - H-002 的语义丢失和 cache break 由同一 history rewrite 触发，不需要 runtime 生成另一层 map delta。
+- Falsifiable predictions:
+  - If true: `count-call-stack` R5 不再重复 bind 同一节点，相邻 final-wire trace 全部 `prefix_preserved=true`，request-2+ cache hit 接近 standard。
+  - If false: R5 仍重复 bind，或首差异仍位于旧 snapshot/状态工具历史，或 cache hit 在严格前缀成立时仍显著偏低。
+- Diagnostic evidence plan:
+  - Prediction or clause under test: G1 修复后自然状态工具 journal 的可见性和最终 Chat 严格前缀。
+  - Signal: bind call 次数、control call/output hashes、adjacent LCP、first_diff_path、request-2+ cached/input、correctness。
+  - Capture method: 重建并 attestation 后执行 `count-call-stack` paired sample；通过后再执行受控重复与复杂样本。
+  - Event name or marker:
+    - `provider.chat_wire_prefix_preserved`
+  - Correlation keys:
+    - epoch id
+    - request id
+  - Differentiates from:
+    - provider best-effort cache 波动和 Agent 独立决策失败。
+  - Supports if:
+    - 无 compaction 的 R5 相邻请求全为严格前缀且不再出现成功 bind 后重复 bind。
+  - Refutes if:
+    - provider history 再次删除/替换已发送消息，或 control 成功输出仍不可见。
+  - Instrumentation status: permanent observability
+  - Instrumentation lifecycle:
+    - 保留 G0 final-wire hash/LCP/usage trace
+- Evidence gate: satisfied
+- Related evidence:
+  - E-006
+  - E-007
+  - E-008
+- Conclusion: confirmed；简单受控重复和复杂样本均保持严格前缀，旧重复 bind 不再复现。
+- Repair design readiness: implemented
+- Next step: 将请求轮数放大作为独立 R5 residual 继续分析，不恢复 projection replacement 或 runtime 语义约束。
 - Blocker:
   - none
 - Close reason:
@@ -302,3 +352,86 @@
   ```
 - Interpretation: 缓存断点不是动态内容本身，也不是 system/tools 抖动，而是 provider-visible history 删除已发送 snapshot 并丢弃自然状态工具反馈。语义丢失与缓存失效来自同一 composer 策略。
 - Time: 2026-07-10 21:05
+
+## Evidence E-006: G1 focused 测试证明生产路径和 composer 满足追加不变量
+- Related hypotheses:
+  - H-004
+- Direction: supports
+- Type: test
+- Source: `core/src/session/turn.rs`、`core/src/session/mod.rs`、`core/src/session/tests.rs`
+- Prediction or plan link:
+  - H-004 If true
+- Matched signal:
+  - sampling loop 不再删除旧 projection 或逐请求生成新 projection。
+  - steady-state context update 连续执行两次后，历史中仍只有一个 `ContextProjectionV1 epoch snapshot:`。
+  - composer 保留 `taskspace_control` call/output pair；生产端保证单 epoch snapshot，重复 full projection 不做兼容隐藏并由 scanner 判为 invariant 失败。
+  - TaskSpace transport 固定为 provider native tools；scanner 不再把自然 control history 判为失败。
+- Correlation keys:
+  - `epoch_snapshot_history_is_strictly_append_only`
+  - `record_context_updates_keeps_one_taskspace_epoch_snapshot`
+- Raw content:
+  ```text
+  cargo test -p codex-core epoch_snapshot --lib: 7 passed
+  active_context_replacement_preserves_user_text_that_mentions_taskspace: passed
+  provider_payload_scan_rejects_shadow_or_legacy_taskspace_history: passed
+  cargo check -p codex-core: passed
+  ```
+- Interpretation: 代码级机制符合 H-004，但不能替代 provider 实跑缓存与 Agent 行为证据。
+- Time: 2026-07-10 21:00
+
+## Evidence E-007: G1 受控三次 paired 样本通过 cache 与行为门禁
+- Related hypotheses:
+  - H-004
+- Direction: supports
+- Type: fix-validation
+- Source: `target/r5-g1-repeats/count-call-stack/20260710-210444-351`
+- Prediction or plan link:
+  - H-004 If true
+- Matched signal:
+  - 三个 pair 均为 standard/R5 solved，hidden/public oracle 均为 0，Agent completion 完整。
+  - R5 三次相邻 final-wire prefix preserved rate 均为 100%；request-2+ cache hit 分别为 97.01%、98.03%、97.66%。
+  - 同轮 standard cache hit 分别为 96.69%、96.75%、96.27%，R5 未低于 standard 5 个百分点。
+  - R5 三次状态工具均只有 `initialize_map:1`、`finish_node:3`，`bind_node:0`；旧的成功 bind 后重复 bind 未复现。
+  - R5 请求数 13/21/17，高于 standard 8/8/6；这是已分离的 cadence residual，不是 prefix/cache 失败。
+- Correlation keys:
+  - pair-001
+  - pair-002
+  - pair-003
+- Raw content:
+  ```text
+  all pairs: outcome_standard=solved, outcome_taskspace=solved
+  R5 prefix: 12/12, 20/20, 16/16
+  R5 cache hit: 97.01%, 98.03%, 97.66%
+  standard cache hit: 96.69%, 96.75%, 96.27%
+  R5 bind_node count: 0, 0, 0
+  ```
+- Interpretation: H-004 在受控重复下成立，provider best-effort 波动未破坏门禁结论。
+- Time: 2026-07-10 21:09
+
+## Evidence E-008: 复杂 R5 样本在长历史下保持反馈与 cache 前缀
+- Related hypotheses:
+  - H-004
+- Direction: supports
+- Type: fix-validation
+- Source: `target/r5-g1-complex-right/subscription-billing-repair/20260710-211301-492/pair-001/right`
+- Prediction or plan link:
+  - H-004 If true
+- Matched signal:
+  - 25 个 provider 请求中 24/24 相邻比较保持 strict-prefix，request-2+ cache hit 98.14%，trace coverage 100%。
+  - Agent completion 为 complete，hidden oracle=0；公共 validator 仅因固定 `/home/zhangxu/miniconda3/bin/python` 缺 pytest 返回 1，与 E5 已知环境问题一致。
+  - 机械 exec 反馈继续暴露 `Execution outcome`、`Shell exit code`、pipeline availability 和原始正文；map management 的 semantic replacement rate 为 0。
+  - `taskspace_control` 只有 initialize 1、finish 3、合法 bind 1，没有重复 bind。
+  - 同次 paired 的 standard 侧在 2 个请求后静止约 3 分钟且无工具子进程，人工中止；该侧不作为 utility 对照。
+- Correlation keys:
+  - epoch `019f4c28-fdd9-7480-b9ad-b5364c1ef038:0`
+  - pair-001/right
+- Raw content:
+  ```text
+  prefix preserved: 24/24
+  request-2+ cache hit: 98.14%
+  hidden oracle exit: 0
+  public validator: No module named pytest
+  semantic replacement rate: 0.0
+  ```
+- Interpretation: G1 在复杂、长自然历史下仍保持语义透传和缓存前缀；公共 validator 环境与请求 cadence 另行处理。
+- Time: 2026-07-10 21:16
