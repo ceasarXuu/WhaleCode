@@ -202,6 +202,12 @@ standard 与 TaskSpace request telemetry 覆盖率均为 100%。
 该 phase 只加诊断，不改变 message 内容和排序。
 ```
 
+实施状态（2026-07-10）：诊断代码已完成并通过 focused、harness 与 Whale build。新增
+`provider-chat-wire-trace-v1` 从共享 `build_chat_completions_body` 结果记录无正文 message shape、
+tools hash、相邻 LCP/首差异和 request usage；standard/TaskSpace 由 benchmark 注入各自 trace path，
+不再依赖 action-map event 或 32MB rollout 扫描。真实 paired sample 是 G0 最后门禁，完成前不修改
+history。
+
 ## 8. Phase R5-G1：cache-preserving history
 
 设计：
@@ -244,7 +250,7 @@ correctness、Agent completion、map nodes/edges/events 无回退。
 |---|---|---|---|---|
 | E5.0 outcome contract | exec launcher/render/event history | shell matrix fixtures | diagnostic trace | complete |
 | E5.1 faithful feedback | standard/TaskSpace shared exec path | focused + ref/projection tests | `tool.exec_outcome_recorded` | complete |
-| G0 final wire trace | post Chat-body conversion | hash/LCP fixtures | request-level trace | planned |
+| G0 final wire trace | post Chat-body conversion | hash/LCP fixtures | request-level trace | implementation complete; live gate pending |
 | G1 append-only history | provider history/projection/compaction | prefix + reducer + compaction tests | cache hit/miss + LCP | planned |
 
 ## 10. 日志矩阵

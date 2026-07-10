@@ -466,7 +466,9 @@ for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
                 $executionRepoDir = [string]$mount.execution_repo_dir
                 $args = New-TaskspaceWhaleArgv $side.LogicalMode $Model $executionRepoDir $lastMessagePath $SandboxMode $ConfigOverride
                 $commonArgs = @($args | Where-Object { $_ -ne "--taskspace" })
-                $childEnvironment = @{}
+                $childEnvironment = @{
+                    WHALE_PROVIDER_WIRE_TRACE_PATH = (Join-Path $side.ArtifactDir "provider-wire-trace.jsonl")
+                }
                 if ($mount.PSObject.Properties.Name -contains "app_root_alias_env" -and -not [string]::IsNullOrWhiteSpace([string]$mount.app_root_alias_env)) {
                     $childEnvironment[[string]$mount.app_root_alias_env] = "1"
                 }

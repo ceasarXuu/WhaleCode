@@ -74,6 +74,7 @@ pub mod personality_migration;
 pub mod plugins;
 #[doc(hidden)]
 pub(crate) mod prompt_debug;
+mod provider_wire_trace;
 #[doc(hidden)]
 pub use prompt_debug::build_prompt_input;
 pub(crate) mod mentions {

@@ -13717,6 +13717,7 @@ async fn try_run_sampling_request(
         {
             Ok(event) => event,
             Err(codex_async_utils::CancelErr::Cancelled) => {
+                client_session.record_provider_wire_terminal("cancelled", None);
                 provider_request_budget.record_cancelled();
                 if let Some(snapshot) = provider_budget_snapshot.as_ref() {
                     let events = provider_request_budget.drain_events();
@@ -13734,6 +13735,7 @@ async fn try_run_sampling_request(
         let event = match event {
             Some(Ok(event)) => event,
             Some(Err(err)) => {
+                client_session.record_provider_wire_terminal("response_failed", None);
                 provider_request_budget.record_response_failed();
                 if let Some(snapshot) = provider_budget_snapshot.as_ref() {
                     let events = provider_request_budget.drain_events();
@@ -13747,6 +13749,7 @@ async fn try_run_sampling_request(
                 break Err(err);
             }
             None => {
+                client_session.record_provider_wire_terminal("response_failed", None);
                 provider_request_budget.record_response_failed();
                 if let Some(snapshot) = provider_budget_snapshot.as_ref() {
                     let events = provider_request_budget.drain_events();
@@ -14212,6 +14215,8 @@ async fn try_run_sampling_request(
                 .await;
                 sess.update_token_usage_info(&turn_context, token_usage.as_ref())
                     .await;
+                client_session
+                    .record_provider_wire_terminal("response_completed", token_usage.as_ref());
                 provider_request_budget.record_response_completed(token_usage.as_ref());
                 if let Some(snapshot) = provider_budget_snapshot.as_ref() {
                     let events = provider_request_budget.drain_events();

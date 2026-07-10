@@ -714,6 +714,25 @@ Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.action_
 Assert-True ([string]$rolloutControlInstrumentation.taskspace_control_usage.taskspace_control_count_source -eq "rollout_trace") "rollout trace should be the authoritative control-count source"
 Assert-True (-not [bool]$rolloutControlInstrumentation.taskspace_control_usage.taskspace_control_count_source_mismatch) "an exec file without response-item telemetry should not be treated as a conflicting control count"
 
+$wireTraceDir = Join-Path $RunRoot "provider-wire-trace-artifacts"
+New-Item -ItemType Directory -Path $wireTraceDir -Force | Out-Null
+$wireTraceJsonl = Join-Path $RunRoot "provider-wire-trace-whale-exec.jsonl"
+'{"type":"turn.completed","usage":{"input_tokens":300,"cached_input_tokens":200,"output_tokens":20}}' | Set-Content -LiteralPath $wireTraceJsonl -Encoding UTF8
+@(
+    '{"schema_version":"provider-chat-wire-trace-v1","event_name":"provider.chat_wire_shape_recorded","request_id":"wire-1","epoch_id":"epoch-1","request_index":1,"provider_wire_api":"ChatCompletions","pre_wire_payload_sha256":"pre-1","provider_payload_sha256":"wire-hash-1","provider_payload_bytes":100,"messages_hash":"messages-1","tools_hash":"tools-1","tools_count":2,"message_count":2,"message_shapes":[{"index":0,"role":"system","bytes":40,"message_sha256":"m0","content_sha256":"c0"},{"index":1,"role":"user","bytes":20,"message_sha256":"m1","content_sha256":"c1"}],"previous_request_id":null,"lcp_message_count":0,"lcp_message_bytes":0,"prefix_preserved":null,"first_diff_index":null,"first_diff_path":null,"status":"payload_captured"}',
+    '{"schema_version":"provider-chat-wire-trace-v1","event_name":"provider.chat_wire_request_terminal","request_id":"wire-1","status":"response_completed","input_tokens":100,"cached_input_tokens":20,"output_tokens":10,"reasoning_output_tokens":1,"total_tokens":110}',
+    '{"schema_version":"provider-chat-wire-trace-v1","event_name":"provider.chat_wire_prefix_preserved","request_id":"wire-2","epoch_id":"epoch-1","request_index":2,"provider_wire_api":"ChatCompletions","pre_wire_payload_sha256":"pre-2","provider_payload_sha256":"wire-hash-2","provider_payload_bytes":140,"messages_hash":"messages-2","tools_hash":"tools-1","tools_count":2,"message_count":3,"message_shapes":[{"index":0,"role":"system","bytes":40,"message_sha256":"m0","content_sha256":"c0"},{"index":1,"role":"user","bytes":20,"message_sha256":"m1","content_sha256":"c1"},{"index":2,"role":"assistant","bytes":30,"message_sha256":"m2","content_sha256":"c2"}],"previous_request_id":"wire-1","lcp_message_count":2,"lcp_message_bytes":60,"prefix_preserved":true,"first_diff_index":null,"first_diff_path":null,"status":"payload_captured"}',
+    '{"schema_version":"provider-chat-wire-trace-v1","event_name":"provider.chat_wire_request_terminal","request_id":"wire-2","status":"response_completed","input_tokens":200,"cached_input_tokens":180,"output_tokens":10,"reasoning_output_tokens":1,"total_tokens":210}'
+) | Set-Content -LiteralPath (Join-Path $wireTraceDir "provider-wire-trace.jsonl") -Encoding UTF8
+$wireTraceInstrumentation = Write-TaskspaceCostInstrumentationArtifacts -ArtifactDir $wireTraceDir -JsonlPath $wireTraceJsonl -ObservabilityJsonPath ""
+$wireTraceSummary = $wireTraceInstrumentation.provider_cache_trace_summary
+$wireTraceEvents = @($wireTraceInstrumentation.provider_cache_trace_events)
+Assert-True ([string]$wireTraceSummary.schema_version -eq "TaskSpaceProviderCacheTraceSummaryV2" -and [string]$wireTraceSummary.source -eq "provider_final_wire_trace") "provider final-wire trace was not selected as cache source"
+Assert-True ([int]$wireTraceSummary.provider_request_count -eq 2 -and [double]$wireTraceSummary.trace_coverage -eq 1.0) "provider final-wire trace coverage was not complete"
+Assert-True ([double]$wireTraceSummary.request_2_plus_hit_rate -eq 0.9) "provider final-wire request-2+ cache usage was not aggregated"
+Assert-True ([int]$wireTraceSummary.prefix_preserved_count -eq 1 -and [double]$wireTraceSummary.prefix_preserved_rate -eq 1.0) "provider final-wire LCP was not aggregated"
+Assert-True ($wireTraceEvents.Count -eq 2 -and [string]$wireTraceEvents[1].pre_wire_payload_sha256 -eq "pre-2" -and [int]$wireTraceEvents[1].lcp_message_count -eq 2) "provider final-wire request shape fields were not preserved"
+
 $aggregateCacheRoot = Join-Path $RunRoot "aggregate-cache-root"
 $leftArtifacts = Join-Path $aggregateCacheRoot "pair-001\left\artifacts"
 $rightArtifacts = Join-Path $aggregateCacheRoot "pair-001\right\artifacts"

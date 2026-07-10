@@ -115,6 +115,7 @@ use crate::client_common::Prompt;
 use crate::client_common::ResponseEvent;
 use crate::client_common::ResponseStream;
 use crate::flags::CODEX_RS_SSE_FIXTURE;
+use crate::provider_wire_trace::ProviderWireTrace;
 use crate::util::emit_feedback_auth_recovery_tags;
 use codex_api::map_api_error;
 use codex_feedback::FeedbackRequestTags;
@@ -891,8 +892,15 @@ fn provider_payload_digest_for_wire<T: serde::Serialize>(
     payload: &T,
     provider_wire_api: codex_api::WireApi,
 ) -> Option<ProviderPayloadDigest> {
-    let bytes = serde_json::to_vec(payload).ok()?;
     let value = serde_json::to_value(payload).ok()?;
+    provider_payload_digest_for_wire_value(&value, provider_wire_api)
+}
+
+fn provider_payload_digest_for_wire_value(
+    value: &serde_json::Value,
+    provider_wire_api: codex_api::WireApi,
+) -> Option<ProviderPayloadDigest> {
+    let bytes = serde_json::to_vec(value).ok()?;
     let text = String::from_utf8_lossy(&bytes);
     let sha256 = sha256_hex(&bytes);
     let tools_count = value
@@ -913,11 +921,50 @@ fn provider_payload_digest_for_wire<T: serde::Serialize>(
         tools_count,
         tools_present,
         request_shape_classifier: request_shape_classifier.to_string(),
-        messages_hash: json_field_hash(&value, "input"),
-        stable_prefix_hash: json_field_hash(&value, "instructions"),
-        dynamic_suffix_hash: json_field_hash(&value, "input"),
-        scan: scan_provider_payload_text("request-unbound", &sha256, &text, &value),
+        messages_hash: json_field_hash(value, provider_wire_message_field(provider_wire_api)),
+        stable_prefix_hash: provider_wire_stable_prefix_hash(value, provider_wire_api),
+        dynamic_suffix_hash: provider_wire_dynamic_suffix_hash(value, provider_wire_api),
+        scan: scan_provider_payload_text("request-unbound", &sha256, &text, value),
     })
+}
+
+fn provider_wire_message_field(provider_wire_api: codex_api::WireApi) -> &'static str {
+    if provider_wire_api == codex_api::WireApi::ChatCompletions {
+        "messages"
+    } else {
+        "input"
+    }
+}
+
+fn provider_wire_stable_prefix_hash(
+    value: &serde_json::Value,
+    provider_wire_api: codex_api::WireApi,
+) -> String {
+    let first_message = value
+        .get(provider_wire_message_field(provider_wire_api))
+        .and_then(serde_json::Value::as_array)
+        .and_then(|messages| messages.first())
+        .unwrap_or(&serde_json::Value::Null);
+    let stable_prefix = serde_json::json!({
+        "first_message": first_message,
+        "tools": value.get("tools").unwrap_or(&serde_json::Value::Null),
+    });
+    serde_json::to_vec(&stable_prefix)
+        .map(|bytes| sha256_hex(&bytes))
+        .unwrap_or_else(|_| sha256_hex(b"null"))
+}
+
+fn provider_wire_dynamic_suffix_hash(
+    value: &serde_json::Value,
+    provider_wire_api: codex_api::WireApi,
+) -> String {
+    value
+        .get(provider_wire_message_field(provider_wire_api))
+        .and_then(serde_json::Value::as_array)
+        .and_then(|messages| messages.last())
+        .and_then(|message| serde_json::to_vec(message).ok())
+        .map(|bytes| sha256_hex(&bytes))
+        .unwrap_or_else(|| sha256_hex(b"null"))
 }
 
 fn scan_provider_payload_text(
@@ -1173,6 +1220,7 @@ struct ModelClientState {
     beta_features_header: Option<String>,
     disable_websockets: AtomicBool,
     cached_websocket_session: StdMutex<WebsocketSession>,
+    provider_wire_trace: ProviderWireTrace,
 }
 
 /// Resolved API client setup for a single request attempt.
@@ -1336,6 +1384,7 @@ impl ModelClient {
                 beta_features_header,
                 disable_websockets: AtomicBool::new(false),
                 cached_websocket_session: StdMutex::new(WebsocketSession::default()),
+                provider_wire_trace: ProviderWireTrace::from_env(),
             }),
         }
     }
@@ -1834,6 +1883,17 @@ impl Drop for ModelClientSession {
 }
 
 impl ModelClientSession {
+    pub(crate) fn record_provider_wire_terminal(
+        &self,
+        status: &str,
+        token_usage: Option<&TokenUsage>,
+    ) {
+        self.client
+            .state
+            .provider_wire_trace
+            .record_terminal(status, token_usage);
+    }
+
     pub(crate) fn reset_websocket_session(&mut self) {
         self.websocket_session.connection = None;
         self.websocket_session.last_request = None;
@@ -2252,7 +2312,14 @@ impl ModelClientSession {
             )
             .with_telemetry(Some(request_telemetry), Some(sse_telemetry));
             let budget_dispatch = provider_request_budget.before_dispatch("responses_http")?;
-            if let Some(payload) = provider_payload_digest_for_wire(&request, provider_wire_api) {
+            let wire_value = self.client.state.provider_wire_trace.record_request(
+                self.client.current_window_id().as_str(),
+                provider_wire_api,
+                &request,
+            );
+            if let Some(payload) =
+                provider_payload_digest_for_wire_value(&wire_value, provider_wire_api)
+            {
                 budget_dispatch.record_provider_payload(payload);
             }
             let stream_result = client.stream_request(request, options).await;
@@ -2270,6 +2337,7 @@ impl ModelClientSession {
                 Err(ApiError::Transport(
                     unauthorized_transport @ TransportError::Http { status, .. },
                 )) if status == StatusCode::UNAUTHORIZED => {
+                    self.record_provider_wire_terminal("retry_unauthorized", None);
                     budget_dispatch.record_status("retry_unauthorized");
                     inference_trace_attempt.record_failed(&unauthorized_transport);
                     pending_retry = PendingUnauthorizedRetry::from_recovery(
@@ -2284,6 +2352,7 @@ impl ModelClientSession {
                 }
                 Err(err) => {
                     let err = map_api_error(err);
+                    self.record_provider_wire_terminal("response_failed", None);
                     budget_dispatch.record_status("failed");
                     inference_trace_attempt.record_failed(&err);
                     return Err(err);

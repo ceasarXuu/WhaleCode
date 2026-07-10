@@ -127,7 +127,7 @@ impl<T: HttpTransport> ResponsesClient<T> {
             insert_header(&mut headers, "x-openai-subagent", &subagent);
         }
 
-        let body = build_chat_completions_body(request);
+        let body = build_chat_completions_body(&request);
         let stream_response = self
             .session
             .stream_with(
@@ -205,9 +205,9 @@ impl<T: HttpTransport> ResponsesClient<T> {
     }
 }
 
-fn build_chat_completions_body(request: ResponsesApiRequest) -> Value {
+pub fn build_chat_completions_body(request: &ResponsesApiRequest) -> Value {
     let mut body = serde_json::Map::new();
-    body.insert("model".to_string(), Value::String(request.model));
+    body.insert("model".to_string(), Value::String(request.model.clone()));
     body.insert("stream".to_string(), Value::Bool(true));
     body.insert(
         "stream_options".to_string(),
@@ -218,7 +218,7 @@ fn build_chat_completions_body(request: ResponsesApiRequest) -> Value {
     if !request.instructions.trim().is_empty() {
         messages.push(serde_json::json!({
             "role": "system",
-            "content": request.instructions,
+            "content": request.instructions.clone(),
         }));
     }
     messages.extend(chat_messages_from_response_items(&request.input));
@@ -230,11 +230,11 @@ fn build_chat_completions_body(request: ResponsesApiRequest) -> Value {
         if matches!(request.tool_choice.as_str(), "none" | "auto" | "required") {
             body.insert(
                 "tool_choice".to_string(),
-                Value::String(request.tool_choice),
+                Value::String(request.tool_choice.clone()),
             );
         }
     }
-    if let Some(reasoning) = request.reasoning {
+    if let Some(reasoning) = &request.reasoning {
         match reasoning.effort {
             Some(ReasoningEffortConfig::None) => {
                 body.insert(
@@ -430,7 +430,7 @@ mod tests {
 
     #[test]
     fn chat_completions_body_preserves_official_deepseek_reasoning_effort() {
-        let body = build_chat_completions_body(chat_request(Some(Reasoning {
+        let body = build_chat_completions_body(&chat_request(Some(Reasoning {
             effort: Some(ReasoningEffortConfig::Max),
             summary: None,
         })));
@@ -441,7 +441,7 @@ mod tests {
 
     #[test]
     fn chat_completions_body_can_disable_deepseek_thinking() {
-        let body = build_chat_completions_body(chat_request(Some(Reasoning {
+        let body = build_chat_completions_body(&chat_request(Some(Reasoning {
             effort: Some(ReasoningEffortConfig::None),
             summary: None,
         })));
@@ -455,7 +455,7 @@ mod tests {
         let mut request = chat_request(None);
         request.tools = vec![json!({ "type": "web_search", "external_web_access": true })];
 
-        let body = build_chat_completions_body(request);
+        let body = build_chat_completions_body(&request);
 
         assert_eq!(body["tools"][0]["type"], json!("function"));
         assert_eq!(body["tools"][0]["function"]["name"], json!("web_search"));
@@ -479,7 +479,7 @@ mod tests {
             }
         })];
 
-        let body = build_chat_completions_body(request);
+        let body = build_chat_completions_body(&request);
 
         assert_eq!(body["tools"][0]["type"], json!("function"));
         assert_eq!(body["tools"][0]["function"]["name"], json!("apply_patch"));
@@ -506,7 +506,7 @@ mod tests {
             }
         })];
 
-        let body = build_chat_completions_body(request);
+        let body = build_chat_completions_body(&request);
 
         assert_eq!(body["tool_choice"], json!("required"));
     }
