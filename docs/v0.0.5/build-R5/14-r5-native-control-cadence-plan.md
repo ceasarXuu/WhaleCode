@@ -5,7 +5,7 @@
 - Created: 2026-07-10
 - Updated: 2026-07-10
 - Version: v0.0.5 build-R5 follow-up
-- Status: Planned - deferred until R5-F and R5-I2 are complete
+- Status: In progress - J0 complete, J1 next
 - Owner / Responsible: WhaleCode core runtime
 - Related Systems: provider tool choice、native tool scheduler、TaskSpace hard state、taskspace_control、turn completion、benchmark observer
 - Related Links: `01-r5-phased-simplification-plan.md`、`13-r5-unified-docker-benchmark-and-logging-plan.md`、`coe/2026-07-10-22-56-r5-request-amplification.md`
@@ -113,6 +113,19 @@ P0 只调整机械空 Map 时的 provider tool selection，不改变 Map 语义�
 
 **Exit:** provider probe、固定拓扑 fixture、失败矩阵和日志 schema 均有独立 artifact；不依赖 J1 实现证明。
 
+**实施结果（2026-07-11）：** J0 已完成。真实 DeepSeek probe 证明：named
+`tool_choice=taskspace_control` 在 `thinking=disabled` 时返回 HTTP 200 且只选择目标工具；thinking
+开启时 provider 返回 HTTP 400；`required + parallel_tool_calls=true`
+可在同一响应按 `first_step -> second_step` 顺序返回两个 calls；`assistant content + required tool`
+未观察到 content。因此 J1 冻结为 named choice + mechanical thinking disabled，J2 只认 provider
+response item order，J3 冻结为 `finish_node.final_candidate` 参数载体。
+
+固定三节点拓扑、首错停止、`taskspace-skipped-tool-output-v1` 和终态 provenance 已写入
+`benchmarks/taskspace/native-control-contract.json`；可复跑 probe 位于
+`scripts/taskspace-benchmark/probe-native-control-provider.ps1`，本次 artifact 位于
+`target/r5-j0-provider-probe/provider-capability.json`。诊断只记录状态、工具名、长度和 hash，
+不记录候选正文或 API key。
+
 **Fallback:** capability 不满足时暂停对应子项并记录事实，不改成语义 prompt 或旧 action envelope。
 
 ### R5-J1：P0 hard-state-aware tool selection
@@ -184,7 +197,7 @@ P0 只调整机械空 Map 时的 provider tool selection，不改变 Map 语义�
 
 | Phase | Independent Verification | Forbidden Future Dependency | Exit Evidence | Required Before Next | Decision |
 |---|---|---|---|---|---|
-| J0 | provider probe、fixed-topology fixture、failure contract | 不依赖 J1 code | capability/contract artifacts | 100% | proceed J1 |
+| J0 | provider probe、fixed-topology fixture、failure contract | 不依赖 J1 code | capability/contract artifacts | 100% passed | proceed J1 |
 | J1 | hard-state tool-choice fixtures、wire/cache trace | 不依赖 barrier | first-response and tools-hash evidence | 100% | proceed J2 |
 | J2 | ordered barrier unit/integration/side-effect tests | 不依赖 terminal transaction | latest-state attribution and stop evidence | 100% | proceed J3 |
 | J3 | terminal success/rejection/history tests | 不依赖 benefit repeats | completion provenance evidence | 100% | proceed J4 |
@@ -194,7 +207,7 @@ P0 只调整机械空 Map 时的 provider tool selection，不改变 Map 语义�
 
 | Plan Item | Expected Behavior | Production Code Path | Integration Entry | Test Evidence | Runtime / Log Evidence | Mock Exposure | Status |
 |---|---|---|---|---|---|---|---|
-| P0 tool selection | blank map 首响应只能选择 control tool | Chat body/provider request construction | TaskSpace initial request | named-choice/visibility fixtures | tool-choice trace + final wire | provider probe only in J0 | planned |
+| P0 tool selection | blank map 首响应只能选择 control tool | Chat body/provider request construction | TaskSpace initial request | named-choice/visibility fixtures | tool-choice trace + final wire | provider probe only in J0 | J0 contract frozen; J1 pending |
 | P1 ordered barrier | state change后的调用按最新状态执行 | native tool scheduler、TaskSpace preflight | multi-call provider response | order/failure/permission/attribution tests | barrier lifecycle events | none at exit | planned |
 | P3 terminal transaction | finish 成功后直接发布 Agent final | taskspace_control handler、turn completion/history | last running node | success/reject/replay/provenance tests | terminal candidate events | none at exit | planned |
 | anti-collapse gate | 收益不来自节点减少 | benchmark fixed topology + graph health | J4 Docker runs | topology fixtures | map/node/edge/control metrics | none | planned |
@@ -256,4 +269,5 @@ P0 只调整机械空 Map 时的 provider tool selection，不改变 Map 语义�
 
 ## 16. 当前暂停点
 
-本计划已登记，不立即实施。当前 R5 仍先执行 R5-F；Docker 计划恢复后完成 I0-I2，才允许进入 J0。不得在等待期间通过提示 Agent 少建节点、runtime 自动 finish 或宿主机临时 sample 宣称请求收益。
+R5-F 和 R5-I0/I1/I2 已完成，J0 provider capability 与 contract 已冻结，当前进入 J1。不得通过
+提示 Agent 少建节点、runtime 自动 finish 或节点粗化宣称请求收益。
