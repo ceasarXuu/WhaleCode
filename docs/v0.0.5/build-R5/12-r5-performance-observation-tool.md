@@ -77,3 +77,15 @@ pwsh -NoProfile -File scripts/taskspace-benchmark/test-performance-observation.p
 ```
 
 fixture 覆盖左右模式轮换、right-only 占位 side、缓存加权、map 节点/边/结果、聚合比率和事件日志。真实验证使用 R5 G1 的 `count-call-stack` 三次配对样本及 `subscription-billing-repair` right-only 样本。
+
+## 7. 后续 Docker-only 输入
+
+后续将按 `13-r5-unified-docker-benchmark-and-logging-plan.md` 把正式 benchmark 收敛到 Docker-only。性能观察工具届时必须增加但不得混算以下字段：
+
+- image digest、container id/role 和资源配置；
+- build/pull/create/start/preflight/log collection/cleanup 时间；
+- Agent、validator、oracle 各自的容器日志和退出状态；
+- container runtime/log coverage；
+- stats 观测开销和 host fallback scan。
+
+该事项当前为 planned/deferred，本阶段不修改报告器代码或执行容器样本。
