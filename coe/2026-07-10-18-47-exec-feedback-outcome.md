@@ -1,7 +1,7 @@
 # Problem P-001: exec 反馈把 shell 状态误表述为任务级退出状态
-- Status: open
+- Status: fixed
 - Created: 2026-07-10 18:47
-- Updated: 2026-07-10 21:10
+- Updated: 2026-07-10 21:45
 - Objective: standard 与 TaskSpace 共用的 exec 反馈忠实暴露 transport、shell、termination 和 output/ref 机械事实，不解析正文、不替 Agent 判断任务成功或自动重试。
 - Symptoms:
   - `conda install pytest -y 2>&1 | tail -20` 的上游 conda 失败，但模型反馈显示 `Exit code: 0`。
@@ -28,6 +28,7 @@
   - E-004
   - E-005
   - E-006
+  - E-007
 - Ruled out:
   - 不是 projection 丢失：后续 Agent 使用了前轮发现的 pytest 路径，相关输出均低于 raw-output 裁剪阈值。
   - 不能用全局 pipefail 直接修复：有意由 `head` 截断的上游 SIGPIPE 会变成 141。
@@ -38,16 +39,16 @@
   - stderr warning + shell 0 保持 0；不得扫描正文重写状态。
   - pipeline stage status 不可靠时明确 unavailable；不得伪造。
   - focused tests、core test/check 与 E5 样本通过。
-- Current conclusion: H-001/H-003 修复已通过 focused 和 workspace 回归：exec 结果按机械 outcome 分类，非正常退出不再发布合成 shell code，user decline 与 non-user rejection 由类型区分。待 E5 真实样本通过后关闭 P-001。
+- Current conclusion: fixed。H-001/H-003 的共享 outcome 契约已通过 focused、workspace 和真实 paired sample；R5 provider-visible history 忠实保留了 pytest、pip 和手工验证的机械状态与原始正文，未出现 projection 丢失或 runtime 自动恢复。公共 validator 缺少 pytest，但 standard/R5 隐藏 oracle 均通过。
 - Related hypotheses:
   - H-001
   - H-002
 - Resolution basis:
-  - E-001
-  - E-002
-  - E-003
+  - E-005
+  - E-006
+  - E-007
 - Close reason:
-  - not closed
+  - fixed
 
 ## Hypothesis H-001: 单一 exit_code 字段丢失了状态作用域
 - Status: confirmed
@@ -318,3 +319,31 @@
   ```
 - Interpretation: 新契约已覆盖 launcher、renderer、history、event、app-server 和 TUI；真实 Agent 样本仍是 P-001 的最后关闭门禁。
 - Time: 2026-07-10 21:10
+
+## Evidence E-007: 真实 paired sample 保留完整失败事实且隐藏验收通过
+- Related hypotheses:
+  - H-001
+  - H-003
+- Direction: supports
+- Type: fix-validation
+- Source: `target/r5-e5-feedback-validation/subscription-billing-repair/20260710-201038-830/pair-001`
+- Prediction or plan link:
+  - P-001 Fix criteria
+  - H-001 If true
+- Matched signal:
+  - R5 首次 pytest 反馈明确为 `Execution outcome: exited`、`Shell exit code: 1`，正文原样包含 `/home/zhangxu/miniconda3/bin/python: No module named pytest`。
+  - `pip install pytest 2>&1 | tail -5` 忠实显示 shell code 0、pipeline stage unavailable，并保留全部代理/安装失败正文；runtime 未据正文改码、重试或中断。
+  - 后续 Python 探测分别得到真实 0/1，Agent 最终自行执行手工断言且 shell code 0。
+  - standard 也因 pytest 缺失进行环境搜索，相关环境调用多于 R5；两侧 hidden oracle 均为 0。
+- Correlation keys:
+  - `call_00_3e0HpP4gfU0dPDPVcDJQ3597`
+  - `call_00_QtcEJS6sw1pCzG83cMy76166`
+  - `call_00_BVNCuIgXXLH6S5kMXYmR9107`
+- Raw content:
+  ```text
+  R5: tool calls 32, wall 122011 ms, hidden oracle 0
+  standard: tool calls 24, wall 113653 ms, hidden oracle 0
+  public validator both: /home/zhangxu/miniconda3/bin/python: No module named pytest
+  ```
+- Interpretation: 原始问题的反馈事实已完整进入 Agent 上下文。剩余请求与缓存成本属于独立 G0/G1 问题，不能继续归因于 exec 语义丢失。
+- Time: 2026-07-10 21:45

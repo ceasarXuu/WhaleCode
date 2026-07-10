@@ -9,7 +9,7 @@
 Created: 2026-07-10
 Updated: 2026-07-10
 Version: v0.0.5 build-R5
-Status: Approved - next execution gate
+Status: In Progress - E5 complete, G0 active
 Owner / Responsible: WhaleCode core runtime
 Related Systems: exec/unified_exec, tool result rendering, NodeEvent, provider history,
   Chat request conversion, benchmark cache telemetry
@@ -167,6 +167,22 @@ runtime 没有新增 retry/recovery/next-action 分支。
 | `subscription-billing-repair` | 1 次 | 历史基线或 1 次 | 1 次 | pytest 环境探测反馈、重复工具路径 |
 | `large-output-ref-smoke` | 1 次 | 历史基线或 1 次 | 1 次 | 大输出/ref 后事实字段完整性 |
 
+实施结果（2026-07-10）：E5.0/E5.1 已完成。共享 `ExecOutcome` 已贯通 tool result、
+NodeEvent、history、app-server 和 TUI；不可可靠采集的 pipeline stage 明确为 `unavailable`，
+没有启用全局 `pipefail`。`subscription-billing-repair` paired sample 中，R5 对 pytest、pip 和
+手工验证的每次反馈均保留机械状态和原始正文，隐藏 oracle 为 0。standard 同样遭遇 pytest
+缺失且进行了更多环境搜索，因此该样本不支持“TaskSpace 反馈丢失导致重复排障”的解释。
+
+| E5 实跑 | standard | R4 | R5 E5 |
+|---|---:|---:|---:|
+| hidden oracle exit | 0 | 历史基线未提供同轮数据 | 0 |
+| tool calls | 24 | 历史基线未提供同轮数据 | 32 |
+| wall time | 113.653s | 历史基线未提供同轮数据 | 122.011s |
+| pytest 环境相关调用 | 10+ | 历史基线未提供同轮数据 | 7 |
+
+公共 validation 两侧均因 harness 的 `/home/zhangxu/miniconda3/bin/python` 缺少 pytest 而返回
+1；这与两侧 patch 的 hidden oracle=0 分离记录，不作为 E5 correctness 失败。
+
 ## 7. Phase R5-G0：最终 wire 缓存证据
 
 任务：
@@ -226,8 +242,8 @@ correctness、Agent completion、map nodes/edges/events 无回退。
 
 | Plan Item | Production Path | Test Evidence | Runtime Evidence | Status |
 |---|---|---|---|---|
-| E5.0 outcome contract | exec launcher/render/event history | shell matrix fixtures | diagnostic trace | planned |
-| E5.1 faithful feedback | standard/TaskSpace shared exec path | focused + ref/projection tests | `tool.exec_outcome_recorded` | planned |
+| E5.0 outcome contract | exec launcher/render/event history | shell matrix fixtures | diagnostic trace | complete |
+| E5.1 faithful feedback | standard/TaskSpace shared exec path | focused + ref/projection tests | `tool.exec_outcome_recorded` | complete |
 | G0 final wire trace | post Chat-body conversion | hash/LCP fixtures | request-level trace | planned |
 | G1 append-only history | provider history/projection/compaction | prefix + reducer + compaction tests | cache hit/miss + LCP | planned |
 
