@@ -148,7 +148,7 @@ pub const X_RESPONSESAPI_INCLUDE_TIMING_METRICS_HEADER: &str =
 const RESPONSES_WEBSOCKETS_V2_BETA_HEADER_VALUE: &str = "responses_websockets=2026-02-06";
 const RESPONSES_ENDPOINT: &str = "/responses";
 const RESPONSES_COMPACT_ENDPOINT: &str = "/responses/compact";
-const TASKSPACE_ACTIVE_PROJECTION_MARKER: &str = "ContextProjectionV1 active replacement:";
+const TASKSPACE_ACTIVE_PROJECTION_MARKER: &str = "ContextProjectionV1 epoch snapshot:";
 const TASKSPACE_SHADOW_PROJECTION_MARKER: &str =
     "ContextProjectionV1 shadow (not active replacement):";
 const TASKSPACE_PROJECTION_REQUIRED_SECTIONS: &[&str] = &[
@@ -991,8 +991,7 @@ fn scan_provider_payload_text(
         || legacy_scan_text.contains("TaskSpace Bootstrap")
         || legacy_scan_text.contains("TaskSpace ContextProjectionV1 shadow update")
         || (legacy_scan_text.contains("TaskSpace mode is now active")
-            && !current_activation_notice_present)
-        || legacy_scan_text.contains("taskspace_control(");
+            && !current_activation_notice_present);
     let active_projection_block = text
         .split(TASKSPACE_ACTIVE_PROJECTION_MARKER)
         .nth(1)
@@ -1041,9 +1040,6 @@ fn scan_provider_payload_text(
     if legacy_taskspace_history_present {
         failure_reasons.push("legacy_taskspace_history_present".to_string());
     }
-    if raw_taskspace_control_history_tokens > 0 {
-        failure_reasons.push("raw_taskspace_control_history_present".to_string());
-    }
     if completed_stale_node_history_tokens > 0 {
         failure_reasons.push("completed_stale_node_history_present".to_string());
     }
@@ -1064,13 +1060,12 @@ fn scan_provider_payload_text(
         scan_event_id: format!("scan:{request_id}:{sha256}"),
         request_id: request_id.to_string(),
         provider_payload_sha256: sha256.to_string(),
-        scanner_version: "v005-exact-scan-3".to_string(),
-        matcher_version: "v005-marker-structural-and-projection-uniqueness-checks-3".to_string(),
+        scanner_version: "v005-exact-scan-4".to_string(),
+        matcher_version: "v005-epoch-snapshot-and-natural-history-checks-4".to_string(),
         checked_byte_ranges: vec![(0, text.len())],
         negative_checks_performed: vec![
             "active_projection_uniqueness".to_string(),
             "legacy_taskspace_history".to_string(),
-            "raw_taskspace_control_history".to_string(),
             "completed_stale_node_history".to_string(),
             "rejected_subagent_body".to_string(),
             "large_raw_output".to_string(),

@@ -5,7 +5,7 @@ pub(crate) const TASKSPACE_AGENT_CONTEXT_BUNDLE_MARKER: &str = "TaskSpaceAgentCo
 pub(crate) const TASKSPACE_AGENT_CONTEXT_BUNDLE_END_MARKER: &str =
     "TaskSpaceAgentContextBundleV1 end.";
 
-const TASKSPACE_ACTIVE_PROJECTION_MARKER: &str = "ContextProjectionV1 active replacement:";
+const TASKSPACE_ACTIVE_PROJECTION_MARKER: &str = "ContextProjectionV1 epoch snapshot:";
 const COMPILER_VERSION: &str = "r3-context-compiler-1";
 
 pub(crate) fn compile_taskspace_agent_context_text(text: &str) -> Option<String> {

@@ -284,7 +284,7 @@ fn provider_request_budget_records_started_and_terminal_status() {
         .before_dispatch("responses_websocket")
         .expect("first request should be within budget");
     let payload = provider_payload_digest(&json!({
-        "input": "ContextProjectionV1 active replacement:\n- protected"
+        "input": "ContextProjectionV1 epoch snapshot:\n- protected"
     }))
     .expect("payload digest");
     let payload_sha256 = payload.sha256.clone();
@@ -383,7 +383,7 @@ fn provider_request_budget_records_started_and_terminal_status() {
 #[test]
 fn provider_payload_scan_rejects_shadow_or_legacy_taskspace_history() {
     let active_projection = concat!(
-        "ContextProjectionV1 active replacement:\n",
+        "ContextProjectionV1 epoch snapshot:\n",
         "- task_id: task-1\n",
         "- map_id: map-1\n",
         "- sections:\n",
@@ -467,7 +467,7 @@ fn provider_payload_scan_rejects_shadow_or_legacy_taskspace_history() {
 
     let bundled_active_with_forbidden_strategy = provider_payload_digest(&json!({
         "input": concat!(
-            "ContextProjectionV1 active replacement:\n",
+            "ContextProjectionV1 epoch snapshot:\n",
             "TaskSpaceAgentContextBundleV1:\n",
             "- cache_plan:\n",
             "  cache_plan_verified: true\n",
@@ -534,7 +534,7 @@ fn provider_payload_scan_rejects_shadow_or_legacy_taskspace_history() {
     assert!(!legacy.scan.replacement_confirmed);
 
     let missing_protected = provider_payload_digest(&json!({
-        "input": "ContextProjectionV1 active replacement:\n- summary only"
+        "input": "ContextProjectionV1 epoch snapshot:\n- summary only"
     }))
     .expect("missing protected payload digest");
     assert!(missing_protected.scan.active_projection_present);
@@ -577,7 +577,7 @@ fn provider_payload_scan_rejects_shadow_or_legacy_taskspace_history() {
             {
                 "type": "message",
                 "role": "developer",
-                "content": "ContextProjectionV1 active replacement:\n- protected"
+                "content": "ContextProjectionV1 epoch snapshot:\n- protected"
             },
             {
                 "type": "function_call_output",

@@ -135,7 +135,7 @@ const TASKSPACE_ACTIVE_PROFILE_MARKER: &str = "TaskSpace v0.0.5 active compact p
 const TASKSPACE_ACTIVE_COMPACT_PROJECTION_MARKER: &str =
     "TaskSpace v0.0.5 active compact projection.";
 const TASKSPACE_ACTIVE_THIN_PROJECTION_MARKER: &str = "TaskSpace v0.0.5 active thin projection.";
-const TASKSPACE_ACTIVE_PROJECTION_MARKER: &str = "ContextProjectionV1 active replacement:";
+const TASKSPACE_ACTIVE_PROJECTION_MARKER: &str = "ContextProjectionV1 epoch snapshot:";
 const TASKSPACE_SHADOW_PROJECTION_MARKER: &str =
     "ContextProjectionV1 shadow (not active replacement):";
 const TASKSPACE_ACTION_CONTRACT_MAX_RECENT_TOOL_OUTPUT_ITEMS: usize = 3;
@@ -568,16 +568,6 @@ pub(crate) async fn run_turn(
                 continue;
             }
             break;
-        }
-
-        if let Some(action_map_projection) = {
-            let mut state = sess.state.lock().await;
-            state.action_map_runtime.build_developer_context()
-        } && let Some(item) = crate::context_manager::updates::build_developer_update_item(vec![
-            action_map_projection,
-        ]) {
-            sess.remove_action_map_projection_history_items().await;
-            sess.record_conversation_items(&turn_context, &[item]).await;
         }
 
         // Construct the input that we will send to the model.
@@ -1167,38 +1157,18 @@ fn build_prompt_with_tool_visibility(
 }
 
 fn taskspace_provider_transport_mode(
-    turn_context: &TurnContext,
-    snapshot: Option<&crate::action_map::ActionMapProviderRequestBudgetSnapshot>,
-    taskspace_context_visible: bool,
+    _turn_context: &TurnContext,
+    _snapshot: Option<&crate::action_map::ActionMapProviderRequestBudgetSnapshot>,
+    _taskspace_context_visible: bool,
 ) -> TaskspaceProviderTransportMode {
-    if snapshot.is_none() && !taskspace_context_visible {
-        return TaskspaceProviderTransportMode::NativeTools;
-    }
-    let configured = std::env::var("WHALE_TASKSPACE_PROVIDER_TRANSPORT")
-        .ok()
-        .or_else(|| std::env::var("TASKSPACE_PROVIDER_TRANSPORT").ok())
-        .unwrap_or_default();
-    let provider_info = turn_context.provider.info();
-    let provider_name = provider_info.name.to_ascii_lowercase();
-    let model = turn_context.model_info.slug.to_ascii_lowercase();
-    let deepseek_chat = provider_info.wire_api
-        == codex_model_provider_info::WireApi::ChatCompletions
-        && (provider_name.contains("deepseek") || model.contains("deepseek"));
-    taskspace_provider_transport_mode_for_request(deepseek_chat, configured.as_str())
+    TaskspaceProviderTransportMode::NativeTools
 }
 
 fn taskspace_provider_transport_mode_for_request(
     _deepseek_chat: bool,
-    configured: &str,
+    _configured: &str,
 ) -> TaskspaceProviderTransportMode {
-    match configured.trim().to_ascii_lowercase().as_str() {
-        "action_contract"
-        | "cache_optimized_action_contract"
-        | "cache-optimized-action-contract" => {
-            TaskspaceProviderTransportMode::CacheOptimizedActionContract
-        }
-        _ => TaskspaceProviderTransportMode::NativeTools,
-    }
+    TaskspaceProviderTransportMode::NativeTools
 }
 
 fn taskspace_static_action_contract_instructions() -> &'static str {
@@ -3555,7 +3525,7 @@ fn is_taskspace_action_contract_latest_tool_output_candidate(item: &ResponseItem
         .is_some_and(|call_id| call_id.starts_with("taskspace-action-contract-"));
     is_tool_output_item(item)
         && (action_contract_tool_output
-            || !is_legacy_taskspace_tool_output(item)
+            || !is_taskspace_tool_output(item)
             || is_actionable_taskspace_gate_feedback_output(item))
 }
 
@@ -4056,7 +4026,7 @@ enum ProviderVisibleItemCategory {
     ShadowProjection,
     LegacyTaskspaceInstruction,
     TaskspaceControlCall,
-    LegacyTaskspaceToolOutput,
+    TaskspaceToolOutput,
     LargeRawToolOutput,
     Other,
 }
@@ -4098,62 +4068,25 @@ fn compose_provider_visible_history(items: Vec<ResponseItem>) -> ProviderVisible
         .collect::<Vec<_>>();
     let paired_omitted_tool_call_ids =
         omitted_provider_visible_tool_call_ids(classified_items.as_slice());
-    let latest_final_readiness_recovery_index = classified_items
-        .iter()
-        .filter(|(_, _, category, _)| {
-            matches!(
-                category,
-                ProviderVisibleItemCategory::FinalReadinessRecovery
-            )
-        })
-        .map(|(index, _, _, _)| *index)
-        .next_back();
-    let latest_active_projection = classified_items
+    let epoch_snapshot_index = classified_items
         .iter()
         .filter(|(_, _, category, _)| {
             matches!(category, ProviderVisibleItemCategory::ActiveProjection)
         })
-        .map(|(index, item, _, _)| (*index, item.clone()))
-        .next_back();
-    let latest_active_projection_index = latest_active_projection.as_ref().map(|(index, _)| *index);
-    let latest_active_projection_item = latest_active_projection.as_ref().map(|(_, item)| item);
+        .map(|(index, _, _, _)| *index)
+        .next();
 
     let mut prepared = Vec::with_capacity(classified_items.len());
-    let mut latest_final_readiness_recovery_item: Option<ResponseItem> = None;
     let mut decisions = Vec::with_capacity(classified_items.len());
     for (index, item, category, base_action) in classified_items {
         let mut action =
             provider_visible_history_pair_action(&item, base_action, &paired_omitted_tool_call_ids);
         if matches!(category, ProviderVisibleItemCategory::ActiveProjection)
-            && latest_active_projection_index != Some(index)
+            && epoch_snapshot_index != Some(index)
         {
-            action = ProviderVisibleHistoryAction::Omit("stale_active_projection_replaced");
-        }
-        if matches!(
-            category,
-            ProviderVisibleItemCategory::FinalReadinessRecovery
-        ) {
-            if latest_final_readiness_recovery_index == Some(index) {
-                if taskspace_final_readiness_recovery_still_applies(
-                    &item,
-                    latest_active_projection_item,
-                ) {
-                    latest_final_readiness_recovery_item = Some(item);
-                } else {
-                    action = ProviderVisibleHistoryAction::Omit(
-                        "stale_final_readiness_recovery_satisfied_by_projection",
-                    );
-                }
-            } else {
-                action =
-                    ProviderVisibleHistoryAction::Omit("stale_final_readiness_recovery_replaced");
-            }
-            decisions.push(ProviderVisibleHistoryDecision {
-                index,
-                category,
-                action,
-            });
-            continue;
+            action = ProviderVisibleHistoryAction::Omit(
+                "subsequent_projection_redundant_with_natural_history",
+            );
         }
         if matches!(action, ProviderVisibleHistoryAction::Include) {
             prepared.push(item);
@@ -4163,9 +4096,6 @@ fn compose_provider_visible_history(items: Vec<ResponseItem>) -> ProviderVisible
             category,
             action,
         });
-    }
-    if let Some(item) = latest_final_readiness_recovery_item {
-        prepared.push(item);
     }
 
     ProviderVisibleHistoryComposition {
@@ -4184,18 +4114,14 @@ fn provider_visible_history_action(
         ProviderVisibleItemCategory::LegacyTaskspaceInstruction => {
             ProviderVisibleHistoryAction::Omit("legacy_taskspace_instruction_replaced")
         }
-        ProviderVisibleItemCategory::TaskspaceControlCall => {
-            ProviderVisibleHistoryAction::Omit("taskspace_control_call_not_provider_surface")
-        }
-        ProviderVisibleItemCategory::LegacyTaskspaceToolOutput => {
-            ProviderVisibleHistoryAction::Omit("legacy_taskspace_tool_output_replaced")
-        }
         ProviderVisibleItemCategory::LargeRawToolOutput => {
             ProviderVisibleHistoryAction::Omit("large_raw_tool_output_requires_output_reference")
         }
         ProviderVisibleItemCategory::ActiveProjection
         | ProviderVisibleItemCategory::FinalReadinessRecovery
         | ProviderVisibleItemCategory::CurrentTaskspaceRuntimeFeedback
+        | ProviderVisibleItemCategory::TaskspaceControlCall
+        | ProviderVisibleItemCategory::TaskspaceToolOutput
         | ProviderVisibleItemCategory::ProtectedUserInput
         | ProviderVisibleItemCategory::ProtectedDeveloperOrSystemInput
         | ProviderVisibleItemCategory::Other => ProviderVisibleHistoryAction::Include,
@@ -4256,14 +4182,14 @@ fn classify_provider_visible_item(item: &ResponseItem) -> ProviderVisibleItemCat
     if is_protected_user_input(item) {
         return ProviderVisibleItemCategory::ProtectedUserInput;
     }
-    if is_legacy_taskspace_instruction(item) {
-        return ProviderVisibleItemCategory::LegacyTaskspaceInstruction;
-    }
     if is_protected_developer_or_system_input(item) {
+        if is_legacy_taskspace_instruction(item) {
+            return ProviderVisibleItemCategory::LegacyTaskspaceInstruction;
+        }
         return ProviderVisibleItemCategory::ProtectedDeveloperOrSystemInput;
     }
-    if is_legacy_taskspace_tool_output(item) {
-        return ProviderVisibleItemCategory::LegacyTaskspaceToolOutput;
+    if is_taskspace_tool_output(item) {
+        return ProviderVisibleItemCategory::TaskspaceToolOutput;
     }
     if is_large_raw_tool_output(item) {
         return ProviderVisibleItemCategory::LargeRawToolOutput;
@@ -4380,7 +4306,7 @@ fn response_item_tool_call_id(item: &ResponseItem) -> Option<&str> {
     }
 }
 
-fn is_legacy_taskspace_tool_output(item: &ResponseItem) -> bool {
+fn is_taskspace_tool_output(item: &ResponseItem) -> bool {
     matches!(
         item,
         ResponseItem::FunctionCallOutput { .. } | ResponseItem::CustomToolCallOutput { .. }
@@ -8008,7 +7934,7 @@ tax_calc.py\n\
     }
 
     #[test]
-    fn taskspace_provider_transport_defaults_deepseek_to_native_tools() {
+    fn taskspace_provider_transport_is_always_native_tools() {
         assert_eq!(
             taskspace_provider_transport_mode_for_request(true, ""),
             TaskspaceProviderTransportMode::NativeTools
@@ -8019,7 +7945,7 @@ tax_calc.py\n\
         );
         assert_eq!(
             taskspace_provider_transport_mode_for_request(true, "action_contract"),
-            TaskspaceProviderTransportMode::CacheOptimizedActionContract
+            TaskspaceProviderTransportMode::NativeTools
         );
         assert_eq!(
             taskspace_provider_transport_mode_for_request(false, ""),
@@ -9922,7 +9848,11 @@ TaskSpaceGateRecoveryV1: {\"schema_version\":\"TaskSpaceGateRecoveryV1\",\"allow
                 "developer",
                 "TaskSpace ContextProjectionV1 shadow update.\nContextProjectionV1 shadow (not active replacement):",
             ),
-            tool_output("ActionMap node state from taskspace_control(action=create_node)"),
+            tool_call("taskspace_control", "control-call"),
+            tool_output_with_call_id(
+                "control-call",
+                "ActionMap node state from taskspace_control(action=create_node)",
+            ),
             message("user", "Preserve this user requirement."),
         ];
 
@@ -9930,7 +9860,7 @@ TaskSpaceGateRecoveryV1: {\"schema_version\":\"TaskSpaceGateRecoveryV1\",\"allow
         let texts = item_texts(&prepared);
         let joined = texts.join("\n");
 
-        assert_eq!(prepared.len(), 3);
+        assert_eq!(prepared.len(), 5);
         assert!(
             joined.contains("<skills_instructions>stable skills surface</skills_instructions>")
         );
@@ -9939,7 +9869,11 @@ TaskSpaceGateRecoveryV1: {\"schema_version\":\"TaskSpaceGateRecoveryV1\",\"allow
         assert!(joined.contains("Preserve this user requirement."));
         assert!(!joined.contains("TaskSpace mode is now active"));
         assert!(!joined.contains(TASKSPACE_SHADOW_PROJECTION_MARKER));
-        assert!(!joined.contains("ActionMap node state"));
+        assert!(joined.contains("ActionMap node state"));
+        assert!(prepared.iter().any(|item| matches!(
+            item,
+            ResponseItem::FunctionCall { name, .. } if name == "taskspace_control"
+        )));
     }
 
     #[test]
@@ -9971,7 +9905,7 @@ TaskSpaceGateRecoveryV1: {\"schema_version\":\"TaskSpaceGateRecoveryV1\",\"allow
     }
 
     #[test]
-    fn active_context_replacement_removes_taskspace_control_calls() {
+    fn epoch_snapshot_preserves_taskspace_control_calls() {
         let active_projection = format!(
             "{TASKSPACE_ACTIVE_PROFILE_MARKER}\n{TASKSPACE_ACTIVE_PROJECTION_MARKER}\nactive_objective: fix the bug"
         );
@@ -9983,12 +9917,11 @@ TaskSpaceGateRecoveryV1: {\"schema_version\":\"TaskSpaceGateRecoveryV1\",\"allow
 
         let prepared = prepare_provider_visible_prompt_items(items);
 
-        assert_eq!(prepared.len(), 2);
-        assert!(
-            prepared
-                .iter()
-                .all(|item| !matches!(item, ResponseItem::FunctionCall { .. }))
-        );
+        assert_eq!(prepared.len(), 3);
+        assert!(prepared.iter().any(|item| matches!(
+            item,
+            ResponseItem::FunctionCall { name, .. } if name == "taskspace_control"
+        )));
     }
 
     #[test]
@@ -10028,7 +9961,7 @@ TaskSpaceGateRecoveryV1: {\"schema_version\":\"TaskSpaceGateRecoveryV1\",\"allow
     }
 
     #[test]
-    fn active_context_replacement_keeps_only_latest_projection_and_current_feedback() {
+    fn epoch_snapshot_keeps_first_projection_and_natural_feedback() {
         let stale_projection = format!(
             "{TASKSPACE_ACTIVE_THIN_PROJECTION_MARKER}\n{TASKSPACE_ACTIVE_PROJECTION_MARKER}\ncurrent_node: node-1 status=running"
         );
@@ -10053,14 +9986,14 @@ TaskSpaceGateRecoveryV1: {\"schema_version\":\"TaskSpaceGateRecoveryV1\",\"allow
             joined.matches(TASKSPACE_ACTIVE_PROJECTION_MARKER).count(),
             1
         );
-        assert!(!joined.contains("current_node: node-1 status=running"));
-        assert!(joined.contains("current_node: none"));
-        assert!(joined.contains("node-1 status=completed"));
+        assert!(joined.contains("current_node: node-1 status=running"));
+        assert!(!joined.contains("current_node: none"));
+        assert!(!joined.contains("node-1 status=completed"));
         assert!(joined.contains("TaskSpaceGateRecoveryV1"));
         assert!(joined.contains("Keep the direct user requirement."));
         assert_eq!(
             composition.decisions[0].action,
-            ProviderVisibleHistoryAction::Omit("stale_active_projection_replaced")
+            ProviderVisibleHistoryAction::Include
         );
         assert_eq!(
             composition.decisions[1].action,
@@ -10072,12 +10005,14 @@ TaskSpaceGateRecoveryV1: {\"schema_version\":\"TaskSpaceGateRecoveryV1\",\"allow
         );
         assert_eq!(
             composition.decisions[3].action,
-            ProviderVisibleHistoryAction::Include
+            ProviderVisibleHistoryAction::Omit(
+                "subsequent_projection_redundant_with_natural_history"
+            )
         );
     }
 
     #[test]
-    fn active_context_replacement_omits_paired_output_when_tool_call_is_replaced() {
+    fn epoch_snapshot_preserves_taskspace_control_call_and_output_pair() {
         let active_projection = format!(
             "{TASKSPACE_ACTIVE_PROFILE_MARKER}\n{TASKSPACE_ACTIVE_PROJECTION_MARKER}\nactive_objective: fix the bug"
         );
@@ -10092,19 +10027,63 @@ TaskSpaceGateRecoveryV1: {\"schema_version\":\"TaskSpaceGateRecoveryV1\",\"allow
         let texts = item_texts(&composition.items);
         let joined = texts.join("\n");
 
-        assert!(!composition.items.iter().any(|item| {
+        assert!(composition.items.iter().any(|item| {
             response_item_tool_call_id(item).is_some_and(|call_id| call_id == "control-call")
         }));
-        assert!(!joined.contains(r#"{"status":"ok"}"#));
+        assert!(joined.contains(r#"{"status":"ok"}"#));
         assert!(joined.contains("Keep the direct user requirement."));
         assert_eq!(
             composition.decisions[1].action,
-            ProviderVisibleHistoryAction::Omit("taskspace_control_call_not_provider_surface")
+            ProviderVisibleHistoryAction::Include
         );
         assert_eq!(
             composition.decisions[2].action,
+            ProviderVisibleHistoryAction::Include
+        );
+    }
+
+    #[test]
+    fn epoch_snapshot_history_is_strictly_append_only() {
+        let snapshot = format!(
+            "{TASKSPACE_ACTIVE_PROFILE_MARKER}\n{TASKSPACE_ACTIVE_PROJECTION_MARKER}\ncurrent_node: node-1 status=running"
+        );
+        let later_projection = format!(
+            "{TASKSPACE_ACTIVE_PROFILE_MARKER}\n{TASKSPACE_ACTIVE_PROJECTION_MARKER}\ncurrent_node: node-2 status=running"
+        );
+        let previous = compose_provider_visible_history(vec![message("developer", &snapshot)]);
+        let current = compose_provider_visible_history(vec![
+            message("developer", &snapshot),
+            message("assistant", "Bind the implementation node."),
+            tool_call("taskspace_control", "bind-call"),
+            tool_output_with_call_id("bind-call", "TaskSpace main node bound: node-2"),
+            message("developer", &later_projection),
+        ]);
+
+        let previous_values = previous
+            .items
+            .iter()
+            .map(|item| serde_json::to_value(item).expect("serialize previous item"))
+            .collect::<Vec<_>>();
+        let current_values = current
+            .items
+            .iter()
+            .map(|item| serde_json::to_value(item).expect("serialize current item"))
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            current_values.get(..previous_values.len()),
+            Some(previous_values.as_slice())
+        );
+        assert_eq!(current_values.len(), previous_values.len() + 3);
+        assert!(current_values.iter().any(|value| {
+            value
+                .to_string()
+                .contains("TaskSpace main node bound: node-2")
+        }));
+        assert_eq!(
+            current.decisions[4].action,
             ProviderVisibleHistoryAction::Omit(
-                "paired_tool_call_or_output_replaced_by_active_projection"
+                "subsequent_projection_redundant_with_natural_history"
             )
         );
     }
@@ -10120,7 +10099,11 @@ TaskSpaceGateRecoveryV1: {\"schema_version\":\"TaskSpaceGateRecoveryV1\",\"allow
                 "user",
                 "The bug report mentions TaskSpace, but this is user evidence.",
             ),
-            tool_output("ActionMap node state from taskspace_control(action=create_node)"),
+            tool_call("taskspace_control", "control-call"),
+            tool_output_with_call_id(
+                "control-call",
+                "ActionMap node state from taskspace_control(action=create_node)",
+            ),
         ];
 
         let composition = compose_provider_visible_history(items);
@@ -10128,7 +10111,7 @@ TaskSpaceGateRecoveryV1: {\"schema_version\":\"TaskSpaceGateRecoveryV1\",\"allow
         let joined = texts.join("\n");
 
         assert!(joined.contains("this is user evidence"));
-        assert!(!joined.contains("ActionMap node state"));
+        assert!(joined.contains("ActionMap node state"));
         assert_eq!(
             composition.decisions[1].category,
             ProviderVisibleItemCategory::ProtectedUserInput
@@ -10136,6 +10119,14 @@ TaskSpaceGateRecoveryV1: {\"schema_version\":\"TaskSpaceGateRecoveryV1\",\"allow
         assert_eq!(
             composition.decisions[1].action,
             ProviderVisibleHistoryAction::Include
+        );
+        assert_eq!(
+            composition.decisions[2].category,
+            ProviderVisibleItemCategory::TaskspaceControlCall
+        );
+        assert_eq!(
+            composition.decisions[3].category,
+            ProviderVisibleItemCategory::TaskspaceToolOutput
         );
     }
 
@@ -10227,7 +10218,7 @@ TaskSpaceGateRecoveryV1: {\"schema_version\":\"TaskSpaceGateRecoveryV1\",\"allow
     }
 
     #[test]
-    fn active_context_replacement_omits_stale_final_readiness_recovery_after_ledger_satisfied() {
+    fn epoch_snapshot_preserves_final_readiness_feedback_after_later_state_changes() {
         let active_projection = format!(
             "{TASKSPACE_ACTIVE_PROFILE_MARKER}\n{TASKSPACE_ACTIVE_PROJECTION_MARKER}\n\
 active_objective: finish synthesis\n\
@@ -10244,17 +10235,15 @@ success_criteria:\n\
         let composition = compose_provider_visible_history(items);
         let joined = item_texts(&composition.items).join("\n");
 
-        assert!(!joined.contains(TASKSPACE_FINAL_READINESS_RECOVERY_MARKER));
+        assert!(joined.contains(TASKSPACE_FINAL_READINESS_RECOVERY_MARKER));
         assert_eq!(
             composition.decisions[1].action,
-            ProviderVisibleHistoryAction::Omit(
-                "stale_final_readiness_recovery_satisfied_by_projection"
-            )
+            ProviderVisibleHistoryAction::Include
         );
     }
 
     #[test]
-    fn active_context_replacement_places_latest_final_readiness_recovery_after_projection() {
+    fn epoch_snapshot_preserves_ordered_final_readiness_feedback() {
         let active_projection = format!(
             "{TASKSPACE_ACTIVE_PROFILE_MARKER}\n{TASKSPACE_ACTIVE_PROJECTION_MARKER}\nactive_objective: finish synthesis"
         );
@@ -10276,23 +10265,28 @@ success_criteria:\n\
             .iter()
             .position(|text| text.contains(TASKSPACE_ACTIVE_PROJECTION_MARKER))
             .expect("projection should remain visible");
-        let recovery_pos = texts
+        let first_recovery_pos = texts
             .iter()
             .position(|text| text.contains(TASKSPACE_FINAL_READINESS_RECOVERY_MARKER))
+            .expect("first recovery should remain visible");
+        let latest_recovery_pos = texts
+            .iter()
+            .rposition(|text| text.contains(TASKSPACE_FINAL_READINESS_RECOVERY_MARKER))
             .expect("latest recovery should remain visible");
 
-        assert!(recovery_pos > projection_pos);
+        assert!(first_recovery_pos < projection_pos);
+        assert!(latest_recovery_pos > projection_pos);
         assert_eq!(
             joined
                 .matches(TASKSPACE_FINAL_READINESS_RECOVERY_MARKER)
                 .count(),
-            1
+            2
         );
-        assert!(!joined.contains("old-criterion"));
+        assert!(joined.contains("old-criterion"));
         assert!(joined.contains("new-criterion"));
         assert_eq!(
             composition.decisions[1].action,
-            ProviderVisibleHistoryAction::Omit("stale_final_readiness_recovery_replaced")
+            ProviderVisibleHistoryAction::Include
         );
         assert_eq!(
             composition.decisions[3].action,

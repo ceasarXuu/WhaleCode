@@ -9526,7 +9526,7 @@ pub(crate) fn format_action_map_snapshot(snapshot: &ActionMapSnapshot) -> String
 fn taskspace_projection_integrity_context(map_id: &str, reason: &str) -> String {
     format!(
         "TaskSpace v0.0.5 active thin projection.\n\
-ContextProjectionV1 active replacement:\n\
+ContextProjectionV1 epoch snapshot:\n\
 - task_id: unavailable\n\
 - map_id: {map_id}\n\
 - integrity_status: invalid\n\
@@ -9535,7 +9535,7 @@ ContextProjectionV1 active replacement:\n\
 - map_nodes:\n  - none\n\
 - current_node_recent_events:\n  - none\n\
 - result_refs_available:\n  - none\n\
-ContextProjectionV1 active replacement end."
+ContextProjectionV1 epoch snapshot end."
     )
 }
 
@@ -9580,7 +9580,7 @@ fn append_context_projection_active(
         map,
         current_node_id,
         "taskspace",
-        "ContextProjectionV1 active replacement:",
+        "ContextProjectionV1 epoch snapshot:",
         active_budget,
     )
 }
@@ -9608,7 +9608,7 @@ fn append_context_projection_with_header(
             )
         })
         .unwrap_or_else(|| "none".to_string());
-    if header == "ContextProjectionV1 active replacement:" {
+    if header == "ContextProjectionV1 epoch snapshot:" {
         let node_skeleton = ordered_node_ids(map)
             .into_iter()
             .take(16)
@@ -9696,7 +9696,7 @@ fn append_context_projection_with_header(
             "result_refs_available",
             &result_refs_available,
         );
-        projection.push_str("ContextProjectionV1 active replacement end.\n");
+        projection.push_str("ContextProjectionV1 epoch snapshot end.\n");
         let estimated_tokens = approx_projection_tokens(&projection);
         context.push_str(&projection);
         return estimated_tokens;
@@ -22963,7 +22963,7 @@ TaskSpaceReadFileSummaryV1: path=src/lib.rs lines_read=1 eof_reached=true max_li
         assert_eq!(result.evidence_package.changed_artifacts, vec!["out.txt"]);
 
         let context = state.build_developer_context().expect("developer context");
-        assert!(context.contains("ContextProjectionV1 active replacement:"));
+        assert!(context.contains("ContextProjectionV1 epoch snapshot:"));
         assert!(!context.contains("omission_audit:"));
         assert!(!context.contains("facts:"));
         assert!(!context.contains("fact-final-encoding"));
@@ -23715,7 +23715,7 @@ TaskSpaceReadFileSummaryV1: path=src/lib.rs lines_read=1 eof_reached=true max_li
                 "inspect_code_context -> implement_solution -> smoke_test/regression_test -> final_synthesis"
             )
         );
-        assert!(context.contains("ContextProjectionV1 active replacement:"));
+        assert!(context.contains("ContextProjectionV1 epoch snapshot:"));
         assert!(!context.contains("Use taskspace_control for state changes."));
         assert!(!context.contains("promote_taskspace"));
         assert!(!context.contains("promotion_not_in_mvp"));
@@ -30944,7 +30944,7 @@ fi\n"
             .expect("explicit finish_node should create implement node");
 
         let context = state.build_developer_context().expect("developer context");
-        assert!(context.contains("ContextProjectionV1 active replacement:"));
+        assert!(context.contains("ContextProjectionV1 epoch snapshot:"));
         assert!(context.contains("current_node_recent_events:"));
         assert!(!context.contains("critical_artifact_evidence:"));
         assert!(context.contains("artifacts=generate_report.sh"));
@@ -32397,7 +32397,7 @@ fi\n"
             "Patch output generation and run validator once."
         );
         let context = state.build_developer_context().expect("context");
-        assert!(context.contains("ContextProjectionV1 active replacement:"));
+        assert!(context.contains("ContextProjectionV1 epoch snapshot:"));
         assert!(!context.contains("omission_audit:"));
         assert!(!context.contains("success_criteria:"));
         assert!(!context.contains("decisions:"));
@@ -32446,7 +32446,7 @@ fi\n"
         let context = state.build_developer_context().expect("context");
 
         assert!(context.contains("TaskSpace v0.0.5 active thin projection."));
-        assert!(context.contains("ContextProjectionV1 active replacement:"));
+        assert!(context.contains("ContextProjectionV1 epoch snapshot:"));
         assert!(context.contains("projection_id: projection-taskspace-task-1-map-1"));
         assert!(context.contains("mode: taskspace"));
         assert!(context.contains("active_objective: Verify ContextProjectionV1 shadow coverage."));
@@ -38829,7 +38829,7 @@ OK: 0 rows"
 
         assert_eq!(map_id, "map-1");
         let context = state.build_developer_context().expect("experiment context");
-        assert!(context.contains("ContextProjectionV1 active replacement:"));
+        assert!(context.contains("ContextProjectionV1 epoch snapshot:"));
         assert!(context.contains("Investigate runtime"));
         assert!(context.contains("projection_id: projection-taskspace-task-1-map-1"));
         assert!(context.contains("current_node: define_scope"));
@@ -39044,7 +39044,7 @@ OK: 0 rows"
         assert_eq!(node_id, "node-1");
         assert!(state.current_main_node_id.is_none());
         let context = state.build_developer_context().expect("context");
-        assert!(context.contains("ContextProjectionV1 active replacement:"));
+        assert!(context.contains("ContextProjectionV1 epoch snapshot:"));
         assert!(context.contains("current_node: none"));
 
         let (assignment, _) =

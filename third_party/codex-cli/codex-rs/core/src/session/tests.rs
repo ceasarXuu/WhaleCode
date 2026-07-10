@@ -1385,7 +1385,7 @@ async fn build_initial_context_keeps_stable_skills_before_taskspace_context() {
 }
 
 #[tokio::test]
-async fn record_context_updates_refreshes_taskspace_inventory_in_steady_state() {
+async fn record_context_updates_keeps_one_taskspace_epoch_snapshot() {
     let (session, turn_context) = make_session_and_context().await;
     {
         let mut state = session.state.lock().await;
@@ -1413,12 +1413,12 @@ async fn record_context_updates_refreshes_taskspace_inventory_in_steady_state() 
     let history = session.clone_history().await;
     let developer_text = developer_input_texts(history.raw_items()).join("\n");
     assert!(
-        developer_text.contains("TaskSpace v0.0.5 active compact projection."),
-        "expected active compact TaskSpace update in steady-state context: {developer_text}"
+        developer_text.contains("TaskSpace v0.0.5 active thin projection."),
+        "expected TaskSpace epoch snapshot in steady-state context: {developer_text}"
     );
     assert!(
-        developer_text.contains("projection_id: projection-default_compact-task-1-map-1"),
-        "expected latest active projection in steady-state context: {developer_text}"
+        developer_text.contains("projection_id: projection-taskspace-task-1-map-1"),
+        "expected initial epoch snapshot in steady-state context: {developer_text}"
     );
     assert!(
         developer_text.contains("active_objective: Find structure risks."),
@@ -1437,13 +1437,22 @@ async fn record_context_updates_refreshes_taskspace_inventory_in_steady_state() 
         "steady-state active profile should not inject shadow projection: {developer_text}"
     );
 
-    let removed = session.remove_action_map_projection_history_items().await;
-    assert_eq!(removed, 1, "active projection update should be removable");
-    let history = session.clone_history().await;
-    let developer_text = developer_input_texts(history.raw_items()).join("\n");
+    session
+        .record_context_updates_and_set_reference_context_item(&turn_context)
+        .await;
+
+    let history_after_second_update = session.clone_history().await;
+    let developer_text = developer_input_texts(history_after_second_update.raw_items()).join("\n");
     assert!(
-        !developer_text.contains("projection-default_compact-task-1-map-1"),
-        "active projection should be removed from history: {developer_text}"
+        developer_text.contains("projection-taskspace-task-1-map-1"),
+        "epoch snapshot should remain in append-only history: {developer_text}"
+    );
+    assert_eq!(
+        developer_text
+            .matches("ContextProjectionV1 epoch snapshot:")
+            .count(),
+        1,
+        "steady-state context updates must not append replacement snapshots: {developer_text}"
     );
 }
 

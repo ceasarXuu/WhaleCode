@@ -3733,11 +3733,6 @@ impl Session {
         state.record_items(items.iter(), turn_context.truncation_policy);
     }
 
-    pub(crate) async fn remove_action_map_projection_history_items(&self) -> usize {
-        let mut state = self.state.lock().await;
-        state.remove_history_items_matching(is_action_map_projection_developer_item)
-    }
-
     pub(crate) async fn record_model_warning(&self, message: impl Into<String>, ctx: &TurnContext) {
         self.services
             .session_telemetry
@@ -4276,7 +4271,16 @@ impl Session {
             self.build_settings_update_items(reference_context_item.as_ref(), turn_context)
                 .await
         };
+        let action_map_epoch_snapshot_present = {
+            let state = self.state.lock().await;
+            state
+                .history
+                .raw_items()
+                .iter()
+                .any(is_action_map_projection_developer_item)
+        };
         if !should_inject_full_context
+            && !action_map_epoch_snapshot_present
             && let Some(action_map_context) = {
                 let mut state = self.state.lock().await;
                 state.action_map_runtime.build_developer_context()
@@ -4889,11 +4893,7 @@ fn is_action_map_projection_developer_item(item: &ResponseItem) -> bool {
         matches!(
             entry,
             ContentItem::InputText { text }
-                if (text.contains("TaskSpace ContextProjectionV1 shadow update.")
-                    && text.contains("ContextProjectionV1 shadow (not active replacement):"))
-                    || ((text.contains("TaskSpace v0.0.5 active compact profile is enabled.")
-                        || text.contains("TaskSpace v0.0.5 active compact projection."))
-                        && text.contains("ContextProjectionV1 active replacement:"))
+                if text.contains("ContextProjectionV1 epoch snapshot:")
         )
     })
 }

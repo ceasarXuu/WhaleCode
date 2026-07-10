@@ -68,13 +68,6 @@ impl SessionState {
         self.history.record_items(items, policy);
     }
 
-    pub(crate) fn remove_history_items_matching(
-        &mut self,
-        should_remove: impl FnMut(&ResponseItem) -> bool,
-    ) -> usize {
-        self.history.remove_items_matching(should_remove)
-    }
-
     pub(crate) fn previous_turn_settings(&self) -> Option<PreviousTurnSettings> {
         self.previous_turn_settings.clone()
     }
