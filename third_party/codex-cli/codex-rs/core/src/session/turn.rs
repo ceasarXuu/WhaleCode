@@ -60,6 +60,7 @@ use crate::tools::context::SharedTurnDiffTracker;
 use crate::tools::parallel::ToolCallRuntime;
 use crate::tools::registry::ToolArgumentDiffConsumer;
 use crate::tools::router::ToolRouterParams;
+use crate::tools::sequence::execute_response_tool_sequence;
 use crate::turn_diff_tracker::TurnDiffTracker;
 use crate::turn_timing::record_turn_ttft_metric;
 use crate::unavailable_tool::collect_unavailable_called_tools;
@@ -112,9 +113,7 @@ use codex_utils_stream_parser::AssistantTextStreamParser;
 use codex_utils_stream_parser::ProposedPlanSegment;
 use codex_utils_stream_parser::extract_proposed_plan_text;
 use codex_utils_stream_parser::strip_citations;
-use futures::future::BoxFuture;
 use futures::prelude::*;
-use futures::stream::FuturesOrdered;
 use tokio_util::sync::CancellationToken;
 use tracing::Instrument;
 use tracing::error;
@@ -3021,25 +3020,6 @@ async fn handle_assistant_item_done_in_plan_mode(
     false
 }
 
-async fn drain_in_flight(
-    in_flight: &mut FuturesOrdered<BoxFuture<'static, CodexResult<ResponseInputItem>>>,
-    sess: Arc<Session>,
-    turn_context: Arc<TurnContext>,
-) -> CodexResult<()> {
-    while let Some(res) = in_flight.next().await {
-        match res {
-            Ok(response_input) => {
-                record_response_input_item(sess.as_ref(), turn_context.as_ref(), response_input)
-                    .await;
-            }
-            Err(err) => {
-                error_or_panic(format!("in-flight tool future failed during drain: {err}"));
-            }
-        }
-    }
-    Ok(())
-}
-
 async fn record_response_input_item(
     sess: &Session,
     turn_context: &TurnContext,
@@ -3191,8 +3171,7 @@ async fn try_run_sampling_request(
         .await;
     }
     let mut stream = stream_result??;
-    let mut in_flight: FuturesOrdered<BoxFuture<'static, CodexResult<ResponseInputItem>>> =
-        FuturesOrdered::new();
+    let mut pending_tool_calls = Vec::new();
     let mut needs_follow_up = false;
     let mut last_agent_message: Option<String> = None;
     let mut saw_actionable_output = false;
@@ -3317,8 +3296,6 @@ async fn try_run_sampling_request(
                 let mut ctx = HandleOutputCtx {
                     sess: sess.clone(),
                     turn_context: turn_context.clone(),
-                    tool_runtime: tool_runtime.clone(),
-                    cancellation_token: cancellation_token.child_token(),
                 };
 
                 let preempt_for_mailbox_mail = match &item {
@@ -3349,9 +3326,9 @@ async fn try_run_sampling_request(
                         Ok(output_result) => output_result,
                         Err(err) => break Err(err),
                     };
-                if let Some(tool_future) = output_result.tool_future {
+                if let Some(tool_call) = output_result.tool_call {
                     saw_actionable_output = true;
-                    in_flight.push_back(tool_future);
+                    pending_tool_calls.push(tool_call);
                 }
                 if let Some(agent_message) = output_result.last_agent_message {
                     last_agent_message = Some(agent_message);
@@ -3496,6 +3473,15 @@ async fn try_run_sampling_request(
                     .await;
                 }
                 should_emit_turn_diff = true;
+                let tool_outputs = execute_response_tool_sequence(
+                    tool_runtime.clone(),
+                    std::mem::take(&mut pending_tool_calls),
+                    cancellation_token.child_token(),
+                )
+                .await?;
+                for output in tool_outputs {
+                    record_response_input_item(sess.as_ref(), turn_context.as_ref(), output).await;
+                }
                 if let Some(false) = end_turn {
                     needs_follow_up = true;
                 }
@@ -3676,7 +3662,18 @@ async fn try_run_sampling_request(
     )
     .await;
 
-    drain_in_flight(&mut in_flight, sess.clone(), turn_context.clone()).await?;
+    if outcome.is_ok() && !pending_tool_calls.is_empty() {
+        let tool_outputs = execute_response_tool_sequence(
+            tool_runtime.clone(),
+            std::mem::take(&mut pending_tool_calls),
+            cancellation_token.child_token(),
+        )
+        .await?;
+        for output in tool_outputs {
+            record_response_input_item(sess.as_ref(), turn_context.as_ref(), output).await;
+        }
+    }
+
     if outcome.is_ok()
         && let Some(snapshot) = sess.action_map_provider_request_budget_snapshot().await
         && snapshot.node_kind.as_deref() == Some("implement_solution")

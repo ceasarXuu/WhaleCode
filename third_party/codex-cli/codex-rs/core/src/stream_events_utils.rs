@@ -1,4 +1,3 @@
-use std::pin::Pin;
 use std::sync::Arc;
 
 use base64::Engine;
@@ -6,7 +5,6 @@ use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use codex_protocol::config_types::ModeKind;
 use codex_protocol::items::TurnItem;
 use codex_utils_stream_parser::strip_citations;
-use tokio_util::sync::CancellationToken;
 
 use crate::context::ContextualUserFragment;
 use crate::context::ImageGenerationInstructions;
@@ -16,7 +14,6 @@ use crate::memories::citations::thread_ids_from_memory_citation;
 use crate::parse_turn_item;
 use crate::session::session::Session;
 use crate::session::turn_context::TurnContext;
-use crate::tools::parallel::ToolCallRuntime;
 use crate::tools::router::ToolRouter;
 use codex_protocol::error::CodexErr;
 use codex_protocol::error::Result;
@@ -28,7 +25,6 @@ use codex_protocol::models::ResponseItem;
 use codex_rollout::state_db;
 use codex_utils_absolute_path::AbsolutePathBuf;
 use codex_utils_stream_parser::strip_proposed_plan_blocks;
-use futures::Future;
 use tracing::debug;
 use tracing::instrument;
 
@@ -197,23 +193,18 @@ async fn record_stage1_output_usage_and_detect_memory_citation(
 }
 
 /// Handle a completed output item from the model stream, recording it and
-/// queuing any tool execution futures. This records items immediately so
+/// queuing any tool calls. This records items immediately so
 /// history and rollout stay in sync even if the turn is later cancelled.
-pub(crate) type InFlightFuture<'f> =
-    Pin<Box<dyn Future<Output = Result<ResponseInputItem>> + Send + 'f>>;
-
 #[derive(Default)]
 pub(crate) struct OutputItemResult {
     pub last_agent_message: Option<String>,
     pub needs_follow_up: bool,
-    pub tool_future: Option<InFlightFuture<'static>>,
+    pub tool_call: Option<crate::tools::router::ToolCall>,
 }
 
 pub(crate) struct HandleOutputCtx {
     pub sess: Arc<Session>,
     pub turn_context: Arc<TurnContext>,
-    pub tool_runtime: ToolCallRuntime,
-    pub cancellation_token: CancellationToken,
 }
 
 #[instrument(level = "trace", skip_all)]
@@ -243,15 +234,8 @@ pub(crate) async fn handle_output_item_done(
             record_completed_response_item(ctx.sess.as_ref(), ctx.turn_context.as_ref(), &item)
                 .await;
 
-            let cancellation_token = ctx.cancellation_token.child_token();
-            let tool_future: InFlightFuture<'static> = Box::pin(
-                ctx.tool_runtime
-                    .clone()
-                    .handle_tool_call(call, cancellation_token),
-            );
-
             output.needs_follow_up = true;
-            output.tool_future = Some(tool_future);
+            output.tool_call = Some(call);
         }
         // No tool call: convert messages/reasoning into turn items and mark them as complete.
         Ok(None) => {

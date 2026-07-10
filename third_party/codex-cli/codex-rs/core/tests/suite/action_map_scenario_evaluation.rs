@@ -47,6 +47,287 @@ const REALISTIC_PATCH_CALL_ID: &str = "parent-apply-cache-fix";
 const REALISTIC_TEST_CALL_ID: &str = "parent-run-cache-validation";
 const REALISTIC_FINISH_NODE_CALL_ID: &str = "parent-finish-cache-fix-node";
 
+const ORDERED_SEQUENCE_PROMPT: &str = "按固定三个节点修复 value 文件并验证。";
+const INIT_BARRIER_CALL_ID: &str = "ordered-init";
+const READ_AFTER_INIT_CALL_ID: &str = "ordered-read";
+const FINISH_INSPECT_CALL_ID: &str = "ordered-finish-inspect";
+const EDIT_AFTER_FINISH_CALL_ID: &str = "ordered-edit";
+const FINISH_IMPLEMENT_CALL_ID: &str = "ordered-finish-implement";
+const TEST_AFTER_FINISH_CALL_ID: &str = "ordered-test";
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn native_sequence_executes_dependent_tools_after_latest_state_barrier() -> Result<()> {
+    skip_if_no_network!(Ok(()));
+
+    let builder = test_codex().with_config(|config| {
+        config.include_apply_patch_tool = true;
+    });
+    let harness = TestCodexHarness::with_builder(builder).await?;
+    harness
+        .write_file("README.md", "Replace old with new and validate it.\n")
+        .await?;
+    harness.write_file("src/value.txt", "old\n").await?;
+
+    let initialize = serde_json::to_string(&json!({
+        "action": "initialize_map",
+        "task_title": "Ordered native sequence",
+        "task_objective": "Inspect, edit, and validate the fixture.",
+        "initial_nodes": [
+            {
+                "node_key": "inspect",
+                "kind": "inspect_code_context",
+                "title": "Inspect fixture",
+                "context_summary": "Read the fixture instructions."
+            },
+            {
+                "node_key": "implement",
+                "kind": "implement_solution",
+                "title": "Edit fixture",
+                "context_summary": "Apply the required edit.",
+                "dependency_keys": ["inspect"]
+            },
+            {
+                "node_key": "validate",
+                "kind": "smoke_test",
+                "title": "Validate fixture",
+                "context_summary": "Run the fixture validation.",
+                "dependency_keys": ["implement"]
+            }
+        ],
+        "current_node_key": "inspect"
+    }))?;
+    responses::mount_sse_once_match(
+        harness.server(),
+        |req: &Request| body_contains(req, ORDERED_SEQUENCE_PROMPT),
+        sse(vec![
+            ev_response_created("ordered-response-1"),
+            ev_function_call(INIT_BARRIER_CALL_ID, "taskspace_control", &initialize),
+            ev_shell_command_call(READ_AFTER_INIT_CALL_ID, "cat README.md"),
+            ev_completed("ordered-response-1"),
+        ]),
+    )
+    .await;
+
+    let finish_inspect = serde_json::to_string(&json!({
+        "action": "finish_node",
+        "node_id": "node-1",
+        "result_summary": "Fixture instructions were read.",
+        "next_node_id": "node-2"
+    }))?;
+    let patch = "*** Begin Patch\n*** Update File: src/value.txt\n@@\n-old\n+new\n*** End Patch";
+    responses::mount_sse_once_match(
+        harness.server(),
+        |req: &Request| body_contains(req, READ_AFTER_INIT_CALL_ID),
+        sse(vec![
+            ev_response_created("ordered-response-2"),
+            ev_function_call(FINISH_INSPECT_CALL_ID, "taskspace_control", &finish_inspect),
+            ev_apply_patch_function_call(EDIT_AFTER_FINISH_CALL_ID, patch),
+            ev_completed("ordered-response-2"),
+        ]),
+    )
+    .await;
+
+    let finish_implement = serde_json::to_string(&json!({
+        "action": "finish_node",
+        "node_id": "node-2",
+        "result_summary": "Fixture value was changed to new.",
+        "next_node_id": "node-3"
+    }))?;
+    responses::mount_sse_once_match(
+        harness.server(),
+        |req: &Request| body_contains(req, EDIT_AFTER_FINISH_CALL_ID),
+        sse(vec![
+            ev_response_created("ordered-response-3"),
+            ev_function_call(
+                FINISH_IMPLEMENT_CALL_ID,
+                "taskspace_control",
+                &finish_implement,
+            ),
+            ev_shell_command_call(
+                TEST_AFTER_FINISH_CALL_ID,
+                "grep -q '^new$' src/value.txt && echo validation-passed",
+            ),
+            ev_completed("ordered-response-3"),
+        ]),
+    )
+    .await;
+
+    let finish_validate = serde_json::to_string(&json!({
+        "action": "finish_node",
+        "node_id": "node-3",
+        "result_summary": "Fixture validation passed."
+    }))?;
+    responses::mount_sse_once_match(
+        harness.server(),
+        |req: &Request| body_contains(req, TEST_AFTER_FINISH_CALL_ID),
+        sse(vec![
+            ev_response_created("ordered-response-4"),
+            ev_function_call(
+                "ordered-finish-validate",
+                "taskspace_control",
+                &finish_validate,
+            ),
+            ev_completed("ordered-response-4"),
+        ]),
+    )
+    .await;
+    responses::mount_sse_once_match(
+        harness.server(),
+        |req: &Request| body_contains(req, "Fixture validation passed."),
+        sse(vec![
+            ev_response_created("ordered-response-final"),
+            ev_assistant_message("ordered-final", "Fixture fixed and validated."),
+            ev_completed("ordered-response-final"),
+        ]),
+    )
+    .await;
+
+    enable_taskspace(&harness).await?;
+    harness.submit(ORDERED_SEQUENCE_PROMPT).await?;
+
+    assert_eq!(harness.read_file_text("src/value.txt").await?, "new\n");
+    assert!(
+        harness
+            .function_call_stdout(TEST_AFTER_FINISH_CALL_ID)
+            .await
+            .contains("validation-passed")
+    );
+    let requests = harness.request_bodies().await;
+    for call_id in [
+        INIT_BARRIER_CALL_ID,
+        READ_AFTER_INIT_CALL_ID,
+        FINISH_INSPECT_CALL_ID,
+        EDIT_AFTER_FINISH_CALL_ID,
+        FINISH_IMPLEMENT_CALL_ID,
+        TEST_AFTER_FINISH_CALL_ID,
+    ] {
+        assert!(
+            requests
+                .iter()
+                .any(|request| request.to_string().contains(call_id)),
+            "missing ordered call/output {call_id}"
+        );
+    }
+    let snapshot = harness.test().codex.action_map_snapshot().await;
+    assert_eq!(snapshot.maps[0].nodes.len(), 3);
+    assert!(
+        snapshot.maps[0]
+            .nodes
+            .iter()
+            .all(|node| node.status == "completed")
+    );
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn failed_state_barrier_skips_dependent_tail_without_side_effect() -> Result<()> {
+    skip_if_no_network!(Ok(()));
+
+    let harness = TestCodexHarness::new().await?;
+    harness
+        .write_file("README.md", "Read before finish.\n")
+        .await?;
+    let initialize = serde_json::to_string(&json!({
+        "action": "initialize_map",
+        "task_title": "Barrier failure",
+        "task_objective": "Verify failure stops the dependent tail.",
+        "initial_nodes": [{
+            "node_key": "inspect",
+            "kind": "inspect_code_context",
+            "title": "Inspect fixture",
+            "context_summary": "Read README before finishing."
+        }],
+        "current_node_key": "inspect"
+    }))?;
+    responses::mount_sse_once_match(
+        harness.server(),
+        |req: &Request| body_contains(req, "验证失败屏障"),
+        sse(vec![
+            ev_response_created("failure-response-1"),
+            ev_function_call("failure-init", "taskspace_control", &initialize),
+            ev_completed("failure-response-1"),
+        ]),
+    )
+    .await;
+
+    let invalid_bind = serde_json::to_string(&json!({
+        "action": "bind_node",
+        "node_id": "missing-node"
+    }))?;
+    responses::mount_sse_once_match(
+        harness.server(),
+        |req: &Request| body_contains(req, "failure-init"),
+        sse(vec![
+            ev_response_created("failure-response-2"),
+            ev_function_call("failure-barrier", "taskspace_control", &invalid_bind),
+            ev_shell_command_call("failure-tail", "printf touched > should-not-exist"),
+            ev_completed("failure-response-2"),
+        ]),
+    )
+    .await;
+    responses::mount_sse_once_match(
+        harness.server(),
+        |req: &Request| body_contains(req, "skipped_due_to_prior_failure"),
+        sse(vec![
+            ev_response_created("failure-response-3"),
+            ev_shell_command_call("failure-read", "cat README.md"),
+            ev_completed("failure-response-3"),
+        ]),
+    )
+    .await;
+    let finish = serde_json::to_string(&json!({
+        "action": "finish_node",
+        "node_id": "node-1",
+        "result_summary": "README was read."
+    }))?;
+    responses::mount_sse_once_match(
+        harness.server(),
+        |req: &Request| body_contains(req, "failure-read"),
+        sse(vec![
+            ev_response_created("failure-response-4"),
+            ev_function_call("failure-finish", "taskspace_control", &finish),
+            ev_completed("failure-response-4"),
+        ]),
+    )
+    .await;
+    responses::mount_sse_once_match(
+        harness.server(),
+        |req: &Request| body_contains(req, "README was read."),
+        sse(vec![
+            ev_response_created("failure-response-final"),
+            ev_assistant_message("failure-final", "Failure path verified."),
+            ev_completed("failure-response-final"),
+        ]),
+    )
+    .await;
+
+    enable_taskspace(&harness).await?;
+    harness.submit("验证失败屏障").await?;
+
+    assert!(!harness.path("should-not-exist").exists());
+    let requests = harness.request_bodies().await;
+    assert!(requests.iter().any(|request| {
+        let text = request.to_string();
+        text.contains("failure-tail") && text.contains("skipped_due_to_prior_failure")
+    }));
+    Ok(())
+}
+
+async fn enable_taskspace(harness: &TestCodexHarness) -> Result<()> {
+    harness
+        .test()
+        .codex
+        .submit(Op::SetMapRuntimeMode {
+            mode: MapRuntimeMode::Experiment,
+        })
+        .await?;
+    wait_for_event(&harness.test().codex, |event| {
+        matches!(event, EventMsg::MapRuntime(MapRuntimeEvent::ModeChanged(_)))
+    })
+    .await;
+    Ok(())
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn map_runtime_conversation_records_node_bound_subagent_events() -> Result<()> {
     skip_if_no_network!(Ok(()));

@@ -5,7 +5,7 @@
 - Created: 2026-07-10
 - Updated: 2026-07-11
 - Version: v0.0.5 build-R5 follow-up
-- Status: In progress - J0/J1 complete, J2 next
+- Status: In progress - J0/J1/J2 complete, J3 next
 - Owner / Responsible: WhaleCode core runtime
 - Related Systems: provider tool choice、native tool scheduler、TaskSpace hard state、taskspace_control、turn completion、benchmark observer
 - Related Links: `01-r5-phased-simplification-plan.md`、`13-r5-unified-docker-benchmark-and-logging-plan.md`、`coe/2026-07-10-22-56-r5-request-amplification.md`
@@ -171,6 +171,23 @@ control 调用不计为 J1 收益，留给 J2/J3 收敛。
 
 **Exit:** 以下固定拓扑序列均通过正反测试：`initialize -> read`、`finish inspect -> edit`、`finish implement -> test`；失败 barrier 后无 tail side effect；普通并行工具性能不回退；节点 attribution 100%指向最新 binding。
 
+**实施结果（2026-07-11）：** J2 已完成。provider response item 先按原顺序收集为原始
+`ToolCall`，通用 scheduler 再拆为普通并行段和单个 `taskspace_control` 状态屏障。没有动作重排、自动
+插入或参数解释；每个调用仍进入原 router/handler/permission/sandbox/diff tracker，TaskSpace preflight
+只因执行被延后而自然读取到屏障后的最新状态。普通工具-only response 保持一个并行段。
+
+失败停止使用 `TaskSpaceToolSkippedV1` 机械输出，保留未执行工具的原 call id，并只记录
+`skipped_due_to_prior_failure` 和前置失败 call id。日志增加 response sequence、parallel segment、barrier
+started/completed/failed 和 skipped call 事件，不记录工具参数正文。真正失败或取消的不完整 provider
+response 不执行未调度副作用；mailbox 正常抢占则在统一收尾点执行已完整收到的调用。
+
+unit tests 覆盖 provider 顺序分段、ordinary-only 并行段和 skipped output。真实 session 集成测试使用固定
+三节点 Map，在同一 response 内分别通过 `initialize -> read`、`finish inspect -> edit`、`finish implement
+-> test`，最终3个节点均完成；反向测试让 bind barrier 失败，确认 dependent shell 文件副作用为零且
+下一请求同时包含失败和 skipped output。Standard 回归证明 MCP opt-in 并发和默认串行语义均未改变；
+测试前需先执行 `cargo build -p codex-rmcp-client --bin test_stdio_server --locked`，否则 fixture 缺失会在
+业务断言前失败。
+
 **Rollback:** revert J2 commit，回到每个 control 独立 round trip；不恢复 action-contract transport。
 
 ### R5-J3：P3 Agent-authored terminal transaction
@@ -211,7 +228,7 @@ control 调用不计为 J1 收益，留给 J2/J3 收敛。
 |---|---|---|---|---|---|
 | J0 | provider probe、fixed-topology fixture、failure contract | 不依赖 J1 code | capability/contract artifacts | 100% passed | proceed J1 |
 | J1 | hard-state tool-choice fixtures、wire/cache trace | 不依赖 barrier | first-response and tools-hash evidence | 100% passed | proceed J2 |
-| J2 | ordered barrier unit/integration/side-effect tests | 不依赖 terminal transaction | latest-state attribution and stop evidence | 100% | proceed J3 |
+| J2 | ordered barrier unit/integration/side-effect tests | 不依赖 terminal transaction | latest-state attribution and stop evidence | 100% passed | proceed J3 |
 | J3 | terminal success/rejection/history tests | 不依赖 benefit repeats | completion provenance evidence | 100% | proceed J4 |
 | J4 | Docker fixed-topology repeats、complex sample、adversarial review | 无后续 phase 补证 | performance/map/semantic report | 100% | proceed I3 |
 
@@ -220,7 +237,7 @@ control 调用不计为 J1 收益，留给 J2/J3 收敛。
 | Plan Item | Expected Behavior | Production Code Path | Integration Entry | Test Evidence | Runtime / Log Evidence | Mock Exposure | Status |
 |---|---|---|---|---|---|---|---|
 | P0 tool selection | blank map 首响应只能选择 control tool | Chat body/provider request construction | TaskSpace initial request | named-choice/visibility fixtures | tool-choice trace + final wire | provider probe only in J0 | complete; Docker live evidence passed |
-| P1 ordered barrier | state change后的调用按最新状态执行 | native tool scheduler、TaskSpace preflight | multi-call provider response | order/failure/permission/attribution tests | barrier lifecycle events | none at exit | planned |
+| P1 ordered barrier | state change后的调用按最新状态执行 | native tool scheduler、TaskSpace preflight | multi-call provider response | order/failure/permission/attribution tests | barrier lifecycle events | none at exit | complete; positive/negative integration passed |
 | P3 terminal transaction | finish 成功后直接发布 Agent final | taskspace_control handler、turn completion/history | last running node | success/reject/replay/provenance tests | terminal candidate events | none at exit | planned |
 | anti-collapse gate | 收益不来自节点减少 | benchmark fixed topology + graph health | J4 Docker runs | topology fixtures | map/node/edge/control metrics | none | planned |
 
@@ -281,5 +298,5 @@ control 调用不计为 J1 收益，留给 J2/J3 收敛。
 
 ## 16. 当前暂停点
 
-R5-F、R5-I0/I1/I2 和 J0/J1 已完成，当前进入 J2。不得通过
+R5-F、R5-I0/I1/I2 和 J0/J1/J2 已完成，当前进入 J3。不得通过
 提示 Agent 少建节点、runtime 自动 finish 或节点粗化宣称请求收益。

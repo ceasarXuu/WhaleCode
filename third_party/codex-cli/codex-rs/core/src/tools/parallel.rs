@@ -247,6 +247,41 @@ impl ToolCallRuntime {
             },
         }
     }
+
+    pub(crate) fn skipped_response(call: &ToolCall, prior_call_id: &str) -> ResponseInputItem {
+        let message = format!(
+            "TaskSpaceToolSkippedV1:\nstatus: skipped_due_to_prior_failure\nprior_call_id: {prior_call_id}"
+        );
+        match &call.payload {
+            ToolPayload::ToolSearch { .. } => ResponseInputItem::ToolSearchOutput {
+                call_id: call.call_id.clone(),
+                status: "skipped_due_to_prior_failure".to_string(),
+                execution: "client".to_string(),
+                tools: Vec::new(),
+            },
+            ToolPayload::Mcp { .. } => ResponseInputItem::McpToolCallOutput {
+                call_id: call.call_id.clone(),
+                output: codex_protocol::mcp::CallToolResult::from_error_text(message),
+            },
+            ToolPayload::Custom { .. } => ResponseInputItem::CustomToolCallOutput {
+                call_id: call.call_id.clone(),
+                name: None,
+                output: codex_protocol::models::FunctionCallOutputPayload {
+                    body: codex_protocol::models::FunctionCallOutputBody::Text(message),
+                    success: Some(false),
+                },
+            },
+            ToolPayload::Function { .. } | ToolPayload::LocalShell { .. } => {
+                ResponseInputItem::FunctionCallOutput {
+                    call_id: call.call_id.clone(),
+                    output: codex_protocol::models::FunctionCallOutputPayload {
+                        body: codex_protocol::models::FunctionCallOutputBody::Text(message),
+                        success: Some(false),
+                    },
+                }
+            }
+        }
+    }
 }
 
 impl ToolCallRuntime {

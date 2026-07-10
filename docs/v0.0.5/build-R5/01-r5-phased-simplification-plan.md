@@ -10,7 +10,7 @@
 Created: 2026-07-09
 Updated: 2026-07-11
 Version: v0.0.5 build-R5
-Status: In Progress - R5-F, R5-I0/I1/I2 and R5-J0/J1 complete; R5-J2 is next
+Status: In Progress - R5-F, R5-I0/I1/I2 and R5-J0/J1/J2 complete; R5-J3 is next
 Owner / Responsible: WhaleCode core runtime
 Related Systems: TaskSpace runtime, action_map runtime, taskspace_control,
   context projection, provider-visible context, benchmark harness
@@ -113,7 +113,7 @@ TaskSpace 拉回三个职责：
 | R5-G | Regression and benefit gate | 正向/负向样本对照、成本和语义传递报告 | 不引入明确负收益，失败可解释 |
 | R5-H | Closeout | R5 收口报告和后续 backlog | 文档、测试、代码、证据一致 |
 | R5-I | Docker-only benchmark and logging | 统一容器执行 substrate、生命周期日志和本机路径删除 | I0/I1/I2 已完成；I3/I4 在 R5-J 后执行并删除本机 fallback |
-| R5-J | Native control cadence | hard-state tool selection、native ordered barrier、Agent-authored terminal transaction | 固定 Map 拓扑下 control-only response 显著下降；无 Map 坍缩、语义注入或工具反馈损失；J0/J1 已完成，当前进入 J2 |
+| R5-J | Native control cadence | hard-state tool selection、native ordered barrier、Agent-authored terminal transaction | 固定 Map 拓扑下 control-only response 显著下降；无 Map 坍缩、语义注入或工具反馈损失；J0/J1/J2 已完成，当前进入 J3 |
 
 ### 1.5.1 Phase 验收和工程收益矩阵
 
@@ -977,7 +977,7 @@ provider request count、state-machine action count、wall time、失败分类�
 | R5-F module split | active path 仅保留 map/node/event/ref；projection 为无语义决策构造器 | `action_map/map.rs`, `action_map/projection.rs`, `action_map/runtime.rs` | whale exec --taskspace | protocol 192/192；runtime 6/6；multi-agent 82/82；rollout 21/21 | raw body/ref 和 map lifecycle trace 保持 | 无 legacy snapshot adapter、semantic ledger 或双写 | landed |
 | R5-G benefit gate | 简化无明确负收益 | benchmark harness | targeted samples | paired report | metrics json/report | none | in progress: G0/G1/G2 landed; G3 pending after I/J |
 | R5-I Docker-only benchmark | 正式样本不再继承宿主 Python/pytest/PATH；容器日志可完整关联 | `container-runtime.ps1`、`container-benchmark-runner.ps1` | benchmark Docker roles | I0-I4 fixtures + real paired Docker runs | container manifest/lifecycle/log/stats/rollout artifacts | I4 删除本机 fallback | I0/I1/I2 landed；I3/I4 pending after J4 |
-| R5-J native control cadence | P0 hard-state tool selection；P1 ordered state barrier；P3 Agent-authored terminal transaction；P2 明确禁止 | provider request construction、native tool scheduler、TaskSpace preflight、turn completion | TaskSpace native tool loop | J0-J4 fixed-topology/order/failure/provenance tests | control-only response、barrier sequence、terminal source、map topology metrics | 不恢复 action-contract；无 map coarsening | J0/J1 complete; J2 active |
+| R5-J native control cadence | P0 hard-state tool selection；P1 ordered state barrier；P3 Agent-authored terminal transaction；P2 明确禁止 | provider request construction、native tool scheduler、TaskSpace preflight、turn completion | TaskSpace native tool loop | J0-J4 fixed-topology/order/failure/provenance tests | control-only response、barrier sequence、terminal source、map topology metrics | 不恢复 action-contract；无 map coarsening | J0/J1/J2 complete; J3 active |
 
 ## 1.17 Change-chain Logging Matrix
 
