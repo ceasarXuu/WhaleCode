@@ -33,8 +33,6 @@ use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 
 use crate::action_map::ActionMapProviderRequestBudgetSnapshot;
-use crate::action_map::TASKSPACE_AGENT_CONTEXT_BUNDLE_END_MARKER;
-use crate::action_map::TASKSPACE_AGENT_CONTEXT_BUNDLE_MARKER;
 use codex_api::ApiError;
 use codex_api::AuthProvider;
 use codex_api::CompactClient as ApiCompactClient;
@@ -149,6 +147,8 @@ const RESPONSES_WEBSOCKETS_V2_BETA_HEADER_VALUE: &str = "responses_websockets=20
 const RESPONSES_ENDPOINT: &str = "/responses";
 const RESPONSES_COMPACT_ENDPOINT: &str = "/responses/compact";
 const TASKSPACE_ACTIVE_PROJECTION_MARKER: &str = "ContextProjectionV1 epoch snapshot:";
+const TASKSPACE_AGENT_CONTEXT_BUNDLE_MARKER: &str = "TaskSpaceAgentContextBundleV1:";
+const TASKSPACE_AGENT_CONTEXT_BUNDLE_END_MARKER: &str = "TaskSpaceAgentContextBundleV1 end.";
 const TASKSPACE_SHADOW_PROJECTION_MARKER: &str =
     "ContextProjectionV1 shadow (not active replacement):";
 const TASKSPACE_PROJECTION_REQUIRED_SECTIONS: &[&str] = &[
