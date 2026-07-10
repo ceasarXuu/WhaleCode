@@ -61,6 +61,19 @@ fn mechanical_blank_map_blocks_ordinary_tools() {
 
     assert!(error.to_string().contains("active_task_path_without_nodes"));
     assert!(error.to_string().contains("TaskSpaceGateRecoveryV1"));
+    let snapshot = state
+        .provider_request_budget_snapshot()
+        .expect("blank map provider snapshot");
+    assert!(snapshot.map_requires_initialization);
+}
+
+#[test]
+fn initialized_map_releases_provider_initialization_selection() {
+    let (state, _, _) = initialized_state(vec![inspect_node("inspect")], "inspect");
+    let snapshot = state
+        .provider_request_budget_snapshot()
+        .expect("initialized map provider snapshot");
+    assert!(!snapshot.map_requires_initialization);
 }
 
 #[test]

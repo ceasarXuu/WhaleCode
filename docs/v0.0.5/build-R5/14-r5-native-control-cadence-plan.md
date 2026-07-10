@@ -3,9 +3,9 @@
 ## 1. 元数据
 
 - Created: 2026-07-10
-- Updated: 2026-07-10
+- Updated: 2026-07-11
 - Version: v0.0.5 build-R5 follow-up
-- Status: In progress - J0 complete, J1 next
+- Status: In progress - J0/J1 complete, J2 next
 - Owner / Responsible: WhaleCode core runtime
 - Related Systems: provider tool choice、native tool scheduler、TaskSpace hard state、taskspace_control、turn completion、benchmark observer
 - Related Links: `01-r5-phased-simplification-plan.md`、`13-r5-unified-docker-benchmark-and-logging-plan.md`、`coe/2026-07-10-22-56-r5-request-amplification.md`
@@ -142,6 +142,18 @@ response item order，J3 冻结为 `finish_node.final_candidate` 参数载体。
 
 **Exit:** 空 Map focused test 中首响应 ordinary tool=0、initialize success=100%；非空 Map 不强制 control；G1 strict-prefix/cache gate 不回退；无新增初始化提示。
 
+**实施结果（2026-07-11）：** J1 已完成。`Prompt.tool_choice` 已改为 typed provider
+contract；机械空 Map 时首请求使用 named `taskspace_control`，初始化成功后恢复 `auto`，tools
+集合和 schema 不变。DeepSeek 在 named choice 时按 J0 contract 关闭 thinking；该响应产生的 assistant
+tool-call history 从首次出现起固定携带空 `reasoning_content` 字段，忠实表达“无 reasoning”，避免后续
+thinking 恢复时 provider 拒绝历史消息，同时不改写任何已有 reasoning。
+
+focused tests 覆盖空 Map 选择、初始化后释放、Chat body 和稳定历史字段。Docker 实跑
+`target/r5-j1-hard-state-selection-final/count-call-stack/20260711-042317-066` 证明：首请求只选择
+`taskspace_control`，普通工具调用前已完成初始化；19次请求的 tools hash 全部相同，后续18次 wire
+prefix 比较18/18保持，cache hit 97.68%，业务成功且无 provider protocol error。该样本19次请求和9次
+control 调用不计为 J1 收益，留给 J2/J3 收敛。
+
 **Rollback:** revert J1 commit；不保留 named-choice/visibility 双分支。
 
 ### R5-J2：P1 native ordered state barrier
@@ -198,7 +210,7 @@ response item order，J3 冻结为 `finish_node.final_candidate` 参数载体。
 | Phase | Independent Verification | Forbidden Future Dependency | Exit Evidence | Required Before Next | Decision |
 |---|---|---|---|---|---|
 | J0 | provider probe、fixed-topology fixture、failure contract | 不依赖 J1 code | capability/contract artifacts | 100% passed | proceed J1 |
-| J1 | hard-state tool-choice fixtures、wire/cache trace | 不依赖 barrier | first-response and tools-hash evidence | 100% | proceed J2 |
+| J1 | hard-state tool-choice fixtures、wire/cache trace | 不依赖 barrier | first-response and tools-hash evidence | 100% passed | proceed J2 |
 | J2 | ordered barrier unit/integration/side-effect tests | 不依赖 terminal transaction | latest-state attribution and stop evidence | 100% | proceed J3 |
 | J3 | terminal success/rejection/history tests | 不依赖 benefit repeats | completion provenance evidence | 100% | proceed J4 |
 | J4 | Docker fixed-topology repeats、complex sample、adversarial review | 无后续 phase 补证 | performance/map/semantic report | 100% | proceed I3 |
@@ -207,7 +219,7 @@ response item order，J3 冻结为 `finish_node.final_candidate` 参数载体。
 
 | Plan Item | Expected Behavior | Production Code Path | Integration Entry | Test Evidence | Runtime / Log Evidence | Mock Exposure | Status |
 |---|---|---|---|---|---|---|---|
-| P0 tool selection | blank map 首响应只能选择 control tool | Chat body/provider request construction | TaskSpace initial request | named-choice/visibility fixtures | tool-choice trace + final wire | provider probe only in J0 | J0 contract frozen; J1 pending |
+| P0 tool selection | blank map 首响应只能选择 control tool | Chat body/provider request construction | TaskSpace initial request | named-choice/visibility fixtures | tool-choice trace + final wire | provider probe only in J0 | complete; Docker live evidence passed |
 | P1 ordered barrier | state change后的调用按最新状态执行 | native tool scheduler、TaskSpace preflight | multi-call provider response | order/failure/permission/attribution tests | barrier lifecycle events | none at exit | planned |
 | P3 terminal transaction | finish 成功后直接发布 Agent final | taskspace_control handler、turn completion/history | last running node | success/reject/replay/provenance tests | terminal candidate events | none at exit | planned |
 | anti-collapse gate | 收益不来自节点减少 | benchmark fixed topology + graph health | J4 Docker runs | topology fixtures | map/node/edge/control metrics | none | planned |
@@ -269,5 +281,5 @@ response item order，J3 冻结为 `finish_node.final_candidate` 参数载体。
 
 ## 16. 当前暂停点
 
-R5-F 和 R5-I0/I1/I2 已完成，J0 provider capability 与 contract 已冻结，当前进入 J1。不得通过
+R5-F、R5-I0/I1/I2 和 J0/J1 已完成，当前进入 J2。不得通过
 提示 Agent 少建节点、runtime 自动 finish 或节点粗化宣称请求收益。

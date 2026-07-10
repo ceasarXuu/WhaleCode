@@ -71,6 +71,7 @@ use codex_analytics::CompactionReason;
 use codex_analytics::InvocationType;
 use codex_analytics::TurnResolvedConfigFact;
 use codex_analytics::build_track_events_context;
+use codex_api::ToolChoice;
 use codex_async_utils::OrCancelExt;
 use codex_features::Feature;
 use codex_hooks::HookEvent;
@@ -1011,7 +1012,16 @@ pub(crate) fn build_prompt(
         turn_context,
         base_instructions,
         TaskspaceProviderToolVisibility::All,
+        ToolChoice::Auto,
     )
+}
+
+fn taskspace_provider_tool_choice(map_requires_initialization: bool) -> ToolChoice {
+    if map_requires_initialization {
+        ToolChoice::function("taskspace_control")
+    } else {
+        ToolChoice::Auto
+    }
 }
 
 fn apply_provider_tool_visibility(
@@ -1039,6 +1049,7 @@ fn build_prompt_with_tool_visibility(
     turn_context: &TurnContext,
     base_instructions: BaseInstructions,
     tool_visibility: TaskspaceProviderToolVisibility,
+    tool_choice: ToolChoice,
 ) -> Prompt {
     let deferred_dynamic_tools = turn_context
         .dynamic_tools
@@ -1061,7 +1072,7 @@ fn build_prompt_with_tool_visibility(
         input,
         tools,
         parallel_tool_calls: turn_context.model_info.supports_parallel_tool_calls,
-        tool_choice: "auto".to_string(),
+        tool_choice,
         base_instructions,
         personality: turn_context.personality,
         output_schema: turn_context.final_output_json_schema.clone(),
@@ -1227,6 +1238,11 @@ async fn run_sampling_request(
             turn_context.as_ref(),
             base_instructions.clone(),
             tool_visibility,
+            taskspace_provider_tool_choice(
+                provider_budget_snapshot
+                    .as_ref()
+                    .is_some_and(|snapshot| snapshot.map_requires_initialization),
+            ),
         );
         let err = match try_run_sampling_request(
             tool_runtime.clone(),
@@ -1894,6 +1910,16 @@ mod active_context_replacement_tests {
         let names = visible.iter().map(ToolSpec::name).collect::<Vec<_>>();
 
         assert_eq!(names, vec!["update_plan", "taskspace_control"]);
+    }
+
+    #[test]
+    fn blank_map_selects_control_without_changing_tool_visibility() {
+        let selected = taskspace_provider_tool_choice(true);
+        assert_eq!(selected.function_name(), Some("taskspace_control"));
+        assert!(selected.requires_disabled_thinking());
+
+        let released = taskspace_provider_tool_choice(false);
+        assert_eq!(released, ToolChoice::Auto);
     }
 
     fn message(role: &str, text: &str) -> ResponseItem {

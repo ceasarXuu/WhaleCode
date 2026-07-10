@@ -1930,7 +1930,7 @@ impl ModelClientSession {
             None
         };
         if provider.wire_api == codex_api::WireApi::ChatCompletions
-            && prompt.tool_choice == "required"
+            && prompt.tool_choice.requires_disabled_thinking()
         {
             reasoning = Some(Reasoning {
                 effort: Some(ReasoningEffortConfig::None),

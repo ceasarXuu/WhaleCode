@@ -1,4 +1,5 @@
 pub use codex_api::ResponseEvent;
+use codex_api::ToolChoice;
 use codex_config::types::Personality;
 use codex_protocol::error::Result;
 use codex_protocol::exec_output::ExecOutputMetadata;
@@ -37,7 +38,7 @@ pub struct Prompt {
     pub(crate) parallel_tool_calls: bool,
 
     /// Tool choice policy for transports that support model-side tool forcing.
-    pub(crate) tool_choice: String,
+    pub(crate) tool_choice: ToolChoice,
 
     pub base_instructions: BaseInstructions,
 
@@ -57,7 +58,7 @@ impl Default for Prompt {
             input: Vec::new(),
             tools: Vec::new(),
             parallel_tool_calls: false,
-            tool_choice: "auto".to_string(),
+            tool_choice: ToolChoice::Auto,
             base_instructions: BaseInstructions::default(),
             personality: None,
             output_schema: None,

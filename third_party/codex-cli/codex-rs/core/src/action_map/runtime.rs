@@ -253,6 +253,7 @@ pub(crate) struct ActionMapProviderRequestBudgetSnapshot {
     pub(crate) profile_name: Option<String>,
     pub(crate) request_phase: Option<String>,
     pub(crate) provider_request_context_missing_reason: Option<String>,
+    pub(crate) map_requires_initialization: bool,
     pub(crate) request_count: usize,
     pub(crate) max_requests: usize,
     pub(crate) node_request_count: usize,
@@ -1960,6 +1961,10 @@ feedback:\n\
         let provider_request_context_missing_reason =
             self.provider_request_context_missing_reason(&map_id, node_id.as_deref(), phase);
         let task_id = self.maps.get(&map_id).and_then(|map| map.task_id.clone());
+        let map_requires_initialization = self
+            .maps
+            .get(&map_id)
+            .is_some_and(|map| map.nodes.is_empty());
         let node_request_count = node_id
             .as_ref()
             .and_then(|node_id| {
@@ -1978,6 +1983,7 @@ feedback:\n\
             profile_name: Some(budget.profile_name.clone()),
             request_phase,
             provider_request_context_missing_reason,
+            map_requires_initialization,
             request_count: self.budget_counters.rollout_model_request_count,
             max_requests: budget.max_rollout_model_requests,
             node_request_count,

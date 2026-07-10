@@ -10,6 +10,7 @@ use codex_protocol::protocol::W3cTraceContext;
 use futures::Stream;
 use serde::Deserialize;
 use serde::Serialize;
+use serde::Serializer;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::pin::Pin;
@@ -162,6 +163,86 @@ impl From<VerbosityConfig> for OpenAiVerbosity {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ToolChoice {
+    Auto,
+    None,
+    Required,
+    Function { name: String },
+}
+
+impl ToolChoice {
+    pub fn function(name: impl Into<String>) -> Self {
+        Self::Function { name: name.into() }
+    }
+
+    pub fn mode(&self) -> Option<&'static str> {
+        match self {
+            Self::Auto => Some("auto"),
+            Self::None => Some("none"),
+            Self::Required => Some("required"),
+            Self::Function { .. } => None,
+        }
+    }
+
+    pub fn function_name(&self) -> Option<&str> {
+        match self {
+            Self::Function { name } => Some(name),
+            Self::Auto | Self::None | Self::Required => None,
+        }
+    }
+
+    pub fn kind(&self) -> &'static str {
+        if matches!(self, Self::Function { .. }) {
+            "named_function"
+        } else {
+            self.mode().unwrap_or("unknown")
+        }
+    }
+
+    pub fn requires_disabled_thinking(&self) -> bool {
+        matches!(self, Self::Required | Self::Function { .. })
+    }
+}
+
+impl Default for ToolChoice {
+    fn default() -> Self {
+        Self::Auto
+    }
+}
+
+impl From<&str> for ToolChoice {
+    fn from(value: &str) -> Self {
+        match value {
+            "none" => Self::None,
+            "required" => Self::Required,
+            _ => Self::Auto,
+        }
+    }
+}
+
+impl From<String> for ToolChoice {
+    fn from(value: String) -> Self {
+        Self::from(value.as_str())
+    }
+}
+
+impl Serialize for ToolChoice {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        match self {
+            Self::Function { name } => serde_json::json!({
+                "type": "function",
+                "name": name,
+            })
+            .serialize(serializer),
+            _ => self.mode().unwrap_or("auto").serialize(serializer),
+        }
+    }
+}
+
 #[derive(Debug, Serialize, Clone, PartialEq)]
 pub struct ResponsesApiRequest {
     pub model: String,
@@ -169,7 +250,7 @@ pub struct ResponsesApiRequest {
     pub instructions: String,
     pub input: Vec<ResponseItem>,
     pub tools: Vec<serde_json::Value>,
-    pub tool_choice: String,
+    pub tool_choice: ToolChoice,
     pub parallel_tool_calls: bool,
     pub reasoning: Option<Reasoning>,
     pub store: bool,
@@ -217,7 +298,7 @@ pub struct ResponseCreateWsRequest {
     pub previous_response_id: Option<String>,
     pub input: Vec<ResponseItem>,
     pub tools: Vec<Value>,
-    pub tool_choice: String,
+    pub tool_choice: ToolChoice,
     pub parallel_tool_calls: bool,
     pub reasoning: Option<Reasoning>,
     pub store: bool,
