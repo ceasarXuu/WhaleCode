@@ -146,7 +146,7 @@ enum TaskspaceProviderResponseActionability {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum TaskspaceProviderToolVisibility {
-    All,
+    Standard,
     TaskspaceNative,
 }
 
@@ -1010,7 +1010,7 @@ pub(crate) fn build_prompt(
         router,
         turn_context,
         base_instructions,
-        TaskspaceProviderToolVisibility::All,
+        TaskspaceProviderToolVisibility::Standard,
         ToolChoice::Auto,
     )
 }
@@ -1028,7 +1028,12 @@ fn apply_provider_tool_visibility(
     tool_visibility: TaskspaceProviderToolVisibility,
 ) -> Vec<ToolSpec> {
     match tool_visibility {
-        TaskspaceProviderToolVisibility::All => tools,
+        TaskspaceProviderToolVisibility::Standard => {
+            tools
+                .into_iter()
+                .filter(|spec| spec.name() != "taskspace_control")
+                .collect()
+        }
         TaskspaceProviderToolVisibility::TaskspaceNative => {
             trace!(
                 target = "codex_core::taskspace",
@@ -1229,7 +1234,7 @@ async fn run_sampling_request(
         let tool_visibility = if taskspace_context_visible || provider_budget_snapshot.is_some() {
             TaskspaceProviderToolVisibility::TaskspaceNative
         } else {
-            TaskspaceProviderToolVisibility::All
+            TaskspaceProviderToolVisibility::Standard
         };
         let prompt = build_prompt_with_tool_visibility(
             prompt_input,
@@ -1899,16 +1904,17 @@ mod active_context_replacement_tests {
     }
 
     #[test]
-    fn standard_native_tools_keep_linear_plan_and_map_control() {
+    fn standard_native_tools_hide_map_control_but_keep_linear_plan() {
         let tools = vec![
             codex_tools::create_update_plan_tool(),
             codex_tools::create_taskspace_control_tool(),
         ];
 
-        let visible = apply_provider_tool_visibility(tools, TaskspaceProviderToolVisibility::All);
+        let visible =
+            apply_provider_tool_visibility(tools, TaskspaceProviderToolVisibility::Standard);
         let names = visible.iter().map(ToolSpec::name).collect::<Vec<_>>();
 
-        assert_eq!(names, vec!["update_plan", "taskspace_control"]);
+        assert_eq!(names, vec!["update_plan"]);
     }
 
     #[test]
