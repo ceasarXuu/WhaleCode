@@ -1,0 +1,63 @@
+{
+  "schema_version": 1,
+  "base_image": "ubuntu@sha256:4fbb8e6a8395de5a7550b33509421a2bafbc0aab6c06ba2cef9ebffbc7092d90",
+  "image_tag": "whalecode/taskspace-benchmark:r5",
+  "paths": {
+    "workspace": "/workspace",
+    "artifacts": "/artifacts",
+    "whale_binary": "/opt/whale/whale",
+    "provider_secret": "/run/secrets/deepseek_api_key",
+    "home": "/artifacts/home"
+  },
+  "resources": {
+    "cpus": 4.0,
+    "memory_bytes": 8589934592,
+    "memory_swap_bytes": 8589934592,
+    "pids_limit": 512
+  },
+  "logging": {
+    "driver": "local",
+    "max_size": "10m",
+    "max_files": 3,
+    "stats_interval_ms": 5000
+  },
+  "mount_policy": {
+    "agent": {
+      "workspace": "rw",
+      "artifacts": "rw",
+      "whale_binary": "ro",
+      "provider_secret": "ro",
+      "oracle": "none"
+    },
+    "validator": {
+      "workspace": "rw",
+      "artifacts": "rw",
+      "whale_binary": "none",
+      "provider_secret": "none",
+      "oracle": "none"
+    },
+    "oracle": {
+      "workspace": "ro",
+      "artifacts": "rw",
+      "whale_binary": "none",
+      "provider_secret": "none",
+      "oracle": "ro"
+    }
+  },
+  "reason_codes": [
+    "docker_unavailable",
+    "image_build_failed",
+    "image_digest_missing",
+    "container_create_failed",
+    "container_preflight_failed",
+    "container_start_failed",
+    "container_timeout",
+    "container_nonzero_exit",
+    "container_log_collection_failed",
+    "container_inspect_failed",
+    "container_cleanup_failed",
+    "secret_materialization_failed",
+    "secret_leak_detected",
+    "oracle_mount_leak_detected"
+  ]
+}

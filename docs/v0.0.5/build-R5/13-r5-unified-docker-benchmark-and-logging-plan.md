@@ -3,9 +3,9 @@
 ## 1. 元数据
 
 - Created: 2026-07-10
-- Updated: 2026-07-10
+- Updated: 2026-07-11
 - Version: v0.0.5 build-R5 follow-up
-- Status: Planned - explicitly deferred; do not execute until the user resumes this phase
+- Status: In progress - I0 complete, I1 active
 - Owner / Responsible: WhaleCode benchmark harness
 - Related Systems: benchmark runner、workspace、Whale CLI、public validator、hidden oracle、performance observation
 - Related Links: `01-r5-phased-simplification-plan.md`、`12-r5-performance-observation-tool.md`、`14-r5-native-control-cadence-plan.md`
@@ -18,7 +18,8 @@
 
 迁移通过门禁后删除本机执行路径，不保留兼容分支或静默 fallback。Docker backend 不可用时，benchmark 必须在 preflight 阶段明确失败。
 
-本计划当前只登记，不执行镜像构建、容器启动、代码迁移或样本重跑。
+本计划已由用户恢复执行。I0 已冻结 contract、权限矩阵、资源和日志阈值，I1 开始实现日志优先的
+容器 substrate。
 
 执行依赖已调整为 `I0 -> I1 -> I2 -> J0..J4 -> I3 -> I4`。I2 先提供统一 paired runner；
 R5-J 在固定 Map 拓扑下实现 P0/P1/P3；I3/I4 再承担正式等价性、收益和 Docker-only 切换。
@@ -156,6 +157,10 @@ container-cleanup-result.json
 
 **Exit:** schema fixture、权限矩阵、资源/日志基线和阈值全部有独立测试；不需要 I1 代码证明 I0。
 
+**实施结果（2026-07-11）：** 已完成。固定配置位于
+`benchmarks/taskspace/container-runtime-contract.json`，校准证据见
+`15-r5-docker-i0-baseline.md`；contract 正反例测试通过。
+
 **Fallback:** 继续停留在本机诊断模式，不进入容器实现。
 
 ### R5-I1：日志优先的容器 substrate
@@ -227,7 +232,7 @@ container-cleanup-result.json
 
 | Phase | Independent Verification | Forbidden Future Dependency | Exit Evidence | Required Before Next | Decision |
 |---|---|---|---|---|---|
-| I0 | schema/permission/resource baseline fixtures | 不依赖 container runner | I0 contract artifacts | 100% | pause until user resumes |
+| I0 | schema/permission/resource baseline fixtures | 不依赖 container runner | contract fixture、I0 baseline、正反例测试 | 100% | passed |
 | I1 | lifecycle/secret/failure/cleanup smoke | 不依赖 Agent migration | substrate logs and scans | 100% | proceed I2 |
 | I2 | one paired real sample and oracle isolation | 不依赖 complex benchmark | pair report、container manifests、J fixed-topology baseline | 100% | proceed R5-J0 |
 | I3 | controlled repeats and complex pairs | 不依赖 default switch | performance observation、topology guard and parity report | R5-J4 已完成且 I3 100% | proceed I4 |
@@ -237,7 +242,7 @@ container-cleanup-result.json
 
 | Plan Item | Expected Behavior | Production Code Path | Integration Entry | Test Evidence | Runtime / Log Evidence | Mock Exposure | Status |
 |---|---|---|---|---|---|---|---|
-| container contract | 固定 identity/path/resource/secret schema | `scripts/taskspace-benchmark/lib/` 新容器模块 | benchmark CLI | schema fixtures | runtime manifest | test-only fixture | planned |
+| container contract | 固定 identity/path/resource/secret schema | `container-contract.ps1` | benchmark CLI | `test-container-contract.ps1` | I0 baseline | test-only invalid contract | landed |
 | image/preflight | digest 和依赖可复现 | Dockerfile/build module | run preflight | image/preflight tests | image lifecycle events | fake Docker blocks completion | planned |
 | log collector | 失败前后日志可恢复 | container log/stats collector | every container phase | timeout/truncation/rotation tests | lifecycle events/log artifacts | fake Docker then real smoke | planned |
 | Agent runner | Standard/R5 同一容器路径 | benchmark side executor | `run-taskspace-benchmark.ps1` | paired smoke | agent container manifest | none at exit | planned |
@@ -267,6 +272,7 @@ container-cleanup-result.json
 | 日志轮转容量和 artifact 保留周期 | benchmark owner | I0 |
 | CI Docker backend 和镜像缓存位置 | CI owner | I1 |
 
-## 13. 当前暂停点
+## 13. 当前执行点
 
-本计划已完成设计登记，当前停在 I0 之前。除文档和计划索引外，不应产生 Dockerfile、容器 runner、日志 collector、镜像或新 benchmark run。
+I0 已完成，当前执行 I1。I1 未通过前不得接入 Agent 默认路径；I2 未通过前不得把容器结果写成
+TaskSpace 收益。
