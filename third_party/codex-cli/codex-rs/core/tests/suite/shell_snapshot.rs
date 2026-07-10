@@ -384,7 +384,7 @@ async fn linux_unified_exec_uses_shell_snapshot() -> Result<()> {
     assert_eq!(run.begin.command.len(), 3);
     assert!(run.snapshot_path.starts_with(&run.codex_home));
     assert_posix_snapshot_sections(&run.snapshot_content);
-    assert_eq!(run.end.exit_code, 0);
+    assert_eq!(run.end.shell_exit_code, Some(0));
     assert!(
         stdout.contains("snapshot-linux"),
         "stdout should contain snapshot marker; stdout={stdout:?}"
@@ -408,7 +408,7 @@ async fn linux_shell_command_uses_shell_snapshot() -> Result<()> {
         normalize_newlines(&run.end.stdout).trim(),
         "shell-command-snapshot-linux"
     );
-    assert_eq!(run.end.exit_code, 0);
+    assert_eq!(run.end.shell_exit_code, Some(0));
 
     Ok(())
 }
@@ -456,7 +456,7 @@ async fn shell_command_snapshot_preserves_shell_environment_policy_set() -> Resu
         normalize_newlines(&end.stdout).trim(),
         POLICY_SUCCESS_OUTPUT
     );
-    assert_eq!(end.exit_code, 0);
+    assert_eq!(end.shell_exit_code, Some(0));
     assert!(snapshot_path.starts_with(codex_home));
 
     Ok(())
@@ -510,7 +510,7 @@ async fn linux_unified_exec_snapshot_preserves_shell_environment_policy_set() ->
         normalize_newlines(&end.stdout).trim(),
         POLICY_SUCCESS_OUTPUT
     );
-    assert_eq!(end.exit_code, 0);
+    assert_eq!(end.shell_exit_code, Some(0));
     assert!(snapshot_path.starts_with(codex_home));
 
     Ok(())
@@ -680,7 +680,7 @@ async fn macos_unified_exec_uses_shell_snapshot() -> Result<()> {
     assert!(run.snapshot_path.starts_with(&run.codex_home));
     assert_posix_snapshot_sections(&run.snapshot_content);
     assert_eq!(normalize_newlines(&run.end.stdout).trim(), "snapshot-macos");
-    assert_eq!(run.end.exit_code, 0);
+    assert_eq!(run.end.shell_exit_code, Some(0));
 
     Ok(())
 }
@@ -716,7 +716,7 @@ async fn windows_unified_exec_uses_shell_snapshot() -> Result<()> {
         normalize_newlines(&run.end.stdout).trim(),
         "snapshot-windows"
     );
-    assert_eq!(run.end.exit_code, 0);
+    assert_eq!(run.end.shell_exit_code, Some(0));
 
     Ok(())
 }

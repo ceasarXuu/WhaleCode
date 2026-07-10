@@ -169,8 +169,8 @@ fn serializes_flex_service_tier_when_set() {
 
 #[test]
 fn reserializes_shell_outputs_for_function_and_custom_tool_calls() {
-    let raw_output = r#"{"output":"hello","metadata":{"exit_code":0,"duration_seconds":0.5}}"#;
-    let expected_output = "Exit code: 0\nWall time: 0.5 seconds\nOutput:\nhello";
+    let raw_output = r#"{"output":"hello","metadata":{"execution_outcome":"exited","shell_exit_code":0,"termination_signal":null,"pipeline_stage_exit_codes":null,"duration_seconds":0.5}}"#;
+    let expected_output = "Execution outcome: exited\nShell exit code: 0\nPipeline stage exit codes: unavailable\nTermination signal: unavailable\nWall time: 0.5 seconds\nOutput:\nhello";
     let mut items = vec![
         ResponseItem::FunctionCall {
             id: None,

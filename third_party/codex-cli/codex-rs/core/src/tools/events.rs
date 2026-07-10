@@ -5,7 +5,9 @@ use crate::tools::context::SharedTurnDiffTracker;
 use crate::tools::sandboxing::ToolError;
 use codex_protocol::error::CodexErr;
 use codex_protocol::error::SandboxErr;
+use codex_protocol::exec_output::ExecOutcome;
 use codex_protocol::exec_output::ExecToolCallOutput;
+use codex_protocol::exec_output::StreamOutput;
 use codex_protocol::parse_command::ParsedCommand;
 use codex_protocol::protocol::EventMsg;
 use codex_protocol::protocol::ExecCommandBeginEvent;
@@ -58,7 +60,10 @@ pub(crate) enum ToolEventStage {
 pub(crate) enum ToolEventFailure {
     Output(ExecToolCallOutput),
     Message(String),
-    Rejected(String),
+    Rejected {
+        output: ExecToolCallOutput,
+        user_declined: bool,
+    },
 }
 
 pub(crate) async fn emit_exec_command_begin(
@@ -235,7 +240,7 @@ impl ToolEmitter {
                     ctx,
                     changes.clone(),
                     String::new(),
-                    (*message).to_string(),
+                    message.clone(),
                     /*success*/ false,
                     PatchApplyStatus::Failed,
                 )
@@ -243,15 +248,22 @@ impl ToolEmitter {
             }
             (
                 Self::ApplyPatch { changes, .. },
-                ToolEventStage::Failure(ToolEventFailure::Rejected(message)),
+                ToolEventStage::Failure(ToolEventFailure::Rejected {
+                    output,
+                    user_declined,
+                }),
             ) => {
                 emit_patch_end(
                     ctx,
                     changes.clone(),
-                    String::new(),
-                    (*message).to_string(),
+                    output.stdout.text.clone(),
+                    output.stderr.text.clone(),
                     /*success*/ false,
-                    PatchApplyStatus::Declined,
+                    if user_declined {
+                        PatchApplyStatus::Declined
+                    } else {
+                        PatchApplyStatus::Failed
+                    },
                 )
                 .await;
             }
@@ -308,6 +320,27 @@ impl ToolEmitter {
         }
     }
 
+    fn format_exec_error_for_model(
+        &self,
+        outcome: ExecOutcome,
+        termination_signal: Option<i32>,
+        message: String,
+        ctx: ToolEventCtx<'_>,
+    ) -> (String, ExecToolCallOutput) {
+        let output = ExecToolCallOutput {
+            exit_code: -1,
+            outcome,
+            termination_signal,
+            pipeline_stage_exit_codes: None,
+            stdout: StreamOutput::new(String::new()),
+            stderr: StreamOutput::new(message.clone()),
+            aggregated_output: StreamOutput::new(message),
+            duration: Duration::ZERO,
+        };
+        let content = self.format_exec_output_for_model(&output, ctx, None);
+        (content, output)
+    }
+
     pub async fn finish(
         &self,
         ctx: ToolEventCtx<'_>,
@@ -317,9 +350,13 @@ impl ToolEmitter {
         let (event, result) = match out {
             Ok(output) => {
                 let content = self.format_exec_output_for_model(&output, ctx, artifact_ref);
-                let exit_code = output.exit_code;
-                let event = ToolEventStage::Success(output);
-                let result = if exit_code == 0 {
+                let success = output.is_success();
+                let event = if success {
+                    ToolEventStage::Success(output)
+                } else {
+                    ToolEventStage::Failure(ToolEventFailure::Output(output))
+                };
+                let result = if success {
                     Ok(content)
                 } else {
                     Err(FunctionCallError::RespondToModel(content))
@@ -335,33 +372,57 @@ impl ToolEmitter {
             }
             Err(ToolError::Codex(err)) => {
                 let message = format!("execution error: {err:?}");
-                let event = ToolEventStage::Failure(ToolEventFailure::Message(message.clone()));
-                let result = Err(FunctionCallError::RespondToModel(message));
-                (event, result)
-            }
-            Err(ToolError::Rejected(msg)) => {
-                // Normalize common rejection messages for exec tools so tests and
-                // users see a clear, consistent phrase.
-                //
-                // NOTE: ToolError::Rejected is currently used for both user-declined approvals
-                // and some operational/runtime rejection paths (for example setup failures).
-                // We intentionally map all of them through the "rejected" event path for now,
-                // which means a subset of non-user failures may be reported as Declined.
-                //
-                // TODO: We should add a new ToolError variant for user-declined approvals.
-                let normalized = if msg == "rejected by user" {
-                    match self {
-                        Self::Shell { .. } | Self::UnifiedExec { .. } => {
-                            "exec command rejected by user".to_string()
-                        }
-                        Self::ApplyPatch { .. } => "patch rejected by user".to_string(),
-                    }
+                if matches!(self, Self::ApplyPatch { .. }) {
+                    let event = ToolEventStage::Failure(ToolEventFailure::Message(message.clone()));
+                    (event, Err(FunctionCallError::RespondToModel(message)))
                 } else {
-                    msg
+                    let (outcome, termination_signal) = match &err {
+                        CodexErr::Spawn => (ExecOutcome::SpawnFailed, None),
+                        CodexErr::Interrupted => (ExecOutcome::Cancelled, None),
+                        CodexErr::Sandbox(SandboxErr::Signal(signal)) => {
+                            (ExecOutcome::Signaled, Some(*signal))
+                        }
+                        _ => (ExecOutcome::ExecutionError, None),
+                    };
+                    let (content, output) =
+                        self.format_exec_error_for_model(outcome, termination_signal, message, ctx);
+                    let event = ToolEventStage::Failure(ToolEventFailure::Output(output));
+                    let result = Err(FunctionCallError::RespondToModel(content));
+                    (event, result)
+                }
+            }
+            Err(ToolError::Rejected(message)) => {
+                if matches!(self, Self::ApplyPatch { .. }) {
+                    let event = ToolEventStage::Failure(ToolEventFailure::Message(message.clone()));
+                    (event, Err(FunctionCallError::RespondToModel(message)))
+                } else {
+                    let (content, output) =
+                        self.format_exec_error_for_model(ExecOutcome::Rejected, None, message, ctx);
+                    let event = ToolEventStage::Failure(ToolEventFailure::Rejected {
+                        output,
+                        user_declined: false,
+                    });
+                    (event, Err(FunctionCallError::RespondToModel(content)))
+                }
+            }
+            Err(ToolError::UserDeclined) => {
+                let message = match self {
+                    Self::Shell { .. } | Self::UnifiedExec { .. } => {
+                        "exec command rejected by user".to_string()
+                    }
+                    Self::ApplyPatch { .. } => "patch rejected by user".to_string(),
                 };
-                let event = ToolEventStage::Failure(ToolEventFailure::Rejected(normalized.clone()));
-                let result = Err(FunctionCallError::RespondToModel(normalized));
-                (event, result)
+                let (content, output) =
+                    self.format_exec_error_for_model(ExecOutcome::Rejected, None, message, ctx);
+                let content = match self {
+                    Self::Shell { .. } | Self::UnifiedExec { .. } => content,
+                    Self::ApplyPatch { .. } => output.stderr.text.clone(),
+                };
+                let event = ToolEventStage::Failure(ToolEventFailure::Rejected {
+                    output,
+                    user_declined: true,
+                });
+                (event, Err(FunctionCallError::RespondToModel(content)))
             }
         };
         self.emit(ctx, event).await;
@@ -402,7 +463,10 @@ struct ExecCommandResult {
     stdout: String,
     stderr: String,
     aggregated_output: String,
-    exit_code: i32,
+    shell_exit_code: Option<i32>,
+    outcome: ExecOutcome,
+    termination_signal: Option<i32>,
+    pipeline_stage_exit_codes: Option<Vec<i32>>,
     duration: Duration,
     formatted_output: String,
     status: ExecCommandStatus,
@@ -432,10 +496,13 @@ async fn emit_exec_stage(
                 stdout: output.stdout.text.clone(),
                 stderr: output.stderr.text.clone(),
                 aggregated_output: output.aggregated_output.text.clone(),
-                exit_code: output.exit_code,
+                shell_exit_code: output.shell_exit_code(),
+                outcome: output.outcome,
+                termination_signal: output.termination_signal,
+                pipeline_stage_exit_codes: output.pipeline_stage_exit_codes.clone(),
                 duration: output.duration,
                 formatted_output: format_exec_output_str(&output, ctx.turn.truncation_policy),
-                status: if output.exit_code == 0 {
+                status: if output.is_success() {
                     ExecCommandStatus::Completed
                 } else {
                     ExecCommandStatus::Failed
@@ -443,29 +510,50 @@ async fn emit_exec_stage(
             };
             emit_exec_end(ctx, exec_input, exec_result).await;
         }
-        ToolEventStage::Failure(ToolEventFailure::Message(message)) => {
-            let text = message.to_string();
+        ToolEventStage::Failure(ToolEventFailure::Rejected {
+            output,
+            user_declined,
+        }) => {
             let exec_result = ExecCommandResult {
-                stdout: String::new(),
-                stderr: text.clone(),
-                aggregated_output: text.clone(),
-                exit_code: -1,
-                duration: Duration::ZERO,
-                formatted_output: text,
-                status: ExecCommandStatus::Failed,
+                stdout: output.stdout.text.clone(),
+                stderr: output.stderr.text.clone(),
+                aggregated_output: output.aggregated_output.text.clone(),
+                shell_exit_code: None,
+                outcome: output.outcome,
+                termination_signal: output.termination_signal,
+                pipeline_stage_exit_codes: output.pipeline_stage_exit_codes.clone(),
+                duration: output.duration,
+                formatted_output: format_exec_output_str(&output, ctx.turn.truncation_policy),
+                status: if user_declined {
+                    ExecCommandStatus::Declined
+                } else {
+                    ExecCommandStatus::Failed
+                },
             };
             emit_exec_end(ctx, exec_input, exec_result).await;
         }
-        ToolEventStage::Failure(ToolEventFailure::Rejected(message)) => {
-            let text = message.to_string();
-            let exec_result = ExecCommandResult {
-                stdout: String::new(),
-                stderr: text.clone(),
-                aggregated_output: text.clone(),
+        ToolEventStage::Failure(ToolEventFailure::Message(message)) => {
+            let output = ExecToolCallOutput {
                 exit_code: -1,
+                outcome: ExecOutcome::ExecutionError,
+                termination_signal: None,
+                pipeline_stage_exit_codes: None,
+                stdout: StreamOutput::new(String::new()),
+                stderr: StreamOutput::new(message.clone()),
+                aggregated_output: StreamOutput::new(message),
                 duration: Duration::ZERO,
-                formatted_output: text,
-                status: ExecCommandStatus::Declined,
+            };
+            let exec_result = ExecCommandResult {
+                stdout: output.stdout.text.clone(),
+                stderr: output.stderr.text.clone(),
+                aggregated_output: output.aggregated_output.text.clone(),
+                shell_exit_code: None,
+                outcome: output.outcome,
+                termination_signal: None,
+                pipeline_stage_exit_codes: None,
+                duration: output.duration,
+                formatted_output: format_exec_output_str(&output, ctx.turn.truncation_policy),
+                status: ExecCommandStatus::Failed,
             };
             emit_exec_end(ctx, exec_input, exec_result).await;
         }
@@ -477,6 +565,29 @@ async fn emit_exec_end(
     exec_input: ExecCommandInput<'_>,
     exec_result: ExecCommandResult,
 ) {
+    if matches!(exec_result.outcome, ExecOutcome::Signaled)
+        != exec_result.termination_signal.is_some()
+    {
+        tracing::warn!(
+            target: "codex_core::tool_feedback",
+            event_name = "tool.exec_outcome_incomplete",
+            call_id = ctx.call_id,
+            process_id = exec_input.process_id,
+            execution_outcome = exec_result.outcome.as_str(),
+            termination_signal = ?exec_result.termination_signal,
+        );
+    }
+    tracing::info!(
+        target: "codex_core::tool_feedback",
+        event_name = "tool.exec_outcome_recorded",
+        call_id = ctx.call_id,
+        process_id = exec_input.process_id,
+        execution_outcome = exec_result.outcome.as_str(),
+        shell_exit_code = ?exec_result.shell_exit_code,
+        termination_signal = ?exec_result.termination_signal,
+        pipeline_stage_exit_codes = ?exec_result.pipeline_stage_exit_codes,
+    );
+
     ctx.session
         .send_event(
             ctx.turn,
@@ -492,7 +603,10 @@ async fn emit_exec_end(
                 stdout: exec_result.stdout,
                 stderr: exec_result.stderr,
                 aggregated_output: exec_result.aggregated_output,
-                exit_code: exec_result.exit_code,
+                shell_exit_code: exec_result.shell_exit_code,
+                outcome: exec_result.outcome,
+                termination_signal: exec_result.termination_signal,
+                pipeline_stage_exit_codes: exec_result.pipeline_stage_exit_codes,
                 duration: exec_result.duration,
                 formatted_output: exec_result.formatted_output,
                 status: exec_result.status,

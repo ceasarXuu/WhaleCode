@@ -4575,30 +4575,6 @@ fn taskspace_gate_recovery_from_response_item(item: &ResponseItem) -> Option<Str
         .then(|| output.chars().take(2200).collect::<String>())
 }
 
-fn taskspace_sequence_failure_feedback_from_response_item(
-    action_name: &str,
-    item: &ResponseItem,
-) -> Option<String> {
-    let text = response_item_text(item)?;
-    let failed = match action_name {
-        "apply_patch" => text.contains("apply_patch verification failed"),
-        "run_test" => taskspace_shell_output_has_nonzero_exit_code(&text),
-        _ => false,
-    };
-    failed.then(|| text.chars().take(2200).collect::<String>())
-}
-
-fn taskspace_shell_output_has_nonzero_exit_code(text: &str) -> bool {
-    text.lines().any(|line| {
-        let Some(code) = line.trim().strip_prefix("Exit code: ") else {
-            return false;
-        };
-        code.split_whitespace()
-            .next()
-            .is_some_and(|code| code != "0")
-    })
-}
-
 fn response_item_texts_contain(item: &ResponseItem, predicate: &dyn Fn(&str) -> bool) -> bool {
     match item {
         ResponseItem::Message { role, content, .. } => {
@@ -9895,34 +9871,6 @@ TaskSpaceGateRecoveryV1: {\"schema_version\":\"TaskSpaceGateRecoveryV1\",\"allow
     }
 
     #[test]
-    fn action_sequence_failure_feedback_detects_failed_edit_and_test() {
-        let failed_patch = tool_output_with_call_id(
-            "patch-call",
-            "apply_patch verification failed: Failed to find expected lines in src/lib.rs",
-        );
-        let failed_test =
-            tool_output_with_call_id("test-call", "Exit code: 1\nOutput:\nfailed assertion");
-        let successful_test = tool_output_with_call_id("test-call", "Exit code: 0\nOutput:\nok");
-
-        assert!(
-            taskspace_sequence_failure_feedback_from_response_item("apply_patch", &failed_patch)
-                .is_some()
-        );
-        assert!(
-            taskspace_sequence_failure_feedback_from_response_item("run_test", &failed_test)
-                .is_some()
-        );
-        assert!(
-            taskspace_sequence_failure_feedback_from_response_item("run_test", &successful_test)
-                .is_none()
-        );
-        assert!(
-            taskspace_sequence_failure_feedback_from_response_item("read_file", &failed_test)
-                .is_none()
-        );
-    }
-
-    #[test]
     fn provider_response_actionability_treats_profile_hint_overrun_as_actionable() {
         let classification = classify_taskspace_provider_response_actionability(
             true, true, true, false, false, false, true,
@@ -13913,9 +13861,6 @@ async fn try_run_sampling_request(
                             let action_count = actions.len();
                             for (action_index, action) in actions.into_iter().enumerate() {
                                 let sequence_index = (action_count > 1).then_some(action_index + 1);
-                                let action_name =
-                                    taskspace_canonical_action_name(action.action.as_str())
-                                        .to_string();
                                 let final_message = taskspace_action_final_message(&action);
                                 let current_snapshot = sess
                                     .action_map_provider_request_budget_snapshot()
@@ -13949,7 +13894,6 @@ async fn try_run_sampling_request(
                                         needs_follow_up = true;
                                         let mut tool_error_message: Option<String> = None;
                                         let mut tool_gate_recovery_message: Option<String> = None;
-                                        let mut tool_failed_result_message: Option<String> = None;
                                         match tool_runtime
                                             .clone()
                                             .handle_tool_call(
@@ -13982,11 +13926,6 @@ async fn try_run_sampling_request(
                                                     taskspace_gate_recovery_from_response_item(
                                                         &response_item,
                                                     );
-                                                tool_failed_result_message =
-                                                    taskspace_sequence_failure_feedback_from_response_item(
-                                                        action_name.as_str(),
-                                                        &response_item,
-                                                    );
                                             }
                                             Err(err) => {
                                                 let response_input =
@@ -14009,9 +13948,6 @@ async fn try_run_sampling_request(
                                             }
                                         }
                                         if let Some(message) = tool_gate_recovery_message {
-                                            last_agent_message = Some(message);
-                                            break;
-                                        } else if let Some(message) = tool_failed_result_message {
                                             last_agent_message = Some(message);
                                             break;
                                         } else if let Some(message) = tool_error_message {

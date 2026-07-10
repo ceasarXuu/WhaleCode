@@ -157,10 +157,18 @@ async fn shell_output_stays_json_without_freeform_apply_patch(
     assert_eq!(
         parsed
             .get("metadata")
-            .and_then(|metadata| metadata.get("exit_code"))
+            .and_then(|metadata| metadata.get("execution_outcome"))
+            .and_then(Value::as_str),
+        Some("exited"),
+        "expected exited outcome in unformatted JSON output",
+    );
+    assert_eq!(
+        parsed
+            .get("metadata")
+            .and_then(|metadata| metadata.get("shell_exit_code"))
             .and_then(Value::as_i64),
         Some(0),
-        "expected zero exit code in unformatted JSON output",
+        "expected zero shell exit code in unformatted JSON output",
     );
     let stdout = parsed
         .get("output")
@@ -211,7 +219,10 @@ async fn shell_output_is_structured_with_freeform_apply_patch(
         serde_json::from_str::<Value>(output).is_err(),
         "expected structured shell output to be plain text",
     );
-    let expected_pattern = r"(?s)^Exit code: 0
+    let expected_pattern = r"(?s)^Execution outcome: exited
+Shell exit code: 0
+Pipeline stage exit codes: unavailable
+Termination signal: unavailable
 Wall time: [0-9]+(?:\.[0-9]+)? seconds
 Output:
 freeform shell
@@ -270,10 +281,18 @@ async fn shell_output_preserves_fixture_json_without_serialization(
     assert_eq!(
         parsed
             .get("metadata")
-            .and_then(|metadata| metadata.get("exit_code"))
+            .and_then(|metadata| metadata.get("execution_outcome"))
+            .and_then(Value::as_str),
+        Some("exited"),
+        "expected exited outcome when serialization is disabled",
+    );
+    assert_eq!(
+        parsed
+            .get("metadata")
+            .and_then(|metadata| metadata.get("shell_exit_code"))
             .and_then(Value::as_i64),
         Some(0),
-        "expected zero exit code when serialization is disabled",
+        "expected zero shell exit code when serialization is disabled",
     );
     let stdout = parsed
         .get("output")
@@ -340,7 +359,7 @@ async fn shell_output_structures_fixture_with_serialization(
         .split_once("Output:\n")
         .expect("structured output contains an Output section");
     assert_regex_match(
-        r"(?s)^Exit code: 0\nWall time: [0-9]+(?:\.[0-9]+)? seconds$",
+        r"(?s)^Execution outcome: exited\nShell exit code: 0\nPipeline stage exit codes: unavailable\nTermination signal: unavailable\nWall time: [0-9]+(?:\.[0-9]+)? seconds$",
         header.trim_end(),
     );
     assert_eq!(
@@ -387,7 +406,10 @@ async fn shell_output_for_freeform_tool_records_duration(
         .and_then(Value::as_str)
         .expect("structured output string");
 
-    let expected_pattern = r#"(?s)^Exit code: 0
+    let expected_pattern = r#"(?s)^Execution outcome: exited
+Shell exit code: 0
+Pipeline stage exit codes: unavailable
+Termination signal: unavailable
 Wall time: [0-9]+(?:\.[0-9]+)? seconds
 Output:
 $"#;
@@ -448,7 +470,10 @@ async fn shell_output_reserializes_truncated_content(output_type: ShellModelOutp
         serde_json::from_str::<Value>(output).is_err(),
         "expected truncated shell output to be plain text",
     );
-    let truncated_pattern = r#"(?s)^Exit code: 0
+    let truncated_pattern = r#"(?s)^Execution outcome: exited
+Shell exit code: 0
+Pipeline stage exit codes: unavailable
+Termination signal: unavailable
 Wall time: [0-9]+(?:\.[0-9]+)? seconds
 Total output lines: 400
 Output:
@@ -458,7 +483,7 @@ Output:
 4
 5
 6
-.*…46 tokens truncated….*
+.*…[1-9][0-9]* tokens truncated….*
 396
 397
 398
@@ -504,7 +529,10 @@ async fn apply_patch_custom_tool_output_is_structured(
     let output = harness.apply_patch_output(call_id, output_type).await;
 
     let expected_pattern = format!(
-        r"(?s)^Exit code: 0
+        r"(?s)^Execution outcome: exited
+Shell exit code: 0
+Pipeline stage exit codes: unavailable
+Termination signal: unavailable
 Wall time: [0-9]+(?:\.[0-9]+)? seconds
 Output:
 Success. Updated the following files:
@@ -546,7 +574,10 @@ async fn apply_patch_custom_tool_call_creates_file(
     let output = harness.apply_patch_output(call_id, output_type).await;
 
     let expected_pattern = format!(
-        r"(?s)^Exit code: 0
+        r"(?s)^Execution outcome: exited
+Shell exit code: 0
+Pipeline stage exit codes: unavailable
+Termination signal: unavailable
 Wall time: [0-9]+(?:\.[0-9]+)? seconds
 Output:
 Success. Updated the following files:
@@ -602,7 +633,10 @@ async fn apply_patch_custom_tool_call_updates_existing_file(
     let output = harness.apply_patch_output(call_id, output_type).await;
 
     let expected_pattern = format!(
-        r"(?s)^Exit code: 0
+        r"(?s)^Execution outcome: exited
+Shell exit code: 0
+Pipeline stage exit codes: unavailable
+Termination signal: unavailable
 Wall time: [0-9]+(?:\.[0-9]+)? seconds
 Output:
 Success. Updated the following files:
@@ -696,7 +730,10 @@ async fn apply_patch_function_call_output_is_structured(
 
     let output = harness.apply_patch_output(call_id, output_type).await;
     let expected_pattern = format!(
-        r"(?s)^Exit code: 0
+        r"(?s)^Execution outcome: exited
+Shell exit code: 0
+Pipeline stage exit codes: unavailable
+Termination signal: unavailable
 Wall time: [0-9]+(?:\.[0-9]+)? seconds
 Output:
 Success. Updated the following files:
@@ -740,7 +777,10 @@ async fn shell_output_is_structured_for_nonzero_exit(output_type: ShellModelOutp
         .and_then(Value::as_str)
         .expect("shell output string");
 
-    let expected_pattern = r"(?s)^Exit code: 42
+    let expected_pattern = r"(?s)^Execution outcome: exited
+Shell exit code: 42
+Pipeline stage exit codes: unavailable
+Termination signal: unavailable
 Wall time: [0-9]+(?:\.[0-9]+)? seconds
 Output:
 ?$";
@@ -793,7 +833,10 @@ async fn shell_command_output_is_freeform() -> Result<()> {
         .and_then(Value::as_str)
         .expect("shell_command output string");
 
-    let expected_pattern = r"(?s)^Exit code: 0
+    let expected_pattern = r"(?s)^Execution outcome: exited
+Shell exit code: 0
+Pipeline stage exit codes: unavailable
+Termination signal: unavailable
 Wall time: [0-9]+(?:\.[0-9]+)? seconds
 Output:
 shell command
@@ -845,7 +888,10 @@ async fn shell_command_output_is_not_truncated_under_10k_bytes() -> Result<()> {
         .and_then(Value::as_str)
         .expect("shell_command output string");
 
-    let expected_pattern = r"(?s)^Exit code: 0
+    let expected_pattern = r"(?s)^Execution outcome: exited
+Shell exit code: 0
+Pipeline stage exit codes: unavailable
+Termination signal: unavailable
 Wall time: [0-9]+(?:\.[0-9]+)? seconds
 Output:
 1{10000}$";
@@ -896,7 +942,10 @@ async fn shell_command_output_is_not_truncated_over_10k_bytes() -> Result<()> {
         .and_then(Value::as_str)
         .expect("shell_command output string");
 
-    let expected_pattern = r"(?s)^Exit code: 0
+    let expected_pattern = r"(?s)^Execution outcome: exited
+Shell exit code: 0
+Pipeline stage exit codes: unavailable
+Termination signal: unavailable
 Wall time: [0-9]+(?:\.[0-9]+)? seconds
 Output:
 1*…1 chars truncated…1*$";
@@ -944,7 +993,10 @@ async fn local_shell_call_output_is_structured() -> Result<()> {
         .and_then(Value::as_str)
         .expect("local shell output string");
 
-    let expected_pattern = r"(?s)^Exit code: 0
+    let expected_pattern = r"(?s)^Execution outcome: exited
+Shell exit code: 0
+Pipeline stage exit codes: unavailable
+Termination signal: unavailable
 Wall time: [0-9]+(?:\.[0-9]+)? seconds
 Output:
 local shell

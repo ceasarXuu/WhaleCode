@@ -1019,7 +1019,7 @@ async fn user_shell_commands_do_not_inherit_managed_network_proxy() -> anyhow::R
     loop {
         let event = rx.recv().await.expect("channel open");
         if let EventMsg::ExecCommandEnd(event) = event.msg {
-            assert_eq!(event.exit_code, 0);
+            assert_eq!(event.shell_exit_code, Some(0));
             assert_eq!(event.stdout.trim(), "not-managed");
             break;
         }
@@ -3200,11 +3200,13 @@ fn prefers_structured_content_when_present() {
 async fn includes_timed_out_message() {
     let exec = ExecToolCallOutput {
         exit_code: 0,
+        outcome: codex_protocol::exec_output::ExecOutcome::TimedOut,
+        termination_signal: None,
+        pipeline_stage_exit_codes: None,
         stdout: StreamOutput::new(String::new()),
         stderr: StreamOutput::new(String::new()),
         aggregated_output: StreamOutput::new("Command output".to_string()),
         duration: StdDuration::from_secs(1),
-        timed_out: true,
     };
     let (_, turn_context) = make_session_and_context().await;
 

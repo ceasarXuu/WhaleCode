@@ -1,5 +1,6 @@
 use super::*;
 use codex_protocol::config_types::WindowsSandboxLevel;
+use codex_protocol::exec_output::ExecOutcome;
 use codex_sandboxing::SandboxType;
 use core_test_support::PathBufExt;
 use core_test_support::PathExt;
@@ -16,12 +17,45 @@ fn make_exec_output(
 ) -> ExecToolCallOutput {
     ExecToolCallOutput {
         exit_code,
+        outcome: ExecOutcome::Exited,
+        termination_signal: None,
+        pipeline_stage_exit_codes: None,
         stdout: StreamOutput::new(stdout.to_string()),
         stderr: StreamOutput::new(stderr.to_string()),
         aggregated_output: StreamOutput::new(aggregated.to_string()),
         duration: Duration::from_millis(1),
-        timed_out: false,
     }
+}
+
+#[cfg(unix)]
+#[test]
+fn finalize_exec_result_keeps_signal_separate_from_exit_code() {
+    use std::os::unix::process::ExitStatusExt;
+
+    let raw_output = RawExecToolCallOutput {
+        exit_status: ExitStatus::from_raw(libc::SIGTERM),
+        stdout: StreamOutput {
+            text: Vec::new(),
+            truncated_after_lines: None,
+        },
+        stderr: StreamOutput {
+            text: Vec::new(),
+            truncated_after_lines: None,
+        },
+        aggregated_output: StreamOutput {
+            text: Vec::new(),
+            truncated_after_lines: None,
+        },
+        forced_outcome: None,
+    };
+
+    let output = finalize_exec_result(Ok(raw_output), SandboxType::None, Duration::ZERO)
+        .expect("signal should remain a mechanical exec outcome");
+
+    assert_eq!(output.outcome, ExecOutcome::Signaled);
+    assert_eq!(output.termination_signal, Some(libc::SIGTERM));
+    assert_eq!(output.shell_exit_code(), None);
+    assert!(output.has_consistent_termination_facts());
 }
 
 #[test]
@@ -297,7 +331,7 @@ async fn exec_full_buffer_capture_ignores_expiration() -> Result<()> {
     .await?;
 
     assert_eq!(output.stdout.from_utf8_lossy().text.trim(), "hello");
-    assert!(!output.timed_out);
+    assert_eq!(output.forced_outcome, None);
 
     Ok(())
 }
@@ -334,7 +368,7 @@ async fn exec_full_buffer_capture_keeps_io_drain_timeout_when_descendant_holds_p
     .await
     .expect("full-buffer exec should return once the I/O drain guard fires")?;
 
-    assert!(!output.timed_out);
+    assert_eq!(output.forced_outcome, None);
 
     Ok(())
 }
@@ -383,7 +417,7 @@ async fn process_exec_tool_call_preserves_full_buffer_capture_policy() -> Result
     )
     .await?;
 
-    assert!(!output.timed_out);
+    assert_eq!(output.outcome, ExecOutcome::Exited);
     assert_eq!(output.stdout.text.len(), byte_count);
 
     Ok(())
@@ -1071,7 +1105,7 @@ async fn kill_child_process_group_kills_grandchildren_on_timeout() -> Result<()>
         /*after_spawn*/ None,
     )
     .await?;
-    assert!(output.timed_out);
+    assert_eq!(output.forced_outcome, Some(ExecOutcome::TimedOut));
 
     let stdout = output.stdout.from_utf8_lossy().text;
     let pid_line = stdout.lines().next().unwrap_or("").trim();
@@ -1133,12 +1167,9 @@ async fn process_exec_tool_call_respects_cancellation_token() -> Result<()> {
         /*stdout_stream*/ None,
     )
     .await;
-    let output = match result {
-        Err(CodexErr::Sandbox(SandboxErr::Timeout { output })) => output,
-        other => panic!("expected timeout error, got {other:?}"),
-    };
-    assert!(output.timed_out);
-    assert_eq!(output.exit_code, EXEC_TIMEOUT_EXIT_CODE);
+    let output = result.expect("cancellation should return a mechanical cancelled outcome");
+    assert_eq!(output.outcome, ExecOutcome::Cancelled);
+    assert_eq!(output.shell_exit_code(), None);
     Ok(())
 }
 

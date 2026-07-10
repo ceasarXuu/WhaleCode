@@ -4115,8 +4115,21 @@ pub struct ExecCommandEndEvent {
     /// Captured aggregated output
     #[serde(default)]
     pub aggregated_output: String,
-    /// The command's exit code.
-    pub exit_code: i32,
+    /// The shell exit code when the process exited normally.
+    ///
+    /// Timeout, cancellation, rejection, spawn failure, execution error, and
+    /// signal termination do not have a shell exit code.
+    pub shell_exit_code: Option<i32>,
+    /// Mechanical execution outcome, including exit, timeout, cancellation,
+    /// rejection, spawn failure, execution error, and signal termination.
+    pub outcome: crate::exec_output::ExecOutcome,
+    /// POSIX signal number when `outcome` is `signaled`.
+    pub termination_signal: Option<i32>,
+    /// Exit codes for the last foreground pipeline when the launcher can
+    /// observe them without changing command semantics.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub pipeline_stage_exit_codes: Option<Vec<i32>>,
     /// The duration of the command execution.
     #[ts(type = "string")]
     pub duration: Duration,

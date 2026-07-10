@@ -5,11 +5,13 @@ use codex_core::config::Constrained;
 use codex_core::sandboxing::SandboxPermissions;
 use codex_features::Feature;
 use codex_protocol::config_types::ApprovalsReviewer;
+use codex_protocol::exec_output::ExecOutcome;
 use codex_protocol::models::AdditionalPermissionProfile as PermissionProfile;
 use codex_protocol::models::FileSystemPermissions;
 use codex_protocol::protocol::AskForApproval;
 use codex_protocol::protocol::EventMsg;
 use codex_protocol::protocol::ExecApprovalRequestEvent;
+use codex_protocol::protocol::ExecCommandStatus;
 use codex_protocol::protocol::GranularApprovalConfig;
 use codex_protocol::protocol::Op;
 use codex_protocol::protocol::ReviewDecision;
@@ -55,12 +57,15 @@ fn parse_result(item: &Value) -> CommandResult {
         .expect("shell output payload");
     match serde_json::from_str::<Value>(output_str) {
         Ok(parsed) => {
-            let exit_code = parsed["metadata"]["exit_code"].as_i64();
+            let exit_code = parsed["metadata"]["shell_exit_code"].as_i64();
             let stdout = parsed["output"].as_str().unwrap_or_default().to_string();
             CommandResult { exit_code, stdout }
         }
         Err(_) => {
-            let structured = Regex::new(r"(?s)^Exit code:\s*(-?\d+).*?Output:\n(.*)$").unwrap();
+            let structured = Regex::new(
+                r"(?s)^Execution outcome:\s*exited.*?Shell exit code:\s*(-?\d+).*?Output:\n(.*)$",
+            )
+            .unwrap();
             let regex =
                 Regex::new(r"(?s)^.*?Process exited with code (\d+)\n.*?Output:\n(.*)$").unwrap();
             if let Some(captures) = structured.captures(output_str) {
@@ -977,6 +982,16 @@ async fn with_additional_permissions_denied_approval_blocks_execution() -> Resul
             decision: ReviewDecision::Denied,
         })
         .await?;
+    let end = wait_for_event(&test.codex, |event| {
+        matches!(event, EventMsg::ExecCommandEnd(_))
+    })
+    .await;
+    let EventMsg::ExecCommandEnd(end) = end else {
+        unreachable!();
+    };
+    assert_eq!(end.status, ExecCommandStatus::Declined);
+    assert_eq!(end.outcome, ExecOutcome::Rejected);
+    assert_eq!(end.shell_exit_code, None);
     wait_for_completion(&test).await;
 
     let result = parse_result(&results.single_request().function_call_output(call_id));

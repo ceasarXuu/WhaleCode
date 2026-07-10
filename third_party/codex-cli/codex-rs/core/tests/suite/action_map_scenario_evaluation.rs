@@ -214,9 +214,13 @@ async fn realistic_user_bugfix_runs_agent_actions_with_action_map() -> Result<()
         .context("apply_patch function output should be JSON")?;
     assert!(
         patch_output_json
-            .pointer("/metadata/exit_code")
-            .and_then(Value::as_i64)
-            == Some(0),
+            .pointer("/metadata/execution_outcome")
+            .and_then(Value::as_str)
+            == Some("exited")
+            && patch_output_json
+                .pointer("/metadata/shell_exit_code")
+                .and_then(Value::as_i64)
+                == Some(0),
         "patch tool should succeed before file assertions: {patch_output}"
     );
     assert!(

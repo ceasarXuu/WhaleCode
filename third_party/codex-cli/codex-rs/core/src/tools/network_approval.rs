@@ -678,9 +678,7 @@ pub(crate) async fn finish_immediate_network_approval(
         .await;
 
     match approval_outcome {
-        Some(NetworkApprovalOutcome::DeniedByUser) => {
-            Err(ToolError::Rejected("rejected by user".to_string()))
-        }
+        Some(NetworkApprovalOutcome::DeniedByUser) => Err(ToolError::UserDeclined),
         Some(NetworkApprovalOutcome::DeniedByPolicy(message)) => Err(ToolError::Rejected(message)),
         None => Ok(()),
     }

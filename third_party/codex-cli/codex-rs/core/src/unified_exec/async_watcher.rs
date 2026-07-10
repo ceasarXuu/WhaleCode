@@ -16,6 +16,7 @@ use crate::tools::events::ToolEventCtx;
 use crate::tools::events::ToolEventFailure;
 use crate::tools::events::ToolEventStage;
 use crate::unified_exec::head_tail_buffer::HeadTailBuffer;
+use codex_protocol::exec_output::ExecOutcome;
 use codex_protocol::exec_output::ExecToolCallOutput;
 use codex_protocol::exec_output::StreamOutput;
 use codex_protocol::protocol::EventMsg;
@@ -137,7 +138,6 @@ pub(crate) fn spawn_exit_watcher(
             )
             .await;
         } else {
-            let exit_code = process.exit_code().unwrap_or(-1);
             emit_exec_end_for_unified_exec(
                 session_ref,
                 turn_ref,
@@ -147,7 +147,7 @@ pub(crate) fn spawn_exit_watcher(
                 Some(process_id.to_string()),
                 transcript,
                 String::new(),
-                exit_code,
+                process.exit_code(),
                 duration,
             )
             .await;
@@ -200,17 +200,23 @@ pub(crate) async fn emit_exec_end_for_unified_exec(
     process_id: Option<String>,
     transcript: Arc<Mutex<HeadTailBuffer>>,
     fallback_output: String,
-    exit_code: i32,
+    shell_exit_code: Option<i32>,
     duration: Duration,
 ) {
     let aggregated_output = resolve_aggregated_output(&transcript, fallback_output).await;
     let output = ExecToolCallOutput {
-        exit_code,
+        exit_code: shell_exit_code.unwrap_or(-1),
+        outcome: if shell_exit_code.is_some() {
+            ExecOutcome::Exited
+        } else {
+            ExecOutcome::ExecutionError
+        },
+        termination_signal: None,
+        pipeline_stage_exit_codes: None,
         stdout: StreamOutput::new(aggregated_output.clone()),
         stderr: StreamOutput::new(String::new()),
         aggregated_output: StreamOutput::new(aggregated_output),
         duration,
-        timed_out: false,
     };
     let event_ctx = ToolEventCtx::new(
         session_ref.as_ref(),
@@ -249,11 +255,13 @@ pub(crate) async fn emit_failed_exec_end_for_unified_exec(
     };
     let output = ExecToolCallOutput {
         exit_code: -1,
+        outcome: ExecOutcome::ExecutionError,
+        termination_signal: None,
+        pipeline_stage_exit_codes: None,
         stdout: StreamOutput::new(stdout),
         stderr: StreamOutput::new(message),
         aggregated_output: StreamOutput::new(aggregated_output),
         duration,
-        timed_out: false,
     };
     let event_ctx = ToolEventCtx::new(
         session_ref.as_ref(),

@@ -30,6 +30,7 @@ use codex_protocol::config_types::Verbosity;
 use codex_protocol::config_types::WebFetchToolConfig;
 use codex_protocol::config_types::WebSearchMode;
 use codex_protocol::config_types::WebSearchToolConfig;
+use codex_protocol::exec_output::ExecOutcome;
 use codex_protocol::items::AgentMessageContent as CoreAgentMessageContent;
 use codex_protocol::items::TurnItem as CoreTurnItem;
 use codex_protocol::mcp::CallToolResult as CoreMcpCallToolResult;
@@ -5594,8 +5595,14 @@ pub enum ThreadItem {
         command_actions: Vec<CommandAction>,
         /// The command's output, aggregated from stdout and stderr.
         aggregated_output: Option<String>,
-        /// The command's exit code.
+        /// The shell exit code when the process exited normally.
         exit_code: Option<i32>,
+        /// Mechanical execution outcome when the command has completed.
+        outcome: Option<ExecOutcome>,
+        /// POSIX signal number when `outcome` is `signaled`.
+        termination_signal: Option<i32>,
+        /// Per-stage pipeline statuses when they were mechanically observable.
+        pipeline_stage_exit_codes: Option<Vec<i32>>,
         /// The duration of the command execution in milliseconds.
         #[ts(type = "number | null")]
         duration_ms: Option<i64>,

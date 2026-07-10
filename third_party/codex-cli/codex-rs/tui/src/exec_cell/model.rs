@@ -8,16 +8,35 @@
 use std::time::Duration;
 use std::time::Instant;
 
+use codex_protocol::exec_output::ExecOutcome;
 use codex_protocol::parse_command::ParsedCommand;
 use codex_protocol::protocol::ExecCommandSource;
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub(crate) struct CommandOutput {
-    pub(crate) exit_code: i32,
+    pub(crate) shell_exit_code: Option<i32>,
+    pub(crate) outcome: ExecOutcome,
     /// The aggregated stderr + stdout interleaved.
     pub(crate) aggregated_output: String,
     /// The formatted output of the command, as seen by the model.
     pub(crate) formatted_output: String,
+}
+
+impl Default for CommandOutput {
+    fn default() -> Self {
+        Self {
+            shell_exit_code: Some(0),
+            outcome: ExecOutcome::Exited,
+            aggregated_output: String::new(),
+            formatted_output: String::new(),
+        }
+    }
+}
+
+impl CommandOutput {
+    pub(crate) fn is_success(&self) -> bool {
+        self.outcome == ExecOutcome::Exited && self.shell_exit_code == Some(0)
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -108,7 +127,8 @@ impl ExecCell {
                 call.start_time = None;
                 call.duration = Some(elapsed);
                 call.output = Some(CommandOutput {
-                    exit_code: 1,
+                    shell_exit_code: None,
+                    outcome: ExecOutcome::ExecutionError,
                     formatted_output: String::new(),
                     aggregated_output: String::new(),
                 });

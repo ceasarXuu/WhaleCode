@@ -972,6 +972,9 @@ fn command_execution_completed_event(turn_id: &str, item: &ThreadItem) -> Option
         command_actions,
         aggregated_output,
         exit_code,
+        outcome,
+        termination_signal,
+        pipeline_stage_exit_codes,
         duration_ms,
     } = item
     else {
@@ -1000,6 +1003,7 @@ fn command_execution_completed_event(turn_id: &str, item: &ThreadItem) -> Option
             .unwrap_or_default(),
     );
     let aggregated_output = aggregated_output.clone().unwrap_or_default();
+    let outcome = (*outcome)?;
 
     Some(vec![Event {
         id: String::new(),
@@ -1019,7 +1023,10 @@ fn command_execution_completed_event(turn_id: &str, item: &ThreadItem) -> Option
             stdout: String::new(),
             stderr: String::new(),
             aggregated_output: aggregated_output.clone(),
-            exit_code: exit_code.unwrap_or(-1),
+            shell_exit_code: *exit_code,
+            outcome,
+            termination_signal: *termination_signal,
+            pipeline_stage_exit_codes: pipeline_stage_exit_codes.clone(),
             duration,
             formatted_output: aggregated_output,
             status,
@@ -1209,6 +1216,9 @@ mod tests {
             }],
             aggregated_output: None,
             exit_code: None,
+            outcome: None,
+            termination_signal: None,
+            pipeline_stage_exit_codes: None,
             duration_ms: None,
         };
 
@@ -1265,6 +1275,9 @@ mod tests {
             }],
             aggregated_output: Some("hello world\n".to_string()),
             exit_code: Some(0),
+            outcome: Some(codex_protocol::exec_output::ExecOutcome::Exited),
+            termination_signal: None,
+            pipeline_stage_exit_codes: None,
             duration_ms: Some(5),
         };
         let (_, completed_events) = server_notification_thread_events(
@@ -1282,7 +1295,7 @@ mod tests {
             panic!("expected exec end event");
         };
         assert_eq!(end.call_id, "cmd-1");
-        assert_eq!(end.exit_code, 0);
+        assert_eq!(end.shell_exit_code, Some(0));
         assert_eq!(end.formatted_output, "hello world\n");
         assert_eq!(end.aggregated_output, "hello world\n");
         assert_eq!(end.source, ExecCommandSource::UserShell);
@@ -1300,6 +1313,9 @@ mod tests {
             command_actions: vec![],
             aggregated_output: None,
             exit_code: None,
+            outcome: None,
+            termination_signal: None,
+            pipeline_stage_exit_codes: None,
             duration_ms: None,
         };
 
@@ -1350,6 +1366,9 @@ mod tests {
                     }],
                     aggregated_output: Some("hello world\n".to_string()),
                     exit_code: Some(0),
+                    outcome: Some(codex_protocol::exec_output::ExecOutcome::Exited),
+                    termination_signal: None,
+                    pipeline_stage_exit_codes: None,
                     duration_ms: Some(5),
                 }],
                 status: TurnStatus::Completed,

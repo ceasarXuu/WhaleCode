@@ -18,6 +18,7 @@ use crate::state::TaskKind;
 use crate::tools::format_exec_output_str;
 use crate::tools::runtimes::maybe_wrap_shell_lc_with_snapshot;
 use crate::user_shell_command::user_shell_command_record_item;
+use codex_protocol::exec_output::ExecOutcome;
 use codex_protocol::exec_output::ExecToolCallOutput;
 use codex_protocol::exec_output::StreamOutput;
 use codex_protocol::protocol::EventMsg;
@@ -199,11 +200,13 @@ pub(crate) async fn execute_user_shell_command(
             let aborted_message = "command aborted by user".to_string();
             let exec_output = ExecToolCallOutput {
                 exit_code: -1,
+                outcome: ExecOutcome::Cancelled,
+                termination_signal: None,
+                pipeline_stage_exit_codes: None,
                 stdout: StreamOutput::new(String::new()),
                 stderr: StreamOutput::new(aborted_message.clone()),
                 aggregated_output: StreamOutput::new(aborted_message.clone()),
                 duration: Duration::ZERO,
-                timed_out: false,
             };
             persist_user_shell_output(
                 &session,
@@ -228,7 +231,10 @@ pub(crate) async fn execute_user_shell_command(
                         stdout: String::new(),
                         stderr: aborted_message.clone(),
                         aggregated_output: aborted_message.clone(),
-                        exit_code: -1,
+                        shell_exit_code: None,
+                        outcome: ExecOutcome::Cancelled,
+                        termination_signal: None,
+                        pipeline_stage_exit_codes: None,
                         duration: Duration::ZERO,
                         formatted_output: aborted_message,
                         status: ExecCommandStatus::Failed,
@@ -252,13 +258,16 @@ pub(crate) async fn execute_user_shell_command(
                         stdout: output.stdout.text.clone(),
                         stderr: output.stderr.text.clone(),
                         aggregated_output: output.aggregated_output.text.clone(),
-                        exit_code: output.exit_code,
+                        shell_exit_code: output.shell_exit_code(),
+                        outcome: output.outcome,
+                        termination_signal: output.termination_signal,
+                        pipeline_stage_exit_codes: output.pipeline_stage_exit_codes.clone(),
                         duration: output.duration,
                         formatted_output: format_exec_output_str(
                             &output,
                             turn_context.truncation_policy,
                         ),
-                        status: if output.exit_code == 0 {
+                        status: if output.is_success() {
                             ExecCommandStatus::Completed
                         } else {
                             ExecCommandStatus::Failed
@@ -275,11 +284,13 @@ pub(crate) async fn execute_user_shell_command(
             let message = format!("execution error: {err:?}");
             let exec_output = ExecToolCallOutput {
                 exit_code: -1,
+                outcome: ExecOutcome::ExecutionError,
+                termination_signal: None,
+                pipeline_stage_exit_codes: None,
                 stdout: StreamOutput::new(String::new()),
                 stderr: StreamOutput::new(message.clone()),
                 aggregated_output: StreamOutput::new(message.clone()),
                 duration: Duration::ZERO,
-                timed_out: false,
             };
             session
                 .send_event(
@@ -296,7 +307,10 @@ pub(crate) async fn execute_user_shell_command(
                         stdout: exec_output.stdout.text.clone(),
                         stderr: exec_output.stderr.text.clone(),
                         aggregated_output: exec_output.aggregated_output.text.clone(),
-                        exit_code: exec_output.exit_code,
+                        shell_exit_code: exec_output.shell_exit_code(),
+                        outcome: exec_output.outcome,
+                        termination_signal: exec_output.termination_signal,
+                        pipeline_stage_exit_codes: exec_output.pipeline_stage_exit_codes.clone(),
                         duration: exec_output.duration,
                         formatted_output: format_exec_output_str(
                             &exec_output,

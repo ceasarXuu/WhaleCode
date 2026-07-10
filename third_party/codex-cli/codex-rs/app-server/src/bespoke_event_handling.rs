@@ -1745,6 +1745,9 @@ pub(crate) async fn apply_bespoke_event_handling(
                     command_actions,
                     aggregated_output: None,
                     exit_code: None,
+                    outcome: None,
+                    termination_signal: None,
+                    pipeline_stage_exit_codes: None,
                     duration_ms: None,
                 };
                 let notification = ItemStartedNotification {
@@ -2137,6 +2140,9 @@ async fn start_command_execution_item(
                 command_actions,
                 aggregated_output: None,
                 exit_code: None,
+                outcome: None,
+                termination_signal: None,
+                pipeline_stage_exit_codes: None,
                 duration_ms: None,
             },
         };
@@ -2181,6 +2187,9 @@ async fn complete_command_execution_item(
         command_actions,
         aggregated_output: None,
         exit_code: None,
+        outcome: None,
+        termination_signal: None,
+        pipeline_stage_exit_codes: None,
         duration_ms: None,
     };
     let notification = ItemCompletedNotification {
@@ -3469,6 +3478,9 @@ mod tests {
                         command_actions: completion_item.command_actions.clone(),
                         aggregated_output: None,
                         exit_code: None,
+                        outcome: None,
+                        termination_signal: None,
+                        pipeline_stage_exit_codes: None,
                         duration_ms: None,
                     }
                 );

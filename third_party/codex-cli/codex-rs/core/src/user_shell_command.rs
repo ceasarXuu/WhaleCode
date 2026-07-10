@@ -12,7 +12,15 @@ fn user_shell_command_fragment(
     turn_context: &TurnContext,
 ) -> UserShellCommand {
     let output = format_exec_output_str(exec_output, turn_context.truncation_policy);
-    UserShellCommand::new(command, exec_output.exit_code, exec_output.duration, output)
+    UserShellCommand::new(
+        command,
+        exec_output.outcome,
+        exec_output.shell_exit_code(),
+        exec_output.termination_signal,
+        exec_output.pipeline_stage_exit_codes.clone(),
+        exec_output.duration,
+        output,
+    )
 }
 
 #[cfg(test)]

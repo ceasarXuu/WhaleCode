@@ -128,7 +128,7 @@ async fn apply_patch_cli_uses_codex_self_exe_with_linux_sandbox_helper_alias() -
         .apply_patch_output(call_id, ApplyPatchModelOutput::Function)
         .await;
     assert_regex_match(
-        r"(?s)^Exit code: 0.*Success\. Updated the following files:\nA helper-alias\.txt\n?$",
+        r"(?s)^Execution outcome: exited\nShell exit code: 0\nPipeline stage exit codes: unavailable.*Success\. Updated the following files:\nA helper-alias\.txt\n?$",
         &out,
     );
     assert_eq!(harness.read_file_text("helper-alias.txt").await?, "hello\n");
@@ -161,7 +161,10 @@ async fn apply_patch_cli_multiple_operations_integration(
 
     let out = harness.apply_patch_output(call_id, output_type).await;
 
-    let expected = r"(?s)^Exit code: 0
+    let expected = r"(?s)^Execution outcome: exited
+Shell exit code: 0
+Pipeline stage exit codes: unavailable
+Termination signal: unavailable
 Wall time: [0-9]+(?:\.[0-9]+)? seconds
 Output:
 Success. Updated the following files:

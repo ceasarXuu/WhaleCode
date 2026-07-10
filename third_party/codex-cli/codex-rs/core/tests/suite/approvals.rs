@@ -626,12 +626,15 @@ fn parse_result(item: &Value) -> CommandResult {
         .expect("shell output payload");
     match serde_json::from_str::<Value>(output_str) {
         Ok(parsed) => {
-            let exit_code = parsed["metadata"]["exit_code"].as_i64();
+            let exit_code = parsed["metadata"]["shell_exit_code"].as_i64();
             let stdout = parsed["output"].as_str().unwrap_or_default().to_string();
             CommandResult { exit_code, stdout }
         }
         Err(_) => {
-            let structured = Regex::new(r"(?s)^Exit code:\s*(-?\d+).*?Output:\n(.*)$").unwrap();
+            let structured = Regex::new(
+                r"(?s)^Execution outcome:\s*exited.*?Shell exit code:\s*(-?\d+).*?Output:\n(.*)$",
+            )
+            .unwrap();
             let regex =
                 Regex::new(r"(?s)^.*?Process exited with code (\d+)\n.*?Output:\n(.*)$").unwrap();
             // parse freeform output
