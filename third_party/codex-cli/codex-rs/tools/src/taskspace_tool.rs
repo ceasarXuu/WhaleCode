@@ -197,7 +197,7 @@ pub fn create_taskspace_control_tool() -> ToolSpec {
         name: "taskspace_control".into(),
         description: r#"Mandatory mechanical map tool used while TaskSpace is enabled.
 
-The Agent owns task semantics and explicitly initializes the map, creates or binds nodes, and records node completion or blockage. Runtime only validates ids, dependencies, status, bindings, leases, and tool/result pairing. Ordinary tools require a current node binding. Large tool output can be revisited through read_output_ref. Runtime does not choose the next action or reinterpret tool feedback."#
+The Agent owns task semantics and explicitly initializes the map, creates or binds nodes, and records node completion or blockage. Runtime only validates ids, dependencies, status, bindings, leases, and tool/result pairing. Ordinary tools require a current node binding. One assistant response may contain TaskSpace control and ordinary tool calls; runtime executes provider order across each control barrier, and skips later calls if that barrier fails. Large tool output can be revisited through read_output_ref. Runtime does not choose the next action or reinterpret tool feedback."#
             .into(),
         strict: false,
         defer_loading: None,
@@ -217,6 +217,9 @@ mod tests {
     #[test]
     fn taskspace_control_schema_is_map_lifecycle_only() {
         let value = serde_json::to_value(create_taskspace_control_tool()).expect("serialize");
+        let description = value["description"].as_str().expect("description");
+        assert!(description.contains("executes provider order across each control barrier"));
+        assert!(description.contains("skips later calls if that barrier fails"));
         let actions = value["parameters"]["properties"]["action"]["enum"]
             .as_array()
             .expect("action enum");
