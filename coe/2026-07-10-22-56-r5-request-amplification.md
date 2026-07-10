@@ -30,6 +30,10 @@
   - E-004
   - E-005
   - E-006
+  - E-007
+  - E-008
+  - E-009
+  - E-010
 - Ruled out:
   - 相邻请求缓存前缀破坏不是本轮请求放大的原因：R5 strict-prefix 48/48，request-2+ cache hit 97.66%。
   - 工具反馈丢失不是本轮主要原因：pre-init hard reject、pytest failure、apply_patch failure 和成功输出都按原文进入后续 history。
@@ -39,16 +43,21 @@
   - 12个 Map control 是当前三节点 mandatory-map contract 的确定性结构成本，三轮均可复现。
   - 17个额外普通动作是本轮 treatment-correlated observation，不等于都已证明由 TaskSpace 稳定触发。
   - 其中2个 pre-init find/ls 被空 Map 硬规则拒绝，属于明确的 TaskSpace 特有额外动作；第二轮7个 patch/read 循环和其余环境/检查动作仍需更多 controlled repeats 区分上下文影响与模型采样波动。
+  - 三轮首请求都完整包含初始化协议；pre-init 失败不是系统提示或 projection 丢失，而是模型在明确硬状态下仍选择了普通工具。
+  - 当前 native tool scheduler 没有为状态工具与后续普通工具提供显式的有序依赖屏障，不能把依赖调用安全地当作普通 parallel tool calls 合并。
 - Fix criteria:
   - 在用户授权修复后，任何方案必须分别度量固定 control 往返、普通动作数量和并行承载；不得只压低一个总 request 数。
   - 修复验证必须保持 G1 strict-prefix、反馈忠实性、Agent-owned Map 和 correctness。
   - 需要 controlled repeats 证明 request 降低不是模型随机波动。
-- Current conclusion: 请求差已被高置信度分解。29次额外请求不是缓存或隐藏 runtime retry，而是工具调用净增29且两侧 aggregate 并行节省量相同：12个为三轮固定的 `initialize_map + 3*finish_node`，17个为 Agent 额外普通动作。17个普通动作进一步由5个额外 inspect/discovery、5个额外 validation/environment probe 和第二轮7个 patch/read 修复循环组成。TaskSpace 的强制 Map 工具协议形成稳定底噪，其中2个 pre-init 拒绝也是明确的 TaskSpace 特有成本；其余15个普通动作只能认定为本轮 Agent 行为差异，尚不能用三轮数据证明是 TaskSpace 的稳定因果效应。
+- Current conclusion: 请求差已被高置信度分解。29次额外请求不是缓存或隐藏 runtime retry，而是工具调用净增29且两侧 aggregate 并行节省量相同：12个为三轮固定的 `initialize_map + 3*finish_node`，17个为 Agent 额外普通动作。17个普通动作进一步由5个额外 inspect/discovery、5个额外 validation/environment probe 和第二轮7个 patch/read 修复循环组成。TaskSpace 的强制 Map 工具协议形成稳定底噪，其中2个 pre-init 拒绝也是明确的 TaskSpace 特有成本；其余15个普通动作只能认定为本轮 Agent 行为差异，尚不能用三轮数据证明是 TaskSpace 的稳定因果效应。初始化协议已完整送达模型；当前可进一步收敛的机制缺口，是 hard-state 工具可用面仍暴露无效普通工具，以及 native scheduler 缺少 Agent-authored、runtime-mechanical 的有序状态屏障。
 - Related hypotheses:
   - H-001
   - H-002
   - H-003
   - H-004
+  - H-005
+  - H-006
+  - H-007
 - Resolution basis:
   - E-001
   - E-002
@@ -56,6 +65,10 @@
   - E-004
   - E-005
   - E-006
+  - E-007
+  - E-008
+  - E-009
+  - E-010
 - Close reason:
   - diagnosis complete; repair not authorized
 
@@ -236,6 +249,114 @@
 - Close reason:
   - feedback and wire evidence contradict the claim
 
+## Hypothesis H-005: pre-init 普通工具调用来自初始化协议没有进入模型上下文
+- Status: refuted
+- Parent: P-001
+- Claim: pair-002 和 pair-003 首次调用 find/ls，是因为模型首请求没有收到必须先执行 `initialize_map` 的协议。
+- Layer: sub-cause
+- Factor relation: single
+- Depends on:
+  - H-004
+- Rationale:
+  - 如果初始化说明缺失，模型按 Standard 习惯先检查仓库是合理行为。
+- Falsifiable predictions:
+  - If true: 失败轮首请求 history 中缺少 `active_task_path_without_nodes` 或 `initialization_contract`。
+  - If false: 三轮收到相同初始化硬状态，其中一轮正确初始化、两轮忽略后被硬规则拒绝。
+- Diagnostic evidence plan:
+  - Prediction or clause under test: 检查三轮首请求 developer items 和首个 function call。
+  - Signal: 初始化 marker、首工具名及参数。
+  - Capture method: R5 `rollout.jsonl` 原始 response items。
+  - Correlation keys:
+    - pair id
+    - first provider response
+  - Supports if:
+    - 失败轮缺少初始化协议。
+  - Refutes if:
+    - 协议存在且未被改写。
+- Evidence gate: satisfied
+- Related evidence:
+  - E-007
+- Conclusion: refuted
+- Repair design readiness: ready
+- Next step: 不增加语义提示；评估让 provider tool choice/visibility 与现有 hard state 一致。
+- Blocker:
+  - repair not authorized
+- Close reason:
+  - all three first requests contained the explicit initialization contract
+
+## Hypothesis H-006: 每个 finish 独占请求是未合并 bind 操作造成的
+- Status: refuted
+- Parent: P-001
+- Claim: `finish_node` 之后还需要单独 bind 下一节点，导致每个节点边界多一次请求。
+- Layer: sub-cause
+- Factor relation: single
+- Depends on:
+  - H-003
+- Rationale:
+  - lifecycle 工具如果只完成节点、不推进 binding，会形成可避免的双重控制往返。
+- Falsifiable predictions:
+  - If true: trace 中每个 finish 后存在 `bind_node`，或 finish output 没有下一节点 binding。
+  - If false: finish 已通过 `next_node_id` 原子完成当前节点并绑定下一节点，但工具结果仍需下一次模型采样。
+- Diagnostic evidence plan:
+  - Prediction or clause under test: 对三轮 finish 参数、输出和 bind 计数。
+  - Signal: `next_node_id`、`Next node ... bound`、`bind_node=0`。
+  - Capture method: R5 `rollout.jsonl` call/output pair。
+  - Correlation keys:
+    - finish call id
+    - node id
+  - Supports if:
+    - 存在额外 bind 往返。
+  - Refutes if:
+    - finish 已原子推进 binding。
+- Evidence gate: satisfied
+- Related evidence:
+  - E-008
+  - E-009
+- Conclusion: refuted
+- Repair design readiness: not applicable
+- Next step: 将成本定位为 native tool-result sampling barrier，而不是 bind 实现缺口。
+- Blocker:
+  - none
+- Close reason:
+  - all transitions already finish and bind atomically
+
+## Hypothesis H-007: 当前 native tool scheduler 缺少状态变更后的有序多步骤执行能力
+- Status: confirmed
+- Parent: P-001
+- Claim: Agent 不能在一次 provider response 中可靠表达 `initialize/finish -> dependent ordinary tool`，因为当前调用被当作同批 in-flight tools，普通工具 TaskSpace preflight 在串行执行锁之前运行，没有“前一步成功后按最新状态校验下一步”的协议。
+- Layer: root-cause
+- Factor relation: part_of
+- Depends on:
+  - H-003
+- Rationale:
+  - 普通 parallel tools 适合互不依赖的调用；状态迁移和下一节点动作是顺序依赖，必须有明确 barrier、逐步 preflight 和首错停止语义。
+- Falsifiable predictions:
+  - If true: `taskspace_control` 标记为 non-parallel，但普通工具的 TaskSpace preflight 位于 execution lock 之前；native transport 没有逐项 latest-state sequence contract。
+  - If false: 当前 scheduler 已保证同一 response 内按输出顺序执行、每步基于前一步结果重新校验并在失败后跳过后续调用。
+- Diagnostic evidence plan:
+  - Prediction or clause under test: 检查 tool registry、parallel dispatcher、native transport selector 和已有 sequence executor。
+  - Signal: `supports_parallel_tool_calls=false`、preflight/lock 顺序、`NativeTools` 固定返回、旧 action sequence 的 ordered loop。
+  - Capture method: 源码审计。
+  - Correlation keys:
+    - tool call order
+    - call id
+    - node binding/lease
+  - Supports if:
+    - native scheduler 缺少 barrier，而旧 sequence path 证明机械顺序执行在架构上可行。
+  - Refutes if:
+    - native path 已提供同等能力。
+- Evidence gate: satisfied
+- Related evidence:
+  - E-008
+  - E-010
+- Conclusion: confirmed
+- Repair design readiness: ready, but implementation requires user authorization
+- Next step: 设计 native-tools barrier，不恢复禁用 native tools 的旧 action-contract transport。
+- Blocker:
+  - repair not authorized
+- Close reason:
+  - not closed
+
 ## Evidence E-001: 三轮请求可完全拆成工具响应和最终回答
 - Related hypotheses:
   - H-001
@@ -388,3 +509,101 @@
   ```
 - Interpretation: Agent 收到了可行动的失败事实并据此重读/修正；额外动作不能归因于反馈缺失或历史替换。
 - Time: 2026-07-10 22:56
+
+## Evidence E-007: 三轮首请求均完整包含初始化协议
+- Related hypotheses:
+  - H-005
+- Direction: refutes
+- Type: diagnostic-log
+- Source: three R5 `rollout.jsonl`
+- Prediction or plan link:
+  - H-005 bootstrap context visibility
+- Matched signal:
+  - 三轮均出现 activation hard state、blank-map hard state 和 initialize contract
+- Correlation keys:
+  - pair-001..003
+  - first provider response
+- Raw content:
+  ```text
+  TaskSpace mode is now active.
+  hard_state: ordinary tools and multi-agent actions require an active TaskSpace task path, current node binding, and lease.
+  hard_state: active_task_path_without_nodes
+  initialization_contract: taskspace_control(action=initialize_map)
+
+  pair-001 first call: taskspace_control(initialize_map)
+  pair-002 first call: exec_command(find ...)
+  pair-003 first call: exec_command(ls -la)
+  ```
+- Interpretation: 模型知道硬状态所需事实；两次错误是明确指令下的动作选择失败，不是 projection 丢失、裁剪或扭曲。
+- Time: 2026-07-10 23:24
+
+## Evidence E-008: native control tool 是独占执行工具但没有依赖序列契约
+- Related hypotheses:
+  - H-006
+  - H-007
+- Direction: supports
+- Type: source-inspection
+- Source: `tools/src/tool_registry_plan.rs`, `core/src/tools/parallel.rs`, `core/src/session/turn.rs`
+- Prediction or plan link:
+  - H-007 scheduler ordering
+- Matched signal:
+  - `taskspace_control` 注册为 `supports_parallel_tool_calls=false`
+  - 当前 transport 固定为 `NativeTools`
+  - function calls 进入 `FuturesOrdered`，但普通工具的 `prepare_taskspace_tool_call` 位于 parallel execution lock 之前
+- Correlation keys:
+  - function call id
+  - response item order
+- Raw content:
+  ```text
+  tool_registry_plan.rs:453-456  taskspace_control supports_parallel_tool_calls=false
+  turn.rs:1164/1171             transport=NativeTools
+  parallel.rs:121-123           TaskSpace preflight
+  parallel.rs:151-168           execution lock and dispatch
+  ```
+- Interpretation: non-parallel 标记只能约束执行互斥，不能构成“前一步状态提交成功后再校验下一步”的有序事务；把 finish 和下一普通工具直接并列仍存在旧状态校验/归属风险。
+- Time: 2026-07-10 23:24
+
+## Evidence E-009: finish 已原子完成并绑定下一节点
+- Related hypotheses:
+  - H-006
+- Direction: refutes
+- Type: diagnostic-log
+- Source: three R5 `rollout.jsonl`
+- Prediction or plan link:
+  - H-006 finish/bind decomposition
+- Matched signal:
+  - 前两个 finish 都携带 `next_node_id`，三轮 `bind_node=0`
+- Correlation keys:
+  - node-1..3
+  - finish call id
+- Raw content:
+  ```text
+  finish_node(node-1, next_node_id=node-2) -> node-1 completed; node-2 bound
+  finish_node(node-2, next_node_id=node-3) -> node-2 completed; node-3 bound
+  finish_node(node-3) -> node-3 completed
+  bind_node calls: 0
+  ```
+- Interpretation: 当前四个 control 的成本不能再通过合并 create/bind 消除；剩余边界是每个 control output 后的 provider resampling。
+- Time: 2026-07-10 23:24
+
+## Evidence E-010: 旧 action sequence 证明机械有序执行可行但当前 native path 未使用
+- Related hypotheses:
+  - H-007
+- Direction: supports
+- Type: source-inspection
+- Source: `core/src/session/turn.rs`
+- Prediction or plan link:
+  - H-007 ordered execution feasibility
+- Matched signal:
+  - 旧 `taskspace-action-sequence-v1` 定义按列表顺序、每步读取最新状态、首错停止；当前 selector 固定返回 `NativeTools`
+- Correlation keys:
+  - sequence index
+  - tool call id
+- Raw content:
+  ```text
+  turn.rs:1178-1187  sequence order/latest state/stop-on-failure contract
+  turn.rs:13831-13930 sequential action execution
+  turn.rs:1164/1171  current request transport remains NativeTools
+  ```
+- Interpretation: 有序多步骤不是不可实现；应把 barrier 能力下沉到通用 native tool scheduler，保留每个工具的权限、沙箱、原始反馈和 trace，而不是恢复会禁用 native tools、引入独立 JSON 协议的旧 transport。
+- Time: 2026-07-10 23:24
