@@ -238,6 +238,27 @@ provider requests：第一轮 initialize/read，第二轮 `finish_node(final_can
 
 **Exit:** 固定拓扑下 R5 control-only response 从4/轮降到不高于1/轮；pre-init reject=0；terminal extra request=0；correctness/cache/feedback/map health 全部通过；复杂样本无 Map 坍缩。
 
+**实施结果（2026-07-11）：J4 correctness/capability 验证完成，收益门禁未通过。**
+
+- `count-call-stack` 三轮 Docker paired run：Standard/R5 均 `3/3 solved`，prefix coverage 均100%，
+  R5 Map 分别为5/6/3节点；但 R5 总请求54 vs Standard 22，control-only 分别12/13/7，
+  mixed barrier 均为0。证据：`target/r5-j4-clean/count-call-stack/20260711-054857-084`。
+- 修复 Standard 错误暴露 `taskspace_control` 后，post-fix paired run 两侧 solved，Standard control=0；
+  R5 仍为7个 control-only、0 mixed barrier。证据：
+  `target/r5-j4-batching-contract/count-call-stack/20260711-060333-715`。
+- `multi-file-order-pipeline` 两侧 solved；R5 为6节点/6边，未坍缩，tools 14 vs 15、wall 1.10x，
+  但 requests 22 vs 8、control-only=13、mixed=0。
+- `subscription-billing-repair` 两侧 solved；R5 为8节点/11边，requests 29 vs 20、wall 1.38x，
+  control-only=18、mixed=0。
+- Agent 提交 `final_candidate` 时 terminal extra request=0；真实 run 中 Agent 未选择该可选字段时仍为1。
+  runtime 没有自动生成、合并或强迫终态。
+- barrier 顺序/失败停止与 terminal transaction 的 production path、focused tests 和真实日志均存在，
+  但真实 DeepSeek run 没有产出混合 barrier batch。给工具补充机械调用契约后，单样本仍为0 mixed。
+
+因此 J4 的 `control-only <= 1/run` 明确未达成，Decision 为 **hold benefit claim**。不通过自动绑定、
+强制 `next_node_id`、拒绝合法重复 bind 或 runtime 合并动作来追指标；这些方向会越过 Agent 对 Map
+推进的所有权。后续若继续优化，应从 Agent 可理解的状态事实与工具能力使用效率入手，并保持可选性。
+
 **Fallback:** 任何 correctness、反馈、权限或 Map health 回退都阻止收益声明，并按 J3 -> J2 -> J1 的独立 commit 逆序回退。
 
 ## 9. Phase Gate Matrix
@@ -248,7 +269,7 @@ provider requests：第一轮 initialize/read，第二轮 `finish_node(final_can
 | J1 | hard-state tool-choice fixtures、wire/cache trace | 不依赖 barrier | first-response and tools-hash evidence | 100% passed | proceed J2 |
 | J2 | ordered barrier unit/integration/side-effect tests | 不依赖 terminal transaction | latest-state attribution and stop evidence | 100% passed | proceed J3 |
 | J3 | terminal success/rejection/history tests | 不依赖 benefit repeats | completion provenance evidence | 100% passed | proceed J4 |
-| J4 | Docker fixed-topology repeats、complex sample、adversarial review | 无后续 phase 补证 | performance/map/semantic report | 100% | proceed I3 |
+| J4 | Docker fixed-topology repeats、complex sample、adversarial review | 无后续 phase 补证 | performance/map/semantic report | correctness complete; benefit gate failed | hold benefit claim |
 
 ## 10. Implementation Completeness Matrix
 
@@ -257,7 +278,7 @@ provider requests：第一轮 initialize/read，第二轮 `finish_node(final_can
 | P0 tool selection | blank map 首响应只能选择 control tool | Chat body/provider request construction | TaskSpace initial request | named-choice/visibility fixtures | tool-choice trace + final wire | provider probe only in J0 | complete; Docker live evidence passed |
 | P1 ordered barrier | state change后的调用按最新状态执行 | native tool scheduler、TaskSpace preflight | multi-call provider response | order/failure/permission/attribution tests | barrier lifecycle events | none at exit | complete; positive/negative integration passed |
 | P3 terminal transaction | finish 成功后直接发布 Agent final | taskspace_control handler、turn completion/history | last running node | success/reject/replay/provenance tests | terminal candidate events | none at exit | complete; two-request terminal fixture passed |
-| anti-collapse gate | 收益不来自节点减少 | benchmark fixed topology + graph health | J4 Docker runs | topology fixtures | map/node/edge/control metrics | none | planned |
+| anti-collapse gate | 收益不来自节点减少 | benchmark topology + graph health | J4 Docker runs | topology fixtures | complex maps 6/6、8/11；无坍缩 | none | complete |
 
 ## 11. Change-chain Logging Matrix
 

@@ -226,6 +226,13 @@ J0-J4 的真实基线。详细证据见 `16-r5-docker-i2-evidence.md`。
 
 **Exit:** correctness 无回退；host environment failure=0；paired image/resource parity=100%；container lifecycle/log coverage=100%；观测开销低于 I0 冻结阈值。
 
+**实施结果（2026-07-11）：** 工程验证已完成。`count-call-stack` 三轮及
+`multi-file-order-pipeline`、`subscription-billing-repair` 完整 paired run 均使用同一 Docker contract，
+public/hidden validator 全部通过，host environment failure=0。两个复杂样本的 performance observation
+分别位于 `target/r5-g3-complex/multi-file-order-pipeline/20260711-060613-846` 和
+`target/r5-g3-complex/subscription-billing-repair/20260711-060912-397`。I3 证据成立，但 J4 benefit exit
+未通过，因此不能据此宣布 native cadence 收益达成。
+
 **Fallback:** 暂停 cutover并修复容器 substrate；不得用本机结果替代 Docker 正式收益证据。
 
 ### R5-I4：Docker-only 切换与本机路径删除
@@ -242,6 +249,14 @@ J0-J4 的真实基线。详细证据见 `16-r5-docker-i2-evidence.md`。
 
 **Exit:** production call graph 不可达本机 runner；正式样本全部 `container_runtime_coverage=100%`；git clean；文档和日志 schema 一致。
 
+**实施结果（2026-07-11）：** 已删除本机 Agent/public validator/hidden oracle runner 和专属兼容测试，
+移除全部 benchmark `SandboxMode` 参数；Whale argv 固定 bypass，由 Docker contract 提供唯一硬隔离。
+`test-docker-only-call-graph.ps1`、container runner、external wrapper、E3 start gate、score validity 和完整
+harness 均通过。post-cutover `count-call-stack` 位于
+`target/r5-i4-docker-only/count-call-stack/20260711-061630-229`：两侧 solved，共6条 container manifest
+（agent/validator/oracle 各2），6/6 cleanup 成功，secret scan=0，lifecycle 覆盖 agent/validator/oracle
+started/completed。Docker 不可用时 preflight fail closed，不存在本机 fallback。
+
 **Rollback:** 只允许 git revert 到 I3 前版本，不保留运行时双路径或自动 fallback。
 
 ## 9. Phase Gate Matrix
@@ -251,8 +266,8 @@ J0-J4 的真实基线。详细证据见 `16-r5-docker-i2-evidence.md`。
 | I0 | schema/permission/resource baseline fixtures | 不依赖 container runner | contract fixture、I0 baseline、正反例测试 | 100% | passed |
 | I1 | lifecycle/secret/failure/cleanup smoke | 不依赖 Agent migration | image digest、lifecycle/manifest/log/stats/cleanup artifacts | 100% | passed |
 | I2 | one paired real sample and oracle isolation | 不依赖 complex benchmark | pair report、container manifests、J fixed-topology baseline | 100% | proceed R5-J0 |
-| I3 | controlled repeats and complex pairs | 不依赖 default switch | performance observation、topology guard and parity report | R5-J4 已完成且 I3 100% | proceed I4 |
-| I4 | call-graph scan and Docker-only real run | 无 | default-path and clean-tree evidence | 100% | close |
+| I3 | controlled repeats and complex pairs | 不依赖 default switch | performance observation、topology guard and parity report | engineering evidence complete; J4 benefit gate open | no cadence benefit claim |
+| I4 | call-graph scan and Docker-only real run | 无 | default-path and clean-tree evidence | 100% implementation complete | Docker-only cutover landed |
 
 ## 10. Implementation Completeness Matrix
 
@@ -263,7 +278,7 @@ J0-J4 的真实基线。详细证据见 `16-r5-docker-i2-evidence.md`。
 | log collector | 失败前后日志可恢复 | `container-runtime.ps1` | every container phase | success/nonzero/timeout/stats/cleanup/secret fixtures | lifecycle、manifest、inspect、logs、stats、cleanup | real Docker smoke | landed |
 | Agent runner | Standard/R5 同一容器路径 | `container-benchmark-runner.ps1` | `run-taskspace-benchmark.ps1` | paired smoke | agent container manifest、rollout | none | landed |
 | validator/oracle | 私有边界容器化 | `container-benchmark-runner.ps1` | post-Agent validation | leak/isolation tests | validator/oracle events | none | landed |
-| Docker-only cutover | 本机路径不可达 | bootstrap/runner cleanup | all benchmark commands | call graph + real runs | runtime coverage | none | planned |
+| Docker-only cutover | 本机路径不可达 | bootstrap/runner cleanup | all benchmark commands | call graph + real runs | 6 role manifests + lifecycle | none | landed |
 
 ## 11. 风险与缓解
 
@@ -290,5 +305,5 @@ J0-J4 的真实基线。详细证据见 `16-r5-docker-i2-evidence.md`。
 
 ## 13. 当前执行点
 
-I0/I1/I2 已完成，当前转入 R5-J0。I2 结果只证明统一执行与观测 substrate，不证明 TaskSpace
-收益；I3/I4 必须等待 J4 通过后再执行。
+I0-I4 的 Docker 工程路径已完成，正式 benchmark 已只有容器执行面。I3 的复杂样本证据不能覆盖
+J4 未通过的 cadence benefit gate；当前不得声明请求成本目标达成。

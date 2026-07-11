@@ -934,9 +934,9 @@ P3：最后节点允许 Agent 把 finish 和自己生成的 final candidate 作�
 | R5-G1 | prefix/control-history/compaction tests、controlled 3-run | 不依赖 R5-F 或 G3 | epoch append-only、状态工具 journal、cache/LCP 证据 | 100% 完成 | proceed to R5-F |
 | R5-F | 模块边界测试、cargo check | 不依赖 benchmark 总跑 | active path import/call graph | 100% 完成 | proceed to R5-I0 |
 | R5-I0/I1/I2 | Docker contract、container lifecycle/log fixtures、单次 paired smoke | 不依赖 J cadence code | container manifests、日志链、统一 runner | 100% 完成 | proceed to R5-J0 |
-| R5-J0/J1/J2/J3/J4 | provider capability/fixed-topology fixtures、native barrier/terminal tests、Docker repeats | 不依赖 I3/I4 或 closeout 补证 | hard-state tool choice、latest-state attribution、terminal provenance、fixed-topology benefit report | 100% 完成 | proceed to R5-I3 |
-| R5-I3/I4 | Docker complex pairs、等价/性能门禁、Docker-only call graph | 不依赖 closeout | performance observation、container parity、default-path scan | 100% 完成 | proceed to R5-G3 |
-| R5-G3 | complex paired runs、streaming extractor tests | 不依赖 closeout | 完整指标报告、失败分类 | 100% 完成 | proceed to R5-H |
+| R5-J0/J1/J2/J3/J4 | provider capability/fixed-topology fixtures、native barrier/terminal tests、Docker repeats | 不依赖 I3/I4 或 closeout 补证 | hard-state tool choice、latest-state attribution、terminal provenance、fixed-topology benefit report | J0-J3完成；J4 correctness完成、benefit失败 | hold benefit claim |
+| R5-I3/I4 | Docker complex pairs、等价/性能门禁、Docker-only call graph | 不依赖 closeout | performance observation、container parity、default-path scan | 工程实现与验证100%；不覆盖J4收益缺口 | Docker-only landed |
+| R5-G3 | complex paired runs、streaming extractor tests | 不依赖 closeout | 完整指标报告、失败分类 | 100% 完成 | G3 close，整体仍受J4 gate阻塞 |
 | R5-H | closeout review | 无 | closeout 文档和 clean git | R5-F/I/J/G3 全部完成 | pause |
 
 ### 1.15.1 每阶段样本验证规则
@@ -979,9 +979,9 @@ provider request count、state-machine action count、wall time、失败分类�
 | R5-G1 append-only history | epoch snapshot + Agent 原始状态工具 journal；不删除已发送历史 | provider history、projection、compaction | TaskSpace provider request | strict-prefix、control feedback、epoch snapshot tests | 3-repeat paired + complex right-only | 无语义摘要、双写或兼容层 | landed |
 | R5-G2 single map initialization | TaskSpace 根 map 只能由 Agent 通过 `initialize_map` 初始化；线性 plan 和旧 root lifecycle 均不可旁路 | provider tool visibility、taskspace_control handler、action-contract bootstrap、mechanical blank map | whale exec `--taskspace` | tools 139/0/1；focused core 5/0；scenario fixtures 2/0 | `target/r5-g2-single-map-validation/.../20260710-074551-730`：maps=1、nodes=4、edges=3、24 requests、complete | 无 update_plan bridge；无 start_task/route_task compatibility | landed |
 | R5-F module split | active path 仅保留 map/node/event/ref；projection 为无语义决策构造器 | `action_map/map.rs`, `action_map/projection.rs`, `action_map/runtime.rs` | whale exec --taskspace | protocol 192/192；runtime 6/6；multi-agent 82/82；rollout 21/21 | raw body/ref 和 map lifecycle trace 保持 | 无 legacy snapshot adapter、semantic ledger 或双写 | landed |
-| R5-G benefit gate | 简化无明确负收益 | benchmark harness | targeted samples | paired report | metrics json/report | none | in progress: G0/G1/G2 landed; G3 pending after I/J |
-| R5-I Docker-only benchmark | 正式样本不再继承宿主 Python/pytest/PATH；容器日志可完整关联 | `container-runtime.ps1`、`container-benchmark-runner.ps1` | benchmark Docker roles | I0-I4 fixtures + real paired Docker runs | container manifest/lifecycle/log/stats/rollout artifacts | I4 删除本机 fallback | I0/I1/I2 landed；I3/I4 pending after J4 |
-| R5-J native control cadence | P0 hard-state tool selection；P1 ordered state barrier；P3 Agent-authored terminal transaction；P2 明确禁止 | provider request construction、native tool scheduler、TaskSpace preflight、turn completion | TaskSpace native tool loop | J0-J4 fixed-topology/order/failure/provenance tests | control-only response、barrier sequence、terminal source、map topology metrics | 不恢复 action-contract；无 map coarsening | J0-J3 complete; J4 active |
+| R5-G benefit gate | 简化无明确负收益 | benchmark harness | targeted samples | paired report | metrics json/report | none | G0-G3 complete；correctness无回退，J4 cadence收益未达成 |
+| R5-I Docker-only benchmark | 正式样本不再继承宿主 Python/pytest/PATH；容器日志可完整关联 | `container-runtime.ps1`、`container-benchmark-runner.ps1` | benchmark Docker roles | I0-I4 fixtures + real paired Docker runs | container manifest/lifecycle/log/stats/rollout artifacts | I4 已删除本机 fallback | I0-I4 landed；Docker-only complete |
+| R5-J native control cadence | P0 hard-state tool selection；P1 ordered state barrier；P3 Agent-authored terminal transaction；P2 明确禁止 | provider request construction、native tool scheduler、TaskSpace preflight、turn completion | TaskSpace native tool loop | J0-J4 order/failure/provenance tests + Docker reports | production mixed barrier=0；control-only 7-18；terminal candidate按Agent选择生效 | 不恢复 action-contract；无 map coarsening | J0-J3 complete；J4 benefit gate failed |
 
 ## 1.17 Change-chain Logging Matrix
 
