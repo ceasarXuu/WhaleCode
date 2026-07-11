@@ -280,6 +280,10 @@ fn call_establishes_binding(call: &ToolCall) -> bool {
     };
     match arguments.get("action").and_then(serde_json::Value::as_str) {
         Some("bind_node") => true,
+        Some("finish_node") => arguments
+            .get("node_id")
+            .and_then(serde_json::Value::as_str)
+            .is_some_and(|node_id| !node_id.trim().is_empty()),
         Some("create_node") => {
             arguments
                 .get("bind_current")
@@ -418,6 +422,11 @@ mod tests {
             "bind",
             r#"{"action":"bind_node","node_id":"node-2"}"#,
         );
+        let explicit_finish = function_call_with_arguments(
+            "taskspace_control",
+            "finish-explicit",
+            r#"{"action":"finish_node","node_id":"node-2"}"#,
+        );
         let ordinary = function_call("exec_command", "test");
 
         assert_eq!(
@@ -430,6 +439,10 @@ mod tests {
         );
         assert_eq!(
             finish_cadence_violation(&[finish_without_binding, bind], 0),
+            None
+        );
+        assert_eq!(
+            finish_cadence_violation(&[finish_with_binding.clone(), explicit_finish], 0),
             None
         );
         assert_eq!(

@@ -1312,6 +1312,9 @@ async fn build_initial_context_consumes_action_map_transition_notice_once() {
         "expected cadence guidance in developer context, got: {first_developer_text}"
     );
     assert!(first_developer_text.contains("standalone nonterminal finish remains valid"));
+    assert!(
+        first_developer_text.contains("explicit ready target is claimed and finished atomically")
+    );
 
     let second_context = session.build_initial_context(&turn_context).await;
     let second_developer_text = developer_input_texts(&second_context).join("\n");

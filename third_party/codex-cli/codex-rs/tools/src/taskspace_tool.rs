@@ -121,7 +121,7 @@ pub fn create_taskspace_control_tool() -> ToolSpec {
         (
             "node_id".to_string(),
             JsonSchema::string(Some(
-                "Required for bind_node and block_node. Optional for finish_node, which defaults to the current binding."
+                "Required for bind_node and block_node. Optional for finish_node, which defaults to the current binding. With no current binding, an explicit ready finish target is claimed and finished atomically."
                     .into(),
             )),
         ),
@@ -213,7 +213,7 @@ Mechanical action effects:
 - initialize_map creates the supplied graph and binds current_node_key in one state transition.
 - create_node can create and bind a node atomically with bind_current=true.
 - bind_node binds an existing node as current.
-- finish_node defaults node_id to the current binding. It can finish and bind next_node_id atomically, or atomically create and bind a next node with the next_node_* fields.
+- finish_node defaults node_id to the current binding. With no current binding, an explicit ready node_id is claimed and finished atomically. It can finish and bind next_node_id atomically, or atomically create and bind a next node with the next_node_* fields.
 - block_node records the blocker and blocks the named node.
 - read_output_ref returns a bounded slice of retained tool output.
 
@@ -246,6 +246,7 @@ mod tests {
         assert!(description.contains("terminal finish_node with final_candidate may be the last"));
         assert!(description.contains("binds current_node_key in one state transition"));
         assert!(description.contains("finish and bind next_node_id atomically"));
+        assert!(description.contains("explicit ready node_id is claimed and finished atomically"));
         let actions = value["parameters"]["properties"]["action"]["enum"]
             .as_array()
             .expect("action enum");
@@ -285,6 +286,12 @@ mod tests {
                 .as_str()
                 .expect("node_id description")
                 .contains("defaults to the current binding")
+        );
+        assert!(
+            properties["node_id"]["description"]
+                .as_str()
+                .expect("node_id description")
+                .contains("claimed and finished atomically")
         );
         assert!(
             properties["next_node_id"]["description"]

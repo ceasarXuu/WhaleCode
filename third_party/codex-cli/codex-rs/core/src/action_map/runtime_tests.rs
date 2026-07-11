@@ -121,6 +121,88 @@ fn agent_can_finish_without_runtime_capability_inference() {
 }
 
 #[test]
+fn explicit_ready_target_is_claimed_and_finished_without_separate_bind() {
+    let second = ActionMapInitializeNodeInput {
+        key: "second".to_string(),
+        kind: NodeKind::FinalSynthesis,
+        title: "Second".to_string(),
+        context_summary: "Record the second completed step.".to_string(),
+        dependency_keys: vec!["first".to_string()],
+    };
+    let (mut state, owner, outcome) =
+        initialized_state(vec![inspect_node("first"), second], "first");
+
+    state
+        .finish_main_node_with_next(
+            owner,
+            &outcome.current_node_id,
+            "First complete.".to_string(),
+            None,
+            None,
+        )
+        .expect("finish current node");
+    assert!(state.current_main_node_id.is_none());
+
+    let (finished, events) = state
+        .finish_main_node_with_next(owner, "node-2", "Second complete.".to_string(), None, None)
+        .expect("claim and finish explicit ready target");
+
+    assert!(finished.next_node_id.is_none());
+    assert!(
+        events
+            .iter()
+            .any(|event| matches!(event, MapRuntimeEvent::LeaseCreated(_)))
+    );
+    assert!(state.current_main_node_id.is_none());
+    let map = state.maps.get(&outcome.map_id).expect("active map");
+    assert_eq!(
+        map.nodes.get("node-2").expect("second node").status,
+        NodeStatus::Completed
+    );
+}
+
+#[test]
+fn rejected_explicit_finish_does_not_leave_an_implicit_binding() {
+    let second = ActionMapInitializeNodeInput {
+        key: "second".to_string(),
+        kind: NodeKind::InspectCodeContext,
+        title: "Second".to_string(),
+        context_summary: "Complete another prerequisite.".to_string(),
+        dependency_keys: Vec::new(),
+    };
+    let final_node = ActionMapInitializeNodeInput {
+        key: "final".to_string(),
+        kind: NodeKind::FinalSynthesis,
+        title: "Final".to_string(),
+        context_summary: "Depends on both prerequisites.".to_string(),
+        dependency_keys: vec!["first".to_string(), "second".to_string()],
+    };
+    let (mut state, owner, outcome) =
+        initialized_state(vec![inspect_node("first"), second, final_node], "first");
+    state
+        .finish_main_node_with_next(
+            owner,
+            &outcome.current_node_id,
+            "First complete.".to_string(),
+            None,
+            None,
+        )
+        .expect("finish first prerequisite");
+
+    let error = state
+        .finish_main_node_with_next(owner, "node-3", "Premature final.".to_string(), None, None)
+        .expect_err("pending explicit target must be rejected");
+
+    assert!(error.contains("target_node_dependencies_incomplete"));
+    assert!(state.current_main_node_id.is_none());
+    assert!(state.current_main_lease_id.is_none());
+    let map = state.maps.get(&outcome.map_id).expect("active map");
+    let final_node = map.nodes.get("node-3").expect("final node");
+    assert_eq!(final_node.status, NodeStatus::Pending);
+    assert!(final_node.active_lease.is_none());
+}
+
+#[test]
 fn thin_projection_keeps_raw_feedback_without_strategy_sections() {
     let (mut state, owner, _) = initialized_state(vec![inspect_node("inspect")], "inspect");
     state

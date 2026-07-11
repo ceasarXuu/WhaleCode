@@ -54,7 +54,8 @@ const FINISH_INSPECT_CALL_ID: &str = "ordered-finish-inspect";
 const EDIT_AFTER_FINISH_CALL_ID: &str = "ordered-edit";
 const FINISH_IMPLEMENT_CALL_ID: &str = "ordered-finish-implement";
 const TEST_AFTER_FINISH_CALL_ID: &str = "ordered-test";
-const TRAILING_FINISH_PROMPT: &str = "验证末尾非终态 finish 会被机械拒绝。";
+const TRAILING_FINISH_PROMPT: &str = "验证末尾非终态 finish 保持 Agent 所有权。";
+const CHAINED_FINISH_PROMPT: &str = "验证同一响应连续完成两个节点。";
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn terminal_candidate_finishes_turn_without_extra_provider_request() -> Result<()> {
@@ -218,6 +219,82 @@ async fn trailing_nonterminal_finish_remains_agent_owned() -> Result<()> {
     assert_eq!(snapshot.maps[0].nodes.len(), 2);
     assert_eq!(snapshot.maps[0].nodes[0].status, "completed");
     assert_eq!(snapshot.maps[0].nodes[1].status, "completed");
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn adjacent_finish_calls_claim_successive_ready_targets() -> Result<()> {
+    skip_if_no_network!(Ok(()));
+
+    let harness = TestCodexHarness::new().await?;
+    let initialize = serde_json::to_string(&json!({
+        "action": "initialize_map",
+        "task_title": "Chained finish",
+        "task_objective": "Finish two dependent nodes in one response.",
+        "initial_nodes": [
+            {
+                "node_key": "first",
+                "kind": "inspect_code_context",
+                "title": "First",
+                "context_summary": "Record the first result."
+            },
+            {
+                "node_key": "second",
+                "kind": "final_synthesis",
+                "title": "Second",
+                "context_summary": "Record the second result.",
+                "depends_on": ["first"]
+            }
+        ],
+        "current_node_key": "first"
+    }))?;
+    responses::mount_sse_once_match(
+        harness.server(),
+        |req: &Request| body_contains(req, CHAINED_FINISH_PROMPT),
+        sse(vec![
+            ev_response_created("chained-response-1"),
+            ev_function_call("chained-init", "taskspace_control", &initialize),
+            ev_completed("chained-response-1"),
+        ]),
+    )
+    .await;
+
+    let finish_first = serde_json::to_string(&json!({
+        "action": "finish_node",
+        "node_id": "node-1",
+        "result_summary": "First result recorded."
+    }))?;
+    let finish_second = serde_json::to_string(&json!({
+        "action": "finish_node",
+        "node_id": "node-2",
+        "result_summary": "Second result recorded.",
+        "final_candidate": "Both nodes finished in one response."
+    }))?;
+    responses::mount_sse_once_match(
+        harness.server(),
+        |req: &Request| body_contains(req, "chained-init"),
+        sse(vec![
+            ev_response_created("chained-response-2"),
+            ev_function_call("chained-finish-first", "taskspace_control", &finish_first),
+            ev_function_call("chained-finish-second", "taskspace_control", &finish_second),
+            ev_completed("chained-response-2"),
+        ]),
+    )
+    .await;
+
+    enable_taskspace(&harness).await?;
+    harness.submit(CHAINED_FINISH_PROMPT).await?;
+
+    let requests = harness.request_bodies().await;
+    assert_eq!(requests.len(), 2, "adjacent finishes must not resample");
+    let snapshot = harness.test().codex.action_map_snapshot().await;
+    assert_eq!(snapshot.maps[0].nodes.len(), 2);
+    assert!(
+        snapshot.maps[0]
+            .nodes
+            .iter()
+            .all(|node| node.status == "completed")
+    );
     Ok(())
 }
 

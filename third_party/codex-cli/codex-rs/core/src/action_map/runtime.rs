@@ -3393,6 +3393,20 @@ feedback:\n\
         next_node_id: Option<String>,
         next_node_draft: Option<ActionMapNextNodeDraft>,
     ) -> Result<(ActionMapFinishNodeOutcome, Vec<MapRuntimeEvent>), String> {
+        if self.current_main_node_id.is_none() {
+            let mut staged = self.clone();
+            let mut events = staged.bind_main_node(owner_session_id, node_id)?;
+            let (outcome, finish_events) = staged.finish_main_node_with_next(
+                owner_session_id,
+                node_id,
+                result_summary,
+                next_node_id,
+                next_node_draft,
+            )?;
+            events.extend(finish_events);
+            *self = staged;
+            return Ok((outcome, events));
+        }
         let result_summary = result_summary.trim();
         if result_summary.is_empty() {
             return Err("TaskSpace finish_node result_summary cannot be empty.".to_string());
@@ -6959,7 +6973,7 @@ fn transition_notice(previous_mode: MapRuntimeMode, current_mode: MapRuntimeMode
             "TaskSpace mode is now active.\n\
 Previous standard-mode conversation remains background context only.\n\
 hard_state: ordinary tools and multi-agent actions require an active TaskSpace task path, current node binding, and lease.\n\
-cadence_guidance: multiple taskspace_control and ordinary calls may share one response and execute in provider order. Prefer chaining a nonterminal finish_node to a same-response follow-up and establish its next binding with next_node_id/next_node_* or an immediate bind_node/create_node(bind_current=true). A standalone nonterminal finish remains valid; runtime records it as cadence inefficiency and does not invent the next action. A terminal finish_node with final_candidate may end the response.\n\
+cadence_guidance: multiple taskspace_control and ordinary calls may share one response and execute in provider order. Multiple finish_node calls may explicitly target successive ready node IDs; when no current binding exists, an explicit ready target is claimed and finished atomically. Prefer chaining a nonterminal finish_node to a same-response follow-up and establish its next binding with next_node_id/next_node_* or an immediate bind_node/create_node(bind_current=true). A standalone nonterminal finish remains valid; runtime records it as cadence inefficiency and does not invent the next action. A terminal finish_node with final_candidate may end the response.\n\
 map_runtime_boundary: runtime manages the task map, node binding, tool/event attribution, and hard state-machine rules; task strategy remains Agent-owned."
                 .to_string()
         }
