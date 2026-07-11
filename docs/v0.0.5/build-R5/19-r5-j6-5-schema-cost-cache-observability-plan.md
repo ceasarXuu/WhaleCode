@@ -2,7 +2,7 @@
 
 - Created: 2026-07-12
 - Updated: 2026-07-12
-- Status: In Progress
+- Status: Complete
 - Owner: WhaleCode tools / provider wire observability
 - Prerequisite: R5-J6 complete
 - Blocks: R5-J7 implementation
@@ -87,7 +87,7 @@ finish_then_actions.actions union
 cache_shape_hash = hash(tools_hash + tool_choice kind/name)
 message_prefix_preserved
 tool_choice_preserved
-cache_shape_preserved
+cache_shape_hash
 tool_choice_changed
 ```
 
@@ -138,7 +138,9 @@ cache_shape_transition_count
 3. extractor 输出 warmup、shape transition 和 same-shape zero-hit 分类。
 4. performance observer 展示这些计数。
 
-退出条件：`named -> auto` 记录 `first_diff_path=tool_choice`；不得再报告完整 prefix preserved。
+退出条件：`named -> auto` 必须记录独立 tool-choice transition；仅 tool choice 变化时
+`first_diff_path=tool_choice`，tools 同时变化时首差异仍按 wire 顺序记录为 `tools`；两种情况均不得再报告完整
+prefix preserved。
 
 ### J6.5-D：验证
 
@@ -179,10 +181,61 @@ cache_shape_transition_count
 
 | Item | Code | Test | Runtime Evidence | Status |
 |---|---|---|---|---|
-| `$defs/$ref` | `tools/src/json_schema.rs` | round-trip | provider wire | pending |
-| single nested union | `tools/src/taskspace_tool.rs` | fidelity/size | tools hash/bytes | pending |
-| blank-map tool filtering | `core/src/session/turn.rs` | visibility | Req1 tools count | pending |
-| cache shape trace | `core/src/provider_wire_trace.rs` | named/auto comparison | wire trace v2 | pending |
-| cache classification | benchmark instrumentation | fixture | cache summary v3 | pending |
-| paired benefit | Docker runner | two samples | observation report | pending |
+| `$defs/$ref` | `tools/src/json_schema.rs` | round-trip | DeepSeek accepted both samples | passed |
+| single nested union | `tools/src/taskspace_tool.rs` | fidelity/physical occurrence | active non-message约36.35 KB | passed |
+| blank-map tool filtering | `core/src/session/turn.rs` | visibility | Req1 tools=1，约19.57 KB | passed |
+| cache shape trace | `core/src/provider_wire_trace.rs` | named/auto comparison | wire trace v2覆盖100% | passed |
+| cache classification | benchmark instrumentation | fixture | cache summary v3覆盖100% | passed |
+| paired benefit | Docker runner | two samples | 两侧均solved，Map各4节点 | passed |
 
+## 7. 实施结果
+
+### 7.1 工程门禁
+
+| Gate | Result |
+|---|---|
+| `cargo test -p codex-tools` | 140 passed，1 ignored |
+| provider wire trace tests | 3 passed |
+| blank/active tool visibility | 1 passed |
+| `cargo check -p codex-tools -p codex-core` | passed |
+| cost instrumentation / performance observer | passed |
+| performance observer skill validation | passed |
+| locked Whale build + attestation | passed |
+
+实现提交：`a7e47de`。
+
+### 7.2 Schema 成本
+
+| Request shape | Tool count | Non-message bytes | 相对 J6 exact active |
+|---|---:|---:|---:|
+| Standard active | 12 | 约21.68 KB | -55.25% |
+| J6 exact TaskSpace active | 13 | 约48.44 KB | baseline |
+| J6.5 blank-map init | 1 | 约19.57 KB | -59.60% |
+| J6.5 TaskSpace active | 13 | 约36.35 KB | -24.96% |
+
+control 内 ordinary-action union 从 init/finish 各一份收敛为 `$defs` 中一份；空 Map 不再发送顶层 ordinary
+tools。active 请求仍保留顶层 ordinary tools 与 control 内 nested union 两份，这是允许 Agent 直接调用普通工具、同时允许
+finish+actions 的当前能力成本，不在本阶段通过收编工具降低。
+
+### 7.3 Docker 样本
+
+| Sample / Mode | Result | Requests | Runtime tools | Wall | Input | Request 2+ cache | Zero / warmup / same-shape zero | Map |
+|---|---|---:|---:|---:|---:|---:|---|---|
+| `count-call-stack` Standard | solved | 8 | 14 | 17.38s | 58,005 | 95.26% | 0 / 0 / 0 | N/A |
+| `count-call-stack` R5-J6.5 | solved | 11 | 13 | 29.34s | 140,274 | 89.58% | 2 / 2 / 0 | 4 nodes，0 open |
+| `multi-file-order-pipeline` Standard | solved | 9 | 16 | 62.99s | 95,059 | 89.31% | 0 / 0 / 0 | N/A |
+| `multi-file-order-pipeline` R5-J6.5 | solved | 8 | 14 | 57.37s | 111,894 | 89.43% | 0 / 0 / 0 | 4 nodes，0 open |
+
+Evidence：
+
+- focused：`target/r5-j6-5-schema-cache/count-call-stack/count-call-stack/20260712-060218-891`。
+- complex：`target/r5-j6-5-schema-cache/order-pipeline/multi-file-order-pipeline/20260712-060409-492`。
+
+focused 是新 cache shape 的首轮运行：Req1/Req2 均为0命中，V3 均分类为首次 shape warmup candidate，
+不存在 same-shape zero。complex 紧接相同 binary/tool hashes 运行，TaskSpace Req1/Req2 已分别部分命中13.17%和
+36.75%，后续 active shape 约91.9%-98.2%；这证明缓存可恢复，也证明旧 telemetry 把 shape 变化写成完整 prefix
+preserved 的结论已经修正。缓存仍是 provider best-effort 事实，J6.5 不增加任何预热或重试行为。
+
+两个样本 Standard/R5 均通过 public 与 hidden validator。复杂 runner 外层进程返回1，但 `run-status.json` 为
+`completed / valid / exit_code=0`；非零来自单次 E2 诊断未满足 `repeats>=3` 与 aggregate 证据门禁，不是 Agent、
+schema 或容器执行失败。

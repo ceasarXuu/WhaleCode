@@ -1,5 +1,5 @@
 # Problem P-001: R5 TaskSpace 在 G1 正确性样本中请求次数显著高于 Standard
-- Status: in-progress-j6-5-schema-cost-cache-observability
+- Status: in-progress-j7-singular-patch-carrier
 - Created: 2026-07-10 22:56
 - Updated: 2026-07-12
 - Objective: 用最终 wire 和原始 tool/control history 精确解释 `count-call-stack` 三轮中 R5 51 requests 对 Standard 22 requests 的29次放大，不把缓存、反馈或 runtime 约束先验地写成根因。
@@ -1712,7 +1712,7 @@
 - Time: 2026-07-12
 
 ## Hypothesis H-018: 精确 nested schema 在 control 内重复两次并与顶层工具叠加造成固定请求体放大
-- Status: confirmed
+- Status: fixed
 - Parent: P-001
 - Claim: `taskspace_control` 将完整 ordinary-action union 分别内联到 init/finish 两个分支，同时 ordinary tools 继续顶层暴露，导致同一参数 schema 在活跃请求中物理出现三次。
 - Layer: root-cause
@@ -1751,14 +1751,14 @@
   - E-035
 - Conclusion: confirmed; exact schema fidelity and physical schema deduplication are separate requirements
 - Repair design readiness: ready and authorized by user
-- Next step: local `$defs/$ref` 单份定义，并在 blank-map named control 请求隐藏顶层 ordinary specs。
+- Next step: closed；active 两份必要能力成本留给后续整体能力设计观察，不通过收编普通工具处理。
 - Blocker:
   - none
 - Close reason:
-  - open until fix validation
+  - `$defs/$ref` 与 blank-map filter 已落地；DeepSeek 双样本接受 schema，active non-message bytes 从约48.44 KB降至约36.35 KB。
 
 ## Hypothesis H-019: prefix telemetry 忽略 tool choice 导致冷启动边界被误报为完整前缀保持
-- Status: confirmed
+- Status: fixed
 - Parent: P-001
 - Claim: provider wire comparator 只比较 tools hash 和 message LCP；Req1 `named taskspace_control` 到 Req2 `auto` 仍被记为 `prefix_preserved=true`，无法解释冷 schema 的前两轮0命中。
 - Layer: root-cause
@@ -1798,11 +1798,11 @@
   - E-037
 - Conclusion: confirmed; the cache itself recovers, but telemetry overstates prefix preservation
 - Repair design readiness: ready and authorized by user
-- Next step: cache shape纳入tool choice，单列message prefix和warmup/same-shape-zero分类，不增加runtime行为。
+- Next step: closed；继续把V3字段作为永久观测，不增加runtime行为。
 - Blocker:
   - none
 - Close reason:
-  - open until fix validation
+  - wire trace v2与cache summary v3已落地；cold run正确分类2个warmup candidate，紧接warm run为0个zero hit。
 
 ## Evidence E-034: exact nested schema 使每轮固定非 message payload 增长17.62 KB
 - Related hypotheses:
@@ -1888,4 +1888,75 @@
   delta=70ms
   ```
 - Interpretation: 观测口径把message append-only误当完整cache shape保持；必须纳入tool choice并单列warmup事实。
+- Time: 2026-07-12
+
+## Evidence E-038: local ref 与 blank-map filter 消除第三份 schema 暴露
+- Related hypotheses:
+  - H-018
+- Direction: supports
+- Type: fix-validation
+- Source: commit `a7e47de` and two J6.5 provider wire traces
+- Prediction or plan link:
+  - H-018 physical deduplication exit gate
+- Matched signal:
+  - control 参数只在 `$defs.ordinaryAction` 定义一次 exact union；init/finish 均使用本地 `$ref`；blank request tools=1，active tools=13。
+- Correlation keys:
+  - blank tools hash `e648401a...`
+  - active tools hash `1320c089...`
+- Raw content:
+  ```text
+  J6 exact active non-message ~= 48443.8 bytes
+  J6.5 blank-map non-message = 19568 bytes
+  J6.5 active non-message ~= 36350 bytes
+  ```
+- Interpretation: 三份物理暴露已收敛；active 仍有顶层 ordinary tools 与 control 内 nested union 两份必要能力，不通过 generic schema 或 runtime 收编进一步压缩。
+- Time: 2026-07-12
+
+## Evidence E-039: cold run 将两个新 shape 的零命中正确分类为 warmup candidate
+- Related hypotheses:
+  - H-019
+- Direction: supports
+- Type: fix-validation
+- Source: `target/r5-j6-5-schema-cache/count-call-stack/count-call-stack/20260712-060218-891`
+- Prediction or plan link:
+  - H-019 cache classification exit gate
+- Matched signal:
+  - Req1为单control named shape，Req2为ordinary+control auto shape；两者cached=0且此前均未出现，V3统计zero=2、warmup=2、same-shape-zero=0。
+- Correlation keys:
+  - cache shape `a8dd4510...`
+  - cache shape `9e51e5ad...`
+- Raw content:
+  ```text
+  prefix preserved = 9/10
+  message prefix preserved across req1->req2 = true
+  tool choice transition = 1
+  cache shape transition = 1
+  zero / warmup / same-shape-zero = 2 / 2 / 0
+  ```
+- Interpretation: telemetry不再把message append-only等同完整请求shape稳定；冷启动事实与同shape异常已可机械区分。
+- Time: 2026-07-12
+
+## Evidence E-040: 相同 binary/tool shape 的后续复杂运行首轮已恢复部分缓存
+- Related hypotheses:
+  - H-019
+- Direction: supports
+- Type: warm-run-validation
+- Source: `target/r5-j6-5-schema-cache/order-pipeline/multi-file-order-pipeline/20260712-060409-492`
+- Prediction or plan link:
+  - H-019 warm-shape recovery prediction
+- Matched signal:
+  - TaskSpace Req1/Req2 hit率为13.17%/36.75%，后续active请求约91.9%-98.2%；zero、warmup和same-shape-zero均为0。
+- Correlation keys:
+  - cache shape `a8dd4510...`
+  - cache shape `9e51e5ad...`
+- Raw content:
+  ```text
+  req1=.131732
+  req2=.367475
+  req3=.945298
+  req7=.982298
+  req8=.982343
+  zero / warmup / same-shape-zero = 0 / 0 / 0
+  ```
+- Interpretation: 缓存本身可以在后续运行复用；此前0命中不是持续性本地缓存破坏。provider命中仍为best-effort，不能由runtime保证。
 - Time: 2026-07-12
