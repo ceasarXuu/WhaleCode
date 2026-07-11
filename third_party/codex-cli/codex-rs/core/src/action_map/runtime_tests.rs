@@ -2,7 +2,7 @@ use super::*;
 
 fn initialized_state(
     nodes: Vec<ActionMapInitializeNodeInput>,
-    current_node_key: &str,
+    current_node_id: &str,
 ) -> (ActionMapRuntimeState, ThreadId, ActionMapInitializeOutcome) {
     let mut state = ActionMapRuntimeState::default();
     let owner = ThreadId::new();
@@ -14,31 +14,31 @@ fn initialized_state(
                 task_title: "Agent-authored task".to_string(),
                 task_objective: "Complete the requested change".to_string(),
                 nodes,
-                current_node_key: current_node_key.to_string(),
+                current_node_id: current_node_id.to_string(),
             },
         )
         .expect("initialize map");
     (state, owner, outcome)
 }
 
-fn inspect_node(key: &str) -> ActionMapInitializeNodeInput {
+fn inspect_node(id: &str) -> ActionMapInitializeNodeInput {
     ActionMapInitializeNodeInput {
-        key: key.to_string(),
+        id: id.to_string(),
         kind: NodeKind::InspectCodeContext,
         title: "Inspect".to_string(),
         context_summary: "Inspect the relevant implementation.".to_string(),
-        dependency_keys: Vec::new(),
+        dependency_node_ids: Vec::new(),
     }
 }
 
 #[test]
 fn agent_initializes_explicit_graph_and_current_binding() {
     let implement = ActionMapInitializeNodeInput {
-        key: "implement".to_string(),
+        id: "implement".to_string(),
         kind: NodeKind::ImplementSolution,
         title: "Implement".to_string(),
         context_summary: "Apply the chosen change.".to_string(),
-        dependency_keys: vec!["inspect".to_string()],
+        dependency_node_ids: vec!["inspect".to_string()],
     };
     let (state, _, outcome) =
         initialized_state(vec![inspect_node("inspect"), implement], "inspect");
@@ -123,11 +123,11 @@ fn agent_can_finish_without_runtime_capability_inference() {
 #[test]
 fn explicit_ready_target_is_claimed_and_finished_without_separate_bind() {
     let second = ActionMapInitializeNodeInput {
-        key: "second".to_string(),
+        id: "second".to_string(),
         kind: NodeKind::FinalSynthesis,
         title: "Second".to_string(),
         context_summary: "Record the second completed step.".to_string(),
-        dependency_keys: vec!["first".to_string()],
+        dependency_node_ids: vec!["first".to_string()],
     };
     let (mut state, owner, outcome) =
         initialized_state(vec![inspect_node("first"), second], "first");
@@ -144,7 +144,7 @@ fn explicit_ready_target_is_claimed_and_finished_without_separate_bind() {
     assert!(state.current_main_node_id.is_none());
 
     let (finished, events) = state
-        .finish_main_node_with_next(owner, "node-2", "Second complete.".to_string(), None, None)
+        .finish_main_node_with_next(owner, "second", "Second complete.".to_string(), None, None)
         .expect("claim and finish explicit ready target");
 
     assert!(finished.next_node_id.is_none());
@@ -156,7 +156,7 @@ fn explicit_ready_target_is_claimed_and_finished_without_separate_bind() {
     assert!(state.current_main_node_id.is_none());
     let map = state.maps.get(&outcome.map_id).expect("active map");
     assert_eq!(
-        map.nodes.get("node-2").expect("second node").status,
+        map.nodes.get("second").expect("second node").status,
         NodeStatus::Completed
     );
 }
@@ -164,18 +164,18 @@ fn explicit_ready_target_is_claimed_and_finished_without_separate_bind() {
 #[test]
 fn rejected_explicit_finish_does_not_leave_an_implicit_binding() {
     let second = ActionMapInitializeNodeInput {
-        key: "second".to_string(),
+        id: "second".to_string(),
         kind: NodeKind::InspectCodeContext,
         title: "Second".to_string(),
         context_summary: "Complete another prerequisite.".to_string(),
-        dependency_keys: Vec::new(),
+        dependency_node_ids: Vec::new(),
     };
     let final_node = ActionMapInitializeNodeInput {
-        key: "final".to_string(),
+        id: "final".to_string(),
         kind: NodeKind::FinalSynthesis,
         title: "Final".to_string(),
         context_summary: "Depends on both prerequisites.".to_string(),
-        dependency_keys: vec!["first".to_string(), "second".to_string()],
+        dependency_node_ids: vec!["first".to_string(), "second".to_string()],
     };
     let (mut state, owner, outcome) =
         initialized_state(vec![inspect_node("first"), second, final_node], "first");
@@ -190,14 +190,14 @@ fn rejected_explicit_finish_does_not_leave_an_implicit_binding() {
         .expect("finish first prerequisite");
 
     let error = state
-        .finish_main_node_with_next(owner, "node-3", "Premature final.".to_string(), None, None)
+        .finish_main_node_with_next(owner, "final", "Premature final.".to_string(), None, None)
         .expect_err("pending explicit target must be rejected");
 
     assert!(error.contains("target_node_dependencies_incomplete"));
     assert!(state.current_main_node_id.is_none());
     assert!(state.current_main_lease_id.is_none());
     let map = state.maps.get(&outcome.map_id).expect("active map");
-    let final_node = map.nodes.get("node-3").expect("final node");
+    let final_node = map.nodes.get("final").expect("final node");
     assert_eq!(final_node.status, NodeStatus::Pending);
     assert!(final_node.active_lease.is_none());
 }
@@ -275,11 +275,11 @@ fn terminal_candidate_commits_finish_and_final_gate_atomically() {
 #[test]
 fn rejected_terminal_candidate_leaves_node_open() {
     let implement = ActionMapInitializeNodeInput {
-        key: "implement".to_string(),
+        id: "implement".to_string(),
         kind: NodeKind::ImplementSolution,
         title: "Implement".to_string(),
         context_summary: "Apply the chosen change.".to_string(),
-        dependency_keys: vec!["inspect".to_string()],
+        dependency_node_ids: vec!["inspect".to_string()],
     };
     let (mut state, owner, outcome) =
         initialized_state(vec![inspect_node("inspect"), implement], "inspect");

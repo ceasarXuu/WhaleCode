@@ -1391,13 +1391,13 @@ async fn record_context_updates_keeps_one_taskspace_epoch_snapshot() {
                     task_title: "Architecture review".to_string(),
                     task_objective: "Find structure risks.".to_string(),
                     nodes: vec![crate::action_map::ActionMapInitializeNodeInput {
-                        key: "scope".to_string(),
+                        id: "scope".to_string(),
                         kind: NodeKind::InspectCodeContext,
                         title: "Scope review".to_string(),
                         context_summary: "Collect current architecture scope.".to_string(),
-                        dependency_keys: Vec::new(),
+                        dependency_node_ids: Vec::new(),
                     }],
-                    current_node_key: "scope".to_string(),
+                    current_node_id: "scope".to_string(),
                 },
             )
             .expect("map initializes");
@@ -1470,13 +1470,13 @@ async fn session_main_tool_result_emits_taskspace_trace_event_and_snapshot() {
                     task_title: "Trace session path".to_string(),
                     task_objective: "Record trace through the session event path.".to_string(),
                     nodes: vec![crate::action_map::ActionMapInitializeNodeInput {
-                        key: "validate".to_string(),
+                        id: "validate".to_string(),
                         kind: NodeKind::SmokeTest,
                         title: "Run validation".to_string(),
                         context_summary: "Run a validation command.".to_string(),
-                        dependency_keys: Vec::new(),
+                        dependency_node_ids: Vec::new(),
                     }],
-                    current_node_key: "validate".to_string(),
+                    current_node_id: "validate".to_string(),
                 },
             )
             .expect("map initializes");

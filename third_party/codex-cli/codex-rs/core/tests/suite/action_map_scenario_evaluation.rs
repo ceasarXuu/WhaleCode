@@ -69,12 +69,12 @@ async fn terminal_candidate_finishes_turn_without_extra_provider_request() -> Re
         "task_title": "Terminal candidate",
         "task_objective": "Read the fixture and return the Agent final.",
         "initial_nodes": [{
-            "node_key": "inspect",
+            "node_id": "inspect",
             "kind": "inspect_code_context",
             "title": "Inspect fixture",
             "context_summary": "Read README."
         }],
-        "current_node_key": "inspect",
+        "current_node_id": "inspect",
         "actions": [{"tool_name": "exec_command", "arguments": {"cmd": "cat README.md"}}]
     }))?;
     responses::mount_sse_once_match(
@@ -91,7 +91,7 @@ async fn terminal_candidate_finishes_turn_without_extra_provider_request() -> Re
     let exact_final = "Agent final line one.\nAgent final line two.";
     let finish = serde_json::to_string(&json!({
         "action": "finish_then_end",
-        "terminal_finish": {"node_id": "node-1", "result_summary": "Terminal fixture was read."},
+        "terminal_finish": {"node_id": "inspect", "result_summary": "Terminal fixture was read."},
         "final_candidate": exact_final
     }))?;
     responses::mount_sse_once_match(
@@ -132,23 +132,23 @@ async fn nonterminal_finish_executes_declared_continuation() -> Result<()> {
     let initialize = serde_json::to_string(&json!({
         "action": "initialize_then_actions",
         "task_title": "Cadence gate",
-        "task_objective": "Verify standalone nonterminal finish remains valid.",
+        "task_objective": "Verify a nonterminal finish executes its declared continuation.",
         "initial_nodes": [
             {
-                "node_key": "inspect",
+                "node_id": "inspect",
                 "kind": "inspect_code_context",
                 "title": "Inspect cadence fixture",
                 "context_summary": "Exercise cadence observation."
             },
             {
-                "node_key": "complete",
+                "node_id": "complete",
                 "kind": "final_synthesis",
                 "title": "Complete cadence fixture",
                 "context_summary": "Finish after the standalone transition.",
-                "dependency_keys": ["inspect"]
+                "dependency_node_ids": ["inspect"]
             }
         ],
-        "current_node_key": "inspect",
+        "current_node_id": "inspect",
         "actions": [{"tool_name": "exec_command", "arguments": {"cmd": "pwd"}}]
     }))?;
     responses::mount_sse_once_match(
@@ -165,8 +165,8 @@ async fn nonterminal_finish_executes_declared_continuation() -> Result<()> {
     let nonterminal_finish = serde_json::to_string(&json!({
         "action": "finish_then_actions",
         "finishes": [{
-            "node_id": "node-1",
-            "next_node_id": "node-2",
+            "node_id": "inspect",
+            "next_node_id": "complete",
             "result_summary": "Nonterminal finish committed."
         }],
         "actions": [{"tool_name": "exec_command", "arguments": {"cmd": "pwd"}}]
@@ -188,7 +188,7 @@ async fn nonterminal_finish_executes_declared_continuation() -> Result<()> {
 
     let terminal_finish = serde_json::to_string(&json!({
         "action": "finish_then_end",
-        "terminal_finish": {"node_id": "node-2", "result_summary": "Continuation executed."},
+        "terminal_finish": {"node_id": "complete", "result_summary": "Continuation executed."},
         "final_candidate": "Cadence ownership verified."
     }))?;
     responses::mount_sse_once_match(
@@ -229,20 +229,20 @@ async fn adjacent_finish_calls_claim_successive_ready_targets() -> Result<()> {
         "task_objective": "Finish two dependent nodes in one response.",
         "initial_nodes": [
             {
-                "node_key": "first",
+                "node_id": "first",
                 "kind": "inspect_code_context",
                 "title": "First",
                 "context_summary": "Record the first result."
             },
             {
-                "node_key": "second",
+                "node_id": "second",
                 "kind": "final_synthesis",
                 "title": "Second",
                 "context_summary": "Record the second result.",
-                "dependency_keys": ["first"]
+                "dependency_node_ids": ["first"]
             }
         ],
-        "current_node_key": "first",
+        "current_node_id": "first",
         "actions": [{"tool_name": "exec_command", "arguments": {"cmd": "pwd"}}]
     }))?;
     responses::mount_sse_once_match(
@@ -259,11 +259,11 @@ async fn adjacent_finish_calls_claim_successive_ready_targets() -> Result<()> {
     let finish_second = serde_json::to_string(&json!({
         "action": "finish_then_end",
         "preceding_finishes": [{
-            "node_id": "node-1",
+            "node_id": "first",
             "result_summary": "First result recorded.",
-            "next_node_id": "node-2"
+            "next_node_id": "second"
         }],
-        "terminal_finish": {"node_id": "node-2", "result_summary": "Second result recorded."},
+        "terminal_finish": {"node_id": "second", "result_summary": "Second result recorded."},
         "final_candidate": "Both nodes finished in one response."
     }))?;
     responses::mount_sse_once_match(
@@ -312,27 +312,27 @@ async fn native_sequence_executes_dependent_tools_after_latest_state_barrier() -
         "task_objective": "Inspect, edit, and validate the fixture.",
         "initial_nodes": [
             {
-                "node_key": "inspect",
+                "node_id": "inspect",
                 "kind": "inspect_code_context",
                 "title": "Inspect fixture",
                 "context_summary": "Read the fixture instructions."
             },
             {
-                "node_key": "implement",
+                "node_id": "implement",
                 "kind": "implement_solution",
                 "title": "Edit fixture",
                 "context_summary": "Apply the required edit.",
-                "dependency_keys": ["inspect"]
+                "dependency_node_ids": ["inspect"]
             },
             {
-                "node_key": "validate",
+                "node_id": "validate",
                 "kind": "smoke_test",
                 "title": "Validate fixture",
                 "context_summary": "Run the fixture validation.",
-                "dependency_keys": ["implement"]
+                "dependency_node_ids": ["implement"]
             }
         ],
-        "current_node_key": "inspect",
+        "current_node_id": "inspect",
         "actions": [{"tool_name": "exec_command", "arguments": {"cmd": "cat README.md"}}]
     }))?;
     responses::mount_sse_once_match(
@@ -350,9 +350,9 @@ async fn native_sequence_executes_dependent_tools_after_latest_state_barrier() -
     let finish_inspect = serde_json::to_string(&json!({
         "action": "finish_then_actions",
         "finishes": [{
-            "node_id": "node-1",
+            "node_id": "inspect",
             "result_summary": "Fixture instructions were read.",
-            "next_node_id": "node-2"
+            "next_node_id": "implement"
         }],
         "actions": [{"tool_name": "apply_patch", "arguments": {"input": patch}}]
     }))?;
@@ -370,9 +370,9 @@ async fn native_sequence_executes_dependent_tools_after_latest_state_barrier() -
     let finish_implement = serde_json::to_string(&json!({
         "action": "finish_then_actions",
         "finishes": [{
-            "node_id": "node-2",
+            "node_id": "implement",
             "result_summary": "Fixture value was changed to new.",
-            "next_node_id": "node-3"
+            "next_node_id": "validate"
         }],
         "actions": [{"tool_name": "exec_command", "arguments": {"cmd": "grep -q '^new$' src/value.txt && echo validation-passed"}}]
     }))?;
@@ -393,7 +393,7 @@ async fn native_sequence_executes_dependent_tools_after_latest_state_barrier() -
 
     let finish_validate = serde_json::to_string(&json!({
         "action": "finish_then_end",
-        "terminal_finish": {"node_id": "node-3", "result_summary": "Fixture validation passed."},
+        "terminal_finish": {"node_id": "validate", "result_summary": "Fixture validation passed."},
         "final_candidate": "Fixture fixed and validated."
     }))?;
     responses::mount_sse_once_match(
@@ -462,12 +462,12 @@ async fn failed_state_barrier_skips_dependent_tail_without_side_effect() -> Resu
         "task_title": "Barrier failure",
         "task_objective": "Verify failure stops the dependent tail.",
         "initial_nodes": [{
-            "node_key": "inspect",
+            "node_id": "inspect",
             "kind": "inspect_code_context",
             "title": "Inspect fixture",
             "context_summary": "Read README before finishing."
         }],
-        "current_node_key": "inspect",
+        "current_node_id": "inspect",
         "actions": [{"tool_name": "exec_command", "arguments": {"cmd": "cat README.md"}}]
     }))?;
     responses::mount_sse_once_match(
@@ -508,7 +508,7 @@ async fn failed_state_barrier_skips_dependent_tail_without_side_effect() -> Resu
     .await;
     let finish = serde_json::to_string(&json!({
         "action": "finish_then_end",
-        "terminal_finish": {"node_id": "node-1", "result_summary": "README was read."},
+        "terminal_finish": {"node_id": "inspect", "result_summary": "README was read."},
         "final_candidate": "Failure path verified."
     }))?;
     responses::mount_sse_once_match(
@@ -559,19 +559,19 @@ async fn map_runtime_conversation_records_node_bound_subagent_events() -> Result
         "task_objective": "调查缓存模块边界，然后由主 agent 继续推进。",
         "initial_nodes": [
             {
-                "node_key": "coordinate",
+                "node_id": "coordinate",
                 "kind": "inspect_code_context",
                 "title": "协调缓存模块调查",
                 "context_summary": "等待并整合缓存模块边界调查结果。"
             },
             {
-                "node_key": "investigate",
+                "node_id": "investigate",
                 "kind": "inspect_code_context",
                 "title": "调查缓存模块边界",
                 "context_summary": "供子 agent 调查缓存模块边界。"
             }
         ],
-        "current_node_key": "coordinate",
+        "current_node_id": "coordinate",
         "actions": [{
             "tool_name": "spawn_agent",
             "arguments": {"message": CHILD_PROMPT, "task_name": "scope"}
@@ -733,7 +733,7 @@ async fn realistic_user_bugfix_runs_agent_actions_with_action_map() -> Result<()
     assert!(
         request_bodies.iter().any(|body| {
             let text = body.to_string();
-            text.contains("TaskSpace node assignment") && text.contains("Node: node-2")
+            text.contains("TaskSpace node assignment") && text.contains("Node: investigate")
         }),
         "child model request should include the TaskSpace node assignment"
     );
@@ -766,7 +766,7 @@ async fn realistic_user_bugfix_runs_agent_actions_with_action_map() -> Result<()
         timeline.iter().any(|event| {
             let text = event.to_string();
             text.contains("node_result_recorded")
-                && text.contains("node-2")
+                && text.contains("investigate")
                 && text.contains("main_tool_call")
         }),
         "subagent tool evidence should remain attached to its initialized investigation node"
@@ -814,19 +814,19 @@ async fn mount_realistic_user_bugfix_responses(harness: &TestCodexHarness) -> Re
         "task_objective": "调查缓存 key 失败边界，修复代码并验证。",
         "initial_nodes": [
             {
-                "node_key": "coordinate",
+                "node_id": "coordinate",
                 "kind": "inspect_code_context",
                 "title": "协调缓存 key 回归修复",
                 "context_summary": "等待并整合边界调查结果。"
             },
             {
-                "node_key": "investigate",
+                "node_id": "investigate",
                 "kind": "inspect_code_context",
                 "title": "调查缓存 key 失败边界",
                 "context_summary": "供子 agent 阅读缓存代码和测试。"
             }
         ],
-        "current_node_key": "coordinate",
+        "current_node_id": "coordinate",
         "actions": [{
             "tool_name": "spawn_agent",
             "arguments": {"message": REALISTIC_CHILD_PROMPT, "task_name": "scope"}

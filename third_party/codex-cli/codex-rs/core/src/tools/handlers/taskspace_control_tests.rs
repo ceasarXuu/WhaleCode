@@ -8,12 +8,12 @@ fn parses_agent_authored_map() {
             "task_title": "Patch bug",
             "task_objective": "Fix and verify",
             "initial_nodes": [{
-                "node_key": "inspect",
+                "node_id": "inspect",
                 "kind": "inspect_code_context",
                 "title": "Inspect",
                 "context_summary": "Read relevant code"
             }],
-            "current_node_key": "inspect",
+            "current_node_id": "inspect",
             "actions": [{"tool_name": "exec_command", "arguments": {"cmd": "pwd"}}]
         })
         .to_string(),
@@ -26,23 +26,21 @@ fn parses_agent_authored_map() {
 }
 
 #[test]
-fn initialize_output_has_directional_node_mapping() {
+fn initialize_output_preserves_agent_node_ids() {
     let output = format_initialize_map_output(&ActionMapInitializeOutcome {
         task_id: "task-1".into(),
         map_id: "map-1".into(),
-        node_ids: vec![
-            ("inspect".into(), "node-1".into()),
-            ("implement".into(), "node-2".into()),
-        ],
-        current_node_id: "node-1".into(),
+        node_ids: vec!["inspect".into(), "implement".into()],
+        current_node_id: "inspect".into(),
     });
     let value: JsonValue = output;
 
     assert_eq!(value["schema_version"], "TaskSpaceInitializeMapResultV1");
-    assert_eq!(value["current_node_key"], "inspect");
-    assert_eq!(value["current_node_id"], "node-1");
-    assert_eq!(value["node_id_by_key"]["inspect"], "node-1");
-    assert_eq!(value["node_id_by_key"]["implement"], "node-2");
+    assert_eq!(value["current_node_id"], "inspect");
+    assert_eq!(
+        value["node_ids"],
+        serde_json::json!(["inspect", "implement"])
+    );
 }
 
 #[test]

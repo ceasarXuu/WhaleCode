@@ -10,7 +10,7 @@ pub(crate) enum TaskSpaceControlArgs {
         task_title: String,
         task_objective: String,
         initial_nodes: Vec<TaskSpaceInitializeNodeArgs>,
-        current_node_key: String,
+        current_node_id: String,
         actions: Vec<TaskSpaceNestedAction>,
     },
     FinishThenActions {
@@ -56,12 +56,12 @@ pub(crate) enum TaskSpaceControlArgs {
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct TaskSpaceInitializeNodeArgs {
-    pub(crate) node_key: String,
+    pub(crate) node_id: String,
     pub(crate) kind: String,
     pub(crate) title: String,
     pub(crate) context_summary: String,
     #[serde(default)]
-    pub(crate) dependency_keys: Vec<String>,
+    pub(crate) dependency_node_ids: Vec<String>,
 }
 
 #[derive(Clone, Debug, Deserialize)]

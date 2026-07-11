@@ -1,7 +1,7 @@
 # Problem P-001: R5 TaskSpace 在 G1 正确性样本中请求次数显著高于 Standard
-- Status: investigating-follow-up
+- Status: repairing-j6-schema-reference-gap
 - Created: 2026-07-10 22:56
-- Updated: 2026-07-11
+- Updated: 2026-07-12
 - Objective: 用最终 wire 和原始 tool/control history 精确解释 `count-call-stack` 三轮中 R5 51 requests 对 Standard 22 requests 的29次放大，不把缓存、反馈或 runtime 约束先验地写成根因。
 - Symptoms:
   - controlled 3-run 中 Standard 为 8/8/6 requests，R5 为 13/21/17 requests。
@@ -50,6 +50,10 @@
   - E-024
   - E-025
   - E-026
+  - E-027
+  - E-028
+  - E-029
+  - E-030
 - Ruled out:
   - 相邻请求缓存前缀破坏不是本轮请求放大的原因：R5 strict-prefix 48/48，request-2+ cache hit 97.66%。
   - 工具反馈丢失不是本轮主要原因：pre-init hard reject、pytest failure、apply_patch failure 和成功输出都按原文进入后续 history。
@@ -84,6 +88,7 @@
   - H-013
   - H-014
   - H-015
+  - H-016
 - Resolution basis:
   - E-001
   - E-002
@@ -113,6 +118,55 @@
   - E-026
 - Close reason:
   - original diagnosis complete; follow-up feedback ambiguity remains open
+
+## Hypothesis H-016: 初始化 key 到 runtime node id 的二次翻译制造可避免的 control retry
+- Status: confirmed
+- Parent: P-001
+- Claim: J6 schema 让 Agent 用 `node_key` 初始化节点，却要求后续 finish 改用 runtime 生成的 `next_node_id`；这种同一对象的双重标识迫使 Agent 从工具输出读取映射并翻译，导致 focused sample 首次把 `fix` 当作 node id、control 失败并增加一次 provider request。
+- Layer: root-cause
+- Factor relation: single
+- Depends on:
+  - H-001
+- Rationale:
+  - Agent 已经为节点提供稳定 key，状态机只需校验该标识唯一、依赖有效和状态可迁移；再生成一套只供后续 API 使用的 id 没有业务收益。
+- Falsifiable predictions:
+  - If true: 初始化输出完整进入后续上下文，Agent 明确知道映射但第一次仍使用自己的 key；失败后改用 runtime id 即成功。
+  - If false: 初始化映射在 provider history 中缺失/残缺，或失败值并非初始化 key。
+- Diagnostic evidence plan:
+  - Prediction or clause under test: 对初始化 call/output、失败 finish、下一轮 reasoning 和成功重试按 call id 对账。
+  - Signal: `node_id_by_key`、失败参数、失败原文、Agent 下一轮复述、重试参数。
+  - Capture method: Docker `rollout.jsonl` 和 performance observation。
+  - Event name or marker:
+    - `TaskSpaceInitializeMapResultV1`
+    - `TaskSpaceControlBatchResultV1`
+  - Correlation keys:
+    - `call_00_J47dXHwaXiuZP67vEM6u3177`
+    - `call_00_Z52kmmfVoa0FhIJ2QnTW8600`
+    - `call_00_eZ6wkEG7RVAjI5Oyp1zI5260`
+  - Differentiates from:
+    - feedback 丢失或 projection 扭曲。
+    - runtime 阻止正确 Agent 动作。
+    - provider 不支持组合 tool call。
+  - Supports if:
+    - 映射忠实可见，失败值等于 Agent key，修正为 runtime id 后同一事务成功。
+  - Refutes if:
+    - 映射不可见，或修正 id 后仍因其他原因失败。
+  - Instrumentation status: existing-permanent-observability
+  - Instrumentation lifecycle:
+    - 保留 control batch 原始输出和 observer control failure 计数。
+- Evidence gate: satisfied
+- Related evidence:
+  - E-027
+  - E-028
+  - E-029
+  - E-030
+- Conclusion: confirmed
+- Repair design readiness: ready and authorized by the active J6 implementation request
+- Next step: 初始化 schema 直接接收 Agent-authored node id，依赖、current binding 和后续 finish 全程使用同一标识；不保留 key/id 双轨兼容。
+- Blocker:
+  - none
+- Close reason:
+  - not closed
 
 ## Hypothesis H-001: 29次请求差主要由额外工具调用数量直接产生
 - Status: confirmed
@@ -1444,3 +1498,91 @@
   ```
 - Interpretation: 即使任务工作只需要 read/edit/validate，Agent-authored Map仍增加了独立 final节点和对应状态边界。runtime不应自动合并，但该结构解释了为什么终态candidate只省掉最终文本请求，没有省掉 node-3 -> node-4迁移请求。
 - Time: 2026-07-11
+
+## Evidence E-027: J6 focused sample 仅一次 control failure 恰好对应一次请求差
+- Related hypotheses:
+  - H-016
+- Direction: supports
+- Type: reproduction
+- Source: `target/r5-j6-schema-first/count-call-stack/count-call-stack/20260712-035847-201/performance-observation.json`
+- Prediction or plan link:
+  - H-016 request amplification prediction
+- Matched signal:
+  - Standard/R5 均 solved；requests 7/8；R5 control failures=1，terminal extra request=0。
+- Correlation keys:
+  - pair-001/right
+- Raw content:
+  ```text
+  standard: requests=7, solved=true
+  taskspace: requests=8, solved=true, control_failure=1
+  carriers: init+actions=1, finish+actions=3, finish+end=1
+  terminal_extra_request=0
+  ```
+- Interpretation: J6 已消除终态额外请求和独立 finish，但唯一 control retry 仍使请求数比 Standard 多1。
+- Time: 2026-07-12
+
+## Evidence E-028: 初始化映射完整且原样进入下一轮上下文
+- Related hypotheses:
+  - H-016
+- Direction: supports
+- Type: diagnostic-log
+- Source: `target/r5-j6-schema-first/count-call-stack/count-call-stack/20260712-035847-201/pair-001/right/artifacts/rollout.jsonl`
+- Prediction or plan link:
+  - H-016 feedback-presence prediction
+- Matched signal:
+  - 初始化 control output 同时包含 `fix=node-2`，并保留两个 nested read 的完整输出。
+- Correlation keys:
+  - `call_00_J47dXHwaXiuZP67vEM6u3177`
+- Raw content:
+  ```text
+  node_id_by_key={"fix":"node-2","inspect":"node-1","validate":"node-3"}
+  nested:0 ls success
+  nested:1 README content success
+  ```
+- Interpretation: 本次失败不能归因于初始化结果或嵌套工具反馈丢失、裁剪或重写。
+- Time: 2026-07-12
+
+## Evidence E-029: Agent 使用初始化 key 后收到忠实的硬状态错误
+- Related hypotheses:
+  - H-016
+- Direction: supports
+- Type: diagnostic-log
+- Source: same J6 focused rollout
+- Prediction or plan link:
+  - H-016 dual-identifier prediction
+- Matched signal:
+  - Agent 提交 `next_node_id="fix"`；runtime 返回 `TaskSpace next node 'fix' does not exist`，没有执行 nested patch。
+- Correlation keys:
+  - `call_00_Z52kmmfVoa0FhIJ2QnTW8600`
+- Raw content:
+  ```text
+  finish_then_actions.finishes[0].next_node_id="fix"
+  status=state_failed
+  success=false
+  reason=TaskSpace next node `fix` does not exist.
+  ```
+- Interpretation: runtime 在硬状态边界正确拒绝不存在的 id，反馈语义忠实；问题位于工具标识 contract，而不是错误传播。
+- Time: 2026-07-12
+
+## Evidence E-030: Agent 明确复述映射后改用 runtime id 即成功
+- Related hypotheses:
+  - H-016
+- Direction: supports
+- Type: diagnostic-log
+- Source: same J6 focused rollout
+- Prediction or plan link:
+  - H-016 correction prediction
+- Matched signal:
+  - 失败后 reasoning 明确写出 `inspect -> node-1, fix -> node-2, validate -> node-3`；下一 call 使用 `node-2`，finish 和 nested patch 同批成功。
+- Correlation keys:
+  - `call_00_eZ6wkEG7RVAjI5Oyp1zI5260`
+- Raw content:
+  ```text
+  reasoning: fix -> node-2
+  next_node_id="node-2"
+  status=completed
+  finish success=true
+  apply_patch success=true
+  ```
+- Interpretation: 反馈有效且 Agent 能纠正；消除双重标识可机械地删除这次无价值纠错，而无需 runtime 解释、引导或推断 Agent 意图。
+- Time: 2026-07-12

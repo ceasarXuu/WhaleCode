@@ -200,11 +200,11 @@ pub(crate) struct ActionMapFinishNodeOutcome {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ActionMapInitializeNodeInput {
-    pub(crate) key: String,
+    pub(crate) id: String,
     pub(crate) kind: NodeKind,
     pub(crate) title: String,
     pub(crate) context_summary: String,
-    pub(crate) dependency_keys: Vec<String>,
+    pub(crate) dependency_node_ids: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -212,14 +212,14 @@ pub(crate) struct ActionMapInitializeInput {
     pub(crate) task_title: String,
     pub(crate) task_objective: String,
     pub(crate) nodes: Vec<ActionMapInitializeNodeInput>,
-    pub(crate) current_node_key: String,
+    pub(crate) current_node_id: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ActionMapInitializeOutcome {
     pub(crate) task_id: TaskId,
     pub(crate) map_id: ActionMapId,
-    pub(crate) node_ids: Vec<(String, MapNodeId)>,
+    pub(crate) node_ids: Vec<MapNodeId>,
     pub(crate) current_node_id: MapNodeId,
 }
 
@@ -3065,7 +3065,7 @@ feedback:\n\
 
         let task_title = require_nonempty_owned("task_title", input.task_title)?;
         let task_objective = require_nonempty_owned("task_objective", input.task_objective)?;
-        let current_node_key = require_nonempty_owned("current_node_key", input.current_node_key)?;
+        let current_node_id = require_nonempty_owned("current_node_id", input.current_node_id)?;
         if input.nodes.is_empty() {
             return Err(
                 "TaskSpace map initialization requires at least one initial node. hard_state: active_task_path_without_nodes."
@@ -3073,54 +3073,54 @@ feedback:\n\
             );
         }
 
-        let mut keys = HashSet::new();
+        let mut node_ids = HashSet::new();
         let mut normalized_nodes = Vec::with_capacity(input.nodes.len());
         for node in input.nodes {
             validate_live_node_kind(node.kind)?;
-            let key = require_nonempty_owned("node_key", node.key)?;
-            if !keys.insert(key.clone()) {
+            let id = require_nonempty_owned("node_id", node.id)?;
+            if !node_ids.insert(id.clone()) {
                 return Err(format!(
-                    "TaskSpace map initialization node_key `{key}` is duplicated."
+                    "TaskSpace map initialization node_id `{id}` is duplicated."
                 ));
             }
             let title = require_nonempty_owned("node title", node.title)?;
             let context_summary =
                 require_nonempty_owned("node context_summary", node.context_summary)?;
-            let mut dependency_keys = Vec::new();
+            let mut dependency_node_ids = Vec::new();
             let mut node_dependencies = HashSet::new();
-            for dependency in node.dependency_keys {
-                let dependency = require_nonempty_owned("dependency_key", dependency)?;
-                if dependency == key {
+            for dependency in node.dependency_node_ids {
+                let dependency = require_nonempty_owned("dependency_node_id", dependency)?;
+                if dependency == id {
                     return Err(format!(
-                        "TaskSpace map initialization node `{key}` cannot depend on itself."
+                        "TaskSpace map initialization node `{id}` cannot depend on itself."
                     ));
                 }
                 if !node_dependencies.insert(dependency.clone()) {
                     return Err(format!(
-                        "TaskSpace map initialization node `{key}` repeats dependency `{dependency}`."
+                        "TaskSpace map initialization node `{id}` repeats dependency `{dependency}`."
                     ));
                 }
-                dependency_keys.push(dependency);
+                dependency_node_ids.push(dependency);
             }
             normalized_nodes.push(ActionMapInitializeNodeInput {
-                key,
+                id,
                 kind: node.kind,
                 title,
                 context_summary,
-                dependency_keys,
+                dependency_node_ids,
             });
         }
-        if !keys.contains(&current_node_key) {
+        if !node_ids.contains(&current_node_id) {
             return Err(format!(
-                "TaskSpace map initialization current_node_key `{current_node_key}` does not exist."
+                "TaskSpace map initialization current_node_id `{current_node_id}` does not exist."
             ));
         }
         for node in &normalized_nodes {
-            for dependency in &node.dependency_keys {
-                if !keys.contains(dependency) {
+            for dependency in &node.dependency_node_ids {
+                if !node_ids.contains(dependency) {
                     return Err(format!(
-                        "TaskSpace map initialization node `{}` references missing dependency key `{dependency}`.",
-                        node.key
+                        "TaskSpace map initialization node `{}` references missing dependency node `{dependency}`.",
+                        node.id
                     ));
                 }
             }
@@ -3142,16 +3142,16 @@ feedback:\n\
 
         let input_order = normalized_nodes
             .iter()
-            .map(|node| node.key.clone())
+            .map(|node| node.id.clone())
             .collect::<Vec<_>>();
         let mut pending = normalized_nodes;
-        let mut node_ids_by_key: HashMap<String, MapNodeId> = HashMap::new();
+        let mut created_node_ids = HashSet::new();
         let mut events = Vec::new();
         while !pending.is_empty() {
             let ready_index = pending.iter().position(|node| {
-                node.dependency_keys
+                node.dependency_node_ids
                     .iter()
-                    .all(|dependency| node_ids_by_key.contains_key(dependency))
+                    .all(|dependency| created_node_ids.contains(dependency))
             });
             let Some(ready_index) = ready_index else {
                 return Err(
@@ -3159,32 +3159,21 @@ feedback:\n\
                 );
             };
             let node = pending.remove(ready_index);
-            let dependency_node_ids = node
-                .dependency_keys
-                .iter()
-                .map(|dependency| {
-                    node_ids_by_key
-                        .get(dependency)
-                        .expect("dependency was checked before node creation")
-                        .clone()
-                })
-                .collect::<Vec<_>>();
-            let (node_id, mut node_events) = self.create_node_for_main_with_kind(
+            let node_id = node.id;
+            let (created_node_id, mut node_events) = self.create_node_for_main_with_id(
                 owner_session_id,
+                Some(node_id.clone()),
                 node.kind,
                 node.title,
                 node.context_summary,
-                dependency_node_ids,
+                node.dependency_node_ids,
                 false,
             )?;
-            node_ids_by_key.insert(node.key, node_id);
+            debug_assert_eq!(created_node_id, node_id);
+            created_node_ids.insert(node_id);
             events.append(&mut node_events);
         }
 
-        let current_node_id = node_ids_by_key
-            .get(&current_node_key)
-            .expect("current node key was validated")
-            .clone();
         events.extend(self.bind_main_node(owner_session_id, &current_node_id)?);
         let edge_count = self
             .maps
@@ -3202,27 +3191,17 @@ feedback:\n\
                 "schema:taskspace-agent-map-initialized-v1".to_string(),
                 "producer:agent_taskspace_control".to_string(),
                 "action:initialize_then_actions".to_string(),
-                format!("node_count:{}", node_ids_by_key.len()),
+                format!("node_count:{}", created_node_ids.len()),
                 format!("edge_count:{edge_count}"),
                 "semantic_source:agent".to_string(),
                 "runtime_inferred_semantics:false".to_string(),
             ],
         ));
-        let node_ids = input_order
-            .into_iter()
-            .map(|key| {
-                let node_id = node_ids_by_key
-                    .get(&key)
-                    .expect("all initialized keys have node ids")
-                    .clone();
-                (key, node_id)
-            })
-            .collect();
         Ok((
             ActionMapInitializeOutcome {
                 task_id,
                 map_id,
-                node_ids,
+                node_ids: input_order,
                 current_node_id,
             },
             events,
@@ -3232,6 +3211,27 @@ feedback:\n\
     pub(crate) fn create_node_for_main_with_kind(
         &mut self,
         owner_session_id: ThreadId,
+        kind: NodeKind,
+        title: String,
+        context_summary: String,
+        dependency_node_ids: Vec<String>,
+        bind_current: bool,
+    ) -> Result<(MapNodeId, Vec<MapRuntimeEvent>), String> {
+        self.create_node_for_main_with_id(
+            owner_session_id,
+            None,
+            kind,
+            title,
+            context_summary,
+            dependency_node_ids,
+            bind_current,
+        )
+    }
+
+    fn create_node_for_main_with_id(
+        &mut self,
+        owner_session_id: ThreadId,
+        requested_node_id: Option<String>,
         kind: NodeKind,
         title: String,
         context_summary: String,
@@ -3290,7 +3290,20 @@ feedback:\n\
         self.budget_counters.node_count = node_count_before;
         let max_nodes = active_budget.max_nodes;
         let gate_decision = self.gate_create_node_budget(&map_id, kind);
-        let node_id = self.next_node_id();
+        let node_id = match requested_node_id {
+            Some(node_id) => {
+                let node_id = require_nonempty_owned("node_id", node_id)?;
+                if self
+                    .maps
+                    .values()
+                    .any(|map| map.nodes.contains_key(&node_id))
+                {
+                    return Err(format!("TaskSpace node_id `{node_id}` already exists."));
+                }
+                node_id
+            }
+            None => self.next_node_id(),
+        };
         let map = self
             .maps
             .get_mut(&map_id)

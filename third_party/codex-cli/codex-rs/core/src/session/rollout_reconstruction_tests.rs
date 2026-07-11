@@ -95,13 +95,13 @@ async fn reconstruct_history_restores_latest_map_runtime_snapshot() {
                 task_title: "Architecture review".to_string(),
                 task_objective: "Find structure risks.".to_string(),
                 nodes: vec![crate::action_map::ActionMapInitializeNodeInput {
-                    key: "scope".to_string(),
+                    id: "scope".to_string(),
                     kind: crate::action_map::NodeKind::InspectCodeContext,
                     title: "Scope review".to_string(),
                     context_summary: "Collect architecture scope.".to_string(),
-                    dependency_keys: Vec::new(),
+                    dependency_node_ids: Vec::new(),
                 }],
-                current_node_key: "scope".to_string(),
+                current_node_id: "scope".to_string(),
             },
         )
         .expect("map initializes");

@@ -129,9 +129,9 @@ fn initial_node_schema() -> JsonSchema {
     JsonSchema::object(
         BTreeMap::from([
             (
-                "node_key".into(),
+                "node_id".into(),
                 JsonSchema::string(Some(
-                    "Key used by dependencies and current_node_key.".into(),
+                    "Stable Agent-authored node identifier used by all later actions.".into(),
                 )),
             ),
             (
@@ -147,12 +147,15 @@ fn initial_node_schema() -> JsonSchema {
                 JsonSchema::string(Some("Agent-authored node context.".into())),
             ),
             (
-                "dependency_keys".into(),
-                JsonSchema::array(JsonSchema::string(None), Some("Prerequisite keys.".into())),
+                "dependency_node_ids".into(),
+                JsonSchema::array(
+                    JsonSchema::string(None),
+                    Some("Agent-authored prerequisite node identifiers.".into()),
+                ),
             ),
         ]),
         Some(vec![
-            "node_key".into(),
+            "node_id".into(),
             "kind".into(),
             "title".into(),
             "context_summary".into(),
@@ -265,7 +268,7 @@ fn initialize_then_actions_schema(actions: &JsonSchema) -> JsonSchema {
                     .with_min_items(1),
             ),
             (
-                "current_node_key".into(),
+                "current_node_id".into(),
                 JsonSchema::string(Some("Initial node bound before actions execute.".into())),
             ),
             (
@@ -278,7 +281,7 @@ fn initialize_then_actions_schema(actions: &JsonSchema) -> JsonSchema {
             "task_title".into(),
             "task_objective".into(),
             "initial_nodes".into(),
-            "current_node_key".into(),
+            "current_node_id".into(),
             "actions".into(),
         ],
     )

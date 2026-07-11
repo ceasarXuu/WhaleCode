@@ -1,7 +1,6 @@
 use codex_protocol::models::FunctionCallOutputPayload;
 use codex_protocol::models::ResponseInputItem;
 use serde_json::Value as JsonValue;
-use std::collections::BTreeMap;
 
 use crate::action_map::ActionMapInitializeInput;
 use crate::action_map::ActionMapInitializeNodeInput;
@@ -95,18 +94,18 @@ impl ToolHandler for TaskSpaceControlHandler {
                 task_title,
                 task_objective,
                 initial_nodes,
-                current_node_key,
+                current_node_id,
                 actions: _,
             } => {
                 let nodes = initial_nodes
                     .into_iter()
                     .map(|node| {
                         Ok(ActionMapInitializeNodeInput {
-                            key: node.node_key,
+                            id: node.node_id,
                             kind: parse_node_kind("initial_nodes.kind", &node.kind)?,
                             title: node.title,
                             context_summary: node.context_summary,
-                            dependency_keys: node.dependency_keys,
+                            dependency_node_ids: node.dependency_node_ids,
                         })
                     })
                     .collect::<Result<Vec<_>, FunctionCallError>>()?;
@@ -117,7 +116,7 @@ impl ToolHandler for TaskSpaceControlHandler {
                             task_title,
                             task_objective,
                             nodes,
-                            current_node_key,
+                            current_node_id,
                         },
                     )
                     .await
@@ -446,20 +445,14 @@ fn build_next_node_draft(
 }
 
 fn format_initialize_map_output(outcome: &ActionMapInitializeOutcome) -> JsonValue {
-    let node_id_by_key = outcome.node_ids.iter().cloned().collect::<BTreeMap<_, _>>();
-    let current_node_key = outcome
-        .node_ids
-        .iter()
-        .find_map(|(key, node_id)| (node_id == &outcome.current_node_id).then_some(key));
     serde_json::json!({
         "schema_version": "TaskSpaceInitializeMapResultV1",
         "action": "initialize_then_actions",
         "status": "initialized",
         "task_id": outcome.task_id,
         "map_id": outcome.map_id,
-        "current_node_key": current_node_key,
         "current_node_id": outcome.current_node_id,
-        "node_id_by_key": node_id_by_key,
+        "node_ids": outcome.node_ids,
     })
 }
 

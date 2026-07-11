@@ -105,27 +105,27 @@ async fn start_action_map_task_node(
     bind_current: bool,
 ) -> String {
     let target = crate::action_map::ActionMapInitializeNodeInput {
-        key: "target".to_string(),
+        id: "node-1".to_string(),
         kind: crate::action_map::NodeKind::InspectCodeContext,
         title: title.to_string(),
         context_summary: context_summary.to_string(),
-        dependency_keys: Vec::new(),
+        dependency_node_ids: Vec::new(),
     };
-    let (nodes, current_node_key) = if bind_current {
-        (vec![target], "target".to_string())
+    let (nodes, current_node_id) = if bind_current {
+        (vec![target], "node-1".to_string())
     } else {
         (
             vec![
                 target,
                 crate::action_map::ActionMapInitializeNodeInput {
-                    key: "coordinator".to_string(),
+                    id: "node-2".to_string(),
                     kind: crate::action_map::NodeKind::InspectCodeContext,
                     title: "Coordinate delegated work".to_string(),
                     context_summary: "Track the active delegated node.".to_string(),
-                    dependency_keys: Vec::new(),
+                    dependency_node_ids: Vec::new(),
                 },
             ],
-            "coordinator".to_string(),
+            "node-2".to_string(),
         )
     };
     let outcome = session
@@ -135,16 +135,13 @@ async fn start_action_map_task_node(
                 task_title: title.to_string(),
                 task_objective: context_summary.to_string(),
                 nodes,
-                current_node_key,
+                current_node_id,
             },
         )
         .await
         .expect("TaskSpace map should initialize");
-    outcome
-        .node_ids
-        .into_iter()
-        .find_map(|(key, node_id)| (key == "target").then_some(node_id))
-        .expect("target node id")
+    assert!(outcome.node_ids.iter().any(|node_id| node_id == "node-1"));
+    "node-1".to_string()
 }
 
 fn active_action_map_snapshot_map(snapshot: &ActionMapSnapshot) -> &ActionMapSnapshotMap {
