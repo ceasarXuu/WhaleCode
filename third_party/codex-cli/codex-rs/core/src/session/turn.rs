@@ -1028,12 +1028,10 @@ fn apply_provider_tool_visibility(
     tool_visibility: TaskspaceProviderToolVisibility,
 ) -> Vec<ToolSpec> {
     match tool_visibility {
-        TaskspaceProviderToolVisibility::Standard => {
-            tools
-                .into_iter()
-                .filter(|spec| spec.name() != "taskspace_control")
-                .collect()
-        }
+        TaskspaceProviderToolVisibility::Standard => tools
+            .into_iter()
+            .filter(|spec| spec.name() != "taskspace_control")
+            .collect(),
         TaskspaceProviderToolVisibility::TaskspaceNative => {
             trace!(
                 target = "codex_core::taskspace",

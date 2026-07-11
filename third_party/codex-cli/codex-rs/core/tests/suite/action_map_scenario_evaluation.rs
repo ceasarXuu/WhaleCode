@@ -126,20 +126,29 @@ async fn terminal_candidate_finishes_turn_without_extra_provider_request() -> Re
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn trailing_nonterminal_finish_is_rejected_before_state_commit() -> Result<()> {
+async fn trailing_nonterminal_finish_remains_agent_owned() -> Result<()> {
     skip_if_no_network!(Ok(()));
 
     let harness = TestCodexHarness::new().await?;
     let initialize = serde_json::to_string(&json!({
         "action": "initialize_map",
         "task_title": "Cadence gate",
-        "task_objective": "Verify trailing nonterminal finish rejection.",
-        "initial_nodes": [{
-            "node_key": "inspect",
-            "kind": "inspect_code_context",
-            "title": "Inspect cadence fixture",
-            "context_summary": "Exercise the cadence gate."
-        }],
+        "task_objective": "Verify standalone nonterminal finish remains valid.",
+        "initial_nodes": [
+            {
+                "node_key": "inspect",
+                "kind": "inspect_code_context",
+                "title": "Inspect cadence fixture",
+                "context_summary": "Exercise cadence observation."
+            },
+            {
+                "node_key": "complete",
+                "kind": "final_synthesis",
+                "title": "Complete cadence fixture",
+                "context_summary": "Finish after the standalone transition.",
+                "depends_on": ["inspect"]
+            }
+        ],
         "current_node_key": "inspect"
     }))?;
     responses::mount_sse_once_match(
@@ -156,7 +165,8 @@ async fn trailing_nonterminal_finish_is_rejected_before_state_commit() -> Result
     let nonterminal_finish = serde_json::to_string(&json!({
         "action": "finish_node",
         "node_id": "node-1",
-        "result_summary": "This finish must not commit."
+        "next_node_id": "node-2",
+        "result_summary": "Standalone nonterminal finish committed."
     }))?;
     responses::mount_sse_once_match(
         harness.server(),
@@ -175,13 +185,13 @@ async fn trailing_nonterminal_finish_is_rejected_before_state_commit() -> Result
 
     let terminal_finish = serde_json::to_string(&json!({
         "action": "finish_node",
-        "node_id": "node-1",
-        "result_summary": "Cadence rejection was observed.",
-        "final_candidate": "Cadence gate verified."
+        "node_id": "node-2",
+        "result_summary": "Cadence observation was non-blocking.",
+        "final_candidate": "Cadence ownership verified."
     }))?;
     responses::mount_sse_once_match(
         harness.server(),
-        |req: &Request| body_contains(req, "TaskSpaceCadenceGateV1"),
+        |req: &Request| body_contains(req, "cadence-trailing-finish"),
         sse(vec![
             ev_response_created("cadence-response-3"),
             ev_function_call(
@@ -200,12 +210,14 @@ async fn trailing_nonterminal_finish_is_rejected_before_state_commit() -> Result
     let requests = harness.request_bodies().await;
     assert_eq!(requests.len(), 3);
     assert!(
-        requests
+        !requests
             .iter()
             .any(|request| request.to_string().contains("TaskSpaceCadenceGateV1"))
     );
     let snapshot = harness.test().codex.action_map_snapshot().await;
+    assert_eq!(snapshot.maps[0].nodes.len(), 2);
     assert_eq!(snapshot.maps[0].nodes[0].status, "completed");
+    assert_eq!(snapshot.maps[0].nodes[1].status, "completed");
     Ok(())
 }
 

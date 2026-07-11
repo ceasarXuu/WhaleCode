@@ -1,5 +1,4 @@
 use codex_protocol::error::Result;
-use codex_protocol::models::FunctionCallOutputPayload;
 use codex_protocol::models::ResponseInputItem;
 use futures::future::join_all;
 use tokio_util::sync::CancellationToken;
@@ -88,11 +87,8 @@ pub(crate) async fn execute_response_tool_sequence(
                 segment_index,
                 call_id = call.call_id,
                 reason,
-                "tool.trailing_nonterminal_finish_rejected"
+                "tool.trailing_nonterminal_finish_observed"
             );
-            prior_failure = Some(call.call_id.clone());
-            outputs.push(finish_cadence_rejection_response(call, reason));
-            continue;
         }
 
         let barrier_call_id = match &segment {
@@ -294,34 +290,6 @@ fn call_establishes_binding(call: &ToolCall) -> bool {
     }
 }
 
-fn finish_cadence_rejection_response(call: &ToolCall, reason: &str) -> ResponseInputItem {
-    let message = match reason {
-        "nonterminal_finish_requires_next_binding" => {
-            "Nonterminal finish_node must establish the next binding before subsequent work. Use next_node_id or next_node_* fields, or follow finish_node immediately with bind_node or create_node(bind_current=true)."
-        }
-        _ => {
-            "Nonterminal finish_node cannot be the last call in a response. Follow it with another TaskSpace control or ordinary tool call."
-        }
-    };
-    let metadata = serde_json::json!({
-        "schema_version": "TaskSpaceCadenceGateV1",
-        "allowed": false,
-        "gate_class": "cadence",
-        "reason": reason,
-        "required_follow_up": "taskspace_control_or_ordinary_tool_call",
-        "required_binding": "next_node_id_or_next_node_fields_or_immediate_binding_control",
-        "terminal_exception": "non_empty_final_candidate",
-    });
-    let mut output = FunctionCallOutputPayload::from_text(format!(
-        "{message}\nTaskSpaceCadenceGateV1: {metadata}"
-    ));
-    output.success = Some(false);
-    ResponseInputItem::FunctionCallOutput {
-        call_id: call.call_id.clone(),
-        output,
-    }
-}
-
 fn response_input_call_id(output: &ResponseInputItem) -> &str {
     match output {
         ResponseInputItem::FunctionCallOutput { call_id, .. }
@@ -431,28 +399,6 @@ mod tests {
             "exec_command",
             "ordinary"
         )));
-    }
-
-    #[test]
-    fn cadence_rejection_is_unsuccessful_and_preserves_call_id() {
-        let call = function_call_with_arguments(
-            "taskspace_control",
-            "finish-call",
-            r#"{"action":"finish_node","next_node_id":"node-2"}"#,
-        );
-        let output =
-            finish_cadence_rejection_response(&call, "nonterminal_finish_requires_follow_up_call");
-        assert_eq!(response_input_call_id(&output), "finish-call");
-        assert!(!response_input_succeeded(&output));
-        let ResponseInputItem::FunctionCallOutput { output, .. } = output else {
-            panic!("expected function output");
-        };
-        assert!(
-            output
-                .body
-                .to_text()
-                .is_some_and(|text| text.contains("TaskSpaceCadenceGateV1"))
-        );
     }
 
     #[test]

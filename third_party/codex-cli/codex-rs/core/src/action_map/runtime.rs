@@ -6959,7 +6959,7 @@ fn transition_notice(previous_mode: MapRuntimeMode, current_mode: MapRuntimeMode
             "TaskSpace mode is now active.\n\
 Previous standard-mode conversation remains background context only.\n\
 hard_state: ordinary tools and multi-agent actions require an active TaskSpace task path, current node binding, and lease.\n\
-cadence_contract: multiple taskspace_control and ordinary calls may share one response and execute in provider order. A nonterminal finish_node must include a same-response follow-up call and must establish its next binding with next_node_id/next_node_* or an immediate bind_node/create_node(bind_current=true). A terminal finish_node with final_candidate may end the response.\n\
+cadence_guidance: multiple taskspace_control and ordinary calls may share one response and execute in provider order. Prefer chaining a nonterminal finish_node to a same-response follow-up and establish its next binding with next_node_id/next_node_* or an immediate bind_node/create_node(bind_current=true). A standalone nonterminal finish remains valid; runtime records it as cadence inefficiency and does not invent the next action. A terminal finish_node with final_candidate may end the response.\n\
 map_runtime_boundary: runtime manages the task map, node binding, tool/event attribution, and hard state-machine rules; task strategy remains Agent-owned."
                 .to_string()
         }
