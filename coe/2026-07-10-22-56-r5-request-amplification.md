@@ -40,6 +40,8 @@
   - E-014
   - E-015
   - E-016
+  - E-017
+  - E-018
 - Ruled out:
   - 相邻请求缓存前缀破坏不是本轮请求放大的原因：R5 strict-prefix 48/48，request-2+ cache hit 97.66%。
   - 工具反馈丢失不是本轮主要原因：pre-init hard reject、pytest failure、apply_patch failure 和成功输出都按原文进入后续 history。
@@ -57,7 +59,7 @@
   - 在用户授权修复后，任何方案必须分别度量固定 control 往返、普通动作数量和并行承载；不得只压低一个总 request 数。
   - 修复验证必须保持 G1 strict-prefix、反馈忠实性、Agent-owned Map 和 correctness。
   - 需要 controlled repeats 证明 request 降低不是模型随机波动。
-- Current conclusion: G1 的29次请求差已被高置信度分解，J1/J2/J3 也已补齐空 Map tool choice、有序屏障和终态事务。`f0db9d7` 已恢复初始化即时绑定、finish 默认当前节点、finish 原子绑定下一节点等机械 API 语义，并用 schema tests 锁定；真实 run 的 tools hash 也证明新 schema 已进入全部 provider 请求。但单轮 Docker fix validation 没有恢复 G1 的 `finish_node(next_node_id)`：5节点 Map 仍有4次成功独立 bind、2次把 node key 当 node id 的失败 control，最终为21 requests、12 controls、0 mixed。Agent 已正确使用初始化自带 binding，并在 reasoning 中明确知道 finish 可默认当前 binding，说明操作契约暴露缺失已修；它不是后续独立 bind 的充分根因。新的直接反馈层问题是初始化输出 `node_ids=[key=id]` 被 Agent明确读反，导致 `finish_node(node_id=node_key)` 和 `bind_node(node_id=node_key)` 各失败一次。该格式虽然可解析，但对模型不够无歧义。下一步应把初始化映射反馈改为结构清楚、方向显式的机械数据并单独复验；是否能进一步恢复 `next_node_id` 仍需证据，不能提前归因，更不能由 runtime 自动推进或拒绝合法 bind。
+- Current conclusion: G1 的29次请求差已被高置信度分解，J1/J2/J3 也已补齐空 Map tool choice、有序屏障和终态事务。`f0db9d7` 恢复机械 action contract 后，`6c0153c` 进一步把初始化反馈从可读反的 `node_ids=[key=id]` 文本改为 `TaskSpaceInitializeMapResultV1` 结构化机械结果，显式分离 `current_node_key`、`current_node_id` 和 `node_id_by_key`。focused tests、build、binary attestation 和 Docker fix validation 均通过。第二轮4节点 Map 中 node key/id 错误从2次降为0，`bind_node` 从上一轮5次降为0，Agent 连续3次使用 `finish_node(next_node_id)`，controls 为 `initialize_map=1 + finish_node=4 = N+1`，terminal extra request=0。对应 R5 requests 从上一轮非同拓扑的21降到12、wall 从43.47s降到24.61s、input从194,687降到96,949；这些总量受5节点变4节点和模型采样影响，不能全部归因，但调用链直接证明映射反馈修复恢复了原子下一节点推进。当前剩余固定成本是每节点 finish 仍各占一个 control-only response，mixed barrier 仍为0；同轮 R5 相对 Standard 仍为12 vs 5 requests、24.61s vs 12.35s、96,949 vs 36,393 input tokens。后续应继续分离必要 `N+1` Map 记账成本、3个额外 ordinary actions 和依赖边界重采样，不通过 runtime 自动推进压指标。
 - Related hypotheses:
   - H-001
   - H-002
@@ -86,6 +88,8 @@
   - E-014
   - E-015
   - E-016
+  - E-017
+  - E-018
 - Close reason:
   - original diagnosis complete; follow-up feedback ambiguity remains open
 
@@ -498,13 +502,15 @@
 - Related evidence:
   - E-015
   - E-016
-- Conclusion: confirmed；本轮2次失败 control 和对应2次额外 provider requests 可直接归因于反馈格式歧义。
-- Repair design readiness: ready after user authorization
-- Next step: 将初始化结果改成方向显式的结构化机械数据，保留完整 key/id 映射和 current node id，不加入下一步动作建议。
+  - E-017
+  - E-018
+- Conclusion: confirmed and fix-validated；本轮2次失败 control 和对应2次额外 provider requests 可直接归因于反馈格式歧义。结构化反馈上线后错误归零，Agent 正确使用全部生成 id，并恢复3次原子 next binding。
+- Repair design readiness: repair complete
+- Next step: 保留 `TaskSpaceInitializeMapResultV1` 作为稳定机械反馈 schema；继续观察复杂样本，不把单样本收益外推为全局结论。
 - Blocker:
-  - follow-up repair not yet authorized
+  - none
 - Close reason:
-  - not closed
+  - original symptom absent in fix-validation run
 
 ## Evidence E-001: 三轮请求可完全拆成工具响应和最终回答
 - Related hypotheses:
@@ -936,4 +942,71 @@
     bind_node(node_id="inspect-codebase") -> transition_rejected / node does not exist
   ```
 - Interpretation: 新契约让 Agent 正确保留初始化 binding，并知道 finish 可默认当前节点，但没有恢复 `finish_node(next_node_id)`。两次额外失败明确来自反馈映射方向被读反；其余独立 bind 的原因仍不能仅凭本轮归因。
+- Time: 2026-07-11
+
+## Evidence E-017: 初始化反馈改为方向显式的结构化机械结果
+- Related hypotheses:
+  - H-010
+- Direction: supports
+- Type: fix-implementation
+- Source: commit `6c0153c`, taskspace_control handler and focused tests
+- Prediction or plan link:
+  - H-010 repair design
+- Matched signal:
+  - 删除手工 `key=id` 拼接，输出 schema 分离 current key/id 和完整 key-to-id object
+- Correlation keys:
+  - commit `6c0153c`
+  - schema `TaskSpaceInitializeMapResultV1`
+- Raw content:
+  ```json
+  {
+    "schema_version": "TaskSpaceInitializeMapResultV1",
+    "action": "initialize_map",
+    "status": "initialized",
+    "task_id": "task-1",
+    "map_id": "map-1",
+    "current_node_key": "read_readme_and_tests",
+    "current_node_id": "node-1",
+    "node_id_by_key": {
+      "read_readme_and_tests": "node-1",
+      "inspect_implementation": "node-2"
+    }
+  }
+  ```
+- Interpretation: 结果只表达 runtime 已提交的机械事实，不提示下一动作、不选择节点、不改写 Agent 语义。JSON 序列化避免分隔符和映射方向歧义。
+- Time: 2026-07-11
+
+## Evidence E-018: 结构化映射复验恢复 bind=0 和 N+1 controls
+- Related hypotheses:
+  - H-008
+  - H-009
+  - H-010
+- Direction: supports
+- Type: fix-validation
+- Source: `target/r5-j4-explicit-init-mapping/count-call-stack/20260711-183707-628`
+- Prediction or plan link:
+  - H-010 original symptom removal and atomic-next observation
+- Matched signal:
+  - 4节点 Map 无 key/id 错误、无 bind_node，前三次 finish 均携带正确 next_node_id
+- Correlation keys:
+  - pair-001/right
+  - initialize call `call_00_Yd4Vg0KeBADKaOjzWtfj5764`
+  - node-1..4
+- Raw content:
+  ```text
+  Standard: solved, requests=5, ordinary tools=10, wall=12.35s
+  TaskSpace: solved, requests=12, ordinary tools=13, controls=5, wall=24.61s
+  TaskSpace map: 4 nodes, 3 edges, 4 results, open=0
+  controls: initialize_map=1, finish_node=4, bind_node=0
+  transitions:
+    finish node-1 next_node_id=node-2
+    finish node-2 next_node_id=node-3
+    finish node-3 next_node_id=node-4
+    finish node-4 final_candidate=<Agent-authored>
+  control hard errors=0
+  mixed barrier=0, terminal_candidate=1, extra_final_request=0
+  request-2+ cache hit: Standard=92.71%, TaskSpace=93.43%
+  input tokens: Standard=36,393, TaskSpace=96,949
+  ```
+- Interpretation: H-010 原始错误已消失，且原子 next binding 恢复。R5 仍有5个 control-only responses 和3个额外 ordinary calls，因此总 request/cost 尚未与 Standard 收敛；该剩余不能再归因于映射反馈。
 - Time: 2026-07-11

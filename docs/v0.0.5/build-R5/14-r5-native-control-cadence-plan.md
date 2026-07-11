@@ -296,6 +296,24 @@ observer 需要补充 control failure 计数。下一步应先将初始化结果
 attestation 不匹配。标准恢复流程是重新执行 locked build，并调用
 `write-whale-binary-attestation.ps1` 记录当前 commit 和 binary SHA；不得使用 stale bypass 产生正式样本。
 
+**显式映射修复与第二轮复验（2026-07-11）：** `6c0153c` 删除初始化结果中的手工 `key=id` 文本，
+改为 `TaskSpaceInitializeMapResultV1` JSON，独立提供 `current_node_key`、`current_node_id` 和
+`node_id_by_key`。结果只保留 runtime 已提交的机械事实，不含动作建议或任务策略。生产 handler 的测试
+被拆到独立文件，主文件从527行降到476行；8个 focused core tests、locked build 和 binary attestation
+均通过。
+
+Docker paired run `target/r5-j4-explicit-init-mapping/count-call-stack/20260711-183707-628` 再次双侧
+solved。TaskSpace 的4节点3边全部完成，node key/id hard error 从2降到0，`bind_node` 从上一轮5降到0；
+Agent 连续提交 `node-1 -> node-2 -> node-3 -> node-4` 的3次 `finish_node(next_node_id)`，最终 controls
+为 `initialize_map=1 + finish_node=4 = N+1`。terminal candidate 正常，extra final request=0，mixed
+barrier 仍为0。
+
+同轮 Standard/R5 分别为5/12 requests、10/13 ordinary tools、12.35s/24.61s、36,393/96,949 input
+tokens，request-2+ cache hit 为92.71%/93.43%。相较上一轮非同拓扑 R5，requests 21 -> 12、controls
+12 -> 5、wall 43.47s -> 24.61s、input 194,687 -> 96,949；由于 Map 从5节点变4节点且模型采样不同，
+总量下降不能全部归因，但错误归零、bind归零和原子 next 恢复由 call/output 链直接证明。剩余问题已经
+收敛为必要 `N+1` control-only 往返、3个额外 ordinary actions，以及 mixed barrier 未采用。
+
 因此 J4 的 `control-only <= 1/run` 明确未达成，Decision 为 **hold benefit claim**。不通过自动绑定、
 强制 `next_node_id`、拒绝合法重复 bind 或 runtime 合并动作来追指标；这些方向会越过 Agent 对 Map
 推进的所有权。后续若继续优化，应从 Agent 可理解的状态事实与工具能力使用效率入手，并保持可选性。
@@ -381,6 +399,7 @@ attestation 不匹配。标准恢复流程是重新执行 locked build，并调�
 ## 16. 当前暂停点
 
 R5-F、R5-I0/I1/I2 和 J0/J1/J2/J3 已完成；J4 correctness/capability 已完成，但原收益门禁未通过。
-机械 action contract 已恢复并完成一轮 fix validation，确认契约送达但没有恢复原子下一节点绑定。当前新增
-根因是初始化反馈的 key/id 映射被 Agent 读反；其余独立 bind 仍待该反馈问题修复后复验。不得通过提示
-Agent 少建节点、runtime 自动推进、拒绝合法调用或节点粗化宣称请求收益。
+机械 action contract 和显式初始化映射均已恢复并完成 fix validation，key/id 错误、冗余 bind 和原子
+next binding 使用已收敛。当前剩余请求差来自 `N+1` control-only 往返和额外 ordinary actions；mixed
+barrier 仍为能力存在但真实样本未采用。不得通过提示 Agent 少建节点、runtime 自动推进、拒绝合法调用
+或节点粗化宣称请求收益。
