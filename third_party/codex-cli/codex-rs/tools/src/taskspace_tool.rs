@@ -87,7 +87,10 @@ pub fn create_taskspace_control_tool() -> ToolSpec {
         ),
         (
             "current_node_key".to_string(),
-            JsonSchema::string(Some("Required current node key for initialize_map.".into())),
+            JsonSchema::string(Some(
+                "Required for initialize_map. The referenced initial node is bound as current in the same state transition."
+                    .into(),
+            )),
         ),
         (
             "kind".to_string(),
@@ -110,12 +113,16 @@ pub fn create_taskspace_control_tool() -> ToolSpec {
         ),
         (
             "bind_current".to_string(),
-            JsonSchema::boolean(Some("Bind a newly created node as current.".into())),
+            JsonSchema::boolean(Some(
+                "Optional for create_node. When true, node creation and current binding commit atomically."
+                    .into(),
+            )),
         ),
         (
             "node_id".to_string(),
             JsonSchema::string(Some(
-                "Existing node id for bind_node, finish_node, or block_node.".into(),
+                "Required for bind_node and block_node. Optional for finish_node, which defaults to the current binding."
+                    .into(),
             )),
         ),
         (
@@ -131,7 +138,10 @@ pub fn create_taskspace_control_tool() -> ToolSpec {
         ),
         (
             "next_node_id".to_string(),
-            JsonSchema::string(Some("Existing next node to bind after finish_node.".into())),
+            JsonSchema::string(Some(
+                "Optional for finish_node. Finishing the current node and binding this existing next node commit atomically."
+                    .into(),
+            )),
         ),
         (
             "next_node_kind".to_string(),
@@ -197,7 +207,17 @@ pub fn create_taskspace_control_tool() -> ToolSpec {
         name: "taskspace_control".into(),
         description: r#"Mandatory mechanical map tool used while TaskSpace is enabled.
 
-The Agent owns task semantics and explicitly initializes the map, creates or binds nodes, and records node completion or blockage. Runtime only validates ids, dependencies, status, bindings, leases, and tool/result pairing. Ordinary tools require a current node binding. One assistant response may contain TaskSpace control and ordinary tool calls; runtime executes provider order across each control barrier, and skips later calls if that barrier fails. Large tool output can be revisited through read_output_ref. Runtime does not choose the next action or reinterpret tool feedback."#
+The Agent owns task semantics and explicitly initializes the map, creates or binds nodes, and records node completion or blockage. Runtime only validates ids, dependencies, status, bindings, leases, and tool/result pairing.
+
+Mechanical action effects:
+- initialize_map creates the supplied graph and binds current_node_key in one state transition.
+- create_node can create and bind a node atomically with bind_current=true.
+- bind_node binds an existing node as current.
+- finish_node defaults node_id to the current binding. It can finish and bind next_node_id atomically, or atomically create and bind a next node with the next_node_* fields.
+- block_node records the blocker and blocks the named node.
+- read_output_ref returns a bounded slice of retained tool output.
+
+Ordinary tools require a current node binding. One assistant response may contain TaskSpace control and ordinary tool calls; runtime executes provider order across each control barrier, and skips later calls if that barrier fails. Runtime does not choose the next action or reinterpret tool feedback."#
             .into(),
         strict: false,
         defer_loading: None,
@@ -220,6 +240,8 @@ mod tests {
         let description = value["description"].as_str().expect("description");
         assert!(description.contains("executes provider order across each control barrier"));
         assert!(description.contains("skips later calls if that barrier fails"));
+        assert!(description.contains("binds current_node_key in one state transition"));
+        assert!(description.contains("finish and bind next_node_id atomically"));
         let actions = value["parameters"]["properties"]["action"]["enum"]
             .as_array()
             .expect("action enum");
@@ -248,5 +270,23 @@ mod tests {
             assert!(!properties.contains_key(removed));
         }
         assert!(properties.contains_key("final_candidate"));
+        assert!(
+            properties["current_node_key"]["description"]
+                .as_str()
+                .expect("current_node_key description")
+                .contains("bound as current in the same state transition")
+        );
+        assert!(
+            properties["node_id"]["description"]
+                .as_str()
+                .expect("node_id description")
+                .contains("defaults to the current binding")
+        );
+        assert!(
+            properties["next_node_id"]["description"]
+                .as_str()
+                .expect("next_node_id description")
+                .contains("commit atomically")
+        );
     }
 }
