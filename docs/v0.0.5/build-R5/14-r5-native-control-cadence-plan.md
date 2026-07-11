@@ -320,6 +320,40 @@ tokens，request-2+ cache hit 为92.71%/93.43%。相较上一轮非同拓扑 R5�
 
 **Fallback:** 任何 correctness、反馈、权限或 Map health 回退都阻止收益声明，并按 J3 -> J2 -> J1 的独立 commit 逆序回退。
 
+### R5-J5：Agent-authored chained finish cadence
+
+**Entry:** J4 显式映射复验已达到 `bind_node=0` 和 `N+1 controls`，但5个 control 全部独占 response，
+真实 mixed barrier 仍为0。
+
+**机械契约：**
+
+1. 一个 provider response 可以声明多个 `taskspace_control`，也可以交错声明 control 和 ordinary calls。
+2. 多个 finish 不是并发写状态；provider 一次声明，runtime 按 response order 串行提交，每一步读取前一步
+   更新后的 binding/lease/status。
+3. 后续调用只在前置 barrier 成功时执行；失败后保持原始失败输出，并给剩余 call id 返回
+   `skipped_due_to_prior_failure`。
+4. 带非空 `final_candidate` 的 finish 是 terminal finish，可以位于响应末尾。
+5. 不带 `final_candidate` 的 finish 是 nonterminal finish，不得成为 response 最后一个 call；其后必须还有
+   Agent 声明的 control 或 ordinary call。runtime 机械拒绝 trailing nonterminal finish，不自动选择或补写
+   下一动作。
+6. `finish A -> finish B` 与 `finish A -> ordinary action on B` 都是允许的 Agent-authored sequence。
+
+**Tasks:**
+
+1. 在 tool description 中明确 multiple controls、latest-state execution、首错停止和 trailing finish 规则。
+2. provider probe 增加同一 function name 重复调用，区分“多工具可用”与“重复 control 可用”。
+3. native sequence executor 在执行 trailing nonterminal finish 前返回结构化 cadence hard error，且不提交该
+   finish；保留此前已完成 calls 的输出和副作用。
+4. focused tests 覆盖相邻 finish barriers、finish+ordinary、前错跳过、trailing reject 和 terminal allow。
+5. Docker `count-call-stack` 复验 control-only、mixed barrier、request、correctness、cache 和 Map health。
+
+**Exit:** provider repeated-function probe通过；trailing nonterminal finish执行副作用为0；terminal finish不被
+误拒；真实样本至少出现一次 chained finish 或 finish+ordinary，且 correctness、反馈、cache 和 Map health
+不回退。若 Agent 首轮违反新规则，单独报告一次学习/纠错成本，不把 hard reject 隐藏为普通工具失败。
+
+**边界：** 不允许 runtime 自动 finish、自动选择 next node、自动生成 ordinary call、合并 Agent 未声明的
+节点或从工具结果推断任务完成。该 gate 是用户明确指定的流程硬规则，不扩展为任务语义控制。
+
 ## 9. Phase Gate Matrix
 
 | Phase | Independent Verification | Forbidden Future Dependency | Exit Evidence | Required Before Next | Decision |
@@ -329,6 +363,7 @@ tokens，request-2+ cache hit 为92.71%/93.43%。相较上一轮非同拓扑 R5�
 | J2 | ordered barrier unit/integration/side-effect tests | 不依赖 terminal transaction | latest-state attribution and stop evidence | 100% passed | proceed J3 |
 | J3 | terminal success/rejection/history tests | 不依赖 benefit repeats | completion provenance evidence | 100% passed | proceed J4 |
 | J4 | Docker fixed-topology repeats、complex sample、adversarial review | 无后续 phase 补证 | performance/map/semantic report | correctness complete; mapping repair validated; N+1 control-only remains | hold remaining cadence benefit |
+| J5 | repeated-control probe、cadence hard gate、Docker live run | 无后续 phase 补证 | sequence tests、cadence rejection、mixed live trace | all gates passed | pending implementation |
 
 ## 10. Implementation Completeness Matrix
 
