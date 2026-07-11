@@ -992,6 +992,7 @@ provider request count、state-machine action count、wall time、失败分类�
 | R5-G benefit gate | 简化无明确负收益 | benchmark harness | targeted samples | paired report | metrics json/report | none | G0-G3 complete；correctness无回退，J4 cadence收益未达成 |
 | R5-I Docker-only benchmark | 正式样本不再继承宿主 Python/pytest/PATH；容器日志可完整关联 | `container-runtime.ps1`、`container-benchmark-runner.ps1` | benchmark Docker roles | I0-I4 fixtures + real paired Docker runs | container manifest/lifecycle/log/stats/rollout artifacts | I4 已删除本机 fallback | I0-I4 landed；Docker-only complete |
 | R5-J native control cadence | P0 hard-state tool selection；P1 ordered state barrier；P3 Agent-authored terminal transaction；P2 明确禁止 | provider request construction、native tool scheduler、TaskSpace preflight、turn completion | TaskSpace native tool loop | J0-J4 order/failure/provenance tests + Docker reports | production mixed barrier=0；control-only 7-18；terminal candidate按Agent选择生效 | 不恢复 action-contract；无 map coarsening | J0-J3 complete；J4 benefit gate failed |
+| R5-J6 schema-first control carrier | 生命周期迁移和立即动作成为一个 tool schema；runtime 只执行 Agent 声明；nested tool contract/反馈原样透传 | `taskspace_tool.rs`、TaskSpace typed args、ToolRouter/sequence、performance observer | TaskSpace native tool loop | tools 139/1 ignored；handler 9/9；runtime 11/11；scenario 7/7；context 24/24 | focused/complex 均 solved；latest requests 8/12；protocol/state failures=0；terminal extra=0 | 无旧 finish/init 兼容、无后置 cadence gate、无 runtime 自动动作 | landed；结构收益通过，总成本 parity 未通过 |
 
 ## 1.17 Change-chain Logging Matrix
 

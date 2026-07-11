@@ -3,7 +3,7 @@
 - Created: 2026-07-12
 - Updated: 2026-07-12
 - Version: 1.0
-- Status: Draft
+- Status: Implemented; structural benefit verified, total-cost parity not reached
 - Owner / Responsible: WhaleCode TaskSpace
 - Related Systems: `taskspace_control` tool schema、ToolRouter、native tool scheduler、TaskSpace transition notice、benchmark observer
 - Related Links: `14-r5-native-control-cadence-plan.md`、`01-r5-phased-simplification-plan.md`
@@ -100,7 +100,7 @@ Agent 已经决定 finish 后的下一动作
 | Dependency | Type | Current Status | Blocking Risk | Handling Plan |
 |---|---|---|---|---|
 | DeepSeek 目标 endpoint 的 schema 子集 | third-party | Unknown | `anyOf/minItems` 被拒绝或未按预期生成 | J6.0 真实 wire probe，未通过则暂停 |
-| 本地 `JsonSchema` 的 `minItems` 支持 | system | Pending | 无法机器化表达非空 actions | J6.0 只补该关键字并测试 |
+| 本地 `JsonSchema` 的 `minItems` 支持 | system | Complete | 无法机器化表达非空 actions | J6.0 已补关键字并通过 roundtrip/provider probe |
 | model-visible ToolSpec 集合 | system | Ready | nested action 暴露隐藏工具或 schema 递归 | J6.1 从同一 request 的可见集合机械派生并排除 control |
 | ToolRouter/ToolCallRuntime | system | Ready | composite 路径绕过权限、沙箱或取消 | J6.2 复用生产路径并用负例门禁 |
 | Docker benchmark/log observer | environment | Ready | 无法归因 request、cache 和 Map health | J6.4 使用现有统一 runner |
@@ -360,13 +360,13 @@ terminal provenance 集成测试。
 
 - Standard/R5 最终结果正确；
 - R5 Map node/edge/result 数量不低于预设固定拓扑；
-- control failure、反馈丢失、权限绕过、terminal provenance error 均为0；
+- protocol/state control failure、反馈丢失、权限绕过、terminal provenance error 均为0；nested ordinary action failure 独立统计；
 - 无旧 `finish_node`、无 `update_plan` 回流。
 
 **Benefit gate:**
 
-- standalone nonterminal finish response = 0；
-- nonterminal control-only response = 0；
+- invalid actionless nonterminal finish = 0；
+- `finish_then_actions` 均携带并真实执行 nested action；
 - terminal extra provider request = 0；
 - no-op follow-up = 0；
 - 每个 `*_then_actions` 至少真实执行1个 ordinary action；
@@ -390,14 +390,14 @@ terminal provenance 集成测试。
 
 | Plan Item | Expected Behavior | Production Code Path | Integration Entry | Test Evidence | Runtime / Log Evidence | Mock / Stub Exposure | Status |
 |---|---|---|---|---|---|---|---|
-| schema keywords | `minItems` 可进入 wire | `tools/src/json_schema.rs` | ToolSpec serialization | keyword roundtrip/snapshot | request schema hash | provider probe only | planned |
-| discriminated control schema | 三种组合形态，旧 finish 不可表示 | `tools/src/taskspace_tool.rs` | model-visible tools | positive/negative schema tests | tools hash/action variant | none | planned |
-| typed control parsing | 参数精确映射，无兼容 normalizer | `handlers/taskspace_control.rs` | function handler | table-driven parser tests | protocol reason code | none | planned |
-| nested native dispatch | 内部 action 复用原 ToolRouter | `tools/router.rs`、`tools/sequence.rs` | provider function call | permission/order/failure integration | derived call ids + step states | no mock at exit | planned |
-| faithful batch output | 每步原始结果完整可追踪 | TaskSpace output type | provider history | equality/ref tests | bytes/hash/ref ids | none | planned |
-| terminal release | exact Agent final 在硬 gate 后发布 | turn completion | `finish_then_end` | provenance/replay tests | candidate hash/source | none | planned |
-| contract cleanup | schema、description、notice、runtime 一致 | taskspace tool/runtime/sequence | first TaskSpace turn | forbidden scan | no cadence reject event | none | planned |
-| behavior benefit | control-only 边界消失且 Map 不坍缩 | Docker benchmark | CLI `--taskspace` | paired samples | performance report | none | planned |
+| schema keywords | `minItems` 可进入 wire | `tools/src/json_schema.rs` | ToolSpec serialization | tools 139 pass/1 ignored | stable endpoint probe accepted `anyOf/minItems` | provider probe only | landed |
+| discriminated control schema | 三种组合形态，旧 finish 不可表示 | `tools/src/taskspace_tool.rs` | model-visible tools | schema positive/negative tests | action variants and deterministic tool ordering | none | landed |
+| typed control parsing | 参数精确映射，无兼容 normalizer | `handlers/taskspace_control_args.rs` | function handler | parser tests 9/9 | protocol reason code | none | landed |
+| nested native dispatch | 内部 action 复用原 ToolRouter | `tools/router.rs`、`tools/sequence.rs` | provider function call | scenario integration 7/7 | derived call ids + step states | no mock at exit | landed |
+| faithful batch output | 每步原始结果完整可追踪；nested 参数 schema 原样透传 | TaskSpace output type/tool schema | provider history | raw output equality + original parameter schema test | raw nested response and split failure classes | none | landed |
+| terminal release | exact Agent final 在硬 gate 后发布 | turn completion | `finish_then_end` | terminal/no-extra-request fixture | candidate source and terminal carrier | none | landed |
+| contract cleanup | schema、description、notice、runtime 一致 | taskspace tool/runtime/sequence | first TaskSpace turn | context replacement 24/24 | cadence reject event removed | none | landed |
+| behavior benefit | 独立 finish 断点消失且 Map 不坍缩 | Docker benchmark | CLI `--taskspace` | focused + complex samples | latest R5 requests 8/12；terminal extra=0 | none | structural benefit passed; cost parity not reached |
 
 ## 11. Change-chain Logging Matrix
 
@@ -464,3 +464,55 @@ terminal provenance 集成测试。
 - [x] 权限、沙箱、取消、失败停止、反馈完整性和 terminal provenance 有测试门禁。
 - [x] correctness、Map health、request、cache、token 和 wall time 分账验收。
 - [x] Standard/R4/R5 Docker 样本规则已登记。
+
+## 16. 实施与验收结果
+
+### 16.1 工程结果
+
+1. `taskspace_control` 仅保留 `initialize_then_actions`、`finish_then_actions`、`finish_then_end` 三种组合生命周期形态及少量机械辅助动作；旧 `initialize_map/finish_node` 不兼容。
+2. nested action 通过现有 ToolRouter/ToolCallRuntime 执行，权限、沙箱、取消、事件归属和原始输出沿用同一路径；首错后剩余动作明确标记 skipped。
+3. Agent 初始化时直接声明稳定 `node_id`，依赖、current binding 和后续 finish 全程复用同一标识，不再维护 `node_key -> runtime id` 双轨映射。
+4. nested function action 直接嵌入原工具 `parameters` schema，不摘要、不改写；复杂样本发现并修复了 `send_message.target` 丢失问题。
+5. observer 分开统计 provider outer calls、nested actions、Runtime tools，以及 protocol/state/nested-action 三类失败。
+
+关键 commits：`b7052ab`、`59173c7`、`1f9cb1a`、`2ed47b7`、`81d2702`。
+
+### 16.2 测试与构建
+
+| Gate | Result |
+|---|---|
+| `codex-tools` | 139 passed, 1 ignored |
+| TaskSpace handler | 9 passed |
+| ActionMap runtime | 11 passed |
+| native sequence | 6 passed |
+| ActionMap scenarios | 7 passed |
+| active context replacement | 24 passed |
+| multi-agent ActionMap | 11 passed |
+| benchmark cost/observer/harness self-tests | passed |
+| locked Whale build + attestation | passed |
+| full `codex-core --lib --test-threads=1` | 1782 passed, 2 unrelated file-watcher baseline failures, 3 ignored |
+
+### 16.3 Docker sample
+
+| Sample / Mode | Result | Requests | Runtime tools | Carriers | Nested actions | Protocol / state / nested failures | Wall | Request 2+ cache |
+|---|---|---:|---:|---:|---:|---|---:|---:|
+| `count-call-stack` Standard | solved | 6 | 11 | 0 | 0 | 0 / 0 / 0 | 16.64s | 93.69% |
+| `count-call-stack` R5 latest | solved | 8 | 14 | 3 | 3 | 0 / 0 / 0 | 21.62s | 90.11% |
+| `multi-file-order-pipeline` Standard | solved | 10 | 18 | 0 | 0 | 0 / 0 / 0 | 44.88s | 95.19% |
+| `multi-file-order-pipeline` R5 latest | solved | 12 | 16 | 5 | 9 | 0 / 0 / 1 | 77.62s | 91.85% |
+| `count-call-stack` R4 historical | solved | N/A | 11 | N/A | N/A | N/A | 154.53s | N/A |
+
+Evidence：
+
+- focused paired Standard：`target/j6-contract-b/count-call-stack/count-call-stack/20260712-041303-257`。
+- focused final R5：`target/j6-contract-c/count-call-stack/count-call-stack/20260712-041525-466`。
+- complex paired Standard：`target/j6-complex-a/order-pipeline/multi-file-order-pipeline/20260712-041646-435`。
+- complex final R5：`target/j6-complex-b/order-pipeline/multi-file-order-pipeline/20260712-042255-022`。
+- R4 historical：`target/r4-d-count-call-stack-dependency-read-20260630/count-call-stack/20260630-204427-136`；复杂样本无同口径 R4 artifact，不补造数据。
+
+### 16.4 结论边界
+
+- **已通过**：旧独立 finish 合法形态消失；初始化/finish/terminal carrier 均真实出现；终态额外 provider request 为0；最终样本 protocol/state failure 为0；原始 nested 反馈和参数能力语义均完整保留。
+- **结构收益成立**：focused control 从历史 J5 的5个独立生命周期调用收敛到3个 carrier；最新 R5 与 Standard 的请求差在两个样本中均为2。
+- **总成本 parity 未成立**：R5 wall/input/output 仍高于 Standard，复杂样本还有1次普通 patch 失败；不得把当前结果描述为整体性能优于 Standard。
+- **Map 未坍缩**：focused/complex 分别保留4/5个节点并全部完成；Agent 未声明依赖边，因此 edge=0 只作为结构观察，不由 runtime 自动补边或推断依赖。

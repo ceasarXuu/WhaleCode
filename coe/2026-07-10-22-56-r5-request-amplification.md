@@ -1,5 +1,5 @@
 # Problem P-001: R5 TaskSpace 在 G1 正确性样本中请求次数显著高于 Standard
-- Status: repairing-j6-schema-reference-gap
+- Status: resolved-j6-schema-followups
 - Created: 2026-07-10 22:56
 - Updated: 2026-07-12
 - Objective: 用最终 wire 和原始 tool/control history 精确解释 `count-call-stack` 三轮中 R5 51 requests 对 Standard 22 requests 的29次放大，不把缓存、反馈或 runtime 约束先验地写成根因。
@@ -56,6 +56,7 @@
   - E-030
   - E-031
   - E-032
+  - E-033
 - Ruled out:
   - 相邻请求缓存前缀破坏不是本轮请求放大的原因：R5 strict-prefix 48/48，request-2+ cache hit 97.66%。
   - 工具反馈丢失不是本轮主要原因：pre-init hard reject、pytest failure、apply_patch failure 和成功输出都按原文进入后续 history。
@@ -123,7 +124,7 @@
   - original diagnosis complete; follow-up feedback ambiguity remains open
 
 ## Hypothesis H-016: 初始化 key 到 runtime node id 的二次翻译制造可避免的 control retry
-- Status: confirmed
+- Status: fixed
 - Parent: P-001
 - Claim: J6 schema 让 Agent 用 `node_key` 初始化节点，却要求后续 finish 改用 runtime 生成的 `next_node_id`；这种同一对象的双重标识迫使 Agent 从工具输出读取映射并翻译，导致 focused sample 首次把 `fix` 当作 node id、control 失败并增加一次 provider request。
 - Layer: root-cause
@@ -163,16 +164,16 @@
   - E-028
   - E-029
   - E-030
-- Conclusion: confirmed
+- Conclusion: fixed by stable Agent-authored node ids; E-031 validates the original failure is absent
 - Repair design readiness: ready and authorized by the active J6 implementation request
 - Next step: 初始化 schema 直接接收 Agent-authored node id，依赖、current binding 和后续 finish 全程使用同一标识；不保留 key/id 双轨兼容。
 - Blocker:
   - none
 - Close reason:
-  - not closed
+  - stable identifier validation passed
 
 ## Hypothesis H-017: nested action 降级为任意参数对象导致工具能力语义丢失
-- Status: confirmed
+- Status: fixed
 - Parent: P-001
 - Claim: J6 carrier 只枚举 nested tool 名称，却没有透传原工具参数 schema；Agent 因此看不到 `send_message.target` 等必填字段，在复杂 sample 中生成参数不完整的动作并增加失败与请求。
 - Layer: root-cause
@@ -208,13 +209,13 @@
 - Related evidence:
   - E-031
   - E-032
-- Conclusion: confirmed
+- Conclusion: fixed by embedding each visible function tool's original parameter schema; E-033 validates the missing-target failure is absent
 - Repair design readiness: ready and authorized by the active J6 implementation request
 - Next step: `taskspace_control.actions[].arguments` 直接引用可见 function tool 的原始 `parameters` schema；custom tool 继续保留原始 input 形态；不做摘要或重新解释。
 - Blocker:
   - none
 - Close reason:
-  - not closed
+  - nested tool schema fidelity validation passed
 
 ## Hypothesis H-001: 29次请求差主要由额外工具调用数量直接产生
 - Status: confirmed
@@ -1678,4 +1679,28 @@
   output=failed to parse function arguments: missing field `target`
   ```
 - Interpretation: 这是 carrier 构造层对工具能力语义的确定性丢失，不应归因于 Agent 智能，也不应通过 runtime 后置纠正。
+- Time: 2026-07-12
+
+## Evidence E-033: 原工具参数 schema 透传后复杂 sample 不再产生参数缺失
+- Related hypotheses:
+  - H-017
+- Direction: supports
+- Type: fix-validation
+- Source: commit `81d2702` and `target/j6-complex-b/order-pipeline/multi-file-order-pipeline/20260712-042255-022`
+- Prediction or plan link:
+  - H-017 nested schema fidelity fix criterion
+- Matched signal:
+  - nested schema equality单测通过；复杂 R5 solved，protocol/state failure=0，未出现 `send_message.target` 或其他 required-field 缺失。
+- Correlation keys:
+  - pair-001/right
+- Raw content:
+  ```text
+  taskspace_tool nested parameter equality: passed
+  requests=12
+  protocol_failures=0
+  state_failures=0
+  nested_action_failures=1 (apply_patch context mismatch)
+  terminal_extra_request=0
+  ```
+- Interpretation: 工具能力 contract 已忠实进入 carrier；剩余 nested failure 是普通 patch 上下文不匹配，原始错误完整进入 batch output，不属于 schema 语义丢失。
 - Time: 2026-07-12
