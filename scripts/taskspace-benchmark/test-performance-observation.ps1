@@ -60,7 +60,7 @@ function New-SideFixture {
             }) (Join-Path $artifactDir "map-management-summary.json")
         Write-Json ([pscustomobject]@{
                 taskspace_control_count = 4; action_counts = [pscustomobject]@{ initialize_map = 1; finish_node = 3 }
-                control_failure_count = 1; cadence_rejection_count = 1
+                control_failure_count = 1
                 taskspace_runtime_event_count = 120; runtime_event_counts = [pscustomobject]@{ snapshot_updated = 30 }
             }) (Join-Path $artifactDir "taskspace-control-usage.json")
         $rollout = @()
@@ -78,19 +78,23 @@ function New-SideFixture {
 
 $cadenceFixture = Join-Path $RunRoot "cadence-fixture"
 $initializeArgs = @{ action = "initialize_map" } | ConvertTo-Json -Compress
+$standaloneFinishArgs = @{ action = "finish_node" } | ConvertTo-Json -Compress
 $terminalArgs = @{ action = "finish_node"; final_candidate = "Agent final" } | ConvertTo-Json -Compress
 Write-JsonLines @(
     [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "function_call"; name = "taskspace_control"; call_id = "init"; arguments = $initializeArgs } },
     [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "function_call"; name = "exec_command"; call_id = "read"; arguments = "{}" } },
     [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "function_call_output"; call_id = "init"; output = "ok" } },
+    [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "function_call"; name = "taskspace_control"; call_id = "standalone-finish"; arguments = $standaloneFinishArgs } },
+    [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "function_call_output"; call_id = "standalone-finish"; output = "ok" } },
     [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "function_call"; name = "taskspace_control"; call_id = "finish"; arguments = $terminalArgs } },
     [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "function_call_output"; call_id = "finish"; output = "ok" } },
     [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "message"; role = "assistant"; phase = "final_answer"; content = @([pscustomobject]@{ type = "output_text"; text = "Agent final" }) } }
 ) (Join-Path $cadenceFixture "rollout.jsonl")
 $cadence = Get-TaskspaceNativeCadenceFacts $cadenceFixture $null
-Assert-True ($cadence.tool_bearing_response_count -eq 2) "cadence tool-bearing response count is incorrect"
-Assert-True ($cadence.control_only_response_count -eq 1) "cadence control-only response count is incorrect"
+Assert-True ($cadence.tool_bearing_response_count -eq 3) "cadence tool-bearing response count is incorrect"
+Assert-True ($cadence.control_only_response_count -eq 2) "cadence control-only response count is incorrect"
 Assert-True ($cadence.mixed_barrier_batch_count -eq 1) "cadence mixed barrier count is incorrect"
+Assert-True ($cadence.standalone_nonterminal_finish_count -eq 1) "standalone nonterminal finish was not observed"
 Assert-True ($cadence.terminal_candidate_count -eq 1 -and $cadence.terminal_extra_request_count -eq 0) "terminal candidate cadence was not measured"
 
 if (Test-Path -LiteralPath $RunRoot) { Remove-Item -LiteralPath $RunRoot -Recurse -Force }
@@ -118,7 +122,7 @@ Assert-True ($standard.totals.provider_requests -eq 10) "standard request aggreg
 Assert-True ($taskspace.totals.provider_requests -eq 18) "taskspace request aggregate ignored alternating side mapping"
 Assert-True ($taskspace.totals.node_count -eq 6 -and $taskspace.totals.edge_count -eq 4) "map totals are incorrect"
 Assert-True ($taskspace.totals.unreviewed_result_count -eq 6) "result lifecycle totals are incorrect"
-Assert-True ($taskspace.totals.control_failures -eq 2 -and $taskspace.totals.cadence_rejections -eq 2) "control cadence failures are missing"
+Assert-True ($taskspace.totals.control_failures -eq 2) "control failures are missing"
 Assert-True ($report.ratios.provider_requests -eq 1.8) "request ratio is incorrect"
 Assert-True (@($report.rows | Where-Object { $_.observation_status -eq "skipped" }).Count -eq 1) "right-only placeholder side was not classified as skipped"
 Assert-True ($standard.observed_side_count -eq 3 -and $standard.excluded_side_count -eq 1) "skipped side contaminated the aggregate"
@@ -128,7 +132,7 @@ Assert-True (Test-Path -LiteralPath $result.event_log_path) "event log was not w
 $markdown = Get-Content -Raw -Encoding UTF8 -LiteralPath $result.markdown_path
 Assert-True ($markdown -match "## Map 节点") "markdown omitted map node details"
 Assert-True ($markdown -match "## Map 语义保存") "markdown omitted map semantic preservation details"
-Assert-True ($markdown -match "Cadence rejects") "markdown omitted cadence rejection counts"
+Assert-True ($markdown -match "Standalone nonterminal finishes") "markdown omitted cadence advisory counts"
 Assert-True ($markdown -match "root_task_active_after_nodes_closed") "mechanical map warning was not rendered"
 
 if ($failures.Count -gt 0) {
