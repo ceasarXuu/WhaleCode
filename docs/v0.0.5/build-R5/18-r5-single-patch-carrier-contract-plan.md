@@ -1,0 +1,419 @@
+# R5-J7 单 Patch Carrier 与 Patch 预检计划
+
+- Created: 2026-07-12
+- Updated: 2026-07-12
+- Version: 1.0
+- Status: Planned; documentation only, implementation not started
+- Owner / Responsible: WhaleCode TaskSpace / apply_patch substrate
+- Related Systems: `taskspace_control` tool schema、nested ToolSpec、ToolRouter、`codex-apply-patch`、benchmark observer
+- Related Links: `17-r5-schema-first-taskspace-control-plan.md`、`01-r5-phased-simplification-plan.md`
+- Risk Level: High
+- Plan Type: Full
+
+## 1. 背景与问题定义
+
+J6 复杂样本中，Agent 在一个 `finish_then_actions` carrier 内声明了三个连续 `apply_patch`：
+
+```text
+finish analyze node
+  -> apply_patch(parser.py)   success
+  -> apply_patch(pricing.py)  context verification failed
+  -> apply_patch(test_invoice.py) skipped after prior failure
+```
+
+最终任务通过后续请求恢复并完成，但这条路径暴露了两个不同层级的问题：
+
+1. `taskspace_control.actions[]` 允许重复出现任意可见工具，tool schema 没有表达“一个 carrier 最多一个
+   `apply_patch`”。Agent 因而自然地把多个文件任务映射为多个 patch action。
+2. 当前 `codex-apply-patch` 按 hunk 顺序直接写文件。仓库测试
+   `test_apply_patch_cli_failure_after_partial_success_leaves_changes` 明确固化了“前序 hunk 已写入、后序 hunk
+   失败后保留前序改动”的行为。因此，仅把多个 patch 文本机械合并为一个调用，并不能自动获得事务安全。
+
+该问题不是 Agent 语义能力不足，也不是 projection 需要增加提示。它是工具操作形态和底层 patch 执行语义未对齐：
+
+```text
+Agent 看到：actions 是可重复工具数组
+runtime 做到：顺序执行，首错停止，尾部 skipped
+文件系统得到：可能已经发生部分写入
+```
+
+## 2. 本轮证据分类
+
+| Item | Classification | Current Decision | Reason |
+|---|---|---|---|
+| 分层目录发现与按文件读取 | Observation | 保留观察，不改 schema、不加 gate | 未发现同一路径/同一范围在反馈可见后无意义重读，也未发现读取结果丢失或扭曲 |
+| 同一 carrier 三个 `apply_patch` | Confirmed defect | 纳入 J7 工具契约升级 | schema 允许重复写动作，失败会形成已执行/失败/skipped 的不完整批次 |
+| 单个 multi-file patch 的失败原子性 | Confirmed substrate defect | 作为 J7 前置门禁 | 当前实现和测试都允许 validation failure 后保留前序文件改动 |
+| 额外一次 pytest | Observation | 跨复杂样本继续观察 | 单样本不足以证明重复验证失当，不增加工具限制 |
+
+读取观察只增加统计口径：记录读取目标、范围、内容 hash、反馈进入下一请求的证据，以及反馈可见后的完全重复读取。
+不得把“读取次数较多”直接归类为失败，也不得由 runtime 判断某次读取是否有语义价值。
+
+## 3. 目标与非目标
+
+### 3.1 目标
+
+1. 一个 `taskspace_control` carrier 最多只能声明一个 `apply_patch`。
+2. 多文件相关修改由 Agent 在一个 `apply_patch` 输入中完整声明；runtime 不合并、不拆分、不重排 patch。
+3. 单个 patch 的所有语法、路径和上下文校验在首个文件写入前完成；此类 validation failure 必须零文件副作用。
+4. patch 成功后仍允许在同一 carrier 中执行 Agent 已声明的 read/test 等普通动作。
+5. 非 patch 的多工具能力保持不变；多个读取、多个测试以及互不依赖的普通工具仍可并行或串行声明。
+6. schema、typed parser、runtime preflight 和 tool description 表达同一份机械契约。
+7. patch 成功、validation failure、commit failure、tail skipped 等事实忠实进入反馈与日志，不做语义改写。
+
+### 3.2 非目标
+
+1. 不限制 Agent 读取次数，不判断读取是否“过度严谨”。
+2. 不限制 pytest 次数，不由 runtime 决定测试是否必要。
+3. 不解析 reasoning 或自然语言计划来识别“相关修改”。
+4. 不自动合并多个 patch，不静默丢弃第二个 patch，不只执行第一个 patch。
+5. 不把整个 `actions[]` 粗暴限制为 `maxItems=1`。
+6. 不把 shell 命令按正文推断为“潜在写操作”；J7 只约束工具身份明确的 `apply_patch`。
+7. 不通过减少 Map 节点、自动 finish 或压缩语义来制造 request 收益。
+8. 不保留旧 multi-patch carrier 兼容形态。
+
+## 4. 设计原则
+
+1. **Tool-first**：合法操作形态首先由 `taskspace_control` schema 表达，不依赖提示词劝导。
+2. **Agent-owned intent**：patch 内容、文件集合、顺序和后续动作均由 Agent 声明。
+3. **Runtime mechanical baseline**：runtime 只验证工具形状、可见性、状态机和资源硬规则。
+4. **Preflight before side effect**：整包结构校验和 patch validation 必须先于状态提交或文件写入。
+5. **No post-hoc punishment**：不得先执行部分动作，再用 cadence violation 或 recovery prompt 纠正 Agent。
+6. **Faithful feedback**：不得把 failed/skipped 改写为 success，不摘要掉原始 patch 错误和受影响路径。
+7. **No false atomicity claim**：语义校验零副作用与底层 I/O 全事务是两个不同承诺，必须分别验证和命名。
+
+## 5. 外部依据与本地事实
+
+### 5.1 外部依据
+
+1. [DeepSeek Function Calling](https://api-docs.deepseek.com/guides/function_calling/) 说明 strict mode 会按
+   function JSON Schema 约束输出，但使用 beta endpoint，且只支持 JSON Schema 子集。J7 必须先做目标 endpoint
+   probe，不能假设 `contains/maxContains` 可用。
+2. [DeepSeek Chat Completion API](https://api-docs.deepseek.com/api/create-chat-completion/) 明确 function 参数由
+   JSON Schema 描述，provider 可以在一次响应中生成一个或多个工具调用。单 patch 约束必须作用于
+   `taskspace_control` 自身参数，而不能假设 provider 会替 runtime 管理兄弟调用。
+3. [JSON Schema Draft 2020-12 Validation](https://json-schema.org/draft/2020-12/json-schema-validation) 定义了
+   `contains`、`minContains` 和 `maxContains` 的数组成员计数语义；这是保留有序数组时的标准表达，但是否被目标
+   provider 接受必须实测。
+4. [OpenAI Function Calling strict reference](https://platform.openai.com/docs/api-reference/fine-tuning/event-object?lang=python)
+   同样强调 strict 只支持 JSON Schema 子集，且执行函数前仍应由应用侧验证参数。Whale 的本地 typed parser 和
+   preflight 不能因 provider schema 存在而省略。
+
+### 5.2 已确认的本地事实
+
+| Fact | Evidence | Design Impact |
+|---|---|---|
+| J6 nested action 已嵌入原工具精确参数 schema | `tools/src/taskspace_tool.rs`，commit `81d2702` | J7 必须复用该单一来源，不手写第二份 patch 参数 schema |
+| typed args 只禁止递归 control/update_plan | `handlers/taskspace_control_args.rs::validate_nested_actions` | 当前没有重复 patch 计数或 singular patch 类型 |
+| runtime 先构造全部 nested calls，再提交 state，然后串行执行 | `tools/sequence.rs::execute_taskspace_barrier` | carrier 形状必须在 state commit 前完成预检 |
+| nested 首错后尾部明确 skipped | `tools/sequence.rs` | 三 patch 批次天然可能形成 partial + skipped |
+| `apply_patch` 逐 hunk 读写 | `apply-patch/src/lib.rs::apply_hunks_to_files` | 合并文本仍可能在后序 validation failure 时部分写入 |
+| partial success 被测试固化 | `apply-patch/tests/suite/tool.rs` | J7.1 必须主动变更契约和测试，不能只改 TaskSpace schema |
+| J6 complex run 中首 patch 成功、次 patch 失败 | `target/j6-complex-b/.../20260712-042255-022` | 作为 J7 固定回归基线 |
+
+## 6. 目标工具契约
+
+### 6.1 推荐形态
+
+保留 J6 的 `initialize_then_actions` 和 `finish_then_actions` 顶层 action，但把宽泛 `actions[]` 替换为互斥的
+`continuation`：
+
+```json
+{
+  "action": "finish_then_actions",
+  "finishes": ["Agent 声明的 finish steps"],
+  "continuation": {
+    "kind": "patch_then_actions",
+    "patch": {
+      "tool_name": "apply_patch",
+      "input": "*** Begin Patch\n...multi-file patch...\n*** End Patch"
+    },
+    "actions": [
+      {"tool_name": "exec_command", "arguments": {"cmd": "pytest -q"}}
+    ]
+  }
+}
+```
+
+合法 continuation 只有两类：
+
+| Kind | Shape | Constraint |
+|---|---|---|
+| `actions` | `actions: [non_patch_action, ...]` | 至少一个普通动作；列表中结构上不存在 `apply_patch` |
+| `patch_then_actions` | `patch: exact_apply_patch_payload` + `actions: [non_patch_action, ...]` | patch 恰好一个；尾部普通动作可为空 |
+
+该形态保留 `finish + patch + test` 的单 carrier 能力，同时让重复 patch 在 schema 中不可表达。`patch` 字段直接从
+当前 request 的 model-visible `apply_patch` ToolSpec 派生；若本轮未暴露 `apply_patch`，则不生成
+`patch_then_actions` 分支。
+
+### 6.2 Provider 选择门禁
+
+J7.0 必须对两个方案做真实 wire probe：
+
+| Option | Shape | Decision Rule |
+|---|---|---|
+| A | 保留 `actions[]`，用 `contains + maxContains=1` | 仅当目标 endpoint 接受、模型稳定生成且本地 schema 类型可忠实 round-trip 时采用 |
+| B | 显式 `continuation.kind=actions/patch_then_actions` | 推荐默认；不依赖数组成员计数关键字，约束更显著 |
+
+若两种结构都不能被目标 provider 稳定接受，J7 暂停并回报证据；不得退回 description-only 或执行后拒绝。
+
+### 6.3 Typed parser 与 preflight
+
+无论 provider 是否 strict，本地必须在任何状态提交前验证：
+
+1. continuation 只匹配一个互斥分支；
+2. `actions` 分支不含 `apply_patch`；
+3. `patch_then_actions` 只有一个 singular patch，尾部 actions 不含 `apply_patch`；
+4. patch tool 在当前 request 可见，payload 类型和参数符合原 ToolSpec；
+5. nested action 仍不得调用 `taskspace_control` 或 `update_plan`。
+
+非法旧形态返回机械 reason code，例如 `multiple_apply_patch_actions_not_allowed`，并明确“未提交 state、未执行工具、
+未修改文件”。错误不得附带语义建议、自动修复内容或 recovery strategy。
+
+## 7. Patch 执行契约
+
+### 7.1 Prepare / Commit 分离
+
+`codex-apply-patch` 先构造不可变的 `PreparedPatch`，再进入 commit：
+
+```text
+parse all hunks
+  -> resolve all source/destination paths
+  -> read all required originals
+  -> compute every resulting file body
+  -> validate every context/path conflict
+  -> produce PreparedPatch + original snapshots
+  -> only then begin filesystem mutation
+```
+
+硬门禁：parse、missing source、context mismatch、invalid move、path conflict 等 validation failure 均不得修改任何文件。
+这直接覆盖 J6 complex sample 的失败类型。
+
+### 7.2 I/O 事务边界
+
+J7.0 必须先盘点 `ExecutorFileSystem` 是否具备跨文件 staging、atomic rename、backup/restore 所需原语，并冻结承诺：
+
+| Level | Required Semantics | J7 Decision |
+|---|---|---|
+| Validation atomicity | 所有可预检失败在首个写入前返回 | 必须实现，J7.1 硬门禁 |
+| Single-file replacement atomicity | 更新文件通过同目录临时文件 + rename 或等价原语提交 | 能力存在时必须实现 |
+| Cross-file I/O transaction | 任意中途 I/O failure 后所有文件自动回滚 | 仅在 rollback 可验证时承诺；不得用 best-effort 假装原子 |
+
+若底层无法保证跨文件 I/O 事务，commit failure 必须返回结构化的 `committed_paths`、`pending_paths` 和
+`rollback_status`。这不是允许 validation partial success，而是诚实暴露不可消除的底层故障边界。
+
+## 8. 分阶段实施计划
+
+### J7.0：证据冻结与能力探针
+
+**Entry:** J6 已完成，complex trace 和当前 patch partial-success test 可重放。
+
+**Work:**
+
+1. 固化三 patch carrier、首错停止、tail skipped 和恢复请求的 trace fixture。
+2. 对 Option A/B 执行本地 schema round-trip 与目标 DeepSeek endpoint wire probe。
+3. 盘点 function/custom 两种 `apply_patch` ToolSpec 及当前 Chat API 映射。
+4. 盘点 `ExecutorFileSystem` staging/rename/restore 能力，冻结 validation atomicity 与 I/O transaction 的准确承诺。
+5. 记录读取/pytest 为 observation-only，不创建对应 gate。
+
+**Exit:** schema 形态、底层原子性边界、测试夹具和回退点全部有证据；任何 Unknown 不得带入生产实现。
+
+### J7.1：`apply_patch` 全量预检
+
+**Entry:** J7.0 100% 通过。
+
+**Work:**
+
+1. 把 patch 处理拆为 prepare 与 commit 两个明确阶段。
+2. prepare 对全部 hunk 完成上下文、路径和目标内容计算，不产生文件副作用。
+3. 按 J7.0 冻结的 I/O 能力实现单文件原子替换及可验证的 rollback；不能保证的边界结构化暴露。
+4. 删除“validation failure after partial success leaves changes”的旧契约测试，替换为零副作用断言。
+5. Standard 与 TaskSpace 共用同一实现，不建立 TaskSpace 专用 patch 分支。
+
+**Independent verification:** `codex-apply-patch` 单元/CLI 测试，包含 add+later-missing、update+later-context-mismatch、
+move/delete、write failure 和 rollback failure injection。
+
+**Exit:** 所有 validation failure 零文件副作用；I/O failure 行为与 J7.0 承诺完全一致。
+
+### J7.2：冻结 singular patch carrier schema
+
+**Entry:** J7.1 通过，目标 provider probe 通过。
+
+**Work:**
+
+1. 直接替换 J6 宽泛 continuation，不保留旧 multi-patch schema 或 normalizer。
+2. ordinary action union 排除 `apply_patch`，singular patch 字段复用原 ToolSpec。
+3. typed enum 与 JSON Schema 从同一结构派生，禁止 schema/parser 双轨。
+4. tool description 只描述合法形态、执行顺序和失败停止，不增加策略性提示。
+
+**Independent verification:** schema snapshot、provider request body、positive/negative typed fixtures。
+
+**Exit:** 一个 carrier 中第二个 `apply_patch` 在机器可读契约中不可表达；patch + test 仍可表达。
+
+### J7.3：Runtime 预检与忠实反馈
+
+**Entry:** J7.2 通过。
+
+**Work:**
+
+1. 整个 carrier 的 visibility、payload 和 singular-patch 校验全部早于 state transition。
+2. singular patch 继续经 ToolRouter/ToolCallRuntime 执行，不绕过权限、沙箱、hook、取消和日志。
+3. patch failure 后尾部 ordinary actions 继续使用现有 explicit skipped 语义。
+4. 删除旧 multi-patch batch 测试和任何 description-only 兼容路径。
+5. 错误反馈保留原 patch stderr/output ref、失败类别和零副作用声明。
+
+**Independent verification:** state snapshot + filesystem snapshot 负例、权限/hook/sandbox 集成测试、raw feedback 等价测试。
+
+**Exit:** 非法 carrier 对 state/filesystem 均零副作用；合法 carrier 的 native tool 行为无回退。
+
+### J7.4：Observer 与回归门禁
+
+**Entry:** J7.1-J7.3 通过。
+
+新增机械指标：
+
+```text
+single_patch_carrier_count
+multi_patch_carrier_attempt_count
+multi_file_patch_count
+patch_prepare_failure_count
+patch_commit_failure_count
+patch_partial_commit_count
+post_patch_action_count
+post_patch_skipped_count
+```
+
+读取观察指标只进入报告：`unique_read_target_count`、`exact_repeat_read_after_visible_feedback_count`、
+`read_feedback_visibility_coverage`。不得据此触发 runtime 拒绝。
+
+**Exit:** observer 能从真实 rollout 区分 schema failure、patch prepare failure、commit failure 和普通工具失败；日志不记录
+patch 正文、文件正文或 secret。
+
+### J7.5：Docker 样本与收益验收
+
+**Entry:** locked binary attestation、测试和 observer 门禁全部通过。
+
+**Samples:**
+
+1. `multi-file-order-pipeline`：直接覆盖 J6 三 patch 回归。
+2. 一个包含多文件修改、失败注入和验证动作的复杂 sample；若现有 sample 不足则新增固定 fixture。
+
+每个 sample 各执行一次 Standard、R4 历史基线和 R5-J7 Docker run。读取与 pytest 只观察，不以单次差异触发新限制。
+
+**Correctness gate:**
+
+- Standard/R5 最终结果正确；
+- validation failure 后 workspace hash 不变；
+- R5 multi-patch carrier accepted/generated = 0；
+- protocol/state failure = 0；
+- 权限、沙箱、hook、取消和原始反馈无回退；
+- Map node/edge/result health 不下降。
+
+**Benefit gate:**
+
+- 同一 carrier 的 patch action 最大值为1；
+- 因前一个 patch 失败而 skipped 的后续 patch 数量为0；
+- 相关多文件修改通过一个 prepared patch 表达；
+- `finish + patch + test` 仍可在一个 carrier 完成；
+- request、token、cache、wall time 完整分账，但不预设一定下降；
+- 收益不得来自减少读取、减少测试或 Map 坍缩。
+
+**Exit:** correctness 与工具结构收益同时通过才关闭 J7。成本未改善时只声明工具契约和副作用边界收益。
+
+## 9. Phase Gate Matrix
+
+| Phase | Independent Verification | Forbidden Future Dependency | Exit Evidence | Completion Required | Proceed Decision |
+|---|---|---|---|---|---|
+| J7.0 | trace fixture、schema wire probe、FS capability audit | 不依赖生产 handler | schema/atomicity 决策无 Unknown | 100% | proceed J7.1 |
+| J7.1 | apply-patch unit/CLI/fault injection | 不依赖 TaskSpace schema | validation failure 零副作用 | 100% | proceed J7.2 |
+| J7.2 | schema snapshot、typed fixtures、provider body | 不依赖 runtime observer | multi-patch 不可表达 | 100% | proceed J7.3 |
+| J7.3 | state/filesystem snapshots、router/security integration | 不依赖 live sample | 预检顺序与反馈完整 | 100% | proceed J7.4 |
+| J7.4 | telemetry schema/extractor fixtures | 不依赖 J7.5 补证 | 失败类别和读取观察可分账 | 100% | proceed J7.5 |
+| J7.5 | Docker Standard/R4/R5 samples | 无后续 phase 补证 | correctness + structural benefit | 100% | close or pause |
+
+## 10. Implementation Completeness Matrix
+
+| Plan Item | Expected Behavior | Production Code Path | Test Evidence | Runtime / Log Evidence | Status |
+|---|---|---|---|---|---|
+| evidence and provider probe | 冻结真实失败和可用 schema | benchmark artifacts / ToolSpec serialization | wire fixtures | provider body/hash | planned |
+| patch prepare/commit | validation failure 零副作用 | `apply-patch/src/lib.rs` | CLI + fault injection | prepare/commit result | planned |
+| singular patch schema | carrier 最多一个 patch | `tools/src/taskspace_tool.rs` | schema snapshots | model-visible ToolSpec | planned |
+| typed carrier parser | schema/parser 单一契约 | `taskspace_control_args.rs` | positive/negative fixtures | protocol reason code | planned |
+| pre-state carrier validation | 非法包不改 state/filesystem | `tools/sequence.rs` | snapshot integration | preflight event | planned |
+| native patch dispatch | 权限/沙箱/hook/反馈不分叉 | ToolRouter/ToolCallRuntime | security/output tests | derived call ids | planned |
+| observer | patch lifecycle 和读取观察可分账 | performance observer | extractor fixtures | aggregate metrics | planned |
+| benefit proof | 结构收益且无负向收益 | Docker runner | paired sample | report artifacts | planned |
+
+## 11. Change-chain Logging Matrix
+
+| Change Link | Key State | Success Signal | Failure Signal | Failure Reason | Correlation | Level |
+|---|---|---|---|---|---|---|
+| carrier schema parse | parsed/validated | `taskspace.patch_carrier_validated` | `taskspace.patch_carrier_rejected` | `reason_code` | `request_id/outer_call_id` | info/warn |
+| patch prepare | prepared | `apply_patch.prepare_completed` | `apply_patch.prepare_failed` | `failure_class` | `call_id/patch_hash` | info/warn |
+| patch commit | committed | `apply_patch.commit_completed` | `apply_patch.commit_failed` | `failure_class/rollback_status` | `call_id/patch_hash` | info/error |
+| nested patch execution | completed | existing tool success | existing tool failure | native reason | `outer_call_id/derived_call_id` | info/warn |
+| post-patch actions | completed | batch completed | tail skipped | `prior_failed_call_id` | `outer_call_id/action_index` | info/warn |
+| read observation | observed | `taskspace.read_observation_recorded` | coverage missing | `missing_field` | `call_id/request_id/content_hash` | debug/warn |
+
+日志只记录 path count、path hash、patch hash、状态和关联 id；不得记录 patch 正文或文件正文。
+
+## 12. 风险、替代方案与回退
+
+| Risk | Probability | Impact | Mitigation | Fallback |
+|---|---:|---:|---|---|
+| provider 不支持目标 schema | Medium | High | J7.0 两种形态真实 probe | 暂停，不退回 prompt-only |
+| singular patch schema 增大 tools payload | Medium | Medium | 复用原 ToolSpec、记录 tools hash/token/LCP | 回退 J7.2，重新简化结构 |
+| patch prepare 改变既有覆盖/移动行为 | Medium | High | 现有 apply-patch suite 全量回归 + golden diff | 回退 J7.1 |
+| I/O rollback 无法可靠实现 | Medium | High | 分离 validation atomicity 与 I/O transaction 承诺 | 只声明已验证层级并忠实反馈 partial commit |
+| patch 后测试动作因 patch 失败被 skipped | Expected | Low | 保留现有明确 skipped 语义 | Agent 下一请求基于失败反馈决定 |
+| Agent 改用 shell 绕过 patch 形态 | Low | Medium | 只观察工具选择，不做正文语义识别 | 作为独立产品问题评估 |
+| 读取观察被误用为行为 gate | Medium | High | 指标标记 observation-only，禁止 runtime consumer | 删除对应 consumer |
+
+明确拒绝的方案：
+
+| Alternative | Decision | Reason |
+|---|---|---|
+| 只在 description 中写“请合并 patch” | Rejected | schema 仍允许多个 patch，约束不一致 |
+| runtime 自动合并 patch 文本 | Rejected | 改写 Agent 声明，且不能解决底层 partial apply |
+| 执行第一个、静默丢弃其余 patch | Rejected | 语义丢失，反馈失真 |
+| 执行后再拒绝 multi-patch | Rejected | 已产生状态/文件副作用，属于后置惩罚 |
+| 整个 actions 最大长度设为1 | Rejected | 破坏多个 read/test 和 patch 后验证能力 |
+| 用提示词要求少读文件 | Rejected | 当前读取没有实际错误，runtime 不应判断语义价值 |
+
+回退以 phase commit 为单位。J7.2/J7.3 必须同组回退，禁止新 schema 与旧 parser/runtime 混用；J7.1 为 shared
+`apply_patch` 独立 commit，可在不保留 TaskSpace 兼容分支的前提下单独回退。
+
+## 13. Open Questions
+
+| Question | Resolution Phase | Blocking Rule |
+|---|---|---|
+| 目标 DeepSeek endpoint 是否支持 `contains/maxContains` | J7.0 | 未确认不得选 Option A |
+| function/custom apply_patch 是否能共享 singular payload builder | J7.0 | 必须来自 model-visible ToolSpec，禁止手写双份 schema |
+| ExecutorFileSystem 能否可靠 staging + atomic rename | J7.0 | 决定 I/O atomicity 的可承诺层级 |
+| rollback failure 如何结构化报告 | J7.0/J7.1 | 不得只返回模糊 patch failed |
+| patch 前普通动作是否需要进入同一 continuation | J7.0 | 默认不需要；有结果依赖时必须下一 provider request |
+
+## 14. Decision Log
+
+| Decision | Status | Reason |
+|---|---|---|
+| 读取行为只观察 | Accepted | 没有实际错误或反馈丢失证据 |
+| pytest 重复只观察 | Accepted | 单样本不足以形成工具约束 |
+| 一个 carrier 最多一个 apply_patch | Accepted | 避免写动作批次的 partial/skipped 形态 |
+| 多文件 patch 由 Agent 完整声明 | Accepted | runtime 不替 Agent 合并或重写 |
+| 先修 patch validation atomicity，再启用 singular carrier | Accepted | 否则“合并成一个 patch”仍可能部分写入 |
+| 普通多工具能力保持 | Accepted | 限制只作用于明确写工具身份 |
+| 不兼容旧 multi-patch 形态 | Accepted | 实验性产品无历史数据迁移要求 |
+| 当前只写计划，不执行 | Accepted | 本轮用户明确要求 |
+
+## 15. Plan Quality Checklist
+
+- [x] 读取观察与 patch 缺陷已分开分类。
+- [x] 根因落在工具 schema 和 patch 执行语义，不归因于 Agent reasoning。
+- [x] 明确了 tool、parser、runtime 和 substrate 的责任边界。
+- [x] 没有自动合并、静默丢弃、后置惩罚或兼容分支。
+- [x] validation atomicity 与 I/O transaction 分开承诺。
+- [x] 每个 phase 可独立验证，有退出门禁和回退路径。
+- [x] Standard/TaskSpace shared patch substrate、权限、沙箱、hook 和反馈均纳入回归。
+- [x] request、token、cache、wall time 和 Map health 纳入收益验证但不预设结论。
+- [x] 文档阶段未修改生产代码或测试契约。
