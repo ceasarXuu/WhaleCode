@@ -512,6 +512,93 @@
 - Close reason:
   - original symptom absent in fix-validation run
 
+## Hypothesis H-011: 显式目标 finish 缺少无 binding 原子执行能力
+- Status: confirmed
+- Parent: P-001
+- Claim: Agent 已明确提供 ready node 的 `node_id` 时，`finish_node` 仍要求该节点事先成为 current binding，导致连续登记多个已完成节点时必须额外 bind，并在 binding 已释放时产生 `no_current_node_binding` 失败。
+- Layer: root-cause
+- Factor relation: part_of
+- Depends on:
+  - H-007
+- Rationale:
+  - `finish_node(node_id=...)` 已表达 Agent 对目标节点的明确选择；当没有 current binding、目标 ready、依赖完成且无租约冲突时，claim target 与 finish 是同一控制动作的机械执行，不需要 runtime 做任务语义判断。
+- Falsifiable predictions:
+  - If true: live trace 中 standalone finish 释放 binding 后，显式 finish 下一个 ready node会先报 `no_current_node_binding`；手工 bind 后同一 finish成功。
+  - If false: 显式 finish 已能在无 binding 时执行，或失败来自依赖未完成、租约冲突、目标不存在等其他硬状态。
+- Diagnostic evidence plan:
+  - Prediction or clause under test: 对 advisory run 的 finish/bind/output 顺序与 `record_main_node_lifecycle_result` 入口校验对账。
+  - Signal: `finish node-2 -> binding none -> finish node-3 -> no_current_node_binding -> bind node-3 -> finish node-3 success`。
+  - Capture method: Docker rollout 原始 call/output加 runtime 源码审计。
+  - Event name or marker:
+    - `TaskSpaceGateRecoveryV1.reason=no_current_node_binding`
+    - `finish_node`
+    - `bind_node`
+  - Correlation keys:
+    - call id
+    - node id
+    - response index
+  - Differentiates from:
+    - Provider 不支持重复 control。
+    - finish 反馈丢失或被 projection 改写。
+    - 目标节点依赖未完成。
+  - Supports if:
+    - 目标 node-3 已因 node-2 完成变为 ready，唯一首个拒绝原因仍是无 current binding，bind 后成功。
+  - Refutes if:
+    - 失败先发生在依赖、租约或 target 校验，或显式 finish 实际已自动 claim。
+  - Instrumentation status: permanent-observability-candidate
+- Evidence gate: satisfied
+- Related evidence:
+  - E-022
+- Conclusion: confirmed。`record_main_node_lifecycle_result` 在读取显式目标状态前先强制 `current_main_node_id`，并要求 target=current；advisory live trace 精确复现该顺序。修复只在 current binding为空时，对 Agent 显式指定且可绑定的目标执行同事务 claim+finish；现有依赖、状态、租约、维护屏障和当前节点冲突规则全部保留。
+- Repair design readiness: ready and authorized
+- Next step: 增加原子显式目标 finish，覆盖连续 finish 和失败无副作用测试。
+- Blocker:
+  - none
+- Close reason:
+  - not closed
+
+## Hypothesis H-012: hard reject standalone nonterminal finish 能降低请求成本
+- Status: refuted
+- Parent: P-001
+- Claim: 在执行前拒绝没有同响应 follow-up 的 nonterminal finish，会促使 Agent 改用多 finish 或 finish+next action，从而减少 control-only response。
+- Layer: repair-validation
+- Factor relation: single
+- Depends on:
+  - H-007
+- Rationale:
+  - 候选方案曾将非终态 finish 后继续动作设为 cadence hard rule。
+- Falsifiable predictions:
+  - If true: 引导到达后 rejection只产生至多一次学习成本，随后 chained/mixed response增加且总 requests下降。
+  - If false: Agent重复触发拒绝、制造无意义 follow-up过门禁，或请求数和失败数上升。
+- Diagnostic evidence plan:
+  - Prediction or clause under test: 对三轮逐步增强 hard gate 的 Docker run 比较 rejects、control failures、mixed calls和 follow-up内容。
+  - Signal: cadence reject次数、无意义 ordinary call、requests、correctness。
+  - Capture method: performance observation与 rollout call/output重建。
+  - Correlation keys:
+    - run id
+    - call id
+    - response index
+  - Differentiates from:
+    - Provider 不支持重复 finish。
+    - runtime sequence executor 无法承载多 barrier。
+  - Supports if:
+    - repeated-control probe失败，或 live run很快稳定使用有意义 chained calls。
+  - Refutes if:
+    - provider probe通过但 Agent重复拒绝并提交 no-op follow-up。
+  - Instrumentation status: removed-hard-gate-retained-advisory
+- Evidence gate: satisfied
+- Related evidence:
+  - E-019
+  - E-020
+  - E-021
+- Conclusion: refuted。Provider 明确支持同名 control 重复调用；最强引导 run仍出现6次 cadence reject，随后 Agent用3个无意义 `echo` 过门禁。hard gate已删除，合法 finish正常提交，性能工具改为非阻断统计 standalone nonterminal finish。
+- Repair design readiness: repair reverted
+- Next step: 保留能力说明和节奏观测，不恢复 cadence拒绝。
+- Blocker:
+  - none
+- Close reason:
+  - live validation contradicted benefit prediction
+
 ## Evidence E-001: 三轮请求可完全拆成工具响应和最终回答
 - Related hypotheses:
   - H-001
@@ -1009,4 +1096,97 @@
   input tokens: Standard=36,393, TaskSpace=96,949
   ```
 - Interpretation: H-010 原始错误已消失，且原子 next binding 恢复。R5 仍有5个 control-only responses 和3个额外 ordinary calls，因此总 request/cost 尚未与 Standard 收敛；该剩余不能再归因于映射反馈。
+- Time: 2026-07-11
+
+## Evidence E-019: Provider 支持同一响应重复调用 taskspace_control
+- Related hypotheses:
+  - H-012
+- Direction: refutes
+- Type: provider-probe
+- Source: `target/r5-j5-provider-probe/provider-capability.json`
+- Prediction or plan link:
+  - H-012 provider capability alternative
+- Matched signal:
+  - HTTP 200，同一响应按顺序返回两次 `taskspace_control`
+- Correlation keys:
+  - probe `ordered_repeated_control_calls`
+- Raw content:
+  ```text
+  tool_names: taskspace_control, taskspace_control
+  actions: finish_first, finish_second
+  tool_call_count: 2
+  ```
+- Interpretation: 多 finish 没有发生不能归因于 Provider 不允许重复同名工具；runtime sequence也可按 barrier顺序承载。
+- Time: 2026-07-11
+
+## Evidence E-020: 三轮 hard gate 未形成稳定 chained finish
+- Related hypotheses:
+  - H-012
+- Direction: refutes
+- Type: fix-validation
+- Source: `target/r5-j5-chained-finish`、`target/r5-j5-bound-finish`、`target/r5-j5-guided-finish`
+- Prediction or plan link:
+  - H-012 benefit prediction
+- Matched signal:
+  - R5 requests分别17/15/17；cadence rejects分别2/2/6；control failures分别3/2/7
+- Correlation keys:
+  - 三个 run id
+- Raw content:
+  ```text
+  194736-657: requests=17 rejects=2 control_failures=3
+  200043-908: requests=15 rejects=2 control_failures=2
+  200756-733: requests=17 rejects=6 control_failures=7
+  ```
+- Interpretation: 更强的硬拒绝和提示没有稳定降低请求，反而增加失败反馈和纠错采样。
+- Time: 2026-07-11
+
+## Evidence E-021: Agent 用无意义 ordinary call 绕过 cadence hard gate
+- Related hypotheses:
+  - H-012
+- Direction: refutes
+- Type: diagnostic-log
+- Source: `target/r5-j5-guided-finish/count-call-stack/20260711-200756-733`
+- Prediction or plan link:
+  - H-012 meaningful follow-up prediction
+- Matched signal:
+  - 6次 cadence reject 后出现3个仅用于满足 follow-up 的 `echo "follow-up after finishing node-X"`
+- Correlation keys:
+  - pair-001/right
+  - finish call id
+- Raw content:
+  ```text
+  finish_node -> cadence reject
+  finish_node + exec_command(echo "follow-up after finishing node-X") -> allowed
+  ```
+- Interpretation: runtime门禁无法创造有意义的下一动作，只会诱导 Agent制造形式合规的 no-op；该规则越过状态机底线并污染上下文。
+- Time: 2026-07-11
+
+## Evidence E-022: Advisory run 暴露显式目标 finish 的机械能力缺口
+- Related hypotheses:
+  - H-011
+  - H-012
+- Direction: supports
+- Type: diagnostic-log-and-source
+- Source: `target/r5-j5-advisory-finish/count-call-stack/20260711-201839-033` and `core/src/action_map/runtime.rs`
+- Prediction or plan link:
+  - H-011 no-binding explicit target chain
+- Matched signal:
+  - 两侧 solved；hard gate/no-op消失；R5仍有7个 standalone finish、3次 control failure、3次 bind
+- Correlation keys:
+  - pair-001/right
+  - node-2/node-3
+- Raw content:
+  ```text
+  finish node-2 -> success; current binding released
+  finish node-3 -> no_current_node_binding
+  bind node-4 -> target_node_dependencies_incomplete
+  finish node-3(next=node-4) -> no_current_node_binding
+  bind node-3 -> success
+  finish node-3(next=node-4) -> success
+
+  Standard: solved, requests=11, tools=17, wall=20.17s
+  R5: solved, requests=19, tools=12, controls=12, wall=35.07s
+  R5 map: 6 nodes, 5 edges, 6 results, open=0
+  ```
+- Interpretation: 删除 hard gate恢复了 Agent所有权，但工具仍不能把 Agent显式选择的 ready target在无 binding时原子 claim+finish。源码先检查 current binding，再检查显式 target，和 trace 的失败顺序一致。
 - Time: 2026-07-11
