@@ -1426,6 +1426,9 @@ function New-TaskspaceControlUsageSummary {
     $rolloutNativeCallIds = [System.Collections.Generic.HashSet[string]]::new()
     $rolloutActionContractCallIds = [System.Collections.Generic.HashSet[string]]::new()
     $rolloutControlFailureCallIds = [System.Collections.Generic.HashSet[string]]::new()
+    $rolloutControlProtocolFailureCallIds = [System.Collections.Generic.HashSet[string]]::new()
+    $rolloutControlStateFailureCallIds = [System.Collections.Generic.HashSet[string]]::new()
+    $rolloutNestedActionFailureCallIds = [System.Collections.Generic.HashSet[string]]::new()
     $rolloutResponseItemCount = 0
     if ($rolloutSourceStatus -eq "read") {
         foreach ($line in [System.IO.File]::ReadLines($RolloutJsonlPath)) {
@@ -1442,6 +1445,13 @@ function New-TaskspaceControlUsageSummary {
                     ($rolloutNativeCallIds.Contains($callId) -or $rolloutActionContractCallIds.Contains($callId))) {
                     $output = [string](Get-TaskspaceCostProperty $payload @("output"))
                     $controlFailed = $output.Contains("TaskSpaceGateRecoveryV1")
+                    $failureClass = if ($output -match '"gate_class"\s*:\s*"state_machine"') {
+                        "state"
+                    } elseif ($controlFailed) {
+                        "protocol"
+                    } else {
+                        ""
+                    }
                     if (-not $controlFailed -and -not [string]::IsNullOrWhiteSpace($output)) {
                         try {
                             $batch = $output | ConvertFrom-Json
@@ -1450,10 +1460,27 @@ function New-TaskspaceControlUsageSummary {
                                 $batch.PSObject.Properties.Name -contains "success" -and
                                 [bool](Get-TaskspaceCostProperty $batch @("success")) -eq $false
                             )
+                            if ($controlFailed) {
+                                $status = [string](Get-TaskspaceCostProperty $batch @("status"))
+                                $failureClass = if ($status -eq "partial") {
+                                    "nested_action"
+                                } elseif ($status -eq "state_failed") {
+                                    "state"
+                                } else {
+                                    "protocol"
+                                }
+                            }
                         } catch {}
                     }
                     if ($controlFailed) {
                         [void]$rolloutControlFailureCallIds.Add($callId)
+                        if ($failureClass -eq "state") {
+                            [void]$rolloutControlStateFailureCallIds.Add($callId)
+                        } elseif ($failureClass -eq "nested_action") {
+                            [void]$rolloutNestedActionFailureCallIds.Add($callId)
+                        } else {
+                            [void]$rolloutControlProtocolFailureCallIds.Add($callId)
+                        }
                     }
                 }
                 continue
@@ -1589,6 +1616,9 @@ function New-TaskspaceControlUsageSummary {
         native_taskspace_control_count = [int]$nativeTotal
         action_contract_taskspace_control_count = [int]$actionContractTotal
         control_failure_count = [int]$rolloutControlFailureCallIds.Count
+        control_protocol_failure_count = [int]$rolloutControlProtocolFailureCallIds.Count
+        control_state_failure_count = [int]$rolloutControlStateFailureCallIds.Count
+        nested_action_failure_count = [int]$rolloutNestedActionFailureCallIds.Count
         state_commit_count = [int]$stateCommit
         runtime_state_commit_count = [int]$runtimeStateCommit
         runtime_output_ref_created_count = [int]$runtimeOutputRefCreated

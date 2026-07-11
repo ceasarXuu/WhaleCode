@@ -62,6 +62,7 @@ function New-SideFixture {
                 taskspace_control_count = 3
                 action_counts = [pscustomobject]@{ initialize_then_actions = 1; finish_then_actions = 1; finish_then_end = 1 }
                 control_failure_count = 1
+                control_protocol_failure_count = 0; control_state_failure_count = 0; nested_action_failure_count = 1
                 taskspace_runtime_event_count = 120; runtime_event_counts = [pscustomobject]@{ snapshot_updated = 30 }
             }) (Join-Path $artifactDir "taskspace-control-usage.json")
         $rollout = @(

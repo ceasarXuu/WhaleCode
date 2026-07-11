@@ -714,6 +714,9 @@ Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.native_
 Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.action_contract_taskspace_control_count -eq 1) "rollout action-contract taskspace_control calls were not counted"
 Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.action_counts.finish_then_actions -eq 2) "rollout control actions were not deduplicated by call id"
 Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.control_failure_count -eq 2) "rollout control failures were not counted"
+Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.control_protocol_failure_count -eq 1) "protocol control failures were not classified"
+Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.control_state_failure_count -eq 0) "state control failures were misclassified"
+Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.nested_action_failure_count -eq 1) "nested action failures were not classified"
 Assert-True ([string]$rolloutControlInstrumentation.taskspace_control_usage.taskspace_control_count_source -eq "rollout_trace") "rollout trace should be the authoritative control-count source"
 Assert-True (-not [bool]$rolloutControlInstrumentation.taskspace_control_usage.taskspace_control_count_source_mismatch) "an exec file without response-item telemetry should not be treated as a conflicting control count"
 
