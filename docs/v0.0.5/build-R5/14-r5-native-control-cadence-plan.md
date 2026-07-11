@@ -5,7 +5,7 @@
 - Created: 2026-07-10
 - Updated: 2026-07-11
 - Version: v0.0.5 build-R5 follow-up
-- Status: In progress - J0/J1/J2/J3 complete, J4 correctness complete and benefit diagnosis pending repair
+- Status: In progress - J0/J1/J2/J3 complete, J4 mapping repair validated and remaining cadence benefit on hold
 - Owner / Responsible: WhaleCode core runtime
 - Related Systems: provider tool choice、native tool scheduler、TaskSpace hard state、taskspace_control、turn completion、benchmark observer
 - Related Links: `01-r5-phased-simplification-plan.md`、`13-r5-unified-docker-benchmark-and-logging-plan.md`、`coe/2026-07-10-22-56-r5-request-amplification.md`
@@ -328,7 +328,7 @@ tokens，request-2+ cache hit 为92.71%/93.43%。相较上一轮非同拓扑 R5�
 | J1 | hard-state tool-choice fixtures、wire/cache trace | 不依赖 barrier | first-response and tools-hash evidence | 100% passed | proceed J2 |
 | J2 | ordered barrier unit/integration/side-effect tests | 不依赖 terminal transaction | latest-state attribution and stop evidence | 100% passed | proceed J3 |
 | J3 | terminal success/rejection/history tests | 不依赖 benefit repeats | completion provenance evidence | 100% passed | proceed J4 |
-| J4 | Docker fixed-topology repeats、complex sample、adversarial review | 无后续 phase 补证 | performance/map/semantic report | correctness complete; original benefit gate invalidated by contract regression and dependency semantics | hold; repair mechanical contract then rerun |
+| J4 | Docker fixed-topology repeats、complex sample、adversarial review | 无后续 phase 补证 | performance/map/semantic report | correctness complete; mapping repair validated; N+1 control-only remains | hold remaining cadence benefit |
 
 ## 10. Implementation Completeness Matrix
 
@@ -337,6 +337,7 @@ tokens，request-2+ cache hit 为92.71%/93.43%。相较上一轮非同拓扑 R5�
 | P0 tool selection | blank map 首响应只能选择 control tool | Chat body/provider request construction | TaskSpace initial request | named-choice/visibility fixtures | tool-choice trace + final wire | provider probe only in J0 | complete; Docker live evidence passed |
 | P1 ordered barrier | state change后的调用按最新状态执行 | native tool scheduler、TaskSpace preflight | multi-call provider response | order/failure/permission/attribution tests | barrier lifecycle events | none at exit | complete; positive/negative integration passed |
 | P3 terminal transaction | finish 成功后直接发布 Agent final | taskspace_control handler、turn completion/history | last running node | success/reject/replay/provenance tests | terminal candidate events | none at exit | complete; two-request terminal fixture passed |
+| explicit init mapping | key/id 方向无歧义且原子 next 恢复 | taskspace_control initialize output | initialize_map result | directional JSON output tests | bind=0、next_node_id=3、hard error=0 | none | complete; Docker live evidence passed |
 | anti-collapse gate | 收益不来自节点减少 | benchmark topology + graph health | J4 Docker runs | topology fixtures | complex maps 6/6、8/11；无坍缩 | none | complete |
 
 ## 11. Change-chain Logging Matrix
