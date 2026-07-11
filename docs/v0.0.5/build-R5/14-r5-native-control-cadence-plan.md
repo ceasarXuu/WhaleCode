@@ -3,12 +3,12 @@
 ## 1. 元数据
 
 - Created: 2026-07-10
-- Updated: 2026-07-11
+- Updated: 2026-07-12
 - Version: v0.0.5 build-R5 follow-up
-- Status: J0-J5 engineering complete; live chained-finish adoption remains unproven
+- Status: J0-J5 engineering complete; live chained-finish adoption remains unproven; J6 redesign planned
 - Owner / Responsible: WhaleCode core runtime
 - Related Systems: provider tool choice、native tool scheduler、TaskSpace hard state、taskspace_control、turn completion、benchmark observer
-- Related Links: `01-r5-phased-simplification-plan.md`、`13-r5-unified-docker-benchmark-and-logging-plan.md`、`coe/2026-07-10-22-56-r5-request-amplification.md`
+- Related Links: `01-r5-phased-simplification-plan.md`、`13-r5-unified-docker-benchmark-and-logging-plan.md`、`17-r5-schema-first-taskspace-control-plan.md`、`coe/2026-07-10-22-56-r5-request-amplification.md`
 - Risk Level: High
 - Plan Type: Full
 
@@ -377,6 +377,14 @@ tokens，request-2+ cache hit 为92.71%/93.43%。相较上一轮非同拓扑 R5�
 尚未稳定采用同响应多 finish 或 finish+ordinary，因此 cadence行为收益保持 **hold**，不继续通过 runtime
 约束或语义注入追指标。
 
+**J6 follow-up（2026-07-12）：** 后续不再把“同一 response 追加兄弟 tool call”作为
+`taskspace_control` description 或 runtime cadence gate。根因是当前 function schema 只描述单个
+`finish_node`，无法约束兄弟调用；schema、提示词和 runtime 因此互相矛盾。J6 将范围限定为演进现有
+`taskspace_control`：用 schema 内 required actions 表达 `initialize + actions`、`finish + actions` 和
+`finish + end`，内部 ordinary actions 机械复用现有 ToolRouter。不得新增公开 action-frame tool，不得恢复
+后置 cadence reject，不得由 runtime 选择下一动作。详细设计和 phase gate 见
+`17-r5-schema-first-taskspace-control-plan.md`。
+
 ## 9. Phase Gate Matrix
 
 | Phase | Independent Verification | Forbidden Future Dependency | Exit Evidence | Required Before Next | Decision |
@@ -387,6 +395,7 @@ tokens，request-2+ cache hit 为92.71%/93.43%。相较上一轮非同拓扑 R5�
 | J3 | terminal success/rejection/history tests | 不依赖 benefit repeats | completion provenance evidence | 100% passed | proceed J4 |
 | J4 | Docker fixed-topology repeats、complex sample、adversarial review | 无后续 phase 补证 | performance/map/semantic report | correctness complete; mapping repair validated; N+1 control-only remains | hold remaining cadence benefit |
 | J5 | repeated-control probe、advisory cadence、atomic explicit finish、Docker live run | 无后续 phase 补证 | sequence/integration tests、control failure与 multi-control trace | engineering gates passed; live adoption absent | capability complete; behavior benefit hold |
+| J6 | schema/provider probe、discriminated tool contract、native router reuse、Docker paired samples | 无后续 phase 补证 | standalone finish不可表示；忠实 batch output；control-only边界归零 | correctness + behavior benefit 100% | planned |
 
 ## 10. Implementation Completeness Matrix
 
@@ -400,6 +409,7 @@ tokens，request-2+ cache hit 为92.71%/93.43%。相较上一轮非同拓扑 R5�
 | repeated finish carrier | 同一响应可声明多个同名 finish并按最新状态执行 | provider + native sequence barriers | repeated-control response | provider probe、adjacent finish integration | provider返回2 calls；mock两节点完成 | provider probe only | complete |
 | explicit finish target | 无 binding时显式 ready target原子 claim+finish | `finish_main_node_with_next` staged transaction | `taskspace_control.finish_node(node_id)` | success + pending no-side-effect tests | final live control failures=0、bind=0 | none | complete |
 | cadence adoption | Agent主动使用 multi-finish或 finish+ordinary | Agent/provider output | Docker live sample | performance observer | multi-control=0、chained-finish=0、mixed=0 | none | hold; no benefit claim |
+| schema-first continuation | 非终态 finish 在同一 tool 参数中必须携带 actions | `taskspace_control` schema + native ToolRouter | TaskSpace provider tool call | J6 schema/router/feedback tests | standalone/control-only/request delta | none at exit | planned in J6 |
 
 ## 11. Change-chain Logging Matrix
 
@@ -446,6 +456,9 @@ tokens，request-2+ cache hit 为92.71%/93.43%。相较上一轮非同拓扑 R5�
 | runtime 根据工具成功自动 finish | Rejected | runtime 会取得任务推进语义所有权 |
 | 把 mixed barrier=0 解释为 DeepSeek 不支持多工具 | Rejected | provider probe 和真实 ordinary batching 已反证；状态边界存在真实依赖 |
 | 恢复精确的机械 action contract | Accepted for follow-up | 描述参数已实现的状态效果是工具自描述，不是 runtime 任务决策或语义提示 |
+| 把 finish continuation 收进现有 tool schema | Accepted for J6 design | schema 才能约束本次 function 参数；顶层 sibling call 不能被该 schema 约束 |
+| 新增独立 response frame/tool | Rejected | 扩散架构；J6 只演进现有 `taskspace_control` |
+| 保留旧 finish 并在 response 后拒绝 standalone | Rejected | 属于后置惩罚，J5 已证明会制造重试和 no-op |
 
 ## 15. Plan Quality Checklist
 

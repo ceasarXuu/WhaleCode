@@ -8,9 +8,9 @@
 
 ```text
 Created: 2026-07-09
-Updated: 2026-07-11
+Updated: 2026-07-12
 Version: v0.0.5 build-R5
-Status: In Progress - R5-F, R5-I0-I4 and R5-J0-J5 engineering complete; J5 live cadence adoption remains on hold
+Status: In Progress - R5-F, R5-I0-I4 and R5-J0-J5 engineering complete; R5-J6 schema-first control redesign planned
 Owner / Responsible: WhaleCode core runtime
 Related Systems: TaskSpace runtime, action_map runtime, taskspace_control,
   context projection, provider-visible context, benchmark harness
@@ -28,6 +28,7 @@ Related Links:
   docs/v0.0.5/build-R5/13-r5-unified-docker-benchmark-and-logging-plan.md
   docs/v0.0.5/build-R5/14-r5-native-control-cadence-plan.md
   docs/v0.0.5/build-R5/16-r5-docker-i2-evidence.md
+  docs/v0.0.5/build-R5/17-r5-schema-first-taskspace-control-plan.md
   coe/2026-07-10-01-54-r5-normal-progress-budget-hard-stop.md
   coe/2026-07-10-05-03-r5-stale-active-projection-accumulation.md
   coe/2026-07-10-22-56-r5-request-amplification.md
@@ -115,6 +116,7 @@ multi-finish / finish+ordinary 采用率仍为0，不作为已兑现收益。
 | R5-H | Closeout | R5 收口报告和后续 backlog | 文档、测试、代码、证据一致 |
 | R5-I | Docker-only benchmark and logging | 统一容器执行 substrate、生命周期日志和本机路径删除 | I0/I1/I2 已完成；I3/I4 在 R5-J 后执行并删除本机 fallback |
 | R5-J | Native control cadence | hard-state tool selection、native ordered barrier、Agent-authored terminal transaction、显式 ready target原子 finish | J0-J5 工程门禁通过；hard cadence gate已否决；真实 chained/mixed adoption保持 hold |
+| R5-J6 | Schema-first TaskSpace control | 将 init/finish 后续动作变成现有 tool schema 的 required 参数；复用 native ToolRouter；删除后置 cadence 惩罚 | provider/schema、反馈等价和权限门禁通过；control-only 非终态边界归零；Map 不坍缩 |
 
 ### 1.5.1 Phase 验收和工程收益矩阵
 
@@ -917,6 +919,12 @@ P3：最后节点允许 Agent 把 finish 和自己生成的 final candidate 作�
 旧 `taskspace-action-sequence-v1` 不恢复。详细 J0-J4 phase、失败停止、日志、回滚和验收见
 `docs/v0.0.5/build-R5/14-r5-native-control-cadence-plan.md`。
 
+J5 证明 provider 能力存在但 Agent 未稳定采用顶层 chained calls 后，J6 不再加强提示词或恢复后置 hard gate，
+而是只演进现有 `taskspace_control` schema：`initialize_then_actions`、`finish_then_actions`、
+`finish_then_end` 将完整动作形态放进一次 function 参数；普通 action list 仍使用原生 tools，runtime 只机械
+复用 ToolRouter。详细设计、provider 能力门禁和收益验收见
+`docs/v0.0.5/build-R5/17-r5-schema-first-taskspace-control-plan.md`。
+
 ## 1.15 Phase 依赖和门禁矩阵
 
 | Phase | Independent Verification | Forbidden Future Dependency | Exit Evidence | Completion Required Before Next Phase | Proceed Decision |
@@ -936,6 +944,7 @@ P3：最后节点允许 Agent 把 finish 和自己生成的 final candidate 作�
 | R5-F | 模块边界测试、cargo check | 不依赖 benchmark 总跑 | active path import/call graph | 100% 完成 | proceed to R5-I0 |
 | R5-I0/I1/I2 | Docker contract、container lifecycle/log fixtures、单次 paired smoke | 不依赖 J cadence code | container manifests、日志链、统一 runner | 100% 完成 | proceed to R5-J0 |
 | R5-J0/J1/J2/J3/J4 | provider capability/fixed-topology fixtures、native barrier/terminal tests、Docker repeats | 不依赖 I3/I4 或 closeout 补证 | hard-state tool choice、latest-state attribution、terminal provenance、fixed-topology benefit report | J0-J3完成；J4 correctness完成、benefit失败 | hold benefit claim |
+| R5-J6.0-J6.4 | schema/provider probe、tool contract、native router复用、提示一致性、Docker paired samples | 每阶段不依赖后续补证 | standalone finish不可表示；原始反馈完整；control-only边界归零 | 每阶段100%或暂停 | planned |
 | R5-I3/I4 | Docker complex pairs、等价/性能门禁、Docker-only call graph | 不依赖 closeout | performance observation、container parity、default-path scan | 工程实现与验证100%；不覆盖J4收益缺口 | Docker-only landed |
 | R5-G3 | complex paired runs、streaming extractor tests | 不依赖 closeout | 完整指标报告、失败分类 | 100% 完成 | G3 close，整体仍受J4 gate阻塞 |
 | R5-H | closeout review | 无 | closeout 文档和 clean git | R5-F/I/J/G3 全部完成 | pause |
