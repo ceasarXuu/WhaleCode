@@ -175,3 +175,31 @@ R5路径为：bootstrap+2个nested读取、并行读取2项、单独finish inspe
 pytest/validator未并行。`direct_tool_mixed_responses=0`说明本轮Agent未采用已经可用的
 `finish_nodes + sibling ordinary call`，但Runtime没有拒绝、重写或补动作。J6.6完成的是能力单份表达和执行
 边界收敛，不把单样本Agent采用率伪装成已实现收益。
+
+## 10. Standard 三次重复对照
+
+为判断低级错误是否为TaskSpace特有现象，使用同一固定二进制、Docker环境、模型和
+`count-call-stack` prompt，并行执行3次Standard-only：
+
+| Run | Result | Requests | Tools | Failed tools | Wall | Input | Request 2+ hit | 低级错误 |
+|---|---|---:|---:|---:|---:|---:|---:|---|
+| run-1 | solved | 9 | 15 | 2 | 17.12s | 66,271 | 95.36% | CLI未设置`PYTHONPATH`；短暂误判无`__init__.py` |
+| run-2 | solved | 5 | 9 | 0 | 10.50s | 34,990 | 92.34% | 无 |
+| run-3 | solved | 6 | 6 | 0 | 10.57s | 40,039 | 94.41% | 无 |
+
+run-1的两个failed tools中，修复前pytest失败是有意义的预期诊断；`python -m call_stack_counter`未设置
+`PYTHONPATH=src`是可避免的命令错误。Agent随后读取`src/`目录并使用正确环境自行恢复。三轮均无不存在
+package路径调用、无错误Patch上下文，Patch和最终文件一致。
+
+Standard同样存在明显路径方差：requests为9/5/6，tools为15/9/6；其中1/3出现瞬时低级错误，但不影响
+最终正确性。因此，少量R5样本中的漂移错误不能仅凭出现于TaskSpace就归因为TaskSpace反馈或状态机缺陷，
+仍需证明错误与TaskSpace特有上下文之间存在稳定因果关系。
+
+Evidence：
+
+- `target/r5-j6-6-left-parallel/run-1/count-call-stack/count-call-stack/20260712-072154-807`。
+- `target/r5-j6-6-left-parallel/run-2/count-call-stack/count-call-stack/20260712-072154-844`。
+- `target/r5-j6-6-left-parallel/run-3/count-call-stack/count-call-stack/20260712-072154-791`。
+
+首次运行目录使用了`standard-parallel`字样，被benchmark neutral-cwd门禁在采样前拒绝，未调用模型，不能
+计为样本。正式重跑使用不含treatment标签的`left-parallel`目录；后续单侧运行目录也必须遵守该约束。

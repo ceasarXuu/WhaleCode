@@ -2189,3 +2189,28 @@
   ```
 - Interpretation: schema固定成本已明显收敛，但本轮请求放大仍由Agent未采用finish+sibling以及普通验证未合批构成。Runtime正确地没有拒绝、重写或自动补动作；该单样本不支持新增语义gate。
 - Time: 2026-07-12
+
+## Evidence E-047: Standard三次重复同样出现路径方差和瞬时低级错误
+- Related hypotheses:
+  - H-020
+- Direction: supports
+- Type: standard-control-parallel-reproduction
+- Source: R5-J6.6 three left-only count-call-stack runs
+- Prediction or plan link:
+  - H-020 cross-mode variability prediction
+- Matched signal:
+  - 三次Standard均solved，请求为9/5/6、工具为15/9/6；run-1在已读README、pyproject和源码后仍先执行未设置`PYTHONPATH`的CLI，并短暂误判没有`__init__.py`，随后自行检查并纠正。
+- Correlation keys:
+  - `20260712-072154-807`
+  - `20260712-072154-844`
+  - `20260712-072154-791`
+- Raw content:
+  ```text
+  run-1: python -m call_stack_counter
+  output: /usr/local/bin/python: No module named call_stack_counter
+  reasoning: there's no __init__.py or proper module structure
+  later ls: src/__init__.py exists
+  recovery: PYTHONPATH=src python -m call_stack_counter
+  ```
+- Interpretation: Standard也会在完整反馈可见时生成可避免的低级动作并自行恢复。三轮均无错误Patch上下文或不存在package路径，但1/3有环境命令错误；低频单样本错误不能仅按运行模式归因。
+- Time: 2026-07-12
