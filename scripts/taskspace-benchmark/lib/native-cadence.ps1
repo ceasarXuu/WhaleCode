@@ -10,6 +10,7 @@ function Get-TaskspaceNativeCadenceFacts {
         return [pscustomobject]@{
             availability = "missing"; tool_bearing_response_count = $null
             control_only_response_count = $null; mixed_barrier_batch_count = $null
+            multi_control_response_count = $null; chained_finish_response_count = $null
             standalone_nonterminal_finish_count = $null
             terminal_candidate_count = $null; terminal_extra_request_count = $null
         }
@@ -71,12 +72,18 @@ function Get-TaskspaceNativeCadenceFacts {
 
     $controlOnly = 0
     $mixedBarrier = 0
+    $multiControl = 0
+    $chainedFinish = 0
     $standaloneNonterminalFinish = 0
     foreach ($batch in $batches) {
         $calls = @($batch)
         $controlCount = @($calls | Where-Object { $_.name -eq "taskspace_control" }).Count
         if ($controlCount -eq $calls.Count) { $controlOnly++ }
         elseif ($controlCount -gt 0) { $mixedBarrier++ }
+        if ($controlCount -gt 1) { $multiControl++ }
+        if (@($calls | Where-Object { $_.name -eq "taskspace_control" -and $_.action -eq "finish_node" }).Count -gt 1) {
+            $chainedFinish++
+        }
         $lastCall = $calls[-1]
         if ($lastCall.name -eq "taskspace_control" -and
             $lastCall.action -eq "finish_node" -and
@@ -96,6 +103,8 @@ function Get-TaskspaceNativeCadenceFacts {
         tool_bearing_response_count = [int]$batches.Count
         control_only_response_count = [int]$controlOnly
         mixed_barrier_batch_count = [int]$mixedBarrier
+        multi_control_response_count = [int]$multiControl
+        chained_finish_response_count = [int]$chainedFinish
         standalone_nonterminal_finish_count = [int]$standaloneNonterminalFinish
         terminal_candidate_count = [int]$terminalCandidateCount
         terminal_extra_request_count = $terminalExtra

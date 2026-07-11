@@ -84,6 +84,7 @@ Write-JsonLines @(
     [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "function_call"; name = "taskspace_control"; call_id = "init"; arguments = $initializeArgs } },
     [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "function_call"; name = "exec_command"; call_id = "read"; arguments = "{}" } },
     [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "function_call_output"; call_id = "init"; output = "ok" } },
+    [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "function_call"; name = "taskspace_control"; call_id = "chained-finish"; arguments = $standaloneFinishArgs } },
     [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "function_call"; name = "taskspace_control"; call_id = "standalone-finish"; arguments = $standaloneFinishArgs } },
     [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "function_call_output"; call_id = "standalone-finish"; output = "ok" } },
     [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "function_call"; name = "taskspace_control"; call_id = "finish"; arguments = $terminalArgs } },
@@ -94,6 +95,8 @@ $cadence = Get-TaskspaceNativeCadenceFacts $cadenceFixture $null
 Assert-True ($cadence.tool_bearing_response_count -eq 3) "cadence tool-bearing response count is incorrect"
 Assert-True ($cadence.control_only_response_count -eq 2) "cadence control-only response count is incorrect"
 Assert-True ($cadence.mixed_barrier_batch_count -eq 1) "cadence mixed barrier count is incorrect"
+Assert-True ($cadence.multi_control_response_count -eq 1) "multi-control response was not observed"
+Assert-True ($cadence.chained_finish_response_count -eq 1) "chained finish response was not observed"
 Assert-True ($cadence.standalone_nonterminal_finish_count -eq 1) "standalone nonterminal finish was not observed"
 Assert-True ($cadence.terminal_candidate_count -eq 1 -and $cadence.terminal_extra_request_count -eq 0) "terminal candidate cadence was not measured"
 
