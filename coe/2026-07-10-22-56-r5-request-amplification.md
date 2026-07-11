@@ -1,5 +1,5 @@
 # Problem P-001: R5 TaskSpace 在 G1 正确性样本中请求次数显著高于 Standard
-- Status: in-progress-j6-6-active-single-expression
+- Status: in-progress-post-j6-6-cadence-observation
 - Created: 2026-07-10 22:56
 - Updated: 2026-07-12
 - Objective: 用最终 wire 和原始 tool/control history 精确解释 `count-call-stack` 三轮中 R5 51 requests 对 Standard 22 requests 的29次放大，不把缓存、反馈或 runtime 约束先验地写成根因。
@@ -2143,4 +2143,49 @@
   business success = 3 / 3
   ```
 - Interpretation: 原始两类错误不是稳定TaskSpace机制故障；低级动作类型随采样变化。后续优先降低schema/context负担，不增加Runtime语义约束。
+- Time: 2026-07-12
+
+## Evidence E-045: active普通工具重复表达已消除
+- Related hypotheses:
+  - H-021
+- Direction: supports
+- Type: implementation-and-live-wire
+- Source: R5-J6.6 count-call-stack paired run
+- Prediction or plan link:
+  - `docs/v0.0.5/build-R5/20-r5-j6-6-active-single-tool-expression-plan.md`
+- Matched signal:
+  - active control serializer不含`ordinaryAction`、`tool_name`或ordinary arguments；8个active request的tools hash恒定，non-message payload为22,488-22,503 bytes。
+- Correlation keys:
+  - commit `fd9f759`
+  - run `20260712-065907-459`
+  - active tools hash `8e8236d2...`
+- Raw content:
+  ```text
+  J6.5 R5 active non-message ~= 36.35 KB
+  J6.6 R5 active non-message mean = 22,496 bytes
+  current Standard mean = 21,685 bytes
+  R5 reduction ~= 38.1%; residual fixed overhead vs Standard ~= 3.7%
+  ```
+- Interpretation: H-021定位的主固定成本已经按工具边界修复；active request只在顶层表达ordinary capability，TaskSpace control只表达Map生命周期。
+- Time: 2026-07-12
+
+## Evidence E-046: 本轮3次请求差来自standalone finish和测试未合批
+- Related hypotheses:
+  - H-021
+- Direction: refines
+- Type: request-path-reconstruction
+- Source: R5-J6.6 paired rollout and native cadence report
+- Prediction or plan link:
+  - J6.6 live adoption observation
+- Matched signal:
+  - Standard 6 requests，R5 9 requests；R5有2次`finish_nodes`未带后续sibling action，pytest与validator也分别采样，`direct_tool_mixed_responses=0`。
+- Correlation keys:
+  - run `20260712-065907-459`
+  - `finish_without_sibling_actions=2`
+- Raw content:
+  ```text
+  Standard: discover | parallel reads | patch | pytest+validator | CLI | final
+  R5: init+reads | reads | finish | patch | pytest | validator | CLI | finish | finish+end
+  ```
+- Interpretation: schema固定成本已明显收敛，但本轮请求放大仍由Agent未采用finish+sibling以及普通验证未合批构成。Runtime正确地没有拒绝、重写或自动补动作；该单样本不支持新增语义gate。
 - Time: 2026-07-12

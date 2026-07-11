@@ -2,7 +2,7 @@
 
 - Created: 2026-07-12
 - Updated: 2026-07-12
-- Status: In Progress
+- Status: Complete
 - Owner: WhaleCode tools / native tool scheduler
 - Prerequisite: R5-J6.5 complete，R5-J2 ordered barrier complete
 - Blocks: R5-J7 implementation
@@ -129,10 +129,49 @@ Evidence：
 | Item | Code | Test | Runtime evidence | Status |
 |---|---|---|---|---|
 | 3-run error stability | benchmark artifacts | raw trace classification | 3 right-only | passed |
-| bootstrap/active schemas | tools crate complete | unit/visibility passed | provider wire pending | code passed |
-| finish lifecycle barrier | core handler/scheduler complete | 7 integration scenarios passed | rollout pending | code passed |
-| paired benefit | Docker runner | Standard/R5 | observation report | pending |
+| bootstrap/active schemas | tools crate complete | unit/visibility passed | active约22.50 KB | passed |
+| finish lifecycle barrier | core handler/scheduler complete | 7 integration scenarios passed | 0 control failure | passed |
+| paired benefit | Docker runner | Standard/R5均solved | observation report complete | passed |
 
 已通过的工程回归：`codex-tools` 140 passed/1 ignored、TaskSpace control 11 passed、ordered
 sequence 6 passed、action-map integration 7 passed、visibility 1 passed，以及 performance observation、cost
 instrumentation、benchmark harness、skill validation 自测。
+
+## 8. 修复后配对结果
+
+Run：
+`target/r5-j6-6-active-single-expression/count-call-stack/count-call-stack/20260712-065907-459`。
+
+| Metric | Standard | R5 J6.6 | R5 / Standard |
+|---|---:|---:|---:|
+| Result | solved | solved | equal |
+| Public / hidden | 0 / 0 | 0 / 0 | equal |
+| Provider requests | 6 | 9 | 1.50x |
+| Runtime ordinary tools | 11 | 7 | 0.64x |
+| TaskSpace controls | 0 | 4 | N/A |
+| Wall | 12.32s | 20.88s | 1.70x |
+| Input | 43,666 | 75,316 | 1.72x |
+| Cached input | 41,088 | 61,952 | 1.51x |
+| Uncached input | 2,578 | 13,364 | 5.18x |
+| Output | 946 | 1,658 | 1.75x |
+| Request 2+ cache hit | 93.48% | 87.30% | -6.18pp |
+
+R5 blank request 只发送1个bootstrap control，non-message payload为14,246 bytes。后续8个active
+request均发送12个ordinary tools加1个lightweight control，tools hash保持一致，non-message payload稳定在
+22,488-22,503 bytes，均值22,496 bytes。相对J6.5约36.35 KB下降约38.1%，相对本轮Standard
+均值21,685 bytes只多约3.7%。active control的serializer测试同时证明其不含`ordinaryAction`、
+`tool_name`或ordinary arguments；普通工具能力不再双重表达。
+
+R5 Map有3个已完成节点和3份result，未发生节点坍缩；terminal extra request为0，control protocol/state/
+nested failure均为0。Agent未声明dependency，因此edge为0；根task仍显示active且3份result未review，作为后续
+Map生命周期观察项，不归因于本次schema修复。
+
+## 9. 请求路径结论
+
+Standard路径为：发现1次、并行读取6项、patch、并行pytest+validator、CLI验证、final，共6次请求。
+
+R5路径为：bootstrap+2个nested读取、并行读取2项、单独finish inspect、patch、pytest、validator、CLI、
+单独finish implement、finish+end，共9次请求。多出的3次分别来自2次standalone nonterminal finish和
+pytest/validator未并行。`direct_tool_mixed_responses=0`说明本轮Agent未采用已经可用的
+`finish_nodes + sibling ordinary call`，但Runtime没有拒绝、重写或补动作。J6.6完成的是能力单份表达和执行
+边界收敛，不把单样本Agent采用率伪装成已实现收益。
