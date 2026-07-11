@@ -80,19 +80,18 @@ pub(crate) async fn execute_response_tool_sequence(
             continue;
         }
         if let SequenceSegment::Barrier { index } = &segment
-            && *index + 1 == calls.len()
-            && is_nonterminal_finish(&calls[*index])
+            && let Some(reason) = finish_cadence_violation(&calls, *index)
         {
             let call = &calls[*index];
             tracing::warn!(
                 target: "codex_core::taskspace",
                 segment_index,
                 call_id = call.call_id,
-                reason = "nonterminal_finish_requires_follow_up_call",
+                reason,
                 "tool.trailing_nonterminal_finish_rejected"
             );
             prior_failure = Some(call.call_id.clone());
-            outputs.push(trailing_nonterminal_finish_response(call));
+            outputs.push(finish_cadence_rejection_response(call, reason));
             continue;
         }
 
@@ -235,35 +234,86 @@ fn is_taskspace_control(call: &ToolCall) -> bool {
 }
 
 fn is_nonterminal_finish(call: &ToolCall) -> bool {
-    if !is_taskspace_control(call) {
-        return false;
-    }
-    let ToolPayload::Function { arguments } = &call.payload else {
+    let Some(arguments) = taskspace_control_arguments(call) else {
         return false;
     };
-    let Ok(arguments) = serde_json::from_str::<serde_json::Value>(arguments) else {
-        return false;
-    };
-    if arguments.get("action").and_then(serde_json::Value::as_str) != Some("finish_node") {
-        return false;
-    }
-    !arguments
-        .get("final_candidate")
-        .and_then(serde_json::Value::as_str)
-        .is_some_and(|candidate| !candidate.trim().is_empty())
+    arguments.get("action").and_then(serde_json::Value::as_str) == Some("finish_node")
+        && !arguments
+            .get("final_candidate")
+            .and_then(serde_json::Value::as_str)
+            .is_some_and(|candidate| !candidate.trim().is_empty())
 }
 
-fn trailing_nonterminal_finish_response(call: &ToolCall) -> ResponseInputItem {
+fn taskspace_control_arguments(call: &ToolCall) -> Option<serde_json::Value> {
+    if !is_taskspace_control(call) {
+        return None;
+    }
+    let ToolPayload::Function { arguments } = &call.payload else {
+        return None;
+    };
+    serde_json::from_str(arguments).ok()
+}
+
+fn finish_cadence_violation(calls: &[ToolCall], index: usize) -> Option<&'static str> {
+    let call = calls.get(index)?;
+    if !is_nonterminal_finish(call) {
+        return None;
+    }
+    let Some(next_call) = calls.get(index + 1) else {
+        return Some("nonterminal_finish_requires_follow_up_call");
+    };
+    let arguments = taskspace_control_arguments(call)?;
+    let finish_establishes_binding = arguments
+        .get("next_node_id")
+        .and_then(serde_json::Value::as_str)
+        .is_some_and(|node_id| !node_id.trim().is_empty())
+        || arguments
+            .get("next_node_kind")
+            .and_then(serde_json::Value::as_str)
+            .is_some_and(|kind| !kind.trim().is_empty());
+    if finish_establishes_binding || call_establishes_binding(next_call) {
+        None
+    } else {
+        Some("nonterminal_finish_requires_next_binding")
+    }
+}
+
+fn call_establishes_binding(call: &ToolCall) -> bool {
+    let Some(arguments) = taskspace_control_arguments(call) else {
+        return false;
+    };
+    match arguments.get("action").and_then(serde_json::Value::as_str) {
+        Some("bind_node") => true,
+        Some("create_node") => {
+            arguments
+                .get("bind_current")
+                .and_then(serde_json::Value::as_bool)
+                == Some(true)
+        }
+        _ => false,
+    }
+}
+
+fn finish_cadence_rejection_response(call: &ToolCall, reason: &str) -> ResponseInputItem {
+    let message = match reason {
+        "nonterminal_finish_requires_next_binding" => {
+            "Nonterminal finish_node must establish the next binding before subsequent work. Use next_node_id or next_node_* fields, or follow finish_node immediately with bind_node or create_node(bind_current=true)."
+        }
+        _ => {
+            "Nonterminal finish_node cannot be the last call in a response. Follow it with another TaskSpace control or ordinary tool call."
+        }
+    };
     let metadata = serde_json::json!({
         "schema_version": "TaskSpaceCadenceGateV1",
         "allowed": false,
         "gate_class": "cadence",
-        "reason": "nonterminal_finish_requires_follow_up_call",
+        "reason": reason,
         "required_follow_up": "taskspace_control_or_ordinary_tool_call",
+        "required_binding": "next_node_id_or_next_node_fields_or_immediate_binding_control",
         "terminal_exception": "non_empty_final_candidate",
     });
     let mut output = FunctionCallOutputPayload::from_text(format!(
-        "Nonterminal finish_node cannot be the last call in a response. Follow it with another TaskSpace control or ordinary tool call.\nTaskSpaceCadenceGateV1: {metadata}"
+        "{message}\nTaskSpaceCadenceGateV1: {metadata}"
     ));
     output.success = Some(false);
     ResponseInputItem::FunctionCallOutput {
@@ -390,7 +440,8 @@ mod tests {
             "finish-call",
             r#"{"action":"finish_node","next_node_id":"node-2"}"#,
         );
-        let output = trailing_nonterminal_finish_response(&call);
+        let output =
+            finish_cadence_rejection_response(&call, "nonterminal_finish_requires_follow_up_call");
         assert_eq!(response_input_call_id(&output), "finish-call");
         assert!(!response_input_succeeded(&output));
         let ResponseInputItem::FunctionCallOutput { output, .. } = output else {
@@ -401,6 +452,43 @@ mod tests {
                 .body
                 .to_text()
                 .is_some_and(|text| text.contains("TaskSpaceCadenceGateV1"))
+        );
+    }
+
+    #[test]
+    fn cadence_requires_binding_before_ordinary_follow_up() {
+        let finish_without_binding = function_call_with_arguments(
+            "taskspace_control",
+            "finish",
+            r#"{"action":"finish_node"}"#,
+        );
+        let finish_with_binding = function_call_with_arguments(
+            "taskspace_control",
+            "finish-next",
+            r#"{"action":"finish_node","next_node_id":"node-2"}"#,
+        );
+        let bind = function_call_with_arguments(
+            "taskspace_control",
+            "bind",
+            r#"{"action":"bind_node","node_id":"node-2"}"#,
+        );
+        let ordinary = function_call("exec_command", "test");
+
+        assert_eq!(
+            finish_cadence_violation(&[finish_without_binding.clone(), ordinary.clone()], 0),
+            Some("nonterminal_finish_requires_next_binding")
+        );
+        assert_eq!(
+            finish_cadence_violation(&[finish_with_binding.clone(), ordinary], 0),
+            None
+        );
+        assert_eq!(
+            finish_cadence_violation(&[finish_without_binding, bind], 0),
+            None
+        );
+        assert_eq!(
+            finish_cadence_violation(&[finish_with_binding], 0),
+            Some("nonterminal_finish_requires_follow_up_call")
         );
     }
 
