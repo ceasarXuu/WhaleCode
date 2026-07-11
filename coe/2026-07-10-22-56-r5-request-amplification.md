@@ -1960,3 +1960,163 @@
   ```
 - Interpretation: 缓存本身可以在后续运行复用；此前0命中不是持续性本地缓存破坏。provider命中仍为best-effort，不能由runtime保证。
 - Time: 2026-07-12
+
+## Hypothesis H-020: J6.5简单样本的错误路径由TaskSpace读取或失败反馈失真直接造成
+- Status: refuted
+- Parent: P-001
+- Claim: R5在已读取源码后访问不存在目录、随后生成失败patch，是因为nested tool结果或失败语义没有完整进入下一轮上下文。
+- Layer: root-cause-candidate
+- Factor relation: alternative
+- Depends on:
+  - H-017
+- Rationale:
+  - R4/R5历史上同类重复动作曾由反馈丢失造成，因此必须优先排查语义链，不能先归因于Agent智能。
+- Falsifiable predictions:
+  - If true: Req2源码输出缺失或被摘要替换，Req3无法指出真实文件；patch失败输出缺失、改写或被runtime拒绝。
+  - If false: 原始源码和签名完整存在，Agent明确复述真实路径/bug后仍自行构造错误路径或错误patch，错误反馈随后完整进入上下文并触发纠正。
+- Diagnostic evidence plan:
+  - Prediction or clause under test: 对Req2 control output、Req3 reasoning/call、Req5 patch input/output和下一轮纠正逐项对账。
+  - Signal: 原始路径、函数签名、Agent复述、tool arguments、handler output。
+  - Capture method: rollout response items + exact payload scanner。
+  - Event name or marker:
+    - `function_call_output`
+    - `provider.chat_wire_prefix_preserved`
+  - Correlation keys:
+    - `call_00_aOSwgmpktigB7nBoIk0X8020`
+    - `call_00_h9oZD9G0IJf8Kv8vEcCV9194`
+    - `call_00_lEBdU5x9Hki0RcwudnTz5450`
+  - Differentiates from:
+    - Agent自主的探索性路径假设。
+    - Agent生成patch时遗漏函数返回注解。
+  - Supports if:
+    - 原始结果或错误反馈不可见、不完整或被改写。
+  - Refutes if:
+    - 原始结果和失败反馈完整，且Agent在调用前已明确知道正确事实。
+  - Instrumentation status: existing-permanent-observability
+  - Instrumentation lifecycle:
+    - 保留raw control history、exact payload scan和rollout调用/反馈。
+- Evidence gate: satisfied
+- Related evidence:
+  - E-041
+  - E-042
+- Conclusion: refuted；两次错误均为Agent-authored低级错误，没有发现TaskSpace直接语义缺陷
+- Repair design readiness: not-applicable
+- Next step: 通过多样本统计观察较大上下文/carrier是否间接提高低级错误率，不增加runtime约束。
+- Blocker:
+  - none
+- Close reason:
+  - direct semantic-transmission mechanism contradicted by raw trace
+
+## Hypothesis H-021: 当前TaskSpace单请求Input增量主要来自active control工具schema
+- Status: confirmed
+- Parent: P-001
+- Claim: J6.5去除第三份暴露后，active request相对Standard的主要固定增量仍是额外`taskspace_control` schema；bootstrap、Map/control自然历史是第二增量，请求数只放大总量而不改变单请求结构。
+- Layer: cost-attribution
+- Factor relation: additive
+- Depends on:
+  - H-018
+- Rationale:
+  - cold cache只改变cached/uncached归属，不增加input token本身；必须按wire固定区与message区分账。
+- Falsifiable predictions:
+  - If true: active R5 non-message bytes固定比Standard高约14.67 KB；同进度message bytes只高约4-5 KB；复杂样本即使R5请求更少，总Input仍因每请求固定增量而较高。
+  - If false: 主要增量来自projection重复、历史替换或单个异常message，non-message差异应很小或不稳定。
+- Diagnostic evidence plan:
+  - Prediction or clause under test: 对两组paired run逐request拆分provider payload的message/non-message bytes并与usage对账。
+  - Signal: tools count、non-message bytes、message bytes、input tokens、active projection count。
+  - Capture method: provider wire trace + exact payload scan + cache usage。
+  - Event name or marker:
+    - `provider.chat_wire_shape_recorded`
+    - `exact_payload_scan`
+  - Correlation keys:
+    - Standard tools hash `0858cd2c...`
+    - R5 active tools hash `1320c089...`
+  - Differentiates from:
+    - stale projection accumulation。
+    - cache miss本身制造input token。
+    - 额外request导致的总量放大。
+  - Supports if:
+    - active non-message稳定约36.35 KB vs Standard约21.69 KB，且projection count恒为1。
+  - Refutes if:
+    - message区占绝大多数固定差异或projection重复出现。
+  - Instrumentation status: existing-permanent-observability
+  - Instrumentation lifecycle:
+    - 保留wire byte split与projection uniqueness scanner。
+- Evidence gate: satisfied
+- Related evidence:
+  - E-043
+- Conclusion: confirmed；active单请求wire差异约四分之三来自control schema，约四分之一来自TaskSpace消息历史
+- Repair design readiness: observation-only
+- Next step: 后续能力设计评估active双重能力暴露的收益/成本，不牺牲工具语义或收编Agent动作。
+- Blocker:
+  - none
+- Close reason:
+  - attribution confirmed; optimization remains a separate design decision
+
+## Evidence E-041: Agent收到完整源码后仍自行假设不存在的package目录
+- Related hypotheses:
+  - H-020
+- Direction: refutes
+- Type: raw-trace
+- Source: J6.5 count-call-stack right rollout
+- Prediction or plan link:
+  - H-020 source-visibility clause
+- Matched signal:
+  - Req2 control output完整包含`src/call_stack_counter.py`正文；Req3 reasoning明确复述该文件和bug，随后为了检查`__main__.py`自行调用不存在的`/workspace/src/call_stack_counter/`。
+- Correlation keys:
+  - `call_00_aOSwgmpktigB7nBoIk0X8020`
+  - `call_00_h9oZD9G0IJf8Kv8vEcCV9194`
+- Raw content:
+  ```text
+  source: def format_depth() -> str:
+  reasoning: The source file src/call_stack_counter.py has a format_depth() function...
+  call: ls -la /workspace/src/call_stack_counter/
+  output: No such file or directory
+  ```
+- Interpretation: Agent知道真实文件仍做了额外package形态探查；这是Agent生成的错误探索动作，不是读取结果丢失。
+- Time: 2026-07-12
+
+## Evidence E-042: patch失败来自Agent遗漏返回注解且错误反馈完整透传
+- Related hypotheses:
+  - H-020
+- Direction: refutes
+- Type: raw-trace-and-standard-control
+- Source: J6.5 count-call-stack paired rollout
+- Prediction or plan link:
+  - H-020 patch feedback clause
+- Matched signal:
+  - R5 patch使用`@@ def format_depth():`，真实签名是`def format_depth() -> str:`；Standard同轮使用完整签名并成功。R5 handler原样返回找不到上下文，Agent随后读取精确文件并纠正。
+- Correlation keys:
+  - R5 `call_00_lEBdU5x9Hki0RcwudnTz5450`
+- Raw content:
+  ```text
+  R5 patch: @@ def format_depth():
+  Standard patch: @@ def format_depth() -> str:
+  feedback: apply_patch verification failed: Failed to find context 'def format_depth():'
+  ```
+- Interpretation: schema、参数路由和失败反馈均忠实；失败点是Agent生成的patch上下文不精确。
+- Time: 2026-07-12
+
+## Evidence E-043: active wire增量约77%来自control schema固定区
+- Related hypotheses:
+  - H-021
+- Direction: supports
+- Type: wire-cost-attribution
+- Source: J6.5 count-call-stack and multi-file-order-pipeline paired provider wire traces
+- Prediction or plan link:
+  - H-021 fixed/non-message split
+- Matched signal:
+  - Standard active non-message约21.69 KB，R5约36.35 KB，固定差约14.67 KB；相近进度message区通常额外约4-5 KB；所有R5请求active projection count=1。
+- Correlation keys:
+  - tools hash `0858cd2c...`
+  - tools hash `1320c089...`
+- Raw content:
+  ```text
+  order req4: standard messages=9641 non-message=21687
+              R5 messages=13908 non-message=36354
+  delta: messages=4267, non-message=14667
+  count req8: standard messages=14772 non-message=21697
+              R5 messages=19201 non-message=36355
+  delta: messages=4429, non-message=14658
+  ```
+- Interpretation: 当前单请求Input差距是结构性的，但主项是model-visible工具能力schema，不是projection累积；额外request会再次携带该固定成本并放大总Input。
+- Time: 2026-07-12
