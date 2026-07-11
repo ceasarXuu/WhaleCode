@@ -8,11 +8,13 @@ function Get-TaskspaceNativeCadenceFacts {
     $rolloutPath = Join-Path $ArtifactDir "rollout.jsonl"
     if (-not (Test-Path -LiteralPath $rolloutPath -PathType Leaf)) {
         return [pscustomobject]@{
-            availability = "missing"; tool_bearing_response_count = $null
-            control_only_response_count = $null; mixed_barrier_batch_count = $null
-            multi_control_response_count = $null; chained_finish_response_count = $null
-            standalone_nonterminal_finish_count = $null
-            terminal_candidate_count = $null; terminal_extra_request_count = $null
+            availability = "missing"; provider_tool_response_count = $null
+            control_carrier_response_count = $null; direct_tool_mixed_response_count = $null
+            multi_control_carrier_response_count = $null; multi_finish_carrier_count = $null
+            nonterminal_without_action_count = $null; nested_action_count = $null
+            initialize_then_actions_count = $null; finish_then_actions_count = $null
+            finish_then_end_count = $null; terminal_candidate_count = $null
+            terminal_extra_request_count = $null
         }
     }
 
@@ -22,6 +24,8 @@ function Get-TaskspaceNativeCadenceFacts {
     $lastFinishIndex = -1
     $lastFinalIndex = -1
     $terminalCandidateCount = 0
+    $nestedActionCount = 0
+    $actionCounts = @{ initialize_then_actions = 0; finish_then_actions = 0; finish_then_end = 0 }
     foreach ($line in [System.IO.File]::ReadLines($rolloutPath)) {
         $rowIndex++
         if ([string]::IsNullOrWhiteSpace($line)) { continue }
@@ -41,20 +45,31 @@ function Get-TaskspaceNativeCadenceFacts {
         if ($isCall) {
             $name = if ($payloadType -eq "local_shell_call") { "local_shell" } else { [string]$payload.name }
             $action = ""
+            $nestedCount = 0
+            $finishCount = 0
             $hasTerminalCandidate = $false
             if ($name -eq "taskspace_control") {
                 try {
                     $arguments = ([string]$payload.arguments) | ConvertFrom-Json
                     $action = [string]$arguments.action
-                    $candidateProperty = $arguments.PSObject.Properties["final_candidate"]
-                    $hasTerminalCandidate = $null -ne $candidateProperty -and -not [string]::IsNullOrWhiteSpace([string]$candidateProperty.Value)
+                    if ($actionCounts.ContainsKey($action)) { $actionCounts[$action]++ }
+                    $actionsProperty = $arguments.PSObject.Properties["actions"]
+                    if ($null -ne $actionsProperty) { $nestedCount = @($actionsProperty.Value).Count }
+                    $finishesProperty = $arguments.PSObject.Properties["finishes"]
+                    if ($null -ne $finishesProperty) { $finishCount = @($finishesProperty.Value).Count }
+                    if ($action -eq "finish_then_end") {
+                        $finishCount += 1
+                        $candidateProperty = $arguments.PSObject.Properties["final_candidate"]
+                        $hasTerminalCandidate = $null -ne $candidateProperty -and -not [string]::IsNullOrWhiteSpace([string]$candidateProperty.Value)
+                    }
                 } catch { }
-                if ($action -eq "finish_node") { $lastFinishIndex = $rowIndex }
+                $nestedActionCount += $nestedCount
+                if ($action -in @("finish_then_actions", "finish_then_end")) { $lastFinishIndex = $rowIndex }
                 if ($hasTerminalCandidate) { $terminalCandidateCount++ }
             }
             $current.Add([pscustomobject]@{
-                    name = $name; action = $action
-                    terminal_candidate = [bool]$hasTerminalCandidate
+                    name = $name; action = $action; nested_action_count = $nestedCount
+                    finish_count = $finishCount; terminal_candidate = [bool]$hasTerminalCandidate
                 })
             continue
         }
@@ -70,26 +85,21 @@ function Get-TaskspaceNativeCadenceFacts {
     }
     if ($current.Count -gt 0) { $batches.Add(@($current.ToArray())) }
 
-    $controlOnly = 0
-    $mixedBarrier = 0
-    $multiControl = 0
-    $chainedFinish = 0
-    $standaloneNonterminalFinish = 0
+    $carrierResponses = 0
+    $directToolMixedResponses = 0
+    $multiControlCarrierResponses = 0
+    $multiFinishCarriers = 0
+    $nonterminalWithoutAction = 0
     foreach ($batch in $batches) {
         $calls = @($batch)
-        $controlCount = @($calls | Where-Object { $_.name -eq "taskspace_control" }).Count
-        if ($controlCount -eq $calls.Count) { $controlOnly++ }
-        elseif ($controlCount -gt 0) { $mixedBarrier++ }
-        if ($controlCount -gt 1) { $multiControl++ }
-        if (@($calls | Where-Object { $_.name -eq "taskspace_control" -and $_.action -eq "finish_node" }).Count -gt 1) {
-            $chainedFinish++
-        }
-        $lastCall = $calls[-1]
-        if ($lastCall.name -eq "taskspace_control" -and
-            $lastCall.action -eq "finish_node" -and
-            -not [bool]$lastCall.terminal_candidate) {
-            $standaloneNonterminalFinish++
-        }
+        $controls = @($calls | Where-Object { $_.name -eq "taskspace_control" })
+        if ($controls.Count -gt 0) { $carrierResponses++ }
+        if ($controls.Count -gt 0 -and $controls.Count -lt $calls.Count) { $directToolMixedResponses++ }
+        if ($controls.Count -gt 1) { $multiControlCarrierResponses++ }
+        $multiFinishCarriers += @($controls | Where-Object { $_.finish_count -gt 1 }).Count
+        $nonterminalWithoutAction += @($controls | Where-Object {
+                $_.action -eq "finish_then_actions" -and $_.nested_action_count -eq 0
+            }).Count
     }
     $terminalExtra = if ($terminalCandidateCount -gt 0) {
         0
@@ -100,12 +110,16 @@ function Get-TaskspaceNativeCadenceFacts {
     }
     [pscustomobject]@{
         availability = "measured"
-        tool_bearing_response_count = [int]$batches.Count
-        control_only_response_count = [int]$controlOnly
-        mixed_barrier_batch_count = [int]$mixedBarrier
-        multi_control_response_count = [int]$multiControl
-        chained_finish_response_count = [int]$chainedFinish
-        standalone_nonterminal_finish_count = [int]$standaloneNonterminalFinish
+        provider_tool_response_count = [int]$batches.Count
+        control_carrier_response_count = [int]$carrierResponses
+        direct_tool_mixed_response_count = [int]$directToolMixedResponses
+        multi_control_carrier_response_count = [int]$multiControlCarrierResponses
+        multi_finish_carrier_count = [int]$multiFinishCarriers
+        nonterminal_without_action_count = [int]$nonterminalWithoutAction
+        nested_action_count = [int]$nestedActionCount
+        initialize_then_actions_count = [int]$actionCounts.initialize_then_actions
+        finish_then_actions_count = [int]$actionCounts.finish_then_actions
+        finish_then_end_count = [int]$actionCounts.finish_then_end
         terminal_candidate_count = [int]$terminalCandidateCount
         terminal_extra_request_count = $terminalExtra
     }

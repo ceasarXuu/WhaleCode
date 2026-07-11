@@ -469,9 +469,9 @@ $costObs = Join-Path $costDir "observability.json"
 @(
     (@{ type = "response.completed"; response = @{ usage = @{ input_tokens = 120; output_tokens = 30; input_tokens_details = @{ cached_tokens = 20 } } } } | ConvertTo-Json -Compress -Depth 8),
     (@{ payload = @{ name = "taskspace_control"; arguments = '{"action":"start_task","title":"x"}' } } | ConvertTo-Json -Compress -Depth 8),
-    (@{ payload = @{ name = "taskspace_control"; arguments = '{"action":"finish_node","node_id":"node-1"}' } } | ConvertTo-Json -Compress -Depth 8),
+    (@{ payload = @{ name = "taskspace_control"; arguments = '{"action":"finish_then_actions","finishes":[{"node_id":"node-1"}],"actions":[{"tool_name":"exec_command","arguments":{"cmd":"pwd"}}]}' } } | ConvertTo-Json -Compress -Depth 8),
     (@{ type = "item.completed"; item = @{ type = "agent_message"; text = '{"schema_version":"taskspace-action-v1","action":"taskspace_control","node_id":null,"args":{"action_name":"start_task"}}' } } | ConvertTo-Json -Compress -Depth 8),
-    (@{ type = "item.completed"; item = @{ type = "agent_message"; text = '{"schema_version":"taskspace-action-v1","action":"taskspace_control","node_id":"node-1","args":{"command":"finish_node","node_id":"node-1"}}' } } | ConvertTo-Json -Compress -Depth 8),
+    (@{ type = "item.completed"; item = @{ type = "agent_message"; text = '{"schema_version":"taskspace-action-v1","action":"taskspace_control","node_id":"node-1","args":{"command":"finish_then_actions","node_id":"node-1"}}' } } | ConvertTo-Json -Compress -Depth 8),
     (@{ type = "response.completed"; response = @{ usage = @{ output_tokens = 7 } } } | ConvertTo-Json -Compress -Depth 8)
 ) | Set-Content -LiteralPath $costJsonl -Encoding UTF8
 @(
@@ -517,7 +517,7 @@ Assert-True ([int]$costArtifacts.taskspace_control_usage.taskspace_control_count
 Assert-True ([int]$costArtifacts.taskspace_control_usage.native_taskspace_control_count -eq 2) "native taskspace_control count was not parsed"
 Assert-True ([int]$costArtifacts.taskspace_control_usage.action_contract_taskspace_control_count -eq 2) "action-contract taskspace_control count was not parsed"
 Assert-True ([int]$costArtifacts.taskspace_control_usage.action_counts.start_task -eq 2) "taskspace_control start_task action was not counted"
-Assert-True ([int]$costArtifacts.taskspace_control_usage.action_counts.finish_node -eq 2) "taskspace_control finish_node action was not counted"
+Assert-True ([int]$costArtifacts.taskspace_control_usage.action_counts.finish_then_actions -eq 2) "taskspace_control finish_then_actions action was not counted"
 Assert-True ([int]$costArtifacts.taskspace_control_usage.taskspace_runtime_event_count -eq 5) "taskspace runtime event count was not parsed from observability"
 Assert-True ([int]$costArtifacts.taskspace_control_usage.runtime_state_commit_count -eq 1) "runtime state_commit event count was not parsed from observability"
 Assert-True ([int]$costArtifacts.taskspace_control_usage.runtime_output_ref_created_count -eq 1) "runtime output_ref.created count was not parsed from observability"

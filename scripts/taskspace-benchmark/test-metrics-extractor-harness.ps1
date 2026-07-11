@@ -55,7 +55,7 @@ $rolloutPath = Join-Path $artifactDir "rollout.jsonl"
 $rolloutWriter = [System.IO.StreamWriter]::new($rolloutPath, $false, [System.Text.UTF8Encoding]::new($false))
 try {
     $rolloutWriter.WriteLine('{"type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":100,"output_tokens":20,"cached_input_tokens":80}}}}')
-    $rolloutWriter.WriteLine('{"type":"response_item","payload":{"type":"function_call","name":"taskspace_control","call_id":"control-1","arguments":"{\"action\":\"initialize_map\"}"}}')
+    $rolloutWriter.WriteLine('{"type":"response_item","payload":{"type":"function_call","name":"taskspace_control","call_id":"control-1","arguments":"{\"action\":\"initialize_then_actions\"}"}}')
     $rolloutWriter.WriteLine('malformed-line')
     $rolloutWriter.WriteLine('{"type":"event_msg","payload":{"type":"fixture","content":"' + ('x' * 2097152) + '"}}')
 } finally {
