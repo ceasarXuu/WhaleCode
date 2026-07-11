@@ -5,7 +5,7 @@
 - Created: 2026-07-10
 - Updated: 2026-07-11
 - Version: v0.0.5 build-R5 follow-up
-- Status: In progress - J0/J1/J2/J3 complete, J4 next
+- Status: In progress - J0/J1/J2/J3 complete, J4 correctness complete and benefit diagnosis pending repair
 - Owner / Responsible: WhaleCode core runtime
 - Related Systems: provider tool choice、native tool scheduler、TaskSpace hard state、taskspace_control、turn completion、benchmark observer
 - Related Links: `01-r5-phased-simplification-plan.md`、`13-r5-unified-docker-benchmark-and-logging-plan.md`、`coe/2026-07-10-22-56-r5-request-amplification.md`
@@ -253,7 +253,24 @@ provider requests：第一轮 initialize/read，第二轮 `finish_node(final_can
 - Agent 提交 `final_candidate` 时 terminal extra request=0；真实 run 中 Agent 未选择该可选字段时仍为1。
   runtime 没有自动生成、合并或强迫终态。
 - barrier 顺序/失败停止与 terminal transaction 的 production path、focused tests 和真实日志均存在，
-  但真实 DeepSeek run 没有产出混合 barrier batch。给工具补充机械调用契约后，单样本仍为0 mixed。
+  但真实 DeepSeek run 没有产出混合 barrier batch。只补充通用 barrier batching 说明后，单样本仍为0 mixed。
+
+进一步按 G1 历史行为、J4 call/output 和工具 schema 提交历史对账后，原结论需要拆成两部分：
+
+1. **原子状态动作发生了工具契约回归。** G1 三轮都使用
+   `finish_node(next_node_id)`，每轮 `bind_node=0`。`d2cc4b7` 删除过度设计时，也删掉了
+   `current_node_key` 会建立立即可用 binding、`node_id` 默认当前 binding、`finish_node` 可原子绑定下一节点
+   的机械说明。J4 因此稳定退化为 `initialize + N*bind + N*finish`。初始化工具输出本身完整返回
+   `current_node=node-1`，这里是工具能力契约的语义缺失，不是输出丢失或扭曲。
+2. **跨工具 mixed barrier 是另一类问题。** DeepSeek/provider 支持多工具，Standard 和 R5 也继续批量
+   提交独立 reads/tests；但模型在生成同一响应的所有 calls 时看不到前一个工具的执行结果。状态迁移后的
+   ordinary action 依赖 finish/barrier 成功，Agent 选择等待结果再请求是合理的保守行为。J2 只保证 runtime
+   能安全执行 Agent 已预声明的顺序，不会也不应强迫 Agent 预声明。
+
+因此后续收益门禁修正为：先恢复简洁、真实、不含任务策略的机械 API 契约，并验证固定拓扑
+`bind_node=0`、control 从 `2N+1` 回到 `N+1`。`mixed barrier` 继续作为能力和行为观测项，不再把
+`control-only <= 1/run` 当成当前原生 tool loop 下必须达到的硬收益指标。禁止用 runtime 自动绑定、自动
+合并、拒绝合法重复 bind 或提示任务策略来替代契约修复。
 
 因此 J4 的 `control-only <= 1/run` 明确未达成，Decision 为 **hold benefit claim**。不通过自动绑定、
 强制 `next_node_id`、拒绝合法重复 bind 或 runtime 合并动作来追指标；这些方向会越过 Agent 对 Map
@@ -269,7 +286,7 @@ provider requests：第一轮 initialize/read，第二轮 `finish_node(final_can
 | J1 | hard-state tool-choice fixtures、wire/cache trace | 不依赖 barrier | first-response and tools-hash evidence | 100% passed | proceed J2 |
 | J2 | ordered barrier unit/integration/side-effect tests | 不依赖 terminal transaction | latest-state attribution and stop evidence | 100% passed | proceed J3 |
 | J3 | terminal success/rejection/history tests | 不依赖 benefit repeats | completion provenance evidence | 100% passed | proceed J4 |
-| J4 | Docker fixed-topology repeats、complex sample、adversarial review | 无后续 phase 补证 | performance/map/semantic report | correctness complete; benefit gate failed | hold benefit claim |
+| J4 | Docker fixed-topology repeats、complex sample、adversarial review | 无后续 phase 补证 | performance/map/semantic report | correctness complete; original benefit gate invalidated by contract regression and dependency semantics | hold; repair mechanical contract then rerun |
 
 ## 10. Implementation Completeness Matrix
 
@@ -323,6 +340,8 @@ provider requests：第一轮 initialize/read，第二轮 `finish_node(final_can
 | 使用 P2 Map 粗化降本 | Rejected | 有 Map 退化坍缩风险，破坏 TaskSpace 图化重组目标 |
 | 恢复旧 action-contract sequence | Rejected | 禁用 native tools并引入额外 JSON/prompt 协议，不符合 R5 简洁边界 |
 | runtime 根据工具成功自动 finish | Rejected | runtime 会取得任务推进语义所有权 |
+| 把 mixed barrier=0 解释为 DeepSeek 不支持多工具 | Rejected | provider probe 和真实 ordinary batching 已反证；状态边界存在真实依赖 |
+| 恢复精确的机械 action contract | Accepted for follow-up | 描述参数已实现的状态效果是工具自描述，不是 runtime 任务决策或语义提示 |
 
 ## 15. Plan Quality Checklist
 
@@ -337,5 +356,7 @@ provider requests：第一轮 initialize/read，第二轮 `finish_node(final_can
 
 ## 16. 当前暂停点
 
-R5-F、R5-I0/I1/I2 和 J0/J1/J2/J3 已完成，当前进入 J4。不得通过
-提示 Agent 少建节点、runtime 自动 finish 或节点粗化宣称请求收益。
+R5-F、R5-I0/I1/I2 和 J0/J1/J2/J3 已完成；J4 correctness/capability 已完成，但原收益门禁未通过。
+当前根因已收敛到机械工具契约回归与原生 tool loop 的依赖边界。下一步应先恢复克制的 action contract，
+再用固定拓扑复跑 `bind_node=0` 和 `N+1 controls`；不得通过提示 Agent 少建节点、runtime 自动推进、
+拒绝合法调用或节点粗化宣称请求收益。

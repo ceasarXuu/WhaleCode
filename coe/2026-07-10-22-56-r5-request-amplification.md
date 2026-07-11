@@ -1,7 +1,7 @@
 # Problem P-001: R5 TaskSpace 在 G1 正确性样本中请求次数显著高于 Standard
 - Status: diagnosed
 - Created: 2026-07-10 22:56
-- Updated: 2026-07-10 22:56
+- Updated: 2026-07-11
 - Objective: 用最终 wire 和原始 tool/control history 精确解释 `count-call-stack` 三轮中 R5 51 requests 对 Standard 22 requests 的29次放大，不把缓存、反馈或 runtime 约束先验地写成根因。
 - Symptoms:
   - controlled 3-run 中 Standard 为 8/8/6 requests，R5 为 13/21/17 requests。
@@ -34,6 +34,10 @@
   - E-008
   - E-009
   - E-010
+  - E-011
+  - E-012
+  - E-013
+  - E-014
 - Ruled out:
   - 相邻请求缓存前缀破坏不是本轮请求放大的原因：R5 strict-prefix 48/48，request-2+ cache hit 97.66%。
   - 工具反馈丢失不是本轮主要原因：pre-init hard reject、pytest failure、apply_patch failure 和成功输出都按原文进入后续 history。
@@ -45,11 +49,13 @@
   - 其中2个 pre-init find/ls 被空 Map 硬规则拒绝，属于明确的 TaskSpace 特有额外动作；第二轮7个 patch/read 循环和其余环境/检查动作仍需更多 controlled repeats 区分上下文影响与模型采样波动。
   - 三轮首请求都完整包含初始化协议；pre-init 失败不是系统提示或 projection 丢失，而是模型在明确硬状态下仍选择了普通工具。
   - 当前 native tool scheduler 没有为状态工具与后续普通工具提供显式的有序依赖屏障，不能把依赖调用安全地当作普通 parallel tool calls 合并。
+  - J2 已补齐有序状态屏障，但 J4 真实运行仍没有产生混合 control/ordinary response；能力存在不等于 Agent 会在依赖边界主动预声明后续调用。
+  - `d2cc4b7` 在删除过度设计时同时删掉了必要的机械 API 语义：初始化会建立立即可用的绑定、finish 可原子绑定下一节点、`node_id` 默认当前绑定。J4 的重复 bind 与该变更严格同向。
 - Fix criteria:
   - 在用户授权修复后，任何方案必须分别度量固定 control 往返、普通动作数量和并行承载；不得只压低一个总 request 数。
   - 修复验证必须保持 G1 strict-prefix、反馈忠实性、Agent-owned Map 和 correctness。
   - 需要 controlled repeats 证明 request 降低不是模型随机波动。
-- Current conclusion: 请求差已被高置信度分解。29次额外请求不是缓存或隐藏 runtime retry，而是工具调用净增29且两侧 aggregate 并行节省量相同：12个为三轮固定的 `initialize_map + 3*finish_node`，17个为 Agent 额外普通动作。17个普通动作进一步由5个额外 inspect/discovery、5个额外 validation/environment probe 和第二轮7个 patch/read 修复循环组成。TaskSpace 的强制 Map 工具协议形成稳定底噪，其中2个 pre-init 拒绝也是明确的 TaskSpace 特有成本；其余15个普通动作只能认定为本轮 Agent 行为差异，尚不能用三轮数据证明是 TaskSpace 的稳定因果效应。初始化协议已完整送达模型；当前可进一步收敛的机制缺口，是 hard-state 工具可用面仍暴露无效普通工具，以及 native scheduler 缺少 Agent-authored、runtime-mechanical 的有序状态屏障。
+- Current conclusion: G1 的29次请求差已被高置信度分解，J1/J2/J3 也已补齐空 Map tool choice、有序屏障和终态事务。但 J4 出现了新的、可定位的 control 回归：G1 在机械动作契约完整时稳定使用 `finish_node(next_node_id)`，三轮 `bind_node=0`；`d2cc4b7` 简化 schema 后删掉了初始化绑定、finish 原子切换和默认当前节点等操作语义，J4 同类运行稳定变成 `initialize + N*bind + N*finish`。初始化结果本身正确进入上下文，问题属于工具能力契约的语义缺失，不是结果丢失或扭曲，也不是 DeepSeek 不支持多工具。另一方面，`finish -> ordinary tool` 的 mixed barrier 为0不能与重复 bind 混为一谈：同一模型响应无法看到前一个工具的执行结果，Agent 只批量提交互不依赖的普通工具，而在状态迁移边界选择等待结果，符合原生 tool loop 的保守依赖语义。J2 解决的是 runtime 能否安全执行 Agent 已声明的序列，不会也不应强迫 Agent 声明该序列。因此 J4 的首要修复方向是恢复克制、精确的机械 API 契约并验证 `bind_node=0`；不得通过 runtime 自动绑定、自动合并、拒绝合法重复 bind 或语义提示来追求 mixed 数字。
 - Related hypotheses:
   - H-001
   - H-002
@@ -58,6 +64,8 @@
   - H-005
   - H-006
   - H-007
+  - H-008
+  - H-009
 - Resolution basis:
   - E-001
   - E-002
@@ -69,6 +77,10 @@
   - E-008
   - E-009
   - E-010
+  - E-011
+  - E-012
+  - E-013
+  - E-014
 - Close reason:
   - diagnosis complete; repair not authorized
 
@@ -357,6 +369,93 @@
 - Close reason:
   - not closed
 
+## Hypothesis H-008: J4 的重复 bind 来自工具简化时删除了机械动作语义
+- Status: confirmed
+- Parent: P-001
+- Claim: J4 中 Agent 在 `initialize_map` 后重复绑定当前节点、在每次 `finish_node` 后单独绑定下一节点，主要因为 `d2cc4b7` 删除了工具 schema 中初始化即时绑定、finish 原子切换和默认当前节点的机械用法说明。
+- Layer: root-cause
+- Factor relation: single
+- Depends on:
+  - none
+- Rationale:
+  - 状态机作为工具必须准确暴露调用契约；删除任务策略是正确的，但不能同时删除参数已经实现的机械效果。
+- Falsifiable predictions:
+  - If true: 变更前同类运行会使用 `finish_node(next_node_id)` 且没有 `bind_node`；变更后会系统性出现单独 bind。
+  - If false: 两个版本的 schema 相同，或行为回归早于该提交，或初始化输出没有向 Agent 返回当前节点。
+- Diagnostic evidence plan:
+  - Prediction or clause under test: 对比 G1/J4 rollout、`d2cc4b7` 前后 tool schema 和初始化原始输出。
+  - Signal: `next_node_id`、`bind_node` 数量、参数 description 和完整 tool description。
+  - Capture method: git diff 加 Docker rollout call/output 对账。
+  - Correlation keys:
+    - commit
+    - run id
+    - node id
+  - Differentiates from:
+    - Provider 不支持多工具调用。
+    - 初始化结果被 projection 丢失或改写。
+    - runtime 主动要求重复绑定。
+  - Supports if:
+    - G1 三轮 `bind_node=0`，J4 多个样本稳定为 `bind_node=N`，且中间提交精确删除对应机械说明。
+  - Refutes if:
+    - 行为与契约变更不相关，或 Agent 已收到同等明确的机械语义。
+  - Instrumentation status: sufficient
+- Evidence gate: satisfied
+- Related evidence:
+  - E-009
+  - E-011
+  - E-012
+  - E-013
+- Conclusion: confirmed
+- Repair design readiness: ready
+- Next step: 只恢复参数真实行为的精确机械契约，并以固定拓扑 `bind_node=0`、`initialize + N*finish` 为收益门禁。
+- Blocker:
+  - functional repair not part of this diagnostic turn
+- Close reason:
+  - not closed
+
+## Hypothesis H-009: mixed barrier 为零是依赖边界选择，不是 Provider 多工具能力缺失
+- Status: confirmed
+- Parent: P-001
+- Claim: J4 真实运行没有生成 `taskspace_control -> ordinary tool` 混合 response，是因为状态迁移后的普通动作依赖迁移结果，而一次 function-calling response 在生成全部 calls 时尚未收到中间工具结果；不是 Provider 禁用了多工具调用。
+- Layer: mechanism
+- Factor relation: single
+- Depends on:
+  - H-007
+- Rationale:
+  - J2 只让 runtime 能安全执行已声明序列，不能改变模型生成一轮 calls 时看不到中间结果的事实。
+- Falsifiable predictions:
+  - If true: 同一运行中独立 ordinary calls 仍会批量出现；模型/provider 配置允许 parallel calls；只有状态边界 mixed 为0。
+  - If false: Standard 和 R5 的独立普通调用也全部退化为单调用，或 provider payload 禁止 parallel calls。
+- Diagnostic evidence plan:
+  - Prediction or clause under test: 对比 Standard/R5 tool-bearing responses，并核对 provider model 配置和 J2 runtime path。
+  - Signal: ordinary batching savings、`supports_parallel_tool_calls`、mixed barrier count。
+  - Capture method: performance observer、provider wire 和源码审计。
+  - Correlation keys:
+    - response index
+    - tool call id
+    - run id
+  - Differentiates from:
+    - 工具能力整体关闭。
+    - scheduler 无法执行有序 barrier。
+    - tool result feedback 丢失。
+  - Supports if:
+    - 独立调用继续成批返回，而所有真实状态迁移边界都选择重新采样。
+  - Refutes if:
+    - provider 根本不能返回多个 calls，或模型在相同契约下稳定生成 mixed 序列。
+  - Instrumentation status: permanent-observability-candidate
+- Evidence gate: satisfied for current runs; not a universal model limitation claim
+- Related evidence:
+  - E-011
+  - E-012
+  - E-014
+- Conclusion: 当前数据确认 provider 能力存在、独立批处理正常；mixed=0 是 Agent 在依赖边界的实际选择。不能据此假设 DeepSeek 原生 tool loop 不稳定，也不能要求 runtime 自动补动作。
+- Repair design readiness: not applicable as runtime repair
+- Next step: 将 mixed barrier 保留为能力观测项，不再把 `control-only <= 1` 作为强制收益门禁；优先消除由契约缺失产生的冗余 bind。
+- Blocker:
+  - none
+- Close reason:
+  - scoped mechanism diagnosed
+
 ## Evidence E-001: 三轮请求可完全拆成工具响应和最终回答
 - Related hypotheses:
   - H-001
@@ -607,3 +706,117 @@
   ```
 - Interpretation: 有序多步骤不是不可实现；应把 barrier 能力下沉到通用 native tool scheduler，保留每个工具的权限、沙箱、原始反馈和 trace，而不是恢复会禁用 native tools、引入独立 JSON 协议的旧 transport。
 - Time: 2026-07-10 23:24
+
+## Evidence E-011: G1 真实运行曾稳定使用 finish 的原子下一节点绑定
+- Related hypotheses:
+  - H-008
+  - H-009
+- Direction: supports
+- Type: diagnostic-log
+- Source: `target/r5-g1-repeats/count-call-stack/20260710-210444-351`
+- Prediction or plan link:
+  - H-008 pre-change behavior
+- Matched signal:
+  - 三轮均为 `initialize_map=1, finish_node=3, bind_node=0`
+- Correlation keys:
+  - pair-001..003
+  - node-1..3
+- Raw content:
+  ```text
+  initialize_map(current_node_key=explore)
+    -> current_node=node-1
+  finish_node(node-1, next_node_id=node-2)
+    -> node-1 completed; node-2 bound
+  finish_node(node-2, next_node_id=node-3)
+    -> node-2 completed; node-3 bound
+  finish_node(node-3)
+  bind_node=0
+  ```
+- Interpretation: DeepSeek 已在相同产品和同类样本中正确使用过原子状态动作，不能把 J4 行为归因于模型天然不会组合。
+- Time: 2026-07-11
+
+## Evidence E-012: J4 同类运行稳定退化为每节点单独 bind 和 finish
+- Related hypotheses:
+  - H-008
+  - H-009
+- Direction: supports
+- Type: diagnostic-log
+- Source: `target/r5-j4-batching-contract/count-call-stack/20260711-060333-715` and J4 performance observations
+- Prediction or plan link:
+  - H-008 post-change behavior
+- Matched signal:
+  - 固定三节点样本为 `initialize_map=1, bind_node=3, finish_node=3`，且所有 control 独占 response
+- Correlation keys:
+  - pair-001
+  - node-1..3
+- Raw content:
+  ```text
+  initialize_map -> current_node=node-1
+  bind_node(node-1)
+  finish_node(node-1)
+  bind_node(node-2)
+  finish_node(node-2)
+  bind_node(node-3)
+  finish_node(node-3)
+
+  J4 fixed sample: controls=7, mixed barrier=0
+  multi-file sample: controls=13, mixed barrier=0
+  subscription sample: controls=18, mixed barrier=0
+  ```
+- Interpretation: 初始化原始输出完整包含 `current_node`，但 Agent 没有把它理解为“已建立立即可用的 binding”；行为是系统性契约理解回归，不是单轮随机失误。
+- Time: 2026-07-11
+
+## Evidence E-013: `d2cc4b7` 精确删除了原子动作的机械使用说明
+- Related hypotheses:
+  - H-008
+- Direction: supports
+- Type: source-inspection
+- Source: `git diff d2cc4b7^ d2cc4b7 -- tools/src/taskspace_tool.rs`
+- Prediction or plan link:
+  - H-008 schema regression
+- Matched signal:
+  - 参数仍存在且 runtime 行为仍实现，但 schema 不再说明即时绑定、默认当前节点和 finish 原子切换
+- Correlation keys:
+  - commit `d2cc4b7`
+  - `current_node_key`
+  - `node_id`
+  - `next_node_id`
+- Raw content:
+  ```text
+  before current_node_key:
+    Required for initialize_map. node_key to bind for immediate work.
+  after current_node_key:
+    Required current node key for initialize_map.
+
+  before finish_node:
+    node_id is optional and defaults mechanically to the current main node binding.
+    It may also bind next_node_id ... atomically.
+  after tool description:
+    no per-action lifecycle semantics
+  ```
+- Interpretation: R5 拆除过度设计时误删了工具自描述所必需的 API 契约。该层可以描述参数的真实机械效果，但不应注入任务策略。
+- Time: 2026-07-11
+
+## Evidence E-014: Provider 多工具能力开启且独立 ordinary calls 继续批处理
+- Related hypotheses:
+  - H-009
+- Direction: supports
+- Type: source-and-runtime-inspection
+- Source: `models-manager/models.json`, J0 provider probe, J4 Standard/R5 traces
+- Prediction or plan link:
+  - H-009 provider capability alternative
+- Matched signal:
+  - `deepseek-v4-flash.supports_parallel_tool_calls=true`；J0 返回有序多 calls；J4 独立 reads/tests 仍同 response 批量出现
+- Correlation keys:
+  - model slug
+  - response index
+  - tool call id
+- Raw content:
+  ```text
+  supports_parallel_tool_calls: true
+  J0 required probe: first_step -> second_step in one response
+  G1/J4 ordinary-only responses: multiple independent calls observed
+  J4 mixed taskspace_control/ordinary responses: 0
+  ```
+- Interpretation: 多工具能力没有被关闭。状态迁移后的动作需要依赖前一步执行结果，而模型生成同一 response 的全部 calls 时看不到该结果；J2 让 runtime 可以安全承载这种预声明序列，但不保证 Agent 会选择它。
+- Time: 2026-07-11
