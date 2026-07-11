@@ -134,10 +134,6 @@ fn test_full_toolset_specs_for_gpt5_codex_unified_exec_web_search() {
     for spec in collab_specs {
         expected.insert(spec.name().to_string(), spec);
     }
-    if config.collab_tools {
-        let spec = create_taskspace_control_tool();
-        expected.insert(spec.name().to_string(), spec);
-    }
     if !config.multi_agent_v2 {
         let spec = create_resume_agent_tool();
         expected.insert(spec.name().to_string(), spec);
@@ -145,6 +141,11 @@ fn test_full_toolset_specs_for_gpt5_codex_unified_exec_web_search() {
 
     if config.exec_permission_approvals_enabled {
         let spec = create_request_permissions_tool(request_permissions_tool_description());
+        expected.insert(spec.name().to_string(), spec);
+    }
+    if config.collab_tools {
+        let visible_tools = expected.values().cloned().collect::<Vec<_>>();
+        let spec = create_taskspace_control_tool(&visible_tools);
         expected.insert(spec.name().to_string(), spec);
     }
 
@@ -229,28 +230,39 @@ fn taskspace_map_lifecycle_schema_is_the_only_taskspace_control_schema() {
     let ToolSpec::Function(ResponsesApiTool { parameters, .. }) = &taskspace.spec else {
         panic!("taskspace_control should be a function tool");
     };
-    let (properties, _) = expect_object_schema(parameters);
-    let actions = properties["action"]
-        .enum_values
+    let actions = parameters
+        .any_of
         .as_ref()
-        .expect("action enum")
+        .expect("action variants")
         .iter()
-        .map(|value| value.as_str().expect("action string"))
+        .map(|variant| {
+            let (properties, _) = expect_object_schema(variant);
+            properties["action"]
+                .enum_values
+                .as_ref()
+                .expect("action enum")[0]
+                .as_str()
+                .expect("action string")
+        })
         .collect::<Vec<_>>();
     assert_eq!(
         actions,
         vec![
-            "initialize_map",
+            "initialize_then_actions",
+            "finish_then_actions",
+            "finish_then_end",
             "create_node",
             "bind_node",
-            "finish_node",
             "block_node",
             "read_output_ref",
         ]
     );
-    assert!(!properties.contains_key("output_contracts"));
-    assert!(!properties.contains_key("state_commit"));
-    assert!(!properties.contains_key("output_contract_id"));
+    let serialized = serde_json::to_string(parameters).expect("serialize parameters");
+    assert!(!serialized.contains("initialize_map"));
+    assert!(!serialized.contains("finish_node"));
+    assert!(!serialized.contains("output_contracts"));
+    assert!(!serialized.contains("state_commit"));
+    assert!(!serialized.contains("output_contract_id"));
 }
 
 #[test]

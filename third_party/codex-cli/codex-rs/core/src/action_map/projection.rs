@@ -48,7 +48,7 @@ pub(super) fn render_active_projection(input: ActiveProjectionInput) -> Rendered
         push_field(
             &mut body,
             "initialization_contract",
-            "taskspace_control(action=initialize_map)",
+            "taskspace_control(action=initialize_then_actions)",
         );
     }
     push_field(&mut body, "current_node", &input.current_node);

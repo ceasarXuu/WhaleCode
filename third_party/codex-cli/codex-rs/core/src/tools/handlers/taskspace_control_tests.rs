@@ -2,20 +2,27 @@ use super::*;
 
 #[test]
 fn parses_agent_authored_map() {
-    let args: TaskSpaceControlArgs = serde_json::from_value(serde_json::json!({
-        "action": "initialize_map",
-        "task_title": "Patch bug",
-        "task_objective": "Fix and verify",
-        "initial_nodes": [{
-            "node_key": "inspect",
-            "kind": "inspect_code_context",
-            "title": "Inspect",
-            "context_summary": "Read relevant code"
-        }],
-        "current_node_key": "inspect"
-    }))
-    .expect("parse initialize_map");
-    assert!(matches!(args, TaskSpaceControlArgs::InitializeMap { .. }));
+    let args = parse_taskspace_control_args(
+        &serde_json::json!({
+            "action": "initialize_then_actions",
+            "task_title": "Patch bug",
+            "task_objective": "Fix and verify",
+            "initial_nodes": [{
+                "node_key": "inspect",
+                "kind": "inspect_code_context",
+                "title": "Inspect",
+                "context_summary": "Read relevant code"
+            }],
+            "current_node_key": "inspect",
+            "actions": [{"tool_name": "exec_command", "arguments": {"cmd": "pwd"}}]
+        })
+        .to_string(),
+    )
+    .expect("parse initialize_then_actions");
+    assert!(matches!(
+        args,
+        TaskSpaceControlArgs::InitializeThenActions { .. }
+    ));
 }
 
 #[test]
@@ -29,7 +36,7 @@ fn initialize_output_has_directional_node_mapping() {
         ],
         current_node_id: "node-1".into(),
     });
-    let value: JsonValue = serde_json::from_str(&output).expect("structured output");
+    let value: JsonValue = output;
 
     assert_eq!(value["schema_version"], "TaskSpaceInitializeMapResultV1");
     assert_eq!(value["current_node_key"], "inspect");
@@ -40,16 +47,19 @@ fn initialize_output_has_directional_node_mapping() {
 
 #[test]
 fn parses_agent_authored_terminal_candidate() {
-    let args: TaskSpaceControlArgs = serde_json::from_value(serde_json::json!({
-        "action": "finish_node",
-        "result_summary": "Validation passed.",
-        "final_candidate": "Exact final answer."
-    }))
+    let args = parse_taskspace_control_args(
+        &serde_json::json!({
+            "action": "finish_then_end",
+            "terminal_finish": {"result_summary": "Validation passed."},
+            "final_candidate": "Exact final answer."
+        })
+        .to_string(),
+    )
     .expect("parse terminal finish");
     assert!(matches!(
         args,
-        TaskSpaceControlArgs::FinishNode {
-            final_candidate: Some(candidate),
+        TaskSpaceControlArgs::FinishThenEnd {
+            final_candidate: candidate,
             ..
         } if candidate == "Exact final answer."
     ));
@@ -57,21 +67,25 @@ fn parses_agent_authored_terminal_candidate() {
 
 #[test]
 fn rejects_removed_semantic_action_at_parse_boundary() {
-    let error = serde_json::from_value::<TaskSpaceControlArgs>(serde_json::json!({
-        "action": "record_fact",
-        "claim_id": "fact-1",
-        "statement": "legacy"
-    }))
+    let error = parse_taskspace_control_args(
+        &serde_json::json!({
+            "action": "record_fact",
+            "claim_id": "fact-1",
+            "statement": "legacy"
+        })
+        .to_string(),
+    )
     .expect_err("removed action");
     assert!(error.to_string().contains("unknown variant"));
 }
 
 #[test]
-fn finish_without_next_node_has_no_draft() {
-    assert_eq!(
-        build_next_node_draft(None, None, None, Vec::new()).expect("draft"),
-        None
-    );
+fn finish_without_next_action_is_rejected() {
+    let error = parse_taskspace_control_args(
+        r#"{"action":"finish_then_actions","finishes":[{"result_summary":"done"}],"actions":[{"tool_name":"exec_command","arguments":{"cmd":"pwd"}}]}"#,
+    )
+    .expect_err("missing next binding");
+    assert!(error.to_string().contains("requires exactly one"));
 }
 
 #[test]

@@ -1,11 +1,13 @@
 use std::collections::BTreeMap;
 
 use crate::JsonSchema;
+use crate::ResponsesApiNamespaceTool;
 use crate::ResponsesApiTool;
 use crate::ToolSpec;
+use serde_json::Value;
 use serde_json::json;
 
-fn node_kind_values() -> Vec<serde_json::Value> {
+fn node_kind_values() -> Vec<Value> {
     vec![
         json!("inspect_code_context"),
         json!("implement_solution"),
@@ -15,33 +17,138 @@ fn node_kind_values() -> Vec<serde_json::Value> {
     ]
 }
 
+fn action_tag(action: &str) -> JsonSchema {
+    JsonSchema::string_enum(
+        vec![json!(action)],
+        Some("Mechanical action variant.".into()),
+    )
+}
+
+fn object_variant(
+    action: &str,
+    mut properties: BTreeMap<String, JsonSchema>,
+    mut required: Vec<String>,
+) -> JsonSchema {
+    properties.insert("action".into(), action_tag(action));
+    required.insert(0, "action".into());
+    JsonSchema::object(properties, Some(required), Some(false.into()))
+}
+
+fn object_any_of(variants: Vec<JsonSchema>, description: &str) -> JsonSchema {
+    let mut schema = JsonSchema::object(BTreeMap::new(), None, None);
+    schema.description = Some(description.into());
+    schema.any_of = Some(variants);
+    schema
+}
+
+fn generic_arguments_schema() -> JsonSchema {
+    JsonSchema::object(BTreeMap::new(), None, Some(true.into()))
+}
+
+fn function_action_schema(name: &str, namespace: Option<&str>) -> JsonSchema {
+    let mut properties = BTreeMap::from([
+        (
+            "tool_name".into(),
+            JsonSchema::string_enum(
+                vec![json!(name)],
+                Some("Visible ordinary tool name.".into()),
+            ),
+        ),
+        ("arguments".into(), generic_arguments_schema()),
+    ]);
+    let mut required = vec!["tool_name".into(), "arguments".into()];
+    if let Some(namespace) = namespace {
+        properties.insert(
+            "namespace".into(),
+            JsonSchema::string_enum(
+                vec![json!(namespace)],
+                Some("Visible tool namespace.".into()),
+            ),
+        );
+        required.insert(0, "namespace".into());
+    }
+    JsonSchema::object(properties, Some(required), Some(false.into()))
+}
+
+fn custom_action_schema(name: &str) -> JsonSchema {
+    JsonSchema::object(
+        BTreeMap::from([
+            (
+                "tool_name".into(),
+                JsonSchema::string_enum(
+                    vec![json!(name)],
+                    Some("Visible ordinary custom tool name.".into()),
+                ),
+            ),
+            (
+                "input".into(),
+                JsonSchema::string(Some("Exact custom tool input.".into())),
+            ),
+        ]),
+        Some(vec!["tool_name".into(), "input".into()]),
+        Some(false.into()),
+    )
+}
+
+fn nested_action_schema(visible_tools: &[ToolSpec]) -> JsonSchema {
+    let mut variants = Vec::new();
+    for spec in visible_tools {
+        match spec {
+            ToolSpec::Function(tool)
+                if !matches!(tool.name.as_str(), "taskspace_control" | "update_plan") =>
+            {
+                variants.push((tool.name.clone(), function_action_schema(&tool.name, None)));
+            }
+            ToolSpec::Namespace(namespace) => {
+                for tool in &namespace.tools {
+                    let ResponsesApiNamespaceTool::Function(tool) = tool;
+                    variants.push((
+                        format!("{}.{}", namespace.name, tool.name),
+                        function_action_schema(&tool.name, Some(&namespace.name)),
+                    ));
+                }
+            }
+            ToolSpec::Freeform(tool) => {
+                variants.push((tool.name.clone(), custom_action_schema(&tool.name)));
+            }
+            ToolSpec::Function(_)
+            | ToolSpec::ToolSearch { .. }
+            | ToolSpec::LocalShell {}
+            | ToolSpec::ImageGeneration { .. }
+            | ToolSpec::WebSearch { .. } => {}
+        }
+    }
+    variants.sort_by(|left, right| left.0.cmp(&right.0));
+    object_any_of(
+        variants.into_iter().map(|(_, schema)| schema).collect(),
+        "One Agent-authored ordinary tool call visible in this request.",
+    )
+}
+
 fn initial_node_schema() -> JsonSchema {
     JsonSchema::object(
         BTreeMap::from([
             (
-                "node_key".to_string(),
+                "node_key".into(),
                 JsonSchema::string(Some(
                     "Key used by dependencies and current_node_key.".into(),
                 )),
             ),
             (
-                "kind".to_string(),
+                "kind".into(),
                 JsonSchema::string_enum(node_kind_values(), Some("Node type.".into())),
             ),
             (
-                "title".to_string(),
+                "title".into(),
                 JsonSchema::string(Some("Agent-authored node title.".into())),
             ),
             (
-                "context_summary".to_string(),
+                "context_summary".into(),
                 JsonSchema::string(Some("Agent-authored node context.".into())),
             ),
             (
-                "dependency_keys".to_string(),
-                JsonSchema::array(
-                    JsonSchema::string(None),
-                    Some("Keys of prerequisite nodes.".into()),
-                ),
+                "dependency_keys".into(),
+                JsonSchema::array(JsonSchema::string(None), Some("Prerequisite keys.".into())),
             ),
         ]),
         Some(vec![
@@ -54,178 +161,245 @@ fn initial_node_schema() -> JsonSchema {
     )
 }
 
-pub fn create_taskspace_control_tool() -> ToolSpec {
-    let properties = BTreeMap::from([
-        (
-            "action".to_string(),
-            JsonSchema::string_enum(
-                vec![
-                    json!("initialize_map"),
-                    json!("create_node"),
-                    json!("bind_node"),
-                    json!("finish_node"),
-                    json!("block_node"),
-                    json!("read_output_ref"),
-                ],
-                Some("Mechanical TaskSpace map operation.".into()),
+fn next_existing_finish_schema() -> JsonSchema {
+    JsonSchema::object(
+        BTreeMap::from([
+            (
+                "node_id".into(),
+                JsonSchema::string(Some("Optional explicit ready finish target.".into())),
             ),
-        ),
-        (
-            "task_title".to_string(),
-            JsonSchema::string(Some("Required for initialize_map.".into())),
-        ),
-        (
-            "task_objective".to_string(),
-            JsonSchema::string(Some("Required for initialize_map.".into())),
-        ),
-        (
-            "initial_nodes".to_string(),
-            JsonSchema::array(
-                initial_node_schema(),
-                Some("Required non-empty node graph for initialize_map.".into()),
+            (
+                "result_summary".into(),
+                JsonSchema::string(Some("Agent-authored node result.".into())),
             ),
-        ),
-        (
-            "current_node_key".to_string(),
-            JsonSchema::string(Some(
-                "Required for initialize_map. The referenced initial node is bound as current in the same state transition."
-                    .into(),
-            )),
-        ),
-        (
-            "kind".to_string(),
-            JsonSchema::string_enum(node_kind_values(), Some("Required for create_node.".into())),
-        ),
-        (
-            "title".to_string(),
-            JsonSchema::string(Some("Required for create_node.".into())),
-        ),
-        (
-            "context_summary".to_string(),
-            JsonSchema::string(Some("Required for create_node.".into())),
-        ),
-        (
-            "dependency_node_ids".to_string(),
-            JsonSchema::array(
-                JsonSchema::string(None),
-                Some("Existing prerequisite node ids for create_node.".into()),
+            (
+                "next_node_id".into(),
+                JsonSchema::string(Some("Existing node bound after this finish.".into())),
             ),
-        ),
-        (
-            "bind_current".to_string(),
-            JsonSchema::boolean(Some(
-                "Optional for create_node. When true, node creation and current binding commit atomically."
-                    .into(),
-            )),
-        ),
-        (
-            "node_id".to_string(),
-            JsonSchema::string(Some(
-                "Required for bind_node and block_node. Optional for finish_node, which defaults to the current binding. With no current binding, an explicit ready finish target is claimed and finished atomically."
-                    .into(),
-            )),
-        ),
-        (
-            "result_summary".to_string(),
-            JsonSchema::string(Some("Agent-authored summary for finish_node.".into())),
-        ),
-        (
-            "final_candidate".to_string(),
-            JsonSchema::string(Some(
-                "Optional Agent-authored final answer for a terminal finish_node; it is released unchanged only when the finish and final lifecycle gate succeed."
-                    .into(),
-            )),
-        ),
-        (
-            "next_node_id".to_string(),
-            JsonSchema::string(Some(
-                "Optional for finish_node. Finishing the current node and binding this existing next node commit atomically."
-                    .into(),
-            )),
-        ),
-        (
-            "next_node_kind".to_string(),
-            JsonSchema::string_enum(
-                node_kind_values(),
-                Some("Type of an atomically created next node.".into()),
+        ]),
+        Some(vec!["result_summary".into(), "next_node_id".into()]),
+        Some(false.into()),
+    )
+}
+
+fn next_created_finish_schema() -> JsonSchema {
+    JsonSchema::object(
+        BTreeMap::from([
+            (
+                "node_id".into(),
+                JsonSchema::string(Some("Optional explicit ready finish target.".into())),
             ),
-        ),
-        (
-            "next_node_title".to_string(),
-            JsonSchema::string(Some("Title of an atomically created next node.".into())),
-        ),
-        (
-            "next_node_context_summary".to_string(),
-            JsonSchema::string(Some("Context of an atomically created next node.".into())),
-        ),
-        (
-            "next_dependency_node_ids".to_string(),
-            JsonSchema::array(
-                JsonSchema::string(None),
-                Some("Prerequisites of an atomically created next node.".into()),
+            (
+                "result_summary".into(),
+                JsonSchema::string(Some("Agent-authored node result.".into())),
             ),
-        ),
-        (
-            "blocker_summary".to_string(),
-            JsonSchema::string(Some("Agent-authored blocker for block_node.".into())),
-        ),
-        (
-            "output_ref".to_string(),
-            JsonSchema::string(Some("OutputReferenceV1 id for read_output_ref.".into())),
-        ),
-        (
-            "mode".to_string(),
-            JsonSchema::string_enum(
-                vec![
-                    json!("head"),
-                    json!("tail"),
-                    json!("line_range"),
-                    json!("grep"),
-                ],
-                Some("Slice mode for read_output_ref.".into()),
+            (
+                "next_node_kind".into(),
+                JsonSchema::string_enum(node_kind_values(), Some("Created node type.".into())),
             ),
+            (
+                "next_node_title".into(),
+                JsonSchema::string(Some("Created node title.".into())),
+            ),
+            (
+                "next_node_context_summary".into(),
+                JsonSchema::string(Some("Created node context.".into())),
+            ),
+            (
+                "next_dependency_node_ids".into(),
+                JsonSchema::array(
+                    JsonSchema::string(None),
+                    Some("Created node prerequisites.".into()),
+                ),
+            ),
+        ]),
+        Some(vec![
+            "result_summary".into(),
+            "next_node_kind".into(),
+            "next_node_title".into(),
+            "next_node_context_summary".into(),
+        ]),
+        Some(false.into()),
+    )
+}
+
+fn nonterminal_finish_schema() -> JsonSchema {
+    object_any_of(
+        vec![next_existing_finish_schema(), next_created_finish_schema()],
+        "Finish one node and establish the next binding atomically.",
+    )
+}
+
+fn terminal_finish_schema() -> JsonSchema {
+    JsonSchema::object(
+        BTreeMap::from([
+            (
+                "node_id".into(),
+                JsonSchema::string(Some("Optional explicit ready terminal target.".into())),
+            ),
+            (
+                "result_summary".into(),
+                JsonSchema::string(Some("Agent-authored terminal node result.".into())),
+            ),
+        ]),
+        Some(vec!["result_summary".into()]),
+        Some(false.into()),
+    )
+}
+
+fn initialize_then_actions_schema(actions: &JsonSchema) -> JsonSchema {
+    object_variant(
+        "initialize_then_actions",
+        BTreeMap::from([
+            (
+                "task_title".into(),
+                JsonSchema::string(Some("Task title.".into())),
+            ),
+            (
+                "task_objective".into(),
+                JsonSchema::string(Some("Task objective.".into())),
+            ),
+            (
+                "initial_nodes".into(),
+                JsonSchema::array(initial_node_schema(), Some("Initial node graph.".into()))
+                    .with_min_items(1),
+            ),
+            (
+                "current_node_key".into(),
+                JsonSchema::string(Some("Initial node bound before actions execute.".into())),
+            ),
+            (
+                "actions".into(),
+                JsonSchema::array(actions.clone(), Some("Immediate ordinary actions.".into()))
+                    .with_min_items(1),
+            ),
+        ]),
+        vec![
+            "task_title".into(),
+            "task_objective".into(),
+            "initial_nodes".into(),
+            "current_node_key".into(),
+            "actions".into(),
+        ],
+    )
+}
+
+fn finish_then_actions_schema(actions: &JsonSchema) -> JsonSchema {
+    object_variant(
+        "finish_then_actions",
+        BTreeMap::from([
+            (
+                "finishes".into(),
+                JsonSchema::array(
+                    nonterminal_finish_schema(),
+                    Some("Ordered nonterminal finishes.".into()),
+                )
+                .with_min_items(1),
+            ),
+            (
+                "actions".into(),
+                JsonSchema::array(actions.clone(), Some("Immediate ordinary actions.".into()))
+                    .with_min_items(1),
+            ),
+        ]),
+        vec!["finishes".into(), "actions".into()],
+    )
+}
+
+fn finish_then_end_schema() -> JsonSchema {
+    object_variant(
+        "finish_then_end",
+        BTreeMap::from([
+            (
+                "preceding_finishes".into(),
+                JsonSchema::array(
+                    nonterminal_finish_schema(),
+                    Some("Optional ordered finishes before the terminal finish.".into()),
+                ),
+            ),
+            ("terminal_finish".into(), terminal_finish_schema()),
+            (
+                "final_candidate".into(),
+                JsonSchema::string(Some("Exact Agent-authored final answer.".into())),
+            ),
+        ]),
+        vec!["terminal_finish".into(), "final_candidate".into()],
+    )
+}
+
+fn simple_action_schemas() -> Vec<JsonSchema> {
+    vec![
+        object_variant(
+            "create_node",
+            BTreeMap::from([
+                (
+                    "kind".into(),
+                    JsonSchema::string_enum(node_kind_values(), None),
+                ),
+                ("title".into(), JsonSchema::string(None)),
+                ("context_summary".into(), JsonSchema::string(None)),
+                (
+                    "dependency_node_ids".into(),
+                    JsonSchema::array(JsonSchema::string(None), None),
+                ),
+                ("bind_current".into(), JsonSchema::boolean(None)),
+            ]),
+            vec!["kind".into(), "title".into(), "context_summary".into()],
         ),
-        (
-            "start_line".to_string(),
-            JsonSchema::integer(Some("1-based inclusive start line.".into())),
+        object_variant(
+            "bind_node",
+            BTreeMap::from([("node_id".into(), JsonSchema::string(None))]),
+            vec!["node_id".into()],
         ),
-        (
-            "end_line".to_string(),
-            JsonSchema::integer(Some("1-based inclusive end line.".into())),
+        object_variant(
+            "block_node",
+            BTreeMap::from([
+                ("node_id".into(), JsonSchema::string(None)),
+                ("blocker_summary".into(), JsonSchema::string(None)),
+            ]),
+            vec!["node_id".into(), "blocker_summary".into()],
         ),
-        (
-            "pattern".to_string(),
-            JsonSchema::string(Some("Literal grep pattern.".into())),
+        object_variant(
+            "read_output_ref",
+            BTreeMap::from([
+                ("output_ref".into(), JsonSchema::string(None)),
+                (
+                    "mode".into(),
+                    JsonSchema::string_enum(
+                        vec![
+                            json!("head"),
+                            json!("tail"),
+                            json!("line_range"),
+                            json!("grep"),
+                        ],
+                        None,
+                    ),
+                ),
+                ("start_line".into(), JsonSchema::integer(None)),
+                ("end_line".into(), JsonSchema::integer(None)),
+                ("pattern".into(), JsonSchema::string(None)),
+                ("max_bytes".into(), JsonSchema::integer(None)),
+            ]),
+            vec!["output_ref".into(), "mode".into()],
         ),
-        (
-            "max_bytes".to_string(),
-            JsonSchema::integer(Some("Bounded output byte limit.".into())),
-        ),
-    ]);
+    ]
+}
+
+pub fn create_taskspace_control_tool(visible_tools: &[ToolSpec]) -> ToolSpec {
+    let actions = nested_action_schema(visible_tools);
+    let mut variants = vec![
+        initialize_then_actions_schema(&actions),
+        finish_then_actions_schema(&actions),
+        finish_then_end_schema(),
+    ];
+    variants.extend(simple_action_schemas());
 
     ToolSpec::Function(ResponsesApiTool {
         name: "taskspace_control".into(),
-        description: r#"Mandatory mechanical map tool used while TaskSpace is enabled.
-
-The Agent owns task semantics and explicitly initializes the map, creates or binds nodes, and records node completion or blockage. Runtime only validates ids, dependencies, status, bindings, leases, and tool/result pairing.
-
-Mechanical action effects:
-- initialize_map creates the supplied graph and binds current_node_key in one state transition.
-- create_node can create and bind a node atomically with bind_current=true.
-- bind_node binds an existing node as current.
-- finish_node defaults node_id to the current binding. With no current binding, an explicit ready node_id is claimed and finished atomically. It can finish and bind next_node_id atomically, or atomically create and bind a next node with the next_node_* fields.
-- block_node records the blocker and blocks the named node.
-- read_output_ref returns a bounded slice of retained tool output.
-
-Ordinary tools require a current node binding. One assistant response may contain any ordered sequence of TaskSpace control and ordinary tool calls, including multiple finish_node calls. Runtime serializes control barriers in provider order; every later call observes state committed by earlier barriers, and later calls are skipped if an earlier barrier fails. Prefer chaining a finish_node without a non-empty final_candidate to another call in the same response. Establish the next binding with next_node_id or next_node_* fields, or follow finish_node immediately with bind_node or create_node with bind_current=true before ordinary work. A standalone nonterminal finish_node remains valid and is only recorded as a cadence inefficiency. A terminal finish_node with final_candidate may be the last call. Runtime does not choose the next action or reinterpret tool feedback."#
-            .into(),
+        description: r#"Mandatory mechanical TaskSpace map tool. The Agent declares every state transition, immediate ordinary action, and final answer. initialize_then_actions initializes and binds the map before executing a non-empty actions list. finish_then_actions commits one or more ordered finishes, each with an explicit next binding, before executing a non-empty actions list. finish_then_end commits optional preceding finishes and one terminal finish before releasing final_candidate unchanged. Runtime executes only the declared sequence, stops after the first failure, and does not choose or infer actions."#.into(),
         strict: false,
         defer_loading: None,
-        parameters: JsonSchema::object(
-            properties,
-            Some(vec!["action".into()]),
-            Some(false.into()),
-        ),
+        parameters: object_any_of(variants, "Schema-first TaskSpace control operation."),
         output_schema: None,
     })
 }
@@ -233,71 +407,50 @@ Ordinary tools require a current node binding. One assistant response may contai
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::create_list_dir_tool;
 
     #[test]
-    fn taskspace_control_schema_is_map_lifecycle_only() {
-        let value = serde_json::to_value(create_taskspace_control_tool()).expect("serialize");
-        let description = value["description"].as_str().expect("description");
-        assert!(description.contains("including multiple finish_node calls"));
-        assert!(description.contains("every later call observes state committed"));
-        assert!(description.contains("Prefer chaining a finish_node"));
-        assert!(description.contains("Establish the next binding with next_node_id"));
-        assert!(description.contains("standalone nonterminal finish_node remains valid"));
-        assert!(description.contains("terminal finish_node with final_candidate may be the last"));
-        assert!(description.contains("binds current_node_key in one state transition"));
-        assert!(description.contains("finish and bind next_node_id atomically"));
-        assert!(description.contains("explicit ready node_id is claimed and finished atomically"));
-        let actions = value["parameters"]["properties"]["action"]["enum"]
-            .as_array()
-            .expect("action enum");
-        assert_eq!(
-            actions,
-            &vec![
-                json!("initialize_map"),
-                json!("create_node"),
-                json!("bind_node"),
-                json!("finish_node"),
-                json!("block_node"),
-                json!("read_output_ref"),
-            ]
-        );
-        let properties = value["parameters"]["properties"]
-            .as_object()
-            .expect("properties");
-        for removed in [
-            "schema_version",
-            "success_criteria",
-            "facts",
-            "decisions",
-            "result_validities",
-            "next_best_action",
-        ] {
-            assert!(!properties.contains_key(removed));
-        }
-        assert!(properties.contains_key("final_candidate"));
+    fn schema_requires_continuation_or_terminal_candidate() {
+        let value = serde_json::to_value(create_taskspace_control_tool(&[create_list_dir_tool()]))
+            .expect("serialize");
+        assert_eq!(value["parameters"]["type"], json!("object"));
+        let variants = value["parameters"]["anyOf"].as_array().expect("variants");
+        let action_names = variants
+            .iter()
+            .filter_map(|variant| variant["properties"]["action"]["enum"][0].as_str())
+            .collect::<Vec<_>>();
+        assert!(action_names.contains(&"initialize_then_actions"));
+        assert!(action_names.contains(&"finish_then_actions"));
+        assert!(action_names.contains(&"finish_then_end"));
+        assert!(!action_names.contains(&"initialize_map"));
+        assert!(!action_names.contains(&"finish_node"));
+
+        let finish = variants
+            .iter()
+            .find(|variant| {
+                variant["properties"]["action"]["enum"][0] == json!("finish_then_actions")
+            })
+            .expect("finish variant");
+        assert_eq!(finish["properties"]["finishes"]["minItems"], json!(1));
+        assert_eq!(finish["properties"]["actions"]["minItems"], json!(1));
         assert!(
-            properties["current_node_key"]["description"]
-                .as_str()
-                .expect("current_node_key description")
-                .contains("bound as current in the same state transition")
+            finish["required"]
+                .as_array()
+                .expect("required")
+                .contains(&json!("actions"))
         );
-        assert!(
-            properties["node_id"]["description"]
-                .as_str()
-                .expect("node_id description")
-                .contains("defaults to the current binding")
-        );
-        assert!(
-            properties["node_id"]["description"]
-                .as_str()
-                .expect("node_id description")
-                .contains("claimed and finished atomically")
-        );
-        assert!(
-            properties["next_node_id"]["description"]
-                .as_str()
-                .expect("next_node_id description")
-                .contains("commit atomically")
-        );
+    }
+
+    #[test]
+    fn nested_actions_only_enumerate_visible_ordinary_tools() {
+        let value = serde_json::to_value(create_taskspace_control_tool(&[
+            create_list_dir_tool(),
+            create_taskspace_control_tool(&[create_list_dir_tool()]),
+        ]))
+        .expect("serialize");
+        let text = value.to_string();
+        assert!(text.contains("list_dir"));
+        assert!(!text.contains("update_plan"));
+        assert_eq!(text.matches("taskspace_control").count(), 1);
     }
 }

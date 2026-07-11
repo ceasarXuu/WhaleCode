@@ -1307,14 +1307,10 @@ async fn build_initial_context_consumes_action_map_transition_notice_once() {
         first_developer_text.contains("TaskSpace mode is now active"),
         "expected transition notice in developer context, got: {first_developer_text}"
     );
-    assert!(
-        first_developer_text.contains("Prefer chaining a nonterminal finish_node"),
-        "expected cadence guidance in developer context, got: {first_developer_text}"
-    );
-    assert!(first_developer_text.contains("standalone nonterminal finish remains valid"));
-    assert!(
-        first_developer_text.contains("explicit ready target is claimed and finished atomically")
-    );
+    assert!(first_developer_text.contains("use the model-visible taskspace_control schema"));
+    assert!(first_developer_text.contains("runtime executes only Agent-declared transitions"));
+    assert!(!first_developer_text.contains("Prefer chaining"));
+    assert!(!first_developer_text.contains("standalone nonterminal finish"));
 
     let second_context = session.build_initial_context(&turn_context).await;
     let second_developer_text = developer_input_texts(&second_context).join("\n");

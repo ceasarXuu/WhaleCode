@@ -136,6 +136,29 @@ impl ToolRouter {
         })
     }
 
+    pub(crate) fn is_model_visible_nested_tool(
+        &self,
+        namespace: Option<&str>,
+        name: &str,
+        custom: bool,
+    ) -> bool {
+        self.model_visible_specs.iter().any(|spec| match spec {
+            ToolSpec::Function(tool) => !custom && namespace.is_none() && tool.name == name,
+            ToolSpec::Freeform(tool) => custom && namespace.is_none() && tool.name == name,
+            ToolSpec::Namespace(tool_namespace) => {
+                !custom
+                    && namespace == Some(tool_namespace.name.as_str())
+                    && tool_namespace.tools.iter().any(|tool| match tool {
+                        ResponsesApiNamespaceTool::Function(tool) => tool.name == name,
+                    })
+            }
+            ToolSpec::ToolSearch { .. }
+            | ToolSpec::LocalShell {}
+            | ToolSpec::ImageGeneration { .. }
+            | ToolSpec::WebSearch { .. } => false,
+        })
+    }
+
     pub(crate) fn create_diff_consumer(
         &self,
         tool_name: &ToolName,

@@ -19,6 +19,7 @@ use crate::tools::context::SharedTurnDiffTracker;
 use crate::tools::context::ToolPayload;
 use crate::tools::context::response_input_model_visible_preview;
 use crate::tools::context::tool_output_model_visible_preview;
+use crate::tools::handlers::taskspace_control_args::TaskSpaceNestedAction;
 use crate::tools::registry::AnyToolResult;
 use crate::tools::registry::ToolArgumentDiffConsumer;
 use crate::tools::router::ToolCall;
@@ -70,6 +71,32 @@ impl ToolCallRuntime {
         tool_name: &codex_tools::ToolName,
     ) -> Option<Box<dyn ToolArgumentDiffConsumer>> {
         self.router.create_diff_consumer(tool_name)
+    }
+
+    pub(crate) fn nested_action_is_visible(&self, action: &TaskSpaceNestedAction) -> bool {
+        self.router.is_model_visible_nested_tool(
+            action.namespace(),
+            action.tool_name(),
+            action.is_custom(),
+        )
+    }
+
+    pub(crate) async fn build_nested_tool_call(
+        &self,
+        action: &TaskSpaceNestedAction,
+        call_id: String,
+    ) -> Result<Option<ToolCall>, FunctionCallError> {
+        ToolRouter::build_tool_call(&self.session, action.to_response_item(call_id)).await
+    }
+
+    pub(crate) fn invalid_call_response(
+        call: &ToolCall,
+        message: impl Into<String>,
+    ) -> ResponseInputItem {
+        Self::failure_response(
+            call.clone(),
+            FunctionCallError::RespondToModel(message.into()),
+        )
     }
 
     #[instrument(level = "trace", skip_all)]

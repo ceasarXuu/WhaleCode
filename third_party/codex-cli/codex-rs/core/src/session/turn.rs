@@ -1891,7 +1891,7 @@ mod active_context_replacement_tests {
     fn taskspace_native_tools_hide_linear_plan_but_keep_map_control() {
         let tools = vec![
             codex_tools::create_update_plan_tool(),
-            codex_tools::create_taskspace_control_tool(),
+            codex_tools::create_taskspace_control_tool(&[codex_tools::create_list_dir_tool()]),
         ];
 
         let filtered =
@@ -1905,7 +1905,7 @@ mod active_context_replacement_tests {
     fn standard_native_tools_hide_map_control_but_keep_linear_plan() {
         let tools = vec![
             codex_tools::create_update_plan_tool(),
-            codex_tools::create_taskspace_control_tool(),
+            codex_tools::create_taskspace_control_tool(&[codex_tools::create_list_dir_tool()]),
         ];
 
         let visible =
@@ -2212,7 +2212,7 @@ mod active_context_replacement_tests {
         let items = vec![
             message(
                 "developer",
-                "TaskSpace mode is now active.\nBootstrap status: no Agent-authored map exists. taskspace_control(action=initialize_map) is required before ordinary tools.",
+                "TaskSpace mode is now active.\nBootstrap status: no Agent-authored map exists. taskspace_control(action=initialize_then_actions) is required before ordinary tools.",
             ),
             message("developer", &active_projection),
             message("user", "Preserve the current bug-fix requirement."),
@@ -2229,7 +2229,7 @@ mod active_context_replacement_tests {
         assert!(joined.contains("Preserve the current bug-fix requirement."));
         assert!(!joined.contains("Bootstrap status: no TaskSpace task exists"));
         assert!(!joined.contains("TaskSpace mode is now active."));
-        assert!(!joined.contains("taskspace_control(action=initialize_map)"));
+        assert!(!joined.contains("taskspace_control(action=initialize_then_actions)"));
     }
 
     #[test]

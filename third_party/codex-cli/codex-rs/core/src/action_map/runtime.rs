@@ -3057,7 +3057,7 @@ feedback:\n\
             }
             if !taskspace_task_path_is_mechanical_blank(task, map) {
                 return Err(
-                    "TaskSpace initialize_map requires an untouched runtime mechanical blank map. hard_state: map_already_initialized."
+                "TaskSpace map initialization requires an untouched runtime mechanical blank map. hard_state: map_already_initialized."
                         .to_string(),
                 );
             }
@@ -3068,7 +3068,7 @@ feedback:\n\
         let current_node_key = require_nonempty_owned("current_node_key", input.current_node_key)?;
         if input.nodes.is_empty() {
             return Err(
-                "TaskSpace initialize_map requires at least one initial node. hard_state: active_task_path_without_nodes."
+                "TaskSpace map initialization requires at least one initial node. hard_state: active_task_path_without_nodes."
                     .to_string(),
             );
         }
@@ -3080,7 +3080,7 @@ feedback:\n\
             let key = require_nonempty_owned("node_key", node.key)?;
             if !keys.insert(key.clone()) {
                 return Err(format!(
-                    "TaskSpace initialize_map node_key `{key}` is duplicated."
+                    "TaskSpace map initialization node_key `{key}` is duplicated."
                 ));
             }
             let title = require_nonempty_owned("node title", node.title)?;
@@ -3092,12 +3092,12 @@ feedback:\n\
                 let dependency = require_nonempty_owned("dependency_key", dependency)?;
                 if dependency == key {
                     return Err(format!(
-                        "TaskSpace initialize_map node `{key}` cannot depend on itself."
+                        "TaskSpace map initialization node `{key}` cannot depend on itself."
                     ));
                 }
                 if !node_dependencies.insert(dependency.clone()) {
                     return Err(format!(
-                        "TaskSpace initialize_map node `{key}` repeats dependency `{dependency}`."
+                        "TaskSpace map initialization node `{key}` repeats dependency `{dependency}`."
                     ));
                 }
                 dependency_keys.push(dependency);
@@ -3112,14 +3112,14 @@ feedback:\n\
         }
         if !keys.contains(&current_node_key) {
             return Err(format!(
-                "TaskSpace initialize_map current_node_key `{current_node_key}` does not exist."
+                "TaskSpace map initialization current_node_key `{current_node_key}` does not exist."
             ));
         }
         for node in &normalized_nodes {
             for dependency in &node.dependency_keys {
                 if !keys.contains(dependency) {
                     return Err(format!(
-                        "TaskSpace initialize_map node `{}` references missing dependency key `{dependency}`.",
+                        "TaskSpace map initialization node `{}` references missing dependency key `{dependency}`.",
                         node.key
                     ));
                 }
@@ -3155,7 +3155,7 @@ feedback:\n\
             });
             let Some(ready_index) = ready_index else {
                 return Err(
-                    "TaskSpace initialize_map dependency graph contains a cycle.".to_string(),
+                    "TaskSpace map initialization dependency graph contains a cycle.".to_string(),
                 );
             };
             let node = pending.remove(ready_index);
@@ -3201,7 +3201,7 @@ feedback:\n\
             vec![
                 "schema:taskspace-agent-map-initialized-v1".to_string(),
                 "producer:agent_taskspace_control".to_string(),
-                "action:initialize_map".to_string(),
+                "action:initialize_then_actions".to_string(),
                 format!("node_count:{}", node_ids_by_key.len()),
                 format!("edge_count:{edge_count}"),
                 "semantic_source:agent".to_string(),
@@ -3409,7 +3409,7 @@ feedback:\n\
         }
         let result_summary = result_summary.trim();
         if result_summary.is_empty() {
-            return Err("TaskSpace finish_node result_summary cannot be empty.".to_string());
+            return Err("TaskSpace finish result_summary cannot be empty.".to_string());
         }
         let next_node_id = next_node_id
             .as_deref()
@@ -3417,7 +3417,7 @@ feedback:\n\
             .filter(|node_id| !node_id.is_empty());
         if next_node_id.is_some() && next_node_draft.is_some() {
             return Err(
-                "TaskSpace finish_node cannot provide both next_node_id and next node draft fields."
+                "TaskSpace finish cannot provide both next_node_id and next node draft fields."
                     .to_string(),
             );
         }
@@ -4097,7 +4097,7 @@ feedback:\n\
             }
             if taskspace_task_path_is_mechanical_blank(task, map) {
                 context.push_str(
-                    "Map initialization:\n- source: runtime_mechanical_blank\n- semantic_state: agent-authored objective and node plan are not recorded yet\n- hard_state: active_task_path_without_nodes\n- initialization_contract: taskspace_control(action=initialize_map)\n",
+                    "Map initialization:\n- source: runtime_mechanical_blank\n- semantic_state: agent-authored objective and node plan are not recorded yet\n- hard_state: active_task_path_without_nodes\n- initialization_contract: taskspace_control(action=initialize_then_actions)\n",
                 );
             }
             if let Some(barrier) = self.active_maintenance_barrier() {
@@ -6973,7 +6973,7 @@ fn transition_notice(previous_mode: MapRuntimeMode, current_mode: MapRuntimeMode
             "TaskSpace mode is now active.\n\
 Previous standard-mode conversation remains background context only.\n\
 hard_state: ordinary tools and multi-agent actions require an active TaskSpace task path, current node binding, and lease.\n\
-cadence_guidance: multiple taskspace_control and ordinary calls may share one response and execute in provider order. Multiple finish_node calls may explicitly target successive ready node IDs; when no current binding exists, an explicit ready target is claimed and finished atomically. Prefer chaining a nonterminal finish_node to a same-response follow-up and establish its next binding with next_node_id/next_node_* or an immediate bind_node/create_node(bind_current=true). A standalone nonterminal finish remains valid; runtime records it as cadence inefficiency and does not invent the next action. A terminal finish_node with final_candidate may end the response.\n\
+control_contract: use the model-visible taskspace_control schema; runtime executes only Agent-declared transitions and nested actions.\n\
 map_runtime_boundary: runtime manages the task map, node binding, tool/event attribution, and hard state-machine rules; task strategy remains Agent-owned."
                 .to_string()
         }

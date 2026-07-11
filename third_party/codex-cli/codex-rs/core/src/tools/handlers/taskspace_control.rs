@@ -1,6 +1,5 @@
 use codex_protocol::models::FunctionCallOutputPayload;
 use codex_protocol::models::ResponseInputItem;
-use serde::Deserialize;
 use serde_json::Value as JsonValue;
 use std::collections::BTreeMap;
 
@@ -11,10 +10,15 @@ use crate::action_map::ActionMapNextNodeDraft;
 use crate::action_map::NodeKind;
 use crate::action_map::TaskSpaceHardGateClass;
 use crate::function_tool::FunctionCallError;
+use crate::session::session::Session;
+use crate::session::turn_context::TurnContext;
 use crate::tools::context::ToolInvocation;
 use crate::tools::context::ToolOutput;
 use crate::tools::context::ToolPayload;
-use crate::tools::handlers::parse_arguments;
+use crate::tools::handlers::taskspace_control_args::TaskSpaceControlArgs;
+use crate::tools::handlers::taskspace_control_args::TaskSpaceNonterminalFinishArgs;
+use crate::tools::handlers::taskspace_control_args::TaskSpaceTerminalFinishArgs;
+use crate::tools::handlers::taskspace_control_args::parse_taskspace_control_args;
 use crate::tools::output_reference::OUTPUT_SLICE_MAX_BYTES;
 use crate::tools::output_reference::OutputSliceMode;
 use crate::tools::output_reference::OutputSliceRequest;
@@ -24,74 +28,9 @@ use crate::tools::registry::ToolKind;
 
 pub struct TaskSpaceControlHandler;
 
-#[derive(Debug, Deserialize)]
-#[serde(tag = "action", rename_all = "snake_case")]
-enum TaskSpaceControlArgs {
-    InitializeMap {
-        task_title: String,
-        task_objective: String,
-        initial_nodes: Vec<TaskSpaceInitializeNodeArgs>,
-        current_node_key: String,
-    },
-    CreateNode {
-        kind: String,
-        title: String,
-        context_summary: String,
-        #[serde(default)]
-        dependency_node_ids: Vec<String>,
-        #[serde(default)]
-        bind_current: bool,
-    },
-    BindNode {
-        node_id: String,
-    },
-    FinishNode {
-        #[serde(default)]
-        node_id: Option<String>,
-        result_summary: String,
-        #[serde(default)]
-        next_node_id: Option<String>,
-        #[serde(default)]
-        next_node_kind: Option<String>,
-        #[serde(default)]
-        next_node_title: Option<String>,
-        #[serde(default)]
-        next_node_context_summary: Option<String>,
-        #[serde(default)]
-        next_dependency_node_ids: Vec<String>,
-        #[serde(default)]
-        final_candidate: Option<String>,
-    },
-    BlockNode {
-        node_id: String,
-        blocker_summary: String,
-    },
-    ReadOutputRef {
-        output_ref: String,
-        mode: String,
-        #[serde(default)]
-        start_line: Option<usize>,
-        #[serde(default)]
-        end_line: Option<usize>,
-        #[serde(default)]
-        pattern: Option<String>,
-        #[serde(default)]
-        max_bytes: Option<usize>,
-    },
-}
-
-#[derive(Debug, Deserialize)]
-struct TaskSpaceInitializeNodeArgs {
-    node_key: String,
-    kind: String,
-    title: String,
-    context_summary: String,
-    #[serde(default)]
-    dependency_keys: Vec<String>,
-}
-
 pub struct TaskSpaceControlOutput {
     message: String,
+    success: bool,
     terminal_agent_message: Option<String>,
 }
 
@@ -101,12 +40,12 @@ impl ToolOutput for TaskSpaceControlOutput {
     }
 
     fn success_for_logging(&self) -> bool {
-        true
+        self.success
     }
 
     fn to_response_item(&self, call_id: &str, _payload: &ToolPayload) -> ResponseInputItem {
         let mut output = FunctionCallOutputPayload::from_text(self.message.clone());
-        output.success = Some(true);
+        output.success = Some(self.success);
         ResponseInputItem::FunctionCallOutput {
             call_id: call_id.to_string(),
             output,
@@ -149,16 +88,15 @@ impl ToolHandler for TaskSpaceControlHandler {
                 ));
             }
         };
-        let args: TaskSpaceControlArgs = parse_arguments(&arguments)
-            .map_err(|error| protocol_error(error.to_string(), "invalid_arguments"))?;
+        let args = parse_taskspace_control_args(&arguments)?;
 
-        let mut terminal_agent_message = None;
-        let message = match args {
-            TaskSpaceControlArgs::InitializeMap {
+        let (message, success, terminal_agent_message) = match args {
+            TaskSpaceControlArgs::InitializeThenActions {
                 task_title,
                 task_objective,
                 initial_nodes,
                 current_node_key,
+                actions: _,
             } => {
                 let nodes = initial_nodes
                     .into_iter()
@@ -184,7 +122,60 @@ impl ToolHandler for TaskSpaceControlHandler {
                     )
                     .await
                     .map_err(state_machine_error)?;
-                format_initialize_map_output(&outcome)
+                (
+                    format_state_batch(
+                        "initialize_then_actions",
+                        vec![format_initialize_map_output(&outcome)],
+                        true,
+                    ),
+                    true,
+                    None,
+                )
+            }
+            TaskSpaceControlArgs::FinishThenActions {
+                finishes,
+                actions: _,
+            } => {
+                let (steps, success) =
+                    execute_nonterminal_finishes(&session, &turn, finishes).await;
+                (
+                    format_state_batch("finish_then_actions", steps, success),
+                    success,
+                    None,
+                )
+            }
+            TaskSpaceControlArgs::FinishThenEnd {
+                preceding_finishes,
+                terminal_finish,
+                final_candidate,
+            } => {
+                let (mut steps, mut success) =
+                    execute_nonterminal_finishes(&session, &turn, preceding_finishes).await;
+                let mut terminal_message = None;
+                if success {
+                    match execute_terminal_finish(
+                        &session,
+                        &turn,
+                        terminal_finish,
+                        &final_candidate,
+                    )
+                    .await
+                    {
+                        Ok(step) => {
+                            steps.push(step);
+                            terminal_message = Some(final_candidate);
+                        }
+                        Err(error) => {
+                            steps.push(format_failed_state_step(steps.len(), &error));
+                            success = false;
+                        }
+                    }
+                }
+                (
+                    format_state_batch("finish_then_end", steps, success),
+                    success,
+                    terminal_message,
+                )
             }
             TaskSpaceControlArgs::CreateNode {
                 kind,
@@ -205,9 +196,13 @@ impl ToolHandler for TaskSpaceControlHandler {
                     .await
                     .map_err(state_machine_error)?;
                 if bind_current {
-                    format!("TaskSpace node created and bound: {node_id}")
+                    (
+                        format!("TaskSpace node created and bound: {node_id}"),
+                        true,
+                        None,
+                    )
                 } else {
-                    format!("TaskSpace node created: {node_id}")
+                    (format!("TaskSpace node created: {node_id}"), true, None)
                 }
             }
             TaskSpaceControlArgs::BindNode { node_id } => {
@@ -215,70 +210,7 @@ impl ToolHandler for TaskSpaceControlHandler {
                     .bind_action_map_main_node(&turn, &node_id)
                     .await
                     .map_err(state_machine_error)?;
-                format!("TaskSpace main node bound: {node_id}")
-            }
-            TaskSpaceControlArgs::FinishNode {
-                node_id,
-                result_summary,
-                next_node_id,
-                next_node_kind,
-                next_node_title,
-                next_node_context_summary,
-                next_dependency_node_ids,
-                final_candidate,
-            } => {
-                let (node_id, outcome) = if let Some(candidate) = final_candidate {
-                    if next_node_id.is_some()
-                        || next_node_kind.is_some()
-                        || next_node_title.is_some()
-                        || next_node_context_summary.is_some()
-                        || !next_dependency_node_ids.is_empty()
-                    {
-                        return Err(protocol_error(
-                            "finish_node final_candidate cannot be combined with a next node"
-                                .into(),
-                            "terminal_candidate_with_next_node",
-                        ));
-                    }
-                    let outcome = session
-                        .finish_action_map_node_with_terminal_candidate(
-                            &turn,
-                            node_id.as_deref(),
-                            result_summary,
-                            &candidate,
-                        )
-                        .await
-                        .map_err(state_machine_error)?;
-                    terminal_agent_message = Some(candidate);
-                    outcome
-                } else {
-                    let draft = build_next_node_draft(
-                        next_node_kind,
-                        next_node_title,
-                        next_node_context_summary,
-                        next_dependency_node_ids,
-                    )?;
-                    session
-                        .finish_action_map_current_or_named_node_with_next(
-                            &turn,
-                            node_id.as_deref(),
-                            result_summary,
-                            next_node_id,
-                            draft,
-                        )
-                        .await
-                        .map_err(state_machine_error)?
-                };
-                match outcome.next_node_id {
-                    Some(next) => format!(
-                        "TaskSpace node finished: {node_id} result {} next_node={next}",
-                        outcome.result_id
-                    ),
-                    None => format!(
-                        "TaskSpace node finished: {node_id} result {}",
-                        outcome.result_id
-                    ),
-                }
+                (format!("TaskSpace main node bound: {node_id}"), true, None)
             }
             TaskSpaceControlArgs::BlockNode {
                 node_id,
@@ -288,7 +220,11 @@ impl ToolHandler for TaskSpaceControlHandler {
                     .block_action_map_main_node(&turn, &node_id, blocker_summary)
                     .await
                     .map_err(state_machine_error)?;
-                format!("TaskSpace node blocked: {node_id} result {result_id}")
+                (
+                    format!("TaskSpace node blocked: {node_id} result {result_id}"),
+                    true,
+                    None,
+                )
             }
             TaskSpaceControlArgs::ReadOutputRef {
                 output_ref,
@@ -324,14 +260,106 @@ impl ToolHandler for TaskSpaceControlHandler {
                         ],
                     )
                     .await;
-                slice
+                (slice, true, None)
             }
         };
         Ok(TaskSpaceControlOutput {
             message,
+            success,
             terminal_agent_message,
         })
     }
+}
+
+async fn execute_nonterminal_finishes(
+    session: &Session,
+    turn: &TurnContext,
+    finishes: Vec<TaskSpaceNonterminalFinishArgs>,
+) -> (Vec<JsonValue>, bool) {
+    let mut steps = Vec::with_capacity(finishes.len());
+    for finish in finishes {
+        match execute_nonterminal_finish(session, turn, finish).await {
+            Ok(step) => steps.push(step),
+            Err(error) => {
+                steps.push(format_failed_state_step(steps.len(), &error));
+                return (steps, false);
+            }
+        }
+    }
+    (steps, true)
+}
+
+async fn execute_nonterminal_finish(
+    session: &Session,
+    turn: &TurnContext,
+    finish: TaskSpaceNonterminalFinishArgs,
+) -> Result<JsonValue, FunctionCallError> {
+    let draft = build_next_node_draft(
+        finish.next_node_kind,
+        finish.next_node_title,
+        finish.next_node_context_summary,
+        finish.next_dependency_node_ids,
+    )?;
+    let (node_id, outcome) = session
+        .finish_action_map_current_or_named_node_with_next(
+            turn,
+            finish.node_id.as_deref(),
+            finish.result_summary,
+            finish.next_node_id,
+            draft,
+        )
+        .await
+        .map_err(state_machine_error)?;
+    Ok(serde_json::json!({
+        "kind": "finish",
+        "node_id": node_id,
+        "result_id": outcome.result_id,
+        "next_node_id": outcome.next_node_id,
+        "success": true,
+    }))
+}
+
+async fn execute_terminal_finish(
+    session: &Session,
+    turn: &TurnContext,
+    finish: TaskSpaceTerminalFinishArgs,
+    final_candidate: &str,
+) -> Result<JsonValue, FunctionCallError> {
+    let (node_id, outcome) = session
+        .finish_action_map_node_with_terminal_candidate(
+            turn,
+            finish.node_id.as_deref(),
+            finish.result_summary,
+            final_candidate,
+        )
+        .await
+        .map_err(state_machine_error)?;
+    Ok(serde_json::json!({
+        "kind": "terminal_finish",
+        "node_id": node_id,
+        "result_id": outcome.result_id,
+        "success": true,
+    }))
+}
+
+fn format_failed_state_step(index: usize, error: &FunctionCallError) -> JsonValue {
+    serde_json::json!({
+        "kind": "state_transition",
+        "index": index,
+        "success": false,
+        "output": error.to_string(),
+    })
+}
+
+fn format_state_batch(action: &str, steps: Vec<JsonValue>, success: bool) -> String {
+    serde_json::json!({
+        "schema_version": "TaskSpaceControlBatchResultV1",
+        "action": action,
+        "status": if success { "state_committed" } else { "state_failed" },
+        "success": success,
+        "steps": steps,
+    })
+    .to_string()
 }
 
 fn parse_output_slice_mode(
@@ -405,7 +433,7 @@ fn build_next_node_draft(
     let context_summary = context_summary.unwrap_or_default();
     if title.trim().is_empty() || context_summary.trim().is_empty() {
         return Err(protocol_error(
-            "finish_node next-node creation requires kind, title, and context".into(),
+            "finish next-node creation requires kind, title, and context".into(),
             "missing_argument",
         ));
     }
@@ -417,7 +445,7 @@ fn build_next_node_draft(
     }))
 }
 
-fn format_initialize_map_output(outcome: &ActionMapInitializeOutcome) -> String {
+fn format_initialize_map_output(outcome: &ActionMapInitializeOutcome) -> JsonValue {
     let node_id_by_key = outcome.node_ids.iter().cloned().collect::<BTreeMap<_, _>>();
     let current_node_key = outcome
         .node_ids
@@ -425,7 +453,7 @@ fn format_initialize_map_output(outcome: &ActionMapInitializeOutcome) -> String 
         .find_map(|(key, node_id)| (node_id == &outcome.current_node_id).then_some(key));
     serde_json::json!({
         "schema_version": "TaskSpaceInitializeMapResultV1",
-        "action": "initialize_map",
+        "action": "initialize_then_actions",
         "status": "initialized",
         "task_id": outcome.task_id,
         "map_id": outcome.map_id,
@@ -433,7 +461,6 @@ fn format_initialize_map_output(outcome: &ActionMapInitializeOutcome) -> String 
         "current_node_id": outcome.current_node_id,
         "node_id_by_key": node_id_by_key,
     })
-    .to_string()
 }
 
 fn state_machine_error(message: String) -> FunctionCallError {
