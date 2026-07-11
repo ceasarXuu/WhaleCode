@@ -1307,6 +1307,11 @@ async fn build_initial_context_consumes_action_map_transition_notice_once() {
         first_developer_text.contains("TaskSpace mode is now active"),
         "expected transition notice in developer context, got: {first_developer_text}"
     );
+    assert!(
+        first_developer_text
+            .contains("nonterminal finish_node must include a same-response follow-up"),
+        "expected cadence contract in developer context, got: {first_developer_text}"
+    );
 
     let second_context = session.build_initial_context(&turn_context).await;
     let second_developer_text = developer_input_texts(&second_context).join("\n");
