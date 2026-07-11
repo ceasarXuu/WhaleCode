@@ -2052,6 +2052,52 @@
 - Close reason:
   - attribution confirmed; optimization remains a separate design decision
 
+## Hypothesis H-022: 当前projection是固定epoch base，剩余成本来自冗长base而非逐请求Map累积
+- Status: confirmed
+- Parent: P-001
+- Claim: J6.6单轮中的active projection只在epoch起点生成一次，后续Map变化通过append-only control journal表达；因此projection没有逐请求累积，但冗长blank base和activation被每次请求重复计入Input。
+- Layer: context-layout-and-cost
+- Factor relation: additive
+- Depends on:
+  - H-021
+- Rationale:
+  - 必须区分“当前Map快照未刷新导致语义丢失”和“event-sourced epoch base + delta journal”。前者需要动态更新，后者应压缩base并保留稳定prefix。
+- Falsifiable predictions:
+  - If true: 9次请求的projection message bytes/hash完全相同；rollout只有一次projection budget event；初始化和finish delta在后续raw control call/output中完整可见。
+  - If false: projection hash会随Map变化，或Agent看不到初始化/finish delta，或provider payload包含多份projection。
+- Diagnostic evidence plan:
+  - Prediction or clause under test: 对每个wire request读取projection message hash，并对runtime projection trace、raw control journal和context生成guard交叉验证。
+  - Signal: message index/hash、projection budget event count、control call/output pair、epoch snapshot presence guard。
+  - Capture method: provider wire trace + rollout + session/runtime code path。
+  - Event name or marker:
+    - `ContextProjectionV1 epoch snapshot:`
+    - `projection_budget`
+    - `taskspace_control`
+  - Correlation keys:
+    - run `20260712-065907-459`
+    - projection content hash `c30d837f...`
+  - Differentiates from:
+    - stale projection替换失败。
+    - projection每请求累积。
+    - control delta丢失。
+  - Supports if:
+    - 固定单份projection + 完整append-only state journal同时成立。
+  - Refutes if:
+    - projection实际动态变化、重复出现，或state delta不可见。
+  - Instrumentation status: existing-but-extractor-incomplete
+  - Instrumentation lifecycle:
+    - 保留runtime projection budget trace；修复benchmark extractor使其可直接分账。
+- Evidence gate: satisfied
+- Related evidence:
+  - E-050
+- Conclusion: confirmed；当前语义布局是固定epoch base + 原始delta journal，不应通过逐请求刷新完整Map破坏prefix cache
+- Repair design readiness: ready-for-user-decision
+- Next step: 先修projection telemetry extractor，再设计最小epoch base和新epoch/compaction snapshot契约。
+- Blocker:
+  - none
+- Close reason:
+  - none; optimization not implemented
+
 ## Evidence E-041: Agent收到完整源码后仍自行假设不存在的package目录
 - Related hypotheses:
   - H-020
@@ -2213,4 +2259,73 @@
   recovery: PYTHONPATH=src python -m call_stack_counter
   ```
 - Interpretation: Standard也会在完整反馈可见时生成可避免的低级动作并自行恢复。三轮均无错误Patch上下文或不存在package路径，但1/3有环境命令错误；低频单样本错误不能仅按运行模式归因。
+- Time: 2026-07-12
+
+## Evidence E-048: 当前Input差距约九成来自额外Provider请求
+- Related hypotheses:
+  - H-021
+- Direction: refines
+- Type: request-level-token-counterfactual
+- Source: R5-J6.6 count-call-stack paired final wire
+- Prediction or plan link:
+  - `docs/v0.0.5/build-R5/21-r5-input-token-optimization-audit.md`
+- Matched signal:
+  - R5比Standard多31,650 input tokens；按动作路径可移除的3次请求输入为27,640，按尾部请求计算为28,531，占87.3%-90.1%。
+- Correlation keys:
+  - run `20260712-065907-459`
+- Raw content:
+  ```text
+  total delta = 75,316 - 43,666 = 31,650
+  action-aligned removable = 8,740 + 9,196 + 9,704 = 27,640
+  tail-request upper estimate = 9,338 + 9,489 + 9,704 = 28,531
+  ```
+- Interpretation: 当前最大Input优化不是裁剪语义，而是减少standalone finish和可合批验证造成的完整前缀重发。反事实区间只用于优先级，不作为精确因果账单。
+- Time: 2026-07-12
+
+## Evidence E-049: Map协议和projection仍存在机械重复
+- Related hypotheses:
+  - H-021
+- Direction: supports
+- Type: code-and-payload-structure-audit
+- Source: J6.6 rollout, projection renderer and control outputs
+- Prediction or plan link:
+  - R5 Input token optimization P0/P1
+- Matched signal:
+  - 首轮activation为511 chars、blank projection为1,217 chars；init args为1,206 chars；finish args为262/262/551 chars。Projection同时输出recent event excerpt和同事件ref metadata，而原始tool history仍可见。
+- Correlation keys:
+  - `render_active_projection`
+  - `projection_recent_tool_feedback`
+  - `projection_result_refs_available`
+- Raw content:
+  ```text
+  current_node_recent_events: event metadata + excerpt up to 1,200 chars each
+  result_refs_available: repeats event id/node/kind/source/success/ref/lengths
+  activation control_contract: runtime executes ... nested actions
+  active J6.6 contract: finish_nodes followed by top-level sibling ordinary calls
+  ```
+- Interpretation: 下一压缩对象应是无损的字段去重、稀疏序列化和message/event ref复用。Activation中的`nested actions`已与J6.6协议不一致，既污染语义又可能降低sibling采用率，应优先修正。当前projection组件telemetry不可用，实施前先补精确bytes分账。
+- Time: 2026-07-12
+
+## Evidence E-050: 单轮projection为固定epoch base且control delta完整
+- Related hypotheses:
+  - H-022
+- Direction: supports
+- Type: final-wire-runtime-trace-code-path
+- Source: R5-J6.6 paired right side
+- Prediction or plan link:
+  - H-022 fixed-hash and journal visibility clauses
+- Matched signal:
+  - 9次request的message index 2均为1,796 bytes、content hash均为`c30d837f...`；rollout仅有`trace-2`一个projection budget event，估算189 tokens；4个control call/output pair完整保留init和finish delta。
+- Correlation keys:
+  - run `20260712-065907-459`
+  - `trace-2`
+  - `c30d837f7c705d0903b7cdd09f3dcc554484939617eb834b4343bc55b1b10824`
+- Raw content:
+  ```text
+  request 1..9: projection bytes=1796, same content hash
+  projection_budget events: 1, projection_tokens=189
+  session guard: if action_map_epoch_snapshot_present, do not append another projection
+  raw journal: initialize_then_actions -> finish_nodes -> finish_nodes -> finish_then_end
+  ```
+- Interpretation: active-context uniqueness没有失败，但它保证的是每个payload只有一个epoch snapshot，不是每次都重建最新Map。语义变化由后置control journal保留，因此不应动态刷新前部projection；应压缩固定base并在新epoch/compaction时重建一次当前snapshot。`context-projection-summary`未提取已有trace，是独立观测缺口。
 - Time: 2026-07-12

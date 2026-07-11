@@ -32,6 +32,7 @@ Related Links:
   docs/v0.0.5/build-R5/18-r5-single-patch-carrier-contract-plan.md
   docs/v0.0.5/build-R5/19-r5-j6-5-schema-cost-cache-observability-plan.md
   docs/v0.0.5/build-R5/20-r5-j6-6-active-single-tool-expression-plan.md
+  docs/v0.0.5/build-R5/21-r5-input-token-optimization-audit.md
   coe/2026-07-10-01-54-r5-normal-progress-budget-hard-stop.md
   coe/2026-07-10-05-03-r5-stale-active-projection-accumulation.md
   coe/2026-07-10-22-56-r5-request-amplification.md
