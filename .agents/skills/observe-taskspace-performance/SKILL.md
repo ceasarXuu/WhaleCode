@@ -28,7 +28,9 @@ pwsh -NoProfile -File scripts/taskspace-benchmark/write-performance-observation.
 - Use request-2+ cache hit for warm-cache comparison and show strict-prefix evidence beside it.
 - Keep cached and uncached input separate. Do not infer monetary cost without a frozen unit-price artifact.
 - Include map nodes, edges, open leaves, root status, control actions, result validity, retention, and semantic replacement.
-- Report TaskSpace control failures separately from ordinary-tool failures. Report multi-control responses, chained-finish responses, and standalone nonterminal finishes as distinct non-blocking cadence observations.
+- Report TaskSpace control failures separately from ordinary-tool failures. Distinguish provider outer tool calls, Runtime-executed tools, and actions nested inside a `taskspace_control` carrier.
+- Report `initialize_then_actions`, `finish_then_actions`, and `finish_then_end` carrier counts. Also report nested actions, multi-finish carriers, direct tools mixed beside a carrier, multiple carriers in one response, and actionless nonterminal finishes.
+- Treat a non-zero actionless nonterminal finish as a schema/trace violation. Do not reinterpret it as an Agent strategy failure.
 - Treat map warnings as mechanical observations. Do not recommend Runtime semantic intervention solely because Agent planning is coarse.
 - Mark historical R4 fields unavailable when final-wire or map artifacts do not exist; do not fabricate parity.
 
