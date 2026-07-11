@@ -33,6 +33,10 @@ pub enum JsonSchemaType {
 /// Generic JSON-Schema subset needed for our tool definitions.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 pub struct JsonSchema {
+    #[serde(rename = "$ref", skip_serializing_if = "Option::is_none")]
+    pub schema_ref: Option<String>,
+    #[serde(rename = "$defs", skip_serializing_if = "Option::is_none")]
+    pub definitions: Option<BTreeMap<String, JsonSchema>>,
     #[serde(rename = "type", skip_serializing_if = "Option::is_none")]
     pub schema_type: Option<JsonSchemaType>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -57,6 +61,18 @@ pub struct JsonSchema {
 }
 
 impl JsonSchema {
+    pub fn reference(schema_ref: impl Into<String>) -> Self {
+        Self {
+            schema_ref: Some(schema_ref.into()),
+            ..Default::default()
+        }
+    }
+
+    pub fn with_definitions(mut self, definitions: BTreeMap<String, JsonSchema>) -> Self {
+        self.definitions = Some(definitions);
+        self
+    }
+
     /// Construct a scalar/object/array schema with a single JSON Schema type.
     fn typed(schema_type: JsonSchemaPrimitiveType, description: Option<String>) -> Self {
         Self {
@@ -186,6 +202,13 @@ fn sanitize_json_schema(value: &mut JsonValue) {
             }
         }
         JsonValue::Object(map) => {
+            if let Some(definitions) = map.get_mut("$defs")
+                && let Some(definitions_map) = definitions.as_object_mut()
+            {
+                for value in definitions_map.values_mut() {
+                    sanitize_json_schema(value);
+                }
+            }
             if let Some(properties) = map.get_mut("properties")
                 && let Some(properties_map) = properties.as_object_mut()
             {
@@ -210,6 +233,10 @@ fn sanitize_json_schema(value: &mut JsonValue) {
 
             if let Some(const_value) = map.remove("const") {
                 map.insert("enum".to_string(), JsonValue::Array(vec![const_value]));
+            }
+
+            if map.contains_key("$ref") {
+                return;
             }
 
             let mut schema_types = normalized_schema_types(map);

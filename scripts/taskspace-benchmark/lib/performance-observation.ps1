@@ -279,6 +279,11 @@ function Get-PerformanceSideObservation {
             prefix_comparison_count = Get-PerformanceNumber (Get-PerformanceProperty $cache "prefix_comparison_count")
             prefix_preserved_count = Get-PerformanceNumber (Get-PerformanceProperty $cache "prefix_preserved_count")
             prefix_preserved_rate = Get-PerformanceNumber (Get-PerformanceProperty $cache "prefix_preserved_rate")
+            zero_cache_hit_count = Get-PerformanceNumber (Get-PerformanceProperty $cache "zero_cache_hit_count")
+            cache_warmup_candidate_count = Get-PerformanceNumber (Get-PerformanceProperty $cache "cache_warmup_candidate_count")
+            same_shape_zero_hit_count = Get-PerformanceNumber (Get-PerformanceProperty $cache "same_shape_zero_hit_count")
+            tool_choice_transition_count = Get-PerformanceNumber (Get-PerformanceProperty $cache "tool_choice_transition_count")
+            cache_shape_transition_count = Get-PerformanceNumber (Get-PerformanceProperty $cache "cache_shape_transition_count")
             trace_coverage = Get-PerformanceNumber (Get-PerformanceProperty $cache "trace_coverage")
         }
         map = $map
@@ -421,14 +426,14 @@ function Write-TaskspacePerformanceObservation {
     $lines.Add("")
     $lines.Add("## 成本与缓存")
     $lines.Add("")
-    $lines.Add("| Repeat | Mode | Input | Cached | Uncached | Output | Full hit | Request 2+ hit | Prefix | Coverage |")
-    $lines.Add("|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|")
+    $lines.Add("| Repeat | Mode | Input | Cached | Uncached | Output | Full hit | Request 2+ hit | Prefix | Zero hit | Warmup | Same-shape zero | Choice changes | Shape changes | Coverage |")
+    $lines.Add("|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
     foreach ($row in $rows) {
         if ($row.observation_status -eq "skipped") {
-            $lines.Add("| $(Format-PerformanceValue $row.repeat) | $($row.logical_mode) | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A |")
+            $lines.Add("| $(Format-PerformanceValue $row.repeat) | $($row.logical_mode) | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A |")
         } else {
             $prefix = if ($null -ne $row.cache.prefix_comparison_count) { "$(Format-PerformanceValue $row.cache.prefix_preserved_count)/$(Format-PerformanceValue $row.cache.prefix_comparison_count)" } else { "N/A" }
-            $lines.Add("| $(Format-PerformanceValue $row.repeat) | $($row.logical_mode) | $(Format-PerformanceValue $row.cost.input_tokens) | $(Format-PerformanceValue $row.cost.cached_input_tokens) | $(Format-PerformanceValue $row.cost.uncached_input_tokens) | $(Format-PerformanceValue $row.cost.output_tokens) | $(Format-PerformanceValue $row.cost.full_cache_hit_rate percent) | $(Format-PerformanceValue $row.cache.request_2_plus_hit_rate percent) | $prefix | $(Format-PerformanceValue $row.cache.trace_coverage percent) |")
+            $lines.Add("| $(Format-PerformanceValue $row.repeat) | $($row.logical_mode) | $(Format-PerformanceValue $row.cost.input_tokens) | $(Format-PerformanceValue $row.cost.cached_input_tokens) | $(Format-PerformanceValue $row.cost.uncached_input_tokens) | $(Format-PerformanceValue $row.cost.output_tokens) | $(Format-PerformanceValue $row.cost.full_cache_hit_rate percent) | $(Format-PerformanceValue $row.cache.request_2_plus_hit_rate percent) | $prefix | $(Format-PerformanceValue $row.cache.zero_cache_hit_count) | $(Format-PerformanceValue $row.cache.cache_warmup_candidate_count) | $(Format-PerformanceValue $row.cache.same_shape_zero_hit_count) | $(Format-PerformanceValue $row.cache.tool_choice_transition_count) | $(Format-PerformanceValue $row.cache.cache_shape_transition_count) | $(Format-PerformanceValue $row.cache.trace_coverage percent) |")
         }
     }
     $lines.Add("")

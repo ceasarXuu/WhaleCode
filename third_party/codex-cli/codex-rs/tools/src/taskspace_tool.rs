@@ -386,19 +386,22 @@ fn simple_action_schemas() -> Vec<JsonSchema> {
 
 pub fn create_taskspace_control_tool(visible_tools: &[ToolSpec]) -> ToolSpec {
     let actions = nested_action_schema(visible_tools);
+    let actions_ref = JsonSchema::reference("#/$defs/ordinaryAction");
     let mut variants = vec![
-        initialize_then_actions_schema(&actions),
-        finish_then_actions_schema(&actions),
+        initialize_then_actions_schema(&actions_ref),
+        finish_then_actions_schema(&actions_ref),
         finish_then_end_schema(),
     ];
     variants.extend(simple_action_schemas());
+    let parameters = object_any_of(variants, "Schema-first TaskSpace control operation.")
+        .with_definitions(BTreeMap::from([("ordinaryAction".into(), actions)]));
 
     ToolSpec::Function(ResponsesApiTool {
         name: "taskspace_control".into(),
         description: r#"Mandatory mechanical TaskSpace map tool. The Agent declares every state transition, immediate ordinary action, and final answer. initialize_then_actions initializes and binds the map before executing a non-empty actions list. finish_then_actions commits one or more ordered finishes, each with an explicit next binding, before executing a non-empty actions list. finish_then_end commits optional preceding finishes and one terminal finish before releasing final_candidate unchanged. Runtime executes only the declared sequence, stops after the first failure, and does not choose or infer actions."#.into(),
         strict: false,
         defer_loading: None,
-        parameters: object_any_of(variants, "Schema-first TaskSpace control operation."),
+        parameters,
         output_schema: None,
     })
 }
@@ -462,7 +465,23 @@ mod tests {
                 variant["properties"]["action"]["enum"][0] == json!("initialize_then_actions")
             })
             .expect("initialize variant");
-        let nested = initialize["properties"]["actions"]["items"]["anyOf"]
+        assert_eq!(
+            initialize["properties"]["actions"]["items"]["$ref"],
+            json!("#/$defs/ordinaryAction")
+        );
+        let finish = value["parameters"]["anyOf"]
+            .as_array()
+            .expect("variants")
+            .iter()
+            .find(|variant| {
+                variant["properties"]["action"]["enum"][0] == json!("finish_then_actions")
+            })
+            .expect("finish variant");
+        assert_eq!(
+            finish["properties"]["actions"]["items"]["$ref"],
+            json!("#/$defs/ordinaryAction")
+        );
+        let nested = value["parameters"]["$defs"]["ordinaryAction"]["anyOf"]
             .as_array()
             .expect("nested variants")
             .iter()
@@ -472,5 +491,6 @@ mod tests {
             nested["properties"]["arguments"],
             list_dir_value["parameters"]
         );
+        assert_eq!(text.matches("Visible ordinary tool name.").count(), 1);
     }
 }

@@ -732,6 +732,41 @@ fn parse_tool_input_schema_preserves_nested_any_of_property() {
 }
 
 #[test]
+fn parse_tool_input_schema_preserves_local_definitions_and_references() {
+    let schema = parse_tool_input_schema(&serde_json::json!({
+        "type": "object",
+        "$defs": {
+            "command": {
+                "type": "object",
+                "properties": { "cmd": { "type": "string" } },
+                "required": ["cmd"],
+                "additionalProperties": false
+            }
+        },
+        "properties": {
+            "action": { "$ref": "#/$defs/command" }
+        },
+        "required": ["action"],
+        "additionalProperties": false
+    }))
+    .expect("parse schema");
+
+    assert_eq!(
+        schema.properties.as_ref().unwrap()["action"]
+            .schema_ref
+            .as_deref(),
+        Some("#/$defs/command")
+    );
+    assert_eq!(
+        schema.definitions.as_ref().unwrap()["command"]
+            .properties
+            .as_ref()
+            .unwrap()["cmd"],
+        JsonSchema::string(None)
+    );
+}
+
+#[test]
 fn parse_tool_input_schema_preserves_type_unions_without_rewriting_to_any_of() {
     // Example schema shape:
     // {

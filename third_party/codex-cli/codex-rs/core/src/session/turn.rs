@@ -1045,6 +1045,22 @@ fn apply_provider_tool_visibility(
     }
 }
 
+fn apply_hard_state_tool_visibility(
+    tools: Vec<ToolSpec>,
+    tool_visibility: TaskspaceProviderToolVisibility,
+    tool_choice: &ToolChoice,
+) -> Vec<ToolSpec> {
+    if tool_visibility == TaskspaceProviderToolVisibility::TaskspaceNative
+        && tool_choice.function_name() == Some("taskspace_control")
+    {
+        return tools
+            .into_iter()
+            .filter(|spec| spec.name() == "taskspace_control")
+            .collect();
+    }
+    tools
+}
+
 fn build_prompt_with_tool_visibility(
     input: Vec<ResponseItem>,
     router: &ToolRouter,
@@ -1069,6 +1085,7 @@ fn build_prompt_with_tool_visibility(
             .collect()
     };
     let tools = apply_provider_tool_visibility(tools, tool_visibility);
+    let tools = apply_hard_state_tool_visibility(tools, tool_visibility, &tool_choice);
 
     Prompt {
         input,
@@ -1916,13 +1933,35 @@ mod active_context_replacement_tests {
     }
 
     #[test]
-    fn blank_map_selects_control_without_changing_tool_visibility() {
+    fn blank_map_exposes_only_control_and_active_map_restores_native_tools() {
+        let visible = vec![
+            codex_tools::create_list_dir_tool(),
+            codex_tools::create_taskspace_control_tool(&[codex_tools::create_list_dir_tool()]),
+        ];
         let selected = taskspace_provider_tool_choice(true);
         assert_eq!(selected.function_name(), Some("taskspace_control"));
         assert!(selected.requires_disabled_thinking());
+        let blank = apply_hard_state_tool_visibility(
+            visible.clone(),
+            TaskspaceProviderToolVisibility::TaskspaceNative,
+            &selected,
+        );
+        assert_eq!(
+            blank.iter().map(ToolSpec::name).collect::<Vec<_>>(),
+            vec!["taskspace_control"]
+        );
 
         let released = taskspace_provider_tool_choice(false);
         assert_eq!(released, ToolChoice::Auto);
+        let active = apply_hard_state_tool_visibility(
+            visible,
+            TaskspaceProviderToolVisibility::TaskspaceNative,
+            &released,
+        );
+        assert_eq!(
+            active.iter().map(ToolSpec::name).collect::<Vec<_>>(),
+            vec!["list_dir", "taskspace_control"]
+        );
     }
 
     fn message(role: &str, text: &str) -> ResponseItem {

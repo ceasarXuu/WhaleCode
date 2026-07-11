@@ -26,6 +26,8 @@ pwsh -NoProfile -File scripts/taskspace-benchmark/write-performance-observation.
 - Lead with result eligibility, then actions, cost/cache, and map.
 - Use `logical-mode-map.json`; never infer treatment from left/right.
 - Use request-2+ cache hit for warm-cache comparison and show strict-prefix evidence beside it.
+- Report zero-cache requests as `warmup candidate` only when the cache shape has not appeared earlier in the run. Report a zero hit on an already-seen shape separately as `same-shape zero`; do not merge both into a generic cache failure.
+- Treat `tool_choice` as part of the provider cache shape. Show message-prefix preservation separately when named-to-auto changes leave messages intact but break the full request prefix.
 - Keep cached and uncached input separate. Do not infer monetary cost without a frozen unit-price artifact.
 - Include map nodes, edges, open leaves, root status, control actions, result validity, retention, and semantic replacement.
 - Report TaskSpace failures as separate protocol, state-machine, and nested ordinary-action counts. Do not label a faithful nested tool failure as a state-machine failure.

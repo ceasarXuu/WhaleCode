@@ -725,19 +725,21 @@ New-Item -ItemType Directory -Path $wireTraceDir -Force | Out-Null
 $wireTraceJsonl = Join-Path $RunRoot "provider-wire-trace-whale-exec.jsonl"
 '{"type":"turn.completed","usage":{"input_tokens":300,"cached_input_tokens":200,"output_tokens":20}}' | Set-Content -LiteralPath $wireTraceJsonl -Encoding UTF8
 @(
-    '{"schema_version":"provider-chat-wire-trace-v1","event_name":"provider.chat_wire_shape_recorded","request_id":"wire-1","epoch_id":"epoch-1","request_index":1,"provider_wire_api":"ChatCompletions","pre_wire_payload_sha256":"pre-1","provider_payload_sha256":"wire-hash-1","provider_payload_bytes":100,"messages_hash":"messages-1","tools_hash":"tools-1","tools_count":2,"message_count":2,"message_shapes":[{"index":0,"role":"system","bytes":40,"message_sha256":"m0","content_sha256":"c0"},{"index":1,"role":"user","bytes":20,"message_sha256":"m1","content_sha256":"c1"}],"previous_request_id":null,"lcp_message_count":0,"lcp_message_bytes":0,"prefix_preserved":null,"first_diff_index":null,"first_diff_path":null,"status":"payload_captured"}',
-    '{"schema_version":"provider-chat-wire-trace-v1","event_name":"provider.chat_wire_request_terminal","request_id":"wire-1","status":"response_completed","input_tokens":100,"cached_input_tokens":20,"output_tokens":10,"reasoning_output_tokens":1,"total_tokens":110}',
-    '{"schema_version":"provider-chat-wire-trace-v1","event_name":"provider.chat_wire_prefix_preserved","request_id":"wire-2","epoch_id":"epoch-1","request_index":2,"provider_wire_api":"ChatCompletions","pre_wire_payload_sha256":"pre-2","provider_payload_sha256":"wire-hash-2","provider_payload_bytes":140,"messages_hash":"messages-2","tools_hash":"tools-1","tools_count":2,"message_count":3,"message_shapes":[{"index":0,"role":"system","bytes":40,"message_sha256":"m0","content_sha256":"c0"},{"index":1,"role":"user","bytes":20,"message_sha256":"m1","content_sha256":"c1"},{"index":2,"role":"assistant","bytes":30,"message_sha256":"m2","content_sha256":"c2"}],"previous_request_id":"wire-1","lcp_message_count":2,"lcp_message_bytes":60,"prefix_preserved":true,"first_diff_index":null,"first_diff_path":null,"status":"payload_captured"}',
-    '{"schema_version":"provider-chat-wire-trace-v1","event_name":"provider.chat_wire_request_terminal","request_id":"wire-2","status":"response_completed","input_tokens":200,"cached_input_tokens":180,"output_tokens":10,"reasoning_output_tokens":1,"total_tokens":210}'
+    '{"schema_version":"provider-chat-wire-trace-v2","event_name":"provider.chat_wire_shape_recorded","request_id":"wire-1","epoch_id":"epoch-1","request_index":1,"provider_wire_api":"ChatCompletions","pre_wire_payload_sha256":"pre-1","provider_payload_sha256":"wire-hash-1","provider_payload_bytes":100,"messages_hash":"messages-1","tools_hash":"tools-1","cache_shape_hash":"shape-named","tools_count":2,"tool_choice_kind":"named_function","tool_choice_name":"taskspace_control","message_count":2,"message_shapes":[{"index":0,"role":"system","bytes":40,"message_sha256":"m0","content_sha256":"c0"},{"index":1,"role":"user","bytes":20,"message_sha256":"m1","content_sha256":"c1"}],"previous_request_id":null,"lcp_message_count":0,"lcp_message_bytes":0,"message_prefix_preserved":null,"tool_choice_preserved":null,"tool_choice_changed":null,"prefix_preserved":null,"first_diff_index":null,"first_diff_path":null,"status":"payload_captured"}',
+    '{"schema_version":"provider-chat-wire-trace-v2","event_name":"provider.chat_wire_request_terminal","request_id":"wire-1","status":"response_completed","input_tokens":100,"cached_input_tokens":0,"output_tokens":10,"reasoning_output_tokens":1,"total_tokens":110}',
+    '{"schema_version":"provider-chat-wire-trace-v2","event_name":"provider.chat_wire_prefix_broken","request_id":"wire-2","epoch_id":"epoch-1","request_index":2,"provider_wire_api":"ChatCompletions","pre_wire_payload_sha256":"pre-2","provider_payload_sha256":"wire-hash-2","provider_payload_bytes":140,"messages_hash":"messages-2","tools_hash":"tools-1","cache_shape_hash":"shape-auto","tools_count":2,"tool_choice_kind":"auto","tool_choice_name":null,"message_count":3,"message_shapes":[{"index":0,"role":"system","bytes":40,"message_sha256":"m0","content_sha256":"c0"},{"index":1,"role":"user","bytes":20,"message_sha256":"m1","content_sha256":"c1"},{"index":2,"role":"assistant","bytes":30,"message_sha256":"m2","content_sha256":"c2"}],"previous_request_id":"wire-1","lcp_message_count":2,"lcp_message_bytes":60,"message_prefix_preserved":true,"tool_choice_preserved":false,"tool_choice_changed":true,"prefix_preserved":false,"first_diff_index":null,"first_diff_path":"tool_choice","status":"payload_captured"}',
+    '{"schema_version":"provider-chat-wire-trace-v2","event_name":"provider.chat_wire_request_terminal","request_id":"wire-2","status":"response_completed","input_tokens":200,"cached_input_tokens":180,"output_tokens":10,"reasoning_output_tokens":1,"total_tokens":210}'
 ) | Set-Content -LiteralPath (Join-Path $wireTraceDir "provider-wire-trace.jsonl") -Encoding UTF8
 $wireTraceInstrumentation = Write-TaskspaceCostInstrumentationArtifacts -ArtifactDir $wireTraceDir -JsonlPath $wireTraceJsonl -ObservabilityJsonPath ""
 $wireTraceSummary = $wireTraceInstrumentation.provider_cache_trace_summary
 $wireTraceEvents = @($wireTraceInstrumentation.provider_cache_trace_events)
-Assert-True ([string]$wireTraceSummary.schema_version -eq "TaskSpaceProviderCacheTraceSummaryV2" -and [string]$wireTraceSummary.source -eq "provider_final_wire_trace") "provider final-wire trace was not selected as cache source"
+Assert-True ([string]$wireTraceSummary.schema_version -eq "TaskSpaceProviderCacheTraceSummaryV3" -and [string]$wireTraceSummary.source -eq "provider_final_wire_trace") "provider final-wire trace was not selected as cache source"
 Assert-True ([int]$wireTraceSummary.provider_request_count -eq 2 -and [double]$wireTraceSummary.trace_coverage -eq 1.0) "provider final-wire trace coverage was not complete"
 Assert-True ([double]$wireTraceSummary.request_2_plus_hit_rate -eq 0.9) "provider final-wire request-2+ cache usage was not aggregated"
-Assert-True ([int]$wireTraceSummary.prefix_preserved_count -eq 1 -and [double]$wireTraceSummary.prefix_preserved_rate -eq 1.0) "provider final-wire LCP was not aggregated"
-Assert-True ($wireTraceEvents.Count -eq 2 -and [string]$wireTraceEvents[1].pre_wire_payload_sha256 -eq "pre-2" -and [int]$wireTraceEvents[1].lcp_message_count -eq 2) "provider final-wire request shape fields were not preserved"
+Assert-True ([int]$wireTraceSummary.prefix_preserved_count -eq 0 -and [double]$wireTraceSummary.prefix_preserved_rate -eq 0.0) "tool-choice transition was incorrectly reported as full prefix preservation"
+Assert-True ([int]$wireTraceSummary.zero_cache_hit_count -eq 1 -and [int]$wireTraceSummary.cache_warmup_candidate_count -eq 1 -and [int]$wireTraceSummary.same_shape_zero_hit_count -eq 0) "cache warmup classification was not aggregated"
+Assert-True ([int]$wireTraceSummary.tool_choice_transition_count -eq 1 -and [int]$wireTraceSummary.cache_shape_transition_count -eq 1) "cache-shape transition was not aggregated"
+Assert-True ($wireTraceEvents.Count -eq 2 -and [string]$wireTraceEvents[1].first_diff_path -eq "tool_choice" -and [bool]$wireTraceEvents[1].message_prefix_preserved -and -not [bool]$wireTraceEvents[1].prefix_preserved) "provider final-wire request shape fields were not preserved"
 
 $aggregateCacheRoot = Join-Path $RunRoot "aggregate-cache-root"
 $leftArtifacts = Join-Path $aggregateCacheRoot "pair-001\left\artifacts"
@@ -746,7 +748,7 @@ New-Item -ItemType Directory -Path $leftArtifacts, $rightArtifacts -Force | Out-
 ([pscustomobject]@{ logical_mode = "standard"; model_request_count = 1 }) | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $leftArtifacts "metrics.json") -Encoding UTF8
 ([pscustomobject]@{ logical_mode = "taskspace"; model_request_count = 2 }) | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $rightArtifacts "metrics.json") -Encoding UTF8
 ([pscustomobject]@{
-    schema_version = "TaskSpaceProviderCacheTraceSummaryV1"
+    schema_version = "TaskSpaceProviderCacheTraceSummaryV3"
     provider_request_count = 1
     trace_coverage = 1.0
     cache_usage_missing_count = 0
@@ -760,7 +762,7 @@ New-Item -ItemType Directory -Path $leftArtifacts, $rightArtifacts -Force | Out-
     request_2_plus_hit_rate = $null
 }) | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath (Join-Path $leftArtifacts "provider-cache-trace-summary.json") -Encoding UTF8
 ([pscustomobject]@{
-    schema_version = "TaskSpaceProviderCacheTraceSummaryV1"
+    schema_version = "TaskSpaceProviderCacheTraceSummaryV3"
     provider_request_count = 2
     trace_coverage = 1.0
     cache_usage_missing_count = 0
@@ -772,6 +774,11 @@ New-Item -ItemType Directory -Path $leftArtifacts, $rightArtifacts -Force | Out-
     request_2_plus_cached_input_tokens = 950
     request_2_plus_uncached_input_tokens = 50
     request_2_plus_hit_rate = 0.95
+    zero_cache_hit_count = 1
+    cache_warmup_candidate_count = 1
+    same_shape_zero_hit_count = 0
+    tool_choice_transition_count = 1
+    cache_shape_transition_count = 1
 }) | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath (Join-Path $rightArtifacts "provider-cache-trace-summary.json") -Encoding UTF8
 ([pscustomobject]@{ schema_version = "TaskSpaceProviderCacheTraceV1"; request_id = "left-1"; request_shape_classifier = "native_tools_schema_hot_path" } | ConvertTo-Json -Compress -Depth 8) | Set-Content -LiteralPath (Join-Path $leftArtifacts "provider-cache-trace.jsonl") -Encoding UTF8
 ([pscustomobject]@{ schema_version = "TaskSpaceProviderCacheTraceV1"; request_id = "right-1"; request_shape_classifier = "tool_free_action_contract" } | ConvertTo-Json -Compress -Depth 8) | Set-Content -LiteralPath (Join-Path $rightArtifacts "provider-cache-trace.jsonl") -Encoding UTF8
@@ -781,6 +788,7 @@ $aggregateCacheEvents = @(Get-Content -Encoding UTF8 -LiteralPath (Join-Path $ag
 Assert-True ([int]$aggregateCacheSummary.provider_request_count -eq 2) "aggregate provider cache trace should include only taskspace/right artifacts"
 Assert-True ([int]$aggregateCacheSummary.native_tools_schema_hot_path_count -eq 0) "aggregate provider cache trace included standard native tools hot path"
 Assert-True ([int]$aggregateCacheSummary.tool_free_action_contract_count -eq 2 -and [double]$aggregateCacheSummary.request_2_plus_hit_rate -eq 0.95) "aggregate provider cache trace did not preserve taskspace cache metrics"
+Assert-True ([string]$aggregateCacheSummary.schema_version -eq "TaskSpaceProviderCacheTraceSummaryV3" -and [int]$aggregateCacheSummary.cache_warmup_candidate_count -eq 1 -and [int]$aggregateCacheSummary.tool_choice_transition_count -eq 1) "aggregate provider cache trace omitted cache-shape diagnostics"
 Assert-True ($aggregateCacheEvents.Count -eq 1 -and [string]$aggregateCacheEvents[0].request_id -eq "right-1") "aggregate provider cache trace events did not filter to taskspace/right artifacts"
 Assert-True ([string]$aggregateCache.provider_cache_trace_summary_path -eq (Join-Path $aggregateCacheRoot "provider-cache-trace-summary.json")) "aggregate return object omitted provider cache trace summary path"
 

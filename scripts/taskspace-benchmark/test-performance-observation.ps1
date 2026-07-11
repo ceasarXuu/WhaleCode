@@ -40,6 +40,9 @@ function New-SideFixture {
             request_2_plus_cached_input_tokens = $CachedTokens - 100; request_2_plus_uncached_input_tokens = 100
             request_2_plus_hit_rate = ($CachedTokens - 100) / [double]$CachedTokens
             prefix_comparison_count = $Requests - 1; prefix_preserved_count = $Requests - 1; prefix_preserved_rate = 1.0
+            zero_cache_hit_count = 0; cache_warmup_candidate_count = 0; same_shape_zero_hit_count = 0
+            tool_choice_transition_count = $(if ($isTaskspace) { 1 } else { 0 })
+            cache_shape_transition_count = $(if ($isTaskspace) { 1 } else { 0 })
         }) (Join-Path $artifactDir "provider-cache-trace-summary.json")
     if ($isTaskspace) {
         $nodes = @(

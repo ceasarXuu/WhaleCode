@@ -1,5 +1,5 @@
 # Problem P-001: R5 TaskSpace 在 G1 正确性样本中请求次数显著高于 Standard
-- Status: resolved-j6-schema-followups
+- Status: in-progress-j6-5-schema-cost-cache-observability
 - Created: 2026-07-10 22:56
 - Updated: 2026-07-12
 - Objective: 用最终 wire 和原始 tool/control history 精确解释 `count-call-stack` 三轮中 R5 51 requests 对 Standard 22 requests 的29次放大，不把缓存、反馈或 runtime 约束先验地写成根因。
@@ -57,6 +57,10 @@
   - E-031
   - E-032
   - E-033
+  - E-034
+  - E-035
+  - E-036
+  - E-037
 - Ruled out:
   - 相邻请求缓存前缀破坏不是本轮请求放大的原因：R5 strict-prefix 48/48，request-2+ cache hit 97.66%。
   - 工具反馈丢失不是本轮主要原因：pre-init hard reject、pytest failure、apply_patch failure 和成功输出都按原文进入后续 history。
@@ -93,6 +97,8 @@
   - H-015
   - H-016
   - H-017
+  - H-018
+  - H-019
 - Resolution basis:
   - E-001
   - E-002
@@ -1703,4 +1709,183 @@
   terminal_extra_request=0
   ```
 - Interpretation: 工具能力 contract 已忠实进入 carrier；剩余 nested failure 是普通 patch 上下文不匹配，原始错误完整进入 batch output，不属于 schema 语义丢失。
+- Time: 2026-07-12
+
+## Hypothesis H-018: 精确 nested schema 在 control 内重复两次并与顶层工具叠加造成固定请求体放大
+- Status: confirmed
+- Parent: P-001
+- Claim: `taskspace_control` 将完整 ordinary-action union 分别内联到 init/finish 两个分支，同时 ordinary tools 继续顶层暴露，导致同一参数 schema 在活跃请求中物理出现三次。
+- Layer: root-cause
+- Factor relation: additive
+- Depends on:
+  - H-017
+- Rationale:
+  - 参数语义完整性修复是正确的，但重复序列化不是语义要求；同一 function schema 应在 control 内定义一次并引用。
+- Falsifiable predictions:
+  - If true: R5 每轮非 message wire bytes 稳定高于 Standard，且 `81d2702` 后相对 generic nested schema 再固定增加；源码存在两次 `actions.clone()`。
+  - If false: wire 增量来自动态 messages，或 nested union 只序列化一次。
+- Diagnostic evidence plan:
+  - Prediction or clause under test: 对三代 run 的最终 wire、tools hash和 schema构造源码做独立对账。
+  - Signal: per-request non-message bytes、schema出现次数、commit前后固定增量。
+  - Capture method: provider wire trace + source inspection。
+  - Event name or marker:
+    - `provider.chat_wire_shape_recorded`
+  - Correlation keys:
+    - tools hash `0858cd2c...`
+    - tools hash `1d1ee594...`
+    - tools hash `2427b0f3...`
+  - Differentiates from:
+    - projection accumulation。
+    - 个别大工具输出。
+    - cache miss导致总 input 增加。
+  - Supports if:
+    - Standard约21.69 KB、generic R5约30.82 KB、exact R5约48.44 KB，且源码两次克隆同一 union。
+  - Refutes if:
+    - non-message bytes不稳定或 schema不重复。
+  - Instrumentation status: existing-permanent-observability
+  - Instrumentation lifecycle:
+    - 保留 provider final-wire bytes/tools hash；增加 schema serialized-byte gate。
+- Evidence gate: satisfied
+- Related evidence:
+  - E-034
+  - E-035
+- Conclusion: confirmed; exact schema fidelity and physical schema deduplication are separate requirements
+- Repair design readiness: ready and authorized by user
+- Next step: local `$defs/$ref` 单份定义，并在 blank-map named control 请求隐藏顶层 ordinary specs。
+- Blocker:
+  - none
+- Close reason:
+  - open until fix validation
+
+## Hypothesis H-019: prefix telemetry 忽略 tool choice 导致冷启动边界被误报为完整前缀保持
+- Status: confirmed
+- Parent: P-001
+- Claim: provider wire comparator 只比较 tools hash 和 message LCP；Req1 `named taskspace_control` 到 Req2 `auto` 仍被记为 `prefix_preserved=true`，无法解释冷 schema 的前两轮0命中。
+- Layer: root-cause
+- Factor relation: single
+- Depends on:
+  - H-018
+- Rationale:
+  - cache hit是provider事实；本地只能忠实记录完整请求形状、历史相似度和实际hit/miss，不能把message append-only等同于cache shape不变。
+- Falsifiable predictions:
+  - If true: comparator结构不保存tool choice；cold run呈0/0/high，warm run呈high/partial/high；Req1到Req2仅70ms且tool choice变化。
+  - If false: comparator已包含tool choice，或Req2与Req1完全同形。
+- Diagnostic evidence plan:
+  - Prediction or clause under test: 对 comparator字段、cold/warm同hash run和request时间线对账。
+  - Signal: `tool_choice_kind/name`、cached tokens、request间隔、tools hash历史出现次数。
+  - Capture method: source inspection + provider wire/cache trace。
+  - Event name or marker:
+    - `provider.chat_wire_prefix_preserved`
+    - `provider.chat_wire_request_terminal`
+  - Correlation keys:
+    - `j6-contract-b`
+    - `j6-contract-c`
+    - `j6-complex-b`
+  - Differentiates from:
+    - 每轮持续缓存破坏。
+    - tools hash在同一run内变化。
+    - message history被替换。
+  - Supports if:
+    - cold run前两轮0、第三轮高命中；warm run首轮高、第二轮部分；当前 comparator忽略tool choice。
+  - Refutes if:
+    - 同shape重复请求持续0命中且工具选择无变化。
+  - Instrumentation status: existing-observability-incomplete
+  - Instrumentation lifecycle:
+    - 升级wire/cache trace schema并保留为永久观测。
+- Evidence gate: satisfied
+- Related evidence:
+  - E-036
+  - E-037
+- Conclusion: confirmed; the cache itself recovers, but telemetry overstates prefix preservation
+- Repair design readiness: ready and authorized by user
+- Next step: cache shape纳入tool choice，单列message prefix和warmup/same-shape-zero分类，不增加runtime行为。
+- Blocker:
+  - none
+- Close reason:
+  - open until fix validation
+
+## Evidence E-034: exact nested schema 使每轮固定非 message payload 增长17.62 KB
+- Related hypotheses:
+  - H-018
+- Direction: supports
+- Type: diagnostic-log
+- Source: J6 Standard/generic R5/exact R5 provider cache traces
+- Prediction or plan link:
+  - H-018 fixed wire overhead prediction
+- Matched signal:
+  - Standard约21.69 KB/request；generic R5约30.82 KB/request；exact R5约48.44 KB/request。
+- Correlation keys:
+  - `j6-complex-a/pair-001/left`
+  - `j6-complex-a/pair-001/right`
+  - `j6-complex-b/pair-001/right`
+- Raw content:
+  ```text
+  standard avg non-message bytes = 21691.2
+  generic R5 avg non-message bytes = 30824.7
+  exact R5 avg non-message bytes = 48443.8
+  ```
+- Interpretation: 增量每轮稳定存在，不是个别历史或工具输出尖峰；`81d2702` fidelity修复新增约17.62 KB/request。
+- Time: 2026-07-12
+
+## Evidence E-035: schema构造源码将同一action union内联两次
+- Related hypotheses:
+  - H-018
+- Direction: supports
+- Type: source
+- Source: `tools/src/taskspace_tool.rs`
+- Prediction or plan link:
+  - H-018 physical duplication prediction
+- Matched signal:
+  - `function_action_schema` clone原参数；`initialize_then_actions_schema`和`finish_then_actions_schema`分别执行`actions.clone()`；registry同时保留顶层ordinary tools。
+- Correlation keys:
+  - lines 44-54, 249-305, 387-403
+- Raw content:
+  ```text
+  arguments = tool.parameters.clone()
+  initialize actions.items = actions.clone()
+  finish actions.items = actions.clone()
+  ```
+- Interpretation: 三重暴露由确定性序列化结构产生；去重不需要损失任何工具参数语义。
+- Time: 2026-07-12
+
+## Evidence E-036: cold/warm同hash运行稳定复现前两轮缓存差异
+- Related hypotheses:
+  - H-019
+- Direction: supports
+- Type: reproduction
+- Source: `j6-contract-b` and `j6-contract-c`
+- Prediction or plan link:
+  - H-019 cold-shape prediction
+- Matched signal:
+  - cold run hit率为0%、0%、91.28%；相邻warm run为98.48%、41.76%、96.64%。
+- Correlation keys:
+  - tools hash `1d1ee594...`
+- Raw content:
+  ```text
+  cold: req1=0 req2=0 req3=.912846
+  warm: req1=.984832 req2=.417640 req3=.966378
+  ```
+- Interpretation: cache在第三轮恢复；Req2低命中与首次auto shape和缓存持久化时序相关，不是持续破坏。
+- Time: 2026-07-12
+
+## Evidence E-037: comparator忽略tool choice且Req2仅晚于Req1完成70ms
+- Related hypotheses:
+  - H-019
+- Direction: supports
+- Type: source-and-runtime
+- Source: `core/src/provider_wire_trace.rs` and `j6-complex-b` request events
+- Prediction or plan link:
+  - H-019 telemetry-gap prediction
+- Matched signal:
+  - `WireRequestShape`仅保存tools hash/messages；Req1 named，Req2 auto；Req1 completed到Req2 started间隔70ms，但trace仍记录prefix preserved。
+- Correlation keys:
+  - logical-1
+  - logical-2
+- Raw content:
+  ```text
+  req1 completed=1783801382095
+  req2 started=1783801382165
+  delta=70ms
+  ```
+- Interpretation: 观测口径把message append-only误当完整cache shape保持；必须纳入tool choice并单列warmup事实。
 - Time: 2026-07-12
