@@ -1425,6 +1425,8 @@ function New-TaskspaceControlUsageSummary {
     $rolloutActions = @{}
     $rolloutNativeCallIds = [System.Collections.Generic.HashSet[string]]::new()
     $rolloutActionContractCallIds = [System.Collections.Generic.HashSet[string]]::new()
+    $rolloutControlFailureCallIds = [System.Collections.Generic.HashSet[string]]::new()
+    $rolloutCadenceRejectionCallIds = [System.Collections.Generic.HashSet[string]]::new()
     $rolloutResponseItemCount = 0
     if ($rolloutSourceStatus -eq "read") {
         foreach ($line in [System.IO.File]::ReadLines($RolloutJsonlPath)) {
@@ -1433,7 +1435,23 @@ function New-TaskspaceControlUsageSummary {
             if ([string](Get-TaskspaceCostProperty $row @("type")) -ne "response_item") { continue }
             $rolloutResponseItemCount++
             $payload = Get-TaskspaceCostProperty $row @("payload")
-            if ($null -eq $payload -or [string](Get-TaskspaceCostProperty $payload @("type")) -notin @("function_call", "custom_tool_call")) { continue }
+            if ($null -eq $payload) { continue }
+            $payloadType = [string](Get-TaskspaceCostProperty $payload @("type"))
+            if ($payloadType -in @("function_call_output", "custom_tool_call_output")) {
+                $callId = [string](Get-TaskspaceCostProperty $payload @("call_id"))
+                if (-not [string]::IsNullOrWhiteSpace($callId) -and
+                    ($rolloutNativeCallIds.Contains($callId) -or $rolloutActionContractCallIds.Contains($callId))) {
+                    $output = [string](Get-TaskspaceCostProperty $payload @("output"))
+                    if ($output.Contains("TaskSpaceGateRecoveryV1") -or $output.Contains("TaskSpaceCadenceGateV1")) {
+                        [void]$rolloutControlFailureCallIds.Add($callId)
+                    }
+                    if ($output.Contains("TaskSpaceCadenceGateV1")) {
+                        [void]$rolloutCadenceRejectionCallIds.Add($callId)
+                    }
+                }
+                continue
+            }
+            if ($payloadType -notin @("function_call", "custom_tool_call")) { continue }
             if ([string](Get-TaskspaceCostProperty $payload @("name")) -ne "taskspace_control") { continue }
             $callId = [string](Get-TaskspaceCostProperty $payload @("call_id"))
             if ([string]::IsNullOrWhiteSpace($callId)) { continue }
@@ -1541,7 +1559,7 @@ function New-TaskspaceControlUsageSummary {
         }
     }
     [pscustomobject]@{
-        schema_version = "taskspace-control-usage-v1"
+        schema_version = "taskspace-control-usage-v2"
         source_path = $JsonlPath
         observability_source_path = $ObservabilityJsonPath
         rollout_source_path = $RolloutJsonlPath
@@ -1563,6 +1581,8 @@ function New-TaskspaceControlUsageSummary {
         taskspace_control_count = [int]$total
         native_taskspace_control_count = [int]$nativeTotal
         action_contract_taskspace_control_count = [int]$actionContractTotal
+        control_failure_count = [int]$rolloutControlFailureCallIds.Count
+        cadence_rejection_count = [int]$rolloutCadenceRejectionCallIds.Count
         state_commit_count = [int]$stateCommit
         runtime_state_commit_count = [int]$runtimeStateCommit
         runtime_output_ref_created_count = [int]$runtimeOutputRefCreated

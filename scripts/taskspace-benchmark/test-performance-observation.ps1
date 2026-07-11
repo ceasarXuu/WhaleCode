@@ -60,6 +60,7 @@ function New-SideFixture {
             }) (Join-Path $artifactDir "map-management-summary.json")
         Write-Json ([pscustomobject]@{
                 taskspace_control_count = 4; action_counts = [pscustomobject]@{ initialize_map = 1; finish_node = 3 }
+                control_failure_count = 1; cadence_rejection_count = 1
                 taskspace_runtime_event_count = 120; runtime_event_counts = [pscustomobject]@{ snapshot_updated = 30 }
             }) (Join-Path $artifactDir "taskspace-control-usage.json")
         $rollout = @()
@@ -117,6 +118,7 @@ Assert-True ($standard.totals.provider_requests -eq 10) "standard request aggreg
 Assert-True ($taskspace.totals.provider_requests -eq 18) "taskspace request aggregate ignored alternating side mapping"
 Assert-True ($taskspace.totals.node_count -eq 6 -and $taskspace.totals.edge_count -eq 4) "map totals are incorrect"
 Assert-True ($taskspace.totals.unreviewed_result_count -eq 6) "result lifecycle totals are incorrect"
+Assert-True ($taskspace.totals.control_failures -eq 2 -and $taskspace.totals.cadence_rejections -eq 2) "control cadence failures are missing"
 Assert-True ($report.ratios.provider_requests -eq 1.8) "request ratio is incorrect"
 Assert-True (@($report.rows | Where-Object { $_.observation_status -eq "skipped" }).Count -eq 1) "right-only placeholder side was not classified as skipped"
 Assert-True ($standard.observed_side_count -eq 3 -and $standard.excluded_side_count -eq 1) "skipped side contaminated the aggregate"
@@ -126,6 +128,7 @@ Assert-True (Test-Path -LiteralPath $result.event_log_path) "event log was not w
 $markdown = Get-Content -Raw -Encoding UTF8 -LiteralPath $result.markdown_path
 Assert-True ($markdown -match "## Map 节点") "markdown omitted map node details"
 Assert-True ($markdown -match "## Map 语义保存") "markdown omitted map semantic preservation details"
+Assert-True ($markdown -match "Cadence rejects") "markdown omitted cadence rejection counts"
 Assert-True ($markdown -match "root_task_active_after_nodes_closed") "mechanical map warning was not rendered"
 
 if ($failures.Count -gt 0) {

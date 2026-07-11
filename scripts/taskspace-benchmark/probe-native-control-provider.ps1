@@ -63,6 +63,18 @@ function Invoke-ProviderProbe {
     } else {
         @()
     }
+    $toolArgumentActions = if ($message) {
+        @($message.tool_calls | ForEach-Object {
+                try {
+                    $arguments = ([string]$_.function.arguments) | ConvertFrom-Json
+                    [string]$arguments.action
+                } catch {
+                    ''
+                }
+            })
+    } else {
+        @()
+    }
     $errorValue = if ($null -ne $payload -and $payload.PSObject.Properties.Name -contains 'error') {
         $payload.error
     } else {
@@ -81,6 +93,7 @@ function Invoke-ProviderProbe {
         duration_ms = [int64](((Get-Date) - $started).TotalMilliseconds)
         finish_reason = if ($hasChoice) { [string]$payload.choices[0].finish_reason } else { '' }
         tool_names = @($toolNames)
+        tool_argument_actions = @($toolArgumentActions)
         tool_call_count = @($toolNames).Count
         content_present = -not [string]::IsNullOrEmpty($content)
         content_bytes = [System.Text.Encoding]::UTF8.GetByteCount($content)
@@ -129,6 +142,19 @@ $orderedBody = @{
     stream = $false
     temperature = 0
 }
+$repeatedControlBody = @{
+    model = $Model
+    messages = @(
+        @{ role = 'system'; content = 'Provider capability probe. Emit repeated calls to the same function in the exact requested order.' },
+        @{ role = 'user'; content = 'In one response, call taskspace_control twice. First use action finish_first, then use action finish_second. Emit both tool calls and no prose.' }
+    )
+    tools = @($controlTool)
+    tool_choice = 'required'
+    parallel_tool_calls = $true
+    thinking = @{ type = 'disabled' }
+    stream = $false
+    temperature = 0
+}
 $terminalBody = @{
     model = $Model
     messages = @(
@@ -146,14 +172,16 @@ $probes = @(
     Invoke-ProviderProbe 'named_tool_choice_thinking_disabled' $namedBody
     Invoke-ProviderProbe 'named_tool_choice_thinking_enabled' $namedThinkingBody
     Invoke-ProviderProbe 'ordered_multi_tool_calls' $orderedBody
+    Invoke-ProviderProbe 'ordered_repeated_control_calls' $repeatedControlBody
     Invoke-ProviderProbe 'assistant_content_with_tool_call' $terminalBody
 )
 $named = @($probes | Where-Object { $_.name -eq 'named_tool_choice_thinking_disabled' })[0]
 $namedThinking = @($probes | Where-Object { $_.name -eq 'named_tool_choice_thinking_enabled' })[0]
 $ordered = @($probes | Where-Object { $_.name -eq 'ordered_multi_tool_calls' })[0]
+$repeatedControl = @($probes | Where-Object { $_.name -eq 'ordered_repeated_control_calls' })[0]
 $terminal = @($probes | Where-Object { $_.name -eq 'assistant_content_with_tool_call' })[0]
 $result = [pscustomobject]@{
-    schema_version = 'r5-j0-provider-capability-v1'
+    schema_version = 'r5-j0-provider-capability-v2'
     generated_at = (Get-Date).ToUniversalTime().ToString('o')
     endpoint = $Endpoint
     model = $Model
@@ -162,6 +190,9 @@ $result = [pscustomobject]@{
         named_tool_choice_with_thinking_disabled = ($named.http_status -eq 200 -and (@($named.tool_names) -join ',') -eq 'taskspace_control')
         named_tool_choice_with_thinking_enabled = ($namedThinking.http_status -eq 200)
         ordered_multi_tool_calls = ($ordered.http_status -eq 200 -and (@($ordered.tool_names) -join ',') -eq 'first_step,second_step')
+        ordered_repeated_control_calls = ($repeatedControl.http_status -eq 200 -and
+            (@($repeatedControl.tool_names) -join ',') -eq 'taskspace_control,taskspace_control' -and
+            (@($repeatedControl.tool_argument_actions) -join ',') -eq 'finish_first,finish_second')
         assistant_content_with_required_tool_call_observed = ($terminal.http_status -eq 200 -and $terminal.content_present -and @($terminal.tool_names) -contains 'finish_node')
     }
     decision = [ordered]@{
@@ -182,5 +213,6 @@ Write-Host "ProviderCapability: $OutputPath"
 $passed = [bool]$result.capabilities.named_tool_choice_with_thinking_disabled -and
     -not [bool]$result.capabilities.named_tool_choice_with_thinking_enabled -and
     [bool]$result.capabilities.ordered_multi_tool_calls -and
+    [bool]$result.capabilities.ordered_repeated_control_calls -and
     -not [bool]$result.capabilities.assistant_content_with_required_tool_call_observed
 if (-not $passed) { exit 2 }

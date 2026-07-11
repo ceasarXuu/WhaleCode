@@ -704,13 +704,17 @@ $rolloutControlJsonl = Join-Path $RunRoot "rollout-control-whale-exec.jsonl"
 @(
     '{"type":"response_item","payload":{"type":"function_call","name":"taskspace_control","arguments":"{\"action\":\"finish_node\"}","call_id":"native-control-1"}}',
     '{"type":"response_item","payload":{"type":"function_call","name":"taskspace_control","arguments":"{\"action\":\"finish_node\"}","call_id":"native-control-2"}}',
-    '{"type":"response_item","payload":{"type":"function_call","name":"taskspace_control","arguments":"{\"action\":\"bind_node\"}","call_id":"taskspace-action-contract-3-taskspace_control"}}'
+    '{"type":"response_item","payload":{"type":"function_call","name":"taskspace_control","arguments":"{\"action\":\"bind_node\"}","call_id":"taskspace-action-contract-3-taskspace_control"}}',
+    '{"type":"response_item","payload":{"type":"function_call_output","call_id":"native-control-1","output":"TaskSpaceCadenceGateV1: {\"allowed\":false}"}}',
+    '{"type":"response_item","payload":{"type":"function_call_output","call_id":"native-control-2","output":"TaskSpaceGateRecoveryV1: {\"allowed\":false}"}}'
 ) | Set-Content -LiteralPath (Join-Path $rolloutControlDir "rollout.jsonl") -Encoding UTF8
 $rolloutControlInstrumentation = Write-TaskspaceCostInstrumentationArtifacts -ArtifactDir $rolloutControlDir -JsonlPath $rolloutControlJsonl -ObservabilityJsonPath ""
 Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.taskspace_control_count -eq 3) "rollout taskspace_control calls were not counted"
 Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.native_taskspace_control_count -eq 2) "rollout native taskspace_control calls were not counted"
 Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.action_contract_taskspace_control_count -eq 1) "rollout action-contract taskspace_control calls were not counted"
 Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.action_counts.finish_node -eq 2) "rollout control actions were not deduplicated by call id"
+Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.control_failure_count -eq 2) "rollout control failures were not counted"
+Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.cadence_rejection_count -eq 1) "rollout cadence rejections were not counted"
 Assert-True ([string]$rolloutControlInstrumentation.taskspace_control_usage.taskspace_control_count_source -eq "rollout_trace") "rollout trace should be the authoritative control-count source"
 Assert-True (-not [bool]$rolloutControlInstrumentation.taskspace_control_usage.taskspace_control_count_source_mismatch) "an exec file without response-item telemetry should not be treated as a conflicting control count"
 
