@@ -42,6 +42,11 @@
   - E-016
   - E-017
   - E-018
+  - E-019
+  - E-020
+  - E-021
+  - E-022
+  - E-023
 - Ruled out:
   - 相邻请求缓存前缀破坏不是本轮请求放大的原因：R5 strict-prefix 48/48，request-2+ cache hit 97.66%。
   - 工具反馈丢失不是本轮主要原因：pre-init hard reject、pytest failure、apply_patch failure 和成功输出都按原文进入后续 history。
@@ -59,7 +64,7 @@
   - 在用户授权修复后，任何方案必须分别度量固定 control 往返、普通动作数量和并行承载；不得只压低一个总 request 数。
   - 修复验证必须保持 G1 strict-prefix、反馈忠实性、Agent-owned Map 和 correctness。
   - 需要 controlled repeats 证明 request 降低不是模型随机波动。
-- Current conclusion: G1 的29次请求差已被高置信度分解，J1/J2/J3 也已补齐空 Map tool choice、有序屏障和终态事务。`f0db9d7` 恢复机械 action contract 后，`6c0153c` 进一步把初始化反馈从可读反的 `node_ids=[key=id]` 文本改为 `TaskSpaceInitializeMapResultV1` 结构化机械结果，显式分离 `current_node_key`、`current_node_id` 和 `node_id_by_key`。focused tests、build、binary attestation 和 Docker fix validation 均通过。第二轮4节点 Map 中 node key/id 错误从2次降为0，`bind_node` 从上一轮5次降为0，Agent 连续3次使用 `finish_node(next_node_id)`，controls 为 `initialize_map=1 + finish_node=4 = N+1`，terminal extra request=0。对应 R5 requests 从上一轮非同拓扑的21降到12、wall 从43.47s降到24.61s、input从194,687降到96,949；这些总量受5节点变4节点和模型采样影响，不能全部归因，但调用链直接证明映射反馈修复恢复了原子下一节点推进。当前剩余固定成本是每节点 finish 仍各占一个 control-only response，mixed barrier 仍为0；同轮 R5 相对 Standard 仍为12 vs 5 requests、24.61s vs 12.35s、96,949 vs 36,393 input tokens。后续应继续分离必要 `N+1` Map 记账成本、3个额外 ordinary actions 和依赖边界重采样，不通过 runtime 自动推进压指标。
+- Current conclusion: G1 的29次请求差已闭合；J1-J5 已补齐空 Map tool choice、有序 barrier、Agent-authored terminal candidate、结构化初始化映射、重复同名 control承载和显式 ready target原子 finish。hard reject standalone finish被三轮 live run反证：最强引导产生6次拒绝和3个无意义 echo，现已回撤为非阻断观测。最终 Docker run两侧 solved，R5 为10 requests、5 controls、0 control failure、0 bind、terminal extra request=0；但5个 controls仍各占一个 response，`multi-control=0`、`chained-finish=0`、`mixed=0`。因此工程能力完成，真实 cadence采用收益仍未证明；后续不得通过 runtime自动动作、语义注入或 hard cadence gate压指标。
 - Related hypotheses:
   - H-001
   - H-002
@@ -71,6 +76,8 @@
   - H-008
   - H-009
   - H-010
+  - H-011
+  - H-012
 - Resolution basis:
   - E-001
   - E-002
@@ -90,6 +97,11 @@
   - E-016
   - E-017
   - E-018
+  - E-019
+  - E-020
+  - E-021
+  - E-022
+  - E-023
 - Close reason:
   - original diagnosis complete; follow-up feedback ambiguity remains open
 
@@ -549,13 +561,14 @@
 - Evidence gate: satisfied
 - Related evidence:
   - E-022
-- Conclusion: confirmed。`record_main_node_lifecycle_result` 在读取显式目标状态前先强制 `current_main_node_id`，并要求 target=current；advisory live trace 精确复现该顺序。修复只在 current binding为空时，对 Agent 显式指定且可绑定的目标执行同事务 claim+finish；现有依赖、状态、租约、维护屏障和当前节点冲突规则全部保留。
-- Repair design readiness: ready and authorized
-- Next step: 增加原子显式目标 finish，覆盖连续 finish 和失败无副作用测试。
+  - E-023
+- Conclusion: confirmed and fix-validated。`record_main_node_lifecycle_result` 在读取显式目标状态前先强制 `current_main_node_id`，并要求 target=current；advisory live trace 精确复现该顺序。修复仅在 current binding为空时，对 Agent显式指定且可绑定的目标执行同事务 claim+finish；成功、pending失败无副作用和同响应相邻 finish测试全部通过。
+- Repair design readiness: repair complete
+- Next step: 保留 multi-control/chained-finish观测；不将单轮总请求下降外推为稳定收益。
 - Blocker:
   - none
 - Close reason:
-  - not closed
+  - original mechanical rejection absent in fix-validation tests
 
 ## Hypothesis H-012: hard reject standalone nonterminal finish 能降低请求成本
 - Status: refuted
@@ -1189,4 +1202,34 @@
   R5 map: 6 nodes, 5 edges, 6 results, open=0
   ```
 - Interpretation: 删除 hard gate恢复了 Agent所有权，但工具仍不能把 Agent显式选择的 ready target在无 binding时原子 claim+finish。源码先检查 current binding，再检查显式 target，和 trace 的失败顺序一致。
+- Time: 2026-07-11
+
+## Evidence E-023: 原子显式 finish 修复通过事务测试和 Docker 回归
+- Related hypotheses:
+  - H-011
+  - H-012
+- Direction: supports
+- Type: fix-validation
+- Source: commit `d0f35ca`, focused tests, `target/r5-j5-atomic-finish/count-call-stack/20260711-203035-327`
+- Prediction or plan link:
+  - H-011 explicit ready target success and hard-state failure atomicity
+- Matched signal:
+  - ready target无 binding直接完成；pending target拒绝后无 binding/lease残留；同响应相邻 finish完成两个依赖节点
+- Correlation keys:
+  - `explicit_ready_target_is_claimed_and_finished_without_separate_bind`
+  - `rejected_explicit_finish_does_not_leave_an_implicit_binding`
+  - `adjacent_finish_calls_claim_successive_ready_targets`
+- Raw content:
+  ```text
+  focused runtime tests: passed
+  ActionMap scenario tests: 7 passed
+  adjacent finish fixture: provider requests=2, nodes completed=2
+
+  final Docker Standard: solved, requests=8, tools=13, wall=19.11s
+  final Docker R5: solved, requests=10, tools=12, controls=5, wall=27.11s
+  R5: control failures=0, bind_node=0, terminal extra request=0
+  R5 cadence: control-only=5, multi-control=0, chained-finish=0, mixed=0
+  R5 map: nodes=4, edges=0, results=4, open=0
+  ```
+- Interpretation: 工具能力缺口已修复且不放松 pending/lease等硬状态。真实样本正确性和错误归零，但 Agent仍逐响应提交 finish；能力完成不等于行为采用，且4节点0边与上一轮拓扑不同，不能把 requests 19 -> 10全部归因于修复。
 - Time: 2026-07-11

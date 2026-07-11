@@ -10,7 +10,7 @@
 Created: 2026-07-09
 Updated: 2026-07-11
 Version: v0.0.5 build-R5
-Status: In Progress - R5-F, R5-I0/I1/I2 and R5-J0/J1/J2/J3 complete; R5-J4 is next
+Status: In Progress - R5-F, R5-I0-I4 and R5-J0-J5 engineering complete; J5 live cadence adoption remains on hold
 Owner / Responsible: WhaleCode core runtime
 Related Systems: TaskSpace runtime, action_map runtime, taskspace_control,
   context projection, provider-visible context, benchmark harness
@@ -95,7 +95,8 @@ TaskSpace 拉回三个职责：
 
 ## 1.5 Phase 总览
 
-当前剩余执行顺序：`R5-J0..J4 -> R5-I3/I4 -> R5-G3 -> R5-H`。
+当前剩余执行顺序：`R5-G3 final regression -> R5-H closeout`。J5 工程能力已完成，但真实
+multi-finish / finish+ordinary 采用率仍为0，不作为已兑现收益。
 字母编号保留历史文档稳定性，实际推进只以 1.15 的依赖和门禁矩阵为准。
 
 | Phase | Theme | Main Output | Exit Gate |
@@ -113,7 +114,7 @@ TaskSpace 拉回三个职责：
 | R5-G | Regression and benefit gate | 正向/负向样本对照、成本和语义传递报告 | 不引入明确负收益，失败可解释 |
 | R5-H | Closeout | R5 收口报告和后续 backlog | 文档、测试、代码、证据一致 |
 | R5-I | Docker-only benchmark and logging | 统一容器执行 substrate、生命周期日志和本机路径删除 | I0/I1/I2 已完成；I3/I4 在 R5-J 后执行并删除本机 fallback |
-| R5-J | Native control cadence | hard-state tool selection、native ordered barrier、Agent-authored terminal transaction | 固定 Map 拓扑下 control-only response 显著下降；无 Map 坍缩、语义注入或工具反馈损失；J0-J3 已完成，当前进入 J4 |
+| R5-J | Native control cadence | hard-state tool selection、native ordered barrier、Agent-authored terminal transaction、显式 ready target原子 finish | J0-J5 工程门禁通过；hard cadence gate已否决；真实 chained/mixed adoption保持 hold |
 
 ### 1.5.1 Phase 验收和工程收益矩阵
 
@@ -132,7 +133,7 @@ TaskSpace 拉回三个职责：
 | R5-G | targeted paired runs 无明确 correctness 回退，成本无无解释放大；只有 Agent 生命周期完整且未被 runtime 中断的样本可进入收益统计 | 用未污染样本证明简化降低干扰且保留收益 | Agent completion、external validation、tool/model request、tokens、wall time、feedback completeness 分项对比报告 |
 | R5-H | closeout 列出已删/降级/保留结构和后续删除条件，git clean | 形成可交接的架构边界和后续路线，避免 R5 结论再次散落 | closeout 文档、证据索引、clean git、保留复杂结构 owner/exit condition |
 | R5-I | Agent、public validator、hidden oracle 全部进入隔离容器；日志、digest、资源和时间可审计 | 消除宿主环境干扰并建立正式 benchmark 的可复现证据链 | 详细门禁见 `13-r5-unified-docker-benchmark-and-logging-plan.md`；当前只登记，不执行 |
-| R5-J | P0 消除空 Map 无效工具选择；P1 合并 Agent 明确声明的状态迁移和后续动作；P3 合并最后 finish 和 Agent final candidate | 将 TaskSpace 固定状态工具往返从简单任务主要成本降为接近零，同时保持 Agent-owned Map | fixed-topology Docker repeats；`pre_init_ordinary=0`；`control_only_response<=1/run`；terminal extra request=0；详细门禁见 `14-r5-native-control-cadence-plan.md` |
+| R5-J | P0 消除空 Map 无效工具选择；P1 承载 Agent 明确声明的状态迁移和后续动作；P3 合并最后 finish 和 Agent final candidate；J5允许连续显式 finish | 已消除 pre-init和 terminal额外往返，并补齐多 finish执行能力；真实 Agent未采用时不以 runtime强制追求 control-only下降 | provider repeated-control probe；sequence/integration tests；`pre_init_ordinary=0`；terminal extra request=0；multi-control/chained-finish/mixed独立观测；详细门禁见 `14-r5-native-control-cadence-plan.md` |
 
 ## 1.6 Phase R5-A：当前结构盘点和基线
 

@@ -5,7 +5,7 @@
 - Created: 2026-07-10
 - Updated: 2026-07-11
 - Version: v0.0.5 build-R5 follow-up
-- Status: In progress - J0/J1/J2/J3 complete, J4 mapping repair validated and remaining cadence benefit on hold
+- Status: J0-J5 engineering complete; live chained-finish adoption remains unproven
 - Owner / Responsible: WhaleCode core runtime
 - Related Systems: provider tool choice、native tool scheduler、TaskSpace hard state、taskspace_control、turn completion、benchmark observer
 - Related Links: `01-r5-phased-simplification-plan.md`、`13-r5-unified-docker-benchmark-and-logging-plan.md`、`coe/2026-07-10-22-56-r5-request-amplification.md`
@@ -333,26 +333,49 @@ tokens，request-2+ cache hit 为92.71%/93.43%。相较上一轮非同拓扑 R5�
 3. 后续调用只在前置 barrier 成功时执行；失败后保持原始失败输出，并给剩余 call id 返回
    `skipped_due_to_prior_failure`。
 4. 带非空 `final_candidate` 的 finish 是 terminal finish，可以位于响应末尾。
-5. 不带 `final_candidate` 的 finish 是 nonterminal finish，不得成为 response 最后一个 call；其后必须还有
-   Agent 声明的 control 或 ordinary call。runtime 机械拒绝 trailing nonterminal finish，不自动选择或补写
-   下一动作。
+5. 不带 `final_candidate` 的 finish 是 nonterminal finish。工具说明和激活上下文鼓励在同一响应继续
+   Agent 已知的 control 或 ordinary call，但 standalone finish 保持合法；runtime 只记录 cadence observation，
+   不拒绝、不选择或补写下一动作。
 6. `finish A -> finish B` 与 `finish A -> ordinary action on B` 都是允许的 Agent-authored sequence。
+7. 当前没有 binding 时，带显式 `node_id` 的 finish 可在同一事务中 claim ready target 并完成；pending、
+   completed、租约冲突和当前其他节点仍运行等硬状态继续拒绝。
 
 **Tasks:**
 
 1. 在 tool description 中明确 multiple controls、latest-state execution、首错停止和 trailing finish 规则。
 2. provider probe 增加同一 function name 重复调用，区分“多工具可用”与“重复 control 可用”。
-3. native sequence executor 在执行 trailing nonterminal finish 前返回结构化 cadence hard error，且不提交该
-   finish；保留此前已完成 calls 的输出和副作用。
-4. focused tests 覆盖相邻 finish barriers、finish+ordinary、前错跳过、trailing reject 和 terminal allow。
+3. native sequence executor 对 trailing nonterminal finish 只写结构化 observation，不改变工具成功语义。
+4. focused tests 覆盖相邻 finish barriers、finish+ordinary、前错跳过、standalone allow、显式 target
+   原子 claim、失败无副作用和 terminal allow。
 5. Docker `count-call-stack` 复验 control-only、mixed barrier、request、correctness、cache 和 Map health。
 
-**Exit:** provider repeated-function probe通过；trailing nonterminal finish执行副作用为0；terminal finish不被
-误拒；真实样本至少出现一次 chained finish 或 finish+ordinary，且 correctness、反馈、cache 和 Map health
-不回退。若 Agent 首轮违反新规则，单独报告一次学习/纠错成本，不把 hard reject 隐藏为普通工具失败。
+**Exit:** provider repeated-function probe通过；standalone nonterminal finish正常提交；显式 ready target可在
+无 binding 时原子完成且失败无副作用；terminal finish不被误拒。真实 chained finish / finish+ordinary采用率
+作为独立行为收益门禁，未观察到时不得把工程能力完成写成 cadence收益完成。
 
 **边界：** 不允许 runtime 自动 finish、自动选择 next node、自动生成 ordinary call、合并 Agent 未声明的
-节点或从工具结果推断任务完成。该 gate 是用户明确指定的流程硬规则，不扩展为任务语义控制。
+节点或从工具结果推断任务完成。cadence 是引导和观测，不是状态机正确性 gate。
+
+**实施与验证结果（2026-07-11）：**
+
+1. Provider probe `ordered_repeated_control_calls` 返回 HTTP 200，并按
+   `taskspace_control(finish_first) -> taskspace_control(finish_second)` 返回两个同名 calls。
+2. hard gate 三轮 R5 分别为17/15/17 requests，cadence rejects为2/2/6。最强引导轮中 Agent在6次拒绝后
+   用3个无意义 `echo "follow-up after finishing node-X"` 满足形式规则，证明 hard ban制造纠错请求和上下文
+   污染，已由 `e3261aa` 删除。
+3. advisory run `20260711-201839-033` 两侧 solved，no-op和 cadence reject归零；但 R5 仍为19 requests、
+   12 controls、3 control failures、3 bind。调用链证明 standalone finish释放 binding 后，显式
+   `finish_node(node_id=node-3)` 被 `no_current_node_binding` 拒绝。
+4. `d0f35ca` 让显式 ready target在无 binding时原子 claim+finish；pending target反例验证失败不留下 binding
+   或 lease。同一 mock provider response内相邻两个 finish只需两次总 provider requests完成初始化和终态。
+5. 最终 Docker run `20260711-203035-327` 两侧 solved。R5 为10 requests、12 ordinary tools、5 controls、
+   0 control failures、0 bind、4节点全部完成、terminal extra request=0；Standard为8 requests、13 tools。
+   但 R5 的5个 controls仍对应5个 control-only responses，`multi-control=0`、`chained-finish=0`、
+   `mixed barrier=0`。Map 为4节点0边，不能把相对上一轮的总量下降全部归因于修复。
+
+**Decision:** J5 工具与执行能力、反馈语义、硬边界和观测建设完成；hard gate方案被否决并回撤。真实 Agent
+尚未稳定采用同响应多 finish 或 finish+ordinary，因此 cadence行为收益保持 **hold**，不继续通过 runtime
+约束或语义注入追指标。
 
 ## 9. Phase Gate Matrix
 
@@ -363,7 +386,7 @@ tokens，request-2+ cache hit 为92.71%/93.43%。相较上一轮非同拓扑 R5�
 | J2 | ordered barrier unit/integration/side-effect tests | 不依赖 terminal transaction | latest-state attribution and stop evidence | 100% passed | proceed J3 |
 | J3 | terminal success/rejection/history tests | 不依赖 benefit repeats | completion provenance evidence | 100% passed | proceed J4 |
 | J4 | Docker fixed-topology repeats、complex sample、adversarial review | 无后续 phase 补证 | performance/map/semantic report | correctness complete; mapping repair validated; N+1 control-only remains | hold remaining cadence benefit |
-| J5 | repeated-control probe、cadence hard gate、Docker live run | 无后续 phase 补证 | sequence tests、cadence rejection、mixed live trace | all gates passed | pending implementation |
+| J5 | repeated-control probe、advisory cadence、atomic explicit finish、Docker live run | 无后续 phase 补证 | sequence/integration tests、control failure与 multi-control trace | engineering gates passed; live adoption absent | capability complete; behavior benefit hold |
 
 ## 10. Implementation Completeness Matrix
 
@@ -374,6 +397,9 @@ tokens，request-2+ cache hit 为92.71%/93.43%。相较上一轮非同拓扑 R5�
 | P3 terminal transaction | finish 成功后直接发布 Agent final | taskspace_control handler、turn completion/history | last running node | success/reject/replay/provenance tests | terminal candidate events | none at exit | complete; two-request terminal fixture passed |
 | explicit init mapping | key/id 方向无歧义且原子 next 恢复 | taskspace_control initialize output | initialize_map result | directional JSON output tests | bind=0、next_node_id=3、hard error=0 | none | complete; Docker live evidence passed |
 | anti-collapse gate | 收益不来自节点减少 | benchmark topology + graph health | J4 Docker runs | topology fixtures | complex maps 6/6、8/11；无坍缩 | none | complete |
+| repeated finish carrier | 同一响应可声明多个同名 finish并按最新状态执行 | provider + native sequence barriers | repeated-control response | provider probe、adjacent finish integration | provider返回2 calls；mock两节点完成 | provider probe only | complete |
+| explicit finish target | 无 binding时显式 ready target原子 claim+finish | `finish_main_node_with_next` staged transaction | `taskspace_control.finish_node(node_id)` | success + pending no-side-effect tests | final live control failures=0、bind=0 | none | complete |
+| cadence adoption | Agent主动使用 multi-finish或 finish+ordinary | Agent/provider output | Docker live sample | performance observer | multi-control=0、chained-finish=0、mixed=0 | none | hold; no benefit claim |
 
 ## 11. Change-chain Logging Matrix
 
