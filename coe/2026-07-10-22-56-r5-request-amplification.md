@@ -47,6 +47,9 @@
   - E-021
   - E-022
   - E-023
+  - E-024
+  - E-025
+  - E-026
 - Ruled out:
   - 相邻请求缓存前缀破坏不是本轮请求放大的原因：R5 strict-prefix 48/48，request-2+ cache hit 97.66%。
   - 工具反馈丢失不是本轮主要原因：pre-init hard reject、pytest failure、apply_patch failure 和成功输出都按原文进入后续 history。
@@ -64,7 +67,7 @@
   - 在用户授权修复后，任何方案必须分别度量固定 control 往返、普通动作数量和并行承载；不得只压低一个总 request 数。
   - 修复验证必须保持 G1 strict-prefix、反馈忠实性、Agent-owned Map 和 correctness。
   - 需要 controlled repeats 证明 request 降低不是模型随机波动。
-- Current conclusion: G1 的29次请求差已闭合；J1-J5 已补齐空 Map tool choice、有序 barrier、Agent-authored terminal candidate、结构化初始化映射、重复同名 control承载和显式 ready target原子 finish。hard reject standalone finish被三轮 live run反证：最强引导产生6次拒绝和3个无意义 echo，现已回撤为非阻断观测。最终 Docker run两侧 solved，R5 为10 requests、5 controls、0 control failure、0 bind、terminal extra request=0；但5个 controls仍各占一个 response，`multi-control=0`、`chained-finish=0`、`mixed=0`。因此工程能力完成，真实 cadence采用收益仍未证明；后续不得通过 runtime自动动作、语义注入或 hard cadence gate压指标。
+- Current conclusion: G1 的29次请求差已闭合；J1-J5 已补齐空 Map tool choice、有序 barrier、Agent-authored terminal candidate、结构化初始化映射、重复同名 control承载和显式 ready target原子 finish。hard reject standalone finish被三轮 live run反证并已回撤。详细 trace进一步排除“Agent不知道下一动作”：reasoning明确计划后续 patch/test/final，但工具输出仍停在 finish。Provider A/B证明 thinking+auto可返回多调用；当前模型把 `finish -> ordinary` 识别为需等待结果的跨工具同步边界，而 multi-finish只有显式强调同一响应时才在最小probe出现。最终 live仍为 `multi-control=0`、`chained-finish=0`、`mixed=0`；后续应先做完整 payload controlled A/B，不通过 runtime自动动作、语义注入或 hard cadence gate压指标。
 - Related hypotheses:
   - H-001
   - H-002
@@ -78,6 +81,9 @@
   - H-010
   - H-011
   - H-012
+  - H-013
+  - H-014
+  - H-015
 - Resolution basis:
   - E-001
   - E-002
@@ -102,6 +108,9 @@
   - E-021
   - E-022
   - E-023
+  - E-024
+  - E-025
+  - E-026
 - Close reason:
   - original diagnosis complete; follow-up feedback ambiguity remains open
 
@@ -611,6 +620,125 @@
   - none
 - Close reason:
   - live validation contradicted benefit prediction
+
+## Hypothesis H-013: standalone finish 是因为 Agent 不知道下一动作
+- Status: refuted
+- Parent: P-001
+- Claim: Agent 在调用 finish 时尚未形成后续 patch/test/final动作，因此只能等待下一轮重新规划。
+- Layer: mechanism
+- Factor relation: single
+- Depends on:
+  - H-012
+- Rationale:
+  - 如果下一动作未知，单独 finish 是合理的自然工具循环，而不是调用承载偏好。
+- Falsifiable predictions:
+  - If true: finish前 reasoning只描述状态提交，不会同时明确后续普通动作。
+  - If false: reasoning明确写出“更新节点并运行测试/继续修复”，但响应仍只有 finish call。
+- Diagnostic evidence plan:
+  - Prediction or clause under test: 对齐每个 reasoning item、同响应 tool calls和下一请求首个动作。
+  - Signal: finish前文本中的后续动作是否等于下一请求动作。
+  - Capture method: final Docker rollout逐响应重建。
+  - Correlation keys:
+    - response index
+    - finish call id
+  - Differentiates from:
+    - 模型已知动作但把状态工具当同步边界。
+  - Supports if:
+    - 后续动作未出现于 finish前 reasoning。
+  - Refutes if:
+    - 后续动作已明确出现且下一请求按该动作执行。
+  - Instrumentation status: sufficient
+- Evidence gate: satisfied
+- Related evidence:
+  - E-024
+- Conclusion: refuted。两处 reasoning分别明确写出“更新节点并运行测试”和“完成任务”，但 tool response只包含 finish；下一请求随即执行此前已经写出的动作。
+- Repair design readiness: not applicable
+- Next step: 不通过增加任务规划提示解决。
+- Blocker:
+  - none
+- Close reason:
+  - live reasoning contradicted missing-plan prediction
+
+## Hypothesis H-014: 模型把 finish 到 ordinary tool 视为必须等待结果的同步边界
+- Status: confirmed
+- Parent: P-001
+- Claim: DeepSeek会批量提交独立工具，但对 `finish_node -> apply_patch/exec_command` 这类跨工具状态依赖链，即使 reasoning和提示明确要求同一响应，仍倾向只返回第一个状态调用。
+- Layer: mechanism
+- Factor relation: primary
+- Depends on:
+  - H-007
+- Rationale:
+  - ChatCompletions用 `parallel_tool_calls=true` 表达多调用；runtime的有序 barrier是 Whale内部扩展。模型可以理解文字说明，但其原生调用策略仍可能只把可并行或同类预声明动作放入一个响应。
+- Falsifiable predictions:
+  - If true: independent reads继续批量；明确要求的重复 control可以批量；现实语义下 finish+ordinary即使 reasoning说“同一响应做两件事”仍只返回 finish。
+  - If false: thinking/auto模式不支持多调用，或显式 finish+ordinary稳定返回两个 calls。
+- Diagnostic evidence plan:
+  - Prediction or clause under test: 对 thinking-enabled + auto执行独立、重复 control、自然 mixed和显式 mixed A/B。
+  - Signal: tool call count、tool names、reasoning中声明的计划。
+  - Capture method: live rollout加不记录正文/密钥的最小 Provider probes。
+  - Correlation keys:
+    - probe name
+    - tool call order
+  - Differentiates from:
+    - client截断第二个 call。
+    - thinking模式禁用多调用。
+    - cadence说明未进入上下文。
+  - Supports if:
+    - auto+thinking可返回两个重复 controls，但 realistic mixed只返回 control一个。
+  - Refutes if:
+    - 所有模式都只能返回一个，或 realistic mixed返回两个。
+  - Instrumentation status: follow-up-probe-needed-in-benchmark
+- Evidence gate: satisfied
+- Related evidence:
+  - E-019
+  - E-024
+  - E-025
+- Conclusion: confirmed for current model/configuration。独立6 reads同响应、auto+thinking重复 control为2 calls；但 natural/explicit `finish -> exec_command` 三个probe均只返回一个 control，reasoning仍明确声称会在同响应执行两步。
+- Repair design readiness: diagnostic conclusion only
+- Next step: 不让 runtime自动补 ordinary action；若继续优化，先把 realistic mixed A/B纳入正式 provider probe并验证工具描述的机械示例是否有效。
+- Blocker:
+  - none
+- Close reason:
+  - scoped mechanism diagnosed
+
+## Hypothesis H-015: multi-finish 未采用与机械用法显著性不足有关
+- Status: investigating
+- Parent: P-001
+- Claim: 工具描述中的 `Prefer chaining` 是长期稳定但低显著性的能力说明；模型自然执行时沿用一次工具一轮的习惯，只有任务输入明确要求“in one response”时才生成两个 finish calls。
+- Layer: mechanism
+- Factor relation: contributing
+- Depends on:
+  - H-014
+- Rationale:
+  - 同类 finish之间没有 ordinary feedback依赖，Provider和runtime都能承载；自然任务与显式单响应指令的输出不同。
+- Falsifiable predictions:
+  - If true: 自然“finish A then finish B”返回1 call，显式“in one response”返回2 calls；机械示例可能提高采用率。
+  - If false: 两种提示输出一致，或真实上下文即使明确单响应仍稳定1 call。
+- Diagnostic evidence plan:
+  - Prediction or clause under test: 用完整真实 tool schema、相同历史和状态快照做 natural/explicit paired probe。
+  - Signal: chained finish count。
+  - Capture method: 后续正式 provider A/B fixture，至少controlled repeats。
+  - Correlation keys:
+    - prompt variant
+    - repeat
+  - Differentiates from:
+    - 跨工具同步边界。
+    - Provider能力缺失。
+  - Supports if:
+    - 只有显式单响应variant稳定产生两个 finish。
+  - Refutes if:
+    - 完整上下文下两侧都不产生或都产生。
+  - Instrumentation status: planned
+- Evidence gate: partial
+- Related evidence:
+  - E-025
+- Conclusion: 当前最小probe支持，但尚未用完整真实history和controlled repeats确认。不能据此立即增强全局提示。
+- Repair design readiness: not ready
+- Next step: 先做完整 payload A/B，不修改 runtime gate。
+- Blocker:
+  - realistic controlled repeats absent
+- Close reason:
+  - not closed
 
 ## Evidence E-001: 三轮请求可完全拆成工具响应和最终回答
 - Related hypotheses:
@@ -1232,4 +1360,87 @@
   R5 map: nodes=4, edges=0, results=4, open=0
   ```
 - Interpretation: 工具能力缺口已修复且不放松 pending/lease等硬状态。真实样本正确性和错误归零，但 Agent仍逐响应提交 finish；能力完成不等于行为采用，且4节点0边与上一轮拓扑不同，不能把 requests 19 -> 10全部归因于修复。
+- Time: 2026-07-11
+
+## Evidence E-024: finish 前 reasoning 已明确包含下一动作
+- Related hypotheses:
+  - H-013
+  - H-014
+- Direction: refutes
+- Type: diagnostic-log
+- Source: `target/r5-j5-atomic-finish/count-call-stack/20260711-203035-327/pair-001/right/artifacts/rollout.jsonl`
+- Prediction or plan link:
+  - H-013 missing-plan prediction
+- Matched signal:
+  - Agent在 finish前明确计划后续动作，但同响应只返回 control
+- Correlation keys:
+  - request 4/6/9
+  - node-1..4
+- Raw content:
+  ```text
+  request 4 reasoning: bug understood; let me fix it
+  response: finish node-1 only
+  request 5: apply_patch
+
+  request 6 reasoning: fix applied; update the node and run tests and validation
+  response: finish node-2 only
+  request 7: pytest + CLI
+
+  request 9 reasoning: validation passes; let me finish the task
+  response: finish node-3 only
+  request 10: finish node-4(final_candidate)
+  ```
+- Interpretation: 单独 finish不是因为缺少后续计划；模型在工具生成阶段将已知计划切到下一次tool-result round。
+- Time: 2026-07-11
+
+## Evidence E-025: thinking-enabled auto模式支持多调用但 realistic mixed仍单调用
+- Related hypotheses:
+  - H-014
+  - H-015
+- Direction: supports
+- Type: provider-probe
+- Source: 2026-07-11 sanitized live Provider A/B probe
+- Prediction or plan link:
+  - H-014 thinking/tool-choice alternatives
+- Matched signal:
+  - thinking+auto在显式能力probe中可返回2个重复 controls和 control+patch；接近真实状态的 control+exec probes均只返回1个 control
+- Correlation keys:
+  - probe variant
+- Raw content:
+  ```text
+  thinking_auto_repeated_control: 2 calls
+  thinking_auto_minimal_control_patch: 2 calls
+
+  natural_update_then_test: reasoning says finish then tests; 1 control call
+  explicit_same_response_finish_then_exec: reasoning says both in one response; 1 control call
+  hard_state_with_preflight_clarification: reasoning says ordered pair; 1 control call
+
+  natural_finish_two_nodes: 1 control call
+  explicit_in_one_response_two_controls: 2 control calls
+  ```
+- Interpretation: thinking模式、auto tool choice和Provider transport均不是缺失点。模型区分了可一次预声明的同类/独立调用与需要前一步状态结果的跨工具调用；multi-finish还受“同一响应”显著性影响。
+- Time: 2026-07-11
+
+## Evidence E-026: 当前 Map 结构本身制造了四个生命周期边界
+- Related hypotheses:
+  - H-003
+  - H-015
+- Direction: supports
+- Type: runtime-state
+- Source: final Docker performance observation and initialize_map call
+- Prediction or plan link:
+  - fixed control overhead
+- Matched signal:
+  - Agent创建4节点0边Map，其中独立 `final_synthesis` 节点没有 ordinary work；每节点各提交一次 finish
+- Correlation keys:
+  - map-1
+  - node-1..4
+- Raw content:
+  ```text
+  nodes=4, edges=0, results=4
+  controls=initialize_map + 4 finish_node
+  control-only responses=5
+  node-4 title=Final answer
+  ```
+- Interpretation: 即使任务工作只需要 read/edit/validate，Agent-authored Map仍增加了独立 final节点和对应状态边界。runtime不应自动合并，但该结构解释了为什么终态candidate只省掉最终文本请求，没有省掉 node-3 -> node-4迁移请求。
 - Time: 2026-07-11
