@@ -1,5 +1,5 @@
 # Problem P-001: R5 TaskSpace 在 G1 正确性样本中请求次数显著高于 Standard
-- Status: diagnosed
+- Status: investigating-follow-up
 - Created: 2026-07-10 22:56
 - Updated: 2026-07-11
 - Objective: 用最终 wire 和原始 tool/control history 精确解释 `count-call-stack` 三轮中 R5 51 requests 对 Standard 22 requests 的29次放大，不把缓存、反馈或 runtime 约束先验地写成根因。
@@ -38,6 +38,8 @@
   - E-012
   - E-013
   - E-014
+  - E-015
+  - E-016
 - Ruled out:
   - 相邻请求缓存前缀破坏不是本轮请求放大的原因：R5 strict-prefix 48/48，request-2+ cache hit 97.66%。
   - 工具反馈丢失不是本轮主要原因：pre-init hard reject、pytest failure、apply_patch failure 和成功输出都按原文进入后续 history。
@@ -55,7 +57,7 @@
   - 在用户授权修复后，任何方案必须分别度量固定 control 往返、普通动作数量和并行承载；不得只压低一个总 request 数。
   - 修复验证必须保持 G1 strict-prefix、反馈忠实性、Agent-owned Map 和 correctness。
   - 需要 controlled repeats 证明 request 降低不是模型随机波动。
-- Current conclusion: G1 的29次请求差已被高置信度分解，J1/J2/J3 也已补齐空 Map tool choice、有序屏障和终态事务。但 J4 出现了新的、可定位的 control 回归：G1 在机械动作契约完整时稳定使用 `finish_node(next_node_id)`，三轮 `bind_node=0`；`d2cc4b7` 简化 schema 后删掉了初始化绑定、finish 原子切换和默认当前节点等操作语义，J4 同类运行稳定变成 `initialize + N*bind + N*finish`。初始化结果本身正确进入上下文，问题属于工具能力契约的语义缺失，不是结果丢失或扭曲，也不是 DeepSeek 不支持多工具。另一方面，`finish -> ordinary tool` 的 mixed barrier 为0不能与重复 bind 混为一谈：同一模型响应无法看到前一个工具的执行结果，Agent 只批量提交互不依赖的普通工具，而在状态迁移边界选择等待结果，符合原生 tool loop 的保守依赖语义。J2 解决的是 runtime 能否安全执行 Agent 已声明的序列，不会也不应强迫 Agent 声明该序列。因此 J4 的首要修复方向是恢复克制、精确的机械 API 契约并验证 `bind_node=0`；不得通过 runtime 自动绑定、自动合并、拒绝合法重复 bind 或语义提示来追求 mixed 数字。
+- Current conclusion: G1 的29次请求差已被高置信度分解，J1/J2/J3 也已补齐空 Map tool choice、有序屏障和终态事务。`f0db9d7` 已恢复初始化即时绑定、finish 默认当前节点、finish 原子绑定下一节点等机械 API 语义，并用 schema tests 锁定；真实 run 的 tools hash 也证明新 schema 已进入全部 provider 请求。但单轮 Docker fix validation 没有恢复 G1 的 `finish_node(next_node_id)`：5节点 Map 仍有4次成功独立 bind、2次把 node key 当 node id 的失败 control，最终为21 requests、12 controls、0 mixed。Agent 已正确使用初始化自带 binding，并在 reasoning 中明确知道 finish 可默认当前 binding，说明操作契约暴露缺失已修；它不是后续独立 bind 的充分根因。新的直接反馈层问题是初始化输出 `node_ids=[key=id]` 被 Agent明确读反，导致 `finish_node(node_id=node_key)` 和 `bind_node(node_id=node_key)` 各失败一次。该格式虽然可解析，但对模型不够无歧义。下一步应把初始化映射反馈改为结构清楚、方向显式的机械数据并单独复验；是否能进一步恢复 `next_node_id` 仍需证据，不能提前归因，更不能由 runtime 自动推进或拒绝合法 bind。
 - Related hypotheses:
   - H-001
   - H-002
@@ -66,6 +68,7 @@
   - H-007
   - H-008
   - H-009
+  - H-010
 - Resolution basis:
   - E-001
   - E-002
@@ -81,8 +84,10 @@
   - E-012
   - E-013
   - E-014
+  - E-015
+  - E-016
 - Close reason:
-  - diagnosis complete; repair not authorized
+  - original diagnosis complete; follow-up feedback ambiguity remains open
 
 ## Hypothesis H-001: 29次请求差主要由额外工具调用数量直接产生
 - Status: confirmed
@@ -370,7 +375,7 @@
   - not closed
 
 ## Hypothesis H-008: J4 的重复 bind 来自工具简化时删除了机械动作语义
-- Status: confirmed
+- Status: refuted
 - Parent: P-001
 - Claim: J4 中 Agent 在 `initialize_map` 后重复绑定当前节点、在每次 `finish_node` 后单独绑定下一节点，主要因为 `d2cc4b7` 删除了工具 schema 中初始化即时绑定、finish 原子切换和默认当前节点的机械用法说明。
 - Layer: root-cause
@@ -405,13 +410,15 @@
   - E-011
   - E-012
   - E-013
-- Conclusion: confirmed
-- Repair design readiness: ready
-- Next step: 只恢复参数真实行为的精确机械契约，并以固定拓扑 `bind_node=0`、`initialize + N*finish` 为收益门禁。
+  - E-015
+  - E-016
+- Conclusion: 工具契约缺失是确认存在的产品缺陷，但“它是重复 bind 的主要或充分原因”已被 fix validation 反证。新 schema 已送达且 Agent 理解默认当前 binding，仍产生4次成功独立 bind；不能继续把所有 control 放大归因于该缺失。
+- Repair design readiness: repair completed; causal benefit claim rejected
+- Next step: 保留已恢复的真实机械契约；转向初始化反馈映射歧义及 `next_node_id` 未采用的独立诊断。
 - Blocker:
-  - functional repair not part of this diagnostic turn
+  - none
 - Close reason:
-  - not closed
+  - fix validation contradicted the primary-cause prediction
 
 ## Hypothesis H-009: mixed barrier 为零是依赖边界选择，不是 Provider 多工具能力缺失
 - Status: confirmed
@@ -455,6 +462,49 @@
   - none
 - Close reason:
   - scoped mechanism diagnosed
+
+## Hypothesis H-010: 初始化映射反馈方向歧义直接导致 node key 被当作 node id
+- Status: confirmed
+- Parent: P-001
+- Claim: `initialize_map` 返回的紧凑文本 `node_ids=[node_key=node_id]` 没有显式字段边界，Agent 将映射方向读反，随后把 node key 传给只接受生成 id 的 `finish_node.node_id` 和 `bind_node.node_id`，各制造一次失败和重采样。
+- Layer: root-cause
+- Factor relation: part_of
+- Depends on:
+  - H-008
+- Rationale:
+  - 工具反馈必须忠实且无歧义；对人可推断的 `key=value` 文本不等于对模型稳定明确的结构化机械结果。
+- Falsifiable predictions:
+  - If true: 原始 reasoning 会明确把 `node-1` 与 node key 的映射方向说反，失败调用参数会使用 node key，runtime 则返回 id 不存在或不是当前节点。
+  - If false: Agent 使用的是生成的 `node-N` id，或错误发生在映射反馈进入上下文之前。
+- Diagnostic evidence plan:
+  - Prediction or clause under test: 对账初始化 output、紧随其后的 reasoning、失败 control 参数与原始 hard error。
+  - Signal: `node_ids=[key=node-N]`、Agent 映射复述、`node_id=key`、`lifecycle_target_not_current`/`transition_rejected`。
+  - Capture method: fix-validation Docker rollout 原始 call/output/reasoning 链。
+  - Correlation keys:
+    - initialize call id
+    - failed control call id
+    - node key
+    - generated node id
+  - Differentiates from:
+    - 新 tool schema 未进入 provider payload。
+    - runtime 自动改变当前 binding。
+    - projection 丢失初始化结果。
+  - Supports if:
+    - Agent 明确读反映射并用错误 key 调用，两个错误都由 runtime 原样指出。
+  - Refutes if:
+    - 参数是正确 id，或错误前没有收到映射。
+  - Instrumentation status: sufficient
+- Evidence gate: satisfied
+- Related evidence:
+  - E-015
+  - E-016
+- Conclusion: confirmed；本轮2次失败 control 和对应2次额外 provider requests 可直接归因于反馈格式歧义。
+- Repair design readiness: ready after user authorization
+- Next step: 将初始化结果改成方向显式的结构化机械数据，保留完整 key/id 映射和 current node id，不加入下一步动作建议。
+- Blocker:
+  - follow-up repair not yet authorized
+- Close reason:
+  - not closed
 
 ## Evidence E-001: 三轮请求可完全拆成工具响应和最终回答
 - Related hypotheses:
@@ -819,4 +869,71 @@
   J4 mixed taskspace_control/ordinary responses: 0
   ```
 - Interpretation: 多工具能力没有被关闭。状态迁移后的动作需要依赖前一步执行结果，而模型生成同一 response 的全部 calls 时看不到该结果；J2 让 runtime 可以安全承载这种预声明序列，但不保证 Agent 会选择它。
+- Time: 2026-07-11
+
+## Evidence E-015: 机械 action contract 修复已进入生产 schema 和 provider 请求
+- Related hypotheses:
+  - H-008
+  - H-010
+- Direction: supports
+- Type: fix-validation
+- Source: commit `f0db9d7`, codex-tools tests, fix-validation provider wire
+- Prediction or plan link:
+  - H-008 repair delivery
+- Matched signal:
+  - 字段和总说明均恢复真实机械效果；focused tests/build 通过；新旧 run tools hash 不同且新 hash 全程稳定
+- Correlation keys:
+  - commit `f0db9d7`
+  - tools hash `bf8e99d8ec4e5e03cc4f9425583b629e9bb3a6b134498937caa58de0de4ac492`
+  - request index 1..21
+- Raw content:
+  ```text
+  current_node_key: referenced initial node is bound as current in the same state transition
+  node_id: finish_node defaults to the current binding
+  next_node_id: finish and next binding commit atomically
+
+  codex-tools focused tests: 2 passed
+  cargo build -p codex-cli --bin whale --locked: passed
+  old tools hash: ec805e8674c21906b280de3bb6d8043cdf60e382307054cc083341286df09ca8
+  new tools hash: bf8e99d8ec4e5e03cc4f9425583b629e9bb3a6b134498937caa58de0de4ac492
+  new strict tools hash coverage: 21/21
+  ```
+- Interpretation: 不能用“修复未构建、未送达或被后续请求替换”解释本轮行为；操作语义暴露缺失本身已经工程修复。
+- Time: 2026-07-11
+
+## Evidence E-016: 单轮 fix validation 未恢复原子 next binding，并暴露映射读反
+- Related hypotheses:
+  - H-008
+  - H-009
+  - H-010
+- Direction: mixed
+- Type: fix-validation
+- Source: `target/r5-j4-mechanical-contract/count-call-stack/20260711-181112-154`
+- Prediction or plan link:
+  - H-008 behavioral recovery; H-010 mapping ambiguity
+- Matched signal:
+  - correctness、terminal candidate 和 cache 通过；`next_node_id` 使用为0；Agent 明确读反 node key/id 映射并触发两次 control failure
+- Correlation keys:
+  - pair-001/right
+  - initialize call `call_00_ZjIwVsqH6MkZejMKIqb00533`
+  - failed finish `call_00_CK1srH0E3M1Ar4ljv1vR7160`
+  - failed bind `call_00_OpADfnHyBZOXkvZUIAIc6779`
+- Raw content:
+  ```text
+  Standard: solved, requests=7, tools=13, wall=15.04s
+  TaskSpace: solved, requests=21, tools=13, controls=12, wall=43.47s
+  TaskSpace map: 5 nodes, 4 edges, 5 results, open=0
+  controls: initialize_map=1, finish_node=6, bind_node=5
+  mixed barrier=0, terminal_candidate=1, extra_final_request=0
+  request-2+ cache hit: Standard=94.64%, TaskSpace=96.33%
+
+  initialize output:
+    current_node=node-1 node_ids=[read-readme-and-tests=node-1,...]
+  Agent reasoning:
+    "The output maps node-1=read-readme-and-tests."
+  failed calls:
+    finish_node(node_id="read-readme-and-tests") -> lifecycle_target_not_current
+    bind_node(node_id="inspect-codebase") -> transition_rejected / node does not exist
+  ```
+- Interpretation: 新契约让 Agent 正确保留初始化 binding，并知道 finish 可默认当前节点，但没有恢复 `finish_node(next_node_id)`。两次额外失败明确来自反馈映射方向被读反；其余独立 bind 的原因仍不能仅凭本轮归因。
 - Time: 2026-07-11

@@ -272,6 +272,30 @@ provider requests：第一轮 initialize/read，第二轮 `finish_node(final_can
 `control-only <= 1/run` 当成当前原生 tool loop 下必须达到的硬收益指标。禁止用 runtime 自动绑定、自动
 合并、拒绝合法重复 bind 或提示任务策略来替代契约修复。
 
+**机械契约修复与单轮复验（2026-07-11）：** `f0db9d7` 已在 tool description 和字段 schema 中恢复
+`initialize_map` 同步绑定 `current_node_key`、`finish_node.node_id` 默认当前 binding、
+`finish_node.next_node_id` 原子完成并绑定下一节点等真实机械效果。字段级 schema tests、registry test 和
+Whale build 均通过；fix-validation 的 tools hash 相对旧 run 已变化，并在21次请求中保持21/21一致，确认
+新契约实际送达 provider。
+
+Docker paired run `target/r5-j4-mechanical-contract/count-call-stack/20260711-181112-154` 双侧 solved，
+Standard 为7 requests/13 tools/15.04s，TaskSpace 为21 requests/13 ordinary tools/12 controls/43.47s。
+TaskSpace 创建5节点4边，全部节点完成；terminal candidate 生效，extra final request=0；request-2+ cache
+hit 为96.33%，prefix 20/20。行为收益没有成立：`next_node_id` 使用仍为0，成功状态推进仍有4次独立
+bind，另有2次失败 control。
+
+原始链路进一步表明，Agent 已知道初始化自带 binding，也明确复述了 finish 可默认当前 binding；但它把
+初始化输出 `node_ids=[read-readme-and-tests=node-1,...]` 读成
+`node-1=read-readme-and-tests`，随后把 node key 当作 node id 调用 finish/bind，各触发一次原样 hard
+error。由此，契约暴露缺失已修，但它不是独立 bind 的充分根因；新增直接问题是初始化反馈映射方向不够
+无歧义。性能表中的 `Failed=0` 只统计 ordinary tool failure，当前没有单列这2次 control hard error，后续
+observer 需要补充 control failure 计数。下一步应先将初始化结果改成方向显式的结构化机械数据，再单独
+验证 `next_node_id` 采用情况。
+
+本轮第一次运行被 binary health 在 Agent 启动前正确阻止：commit 时间晚于 binary mtime 且旧
+attestation 不匹配。标准恢复流程是重新执行 locked build，并调用
+`write-whale-binary-attestation.ps1` 记录当前 commit 和 binary SHA；不得使用 stale bypass 产生正式样本。
+
 因此 J4 的 `control-only <= 1/run` 明确未达成，Decision 为 **hold benefit claim**。不通过自动绑定、
 强制 `next_node_id`、拒绝合法重复 bind 或 runtime 合并动作来追指标；这些方向会越过 Agent 对 Map
 推进的所有权。后续若继续优化，应从 Agent 可理解的状态事实与工具能力使用效率入手，并保持可选性。
@@ -357,6 +381,6 @@ provider requests：第一轮 initialize/read，第二轮 `finish_node(final_can
 ## 16. 当前暂停点
 
 R5-F、R5-I0/I1/I2 和 J0/J1/J2/J3 已完成；J4 correctness/capability 已完成，但原收益门禁未通过。
-当前根因已收敛到机械工具契约回归与原生 tool loop 的依赖边界。下一步应先恢复克制的 action contract，
-再用固定拓扑复跑 `bind_node=0` 和 `N+1 controls`；不得通过提示 Agent 少建节点、runtime 自动推进、
-拒绝合法调用或节点粗化宣称请求收益。
+机械 action contract 已恢复并完成一轮 fix validation，确认契约送达但没有恢复原子下一节点绑定。当前新增
+根因是初始化反馈的 key/id 映射被 Agent 读反；其余独立 bind 仍待该反馈问题修复后复验。不得通过提示
+Agent 少建节点、runtime 自动推进、拒绝合法调用或节点粗化宣称请求收益。
