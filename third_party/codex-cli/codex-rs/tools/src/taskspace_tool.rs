@@ -41,20 +41,16 @@ fn object_any_of(variants: Vec<JsonSchema>, description: &str) -> JsonSchema {
     schema
 }
 
-fn generic_arguments_schema() -> JsonSchema {
-    JsonSchema::object(BTreeMap::new(), None, Some(true.into()))
-}
-
-fn function_action_schema(name: &str, namespace: Option<&str>) -> JsonSchema {
+fn function_action_schema(tool: &ResponsesApiTool, namespace: Option<&str>) -> JsonSchema {
     let mut properties = BTreeMap::from([
         (
             "tool_name".into(),
             JsonSchema::string_enum(
-                vec![json!(name)],
+                vec![json!(tool.name)],
                 Some("Visible ordinary tool name.".into()),
             ),
         ),
-        ("arguments".into(), generic_arguments_schema()),
+        ("arguments".into(), tool.parameters.clone()),
     ]);
     let mut required = vec!["tool_name".into(), "arguments".into()];
     if let Some(namespace) = namespace {
@@ -97,14 +93,14 @@ fn nested_action_schema(visible_tools: &[ToolSpec]) -> JsonSchema {
             ToolSpec::Function(tool)
                 if !matches!(tool.name.as_str(), "taskspace_control" | "update_plan") =>
             {
-                variants.push((tool.name.clone(), function_action_schema(&tool.name, None)));
+                variants.push((tool.name.clone(), function_action_schema(tool, None)));
             }
             ToolSpec::Namespace(namespace) => {
                 for tool in &namespace.tools {
                     let ResponsesApiNamespaceTool::Function(tool) = tool;
                     variants.push((
                         format!("{}.{}", namespace.name, tool.name),
-                        function_action_schema(&tool.name, Some(&namespace.name)),
+                        function_action_schema(tool, Some(&namespace.name)),
                     ));
                 }
             }
@@ -446,8 +442,10 @@ mod tests {
 
     #[test]
     fn nested_actions_only_enumerate_visible_ordinary_tools() {
+        let list_dir = create_list_dir_tool();
+        let list_dir_value = serde_json::to_value(&list_dir).expect("serialize list_dir");
         let value = serde_json::to_value(create_taskspace_control_tool(&[
-            create_list_dir_tool(),
+            list_dir,
             create_taskspace_control_tool(&[create_list_dir_tool()]),
         ]))
         .expect("serialize");
@@ -455,5 +453,24 @@ mod tests {
         assert!(text.contains("list_dir"));
         assert!(!text.contains("update_plan"));
         assert_eq!(text.matches("taskspace_control").count(), 1);
+
+        let initialize = value["parameters"]["anyOf"]
+            .as_array()
+            .expect("variants")
+            .iter()
+            .find(|variant| {
+                variant["properties"]["action"]["enum"][0] == json!("initialize_then_actions")
+            })
+            .expect("initialize variant");
+        let nested = initialize["properties"]["actions"]["items"]["anyOf"]
+            .as_array()
+            .expect("nested variants")
+            .iter()
+            .find(|variant| variant["properties"]["tool_name"]["enum"][0] == json!("list_dir"))
+            .expect("list_dir nested action");
+        assert_eq!(
+            nested["properties"]["arguments"],
+            list_dir_value["parameters"]
+        );
     }
 }

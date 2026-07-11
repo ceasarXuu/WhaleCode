@@ -54,6 +54,8 @@
   - E-028
   - E-029
   - E-030
+  - E-031
+  - E-032
 - Ruled out:
   - 相邻请求缓存前缀破坏不是本轮请求放大的原因：R5 strict-prefix 48/48，request-2+ cache hit 97.66%。
   - 工具反馈丢失不是本轮主要原因：pre-init hard reject、pytest failure、apply_patch failure 和成功输出都按原文进入后续 history。
@@ -89,6 +91,7 @@
   - H-014
   - H-015
   - H-016
+  - H-017
 - Resolution basis:
   - E-001
   - E-002
@@ -163,6 +166,51 @@
 - Conclusion: confirmed
 - Repair design readiness: ready and authorized by the active J6 implementation request
 - Next step: 初始化 schema 直接接收 Agent-authored node id，依赖、current binding 和后续 finish 全程使用同一标识；不保留 key/id 双轨兼容。
+- Blocker:
+  - none
+- Close reason:
+  - not closed
+
+## Hypothesis H-017: nested action 降级为任意参数对象导致工具能力语义丢失
+- Status: confirmed
+- Parent: P-001
+- Claim: J6 carrier 只枚举 nested tool 名称，却没有透传原工具参数 schema；Agent 因此看不到 `send_message.target` 等必填字段，在复杂 sample 中生成参数不完整的动作并增加失败与请求。
+- Layer: root-cause
+- Factor relation: single
+- Depends on:
+  - H-001
+- Rationale:
+  - 组合 carrier 不能以减少 schema 体积为由丢弃原工具调用 contract，否则 Agent 获得的能力语义弱于直接调用同一工具。
+- Falsifiable predictions:
+  - If true: provider-visible nested `send_message.arguments` 是 unrestricted object；trace 中 nested call 缺少直接工具 schema 要求的 `target`，router 原样返回 missing-field error。
+  - If false: nested schema 已包含 `target` required，或失败不是参数缺失。
+- Diagnostic evidence plan:
+  - Prediction or clause under test: 对最终 tool schema 构造源码、复杂 sample nested call 和原始 output 对账。
+  - Signal: nested arguments schema、Agent arguments、handler parse error。
+  - Capture method: source inspection + Docker rollout。
+  - Event name or marker:
+    - `TaskSpaceControlBatchResultV1`
+  - Correlation keys:
+    - `call_00_Td3tWbz0wwSJmR4kiMCV2539:nested:0`
+    - `call_00_gQMI5isRNRVsM2LPb3mI9642:nested:0`
+  - Differentiates from:
+    - Agent 忽略完整 schema。
+    - runtime 重写参数。
+    - provider 拒绝 nested schema。
+  - Supports if:
+    - schema 确实丢失 required 字段，失败原文与缺失字段一致。
+  - Refutes if:
+    - 原 schema 已透传或 runtime 改写了正确参数。
+  - Instrumentation status: existing-permanent-observability
+  - Instrumentation lifecycle:
+    - 保留 raw nested response 和 nested action schema 单测。
+- Evidence gate: satisfied
+- Related evidence:
+  - E-031
+  - E-032
+- Conclusion: confirmed
+- Repair design readiness: ready and authorized by the active J6 implementation request
+- Next step: `taskspace_control.actions[].arguments` 直接引用可见 function tool 的原始 `parameters` schema；custom tool 继续保留原始 input 形态；不做摘要或重新解释。
 - Blocker:
   - none
 - Close reason:
@@ -1585,4 +1633,49 @@
   apply_patch success=true
   ```
 - Interpretation: 反馈有效且 Agent 能纠正；消除双重标识可机械地删除这次无价值纠错，而无需 runtime 解释、引导或推断 Agent 意图。
+- Time: 2026-07-12
+
+## Evidence E-031: 稳定 node id 复跑消除原始映射失败
+- Related hypotheses:
+  - H-016
+- Direction: supports
+- Type: fix-validation
+- Source: `target/j6-contract-c/count-call-stack/count-call-stack/20260712-041525-466`
+- Prediction or plan link:
+  - H-016 stable identifier fix criterion
+- Matched signal:
+  - R5 solved，control failure=0；Agent 初始化 `n1-inspect..n4-final` 后全程复用相同 id；终态一次完成三个节点。
+- Correlation keys:
+  - pair-001/right
+- Raw content:
+  ```text
+  requests=8
+  initialize_then_actions=1
+  finish_then_actions=1
+  finish_then_end=1
+  control_failures=0
+  terminal_extra_request=0
+  ```
+- Interpretation: key/runtime-id 双轨删除后，原始 `next_node_id=key` 失败未复现；runtime 未增加语义判断。
+- Time: 2026-07-12
+
+## Evidence E-032: 复杂 sample 的 nested send_message 缺失原工具必填参数
+- Related hypotheses:
+  - H-017
+- Direction: supports
+- Type: diagnostic-log-and-source
+- Source: `target/j6-complex-a/order-pipeline/multi-file-order-pipeline/20260712-041646-435` and `tools/src/taskspace_tool.rs`
+- Prediction or plan link:
+  - H-017 schema-transmission prediction
+- Matched signal:
+  - nested function schema 使用 generic unrestricted object；Agent 两次只提供 `message`，handler 两次原样返回 missing `target`。
+- Correlation keys:
+  - `call_00_Td3tWbz0wwSJmR4kiMCV2539:nested:0`
+  - `call_00_gQMI5isRNRVsM2LPb3mI9642:nested:0`
+- Raw content:
+  ```text
+  actions[0]={"tool_name":"send_message","arguments":{"message":"..."}}
+  output=failed to parse function arguments: missing field `target`
+  ```
+- Interpretation: 这是 carrier 构造层对工具能力语义的确定性丢失，不应归因于 Agent 智能，也不应通过 runtime 后置纠正。
 - Time: 2026-07-12

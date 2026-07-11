@@ -1441,7 +1441,18 @@ function New-TaskspaceControlUsageSummary {
                 if (-not [string]::IsNullOrWhiteSpace($callId) -and
                     ($rolloutNativeCallIds.Contains($callId) -or $rolloutActionContractCallIds.Contains($callId))) {
                     $output = [string](Get-TaskspaceCostProperty $payload @("output"))
-                    if ($output.Contains("TaskSpaceGateRecoveryV1")) {
+                    $controlFailed = $output.Contains("TaskSpaceGateRecoveryV1")
+                    if (-not $controlFailed -and -not [string]::IsNullOrWhiteSpace($output)) {
+                        try {
+                            $batch = $output | ConvertFrom-Json
+                            $controlFailed = (
+                                [string](Get-TaskspaceCostProperty $batch @("schema_version")) -eq "TaskSpaceControlBatchResultV1" -and
+                                $batch.PSObject.Properties.Name -contains "success" -and
+                                [bool](Get-TaskspaceCostProperty $batch @("success")) -eq $false
+                            )
+                        } catch {}
+                    }
+                    if ($controlFailed) {
                         [void]$rolloutControlFailureCallIds.Add($callId)
                     }
                 }
