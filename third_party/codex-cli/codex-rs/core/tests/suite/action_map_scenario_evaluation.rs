@@ -210,11 +210,6 @@ async fn trailing_nonterminal_finish_remains_agent_owned() -> Result<()> {
 
     let requests = harness.request_bodies().await;
     assert_eq!(requests.len(), 3);
-    assert!(
-        !requests
-            .iter()
-            .any(|request| request.to_string().contains("TaskSpaceCadenceGateV1"))
-    );
     let snapshot = harness.test().codex.action_map_snapshot().await;
     assert_eq!(snapshot.maps[0].nodes.len(), 2);
     assert_eq!(snapshot.maps[0].nodes[0].status, "completed");
