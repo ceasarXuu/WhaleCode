@@ -54,6 +54,7 @@ const FINISH_INSPECT_CALL_ID: &str = "ordered-finish-inspect";
 const EDIT_AFTER_FINISH_CALL_ID: &str = "ordered-edit";
 const FINISH_IMPLEMENT_CALL_ID: &str = "ordered-finish-implement";
 const TEST_AFTER_FINISH_CALL_ID: &str = "ordered-test";
+const TRAILING_FINISH_PROMPT: &str = "验证末尾非终态 finish 会被机械拒绝。";
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn terminal_candidate_finishes_turn_without_extra_provider_request() -> Result<()> {
@@ -121,6 +122,90 @@ async fn terminal_candidate_finishes_turn_without_extra_provider_request() -> Re
     let rollout = wait_for_rollout_fragment(&rollout_path, "Agent final line one.").await?;
     assert!(rollout.contains("\"phase\":\"final_answer\""));
     assert!(rollout.contains("Agent final line one.\\nAgent final line two."));
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn trailing_nonterminal_finish_is_rejected_before_state_commit() -> Result<()> {
+    skip_if_no_network!(Ok(()));
+
+    let harness = TestCodexHarness::new().await?;
+    let initialize = serde_json::to_string(&json!({
+        "action": "initialize_map",
+        "task_title": "Cadence gate",
+        "task_objective": "Verify trailing nonterminal finish rejection.",
+        "initial_nodes": [{
+            "node_key": "inspect",
+            "kind": "inspect_code_context",
+            "title": "Inspect cadence fixture",
+            "context_summary": "Exercise the cadence gate."
+        }],
+        "current_node_key": "inspect"
+    }))?;
+    responses::mount_sse_once_match(
+        harness.server(),
+        |req: &Request| body_contains(req, TRAILING_FINISH_PROMPT),
+        sse(vec![
+            ev_response_created("cadence-response-1"),
+            ev_function_call("cadence-init", "taskspace_control", &initialize),
+            ev_completed("cadence-response-1"),
+        ]),
+    )
+    .await;
+
+    let nonterminal_finish = serde_json::to_string(&json!({
+        "action": "finish_node",
+        "node_id": "node-1",
+        "result_summary": "This finish must not commit."
+    }))?;
+    responses::mount_sse_once_match(
+        harness.server(),
+        |req: &Request| body_contains(req, "cadence-init"),
+        sse(vec![
+            ev_response_created("cadence-response-2"),
+            ev_function_call(
+                "cadence-trailing-finish",
+                "taskspace_control",
+                &nonterminal_finish,
+            ),
+            ev_completed("cadence-response-2"),
+        ]),
+    )
+    .await;
+
+    let terminal_finish = serde_json::to_string(&json!({
+        "action": "finish_node",
+        "node_id": "node-1",
+        "result_summary": "Cadence rejection was observed.",
+        "final_candidate": "Cadence gate verified."
+    }))?;
+    responses::mount_sse_once_match(
+        harness.server(),
+        |req: &Request| body_contains(req, "TaskSpaceCadenceGateV1"),
+        sse(vec![
+            ev_response_created("cadence-response-3"),
+            ev_function_call(
+                "cadence-terminal-finish",
+                "taskspace_control",
+                &terminal_finish,
+            ),
+            ev_completed("cadence-response-3"),
+        ]),
+    )
+    .await;
+
+    enable_taskspace(&harness).await?;
+    harness.submit(TRAILING_FINISH_PROMPT).await?;
+
+    let requests = harness.request_bodies().await;
+    assert_eq!(requests.len(), 3);
+    assert!(
+        requests
+            .iter()
+            .any(|request| request.to_string().contains("TaskSpaceCadenceGateV1"))
+    );
+    let snapshot = harness.test().codex.action_map_snapshot().await;
+    assert_eq!(snapshot.maps[0].nodes[0].status, "completed");
     Ok(())
 }
 
@@ -224,7 +309,8 @@ async fn native_sequence_executes_dependent_tools_after_latest_state_barrier() -
     let finish_validate = serde_json::to_string(&json!({
         "action": "finish_node",
         "node_id": "node-3",
-        "result_summary": "Fixture validation passed."
+        "result_summary": "Fixture validation passed.",
+        "final_candidate": "Fixture fixed and validated."
     }))?;
     responses::mount_sse_once_match(
         harness.server(),
@@ -240,17 +326,6 @@ async fn native_sequence_executes_dependent_tools_after_latest_state_barrier() -
         ]),
     )
     .await;
-    responses::mount_sse_once_match(
-        harness.server(),
-        |req: &Request| body_contains(req, "Fixture validation passed."),
-        sse(vec![
-            ev_response_created("ordered-response-final"),
-            ev_assistant_message("ordered-final", "Fixture fixed and validated."),
-            ev_completed("ordered-response-final"),
-        ]),
-    )
-    .await;
-
     enable_taskspace(&harness).await?;
     harness.submit(ORDERED_SEQUENCE_PROMPT).await?;
 
@@ -347,7 +422,8 @@ async fn failed_state_barrier_skips_dependent_tail_without_side_effect() -> Resu
     let finish = serde_json::to_string(&json!({
         "action": "finish_node",
         "node_id": "node-1",
-        "result_summary": "README was read."
+        "result_summary": "README was read.",
+        "final_candidate": "Failure path verified."
     }))?;
     responses::mount_sse_once_match(
         harness.server(),
@@ -359,17 +435,6 @@ async fn failed_state_barrier_skips_dependent_tail_without_side_effect() -> Resu
         ]),
     )
     .await;
-    responses::mount_sse_once_match(
-        harness.server(),
-        |req: &Request| body_contains(req, "README was read."),
-        sse(vec![
-            ev_response_created("failure-response-final"),
-            ev_assistant_message("failure-final", "Failure path verified."),
-            ev_completed("failure-response-final"),
-        ]),
-    )
-    .await;
-
     enable_taskspace(&harness).await?;
     harness.submit("验证失败屏障").await?;
 
@@ -795,18 +860,8 @@ async fn mount_realistic_user_bugfix_responses(harness: &TestCodexHarness) -> Re
                 "taskspace_control",
                 &implementation_node_args,
             ),
-            ev_completed("resp-parent-create-implementation-node"),
-        ]),
-    )
-    .await;
-
-    responses::mount_sse_once_match(
-        harness.server(),
-        |req: &Request| body_contains(req, "Fix cache key normalization"),
-        sse(vec![
-            ev_response_created("resp-parent-patch"),
             ev_apply_patch_function_call(REALISTIC_PATCH_CALL_ID, patch),
-            ev_completed("resp-parent-patch"),
+            ev_completed("resp-parent-create-implementation-node"),
         ]),
     )
     .await;
@@ -836,28 +891,10 @@ async fn mount_realistic_user_bugfix_responses(harness: &TestCodexHarness) -> Re
                 &serde_json::to_string(&json!({
                     "action": "finish_node",
                     "result_summary": "Cache key namespace normalization was implemented and validated.",
+                    "final_candidate": "已修复缓存 key namespace 归一化问题，并运行验证通过。",
                 }))?,
             ),
             ev_completed("resp-parent-finish-implementation-node"),
-        ]),
-    )
-    .await;
-
-    responses::mount_sse_once_match(
-        harness.server(),
-        |req: &Request| {
-            body_contains(
-                req,
-                "Cache key namespace normalization was implemented and validated.",
-            )
-        },
-        sse(vec![
-            ev_response_created("resp-parent-final"),
-            ev_assistant_message(
-                "msg-parent-final",
-                "已修复缓存 key namespace 归一化问题，并运行验证通过。",
-            ),
-            ev_completed("resp-parent-final"),
         ]),
     )
     .await;

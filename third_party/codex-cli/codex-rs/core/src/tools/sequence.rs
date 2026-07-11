@@ -1,8 +1,10 @@
 use codex_protocol::error::Result;
+use codex_protocol::models::FunctionCallOutputPayload;
 use codex_protocol::models::ResponseInputItem;
 use futures::future::join_all;
 use tokio_util::sync::CancellationToken;
 
+use crate::tools::context::ToolPayload;
 use crate::tools::parallel::ToolCallRuntime;
 use crate::tools::router::ToolCall;
 
@@ -75,6 +77,22 @@ pub(crate) async fn execute_response_tool_sequence(
                 );
                 outputs.push(ToolCallRuntime::skipped_response(call, prior_call_id));
             }
+            continue;
+        }
+        if let SequenceSegment::Barrier { index } = &segment
+            && *index + 1 == calls.len()
+            && is_nonterminal_finish(&calls[*index])
+        {
+            let call = &calls[*index];
+            tracing::warn!(
+                target: "codex_core::taskspace",
+                segment_index,
+                call_id = call.call_id,
+                reason = "nonterminal_finish_requires_follow_up_call",
+                "tool.trailing_nonterminal_finish_rejected"
+            );
+            prior_failure = Some(call.call_id.clone());
+            outputs.push(trailing_nonterminal_finish_response(call));
             continue;
         }
 
@@ -216,6 +234,44 @@ fn is_taskspace_control(call: &ToolCall) -> bool {
     call.tool_name.namespace.is_none() && call.tool_name.name == "taskspace_control"
 }
 
+fn is_nonterminal_finish(call: &ToolCall) -> bool {
+    if !is_taskspace_control(call) {
+        return false;
+    }
+    let ToolPayload::Function { arguments } = &call.payload else {
+        return false;
+    };
+    let Ok(arguments) = serde_json::from_str::<serde_json::Value>(arguments) else {
+        return false;
+    };
+    if arguments.get("action").and_then(serde_json::Value::as_str) != Some("finish_node") {
+        return false;
+    }
+    !arguments
+        .get("final_candidate")
+        .and_then(serde_json::Value::as_str)
+        .is_some_and(|candidate| !candidate.trim().is_empty())
+}
+
+fn trailing_nonterminal_finish_response(call: &ToolCall) -> ResponseInputItem {
+    let metadata = serde_json::json!({
+        "schema_version": "TaskSpaceCadenceGateV1",
+        "allowed": false,
+        "gate_class": "cadence",
+        "reason": "nonterminal_finish_requires_follow_up_call",
+        "required_follow_up": "taskspace_control_or_ordinary_tool_call",
+        "terminal_exception": "non_empty_final_candidate",
+    });
+    let mut output = FunctionCallOutputPayload::from_text(format!(
+        "Nonterminal finish_node cannot be the last call in a response. Follow it with another TaskSpace control or ordinary tool call.\nTaskSpaceCadenceGateV1: {metadata}"
+    ));
+    output.success = Some(false);
+    ResponseInputItem::FunctionCallOutput {
+        call_id: call.call_id.clone(),
+        output,
+    }
+}
+
 fn response_input_call_id(output: &ResponseInputItem) -> &str {
     match output {
         ResponseInputItem::FunctionCallOutput { call_id, .. }
@@ -239,15 +295,18 @@ fn response_input_succeeded(output: &ResponseInputItem) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tools::context::ToolPayload;
     use codex_tools::ToolName;
 
     fn function_call(name: &str, call_id: &str) -> ToolCall {
+        function_call_with_arguments(name, call_id, "{}")
+    }
+
+    fn function_call_with_arguments(name: &str, call_id: &str, arguments: &str) -> ToolCall {
         ToolCall {
             tool_name: ToolName::plain(name),
             call_id: call_id.to_string(),
             payload: ToolPayload::Function {
-                arguments: "{}".to_string(),
+                arguments: arguments.to_string(),
             },
         }
     }
@@ -284,6 +343,64 @@ mod tests {
         assert_eq!(
             sequence_segments(&calls),
             vec![SequenceSegment::Parallel { start: 0, end: 2 }]
+        );
+    }
+
+    #[test]
+    fn preserves_adjacent_finish_barriers_before_follow_up_action() {
+        let calls = vec![
+            function_call("taskspace_control", "finish-1"),
+            function_call("taskspace_control", "finish-2"),
+            function_call("exec_command", "test"),
+        ];
+        assert_eq!(
+            sequence_segments(&calls),
+            vec![
+                SequenceSegment::Barrier { index: 0 },
+                SequenceSegment::Barrier { index: 1 },
+                SequenceSegment::Parallel { start: 2, end: 3 },
+            ]
+        );
+    }
+
+    #[test]
+    fn identifies_only_nonterminal_finish_calls() {
+        let nonterminal = function_call_with_arguments(
+            "taskspace_control",
+            "finish",
+            r#"{"action":"finish_node","next_node_id":"node-2"}"#,
+        );
+        let terminal = function_call_with_arguments(
+            "taskspace_control",
+            "terminal",
+            r#"{"action":"finish_node","final_candidate":"done"}"#,
+        );
+        assert!(is_nonterminal_finish(&nonterminal));
+        assert!(!is_nonterminal_finish(&terminal));
+        assert!(!is_nonterminal_finish(&function_call(
+            "exec_command",
+            "ordinary"
+        )));
+    }
+
+    #[test]
+    fn cadence_rejection_is_unsuccessful_and_preserves_call_id() {
+        let call = function_call_with_arguments(
+            "taskspace_control",
+            "finish-call",
+            r#"{"action":"finish_node","next_node_id":"node-2"}"#,
+        );
+        let output = trailing_nonterminal_finish_response(&call);
+        assert_eq!(response_input_call_id(&output), "finish-call");
+        assert!(!response_input_succeeded(&output));
+        let ResponseInputItem::FunctionCallOutput { output, .. } = output else {
+            panic!("expected function output");
+        };
+        assert!(
+            output
+                .body
+                .to_text()
+                .is_some_and(|text| text.contains("TaskSpaceCadenceGateV1"))
         );
     }
 

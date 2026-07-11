@@ -217,7 +217,7 @@ Mechanical action effects:
 - block_node records the blocker and blocks the named node.
 - read_output_ref returns a bounded slice of retained tool output.
 
-Ordinary tools require a current node binding. One assistant response may contain TaskSpace control and ordinary tool calls; runtime executes provider order across each control barrier, and skips later calls if that barrier fails. Runtime does not choose the next action or reinterpret tool feedback."#
+Ordinary tools require a current node binding. One assistant response may contain any ordered sequence of TaskSpace control and ordinary tool calls, including multiple finish_node calls. Runtime serializes control barriers in provider order; every later call observes state committed by earlier barriers, and later calls are skipped if an earlier barrier fails. A finish_node without a non-empty final_candidate is nonterminal and must be followed in the same response by another control or ordinary tool call. A terminal finish_node with final_candidate may be the last call. Runtime does not choose the next action or reinterpret tool feedback."#
             .into(),
         strict: false,
         defer_loading: None,
@@ -238,8 +238,10 @@ mod tests {
     fn taskspace_control_schema_is_map_lifecycle_only() {
         let value = serde_json::to_value(create_taskspace_control_tool()).expect("serialize");
         let description = value["description"].as_str().expect("description");
-        assert!(description.contains("executes provider order across each control barrier"));
-        assert!(description.contains("skips later calls if that barrier fails"));
+        assert!(description.contains("including multiple finish_node calls"));
+        assert!(description.contains("every later call observes state committed"));
+        assert!(description.contains("must be followed in the same response"));
+        assert!(description.contains("terminal finish_node with final_candidate may be the last"));
         assert!(description.contains("binds current_node_key in one state transition"));
         assert!(description.contains("finish and bind next_node_id atomically"));
         let actions = value["parameters"]["properties"]["action"]["enum"]
