@@ -32,8 +32,8 @@ pwsh -NoProfile -File scripts/taskspace-benchmark/write-performance-observation.
 - Include map nodes, edges, open leaves, root status, control actions, result validity, retention, and semantic replacement.
 - Report TaskSpace failures as separate protocol, state-machine, and nested ordinary-action counts. Do not label a faithful nested tool failure as a state-machine failure.
 - Distinguish provider outer tool calls, Runtime-executed tools, and actions nested inside a `taskspace_control` carrier.
-- Report `initialize_then_actions`, `finish_then_actions`, and `finish_then_end` carrier counts. Also report nested actions, multi-finish carriers, direct tools mixed beside a carrier, multiple carriers in one response, and actionless nonterminal finishes.
-- Treat a non-zero actionless nonterminal finish as a schema/trace violation. Do not reinterpret it as an Agent strategy failure.
+- Report `initialize_then_actions`, `finish_nodes`, and `finish_then_end` counts. Also report bootstrap nested actions, multi-finish barriers, direct ordinary sibling tools in the same response, multiple controls in one response, and `finish_nodes` without a later sibling ordinary action.
+- Treat `finish_nodes` without a sibling action as an efficiency observation, not a state-machine failure. Runtime must not infer or insert the missing action.
 - Treat map warnings as mechanical observations. Do not recommend Runtime semantic intervention solely because Agent planning is coarse.
 - Mark historical R4 fields unavailable when final-wire or map artifacts do not exist; do not fabricate parity.
 

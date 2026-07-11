@@ -13,9 +13,8 @@ pub(crate) enum TaskSpaceControlArgs {
         current_node_id: String,
         actions: Vec<TaskSpaceNestedAction>,
     },
-    FinishThenActions {
+    FinishNodes {
         finishes: Vec<TaskSpaceNonterminalFinishArgs>,
-        actions: Vec<TaskSpaceNestedAction>,
     },
     FinishThenEnd {
         #[serde(default)]
@@ -155,9 +154,9 @@ pub(crate) struct TaskSpaceNestedCustomAction {
 impl TaskSpaceControlArgs {
     pub(crate) fn nested_actions(&self) -> &[TaskSpaceNestedAction] {
         match self {
-            Self::InitializeThenActions { actions, .. }
-            | Self::FinishThenActions { actions, .. } => actions,
-            Self::FinishThenEnd { .. }
+            Self::InitializeThenActions { actions, .. } => actions,
+            Self::FinishNodes { .. }
+            | Self::FinishThenEnd { .. }
             | Self::CreateNode { .. }
             | Self::BindNode { .. }
             | Self::BlockNode { .. }
@@ -176,13 +175,12 @@ impl TaskSpaceControlArgs {
                 require_non_empty(actions, "actions")?;
                 validate_nested_actions(actions)
             }
-            Self::FinishThenActions { finishes, actions } => {
+            Self::FinishNodes { finishes } => {
                 require_non_empty(finishes, "finishes")?;
-                require_non_empty(actions, "actions")?;
                 for finish in finishes {
                     finish.validate()?;
                 }
-                validate_nested_actions(actions)
+                Ok(())
             }
             Self::FinishThenEnd {
                 preceding_finishes,
@@ -284,27 +282,25 @@ mod tests {
     use super::*;
 
     #[test]
-    fn rejects_empty_actions_and_legacy_finish() {
-        let empty = r#"{"action":"finish_then_actions","finishes":[],"actions":[]}"#;
+    fn rejects_empty_finishes_and_legacy_finish_carrier() {
+        let empty = r#"{"action":"finish_nodes","finishes":[]}"#;
         assert!(parse_taskspace_control_args(empty).is_err());
-        let legacy = r#"{"action":"finish_node","result_summary":"done"}"#;
+        let legacy = r#"{"action":"finish_then_actions","finishes":[],"actions":[]}"#;
         assert!(parse_taskspace_control_args(legacy).is_err());
     }
 
     #[test]
-    fn accepts_complete_finish_continuation() {
+    fn accepts_complete_finish_barrier() {
         let args = parse_taskspace_control_args(
-            r#"{"action":"finish_then_actions","finishes":[{"result_summary":"done","next_node_id":"node-2"}],"actions":[{"tool_name":"exec_command","arguments":{"cmd":"pwd"}}]}"#,
+            r#"{"action":"finish_nodes","finishes":[{"result_summary":"done","next_node_id":"node-2"}]}"#,
         )
         .expect("valid args");
-        assert_eq!(args.nested_actions().len(), 1);
+        assert!(args.nested_actions().is_empty());
     }
 
     #[test]
-    fn rejects_recursive_or_ambiguous_continuation() {
-        let recursive = r#"{"action":"finish_then_actions","finishes":[{"result_summary":"done","next_node_id":"node-2"}],"actions":[{"tool_name":"taskspace_control","arguments":{}}]}"#;
-        assert!(parse_taskspace_control_args(recursive).is_err());
-        let ambiguous = r#"{"action":"finish_then_actions","finishes":[{"result_summary":"done","next_node_id":"node-2","next_node_kind":"smoke_test","next_node_title":"Test","next_node_context_summary":"Run tests"}],"actions":[{"tool_name":"exec_command","arguments":{"cmd":"pwd"}}]}"#;
+    fn rejects_ambiguous_finish_binding() {
+        let ambiguous = r#"{"action":"finish_nodes","finishes":[{"result_summary":"done","next_node_id":"node-2","next_node_kind":"smoke_test","next_node_title":"Test","next_node_context_summary":"Run tests"}]}"#;
         assert!(parse_taskspace_control_args(ambiguous).is_err());
     }
 }

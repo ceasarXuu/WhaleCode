@@ -131,14 +131,11 @@ impl ToolHandler for TaskSpaceControlHandler {
                     None,
                 )
             }
-            TaskSpaceControlArgs::FinishThenActions {
-                finishes,
-                actions: _,
-            } => {
+            TaskSpaceControlArgs::FinishNodes { finishes } => {
                 let (steps, success) =
                     execute_nonterminal_finishes(&session, &turn, finishes).await;
                 (
-                    format_state_batch("finish_then_actions", steps, success),
+                    format_state_batch("finish_nodes", steps, success),
                     success,
                     None,
                 )

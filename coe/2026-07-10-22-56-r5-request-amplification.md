@@ -1,5 +1,5 @@
 # Problem P-001: R5 TaskSpace 在 G1 正确性样本中请求次数显著高于 Standard
-- Status: in-progress-j7-singular-patch-carrier
+- Status: in-progress-j6-6-active-single-expression
 - Created: 2026-07-10 22:56
 - Updated: 2026-07-12
 - Objective: 用最终 wire 和原始 tool/control history 精确解释 `count-call-stack` 三轮中 R5 51 requests 对 Standard 22 requests 的29次放大，不把缓存、反馈或 runtime 约束先验地写成根因。
@@ -2119,4 +2119,28 @@
   delta: messages=4429, non-message=14658
   ```
 - Interpretation: 当前单请求Input差距是结构性的，但主项是model-visible工具能力schema，不是projection累积；额外request会再次携带该固定成本并放大总Input。
+- Time: 2026-07-12
+
+## Evidence E-044: 三次并行重复未稳定复现原始路径和patch错误
+- Related hypotheses:
+  - H-020
+- Direction: supports
+- Type: parallel-reproduction
+- Source: R5-J6.6 three right-only count-call-stack runs
+- Prediction or plan link:
+  - H-020 Agent-error variability prediction
+- Matched signal:
+  - 三次均solved；原始package-path error只在run-3出现，patch-context error为0/3；run-1出现一次无`PYTHONPATH` CLI，run-2出现一次malformed initial control。
+- Correlation keys:
+  - `20260712-064055-854`
+  - `20260712-064055-857`
+  - `20260712-064055-898`
+- Raw content:
+  ```text
+  requests = 7 / 9 / 9
+  package-path error = 0 / 0 / 1
+  patch-context error = 0 / 0 / 0
+  business success = 3 / 3
+  ```
+- Interpretation: 原始两类错误不是稳定TaskSpace机制故障；低级动作类型随采样变化。后续优先降低schema/context负担，不增加Runtime语义约束。
 - Time: 2026-07-12

@@ -11,8 +11,8 @@ function Get-TaskspaceNativeCadenceFacts {
             availability = "missing"; provider_tool_response_count = $null
             control_carrier_response_count = $null; direct_tool_mixed_response_count = $null
             multi_control_carrier_response_count = $null; multi_finish_carrier_count = $null
-            nonterminal_without_action_count = $null; nested_action_count = $null
-            initialize_then_actions_count = $null; finish_then_actions_count = $null
+            finish_without_sibling_action_count = $null; nested_action_count = $null
+            initialize_then_actions_count = $null; finish_nodes_count = $null
             finish_then_end_count = $null; terminal_candidate_count = $null
             terminal_extra_request_count = $null
         }
@@ -25,7 +25,7 @@ function Get-TaskspaceNativeCadenceFacts {
     $lastFinalIndex = -1
     $terminalCandidateCount = 0
     $nestedActionCount = 0
-    $actionCounts = @{ initialize_then_actions = 0; finish_then_actions = 0; finish_then_end = 0 }
+    $actionCounts = @{ initialize_then_actions = 0; finish_nodes = 0; finish_then_end = 0 }
     foreach ($line in [System.IO.File]::ReadLines($rolloutPath)) {
         $rowIndex++
         if ([string]::IsNullOrWhiteSpace($line)) { continue }
@@ -64,7 +64,7 @@ function Get-TaskspaceNativeCadenceFacts {
                     }
                 } catch { }
                 $nestedActionCount += $nestedCount
-                if ($action -in @("finish_then_actions", "finish_then_end")) { $lastFinishIndex = $rowIndex }
+                if ($action -in @("finish_nodes", "finish_then_end")) { $lastFinishIndex = $rowIndex }
                 if ($hasTerminalCandidate) { $terminalCandidateCount++ }
             }
             $current.Add([pscustomobject]@{
@@ -89,7 +89,7 @@ function Get-TaskspaceNativeCadenceFacts {
     $directToolMixedResponses = 0
     $multiControlCarrierResponses = 0
     $multiFinishCarriers = 0
-    $nonterminalWithoutAction = 0
+    $finishWithoutSiblingAction = 0
     foreach ($batch in $batches) {
         $calls = @($batch)
         $controls = @($calls | Where-Object { $_.name -eq "taskspace_control" })
@@ -97,9 +97,13 @@ function Get-TaskspaceNativeCadenceFacts {
         if ($controls.Count -gt 0 -and $controls.Count -lt $calls.Count) { $directToolMixedResponses++ }
         if ($controls.Count -gt 1) { $multiControlCarrierResponses++ }
         $multiFinishCarriers += @($controls | Where-Object { $_.finish_count -gt 1 }).Count
-        $nonterminalWithoutAction += @($controls | Where-Object {
-                $_.action -eq "finish_then_actions" -and $_.nested_action_count -eq 0
-            }).Count
+        for ($index = 0; $index -lt $calls.Count; $index++) {
+            if ($calls[$index].action -ne "finish_nodes") { continue }
+            $following = if ($index + 1 -lt $calls.Count) { @($calls[($index + 1)..($calls.Count - 1)]) } else { @() }
+            if (@($following | Where-Object { $_.name -ne "taskspace_control" }).Count -eq 0) {
+                $finishWithoutSiblingAction++
+            }
+        }
     }
     $terminalExtra = if ($terminalCandidateCount -gt 0) {
         0
@@ -115,10 +119,10 @@ function Get-TaskspaceNativeCadenceFacts {
         direct_tool_mixed_response_count = [int]$directToolMixedResponses
         multi_control_carrier_response_count = [int]$multiControlCarrierResponses
         multi_finish_carrier_count = [int]$multiFinishCarriers
-        nonterminal_without_action_count = [int]$nonterminalWithoutAction
+        finish_without_sibling_action_count = [int]$finishWithoutSiblingAction
         nested_action_count = [int]$nestedActionCount
         initialize_then_actions_count = [int]$actionCounts.initialize_then_actions
-        finish_then_actions_count = [int]$actionCounts.finish_then_actions
+        finish_nodes_count = [int]$actionCounts.finish_nodes
         finish_then_end_count = [int]$actionCounts.finish_then_end
         terminal_candidate_count = [int]$terminalCandidateCount
         terminal_extra_request_count = $terminalExtra

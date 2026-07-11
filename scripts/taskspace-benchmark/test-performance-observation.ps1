@@ -63,7 +63,7 @@ function New-SideFixture {
             }) (Join-Path $artifactDir "map-management-summary.json")
         Write-Json ([pscustomobject]@{
                 taskspace_control_count = 3
-                action_counts = [pscustomobject]@{ initialize_then_actions = 1; finish_then_actions = 1; finish_then_end = 1 }
+                action_counts = [pscustomobject]@{ initialize_then_actions = 1; finish_nodes = 1; finish_then_end = 1 }
                 control_failure_count = 1
                 control_protocol_failure_count = 0; control_state_failure_count = 0; nested_action_failure_count = 1
                 taskspace_runtime_event_count = 120; runtime_event_counts = [pscustomobject]@{ snapshot_updated = 30 }
@@ -76,8 +76,9 @@ function New-SideFixture {
             [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "function_call_output" } },
             [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{
                     type = "function_call"; name = "taskspace_control"
-                    arguments = (@{ action = "finish_then_actions"; finishes = @(@{ node_id = "node-1" }); actions = @(@{ tool_name = "apply_patch"; arguments = @{ input = "patch" } }) } | ConvertTo-Json -Compress -Depth 10)
+                    arguments = (@{ action = "finish_nodes"; finishes = @(@{ node_id = "node-1" }) } | ConvertTo-Json -Compress -Depth 10)
                 } },
+            [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "function_call"; name = "apply_patch"; arguments = '{"input":"patch"}' } },
             [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "function_call_output" } },
             [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{
                     type = "function_call"; name = "taskspace_control"
@@ -97,10 +98,9 @@ $cadenceFixture = Join-Path $RunRoot "cadence-fixture"
 $initializeArgs = @{
     action = "initialize_then_actions"; actions = @(@{ tool_name = "exec_command"; arguments = @{ cmd = "pwd" } })
 } | ConvertTo-Json -Compress -Depth 10
-$finishActionsArgs = @{
-    action = "finish_then_actions"
+$finishArgs = @{
+    action = "finish_nodes"
     finishes = @(@{ node_id = "inspect" }, @{ node_id = "plan" })
-    actions = @(@{ tool_name = "apply_patch"; arguments = @{ input = "patch" } })
 } | ConvertTo-Json -Compress -Depth 10
 $terminalArgs = @{
     action = "finish_then_end"; terminal_finish = @{ node_id = "validate" }; final_candidate = "Agent final"
@@ -108,8 +108,10 @@ $terminalArgs = @{
 Write-JsonLines @(
     [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "function_call"; name = "taskspace_control"; call_id = "init"; arguments = $initializeArgs } },
     [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "function_call_output"; call_id = "init"; output = "ok" } },
-    [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "function_call"; name = "taskspace_control"; call_id = "finish-actions"; arguments = $finishActionsArgs } },
-    [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "function_call_output"; call_id = "finish-actions"; output = "ok" } },
+    [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "function_call"; name = "taskspace_control"; call_id = "finish-nodes"; arguments = $finishArgs } },
+    [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "function_call"; name = "apply_patch"; call_id = "patch"; arguments = '{"input":"patch"}' } },
+    [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "function_call_output"; call_id = "finish-nodes"; output = "ok" } },
+    [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "function_call_output"; call_id = "patch"; output = "ok" } },
     [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "function_call"; name = "taskspace_control"; call_id = "finish"; arguments = $terminalArgs } },
     [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "function_call_output"; call_id = "finish"; output = "ok" } },
     [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "message"; role = "assistant"; phase = "final_answer"; content = @([pscustomobject]@{ type = "output_text"; text = "Agent final" }) } }
@@ -117,14 +119,14 @@ Write-JsonLines @(
 $cadence = Get-TaskspaceNativeCadenceFacts $cadenceFixture $null
 Assert-True ($cadence.provider_tool_response_count -eq 3) "provider tool response count is incorrect"
 Assert-True ($cadence.control_carrier_response_count -eq 3) "control carrier response count is incorrect"
-Assert-True ($cadence.nested_action_count -eq 2) "nested action count is incorrect"
+Assert-True ($cadence.nested_action_count -eq 1) "bootstrap nested action count is incorrect"
 Assert-True ($cadence.initialize_then_actions_count -eq 1) "init carrier was not observed"
-Assert-True ($cadence.finish_then_actions_count -eq 1) "finish-actions carrier was not observed"
+Assert-True ($cadence.finish_nodes_count -eq 1) "finish barrier was not observed"
 Assert-True ($cadence.finish_then_end_count -eq 1) "terminal carrier was not observed"
 Assert-True ($cadence.multi_finish_carrier_count -eq 1) "multi-finish carrier was not observed"
-Assert-True ($cadence.direct_tool_mixed_response_count -eq 0) "direct tools were mixed with carriers"
+Assert-True ($cadence.direct_tool_mixed_response_count -eq 1) "finish barrier and sibling tool were not observed"
 Assert-True ($cadence.multi_control_carrier_response_count -eq 0) "multiple carriers were emitted in one response"
-Assert-True ($cadence.nonterminal_without_action_count -eq 0) "invalid actionless nonterminal finish was observed"
+Assert-True ($cadence.finish_without_sibling_action_count -eq 0) "finish barrier lost its sibling action"
 Assert-True ($cadence.terminal_candidate_count -eq 1 -and $cadence.terminal_extra_request_count -eq 0) "terminal candidate cadence was not measured"
 
 if (Test-Path -LiteralPath $RunRoot) { Remove-Item -LiteralPath $RunRoot -Recurse -Force }
@@ -162,7 +164,7 @@ Assert-True (Test-Path -LiteralPath $result.event_log_path) "event log was not w
 $markdown = Get-Content -Raw -Encoding UTF8 -LiteralPath $result.markdown_path
 Assert-True ($markdown -match "## Map 节点") "markdown omitted map node details"
 Assert-True ($markdown -match "## Map 语义保存") "markdown omitted map semantic preservation details"
-Assert-True ($markdown -match "Invalid no-action finish") "markdown omitted schema carrier validation counts"
+Assert-True ($markdown -match "Finish without sibling") "markdown omitted finish barrier validation counts"
 Assert-True ($markdown -match "root_task_active_after_nodes_closed") "mechanical map warning was not rendered"
 
 if ($failures.Count -gt 0) {

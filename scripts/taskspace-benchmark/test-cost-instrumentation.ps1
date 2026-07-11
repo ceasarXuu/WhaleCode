@@ -702,8 +702,8 @@ New-Item -ItemType Directory -Path $rolloutControlDir -Force | Out-Null
 $rolloutControlJsonl = Join-Path $RunRoot "rollout-control-whale-exec.jsonl"
 '{"type":"turn.completed","usage":{"input_tokens":10,"output_tokens":2}}' | Set-Content -LiteralPath $rolloutControlJsonl -Encoding UTF8
 @(
-    '{"type":"response_item","payload":{"type":"function_call","name":"taskspace_control","arguments":"{\"action\":\"finish_then_actions\"}","call_id":"native-control-1"}}',
-    '{"type":"response_item","payload":{"type":"function_call","name":"taskspace_control","arguments":"{\"action\":\"finish_then_actions\"}","call_id":"native-control-2"}}',
+    '{"type":"response_item","payload":{"type":"function_call","name":"taskspace_control","arguments":"{\"action\":\"finish_nodes\"}","call_id":"native-control-1"}}',
+    '{"type":"response_item","payload":{"type":"function_call","name":"taskspace_control","arguments":"{\"action\":\"finish_nodes\"}","call_id":"native-control-2"}}',
     '{"type":"response_item","payload":{"type":"function_call","name":"taskspace_control","arguments":"{\"action\":\"bind_node\"}","call_id":"taskspace-action-contract-3-taskspace_control"}}',
     '{"type":"response_item","payload":{"type":"function_call_output","call_id":"native-control-1","output":"{\"schema_version\":\"TaskSpaceControlBatchResultV1\",\"success\":false,\"status\":\"partial\"}"}}',
     '{"type":"response_item","payload":{"type":"function_call_output","call_id":"native-control-2","output":"TaskSpaceGateRecoveryV1: {\"allowed\":false}"}}'
@@ -712,7 +712,7 @@ $rolloutControlInstrumentation = Write-TaskspaceCostInstrumentationArtifacts -Ar
 Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.taskspace_control_count -eq 3) "rollout taskspace_control calls were not counted"
 Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.native_taskspace_control_count -eq 2) "rollout native taskspace_control calls were not counted"
 Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.action_contract_taskspace_control_count -eq 1) "rollout action-contract taskspace_control calls were not counted"
-Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.action_counts.finish_then_actions -eq 2) "rollout control actions were not deduplicated by call id"
+Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.action_counts.finish_nodes -eq 2) "rollout control actions were not deduplicated by call id"
 Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.control_failure_count -eq 2) "rollout control failures were not counted"
 Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.control_protocol_failure_count -eq 1) "protocol control failures were not classified"
 Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.control_state_failure_count -eq 0) "state control failures were misclassified"

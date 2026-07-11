@@ -1050,12 +1050,22 @@ fn apply_hard_state_tool_visibility(
     tool_visibility: TaskspaceProviderToolVisibility,
     tool_choice: &ToolChoice,
 ) -> Vec<ToolSpec> {
-    if tool_visibility == TaskspaceProviderToolVisibility::TaskspaceNative
-        && tool_choice.function_name() == Some("taskspace_control")
-    {
+    if tool_visibility == TaskspaceProviderToolVisibility::TaskspaceNative {
+        if tool_choice.function_name() == Some("taskspace_control") {
+            return tools
+                .into_iter()
+                .filter(|spec| spec.name() == "taskspace_control")
+                .collect();
+        }
         return tools
             .into_iter()
-            .filter(|spec| spec.name() == "taskspace_control")
+            .map(|spec| {
+                if spec.name() == "taskspace_control" {
+                    codex_tools::create_taskspace_active_control_tool()
+                } else {
+                    spec
+                }
+            })
             .collect();
     }
     tools
@@ -1962,6 +1972,13 @@ mod active_context_replacement_tests {
             active.iter().map(ToolSpec::name).collect::<Vec<_>>(),
             vec!["list_dir", "taskspace_control"]
         );
+        let active_control = active
+            .iter()
+            .find(|spec| spec.name() == "taskspace_control")
+            .expect("active control");
+        let active_json = serde_json::to_string(active_control).expect("serialize active control");
+        assert!(!active_json.contains("list_dir"));
+        assert!(!active_json.contains("ordinaryAction"));
     }
 
     fn message(role: &str, text: &str) -> ResponseItem {

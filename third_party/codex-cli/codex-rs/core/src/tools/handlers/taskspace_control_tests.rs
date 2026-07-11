@@ -80,7 +80,7 @@ fn rejects_removed_semantic_action_at_parse_boundary() {
 #[test]
 fn finish_without_next_action_is_rejected() {
     let error = parse_taskspace_control_args(
-        r#"{"action":"finish_then_actions","finishes":[{"result_summary":"done"}],"actions":[{"tool_name":"exec_command","arguments":{"cmd":"pwd"}}]}"#,
+        r#"{"action":"finish_nodes","finishes":[{"result_summary":"done"}]}"#,
     )
     .expect_err("missing next binding");
     assert!(error.to_string().contains("requires exactly one"));

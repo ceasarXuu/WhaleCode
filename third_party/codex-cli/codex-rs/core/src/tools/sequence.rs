@@ -521,11 +521,11 @@ mod tests {
     }
 
     #[test]
-    fn extracts_required_nested_actions_from_composite_control() {
+    fn extracts_bootstrap_nested_actions() {
         let call = function_call_with_arguments(
             "taskspace_control",
             "outer",
-            r#"{"action":"finish_then_actions","finishes":[{"result_summary":"done","next_node_id":"node-2"}],"actions":[{"tool_name":"exec_command","arguments":{"cmd":"pwd"}}]}"#,
+            r#"{"action":"initialize_then_actions","task_title":"task","task_objective":"objective","initial_nodes":[{"node_id":"node-1","kind":"inspect_code_context","title":"Inspect","context_summary":"Read"}],"current_node_id":"node-1","actions":[{"tool_name":"exec_command","arguments":{"cmd":"pwd"}}]}"#,
         );
 
         let actions = taskspace_nested_actions(&call);

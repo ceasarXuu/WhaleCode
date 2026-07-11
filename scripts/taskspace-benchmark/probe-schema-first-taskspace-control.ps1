@@ -74,10 +74,9 @@ $parameters = [ordered]@{
                     task_title = [ordered]@{ type = 'string' }
                     actions = $actionsProperty
                 }) @('task_title', 'actions')),
-        (New-ActionSchema 'finish_then_actions' ([ordered]@{
+        (New-ActionSchema 'finish_nodes' ([ordered]@{
                     finishes = $finishesProperty
-                    actions = $actionsProperty
-                }) @('finishes', 'actions')),
+                }) @('finishes')),
         (New-ActionSchema 'finish_then_end' ([ordered]@{
                     finishes = [ordered]@{ type = 'array'; minItems = 1; items = $terminalFinishStep }
                     final_candidate = [ordered]@{ type = 'string' }
@@ -177,7 +176,7 @@ function Invoke-Probe {
 
 $prompts = [ordered]@{
     initialize_then_actions = 'Call initialize_then_actions with task_title probe and one exec_command action whose cmd is pwd.'
-    finish_then_actions = 'Call finish_then_actions with one finish for node-1, summary done, next node-2, and one exec_command action whose cmd is pwd.'
+    finish_nodes = 'Call finish_nodes with one finish for node-1, summary done, and next node-2.'
     finish_then_end = 'Call finish_then_end with one finish for node-2, summary verified, and final_candidate DONE.'
 }
 $probes = @()
@@ -200,9 +199,9 @@ function Test-ProbeShape {
         return $Probe.shape.action -eq 'initialize_then_actions' -and
             $Probe.shape.action_count -eq 1
     }
-    if ($Probe.name -like 'finish_then_actions_*') {
-        return $Probe.shape.action -eq 'finish_then_actions' -and
-            $Probe.shape.finish_count -eq 1 -and $Probe.shape.action_count -eq 1
+    if ($Probe.name -like 'finish_nodes_*') {
+        return $Probe.shape.action -eq 'finish_nodes' -and
+            $Probe.shape.finish_count -eq 1 -and $Probe.shape.action_count -eq 0
     }
     if ($Probe.name -like 'finish_then_end_*') {
         return $Probe.shape.action -eq 'finish_then_end' -and
