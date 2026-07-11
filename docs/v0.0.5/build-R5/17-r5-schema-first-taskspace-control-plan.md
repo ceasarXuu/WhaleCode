@@ -283,6 +283,14 @@ typed parser 明确拒绝。任何 schema 子集不支持必须回到本阶段�
 
 **Fallback:** 回退本地 schema keyword commit，J6 暂停；J5 当前合法行为保持不变。
 
+**实施结果（2026-07-12）：** J6.0 已通过。共享 `JsonSchema` 已增加可选 `minItems` 并完成 round-trip
+测试；probe artifact 为 `target/r5-j6-schema-probe/provider-capability.json`。DeepSeek stable endpoint 在
+`strict=false` 下接受 `type: object + anyOf + minItems`，并分别生成了正确的
+`initialize_then_actions`、`finish_then_actions`、`finish_then_end`，每个 response 均只有一个
+`taskspace_control` call，actions/finishes 非空。beta strict endpoint 虽返回 HTTP 200，但三次 arguments
+均退化为空对象，因此本轮不采用 strict beta；生产设计使用 stable schema 作为生成契约，并由本地 typed parser
+校验同一参数 schema。该校验只处理当前 tool 参数是否合法，不检查或处罚 response 中的兄弟调用形态。
+
 ### J6.1：冻结 TaskSpace Control Schema
 
 **Entry:** J6.0 100% 通过。

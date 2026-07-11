@@ -99,6 +99,24 @@ fn parse_tool_input_schema_preserves_integer_and_defaults_array_items() {
 }
 
 #[test]
+fn array_min_items_round_trips_without_affecting_other_arrays() {
+    let constrained = JsonSchema::array(JsonSchema::string(None), None).with_min_items(1);
+    let value = serde_json::to_value(&constrained).expect("serialize schema");
+
+    assert_eq!(value["minItems"], serde_json::json!(1));
+    assert_eq!(value["items"]["type"], serde_json::json!("string"));
+
+    let parsed = parse_tool_input_schema(&value).expect("parse schema");
+    assert_eq!(parsed, constrained);
+    assert_eq!(
+        serde_json::to_value(JsonSchema::array(JsonSchema::string(None), None))
+            .expect("serialize unconstrained schema")
+            .get("minItems"),
+        None
+    );
+}
+
+#[test]
 fn parse_tool_input_schema_sanitizes_additional_properties_schema() {
     // Example schema shape:
     // {
