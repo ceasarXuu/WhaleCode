@@ -1,9 +1,12 @@
 #![allow(dead_code)]
 
+use super::checkpoint_refs::checkpoint_output_refs;
 use codex_protocol::models::ResponseItem;
 use serde::Deserialize;
 use serde::Serialize;
 use serde_json::Value;
+use sha2::Digest;
+use sha2::Sha256;
 use std::collections::HashMap;
 use thiserror::Error;
 
@@ -67,6 +70,25 @@ pub(crate) enum TaskSpaceEventCodecError {
     InvalidPayload(String),
     #[error("taskspace event metadata does not match its raw payload: {0}")]
     MetadataMismatch(&'static str),
+    #[error("taskspace compaction checkpoint is invalid: {0}")]
+    InvalidCheckpoint(String),
+    #[error("taskspace compaction checkpoint hash mismatch")]
+    CheckpointHashMismatch,
+}
+
+const TASKSPACE_CHECKPOINT_SCHEMA: &str = "TaskSpaceCompactionCheckpointV1";
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+struct TaskSpaceCompactionCheckpoint {
+    schema_version: String,
+    checkpoint_id: String,
+    covered_sequence_start: u64,
+    covered_sequence_end: u64,
+    covered_event_count: usize,
+    covered_events_sha256: String,
+    output_refs: Vec<String>,
+    omission_reason: String,
+    replacement_items: Vec<ResponseItem>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -149,6 +171,37 @@ impl TaskSpaceEventStore {
         Ok(event)
     }
 
+    pub(crate) fn install_compaction_checkpoint(
+        &mut self,
+        replacement_items: Vec<ResponseItem>,
+        created_at_ms: i64,
+    ) -> Result<TaskSpaceEvent, TaskSpaceEventCodecError> {
+        let first = self.events.first().ok_or_else(|| {
+            TaskSpaceEventCodecError::InvalidCheckpoint("no events to compact".to_string())
+        })?;
+        let last = self.events.last().expect("checked non-empty event store");
+        let replacement_items = replacement_items
+            .into_iter()
+            .filter(|item| !is_taskspace_runtime_context_item(item))
+            .collect::<Vec<_>>();
+        let checkpoint = TaskSpaceCompactionCheckpoint {
+            schema_version: TASKSPACE_CHECKPOINT_SCHEMA.to_string(),
+            checkpoint_id: format!("task-checkpoint-{}", self.next_sequence),
+            covered_sequence_start: first.sequence,
+            covered_sequence_end: last.sequence,
+            covered_event_count: self.events.len(),
+            covered_events_sha256: checkpoint_hash(&self.events)?,
+            output_refs: checkpoint_output_refs(&self.events),
+            omission_reason: "context_compaction".to_string(),
+            replacement_items,
+        };
+        let item = ResponseItem::Compaction {
+            encrypted_content: serde_json::to_string(&checkpoint)
+                .map_err(|error| TaskSpaceEventCodecError::InvalidCheckpoint(error.to_string()))?,
+        };
+        self.record_item(&item, None, None, created_at_ms)
+    }
+
     pub(crate) fn restore(events: Vec<TaskSpaceEvent>) -> Result<Self, TaskSpaceEventCodecError> {
         let mut store = Self::new();
         for event in events {
@@ -159,6 +212,9 @@ impl TaskSpaceEventStore {
                 });
             }
             let item = event.to_response_item()?;
+            if let Some(checkpoint) = checkpoint_from_item(&item)? {
+                validate_checkpoint(&checkpoint, &store.events, event.sequence)?;
+            }
             if is_call_item(&item)
                 && let Some(call_id) = event.call_id.as_ref()
             {
@@ -173,14 +229,42 @@ impl TaskSpaceEventStore {
     }
 
     pub(crate) fn linearize(&self) -> Vec<ResponseItem> {
-        self.events
+        let checkpoint = self
+            .events
             .iter()
-            .map(|event| {
-                event
+            .enumerate()
+            .rev()
+            .find_map(|(index, event)| {
+                let item = event
                     .to_response_item()
-                    .expect("TaskSpaceEventStore only contains validated events")
-            })
-            .collect()
+                    .expect("TaskSpaceEventStore only contains validated events");
+                checkpoint_from_item(&item)
+                    .expect("TaskSpaceEventStore only contains valid checkpoints")
+                    .map(|checkpoint| (index, checkpoint))
+            });
+        let (mut items, suffix_start) = match checkpoint {
+            Some((index, checkpoint)) => {
+                let mut items = vec![checkpoint_context_item(&checkpoint)];
+                items.extend(checkpoint.replacement_items);
+                (items, index + 1)
+            }
+            None => (Vec::new(), 0),
+        };
+        items.extend(
+            self.events[suffix_start..]
+                .iter()
+                .map(|event| {
+                    event
+                        .to_response_item()
+                        .expect("TaskSpaceEventStore only contains validated events")
+                })
+                .filter(|item| {
+                    checkpoint_from_item(item)
+                        .expect("TaskSpaceEventStore only contains valid checkpoints")
+                        .is_none()
+                }),
+        );
+        items
     }
 
     pub(crate) fn take_linearized(&mut self) -> Vec<ResponseItem> {
@@ -260,6 +344,91 @@ impl TaskSpaceEventStore {
             .last()
             .map(|event| event.sequence.saturating_add(1))
             .unwrap_or(1);
+    }
+}
+
+fn checkpoint_from_item(
+    item: &ResponseItem,
+) -> Result<Option<TaskSpaceCompactionCheckpoint>, TaskSpaceEventCodecError> {
+    let ResponseItem::Compaction { encrypted_content } = item else {
+        return Ok(None);
+    };
+    let Ok(value) = serde_json::from_str::<Value>(encrypted_content) else {
+        return Ok(None);
+    };
+    if value.get("schema_version").and_then(Value::as_str) != Some(TASKSPACE_CHECKPOINT_SCHEMA) {
+        return Ok(None);
+    }
+    serde_json::from_value(value)
+        .map(Some)
+        .map_err(|error| TaskSpaceEventCodecError::InvalidCheckpoint(error.to_string()))
+}
+
+fn checkpoint_hash(events: &[TaskSpaceEvent]) -> Result<String, TaskSpaceEventCodecError> {
+    let bytes = serde_json::to_vec(events)
+        .map_err(|error| TaskSpaceEventCodecError::InvalidCheckpoint(error.to_string()))?;
+    Ok(format!("{:x}", Sha256::digest(bytes)))
+}
+
+fn validate_checkpoint(
+    checkpoint: &TaskSpaceCompactionCheckpoint,
+    preceding_events: &[TaskSpaceEvent],
+    checkpoint_sequence: u64,
+) -> Result<(), TaskSpaceEventCodecError> {
+    if checkpoint.schema_version != TASKSPACE_CHECKPOINT_SCHEMA
+        || checkpoint.omission_reason != "context_compaction"
+        || checkpoint.covered_sequence_start == 0
+        || checkpoint.covered_sequence_start > checkpoint.covered_sequence_end
+        || checkpoint.covered_sequence_end >= checkpoint_sequence
+    {
+        return Err(TaskSpaceEventCodecError::InvalidCheckpoint(
+            "invalid schema, range, or omission reason".to_string(),
+        ));
+    }
+    let covered = preceding_events
+        .iter()
+        .filter(|event| {
+            event.sequence >= checkpoint.covered_sequence_start
+                && event.sequence <= checkpoint.covered_sequence_end
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    if covered.len() != checkpoint.covered_event_count
+        || covered.first().map(|event| event.sequence) != Some(checkpoint.covered_sequence_start)
+        || covered.last().map(|event| event.sequence) != Some(checkpoint.covered_sequence_end)
+    {
+        return Err(TaskSpaceEventCodecError::InvalidCheckpoint(
+            "covered event range is incomplete".to_string(),
+        ));
+    }
+    if checkpoint_hash(&covered)? != checkpoint.covered_events_sha256 {
+        return Err(TaskSpaceEventCodecError::CheckpointHashMismatch);
+    }
+    Ok(())
+}
+
+fn checkpoint_context_item(checkpoint: &TaskSpaceCompactionCheckpoint) -> ResponseItem {
+    ResponseItem::Message {
+        id: None,
+        role: "developer".to_string(),
+        content: vec![codex_protocol::models::ContentItem::InputText {
+            text: format!(
+                "TaskSpaceCompactionCheckpointV1:\ncheckpoint_id: {}\ncovered_sequence_range: {}-{}\ncovered_event_count: {}\ncovered_events_sha256: {}\noutput_refs: {}\nomission_reason: {}",
+                checkpoint.checkpoint_id,
+                checkpoint.covered_sequence_start,
+                checkpoint.covered_sequence_end,
+                checkpoint.covered_event_count,
+                checkpoint.covered_events_sha256,
+                if checkpoint.output_refs.is_empty() {
+                    "none".to_string()
+                } else {
+                    checkpoint.output_refs.join(",")
+                },
+                checkpoint.omission_reason,
+            ),
+        }],
+        end_turn: None,
+        phase: None,
     }
 }
 

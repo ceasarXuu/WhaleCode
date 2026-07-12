@@ -172,6 +172,18 @@ impl Session {
                         active_segment.map_runtime_snapshot = Some(event.snapshot.clone());
                     }
                 }
+                RolloutItem::EventMsg(EventMsg::MapRuntime(
+                    MapRuntimeEvent::TaskContextEventRecorded(event),
+                )) if event.event_type == "compaction" => {
+                    let active_segment =
+                        active_segment.get_or_insert_with(ActiveReplaySegment::default);
+                    if matches!(
+                        active_segment.reference_context_item,
+                        TurnReferenceContextItem::NeverSet
+                    ) {
+                        active_segment.reference_context_item = TurnReferenceContextItem::Cleared;
+                    }
+                }
                 RolloutItem::EventMsg(EventMsg::TurnComplete(event)) => {
                     let active_segment =
                         active_segment.get_or_insert_with(ActiveReplaySegment::default);
@@ -298,6 +310,9 @@ impl Session {
                     }
                 }
                 RolloutItem::Compacted(compacted) => {
+                    if taskspace_context_active {
+                        continue;
+                    }
                     if let Some(replacement_history) = &compacted.replacement_history {
                         // This should actually never happen, because the reverse loop above (to build rollout_suffix)
                         // should stop before any compaction that has Some replacement_history

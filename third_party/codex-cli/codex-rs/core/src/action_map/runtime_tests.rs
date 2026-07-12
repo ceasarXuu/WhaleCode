@@ -247,8 +247,16 @@ fn rejected_explicit_finish_does_not_leave_an_implicit_binding() {
 }
 
 #[test]
-fn thin_projection_keeps_raw_feedback_without_strategy_sections() {
-    let (mut state, owner, _) = initialized_state(vec![inspect_node("inspect")], "inspect");
+fn thin_projection_indexes_events_without_copying_raw_feedback() {
+    let implement = ActionMapInitializeNodeInput {
+        id: "implement".to_string(),
+        kind: NodeKind::ImplementSolution,
+        title: "Implement".to_string(),
+        context_summary: "Apply the chosen change.".to_string(),
+        dependency_node_ids: vec!["inspect".to_string()],
+    };
+    let (mut state, owner, outcome) =
+        initialized_state(vec![inspect_node("inspect"), implement], "inspect");
     state
         .record_main_tool_result_with_class(
             owner,
@@ -256,19 +264,38 @@ fn thin_projection_keeps_raw_feedback_without_strategy_sections() {
             "read_file",
             Some(ActionClass::Read),
             false,
-            "exact tool failure payload".to_string(),
+            "command: cat private.txt\nraw_output:\nexact tool failure payload".to_string(),
         )
         .expect("record tool result");
+    let event = state
+        .maps
+        .get_mut(&outcome.map_id)
+        .and_then(|map| map.node_events.get_mut("node-event-1"))
+        .expect("recorded node event");
+    event.raw_ref = Some("output-ref-1".to_string());
+    event.artifact_refs = vec!["src/private.rs".to_string()];
 
     let projection = state.build_developer_context().expect("projection");
-    assert!(projection.contains("exact tool failure payload"));
     assert!(projection.contains("current_node_recent_events"));
     assert_eq!(projection.matches("node-event-1").count(), 1);
     assert_eq!(projection.matches("inspect kind=").count(), 1);
+    assert_eq!(
+        projection
+            .matches("Inspect the relevant implementation.")
+            .count(),
+        1
+    );
+    assert!(projection.contains("map_edges:\n    - inspect->implement"));
+    assert!(projection.contains("raw_ref=output-ref-1"));
+    assert!(projection.contains("artifact_refs=src/private.rs"));
+    assert!(!projection.contains("exact tool failure payload"));
+    assert!(!projection.contains("command: cat private.txt"));
+    assert!(!projection.contains("private.txt"));
+    assert!(!projection.contains("excerpt:"));
     assert!(!projection.contains("raw_ref=none"));
     assert!(!projection.contains("artifacts=none"));
-    assert!(!projection.contains("excerpt_truncated=false"));
-    assert!(!projection.contains("current_node_dependencies:\n    - none"));
+    assert!(!projection.contains("excerpt_truncated"));
+    assert!(!projection.contains("current_node_dependencies"));
     assert!(!projection.contains("next_valid_actions"));
     assert!(!projection.contains("critical_artifact_evidence"));
     assert!(!projection.contains("fact_source_coverage"));

@@ -157,6 +157,27 @@ impl SessionState {
             .set_reference_context_item(reference_context_item);
     }
 
+    pub(crate) fn replace_compacted_history(
+        &mut self,
+        items: Vec<ResponseItem>,
+        reference_context_item: Option<TurnContextItem>,
+    ) -> Vec<TaskSpaceEvent> {
+        if self.action_map_runtime.mode() != MapRuntimeMode::Experiment {
+            self.history.replace(items);
+            self.history
+                .set_reference_context_item(reference_context_item);
+            return Vec::new();
+        }
+        let checkpoint = self
+            .taskspace_events
+            .install_compaction_checkpoint(items, chrono::Utc::now().timestamp_millis())
+            .expect("TaskSpace compaction checkpoint must be valid");
+        self.history.replace(Vec::new());
+        self.history
+            .set_reference_context_item(reference_context_item);
+        vec![checkpoint]
+    }
+
     pub(crate) fn activate_taskspace_context(&mut self) -> Vec<TaskSpaceEvent> {
         if !self.taskspace_events.is_empty() {
             return self.taskspace_events.events().to_vec();

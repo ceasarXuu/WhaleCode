@@ -2112,17 +2112,18 @@ async fn rollout_persistence_referenceizes_large_tool_outputs() {
     else {
         panic!("output ref sha missing");
     };
-    let artifact_path = rollout_path
-        .parent()
-        .expect("rollout parent")
-        .join(format!(
-            "{}-artifacts",
-            rollout_path
-                .file_stem()
-                .and_then(|value| value.to_str())
-                .expect("rollout stem")
-        ))
+    let session_store_root = rollout_path
+        .ancestors()
+        .find_map(|ancestor| {
+            (ancestor.file_name().and_then(|name| name.to_str()) == Some("sessions"))
+                .then(|| ancestor.parent())
+                .flatten()
+        })
+        .unwrap_or_else(|| rollout_path.parent().expect("rollout parent"));
+    let artifact_path = session_store_root
+        .join("session-store")
         .join("output-refs")
+        .join("sha256")
         .join(format!("{sha}.stdout"));
     let artifact_text = tokio::fs::read_to_string(&artifact_path)
         .await

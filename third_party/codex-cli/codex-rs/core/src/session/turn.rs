@@ -132,7 +132,6 @@ const TASKSPACE_ACTIVE_PROJECTION_MARKER: &str = "ContextProjectionV1 epoch snap
 const TASKSPACE_SHADOW_PROJECTION_MARKER: &str =
     "ContextProjectionV1 shadow (not active replacement):";
 const TASKSPACE_GATE_RECOVERY_MARKER: &str = "\"schema_version\":\"TaskSpaceGateResultV1\"";
-const TASKSPACE_ACTIVE_MAX_RAW_TOOL_OUTPUT_CHARS: usize = 12_000;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum TaskspaceProviderResponseActionability {
@@ -1553,7 +1552,6 @@ enum ProviderVisibleItemCategory {
     LegacyTaskspaceInstruction,
     TaskspaceControlCall,
     TaskspaceToolOutput,
-    LargeRawToolOutput,
     Other,
 }
 
@@ -1625,9 +1623,6 @@ fn provider_visible_history_action(
         ProviderVisibleItemCategory::LegacyTaskspaceInstruction => {
             ProviderVisibleHistoryAction::Omit("legacy_taskspace_instruction_replaced")
         }
-        ProviderVisibleItemCategory::LargeRawToolOutput => {
-            ProviderVisibleHistoryAction::Omit("large_raw_tool_output_requires_output_reference")
-        }
         ProviderVisibleItemCategory::ActiveProjection
         | ProviderVisibleItemCategory::CurrentTaskspaceRuntimeFeedback
         | ProviderVisibleItemCategory::TaskspaceControlCall
@@ -1698,9 +1693,6 @@ fn classify_provider_visible_item(item: &ResponseItem) -> ProviderVisibleItemCat
     if is_taskspace_tool_output(item) {
         return ProviderVisibleItemCategory::TaskspaceToolOutput;
     }
-    if is_large_raw_tool_output(item) {
-        return ProviderVisibleItemCategory::LargeRawToolOutput;
-    }
     ProviderVisibleItemCategory::Other
 }
 
@@ -1766,86 +1758,6 @@ fn is_current_taskspace_runtime_feedback_item(item: &ResponseItem) -> bool {
     ]
     .iter()
     .any(|marker| response_item_text_contains(item, marker))
-}
-
-fn is_large_raw_tool_output(item: &ResponseItem) -> bool {
-    if !matches!(
-        item,
-        ResponseItem::FunctionCallOutput { .. } | ResponseItem::CustomToolCallOutput { .. }
-    ) || response_item_text_contains(item, "output-ref://")
-        || response_item_text_contains(item, "OutputReferenceV1")
-    {
-        return false;
-    }
-
-    response_item_text_len(item) > TASKSPACE_ACTIVE_MAX_RAW_TOOL_OUTPUT_CHARS
-}
-
-fn response_item_text_len(item: &ResponseItem) -> usize {
-    match item {
-        ResponseItem::Message { role, content, .. } => {
-            role.len()
-                + content
-                    .iter()
-                    .map(|content_item| match content_item {
-                        ContentItem::InputText { text } | ContentItem::OutputText { text } => {
-                            text.len()
-                        }
-                        ContentItem::InputImage { image_url, .. } => image_url.len(),
-                    })
-                    .sum::<usize>()
-        }
-        ResponseItem::FunctionCall {
-            name,
-            namespace,
-            arguments,
-            ..
-        } => name.len() + namespace.as_ref().map_or(0, |value| value.len()) + arguments.len(),
-        ResponseItem::CustomToolCall { name, input, .. } => name.len() + input.len(),
-        ResponseItem::FunctionCallOutput { output, .. }
-        | ResponseItem::CustomToolCallOutput { output, .. } => {
-            function_call_output_body_text_len(&output.body)
-        }
-        ResponseItem::ToolSearchCall {
-            execution,
-            arguments,
-            ..
-        } => execution.len() + arguments.to_string().len(),
-        ResponseItem::ToolSearchOutput {
-            execution, tools, ..
-        } => {
-            execution.len()
-                + tools
-                    .iter()
-                    .map(|tool| tool.to_string().len())
-                    .sum::<usize>()
-        }
-        ResponseItem::LocalShellCall { .. }
-        | ResponseItem::Reasoning { .. }
-        | ResponseItem::WebSearchCall { .. }
-        | ResponseItem::ImageGenerationCall { .. }
-        | ResponseItem::GhostSnapshot { .. }
-        | ResponseItem::Compaction { .. }
-        | ResponseItem::Other => 0,
-    }
-}
-
-fn function_call_output_body_text_len(body: &FunctionCallOutputBody) -> usize {
-    match body {
-        FunctionCallOutputBody::Text(text) => text.len(),
-        FunctionCallOutputBody::ContentItems(items) => items
-            .iter()
-            .map(|item| match item {
-                codex_protocol::models::FunctionCallOutputContentItem::InputText { text } => {
-                    text.len()
-                }
-                codex_protocol::models::FunctionCallOutputContentItem::InputImage {
-                    image_url,
-                    ..
-                } => image_url.len(),
-            })
-            .sum(),
-    }
 }
 
 fn response_item_text_contains(item: &ResponseItem, needle: &str) -> bool {
@@ -2503,11 +2415,11 @@ mod active_context_replacement_tests {
     }
 
     #[test]
-    fn active_context_replacement_omits_large_raw_tool_output() {
+    fn active_context_replacement_preserves_unreferenced_raw_tool_output() {
         let active_projection = format!(
             "{TASKSPACE_ACTIVE_PROFILE_MARKER}\n{TASKSPACE_ACTIVE_PROJECTION_MARKER}\nactive_objective: fix the bug"
         );
-        let large_raw_output = "x".repeat(TASKSPACE_ACTIVE_MAX_RAW_TOOL_OUTPUT_CHARS + 1);
+        let large_raw_output = "x".repeat(12_001);
         let items = vec![
             message("developer", &active_projection),
             tool_output(&large_raw_output),
@@ -2518,15 +2430,15 @@ mod active_context_replacement_tests {
         let texts = item_texts(&composition.items);
         let joined = texts.join("\n");
 
-        assert!(!joined.contains(&large_raw_output));
+        assert!(joined.contains(&large_raw_output));
         assert!(joined.contains("Keep the direct user requirement."));
         assert_eq!(
             composition.decisions[1].category,
-            ProviderVisibleItemCategory::LargeRawToolOutput
+            ProviderVisibleItemCategory::Other
         );
         assert_eq!(
             composition.decisions[1].action,
-            ProviderVisibleHistoryAction::Omit("large_raw_tool_output_requires_output_reference")
+            ProviderVisibleHistoryAction::Include
         );
     }
 

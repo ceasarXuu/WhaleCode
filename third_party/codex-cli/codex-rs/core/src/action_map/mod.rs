@@ -1,3 +1,4 @@
+mod checkpoint_refs;
 mod event_codec;
 mod event_store;
 mod map;

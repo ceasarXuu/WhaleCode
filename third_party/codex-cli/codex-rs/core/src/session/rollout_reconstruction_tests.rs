@@ -2,6 +2,7 @@ use super::*;
 
 use super::tests::make_session_and_context;
 use crate::action_map::ActionMapRuntimeState;
+use crate::action_map::TaskSpaceEventStore;
 use codex_protocol::AgentPath;
 use codex_protocol::ThreadId;
 use codex_protocol::models::ContentItem;
@@ -11,6 +12,7 @@ use codex_protocol::protocol::InitialHistory;
 use codex_protocol::protocol::InterAgentCommunication;
 use codex_protocol::protocol::MapRuntimeModeChangedEvent;
 use codex_protocol::protocol::MapRuntimeSnapshotUpdatedEvent;
+use codex_protocol::protocol::MapRuntimeTaskContextOwnershipChangedEvent;
 use codex_protocol::protocol::ResumedHistory;
 use pretty_assertions::assert_eq;
 use std::path::PathBuf;
@@ -81,6 +83,58 @@ async fn reconstruct_history_restores_latest_map_runtime_mode() {
         .await;
 
     assert_eq!(reconstructed.map_runtime_mode, MapRuntimeMode::Standard);
+}
+
+#[tokio::test]
+async fn reconstruct_history_replays_taskspace_compaction_checkpoint_from_raw_events() {
+    let (session, turn_context) = make_session_and_context().await;
+    let mut store = TaskSpaceEventStore::new();
+    let original = user_message("raw task body");
+    let initial_event = store.record_item(&original, None, None, 1).unwrap();
+    let summary = assistant_message("checkpoint summary");
+    let checkpoint_event = store
+        .install_compaction_checkpoint(vec![summary.clone()], 2)
+        .unwrap();
+    let rollout_items = vec![
+        RolloutItem::EventMsg(EventMsg::MapRuntime(MapRuntimeEvent::ModeChanged(
+            MapRuntimeModeChangedEvent {
+                previous_mode: MapRuntimeMode::Standard,
+                current_mode: MapRuntimeMode::Experiment,
+            },
+        ))),
+        RolloutItem::EventMsg(EventMsg::MapRuntime(
+            MapRuntimeEvent::TaskContextOwnershipChanged(
+                MapRuntimeTaskContextOwnershipChangedEvent {
+                    active: true,
+                    events: vec![initial_event.to_protocol()],
+                },
+            ),
+        )),
+        RolloutItem::EventMsg(EventMsg::MapRuntime(
+            MapRuntimeEvent::TaskContextEventRecorded(checkpoint_event.to_protocol()),
+        )),
+    ];
+
+    let reconstructed = session
+        .reconstruct_history_from_rollout(&turn_context, &rollout_items)
+        .await;
+
+    assert!(reconstructed.history.is_empty());
+    assert_eq!(reconstructed.taskspace_events.len(), 2);
+    let restored = TaskSpaceEventStore::restore(reconstructed.taskspace_events).unwrap();
+    let visible = restored.linearize();
+    assert_eq!(visible.len(), 2);
+    assert!(
+        serde_json::to_string(&visible[0])
+            .unwrap()
+            .contains("covered_sequence_range: 1-1")
+    );
+    assert_eq!(visible[1], summary);
+    assert!(
+        !serde_json::to_string(&visible)
+            .unwrap()
+            .contains("raw task body")
+    );
 }
 
 #[tokio::test]

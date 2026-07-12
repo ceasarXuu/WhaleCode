@@ -4,12 +4,37 @@ pub(super) struct ActiveProjectionInput {
     pub(super) map_id: String,
     pub(super) map_status: String,
     pub(super) source_event_ids: Vec<String>,
-    pub(super) current_node: String,
-    pub(super) map_nodes: Vec<String>,
-    pub(super) current_node_dependencies: Vec<String>,
-    pub(super) current_node_recent_events: Vec<String>,
-    pub(super) result_refs_available: Vec<String>,
+    pub(super) current_node_id: Option<String>,
+    pub(super) map_nodes: Vec<ProjectionNode>,
+    pub(super) map_edges: Vec<ProjectionEdge>,
+    pub(super) current_node_recent_events: Vec<ProjectionEventRef>,
+    pub(super) result_refs_available: Vec<ProjectionEventRef>,
     pub(super) mechanically_blank: bool,
+}
+
+pub(super) struct ProjectionNode {
+    pub(super) id: String,
+    pub(super) kind: String,
+    pub(super) status: String,
+    pub(super) goal: String,
+    pub(super) result_count: usize,
+    pub(super) event_count: usize,
+}
+
+pub(super) struct ProjectionEdge {
+    pub(super) from: String,
+    pub(super) to: String,
+}
+
+pub(super) struct ProjectionEventRef {
+    pub(super) id: String,
+    pub(super) node_id: String,
+    pub(super) event_kind: String,
+    pub(super) source: String,
+    pub(super) action_class: Option<String>,
+    pub(super) tool_success: Option<bool>,
+    pub(super) raw_ref: Option<String>,
+    pub(super) artifact_refs: Vec<String>,
 }
 
 pub(super) struct RenderedProjection {
@@ -27,34 +52,24 @@ pub(super) fn render_active_projection(input: ActiveProjectionInput) -> Rendered
     } else {
         push_field(&mut body, "task_status", &input.task_status);
         push_field(&mut body, "map_status", &input.map_status);
-        append_list(
-            &mut body,
-            "source_event_ids",
-            &input.source_event_ids,
-            false,
-        );
+        append_list(&mut body, "source_event_ids", &input.source_event_ids);
     }
-    push_field(&mut body, "current_node", &input.current_node);
-    append_list(&mut body, "map_nodes", &input.map_nodes, false);
-    if !input.current_node_dependencies.is_empty() {
-        append_list(
-            &mut body,
-            "current_node_dependencies",
-            &input.current_node_dependencies,
-            false,
-        );
-    }
+    push_field(
+        &mut body,
+        "current_node",
+        input.current_node_id.as_deref().unwrap_or("none"),
+    );
+    append_list(&mut body, "map_nodes", &render_nodes(&input.map_nodes));
+    append_list(&mut body, "map_edges", &render_edges(&input.map_edges));
     append_list(
         &mut body,
         "current_node_recent_events",
-        &input.current_node_recent_events,
-        true,
+        &render_event_refs(&input.current_node_recent_events),
     );
     append_list(
         &mut body,
         "result_refs_available",
-        &input.result_refs_available,
-        false,
+        &render_event_refs(&input.result_refs_available),
     );
     body.push_str("ContextProjectionV1 epoch snapshot end.\n");
     let estimated_tokens = body.len().div_ceil(4);
@@ -72,7 +87,7 @@ fn push_field(body: &mut String, label: &str, value: &str) {
     body.push('\n');
 }
 
-fn append_list(body: &mut String, label: &str, values: &[String], multiline: bool) {
+fn append_list(body: &mut String, label: &str, values: &[String]) {
     body.push_str("  ");
     body.push_str(label);
     body.push_str(":\n");
@@ -81,19 +96,54 @@ fn append_list(body: &mut String, label: &str, values: &[String], multiline: boo
         return;
     }
     for value in values {
-        let mut lines = value.lines();
-        let first_line = lines.next().unwrap_or_default();
         body.push_str("    - ");
-        body.push_str(first_line);
+        body.push_str(value);
         body.push('\n');
-        if multiline {
-            for line in lines {
-                body.push_str("      ");
-                body.push_str(line);
-                body.push('\n');
-            }
-        }
     }
+}
+
+fn render_nodes(nodes: &[ProjectionNode]) -> Vec<String> {
+    nodes
+        .iter()
+        .map(|node| {
+            format!(
+                "{} kind={} status={} goal={:?} result_count={} event_count={}",
+                node.id, node.kind, node.status, node.goal, node.result_count, node.event_count,
+            )
+        })
+        .collect()
+}
+
+fn render_edges(edges: &[ProjectionEdge]) -> Vec<String> {
+    edges
+        .iter()
+        .map(|edge| format!("{}->{}", edge.from, edge.to))
+        .collect()
+}
+
+fn render_event_refs(events: &[ProjectionEventRef]) -> Vec<String> {
+    events
+        .iter()
+        .map(|event| {
+            let mut rendered = format!(
+                "{} node={} event_kind={} source={}",
+                event.id, event.node_id, event.event_kind, event.source
+            );
+            if let Some(action_class) = event.action_class.as_deref() {
+                rendered.push_str(&format!(" action_class={action_class}"));
+            }
+            if let Some(tool_success) = event.tool_success {
+                rendered.push_str(&format!(" tool_success={tool_success}"));
+            }
+            if let Some(raw_ref) = event.raw_ref.as_deref() {
+                rendered.push_str(&format!(" raw_ref={raw_ref}"));
+            }
+            if !event.artifact_refs.is_empty() {
+                rendered.push_str(&format!(" artifact_refs={}", event.artifact_refs.join(",")));
+            }
+            rendered
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -108,9 +158,9 @@ mod tests {
             map_id: "map-1".into(),
             map_status: "active".into(),
             source_event_ids: Vec::new(),
-            current_node: "none".into(),
+            current_node_id: None,
             map_nodes: Vec::new(),
-            current_node_dependencies: Vec::new(),
+            map_edges: Vec::new(),
             current_node_recent_events: Vec::new(),
             result_refs_available: Vec::new(),
             mechanically_blank: true,
@@ -122,6 +172,7 @@ mod tests {
             "hard_state: active_task_path_without_nodes",
             "current_node: none",
             "map_nodes:",
+            "map_edges:",
             "current_node_recent_events:",
             "result_refs_available:",
         ] {

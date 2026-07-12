@@ -143,13 +143,23 @@ pub(crate) async fn write_output_artifact_for_rollout(
 }
 
 fn output_artifact_dir(rollout_path: &Path) -> PathBuf {
-    let stem = rollout_path
-        .file_stem()
-        .and_then(|value| value.to_str())
-        .filter(|value| !value.is_empty())
-        .unwrap_or("thread");
-    let parent = rollout_path.parent().unwrap_or_else(|| Path::new("."));
-    parent.join(format!("{stem}-artifacts")).join("output-refs")
+    session_store_root(rollout_path)
+        .join("session-store")
+        .join("output-refs")
+        .join("sha256")
+}
+
+fn session_store_root(rollout_path: &Path) -> &Path {
+    rollout_path
+        .ancestors()
+        .find_map(
+            |ancestor| match ancestor.file_name().and_then(|name| name.to_str()) {
+                Some("sessions" | "archived_sessions") => ancestor.parent(),
+                _ => None,
+            },
+        )
+        .or_else(|| rollout_path.parent())
+        .unwrap_or_else(|| Path::new("."))
 }
 
 pub(crate) async fn read_output_artifact_slice(
@@ -166,6 +176,15 @@ pub(crate) async fn read_output_artifact_slice(
     let sha = parse_output_ref_sha(output_ref)?;
     let artifact_path = output_artifact_dir(rollout_path).join(format!("{sha}.stdout"));
     let raw_output = tokio::fs::read(&artifact_path).await?;
+    let actual_sha = format!("{:x}", Sha256::digest(&raw_output));
+    if actual_sha != sha {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!(
+                "output artifact sha256 mismatch for {output_ref}: expected {sha}, got {actual_sha}"
+            ),
+        ));
+    }
     let text = String::from_utf8_lossy(&raw_output);
     let max_bytes = request.max_bytes.clamp(1, OUTPUT_SLICE_MAX_BYTES);
     let slice = match request.mode {
@@ -292,146 +311,5 @@ fn redact_assignment_value(line: &str, key: &str) -> Option<String> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn policy_uses_inline_summarized_and_referenced_thresholds() {
-        assert_eq!(
-            policy_for_raw_output(&vec![b'a'; OUTPUT_INLINE_THRESHOLD_BYTES]),
-            OutputReferencePolicy::Inline
-        );
-        assert_eq!(
-            policy_for_raw_output(&vec![b'a'; OUTPUT_INLINE_THRESHOLD_BYTES + 1]),
-            OutputReferencePolicy::Summarized
-        );
-        assert_eq!(
-            policy_for_raw_output(&vec![b'a'; OUTPUT_REFERENCE_THRESHOLD_BYTES + 1]),
-            OutputReferencePolicy::Referenced
-        );
-    }
-
-    #[test]
-    fn reference_text_preserves_hash_and_bounded_edges() {
-        let mut raw_output = Vec::new();
-        raw_output.extend_from_slice(b"head-visible\n");
-        raw_output.extend_from_slice("middle-secret-marker\n".repeat(4_000).as_bytes());
-        raw_output.extend_from_slice(b"tail-visible\n");
-
-        let text = reference_text_for_raw_output(&raw_output, Some("output-ref://sha256/test"))
-            .expect("large output should be referenceized");
-
-        assert!(text.contains("OutputReferenceV1:"));
-        assert!(text.contains("output_ref: output-ref://sha256/test"));
-        assert!(text.contains("policy: referenced_large_output"));
-        assert!(text.contains("artifact_ref: output-ref://sha256/test"));
-        assert!(text.contains("raw_output_elided: true"));
-        assert!(text.contains("suggested_slices:"));
-        assert!(text.contains("sha256:"));
-        assert!(text.contains("head-visible"));
-        assert!(text.contains("tail-visible"));
-        assert!(text.matches("middle-secret-marker").count() < 300);
-    }
-
-    #[test]
-    fn reference_text_redacts_sensitive_head_and_tail_values() {
-        let mut raw_output = Vec::new();
-        raw_output.extend_from_slice(b"api_key = sk-live-secret\n");
-        raw_output.extend_from_slice("middle\n".repeat(20_000).as_bytes());
-        raw_output.extend_from_slice(b"Authorization: Bearer tail-secret-token\n");
-
-        let text = reference_text_for_raw_output(&raw_output, Some("output-ref://sha256/test"))
-            .expect("large output should be referenceized");
-
-        assert!(text.contains("api_key = [REDACTED]"));
-        assert!(text.contains("Authorization: Bearer [REDACTED]"));
-        assert!(!text.contains("sk-live-secret"));
-        assert!(!text.contains("tail-secret-token"));
-        assert!(text.contains("sensitive_data_scan: redacted_model_visible"));
-    }
-
-    #[tokio::test]
-    async fn write_output_artifact_uses_rollout_sibling_directory() {
-        let temp = tempfile::tempdir().expect("create temp dir");
-        let rollout_path = temp.path().join("rollout-test.jsonl");
-        let raw_output = "artifact-line\n".repeat(9000).into_bytes();
-
-        let artifact_ref = write_output_artifact_for_rollout(Some(&rollout_path), &raw_output)
-            .await
-            .expect("write artifact")
-            .expect("large output should produce artifact ref");
-        let sha = artifact_ref
-            .strip_prefix("output-ref://sha256/")
-            .expect("artifact ref prefix");
-        let artifact_path = temp
-            .path()
-            .join("rollout-test-artifacts")
-            .join("output-refs")
-            .join(format!("{sha}.stdout"));
-
-        assert_eq!(
-            tokio::fs::read(&artifact_path)
-                .await
-                .expect("read artifact"),
-            raw_output
-        );
-    }
-
-    #[tokio::test]
-    async fn read_output_artifact_slice_returns_bounded_grep() {
-        let temp = tempfile::tempdir().expect("create temp dir");
-        let rollout_path = temp.path().join("rollout-test.jsonl");
-        let raw_output = "alpha\nneedle one\nbeta\nneedle two\n"
-            .repeat(1000)
-            .into_bytes();
-        let artifact_ref = write_output_artifact_for_rollout(Some(&rollout_path), &raw_output)
-            .await
-            .expect("write artifact")
-            .expect("artifact ref");
-
-        let slice = read_output_artifact_slice(
-            Some(&rollout_path),
-            &artifact_ref,
-            OutputSliceRequest {
-                mode: OutputSliceMode::Grep {
-                    pattern: "needle".to_string(),
-                },
-                max_bytes: 128,
-            },
-        )
-        .await
-        .expect("read slice");
-
-        assert!(slice.contains("OutputSliceV1:"));
-        assert!(slice.contains("needle one"));
-        assert!(slice.contains("sensitive_data_scan: redacted_model_visible"));
-        assert!(slice.len() < 512);
-    }
-
-    #[tokio::test]
-    async fn read_output_artifact_slice_redacts_sensitive_values() {
-        let temp = tempfile::tempdir().expect("create temp dir");
-        let rollout_path = temp.path().join("rollout-test.jsonl");
-        let raw_output = "alpha\npassword: hunter2\nbeta\n".repeat(3000).into_bytes();
-        let artifact_ref = write_output_artifact_for_rollout(Some(&rollout_path), &raw_output)
-            .await
-            .expect("write artifact")
-            .expect("artifact ref");
-
-        let slice = read_output_artifact_slice(
-            Some(&rollout_path),
-            &artifact_ref,
-            OutputSliceRequest {
-                mode: OutputSliceMode::Grep {
-                    pattern: "password".to_string(),
-                },
-                max_bytes: 256,
-            },
-        )
-        .await
-        .expect("read slice");
-
-        assert!(slice.contains("password: [REDACTED]"));
-        assert!(!slice.contains("hunter2"));
-    }
-}
+#[path = "output_reference_tests.rs"]
+mod tests;

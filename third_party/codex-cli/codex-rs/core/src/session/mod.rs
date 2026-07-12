@@ -3421,11 +3421,28 @@ impl Session {
         reference_context_item: Option<TurnContextItem>,
         compacted_item: CompactedItem,
     ) {
-        self.replace_history(items, reference_context_item.clone())
-            .await;
+        let checkpoint_events = {
+            let mut state = self.state.lock().await;
+            state.replace_compacted_history(items, reference_context_item.clone())
+        };
 
-        self.persist_rollout_items(&[RolloutItem::Compacted(compacted_item)])
-            .await;
+        let taskspace_compacted = !checkpoint_events.is_empty();
+        if taskspace_compacted {
+            let rollout_items = checkpoint_events
+                .into_iter()
+                .map(|event| {
+                    RolloutItem::EventMsg(EventMsg::MapRuntime(
+                        MapRuntimeEvent::TaskContextEventRecorded(event.to_protocol()),
+                    ))
+                })
+                .collect::<Vec<_>>();
+            self.persist_rollout_items(&rollout_items).await;
+        }
+
+        if !taskspace_compacted {
+            self.persist_rollout_items(&[RolloutItem::Compacted(compacted_item)])
+                .await;
+        }
         if let Some(turn_context_item) = reference_context_item {
             self.persist_rollout_items(&[RolloutItem::TurnContext(turn_context_item)])
                 .await;

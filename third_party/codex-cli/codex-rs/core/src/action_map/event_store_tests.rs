@@ -335,3 +335,138 @@ fn store_restore_and_rollback_are_mechanical() {
         }
     );
 }
+
+#[test]
+fn compaction_checkpoint_preserves_raw_events_and_exposes_one_replacement_view() {
+    let mut store = TaskSpaceEventStore::new();
+    let user = ResponseItem::Message {
+        id: None,
+        role: "user".into(),
+        content: vec![ContentItem::InputText {
+            text: "raw task body".into(),
+        }],
+        end_turn: None,
+        phase: None,
+    };
+    let output_ref = format!("output-ref://sha256/{}", "a".repeat(64));
+    let assistant = ResponseItem::Message {
+        id: None,
+        role: "assistant".into(),
+        content: vec![ContentItem::OutputText {
+            text: format!("raw assistant body {output_ref}"),
+        }],
+        end_turn: None,
+        phase: None,
+    };
+    store.record_item(&user, None, None, 1).unwrap();
+    store.record_item(&assistant, None, None, 2).unwrap();
+    let summary = ResponseItem::Message {
+        id: None,
+        role: "assistant".into(),
+        content: vec![ContentItem::OutputText {
+            text: "checkpoint summary".into(),
+        }],
+        end_turn: None,
+        phase: None,
+    };
+
+    let checkpoint = store
+        .install_compaction_checkpoint(vec![summary.clone()], 3)
+        .unwrap();
+    let suffix = ResponseItem::Message {
+        id: None,
+        role: "user".into(),
+        content: vec![ContentItem::InputText {
+            text: "after checkpoint".into(),
+        }],
+        end_turn: None,
+        phase: None,
+    };
+    store.record_item(&suffix, None, None, 4).unwrap();
+
+    assert_eq!(store.events().len(), 4);
+    assert_eq!(checkpoint.event_type, TaskSpaceEventType::Compaction);
+    let visible = store.linearize();
+    assert_eq!(visible.len(), 3);
+    assert!(
+        matches!(&visible[0], ResponseItem::Message { role, content, .. }
+        if role == "developer"
+            && matches!(&content[0], ContentItem::InputText { text }
+                if text.contains("covered_sequence_range: 1-2")
+                    && text.contains(&output_ref)))
+    );
+    assert_eq!(visible[1], summary);
+    assert_eq!(visible[2], suffix);
+    let visible_text = serde_json::to_string(&visible).unwrap();
+    assert!(!visible_text.contains("raw task body"));
+    assert!(!visible_text.contains("raw assistant body"));
+
+    let restored = TaskSpaceEventStore::restore(store.events().to_vec()).unwrap();
+    assert_eq!(restored.linearize(), visible);
+}
+
+#[test]
+fn compaction_checkpoint_drops_stale_taskspace_runtime_context() {
+    let mut store = TaskSpaceEventStore::new();
+    store
+        .record_item(
+            &ResponseItem::Message {
+                id: None,
+                role: "user".into(),
+                content: vec![ContentItem::InputText {
+                    text: "task".into(),
+                }],
+                end_turn: None,
+                phase: None,
+            },
+            None,
+            None,
+            1,
+        )
+        .unwrap();
+    let stale_projection = ResponseItem::Message {
+        id: None,
+        role: "developer".into(),
+        content: vec![ContentItem::InputText {
+            text: "ContextProjectionV1 epoch snapshot".into(),
+        }],
+        end_turn: None,
+        phase: None,
+    };
+    store
+        .install_compaction_checkpoint(vec![stale_projection], 2)
+        .unwrap();
+
+    let visible = serde_json::to_string(&store.linearize()).unwrap();
+    assert!(!visible.contains("ContextProjectionV1"));
+    assert!(visible.contains("TaskSpaceCompactionCheckpointV1"));
+}
+
+#[test]
+fn restore_rejects_checkpoint_when_covered_raw_event_changed() {
+    let mut store = TaskSpaceEventStore::new();
+    store
+        .record_item(
+            &ResponseItem::Message {
+                id: None,
+                role: "user".into(),
+                content: vec![ContentItem::InputText {
+                    text: "task".into(),
+                }],
+                end_turn: None,
+                phase: None,
+            },
+            None,
+            None,
+            1,
+        )
+        .unwrap();
+    store.install_compaction_checkpoint(Vec::new(), 2).unwrap();
+    let mut events = store.events().to_vec();
+    events[0].raw_payload["content"][0]["text"] = serde_json::json!("changed");
+
+    assert_eq!(
+        TaskSpaceEventStore::restore(events).unwrap_err(),
+        TaskSpaceEventCodecError::CheckpointHashMismatch
+    );
+}

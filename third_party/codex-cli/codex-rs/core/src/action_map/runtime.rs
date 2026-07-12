@@ -61,6 +61,9 @@ use super::map::TaskState;
 use super::map::TaskStatus;
 use super::map::ToolActionDescriptor;
 use super::projection::ActiveProjectionInput;
+use super::projection::ProjectionEdge;
+use super::projection::ProjectionEventRef;
+use super::projection::ProjectionNode;
 use super::projection::render_active_projection;
 use super::sentinel::TaskSpaceSentinelSeverity;
 use super::sentinel::TaskSpaceSentinelWarning;
@@ -5319,6 +5322,7 @@ ContextProjectionV1 epoch snapshot:\n\
 - integrity_reason: {reason}\n\
 - current_node: unavailable\n\
 - map_nodes:\n  - none\n\
+- map_edges:\n  - none\n\
 - current_node_recent_events:\n  - none\n\
 - result_refs_available:\n  - none\n\
 ContextProjectionV1 epoch snapshot end."
@@ -5343,60 +5347,31 @@ fn append_context_projection_active(
     current_node_id: Option<&str>,
     _active_budget: Option<&TaskSpaceActiveBudgetV1>,
 ) -> usize {
-    let current_node = current_node_id
-        .and_then(|node_id| map.nodes.get(node_id))
-        .map(|node| {
-            format!(
-                "{} kind={} status={} goal={}",
-                node.id,
-                node.kind.as_str(),
-                node.status.as_str(),
-                single_line_preview(&node.context.summary, 160)
-            )
-        })
-        .unwrap_or_else(|| "none".to_string());
+    let current_node_id = current_node_id
+        .filter(|node_id| map.nodes.contains_key(*node_id))
+        .map(str::to_string);
     let node_skeleton = ordered_node_ids(map)
         .into_iter()
-        .take(16)
         .filter_map(|node_id| map.nodes.get(&node_id))
-        .filter(|node| Some(node.id.as_str()) != current_node_id)
-        .map(|node| {
-            let mut entry = format!(
-                "{} kind={} status={} goal={}",
-                node.id,
-                node.kind.as_str(),
-                node.status.as_str(),
-                single_line_preview(&node.context.summary, 140)
-            );
-            if !node.result_context.is_empty() {
-                entry.push_str(&format!(" results={}", node.result_context.len()));
-            }
-            if !node.node_events.is_empty() {
-                entry.push_str(&format!(" events={}", node.node_events.len()));
-            }
-            entry
+        .map(|node| ProjectionNode {
+            id: node.id.clone(),
+            kind: node.kind.as_str().to_string(),
+            status: node.status.as_str().to_string(),
+            goal: node.context.summary.clone(),
+            result_count: node.result_context.len(),
+            event_count: node.node_events.len(),
         })
         .collect::<Vec<_>>();
-    let current_node_dependencies = current_node_id
-        .map(|current_node_id| {
-            map.edges
-                .iter()
-                .filter(|edge| edge.to == current_node_id)
-                .filter_map(|edge| map.nodes.get(&edge.from))
-                .map(|node| {
-                    format!(
-                        "{} kind={} status={} title={}",
-                        node.id,
-                        node.kind.as_str(),
-                        node.status.as_str(),
-                        single_line_preview(&node.title, 100)
-                    )
-                })
-                .collect::<Vec<_>>()
+    let map_edges = map
+        .edges
+        .iter()
+        .map(|edge| ProjectionEdge {
+            from: edge.from.clone(),
+            to: edge.to.clone(),
         })
-        .unwrap_or_default();
+        .collect::<Vec<_>>();
     let (recent_tool_feedback, projected_event_ids) =
-        projection_recent_tool_feedback(map, current_node_id, 6, 1200);
+        projection_recent_event_refs(map, current_node_id.as_deref(), 6);
     let result_refs_available = projection_result_refs_available(map, 8, &projected_event_ids);
 
     let rendered = render_active_projection(ActiveProjectionInput {
@@ -5405,9 +5380,9 @@ fn append_context_projection_active(
         map_id: map.id.clone(),
         map_status: map.status.as_str().to_string(),
         source_event_ids: task.source_event_ids.clone(),
-        current_node,
+        current_node_id,
         map_nodes: node_skeleton,
-        current_node_dependencies,
+        map_edges,
         current_node_recent_events: recent_tool_feedback,
         result_refs_available,
         mechanically_blank: taskspace_task_path_is_mechanical_blank(task, map),
@@ -5462,12 +5437,11 @@ fn projection_evidence_node_ids<'a>(
     node_ids
 }
 
-fn projection_recent_tool_feedback(
+fn projection_recent_event_refs(
     map: &ActionMapInstance,
     current_node_id: Option<&str>,
     max_results: usize,
-    max_excerpt_chars: usize,
-) -> (Vec<String>, HashSet<String>) {
+) -> (Vec<ProjectionEventRef>, HashSet<String>) {
     let node_ids = projection_evidence_node_ids(map, current_node_id);
     if node_ids.is_empty() {
         return (Vec::new(), HashSet::new());
@@ -5491,48 +5465,7 @@ fn projection_recent_tool_feedback(
         .iter()
         .map(|event| event.id.clone())
         .collect::<HashSet<_>>();
-    let entries = selected
-        .into_iter()
-        .map(|event| {
-            let mut artifacts = node_event_visible_artifact_refs(event);
-            for artifact in node_event_input_data_artifact_refs(event) {
-                push_unique_artifact_ref(&mut artifacts, artifact);
-            }
-            let mut metadata = format!(
-                "{} node={} event_kind={} source={}",
-                event.id, event.node_id, event.event_kind, event.source
-            );
-            if let Some(tool_success) = event.tool_success {
-                metadata.push_str(&format!(" tool_success={tool_success}"));
-            }
-            if let Some(raw_ref) = event.raw_ref.as_deref() {
-                metadata.push_str(&format!(" raw_ref={raw_ref}"));
-            }
-            if !artifacts.is_empty() {
-                metadata.push_str(&format!(" artifacts={}", artifacts.join(",")));
-            }
-            if let Some(command) = node_event_body_command(event) {
-                metadata.push_str(&format!(" command={}", single_line_preview(&command, 180)));
-            }
-            let body_chars = event.body.chars().count();
-            let excerpt = if event.visible_excerpt.chars().count() <= max_excerpt_chars {
-                event.visible_excerpt.clone()
-            } else if diagnostic_output_is_tail_sensitive(&event.body) {
-                bounded_head_tail_excerpt(&event.visible_excerpt, max_excerpt_chars)
-            } else {
-                bounded_line_preserving_excerpt(&event.visible_excerpt, max_excerpt_chars)
-            };
-            let excerpt_chars = excerpt.chars().count();
-            let excerpt_truncated = body_chars > excerpt_chars;
-            let omitted_chars = body_chars.saturating_sub(excerpt_chars);
-            if excerpt_truncated {
-                metadata.push_str(&format!(
-                    " excerpt_truncated=true body_omitted_chars={omitted_chars}"
-                ));
-            }
-            format!("{metadata}\nexcerpt:\n{excerpt}")
-        })
-        .collect();
+    let entries = selected.into_iter().map(projection_event_ref).collect();
     (entries, event_ids)
 }
 
@@ -5540,7 +5473,7 @@ fn projection_result_refs_available(
     map: &ActionMapInstance,
     max_results: usize,
     excluded_event_ids: &HashSet<String>,
-) -> Vec<String> {
+) -> Vec<ProjectionEventRef> {
     let event_ids = ordered_node_event_ids(map);
     let start = event_ids.len().saturating_sub(max_results);
     event_ids
@@ -5548,27 +5481,23 @@ fn projection_result_refs_available(
         .skip(start)
         .filter_map(|event_id| map.node_events.get(&event_id))
         .filter(|event| !excluded_event_ids.contains(&event.id))
-        .map(|event| {
-            let mut artifacts = node_event_visible_artifact_refs(event);
-            for artifact in node_event_input_data_artifact_refs(event) {
-                push_unique_artifact_ref(&mut artifacts, artifact);
-            }
-            let mut metadata = format!(
-                "{} node={} event_kind={} source={}",
-                event.id, event.node_id, event.event_kind, event.source
-            );
-            if let Some(tool_success) = event.tool_success {
-                metadata.push_str(&format!(" tool_success={tool_success}"));
-            }
-            if let Some(raw_ref) = event.raw_ref.as_deref() {
-                metadata.push_str(&format!(" raw_ref={raw_ref}"));
-            }
-            if !artifacts.is_empty() {
-                metadata.push_str(&format!(" artifacts={}", artifacts.join(",")));
-            }
-            metadata
-        })
+        .map(projection_event_ref)
         .collect()
+}
+
+fn projection_event_ref(event: &NodeEvent) -> ProjectionEventRef {
+    ProjectionEventRef {
+        id: event.id.clone(),
+        node_id: event.node_id.clone(),
+        event_kind: event.event_kind.clone(),
+        source: event.source.clone(),
+        action_class: event
+            .action_class
+            .map(|action_class| action_class.as_str().to_string()),
+        tool_success: event.tool_success,
+        raw_ref: event.raw_ref.clone(),
+        artifact_refs: event.artifact_refs.clone(),
+    }
 }
 
 fn bounded_line_preserving_excerpt(text: &str, max_chars: usize) -> String {
@@ -6605,10 +6534,6 @@ fn tool_action_descriptor_artifact_refs(descriptor: &ToolActionDescriptor) -> Ve
     }
 }
 
-fn node_event_body_command(event: &NodeEvent) -> Option<String> {
-    result_body_command_from_body(&event.body)
-}
-
 fn result_body_command_from_body(body: &str) -> Option<String> {
     body.lines()
         .find_map(|line| line.strip_prefix("command: ").map(str::trim))
@@ -6837,55 +6762,6 @@ fn successful_edit_artifact_set(map: &ActionMapInstance, node: &MapNode) -> Hash
     artifacts
 }
 
-fn node_event_visible_artifact_refs(event: &NodeEvent) -> Vec<String> {
-    let mut artifacts = event
-        .artifact_refs
-        .iter()
-        .map(|artifact| normalize_artifact_ref(artifact))
-        .filter(|artifact| !artifact.is_empty())
-        .collect::<Vec<_>>();
-    for artifact_ref in result_body_section_artifact_refs(&event.body) {
-        push_unique_artifact_ref(&mut artifacts, artifact_ref);
-    }
-    for artifact_ref in result_body_taskspace_marker_artifact_refs(&event.body) {
-        push_unique_artifact_ref(&mut artifacts, artifact_ref);
-    }
-    for artifact_ref in result_body_inline_artifact_refs(&event.body) {
-        push_unique_artifact_ref(&mut artifacts, artifact_ref);
-    }
-    artifacts
-}
-
-fn result_body_inline_artifact_refs(body: &str) -> Vec<String> {
-    let mut artifacts = Vec::new();
-    for segment in body.split("artifacts=").skip(1) {
-        let value = segment.split([':', '|', ';']).next().unwrap_or("").trim();
-        for raw_artifact in value.split(',') {
-            let artifact_ref = normalize_artifact_ref(raw_artifact.trim());
-            if !artifact_ref.is_empty()
-                && !artifacts.iter().any(|existing| existing == &artifact_ref)
-            {
-                artifacts.push(artifact_ref);
-            }
-        }
-    }
-    artifacts
-}
-
-fn result_body_section_artifact_refs(body: &str) -> Vec<String> {
-    let mut artifacts = Vec::new();
-    for line in body.lines().map(str::trim) {
-        let Some(raw_path) = line.strip_prefix("=====") else {
-            continue;
-        };
-        let artifact_ref = normalize_artifact_ref(raw_path.trim());
-        if !artifact_ref.is_empty() && !artifacts.iter().any(|existing| existing == &artifact_ref) {
-            artifacts.push(artifact_ref);
-        }
-    }
-    artifacts
-}
-
 fn result_body_taskspace_marker_artifact_refs(body: &str) -> Vec<String> {
     let mut artifacts = Vec::new();
     for line in result_body_raw_output_section(body).lines().map(str::trim) {
@@ -6930,70 +6806,6 @@ fn taskspace_marker_field(line: &str, field: &str) -> Option<String> {
 
 fn artifact_key(path: &str) -> String {
     normalize_artifact_ref(path).to_ascii_lowercase()
-}
-
-fn node_event_input_data_artifact_refs(event: &NodeEvent) -> Vec<String> {
-    let mut artifacts = node_event_visible_artifact_refs(event)
-        .into_iter()
-        .filter(|artifact| is_input_data_artifact_ref(artifact))
-        .collect::<Vec<_>>();
-    if let Some(command) = node_event_body_command(event) {
-        for artifact in command_input_data_artifact_refs(&command) {
-            if !artifacts.iter().any(|existing| existing == &artifact) {
-                artifacts.push(artifact);
-            }
-        }
-    }
-    artifacts
-}
-
-fn command_input_data_artifact_refs(command: &str) -> Vec<String> {
-    let mut artifacts = Vec::new();
-    for token in command.split_whitespace() {
-        let candidate = normalize_artifact_ref(token.trim_matches(|ch: char| {
-            ch == '\'' || ch == '"' || ch == '`' || ch == ',' || ch == ';'
-        }));
-        if candidate.is_empty()
-            || candidate.starts_with('-')
-            || candidate.contains('*')
-            || candidate.contains('?')
-            || !is_input_data_artifact_ref(&candidate)
-        {
-            continue;
-        }
-        if !artifacts.iter().any(|existing| existing == &candidate) {
-            artifacts.push(candidate);
-        }
-    }
-    artifacts
-}
-
-fn is_input_data_artifact_ref(artifact_ref: &str) -> bool {
-    let normalized = artifact_ref.replace('\\', "/").to_ascii_lowercase();
-    if normalized == "readme.md"
-        || normalized.starts_with("docs/")
-        || normalized.starts_with("tests/")
-        || normalized.contains("/tests/")
-    {
-        return false;
-    }
-    matches!(
-        normalized.rsplit_once('.').map(|(_, ext)| ext),
-        Some(
-            "log"
-                | "jsonl"
-                | "json"
-                | "csv"
-                | "tsv"
-                | "yaml"
-                | "yml"
-                | "txt"
-                | "parquet"
-                | "db"
-                | "sqlite"
-                | "sqlite3",
-        )
-    )
 }
 
 const TASKSPACE_COMPLETE_READ_INLINE_MAX_CHARS: usize = 6000;

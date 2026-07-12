@@ -69,6 +69,50 @@ async fn subagent_fork_linearizes_context_without_parent_runtime() {
 }
 
 #[tokio::test]
+async fn taskspace_compaction_keeps_raw_events_behind_verified_checkpoint() {
+    let session_configuration = make_session_configuration_for_tests().await;
+    let mut state = SessionState::new(session_configuration);
+    let original = user_message("raw task body");
+    state
+        .history
+        .record_items(std::iter::once(&original), TruncationPolicy::Tokens(10_000));
+    let owner = codex_protocol::ThreadId::new();
+    state
+        .action_map_runtime
+        .set_mode_for_session(MapRuntimeMode::Experiment, owner);
+    state.activate_taskspace_context();
+    let summary = ResponseItem::Message {
+        id: None,
+        role: "assistant".to_string(),
+        content: vec![ContentItem::OutputText {
+            text: "checkpoint summary".to_string(),
+        }],
+        end_turn: None,
+        phase: None,
+    };
+
+    let checkpoint_events = state.replace_compacted_history(vec![summary.clone()], None);
+
+    assert_eq!(checkpoint_events.len(), 1);
+    assert_eq!(state.taskspace_events.events().len(), 2);
+    let visible = state.clone_history().raw_items().to_vec();
+    assert_eq!(visible.len(), 2);
+    assert!(
+        serde_json::to_string(&visible[0])
+            .unwrap()
+            .contains("TaskSpaceCompactionCheckpointV1")
+    );
+    assert_eq!(visible[1], summary);
+    assert!(
+        !serde_json::to_string(&visible)
+            .unwrap()
+            .contains("raw task body")
+    );
+    TaskSpaceEventStore::restore(state.taskspace_events.events().to_vec())
+        .expect("raw event archive and checkpoint must restore");
+}
+
+#[tokio::test]
 // Verifies connector merging deduplicates repeated IDs.
 async fn merge_connector_selection_deduplicates_entries() {
     let session_configuration = make_session_configuration_for_tests().await;
