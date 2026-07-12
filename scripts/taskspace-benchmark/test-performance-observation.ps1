@@ -44,6 +44,13 @@ function New-SideFixture {
             tool_choice_transition_count = $(if ($isTaskspace) { 1 } else { 0 })
             cache_shape_transition_count = $(if ($isTaskspace) { 1 } else { 0 })
         }) (Join-Path $artifactDir "provider-cache-trace-summary.json")
+    Write-JsonLines @(
+        [pscustomobject]@{ event_name = "provider.chat_wire_shape_recorded"; request_index = 1; message_shapes = @(
+                [pscustomobject]@{ content_sha256 = "same"; bytes = 11 },
+                [pscustomobject]@{ content_sha256 = "same"; bytes = 13 },
+                [pscustomobject]@{ content_sha256 = "unique"; bytes = 17 }
+            ) }
+    ) (Join-Path $artifactDir "provider-wire-trace.jsonl")
     if ($isTaskspace) {
         $nodes = @(
             [pscustomobject]@{ id = "node-1"; title = "Inspect"; kind = "inspect_code_context"; status = "completed"; results = @([pscustomobject]@{ id = "result-1" }) },
@@ -73,7 +80,8 @@ function New-SideFixture {
                     type = "function_call"; name = "taskspace_control"
                     arguments = (@{ action = "initialize_then_actions"; actions = @(@{ tool_name = "exec_command"; arguments = @{ cmd = "pwd" } }) } | ConvertTo-Json -Compress -Depth 10)
                 } },
-            [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "function_call_output" } },
+            [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "function_call_output"; call_id = "gate-1"; output = "same gate" } },
+            [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "function_call_output"; call_id = "gate-2"; output = "same gate" } },
             [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{
                     type = "function_call"; name = "taskspace_control"
                     arguments = (@{ action = "finish_nodes"; finishes = @(@{ node_id = "node-1" }) } | ConvertTo-Json -Compress -Depth 10)
@@ -159,11 +167,14 @@ Assert-True ($report.ratios.provider_requests -eq 1.8) "request ratio is incorre
 Assert-True (@($report.rows | Where-Object { $_.observation_status -eq "skipped" }).Count -eq 1) "right-only placeholder side was not classified as skipped"
 Assert-True ($standard.observed_side_count -eq 3 -and $standard.excluded_side_count -eq 1) "skipped side contaminated the aggregate"
 Assert-True (@($report.rows | Where-Object { $_.logical_mode -eq "taskspace" -and $_.map.nodes.Count -eq 3 }).Count -eq 2) "map node details are missing"
+Assert-True (@($report.rows | Where-Object { $_.logical_mode -eq "taskspace" -and $_.duplication.rollout.duplicate_output_bodies -eq 1 }).Count -eq 2) "exact duplicate output bodies were not measured"
+Assert-True (@($report.rows | Where-Object { $_.logical_mode -eq "taskspace" -and $_.duplication.provider_wire.final_content_duplicates -eq 1 }).Count -eq 2) "wire content duplicates were not measured"
 Assert-True (Test-Path -LiteralPath $result.markdown_path) "markdown report was not written"
 Assert-True (Test-Path -LiteralPath $result.event_log_path) "event log was not written"
 $markdown = Get-Content -Raw -Encoding UTF8 -LiteralPath $result.markdown_path
 Assert-True ($markdown -match "## Map 节点") "markdown omitted map node details"
 Assert-True ($markdown -match "## Map 语义保存") "markdown omitted map semantic preservation details"
+Assert-True ($markdown -match "## 精确重复载体") "markdown omitted exact carrier duplication details"
 Assert-True ($markdown -match "Finish without sibling") "markdown omitted finish barrier validation counts"
 Assert-True ($markdown -match "root_task_active_after_nodes_closed") "mechanical map warning was not rendered"
 

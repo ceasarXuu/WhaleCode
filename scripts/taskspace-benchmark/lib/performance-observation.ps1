@@ -1,5 +1,6 @@
 Set-StrictMode -Version Latest
 . (Join-Path $PSScriptRoot "native-cadence.ps1")
+. (Join-Path $PSScriptRoot "performance-duplication.ps1")
 function Get-PerformanceProperty {
     param($Object, [Parameter(Mandatory = $true)][string]$Name, $Default = $null)
     if ($null -ne $Object) {
@@ -48,7 +49,6 @@ function Get-PerformanceWireRequestCount {
     }
     [pscustomobject]@{ value = $null; source = "unavailable" }
 }
-
 function Get-PerformanceActionCounts {
     param([string]$ArtifactDir, [System.Collections.Generic.List[object]]$Events)
     $shell = 0; $patch = 0; $control = 0; $other = 0
@@ -126,7 +126,6 @@ function Get-PerformanceActionCounts {
         provider_outer_tool_calls = $null; nested_action_count = $null; source = "unavailable"
     }
 }
-
 function Get-PerformanceMapFacts {
     param([string]$ArtifactDir, $Metrics, [System.Collections.Generic.List[string]]$Warnings)
     $graph = Read-PerformanceJson (Join-Path $ArtifactDir "graph-health.json")
@@ -187,7 +186,6 @@ function Get-PerformanceMapFacts {
         edges = $edges
     }
 }
-
 function Get-PerformanceSideObservation {
     param([string]$MetricPath, [string]$ObservationRoot, [System.Collections.Generic.List[object]]$Events)
     $artifactDir = Split-Path -Parent $MetricPath
@@ -216,6 +214,7 @@ function Get-PerformanceSideObservation {
         if ([string](Get-PerformanceProperty $metrics "external_validation_status") -eq "failed") { $warnings.Add("external_validation_failed") }
     }
     $map = Get-PerformanceMapFacts $artifactDir $metrics $warnings
+    $duplication = Get-PerformanceDuplicationFacts $artifactDir $Events
     $input = Get-PerformanceNumber (Get-PerformanceProperty $metrics "input_tokens")
     $cached = Get-PerformanceNumber (Get-PerformanceProperty $metrics "cached_input_tokens")
     $agentStatus = [string](Get-PerformanceProperty $metrics "agent_completion_status")
@@ -283,6 +282,7 @@ function Get-PerformanceSideObservation {
             trace_coverage = Get-PerformanceNumber (Get-PerformanceProperty $cache "trace_coverage")
         }
         map = $map
+        duplication = $duplication
         warnings = @($warnings.ToArray())
     }
 }
@@ -432,6 +432,7 @@ function Write-TaskspacePerformanceObservation {
             $lines.Add("| $(Format-PerformanceValue $row.repeat) | $($row.logical_mode) | $(Format-PerformanceValue $row.cost.input_tokens) | $(Format-PerformanceValue $row.cost.cached_input_tokens) | $(Format-PerformanceValue $row.cost.uncached_input_tokens) | $(Format-PerformanceValue $row.cost.output_tokens) | $(Format-PerformanceValue $row.cost.full_cache_hit_rate percent) | $(Format-PerformanceValue $row.cache.request_2_plus_hit_rate percent) | $prefix | $(Format-PerformanceValue $row.cache.zero_cache_hit_count) | $(Format-PerformanceValue $row.cache.cache_warmup_candidate_count) | $(Format-PerformanceValue $row.cache.same_shape_zero_hit_count) | $(Format-PerformanceValue $row.cache.tool_choice_transition_count) | $(Format-PerformanceValue $row.cache.cache_shape_transition_count) | $(Format-PerformanceValue $row.cache.trace_coverage percent) |")
         }
     }
+    Add-PerformanceDuplicationMarkdown $lines $rows
     $lines.Add("")
     $lines.Add("## Map")
     $lines.Add("")
