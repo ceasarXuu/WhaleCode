@@ -1,4 +1,5 @@
 use super::*;
+use crate::action_map::TaskSpaceEventStore;
 use crate::context_manager::is_user_turn_boundary;
 
 // Return value of `Session::reconstruct_history_from_rollout`, bundling the rebuilt history with
@@ -6,6 +7,7 @@ use crate::context_manager::is_user_turn_boundary;
 #[derive(Debug)]
 pub(super) struct RolloutReconstruction {
     pub(super) history: Vec<ResponseItem>,
+    pub(super) taskspace_events: Vec<TaskSpaceEvent>,
     pub(super) previous_turn_settings: Option<PreviousTurnSettings>,
     pub(super) reference_context_item: Option<TurnContextItem>,
     pub(super) map_runtime_mode: MapRuntimeMode,
@@ -35,6 +37,8 @@ struct ActiveReplaySegment<'a> {
     previous_turn_settings: Option<PreviousTurnSettings>,
     reference_context_item: TurnReferenceContextItem,
     base_replacement_history: Option<&'a [ResponseItem]>,
+    replacement_history_suffix_start: Option<usize>,
+    map_runtime_snapshot: Option<ActionMapSnapshot>,
 }
 
 fn turn_ids_are_compatible(active_turn_id: Option<&str>, item_turn_id: Option<&str>) -> bool {
@@ -45,8 +49,10 @@ fn turn_ids_are_compatible(active_turn_id: Option<&str>, item_turn_id: Option<&s
 fn finalize_active_segment<'a>(
     active_segment: ActiveReplaySegment<'a>,
     base_replacement_history: &mut Option<&'a [ResponseItem]>,
+    rollout_suffix_start: &mut usize,
     previous_turn_settings: &mut Option<PreviousTurnSettings>,
     reference_context_item: &mut TurnReferenceContextItem,
+    map_runtime_snapshot: &mut Option<ActionMapSnapshot>,
     pending_rollback_turns: &mut usize,
 ) {
     // Thread rollback drops the newest surviving real user-message boundaries. In replay, that
@@ -65,6 +71,9 @@ fn finalize_active_segment<'a>(
         && let Some(segment_base_replacement_history) = active_segment.base_replacement_history
     {
         *base_replacement_history = Some(segment_base_replacement_history);
+        *rollout_suffix_start = active_segment
+            .replacement_history_suffix_start
+            .expect("replacement history suffix must be recorded with its checkpoint");
     }
 
     // `previous_turn_settings` come from the newest surviving user turn that established them.
@@ -82,6 +91,10 @@ fn finalize_active_segment<'a>(
             ))
     {
         *reference_context_item = active_segment.reference_context_item;
+    }
+
+    if map_runtime_snapshot.is_none() {
+        *map_runtime_snapshot = active_segment.map_runtime_snapshot;
     }
 }
 
@@ -112,15 +125,16 @@ impl Session {
                 _ => None,
             })
             .unwrap_or_default();
-        let map_runtime_snapshot = rollout_items.iter().rev().find_map(|item| match item {
-            RolloutItem::EventMsg(EventMsg::MapRuntime(MapRuntimeEvent::SnapshotUpdated(
-                event,
-            ))) => Some(event.snapshot.clone()),
-            _ => None,
+        let has_map_runtime_snapshot = rollout_items.iter().any(|item| match item {
+            RolloutItem::EventMsg(EventMsg::MapRuntime(MapRuntimeEvent::SnapshotUpdated(_))) => {
+                true
+            }
+            _ => false,
         });
+        let mut map_runtime_snapshot = None;
         // Borrowed suffix of rollout items newer than the newest surviving replacement-history
         // checkpoint. If no such checkpoint exists, this remains the full rollout.
-        let mut rollout_suffix = rollout_items;
+        let mut rollout_suffix_start = 0usize;
         // Reverse replay accumulates rollout items into the newest in-progress turn segment until
         // we hit its matching `TurnStarted`, at which point the segment can be finalized.
         let mut active_segment: Option<ActiveReplaySegment<'_>> = None;
@@ -142,12 +156,21 @@ impl Session {
                         && let Some(replacement_history) = &compacted.replacement_history
                     {
                         active_segment.base_replacement_history = Some(replacement_history);
-                        rollout_suffix = &rollout_items[index + 1..];
+                        active_segment.replacement_history_suffix_start = Some(index + 1);
                     }
                 }
                 RolloutItem::EventMsg(EventMsg::ThreadRolledBack(rollback)) => {
                     pending_rollback_turns = pending_rollback_turns
                         .saturating_add(usize::try_from(rollback.num_turns).unwrap_or(usize::MAX));
+                }
+                RolloutItem::EventMsg(EventMsg::MapRuntime(MapRuntimeEvent::SnapshotUpdated(
+                    event,
+                ))) => {
+                    let active_segment =
+                        active_segment.get_or_insert_with(ActiveReplaySegment::default);
+                    if active_segment.map_runtime_snapshot.is_none() {
+                        active_segment.map_runtime_snapshot = Some(event.snapshot.clone());
+                    }
                 }
                 RolloutItem::EventMsg(EventMsg::TurnComplete(event)) => {
                     let active_segment =
@@ -214,8 +237,10 @@ impl Session {
                         finalize_active_segment(
                             active_segment,
                             &mut base_replacement_history,
+                            &mut rollout_suffix_start,
                             &mut previous_turn_settings,
                             &mut reference_context_item,
+                            &mut map_runtime_snapshot,
                             &mut pending_rollback_turns,
                         );
                     }
@@ -231,6 +256,7 @@ impl Session {
             if base_replacement_history.is_some()
                 && previous_turn_settings.is_some()
                 && !matches!(reference_context_item, TurnReferenceContextItem::NeverSet)
+                && (map_runtime_snapshot.is_some() || !has_map_runtime_snapshot)
             {
                 // At this point we have both eager resume metadata values and the replacement-
                 // history base for the surviving tail, so older rollout items cannot affect this
@@ -243,13 +269,17 @@ impl Session {
             finalize_active_segment(
                 active_segment,
                 &mut base_replacement_history,
+                &mut rollout_suffix_start,
                 &mut previous_turn_settings,
                 &mut reference_context_item,
+                &mut map_runtime_snapshot,
                 &mut pending_rollback_turns,
             );
         }
 
         let mut history = ContextManager::new();
+        let mut taskspace_events = Vec::new();
+        let mut taskspace_context_active = false;
         let mut saw_legacy_compaction_without_replacement_history = false;
         if let Some(base_replacement_history) = base_replacement_history {
             history.replace(base_replacement_history.to_vec());
@@ -257,13 +287,15 @@ impl Session {
         // Materialize exact history semantics from the replay-derived suffix. The eventual lazy
         // design should keep this same replay shape, but drive it from a resumable reverse source
         // instead of an eagerly loaded `&[RolloutItem]`.
-        for item in rollout_suffix {
+        for item in &rollout_items[rollout_suffix_start..] {
             match item {
                 RolloutItem::ResponseItem(response_item) => {
-                    history.record_items(
-                        std::iter::once(response_item),
-                        turn_context.truncation_policy,
-                    );
+                    if !taskspace_context_active {
+                        history.record_items(
+                            std::iter::once(response_item),
+                            turn_context.truncation_policy,
+                        );
+                    }
                 }
                 RolloutItem::Compacted(compacted) => {
                     if let Some(replacement_history) = &compacted.replacement_history {
@@ -290,7 +322,47 @@ impl Session {
                     }
                 }
                 RolloutItem::EventMsg(EventMsg::ThreadRolledBack(rollback)) => {
-                    history.drop_last_n_user_turns(rollback.num_turns);
+                    if taskspace_context_active {
+                        let mut store = TaskSpaceEventStore::restore(taskspace_events)
+                            .expect("persisted TaskSpace events must be valid");
+                        store.drop_last_n_user_turns(rollback.num_turns);
+                        taskspace_events = store.events().to_vec();
+                    } else {
+                        history.drop_last_n_user_turns(rollback.num_turns);
+                    }
+                }
+                RolloutItem::EventMsg(EventMsg::MapRuntime(
+                    MapRuntimeEvent::TaskContextOwnershipChanged(event),
+                )) => {
+                    if event.active {
+                        taskspace_events = event
+                            .events
+                            .iter()
+                            .cloned()
+                            .map(TaskSpaceEvent::from_protocol)
+                            .collect::<Result<Vec<_>, _>>()
+                            .expect("TaskSpace ownership checkpoint must be valid");
+                        TaskSpaceEventStore::restore(taskspace_events.clone())
+                            .expect("TaskSpace ownership checkpoint sequence must be valid");
+                        history.replace(Vec::new());
+                        taskspace_context_active = true;
+                    } else {
+                        let mut store = TaskSpaceEventStore::restore(taskspace_events)
+                            .expect("TaskSpace ownership release must be valid");
+                        history.replace(store.take_linearized());
+                        taskspace_events = Vec::new();
+                        taskspace_context_active = false;
+                    }
+                }
+                RolloutItem::EventMsg(EventMsg::MapRuntime(
+                    MapRuntimeEvent::TaskContextEventRecorded(event),
+                )) if taskspace_context_active => {
+                    taskspace_events.push(
+                        TaskSpaceEvent::from_protocol(event.clone())
+                            .expect("persisted TaskSpace event must be valid"),
+                    );
+                    TaskSpaceEventStore::restore(taskspace_events.clone())
+                        .expect("persisted TaskSpace event sequence must be valid");
                 }
                 RolloutItem::EventMsg(_)
                 | RolloutItem::TurnContext(_)
@@ -312,6 +384,7 @@ impl Session {
 
         RolloutReconstruction {
             history: history.raw_items().to_vec(),
+            taskspace_events,
             previous_turn_settings,
             reference_context_item,
             map_runtime_mode,

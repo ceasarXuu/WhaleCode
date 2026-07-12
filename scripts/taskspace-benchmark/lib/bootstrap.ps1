@@ -10,6 +10,7 @@ param(
 . (Join-Path $BenchmarkRoot "lib\routing-report.ps1")
 . (Join-Path $BenchmarkRoot "lib\prompt-guard.ps1")
 . (Join-Path $BenchmarkRoot "lib\workspace.ps1")
+. (Join-Path $BenchmarkRoot "lib\canonical-rollout.ps1")
 . (Join-Path $BenchmarkRoot "lib\graph-health.ps1")
 . (Join-Path $BenchmarkRoot "lib\harness-health.ps1")
 . (Join-Path $BenchmarkRoot "lib\metrics-extractor.ps1")

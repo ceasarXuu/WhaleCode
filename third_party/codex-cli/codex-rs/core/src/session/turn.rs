@@ -1254,9 +1254,9 @@ async fn run_sampling_request(
                 .await
                 .for_prompt(&turn_context.model_info.input_modalities)
         };
-        let taskspace_context_visible = prompt_source.iter().any(is_taskspace_active_context_item);
+        let taskspace_context_visible = sess.taskspace_mode_active().await;
         let prompt_input = prepare_provider_visible_prompt_items(prompt_source);
-        let tool_visibility = if taskspace_context_visible || provider_budget_snapshot.is_some() {
+        let tool_visibility = if taskspace_context_visible {
             TaskspaceProviderToolVisibility::TaskspaceNative
         } else {
             TaskspaceProviderToolVisibility::Standard

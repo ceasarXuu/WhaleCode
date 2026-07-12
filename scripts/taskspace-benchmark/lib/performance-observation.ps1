@@ -59,8 +59,8 @@ function Get-PerformanceActionCounts {
             if ([string]::IsNullOrWhiteSpace($line)) { continue }
             try {
                 $row = $line | ConvertFrom-Json
-                if ([string](Get-PerformanceProperty $row "type") -ne "response_item") { continue }
-                $payload = Get-PerformanceProperty $row "payload"
+                $payload = Get-TaskspaceCanonicalResponseItem $row
+                if ($null -eq $payload) { continue }
                 if ([string](Get-PerformanceProperty $payload "type") -notin @("function_call", "custom_tool_call")) { continue }
                 $providerOuterCalls++
                 $name = [string](Get-PerformanceProperty $payload "name")

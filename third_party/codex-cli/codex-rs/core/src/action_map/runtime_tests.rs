@@ -50,6 +50,50 @@ fn agent_initializes_explicit_graph_and_current_binding() {
 }
 
 #[test]
+fn fork_rebinds_runtime_owner_and_main_lease() {
+    let (mut state, original_owner, outcome) =
+        initialized_state(vec![inspect_node("inspect")], "inspect");
+    let fork_owner = ThreadId::new();
+
+    let released_child_leases = state.rebind_after_fork(fork_owner);
+
+    assert_eq!(released_child_leases, 0);
+    let snapshot = state.snapshot();
+    assert_ne!(fork_owner, original_owner);
+    assert_eq!(snapshot.tasks[0].owner_session_id, Some(fork_owner));
+    let map = snapshot
+        .maps
+        .iter()
+        .find(|map| map.id == outcome.map_id)
+        .expect("forked map");
+    assert_eq!(map.owner_session_id, Some(fork_owner));
+    assert_eq!(map.leases.len(), 1);
+    assert_eq!(map.leases[0].holder, "main");
+    assert_eq!(map.leases[0].agent_thread_id, Some(fork_owner));
+}
+
+#[test]
+fn snapshot_restore_preserves_maintenance_barrier() {
+    let (state, _, outcome) = initialized_state(vec![inspect_node("inspect")], "inspect");
+    let mut snapshot = state.snapshot();
+    snapshot.maintenance_barriers.push(
+        codex_protocol::protocol::ActionMapSnapshotMaintenanceBarrier {
+            map_id: outcome.map_id,
+            node_id: outcome.current_node_id,
+            reason: "node_tool_result_budget_exceeded".to_string(),
+            result_count: 8,
+            budget: 7,
+        },
+    );
+    let expected = snapshot.maintenance_barriers.clone();
+    let mut restored = ActionMapRuntimeState::default();
+
+    restored.restore_snapshot(snapshot);
+
+    assert_eq!(restored.snapshot().maintenance_barriers, expected);
+}
+
+#[test]
 fn mechanical_blank_map_blocks_ordinary_tools() {
     let mut state = ActionMapRuntimeState::default();
     let owner = ThreadId::new();

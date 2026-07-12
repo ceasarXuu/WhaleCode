@@ -636,6 +636,13 @@ impl MaintenanceBarrierReason {
             }
         }
     }
+
+    fn from_str(value: &str) -> Option<Self> {
+        match value {
+            "node_tool_result_budget_exceeded" => Some(Self::NodeToolResultBudgetExceeded),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -711,6 +718,14 @@ impl ActionMapRuntimeState {
     pub(crate) const DEFAULT_ACTIVE_SPAWN_AGENT_BUDGET_MAX: usize = 2;
     #[allow(dead_code)]
     pub(crate) const DEFAULT_ACTIVE_NODE_BUDGET_MAX: usize = 8;
+
+    pub(crate) fn mode(&self) -> MapRuntimeMode {
+        self.mode
+    }
+
+    pub(crate) fn context_owner_node_id(&self) -> Option<&str> {
+        self.current_main_node_id.as_deref()
+    }
 
     fn ensure_default_active_budget(&mut self) {
         if self.active_budget.is_none() {
@@ -1108,11 +1123,10 @@ impl ActionMapRuntimeState {
     }
 
     pub(crate) fn restore_mode(&mut self, mode: MapRuntimeMode) {
+        *self = Self::default();
         self.mode = mode;
-        self.pending_transition_notice = None;
-        self.routing_required = mode == MapRuntimeMode::Experiment && self.active_task_id.is_none();
-        self.bootstrap_required = mode == MapRuntimeMode::Experiment && self.tasks.is_empty();
-        self.reborn_requested = false;
+        self.routing_required = mode == MapRuntimeMode::Experiment;
+        self.bootstrap_required = mode == MapRuntimeMode::Experiment;
     }
 
     pub(crate) fn begin_user_turn(&mut self) -> bool {
@@ -1151,6 +1165,7 @@ impl ActionMapRuntimeState {
     }
 
     pub(crate) fn restore_snapshot(&mut self, snapshot: ActionMapSnapshot) {
+        let maintenance_barriers = snapshot.maintenance_barriers.clone();
         self.mode = snapshot.mode;
         self.pending_transition_notice = None;
         self.routing_required = snapshot.routing_required;
@@ -1377,7 +1392,22 @@ impl ActionMapRuntimeState {
             })
             .collect();
 
-        self.maintenance_barriers.clear();
+        self.maintenance_barriers = maintenance_barriers
+            .into_iter()
+            .filter_map(|barrier| {
+                let reason = MaintenanceBarrierReason::from_str(&barrier.reason)?;
+                Some((
+                    barrier.map_id.clone(),
+                    ActionMapMaintenanceBarrier {
+                        map_id: barrier.map_id,
+                        node_id: barrier.node_id,
+                        reason,
+                        result_count: barrier.result_count,
+                        budget: barrier.budget,
+                    },
+                ))
+            })
+            .collect();
 
         if self.mode == MapRuntimeMode::Experiment && !self.restored_active_binding_is_coherent() {
             self.active_task_id = None;
@@ -1442,6 +1472,48 @@ impl ActionMapRuntimeState {
                 self.reconstruct_budget_state_from_trace_events();
             }
         }
+    }
+
+    pub(crate) fn rebind_after_fork(&mut self, owner_session_id: ThreadId) -> usize {
+        for task in self.tasks.values_mut() {
+            task.owner_session_id = Some(owner_session_id);
+        }
+        for map in self.maps.values_mut() {
+            map.owner_session_id = Some(owner_session_id);
+        }
+
+        let stale_child_leases = self
+            .maps
+            .values()
+            .flat_map(|map| map.leases.values())
+            .filter(|lease| lease.holder == LeaseHolder::SubAgent)
+            .map(|lease| lease.id.clone())
+            .collect::<Vec<_>>();
+        for lease_id in &stale_child_leases {
+            self.release_lease(lease_id, "fork_owner_rebind");
+        }
+
+        for map in self.maps.values_mut() {
+            for lease in map.leases.values_mut() {
+                if lease.holder == LeaseHolder::Main {
+                    lease.agent_thread_id = Some(owner_session_id);
+                    lease.agent_path = None;
+                }
+            }
+        }
+        self.current_main_node_id = None;
+        self.current_main_lease_id = None;
+        if let Some(active_map_id) = self.active_map_id.as_ref()
+            && let Some(map) = self.maps.get(active_map_id)
+            && let Some(lease) = map
+                .leases
+                .values()
+                .find(|lease| lease.holder == LeaseHolder::Main)
+        {
+            self.current_main_node_id = Some(lease.node_id.clone());
+            self.current_main_lease_id = Some(lease.id.clone());
+        }
+        stale_child_leases.len()
     }
 
     fn restored_active_binding_is_coherent(&self) -> bool {

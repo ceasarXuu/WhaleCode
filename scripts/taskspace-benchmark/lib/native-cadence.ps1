@@ -1,4 +1,7 @@
 Set-StrictMode -Version Latest
+if (-not (Get-Command Get-TaskspaceCanonicalResponseItem -ErrorAction SilentlyContinue)) {
+    . (Join-Path $PSScriptRoot "canonical-rollout.ps1")
+}
 
 function Get-TaskspaceNativeCadenceFacts {
     param(
@@ -38,8 +41,8 @@ function Get-TaskspaceNativeCadenceFacts {
             }
             continue
         }
-        if ([string]$row.type -ne "response_item" -or $null -eq $row.payload) { continue }
-        $payload = $row.payload
+        $payload = Get-TaskspaceCanonicalResponseItem $row
+        if ($null -eq $payload) { continue }
         $payloadType = [string]$payload.type
         $isCall = $payloadType -in @("function_call", "custom_tool_call", "local_shell_call")
         if ($isCall) {

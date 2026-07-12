@@ -3,7 +3,7 @@
 - Created: 2026-07-12
 - Updated: 2026-07-12
 - Version: 1.0
-- Status: In progress / J6.7.0-J6.7.1 complete, J6.7.2 ready
+- Status: In progress / J6.7.0-J6.7.2 complete, J6.7.3 ready
 - Owner / Responsible: WhaleCode core runtime / TaskSpace context
 - Related Systems: `action_map`、`ConversationHistory`、session turn、provider prompt builder、
   `taskspace_control`、compaction、output refs、benchmark observer
@@ -288,6 +288,13 @@ observer self-test与两个现有Docker run读取通过。R4可执行快照不�
 - Review/Risk：production cutover专项审查；主要风险是role/order/tool pair断裂和global item误迁移。
 - Fallback：git revert整个cutover提交并丢弃测试会话；不保留运行时compat开关。
 - Next Gate：single owner与live provider同时通过后进入J6.7.3。
+
+**实施结果（2026-07-12）：** 已完成。结果见
+`25-r5-j6-7-phase2-canonical-cutover-result.md`。切换后的所有 provider-visible 动态
+`ResponseItem` 在 TaskSpace active 时只写 canonical Event Store，base history 不再保存平行正文；
+provider 按 sequence 机械线性化原生 item。退出、resume、rollback、root fork、subagent fork 和
+maintenance barrier 均按 typed lifecycle 修复。Docker 两组横向样本四侧全部 solved 且 Agent complete，
+canonical payload/call/output record 精确重复为 0。
 
 ### Phase J6.7.3：Map/control语义去重
 

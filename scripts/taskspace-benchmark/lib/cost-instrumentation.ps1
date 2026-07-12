@@ -1,3 +1,7 @@
+if (-not (Get-Command Get-TaskspaceCanonicalResponseItem -ErrorAction SilentlyContinue)) {
+    . (Join-Path $PSScriptRoot "canonical-rollout.ps1")
+}
+
 function Add-TaskspaceCostCount {
     param([hashtable]$Table, [string]$Key)
     if ([string]::IsNullOrWhiteSpace($Key)) { $Key = "unknown" }
@@ -371,8 +375,8 @@ function New-TaskspaceBudgetArtifacts {
     $summary = [pscustomobject]@{
         schema_version = "taskspace-budget-quality-impact-summary-v1"
         budget_event_count = [int]$budgetEvents.Count
-        active_budget_source = if ($activeBudgetEvents.Count -gt 0) { [string]$activeBudgetEvents[0].active_budget_source } else { [string](@($budgetEvents.ToArray() | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_.active_budget_source) } | Select-Object -First 1).active_budget_source) }
-        route_mode = if ($activeBudgetEvents.Count -gt 0) { [string]$activeBudgetEvents[0].route_mode } else { [string](@($budgetEvents.ToArray() | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_.route_mode) } | Select-Object -First 1).route_mode) }
+        active_budget_source = if ($activeBudgetEvents.Count -gt 0) { [string]$activeBudgetEvents[0].active_budget_source } elseif ($budgetEvents.Count -gt 0) { [string](Get-TaskspaceCostProperty $budgetEvents[0] @("active_budget_source")) } else { "" }
+        route_mode = if ($activeBudgetEvents.Count -gt 0) { [string]$activeBudgetEvents[0].route_mode } elseif ($budgetEvents.Count -gt 0) { [string](Get-TaskspaceCostProperty $budgetEvents[0] @("route_mode")) } else { "" }
         max_rollout_model_requests = if ($activeBudgetEvents.Count -gt 0) { [int]$activeBudgetEvents[0].max_rollout_model_requests } elseif ($budgetEvents.Count -gt 0) { [int](@($budgetEvents.ToArray() | Measure-Object -Property max_requests -Maximum).Maximum) } else { 0 }
         max_model_requests_per_node = if ($activeBudgetEvents.Count -gt 0) { [int]$activeBudgetEvents[0].max_model_requests_per_node } elseif ($budgetEvents.Count -gt 0) { [int](@($budgetEvents.ToArray() | Measure-Object -Property max_model_requests_per_node -Maximum).Maximum) } else { 0 }
         budget_quality_impact_event_count = [int]$qualityEvents.Count
@@ -1163,8 +1167,8 @@ function New-TaskspaceSpawnNodeBudgetSummary {
         subagent_review_source_status = [string]$reviewDebt.source_status
         source_status = $sourceStatus
         producer = "runtime"
-        active_budget_source = [string](@($runtimeEvents | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_.active_budget_source) } | Select-Object -First 1).active_budget_source)
-        route_mode = [string](@($runtimeEvents | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_.route_mode) } | Select-Object -First 1).route_mode)
+        active_budget_source = if ($runtimeEvents.Count -gt 0) { [string](Get-TaskspaceCostProperty $runtimeEvents[0] @("active_budget_source")) } else { "" }
+        route_mode = if ($runtimeEvents.Count -gt 0) { [string](Get-TaskspaceCostProperty $runtimeEvents[0] @("route_mode")) } else { "" }
         spawn_agent_call_count = [int]$spawnCount
         max_spawn_agent_calls = [int]$maxSpawnAgentCalls
         node_count = [int]$nodeCount
@@ -1505,10 +1509,9 @@ function New-TaskspaceControlUsageSummary {
         foreach ($line in [System.IO.File]::ReadLines($RolloutJsonlPath)) {
             if ([string]::IsNullOrWhiteSpace($line)) { continue }
             try { $row = $line | ConvertFrom-Json } catch { continue }
-            if ([string](Get-TaskspaceCostProperty $row @("type")) -ne "response_item") { continue }
-            $rolloutResponseItemCount++
-            $payload = Get-TaskspaceCostProperty $row @("payload")
+            $payload = Get-TaskspaceCanonicalResponseItem $row
             if ($null -eq $payload) { continue }
+            $rolloutResponseItemCount++
             $payloadType = [string](Get-TaskspaceCostProperty $payload @("type"))
             if ($payloadType -in @("function_call_output", "custom_tool_call_output")) {
                 $callId = [string](Get-TaskspaceCostProperty $payload @("call_id"))

@@ -120,6 +120,88 @@ async fn reconstruct_history_restores_latest_map_runtime_snapshot() {
 }
 
 #[tokio::test]
+async fn reconstruct_history_rollback_restores_latest_surviving_map_snapshot() {
+    let (session, turn_context) = make_session_and_context().await;
+    let mut first_snapshot = ActionMapRuntimeState::default().snapshot();
+    first_snapshot.routing_required = false;
+    let mut rolled_back_snapshot = first_snapshot.clone();
+    rolled_back_snapshot.routing_required = true;
+    let first_turn_id = "turn-1".to_string();
+    let rolled_back_turn_id = "turn-2".to_string();
+    let rollout_items = vec![
+        RolloutItem::EventMsg(EventMsg::TurnStarted(
+            codex_protocol::protocol::TurnStartedEvent {
+                turn_id: first_turn_id.clone(),
+                started_at: None,
+                model_context_window: Some(128_000),
+                collaboration_mode_kind: ModeKind::Default,
+            },
+        )),
+        RolloutItem::EventMsg(EventMsg::UserMessage(
+            codex_protocol::protocol::UserMessageEvent {
+                message: "first".to_string(),
+                images: None,
+                local_images: Vec::new(),
+                text_elements: Vec::new(),
+            },
+        )),
+        RolloutItem::EventMsg(EventMsg::MapRuntime(MapRuntimeEvent::SnapshotUpdated(
+            MapRuntimeSnapshotUpdatedEvent {
+                snapshot: first_snapshot.clone(),
+            },
+        ))),
+        RolloutItem::EventMsg(EventMsg::TurnComplete(
+            codex_protocol::protocol::TurnCompleteEvent {
+                turn_id: first_turn_id,
+                last_agent_message: None,
+                completed_at: None,
+                duration_ms: None,
+                time_to_first_token_ms: None,
+            },
+        )),
+        RolloutItem::EventMsg(EventMsg::TurnStarted(
+            codex_protocol::protocol::TurnStartedEvent {
+                turn_id: rolled_back_turn_id.clone(),
+                started_at: None,
+                model_context_window: Some(128_000),
+                collaboration_mode_kind: ModeKind::Default,
+            },
+        )),
+        RolloutItem::EventMsg(EventMsg::UserMessage(
+            codex_protocol::protocol::UserMessageEvent {
+                message: "rolled back".to_string(),
+                images: None,
+                local_images: Vec::new(),
+                text_elements: Vec::new(),
+            },
+        )),
+        RolloutItem::EventMsg(EventMsg::MapRuntime(MapRuntimeEvent::SnapshotUpdated(
+            MapRuntimeSnapshotUpdatedEvent {
+                snapshot: rolled_back_snapshot,
+            },
+        ))),
+        RolloutItem::EventMsg(EventMsg::TurnComplete(
+            codex_protocol::protocol::TurnCompleteEvent {
+                turn_id: rolled_back_turn_id,
+                last_agent_message: None,
+                completed_at: None,
+                duration_ms: None,
+                time_to_first_token_ms: None,
+            },
+        )),
+        RolloutItem::EventMsg(EventMsg::ThreadRolledBack(
+            codex_protocol::protocol::ThreadRolledBackEvent { num_turns: 1 },
+        )),
+    ];
+
+    let reconstructed = session
+        .reconstruct_history_from_rollout(&turn_context, &rollout_items)
+        .await;
+
+    assert_eq!(reconstructed.map_runtime_snapshot, Some(first_snapshot));
+}
+
+#[tokio::test]
 async fn record_initial_history_resumed_bare_turn_context_does_not_hydrate_previous_turn_settings()
 {
     let (session, turn_context) = make_session_and_context().await;

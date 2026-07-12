@@ -4,6 +4,9 @@ if (-not (Get-Command Get-TaskspaceValidationLifecycle -ErrorAction SilentlyCont
 if (-not (Get-Command Write-TaskspaceCostInstrumentationArtifacts -ErrorAction SilentlyContinue)) {
     . (Join-Path $PSScriptRoot "cost-instrumentation.ps1")
 }
+if (-not (Get-Command Get-TaskspaceCanonicalResponseItem -ErrorAction SilentlyContinue)) {
+    . (Join-Path $PSScriptRoot "canonical-rollout.ps1")
+}
 
 function Get-TaskspaceDiffText {
     param(
@@ -46,13 +49,15 @@ function Test-TaskspaceOrdinaryToolBeforeBindingInRollout {
             $bindingEstablished = $true
             continue
         }
-        if ([string]$event.type -ne "response_item") { continue }
-        if ($payloadType -in @("function_call", "custom_tool_call") -and
-            [string]$payload.name -ne "taskspace_control" -and
+        $responseItem = Get-TaskspaceCanonicalResponseItem $event
+        if ($null -eq $responseItem) { continue }
+        $responseType = [string]$responseItem.type
+        if ($responseType -in @("function_call", "custom_tool_call") -and
+            [string]$responseItem.name -ne "taskspace_control" -and
             -not $bindingEstablished) {
             return $true
         }
-        if ($payloadType -eq "local_shell_call" -and -not $bindingEstablished) {
+        if ($responseType -eq "local_shell_call" -and -not $bindingEstablished) {
             return $true
         }
     }
@@ -102,10 +107,11 @@ function Get-TaskspaceAgentCompletionEvidence {
         foreach ($line in [System.IO.File]::ReadLines($RolloutPath)) {
             if ([string]::IsNullOrWhiteSpace($line)) { continue }
             try { $row = $line | ConvertFrom-Json } catch { continue }
-            if ([string]$row.type -eq "response_item" -and
-                [string]$row.payload.type -eq "message" -and
-                [string]$row.payload.role -eq "assistant" -and
-                [string]$row.payload.phase -eq "final_answer") {
+            $responseItem = Get-TaskspaceCanonicalResponseItem $row
+            if ($null -ne $responseItem -and
+                [string]$responseItem.type -eq "message" -and
+                [string]$responseItem.role -eq "assistant" -and
+                [string]$responseItem.phase -eq "final_answer") {
                 $taskspaceFinalCandidateObserved = $true
             }
         }
@@ -142,12 +148,13 @@ function Get-TaskspaceRolloutToolStats {
     foreach ($line in [System.IO.File]::ReadLines($RolloutPath)) {
         if ([string]::IsNullOrWhiteSpace($line)) { continue }
         try { $evt = $line | ConvertFrom-Json } catch { continue }
-        if ([string]$evt.type -ne "response_item" -or $null -eq $evt.payload) { continue }
-        $payloadType = [string]$evt.payload.type
+        $payload = Get-TaskspaceCanonicalResponseItem $evt
+        if ($null -eq $payload) { continue }
+        $payloadType = [string]$payload.type
         if ($payloadType -in @("function_call", "custom_tool_call")) {
-            $callId = [string]$evt.payload.call_id
+            $callId = [string]$payload.call_id
             if ([string]::IsNullOrWhiteSpace($callId)) { $callId = "rollout-call-$($callNames.Count)" }
-            $name = [string]$evt.payload.name
+            $name = [string]$payload.name
             if ([string]::IsNullOrWhiteSpace($name)) { $name = "unknown" }
             $callNames[$callId] = $name
             if ($name -eq "taskspace_control") {
@@ -158,11 +165,11 @@ function Get-TaskspaceRolloutToolStats {
             continue
         }
         if ($payloadType -in @("function_call_output", "custom_tool_call_output")) {
-            $callId = [string]$evt.payload.call_id
+            $callId = [string]$payload.call_id
             if ([string]::IsNullOrWhiteSpace($callId)) { continue }
             $name = if ($callNames.ContainsKey($callId)) { [string]$callNames[$callId] } else { "" }
             if ($name -eq "taskspace_control") { continue }
-            $output = [string]$evt.payload.output
+            $output = [string]$payload.output
             if ($output -match "Tool call failed" -or
                 $output -match "local_validator_infra_failure" -or
                 $output -match "(?m)^Exit code:\s*(?!0\b)\d+" -or

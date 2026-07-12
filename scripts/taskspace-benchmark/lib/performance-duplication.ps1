@@ -1,4 +1,7 @@
 Set-StrictMode -Version Latest
+if (-not (Get-Command Get-TaskspaceCanonicalResponseItem -ErrorAction SilentlyContinue)) {
+    . (Join-Path $PSScriptRoot "canonical-rollout.ps1")
+}
 
 function Get-PerformanceSha256 {
     param([string]$Text)
@@ -32,8 +35,7 @@ function Get-PerformanceRolloutDuplication {
         if ([string]::IsNullOrWhiteSpace($line)) { continue }
         try {
             $row = $line | ConvertFrom-Json
-            if ([string](Get-PerformanceProperty $row "type") -ne "response_item") { continue }
-            $payload = Get-PerformanceProperty $row "payload"
+            $payload = Get-TaskspaceCanonicalResponseItem $row
             if ($null -eq $payload) { continue }
             $payloadJson = $payload | ConvertTo-Json -Compress -Depth 40
             $payloads.Add([pscustomobject]@{ hash = Get-PerformanceSha256 $payloadJson; bytes = [System.Text.Encoding]::UTF8.GetByteCount($payloadJson) })

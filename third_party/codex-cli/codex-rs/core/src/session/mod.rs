@@ -20,6 +20,7 @@ use crate::action_map::ActionMapProviderRequestBudgetSnapshot;
 use crate::action_map::ActionMapProviderResponseActionabilityInput;
 use crate::action_map::ActionMapRuntimeState;
 use crate::action_map::NodeKind;
+use crate::action_map::TaskSpaceEvent;
 use crate::action_map::ToolActionDescriptor;
 use crate::agent::AgentControl;
 use crate::agent::AgentStatus;
@@ -1991,7 +1992,7 @@ impl Session {
 
     pub(crate) async fn get_total_token_usage_breakdown(&self) -> TotalTokenUsageBreakdown {
         let state = self.state.lock().await;
-        state.history.get_total_token_usage_breakdown()
+        state.clone_history().get_total_token_usage_breakdown()
     }
 
     pub(crate) async fn total_token_usage(&self) -> Option<TokenUsage> {
@@ -2015,7 +2016,7 @@ impl Session {
         turn_context: &TurnContext,
     ) -> Option<i64> {
         let state = self.state.lock().await;
-        state.history.estimate_token_count(turn_context)
+        state.clone_history().estimate_token_count(turn_context)
     }
 
     pub(crate) async fn get_base_instructions(&self) -> BaseInstructions {
@@ -2070,7 +2071,7 @@ impl Session {
             InitialHistory::Resumed(resumed_history) => {
                 let rollout_items = resumed_history.history;
                 let previous_turn_settings = self
-                    .apply_rollout_reconstruction(&turn_context, &rollout_items)
+                    .apply_rollout_reconstruction(&turn_context, &rollout_items, false, None)
                     .await;
 
                 // If resuming, warn when the last recorded model differs from the current one.
@@ -2107,8 +2108,13 @@ impl Session {
                 }
             }
             InitialHistory::Forked(rollout_items) => {
-                self.apply_rollout_reconstruction(&turn_context, &rollout_items)
-                    .await;
+                self.apply_rollout_reconstruction(
+                    &turn_context,
+                    &rollout_items,
+                    is_subagent,
+                    (!is_subagent).then_some(self.conversation_id),
+                )
+                .await;
 
                 // Seed usage info from the recorded rollout so UIs can show token counts
                 // immediately on resume/fork.
@@ -2120,6 +2126,9 @@ impl Session {
                 // If persisting, persist all rollout items as-is (the store filters).
                 if !rollout_items.is_empty() {
                     self.persist_rollout_items(&rollout_items).await;
+                }
+                if !is_subagent {
+                    self.emit_action_map_snapshot_for_turn(&turn_context).await;
                 }
 
                 // Forked threads should remain file-backed immediately after startup.
@@ -2137,24 +2146,43 @@ impl Session {
         &self,
         turn_context: &TurnContext,
         rollout_items: &[RolloutItem],
+        linearize_taskspace_for_subagent: bool,
+        fork_owner_session_id: Option<ThreadId>,
     ) -> Option<PreviousTurnSettings> {
         let reconstructed_rollout = self
             .reconstruct_history_from_rollout(turn_context, rollout_items)
             .await;
         let previous_turn_settings = reconstructed_rollout.previous_turn_settings.clone();
-        self.replace_history(
-            reconstructed_rollout.history,
-            reconstructed_rollout.reference_context_item,
-        )
-        .await;
         {
             let mut state = self.state.lock().await;
-            if let Some(snapshot) = reconstructed_rollout.map_runtime_snapshot {
-                state.action_map_runtime.restore_snapshot(snapshot);
+            if linearize_taskspace_for_subagent {
+                state.restore_subagent_fork_context(
+                    reconstructed_rollout.history,
+                    reconstructed_rollout.taskspace_events,
+                    reconstructed_rollout.reference_context_item,
+                );
             } else {
-                state
-                    .action_map_runtime
-                    .restore_mode(reconstructed_rollout.map_runtime_mode);
+                state.restore_context(
+                    reconstructed_rollout.history,
+                    reconstructed_rollout.taskspace_events,
+                    reconstructed_rollout.reference_context_item,
+                );
+                if let Some(snapshot) = reconstructed_rollout.map_runtime_snapshot {
+                    state.action_map_runtime.restore_snapshot(snapshot);
+                } else {
+                    state
+                        .action_map_runtime
+                        .restore_mode(reconstructed_rollout.map_runtime_mode);
+                }
+                if let Some(owner_session_id) = fork_owner_session_id {
+                    let released_child_leases =
+                        state.action_map_runtime.rebind_after_fork(owner_session_id);
+                    tracing::info!(
+                        %owner_session_id,
+                        released_child_leases,
+                        "rebound TaskSpace runtime after thread fork"
+                    );
+                }
             }
         }
         self.set_previous_turn_settings(previous_turn_settings.clone())
@@ -3265,15 +3293,26 @@ impl Session {
         }
     }
 
-    /// Records input items: always append to conversation history and
-    /// persist these response items to rollout.
+    /// Records provider items in the active canonical context backend and persists them once.
     pub(crate) async fn record_conversation_items(
         &self,
         turn_context: &TurnContext,
         items: &[ResponseItem],
     ) {
-        self.record_into_history(items, turn_context).await;
-        self.persist_rollout_response_items(items).await;
+        let taskspace_events = self.record_into_context(items, turn_context).await;
+        if taskspace_events.is_empty() {
+            self.persist_rollout_response_items(items).await;
+        } else {
+            let rollout_items = taskspace_events
+                .into_iter()
+                .map(|event| {
+                    RolloutItem::EventMsg(EventMsg::MapRuntime(
+                        MapRuntimeEvent::TaskContextEventRecorded(event.to_protocol()),
+                    ))
+                })
+                .collect::<Vec<_>>();
+            self.persist_rollout_items(&rollout_items).await;
+        }
         self.send_raw_response_items(turn_context, items).await;
     }
 
@@ -3283,8 +3322,16 @@ impl Session {
         items: &[ResponseItem],
         turn_context: &TurnContext,
     ) {
+        let _ = self.record_into_context(items, turn_context).await;
+    }
+
+    async fn record_into_context(
+        &self,
+        items: &[ResponseItem],
+        turn_context: &TurnContext,
+    ) -> Vec<TaskSpaceEvent> {
         let mut state = self.state.lock().await;
-        state.record_items(items.iter(), turn_context.truncation_policy);
+        state.record_items(items.iter(), turn_context.truncation_policy)
     }
 
     pub(crate) async fn record_model_warning(&self, message: impl Into<String>, ctx: &TurnContext) {
@@ -3794,6 +3841,11 @@ impl Session {
     pub(crate) async fn action_map_snapshot(&self) -> ActionMapSnapshot {
         let state = self.state.lock().await;
         state.action_map_runtime.snapshot()
+    }
+
+    pub(crate) async fn taskspace_mode_active(&self) -> bool {
+        let state = self.state.lock().await;
+        state.action_map_runtime.mode() == MapRuntimeMode::Experiment
     }
 
     /// Persist the latest turn context snapshot for the first real user turn and for

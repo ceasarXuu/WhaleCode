@@ -2158,6 +2158,32 @@ pub struct MapRuntimeTraceEventRecordedEvent {
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(rename_all = "camelCase")]
+pub struct MapRuntimeTaskContextEventRecordedEvent {
+    pub id: String,
+    pub sequence: u64,
+    pub owner_kind: String,
+    pub owner_id: Option<String>,
+    pub event_type: String,
+    pub original_role: Option<String>,
+    pub call_id: Option<String>,
+    pub parent_call_id: Option<String>,
+    pub tool_success: Option<bool>,
+    pub raw_payload: Value,
+    pub provider_item_id: Option<String>,
+    pub created_at_ms: i64,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct MapRuntimeTaskContextOwnershipChangedEvent {
+    pub active: bool,
+    pub events: Vec<MapRuntimeTaskContextEventRecordedEvent>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
 pub struct MapRuntimeSentinelWarningRaisedEvent {
     pub sentinel_id: String,
     pub sentinel_type: String,
@@ -2240,6 +2266,8 @@ pub enum MapRuntimeEvent {
     NodeResultRecorded(MapRuntimeNodeResultRecordedEvent),
     NodeEventRecorded(MapRuntimeNodeEventRecordedEvent),
     TaskspaceTraceEventRecorded(MapRuntimeTraceEventRecordedEvent),
+    TaskContextEventRecorded(MapRuntimeTaskContextEventRecordedEvent),
+    TaskContextOwnershipChanged(MapRuntimeTaskContextOwnershipChangedEvent),
     SentinelWarningRaised(MapRuntimeSentinelWarningRaisedEvent),
     ToolActionBlocked(MapRuntimeToolActionBlockedEvent),
     TimeoutSummaryRequested(MapRuntimeTimeoutSummaryRequestedEvent),
@@ -5797,6 +5825,55 @@ mod tests {
         assert_eq!(value["toolSuccess"], false);
         assert!(value.get("preview").is_none());
         assert!(value.get("body").is_none());
+        Ok(())
+    }
+
+    #[test]
+    fn map_runtime_task_context_events_round_trip_without_data_loss() -> Result<()> {
+        let record = MapRuntimeTaskContextEventRecordedEvent {
+            id: "task-context-1".to_string(),
+            sequence: 7,
+            owner_kind: "node".to_string(),
+            owner_id: Some("node-1".to_string()),
+            event_type: "function_call_output".to_string(),
+            original_role: Some("tool".to_string()),
+            call_id: Some("call-1".to_string()),
+            parent_call_id: Some("parent-call-1".to_string()),
+            tool_success: Some(false),
+            raw_payload: json!({
+                "type": "function_call_output",
+                "output": {"status": "failed", "details": ["stderr", 17]},
+            }),
+            provider_item_id: Some("provider-item-1".to_string()),
+            created_at_ms: 1234,
+        };
+        let recorded = MapRuntimeEvent::TaskContextEventRecorded(record.clone());
+        let recorded_value = serde_json::to_value(&recorded)?;
+
+        assert_eq!(recorded_value["type"], "task_context_event_recorded");
+        assert_eq!(recorded_value["id"], "task-context-1");
+        assert_eq!(recorded_value["toolSuccess"], false);
+        assert_eq!(recorded_value["rawPayload"], record.raw_payload);
+        assert_eq!(
+            serde_json::from_value::<MapRuntimeEvent>(recorded_value)?,
+            recorded
+        );
+
+        let ownership = MapRuntimeEvent::TaskContextOwnershipChanged(
+            MapRuntimeTaskContextOwnershipChangedEvent {
+                active: true,
+                events: vec![record],
+            },
+        );
+        let ownership_value = serde_json::to_value(&ownership)?;
+
+        assert_eq!(ownership_value["type"], "task_context_ownership_changed");
+        assert_eq!(ownership_value["events"][0]["id"], "task-context-1");
+        assert_eq!(ownership_value["events"][0]["toolSuccess"], false);
+        assert_eq!(
+            serde_json::from_value::<MapRuntimeEvent>(ownership_value)?,
+            ownership
+        );
         Ok(())
     }
 

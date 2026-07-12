@@ -203,3 +203,103 @@ fn unsupported_and_corrupt_items_fail_explicitly() {
         TaskSpaceEventCodecError::MetadataMismatch("original_role")
     );
 }
+
+#[test]
+fn store_preserves_order_and_call_pair_owner() {
+    let mut store = TaskSpaceEventStore::new();
+    let call = ResponseItem::FunctionCall {
+        id: None,
+        name: "taskspace_control".into(),
+        namespace: None,
+        arguments: "{}".into(),
+        call_id: "control-call".into(),
+    };
+    let output = ResponseItem::FunctionCallOutput {
+        call_id: "control-call".into(),
+        output: FunctionCallOutputPayload::from_text("ok".into()),
+    };
+    store.record_item(&call, None, None, 1).unwrap();
+    store
+        .record_item(&output, Some("node-created-by-call"), None, 2)
+        .unwrap();
+    assert_eq!(store.linearize(), vec![call, output]);
+    assert_eq!(store.events()[0].owner, TaskSpaceEventOwner::Root);
+    assert_eq!(store.events()[1].owner, TaskSpaceEventOwner::Root);
+}
+
+#[test]
+fn store_marks_global_items_without_reordering_them() {
+    let mut store = TaskSpaceEventStore::new();
+    let developer = ResponseItem::Message {
+        id: None,
+        role: "developer".into(),
+        content: vec![ContentItem::InputText {
+            text: "policy".into(),
+        }],
+        end_turn: None,
+        phase: None,
+    };
+    let user = ResponseItem::Message {
+        id: None,
+        role: "user".into(),
+        content: vec![ContentItem::InputText {
+            text: "task".into(),
+        }],
+        end_turn: None,
+        phase: None,
+    };
+    store.record_item(&developer, None, None, 1).unwrap();
+    store.record_item(&user, None, None, 2).unwrap();
+    assert_eq!(store.events()[0].owner, TaskSpaceEventOwner::Global);
+    assert_eq!(store.events()[1].owner, TaskSpaceEventOwner::Root);
+    assert_eq!(store.linearize(), vec![developer, user]);
+}
+
+#[test]
+fn store_restore_and_rollback_are_mechanical() {
+    let mut store = TaskSpaceEventStore::new();
+    for item in [
+        ResponseItem::Message {
+            id: None,
+            role: "user".into(),
+            content: vec![ContentItem::InputText {
+                text: "first".into(),
+            }],
+            end_turn: None,
+            phase: None,
+        },
+        ResponseItem::Message {
+            id: None,
+            role: "assistant".into(),
+            content: vec![ContentItem::OutputText {
+                text: "done".into(),
+            }],
+            end_turn: None,
+            phase: None,
+        },
+        ResponseItem::Message {
+            id: None,
+            role: "user".into(),
+            content: vec![ContentItem::InputText {
+                text: "second".into(),
+            }],
+            end_turn: None,
+            phase: None,
+        },
+    ] {
+        store.record_item(&item, None, None, 1).unwrap();
+    }
+    let mut restored = TaskSpaceEventStore::restore(store.events().to_vec()).unwrap();
+    restored.drop_last_n_user_turns(1);
+    assert_eq!(restored.events().len(), 2);
+
+    let mut corrupt = store.events().to_vec();
+    corrupt[1].sequence = 9;
+    assert_eq!(
+        TaskSpaceEventStore::restore(corrupt).unwrap_err(),
+        TaskSpaceEventCodecError::SequenceConflict {
+            expected: 2,
+            actual: 9
+        }
+    );
+}

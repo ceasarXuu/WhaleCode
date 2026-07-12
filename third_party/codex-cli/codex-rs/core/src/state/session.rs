@@ -5,12 +5,16 @@ use codex_protocol::models::ResponseItem;
 use codex_sandboxing::policy_transforms::merge_permission_profiles;
 use std::collections::HashMap;
 use std::collections::HashSet;
+use std::ops::Deref;
 
 use crate::action_map::ActionMapRuntimeState;
+use crate::action_map::TaskSpaceEvent;
+use crate::action_map::TaskSpaceEventStore;
 use crate::context_manager::ContextManager;
 use crate::session::PreviousTurnSettings;
 use crate::session::session::SessionConfiguration;
 use crate::session_startup_prewarm::SessionStartupPrewarmHandle;
+use codex_protocol::protocol::MapRuntimeMode;
 use codex_protocol::protocol::RateLimitSnapshot;
 use codex_protocol::protocol::TokenUsage;
 use codex_protocol::protocol::TokenUsageInfo;
@@ -34,6 +38,7 @@ pub(crate) struct SessionState {
     pub(crate) active_connector_selection: HashSet<String>,
     pub(crate) pending_session_start_source: Option<codex_hooks::SessionStartSource>,
     pub(crate) action_map_runtime: ActionMapRuntimeState,
+    pub(crate) taskspace_events: TaskSpaceEventStore,
     granted_permissions: Option<AdditionalPermissionProfile>,
     next_turn_is_first: bool,
 }
@@ -54,18 +59,47 @@ impl SessionState {
             active_connector_selection: HashSet::new(),
             pending_session_start_source: None,
             action_map_runtime: ActionMapRuntimeState::default(),
+            taskspace_events: TaskSpaceEventStore::new(),
             granted_permissions: None,
             next_turn_is_first: true,
         }
     }
 
     // History helpers
-    pub(crate) fn record_items<I>(&mut self, items: I, policy: TruncationPolicy)
+    pub(crate) fn record_items<I>(
+        &mut self,
+        items: I,
+        policy: TruncationPolicy,
+    ) -> Vec<TaskSpaceEvent>
     where
         I: IntoIterator,
         I::Item: std::ops::Deref<Target = ResponseItem>,
     {
-        self.history.record_items(items, policy);
+        let items = items
+            .into_iter()
+            .map(|item| item.deref().clone())
+            .collect::<Vec<_>>();
+        if self.action_map_runtime.mode() != MapRuntimeMode::Experiment {
+            self.history.record_items(items.iter(), policy);
+            return Vec::new();
+        }
+        let current_node_id = self
+            .action_map_runtime
+            .context_owner_node_id()
+            .map(str::to_string);
+        let mut recorded = Vec::new();
+        for item in &items {
+            match self.taskspace_events.record_item(
+                item,
+                current_node_id.as_deref(),
+                None,
+                chrono::Utc::now().timestamp_millis(),
+            ) {
+                Ok(event) => recorded.push(event),
+                Err(error) => panic!("TaskSpace canonical event record failed: {error}"),
+            }
+        }
+        recorded
     }
 
     pub(crate) fn previous_turn_settings(&self) -> Option<PreviousTurnSettings> {
@@ -89,7 +123,11 @@ impl SessionState {
     }
 
     pub(crate) fn clone_history(&self) -> ContextManager {
-        self.history.clone()
+        let mut history = self.history.clone();
+        if self.action_map_runtime.mode() == MapRuntimeMode::Experiment {
+            history.replace(self.taskspace_events.linearize());
+        }
+        history
     }
 
     pub(crate) fn replace_history(
@@ -97,9 +135,85 @@ impl SessionState {
         items: Vec<ResponseItem>,
         reference_context_item: Option<TurnContextItem>,
     ) {
+        if self.action_map_runtime.mode() == MapRuntimeMode::Experiment {
+            let mut store = TaskSpaceEventStore::new();
+            let current_node_id = self.action_map_runtime.context_owner_node_id();
+            for item in &items {
+                store
+                    .record_item(
+                        item,
+                        current_node_id,
+                        None,
+                        chrono::Utc::now().timestamp_millis(),
+                    )
+                    .expect("compacted TaskSpace history must be encodable");
+            }
+            self.taskspace_events = store;
+            self.history.replace(Vec::new());
+        } else {
+            self.history.replace(items);
+        }
+        self.history
+            .set_reference_context_item(reference_context_item);
+    }
+
+    pub(crate) fn activate_taskspace_context(&mut self) -> Vec<TaskSpaceEvent> {
+        if !self.taskspace_events.is_empty() {
+            return self.taskspace_events.events().to_vec();
+        }
+        let items = self.history.raw_items().to_vec();
+        self.history.replace(Vec::new());
+        let current_node_id = self
+            .action_map_runtime
+            .context_owner_node_id()
+            .map(str::to_string);
+        for item in &items {
+            self.taskspace_events
+                .record_item(
+                    item,
+                    current_node_id.as_deref(),
+                    None,
+                    chrono::Utc::now().timestamp_millis(),
+                )
+                .expect("existing history must be encodable as TaskSpace events");
+        }
+        self.taskspace_events.events().to_vec()
+    }
+
+    pub(crate) fn deactivate_taskspace_context(&mut self) -> Vec<ResponseItem> {
+        let items = self.taskspace_events.take_linearized();
+        self.history.replace(items.clone());
+        items
+    }
+
+    pub(crate) fn restore_context(
+        &mut self,
+        history_items: Vec<ResponseItem>,
+        taskspace_events: Vec<TaskSpaceEvent>,
+        reference_context_item: Option<TurnContextItem>,
+    ) {
+        self.history.replace(history_items);
+        self.history
+            .set_reference_context_item(reference_context_item);
+        self.taskspace_events = TaskSpaceEventStore::restore(taskspace_events)
+            .expect("reconstructed TaskSpace events must be valid");
+    }
+
+    pub(crate) fn restore_subagent_fork_context(
+        &mut self,
+        history_items: Vec<ResponseItem>,
+        taskspace_events: Vec<TaskSpaceEvent>,
+        reference_context_item: Option<TurnContextItem>,
+    ) {
+        let mut store = TaskSpaceEventStore::restore(taskspace_events)
+            .expect("forked TaskSpace events must be valid");
+        let mut items = history_items;
+        items.extend(store.take_linearized());
         self.history.replace(items);
         self.history
             .set_reference_context_item(reference_context_item);
+        self.taskspace_events = TaskSpaceEventStore::new();
+        self.action_map_runtime = ActionMapRuntimeState::default();
     }
 
     pub(crate) fn set_token_info(&mut self, info: Option<TokenUsageInfo>) {

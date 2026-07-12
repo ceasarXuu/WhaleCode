@@ -814,7 +814,7 @@ pub async fn thread_rollback(sess: &Arc<Session>, sub_id: String, num_turns: u32
         .into_iter()
         .chain(std::iter::once(RolloutItem::EventMsg(rollback_msg.clone())))
         .collect::<Vec<_>>();
-    sess.apply_rollout_reconstruction(turn_context.as_ref(), replay_items.as_slice())
+    sess.apply_rollout_reconstruction(turn_context.as_ref(), replay_items.as_slice(), false, None)
         .await;
     sess.recompute_token_usage(turn_context.as_ref()).await;
 
@@ -947,11 +947,28 @@ pub async fn set_thread_memory_mode(sess: &Arc<Session>, sub_id: String, mode: T
 
 pub async fn set_map_runtime_mode(sess: &Arc<Session>, sub_id: String, mode: MapRuntimeMode) {
     let turn_context = sess.new_default_turn_with_sub_id(sub_id).await;
-    let (outcome, bootstrap_events) = {
+    let (outcome, bootstrap_events, ownership_event, snapshot) = {
         let mut state = sess.state.lock().await;
-        state
+        let (outcome, bootstrap_events) = state
             .action_map_runtime
-            .set_mode_for_session(mode, sess.conversation_id)
+            .set_mode_for_session(mode, sess.conversation_id);
+        let ownership_event = outcome.mode.changed.then(|| {
+            let events = if outcome.mode.current_mode == MapRuntimeMode::Experiment {
+                state.activate_taskspace_context()
+            } else {
+                state.deactivate_taskspace_context();
+                Vec::new()
+            };
+            codex_protocol::protocol::MapRuntimeTaskContextOwnershipChangedEvent {
+                active: outcome.mode.current_mode == MapRuntimeMode::Experiment,
+                events: events
+                    .into_iter()
+                    .map(|event| event.to_protocol())
+                    .collect(),
+            }
+        });
+        let snapshot = state.action_map_runtime.snapshot();
+        (outcome, bootstrap_events, ownership_event, snapshot)
     };
 
     sess.send_event(
@@ -966,6 +983,20 @@ pub async fn set_map_runtime_mode(sess: &Arc<Session>, sub_id: String, mode: Map
         sess.send_event(&turn_context, EventMsg::MapRuntime(event))
             .await;
     }
+    if let Some(event) = ownership_event {
+        sess.send_event(
+            &turn_context,
+            EventMsg::MapRuntime(MapRuntimeEvent::TaskContextOwnershipChanged(event)),
+        )
+        .await;
+    }
+    sess.send_event(
+        &turn_context,
+        EventMsg::MapRuntime(MapRuntimeEvent::SnapshotUpdated(
+            codex_protocol::protocol::MapRuntimeSnapshotUpdatedEvent { snapshot },
+        )),
+    )
+    .await;
 
     let status = if outcome.mode.changed {
         if outcome.mode.current_mode == MapRuntimeMode::Experiment {

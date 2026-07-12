@@ -1,9 +1,12 @@
+mod event_codec;
 mod event_store;
 mod map;
 mod projection;
 mod runtime;
 mod sentinel;
 
+pub(crate) use event_store::TaskSpaceEvent;
+pub(crate) use event_store::TaskSpaceEventStore;
 pub(crate) use map::ActionClass;
 pub(crate) use map::NodeKind;
 pub(crate) use map::ToolActionDescriptor;

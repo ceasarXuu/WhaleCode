@@ -4,11 +4,13 @@ use codex_protocol::models::ResponseItem;
 use serde::Deserialize;
 use serde::Serialize;
 use serde_json::Value;
+use std::collections::HashMap;
 use thiserror::Error;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", content = "id", rename_all = "snake_case")]
 pub(crate) enum TaskSpaceEventOwner {
+    Global,
     Root,
     Node(String),
 }
@@ -53,6 +55,12 @@ pub(crate) enum TaskSpaceEventCodecError {
     InvalidSequence,
     #[error("taskspace node owner id must not be empty")]
     EmptyNodeOwner,
+    #[error("taskspace event sequence conflict: expected {expected}, got {actual}")]
+    SequenceConflict { expected: u64, actual: u64 },
+    #[error("taskspace event owner is invalid")]
+    InvalidOwner,
+    #[error("taskspace event type is invalid")]
+    InvalidEventType,
     #[error("response item type is not task context: {0}")]
     UnsupportedItem(&'static str),
     #[error("taskspace event payload is invalid: {0}")]
@@ -61,156 +69,207 @@ pub(crate) enum TaskSpaceEventCodecError {
     MetadataMismatch(&'static str),
 }
 
-impl TaskSpaceEvent {
-    pub(crate) fn from_response_item(
-        id: impl Into<String>,
-        sequence: u64,
-        owner: TaskSpaceEventOwner,
-        parent_call_id: Option<String>,
+#[derive(Debug, Clone, Default)]
+pub(crate) struct TaskSpaceEventStore {
+    events: Vec<TaskSpaceEvent>,
+    call_owners: HashMap<String, TaskSpaceEventOwner>,
+    next_sequence: u64,
+}
+
+impl TaskSpaceEventStore {
+    pub(crate) fn new() -> Self {
+        Self {
+            events: Vec::new(),
+            call_owners: HashMap::new(),
+            next_sequence: 1,
+        }
+    }
+
+    pub(crate) fn events(&self) -> &[TaskSpaceEvent] {
+        &self.events
+    }
+
+    pub(crate) fn is_empty(&self) -> bool {
+        self.events.is_empty()
+    }
+
+    pub(crate) fn record_item(
+        &mut self,
         item: &ResponseItem,
+        current_node_id: Option<&str>,
+        parent_call_id: Option<String>,
         created_at_ms: i64,
-    ) -> Result<Self, TaskSpaceEventCodecError> {
-        let id = id.into();
-        validate_identity(&id, sequence, &owner)?;
-        let event_type = event_type(item)?;
-        let raw_payload = serde_json::to_value(item)
-            .map_err(|error| TaskSpaceEventCodecError::InvalidPayload(error.to_string()))?;
-        Ok(Self {
-            id,
+    ) -> Result<TaskSpaceEvent, TaskSpaceEventCodecError> {
+        let owner = self.owner_for_item(item, current_node_id);
+        let sequence = self.next_sequence;
+        let event = TaskSpaceEvent::from_response_item(
+            format!("task-event-{sequence}"),
             sequence,
-            owner,
-            event_type,
-            original_role: original_role(item),
-            call_id: response_item_call_id(item),
+            owner.clone(),
             parent_call_id,
-            tool_success: response_item_tool_success(item),
-            raw_payload,
-            provider_item_id: skipped_provider_item_id(item),
+            item,
             created_at_ms,
-        })
+        )?;
+        self.next_sequence = self.next_sequence.saturating_add(1);
+        if is_call_item(item)
+            && let Some(call_id) = event.call_id.as_ref()
+        {
+            self.call_owners.insert(call_id.clone(), owner);
+        }
+        self.events.push(event.clone());
+        Ok(event)
     }
 
-    pub(crate) fn to_response_item(&self) -> Result<ResponseItem, TaskSpaceEventCodecError> {
-        validate_identity(&self.id, self.sequence, &self.owner)?;
-        let mut item: ResponseItem = serde_json::from_value(self.raw_payload.clone())
-            .map_err(|error| TaskSpaceEventCodecError::InvalidPayload(error.to_string()))?;
-        restore_provider_item_id(&mut item, self.provider_item_id.as_deref());
-        restore_tool_success(&mut item, self.tool_success);
-        if event_type(&item)? != self.event_type {
-            return Err(TaskSpaceEventCodecError::MetadataMismatch("event_type"));
+    pub(crate) fn restore(events: Vec<TaskSpaceEvent>) -> Result<Self, TaskSpaceEventCodecError> {
+        let mut store = Self::new();
+        for event in events {
+            if event.sequence != store.next_sequence {
+                return Err(TaskSpaceEventCodecError::SequenceConflict {
+                    expected: store.next_sequence,
+                    actual: event.sequence,
+                });
+            }
+            let item = event.to_response_item()?;
+            if is_call_item(&item)
+                && let Some(call_id) = event.call_id.as_ref()
+            {
+                store
+                    .call_owners
+                    .insert(call_id.clone(), event.owner.clone());
+            }
+            store.next_sequence = store.next_sequence.saturating_add(1);
+            store.events.push(event);
         }
-        if original_role(&item) != self.original_role {
-            return Err(TaskSpaceEventCodecError::MetadataMismatch("original_role"));
+        Ok(store)
+    }
+
+    pub(crate) fn linearize(&self) -> Vec<ResponseItem> {
+        self.events
+            .iter()
+            .map(|event| {
+                event
+                    .to_response_item()
+                    .expect("TaskSpaceEventStore only contains validated events")
+            })
+            .collect()
+    }
+
+    pub(crate) fn take_linearized(&mut self) -> Vec<ResponseItem> {
+        let items = self
+            .linearize()
+            .into_iter()
+            .filter(|item| !is_taskspace_runtime_context_item(item))
+            .collect();
+        *self = Self::new();
+        items
+    }
+
+    pub(crate) fn drop_last_n_user_turns(&mut self, num_turns: u32) {
+        if num_turns == 0 {
+            return;
         }
-        if response_item_call_id(&item) != self.call_id {
-            return Err(TaskSpaceEventCodecError::MetadataMismatch("call_id"));
+        let user_indices = self
+            .events
+            .iter()
+            .enumerate()
+            .filter_map(|(index, event)| {
+                event
+                    .to_response_item()
+                    .ok()
+                    .filter(crate::context_manager::is_user_turn_boundary)
+                    .map(|_| index)
+            })
+            .collect::<Vec<_>>();
+        let drop_count = usize::try_from(num_turns).unwrap_or(usize::MAX);
+        let cutoff = user_indices
+            .len()
+            .checked_sub(drop_count)
+            .and_then(|index| user_indices.get(index).copied())
+            .or_else(|| user_indices.first().copied());
+        if let Some(cutoff) = cutoff {
+            self.events.truncate(cutoff);
+            self.rebuild_indexes();
         }
-        Ok(item)
+    }
+
+    fn owner_for_item(
+        &self,
+        item: &ResponseItem,
+        current_node_id: Option<&str>,
+    ) -> TaskSpaceEventOwner {
+        if let Some(call_id) = output_call_id(item)
+            && let Some(owner) = self.call_owners.get(call_id)
+        {
+            return owner.clone();
+        }
+        if matches!(item, ResponseItem::Message { role, .. } if role == "developer" || role == "system")
+        {
+            return TaskSpaceEventOwner::Global;
+        }
+        current_node_id
+            .map(|node_id| TaskSpaceEventOwner::Node(node_id.to_string()))
+            .unwrap_or(TaskSpaceEventOwner::Root)
+    }
+
+    fn rebuild_indexes(&mut self) {
+        self.call_owners.clear();
+        for event in &self.events {
+            if matches!(
+                event.event_type,
+                TaskSpaceEventType::LocalShellCall
+                    | TaskSpaceEventType::FunctionCall
+                    | TaskSpaceEventType::ToolSearchCall
+                    | TaskSpaceEventType::CustomToolCall
+            ) && let Some(call_id) = event.call_id.as_ref()
+            {
+                self.call_owners
+                    .insert(call_id.clone(), event.owner.clone());
+            }
+        }
+        self.next_sequence = self
+            .events
+            .last()
+            .map(|event| event.sequence.saturating_add(1))
+            .unwrap_or(1);
     }
 }
 
-fn validate_identity(
-    id: &str,
-    sequence: u64,
-    owner: &TaskSpaceEventOwner,
-) -> Result<(), TaskSpaceEventCodecError> {
-    if id.trim().is_empty() {
-        return Err(TaskSpaceEventCodecError::EmptyEventId);
+pub(super) fn output_call_id(item: &ResponseItem) -> Option<&str> {
+    match item {
+        ResponseItem::FunctionCallOutput { call_id, .. }
+        | ResponseItem::CustomToolCallOutput { call_id, .. } => Some(call_id),
+        ResponseItem::ToolSearchOutput { call_id, .. } => call_id.as_deref(),
+        _ => None,
     }
-    if sequence == 0 {
-        return Err(TaskSpaceEventCodecError::InvalidSequence);
-    }
-    if matches!(owner, TaskSpaceEventOwner::Node(node_id) if node_id.trim().is_empty()) {
-        return Err(TaskSpaceEventCodecError::EmptyNodeOwner);
-    }
-    Ok(())
 }
 
-fn event_type(item: &ResponseItem) -> Result<TaskSpaceEventType, TaskSpaceEventCodecError> {
-    Ok(match item {
-        ResponseItem::Message { .. } => TaskSpaceEventType::Message,
-        ResponseItem::Reasoning { .. } => TaskSpaceEventType::Reasoning,
-        ResponseItem::LocalShellCall { .. } => TaskSpaceEventType::LocalShellCall,
-        ResponseItem::FunctionCall { .. } => TaskSpaceEventType::FunctionCall,
-        ResponseItem::ToolSearchCall { .. } => TaskSpaceEventType::ToolSearchCall,
-        ResponseItem::FunctionCallOutput { .. } => TaskSpaceEventType::FunctionCallOutput,
-        ResponseItem::CustomToolCall { .. } => TaskSpaceEventType::CustomToolCall,
-        ResponseItem::CustomToolCallOutput { .. } => TaskSpaceEventType::CustomToolCallOutput,
-        ResponseItem::ToolSearchOutput { .. } => TaskSpaceEventType::ToolSearchOutput,
-        ResponseItem::WebSearchCall { .. } => TaskSpaceEventType::WebSearchCall,
-        ResponseItem::ImageGenerationCall { .. } => TaskSpaceEventType::ImageGenerationCall,
-        ResponseItem::Compaction { .. } => TaskSpaceEventType::Compaction,
-        ResponseItem::GhostSnapshot { .. } => {
-            return Err(TaskSpaceEventCodecError::UnsupportedItem("ghost_snapshot"));
-        }
-        ResponseItem::Other => return Err(TaskSpaceEventCodecError::UnsupportedItem("other")),
+pub(super) fn is_call_item(item: &ResponseItem) -> bool {
+    matches!(
+        item,
+        ResponseItem::LocalShellCall { .. }
+            | ResponseItem::FunctionCall { .. }
+            | ResponseItem::ToolSearchCall { .. }
+            | ResponseItem::CustomToolCall { .. }
+    )
+}
+
+pub(super) fn is_taskspace_runtime_context_item(item: &ResponseItem) -> bool {
+    let ResponseItem::Message { role, content, .. } = item else {
+        return false;
+    };
+    if role != "developer" && role != "system" {
+        return false;
+    }
+    content.iter().any(|content| {
+        let text = match content {
+            codex_protocol::models::ContentItem::InputText { text }
+            | codex_protocol::models::ContentItem::OutputText { text } => text,
+            codex_protocol::models::ContentItem::InputImage { .. } => return false,
+        };
+        text.contains("TaskSpaceAgentContextBundleV1:")
+            || text.contains("ContextProjectionV1 epoch snapshot")
+            || text.contains("TaskSpace mode is now active.")
     })
-}
-
-fn original_role(item: &ResponseItem) -> Option<String> {
-    match item {
-        ResponseItem::Message { role, .. } => Some(role.clone()),
-        _ => None,
-    }
-}
-
-fn response_item_call_id(item: &ResponseItem) -> Option<String> {
-    match item {
-        ResponseItem::LocalShellCall { call_id, .. }
-        | ResponseItem::ToolSearchCall { call_id, .. }
-        | ResponseItem::ToolSearchOutput { call_id, .. } => call_id.clone(),
-        ResponseItem::FunctionCall { call_id, .. }
-        | ResponseItem::FunctionCallOutput { call_id, .. }
-        | ResponseItem::CustomToolCall { call_id, .. }
-        | ResponseItem::CustomToolCallOutput { call_id, .. } => Some(call_id.clone()),
-        _ => None,
-    }
-}
-
-fn skipped_provider_item_id(item: &ResponseItem) -> Option<String> {
-    match item {
-        ResponseItem::Message { id, .. }
-        | ResponseItem::LocalShellCall { id, .. }
-        | ResponseItem::FunctionCall { id, .. }
-        | ResponseItem::ToolSearchCall { id, .. }
-        | ResponseItem::CustomToolCall { id, .. }
-        | ResponseItem::WebSearchCall { id, .. } => id.clone(),
-        ResponseItem::Reasoning { id, .. } => Some(id.clone()),
-        _ => None,
-    }
-}
-
-fn response_item_tool_success(item: &ResponseItem) -> Option<bool> {
-    match item {
-        ResponseItem::FunctionCallOutput { output, .. }
-        | ResponseItem::CustomToolCallOutput { output, .. } => output.success,
-        _ => None,
-    }
-}
-
-fn restore_provider_item_id(item: &mut ResponseItem, provider_item_id: Option<&str>) {
-    match item {
-        ResponseItem::Message { id, .. }
-        | ResponseItem::LocalShellCall { id, .. }
-        | ResponseItem::FunctionCall { id, .. }
-        | ResponseItem::ToolSearchCall { id, .. }
-        | ResponseItem::CustomToolCall { id, .. }
-        | ResponseItem::WebSearchCall { id, .. } => {
-            *id = provider_item_id.map(str::to_string);
-        }
-        ResponseItem::Reasoning { id, .. } => {
-            *id = provider_item_id.unwrap_or_default().to_string();
-        }
-        _ => {}
-    }
-}
-
-fn restore_tool_success(item: &mut ResponseItem, tool_success: Option<bool>) {
-    match item {
-        ResponseItem::FunctionCallOutput { output, .. }
-        | ResponseItem::CustomToolCallOutput { output, .. } => output.success = tool_success,
-        _ => {}
-    }
 }
 
 #[cfg(test)]

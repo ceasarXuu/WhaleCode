@@ -1,8 +1,72 @@
 use super::*;
 use crate::session::tests::make_session_configuration_for_tests;
+use codex_protocol::models::ContentItem;
+use codex_protocol::models::ResponseItem;
 use codex_protocol::protocol::CreditsSnapshot;
+use codex_protocol::protocol::MapRuntimeMode;
 use codex_protocol::protocol::RateLimitWindow;
 use pretty_assertions::assert_eq;
+
+fn user_message(text: &str) -> ResponseItem {
+    ResponseItem::Message {
+        id: None,
+        role: "user".to_string(),
+        content: vec![ContentItem::InputText {
+            text: text.to_string(),
+        }],
+        end_turn: None,
+        phase: None,
+    }
+}
+
+#[tokio::test]
+async fn taskspace_context_moves_without_parallel_history_copy() {
+    let session_configuration = make_session_configuration_for_tests().await;
+    let mut state = SessionState::new(session_configuration);
+    let item = user_message("preserve exactly");
+    state
+        .history
+        .record_items(std::iter::once(&item), TruncationPolicy::Tokens(10_000));
+    let owner = codex_protocol::ThreadId::new();
+    state
+        .action_map_runtime
+        .set_mode_for_session(MapRuntimeMode::Experiment, owner);
+
+    let events = state.activate_taskspace_context();
+
+    assert_eq!(events.len(), 1);
+    assert!(state.history.raw_items().is_empty());
+    assert_eq!(state.clone_history().raw_items(), &[item.clone()]);
+
+    state
+        .action_map_runtime
+        .set_mode_for_session(MapRuntimeMode::Standard, owner);
+    assert_eq!(state.deactivate_taskspace_context(), vec![item.clone()]);
+    assert!(state.taskspace_events.is_empty());
+    assert_eq!(state.history.raw_items(), &[item]);
+}
+
+#[tokio::test]
+async fn subagent_fork_linearizes_context_without_parent_runtime() {
+    let session_configuration = make_session_configuration_for_tests().await;
+    let mut parent = SessionState::new(session_configuration.clone());
+    let item = user_message("fork context");
+    parent
+        .history
+        .record_items(std::iter::once(&item), TruncationPolicy::Tokens(10_000));
+    let owner = codex_protocol::ThreadId::new();
+    parent
+        .action_map_runtime
+        .set_mode_for_session(MapRuntimeMode::Experiment, owner);
+    let events = parent.activate_taskspace_context();
+    let mut child = SessionState::new(session_configuration);
+
+    child.restore_subagent_fork_context(Vec::new(), events, None);
+
+    assert_eq!(child.action_map_runtime.mode(), MapRuntimeMode::Standard);
+    assert!(child.taskspace_events.is_empty());
+    assert_eq!(child.history.raw_items(), &[item]);
+}
 
 #[tokio::test]
 // Verifies connector merging deduplicates repeated IDs.
