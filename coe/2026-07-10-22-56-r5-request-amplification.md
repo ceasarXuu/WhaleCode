@@ -2503,3 +2503,30 @@
   ```
 - Interpretation: 原始95-request runaway不再复现；修复补齐了canonical工具链路，没有放宽hard state、自动finish或添加Runtime语义决策。
 - Time: 2026-07-12
+
+## Evidence E-056: J6.7最终paired样本证明canonical去重和缓存门禁通过
+- Related hypotheses:
+  - H-022
+  - H-023
+- Direction: fix-validation
+- Type: live-docker-paired-benefit-gate
+- Source: J6.7.6 focused + complex Docker runs
+- Prediction or plan link:
+  - `docs/v0.0.5/build-R5/22-r5-j6-7-canonical-task-context-plan.md`
+  - `docs/v0.0.5/build-R5/29-r5-j6-7-phase6-benefit-gate-result.md`
+- Matched signal:
+  - 两组Standard/R5均solved；R5 canonical payload/call/output record duplicate和orphan均为0；retention/salience为100%；request 2+ cache分别比Standard高2.10和2.09个百分点。
+- Correlation keys:
+  - focused `20260712-124928-300`
+  - complex `20260712-124928-323`
+- Raw content:
+  ```text
+  focused Standard/R5: 7/11 requests, 50,000/91,297 input, 14.04/23.67s
+  complex Standard/R5: 12/14 requests, 120,518/153,604 input, 49.83/55.69s
+  focused R5 active non-message: 21,662 bytes/request
+  J6.6 active non-message: 22,496 bytes/request
+  protected miss / semantic replacement: 0 / 0
+  task status / open nodes: completed / 0
+  ```
+- Interpretation: 单一事实源和固定结构去重收益成立，且没有以缓存、反馈完整性或正确性为代价。总request/input仍随Agent路径波动；单次样本不支持把跨轮总成本变化写成稳定因果，也不支持增加Runtime语义约束。
+- Time: 2026-07-12

@@ -3,7 +3,7 @@
 - Created: 2026-07-12
 - Updated: 2026-07-12
 - Version: 1.0
-- Status: In progress / J6.7.0-J6.7.5 complete, J6.7.6 ready
+- Status: Review pending / J6.7.0-J6.7.5 complete, J6.7.6 engineering evidence complete
 - Owner / Responsible: WhaleCode core runtime / TaskSpace context
 - Related Systems: `action_map`、`ConversationHistory`、session turn、provider prompt builder、
   `taskspace_control`、compaction、output refs、benchmark observer
@@ -393,6 +393,14 @@ control 仅引用，`count-call-stack` Standard/R5 均 solved，orphan 与 raw d
   保留正确架构但不声明性能收益，并暂停J7等待用户决策。
 - Next Gate：全部通过后更新R5/CoE并解锁J7，否则保持pause。
 
+**实施结果（2026-07-12）：** 工程与 live evidence 已完成，结果见
+`29-r5-j6-7-phase6-benefit-gate-result.md`。`count-call-stack` 和
+`subscription-billing-repair` 的 Standard/R5 Docker paired sample 均 solved；canonical
+payload/call/output record duplicate 与 orphan 均为0，Map语义保留100%，两组 request 2+ cache 分别
+比同轮 Standard 高2.10和2.09个百分点。active非消息固定区较J6.6下降约3.7%，但跨轮总请求和总
+input仍受Agent路径方差影响，不声明稳定因果收益。当前仅剩经用户授权的对抗性审查；审查关闭全部
+critical/high finding前不解锁J7。
+
 ## 9. Phase Gate矩阵
 
 | Phase | Independent Verification | Forbidden Future Dependency | Exit Evidence | Next Decision |
@@ -411,13 +419,13 @@ control 仅引用，`count-call-stack` Standard/R5 均 solved，orphan 与 raw d
 
 | Plan Item | Expected Behavior | Production Code Path | Integration Entry | Test Evidence | Runtime Evidence | Status |
 |---|---|---|---|---|---|---|
-| event envelope | 原始ResponseItem无损承载 | `action_map/map.rs`或新`event_store.rs` | session record | round-trip matrix | event codec trace | planned |
-| canonical ingress | task item只写一次 | session/tool completion path | TaskSpace turn | ownership tests | source_event_id | planned |
-| provider linearizer | 从Store恢复原生roles/tools | session turn prompt builder | provider request | payload equality | linearization trace | planned |
-| control dedupe | transition引用events | taskspace handler/sequence | control call | schema/failure tests | transition trace | planned |
-| checkpoint/ref | 渐进暴露无正文重复 | projection/compaction/output ref | context pressure | compaction tests | omission/ref trace | planned |
-| old path deletion | 无双写和兼容 | history composer/runtime | all TaskSpace turns | call graph/build | old_path_count=0 | planned |
-| benefit gate | 正确性和成本可证明 | Docker benchmark | paired run | validators | performance report | planned |
+| event envelope | 原始ResponseItem无损承载 | `action_map/event_store.rs` | session record | round-trip matrix | event codec trace | landed |
+| canonical ingress | task item只写一次 | session/tool completion path | TaskSpace turn | ownership tests | source_event_id | landed |
+| provider linearizer | 从Store恢复原生roles/tools | session turn prompt builder | provider request | payload equality | linearization trace | landed |
+| control dedupe | transition引用events | taskspace handler/sequence | control call | schema/failure tests | transition trace | landed |
+| checkpoint/ref | 渐进暴露无正文重复 | projection/compaction/output ref | context pressure | compaction tests | omission/ref trace | landed |
+| old path deletion | 无双写和兼容 | history composer/runtime | all TaskSpace turns | call graph/build | old_path_count=0 | landed |
+| benefit gate | 正确性和成本可证明 | Docker benchmark | paired run | validators | performance report | review pending |
 
 仅production path接通并取得runtime证据后可标记`landed`；schema、fixture或test-only codec不能单独完成迁移。
 
