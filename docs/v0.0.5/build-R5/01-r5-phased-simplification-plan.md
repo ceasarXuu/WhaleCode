@@ -10,7 +10,7 @@
 Created: 2026-07-09
 Updated: 2026-07-13
 Version: v0.0.5 build-R5
-Status: In Progress - R5-J7.6 control contract fidelity repair is prioritized before J7.5 revalidation; R5-K compression chartered
+Status: In Progress - R5-J7.6 implementation complete, live gate paused on H-026; R5-K remains locked
 Owner / Responsible: WhaleCode core runtime
 Related Systems: TaskSpace runtime, action_map runtime, taskspace_control,
   context projection, provider-visible context, benchmark harness
@@ -37,6 +37,7 @@ Related Links:
   docs/v0.0.5/build-R5/30-r5-j6-7-phase7-context-residue-plan.md
   docs/v0.0.5/build-R5/31-r5-map-native-context-compression-charter.md
   docs/v0.0.5/build-R5/39-r5-j7-6-control-contract-fidelity-plan.md
+  docs/v0.0.5/build-R5/40-r5-j7-6-control-contract-fidelity-result.md
   coe/2026-07-10-01-54-r5-normal-progress-budget-hard-stop.md
   coe/2026-07-10-05-03-r5-stale-active-projection-accumulation.md
   coe/2026-07-10-22-56-r5-request-amplification.md
@@ -152,6 +153,7 @@ multi-finish / finish+ordinary 采用率仍为0，不作为已兑现收益。
 | R5-H | closeout 列出已删/降级/保留结构和后续删除条件，git clean | 形成可交接的架构边界和后续路线，避免 R5 结论再次散落 | closeout 文档、证据索引、clean git、保留复杂结构 owner/exit condition |
 | R5-I | Agent、public validator、hidden oracle 全部进入隔离容器；日志、digest、资源和时间可审计 | 消除宿主环境干扰并建立正式 benchmark 的可复现证据链 | 详细门禁见 `13-r5-unified-docker-benchmark-and-logging-plan.md`；当前只登记，不执行 |
 | R5-J | P0 消除空 Map 无效工具选择；P1 承载 Agent 明确声明的状态迁移和后续动作；P3 合并最后 finish 和 Agent final candidate；J5允许连续显式 finish | 已消除 pre-init和 terminal额外往返，并补齐多 finish执行能力；真实 Agent未采用时不以 runtime强制追求 control-only下降 | provider repeated-control probe；sequence/integration tests；`pre_init_ordinary=0`；terminal extra request=0；multi-control/chained-finish/mixed独立观测；详细门禁见 `14-r5-native-control-cadence-plan.md` |
+| R5-J7.6 | tagged next、扁平 terminal 和 V2 success identity 全部落地；两组 identity missing/repeat finish 均为0 | 修复成功反馈过度裁剪，Map 从旧 order 9/4 open 收敛为3/0 | 4+20+1+9 focused tests；Docker order/billing；H-025关闭，H-026 live gate paused |
 | R5-K | K0/K1先证明长会话规模和冻结压缩合同；K2-K5再实现可逆archive/macro、20轮恢复和Docker门禁 | 让真实长会话可频繁压缩而不丢全局导航或把语义权交给Runtime | 100/1k/10k nodes；root/frontier/protected 100%；expand/replay hash 100%；详细门禁见 `31-r5-map-native-context-compression-charter.md` |
 
 ## 1.6 Phase R5-A：当前结构盘点和基线

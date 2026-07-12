@@ -2654,3 +2654,87 @@
 - Interpretation: failure 语义正确且进入上下文；成功事实被过度裁剪才是反馈层缺口。Runtime不应通过自动状态推进
   掩盖该缺口。
 - Time: 2026-07-13
+
+## Hypothesis H-026: finish_then_end 仍允许结构合法但生命周期无效的 terminal self-loop
+- Status: confirmed
+- Parent: P-001
+- Claim: 新 terminal schema 允许省略 `terminal_node_id` 来终结 current，同时可选 `preceding_finishes` 仍接受
+  current node 和任意 tagged next；JSON Schema 无法表达 finished node 与 next node 不得相同，因而
+  `verify -> verify` 能通过 parser，直到状态机硬规则才被拒绝。
+- Layer: taskspace-control-terminal-tool-affordance
+- Factor relation: causal for one remaining recovery request; not causal for H-025
+- Falsifiable predictions:
+  - If true: order 首次 terminal call 结构解析成功，state machine 拒绝 self-binding；下一请求删除 preceding
+    finish 后成功；billing 使用 distinct preceding/terminal IDs 时同一合同成功。
+  - If false: 首次 call 在 parser 拒绝，或错误来自 open node/反馈丢失，或 distinct chain 同样失败。
+- Diagnostic evidence plan:
+  - Signal: 两组 terminal call/output、parser contract、Map before/after snapshots。
+  - Capture method: J7.6 Docker rollout 与 V2 observer。
+  - Differentiates from: committed identity 丢失、重复 finish、Runtime 自动 next、terminal hard rule错误。
+- Evidence gate: satisfied
+- Related evidence:
+  - E-061
+- Conclusion: confirmed；这是后续 tool schema/shape 设计问题，不应以 Runtime 自动纠正 self-loop 处理
+- Repair design readiness: needs focused design discussion
+- Next step: paused per user request
+- Blocker:
+  - user direction required before follow-up
+
+## Evidence E-060: J7.6 两组 live run 关闭 H-025 成功身份缺口
+- Related hypotheses:
+  - H-025
+- Direction: fix-validation
+- Type: unit-integration-and-live-docker
+- Source: J7.6 order/billing Standard-R5 runs
+- Prediction or plan link:
+  - J7.6 committed identity / no repeat / Map closure gates
+- Matched signal:
+  - order/billing V2 success为4/5、identity steps为4/6、missing均0、committed repeat均0；Map分别3/5节点，
+    open均0，task均completed；外部validator均通过。
+- Correlation keys:
+  - order `target/r5-j7-6-order/multi-file-order-pipeline/20260713-063847-885`
+  - billing `target/r5-j7-6-billing/subscription-billing-repair/20260713-063847-885`
+- Raw content:
+  ```text
+  order old/new: requests 18/9, state failures 4/1, nodes/open 9/4 -> 3/0
+  billing new: requests 15, state failures 0, nodes/open 5/0
+  identity_missing: 0 / 0
+  committed_repeat_finish: 0 / 0
+  ```
+- Interpretation: H-025 原始“成功事实被删 -> 重复 finish -> Map 膨胀/未闭合”链路未复现。剩余 order reject
+  由 H-026 独立解释。
+- Time: 2026-07-13
+
+## Evidence E-061: order terminal self-loop 被忠实拒绝并在下一请求恢复
+- Related hypotheses:
+  - H-026
+- Direction: supports
+- Type: live-docker-control-trace
+- Source: J7.6 order R5 requests 8-9
+- Prediction or plan link:
+  - H-026 parser/state distinction
+- Matched signal:
+  - req8 声明 `preceding_finishes:[verify -> existing verify]` 且省略 terminal target；parser接受，state返回
+    `cannot bind next_node_id verify because current node will be completed`；req9 删除 preceding 后 terminal current成功。
+- Correlation keys:
+  - failed `call_00_UZIweej2NtHKZqkI9qit9675`
+  - recovered `call_00_XdtDLHLaRhYBJGVgz8u14645`
+- Interpretation: 硬规则、失败反馈和下一请求上下文均正确。剩余成本是一处工具形状可用性缺口，不支持放宽
+  state rule或让Runtime自动改写动作。
+- Time: 2026-07-13
+
+## Evidence E-062: J7.6 cache 无前缀破坏但保留 bootstrap shape 一次性税
+- Related hypotheses:
+  - H-025
+  - H-026
+- Direction: neutral-cost-evidence
+- Type: provider-wire-cache-trace
+- Source: J7.6 order/billing request traces
+- Prediction or plan link:
+  - no negative cache regression gate
+- Matched signal:
+  - zero-hit/same-shape-zero均0；req3之后 prefix 持续保留。TaskSpace req1 named control 到 req2 auto tools 发生一次
+    shape transition，uncached为6,074/4,060；order req5另有4,454 uncached，但 prefix 保留且前一请求新增4,323
+    output。
+- Interpretation: V2 identity fields没有造成结构性cache破坏；TaskSpace仍有已知bootstrap tool-choice切换成本。
+- Time: 2026-07-13

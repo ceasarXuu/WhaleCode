@@ -420,6 +420,10 @@ existing/create next 与 terminal 形状存在不必要歧义。J7.6 只修改 t
 **Exit:** J7.6 工程门禁通过后重跑 order/billing；只有 control failure=0、success identity coverage=100%、
 Map open=0 且外部验证通过，才重新判定 J7.5。
 
+**Result（2026-07-13）：** success identity coverage 100%、repeat committed finish 0、两组 Map open 0，H-025
+验证关闭；order 新暴露 terminal self-loop affordance 并产生1次state reject。J7.5 重算为12/14，继续 paused。
+详见 `40-r5-j7-6-control-contract-fidelity-result.md`。
+
 ## 9. Phase Gate Matrix
 
 | Phase | Independent Verification | Forbidden Future Dependency | Exit Evidence | Completion Required | Proceed Decision |

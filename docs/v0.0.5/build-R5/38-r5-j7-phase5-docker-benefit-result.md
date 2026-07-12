@@ -98,3 +98,11 @@ R5 分别为 `0.50x`、`0.44x`、`0.82x`。样本数为 1，且两条 Agent 路�
 J7.0-J7.4 保持 complete；J7.5 已执行但 gate paused。J7 不因模型偶发遵守或外部验证通过而关闭。
 后续应先把本轮暴露的 TaskSpace control 可用性/Map 生命周期问题纳入下一阶段诊断，再决定是否复验 J7.5；
 不得通过 runtime 自动 finish、自动合并 patch 或语义化 projection 追求表面通过。
+
+## 8. J7.6 复验补充（2026-07-13）
+
+J7.6 恢复 control committed identity 并收敛输入 schema 后，order R5 从18 requests/4 state failures/9 nodes
+4 open 收敛到9/1/3/0；billing R5 为15 requests/0 state failures/5 nodes/0 open。两组 success identity
+missing=0、repeat committed finish=0。Map health gate 恢复，但 order 新出现一次 terminal self-loop reject；
+billing Standard 仍产生一次 multi-patch request。因此 J7.5 更新为12/14，保持 paused。完整证据见
+`40-r5-j7-6-control-contract-fidelity-result.md`。

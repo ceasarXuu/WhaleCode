@@ -5,7 +5,7 @@
 - Created: 2026-07-13
 - Updated: 2026-07-13
 - Version: v0.0.5 build-R5 J7.6
-- Status: In Progress
+- Status: Implementation Complete; Live Gate Paused
 - Owner / Responsible: WhaleCode core runtime
 - Related Systems: `taskspace_control` ToolSpec、typed args、Action Map handler、sequence aggregate、benchmark observer
 - Related Links: `18-r5-single-patch-carrier-contract-plan.md`、`38-r5-j7-phase5-docker-benefit-result.md`、
@@ -196,12 +196,12 @@ created next 只把 `next.kind` 改为 `created` 并返回 Runtime 生成的 `no
 
 | Plan Item | Production Path | Integration Entry | Test Evidence | Runtime Evidence | Status |
 |---|---|---|---|---|---|
-| tagged next schema | `tools/src/taskspace_tool.rs` | active `taskspace_control` ToolSpec | schema snapshot | provider call args | planned |
-| typed parser | `taskspace_control_args.rs` | ToolRouter parse boundary | serde fixtures | protocol output | planned |
-| V2 identity feedback | `taskspace_control.rs` | handler + sequence aggregate | handler/sequence tests | canonical output | planned |
-| terminal simplification | schema + args + handler | `finish_then_end` | terminal fixture | terminal trace | planned |
-| identity observer | benchmark instrumentation | Docker artifact | extractor tests | report JSON/table | planned |
-| benefit proof | unified Docker runner | Standard/R5 pair | validators | rollout/map/cost/cache | planned |
+| tagged next schema | `tools/src/taskspace_tool.rs` | active `taskspace_control` ToolSpec | schema snapshot | provider call args | landed |
+| typed parser | `taskspace_control_args.rs` | ToolRouter parse boundary | serde fixtures | protocol output | landed |
+| V2 identity feedback | `taskspace_control.rs` | handler + sequence aggregate | handler/sequence tests | canonical output | landed |
+| terminal simplification | schema + args + handler | `finish_then_end` | terminal fixture | terminal trace | landed |
+| identity observer | benchmark instrumentation | Docker artifact | extractor tests | report JSON/table | landed |
+| benefit proof | unified Docker runner | Standard/R5 pair | validators | rollout/map/cost/cache | partial：H-025通过，H-026暂停 |
 
 只有 production path、测试和 runtime evidence 全部落地才可标记 `landed`。
 
@@ -241,3 +241,7 @@ created next 只把 `next.kind` 改为 `created` 并返回 Runtime 生成的 `no
 
 J7.6-E 完成后必须暂停并汇报，不进入 R5-K、G3、H，也不自动执行对抗性审查。若 sample 暴露新问题，先记录
 症状、因果证据与影响；只有用户确认后再进入后续修复。
+
+实施结果：J7.6 A-D 完成；E 中 H-025 修复验证通过，但 order 暴露 H-026 terminal self-loop affordance，产生
+1 次忠实 state reject。详细 trace、成本、cache、Map 与暂停决定见
+`40-r5-j7-6-control-contract-fidelity-result.md`。
