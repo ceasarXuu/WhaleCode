@@ -1365,7 +1365,7 @@ async fn build_initial_context_keeps_skills_without_blank_taskspace_context() {
 }
 
 #[tokio::test]
-async fn clone_history_exposes_one_latest_unpersisted_map_projection() {
+async fn fresh_map_uses_canonical_control_context_without_parallel_projection() {
     let (session, turn_context) = make_session_and_context().await;
     {
         let mut state = session.state.lock().await;
@@ -1432,20 +1432,7 @@ async fn clone_history_exposes_one_latest_unpersisted_map_projection() {
         .iter()
         .filter(|item| is_action_map_projection_developer_item(item))
         .count();
-    assert_eq!(projection_count, 1);
-    let control_output_index = history
-        .raw_items()
-        .iter()
-        .position(|item| matches!(item, ResponseItem::FunctionCallOutput { call_id, .. } if call_id == "init-control"))
-        .expect("control output");
-    let projection_index = history
-        .raw_items()
-        .iter()
-        .position(is_action_map_projection_developer_item)
-        .expect("projection");
-    assert!(control_output_index < projection_index);
-    let developer_text = developer_input_texts(history.raw_items()).join("\n");
-    assert!(developer_text.contains("current_node: inspect"));
+    assert_eq!(projection_count, 0);
 
     {
         let mut state = session.state.lock().await;
@@ -1480,33 +1467,18 @@ async fn clone_history_exposes_one_latest_unpersisted_map_projection() {
             .iter()
             .filter(|item| is_action_map_projection_developer_item(item))
             .count(),
-        1
+        0
     );
-    let developer_text = developer_input_texts(history.raw_items()).join("\n");
-    assert!(developer_text.contains("current_node: implement"));
-    assert!(developer_text.contains("inspect kind=inspect_code_context status=completed"));
-
-    let canonical_projection_count = {
-        let state = session.state.lock().await;
-        state
-            .clone_history()
-            .raw_items()
-            .iter()
-            .filter(|item| is_action_map_projection_developer_item(item))
-            .count()
-    };
-    assert_eq!(
-        canonical_projection_count, 0,
-        "map projection is a current provider view and must not accumulate in canonical history"
-    );
+    assert!(history.raw_items().iter().any(
+        |item| matches!(item, ResponseItem::FunctionCallOutput { call_id, .. } if call_id == "init-control")
+    ));
 }
 
 #[tokio::test]
-async fn record_context_updates_exposes_one_dynamic_taskspace_projection() {
+async fn record_context_updates_persists_one_epoch_taskspace_projection() {
     let (session, turn_context) = make_session_and_context().await;
     {
         let mut state = session.state.lock().await;
-        state.set_reference_context_item(Some(turn_context.to_turn_context_item()));
         state.action_map_runtime.set_mode_for_session(
             codex_protocol::protocol::MapRuntimeMode::Experiment,
             session.conversation_id,
@@ -1570,14 +1542,14 @@ async fn record_context_updates_exposes_one_dynamic_taskspace_projection() {
     let developer_text = developer_input_texts(history_after_second_update.raw_items()).join("\n");
     assert!(
         developer_text.contains("task_id: task-1") && developer_text.contains("map_id: map-1"),
-        "provider history should expose the latest map projection: {developer_text}"
+        "provider history should expose the epoch map projection: {developer_text}"
     );
     assert_eq!(
         developer_text
             .matches("ContextProjectionV1 epoch snapshot:")
             .count(),
         1,
-        "provider history must contain exactly one dynamic map projection: {developer_text}"
+        "provider history must contain exactly one epoch map projection: {developer_text}"
     );
 
     let canonical_developer_text = {
@@ -1585,8 +1557,8 @@ async fn record_context_updates_exposes_one_dynamic_taskspace_projection() {
         developer_input_texts(state.clone_history().raw_items()).join("\n")
     };
     assert!(
-        !canonical_developer_text.contains("ContextProjectionV1 epoch snapshot:"),
-        "dynamic map projection must not be persisted in canonical history: {canonical_developer_text}"
+        canonical_developer_text.contains("ContextProjectionV1 epoch snapshot:"),
+        "epoch map projection must be persisted once so later messages extend the provider prefix: {canonical_developer_text}"
     );
 }
 

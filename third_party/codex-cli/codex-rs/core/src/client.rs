@@ -981,9 +981,9 @@ fn scan_provider_payload_text(
     .map(str::to_string)
     .collect::<Vec<_>>();
     let replacement_confirmed = if projection_required {
-        active_projection_count == 1
+        active_projection_count <= 1
+            && (!active_projection_present || protected_items_present)
             && large_raw_output_tokens == 0
-            && protected_items_present
             && runtime_boundary_forbidden_markers.is_empty()
     } else {
         active_projection_count == 0
@@ -991,10 +991,7 @@ fn scan_provider_payload_text(
             && runtime_boundary_forbidden_markers.is_empty()
     };
     let mut failure_reasons = Vec::new();
-    if projection_required && !active_projection_present {
-        failure_reasons.push("active_projection_missing".to_string());
-    }
-    if projection_required && active_projection_count != 1 {
+    if projection_required && active_projection_count > 1 {
         failure_reasons.push("active_projection_not_unique".to_string());
     }
     if !projection_required && active_projection_count != 0 {
@@ -1006,7 +1003,7 @@ fn scan_provider_payload_text(
     if !runtime_boundary_forbidden_markers.is_empty() {
         failure_reasons.push("runtime_boundary_forbidden_marker_present".to_string());
     }
-    if projection_required && !protected_items_present {
+    if projection_required && active_projection_present && !protected_items_present {
         failure_reasons.push("projection_required_sections_missing".to_string());
     }
     ExactPayloadScanEventV1 {
@@ -1015,7 +1012,7 @@ fn scan_provider_payload_text(
         request_id: request_id.to_string(),
         provider_payload_sha256: sha256.to_string(),
         scanner_version: "v005-exact-scan-6".to_string(),
-        matcher_version: "v005-canonical-projection-checks-6".to_string(),
+        matcher_version: "v005-canonical-projection-checks-7".to_string(),
         checked_byte_ranges: vec![(0, text.len())],
         negative_checks_performed: vec![
             "active_projection_uniqueness".to_string(),

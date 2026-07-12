@@ -455,7 +455,7 @@ function New-TaskspaceActiveReplacementArtifacts {
     $failedMatchingScanEvents = @($matchingScanEvents | Where-Object { -not [bool]$_.passed })
     $projectionScanEvents = @($matchingScanEvents | Where-Object { [bool]$_.projection_required })
     $unconfirmedMatchingScanEvents = @($projectionScanEvents | Where-Object { -not [bool]$_.replacement_confirmed })
-    $projectionUniquenessViolations = @($projectionScanEvents | Where-Object { [int]$_.active_projection_count -ne 1 })
+    $projectionUniquenessViolations = @($projectionScanEvents | Where-Object { [int]$_.active_projection_count -gt 1 })
     $projectionCountMaximum = if ($projectionScanEvents.Count -gt 0) {
         [int](($projectionScanEvents | Measure-Object -Property active_projection_count -Maximum).Maximum)
     } else { 0 }

@@ -394,6 +394,22 @@ fn provider_payload_scan_validates_canonical_projection_shape() {
     assert!(blank_bootstrap.scan.passed);
     assert!(blank_bootstrap.scan.replacement_confirmed);
 
+    let fresh_active_without_projection = provider_payload_digest(&json!({
+        "input": "canonical initialize/control history",
+        "tools": [
+            { "type": "function", "function": { "name": "taskspace_control" } },
+            { "type": "function", "function": { "name": "shell_command" } }
+        ]
+    }))
+    .expect("fresh active payload digest");
+    assert!(fresh_active_without_projection.scan.projection_required);
+    assert_eq!(
+        fresh_active_without_projection.scan.active_projection_count,
+        0
+    );
+    assert!(fresh_active_without_projection.scan.passed);
+    assert!(fresh_active_without_projection.scan.replacement_confirmed);
+
     let active_projection = concat!(
         "ContextProjectionV1 epoch snapshot:\n",
         "- task_id: task-1\n",
