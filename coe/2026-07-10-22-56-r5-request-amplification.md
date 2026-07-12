@@ -2404,3 +2404,102 @@
   ```
 - Interpretation: 本次错误动作发生在完整状态反馈可见的情况下，属于Agent路径方差；Runtime硬拒绝和反馈语义正确。单样本不支持增加Runtime语义约束。
 - Time: 2026-07-12
+
+## Hypothesis H-023: nested action 未进入 canonical Event Store 导致工具 reservation 永久泄漏
+- Status: confirmed-fixed
+- Parent: P-001
+- Claim: J6.7.5 将 Map tool result 改为必须引用 canonical event 后，`initialize_then_actions` 内的 nested ordinary call 没有独立写入 Event Store；result attribution 因找不到 call event 而在释放 reservation 前失败，留下永久 `node_tool_calls_in_flight`。
+- Layer: canonical-context-and-tool-lifecycle
+- Factor relation: causal
+- Depends on:
+  - H-017
+- Rationale:
+  - nested action 仍以 outer control arguments/output 承载，违反 J6.7 的独立原生 call/output pair 合同；只有 nested call 缺 canonical ID 才能同时解释“工具已经完成”“Map没有对应 node event”和“in-flight计数永不归零”。
+- Falsifiable predictions:
+  - If true: outer init 的两个 nested call 有真实成功输出，但 `task_context_event_recorded` 中没有对应 nested call/output；Map snapshot 缺这两个 node event；首次 finish 精确报2个in-flight。
+  - If false: Event Store 已存在两个 nested call event，或 reservation 在 result path 中已释放，或in-flight数量来自尚未结束的真实进程。
+- Diagnostic evidence plan:
+  - Prediction or clause under test: 对 outer init aggregate、canonical event序列、Map node events和首次finish错误做call_id逐项join。
+  - Signal: `${outer}:nested:0/1`、`task-event-*`、`node-event-*`、`node_tool_calls_in_flight`。
+  - Capture method: interrupted Docker rollout与最终Map snapshot；静态检查 `execute_taskspace_barrier -> record_main_tool_result_with_class -> event_id_for_call`。
+  - Event name or marker:
+    - `task_context_event_recorded`
+    - `node_event_recorded`
+    - `node_tool_calls_in_flight`
+  - Correlation keys:
+    - run `20260712-122002-493`
+    - outer call `call_00_etl6GnuK6M0jrUjjAwuC0653`
+  - Differentiates from:
+    - Agent忽略finish说明。
+    - final gate反馈丢失。
+    - 普通并行工具尚未完成。
+  - Supports if:
+    - nested call/output只存在于outer正文，且in-flight恒等于缺失canonical pair数量。
+  - Refutes if:
+    - nested pair已独立持久化或reservation能在无canonical event时正常完成。
+  - Instrumentation status: existing-runtime-evidence
+  - Instrumentation lifecycle:
+    - 保留 canonical event、node event 与 hard-state error 的关联字段。
+- Evidence gate: satisfied
+- Related evidence:
+  - E-054
+  - E-055
+- Conclusion: confirmed；修复必须补齐nested原生事件入口并消除outer正文重复，不得弱化in-flight硬规则或让Runtime猜测工具已完成
+- Repair design readiness: ready
+- Next step: 先写nested event/reservation回归，再实现call/output独立记录与outer event-ref aggregate。
+- Blocker:
+  - none
+- Close reason:
+  - nested pair ingress、reservation closure与同样本Docker复验均通过
+
+## Evidence E-054: 缺失的两个nested canonical pair与永久in-flight数量精确相等
+- Related hypotheses:
+  - H-023
+- Direction: supports
+- Type: live-rollout-and-code-path
+- Source: J6.7.5 `count-call-stack` interrupted R5 Docker run
+- Prediction or plan link:
+  - H-023 canonical pair join clause
+- Matched signal:
+  - outer init output明确包含两个成功nested shell output；canonical sequence只有outer call/output，首个独立普通call从`task-event-8`开始；Map最终有13个后续tool events但没有两个init nested events；首次及所有后续finish均稳定报`2 in-flight main tool call(s)`。
+- Correlation keys:
+  - run `20260712-122002-493`
+  - `call_00_etl6GnuK6M0jrUjjAwuC0653:nested:0`
+  - `call_00_etl6GnuK6M0jrUjjAwuC0653:nested:1`
+  - first finish `call_00_GuqWSnMiwRycNh5lRnUn4840`
+- Raw content:
+  ```text
+  task-event-5/6: outer taskspace_control call/output
+  nested:0/1: only embedded inside outer output, both success=true
+  first finish: node understand_project has 2 in-flight main tool call(s)
+  record_main_tool_result_with_class: requires source_event_id before release_main_tool_reservation
+  ```
+- Interpretation: 硬规则和错误反馈是正确的；错误状态来自canonical工具事件缺位。通过放宽finish、自动清reservation或让Agent继续重试都会掩盖事实链缺口。
+- Time: 2026-07-12
+
+## Evidence E-055: nested pair物化后同样本完整闭合且无orphan
+- Related hypotheses:
+  - H-023
+- Direction: fix-validation
+- Type: unit-integration-and-live-docker
+- Source: commits pending + J6.7.5 `count-call-stack` rerun
+- Prediction or plan link:
+  - H-023 fix criteria 1-5
+- Matched signal:
+  - 3个nested action分别形成3组独立call/output event，均携带outer `parent_call_id`和`node=explore` owner；outer output只含event refs；run在10 requests内结束，task/map与4个node均completed，open/orphan call/output均为0。
+- Correlation keys:
+  - run `20260712-123635-091`
+  - nested events `task-event-6..11`
+- Raw content:
+  ```text
+  Standard: solved, 8 requests, 16.51s
+  R5: solved, 10 requests, 24.52s
+  R5 nested actions: 3
+  orphan calls/outputs: 0/0
+  root task: completed
+  open nodes: 0
+  action-map tests: 28 passed
+  tools tests: 341 passed
+  ```
+- Interpretation: 原始95-request runaway不再复现；修复补齐了canonical工具链路，没有放宽hard state、自动finish或添加Runtime语义决策。
+- Time: 2026-07-12

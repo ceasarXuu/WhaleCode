@@ -3,7 +3,7 @@
 - Created: 2026-07-12
 - Updated: 2026-07-12
 - Version: 1.0
-- Status: In progress / J6.7.0-J6.7.4 complete, J6.7.5 ready
+- Status: In progress / J6.7.0-J6.7.5 complete, J6.7.6 ready
 - Owner / Responsible: WhaleCode core runtime / TaskSpace context
 - Related Systems: `action_map`、`ConversationHistory`、session turn、provider prompt builder、
   `taskspace_control`、compaction、output refs、benchmark observer
@@ -366,6 +366,13 @@ large-output稳定shape为98.01%。J6.7.5 entry gate开放。
 - Review/Risk：删除和模块边界审查；主要风险是误删Standard共享history能力。
 - Fallback：回退本phase删除提交；不恢复已废弃production owner。
 - Next Gate：全量回归和call graph通过后进入J6.7.6。
+
+**实施结果（2026-07-12）：** 已完成。结果见
+`28-r5-j6-7-phase5-legacy-removal-result.md`。旧 provider composer、Map 正文副本、Runtime
+observed-edit backfill、dead payload telemetry 和 observer body parser 已物理删除。首次 live run 发现
+nested action 未进入 Event Store 导致 reservation 泄漏；修复后 nested call/output 独立持久化并由 outer
+control 仅引用，`count-call-stack` Standard/R5 均 solved，orphan 与 raw duplicate 为0，task/map/node
+全部闭合。J6.7.6 entry gate开放。
 
 ### Phase J6.7.6：收益门禁与收口
 
