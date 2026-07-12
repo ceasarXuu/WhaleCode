@@ -525,7 +525,7 @@ mod tests {
         let call = function_call_with_arguments(
             "taskspace_control",
             "outer",
-            r#"{"action":"initialize_then_actions","task_title":"task","task_objective":"objective","initial_nodes":[{"node_id":"node-1","kind":"inspect_code_context","title":"Inspect","context_summary":"Read"}],"current_node_id":"node-1","actions":[{"tool_name":"exec_command","arguments":{"cmd":"pwd"}}]}"#,
+            r#"{"action":"initialize_then_actions","task_goal":"objective","initial_nodes":[{"node_id":"node-1","kind":"inspect_code_context","goal":"Read"}],"current_node_id":"node-1","actions":[{"tool_name":"exec_command","arguments":{"cmd":"pwd"}}]}"#,
         );
 
         let actions = taskspace_nested_actions(&call);

@@ -134,14 +134,7 @@ fn initial_node_schema() -> JsonSchema {
                 "kind".into(),
                 JsonSchema::string_enum(node_kind_values(), Some("Node type.".into())),
             ),
-            (
-                "title".into(),
-                JsonSchema::string(Some("Agent-authored node title.".into())),
-            ),
-            (
-                "context_summary".into(),
-                JsonSchema::string(Some("Agent-authored node context.".into())),
-            ),
+            ("goal".into(), JsonSchema::string(Some("Node goal.".into()))),
             (
                 "dependency_node_ids".into(),
                 JsonSchema::array(
@@ -150,12 +143,7 @@ fn initial_node_schema() -> JsonSchema {
                 ),
             ),
         ]),
-        Some(vec![
-            "node_id".into(),
-            "kind".into(),
-            "title".into(),
-            "context_summary".into(),
-        ]),
+        Some(vec!["node_id".into(), "kind".into(), "goal".into()]),
         Some(false.into()),
     )
 }
@@ -176,7 +164,7 @@ fn next_existing_finish_schema() -> JsonSchema {
                 JsonSchema::string(Some("Existing node bound after this finish.".into())),
             ),
         ]),
-        Some(vec!["result_summary".into(), "next_node_id".into()]),
+        Some(vec!["next_node_id".into()]),
         Some(false.into()),
     )
 }
@@ -197,12 +185,8 @@ fn next_created_finish_schema() -> JsonSchema {
                 JsonSchema::string_enum(node_kind_values(), Some("Created node type.".into())),
             ),
             (
-                "next_node_title".into(),
-                JsonSchema::string(Some("Created node title.".into())),
-            ),
-            (
-                "next_node_context_summary".into(),
-                JsonSchema::string(Some("Created node context.".into())),
+                "next_node_goal".into(),
+                JsonSchema::string(Some("Created node goal.".into())),
             ),
             (
                 "next_dependency_node_ids".into(),
@@ -212,12 +196,7 @@ fn next_created_finish_schema() -> JsonSchema {
                 ),
             ),
         ]),
-        Some(vec![
-            "result_summary".into(),
-            "next_node_kind".into(),
-            "next_node_title".into(),
-            "next_node_context_summary".into(),
-        ]),
+        Some(vec!["next_node_kind".into(), "next_node_goal".into()]),
         Some(false.into()),
     )
 }
@@ -241,7 +220,7 @@ fn terminal_finish_schema() -> JsonSchema {
                 JsonSchema::string(Some("Agent-authored terminal node result.".into())),
             ),
         ]),
-        Some(vec!["result_summary".into()]),
+        None,
         Some(false.into()),
     )
 }
@@ -251,12 +230,8 @@ fn initialize_then_actions_schema(actions: &JsonSchema) -> JsonSchema {
         "initialize_then_actions",
         BTreeMap::from([
             (
-                "task_title".into(),
-                JsonSchema::string(Some("Task title.".into())),
-            ),
-            (
-                "task_objective".into(),
-                JsonSchema::string(Some("Task objective.".into())),
+                "task_goal".into(),
+                JsonSchema::string(Some("Root task goal.".into())),
             ),
             (
                 "initial_nodes".into(),
@@ -274,8 +249,7 @@ fn initialize_then_actions_schema(actions: &JsonSchema) -> JsonSchema {
             ),
         ]),
         vec![
-            "task_title".into(),
-            "task_objective".into(),
+            "task_goal".into(),
             "initial_nodes".into(),
             "current_node_id".into(),
             "actions".into(),
@@ -328,15 +302,14 @@ fn simple_action_schemas() -> Vec<JsonSchema> {
                     "kind".into(),
                     JsonSchema::string_enum(node_kind_values(), None),
                 ),
-                ("title".into(), JsonSchema::string(None)),
-                ("context_summary".into(), JsonSchema::string(None)),
+                ("goal".into(), JsonSchema::string(None)),
                 (
                     "dependency_node_ids".into(),
                     JsonSchema::array(JsonSchema::string(None), None),
                 ),
                 ("bind_current".into(), JsonSchema::boolean(None)),
             ]),
-            vec!["kind".into(), "title".into(), "context_summary".into()],
+            vec!["kind".into(), "goal".into()],
         ),
         object_variant(
             "bind_node",
@@ -427,6 +400,11 @@ mod tests {
             .filter_map(|variant| variant["properties"]["action"]["enum"][0].as_str())
             .collect::<Vec<_>>();
         assert_eq!(action_names, vec!["initialize_then_actions"]);
+        let text = value.to_string();
+        assert!(text.contains("task_goal"));
+        assert!(!text.contains("task_title"));
+        assert!(!text.contains("task_objective"));
+        assert!(!text.contains("context_summary"));
         assert_eq!(
             value["parameters"]["$defs"]["ordinaryAction"]["anyOf"][0]["properties"]["arguments"],
             list_dir_value["parameters"]
@@ -449,6 +427,9 @@ mod tests {
         assert!(!text.contains("ordinaryAction"));
         assert!(!text.contains("tool_name"));
         assert!(!text.contains("arguments"));
+        assert!(text.contains("next_node_goal"));
+        assert!(!text.contains("task_title"));
+        assert!(!text.contains("context_summary"));
         let finish = value["parameters"]["anyOf"]
             .as_array()
             .expect("variants")

@@ -7,8 +7,7 @@ use serde_json::Value as JsonValue;
 #[serde(tag = "action", rename_all = "snake_case", deny_unknown_fields)]
 pub(crate) enum TaskSpaceControlArgs {
     InitializeThenActions {
-        task_title: String,
-        task_objective: String,
+        task_goal: String,
         initial_nodes: Vec<TaskSpaceInitializeNodeArgs>,
         current_node_id: String,
         actions: Vec<TaskSpaceNestedAction>,
@@ -24,8 +23,7 @@ pub(crate) enum TaskSpaceControlArgs {
     },
     CreateNode {
         kind: String,
-        title: String,
-        context_summary: String,
+        goal: String,
         #[serde(default)]
         dependency_node_ids: Vec<String>,
         #[serde(default)]
@@ -57,8 +55,7 @@ pub(crate) enum TaskSpaceControlArgs {
 pub(crate) struct TaskSpaceInitializeNodeArgs {
     pub(crate) node_id: String,
     pub(crate) kind: String,
-    pub(crate) title: String,
-    pub(crate) context_summary: String,
+    pub(crate) goal: String,
     #[serde(default)]
     pub(crate) dependency_node_ids: Vec<String>,
 }
@@ -68,15 +65,13 @@ pub(crate) struct TaskSpaceInitializeNodeArgs {
 pub(crate) struct TaskSpaceNonterminalFinishArgs {
     #[serde(default)]
     pub(crate) node_id: Option<String>,
-    pub(crate) result_summary: String,
+    pub(crate) result_summary: Option<String>,
     #[serde(default)]
     pub(crate) next_node_id: Option<String>,
     #[serde(default)]
     pub(crate) next_node_kind: Option<String>,
     #[serde(default)]
-    pub(crate) next_node_title: Option<String>,
-    #[serde(default)]
-    pub(crate) next_node_context_summary: Option<String>,
+    pub(crate) next_node_goal: Option<String>,
     #[serde(default)]
     pub(crate) next_dependency_node_ids: Vec<String>,
 }
@@ -86,7 +81,7 @@ pub(crate) struct TaskSpaceNonterminalFinishArgs {
 pub(crate) struct TaskSpaceTerminalFinishArgs {
     #[serde(default)]
     pub(crate) node_id: Option<String>,
-    pub(crate) result_summary: String,
+    pub(crate) result_summary: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -167,11 +162,18 @@ impl TaskSpaceControlArgs {
     fn validate(&self) -> Result<(), FunctionCallError> {
         match self {
             Self::InitializeThenActions {
+                task_goal,
                 initial_nodes,
                 actions,
                 ..
             } => {
+                if task_goal.trim().is_empty() {
+                    return invalid("initialize_then_actions requires a non-empty task_goal");
+                }
                 require_non_empty(initial_nodes, "initial_nodes")?;
+                if initial_nodes.iter().any(|node| node.goal.trim().is_empty()) {
+                    return invalid("each initial node requires a non-empty goal");
+                }
                 require_non_empty(actions, "actions")?;
                 validate_nested_actions(actions)
             }
@@ -195,10 +197,13 @@ impl TaskSpaceControlArgs {
                 }
                 Ok(())
             }
-            Self::CreateNode { .. }
-            | Self::BindNode { .. }
-            | Self::BlockNode { .. }
-            | Self::ReadOutputRef { .. } => Ok(()),
+            Self::CreateNode { goal, .. } => {
+                if goal.trim().is_empty() {
+                    return invalid("create_node requires a non-empty goal");
+                }
+                Ok(())
+            }
+            Self::BindNode { .. } | Self::BlockNode { .. } | Self::ReadOutputRef { .. } => Ok(()),
         }
     }
 }
@@ -208,8 +213,7 @@ impl TaskSpaceNonterminalFinishArgs {
         let has_existing = non_empty(self.next_node_id.as_deref());
         let draft_fields = [
             self.next_node_kind.as_deref(),
-            self.next_node_title.as_deref(),
-            self.next_node_context_summary.as_deref(),
+            self.next_node_goal.as_deref(),
         ];
         let has_any_draft = draft_fields.iter().any(|value| non_empty(*value))
             || !self.next_dependency_node_ids.is_empty();
@@ -220,9 +224,7 @@ impl TaskSpaceNonterminalFinishArgs {
             );
         }
         if has_any_draft && !has_complete_draft {
-            return invalid(
-                "next-node creation requires next_node_kind, next_node_title, and next_node_context_summary",
-            );
+            return invalid("next-node creation requires next_node_kind and next_node_goal");
         }
         Ok(())
     }
@@ -292,15 +294,21 @@ mod tests {
     #[test]
     fn accepts_complete_finish_barrier() {
         let args = parse_taskspace_control_args(
-            r#"{"action":"finish_nodes","finishes":[{"result_summary":"done","next_node_id":"node-2"}]}"#,
+            r#"{"action":"finish_nodes","finishes":[{"next_node_id":"node-2"}]}"#,
         )
         .expect("valid args");
         assert!(args.nested_actions().is_empty());
     }
 
     #[test]
+    fn rejects_removed_verbose_map_fields() {
+        let legacy = r#"{"action":"initialize_then_actions","task_title":"task","task_objective":"goal","initial_nodes":[{"node_id":"node-1","kind":"inspect_code_context","title":"Inspect","context_summary":"Read"}],"current_node_id":"node-1","actions":[{"tool_name":"exec_command","arguments":{"cmd":"pwd"}}]}"#;
+        assert!(parse_taskspace_control_args(legacy).is_err());
+    }
+
+    #[test]
     fn rejects_ambiguous_finish_binding() {
-        let ambiguous = r#"{"action":"finish_nodes","finishes":[{"result_summary":"done","next_node_id":"node-2","next_node_kind":"smoke_test","next_node_title":"Test","next_node_context_summary":"Run tests"}]}"#;
+        let ambiguous = r#"{"action":"finish_nodes","finishes":[{"result_summary":"done","next_node_id":"node-2","next_node_kind":"smoke_test","next_node_goal":"Run tests"}]}"#;
         assert!(parse_taskspace_control_args(ambiguous).is_err());
     }
 }

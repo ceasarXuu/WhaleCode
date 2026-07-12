@@ -5,13 +5,11 @@ fn parses_agent_authored_map() {
     let args = parse_taskspace_control_args(
         &serde_json::json!({
             "action": "initialize_then_actions",
-            "task_title": "Patch bug",
-            "task_objective": "Fix and verify",
+            "task_goal": "Fix and verify",
             "initial_nodes": [{
                 "node_id": "inspect",
                 "kind": "inspect_code_context",
-                "title": "Inspect",
-                "context_summary": "Read relevant code"
+                "goal": "Read relevant code"
             }],
             "current_node_id": "inspect",
             "actions": [{"tool_name": "exec_command", "arguments": {"cmd": "pwd"}}]

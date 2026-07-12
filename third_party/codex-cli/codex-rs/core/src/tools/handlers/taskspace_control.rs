@@ -91,8 +91,7 @@ impl ToolHandler for TaskSpaceControlHandler {
 
         let (message, success, terminal_agent_message) = match args {
             TaskSpaceControlArgs::InitializeThenActions {
-                task_title,
-                task_objective,
+                task_goal,
                 initial_nodes,
                 current_node_id,
                 actions: _,
@@ -100,11 +99,12 @@ impl ToolHandler for TaskSpaceControlHandler {
                 let nodes = initial_nodes
                     .into_iter()
                     .map(|node| {
+                        let title = node.node_id.clone();
                         Ok(ActionMapInitializeNodeInput {
                             id: node.node_id,
                             kind: parse_node_kind("initial_nodes.kind", &node.kind)?,
-                            title: node.title,
-                            context_summary: node.context_summary,
+                            title,
+                            context_summary: node.goal,
                             dependency_node_ids: node.dependency_node_ids,
                         })
                     })
@@ -113,8 +113,8 @@ impl ToolHandler for TaskSpaceControlHandler {
                     .initialize_action_map_for_main(
                         &turn,
                         ActionMapInitializeInput {
-                            task_title,
-                            task_objective,
+                            task_title: "TaskSpace task".into(),
+                            task_objective: task_goal,
                             nodes,
                             current_node_id,
                         },
@@ -175,8 +175,7 @@ impl ToolHandler for TaskSpaceControlHandler {
             }
             TaskSpaceControlArgs::CreateNode {
                 kind,
-                title,
-                context_summary,
+                goal,
                 dependency_node_ids,
                 bind_current,
             } => {
@@ -184,8 +183,8 @@ impl ToolHandler for TaskSpaceControlHandler {
                     .create_action_map_node_for_main_with_kind(
                         &turn,
                         parse_node_kind("kind", &kind)?,
-                        title,
-                        context_summary,
+                        goal.clone(),
+                        goal,
                         dependency_node_ids,
                         bind_current,
                     )
@@ -292,15 +291,14 @@ async fn execute_nonterminal_finish(
 ) -> Result<JsonValue, FunctionCallError> {
     let draft = build_next_node_draft(
         finish.next_node_kind,
-        finish.next_node_title,
-        finish.next_node_context_summary,
+        finish.next_node_goal,
         finish.next_dependency_node_ids,
     )?;
     let (node_id, outcome) = session
         .finish_action_map_current_or_named_node_with_next(
             turn,
             finish.node_id.as_deref(),
-            finish.result_summary,
+            finish.result_summary.unwrap_or_default(),
             finish.next_node_id,
             draft,
         )
@@ -325,7 +323,7 @@ async fn execute_terminal_finish(
         .finish_action_map_node_with_terminal_candidate(
             turn,
             finish.node_id.as_deref(),
-            finish.result_summary,
+            finish.result_summary.unwrap_or_default(),
             final_candidate,
         )
         .await
@@ -407,17 +405,13 @@ fn parse_node_kind(field: &str, value: &str) -> Result<NodeKind, FunctionCallErr
 
 fn build_next_node_draft(
     kind: Option<String>,
-    title: Option<String>,
-    context_summary: Option<String>,
+    goal: Option<String>,
     dependency_node_ids: Vec<String>,
 ) -> Result<Option<ActionMapNextNodeDraft>, FunctionCallError> {
     let has_any = kind
         .as_deref()
         .is_some_and(|value| !value.trim().is_empty())
-        || title
-            .as_deref()
-            .is_some_and(|value| !value.trim().is_empty())
-        || context_summary
+        || goal
             .as_deref()
             .is_some_and(|value| !value.trim().is_empty())
         || !dependency_node_ids.is_empty();
@@ -425,18 +419,17 @@ fn build_next_node_draft(
         return Ok(None);
     }
     let kind = parse_node_kind("next_node_kind", kind.as_deref().unwrap_or_default())?;
-    let title = title.unwrap_or_default();
-    let context_summary = context_summary.unwrap_or_default();
-    if title.trim().is_empty() || context_summary.trim().is_empty() {
+    let goal = goal.unwrap_or_default();
+    if goal.trim().is_empty() {
         return Err(protocol_error(
-            "finish next-node creation requires kind, title, and context".into(),
+            "finish next-node creation requires kind and goal".into(),
             "missing_argument",
         ));
     }
     Ok(Some(ActionMapNextNodeDraft {
         kind,
-        title,
-        context_summary,
+        title: goal.clone(),
+        context_summary: goal,
         dependency_node_ids,
     }))
 }

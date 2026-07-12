@@ -53,7 +53,7 @@ $finishStep = [ordered]@{
         result_summary = [ordered]@{ type = 'string' }
         next_node_id = [ordered]@{ type = 'string' }
     }
-    required = @('node_id', 'result_summary', 'next_node_id')
+    required = @('node_id', 'next_node_id')
     additionalProperties = $false
 }
 $terminalFinishStep = [ordered]@{
@@ -62,25 +62,37 @@ $terminalFinishStep = [ordered]@{
         node_id = [ordered]@{ type = 'string' }
         result_summary = [ordered]@{ type = 'string' }
     }
-    required = @('node_id', 'result_summary')
+    required = @('node_id')
     additionalProperties = $false
 }
 $actionsProperty = [ordered]@{ type = 'array'; minItems = 1; items = $nestedAction }
 $finishesProperty = [ordered]@{ type = 'array'; minItems = 1; items = $finishStep }
+$initialNode = [ordered]@{
+    type = 'object'
+    properties = [ordered]@{
+        node_id = [ordered]@{ type = 'string' }
+        kind = [ordered]@{ type = 'string'; enum = @('inspect_code_context') }
+        goal = [ordered]@{ type = 'string' }
+    }
+    required = @('node_id', 'kind', 'goal')
+    additionalProperties = $false
+}
 $parameters = [ordered]@{
     type = 'object'
     anyOf = @(
         (New-ActionSchema 'initialize_then_actions' ([ordered]@{
-                    task_title = [ordered]@{ type = 'string' }
+                    task_goal = [ordered]@{ type = 'string' }
+                    initial_nodes = [ordered]@{ type = 'array'; minItems = 1; items = $initialNode }
+                    current_node_id = [ordered]@{ type = 'string' }
                     actions = $actionsProperty
-                }) @('task_title', 'actions')),
+                }) @('task_goal', 'initial_nodes', 'current_node_id', 'actions')),
         (New-ActionSchema 'finish_nodes' ([ordered]@{
                     finishes = $finishesProperty
                 }) @('finishes')),
         (New-ActionSchema 'finish_then_end' ([ordered]@{
-                    finishes = [ordered]@{ type = 'array'; minItems = 1; items = $terminalFinishStep }
+                    terminal_finish = $terminalFinishStep
                     final_candidate = [ordered]@{ type = 'string' }
-                }) @('finishes', 'final_candidate'))
+                }) @('terminal_finish', 'final_candidate'))
     )
 }
 
@@ -108,6 +120,7 @@ function Get-Shape {
         tool_name = if ($calls.Count -eq 1) { [string]$calls[0].function.name } else { '' }
         action = if ($null -ne $arguments) { [string]$arguments.action } else { '' }
         finish_count = if ($null -ne $arguments -and $null -ne $arguments.finishes) { @($arguments.finishes).Count } else { 0 }
+        has_terminal_finish = ($null -ne $arguments -and $null -ne $arguments.terminal_finish)
         action_count = if ($null -ne $arguments -and $null -ne $arguments.actions) { @($arguments.actions).Count } else { 0 }
         has_final_candidate = ($null -ne $arguments -and -not [string]::IsNullOrWhiteSpace([string]$arguments.final_candidate))
         parsed = ($null -ne $arguments)
@@ -175,9 +188,9 @@ function Invoke-Probe {
 }
 
 $prompts = [ordered]@{
-    initialize_then_actions = 'Call initialize_then_actions with task_title probe and one exec_command action whose cmd is pwd.'
-    finish_nodes = 'Call finish_nodes with one finish for node-1, summary done, and next node-2.'
-    finish_then_end = 'Call finish_then_end with one finish for node-2, summary verified, and final_candidate DONE.'
+    initialize_then_actions = 'Call initialize_then_actions with task_goal probe, one inspect node node-1 with goal inspect, current_node_id node-1, and one exec_command action whose cmd is pwd.'
+    finish_nodes = 'Call finish_nodes with one finish for node-1 and next node-2.'
+    finish_then_end = 'Call finish_then_end with terminal_finish node-2 and final_candidate DONE.'
 }
 $probes = @()
 foreach ($strictMode in @($false, $true)) {
@@ -205,7 +218,7 @@ function Test-ProbeShape {
     }
     if ($Probe.name -like 'finish_then_end_*') {
         return $Probe.shape.action -eq 'finish_then_end' -and
-            $Probe.shape.finish_count -eq 1 -and $Probe.shape.has_final_candidate
+            $Probe.shape.has_terminal_finish -and $Probe.shape.has_final_candidate
     }
     return $false
 }

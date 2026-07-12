@@ -67,13 +67,11 @@ async fn terminal_candidate_finishes_turn_without_extra_provider_request() -> Re
         .await?;
     let initialize = serde_json::to_string(&json!({
         "action": "initialize_then_actions",
-        "task_title": "Terminal candidate",
-        "task_objective": "Read the fixture and return the Agent final.",
+        "task_goal": "Read the fixture and return the Agent final.",
         "initial_nodes": [{
             "node_id": "inspect",
             "kind": "inspect_code_context",
-            "title": "Inspect fixture",
-            "context_summary": "Read README."
+            "goal": "Read README."
         }],
         "current_node_id": "inspect",
         "actions": [{"tool_name": "exec_command", "arguments": {"cmd": "cat README.md"}}]
@@ -132,20 +130,17 @@ async fn nonterminal_finish_executes_sibling_action_after_barrier() -> Result<()
     let harness = TestCodexHarness::new().await?;
     let initialize = serde_json::to_string(&json!({
         "action": "initialize_then_actions",
-        "task_title": "Cadence gate",
-        "task_objective": "Verify a nonterminal finish executes its declared continuation.",
+        "task_goal": "Verify a nonterminal finish executes its declared continuation.",
         "initial_nodes": [
             {
                 "node_id": "inspect",
                 "kind": "inspect_code_context",
-                "title": "Inspect cadence fixture",
-                "context_summary": "Exercise cadence observation."
+                "goal": "Exercise cadence observation."
             },
             {
                 "node_id": "complete",
                 "kind": "final_synthesis",
-                "title": "Complete cadence fixture",
-                "context_summary": "Finish after the standalone transition.",
+                "goal": "Finish after the standalone transition.",
                 "dependency_node_ids": ["inspect"]
             }
         ],
@@ -226,20 +221,17 @@ async fn adjacent_finish_calls_claim_successive_ready_targets() -> Result<()> {
     let harness = TestCodexHarness::new().await?;
     let initialize = serde_json::to_string(&json!({
         "action": "initialize_then_actions",
-        "task_title": "Chained finish",
-        "task_objective": "Finish two dependent nodes in one response.",
+        "task_goal": "Finish two dependent nodes in one response.",
         "initial_nodes": [
             {
                 "node_id": "first",
                 "kind": "inspect_code_context",
-                "title": "First",
-                "context_summary": "Record the first result."
+                "goal": "Record the first result."
             },
             {
                 "node_id": "second",
                 "kind": "final_synthesis",
-                "title": "Second",
-                "context_summary": "Record the second result.",
+                "goal": "Record the second result.",
                 "dependency_node_ids": ["first"]
             }
         ],
@@ -309,27 +301,23 @@ async fn native_sequence_executes_dependent_tools_after_latest_state_barrier() -
 
     let initialize = serde_json::to_string(&json!({
         "action": "initialize_then_actions",
-        "task_title": "Ordered native sequence",
-        "task_objective": "Inspect, edit, and validate the fixture.",
+        "task_goal": "Inspect, edit, and validate the fixture.",
         "initial_nodes": [
             {
                 "node_id": "inspect",
                 "kind": "inspect_code_context",
-                "title": "Inspect fixture",
-                "context_summary": "Read the fixture instructions."
+                "goal": "Read the fixture instructions."
             },
             {
                 "node_id": "implement",
                 "kind": "implement_solution",
-                "title": "Edit fixture",
-                "context_summary": "Apply the required edit.",
+                "goal": "Apply the required edit.",
                 "dependency_node_ids": ["inspect"]
             },
             {
                 "node_id": "validate",
                 "kind": "smoke_test",
-                "title": "Validate fixture",
-                "context_summary": "Run the fixture validation.",
+                "goal": "Run the fixture validation.",
                 "dependency_node_ids": ["implement"]
             }
         ],
@@ -463,13 +451,11 @@ async fn failed_state_barrier_skips_dependent_tail_without_side_effect() -> Resu
         .await?;
     let initialize = serde_json::to_string(&json!({
         "action": "initialize_then_actions",
-        "task_title": "Barrier failure",
-        "task_objective": "Verify failure stops the dependent tail.",
+        "task_goal": "Verify failure stops the dependent tail.",
         "initial_nodes": [{
             "node_id": "inspect",
             "kind": "inspect_code_context",
-            "title": "Inspect fixture",
-            "context_summary": "Read README before finishing."
+            "goal": "Read README before finishing."
         }],
         "current_node_id": "inspect",
         "actions": [{"tool_name": "exec_command", "arguments": {"cmd": "cat README.md"}}]
@@ -559,20 +545,17 @@ async fn map_runtime_conversation_records_node_bound_subagent_events() -> Result
     let server = start_mock_server().await;
     let create_node_args = serde_json::to_string(&json!({
         "action": "initialize_then_actions",
-        "task_title": "缓存模块边界调查",
-        "task_objective": "调查缓存模块边界，然后由主 agent 继续推进。",
+        "task_goal": "调查缓存模块边界，然后由主 agent 继续推进。",
         "initial_nodes": [
             {
                 "node_id": "coordinate",
                 "kind": "inspect_code_context",
-                "title": "协调缓存模块调查",
-                "context_summary": "等待并整合缓存模块边界调查结果。"
+                "goal": "等待并整合缓存模块边界调查结果。"
             },
             {
                 "node_id": "investigate",
                 "kind": "inspect_code_context",
-                "title": "调查缓存模块边界",
-                "context_summary": "供子 agent 调查缓存模块边界。"
+                "goal": "供子 agent 调查缓存模块边界。"
             }
         ],
         "current_node_id": "coordinate",
@@ -814,20 +797,17 @@ def test_cache_key_normalizes_key():\n    assert cache_key(\"Users\", \"ABC\") =
 async fn mount_realistic_user_bugfix_responses(harness: &TestCodexHarness) -> Result<()> {
     let create_node_args = serde_json::to_string(&json!({
         "action": "initialize_then_actions",
-        "task_title": "缓存 key 回归修复",
-        "task_objective": "调查缓存 key 失败边界，修复代码并验证。",
+        "task_goal": "调查缓存 key 失败边界，修复代码并验证。",
         "initial_nodes": [
             {
                 "node_id": "coordinate",
                 "kind": "inspect_code_context",
-                "title": "协调缓存 key 回归修复",
-                "context_summary": "等待并整合边界调查结果。"
+                "goal": "等待并整合边界调查结果。"
             },
             {
                 "node_id": "investigate",
                 "kind": "inspect_code_context",
-                "title": "调查缓存 key 失败边界",
-                "context_summary": "供子 agent 阅读缓存代码和测试。"
+                "goal": "供子 agent 阅读缓存代码和测试。"
             }
         ],
         "current_node_id": "coordinate",
@@ -912,8 +892,7 @@ async fn mount_realistic_user_bugfix_responses(harness: &TestCodexHarness) -> Re
         "finishes": [{
             "result_summary": "缓存 key 边界调查已完成。",
             "next_node_kind": "implement_solution",
-            "next_node_title": "Fix cache key normalization",
-            "next_node_context_summary": "Implement the cache key namespace normalization fix after the boundary investigation finished."
+            "next_node_goal": "Implement the cache key namespace normalization fix after the boundary investigation finished."
         }]
     }))?;
     responses::mount_sse_once_match(
