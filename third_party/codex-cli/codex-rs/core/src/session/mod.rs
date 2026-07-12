@@ -1217,23 +1217,6 @@ impl Session {
             self.emit_action_map_events_for_turn(turn_context, runtime_events)
                 .await;
         }
-        let checkpoint_due = {
-            let mut state = self.state.lock().await;
-            state
-                .action_map_checkpoint
-                .provider_responses_since_checkpoint = state
-                .action_map_checkpoint
-                .provider_responses_since_checkpoint
-                .saturating_add(1);
-            state
-                .action_map_checkpoint
-                .provider_responses_since_checkpoint
-                >= 8
-        };
-        if checkpoint_due {
-            self.emit_action_map_checkpoint_for_turn(turn_context, "periodic_provider_boundary")
-                .await;
-        }
     }
 
     pub(crate) async fn record_action_map_child_tool_result(

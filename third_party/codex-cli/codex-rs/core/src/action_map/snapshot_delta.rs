@@ -11,7 +11,6 @@ pub(crate) struct ActionMapCheckpointState {
     pub(crate) latest_snapshot_sha256: Option<String>,
     pub(crate) latest_snapshot: Option<ActionMapSnapshot>,
     pub(crate) delta_sequence: u64,
-    pub(crate) provider_responses_since_checkpoint: u64,
 }
 
 impl ActionMapCheckpointState {
@@ -27,7 +26,6 @@ impl ActionMapCheckpointState {
         self.latest_snapshot_sha256 = Some(snapshot_sha256);
         self.latest_snapshot = Some(snapshot);
         self.delta_sequence = 0;
-        self.provider_responses_since_checkpoint = 0;
     }
 }
 
