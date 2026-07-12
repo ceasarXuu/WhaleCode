@@ -10,7 +10,7 @@
 Created: 2026-07-09
 Updated: 2026-07-13
 Version: v0.0.5 build-R5
-Status: In Progress - R5-J6.7.7 and R5-J7.0-J7.4 complete; J7.5 executed and gate paused; R5-K compression chartered
+Status: In Progress - R5-J7.6 control contract fidelity repair is prioritized before J7.5 revalidation; R5-K compression chartered
 Owner / Responsible: WhaleCode core runtime
 Related Systems: TaskSpace runtime, action_map runtime, taskspace_control,
   context projection, provider-visible context, benchmark harness
@@ -36,6 +36,7 @@ Related Links:
   docs/v0.0.5/build-R5/22-r5-j6-7-canonical-task-context-plan.md
   docs/v0.0.5/build-R5/30-r5-j6-7-phase7-context-residue-plan.md
   docs/v0.0.5/build-R5/31-r5-map-native-context-compression-charter.md
+  docs/v0.0.5/build-R5/39-r5-j7-6-control-contract-fidelity-plan.md
   coe/2026-07-10-01-54-r5-normal-progress-budget-hard-stop.md
   coe/2026-07-10-05-03-r5-stale-active-projection-accumulation.md
   coe/2026-07-10-22-56-r5-request-amplification.md
@@ -103,7 +104,7 @@ TaskSpace 拉回三个职责：
 
 ## 1.5 Phase 总览
 
-当前剩余执行顺序：`R5-J7 -> R5-K -> R5-G3 final regression -> R5-H closeout`。J6.7 final-rejection loop、
+当前剩余执行顺序：`R5-J7.6 -> R5-J7.5 revalidation -> R5-K -> R5-G3 final regression -> R5-H closeout`。J6.7 final-rejection loop、
 3-repeat gate和两轮对抗性审查已完成。J5 工程能力已完成，但真实
 multi-finish / finish+ordinary 采用率仍为0，不作为已兑现收益。
 字母编号保留历史文档稳定性，实际推进只以 1.15 的依赖和门禁矩阵为准。
@@ -130,6 +131,7 @@ multi-finish / finish+ordinary 采用率仍为0，不作为已兑现收益。
 | R5-J6.6 input follow-up | Epoch base / Map write / success ack sparsification | 删除固定base、Map字段和success output中的机械重复；failure与ordinary反馈保持原文 | projection estimate下降63%；active warm cache保持约97%；paired correctness通过 |
 | R5-J6.7 | Canonical Task Context | Map/Event Store成为唯一事实源；J6.7.7继续关闭final/nested/blank/projection/snapshot残留 | task item单一owner；跨carrier重复归零；Map全局骨架完整且局部详情分层；snapshot增量化；cache/correctness无负收益 |
 | R5-J7 | Singular request patch slot | J6.7完成后，Standard/TaskSpace单个provider response最多一个`apply_patch`；carrier schema直接约束，共享tool-sequence执行前校验顶层/carrier/nested总数；patch全量预检先于写入；读取和pytest只观察 | request-wide multi-patch零执行；validation failure零文件副作用；patch + test能力保留 |
+| R5-J7.6 | Control contract fidelity | 用 tagged next 与扁平 terminal 形成唯一输入形状；成功反馈返回 init/finished/next/current 等已提交机械事实 | 旧形状不可表达；success identity coverage 100%；order 无 committed 后重复 finish；Map 完整闭合 |
 | R5-K | Map-native context compression | 长会话中将满足硬拓扑条件的已闭合子图可逆归档为macro node | root/frontier与全局路径保留；展开/replay 100%；无Runtime语义摘要 |
 
 ### 1.5.1 Phase 验收和工程收益矩阵

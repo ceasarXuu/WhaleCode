@@ -408,6 +408,18 @@ patch 正文、文件正文或 secret。
 patch，order R5 出现4次state failure并留下4个open node。J7保持paused。完整证据、成本与R4 unavailable
 说明见 `38-r5-j7-phase5-docker-benefit-result.md`。
 
+### J7.6：TaskSpace Control 契约忠实性修复
+
+**Priority:** 在 J7.5 复验前执行；不得先进入 R5-K/G3/H。
+
+J7.5 order trace 证明状态机提交正确，但 success ack 删除了 init/finish 的节点身份，且 active schema 的
+existing/create next 与 terminal 形状存在不必要歧义。J7.6 只修改 tool contract、typed parser、忠实回执与
+可观测性：不自动 finish/bind/create，不增加 projection 提示，不放宽硬状态规则。详细 phase、字段合同、日志、
+回退和 Docker 门禁见 `39-r5-j7-6-control-contract-fidelity-plan.md`。
+
+**Exit:** J7.6 工程门禁通过后重跑 order/billing；只有 control failure=0、success identity coverage=100%、
+Map open=0 且外部验证通过，才重新判定 J7.5。
+
 ## 9. Phase Gate Matrix
 
 | Phase | Independent Verification | Forbidden Future Dependency | Exit Evidence | Completion Required | Proceed Decision |

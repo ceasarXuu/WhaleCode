@@ -2602,3 +2602,55 @@
   - design correction version 1.1
 - Interpretation: 普通projection应保持root、全部nodes/goals/edges和active frontier完整；只对node-local事件与证据详情做确定性分层。若最小骨架仍超预算，必须进入独立Map-native可逆压缩合同，不得由Runtime静默裁剪或生成语义摘要。
 - Time: 2026-07-12
+
+## Hypothesis H-025: control成功回执过度裁剪与无判别输入形状共同放大重复状态请求
+- Status: confirmed
+- Parent: P-001
+- Claim: J7.5 order 中 Action Map 初始化和双 finish 均真实成功，但 handler 删除已提交的 node/current/next
+  身份；active ToolSpec 又用无判别 `anyOf` 和 `terminal_finish` wrapper 暴露多个近似形状，使 Agent 在下一请求
+  重复 finish 已完成节点并误构 terminal，产生额外 state reject、draft node 和 open Map。
+- Layer: taskspace-control-tool-contract-and-feedback
+- Factor relation: causal
+- Falsifiable predictions:
+  - If true: initialize outcome 与 session finish API 已含缺失 ID；success output 没有这些 ID；重复 finish 紧随
+    success ack；failure output 能正确指出 already completed/current/open nodes。
+  - If false: session 没有 ID，或 success 已完整返回，或重复 finish 发生在 success feedback 进入上下文之前。
+- Diagnostic evidence plan:
+  - Signal: canonical control call/output、session return values、Map node/result lifecycle、逐 request 时间/token。
+  - Capture method: J7.5 order rollout 与静态 handler/ToolSpec 路径对照。
+  - Differentiates from: 状态机错误提交、failure 语义丢失、provider cache miss、Runtime 应自动选择动作。
+- Evidence gate: satisfied
+- Related evidence:
+  - E-059
+- Conclusion: confirmed；修复必须恢复机械身份并将 next/terminal 收敛为唯一 schema，不得增加 Runtime 语义控制
+- Repair design readiness: ready
+- Next step: 执行 `docs/v0.0.5/build-R5/39-r5-j7-6-control-contract-fidelity-plan.md`
+- Blocker:
+  - none
+
+## Evidence E-059: J7.5 order 的弱成功回执后精确出现重复finish与terminal误构
+- Related hypotheses:
+  - H-025
+- Direction: supports
+- Type: live-docker-trace-and-code-path
+- Source: J7.5 `multi-file-order-pipeline` R5 rollout + handler/ToolSpec
+- Prediction or plan link:
+  - H-025 success identity / repeated finish clause
+- Matched signal:
+  - 初始化创建6个Agent声明节点，但回执只有task/map；双finish提交后回执只有两个result/bound；下一请求重复
+    finish已完成节点并收到正确already-completed拒绝；随后新建3个draft节点；terminal连续出现preceding终态、
+    `__end__`、open-node拒绝，最终9节点4 open。
+- Correlation keys:
+  - run `target/r5-j7-5-contract-order/multi-file-order-pipeline/20260713-041900-801`
+  - init call `call_00_9W7...`
+  - successful finish call `call_00_ZD...`
+- Raw content:
+  ```text
+  init output: task_id + map_id; node_ids/current_node_id omitted
+  finish output: result_id + binding_status; finished_node_id/next_node_id omitted
+  order R5: 18 requests, 4 state failures, 9 nodes / 4 open
+  failed control-bearing requests: 29.3s, 70,868 gross input, 3,581 output
+  ```
+- Interpretation: failure 语义正确且进入上下文；成功事实被过度裁剪才是反馈层缺口。Runtime不应通过自动状态推进
+  掩盖该缺口。
+- Time: 2026-07-13
