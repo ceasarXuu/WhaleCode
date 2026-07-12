@@ -211,7 +211,7 @@ J7.0 必须先盘点 `ExecutorFileSystem` 是否具备跨文件 staging、atomic
 
 ### J7.0：证据冻结与能力探针
 
-**Entry:** J6 已完成，complex trace 和当前 patch partial-success test 可重放。
+**Entry:** J6.7 已完成并冻结canonical event/carrier边界；complex trace 和当前 patch partial-success test 可重放。
 
 **Work:**
 
