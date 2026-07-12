@@ -3,7 +3,7 @@
 - Created: 2026-07-12
 - Updated: 2026-07-12
 - Version: 1.0
-- Status: In progress / J6.7.0-J6.7.2 complete, J6.7.3 ready
+- Status: In progress / J6.7.0-J6.7.3 complete, J6.7.4 ready
 - Owner / Responsible: WhaleCode core runtime / TaskSpace context
 - Related Systems: `action_map`、`ConversationHistory`、session turn、provider prompt builder、
   `taskspace_control`、compaction、output refs、benchmark observer
@@ -315,6 +315,12 @@ canonical payload/call/output record 精确重复为 0。
 - Review/Risk：tool schema与Runtime边界审查；主要风险是删除summary时误删Agent新增结论。
 - Fallback：回退本phase schema和handler提交；不接受新旧字段并存。
 - Next Gate：provider probe和反馈门禁通过后进入J6.7.4。
+
+**实施结果（2026-07-12）：** 已完成。结果见
+`26-r5-j6-7-phase3-control-dedup-result.md`。root task与node lifecycle只保存canonical event引用，
+`task_goal/task_objective/result_summary/blocker_summary`已从production schema和两组真实rollout中清零；
+control/gate失败只有一份typed JSON。两个Docker paired sample四侧均solved，feedback retention为100%，
+protocol与state-machine失败分类均被Agent成功采用并纠正。J6.7.4 entry gate开放。
 
 ### Phase J6.7.4：Projection与Compaction收敛
 
