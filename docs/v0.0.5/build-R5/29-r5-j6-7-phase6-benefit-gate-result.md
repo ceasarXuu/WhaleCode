@@ -99,7 +99,7 @@ Runtime 语义干预。
 
 三个非终态 `finish_nodes` 都在同一 typed call 中携带 `next_node_id`，不是 standalone finish；terminal
 使用 `finish_then_end`，extra final request 为 0。complex trace 还出现同一响应并行 4 个 `apply_patch`，
-该行为属于已规划但尚未实施的 J7 singular patch carrier，不在 J6.7 中增加临时限制。
+该行为属于已规划但尚未实施的 J7 singular request patch slot，不在 J6.7 中增加临时限制。
 
 ## 7. 历史对照边界
 

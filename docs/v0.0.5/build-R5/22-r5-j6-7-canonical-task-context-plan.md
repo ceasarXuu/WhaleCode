@@ -18,7 +18,7 @@
 
 ## 1. 决策摘要
 
-R5-J6.7 插入在 J6.6 input follow-up 与 J7 singular patch carrier 之间。J7 在 J6.7 完成前暂停，
+R5-J6.7 插入在 J6.6 input follow-up 与 J7 singular request patch slot 之间。J7 在 J6.7 完成前暂停，
 避免继续扩大即将被收敛的 `taskspace_control` carrier 和双轨 provider history。
 
 核心决策：

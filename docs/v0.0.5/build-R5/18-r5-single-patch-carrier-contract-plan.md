@@ -1,11 +1,12 @@
-# R5-J7 单 Patch Carrier 与 Patch 预检计划
+# R5-J7 单 Request Patch Slot 与 Patch 预检计划
 
 - Created: 2026-07-12
-- Updated: 2026-07-12
-- Version: 1.0
-- Status: Blocked by R5-J6.7; documentation only, implementation not started
+- Updated: 2026-07-13
+- Version: 1.1
+- Status: Blocked until R5-J6.7 adversarial review closes; documentation only, implementation not started
 - Owner / Responsible: WhaleCode TaskSpace / apply_patch substrate
-- Related Systems: `taskspace_control` tool schema、nested ToolSpec、ToolRouter、`codex-apply-patch`、benchmark observer
+- Related Systems: provider response tool sequence、`taskspace_control` tool schema、nested ToolSpec、ToolRouter、
+  `codex-apply-patch`、benchmark observer
 - Related Links: `17-r5-schema-first-taskspace-control-plan.md`、`01-r5-phased-simplification-plan.md`、
   `22-r5-j6-7-canonical-task-context-plan.md`
 - Risk Level: High
@@ -42,12 +43,24 @@ runtime 做到：顺序执行，首错停止，尾部 skipped
 文件系统得到：可能已经发生部分写入
 ```
 
+J6.7修复后的3-repeat进一步证明原计划的scope不足。R5在active Map下通过顶层native tools生成了多个兄弟
+`apply_patch`，并未经过`taskspace_control.actions[]`：
+
+- complex repeat-2在一个provider response中生成5个顶层patch，其中两个修改同一`plans.py`；前4个成功、
+  `test_plans.py` patch失败，形成部分提交并触发后续恢复；
+- complex repeat-3在一个provider response中生成4个顶层patch，分别修改4个文件，本轮全部成功但仍无整组原子性；
+- 证据：`target/r5-final-loop-fix-repeat3/subscription-billing-repair/20260713-002149-397`。
+
+因此J7约束单位必须从“单carrier”提升为“单provider response”。仅修改`taskspace_control` schema无法约束
+顶层兄弟工具调用数量；request-wide计数必须在共享tool-sequence dispatcher中、任何工具执行前完成。
+
 ## 2. 本轮证据分类
 
 | Item | Classification | Current Decision | Reason |
 |---|---|---|---|
 | 分层目录发现与按文件读取 | Observation | 保留观察，不改 schema、不加 gate | 未发现同一路径/同一范围在反馈可见后无意义重读，也未发现读取结果丢失或扭曲 |
 | 同一 carrier 三个 `apply_patch` | Confirmed defect | 纳入 J7 工具契约升级 | schema 允许重复写动作，失败会形成已执行/失败/skipped 的不完整批次 |
+| 同一response多个顶层`apply_patch` | Confirmed defect | request-wide共享工具序列硬约束 | 单工具JSON Schema不能约束兄弟调用数量，最新repeat-2已产生部分提交 |
 | 单个 multi-file patch 的失败原子性 | Confirmed substrate defect | 作为 J7 前置门禁 | 当前实现和测试都允许 validation failure 后保留前序文件改动 |
 | 额外一次 pytest | Observation | 跨复杂样本继续观察 | 单样本不足以证明重复验证失当，不增加工具限制 |
 
@@ -58,12 +71,14 @@ runtime 做到：顺序执行，首错停止，尾部 skipped
 
 ### 3.1 目标
 
-1. 一个 `taskspace_control` carrier 最多只能声明一个 `apply_patch`。
+1. 一个provider response在Standard和TaskSpace中合计最多只能声明一个`apply_patch`，计数覆盖顶层调用、
+   `taskspace_control` singular patch slot及nested tool alias。
 2. 多文件相关修改由 Agent 在一个 `apply_patch` 输入中完整声明；runtime 不合并、不拆分、不重排 patch。
 3. 单个 patch 的所有语法、路径和上下文校验在首个文件写入前完成；此类 validation failure 必须零文件副作用。
 4. patch 成功后仍允许在同一 carrier 中执行 Agent 已声明的 read/test 等普通动作。
 5. 非 patch 的多工具能力保持不变；多个读取、多个测试以及互不依赖的普通工具仍可并行或串行声明。
-6. schema、typed parser、runtime preflight 和 tool description 表达同一份机械契约。
+6. carrier schema、typed parser、request tool-sequence preflight和tool description表达同一份机械契约；
+   schema无法表达的response-wide计数由执行前dispatcher硬校验补齐。
 7. patch 成功、validation failure、commit failure、tail skipped 等事实忠实进入反馈与日志，不做语义改写。
 
 ### 3.2 非目标
@@ -76,14 +91,17 @@ runtime 做到：顺序执行，首错停止，尾部 skipped
 6. 不把 shell 命令按正文推断为“潜在写操作”；J7 只约束工具身份明确的 `apply_patch`。
 7. 不通过减少 Map 节点、自动 finish 或压缩语义来制造 request 收益。
 8. 不保留旧 multi-patch carrier 兼容形态。
+9. 不只约束TaskSpace而让Standard保留同类部分写风险；request-wide singularity与patch prepare/commit均走共享路径。
 
 ## 4. 设计原则
 
-1. **Tool-first**：合法操作形态首先由 `taskspace_control` schema 表达，不依赖提示词劝导。
+1. **Tool-first**：carrier内合法形态首先由tool schema表达；跨兄弟调用计数由共享tool-sequence preflight表达，
+   不依赖提示词劝导。
 2. **Agent-owned intent**：patch 内容、文件集合、顺序和后续动作均由 Agent 声明。
 3. **Runtime mechanical baseline**：runtime 只验证工具形状、可见性、状态机和资源硬规则。
 4. **Preflight before side effect**：整包结构校验和 patch validation 必须先于状态提交或文件写入。
-5. **No post-hoc punishment**：不得先执行部分动作，再用 cadence violation 或 recovery prompt 纠正 Agent。
+5. **No post-hoc punishment**：dispatcher必须先读取完整response tool sequence再执行；不得先执行第一个patch，
+   再拒绝第二个patch或注入recovery prompt。
 6. **Faithful feedback**：不得把 failed/skipped 改写为 success，不摘要掉原始 patch 错误和受影响路径。
 7. **No false atomicity claim**：语义校验零副作用与底层 I/O 全事务是两个不同承诺，必须分别验证和命名。
 
@@ -115,10 +133,43 @@ runtime 做到：顺序执行，首错停止，尾部 skipped
 | `apply_patch` 逐 hunk 读写 | `apply-patch/src/lib.rs::apply_hunks_to_files` | 合并文本仍可能在后序 validation failure 时部分写入 |
 | partial success 被测试固化 | `apply-patch/tests/suite/tool.rs` | J7.1 必须主动变更契约和测试，不能只改 TaskSpace schema |
 | J6 complex run 中首 patch 成功、次 patch 失败 | `target/j6-complex-b/.../20260712-042255-022` | 作为 J7 固定回归基线 |
+| J6.7后active Map允许顶层ordinary tools | `session/turn.rs` tool visibility、J6.7 live trace | carrier schema不能覆盖顶层兄弟patch |
+| 最新repeat-2顶层5 patch形成4 success + 1 failure | `target/r5-final-loop-fix-repeat3/.../pair-002/left` | request-wide preflight必须先于全部工具执行 |
+| 最新repeat-3顶层4 patch全部成功 | `target/r5-final-loop-fix-repeat3/.../pair-003/right` | 成功样本也不能证明多写批次安全 |
 
 ## 6. 目标工具契约
 
-### 6.1 推荐形态
+### 6.1 Request-wide singular patch invariant
+
+共享provider response dispatcher在任何ToolRouter调用、Map transition或文件副作用前，先把本次response中全部
+工具声明机械展开为`ToolSequenceManifest`。patch计数范围为：
+
+```text
+direct top-level apply_patch
++ taskspace_control.continuation.patch
++ nested ordinary action resolved to apply_patch
+= request_patch_count
+```
+
+工具身份按ToolRouter解析后的canonical tool name计数，不依靠自然语言、reasoning或shell正文推断。硬规则：
+
+```text
+request_patch_count <= 1
+```
+
+若计数大于1，整个response tool sequence在执行前失败：
+
+- 不提交Map或node状态；
+- 不执行patch、read、test或其他兄弟工具；
+- 不修改文件；
+- 为每个provider tool call保留闭合的机械failure/skipped结果，reason code固定为
+  `request_multiple_apply_patch_calls_not_allowed`；
+- 不自动合并patch、不只执行第一个、不生成策略性recovery内容。
+
+该规则位于Standard和TaskSpace共享的response tool-sequence入口。TaskSpace carrier schema提供更早、更显著的
+机器可读约束，但不是request-wide正确性的唯一防线。
+
+### 6.2 TaskSpace carrier推荐形态
 
 保留 J6 的 `initialize_then_actions` 和 `finish_then_actions` 顶层 action，但把宽泛 `actions[]` 替换为互斥的
 `continuation`：
@@ -151,7 +202,7 @@ runtime 做到：顺序执行，首错停止，尾部 skipped
 当前 request 的 model-visible `apply_patch` ToolSpec 派生；若本轮未暴露 `apply_patch`，则不生成
 `patch_then_actions` 分支。
 
-### 6.2 Provider 选择门禁
+### 6.3 Provider 选择门禁
 
 J7.0 必须对两个方案做真实 wire probe：
 
@@ -160,9 +211,10 @@ J7.0 必须对两个方案做真实 wire probe：
 | A | 保留 `actions[]`，用 `contains + maxContains=1` | 仅当目标 endpoint 接受、模型稳定生成且本地 schema 类型可忠实 round-trip 时采用 |
 | B | 显式 `continuation.kind=actions/patch_then_actions` | 推荐默认；不依赖数组成员计数关键字，约束更显著 |
 
-若两种结构都不能被目标 provider 稳定接受，J7 暂停并回报证据；不得退回 description-only 或执行后拒绝。
+若两种结构都不能被目标 provider 稳定接受，carrier schema保持当前可用最小形态并明确报告能力缺口；
+request-wide共享preflight仍是硬门禁。不得退回description-only或执行后拒绝。
 
-### 6.3 Typed parser 与 preflight
+### 6.4 Typed parser 与 request preflight
 
 无论 provider 是否 strict，本地必须在任何状态提交前验证：
 
@@ -172,8 +224,20 @@ J7.0 必须对两个方案做真实 wire probe：
 4. patch tool 在当前 request 可见，payload 类型和参数符合原 ToolSpec；
 5. nested action 仍不得调用 `taskspace_control` 或 `update_plan`。
 
-非法旧形态返回机械 reason code，例如 `multiple_apply_patch_actions_not_allowed`，并明确“未提交 state、未执行工具、
-未修改文件”。错误不得附带语义建议、自动修复内容或 recovery strategy。
+随后共享dispatcher对完整response执行request-wide计数。顺序必须固定为：
+
+```text
+parse all response tool calls
+  -> resolve canonical tool identities
+  -> expand declared carrier/nested tool identities without executing
+  -> validate request_patch_count <= 1
+  -> validate carrier schema/visibility/payload
+  -> only then submit state transitions and dispatch tools
+```
+
+非法旧carrier形态返回`multiple_apply_patch_actions_not_allowed`；跨顶层/嵌套调用超限返回
+`request_multiple_apply_patch_calls_not_allowed`。两者均明确“未提交state、未执行工具、未修改文件”。错误不得
+附带语义建议、自动修复内容或recovery strategy。
 
 ## 7. Patch 执行契约
 
@@ -215,9 +279,9 @@ J7.0 必须先盘点 `ExecutorFileSystem` 是否具备跨文件 staging、atomic
 
 **Work:**
 
-1. 固化三 patch carrier、首错停止、tail skipped 和恢复请求的 trace fixture。
+1. 固化三patch carrier、顶层5 patch partial success、顶层4 patch success、首错停止和恢复请求的trace fixture。
 2. 对 Option A/B 执行本地 schema round-trip 与目标 DeepSeek endpoint wire probe。
-3. 盘点 function/custom 两种 `apply_patch` ToolSpec 及当前 Chat API 映射。
+3. 盘点function/custom两种`apply_patch` ToolSpec、当前Chat API映射及共享response tool-sequence入口。
 4. 盘点 `ExecutorFileSystem` staging/rename/restore 能力，冻结 validation atomicity 与 I/O transaction 的准确承诺。
 5. 记录读取/pytest 为 observation-only，不创建对应 gate。
 
@@ -240,7 +304,7 @@ move/delete、write failure 和 rollback failure injection。
 
 **Exit:** 所有 validation failure 零文件副作用；I/O failure 行为与 J7.0 承诺完全一致。
 
-### J7.2：冻结 singular patch carrier schema
+### J7.2：冻结 singular patch carrier schema与request manifest
 
 **Entry:** J7.1 通过，目标 provider probe 通过。
 
@@ -250,10 +314,12 @@ move/delete、write failure 和 rollback failure injection。
 2. ordinary action union 排除 `apply_patch`，singular patch 字段复用原 ToolSpec。
 3. typed enum 与 JSON Schema 从同一结构派生，禁止 schema/parser 双轨。
 4. tool description 只描述合法形态、执行顺序和失败停止，不增加策略性提示。
+5. 定义共享`ToolSequenceManifest`和canonical patch identity，覆盖Standard顶层调用与TaskSpace carrier/nested声明。
 
 **Independent verification:** schema snapshot、provider request body、positive/negative typed fixtures。
 
-**Exit:** 一个 carrier 中第二个 `apply_patch` 在机器可读契约中不可表达；patch + test 仍可表达。
+**Exit:** 一个carrier中第二个`apply_patch`在机器可读契约中不可表达；完整response可在执行前稳定计算
+`request_patch_count`；patch + test仍可表达。
 
 ### J7.3：Runtime 预检与忠实反馈
 
@@ -261,15 +327,16 @@ move/delete、write failure 和 rollback failure injection。
 
 **Work:**
 
-1. 整个 carrier 的 visibility、payload 和 singular-patch 校验全部早于 state transition。
+1. 完整provider response的tool identities、patch count、visibility和payload校验全部早于任何state transition或工具执行。
 2. singular patch 继续经 ToolRouter/ToolCallRuntime 执行，不绕过权限、沙箱、hook、取消和日志。
 3. patch failure 后尾部 ordinary actions 继续使用现有 explicit skipped 语义。
 4. 删除旧 multi-patch batch 测试和任何 description-only 兼容路径。
 5. 错误反馈保留原 patch stderr/output ref、失败类别和零副作用声明。
+6. Standard与TaskSpace共用同一request-wide validator；不得在TaskSpace runtime复制第二份计数逻辑。
 
 **Independent verification:** state snapshot + filesystem snapshot 负例、权限/hook/sandbox 集成测试、raw feedback 等价测试。
 
-**Exit:** 非法 carrier 对 state/filesystem 均零副作用；合法 carrier 的 native tool 行为无回退。
+**Exit:** 非法carrier或request-wide multi-patch对state/filesystem均零副作用；合法单patch request的native tool行为无回退。
 
 ### J7.4：Observer 与回归门禁
 
@@ -280,6 +347,9 @@ move/delete、write failure 和 rollback failure injection。
 ```text
 single_patch_carrier_count
 multi_patch_carrier_attempt_count
+request_patch_count
+request_multi_patch_attempt_count
+request_multi_patch_preflight_reject_count
 multi_file_patch_count
 patch_prepare_failure_count
 patch_commit_failure_count
@@ -309,6 +379,7 @@ patch 正文、文件正文或 secret。
 
 - Standard/R5 最终结果正确；
 - validation failure 后 workspace hash 不变；
+- Standard/R5 request-wide multi-patch executed = 0；
 - R5 multi-patch carrier accepted/generated = 0；
 - protocol/state failure = 0；
 - 权限、沙箱、hook、取消和原始反馈无回退；
@@ -316,7 +387,8 @@ patch 正文、文件正文或 secret。
 
 **Benefit gate:**
 
-- 同一 carrier 的 patch action 最大值为1；
+- Standard/R5单个provider response的patch action最大值为1；
+- 同一TaskSpace carrier的patch slot最大值为1；
 - 因前一个 patch 失败而 skipped 的后续 patch 数量为0；
 - 相关多文件修改通过一个 prepared patch 表达；
 - `finish + patch + test` 仍可在一个 carrier 完成；
@@ -331,8 +403,8 @@ patch 正文、文件正文或 secret。
 |---|---|---|---|---|---|
 | J7.0 | trace fixture、schema wire probe、FS capability audit | 不依赖生产 handler | schema/atomicity 决策无 Unknown | 100% | proceed J7.1 |
 | J7.1 | apply-patch unit/CLI/fault injection | 不依赖 TaskSpace schema | validation failure 零副作用 | 100% | proceed J7.2 |
-| J7.2 | schema snapshot、typed fixtures、provider body | 不依赖 runtime observer | multi-patch 不可表达 | 100% | proceed J7.3 |
-| J7.3 | state/filesystem snapshots、router/security integration | 不依赖 live sample | 预检顺序与反馈完整 | 100% | proceed J7.4 |
+| J7.2 | schema snapshot、typed fixtures、request manifest、provider body | 不依赖 runtime observer | carrier multi-patch不可表达；request count可计算 | 100% | proceed J7.3 |
+| J7.3 | Standard/TaskSpace response sequence、state/filesystem snapshots、router/security integration | 不依赖 live sample | request-wide预检顺序与反馈完整 | 100% | proceed J7.4 |
 | J7.4 | telemetry schema/extractor fixtures | 不依赖 J7.5 补证 | 失败类别和读取观察可分账 | 100% | proceed J7.5 |
 | J7.5 | Docker Standard/R4/R5 samples | 无后续 phase 补证 | correctness + structural benefit | 100% | close or pause |
 
@@ -344,7 +416,8 @@ patch 正文、文件正文或 secret。
 | patch prepare/commit | validation failure 零副作用 | `apply-patch/src/lib.rs` | CLI + fault injection | prepare/commit result | planned |
 | singular patch schema | carrier 最多一个 patch | `tools/src/taskspace_tool.rs` | schema snapshots | model-visible ToolSpec | planned |
 | typed carrier parser | schema/parser 单一契约 | `taskspace_control_args.rs` | positive/negative fixtures | protocol reason code | planned |
-| pre-state carrier validation | 非法包不改 state/filesystem | `tools/sequence.rs` | snapshot integration | preflight event | planned |
+| request tool manifest | 顶层/carrier/nested统一计算patch count | shared response tool-sequence dispatcher | Standard/TaskSpace fixtures | request patch count | planned |
+| pre-state request validation | 非法request不执行任何工具、不改state/filesystem | shared dispatcher + `tools/sequence.rs` | snapshot integration | preflight event | planned |
 | native patch dispatch | 权限/沙箱/hook/反馈不分叉 | ToolRouter/ToolCallRuntime | security/output tests | derived call ids | planned |
 | observer | patch lifecycle 和读取观察可分账 | performance observer | extractor fixtures | aggregate metrics | planned |
 | benefit proof | 结构收益且无负向收益 | Docker runner | paired sample | report artifacts | planned |
@@ -354,6 +427,7 @@ patch 正文、文件正文或 secret。
 | Change Link | Key State | Success Signal | Failure Signal | Failure Reason | Correlation | Level |
 |---|---|---|---|---|---|---|
 | carrier schema parse | parsed/validated | `taskspace.patch_carrier_validated` | `taskspace.patch_carrier_rejected` | `reason_code` | `request_id/outer_call_id` | info/warn |
+| request patch preflight | counted/validated | `tool.request_patch_count_validated` | `tool.request_multi_patch_rejected` | `reason_code` | `request_id/tool_call_ids` | info/warn |
 | patch prepare | prepared | `apply_patch.prepare_completed` | `apply_patch.prepare_failed` | `failure_class` | `call_id/patch_hash` | info/warn |
 | patch commit | committed | `apply_patch.commit_completed` | `apply_patch.commit_failed` | `failure_class/rollback_status` | `call_id/patch_hash` | info/error |
 | nested patch execution | completed | existing tool success | existing tool failure | native reason | `outer_call_id/derived_call_id` | info/warn |
@@ -404,7 +478,7 @@ patch 正文、文件正文或 secret。
 |---|---|---|
 | 读取行为只观察 | Accepted | 没有实际错误或反馈丢失证据 |
 | pytest 重复只观察 | Accepted | 单样本不足以形成工具约束 |
-| 一个 carrier 最多一个 apply_patch | Accepted | 避免写动作批次的 partial/skipped 形态 |
+| 单个 provider response 最多一个 apply_patch | Accepted | 同时覆盖顶层、carrier 和 nested alias，避免写动作批次的 partial/skipped 形态 |
 | 多文件 patch 由 Agent 完整声明 | Accepted | runtime 不替 Agent 合并或重写 |
 | 先修 patch validation atomicity，再启用 singular carrier | Accepted | 否则“合并成一个 patch”仍可能部分写入 |
 | 普通多工具能力保持 | Accepted | 限制只作用于明确写工具身份 |
