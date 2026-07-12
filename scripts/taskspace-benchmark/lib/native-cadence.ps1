@@ -56,8 +56,13 @@ function Get-TaskspaceNativeCadenceFacts {
                     $arguments = ([string]$payload.arguments) | ConvertFrom-Json
                     $action = [string]$arguments.action
                     if ($actionCounts.ContainsKey($action)) { $actionCounts[$action]++ }
-                    $actionsProperty = $arguments.PSObject.Properties["actions"]
-                    if ($null -ne $actionsProperty) { $nestedCount = @($actionsProperty.Value).Count }
+                    $continuationProperty = $arguments.PSObject.Properties["continuation"]
+                    if ($null -ne $continuationProperty) {
+                        $continuation = $continuationProperty.Value
+                        $actionsProperty = $continuation.PSObject.Properties["actions"]
+                        if ($null -ne $actionsProperty) { $nestedCount += @($actionsProperty.Value).Count }
+                        if ([string]$continuation.kind -eq "patch_then_actions" -and $null -ne $continuation.PSObject.Properties["patch"]) { $nestedCount++ }
+                    }
                     $finishesProperty = $arguments.PSObject.Properties["finishes"]
                     if ($null -ne $finishesProperty) { $finishCount = @($finishesProperty.Value).Count }
                     if ($action -eq "finish_then_end") {

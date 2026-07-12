@@ -1507,7 +1507,7 @@ function New-TaskspaceControlUsageSummary {
                         try {
                             $batch = $output | ConvertFrom-Json
                             $schemaVersion = [string](Get-TaskspaceCostProperty $batch @("schema_version"))
-                            $controlFailed = $schemaVersion -eq "TaskSpaceControlResultV1" -and
+                            $controlFailed = $schemaVersion -in @("TaskSpaceControlResultV1", "TaskSpaceControlResultV2") -and
                                 $batch.PSObject.Properties.Name -contains "success" -and
                                 [bool](Get-TaskspaceCostProperty $batch @("success")) -eq $false
                             if ($controlFailed) {
