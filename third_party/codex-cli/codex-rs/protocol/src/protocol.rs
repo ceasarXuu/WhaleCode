@@ -2260,6 +2260,7 @@ pub struct MapRuntimeSnapshotDeltaEvent {
     pub base_checkpoint_id: String,
     pub sequence: u64,
     pub base_snapshot_sha256: String,
+    pub previous_snapshot_sha256: String,
     pub snapshot_sha256: String,
     pub patch: Value,
 }

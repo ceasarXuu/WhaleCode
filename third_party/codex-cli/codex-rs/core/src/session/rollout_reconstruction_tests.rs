@@ -190,22 +190,32 @@ async fn reconstruct_history_restores_latest_map_runtime_snapshot() {
 }
 
 #[tokio::test]
-async fn reconstruct_history_applies_latest_snapshot_delta_to_checkpoint() {
+async fn reconstruct_history_applies_chained_snapshot_deltas_to_checkpoint() {
     let (session, turn_context) = make_session_and_context().await;
     let base = ActionMapRuntimeState::default().snapshot();
-    let mut expected = base.clone();
-    expected.routing_required = !base.routing_required;
+    let mut middle = base.clone();
+    middle.routing_required = !base.routing_required;
+    let mut expected = middle.clone();
+    expected.reborn_requested = true;
     let base_hash = snapshot_sha256(&base).unwrap();
     let mut checkpoint = ActionMapCheckpointState::default();
     checkpoint.install("checkpoint-base".to_string(), base_hash, base.clone());
-    let delta = build_snapshot_delta(&mut checkpoint, &expected)
+    let first_delta = build_snapshot_delta(&mut checkpoint, &middle)
+        .unwrap()
+        .unwrap();
+    let second_delta = build_snapshot_delta(&mut checkpoint, &expected)
         .unwrap()
         .unwrap();
     let rollout_items = vec![
         RolloutItem::EventMsg(EventMsg::MapRuntime(MapRuntimeEvent::SnapshotUpdated(
             map_checkpoint_event("checkpoint-base", base),
         ))),
-        RolloutItem::EventMsg(EventMsg::MapRuntime(MapRuntimeEvent::SnapshotDelta(delta))),
+        RolloutItem::EventMsg(EventMsg::MapRuntime(MapRuntimeEvent::SnapshotDelta(
+            first_delta,
+        ))),
+        RolloutItem::EventMsg(EventMsg::MapRuntime(MapRuntimeEvent::SnapshotDelta(
+            second_delta,
+        ))),
     ];
 
     let reconstructed = session
@@ -213,7 +223,7 @@ async fn reconstruct_history_applies_latest_snapshot_delta_to_checkpoint() {
         .await;
 
     assert_eq!(reconstructed.map_runtime_snapshot, Some(expected));
-    assert_eq!(reconstructed.map_runtime_checkpoint.delta_sequence, 1);
+    assert_eq!(reconstructed.map_runtime_checkpoint.delta_sequence, 2);
 }
 
 #[tokio::test]

@@ -143,7 +143,7 @@ fn reconstruct_map_runtime_state(
                 restored_snapshot = Some(event.snapshot.clone());
             }
             MapRuntimeReplayItem::Delta(event) => {
-                let Some(base_snapshot) = checkpoint.snapshot.as_ref() else {
+                let Some(previous_snapshot) = checkpoint.latest_snapshot.clone() else {
                     return Err(format!(
                         "map snapshot delta {} has no surviving checkpoint",
                         event.sequence
@@ -157,13 +157,16 @@ fn reconstruct_map_runtime_state(
                     .snapshot_sha256
                     .as_deref()
                     .ok_or_else(|| "map checkpoint hash is missing".to_string())?;
-                restored_snapshot = Some(apply_snapshot_delta(
+                let snapshot = apply_snapshot_delta(
                     checkpoint_id,
                     checkpoint_hash,
-                    base_snapshot,
+                    &previous_snapshot,
                     event,
-                )?);
+                )?;
                 checkpoint.delta_sequence = event.sequence;
+                checkpoint.latest_snapshot_sha256 = Some(event.snapshot_sha256.clone());
+                checkpoint.latest_snapshot = Some(snapshot.clone());
+                restored_snapshot = Some(snapshot);
             }
         }
     }
