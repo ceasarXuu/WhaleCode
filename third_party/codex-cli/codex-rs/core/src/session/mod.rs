@@ -3312,6 +3312,50 @@ impl Session {
             self.persist_rollout_items(&rollout_items).await;
         }
         self.send_raw_response_items(turn_context, items).await;
+        self.record_action_map_epoch_projection_if_missing(turn_context)
+            .await;
+    }
+
+    async fn record_action_map_epoch_projection_if_missing(&self, turn_context: &TurnContext) {
+        let projection_item = {
+            let mut state = self.state.lock().await;
+            if state
+                .clone_history()
+                .raw_items()
+                .iter()
+                .any(is_action_map_projection_developer_item)
+            {
+                None
+            } else {
+                state
+                    .action_map_runtime
+                    .build_developer_context()
+                    .and_then(|context| {
+                        crate::context_manager::updates::build_developer_update_item(vec![context])
+                    })
+            }
+        };
+        let Some(projection_item) = projection_item else {
+            return;
+        };
+        if !is_action_map_projection_developer_item(&projection_item) {
+            return;
+        }
+
+        let taskspace_events = self
+            .record_into_context(std::slice::from_ref(&projection_item), turn_context)
+            .await;
+        let rollout_items = taskspace_events
+            .into_iter()
+            .map(|event| {
+                RolloutItem::EventMsg(EventMsg::MapRuntime(
+                    MapRuntimeEvent::TaskContextEventRecorded(event.to_protocol()),
+                ))
+            })
+            .collect::<Vec<_>>();
+        self.persist_rollout_items(&rollout_items).await;
+        self.send_raw_response_items(turn_context, &[projection_item])
+            .await;
     }
 
     pub(crate) async fn record_taskspace_child_item(

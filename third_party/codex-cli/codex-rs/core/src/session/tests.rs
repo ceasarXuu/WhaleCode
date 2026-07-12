@@ -1365,6 +1365,101 @@ async fn build_initial_context_keeps_skills_without_blank_taskspace_context() {
 }
 
 #[tokio::test]
+async fn map_initialization_records_projection_after_control_output_once() {
+    let (session, turn_context) = make_session_and_context().await;
+    {
+        let mut state = session.state.lock().await;
+        state.action_map_runtime.set_mode_for_session(
+            codex_protocol::protocol::MapRuntimeMode::Experiment,
+            session.conversation_id,
+        );
+    }
+    session
+        .record_conversation_items(
+            &turn_context,
+            &[ResponseItem::FunctionCall {
+                id: None,
+                name: "taskspace_control".to_string(),
+                namespace: None,
+                arguments: "{}".to_string(),
+                call_id: "init-control".to_string(),
+            }],
+        )
+        .await;
+    {
+        let mut state = session.state.lock().await;
+        state
+            .action_map_runtime
+            .initialize_map_for_main(
+                session.conversation_id,
+                crate::action_map::ActionMapInitializeInput {
+                    task_title: "Initialize during turn".to_string(),
+                    source_event_ids: vec!["task-event-1".to_string()],
+                    nodes: vec![crate::action_map::ActionMapInitializeNodeInput {
+                        id: "inspect".to_string(),
+                        kind: NodeKind::InspectCodeContext,
+                        title: "Inspect".to_string(),
+                        context_summary: "Inspect current code.".to_string(),
+                        dependency_node_ids: Vec::new(),
+                    }],
+                    current_node_id: "inspect".to_string(),
+                },
+            )
+            .expect("map initializes");
+    }
+    session
+        .record_conversation_items(
+            &turn_context,
+            &[ResponseItem::FunctionCallOutput {
+                call_id: "init-control".to_string(),
+                output: FunctionCallOutputPayload::from_text("initialized".to_string()),
+            }],
+        )
+        .await;
+
+    let history = session.clone_history().await;
+    let projection_count = history
+        .raw_items()
+        .iter()
+        .filter(|item| is_action_map_projection_developer_item(item))
+        .count();
+    assert_eq!(projection_count, 1);
+    let control_output_index = history
+        .raw_items()
+        .iter()
+        .position(|item| matches!(item, ResponseItem::FunctionCallOutput { call_id, .. } if call_id == "init-control"))
+        .expect("control output");
+    let projection_index = history
+        .raw_items()
+        .iter()
+        .position(is_action_map_projection_developer_item)
+        .expect("projection");
+    assert!(control_output_index < projection_index);
+
+    session
+        .record_conversation_items(
+            &turn_context,
+            &[ResponseItem::FunctionCall {
+                id: None,
+                name: "shell_command".to_string(),
+                namespace: None,
+                arguments: "{}".to_string(),
+                call_id: "ordinary-call".to_string(),
+            }],
+        )
+        .await;
+    let history = session.clone_history().await;
+    assert_eq!(
+        history
+            .raw_items()
+            .iter()
+            .filter(|item| is_action_map_projection_developer_item(item))
+            .count(),
+        1
+    );
+}
+
+#[tokio::test]
 async fn record_context_updates_keeps_one_taskspace_epoch_snapshot() {
     let (session, turn_context) = make_session_and_context().await;
     {
