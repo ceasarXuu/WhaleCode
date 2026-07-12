@@ -76,22 +76,41 @@ function New-SideFixture {
                 taskspace_runtime_event_count = 120; runtime_event_counts = [pscustomobject]@{ snapshot_updated = 30 }
             }) (Join-Path $artifactDir "taskspace-control-usage.json")
         $rollout = @(
-            [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{
-                    type = "function_call"; name = "taskspace_control"
-                    arguments = (@{ action = "initialize_then_actions"; actions = @(@{ tool_name = "exec_command"; arguments = @{ cmd = "pwd" } }) } | ConvertTo-Json -Compress -Depth 10)
+            [pscustomobject]@{ type = "event_msg"; payload = [pscustomobject]@{
+                    type = "task_context_event_recorded"; eventType = "function_call"; callId = "init-control"; parentCallId = $null
+                    rawPayload = [pscustomobject]@{
+                        type = "function_call"; name = "taskspace_control"; call_id = "init-control"
+                        arguments = ([ordered]@{ action = "initialize_then_actions"; actions = @([ordered]@{ tool_name = "exec_command"; arguments = [ordered]@{ z = "last"; cmd = "pwd" } }) } | ConvertTo-Json -Compress -Depth 10)
+                    }
                 } },
+            [pscustomobject]@{ type = "event_msg"; payload = [pscustomobject]@{
+                    type = "task_context_event_recorded"; eventType = "function_call"; callId = "nested-1"; parentCallId = "init-control"
+                    rawPayload = [pscustomobject]@{
+                        type = "function_call"; name = "exec_command"; call_id = "nested-1"; arguments = ([ordered]@{ cmd = "pwd"; z = "last" } | ConvertTo-Json -Compress -Depth 10)
+                    }
+                } },
+            [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "message"; role = "developer"; content = @(
+                        [pscustomobject]@{ type = "input_text"; text = "TaskSpace mode is now active." },
+                        [pscustomobject]@{ type = "input_text"; text = "ContextProjectionV1 epoch snapshot: active_task_path_without_nodes TaskSpace blank TaskSpace v0.0.5 thin bootstrap" }
+                    ) } },
+            [pscustomobject]@{ type = "event_msg"; payload = [pscustomobject]@{ type = "snapshot_updated"; snapshot = [pscustomobject]@{ node_id = "node-1"; status = "open" } } },
             [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "function_call_output"; call_id = "gate-1"; output = "same gate" } },
             [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "function_call_output"; call_id = "gate-2"; output = "same gate" } },
             [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{
-                    type = "function_call"; name = "taskspace_control"
+                    type = "function_call"; name = "taskspace_control"; call_id = "finish-nodes-control"
                     arguments = (@{ action = "finish_nodes"; finishes = @(@{ node_id = "node-1" }) } | ConvertTo-Json -Compress -Depth 10)
+                } },
+            [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{
+                    type = "function_call_output"; call_id = "finish-nodes-control"
+                    output = (@{ steps = @(@{ node_id = "node-1"; next_node_id = "node-1" }) } | ConvertTo-Json -Compress -Depth 10)
                 } },
             [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "function_call"; name = "apply_patch"; arguments = '{"input":"patch"}' } },
             [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "function_call_output" } },
             [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{
                     type = "function_call"; name = "taskspace_control"
                     arguments = (@{ action = "finish_then_end"; terminal_finish = @{ node_id = "node-2" }; final_candidate = "done" } | ConvertTo-Json -Compress -Depth 10)
-                } }
+                } },
+            [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "message"; role = "assistant"; phase = "final_answer"; content = @([pscustomobject]@{ type = "output_text"; text = "done" }) } }
         )
         Write-JsonLines $rollout (Join-Path $artifactDir "rollout.jsonl")
     } else {
@@ -169,12 +188,19 @@ Assert-True ($standard.observed_side_count -eq 3 -and $standard.excluded_side_co
 Assert-True (@($report.rows | Where-Object { $_.logical_mode -eq "taskspace" -and $_.map.nodes.Count -eq 3 }).Count -eq 2) "map node details are missing"
 Assert-True (@($report.rows | Where-Object { $_.logical_mode -eq "taskspace" -and $_.duplication.rollout.duplicate_output_bodies -eq 1 }).Count -eq 2) "exact duplicate output bodies were not measured"
 Assert-True (@($report.rows | Where-Object { $_.logical_mode -eq "taskspace" -and $_.duplication.provider_wire.final_content_duplicates -eq 1 }).Count -eq 2) "wire content duplicates were not measured"
+Assert-True (@($report.rows | Where-Object { $_.logical_mode -eq "taskspace" -and $_.duplication.cross_carrier_lineage.final_candidate_assistant_exact_equal_count -eq 1 }).Count -eq 2) "final candidate exact assistant equality was not measured"
+Assert-True (@($report.rows | Where-Object { $_.logical_mode -eq "taskspace" -and $_.duplication.cross_carrier_lineage.expanded_nested_call_exact_json_match_count -eq 1 }).Count -eq 2) "expanded nested exact JSON lineage was not measured"
+Assert-True (@($report.rows | Where-Object { $_.logical_mode -eq "taskspace" -and $_.duplication.cross_carrier_lineage.control_output_node_echo_count -eq 1 -and $_.duplication.cross_carrier_lineage.control_output_next_node_echo_count -eq 1 }).Count -eq 2) "control output node echo counts were not measured"
+Assert-True (@($report.rows | Where-Object { $_.logical_mode -eq "taskspace" -and $_.duplication.cross_carrier_lineage.stale_blank_developer_marker_count -eq 1 -and $_.duplication.cross_carrier_lineage.stale_mode_developer_marker_count -eq 1 }).Count -eq 2) "stale developer marker counts were not measured"
+Assert-True (@($report.rows | Where-Object { $_.logical_mode -eq "taskspace" -and $_.duplication.rollout_storage.snapshot_updated_line_count -eq 1 -and $_.duplication.rollout_storage.snapshot_updated_payload_bytes -gt 0 -and $_.duplication.rollout_storage.snapshot_updated_payload_ratio -gt 0 }).Count -eq 2) "rollout storage snapshot byte ratio was not measured"
 Assert-True (Test-Path -LiteralPath $result.markdown_path) "markdown report was not written"
 Assert-True (Test-Path -LiteralPath $result.event_log_path) "event log was not written"
 $markdown = Get-Content -Raw -Encoding UTF8 -LiteralPath $result.markdown_path
 Assert-True ($markdown -match "## Map 节点") "markdown omitted map node details"
 Assert-True ($markdown -match "## Map 语义保存") "markdown omitted map semantic preservation details"
 Assert-True ($markdown -match "## 精确重复载体") "markdown omitted exact carrier duplication details"
+Assert-True ($markdown -match "## Cross carrier lineage") "markdown omitted cross carrier lineage details"
+Assert-True ($markdown -match "## Rollout storage") "markdown omitted rollout storage details"
 Assert-True ($markdown -match "Finish without sibling") "markdown omitted finish barrier validation counts"
 Assert-True ($markdown -match "root_task_active_after_nodes_closed") "mechanical map warning was not rendered"
 
