@@ -98,14 +98,8 @@ $obs = [pscustomobject]@{
                 "exact_payload_scan_event_id:scan-provider-request-1",
                 "active_projection_present:true",
                 "active_projection_count:1",
-                "context_bundle_present:true",
-                "exact_context_bundle_verified:true",
-                "cache_plan_verified:true",
-                "legacy_taskspace_history_present:false",
-                "raw_taskspace_control_history_tokens:0",
-                "completed_stale_node_history_tokens:0",
-                "rejected_subagent_body_tokens:0",
                 "large_raw_output_tokens:0",
+                "runtime_boundary_forbidden_markers:none",
                 "protected_items_present:true",
                 "replacement_confirmed:true"
             )
@@ -127,17 +121,11 @@ $obs = [pscustomobject]@{
                 "scanner_version:v005-exact-scan-2",
                 "matcher_version:v005-marker-and-structural-negative-checks-2",
                 "checked_byte_ranges:0-4321",
-                "negative_checks_performed:legacy_taskspace_history,raw_taskspace_control_history,large_raw_output",
+                "negative_checks_performed:active_projection_uniqueness,large_raw_output,runtime_boundary_forbidden_markers",
                 "active_projection_present:true",
                 "active_projection_count:1",
-                "context_bundle_present:true",
-                "exact_context_bundle_verified:true",
-                "cache_plan_verified:true",
-                "legacy_taskspace_history_present:false",
-                "raw_taskspace_control_history_tokens:0",
-                "completed_stale_node_history_tokens:0",
-                "rejected_subagent_body_tokens:0",
                 "large_raw_output_tokens:0",
+                "runtime_boundary_forbidden_markers:none",
                 "protected_items_present:true",
                 "replacement_confirmed:true",
                 "passed:true",
@@ -505,7 +493,7 @@ Assert-True ([string]$qualityEvents[1].budget_state_after -eq "over_profile_hint
 Assert-True ([string]$qualityEvents[1].logical_request_id -eq "logical-2" -and [int]$qualityEvents[1].attempt_seq -eq 1) "budget quality event did not preserve logical request identity"
 Assert-True ($scanEvents.Count -eq 1 -and [bool]$scanEvents[0].passed -and [string]$scanEvents[0].producer -eq "provider_payload_scanner") "exact payload scan event was not read from provider-owned runtime trace"
 Assert-True ([bool]$scanEvents[0].protected_items_present) "exact payload scan should preserve protected item proof"
-Assert-True ([bool]$scanEvents[0].exact_context_bundle_verified) "exact payload scan should preserve bundle proof"
+Assert-True ([string]$scanEvents[0].runtime_boundary_forbidden_markers -eq "none") "exact payload scan should preserve boundary marker proof"
 Assert-True ([int]$scanEvents[0].active_projection_count -eq 1) "exact payload scan should preserve active projection count"
 Assert-True ($providerEvents.Count -eq 3 -and [string]$providerEvents[0].schema_version -eq "taskspace-provider-request-budget-event-v1") "provider request events were not derived from runtime budget trace"
 Assert-True (@($providerEvents | Where-Object { [string]$_.producer -eq "provider_lifecycle" }).Count -eq 3) "provider request events did not preserve provider_lifecycle producer"
@@ -518,7 +506,7 @@ Assert-True ($cacheTraceEvents.Count -eq 3 -and [string]$cacheTraceEvents[0].sch
 Assert-True ([int]$cacheTraceSummary.native_tools_schema_hot_path_count -eq 1 -and [int]$cacheTraceSummary.tool_free_action_contract_count -eq 2 -and [double]$cacheTraceSummary.trace_coverage -eq 1.0) "provider cache trace summary did not classify completed request shapes"
 Assert-True ([bool]$replacement.exact_payload_scan_passed -and [bool]$replacement.replacement_confirmed) "active replacement report did not use exact payload scan"
 Assert-True ([int]$replacement.active_projection_count_max -eq 1 -and [int]$replacement.active_projection_uniqueness_violation_count -eq 0) "active replacement report did not enforce projection uniqueness"
-Assert-True ([bool]$replacement.context_bundle_present -and [bool]$replacement.exact_context_bundle_verified -and [bool]$replacement.cache_plan_verified) "active replacement report did not preserve bundle proof"
+Assert-True ([string]$replacement.runtime_boundary_forbidden_markers -eq "none") "active replacement report did not preserve boundary marker proof"
 Assert-True ([bool]$replacement.protected_items_present -and [bool]$replacement.exact_payload_scan_matching_provider_event) "active replacement report did not preserve exact scan join evidence"
 $repeatedLifecycleReplacement = New-TaskspaceActiveReplacementArtifacts $budgetEvents @($scanEvents[0], $scanEvents[0])
 Assert-True ([int]$repeatedLifecycleReplacement.active_context_replacement_report.matching_payload_scan_count -eq 1) "repeated lifecycle scans should be deduplicated by scan event id"
@@ -533,14 +521,8 @@ $duplicateProjectionScan = [pscustomobject]@{
     passed = $false
     replacement_confirmed = $false
     active_projection_count = 2
-    context_bundle_present = $false
-    exact_context_bundle_verified = $false
-    cache_plan_verified = $false
-    legacy_taskspace_history_present = $false
-    raw_taskspace_control_history_tokens = 0
-    completed_stale_node_history_tokens = 0
-    rejected_subagent_body_tokens = 0
     large_raw_output_tokens = 0
+    runtime_boundary_forbidden_markers = "none"
     protected_items_present = $true
 }
 $duplicateProjectionReplacement = New-TaskspaceActiveReplacementArtifacts $budgetEvents @($duplicateProjectionScan)

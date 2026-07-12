@@ -29,9 +29,9 @@ try {
     $nodes = @{}
     $node = Ensure-Node $nodes "node-1" "Read source" "inspect_code_context"
     Add-Or-Update-NodeResult $node "2026-05-30T00:01:00Z" "result-1" "lease-1" "thread-1" "main_tool_call" "read"
-    Add-Or-Update-NodeResult $node "2026-05-30T00:02:00Z" "result-1" "lease-1" "thread-1" "main_tool_call" "read" "Main tool call`ntool: shell_command`ncall_id: call-1`nsuccess: true`npreview:`nok"
+    Add-Or-Update-NodeResult $node "2026-05-30T00:02:00Z" "result-1" "lease-1" "thread-1" "main_tool_call" "read" "task-event-1"
     Assert-Equal ([string]$node.results[0].at) "2026-05-30T00:01:00Z" "result timestamp should preserve the first event time"
-    Assert-Equal ([string]$node.results[0].callId) "call-1" "snapshot body should still enrich derived fields"
+    Assert-Equal ([string]$node.results[0].sourceEventRef) "task-event-1" "snapshot should attach the canonical event reference"
     $results.Add("preserve-existing-result-time: PASS")
 
     Add-Or-Update-NodeResult $node "" "result-2" "lease-2" "thread-1" "result" ""
@@ -427,11 +427,11 @@ try {
                                 nodeId = "node-1"
                                 assignmentId = "lease-3"
                                 sourceThreadId = "thread-1"
-                                subagentPlanId = "subagent-plan-1"
                                 kind = "result"
                                 actionClass = "test"
-                                body = "validated"
-                                evidencePackage = $evidencePackage
+                                toolSuccess = $true
+                                sourceEventRef = "task-event-7"
+                                artifactRefs = @("src/app.py")
                             })
                     })
                 maintenanceBarriers = @()
@@ -461,13 +461,13 @@ try {
     "" | Set-Content -LiteralPath $jsonlPath -Encoding UTF8
     & (Join-Path $PSScriptRoot "export-action-map-observability.ps1") -RolloutPath $rolloutPath -JsonlPath $jsonlPath -OutputDir $exportDir -ArtifactRoot $fixtureDir | Out-Null
     $exportJson = Get-Content -LiteralPath (Join-Path $exportDir "action-map-observability.json") -Raw -Encoding UTF8 | ConvertFrom-Json
-    Assert-Equal ([bool]$exportJson.cognitiveAudit.structuralGatePassed) $true "black-box fixture should pass structural gate"
-    Assert-Equal ([bool]$exportJson.cognitiveAudit.hardGatePassed) $true "black-box fixture should pass final artifact hard gate"
+    Assert-Equal ([bool]$exportJson.cognitiveAudit.structuralGatePassed) $false "canonical Map result should not synthesize the retired cognitive evidence package"
     Assert-Equal ([int]$exportJson.summary.inputParseErrors) 0 "black-box fixture should have no parse errors"
-    Assert-Equal ([int]$exportJson.summary.finalArtifacts) 1 "black-box fixture should export final artifact count"
     Assert-Equal ([int]$exportJson.summary.subagentPlans) 1 "black-box fixture should export subagent plan count"
     Assert-Equal ([string]$exportJson.maps[0].subagentPlans[0].id) "subagent-plan-1" "black-box fixture should retain subagent plan"
-    Assert-Equal ([string]$exportJson.nodes[0].results[0].subagentPlanId) "subagent-plan-1" "black-box fixture should retain result subagent plan join key"
+    Assert-Equal ([string]$exportJson.nodes[0].results[0].sourceEventRef) "task-event-7" "black-box fixture should retain canonical event reference"
+    Assert-Equal ([string]$exportJson.nodes[0].results[0].artifactRefs[0]) "src/app.py" "black-box fixture should retain artifact reference"
+    Assert-Equal ([bool]$exportJson.nodes[0].results[0].success) $true "black-box fixture should retain tool success"
     $html = Get-Content -LiteralPath (Join-Path $exportDir "action-map-observability.html") -Raw -Encoding UTF8
     $match = [regex]::Match($html, '(?s)<script type="application/json" id="trace-data">(.*?)</script>')
     if (-not $match.Success) {
@@ -492,7 +492,7 @@ try {
             throw "Markdown report did not contain '$needle'."
         }
     }
-    foreach ($escaped in @("Fix \| app", "Repair failing validator<br>with evidence", "Read \| source", "fixture \| warning<br>cleared", "validator \| passed<br>clean")) {
+    foreach ($escaped in @("Fix \| app", "Repair failing validator<br>with evidence", "Read \| source", "fixture \| warning<br>cleared")) {
         if ($markdown -notmatch [regex]::Escape($escaped)) {
             throw "Markdown report did not escape table content '$escaped'."
         }

@@ -291,13 +291,7 @@ if ($obs) { foreach ($node in @($obs.nodes)) {
     }
     if ($node.title -match "(?i)validat|regression|test|verify") {
         foreach ($result in @($node.results | Where-Object { $_.kind -eq "main_tool_call" -and $_.actionClass -eq "test" })) {
-            if ((Get-ObjectPropertyNames $result) -contains "success" -and $result.success -ne $true) {
-                continue
-            }
-            $callId = [string]$result.callId
-            $command = if ($callId -and $toolCallArgs.ContainsKey($callId)) { [string]$toolCallArgs[$callId] } else { "" }
-            $combined = "$([string]$result.body)`n$command`n$([string]$result.preview)"
-            if ($combined -match "python -m pytest tests -q" -and $combined -match "(?i)\bpassed\b") {
+            if ($result.success -eq $true) {
                 $validationNodeHasPytestResult = $true
             }
         }

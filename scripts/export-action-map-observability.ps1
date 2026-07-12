@@ -256,7 +256,8 @@ foreach ($item in $rolloutItems) {
             $snapshotMapCount = 0
             $snapshotNodeCount = 0
             foreach ($snapshotTask in @($payload.snapshot.tasks)) {
-                [void](Ensure-Task $tasks $taskById ([string]$snapshotTask.id) ([string]$snapshotTask.title) ([string]$snapshotTask.objective) ([string]$snapshotTask.status) ([string]$snapshotTask.ownerSessionId) ([string]$snapshotTask.activeMapId) $snapshotTask.mapIds $snapshotTask.cognitiveState)
+                $task = Ensure-Task $tasks $taskById ([string]$snapshotTask.id) ([string]$snapshotTask.title) ([string]$snapshotTask.objective) ([string]$snapshotTask.status) ([string]$snapshotTask.ownerSessionId) ([string]$snapshotTask.activeMapId) $snapshotTask.mapIds $snapshotTask.cognitiveState
+                if ($task) { $task.activeMapId = [string]$snapshotTask.activeMapId }
             }
             foreach ($snapshotMap in @($payload.snapshot.maps)) {
                 $snapshotMapCount++
@@ -287,7 +288,7 @@ foreach ($item in $rolloutItems) {
                 }
                 foreach ($snapshotResult in @($snapshotMap.results)) {
                     $node = Ensure-Node $nodes ([string]$snapshotResult.nodeId)
-                    Add-Or-Update-NodeResult $node $at ([string]$snapshotResult.id) ([string]$snapshotResult.assignmentId) ([string]$snapshotResult.sourceThreadId) ([string]$snapshotResult.kind) ([string]$snapshotResult.actionClass) ([string]$snapshotResult.body) $snapshotResult.evidencePackage ([string]$snapshotMap.id) ([string]$snapshotMap.taskId) ([string]$snapshotResult.subagentPlanId)
+                    Add-Or-Update-NodeResult $node $at ([string]$snapshotResult.id) ([string]$snapshotResult.assignmentId) ([string]$snapshotResult.sourceThreadId) ([string]$snapshotResult.kind) ([string]$snapshotResult.actionClass) ([string]$snapshotResult.sourceEventRef) $null ([string]$snapshotMap.id) ([string]$snapshotMap.taskId) "" $snapshotResult.artifactRefs $snapshotResult.toolSuccess
                 }
             }
             foreach ($snapshotBarrier in @($payload.snapshot.maintenanceBarriers)) {

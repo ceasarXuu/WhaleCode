@@ -295,11 +295,11 @@ $mapMgmtObs = [pscustomobject]@{
             id = "node-1"; kind = "inspect_code_context"; status = "completed"
             results = @(
                 [pscustomobject]@{
-                    resultId = "result-output"; mapId = "map-1"; taskId = "task-1"; kind = "main_tool_call"; validity = "unreviewed"; body = "OutputReferenceV1:`noutput_ref: output-ref://sha256/abc"; preview = ""
+                    resultId = "result-output"; mapId = "map-1"; taskId = "task-1"; kind = "main_tool_call"; validity = "unreviewed"; sourceEventRef = "task-event-8"; artifactRefs = @("output-ref://sha256/abc")
                     evidencePackage = [pscustomobject]@{ evidenceRefs = @(); validatorRefs = @(); changedArtifacts = @() }
                 },
                 [pscustomobject]@{
-                    resultId = "result-accepted"; mapId = "map-1"; taskId = "task-1"; kind = "result"; validity = "accepted"; body = "Accepted evidence"; preview = ""
+                    resultId = "result-accepted"; mapId = "map-1"; taskId = "task-1"; kind = "result"; validity = "accepted"; sourceEventRef = "task-event-9"; artifactRefs = @("README.md")
                     evidencePackage = [pscustomobject]@{ evidenceRefs = @([pscustomobject]@{ artifactRef = "README.md" }); validatorRefs = @("pytest"); changedArtifacts = @() }
                 }
             )

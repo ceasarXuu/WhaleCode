@@ -210,7 +210,7 @@ function New-ActionMapLargeRolloutSummary {
                 "lease_attached" { $node = Ensure-Node $nodes ([string]$payload.nodeId); if ($node -and $payload.agentThreadId) { $agentId = [string]$payload.agentThreadId; Add-Or-Update-Lease $node $at ([string]$payload.leaseId) "attached" "" $agentId; if (-not $node.agentThreads.Contains($agentId)) { $node.agentThreads.Add($agentId) }; $agents[$agentId] = [ordered]@{ threadId = $agentId; path = [string]$payload.agentPath; nodeId = [string]$payload.nodeId; leaseId = [string]$payload.leaseId } } }
                 "node_result_recorded" { $node = Ensure-Node $nodes ([string]$payload.nodeId); Add-Or-Update-NodeResult $node $at ([string]$payload.resultId) ([string]$payload.leaseId) ([string]$payload.sourceThreadId) ([string]$payload.kind) ([string]$payload.actionClass) "" $null ([string]$payload.mapId) "" }
                 "snapshot_updated" {
-                    foreach ($snapshotTask in @($payload.snapshot.tasks)) { [void](Ensure-Task $tasks $taskById ([string]$snapshotTask.id) ([string]$snapshotTask.title) ([string]$snapshotTask.objective) ([string]$snapshotTask.status) ([string]$snapshotTask.ownerSessionId) ([string]$snapshotTask.activeMapId) $snapshotTask.mapIds $null) }
+                    foreach ($snapshotTask in @($payload.snapshot.tasks)) { $task = Ensure-Task $tasks $taskById ([string]$snapshotTask.id) ([string]$snapshotTask.title) ([string]$snapshotTask.objective) ([string]$snapshotTask.status) ([string]$snapshotTask.ownerSessionId) ([string]$snapshotTask.activeMapId) $snapshotTask.mapIds $null; if ($task) { $task.activeMapId = [string]$snapshotTask.activeMapId } }
                     foreach ($snapshotMap in @($payload.snapshot.maps)) {
                         $map = Ensure-Map $maps $mapById ([string]$snapshotMap.id) ([string]$snapshotMap.title) ([string]$snapshotMap.ownerSessionId) $snapshotMap.createdFrom ([string]$snapshotMap.taskId)
                         foreach ($snapshotPlan in @($snapshotMap.subagentPlans)) { Add-Or-Update-SubagentPlan $map $snapshotPlan }
@@ -225,7 +225,7 @@ function New-ActionMapLargeRolloutSummary {
                             }
                         }
                         foreach ($snapshotNode in @($snapshotMap.nodes)) { $node = Ensure-Node $nodes ([string]$snapshotNode.id) ([string]$snapshotNode.title) ([string]$snapshotNode.kind); if ($node -and $snapshotNode.status) { $node.status = [string]$snapshotNode.status } }
-                        foreach ($snapshotResult in @($snapshotMap.results)) { $node = Ensure-Node $nodes ([string]$snapshotResult.nodeId); Add-Or-Update-NodeResult $node $at ([string]$snapshotResult.id) ([string]$snapshotResult.assignmentId) ([string]$snapshotResult.sourceThreadId) ([string]$snapshotResult.kind) ([string]$snapshotResult.actionClass) "" $null ([string]$snapshotMap.id) ([string]$snapshotMap.taskId) ([string]$snapshotResult.subagentPlanId) }
+                        foreach ($snapshotResult in @($snapshotMap.results)) { $node = Ensure-Node $nodes ([string]$snapshotResult.nodeId); Add-Or-Update-NodeResult $node $at ([string]$snapshotResult.id) ([string]$snapshotResult.assignmentId) ([string]$snapshotResult.sourceThreadId) ([string]$snapshotResult.kind) ([string]$snapshotResult.actionClass) ([string]$snapshotResult.sourceEventRef) $null ([string]$snapshotMap.id) ([string]$snapshotMap.taskId) "" $snapshotResult.artifactRefs $snapshotResult.toolSuccess }
                     }
                 }
             }

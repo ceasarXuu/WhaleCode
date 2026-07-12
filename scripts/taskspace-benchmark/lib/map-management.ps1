@@ -123,8 +123,8 @@ function Get-TaskspaceMapManagedItems {
             $pkg = $result.evidencePackage
             $validatorCount = if ($pkg -and $pkg.PSObject.Properties.Name -contains "validatorRefs") { @($pkg.validatorRefs).Count } else { 0 }
             $changedCount = if ($pkg -and $pkg.PSObject.Properties.Name -contains "changedArtifacts") { @($pkg.changedArtifacts).Count } else { 0 }
-            $body = [string]$result.body + "`n" + [string]$result.preview
-            $hasOutputRef = $body -match "OutputReferenceV1|output-ref://"
+            $artifactRefs = @($result.artifactRefs)
+            $hasOutputRef = @($artifactRefs | Where-Object { [string]$_ -match "^output-ref://" }).Count -gt 0
             $hasFailure = ($result.PSObject.Properties.Name -contains "success" -and $false -eq [bool]$result.success)
             $items.Add((New-TaskspaceManagedItem "result" ([string]$result.resultId) ([string]$result.mapId) ([string]$result.taskId) "" ([string]$result.validity) ([string]$result.kind) (Get-TaskspaceEvidenceRefCount $result) $validatorCount $changedCount $hasOutputRef $hasFailure))
         }

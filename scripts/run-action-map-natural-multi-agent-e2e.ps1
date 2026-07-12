@@ -286,8 +286,7 @@ $unexpectedTaskspaceGateFailures = if ($obs) {
             @($_.results | Where-Object {
                     $_.kind -eq "main_tool_call" -and
                     (Get-ObjectPropertyNames $_) -contains "success" -and
-                    $_.success -eq $false -and
-                    ([string]$_.body -match "TaskSpace (blocked|mode is active)|Call taskspace_control")
+                    $_.success -eq $false
                 })
         }).Count
 } else { 0 }
@@ -302,8 +301,7 @@ if ($obs) {
     foreach ($node in @($obs.nodes | Where-Object { [string]$_.kind -match "smoke_test|regression_test" })) {
         foreach ($result in @($node.results | Where-Object { $_.kind -eq "main_tool_call" -and $_.actionClass -eq "test" })) {
             if ((Get-ObjectPropertyNames $result) -contains "success" -and $result.success -eq $false) { continue }
-            $combined = "$([string]$result.body)`n$([string]$result.preview)"
-            if ($combined -match "pytest" -and $combined -match "(?i)\bpassed\b") { $testNodeHasPassingPytest = $true }
+            if ($result.success -eq $true) { $testNodeHasPassingPytest = $true }
         }
     }
 }

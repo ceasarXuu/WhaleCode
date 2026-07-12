@@ -317,13 +317,6 @@ function New-TaskspaceBudgetArtifacts {
             exact_payload_scan_passed = Convert-TaskspaceTraceBool $tags.exact_payload_scan_passed $false
             active_projection_present = Convert-TaskspaceTraceBool $tags.active_projection_present $false
             active_projection_count = Convert-TaskspaceTraceInt $tags.active_projection_count
-            context_bundle_present = Convert-TaskspaceTraceBool $tags.context_bundle_present $false
-            exact_context_bundle_verified = Convert-TaskspaceTraceBool $tags.exact_context_bundle_verified $false
-            cache_plan_verified = Convert-TaskspaceTraceBool $tags.cache_plan_verified $false
-            legacy_taskspace_history_present = Convert-TaskspaceTraceBool $tags.legacy_taskspace_history_present $false
-            raw_taskspace_control_history_tokens = Convert-TaskspaceTraceInt $tags.raw_taskspace_control_history_tokens
-            completed_stale_node_history_tokens = Convert-TaskspaceTraceInt $tags.completed_stale_node_history_tokens
-            rejected_subagent_body_tokens = Convert-TaskspaceTraceInt $tags.rejected_subagent_body_tokens
             large_raw_output_tokens = Convert-TaskspaceTraceInt $tags.large_raw_output_tokens
             runtime_boundary_forbidden_markers = [string]$tags.runtime_boundary_forbidden_markers
             protected_items_present = Convert-TaskspaceTraceBool $tags.protected_items_present $false
@@ -419,14 +412,8 @@ function New-TaskspaceExactPayloadScanEvents {
             negative_checks_performed = [string]$tags.negative_checks_performed
             active_projection_present = Convert-TaskspaceTraceBool $tags.active_projection_present $false
             active_projection_count = Convert-TaskspaceTraceInt $tags.active_projection_count
-            context_bundle_present = Convert-TaskspaceTraceBool $tags.context_bundle_present $false
-            exact_context_bundle_verified = Convert-TaskspaceTraceBool $tags.exact_context_bundle_verified $false
-            cache_plan_verified = Convert-TaskspaceTraceBool $tags.cache_plan_verified $false
-            legacy_taskspace_history_present = Convert-TaskspaceTraceBool $tags.legacy_taskspace_history_present $false
-            raw_taskspace_control_history_tokens = Convert-TaskspaceTraceInt $tags.raw_taskspace_control_history_tokens
-            completed_stale_node_history_tokens = Convert-TaskspaceTraceInt $tags.completed_stale_node_history_tokens
-            rejected_subagent_body_tokens = Convert-TaskspaceTraceInt $tags.rejected_subagent_body_tokens
             large_raw_output_tokens = Convert-TaskspaceTraceInt $tags.large_raw_output_tokens
+            runtime_boundary_forbidden_markers = [string]$tags.runtime_boundary_forbidden_markers
             protected_items_present = Convert-TaskspaceTraceBool $tags.protected_items_present $false
             replacement_confirmed = Convert-TaskspaceTraceBool $tags.replacement_confirmed $false
             passed = Convert-TaskspaceTraceBool $tags.passed $false
@@ -481,20 +468,14 @@ function New-TaskspaceActiveReplacementArtifacts {
         exact_payload_scan_event_id = if ($null -ne $first) { [string]$first.scan_event_id } else { "" }
         exact_payload_scan_producer = if ($null -ne $first) { [string]$first.producer } else { "" }
         exact_payload_scan_matching_provider_event = if ($null -ne $first) { [bool]$first.matching_provider_event } else { $false }
-        context_bundle_present = if ($null -ne $first) { [bool]$first.context_bundle_present } else { $false }
-        exact_context_bundle_verified = if ($null -ne $first) { [bool]$first.exact_context_bundle_verified } else { $false }
-        cache_plan_verified = if ($null -ne $first) { [bool]$first.cache_plan_verified } else { $false }
         active_projection_count = if ($null -ne $first) { [int]$first.active_projection_count } else { 0 }
         active_projection_count_max = $projectionCountMaximum
         active_projection_uniqueness_violation_count = $projectionUniquenessViolations.Count
         matching_payload_scan_count = $matchingScanEvents.Count
         failed_matching_payload_scan_count = $failedMatchingScanEvents.Count
         replacement_confirmed = [bool]$replacementConfirmed
-        legacy_taskspace_history_present = if ($null -ne $first) { [bool]$first.legacy_taskspace_history_present } else { $true }
-        raw_taskspace_control_history_tokens = if ($null -ne $first) { [int]$first.raw_taskspace_control_history_tokens } else { 0 }
-        completed_stale_node_history_tokens = if ($null -ne $first) { [int]$first.completed_stale_node_history_tokens } else { 0 }
-        rejected_subagent_body_tokens = if ($null -ne $first) { [int]$first.rejected_subagent_body_tokens } else { 0 }
         large_raw_output_tokens = if ($null -ne $first) { [int]$first.large_raw_output_tokens } else { 0 }
+        runtime_boundary_forbidden_markers = if ($null -ne $first) { [string]$first.runtime_boundary_forbidden_markers } else { "" }
         protected_items_present = if ($null -ne $first) { [bool]$first.protected_items_present } else { $false }
     }
     [pscustomobject]@{

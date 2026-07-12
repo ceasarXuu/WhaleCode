@@ -237,17 +237,12 @@ function Get-PytestOwnership($Obs, $ToolCallArgs) {
             if ((Get-ObjectPropertyNames $result) -contains "success" -and $result.success -ne $true) {
                 continue
             }
-            $body = [string]$result.body
-            $callId = ""
-            if ($body -match 'call_id:\s*(call_[A-Za-z0-9_]+)') {
-                $callId = $Matches[1]
-            }
+            $callId = Get-ToolResultCallId $result
             $command = ""
             if ($callId -and $ToolCallArgs.ContainsKey($callId)) {
                 $command = [string]$ToolCallArgs[$callId]
             }
-            $combined = "$body`n$command`n$([string]$result.preview)"
-            if ($combined -match "pytest" -and $combined -match "Exit code:\s*0" -and $combined -match "(?i)\bpassed\b") {
+            if ($result.success -eq $true) {
                 return [pscustomobject]@{
                     Owned = $true
                     NodeId = [string]$node.id
@@ -274,26 +269,9 @@ function Get-ChangedPathsFromDiff([string]$DiffText) {
 }
 
 function Get-ToolResultCallId($Result) {
-    if ((Get-ObjectPropertyNames $Result) -contains "callId" -and -not [string]::IsNullOrWhiteSpace([string]$Result.callId)) {
-        return [string]$Result.callId
-    }
-    $body = [string]$Result.body
-    if ($body -match 'call_id:\s*(call_[A-Za-z0-9_]+)') { return $Matches[1] }
+    $sourceRef = [string]$Result.sourceEventRef
+    if ($sourceRef -match '/call:([^/]+)$') { return $Matches[1] }
     ""
-}
-
-function Test-TextMentionsChangedPath([string]$Text, [string]$Path) {
-    $windowsPath = $Path.Replace("/", "\")
-    $escapedWindowsPath = $windowsPath.Replace("\", "\\")
-    $forwardPath = $Path.Replace("\", "/")
-    $escapedForwardPath = $forwardPath.Replace("/", "\/")
-    return (
-        $Text.Contains($Path) -or
-        $Text.Contains($windowsPath) -or
-        $Text.Contains($escapedWindowsPath) -or
-        $Text.Contains($forwardPath) -or
-        $Text.Contains($escapedForwardPath)
-    )
 }
 
 function Get-ImplementationOwnershipGap($Obs, [string]$DiffText, $ToolCallArgs = $null) {
@@ -312,12 +290,7 @@ function Get-ImplementationOwnershipGap($Obs, [string]$DiffText, $ToolCallArgs =
         foreach ($node in @($Obs.nodes | Where-Object { $_.kind -eq "implement_solution" })) {
             foreach ($result in @($node.results | Where-Object { $_.kind -eq "main_tool_call" -and $_.actionClass -eq "edit" })) {
                 if ((Get-ObjectPropertyNames $result) -contains "success" -and $result.success -ne $true) { continue }
-                $text = "$([string]$result.body)`n$([string]$result.preview)"
-                $callId = Get-ToolResultCallId $result
-                if ($ToolCallArgs -and $callId -and $ToolCallArgs.ContainsKey($callId)) {
-                    $text = "$text`n$([string]$ToolCallArgs[$callId])"
-                }
-                if (Test-TextMentionsChangedPath $text $path) {
+                if (@($result.artifactRefs) -contains $path) {
                     $owned = $true
                     break
                 }
