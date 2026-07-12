@@ -34,12 +34,13 @@
   - 全部validation failure零文件副作用，Standard/TaskSpace共享同一patch实现。
   - carrier schema不再能表达第二个patch，同时保留单patch后的read/test动作。
   - 结构化日志可区分request preflight、patch prepare和commit failure。
-- Current conclusion: H-001的shared patch substrate已通过J7.1修复验证；H-002/H-003仍待J7.2-J7.3关闭，Problem保持open。
+- Current conclusion: H-001由J7.1关闭，H-003由J7.2关闭，H-002由J7.3共享preflight关闭；等待J7.4可观测性门禁后关闭Problem。
 - Related hypotheses:
   - H-001
   - H-002
   - H-003
   - H-004
+  - H-005
 - Resolution basis:
   - not satisfied
 - Close reason:
@@ -387,3 +388,91 @@
   ```
 - Interpretation: H-001所述validation partial write已在shared substrate关闭；跨request多patch仍需J7.2/J7.3。
 - Time: 2026-07-13 02:25
+
+## Hypothesis H-005: Singular schema与共享preflight可关闭多Patch执行缺口
+- Status: confirmed
+- Parent: P-001
+- Claim: bootstrap显式singular patch slot加共享request manifest/preflight，可以同时阻止carrier重复patch和顶层兄弟patch，且不影响合法单patch路径。
+- Layer: fix-validation
+- Factor relation: all_of
+- Depends on:
+  - H-002
+  - H-003
+- Rationale:
+  - schema负责bootstrap局部可表达形态；共享sequence负责完整provider response硬规则，两者职责互补且不解释语义。
+- Falsifiable predictions:
+  - If true: 旧bootstrap `actions[]`和ordinary action内patch被parser拒绝；顶层两个patch及bootstrap patch+顶层patch均零执行。
+  - If false: 任一非法形态落盘、提交Agent声明Map节点，或合法单patch+test被拒绝。
+- Diagnostic evidence plan:
+  - Prediction or clause under test: schema/parser拒绝、request-wide零副作用、合法路径无回退。
+  - Signal: schema/unit测试、Standard与TaskSpace集成workspace/Map快照、既有scenario回归。
+  - Capture method: 运行J7.2-J7.3 focused suites。
+  - Event name or marker:
+    - `tool.request_patch_count_validated`
+    - `tool.request_multi_patch_rejected`
+  - Correlation keys:
+    - provider tool call ids
+  - Differentiates from:
+    - 单patch内部validation atomicity
+  - Supports if:
+    - 两类非法request均零工具执行；合法sequence与apply_patch回归通过。
+  - Refutes if:
+    - 任一非法request产生文件或Agent声明Map副作用。
+  - Instrumentation status: implemented
+  - Instrumentation lifecycle:
+    - J7.4接入observer聚合
+- Evidence gate: satisfied
+- Related evidence:
+  - E-010
+  - E-011
+- Conclusion: confirmed
+- Repair design readiness: complete
+- Next step: J7.4 observer与日志门禁
+- Blocker:
+  - none
+- Close reason:
+  - J7.2-J7.3 verified
+
+## Evidence E-010: J7.2 carrier schema与manifest门禁通过
+- Related hypotheses:
+  - H-003
+  - H-005
+- Direction: supports
+- Type: fix-validation
+- Source: `tools/src/taskspace_tool.rs`、`core/src/tools/sequence_manifest.rs`
+- Prediction or plan link:
+  - J7.2 exit gate
+- Matched signal:
+  - ordinary union排除patch；patch slot唯一；旧actions拒绝；顶层与nested patch统一计数
+- Correlation keys:
+  - J7.2
+- Raw content:
+  ```text
+  schema 3 passed; parser/handler 19 passed; manifest 2 passed; sequence 6 passed; scenarios 8 passed
+  ```
+- Interpretation: bootstrap多patch不可表达，完整request patch count可在执行前计算。
+- Time: 2026-07-13 03:10
+
+## Evidence E-011: J7.3 Standard与TaskSpace多Patch零副作用
+- Related hypotheses:
+  - H-002
+  - H-005
+- Direction: supports
+- Type: fix-validation
+- Source: `core/tests/suite/apply_patch_cli.rs`、`action_map_scenario_evaluation.rs`
+- Prediction or plan link:
+  - J7.3 exit gate
+- Matched signal:
+  - Standard两个顶层patch均未落盘；TaskSpace slot+顶层patch未落盘且未提交Agent声明node/edge/result/lease
+- Correlation keys:
+  - `request_multiple_apply_patch_calls_not_allowed`
+- Raw content:
+  ```text
+  sequence/preflight 9 passed
+  Standard zero-side-effect integration 1 passed
+  TaskSpace zero-side-effect integration 1 passed
+  TaskSpace scenarios 9 passed
+  core apply_patch 16 passed
+  ```
+- Interpretation: request-wide hard rule位于共享sequence最前端，闭合反馈且零工具/Agent声明状态副作用。
+- Time: 2026-07-13 03:35

@@ -7,6 +7,7 @@ use codex_protocol::protocol::MapRuntimeEvent;
 use codex_protocol::protocol::MapRuntimeMode;
 use codex_protocol::protocol::Op;
 use core_test_support::responses;
+use core_test_support::responses::ev_apply_patch_custom_tool_call;
 use core_test_support::responses::ev_apply_patch_function_call;
 use core_test_support::responses::ev_assistant_message;
 use core_test_support::responses::ev_completed;
@@ -511,6 +512,71 @@ async fn native_sequence_executes_dependent_tools_after_latest_state_barrier() -
             .iter()
             .all(|node| node.status == "completed")
     );
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn request_multi_patch_preflight_prevents_control_and_file_side_effects() -> Result<()> {
+    skip_if_no_network!(Ok(()));
+
+    let builder = test_codex().with_config(|config| {
+        config.include_apply_patch_tool = true;
+    });
+    let harness = TestCodexHarness::with_builder(builder).await?;
+    let nested_patch = "*** Begin Patch\n*** Add File: nested.txt\n+nested\n*** End Patch";
+    let top_patch = "*** Begin Patch\n*** Add File: top.txt\n+top\n*** End Patch";
+    let initialize = serde_json::to_string(&json!({
+        "action": "initialize_then_actions",
+        "initial_nodes": [{
+            "node_id": "implement",
+            "kind": "implement_solution",
+            "goal": "Apply one patch."
+        }],
+        "current_node_id": "implement",
+        "continuation": {
+            "kind": "patch_then_actions",
+            "patch": {"tool_name": "apply_patch", "input": nested_patch}
+        }
+    }))?;
+    responses::mount_sse_once_match(
+        harness.server(),
+        |req: &Request| body_contains(req, "验证多patch预检"),
+        sse(vec![
+            ev_response_created("multi-patch-map-response"),
+            ev_function_call("multi-patch-bootstrap", "taskspace_control", &initialize),
+            ev_apply_patch_custom_tool_call("multi-patch-top", top_patch),
+            ev_completed("multi-patch-map-response"),
+        ]),
+    )
+    .await;
+    responses::mount_sse_once_match(
+        harness.server(),
+        |req: &Request| body_contains(req, "request_multiple_apply_patch_calls_not_allowed"),
+        sse(vec![
+            ev_assistant_message("multi-patch-observed", "preflight observed"),
+            ev_completed("multi-patch-observed-response"),
+        ]),
+    )
+    .await;
+
+    enable_taskspace(&harness).await?;
+    harness.submit("验证多patch预检").await?;
+
+    assert!(!harness.path("nested.txt").exists());
+    assert!(!harness.path("top.txt").exists());
+    let snapshot = harness.test().codex.action_map_snapshot().await;
+    assert!(snapshot.maps.iter().all(|map| {
+        map.nodes.is_empty()
+            && map.edges.is_empty()
+            && map.results.is_empty()
+            && map.leases.is_empty()
+    }));
+    let requests = harness.request_bodies().await;
+    assert_eq!(requests.len(), 2);
+    let feedback = requests[1].to_string();
+    assert!(feedback.contains("multi-patch-bootstrap"));
+    assert!(feedback.contains("multi-patch-top"));
+    assert!(feedback.contains("executed_tool_call_count"));
     Ok(())
 }
 

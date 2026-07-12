@@ -12,7 +12,8 @@ use crate::tools::handlers::taskspace_control_args::parse_taskspace_control_args
 use crate::tools::parallel::ToolCallExecution;
 use crate::tools::parallel::ToolCallRuntime;
 use crate::tools::router::ToolCall;
-use crate::tools::sequence_manifest::ToolSequenceManifest;
+use crate::tools::sequence_preflight::REQUEST_MULTIPLE_PATCHES_CODE;
+use crate::tools::sequence_preflight::validate_tool_sequence;
 
 pub(crate) struct TerminalAgentMessage {
     pub(crate) call_id: String,
@@ -42,20 +43,37 @@ pub(crate) async fn execute_response_tool_sequence(
         });
     }
 
-    match ToolSequenceManifest::from_calls(&calls) {
-        Ok(manifest) => tracing::info!(
+    let manifest = match validate_tool_sequence(&calls) {
+        Ok(manifest) => manifest,
+        Err(failure) => {
+            if failure.reason_code == REQUEST_MULTIPLE_PATCHES_CODE {
+                tracing::warn!(
+                    target: "codex_core::taskspace",
+                    reason_code = failure.reason_code,
+                    request_patch_count = failure.request_patch_count,
+                    declared_tool_count = failure.declared_tool_count,
+                    "tool.request_multi_patch_rejected"
+                );
+            } else {
+                tracing::warn!(
+                    target: "codex_core::taskspace",
+                    reason_code = failure.reason_code,
+                    error = failure.message,
+                    "tool.request_manifest_rejected"
+                );
+            }
+            return Ok(ToolSequenceOutcome {
+                outputs: failure.outputs(&calls),
+                terminal_agent_message: None,
+            });
+        }
+    };
+    tracing::info!(
             target: "codex_core::taskspace",
             declared_tool_count = manifest.entries.len(),
             request_patch_count = manifest.request_patch_count,
-            "tool.request_manifest_built"
-        ),
-        Err(error) => tracing::warn!(
-            target: "codex_core::taskspace",
-            error,
-            "tool.request_manifest_invalid"
-        ),
-    }
-
+            "tool.request_patch_count_validated"
+    );
     let segments = sequence_segments(&calls);
     tracing::info!(
         target: "codex_core::taskspace",
@@ -464,141 +482,5 @@ fn response_input_succeeded(output: &ResponseInputItem) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use codex_tools::ToolName;
-
-    fn function_call(name: &str, call_id: &str) -> ToolCall {
-        function_call_with_arguments(name, call_id, "{}")
-    }
-
-    fn function_call_with_arguments(name: &str, call_id: &str, arguments: &str) -> ToolCall {
-        ToolCall {
-            tool_name: ToolName::plain(name),
-            call_id: call_id.to_string(),
-            payload: ToolPayload::Function {
-                arguments: arguments.to_string(),
-            },
-        }
-    }
-
-    #[test]
-    fn preserves_provider_order_around_state_barriers() {
-        let calls = vec![
-            function_call("read_file", "read-1"),
-            function_call("read_file", "read-2"),
-            function_call("taskspace_control", "finish"),
-            function_call("apply_patch", "edit"),
-            function_call("taskspace_control", "finish-2"),
-            function_call("exec_command", "test"),
-        ];
-
-        assert_eq!(
-            sequence_segments(&calls),
-            vec![
-                SequenceSegment::Parallel { start: 0, end: 2 },
-                SequenceSegment::Barrier { index: 2 },
-                SequenceSegment::Parallel { start: 3, end: 4 },
-                SequenceSegment::Barrier { index: 4 },
-                SequenceSegment::Parallel { start: 5, end: 6 },
-            ]
-        );
-    }
-
-    #[test]
-    fn leaves_ordinary_only_response_as_one_parallel_segment() {
-        let calls = vec![
-            function_call("read_file", "read-1"),
-            function_call("exec_command", "read-2"),
-        ];
-        assert_eq!(
-            sequence_segments(&calls),
-            vec![SequenceSegment::Parallel { start: 0, end: 2 }]
-        );
-    }
-
-    #[test]
-    fn preserves_adjacent_finish_barriers_before_follow_up_action() {
-        let calls = vec![
-            function_call("taskspace_control", "finish-1"),
-            function_call("taskspace_control", "finish-2"),
-            function_call("exec_command", "test"),
-        ];
-        assert_eq!(
-            sequence_segments(&calls),
-            vec![
-                SequenceSegment::Barrier { index: 0 },
-                SequenceSegment::Barrier { index: 1 },
-                SequenceSegment::Parallel { start: 2, end: 3 },
-            ]
-        );
-    }
-
-    #[test]
-    fn skipped_output_preserves_call_id_and_failure_status() {
-        let call = function_call("apply_patch", "edit-call");
-        let output = ToolCallRuntime::skipped_response(&call, "finish-call");
-        assert_eq!(response_input_call_id(&output), "edit-call");
-        assert!(!response_input_succeeded(&output));
-        let ResponseInputItem::FunctionCallOutput { output, .. } = output else {
-            panic!("expected function output");
-        };
-        assert!(
-            output
-                .body
-                .to_text()
-                .is_some_and(|text| text.contains("skipped_due_to_prior_failure"))
-        );
-    }
-
-    #[test]
-    fn extracts_bootstrap_nested_actions() {
-        let call = function_call_with_arguments(
-            "taskspace_control",
-            "outer",
-            r#"{"action":"initialize_then_actions","initial_nodes":[{"node_id":"node-1","kind":"inspect_code_context","goal":"Read"}],"current_node_id":"node-1","continuation":{"kind":"actions","actions":[{"tool_name":"exec_command","arguments":{"cmd":"pwd"}}]}}"#,
-        );
-
-        let actions = taskspace_nested_actions(&call);
-        assert_eq!(actions.len(), 1);
-        assert_eq!(actions[0].tool_name(), "exec_command");
-    }
-
-    #[test]
-    fn aggregate_references_canonical_nested_events_without_copying_output() {
-        let state = ResponseInputItem::FunctionCallOutput {
-            call_id: "outer".into(),
-            output: FunctionCallOutputPayload::from_text(
-                serde_json::json!({
-                    "schema_version": "TaskSpaceControlResultV1",
-                    "success": true,
-                    "steps": [{"kind": "finish", "success": true}],
-                })
-                .to_string(),
-            ),
-        };
-        let aggregated = aggregate_taskspace_batch_response(
-            "outer",
-            state,
-            vec![(
-                "apply_patch".into(),
-                "outer:nested:0".into(),
-                true,
-                "task-event-7".into(),
-                "task-event-8".into(),
-            )],
-            true,
-        );
-        let ResponseInputItem::FunctionCallOutput { call_id, output } = aggregated else {
-            panic!("expected outer function output");
-        };
-        assert_eq!(call_id, "outer");
-        assert_eq!(output.success, Some(true));
-        let value: serde_json::Value =
-            serde_json::from_str(&output.body.to_text().expect("text")).expect("batch json");
-        assert_eq!(value["steps"].as_array().expect("steps").len(), 2);
-        assert_eq!(value["steps"][1]["call_event_ref"], "task-event-7");
-        assert_eq!(value["steps"][1]["output_event_ref"], "task-event-8");
-        assert!(value["steps"][1].get("response").is_none());
-    }
-}
+#[path = "sequence_tests.rs"]
+mod tests;

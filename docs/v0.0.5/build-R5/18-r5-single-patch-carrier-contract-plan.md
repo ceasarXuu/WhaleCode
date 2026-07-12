@@ -3,7 +3,7 @@
 - Created: 2026-07-12
 - Updated: 2026-07-13
 - Version: 1.2
-- Status: J7.0-J7.2 complete; J7.3 in progress
+- Status: J7.0-J7.3 complete; J7.4 in progress
 - Owner / Responsible: WhaleCode TaskSpace / apply_patch substrate
 - Related Systems: provider response tool sequence、`taskspace_control` tool schema、nested ToolSpec、ToolRouter、
   `codex-apply-patch`、benchmark observer
@@ -423,8 +423,8 @@ patch 正文、文件正文或 secret。
 | singular patch schema | bootstrap carrier最多一个patch；active走native siblings | `tools/src/taskspace_tool.rs` | 3 schema tests | model-visible ToolSpec | complete |
 | typed carrier parser | schema/parser单一契约，旧`actions[]`拒绝 | `taskspace_control_args.rs` | 19 parser/handler tests | protocol reason code | complete |
 | request tool manifest | 顶层/carrier/nested统一计算patch count | `tools/sequence_manifest.rs` + shared sequence入口 | 2 manifest + 6 sequence + 8 scenario tests | `tool.request_manifest_built` | complete |
-| pre-state request validation | 非法request不执行任何工具、不改state/filesystem | shared dispatcher + `tools/sequence.rs` | snapshot integration | preflight event | planned |
-| native patch dispatch | 权限/沙箱/hook/反馈不分叉 | ToolRouter/ToolCallRuntime | security/output tests | derived call ids | planned |
+| pre-state request validation | 非法request不执行任何工具、不提交Agent声明state、不改filesystem | `sequence_preflight.rs` + shared sequence | 9 unit + 2 zero-side-effect integration tests | validated/rejected events | complete |
+| native patch dispatch | 合法单patch继续走权限/沙箱/hook/反馈原链路 | ToolRouter/ToolCallRuntime | 9 scenario + 16 core apply_patch tests | canonical call ids | complete |
 | observer | patch lifecycle 和读取观察可分账 | performance observer | extractor fixtures | aggregate metrics | planned |
 | benefit proof | 结构收益且无负向收益 | Docker runner | paired sample | report artifacts | planned |
 

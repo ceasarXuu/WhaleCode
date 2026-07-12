@@ -92,6 +92,48 @@ fn apply_patch_responses(
     ]
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn response_with_two_apply_patch_calls_executes_neither_patch() -> Result<()> {
+    skip_if_no_network!(Ok(()));
+
+    let harness = TestCodexHarness::with_builder(test_codex().with_config(|config| {
+        config.include_apply_patch_tool = true;
+    }))
+    .await?;
+    let first = "*** Begin Patch\n*** Add File: first.txt\n+first\n*** End Patch";
+    let second = "*** Begin Patch\n*** Add File: second.txt\n+second\n*** End Patch";
+    mount_sse_sequence(
+        harness.server(),
+        vec![
+            sse(vec![
+                ev_response_created("multi-patch-response"),
+                ev_apply_patch_custom_tool_call("patch-1", first),
+                ev_apply_patch_custom_tool_call("patch-2", second),
+                ev_completed("multi-patch-response"),
+            ]),
+            sse(vec![
+                ev_assistant_message("multi-patch-final", "preflight observed"),
+                ev_completed("multi-patch-final-response"),
+            ]),
+        ],
+    )
+    .await;
+
+    harness.submit("attempt two patches").await?;
+
+    assert!(!harness.path("first.txt").exists());
+    assert!(!harness.path("second.txt").exists());
+    for call_id in ["patch-1", "patch-2"] {
+        let output = harness
+            .apply_patch_output(call_id, ApplyPatchModelOutput::Freeform)
+            .await;
+        assert!(output.contains("request_multiple_apply_patch_calls_not_allowed"));
+        assert!(output.contains("\"executed_tool_call_count\":0"));
+    }
+
+    Ok(())
+}
+
 #[cfg(target_os = "linux")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn apply_patch_cli_uses_codex_self_exe_with_linux_sandbox_helper_alias() -> Result<()> {
