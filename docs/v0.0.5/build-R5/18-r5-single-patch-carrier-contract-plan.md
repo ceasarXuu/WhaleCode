@@ -3,14 +3,19 @@
 - Created: 2026-07-12
 - Updated: 2026-07-12
 - Version: 1.0
-- Status: Planned; documentation only, implementation not started
+- Status: Blocked by R5-J6.7; documentation only, implementation not started
 - Owner / Responsible: WhaleCode TaskSpace / apply_patch substrate
 - Related Systems: `taskspace_control` tool schema、nested ToolSpec、ToolRouter、`codex-apply-patch`、benchmark observer
-- Related Links: `17-r5-schema-first-taskspace-control-plan.md`、`01-r5-phased-simplification-plan.md`
+- Related Links: `17-r5-schema-first-taskspace-control-plan.md`、`01-r5-phased-simplification-plan.md`、
+  `22-r5-j6-7-canonical-task-context-plan.md`
 - Risk Level: High
 - Plan Type: Full
 
 ## 1. 背景与问题定义
+
+执行依赖：J6.7必须先完成TaskSpace任务上下文单一事实源切换，并冻结新的canonical event/carrier边界。
+J7.0需要基于J6.7最终production path重新审计schema、sequence和feedback入口；本文现有J6证据保留为
+历史缺陷基线，不允许直接在旧双轨carrier上开始J7实现。
 
 J6 复杂样本中，Agent 在一个 `finish_then_actions` carrier 内声明了三个连续 `apply_patch`：
 

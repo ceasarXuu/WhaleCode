@@ -244,3 +244,6 @@ Map最终为3个completed nodes、3个results、0个open leaf，没有发生Map�
 2. P0已修复projection token提取；更细的activation/projection/control-history逐request组件账本仍可后续补齐，
    当前使用final-wire message/non-message split，不阻塞本轮结构结论。
 3. 请求次数仍是总Input主因；继续优先改进tool schema可表达性和Agent采用率，Runtime不自动补动作。
+4. “基础任务历史 + TaskSpace结构”双轨收敛已进入
+   `22-r5-j6-7-canonical-task-context-plan.md`；J6.7先于J7执行，目标是Map/Event Store成为
+   TaskSpace任务上下文唯一事实源，而不是继续局部压缩平行副本。
