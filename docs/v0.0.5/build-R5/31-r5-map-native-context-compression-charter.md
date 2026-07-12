@@ -142,6 +142,8 @@ ArchiveNode
   5. 只增加observer，不改变production投影。
   6. 分账长期delta replay链、生命周期checkpoint和canonical runtime events；J6.7.7短样本中internal
      replay仍占rollout约60%，该指标不得与provider上下文成本混为一谈。
+  7. 冻结checkpoint/delta/archive corruption的session-fatal合同：比较panic、结构化session fatal error和可恢复
+     operator error；任何方案都不得silent fallback或恢复partial Map。
 - Exit：规模曲线、hard budget profiles和至少两个真实/合成长任务fixture齐全；未知owner=0。
 - Fallback：observer revert；不得凭估算进入实现。
 

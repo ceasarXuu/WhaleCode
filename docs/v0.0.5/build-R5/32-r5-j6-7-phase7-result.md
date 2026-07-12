@@ -1,7 +1,7 @@
 # R5-J6.7.7 上下文残留收敛结果
 
 - Date: 2026-07-12
-- Status: Engineering/live gate complete after repair; adversarial review pending authorization
+- Status: Complete; engineering/live gate and two-round adversarial review passed
 - Scope: J6.7.7-A 到 J6.7.7-G engineering/live gate
 - Repair commits: `0032a38`, `9e30128`
 - R4: historical/unavailable，未补造request、token或cache数据
@@ -12,14 +12,45 @@ J6.7.7-A-F已完成。G阶段后续3-repeat复验曾暴露严重的Runtime final
 `0032a38`删除plain final拒绝注入和自动follow-up，`9e30128`补充open Map确定性集成测试，修复后的
 3-repeat engineering/live gate已通过。TaskSpace fresh会话不再平行维护一份持续变化的
 Map projection：Agent提交的initialize/control及其原始反馈就是自然上下文；只有resume、compaction或
-new epoch需要重建上下文时，才构造一次完整全局Map projection。该结构同时关闭了旧状态矛盾和DeepSeek
-prefix缓存断裂。
+new epoch需要重建上下文时，才构造一次完整全局Map projection。该结构关闭了旧状态矛盾；修复后的fresh
+3-repeat恢复了稳定prefix cache，非fresh lifecycle cache尚未声明收益。
 
 snapshot改为“生命周期full checkpoint + 相邻状态delta链”。固定每8个provider response写入不断变大
 full checkpoint的路径已删除。最终两个样本的checkpoint/rollout均低于30%，相对J6.7.6 full snapshot
 bytes下降超过96%。
 
-J6.7尚未正式关闭：engineering/live已完成，仍需用户授权执行对抗性审查。J7继续blocked。
+J6.7已经关闭：engineering/live完成；对抗性审查Round 1接受的lifecycle证据缺口已修复，fresh Round 2无
+blocking finding并允许继续。J7入口门禁解除。
+
+### 1.3 Final与Map生命周期边界
+
+Assistant final正文的canonical owner是自然assistant event；Map completion的owner是Agent显式调用的
+`taskspace_control` lifecycle transition。两者不互相替代：Agent在开放Map上直接给出plain final时，Runtime
+忠实交付回答并保留开放Map，不自动finish、不拒绝回答、不发起recovery sampling。开放Map状态和
+`taskspace.plain_final_delivered_with_open_map`事件使这一区别可审计，但不是Runtime取得回答终止权的理由。
+
+Epoch projection不是第二事实源。它只在resume、compaction或new epoch边界由恢复后的canonical Map/Event Store
+确定性构造一次，不具备独立写入口；后续provider消息只追加。single owner约束针对事实写入所有权，不禁止从唯一
+事实源生成机械派生视图。
+
+### 1.4 对抗审查补充的Lifecycle证据
+
+首轮对抗性审查正确指出最终3-repeat全部是fresh run，不能单独证明epoch路径。新增production-path integration
+fixture走完整链路：`record_initial_history -> reconstruct checkpoint + chained deltas -> restore_snapshot ->
+record_context_updates -> provider history`，并在rollout中加入compaction边界。
+
+验证结果：
+
+- `resumed_compacted_map_rebuilds_one_projection_from_checkpoint_and_deltas`：passed；恢复后的task/map/node/goal进入
+  唯一epoch projection，第二次context update不新增或改写projection；
+- `resumed_history_rejects_snapshot_delta_without_checkpoint`：passed；缺checkpoint显式fatal；
+- `resumed_history_rejects_missing_middle_snapshot_delta`：passed；缺中间delta触发previous hash mismatch并显式fatal；
+- `reconstruct_history_`回归：14 passed；
+- `record_context_updates_persists_one_epoch_taskspace_projection`：passed；
+- `plain_final_with_open_map_finishes_turn_without_resampling`：passed。
+
+这些是production session/reconstruction入口的确定性证据，不声明真实provider cache收益。fresh cache结论仍只适用于
+3-repeat fresh runs；epoch/cache成本留给后续长生命周期样本分账。
 
 ## 1.2 修复后3-repeat复验（2026-07-13 00:21）
 
@@ -161,6 +192,9 @@ edges为0并触发observer机械warning `multi_node_map_without_edges`；Runtime
 | Gate | Result |
 |---|---|
 | focused Rust tests / scanner / replay chain | passed |
+| resumed/compacted checkpoint+delta -> epoch projection integration | 1 passed |
+| missing checkpoint / missing middle delta corruption gate | 2 passed |
+| reconstruction regression | 14 passed |
 | `action_map_scenario_evaluation` | 7 passed |
 | benchmark cost/performance self-tests | passed |
 | locked Whale build + binary attestation | passed |
@@ -185,6 +219,6 @@ edges为0并触发observer机械warning `multi_node_map_without_edges`；Runtime
 | E projection skeleton/detail | complete |
 | F incremental replay/storage | complete |
 | G engineering/live | complete；修复后focused/complex各3 repeats全部solved |
-| G adversarial review | pending user authorization |
+| G adversarial review | complete；Round 2无blocking finding，allowed_to_proceed=yes |
 
 经用户授权完成对抗性审查并关闭critical/high finding后，才可正式关闭J6.7并解锁J7。

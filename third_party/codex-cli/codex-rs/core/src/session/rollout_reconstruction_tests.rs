@@ -227,6 +227,169 @@ async fn reconstruct_history_applies_chained_snapshot_deltas_to_checkpoint() {
 }
 
 #[tokio::test]
+async fn resumed_compacted_map_rebuilds_one_projection_from_checkpoint_and_deltas() {
+    let (session, turn_context) = make_session_and_context().await;
+    let mut runtime = ActionMapRuntimeState::default();
+    runtime.set_mode_for_session(MapRuntimeMode::Experiment, session.conversation_id);
+    runtime
+        .initialize_map_for_main(
+            session.conversation_id,
+            crate::action_map::ActionMapInitializeInput {
+                task_title: "Resume canonical map".to_string(),
+                source_event_ids: vec!["task-event-root".to_string()],
+                nodes: vec![crate::action_map::ActionMapInitializeNodeInput {
+                    id: "resume-node".to_string(),
+                    kind: crate::action_map::NodeKind::InspectCodeContext,
+                    title: "Resume node".to_string(),
+                    context_summary: "Restore this goal from the canonical map.".to_string(),
+                    dependency_node_ids: Vec::new(),
+                }],
+                current_node_id: "resume-node".to_string(),
+            },
+        )
+        .expect("map initializes");
+    let base = runtime.snapshot();
+    let mut middle = base.clone();
+    middle.routing_required = !base.routing_required;
+    let mut expected = middle.clone();
+    expected.reborn_requested = true;
+    let base_hash = snapshot_sha256(&base).unwrap();
+    let mut checkpoint = ActionMapCheckpointState::default();
+    checkpoint.install("checkpoint-resume".to_string(), base_hash, base.clone());
+    let first_delta = build_snapshot_delta(&mut checkpoint, &middle)
+        .unwrap()
+        .unwrap();
+    let second_delta = build_snapshot_delta(&mut checkpoint, &expected)
+        .unwrap()
+        .unwrap();
+    let rollout_items = vec![
+        RolloutItem::EventMsg(EventMsg::MapRuntime(MapRuntimeEvent::ModeChanged(
+            MapRuntimeModeChangedEvent {
+                previous_mode: MapRuntimeMode::Standard,
+                current_mode: MapRuntimeMode::Experiment,
+            },
+        ))),
+        RolloutItem::EventMsg(EventMsg::MapRuntime(MapRuntimeEvent::SnapshotUpdated(
+            map_checkpoint_event("checkpoint-resume", base),
+        ))),
+        RolloutItem::EventMsg(EventMsg::MapRuntime(MapRuntimeEvent::SnapshotDelta(
+            first_delta,
+        ))),
+        RolloutItem::EventMsg(EventMsg::MapRuntime(MapRuntimeEvent::SnapshotDelta(
+            second_delta,
+        ))),
+        RolloutItem::Compacted(CompactedItem {
+            message: "compacted".to_string(),
+            replacement_history: Some(Vec::new()),
+        }),
+    ];
+
+    session
+        .record_initial_history(InitialHistory::Resumed(ResumedHistory {
+            conversation_id: ThreadId::default(),
+            history: rollout_items,
+            rollout_path: Some(PathBuf::from("/tmp/resume-map.jsonl")),
+        }))
+        .await;
+    let restored = session.action_map_snapshot().await;
+    assert_eq!(restored.mode, MapRuntimeMode::Experiment);
+    assert_eq!(restored.active_task_id.as_deref(), Some("task-1"));
+    assert_eq!(restored.active_map_id.as_deref(), Some("map-1"));
+    assert!(restored.reborn_requested);
+    assert_eq!(restored.tasks.len(), 1);
+    assert_eq!(restored.tasks[0].title, "Resume canonical map");
+    assert_eq!(restored.tasks[0].source_event_ids, vec!["task-event-root"]);
+    assert_eq!(restored.maps.len(), 1);
+    assert_eq!(restored.maps[0].nodes.len(), 1);
+    assert_eq!(restored.maps[0].nodes[0].id, "resume-node");
+    assert_eq!(
+        restored.maps[0].nodes[0].context_summary,
+        "Restore this goal from the canonical map."
+    );
+
+    session
+        .record_context_updates_and_set_reference_context_item(&turn_context)
+        .await;
+    let first_history = serde_json::to_string(session.clone_history().await.raw_items()).unwrap();
+    assert_eq!(
+        first_history
+            .matches("ContextProjectionV1 epoch snapshot:")
+            .count(),
+        1
+    );
+    assert!(first_history.contains("task_id: task-1"));
+    assert!(first_history.contains("map_id: map-1"));
+    assert!(first_history.contains("resume-node"));
+    assert!(first_history.contains("Restore this goal from the canonical map."));
+
+    session
+        .record_context_updates_and_set_reference_context_item(&turn_context)
+        .await;
+    let second_history = serde_json::to_string(session.clone_history().await.raw_items()).unwrap();
+    assert_eq!(second_history, first_history);
+}
+
+#[tokio::test]
+#[should_panic(expected = "has no surviving checkpoint")]
+async fn resumed_history_rejects_snapshot_delta_without_checkpoint() {
+    let (session, _turn_context) = make_session_and_context().await;
+    let base = ActionMapRuntimeState::default().snapshot();
+    let mut expected = base.clone();
+    expected.routing_required = !base.routing_required;
+    let base_hash = snapshot_sha256(&base).unwrap();
+    let mut checkpoint = ActionMapCheckpointState::default();
+    checkpoint.install("missing-checkpoint".to_string(), base_hash, base);
+    let delta = build_snapshot_delta(&mut checkpoint, &expected)
+        .unwrap()
+        .unwrap();
+
+    session
+        .record_initial_history(InitialHistory::Resumed(ResumedHistory {
+            conversation_id: ThreadId::default(),
+            history: vec![RolloutItem::EventMsg(EventMsg::MapRuntime(
+                MapRuntimeEvent::SnapshotDelta(delta),
+            ))],
+            rollout_path: Some(PathBuf::from("/tmp/resume-missing-checkpoint.jsonl")),
+        }))
+        .await;
+}
+
+#[tokio::test]
+#[should_panic(expected = "snapshot delta previous hash mismatch")]
+async fn resumed_history_rejects_missing_middle_snapshot_delta() {
+    let (session, _turn_context) = make_session_and_context().await;
+    let base = ActionMapRuntimeState::default().snapshot();
+    let mut middle = base.clone();
+    middle.routing_required = !base.routing_required;
+    let mut expected = middle.clone();
+    expected.reborn_requested = true;
+    let base_hash = snapshot_sha256(&base).unwrap();
+    let mut checkpoint = ActionMapCheckpointState::default();
+    checkpoint.install("checkpoint-gap".to_string(), base_hash, base.clone());
+    let _first_delta = build_snapshot_delta(&mut checkpoint, &middle)
+        .unwrap()
+        .unwrap();
+    let second_delta = build_snapshot_delta(&mut checkpoint, &expected)
+        .unwrap()
+        .unwrap();
+
+    session
+        .record_initial_history(InitialHistory::Resumed(ResumedHistory {
+            conversation_id: ThreadId::default(),
+            history: vec![
+                RolloutItem::EventMsg(EventMsg::MapRuntime(MapRuntimeEvent::SnapshotUpdated(
+                    map_checkpoint_event("checkpoint-gap", base),
+                ))),
+                RolloutItem::EventMsg(EventMsg::MapRuntime(MapRuntimeEvent::SnapshotDelta(
+                    second_delta,
+                ))),
+            ],
+            rollout_path: Some(PathBuf::from("/tmp/resume-missing-delta.jsonl")),
+        }))
+        .await;
+}
+
+#[tokio::test]
 async fn reconstruct_history_rollback_restores_latest_surviving_map_snapshot() {
     let (session, turn_context) = make_session_and_context().await;
     let mut first_snapshot = ActionMapRuntimeState::default().snapshot();
