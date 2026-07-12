@@ -311,26 +311,31 @@ async fn execute_nonterminal_finish(
     finish: TaskSpaceNonterminalFinishArgs,
     conclusion_event_id: &str,
 ) -> Result<JsonValue, FunctionCallError> {
+    let requested_next_node_id = finish.next_node_id.clone();
     let draft = build_next_node_draft(
         finish.next_node_kind,
         finish.next_node_goal,
         finish.next_dependency_node_ids,
     )?;
-    let (node_id, outcome) = session
+    let creates_next_node = requested_next_node_id.is_none() && draft.is_some();
+    let (_, outcome) = session
         .finish_action_map_current_or_named_node_with_next(
             turn,
             finish.node_id.as_deref(),
             conclusion_event_id.to_string(),
-            finish.next_node_id,
+            requested_next_node_id,
             draft,
         )
         .await
         .map_err(state_machine_error)?;
-    Ok(serde_json::json!({
-        "node_id": node_id,
+    let mut step = serde_json::json!({
         "result_id": outcome.result_id,
-        "next_node_id": outcome.next_node_id,
-    }))
+        "binding_status": if outcome.next_node_id.is_some() { "bound" } else { "unbound" },
+    });
+    if creates_next_node && let Some(bound_node_id) = outcome.next_node_id {
+        step["bound_node_id"] = JsonValue::String(bound_node_id);
+    }
+    Ok(step)
 }
 
 async fn execute_terminal_finish(
@@ -340,7 +345,7 @@ async fn execute_terminal_finish(
     final_candidate: &str,
     conclusion_event_id: &str,
 ) -> Result<JsonValue, FunctionCallError> {
-    let (node_id, outcome) = session
+    let (_, outcome) = session
         .finish_action_map_node_with_terminal_candidate(
             turn,
             finish.node_id.as_deref(),
@@ -350,8 +355,9 @@ async fn execute_terminal_finish(
         .await
         .map_err(state_machine_error)?;
     Ok(serde_json::json!({
-        "node_id": node_id,
         "result_id": outcome.result_id,
+        "map_status": "completed",
+        "task_status": "completed",
     }))
 }
 
@@ -468,8 +474,6 @@ fn format_initialize_map_output(outcome: &ActionMapInitializeOutcome) -> JsonVal
     serde_json::json!({
         "task_id": outcome.task_id,
         "map_id": outcome.map_id,
-        "current_node_id": outcome.current_node_id,
-        "node_ids": outcome.node_ids,
     })
 }
 

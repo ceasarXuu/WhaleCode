@@ -6,6 +6,7 @@ use serde_json::Value;
 use sha2::Digest;
 use sha2::Sha256;
 use std::collections::HashMap;
+use std::collections::HashSet;
 use thiserror::Error;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -248,10 +249,13 @@ impl TaskSpaceEventStore {
             }
             None => (Vec::new(), 0),
         };
+        let hidden = hidden_provider_event_indexes(&self.events[suffix_start..], suffix_start);
         items.extend(
             self.events[suffix_start..]
                 .iter()
-                .map(|event| {
+                .enumerate()
+                .filter(|(offset, _)| !hidden.contains(&(suffix_start + offset)))
+                .map(|(_, event)| {
                     event
                         .to_response_item()
                         .expect("TaskSpaceEventStore only contains validated events")
@@ -343,6 +347,191 @@ impl TaskSpaceEventStore {
             .map(|event| event.sequence.saturating_add(1))
             .unwrap_or(1);
     }
+}
+
+fn hidden_provider_event_indexes(events: &[TaskSpaceEvent], base_index: usize) -> HashSet<usize> {
+    let mut hidden = HashSet::new();
+    for (index, event) in events.iter().enumerate() {
+        let absolute_index = base_index + index;
+        let item = event
+            .to_response_item()
+            .expect("TaskSpaceEventStore only contains validated events");
+        let ResponseItem::FunctionCall {
+            name,
+            arguments,
+            call_id,
+            ..
+        } = item
+        else {
+            continue;
+        };
+        if name != "taskspace_control" {
+            continue;
+        }
+        let Ok(arguments) = serde_json::from_str::<Value>(&arguments) else {
+            continue;
+        };
+        match arguments.get("action").and_then(Value::as_str) {
+            Some("finish_then_end") => {
+                if let Some(output_index) = matching_committed_output_index(events, &call_id)
+                    && terminal_control_is_provider_redundant(events, output_index, &arguments)
+                {
+                    tracing::debug!(
+                        call_id,
+                        "hiding successful terminal taskspace_control provider pair"
+                    );
+                    hidden.insert(absolute_index);
+                    hidden.insert(base_index + output_index);
+                }
+            }
+            Some("initialize_then_actions") => {
+                if let Some(output_index) = matching_committed_output_index(events, &call_id)
+                    && bootstrap_control_is_provider_redundant(events, &call_id, &arguments)
+                {
+                    tracing::debug!(
+                        call_id,
+                        "hiding successful bootstrap taskspace_control provider pair"
+                    );
+                    hidden.insert(absolute_index);
+                    hidden.insert(base_index + output_index);
+                }
+            }
+            _ => {}
+        }
+    }
+    hidden
+}
+
+fn terminal_control_is_provider_redundant(
+    events: &[TaskSpaceEvent],
+    output_index: usize,
+    arguments: &Value,
+) -> bool {
+    let Some(final_candidate) = arguments.get("final_candidate").and_then(Value::as_str) else {
+        return false;
+    };
+    events[output_index.saturating_add(1)..]
+        .iter()
+        .any(|event| assistant_final_answer_text(event).as_deref() == Some(final_candidate))
+}
+
+fn bootstrap_control_is_provider_redundant(
+    events: &[TaskSpaceEvent],
+    call_id: &str,
+    arguments: &Value,
+) -> bool {
+    let Some(actions) = arguments.get("actions").and_then(Value::as_array) else {
+        return false;
+    };
+    if actions.is_empty() {
+        return false;
+    }
+    let nested_call_indexes = events
+        .iter()
+        .enumerate()
+        .filter(|(_, event)| event.parent_call_id.as_deref() == Some(call_id))
+        .filter(|(_, event)| matches!(event.event_type, TaskSpaceEventType::FunctionCall))
+        .map(|(index, _)| index)
+        .collect::<Vec<_>>();
+    if nested_call_indexes.len() != actions.len() {
+        return false;
+    }
+    let mut matched = HashSet::new();
+    for action in actions {
+        let Some(action_tool_name) = action.get("tool_name").and_then(Value::as_str) else {
+            return false;
+        };
+        let Some(action_arguments) = action.get("arguments") else {
+            return false;
+        };
+        let Some((nested_index, nested_call_id)) = nested_call_indexes.iter().find_map(|index| {
+            if matched.contains(index) {
+                return None;
+            }
+            let ResponseItem::FunctionCall {
+                name,
+                arguments,
+                call_id,
+                ..
+            } = events[*index].to_response_item().ok()?
+            else {
+                return None;
+            };
+            let Ok(nested_arguments) = serde_json::from_str::<Value>(&arguments) else {
+                return None;
+            };
+            (name == action_tool_name && nested_arguments == *action_arguments)
+                .then_some((*index, call_id))
+        }) else {
+            return false;
+        };
+        if matching_successful_nested_output(events, call_id, &nested_call_id).is_none() {
+            return false;
+        }
+        matched.insert(nested_index);
+    }
+    true
+}
+
+fn matching_committed_output_index(events: &[TaskSpaceEvent], call_id: &str) -> Option<usize> {
+    events.iter().position(|event| {
+        let Ok(item) = event.to_response_item() else {
+            return false;
+        };
+        output_call_id(&item) == Some(call_id)
+            && output_status(&item).as_deref() == Some("committed")
+    })
+}
+
+fn matching_successful_nested_output<'a>(
+    events: &'a [TaskSpaceEvent],
+    outer_call_id: &str,
+    nested_call_id: &str,
+) -> Option<&'a TaskSpaceEvent> {
+    events.iter().find(|event| {
+        event.parent_call_id.as_deref() == Some(outer_call_id)
+            && event.call_id.as_deref() == Some(nested_call_id)
+            && output_call_id(&event.to_response_item().expect("validated event"))
+                == Some(nested_call_id)
+            && event.tool_success != Some(false)
+    })
+}
+
+fn output_status(item: &ResponseItem) -> Option<String> {
+    let ResponseItem::FunctionCallOutput { output, .. } = item else {
+        return None;
+    };
+    let text = output.body.to_text()?;
+    let value = serde_json::from_str::<Value>(&text).ok()?;
+    value
+        .get("status")
+        .and_then(Value::as_str)
+        .map(ToString::to_string)
+}
+
+fn assistant_final_answer_text(event: &TaskSpaceEvent) -> Option<String> {
+    let ResponseItem::Message {
+        role,
+        content,
+        phase,
+        ..
+    } = event.to_response_item().ok()?
+    else {
+        return None;
+    };
+    if role != "assistant" || phase != Some(codex_protocol::models::MessagePhase::FinalAnswer) {
+        return None;
+    }
+    let text = content
+        .iter()
+        .filter_map(|content| match content {
+            codex_protocol::models::ContentItem::OutputText { text }
+            | codex_protocol::models::ContentItem::InputText { text } => Some(text.as_str()),
+            codex_protocol::models::ContentItem::InputImage { .. } => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    Some(text)
 }
 
 fn checkpoint_from_item(

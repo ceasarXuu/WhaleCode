@@ -23,7 +23,7 @@ fn parses_agent_authored_map() {
 }
 
 #[test]
-fn initialize_output_preserves_agent_node_ids() {
+fn initialize_output_only_returns_runtime_generated_ids() {
     let output = format_initialize_map_output(&ActionMapInitializeOutcome {
         task_id: "task-1".into(),
         map_id: "map-1".into(),
@@ -37,11 +37,8 @@ fn initialize_output_preserves_agent_node_ids() {
     assert!(value.get("status").is_none());
     assert_eq!(value["task_id"], "task-1");
     assert_eq!(value["map_id"], "map-1");
-    assert_eq!(value["current_node_id"], "inspect");
-    assert_eq!(
-        value["node_ids"],
-        serde_json::json!(["inspect", "implement"])
-    );
+    assert!(value.get("current_node_id").is_none());
+    assert!(value.get("node_ids").is_none());
 }
 
 #[test]
@@ -49,9 +46,8 @@ fn successful_state_batch_is_compact() {
     let output = format_state_batch(
         "finish_nodes",
         vec![serde_json::json!({
-            "node_id": "inspect",
             "result_id": "result-1",
-            "next_node_id": "implement",
+            "binding_status": "bound",
         })],
         true,
     );
@@ -61,7 +57,10 @@ fn successful_state_batch_is_compact() {
     assert!(value.get("schema_version").is_none());
     assert!(value.get("action").is_none());
     assert!(value.get("success").is_none());
-    assert_eq!(value["steps"][0]["next_node_id"], "implement");
+    assert_eq!(value["steps"][0]["result_id"], "result-1");
+    assert_eq!(value["steps"][0]["binding_status"], "bound");
+    assert!(value["steps"][0].get("node_id").is_none());
+    assert!(value["steps"][0].get("next_node_id").is_none());
 }
 
 #[test]

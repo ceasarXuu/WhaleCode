@@ -470,3 +470,77 @@ fn restore_rejects_checkpoint_when_covered_raw_event_changed() {
         TaskSpaceEventCodecError::CheckpointHashMismatch
     );
 }
+
+fn terminal_control_call(final_candidate: &str, call_id: &str) -> ResponseItem {
+    ResponseItem::FunctionCall {
+        id: None,
+        name: "taskspace_control".into(),
+        namespace: None,
+        arguments: serde_json::json!({
+            "action": "finish_then_end",
+            "terminal_finish": {},
+            "final_candidate": final_candidate
+        })
+        .to_string(),
+        call_id: call_id.into(),
+    }
+}
+
+fn taskspace_control_output(call_id: &str, status: &str) -> ResponseItem {
+    ResponseItem::FunctionCallOutput {
+        call_id: call_id.into(),
+        output: FunctionCallOutputPayload::from_text(
+            serde_json::json!({"status": status, "steps": []}).to_string(),
+        ),
+    }
+}
+
+fn assistant_final_answer(text: &str) -> ResponseItem {
+    ResponseItem::Message {
+        id: None,
+        role: "assistant".into(),
+        content: vec![ContentItem::OutputText { text: text.into() }],
+        end_turn: Some(true),
+        phase: Some(MessagePhase::FinalAnswer),
+    }
+}
+
+#[test]
+fn terminal_success_hides_control_pair_when_final_answer_exactly_matches_once() {
+    let mut store = TaskSpaceEventStore::new();
+    let call = terminal_control_call("done", "terminal-control");
+    let output = taskspace_control_output("terminal-control", "committed");
+    let final_answer = assistant_final_answer("done");
+    store.record_item(&call, None, None, 1).unwrap();
+    store.record_item(&output, None, None, 2).unwrap();
+    store.record_item(&final_answer, None, None, 3).unwrap();
+
+    assert_eq!(store.events().len(), 3);
+    assert_eq!(store.linearize(), vec![final_answer.clone()]);
+    assert_eq!(store.take_linearized(), vec![final_answer]);
+}
+
+#[test]
+fn terminal_control_pair_stays_visible_without_matching_successful_final() {
+    for (output_status, final_text, expected_len) in [
+        ("committed", None, 2),
+        ("committed", Some("different"), 3),
+        ("state_machine_failed", Some("done"), 3),
+    ] {
+        let mut store = TaskSpaceEventStore::new();
+        let call = terminal_control_call("done", "terminal-control");
+        let output = taskspace_control_output("terminal-control", output_status);
+        store.record_item(&call, None, None, 1).unwrap();
+        store.record_item(&output, None, None, 2).unwrap();
+        if let Some(text) = final_text {
+            store
+                .record_item(&assistant_final_answer(text), None, None, 3)
+                .unwrap();
+        }
+
+        let visible = store.linearize();
+        assert_eq!(visible.len(), expected_len);
+        assert_eq!(visible[0], call);
+        assert_eq!(visible[1], output);
+    }
+}

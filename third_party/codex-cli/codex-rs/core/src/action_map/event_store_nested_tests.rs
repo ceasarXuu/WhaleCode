@@ -1,6 +1,51 @@
 use super::*;
 use codex_protocol::models::FunctionCallOutputPayload;
 
+fn bootstrap_call(call_id: &str) -> ResponseItem {
+    ResponseItem::FunctionCall {
+        id: None,
+        name: "taskspace_control".into(),
+        namespace: None,
+        arguments: serde_json::json!({
+            "action": "initialize_then_actions",
+            "initial_nodes": [{"node_id": "node-1", "kind": "inspect_code_context", "goal": "inspect"}],
+            "current_node_id": "node-1",
+            "actions": [{"tool_name": "exec_command", "arguments": {"cmd": "pwd"}}]
+        })
+        .to_string(),
+        call_id: call_id.into(),
+    }
+}
+
+fn committed_control_output(call_id: &str) -> ResponseItem {
+    ResponseItem::FunctionCallOutput {
+        call_id: call_id.into(),
+        output: FunctionCallOutputPayload::from_text(
+            serde_json::json!({"status": "committed", "steps": []}).to_string(),
+        ),
+    }
+}
+
+fn nested_exec_call(call_id: &str) -> ResponseItem {
+    ResponseItem::FunctionCall {
+        id: None,
+        name: "exec_command".into(),
+        namespace: None,
+        arguments: serde_json::json!({"cmd": "pwd"}).to_string(),
+        call_id: call_id.into(),
+    }
+}
+
+fn nested_output(call_id: &str, success: Option<bool>) -> ResponseItem {
+    ResponseItem::FunctionCallOutput {
+        call_id: call_id.into(),
+        output: FunctionCallOutputPayload {
+            body: codex_protocol::models::FunctionCallOutputBody::Text("raw output".into()),
+            success,
+        },
+    }
+}
+
 #[test]
 fn nested_call_and_output_are_independent_events_linked_to_outer_control() {
     let mut store = TaskSpaceEventStore::new();
@@ -60,4 +105,109 @@ fn nested_call_and_output_are_independent_events_linked_to_outer_control() {
         store.linearize()[2],
         nested_output.to_response_item().unwrap()
     );
+}
+
+#[test]
+fn successful_bootstrap_hides_outer_pair_and_keeps_nested_pair_visible() {
+    let mut store = TaskSpaceEventStore::new();
+    let outer = bootstrap_call("outer-control");
+    let outer_output = committed_control_output("outer-control");
+    let nested_call = nested_exec_call("outer-control:nested:0");
+    let nested_output = nested_output("outer-control:nested:0", Some(true));
+
+    store.record_item(&outer, None, None, 1).unwrap();
+    store.record_item(&outer_output, None, None, 2).unwrap();
+    store
+        .record_item(
+            &nested_call,
+            Some("node-1"),
+            Some("outer-control".into()),
+            3,
+        )
+        .unwrap();
+    store
+        .record_item(
+            &nested_output,
+            Some("node-1"),
+            Some("outer-control".into()),
+            4,
+        )
+        .unwrap();
+
+    assert_eq!(store.events().len(), 4);
+    assert_eq!(store.linearize(), vec![nested_call, nested_output]);
+}
+
+#[test]
+fn bootstrap_outer_pair_stays_visible_when_nested_pair_is_incomplete_or_failed() {
+    for (include_nested_output, nested_success, expected_len) in
+        [(false, Some(true), 3), (true, Some(false), 4)]
+    {
+        let mut store = TaskSpaceEventStore::new();
+        let outer = bootstrap_call("outer-control");
+        let outer_output = committed_control_output("outer-control");
+        let nested_call = nested_exec_call("outer-control:nested:0");
+        store.record_item(&outer, None, None, 1).unwrap();
+        store.record_item(&outer_output, None, None, 2).unwrap();
+        store
+            .record_item(
+                &nested_call,
+                Some("node-1"),
+                Some("outer-control".into()),
+                3,
+            )
+            .unwrap();
+        if include_nested_output {
+            store
+                .record_item(
+                    &nested_output("outer-control:nested:0", nested_success),
+                    Some("node-1"),
+                    Some("outer-control".into()),
+                    4,
+                )
+                .unwrap();
+        }
+
+        let visible = store.linearize();
+        assert_eq!(visible.len(), expected_len);
+        assert_eq!(visible[0], outer);
+        assert_eq!(visible[1], outer_output);
+    }
+}
+
+#[test]
+fn bootstrap_outer_pair_stays_visible_when_nested_orphan_count_is_nonzero() {
+    let mut store = TaskSpaceEventStore::new();
+    let outer = bootstrap_call("outer-control");
+    let outer_output = committed_control_output("outer-control");
+    store.record_item(&outer, None, None, 1).unwrap();
+    store.record_item(&outer_output, None, None, 2).unwrap();
+    store
+        .record_item(
+            &nested_exec_call("outer-control:nested:0"),
+            Some("node-1"),
+            Some("outer-control".into()),
+            3,
+        )
+        .unwrap();
+    store
+        .record_item(
+            &nested_output("outer-control:nested:0", Some(true)),
+            Some("node-1"),
+            Some("outer-control".into()),
+            4,
+        )
+        .unwrap();
+    store
+        .record_item(
+            &nested_exec_call("outer-control:nested:orphan"),
+            Some("node-1"),
+            Some("outer-control".into()),
+            5,
+        )
+        .unwrap();
+
+    let visible = store.linearize();
+    assert_eq!(visible[0], outer);
+    assert_eq!(visible[1], outer_output);
 }
