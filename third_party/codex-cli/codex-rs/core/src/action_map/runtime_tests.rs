@@ -219,6 +219,12 @@ fn thin_projection_keeps_raw_feedback_without_strategy_sections() {
     let projection = state.build_developer_context().expect("projection");
     assert!(projection.contains("exact tool failure payload"));
     assert!(projection.contains("current_node_recent_events"));
+    assert_eq!(projection.matches("node-event-1").count(), 1);
+    assert_eq!(projection.matches("inspect kind=").count(), 1);
+    assert!(!projection.contains("raw_ref=none"));
+    assert!(!projection.contains("artifacts=none"));
+    assert!(!projection.contains("excerpt_truncated=false"));
+    assert!(!projection.contains("current_node_dependencies:\n    - none"));
     assert!(!projection.contains("next_valid_actions"));
     assert!(!projection.contains("critical_artifact_evidence"));
     assert!(!projection.contains("fact_source_coverage"));

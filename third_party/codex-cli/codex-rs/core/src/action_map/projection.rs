@@ -1,10 +1,9 @@
 pub(super) struct ActiveProjectionInput {
     pub(super) task_id: String,
-    pub(super) task_title: String,
     pub(super) task_status: String,
     pub(super) map_id: String,
     pub(super) map_status: String,
-    pub(super) active_objective: String,
+    pub(super) task_goal: String,
     pub(super) current_node: String,
     pub(super) map_nodes: Vec<String>,
     pub(super) current_node_dependencies: Vec<String>,
@@ -26,14 +25,13 @@ pub(super) fn render_active_projection(input: ActiveProjectionInput) -> Rendered
     if input.mechanically_blank {
         push_field(&mut body, "hard_state", "active_task_path_without_nodes");
     } else {
-        push_field(&mut body, "task_title", &input.task_title);
         push_field(&mut body, "task_status", &input.task_status);
         push_field(&mut body, "map_status", &input.map_status);
-        push_field(&mut body, "active_objective", &input.active_objective);
+        push_field(&mut body, "task_goal", &input.task_goal);
     }
     push_field(&mut body, "current_node", &input.current_node);
     append_list(&mut body, "map_nodes", &input.map_nodes, false);
-    if !input.mechanically_blank {
+    if !input.current_node_dependencies.is_empty() {
         append_list(
             &mut body,
             "current_node_dependencies",
@@ -101,11 +99,10 @@ mod tests {
     fn mechanical_blank_epoch_base_is_sparse_and_complete() {
         let rendered = render_active_projection(ActiveProjectionInput {
             task_id: "task-1".into(),
-            task_title: "TaskSpace blank task".into(),
             task_status: "active".into(),
             map_id: "map-1".into(),
             map_status: "active".into(),
-            active_objective: "Agent-authored objective pending".into(),
+            task_goal: "Agent-authored objective pending".into(),
             current_node: "none".into(),
             map_nodes: Vec::new(),
             current_node_dependencies: Vec::new(),

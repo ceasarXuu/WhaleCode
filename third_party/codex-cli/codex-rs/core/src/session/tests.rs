@@ -1421,7 +1421,7 @@ async fn record_context_updates_keeps_one_taskspace_epoch_snapshot() {
         "expected initial epoch snapshot in steady-state context: {developer_text}"
     );
     assert!(
-        developer_text.contains("active_objective: Find structure risks."),
+        developer_text.contains("task_goal: Find structure risks."),
         "expected active objective in steady-state context: {developer_text}"
     );
     assert!(

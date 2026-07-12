@@ -5261,11 +5261,10 @@ fn append_context_projection_active(
         .and_then(|node_id| map.nodes.get(node_id))
         .map(|node| {
             format!(
-                "{} kind={} status={} title={} objective={}",
+                "{} kind={} status={} goal={}",
                 node.id,
                 node.kind.as_str(),
                 node.status.as_str(),
-                single_line_preview(&node.title, 120),
                 single_line_preview(&node.context.summary, 160)
             )
         })
@@ -5274,17 +5273,22 @@ fn append_context_projection_active(
         .into_iter()
         .take(16)
         .filter_map(|node_id| map.nodes.get(&node_id))
+        .filter(|node| Some(node.id.as_str()) != current_node_id)
         .map(|node| {
-            format!(
-                "{} kind={} status={} title={} objective={} results={} events={}",
+            let mut entry = format!(
+                "{} kind={} status={} goal={}",
                 node.id,
                 node.kind.as_str(),
                 node.status.as_str(),
-                single_line_preview(&node.title, 100),
-                single_line_preview(&node.context.summary, 140),
-                node.result_context.len(),
-                node.node_events.len()
-            )
+                single_line_preview(&node.context.summary, 140)
+            );
+            if !node.result_context.is_empty() {
+                entry.push_str(&format!(" results={}", node.result_context.len()));
+            }
+            if !node.node_events.is_empty() {
+                entry.push_str(&format!(" events={}", node.node_events.len()));
+            }
+            entry
         })
         .collect::<Vec<_>>();
     let current_node_dependencies = current_node_id
@@ -5305,16 +5309,16 @@ fn append_context_projection_active(
                 .collect::<Vec<_>>()
         })
         .unwrap_or_default();
-    let recent_tool_feedback = projection_recent_tool_feedback(map, current_node_id, 6, 1200);
-    let result_refs_available = projection_result_refs_available(map, 8);
+    let (recent_tool_feedback, projected_event_ids) =
+        projection_recent_tool_feedback(map, current_node_id, 6, 1200);
+    let result_refs_available = projection_result_refs_available(map, 8, &projected_event_ids);
 
     let rendered = render_active_projection(ActiveProjectionInput {
         task_id: task.id.clone(),
-        task_title: single_line_preview(&task.title, 120),
         task_status: task.status.as_str().to_string(),
         map_id: map.id.clone(),
         map_status: map.status.as_str().to_string(),
-        active_objective: single_line_preview(&task.objective, 220),
+        task_goal: single_line_preview(&task.objective, 220),
         current_node,
         map_nodes: node_skeleton,
         current_node_dependencies,
@@ -5377,10 +5381,10 @@ fn projection_recent_tool_feedback(
     current_node_id: Option<&str>,
     max_results: usize,
     max_excerpt_chars: usize,
-) -> Vec<String> {
+) -> (Vec<String>, HashSet<String>) {
     let node_ids = projection_evidence_node_ids(map, current_node_id);
     if node_ids.is_empty() {
-        return Vec::new();
+        return (Vec::new(), HashSet::new());
     }
 
     let mut selected = ordered_node_event_ids(map)
@@ -5397,25 +5401,33 @@ fn projection_recent_tool_feedback(
         .collect::<Vec<_>>();
     selected.reverse();
 
-    selected
+    let event_ids = selected
+        .iter()
+        .map(|event| event.id.clone())
+        .collect::<HashSet<_>>();
+    let entries = selected
         .into_iter()
         .map(|event| {
             let mut artifacts = node_event_visible_artifact_refs(event);
             for artifact in node_event_input_data_artifact_refs(event) {
                 push_unique_artifact_ref(&mut artifacts, artifact);
             }
-            let artifact_text = if artifacts.is_empty() {
-                "none".to_string()
-            } else {
-                artifacts.join(",")
-            };
-            let tool_success = event
-                .tool_success
-                .map(|success| success.to_string())
-                .unwrap_or_else(|| "none".to_string());
-            let command = node_event_body_command(event)
-                .map(|command| format!(" command={}", single_line_preview(&command, 180)))
-                .unwrap_or_default();
+            let mut metadata = format!(
+                "{} node={} event_kind={} source={}",
+                event.id, event.node_id, event.event_kind, event.source
+            );
+            if let Some(tool_success) = event.tool_success {
+                metadata.push_str(&format!(" tool_success={tool_success}"));
+            }
+            if let Some(raw_ref) = event.raw_ref.as_deref() {
+                metadata.push_str(&format!(" raw_ref={raw_ref}"));
+            }
+            if !artifacts.is_empty() {
+                metadata.push_str(&format!(" artifacts={}", artifacts.join(",")));
+            }
+            if let Some(command) = node_event_body_command(event) {
+                metadata.push_str(&format!(" command={}", single_line_preview(&command, 180)));
+            }
             let body_chars = event.body.chars().count();
             let excerpt = if event.visible_excerpt.chars().count() <= max_excerpt_chars {
                 event.visible_excerpt.clone()
@@ -5427,59 +5439,48 @@ fn projection_recent_tool_feedback(
             let excerpt_chars = excerpt.chars().count();
             let excerpt_truncated = body_chars > excerpt_chars;
             let omitted_chars = body_chars.saturating_sub(excerpt_chars);
-            format!(
-                "{} node={} event_kind={} source={} tool_success={} raw_ref={} artifacts={}{} body_chars={} excerpt_chars={} excerpt_truncated={} body_omitted_chars={}\nexcerpt:\n{}",
-                event.id,
-                event.node_id,
-                event.event_kind,
-                event.source,
-                tool_success,
-                event.raw_ref.as_deref().unwrap_or("none"),
-                artifact_text,
-                command,
-                body_chars,
-                excerpt_chars,
-                excerpt_truncated,
-                omitted_chars,
-                excerpt
-            )
+            if excerpt_truncated {
+                metadata.push_str(&format!(
+                    " excerpt_truncated=true body_omitted_chars={omitted_chars}"
+                ));
+            }
+            format!("{metadata}\nexcerpt:\n{excerpt}")
         })
-        .collect()
+        .collect();
+    (entries, event_ids)
 }
 
-fn projection_result_refs_available(map: &ActionMapInstance, max_results: usize) -> Vec<String> {
+fn projection_result_refs_available(
+    map: &ActionMapInstance,
+    max_results: usize,
+    excluded_event_ids: &HashSet<String>,
+) -> Vec<String> {
     let event_ids = ordered_node_event_ids(map);
     let start = event_ids.len().saturating_sub(max_results);
     event_ids
         .into_iter()
         .skip(start)
         .filter_map(|event_id| map.node_events.get(&event_id))
+        .filter(|event| !excluded_event_ids.contains(&event.id))
         .map(|event| {
             let mut artifacts = node_event_visible_artifact_refs(event);
             for artifact in node_event_input_data_artifact_refs(event) {
                 push_unique_artifact_ref(&mut artifacts, artifact);
             }
-            let artifact_text = if artifacts.is_empty() {
-                "none".to_string()
-            } else {
-                artifacts.join(",")
-            };
-            let tool_success = event
-                .tool_success
-                .map(|success| success.to_string())
-                .unwrap_or_else(|| "none".to_string());
-            format!(
-                "{} node={} event_kind={} source={} tool_success={} raw_ref={} artifacts={} body_chars={} excerpt_chars={}",
-                event.id,
-                event.node_id,
-                event.event_kind,
-                event.source,
-                tool_success,
-                event.raw_ref.as_deref().unwrap_or("none"),
-                artifact_text,
-                event.body.chars().count(),
-                event.visible_excerpt.chars().count()
-            )
+            let mut metadata = format!(
+                "{} node={} event_kind={} source={}",
+                event.id, event.node_id, event.event_kind, event.source
+            );
+            if let Some(tool_success) = event.tool_success {
+                metadata.push_str(&format!(" tool_success={tool_success}"));
+            }
+            if let Some(raw_ref) = event.raw_ref.as_deref() {
+                metadata.push_str(&format!(" raw_ref={raw_ref}"));
+            }
+            if !artifacts.is_empty() {
+                metadata.push_str(&format!(" artifacts={}", artifacts.join(",")));
+            }
+            metadata
         })
         .collect()
 }
