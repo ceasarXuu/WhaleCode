@@ -204,6 +204,7 @@ Assert-True ($taskspace.totals.provider_requests -eq 18) "taskspace request aggr
 Assert-True ($taskspace.totals.node_count -eq 6 -and $taskspace.totals.edge_count -eq 4) "map totals are incorrect"
 Assert-True ($taskspace.totals.unreviewed_result_count -eq 6) "result lifecycle totals are incorrect"
 Assert-True ($taskspace.totals.control_failures -eq 2) "control failures are missing"
+Assert-True ($taskspace.totals.nested_actions -eq 2) "nested continuation actions were not aggregated"
 Assert-True ($taskspace.totals.request_patch_count -eq 2) "patch declarations are missing from aggregate"
 Assert-True ($report.ratios.provider_requests -eq 1.8) "request ratio is incorrect"
 Assert-True (@($report.rows | Where-Object { $_.observation_status -eq "skipped" }).Count -eq 1) "right-only placeholder side was not classified as skipped"

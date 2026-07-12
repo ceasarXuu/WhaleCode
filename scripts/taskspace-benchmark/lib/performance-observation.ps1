@@ -73,7 +73,7 @@ function Get-PerformanceActionCounts {
                 if ($name -ne "taskspace_control") { continue }
                 try {
                     $arguments = ([string](Get-PerformanceProperty $payload "arguments")) | ConvertFrom-Json
-                    foreach ($nested in @((Get-PerformanceProperty $arguments "actions" @()))) {
+                    foreach ($nested in @(Get-PerformanceDeclaredNestedActions $arguments)) {
                         $nestedActions++
                         switch ([string](Get-PerformanceProperty $nested "tool_name")) {
                             "exec_command" { $shell++ }
