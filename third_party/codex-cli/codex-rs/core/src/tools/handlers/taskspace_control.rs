@@ -305,11 +305,9 @@ async fn execute_nonterminal_finish(
         .await
         .map_err(state_machine_error)?;
     Ok(serde_json::json!({
-        "kind": "finish",
         "node_id": node_id,
         "result_id": outcome.result_id,
         "next_node_id": outcome.next_node_id,
-        "success": true,
     }))
 }
 
@@ -329,10 +327,8 @@ async fn execute_terminal_finish(
         .await
         .map_err(state_machine_error)?;
     Ok(serde_json::json!({
-        "kind": "terminal_finish",
         "node_id": node_id,
         "result_id": outcome.result_id,
-        "success": true,
     }))
 }
 
@@ -346,14 +342,22 @@ fn format_failed_state_step(index: usize, error: &FunctionCallError) -> JsonValu
 }
 
 fn format_state_batch(action: &str, steps: Vec<JsonValue>, success: bool) -> String {
-    serde_json::json!({
-        "schema_version": "TaskSpaceControlBatchResultV1",
-        "action": action,
-        "status": if success { "state_committed" } else { "state_failed" },
-        "success": success,
-        "steps": steps,
-    })
-    .to_string()
+    if success {
+        serde_json::json!({
+            "status": "committed",
+            "steps": steps,
+        })
+        .to_string()
+    } else {
+        serde_json::json!({
+            "schema_version": "TaskSpaceControlBatchResultV1",
+            "action": action,
+            "status": "state_failed",
+            "success": false,
+            "steps": steps,
+        })
+        .to_string()
+    }
 }
 
 fn parse_output_slice_mode(
@@ -436,9 +440,6 @@ fn build_next_node_draft(
 
 fn format_initialize_map_output(outcome: &ActionMapInitializeOutcome) -> JsonValue {
     serde_json::json!({
-        "schema_version": "TaskSpaceInitializeMapResultV1",
-        "action": "initialize_then_actions",
-        "status": "initialized",
         "task_id": outcome.task_id,
         "map_id": outcome.map_id,
         "current_node_id": outcome.current_node_id,

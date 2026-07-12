@@ -33,12 +33,53 @@ fn initialize_output_preserves_agent_node_ids() {
     });
     let value: JsonValue = output;
 
-    assert_eq!(value["schema_version"], "TaskSpaceInitializeMapResultV1");
+    assert!(value.get("schema_version").is_none());
+    assert!(value.get("action").is_none());
+    assert!(value.get("status").is_none());
+    assert_eq!(value["task_id"], "task-1");
+    assert_eq!(value["map_id"], "map-1");
     assert_eq!(value["current_node_id"], "inspect");
     assert_eq!(
         value["node_ids"],
         serde_json::json!(["inspect", "implement"])
     );
+}
+
+#[test]
+fn successful_state_batch_is_compact() {
+    let output = format_state_batch(
+        "finish_nodes",
+        vec![serde_json::json!({
+            "node_id": "inspect",
+            "result_id": "result-1",
+            "next_node_id": "implement",
+        })],
+        true,
+    );
+    let value: JsonValue = serde_json::from_str(&output).expect("success batch json");
+
+    assert_eq!(value["status"], "committed");
+    assert!(value.get("schema_version").is_none());
+    assert!(value.get("action").is_none());
+    assert!(value.get("success").is_none());
+    assert_eq!(value["steps"][0]["next_node_id"], "implement");
+}
+
+#[test]
+fn failed_state_batch_preserves_protocol_and_raw_error() {
+    let error = FunctionCallError::RespondToModel("exact transition error".into());
+    let output = format_state_batch(
+        "finish_nodes",
+        vec![format_failed_state_step(0, &error)],
+        false,
+    );
+    let value: JsonValue = serde_json::from_str(&output).expect("failure batch json");
+
+    assert_eq!(value["schema_version"], "TaskSpaceControlBatchResultV1");
+    assert_eq!(value["action"], "finish_nodes");
+    assert_eq!(value["status"], "state_failed");
+    assert_eq!(value["success"], false);
+    assert_eq!(value["steps"][0]["output"], "exact transition error");
 }
 
 #[test]
