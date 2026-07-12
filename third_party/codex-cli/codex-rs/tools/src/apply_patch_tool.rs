@@ -9,8 +9,9 @@ use std::collections::BTreeMap;
 
 const APPLY_PATCH_LARK_GRAMMAR: &str = include_str!("tool_apply_patch.lark");
 
-const APPLY_PATCH_JSON_TOOL_DESCRIPTION: &str = r#"Use the `apply_patch` tool to edit files.
-Your patch language is a stripped‑down, file‑oriented diff format designed to be easy to parse and safe to apply. You can think of it as a high‑level envelope:
+const APPLY_PATCH_REQUEST_CONTRACT: &str = "A single apply_patch call can update multiple files. A provider response may contain at most one apply_patch call; include all related file operations in that one patch.";
+
+const APPLY_PATCH_JSON_FORMAT_DESCRIPTION: &str = r#"Your patch language is a stripped‑down, file‑oriented diff format designed to be easy to parse and safe to apply. You can think of it as a high‑level envelope:
 
 *** Begin Patch
 [ one or more file sections ]
@@ -89,7 +90,9 @@ pub struct ApplyPatchToolArgs {
 pub fn create_apply_patch_freeform_tool() -> ToolSpec {
     ToolSpec::Freeform(FreeformTool {
         name: "apply_patch".to_string(),
-        description: "Use the `apply_patch` tool to edit files. This is a FREEFORM tool, so do not wrap the patch in JSON.".to_string(),
+        description: format!(
+            "Use the `apply_patch` tool to edit files. {APPLY_PATCH_REQUEST_CONTRACT} This is a FREEFORM tool, so do not wrap the patch in JSON."
+        ),
         format: FreeformToolFormat {
             r#type: "grammar".to_string(),
             syntax: "lark".to_string(),
@@ -109,7 +112,9 @@ pub fn create_apply_patch_json_tool() -> ToolSpec {
 
     ToolSpec::Function(ResponsesApiTool {
         name: "apply_patch".to_string(),
-        description: APPLY_PATCH_JSON_TOOL_DESCRIPTION.to_string(),
+        description: format!(
+            "Use the `apply_patch` tool to edit files. {APPLY_PATCH_REQUEST_CONTRACT}\n{APPLY_PATCH_JSON_FORMAT_DESCRIPTION}"
+        ),
         strict: false,
         defer_loading: None,
         parameters: JsonSchema::object(
