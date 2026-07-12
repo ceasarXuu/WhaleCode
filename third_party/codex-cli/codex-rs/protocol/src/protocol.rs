@@ -1922,6 +1922,7 @@ pub struct ActionMapSnapshotNodeEvent {
     pub action_class: Option<String>,
     #[serde(default)]
     pub tool_success: Option<bool>,
+    pub content_sha256: String,
     pub source_event_id: Option<String>,
     #[serde(default)]
     pub raw_ref: Option<String>,

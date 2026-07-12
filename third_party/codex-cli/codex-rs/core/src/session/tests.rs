@@ -1409,11 +1409,11 @@ async fn record_context_updates_keeps_one_taskspace_epoch_snapshot() {
         "expected initial epoch snapshot in steady-state context: {developer_text}"
     );
     assert!(
-        developer_text.contains("source_event_ids:"),
+        developer_text.contains("root_source_event_ids:"),
         "expected active objective in steady-state context: {developer_text}"
     );
     assert!(
-        developer_text.contains("result_refs_available:"),
+        developer_text.contains("node_details:"),
         "expected compact result reference section in steady-state context: {developer_text}"
     );
     assert!(

@@ -353,6 +353,7 @@ pub(crate) struct NodeEvent {
     pub(crate) source: String,
     pub(crate) action_class: Option<ActionClass>,
     pub(crate) tool_success: Option<bool>,
+    pub(crate) content_sha256: String,
     pub(crate) source_event_id: Option<String>,
     pub(crate) raw_ref: Option<String>,
     pub(crate) artifact_refs: Vec<String>,

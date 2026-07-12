@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::collections::HashSet;
+use std::collections::VecDeque;
 use std::time::SystemTime;
 use std::time::UNIX_EPOCH;
 
@@ -36,6 +37,8 @@ use codex_protocol::protocol::MapRuntimeTaskCreatedEvent;
 use codex_protocol::protocol::MapRuntimeTaskStatusChangedEvent;
 use codex_protocol::protocol::MapRuntimeTimeoutSummaryRequestedEvent;
 use codex_protocol::protocol::MapRuntimeTraceEventRecordedEvent;
+use sha2::Digest;
+use sha2::Sha256;
 
 use super::map::ActionClass;
 use super::map::ActionMapId;
@@ -1304,6 +1307,7 @@ impl ActionMapRuntimeState {
                                 source: event.source,
                                 action_class,
                                 tool_success: event.tool_success,
+                                content_sha256: event.content_sha256,
                                 source_event_id: event.source_event_id,
                                 raw_ref: event.raw_ref,
                                 artifact_refs: event.artifact_refs,
@@ -1759,6 +1763,7 @@ impl ActionMapRuntimeState {
                 source: "main_tool".to_string(),
                 action_class: recorded_action_class,
                 tool_success: Some(success),
+                content_sha256: format!("{:x}", Sha256::digest(body.as_bytes())),
                 source_event_id: Some(source_event_id),
                 raw_ref,
                 artifact_refs: artifact_refs.clone(),
@@ -3952,7 +3957,7 @@ impl ActionMapRuntimeState {
 
     fn build_active_projection_developer_context(&mut self) -> Option<String> {
         let map_id = self.active_map_id.clone()?;
-        let (task_id, current_node_id, context, estimated_tokens, max_projection_tokens) = {
+        let (task_id, current_node_id, context, projection, max_projection_tokens) = {
             let Some(map) = self.maps.get(&map_id) else {
                 return Some(taskspace_projection_integrity_context(
                     &map_id,
@@ -3989,7 +3994,7 @@ impl ActionMapRuntimeState {
                 context.push_str(barrier.reason.as_str());
                 context.push('\n');
             }
-            let estimated_tokens = append_context_projection_active(
+            let projection = append_context_projection_active(
                 &mut context,
                 task,
                 map,
@@ -4002,13 +4007,14 @@ impl ActionMapRuntimeState {
                     .clone()
                     .unwrap_or_else(|| "projection".to_string()),
                 context,
-                estimated_tokens,
+                projection,
                 self.active_budget
                     .as_ref()
                     .map(|budget| budget.max_projection_tokens)
                     .unwrap_or(usize::MAX),
             )
         };
+        let estimated_tokens = projection.estimated_tokens;
         self.budget_counters.projection_tokens_last = estimated_tokens;
         self.budget_counters.projection_tokens_max = self
             .budget_counters
@@ -4024,7 +4030,9 @@ impl ActionMapRuntimeState {
             .as_ref()
             .map(|budget| budget.profile_name.as_str())
             .unwrap_or("unknown");
-        let status = if estimated_tokens <= max_projection_tokens {
+        let status = if projection.skeleton_over_budget {
+            "map_skeleton_over_budget"
+        } else if estimated_tokens <= max_projection_tokens {
             "within_budget"
         } else {
             "over_budget"
@@ -4035,7 +4043,7 @@ impl ActionMapRuntimeState {
             map_id,
             current_node_id,
             None,
-            estimated_tokens <= max_projection_tokens,
+            !projection.skeleton_over_budget && estimated_tokens <= max_projection_tokens,
             vec![
                 "schema:taskspace-projection-budget-v1".to_string(),
                 "producer:runtime".to_string(),
@@ -4043,6 +4051,10 @@ impl ActionMapRuntimeState {
                 format!("route_mode:{route_mode}"),
                 format!("profile_name:{profile_name}"),
                 format!("projection_tokens:{estimated_tokens}"),
+                format!(
+                    "skeleton_projection_tokens:{}",
+                    projection.skeleton_estimated_tokens
+                ),
                 format!("max_projection_tokens:{max_projection_tokens}"),
                 format!("status:{status}"),
             ],
@@ -5110,10 +5122,10 @@ fn taskspace_projection_integrity_context(map_id: &str, reason: &str) -> String 
 - integrity_status: invalid\n\
 - integrity_reason: {reason}\n\
 - current_node: unavailable\n\
+- active_frontier:\n  - none\n\
 - map_nodes:\n  - none\n\
 - map_edges:\n  - none\n\
-- current_node_recent_events:\n  - none\n\
-- result_refs_available:\n  - none\n\
+- node_details:\n  - none\n\
 ContextProjectionV1 epoch snapshot end."
     )
 }
@@ -5134,8 +5146,8 @@ fn append_context_projection_active(
     task: &TaskState,
     map: &ActionMapInstance,
     current_node_id: Option<&str>,
-    _active_budget: Option<&TaskSpaceActiveBudgetV1>,
-) -> usize {
+    active_budget: Option<&TaskSpaceActiveBudgetV1>,
+) -> ProjectionRenderStats {
     let current_node_id = current_node_id
         .filter(|node_id| map.nodes.contains_key(*node_id))
         .map(str::to_string);
@@ -5147,7 +5159,11 @@ fn append_context_projection_active(
             kind: node.kind.as_str().to_string(),
             status: node.status.as_str().to_string(),
             goal: node.context.summary.clone(),
-            result_count: node.result_context.len(),
+            result_ids: node
+                .result_context
+                .iter()
+                .map(|result| result.id.clone())
+                .collect(),
             event_count: node.node_events.len(),
         })
         .collect::<Vec<_>>();
@@ -5159,122 +5175,186 @@ fn append_context_projection_active(
             to: edge.to.clone(),
         })
         .collect::<Vec<_>>();
-    let (recent_tool_feedback, projected_event_ids) =
-        projection_recent_event_refs(map, current_node_id.as_deref(), 6);
-    let result_refs_available = projection_result_refs_available(map, 8, &projected_event_ids);
+    let active_frontier = ordered_node_ids(map)
+        .into_iter()
+        .filter(|node_id| {
+            map.nodes
+                .get(node_id)
+                .is_some_and(|node| node.status != NodeStatus::Completed)
+        })
+        .collect::<Vec<_>>();
+    let node_details = projection_node_details(map, current_node_id.as_deref());
 
     let rendered = render_active_projection(ActiveProjectionInput {
         task_id: task.id.clone(),
         task_status: task.status.as_str().to_string(),
         map_id: map.id.clone(),
         map_status: map.status.as_str().to_string(),
-        source_event_ids: task.source_event_ids.clone(),
+        root_source_event_ids: task.source_event_ids.clone(),
         current_node_id,
+        active_frontier,
         map_nodes: node_skeleton,
         map_edges,
-        current_node_recent_events: recent_tool_feedback,
-        result_refs_available,
-        mechanically_blank: taskspace_task_path_is_mechanical_blank(task, map),
+        node_details,
     });
-    context.push_str(&rendered.body);
-    rendered.estimated_tokens
+    let max_projection_tokens = active_budget
+        .map(|budget| budget.max_projection_tokens)
+        .unwrap_or(usize::MAX);
+    let skeleton_over_budget = rendered.skeleton_estimated_tokens > max_projection_tokens;
+    if skeleton_over_budget {
+        context.push_str("TaskSpaceMapProjectionErrorV1:\n");
+        context.push_str("- error: map_skeleton_over_budget\n");
+        context.push_str(&format!("- task_id: {}\n", task.id));
+        context.push_str(&format!("- map_id: {}\n", map.id));
+        context.push_str(&format!("- node_count: {}\n", map.nodes.len()));
+        context.push_str(&format!("- edge_count: {}\n", map.edges.len()));
+        context.push_str(&format!(
+            "- skeleton_projection_tokens: {}\n",
+            rendered.skeleton_estimated_tokens
+        ));
+        context.push_str(&format!(
+            "- max_projection_tokens: {max_projection_tokens}\n"
+        ));
+    } else {
+        context.push_str(&rendered.body);
+    }
+    ProjectionRenderStats {
+        estimated_tokens: if skeleton_over_budget {
+            context.len().div_ceil(4)
+        } else {
+            rendered.estimated_tokens
+        },
+        skeleton_estimated_tokens: rendered.skeleton_estimated_tokens,
+        skeleton_over_budget,
+    }
 }
 
-fn projection_evidence_node_ids<'a>(
-    map: &'a ActionMapInstance,
-    current_node_id: Option<&'a str>,
-) -> Vec<&'a str> {
-    let Some(current_node_id) = current_node_id else {
-        let mut seen = HashSet::new();
-        let mut node_ids = Vec::new();
-        for event_id in ordered_node_event_ids(map).into_iter().rev() {
-            let Some(event) = map.node_events.get(&event_id) else {
-                continue;
-            };
-            let node_id = event.node_id.as_str();
-            if seen.insert(node_id) {
-                node_ids.push(node_id);
-            }
-            if node_ids.len() >= 3 {
-                break;
-            }
-        }
-        if node_ids.is_empty() {
-            for result_id in ordered_result_ids(map).into_iter().rev() {
-                let Some(result) = map.results.get(&result_id) else {
-                    continue;
-                };
-                let node_id = result.node_id.as_str();
-                if seen.insert(node_id) {
-                    node_ids.push(node_id);
-                }
-                if node_ids.len() >= 3 {
-                    break;
-                }
-            }
-        }
-        node_ids.reverse();
-        return node_ids;
-    };
-    let mut node_ids = map
-        .edges
-        .iter()
-        .filter(|edge| edge.to == current_node_id)
-        .map(|edge| edge.from.as_str())
-        .collect::<Vec<_>>();
-    node_ids.push(current_node_id);
-    node_ids
+#[derive(Debug, Clone, Copy)]
+struct ProjectionRenderStats {
+    estimated_tokens: usize,
+    skeleton_estimated_tokens: usize,
+    skeleton_over_budget: bool,
 }
 
-fn projection_recent_event_refs(
+fn projection_node_details(
     map: &ActionMapInstance,
     current_node_id: Option<&str>,
-    max_results: usize,
-) -> (Vec<ProjectionEventRef>, HashSet<String>) {
-    let node_ids = projection_evidence_node_ids(map, current_node_id);
-    if node_ids.is_empty() {
-        return (Vec::new(), HashSet::new());
-    }
-
-    let mut selected = ordered_node_event_ids(map)
-        .into_iter()
-        .rev()
-        .filter_map(|event_id| map.node_events.get(&event_id))
-        .filter(|event| {
-            (event.source == "main_tool" || event.source == "runtime_feedback")
-                && node_ids
-                    .iter()
-                    .any(|node_id| *node_id == event.node_id.as_str())
-        })
-        .take(max_results)
-        .collect::<Vec<_>>();
-    selected.reverse();
-
-    let event_ids = selected
-        .iter()
-        .map(|event| event.id.clone())
-        .collect::<HashSet<_>>();
-    let entries = selected.into_iter().map(projection_event_ref).collect();
-    (entries, event_ids)
-}
-
-fn projection_result_refs_available(
-    map: &ActionMapInstance,
-    max_results: usize,
-    excluded_event_ids: &HashSet<String>,
 ) -> Vec<ProjectionEventRef> {
-    let event_ids = ordered_node_event_ids(map);
-    let start = event_ids.len().saturating_sub(max_results);
-    event_ids
+    let distances = projection_graph_distances(map, current_node_id);
+    let mut selected_ids = HashSet::new();
+    for node_id in ordered_node_ids(map) {
+        let Some(node) = map.nodes.get(&node_id) else {
+            continue;
+        };
+        let tier = projection_detail_tier(node, current_node_id, distances.get(&node_id).copied());
+        let limit = match tier {
+            "D1" => 8,
+            "D2" => 4,
+            _ => 1,
+        };
+        let events = ordered_node_event_ids(map)
+            .into_iter()
+            .filter_map(|event_id| map.node_events.get(&event_id))
+            .filter(|event| event.node_id == node_id)
+            .collect::<Vec<_>>();
+        for event in events
+            .iter()
+            .filter(|event| projection_evidence_class(event) == "P0")
+        {
+            selected_ids.insert(event.id.clone());
+        }
+        for event in events.iter().rev().take(limit) {
+            selected_ids.insert(event.id.clone());
+        }
+    }
+    ordered_node_event_ids(map)
         .into_iter()
-        .skip(start)
         .filter_map(|event_id| map.node_events.get(&event_id))
-        .filter(|event| !excluded_event_ids.contains(&event.id))
-        .map(projection_event_ref)
+        .filter(|event| selected_ids.contains(&event.id))
+        .map(|event| {
+            let tier = map
+                .nodes
+                .get(&event.node_id)
+                .map(|node| {
+                    projection_detail_tier(
+                        node,
+                        current_node_id,
+                        distances.get(&event.node_id).copied(),
+                    )
+                })
+                .unwrap_or("D3");
+            projection_event_ref(event, tier, projection_evidence_class(event))
+        })
         .collect()
 }
 
-fn projection_event_ref(event: &NodeEvent) -> ProjectionEventRef {
+fn projection_graph_distances(
+    map: &ActionMapInstance,
+    current_node_id: Option<&str>,
+) -> HashMap<String, usize> {
+    let Some(current_node_id) = current_node_id.filter(|node_id| map.nodes.contains_key(*node_id))
+    else {
+        return HashMap::new();
+    };
+    let mut distances = HashMap::from([(current_node_id.to_string(), 0)]);
+    let mut queue = VecDeque::from([current_node_id.to_string()]);
+    while let Some(node_id) = queue.pop_front() {
+        let next_distance = distances[&node_id] + 1;
+        for adjacent in map.edges.iter().filter_map(|edge| {
+            if edge.from == node_id {
+                Some(edge.to.as_str())
+            } else if edge.to == node_id {
+                Some(edge.from.as_str())
+            } else {
+                None
+            }
+        }) {
+            if !distances.contains_key(adjacent) {
+                distances.insert(adjacent.to_string(), next_distance);
+                queue.push_back(adjacent.to_string());
+            }
+        }
+    }
+    distances
+}
+
+fn projection_detail_tier(
+    node: &MapNode,
+    current_node_id: Option<&str>,
+    distance: Option<usize>,
+) -> &'static str {
+    if current_node_id == Some(node.id.as_str())
+        || node.status != NodeStatus::Completed
+        || distance.is_some_and(|distance| distance <= 1)
+    {
+        "D1"
+    } else if distance == Some(2) {
+        "D2"
+    } else {
+        "D3"
+    }
+}
+
+fn projection_evidence_class(event: &NodeEvent) -> &'static str {
+    if event.tool_success == Some(false) || event.source == "runtime_feedback" {
+        "P0"
+    } else if matches!(
+        event.action_class,
+        Some(ActionClass::Read | ActionClass::Edit | ActionClass::Test)
+    ) {
+        "P1"
+    } else if event.tool_success.is_some() {
+        "P2"
+    } else {
+        "P3"
+    }
+}
+
+fn projection_event_ref(
+    event: &NodeEvent,
+    detail_tier: &str,
+    evidence_class: &str,
+) -> ProjectionEventRef {
     ProjectionEventRef {
         id: event
             .source_event_id
@@ -5283,10 +5363,13 @@ fn projection_event_ref(event: &NodeEvent) -> ProjectionEventRef {
         node_id: event.node_id.clone(),
         event_kind: event.event_kind.clone(),
         source: event.source.clone(),
+        detail_tier: detail_tier.to_string(),
+        evidence_class: evidence_class.to_string(),
         action_class: event
             .action_class
             .map(|action_class| action_class.as_str().to_string()),
         tool_success: event.tool_success,
+        content_sha256: Some(event.content_sha256.clone()),
         raw_ref: event.raw_ref.clone(),
         artifact_refs: event.artifact_refs.clone(),
     }
@@ -5317,12 +5400,6 @@ fn ordered_node_ids(map: &ActionMapInstance) -> Vec<MapNodeId> {
     dynamic.sort_by(|left, right| node_id_sort_key(left).cmp(&node_id_sort_key(right)));
     ordered.extend(dynamic);
     ordered
-}
-
-fn ordered_result_ids(map: &ActionMapInstance) -> Vec<NodeResultId> {
-    let mut result_ids = map.results.keys().cloned().collect::<Vec<_>>();
-    result_ids.sort_by(|left, right| result_id_sort_key(left).cmp(&result_id_sort_key(right)));
-    result_ids
 }
 
 fn ordered_node_event_ids(map: &ActionMapInstance) -> Vec<NodeEventId> {
@@ -5431,16 +5508,6 @@ fn node_id_sort_key(node_id: &str) -> (u8, u64, &str) {
         return (0, number, node_id);
     }
     (1, 0, node_id)
-}
-
-fn result_id_sort_key(result_id: &str) -> (u8, u64, &str) {
-    if let Some(number) = result_id
-        .strip_prefix("result-")
-        .and_then(|suffix| suffix.parse::<u64>().ok())
-    {
-        return (0, number, result_id);
-    }
-    (1, 0, result_id)
 }
 
 fn node_event_id_sort_key(event_id: &str) -> (u8, u64, &str) {
@@ -5893,6 +5960,7 @@ fn snapshot_map(map: &ActionMapInstance) -> ActionMapSnapshotMap {
             source: event.source.clone(),
             action_class: event.action_class.map(|class| class.as_str().to_string()),
             tool_success: event.tool_success,
+            content_sha256: event.content_sha256.clone(),
             source_event_id: event.source_event_id.clone(),
             raw_ref: event.raw_ref.clone(),
             artifact_refs: event.artifact_refs.clone(),

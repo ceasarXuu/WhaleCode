@@ -150,10 +150,12 @@ const TASKSPACE_ACTIVE_PROJECTION_MARKER: &str = "ContextProjectionV1 epoch snap
 const TASKSPACE_PROJECTION_REQUIRED_SECTIONS: &[&str] = &[
     "task_id",
     "map_id",
+    "root_source_event_ids",
     "current_node",
+    "active_frontier",
     "map_nodes",
-    "current_node_recent_events",
-    "result_refs_available",
+    "map_edges",
+    "node_details",
 ];
 // `/responses/compact` is unary, so the timeout covers the full response rather than one idle
 // period between stream events.

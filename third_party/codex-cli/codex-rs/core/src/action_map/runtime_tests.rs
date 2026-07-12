@@ -323,7 +323,9 @@ fn thin_projection_indexes_events_without_copying_raw_feedback() {
     event.artifact_refs = vec!["src/private.rs".to_string()];
 
     let projection = state.build_developer_context().expect("projection");
-    assert!(projection.contains("current_node_recent_events"));
+    assert!(projection.contains("node_details"));
+    assert!(projection.contains("tier=D1 evidence=P0"));
+    assert!(projection.contains("content_sha256="));
     assert_eq!(projection.matches("task-event-call-1").count(), 1);
     assert_eq!(projection.matches("inspect kind=").count(), 1);
     assert_eq!(
@@ -347,6 +349,117 @@ fn thin_projection_indexes_events_without_copying_raw_feedback() {
     assert!(!projection.contains("critical_artifact_evidence"));
     assert!(!projection.contains("fact_source_coverage"));
     assert!(!projection.contains("verified_input_evidence"));
+}
+
+#[test]
+fn active_projection_tiers_node_details_by_graph_distance() {
+    let nodes = vec![
+        inspect_node("a"),
+        ActionMapInitializeNodeInput {
+            id: "b".into(),
+            kind: NodeKind::ImplementSolution,
+            title: "B".into(),
+            context_summary: "B goal".into(),
+            dependency_node_ids: vec!["a".into()],
+        },
+        ActionMapInitializeNodeInput {
+            id: "c".into(),
+            kind: NodeKind::SmokeTest,
+            title: "C".into(),
+            context_summary: "C goal".into(),
+            dependency_node_ids: vec!["b".into()],
+        },
+        ActionMapInitializeNodeInput {
+            id: "d".into(),
+            kind: NodeKind::FinalSynthesis,
+            title: "D".into(),
+            context_summary: "D goal".into(),
+            dependency_node_ids: vec!["c".into()],
+        },
+    ];
+    let (mut state, owner, outcome) = initialized_state(nodes, "a");
+    state.current_main_node_id = Some("d".into());
+    let map = state.maps.get_mut(&outcome.map_id).expect("active map");
+    for (index, node_id) in ["a", "b", "c", "d"].into_iter().enumerate() {
+        let node = map.nodes.get_mut(node_id).expect("node");
+        node.status = if node_id == "d" {
+            NodeStatus::Running
+        } else {
+            NodeStatus::Completed
+        };
+        let event_id = format!("node-event-{}", index + 1);
+        node.node_events.push(NodeEventRef {
+            id: event_id.clone(),
+            kind: "tool_result".into(),
+        });
+        map.node_events.insert(
+            event_id.clone(),
+            NodeEvent {
+                id: event_id,
+                map_id: outcome.map_id.clone(),
+                node_id: node_id.into(),
+                event_kind: "tool_result".into(),
+                source: "main_tool".into(),
+                action_class: Some(ActionClass::Read),
+                tool_success: Some(true),
+                content_sha256: format!("hash-{node_id}"),
+                source_event_id: Some(format!("task-event-{node_id}")),
+                raw_ref: Some(format!("output-ref-{node_id}")),
+                artifact_refs: vec![format!("src/{node_id}.rs")],
+                call_id: Some(format!("call-{node_id}")),
+                source_thread_id: owner,
+                created_at_ms: index as i64,
+            },
+        );
+    }
+
+    let projection = state.build_developer_context().expect("projection");
+    for expected in [
+        "task-event-a node=a tier=D3 evidence=P1",
+        "task-event-b node=b tier=D2 evidence=P1",
+        "task-event-c node=c tier=D1 evidence=P1",
+        "task-event-d node=d tier=D1 evidence=P1",
+    ] {
+        assert!(
+            projection.contains(expected),
+            "missing {expected}: {projection}"
+        );
+    }
+    assert!(projection.contains("active_frontier:\n    - d"));
+}
+
+#[test]
+fn active_projection_reports_skeleton_over_budget_without_partial_map() {
+    let (mut state, _, outcome) = initialized_state(vec![inspect_node("inspect")], "inspect");
+    let map = state.maps.get_mut(&outcome.map_id).expect("active map");
+    for index in 0..1_000 {
+        let id = format!("large-node-{index}");
+        map.nodes.insert(
+            id.clone(),
+            MapNode {
+                id,
+                title: format!("Large node {index}"),
+                kind: NodeKind::Custom,
+                status: NodeStatus::Pending,
+                context: NodeContext {
+                    summary: format!("{}-{index}", "detailed-goal".repeat(12)),
+                    source_refs: Vec::new(),
+                },
+                active_lease: None,
+                result_context: Vec::new(),
+                node_events: Vec::new(),
+                origin_node_id: None,
+            },
+        );
+    }
+
+    let projection = state
+        .build_developer_context()
+        .expect("budget error context");
+    assert!(projection.contains("TaskSpaceMapProjectionErrorV1"));
+    assert!(projection.contains("error: map_skeleton_over_budget"));
+    assert!(!projection.contains("ContextProjectionV1 epoch snapshot:"));
+    assert!(!projection.contains("large-node-999"));
 }
 
 #[test]

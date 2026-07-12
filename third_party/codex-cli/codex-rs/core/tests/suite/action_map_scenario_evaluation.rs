@@ -67,7 +67,6 @@ async fn terminal_candidate_finishes_turn_without_extra_provider_request() -> Re
         .await?;
     let initialize = serde_json::to_string(&json!({
         "action": "initialize_then_actions",
-        "task_goal": "Read the fixture and return the Agent final.",
         "initial_nodes": [{
             "node_id": "inspect",
             "kind": "inspect_code_context",
@@ -90,7 +89,7 @@ async fn terminal_candidate_finishes_turn_without_extra_provider_request() -> Re
     let exact_final = "Agent final line one.\nAgent final line two.";
     let finish = serde_json::to_string(&json!({
         "action": "finish_then_end",
-        "terminal_finish": {"node_id": "inspect", "result_summary": "Terminal fixture was read."},
+        "terminal_finish": {"node_id": "inspect"},
         "final_candidate": exact_final
     }))?;
     responses::mount_sse_once_match(
@@ -130,7 +129,6 @@ async fn nonterminal_finish_executes_sibling_action_after_barrier() -> Result<()
     let harness = TestCodexHarness::new().await?;
     let initialize = serde_json::to_string(&json!({
         "action": "initialize_then_actions",
-        "task_goal": "Verify a nonterminal finish executes its declared continuation.",
         "initial_nodes": [
             {
                 "node_id": "inspect",
@@ -163,7 +161,6 @@ async fn nonterminal_finish_executes_sibling_action_after_barrier() -> Result<()
         "finishes": [{
             "node_id": "inspect",
             "next_node_id": "complete",
-            "result_summary": "Nonterminal finish committed."
         }]
     }))?;
     responses::mount_sse_once_match(
@@ -184,7 +181,7 @@ async fn nonterminal_finish_executes_sibling_action_after_barrier() -> Result<()
 
     let terminal_finish = serde_json::to_string(&json!({
         "action": "finish_then_end",
-        "terminal_finish": {"node_id": "complete", "result_summary": "Continuation executed."},
+        "terminal_finish": {"node_id": "complete"},
         "final_candidate": "Cadence ownership verified."
     }))?;
     responses::mount_sse_once_match(
@@ -221,7 +218,6 @@ async fn adjacent_finish_calls_claim_successive_ready_targets() -> Result<()> {
     let harness = TestCodexHarness::new().await?;
     let initialize = serde_json::to_string(&json!({
         "action": "initialize_then_actions",
-        "task_goal": "Finish two dependent nodes in one response.",
         "initial_nodes": [
             {
                 "node_id": "first",
@@ -253,10 +249,9 @@ async fn adjacent_finish_calls_claim_successive_ready_targets() -> Result<()> {
         "action": "finish_then_end",
         "preceding_finishes": [{
             "node_id": "first",
-            "result_summary": "First result recorded.",
             "next_node_id": "second"
         }],
-        "terminal_finish": {"node_id": "second", "result_summary": "Second result recorded."},
+        "terminal_finish": {"node_id": "second"},
         "final_candidate": "Both nodes finished in one response."
     }))?;
     responses::mount_sse_once_match(
@@ -301,7 +296,6 @@ async fn native_sequence_executes_dependent_tools_after_latest_state_barrier() -
 
     let initialize = serde_json::to_string(&json!({
         "action": "initialize_then_actions",
-        "task_goal": "Inspect, edit, and validate the fixture.",
         "initial_nodes": [
             {
                 "node_id": "inspect",
@@ -340,7 +334,6 @@ async fn native_sequence_executes_dependent_tools_after_latest_state_barrier() -
         "action": "finish_nodes",
         "finishes": [{
             "node_id": "inspect",
-            "result_summary": "Fixture instructions were read.",
             "next_node_id": "implement"
         }]
     }))?;
@@ -360,7 +353,6 @@ async fn native_sequence_executes_dependent_tools_after_latest_state_barrier() -
         "action": "finish_nodes",
         "finishes": [{
             "node_id": "implement",
-            "result_summary": "Fixture value was changed to new.",
             "next_node_id": "validate"
         }]
     }))?;
@@ -385,7 +377,7 @@ async fn native_sequence_executes_dependent_tools_after_latest_state_barrier() -
 
     let finish_validate = serde_json::to_string(&json!({
         "action": "finish_then_end",
-        "terminal_finish": {"node_id": "validate", "result_summary": "Fixture validation passed."},
+        "terminal_finish": {"node_id": "validate"},
         "final_candidate": "Fixture fixed and validated."
     }))?;
     responses::mount_sse_once_match(
@@ -451,7 +443,6 @@ async fn failed_state_barrier_skips_dependent_tail_without_side_effect() -> Resu
         .await?;
     let initialize = serde_json::to_string(&json!({
         "action": "initialize_then_actions",
-        "task_goal": "Verify failure stops the dependent tail.",
         "initial_nodes": [{
             "node_id": "inspect",
             "kind": "inspect_code_context",
@@ -498,7 +489,7 @@ async fn failed_state_barrier_skips_dependent_tail_without_side_effect() -> Resu
     .await;
     let finish = serde_json::to_string(&json!({
         "action": "finish_then_end",
-        "terminal_finish": {"node_id": "inspect", "result_summary": "README was read."},
+        "terminal_finish": {"node_id": "inspect"},
         "final_candidate": "Failure path verified."
     }))?;
     responses::mount_sse_once_match(
@@ -545,7 +536,6 @@ async fn map_runtime_conversation_records_node_bound_subagent_events() -> Result
     let server = start_mock_server().await;
     let create_node_args = serde_json::to_string(&json!({
         "action": "initialize_then_actions",
-        "task_goal": "调查缓存模块边界，然后由主 agent 继续推进。",
         "initial_nodes": [
             {
                 "node_id": "coordinate",
@@ -797,7 +787,6 @@ def test_cache_key_normalizes_key():\n    assert cache_key(\"Users\", \"ABC\") =
 async fn mount_realistic_user_bugfix_responses(harness: &TestCodexHarness) -> Result<()> {
     let create_node_args = serde_json::to_string(&json!({
         "action": "initialize_then_actions",
-        "task_goal": "调查缓存 key 失败边界，修复代码并验证。",
         "initial_nodes": [
             {
                 "node_id": "coordinate",
@@ -890,7 +879,6 @@ async fn mount_realistic_user_bugfix_responses(harness: &TestCodexHarness) -> Re
     let implementation_node_args = serde_json::to_string(&json!({
         "action": "finish_nodes",
         "finishes": [{
-            "result_summary": "缓存 key 边界调查已完成。",
             "next_node_kind": "implement_solution",
             "next_node_goal": "Implement the cache key namespace normalization fix after the boundary investigation finished."
         }]
@@ -935,7 +923,7 @@ async fn mount_realistic_user_bugfix_responses(harness: &TestCodexHarness) -> Re
                 "taskspace_control",
                 &serde_json::to_string(&json!({
                     "action": "finish_then_end",
-                    "terminal_finish": {"result_summary": "Cache key namespace normalization was implemented and validated."},
+                    "terminal_finish": {},
                     "final_candidate": "已修复缓存 key namespace 归一化问题，并运行验证通过。",
                 }))?,
             ),

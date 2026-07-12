@@ -3865,7 +3865,7 @@ impl Session {
         let action_map_epoch_snapshot_present = {
             let state = self.state.lock().await;
             state
-                .history
+                .clone_history()
                 .raw_items()
                 .iter()
                 .any(is_action_map_projection_developer_item)
