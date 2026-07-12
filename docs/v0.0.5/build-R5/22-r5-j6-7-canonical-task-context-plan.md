@@ -2,14 +2,15 @@
 
 - Created: 2026-07-12
 - Updated: 2026-07-12
-- Version: 1.0
-- Status: Review pending / J6.7.0-J6.7.5 complete, J6.7.6 engineering evidence complete
+- Version: 1.1
+- Status: In progress / J6.7.0-J6.7.6 engineering complete, J6.7.7 planned
 - Owner / Responsible: WhaleCode core runtime / TaskSpace context
 - Related Systems: `action_map`、`ConversationHistory`、session turn、provider prompt builder、
   `taskspace_control`、compaction、output refs、benchmark observer
 - Related Links: `00-r5-taskspace-simplification-charter.md`、
   `01-r5-phased-simplification-plan.md`、`11-r5-feedback-cache-priority-plan.md`、
   `21-r5-input-token-optimization-audit.md`、
+  `30-r5-j6-7-phase7-context-residue-plan.md`、
   `coe/2026-07-10-22-56-r5-request-amplification.md`
 - Risk Level: High
 - Plan Type: Full
@@ -111,7 +112,7 @@ global/base messages
 | provider tool call pairing规则 | third-party | Ready/需live验证 | 重建history被拒绝 | J6.7.2 provider fixture和Docker pair |
 | DeepSeek prefix cache | third-party | Ready | event线性化破坏LCP | J6.7.4 same-shape cache gate |
 | Docker benchmark/observer | environment | Ready | 收益不可证 | 每phase固定横向样本 |
-| 对抗性审查授权 | person | Pending | J6.7.6不能关闭 | 收口前向用户申请 |
+| 对抗性审查授权 | person | Pending | J6.7.7-G不能关闭 | A-F完成后向用户申请 |
 
 | Assumption | Verification | If False |
 |---|---|---|
@@ -393,13 +394,35 @@ control 仅引用，`count-call-stack` Standard/R5 均 solved，orphan 与 raw d
   保留正确架构但不声明性能收益，并暂停J7等待用户决策。
 - Next Gate：全部通过后更新R5/CoE并解锁J7，否则保持pause。
 
-**实施结果（2026-07-12）：** 工程与 live evidence 已完成，结果见
+**实施结果（2026-07-12）：** 原定工程与 live evidence 已完成，结果见
 `29-r5-j6-7-phase6-benefit-gate-result.md`。`count-call-stack` 和
 `subscription-billing-repair` 的 Standard/R5 Docker paired sample 均 solved；canonical
 payload/call/output record duplicate 与 orphan 均为0，Map语义保留100%，两组 request 2+ cache 分别
 比同轮 Standard 高2.10和2.09个百分点。active非消息固定区较J6.6下降约3.7%，但跨轮总请求和总
-input仍受Agent路径方差影响，不声明稳定因果收益。当前仅剩经用户授权的对抗性审查；审查关闭全部
-critical/high finding前不解锁J7。
+input仍受Agent路径方差影响，不声明稳定因果收益。该轮原定在授权审查后关闭；后续字段lineage审计
+发现terminal、bootstrap carrier、空Map
+developer message和full snapshot仍有残留，已重开为J6.7.7，原审查门顺延到J6.7.7-G。
+
+### Phase J6.7.7：上下文残留去重与空 Map 收敛
+
+**目标：** 关闭完整payload hash无法发现的跨carrier重复，并让fresh blank Map不再注入陈旧结构状态。
+
+- Entry：J6.7.6工程和Docker证据完整。
+- Detailed plan：`30-r5-j6-7-phase7-context-residue-plan.md`。
+- Ownership：
+  1. final正文只归canonical assistant final；
+  2. ordinary nested参数/结果只归native call/result；
+  3. node定义只归Map；successful bootstrap envelope只作当轮运输；
+  4. fresh blank只由Map内部状态和bootstrap tool schema/choice表达；
+  5. failed call/output始终原样保留；
+  6. full snapshot是派生checkpoint，不是每个trace event的事实副本。
+- Subphases：A lineage observer、B blank context、C terminal owner、D nested/ack、E bounded projection、
+  F incremental snapshot、G Docker benefit/review。
+- Exit：known provider semantic duplicate=0；post-terminal final正文一次；stale blank marker=0；
+  failed feedback恢复100%；projection可按ref完整恢复；snapshot bytes下降至少80%；warm cache无>2pp负收益；
+  无未关闭critical/high finding。
+- Fallback：每个subphase整阶段revert并丢弃实验会话；不增加兼容、双写或semantic fallback。
+- Next Gate：全部通过后关闭J6.7并解锁J7。
 
 ## 9. Phase Gate矩阵
 
@@ -411,7 +434,8 @@ critical/high finding前不解锁J7。
 | J6.7.3 | schema/handler/provider probe | 不依赖compaction | known duplicates zero | proceed/pause |
 | J6.7.4 | compaction/ref/cache sample | 不依赖dead-code deletion | no raw duplicate/miss | proceed/pause |
 | J6.7.5 | call graph/tests/build | 不依赖benefit run | old path zero caller | proceed/pause |
-| J6.7.6 | Docker evidence/review | 不依赖J7 | correctness + benefit gate | unlock J7/pause |
+| J6.7.6 | Docker evidence | 不依赖J7 | correctness + initial benefit gate | proceed to J6.7.7 |
+| J6.7.7 | lineage/post-terminal/projection/replay/Docker/review | 不依赖J7 | cross-carrier zero + bounded context | unlock J7/pause |
 
 任何phase未达到100%时默认pause；后续phase不得补写前一phase的退出证据。
 
@@ -425,7 +449,11 @@ critical/high finding前不解锁J7。
 | control dedupe | transition引用events | taskspace handler/sequence | control call | schema/failure tests | transition trace | landed |
 | checkpoint/ref | 渐进暴露无正文重复 | projection/compaction/output ref | context pressure | compaction tests | omission/ref trace | landed |
 | old path deletion | 无双写和兼容 | history composer/runtime | all TaskSpace turns | call graph/build | old_path_count=0 | landed |
-| benefit gate | 正确性和成本可证明 | Docker benchmark | paired run | validators | performance report | review pending |
+| initial benefit gate | 正确性和成本可证明 | Docker benchmark | paired run | validators | performance report | landed |
+| cross-carrier owner | final/nested/blank只保留唯一provider owner | event linearizer/session/control | next turn/resume | lineage fixtures | post-terminal report | planned |
+| bounded Map context | projection分页且可机械恢复 | projection/map read | resume/compaction | boundary/ref | projection bytes | planned |
+| incremental replay | snapshot只在生命周期边界 | rollout/state replay | persistence | replay hash | snapshot ratio | planned |
+| final benefit/review | residual全部关闭 | Docker benchmark | paired run | validators/review | final report | planned |
 
 仅production path接通并取得runtime证据后可标记`landed`；schema、fixture或test-only codec不能单独完成迁移。
 

@@ -2530,3 +2530,58 @@
   ```
 - Interpretation: 单一事实源和固定结构去重收益成立，且没有以缓存、反馈完整性或正确性为代价。总request/input仍随Agent路径波动；单次样本不支持把跨轮总成本变化写成稳定因果，也不支持增加Runtime语义约束。
 - Time: 2026-07-12
+
+## Hypothesis H-024: 完整payload去重门禁遗漏跨carrier与post-terminal语义重复
+- Status: confirmed
+- Parent: P-001
+- Claim: J6.7.6 observer只检查完整payload/body/record hash，无法发现同一字段被不同wrapper承载，也不会在terminal后无下一请求时重建未来上下文，因此把`final_candidate + assistant final`、`outer actions + native nested call`错误归入canonical duplicate=0。
+- Layer: provider-context-observability-and-ownership
+- Factor relation: causal
+- Depends on:
+  - H-022
+  - H-023
+- Falsifiable predictions:
+  - If true: terminal candidate与assistant final逐字相同；outer actions参数可机械映射到expanded nested calls；当前scan仍报告0。
+  - If false: 两者正文/参数不同，或observer已有field lineage/post-terminal检查并报告duplicate。
+- Diagnostic evidence plan:
+  - Signal: exact field equality、parent call ID、covered event refs、future-turn reconstruction、snapshot bytes ratio。
+  - Capture method: J6.7.6 canonical events、provider wire、rollout byte accounting和静态projection路径。
+  - Differentiates from:
+    - Provider正常重发append-only历史。
+    - Agent自然重复表达。
+    - distinct calls产生相同短output。
+- Evidence gate: satisfied
+- Related evidence:
+  - E-057
+- Conclusion: confirmed；J6.7必须新增field-lineage和post-terminal门禁，并按唯一owner删除运输副本，不能用语义摘要处理
+- Repair design readiness: ready
+- Next step: 执行`docs/v0.0.5/build-R5/30-r5-j6-7-phase7-context-residue-plan.md`
+- Blocker:
+  - none
+
+## Evidence E-057: final、nested、blank projection与snapshot残留均可机械复现
+- Related hypotheses:
+  - H-024
+- Direction: supports
+- Type: canonical-lineage-and-rollout-byte-audit
+- Source: J6.7.6 focused + complex artifacts
+- Prediction or plan link:
+  - J6.7.7 owner matrix
+- Matched signal:
+  - focused/complex terminal final正文分别396/1,884 bytes且各有两份完全相同canonical内容；bootstrap outer args为637/745 bytes，expanded nested args再次出现146/161 bytes；595-byte空Map developer item分别进入11/14个请求；full snapshot占rollout 95.2%/96.0%。
+- Correlation keys:
+  - focused `20260712-124928-300`
+  - complex `20260712-124928-323`
+  - focused terminal `task-event-53` / final `task-event-55`
+  - focused bootstrap parent `call_00_pkUKKo7zzuzVN9kzPMm67142`
+- Raw content:
+  ```text
+  exact_payload_duplicates: 0
+  final_candidate == assistant_final: true / true
+  TaskSpace-only fixed message: 595 B, exposures 11 / 14
+  focused snapshot: 5,676,606 / 5,960,525 bytes
+  complex snapshot: 9,102,490 / 9,481,901 bytes
+  projection map_nodes/map_edges/source_event_ids: no item bound
+  ```
+- Interpretation: 旧双轨正文已删除，但运输envelope、terminal派生正文、空Map结构消息和内部full snapshot仍形成第二份表达。修复应保留native call/result、assistant final、Map状态和失败原文，删除成功运输副本，并对Map执行机械分页而非语义裁剪。
+- Time: 2026-07-12

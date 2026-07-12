@@ -2,9 +2,9 @@
 
 - Date: 2026-07-12
 - Phase: R5-J6.7.6
-- Status: Engineering evidence complete / adversarial review authorization pending
+- Status: Engineering evidence complete / superseded as final gate by J6.7.7
 - Scope: `count-call-stack`、`subscription-billing-repair`
-- Next gate: 用户授权对抗性审查并关闭 critical/high findings 后，才可关闭 J6.7 和解锁 J7
+- Next gate: 完成 `30-r5-j6-7-phase7-context-residue-plan.md` 后执行最终授权审查
 
 ## 1. 结论
 
@@ -121,7 +121,15 @@ requests，本轮 Agent 还选择了不同的发现、patch 和验证路径。J6
 | event codec round-trip | 100%（J6.7.1） |
 | fixed/control-history duplicate reduction | passed |
 | warm-cache regression不超过2pp | passed；两组均为正向约2.1pp |
-| critical/high adversarial findings | pending user-authorized review |
+| critical/high adversarial findings | superseded by J6.7.7-G final review |
 
-J6.7.0-J6.7.5 已完成，J6.7.6 的工程与 live evidence 已完成。当前唯一剩余门禁是经用户授权的
-对抗性审查。审查完成并关闭全部 critical/high finding 前，J6.7 保持 `review pending`，J7 不解锁。
+J6.7.0-J6.7.5 已完成，J6.7.6 的工程与 live evidence 已完成。后续字段lineage审计发现：
+
+- `finish_then_end.final_candidate`与assistant final正文完全相同；
+- bootstrap outer `actions[]`与expanded native call参数重复；
+- 595 B空Map developer message在初始化后继续作为旧epoch hard state出现；
+- projection存在无界nodes/edges/goals风险；
+- full snapshot占rollout约95%。
+
+因此本报告不再作为J6.7最终关闭门。J6.7已重开J6.7.7，详细计划见
+`30-r5-j6-7-phase7-context-residue-plan.md`；J7继续保持锁定。
