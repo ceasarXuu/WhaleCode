@@ -3,7 +3,7 @@
 - Created: 2026-07-12
 - Updated: 2026-07-13
 - Version: 1.2
-- Status: J7.0-J7.4 complete; paused before J7.5
+- Status: J7.0-J7.4 complete; J7.5 executed and gate paused
 - Owner / Responsible: WhaleCode TaskSpace / apply_patch substrate
 - Related Systems: provider response tool sequence、`taskspace_control` tool schema、nested ToolSpec、ToolRouter、
   `codex-apply-patch`、benchmark observer
@@ -403,6 +403,11 @@ patch 正文、文件正文或 secret。
 
 **Exit:** correctness 与工具结构收益同时通过才关闭 J7。成本未改善时只声明工具契约和副作用边界收益。
 
+**实施结果（2026-07-13）：** J7.5 已执行，11/14 acceptance gates verified，但严格退出门禁未通过。
+非法 multi-patch response 零执行、multi-file prepare/commit 和忠实反馈收益成立；billing R5 首次仍声明4个
+patch，order R5 出现4次state failure并留下4个open node。J7保持paused。完整证据、成本与R4 unavailable
+说明见 `38-r5-j7-phase5-docker-benefit-result.md`。
+
 ## 9. Phase Gate Matrix
 
 | Phase | Independent Verification | Forbidden Future Dependency | Exit Evidence | Completion Required | Proceed Decision |
@@ -426,7 +431,7 @@ patch 正文、文件正文或 secret。
 | pre-state request validation | 非法request不执行任何工具、不提交Agent声明state、不改filesystem | `sequence_preflight.rs` + shared sequence | 9 unit + 2 zero-side-effect integration tests | validated/rejected events | complete |
 | native patch dispatch | 合法单patch继续走权限/沙箱/hook/反馈原链路 | ToolRouter/ToolCallRuntime | 9 scenario + 16 core apply_patch tests | canonical call ids | complete |
 | observer | patch lifecycle和显式读取观察可分账，不暴露payload | `patch-observability.ps1` + performance observer | extractor/performance/skill tests | lifecycle counts + request rows | complete |
-| benefit proof | 结构收益且无负向收益 | Docker runner | paired sample | report artifacts | planned |
+| benefit proof | 结构收益且无负向收益 | Docker runner | paired sample | report artifacts | partial：11/14 gates；J7 paused |
 
 ## 11. Change-chain Logging Matrix
 
