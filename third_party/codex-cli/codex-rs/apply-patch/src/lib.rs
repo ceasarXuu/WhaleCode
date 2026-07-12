@@ -3,6 +3,9 @@ mod parser;
 mod seek_sequence;
 mod standalone_executable;
 mod streaming_parser;
+mod transaction;
+
+pub use transaction::PatchCommitError;
 
 use std::collections::HashMap;
 use std::io;
@@ -14,7 +17,6 @@ use anyhow::Result;
 use codex_exec_server::CreateDirectoryOptions;
 use codex_exec_server::ExecutorFileSystem;
 use codex_exec_server::FileSystemSandboxContext;
-use codex_exec_server::RemoveOptions;
 use codex_utils_absolute_path::AbsolutePathBuf;
 pub use parser::Hunk;
 pub use parser::ParseError;
@@ -56,6 +58,8 @@ pub enum ApplyPatchError {
         "patch detected without explicit call to apply_patch. Rerun as [\"apply_patch\", \"<patch>\"]"
     )]
     ImplicitInvocation,
+    #[error(transparent)]
+    CommitError(#[from] PatchCommitError),
 }
 
 impl From<std::io::Error> for ApplyPatchError {
@@ -225,8 +229,15 @@ pub async fn apply_hunks(
     fs: &dyn ExecutorFileSystem,
     sandbox: Option<&FileSystemSandboxContext>,
 ) -> Result<(), ApplyPatchError> {
-    // Delegate to a helper that applies each hunk to the filesystem.
-    match apply_hunks_to_files(hunks, cwd, fs, sandbox).await {
+    let result = async {
+        let prepared = transaction::prepare_patch(hunks, cwd, fs, sandbox).await?;
+        transaction::validate_preconditions(&prepared, fs, sandbox).await?;
+        transaction::commit_patch(&prepared, fs, sandbox)
+            .await
+            .map_err(ApplyPatchError::from)
+    }
+    .await;
+    match result {
         Ok(affected) => {
             print_summary(&affected, stdout).map_err(ApplyPatchError::from)?;
             Ok(())
@@ -234,14 +245,7 @@ pub async fn apply_hunks(
         Err(err) => {
             let msg = err.to_string();
             writeln!(stderr, "{msg}").map_err(ApplyPatchError::from)?;
-            if let Some(io) = err.downcast_ref::<std::io::Error>() {
-                Err(ApplyPatchError::from(io))
-            } else {
-                Err(ApplyPatchError::IoError(IoError {
-                    context: msg,
-                    source: std::io::Error::other(err),
-                }))
-            }
+            Err(err)
         }
     }
 }
@@ -250,115 +254,11 @@ pub async fn apply_hunks(
 /// Returns an error if any of the changes could not be applied.
 /// Tracks file paths affected by applying a patch, preserving the path spelling
 /// from the patch for user-facing summaries.
+#[derive(Debug)]
 pub struct AffectedPaths {
     pub added: Vec<PathBuf>,
     pub modified: Vec<PathBuf>,
     pub deleted: Vec<PathBuf>,
-}
-
-/// Apply the hunks to the filesystem, returning which files were added, modified, or deleted.
-/// Returns an error if the patch could not be applied.
-async fn apply_hunks_to_files(
-    hunks: &[Hunk],
-    cwd: &AbsolutePathBuf,
-    fs: &dyn ExecutorFileSystem,
-    sandbox: Option<&FileSystemSandboxContext>,
-) -> anyhow::Result<AffectedPaths> {
-    if hunks.is_empty() {
-        anyhow::bail!("No files were modified.");
-    }
-
-    let mut added: Vec<PathBuf> = Vec::new();
-    let mut modified: Vec<PathBuf> = Vec::new();
-    let mut deleted: Vec<PathBuf> = Vec::new();
-    for hunk in hunks {
-        let affected_path = hunk.path().to_path_buf();
-        let path_abs = hunk.resolve_path(cwd);
-        match hunk {
-            Hunk::AddFile { contents, .. } => {
-                write_file_with_missing_parent_retry(
-                    fs,
-                    &path_abs,
-                    contents.clone().into_bytes(),
-                    sandbox,
-                )
-                .await?;
-                added.push(affected_path);
-            }
-            Hunk::DeleteFile { .. } => {
-                let result: io::Result<()> = async {
-                    let metadata = fs.get_metadata(&path_abs, sandbox).await?;
-                    if metadata.is_directory {
-                        return Err(io::Error::new(
-                            io::ErrorKind::InvalidInput,
-                            "path is a directory",
-                        ));
-                    }
-                    fs.remove(
-                        &path_abs,
-                        RemoveOptions {
-                            recursive: false,
-                            force: false,
-                        },
-                        sandbox,
-                    )
-                    .await
-                }
-                .await;
-                result.with_context(|| format!("Failed to delete file {}", path_abs.display()))?;
-                deleted.push(affected_path);
-            }
-            Hunk::UpdateFile {
-                move_path, chunks, ..
-            } => {
-                let AppliedPatch { new_contents, .. } =
-                    derive_new_contents_from_chunks(&path_abs, chunks, fs, sandbox).await?;
-                if let Some(dest) = move_path {
-                    let dest_abs = AbsolutePathBuf::resolve_path_against_base(dest, cwd);
-                    write_file_with_missing_parent_retry(
-                        fs,
-                        &dest_abs,
-                        new_contents.into_bytes(),
-                        sandbox,
-                    )
-                    .await?;
-                    let result: io::Result<()> = async {
-                        let metadata = fs.get_metadata(&path_abs, sandbox).await?;
-                        if metadata.is_directory {
-                            return Err(io::Error::new(
-                                io::ErrorKind::InvalidInput,
-                                "path is a directory",
-                            ));
-                        }
-                        fs.remove(
-                            &path_abs,
-                            RemoveOptions {
-                                recursive: false,
-                                force: false,
-                            },
-                            sandbox,
-                        )
-                        .await
-                    }
-                    .await;
-                    result.with_context(|| {
-                        format!("Failed to remove original {}", path_abs.display())
-                    })?;
-                    modified.push(affected_path);
-                } else {
-                    fs.write_file(&path_abs, new_contents.into_bytes(), sandbox)
-                        .await
-                        .with_context(|| format!("Failed to write file {}", path_abs.display()))?;
-                    modified.push(affected_path);
-                }
-            }
-        }
-    }
-    Ok(AffectedPaths {
-        added,
-        modified,
-        deleted,
-    })
 }
 
 async fn write_file_with_missing_parent_retry(

@@ -3,7 +3,7 @@
 - Created: 2026-07-12
 - Updated: 2026-07-13
 - Version: 1.2
-- Status: J7.0 complete; J7.1 in progress
+- Status: J7.0-J7.1 complete; J7.2 in progress
 - Owner / Responsible: WhaleCode TaskSpace / apply_patch substrate
 - Related Systems: provider response tool sequence、`taskspace_control` tool schema、nested ToolSpec、ToolRouter、
   `codex-apply-patch`、benchmark observer
@@ -416,7 +416,7 @@ patch 正文、文件正文或 secret。
 | Plan Item | Expected Behavior | Production Code Path | Test Evidence | Runtime / Log Evidence | Status |
 |---|---|---|---|---|---|
 | evidence and provider probe | 冻结真实失败和可用 schema | benchmark artifacts / ToolSpec serialization | wire fixtures | provider body/hash | planned |
-| patch prepare/commit | validation failure 零副作用 | `apply-patch/src/lib.rs` | CLI + fault injection | prepare/commit result | planned |
+| patch prepare/commit | validation failure 零副作用 | `apply-patch/src/transaction*.rs` | 64 lib + 22 CLI/scenario + fault injection | structured commit error | complete |
 | singular patch schema | carrier 最多一个 patch | `tools/src/taskspace_tool.rs` | schema snapshots | model-visible ToolSpec | planned |
 | typed carrier parser | schema/parser 单一契约 | `taskspace_control_args.rs` | positive/negative fixtures | protocol reason code | planned |
 | request tool manifest | 顶层/carrier/nested统一计算patch count | shared response tool-sequence dispatcher | Standard/TaskSpace fixtures | request patch count | planned |

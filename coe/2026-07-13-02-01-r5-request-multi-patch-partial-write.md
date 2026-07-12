@@ -34,11 +34,12 @@
   - 全部validation failure零文件副作用，Standard/TaskSpace共享同一patch实现。
   - carrier schema不再能表达第二个patch，同时保留单patch后的read/test动作。
   - 结构化日志可区分request preflight、patch prepare和commit failure。
-- Current conclusion: H-001、H-002和H-003均由代码、既有测试和真实trace直接确认；用户已授权按J7.0-J7.4实施修复。
+- Current conclusion: H-001的shared patch substrate已通过J7.1修复验证；H-002/H-003仍待J7.2-J7.3关闭，Problem保持open。
 - Related hypotheses:
   - H-001
   - H-002
   - H-003
+  - H-004
 - Resolution basis:
   - not satisfied
 - Close reason:
@@ -323,3 +324,66 @@
   ```
 - Interpretation: validation atomicity可实现；跨文件I/O transaction不能宣称，commit failure必须rollback并忠实报告。
 - Time: 2026-07-13 02:12
+
+## Hypothesis H-004: Prepare/commit可消除validation partial write
+- Status: confirmed
+- Parent: P-001
+- Claim: 若全部hunk内容计算、路径检查和precondition在commit前完成，则所有validation failure可以零文件副作用；I/O failure可由pre-image执行best-effort rollback并忠实报告残留。
+- Layer: fix-validation
+- Factor relation: part_of
+- Depends on:
+  - H-001
+- Rationale:
+  - J7.0确认底层缺少transaction，但validation与commit可明确分层。
+- Falsifiable predictions:
+  - If true: valid add/update后接missing/context failure时workspace hash不变；故障注入第二次write/remove后pre-image恢复。
+  - If false: 任一validation负例留下文件，或commit错误缺失committed/rollback facts。
+- Diagnostic evidence plan:
+  - Prediction or clause under test: validation zero side effect与I/O rollback事实完整性。
+  - Signal: CLI/scenario workspace断言、fault injection和structured error字段。
+  - Capture method: 运行codex-apply-patch全套与codex-core apply_patch focused tests。
+  - Event name or marker:
+    - `PatchCommitError`
+  - Correlation keys:
+    - patch operation paths
+  - Differentiates from:
+    - request-wide multi-patch preflight
+  - Supports if:
+    - 全部validation/fault tests通过且旧partial fixture变为empty expected。
+  - Refutes if:
+    - 任一validation失败产生文件副作用或rollback失败被隐藏。
+  - Instrumentation status: permanent-observability-candidate
+  - Instrumentation lifecycle:
+    - J7.4接入prepare/commit事件
+- Evidence gate: satisfied
+- Related evidence:
+  - E-009
+- Conclusion: confirmed
+- Repair design readiness: complete
+- Next step: J7.2/J7.3关闭carrier与request-wide缺口
+- Blocker:
+  - none
+- Close reason:
+  - J7.1 verified
+
+## Evidence E-009: J7.1 validation atomicity与rollback门禁通过
+- Related hypotheses:
+  - H-001
+  - H-004
+- Direction: supports
+- Type: fix-validation
+- Source: `codex-apply-patch` tests、`core apply_patch` tests、locked Whale build
+- Prediction or plan link:
+  - H-004全部预测
+- Matched signal:
+  - 64 lib + 22 CLI/scenario + 16 core tests passed；write/remove/rollback failure injection passed
+- Correlation keys:
+  - J7.1
+- Raw content:
+  ```text
+  cargo test -p codex-apply-patch: 86 passed
+  cargo test -p codex-core apply_patch --lib: 16 passed
+  cargo build -p codex-cli --bin whale --locked: passed
+  ```
+- Interpretation: H-001所述validation partial write已在shared substrate关闭；跨request多patch仍需J7.2/J7.3。
+- Time: 2026-07-13 02:25

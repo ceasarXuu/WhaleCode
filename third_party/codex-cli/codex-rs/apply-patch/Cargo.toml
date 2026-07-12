@@ -26,6 +26,7 @@ tree-sitter = { workspace = true }
 tree-sitter-bash = { workspace = true }
 
 [dev-dependencies]
+async-trait = { workspace = true }
 assert_cmd = { workspace = true }
 assert_matches = { workspace = true }
 codex-utils-cargo-bin = { workspace = true }
