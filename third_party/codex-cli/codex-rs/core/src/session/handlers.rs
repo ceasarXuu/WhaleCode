@@ -947,7 +947,7 @@ pub async fn set_thread_memory_mode(sess: &Arc<Session>, sub_id: String, mode: T
 
 pub async fn set_map_runtime_mode(sess: &Arc<Session>, sub_id: String, mode: MapRuntimeMode) {
     let turn_context = sess.new_default_turn_with_sub_id(sub_id).await;
-    let (outcome, bootstrap_events, ownership_event, snapshot) = {
+    let (outcome, bootstrap_events, ownership_event) = {
         let mut state = sess.state.lock().await;
         let (outcome, bootstrap_events) = state
             .action_map_runtime
@@ -967,8 +967,7 @@ pub async fn set_map_runtime_mode(sess: &Arc<Session>, sub_id: String, mode: Map
                     .collect(),
             }
         });
-        let snapshot = state.action_map_runtime.snapshot();
-        (outcome, bootstrap_events, ownership_event, snapshot)
+        (outcome, bootstrap_events, ownership_event)
     };
 
     sess.send_event(
@@ -990,13 +989,8 @@ pub async fn set_map_runtime_mode(sess: &Arc<Session>, sub_id: String, mode: Map
         )
         .await;
     }
-    sess.send_event(
-        &turn_context,
-        EventMsg::MapRuntime(MapRuntimeEvent::SnapshotUpdated(
-            codex_protocol::protocol::MapRuntimeSnapshotUpdatedEvent { snapshot },
-        )),
-    )
-    .await;
+    sess.emit_action_map_checkpoint_for_turn(&turn_context, "mode_change")
+        .await;
 
     let status = if outcome.mode.changed {
         if outcome.mode.current_mode == MapRuntimeMode::Experiment {

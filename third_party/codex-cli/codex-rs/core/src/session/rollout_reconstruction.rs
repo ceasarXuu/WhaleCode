@@ -1,6 +1,10 @@
 use super::*;
+use crate::action_map::ActionMapCheckpointState;
 use crate::action_map::TaskSpaceEventStore;
+use crate::action_map::apply_snapshot_delta;
 use crate::context_manager::is_user_turn_boundary;
+use codex_protocol::protocol::MapRuntimeSnapshotDeltaEvent;
+use codex_protocol::protocol::MapRuntimeSnapshotUpdatedEvent;
 
 // Return value of `Session::reconstruct_history_from_rollout`, bundling the rebuilt history with
 // the resume/fork hydration metadata derived from the same replay.
@@ -12,6 +16,13 @@ pub(super) struct RolloutReconstruction {
     pub(super) reference_context_item: Option<TurnContextItem>,
     pub(super) map_runtime_mode: MapRuntimeMode,
     pub(super) map_runtime_snapshot: Option<ActionMapSnapshot>,
+    pub(super) map_runtime_checkpoint: ActionMapCheckpointState,
+}
+
+#[derive(Debug, Clone)]
+enum MapRuntimeReplayItem {
+    Checkpoint(MapRuntimeSnapshotUpdatedEvent),
+    Delta(MapRuntimeSnapshotDeltaEvent),
 }
 
 #[derive(Debug, Default)]
@@ -39,6 +50,7 @@ struct ActiveReplaySegment<'a> {
     base_replacement_history: Option<&'a [ResponseItem]>,
     replacement_history_suffix_start: Option<usize>,
     map_runtime_snapshot: Option<ActionMapSnapshot>,
+    map_runtime_replay_items: Vec<MapRuntimeReplayItem>,
 }
 
 fn turn_ids_are_compatible(active_turn_id: Option<&str>, item_turn_id: Option<&str>) -> bool {
@@ -53,6 +65,7 @@ fn finalize_active_segment<'a>(
     previous_turn_settings: &mut Option<PreviousTurnSettings>,
     reference_context_item: &mut TurnReferenceContextItem,
     map_runtime_snapshot: &mut Option<ActionMapSnapshot>,
+    surviving_map_runtime_segments: &mut Vec<Vec<MapRuntimeReplayItem>>,
     pending_rollback_turns: &mut usize,
 ) {
     // Thread rollback drops the newest surviving real user-message boundaries. In replay, that
@@ -96,6 +109,66 @@ fn finalize_active_segment<'a>(
     if map_runtime_snapshot.is_none() {
         *map_runtime_snapshot = active_segment.map_runtime_snapshot;
     }
+    if !active_segment.map_runtime_replay_items.is_empty() {
+        surviving_map_runtime_segments.push(active_segment.map_runtime_replay_items);
+    }
+}
+
+fn reconstruct_map_runtime_state(
+    segments_newest_first: &[Vec<MapRuntimeReplayItem>],
+) -> Result<(Option<ActionMapSnapshot>, ActionMapCheckpointState), String> {
+    let mut checkpoint = ActionMapCheckpointState::default();
+    let mut restored_snapshot = None;
+
+    for item in segments_newest_first
+        .iter()
+        .rev()
+        .flat_map(|segment| segment.iter().rev())
+    {
+        match item {
+            MapRuntimeReplayItem::Checkpoint(event) => {
+                let actual_hash = crate::action_map::snapshot_sha256(&event.snapshot)
+                    .map_err(|error| error.to_string())?;
+                if actual_hash != event.snapshot_sha256 {
+                    return Err(format!(
+                        "map checkpoint hash mismatch for {}",
+                        event.checkpoint_id
+                    ));
+                }
+                checkpoint.install(
+                    event.checkpoint_id.clone(),
+                    event.snapshot_sha256.clone(),
+                    event.snapshot.clone(),
+                );
+                restored_snapshot = Some(event.snapshot.clone());
+            }
+            MapRuntimeReplayItem::Delta(event) => {
+                let Some(base_snapshot) = checkpoint.snapshot.as_ref() else {
+                    return Err(format!(
+                        "map snapshot delta {} has no surviving checkpoint",
+                        event.sequence
+                    ));
+                };
+                let checkpoint_id = checkpoint
+                    .checkpoint_id
+                    .as_deref()
+                    .ok_or_else(|| "map checkpoint id is missing".to_string())?;
+                let checkpoint_hash = checkpoint
+                    .snapshot_sha256
+                    .as_deref()
+                    .ok_or_else(|| "map checkpoint hash is missing".to_string())?;
+                restored_snapshot = Some(apply_snapshot_delta(
+                    checkpoint_id,
+                    checkpoint_hash,
+                    base_snapshot,
+                    event,
+                )?);
+                checkpoint.delta_sequence = event.sequence;
+            }
+        }
+    }
+
+    Ok((restored_snapshot, checkpoint))
 }
 
 impl Session {
@@ -125,13 +198,8 @@ impl Session {
                 _ => None,
             })
             .unwrap_or_default();
-        let has_map_runtime_snapshot = rollout_items.iter().any(|item| match item {
-            RolloutItem::EventMsg(EventMsg::MapRuntime(MapRuntimeEvent::SnapshotUpdated(_))) => {
-                true
-            }
-            _ => false,
-        });
         let mut map_runtime_snapshot = None;
+        let mut surviving_map_runtime_segments = Vec::new();
         // Borrowed suffix of rollout items newer than the newest surviving replacement-history
         // checkpoint. If no such checkpoint exists, this remains the full rollout.
         let mut rollout_suffix_start = 0usize;
@@ -171,6 +239,17 @@ impl Session {
                     if active_segment.map_runtime_snapshot.is_none() {
                         active_segment.map_runtime_snapshot = Some(event.snapshot.clone());
                     }
+                    active_segment
+                        .map_runtime_replay_items
+                        .push(MapRuntimeReplayItem::Checkpoint(event.clone()));
+                }
+                RolloutItem::EventMsg(EventMsg::MapRuntime(MapRuntimeEvent::SnapshotDelta(
+                    event,
+                ))) => {
+                    active_segment
+                        .get_or_insert_with(ActiveReplaySegment::default)
+                        .map_runtime_replay_items
+                        .push(MapRuntimeReplayItem::Delta(event.clone()));
                 }
                 RolloutItem::EventMsg(EventMsg::MapRuntime(
                     MapRuntimeEvent::TaskContextEventRecorded(event),
@@ -253,6 +332,7 @@ impl Session {
                             &mut previous_turn_settings,
                             &mut reference_context_item,
                             &mut map_runtime_snapshot,
+                            &mut surviving_map_runtime_segments,
                             &mut pending_rollback_turns,
                         );
                     }
@@ -264,17 +344,6 @@ impl Session {
                 }
                 RolloutItem::EventMsg(_) | RolloutItem::SessionMeta(_) => {}
             }
-
-            if base_replacement_history.is_some()
-                && previous_turn_settings.is_some()
-                && !matches!(reference_context_item, TurnReferenceContextItem::NeverSet)
-                && (map_runtime_snapshot.is_some() || !has_map_runtime_snapshot)
-            {
-                // At this point we have both eager resume metadata values and the replacement-
-                // history base for the surviving tail, so older rollout items cannot affect this
-                // result.
-                break;
-            }
         }
 
         if let Some(active_segment) = active_segment.take() {
@@ -285,8 +354,16 @@ impl Session {
                 &mut previous_turn_settings,
                 &mut reference_context_item,
                 &mut map_runtime_snapshot,
+                &mut surviving_map_runtime_segments,
                 &mut pending_rollback_turns,
             );
+        }
+
+        let (replayed_map_runtime_snapshot, map_runtime_checkpoint) =
+            reconstruct_map_runtime_state(&surviving_map_runtime_segments)
+                .expect("persisted map checkpoint/delta chain must be valid");
+        if replayed_map_runtime_snapshot.is_some() {
+            map_runtime_snapshot = replayed_map_runtime_snapshot;
         }
 
         let mut history = ContextManager::new();
@@ -404,6 +481,7 @@ impl Session {
             reference_context_item,
             map_runtime_mode,
             map_runtime_snapshot,
+            map_runtime_checkpoint,
         }
     }
 }

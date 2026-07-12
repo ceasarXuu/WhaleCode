@@ -94,6 +94,7 @@ function New-SideFixture {
                         [pscustomobject]@{ type = "input_text"; text = "ContextProjectionV1 epoch snapshot: active_task_path_without_nodes TaskSpace blank TaskSpace v0.0.5 thin bootstrap" }
                     ) } },
             [pscustomobject]@{ type = "event_msg"; payload = [pscustomobject]@{ type = "snapshot_updated"; snapshot = [pscustomobject]@{ node_id = "node-1"; status = "open" } } },
+            [pscustomobject]@{ type = "event_msg"; payload = [pscustomobject]@{ type = "snapshot_delta"; baseCheckpointId = "checkpoint-1"; sequence = 1; patch = @([pscustomobject]@{ op = "replace"; path = "/routingRequired"; value = $false }) } },
             [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "function_call_output"; call_id = "gate-1"; output = "same gate" } },
             [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "function_call_output"; call_id = "gate-2"; output = "same gate" } },
             [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{
@@ -193,6 +194,7 @@ Assert-True (@($report.rows | Where-Object { $_.logical_mode -eq "taskspace" -an
 Assert-True (@($report.rows | Where-Object { $_.logical_mode -eq "taskspace" -and $_.duplication.cross_carrier_lineage.control_output_node_echo_count -eq 1 -and $_.duplication.cross_carrier_lineage.control_output_next_node_echo_count -eq 1 }).Count -eq 2) "control output node echo counts were not measured"
 Assert-True (@($report.rows | Where-Object { $_.logical_mode -eq "taskspace" -and $_.duplication.cross_carrier_lineage.stale_blank_developer_marker_count -eq 1 -and $_.duplication.cross_carrier_lineage.stale_mode_developer_marker_count -eq 1 }).Count -eq 2) "stale developer marker counts were not measured"
 Assert-True (@($report.rows | Where-Object { $_.logical_mode -eq "taskspace" -and $_.duplication.rollout_storage.snapshot_updated_line_count -eq 1 -and $_.duplication.rollout_storage.snapshot_updated_payload_bytes -gt 0 -and $_.duplication.rollout_storage.snapshot_updated_payload_ratio -gt 0 }).Count -eq 2) "rollout storage snapshot byte ratio was not measured"
+Assert-True (@($report.rows | Where-Object { $_.logical_mode -eq "taskspace" -and $_.duplication.rollout_storage.snapshot_delta_line_count -eq 1 -and $_.duplication.rollout_storage.snapshot_delta_payload_bytes -gt 0 -and $_.duplication.rollout_storage.internal_replay_payload_bytes -gt $_.duplication.rollout_storage.snapshot_updated_payload_bytes }).Count -eq 2) "rollout storage delta and aggregate replay bytes were not measured"
 Assert-True (Test-Path -LiteralPath $result.markdown_path) "markdown report was not written"
 Assert-True (Test-Path -LiteralPath $result.event_log_path) "event log was not written"
 $markdown = Get-Content -Raw -Encoding UTF8 -LiteralPath $result.markdown_path

@@ -5,6 +5,7 @@ mod map;
 mod projection;
 mod runtime;
 mod sentinel;
+mod snapshot_delta;
 
 pub(crate) use event_store::TaskSpaceEvent;
 pub(crate) use event_store::TaskSpaceEventStore;
@@ -24,3 +25,7 @@ pub(crate) use runtime::ActionMapProviderResponseActionabilityInput;
 pub(crate) use runtime::ActionMapRuntimeState;
 pub(crate) use runtime::TaskSpaceHardGateClass;
 pub(crate) use runtime::format_action_map_snapshot;
+pub(crate) use snapshot_delta::ActionMapCheckpointState;
+pub(crate) use snapshot_delta::apply_snapshot_delta;
+pub(crate) use snapshot_delta::build_snapshot_delta;
+pub(crate) use snapshot_delta::snapshot_sha256;

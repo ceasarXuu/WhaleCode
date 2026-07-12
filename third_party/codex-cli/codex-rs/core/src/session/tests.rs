@@ -1445,7 +1445,7 @@ async fn record_context_updates_keeps_one_taskspace_epoch_snapshot() {
 }
 
 #[tokio::test]
-async fn session_main_tool_result_emits_taskspace_trace_event_and_snapshot() {
+async fn session_main_tool_result_is_checkpointed_at_explicit_boundary() {
     let (session, turn_context, rx) = make_session_and_context_with_rx().await;
     {
         let mut state = session.state.lock().await;
@@ -1489,6 +1489,16 @@ async fn session_main_tool_result_emits_taskspace_trace_event_and_snapshot() {
     }
 
     session
+        .emit_action_map_checkpoint_for_turn(turn_context.as_ref(), "test_baseline")
+        .await;
+    let baseline_checkpoint_id = loop {
+        let event = rx.recv().await.expect("baseline checkpoint event");
+        if let EventMsg::MapRuntime(MapRuntimeEvent::SnapshotUpdated(payload)) = event.msg {
+            break payload.checkpoint_id;
+        }
+    };
+
+    session
         .prepare_action_map_main_tool_call(
             turn_context.as_ref(),
             ToolActionDescriptor::new("shell_command", ActionClass::Test, "pytest")
@@ -1506,8 +1516,12 @@ async fn session_main_tool_result_emits_taskspace_trace_event_and_snapshot() {
             "pytest failed".to_string(),
         )
         .await;
+    session
+        .emit_action_map_checkpoint_for_turn(turn_context.as_ref(), "test_boundary")
+        .await;
 
     let mut trace_event_seen = false;
+    let mut delta_seen = false;
     let mut snapshot_seen = false;
     let mut main_trace_event_id = None;
     let mut map_runtime_order = Vec::new();
@@ -1538,7 +1552,21 @@ async fn session_main_tool_result_emits_taskspace_trace_event_and_snapshot() {
                 main_trace_event_id = Some(event.trace_event_id);
                 trace_event_seen = true;
             }
+            EventMsg::MapRuntime(MapRuntimeEvent::SnapshotDelta(payload)) => {
+                assert_eq!(payload.base_checkpoint_id, baseline_checkpoint_id);
+                assert!(payload.sequence > 0);
+                assert!(
+                    payload
+                        .patch
+                        .as_array()
+                        .is_some_and(|patch| !patch.is_empty())
+                );
+                delta_seen = true;
+            }
             EventMsg::MapRuntime(MapRuntimeEvent::SnapshotUpdated(payload)) => {
+                assert_eq!(payload.reason, "test_boundary");
+                assert!(payload.checkpoint_id.starts_with("map-checkpoint-"));
+                assert_eq!(payload.snapshot_sha256.len(), 64);
                 if let Some(trace_event_id) = main_trace_event_id.as_ref()
                     && payload.snapshot.trace_events.iter().any(|event| {
                         event.id == *trace_event_id
@@ -1563,6 +1591,10 @@ async fn session_main_tool_result_emits_taskspace_trace_event_and_snapshot() {
     assert!(
         snapshot_seen,
         "expected snapshot with trace event from session path"
+    );
+    assert!(
+        delta_seen,
+        "expected incremental snapshot delta before checkpoint"
     );
     assert_eq!(
         map_runtime_order,

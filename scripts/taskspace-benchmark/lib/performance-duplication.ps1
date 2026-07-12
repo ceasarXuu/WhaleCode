@@ -205,18 +205,27 @@ function Get-PerformanceCrossCarrierLineage {
 function Get-PerformanceRolloutStorage {
     param([string]$Path, [System.Collections.Generic.List[object]]$Events)
     if (-not (Test-Path -LiteralPath $Path)) {
-        return [pscustomobject]@{ availability = "unavailable"; unknown_count = $null; rollout_total_bytes = $null; snapshot_updated_line_count = $null; snapshot_updated_payload_bytes = $null; snapshot_updated_payload_ratio = $null }
+        return [pscustomobject]@{ availability = "unavailable"; unknown_count = $null; rollout_total_bytes = $null; snapshot_updated_line_count = $null; snapshot_updated_payload_bytes = $null; snapshot_updated_payload_ratio = $null; snapshot_delta_line_count = $null; snapshot_delta_payload_bytes = $null; internal_replay_payload_bytes = $null; internal_replay_payload_ratio = $null }
     }
-    $unknown = 0; $totalBytes = 0; $snapshotLines = 0; $snapshotPayloadBytes = 0
+    $unknown = 0; $totalBytes = 0; $snapshotLines = 0; $snapshotPayloadBytes = 0; $deltaLines = 0; $deltaPayloadBytes = 0
     foreach ($line in [System.IO.File]::ReadLines($Path)) {
         if ([string]::IsNullOrWhiteSpace($line)) { continue }
         $totalBytes += [System.Text.Encoding]::UTF8.GetByteCount($line)
-        if ($line -notmatch 'snapshot_updated') { continue }
-        $snapshotLines++
+        if ($line -notmatch 'snapshot_(updated|delta)') { continue }
         try {
             $row = $line | ConvertFrom-Json
             $payload = Get-PerformanceProperty $row "payload" $row
-            $snapshotPayloadBytes += [System.Text.Encoding]::UTF8.GetByteCount((ConvertTo-PerformanceCanonicalJson $payload))
+            $payloadType = [string](Get-PerformanceProperty $payload "type")
+            $payloadBytes = [System.Text.Encoding]::UTF8.GetByteCount((ConvertTo-PerformanceCanonicalJson $payload))
+            if ($payloadType -eq "snapshot_updated") {
+                $snapshotLines++
+                $snapshotPayloadBytes += $payloadBytes
+            } elseif ($payloadType -eq "snapshot_delta") {
+                $deltaLines++
+                $deltaPayloadBytes += $payloadBytes
+            } else {
+                $unknown++
+            }
         } catch {
             $unknown++
             if ($Events) { $Events.Add([pscustomobject]@{ event = "rollout_storage_snapshot_parse_failed"; path = $Path; error = [string]$_.Exception.Message }) }
@@ -229,6 +238,10 @@ function Get-PerformanceRolloutStorage {
         snapshot_updated_line_count = $snapshotLines
         snapshot_updated_payload_bytes = $snapshotPayloadBytes
         snapshot_updated_payload_ratio = if ($totalBytes -gt 0) { [Math]::Round($snapshotPayloadBytes / [double]$totalBytes, 4) } else { $null }
+        snapshot_delta_line_count = $deltaLines
+        snapshot_delta_payload_bytes = $deltaPayloadBytes
+        internal_replay_payload_bytes = $snapshotPayloadBytes + $deltaPayloadBytes
+        internal_replay_payload_ratio = if ($totalBytes -gt 0) { [Math]::Round(($snapshotPayloadBytes + $deltaPayloadBytes) / [double]$totalBytes, 4) } else { $null }
     }
 }
 
@@ -350,10 +363,10 @@ function Add-PerformanceDuplicationMarkdown {
     $Lines.Add("")
     $Lines.Add("## Rollout storage")
     $Lines.Add("")
-    $Lines.Add("| Repeat | Mode | Availability | Unknown | Rollout bytes | Snapshot lines | Snapshot payload bytes | Snapshot ratio |")
-    $Lines.Add("|---:|---|---|---:|---:|---:|---:|---:|")
+    $Lines.Add("| Repeat | Mode | Availability | Unknown | Rollout bytes | Checkpoints | Checkpoint bytes | Checkpoint ratio | Deltas | Delta bytes | Replay bytes | Replay ratio |")
+    $Lines.Add("|---:|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
     foreach ($row in $Rows) {
         $storage = $row.duplication.rollout_storage
-        $Lines.Add("| $(Format-PerformanceValue $row.repeat) | $($row.logical_mode) | $(Format-PerformanceValue $storage.availability) | $(Format-PerformanceValue $storage.unknown_count) | $(Format-PerformanceValue $storage.rollout_total_bytes) | $(Format-PerformanceValue $storage.snapshot_updated_line_count) | $(Format-PerformanceValue $storage.snapshot_updated_payload_bytes) | $(Format-PerformanceValue $storage.snapshot_updated_payload_ratio percent) |")
+        $Lines.Add("| $(Format-PerformanceValue $row.repeat) | $($row.logical_mode) | $(Format-PerformanceValue $storage.availability) | $(Format-PerformanceValue $storage.unknown_count) | $(Format-PerformanceValue $storage.rollout_total_bytes) | $(Format-PerformanceValue $storage.snapshot_updated_line_count) | $(Format-PerformanceValue $storage.snapshot_updated_payload_bytes) | $(Format-PerformanceValue $storage.snapshot_updated_payload_ratio percent) | $(Format-PerformanceValue $storage.snapshot_delta_line_count) | $(Format-PerformanceValue $storage.snapshot_delta_payload_bytes) | $(Format-PerformanceValue $storage.internal_replay_payload_bytes) | $(Format-PerformanceValue $storage.internal_replay_payload_ratio percent) |")
     }
 }

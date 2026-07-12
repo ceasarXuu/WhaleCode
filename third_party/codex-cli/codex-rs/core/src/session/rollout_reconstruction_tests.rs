@@ -1,8 +1,11 @@
 use super::*;
 
 use super::tests::make_session_and_context;
+use crate::action_map::ActionMapCheckpointState;
 use crate::action_map::ActionMapRuntimeState;
 use crate::action_map::TaskSpaceEventStore;
+use crate::action_map::build_snapshot_delta;
+use crate::action_map::snapshot_sha256;
 use codex_protocol::AgentPath;
 use codex_protocol::ThreadId;
 use codex_protocol::models::ContentItem;
@@ -26,6 +29,18 @@ fn user_message(text: &str) -> ResponseItem {
         }],
         end_turn: None,
         phase: None,
+    }
+}
+
+fn map_checkpoint_event(
+    checkpoint_id: &str,
+    snapshot: ActionMapSnapshot,
+) -> MapRuntimeSnapshotUpdatedEvent {
+    MapRuntimeSnapshotUpdatedEvent {
+        checkpoint_id: checkpoint_id.to_string(),
+        reason: "test".to_string(),
+        snapshot_sha256: snapshot_sha256(&snapshot).unwrap(),
+        snapshot,
     }
 }
 
@@ -161,9 +176,10 @@ async fn reconstruct_history_restores_latest_map_runtime_snapshot() {
         .expect("map initializes");
     let snapshot = runtime.snapshot();
     let rollout_items = vec![RolloutItem::EventMsg(EventMsg::MapRuntime(
-        MapRuntimeEvent::SnapshotUpdated(MapRuntimeSnapshotUpdatedEvent {
-            snapshot: snapshot.clone(),
-        }),
+        MapRuntimeEvent::SnapshotUpdated(map_checkpoint_event(
+            "checkpoint-latest",
+            snapshot.clone(),
+        )),
     ))];
 
     let reconstructed = session
@@ -171,6 +187,33 @@ async fn reconstruct_history_restores_latest_map_runtime_snapshot() {
         .await;
 
     assert_eq!(reconstructed.map_runtime_snapshot, Some(snapshot));
+}
+
+#[tokio::test]
+async fn reconstruct_history_applies_latest_snapshot_delta_to_checkpoint() {
+    let (session, turn_context) = make_session_and_context().await;
+    let base = ActionMapRuntimeState::default().snapshot();
+    let mut expected = base.clone();
+    expected.routing_required = !base.routing_required;
+    let base_hash = snapshot_sha256(&base).unwrap();
+    let mut checkpoint = ActionMapCheckpointState::default();
+    checkpoint.install("checkpoint-base".to_string(), base_hash, base.clone());
+    let delta = build_snapshot_delta(&mut checkpoint, &expected)
+        .unwrap()
+        .unwrap();
+    let rollout_items = vec![
+        RolloutItem::EventMsg(EventMsg::MapRuntime(MapRuntimeEvent::SnapshotUpdated(
+            map_checkpoint_event("checkpoint-base", base),
+        ))),
+        RolloutItem::EventMsg(EventMsg::MapRuntime(MapRuntimeEvent::SnapshotDelta(delta))),
+    ];
+
+    let reconstructed = session
+        .reconstruct_history_from_rollout(&turn_context, &rollout_items)
+        .await;
+
+    assert_eq!(reconstructed.map_runtime_snapshot, Some(expected));
+    assert_eq!(reconstructed.map_runtime_checkpoint.delta_sequence, 1);
 }
 
 #[tokio::test]
@@ -200,9 +243,7 @@ async fn reconstruct_history_rollback_restores_latest_surviving_map_snapshot() {
             },
         )),
         RolloutItem::EventMsg(EventMsg::MapRuntime(MapRuntimeEvent::SnapshotUpdated(
-            MapRuntimeSnapshotUpdatedEvent {
-                snapshot: first_snapshot.clone(),
-            },
+            map_checkpoint_event("checkpoint-first", first_snapshot.clone()),
         ))),
         RolloutItem::EventMsg(EventMsg::TurnComplete(
             codex_protocol::protocol::TurnCompleteEvent {
@@ -230,9 +271,7 @@ async fn reconstruct_history_rollback_restores_latest_surviving_map_snapshot() {
             },
         )),
         RolloutItem::EventMsg(EventMsg::MapRuntime(MapRuntimeEvent::SnapshotUpdated(
-            MapRuntimeSnapshotUpdatedEvent {
-                snapshot: rolled_back_snapshot,
-            },
+            map_checkpoint_event("checkpoint-rolled-back", rolled_back_snapshot),
         ))),
         RolloutItem::EventMsg(EventMsg::TurnComplete(
             codex_protocol::protocol::TurnCompleteEvent {

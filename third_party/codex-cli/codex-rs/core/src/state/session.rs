@@ -7,6 +7,7 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::ops::Deref;
 
+use crate::action_map::ActionMapCheckpointState;
 use crate::action_map::ActionMapRuntimeState;
 use crate::action_map::TaskSpaceEvent;
 use crate::action_map::TaskSpaceEventStore;
@@ -38,6 +39,7 @@ pub(crate) struct SessionState {
     pub(crate) active_connector_selection: HashSet<String>,
     pub(crate) pending_session_start_source: Option<codex_hooks::SessionStartSource>,
     pub(crate) action_map_runtime: ActionMapRuntimeState,
+    pub(crate) action_map_checkpoint: ActionMapCheckpointState,
     pub(crate) taskspace_events: TaskSpaceEventStore,
     granted_permissions: Option<AdditionalPermissionProfile>,
     next_turn_is_first: bool,
@@ -59,6 +61,7 @@ impl SessionState {
             active_connector_selection: HashSet::new(),
             pending_session_start_source: None,
             action_map_runtime: ActionMapRuntimeState::default(),
+            action_map_checkpoint: ActionMapCheckpointState::default(),
             taskspace_events: TaskSpaceEventStore::new(),
             granted_permissions: None,
             next_turn_is_first: true,

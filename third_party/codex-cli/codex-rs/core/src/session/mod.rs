@@ -22,6 +22,8 @@ use crate::action_map::ActionMapRuntimeState;
 use crate::action_map::NodeKind;
 use crate::action_map::TaskSpaceEvent;
 use crate::action_map::ToolActionDescriptor;
+use crate::action_map::build_snapshot_delta;
+use crate::action_map::snapshot_sha256;
 use crate::agent::AgentControl;
 use crate::agent::AgentStatus;
 use crate::agent::Mailbox;
@@ -989,13 +991,13 @@ impl Session {
         result
     }
 
-    pub(crate) async fn begin_action_map_user_turn(&self, turn_context: &TurnContext) {
+    pub(crate) async fn begin_action_map_user_turn(&self, _turn_context: &TurnContext) {
         let changed = {
             let mut state = self.state.lock().await;
             state.action_map_runtime.begin_user_turn()
         };
         if changed {
-            self.emit_action_map_snapshot_for_turn(turn_context).await;
+            self.emit_action_map_delta().await;
         }
     }
 
@@ -1212,6 +1214,23 @@ impl Session {
         };
         if let Some(runtime_events) = runtime_events {
             self.emit_action_map_events_for_turn(turn_context, runtime_events)
+                .await;
+        }
+        let checkpoint_due = {
+            let mut state = self.state.lock().await;
+            state
+                .action_map_checkpoint
+                .provider_responses_since_checkpoint = state
+                .action_map_checkpoint
+                .provider_responses_since_checkpoint
+                .saturating_add(1);
+            state
+                .action_map_checkpoint
+                .provider_responses_since_checkpoint
+                >= 8
+        };
+        if checkpoint_due {
+            self.emit_action_map_checkpoint_for_turn(turn_context, "periodic_provider_boundary")
                 .await;
         }
     }
@@ -1545,7 +1564,8 @@ impl Session {
             state.action_map_runtime.request_reborn()
         };
         if events.is_empty() {
-            self.emit_action_map_snapshot_for_turn(turn_context).await;
+            self.emit_action_map_checkpoint_for_turn(turn_context, "reborn_requested")
+                .await;
         } else {
             self.emit_action_map_events_for_turn(turn_context, events)
                 .await;
@@ -1615,23 +1635,21 @@ impl Session {
         turn_context: &TurnContext,
         events: Vec<MapRuntimeEvent>,
     ) {
-        let emit_snapshot = !events.is_empty();
+        let starts_map_lifecycle = events.iter().any(|event| {
+            matches!(
+                event,
+                MapRuntimeEvent::TaskCreated(_) | MapRuntimeEvent::MapCreated(_)
+            )
+        });
         for event in events {
             self.send_event(turn_context, EventMsg::MapRuntime(event))
                 .await;
         }
-        if emit_snapshot {
-            let snapshot = {
-                let state = self.state.lock().await;
-                state.action_map_runtime.snapshot()
-            };
-            self.send_event(
-                turn_context,
-                EventMsg::MapRuntime(MapRuntimeEvent::SnapshotUpdated(
-                    MapRuntimeSnapshotUpdatedEvent { snapshot },
-                )),
-            )
-            .await;
+        if starts_map_lifecycle {
+            self.emit_action_map_checkpoint_for_turn(turn_context, "map_lifecycle")
+                .await;
+        } else {
+            self.emit_action_map_delta().await;
         }
     }
 
@@ -1653,22 +1671,89 @@ impl Session {
             || snapshot.request_count.saturating_mul(2) >= snapshot.max_requests
     }
 
-    async fn emit_action_map_snapshot_for_turn(&self, turn_context: &TurnContext) {
-        let snapshot = {
-            let state = self.state.lock().await;
-            state.action_map_runtime.snapshot()
+    pub(crate) async fn emit_action_map_checkpoint_for_turn(
+        &self,
+        turn_context: &TurnContext,
+        reason: &str,
+    ) {
+        let (snapshot, snapshot_sha256, checkpoint_id) = {
+            let mut state = self.state.lock().await;
+            let snapshot = state.action_map_runtime.snapshot();
+            let snapshot_sha256 = snapshot_sha256(&snapshot)
+                .expect("ActionMapSnapshot must remain serializable for checkpoint persistence");
+            let checkpoint_id = format!("map-checkpoint-{}", &snapshot_sha256[..16]);
+            state.action_map_checkpoint.install(
+                checkpoint_id.clone(),
+                snapshot_sha256.clone(),
+                snapshot.clone(),
+            );
+            (snapshot, snapshot_sha256, checkpoint_id)
         };
+        let snapshot_bytes = serde_json::to_vec(&snapshot)
+            .expect("ActionMapSnapshot must remain serializable for checkpoint persistence");
+        tracing::info!(
+            target: "codex_core::taskspace",
+            event_name = "taskspace.checkpoint_written",
+            checkpoint_id,
+            reason,
+            snapshot_sha256,
+            snapshot_bytes = snapshot_bytes.len(),
+            task_count = snapshot.tasks.len(),
+            map_count = snapshot.maps.len(),
+            "TaskSpace map checkpoint persisted"
+        );
         self.send_event(
             turn_context,
             EventMsg::MapRuntime(MapRuntimeEvent::SnapshotUpdated(
-                MapRuntimeSnapshotUpdatedEvent { snapshot },
+                MapRuntimeSnapshotUpdatedEvent {
+                    checkpoint_id,
+                    reason: reason.to_string(),
+                    snapshot_sha256,
+                    snapshot,
+                },
             )),
         )
         .await;
     }
 
+    async fn emit_action_map_delta(&self) {
+        let delta = {
+            let mut state = self.state.lock().await;
+            let snapshot = state.action_map_runtime.snapshot();
+            build_snapshot_delta(&mut state.action_map_checkpoint, &snapshot)
+        };
+        match delta {
+            Ok(Some(delta)) => {
+                let patch_bytes = serde_json::to_vec(&delta.patch)
+                    .expect("snapshot delta patch must remain serializable")
+                    .len();
+                tracing::debug!(
+                    target: "codex_core::taskspace",
+                    event_name = "taskspace.snapshot_delta_written",
+                    base_checkpoint_id = delta.base_checkpoint_id,
+                    sequence = delta.sequence,
+                    patch_bytes,
+                    snapshot_sha256 = delta.snapshot_sha256,
+                    "TaskSpace map snapshot delta persisted"
+                );
+                self.send_event_raw(Event {
+                    id: self.next_internal_sub_id(),
+                    msg: EventMsg::MapRuntime(MapRuntimeEvent::SnapshotDelta(delta)),
+                })
+                .await;
+            }
+            Ok(None) => {}
+            Err(error) => panic!("failed to persist TaskSpace map snapshot delta: {error}"),
+        }
+    }
+
+    async fn emit_action_map_checkpoint_raw(&self, reason: &str) {
+        let turn_context = self.new_default_turn().await;
+        self.emit_action_map_checkpoint_for_turn(&turn_context, reason)
+            .await;
+    }
+
     async fn emit_action_map_events_raw(&self, events: Vec<MapRuntimeEvent>) {
-        let emit_snapshot = !events.is_empty();
         for event in events {
             self.send_event_raw(Event {
                 id: self.next_internal_sub_id(),
@@ -1676,19 +1761,7 @@ impl Session {
             })
             .await;
         }
-        if emit_snapshot {
-            let snapshot = {
-                let state = self.state.lock().await;
-                state.action_map_runtime.snapshot()
-            };
-            self.send_event_raw(Event {
-                id: self.next_internal_sub_id(),
-                msg: EventMsg::MapRuntime(MapRuntimeEvent::SnapshotUpdated(
-                    MapRuntimeSnapshotUpdatedEvent { snapshot },
-                )),
-            })
-            .await;
-        }
+        self.emit_action_map_delta().await;
     }
 
     fn managed_network_proxy_active_for_sandbox_policy(sandbox_policy: &SandboxPolicy) -> bool {
@@ -2051,7 +2124,8 @@ impl Session {
                     self.persist_rollout_items(&rollout_items).await;
                 }
                 if !is_subagent {
-                    self.emit_action_map_snapshot_for_turn(&turn_context).await;
+                    self.emit_action_map_checkpoint_for_turn(&turn_context, "resume")
+                        .await;
                 }
 
                 // Forked threads should remain file-backed immediately after startup.
@@ -2092,6 +2166,7 @@ impl Session {
                 );
                 if let Some(snapshot) = reconstructed_rollout.map_runtime_snapshot {
                     state.action_map_runtime.restore_snapshot(snapshot);
+                    state.action_map_checkpoint = reconstructed_rollout.map_runtime_checkpoint;
                 } else {
                     state
                         .action_map_runtime
@@ -3375,6 +3450,7 @@ impl Session {
                 })
                 .collect::<Vec<_>>();
             self.persist_rollout_items(&rollout_items).await;
+            self.emit_action_map_checkpoint_raw("compaction").await;
         }
 
         if !taskspace_compacted {

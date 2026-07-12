@@ -2247,7 +2247,21 @@ pub struct MapRuntimeMaintenanceBarrierClearedEvent {
 #[serde(rename_all = "camelCase")]
 #[ts(rename_all = "camelCase")]
 pub struct MapRuntimeSnapshotUpdatedEvent {
+    pub checkpoint_id: String,
+    pub reason: String,
+    pub snapshot_sha256: String,
     pub snapshot: ActionMapSnapshot,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct MapRuntimeSnapshotDeltaEvent {
+    pub base_checkpoint_id: String,
+    pub sequence: u64,
+    pub base_snapshot_sha256: String,
+    pub snapshot_sha256: String,
+    pub patch: Value,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
@@ -2274,6 +2288,7 @@ pub enum MapRuntimeEvent {
     TimeoutSummaryRequested(MapRuntimeTimeoutSummaryRequestedEvent),
     MaintenanceBarrierRaised(MapRuntimeMaintenanceBarrierRaisedEvent),
     MaintenanceBarrierCleared(MapRuntimeMaintenanceBarrierClearedEvent),
+    SnapshotDelta(MapRuntimeSnapshotDeltaEvent),
     SnapshotUpdated(MapRuntimeSnapshotUpdatedEvent),
 }
 
