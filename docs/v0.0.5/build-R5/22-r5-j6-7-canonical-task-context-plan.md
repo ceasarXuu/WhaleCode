@@ -2,8 +2,8 @@
 
 - Created: 2026-07-12
 - Updated: 2026-07-12
-- Version: 1.1
-- Status: In progress / J6.7.0-J6.7.6 engineering complete, J6.7.7 planned
+- Version: 1.2
+- Status: In progress / J6.7.0-J6.7.7 engineering and live gates complete; final adversarial review pending authorization
 - Owner / Responsible: WhaleCode core runtime / TaskSpace context
 - Related Systems: `action_map`、`ConversationHistory`、session turn、provider prompt builder、
   `taskspace_control`、compaction、output refs、benchmark observer
@@ -11,6 +11,7 @@
   `01-r5-phased-simplification-plan.md`、`11-r5-feedback-cache-priority-plan.md`、
   `21-r5-input-token-optimization-audit.md`、
   `30-r5-j6-7-phase7-context-residue-plan.md`、
+  `32-r5-j6-7-phase7-result.md`、
   `coe/2026-07-10-22-56-r5-request-amplification.md`
 - Risk Level: High
 - Plan Type: Full

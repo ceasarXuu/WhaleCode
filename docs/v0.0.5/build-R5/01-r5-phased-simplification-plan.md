@@ -10,7 +10,7 @@
 Created: 2026-07-09
 Updated: 2026-07-12
 Version: v0.0.5 build-R5
-Status: In Progress - R5-J6.7.7 context residue planned; R5-J7 blocked; R5-K compression chartered
+Status: In Progress - R5-J6.7.7 engineering/live complete, final review pending; R5-J7 blocked; R5-K compression chartered
 Owner / Responsible: WhaleCode core runtime
 Related Systems: TaskSpace runtime, action_map runtime, taskspace_control,
   context projection, provider-visible context, benchmark harness
@@ -103,7 +103,7 @@ TaskSpace 拉回三个职责：
 
 ## 1.5 Phase 总览
 
-当前剩余执行顺序：`R5-J6.7.7 -> J6.7 final review -> R5-J7 -> R5-K -> R5-G3 final regression -> R5-H closeout`。J5 工程能力已完成，但真实
+当前剩余执行顺序：`J6.7 final review -> R5-J7 -> R5-K -> R5-G3 final regression -> R5-H closeout`。J5 工程能力已完成，但真实
 multi-finish / finish+ordinary 采用率仍为0，不作为已兑现收益。
 字母编号保留历史文档稳定性，实际推进只以 1.15 的依赖和门禁矩阵为准。
 
@@ -975,7 +975,7 @@ failure 零副作用。J7 先修 shared patch 全量预检，再把现有 contro
 | R5-J6.6-A-D | 3-run基线、bootstrap/active schema拆分、J2 sibling barrier、Docker paired sample | 不依赖 J6.7 | active ordinary schema只出现一次；correctness和成本证据 | 100%完成 | complete；J6.7 unblocked |
 | R5-J6.6 input follow-up | projection extractor、sparse epoch/map/ack、focused tests、Docker pair | 不依赖 J7 | 机械重复下降；失败透传和warm prefix不回退 | 100%完成 | complete；总request成本继续观察 |
 | R5-J6.7.0-J6.7.6 | ownership audit、event codec、原子cutover、control去重、checkpoint、旧路径删除、Docker初始收益门禁 | 不依赖J7 | single canonical owner；round-trip 100%；raw duplicate=0；warm cache下降不超过2pp | 每阶段100%或暂停 | engineering/live evidence complete；cross-carrier residue moved to J6.7.7 |
-| R5-J6.7.7-A-G | lineage observer、blank context、terminal owner、nested/ack、全局骨架与局部详情分层、incremental snapshot、Docker/review | 不依赖J7或R5-K | provider semantic duplicate=0；skeleton 100%；stale blank=0；failure 100%；snapshot -80%；cache不回退 | 每阶段100%或暂停 | planned；next implementation phase |
+| R5-J6.7.7-A-G | lineage observer、blank context、terminal owner、nested/ack、全局骨架与局部详情分层、incremental snapshot、Docker/review | 不依赖J7或R5-K | provider semantic duplicate=0；skeleton 100%；stale blank=0；failure 100%；snapshot -80%；cache不回退 | 每阶段100%或暂停 | A-F complete；G engineering/live complete；final review pending authorization |
 | R5-J7.0-J7.5 | J6.7后重审carrier；patch atomicity audit、provider probe、singular patch schema、pre-state validation、Docker samples | 必须等J6.7完成 | multi-patch不可表达；validation failure零文件副作用；读取/pytest保持观察 | 每阶段100%或暂停 | blocked by J6.7 final gate；不得提前实施 |
 | R5-K0-K5 | 长会话预算基线、压缩合同、archive schema/tool、压缩引擎、多轮恢复、Docker/review | 必须等J7完成；K2依赖K0/K1证据 | root/frontier 100%；global macro path连通；expand/replay 100%；无semantic summary | 每阶段100%或暂停 | planned；K0/K1 discovery first |
 | R5-I3/I4 | Docker complex pairs、等价/性能门禁、Docker-only call graph | 不依赖 closeout | performance observation、container parity、default-path scan | 工程实现与验证100%；不覆盖J4收益缺口 | Docker-only landed |
@@ -1029,8 +1029,8 @@ provider request count、state-machine action count、wall time、失败分类�
 | R5-J6.5 schema/cache repair | nested union单份定义；blank map不重复发送ordinary schema；cache shape包含tool choice | JsonSchema、taskspace tool、provider visibility、wire trace、observer | provider request construction | schema fidelity/bytes、named-auto LCP、instrumentation、Docker pairs | 两组均solved；blank约19.57 KB、active约36.35 KB；cold/warmup与warm partial hit已分开 | 无generic arguments、sleep、warmup request或actions-only wrapper | complete (`a7e47de`) |
 | R5-J6.6 active single expression | bootstrap control保留nested init；active control删除ordinary schema；普通工具作为J2 barrier后sibling calls | taskspace tool、typed args、handler、provider visibility、sequence tests | active provider request | tools 140/1 ignored；control 11/11；sequence 6/6；scenario 7/7；visibility 1/1 | 3-run baseline；paired均solved；active non-message约22.50 KB；9 vs 6 requests；terminal extra=0 | 无control-only wrapper、generic args、runtime自动动作或cadence惩罚 | complete (`fd9f759`)；live sibling adoption仍为0 |
 | R5-J6.6 input follow-up | 固定epoch base、Map写入和success ack仅保留机械必要字段；populated projection去重 | projection/runtime、TaskSpace schema/handler、cost extractor | provider context + control output | tools 140/1 ignored；core tools 335；action-map 12；scenario 7；harness自测 | paired均solved；projection 189->70 tokens；active fixed 22,488->22,107 bytes；warm cache 97.08% | failure原文、ordinary反馈、append-only journal均保留；无动态逐请求projection | complete (`99801e7`..`e7783b5`)；request path方差继续观察 |
-| R5-J6.7 canonical task context | Map/Event Store为唯一任务事实源；provider忠实线性化；control/result/projection引用同一events | action_map event store/codec、session ingress、provider linearizer、compaction/ref | every TaskSpace turn | ownership、round-trip、pair/order、compaction、Docker samples | source event、linearization、duplicate、checkpoint和cache trace | 无双写、compat、semantic reducer或silent fallback | J6.7.0-.6 landed；J6.7.7 residue planned |
-| R5-J6.7.7 context residue | final/nested/blank/projection/snapshot各自单一owner；Map全局骨架完整、局部详情机械分层 | event linearizer、session finalization、projection、rollout replay | bootstrap/terminal/resume | lineage/post-terminal/skeleton/tier/ref/replay | semantic duplicate、skeleton coverage、stale marker、snapshot ratio | 无Map分页、语义相似度、summary、compat或silent fallback | planned |
+| R5-J6.7 canonical task context | Map/Event Store为唯一任务事实源；provider忠实线性化；control/result/projection引用同一events | action_map event store/codec、session ingress、provider linearizer、compaction/ref | every TaskSpace turn | ownership、round-trip、pair/order、compaction、Docker samples | source event、linearization、duplicate、checkpoint和cache trace | 无双写、compat、semantic reducer或silent fallback | J6.7.0-.7 landed；final review pending |
+| R5-J6.7.7 context residue | final/nested/blank/projection/snapshot各自单一owner；fresh走canonical自然历史，新epoch projection保留完整骨架和机械分层详情 | event linearizer、session finalization、projection、rollout replay | bootstrap/terminal/resume | lineage/post-terminal/skeleton/tier/ref/replay | semantic duplicate、skeleton coverage、stale marker、snapshot ratio | 无Map分页、语义相似度、summary、compat或silent fallback | engineering/live complete；review pending authorization |
 | R5-J7 singular patch carrier | J6.7完成后，单 carrier 最多一个 patch；shared patch validation 先全量预检再写入；普通多工具不受限 | `apply-patch`、J6.7后TaskSpace carrier、typed args、sequence、performance observer | Standard/TaskSpace patch path | prepare/commit、schema、state/filesystem snapshot、Docker samples | single/multi patch、prepare/commit/skip、read observation 分账 | 无自动合并、后置 reject、旧形态兼容或读取 gate | blocked by J6.7 final gate；documentation only |
 | R5-K Map-native compression | 超大Map按硬拓扑条件可逆归档，macro粒度保持全局导航 | Map archive/projection/checkpoint/ref/replay | skeleton hard-budget boundary | scale/round-trip/20-cycle/Docker | budget/archive/expand/replay trace | 无Runtime summary、relevance判断、partial map或兼容层 | planned；K0/K1先冻结合同 |
 

@@ -7,7 +7,8 @@
 - Owner / Responsible: WhaleCode core runtime / TaskSpace Map
 - Related Systems: canonical Event Store、Map projection、compaction、checkpoint、resume/replay、artifact refs
 - Related Links: `22-r5-j6-7-canonical-task-context-plan.md`、
-  `30-r5-j6-7-phase7-context-residue-plan.md`
+  `30-r5-j6-7-phase7-context-residue-plan.md`、
+  `32-r5-j6-7-phase7-result.md`
 - Risk Level: High
 - Plan Type: Full charter；K0/K1通过前不冻结实现方案
 
@@ -139,6 +140,8 @@ ArchiveNode
   3. 分账root、node skeleton、edges、frontier、result refs和node-local details的bytes/tokens；
   4. 测量骨架首次超限点、增长斜率、projection构造耗时和store/replay成本；
   5. 只增加observer，不改变production投影。
+  6. 分账长期delta replay链、生命周期checkpoint和canonical runtime events；J6.7.7短样本中internal
+     replay仍占rollout约60%，该指标不得与provider上下文成本混为一谈。
 - Exit：规模曲线、hard budget profiles和至少两个真实/合成长任务fixture齐全；未知owner=0。
 - Fallback：observer revert；不得凭估算进入实现。
 

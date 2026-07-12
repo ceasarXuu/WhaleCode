@@ -1,7 +1,7 @@
 # Problem P-001: R5 active projection 未替换旧快照并持续累积
 - Status: fixed
 - Created: 2026-07-10 05:03
-- Updated: 2026-07-10 05:22
+- Updated: 2026-07-12 22:50
 - Objective: provider-visible TaskSpace history 在任一请求中只保留最新一份 active projection，同时忠实保留当前工具反馈和状态机拒绝，消除旧状态冲突与重复 token。
 - Symptoms:
   - `count-call-stack` R5-E 的 provider payload 从首轮 32870 bytes 增长到末轮 131830 bytes，input 从 8389 增长到 33631 tokens。
@@ -42,7 +42,7 @@
   - 当前 gate feedback call/output pair 和 protected user/developer input 不被误删。
   - exact payload scan 记录 `active_projection_count`，大于 1 时 `passed=false`。
   - focused tests、core compile、benchmark selftests 和同一样本重跑通过；最终 payload 无 stale projection，成本显著下降或残差有独立解释。
-- Current conclusion: fixed。H-001/H-002/H-003 均已修复：provider history 机械省略旧 projection，scanner/benchmark 强制唯一性；修复后 9 个真实请求均只有一份 projection，样本完成且 input、request、wall time 相对污染样本显著下降。实现未压缩或重解释 projection 语义。
+- Current conclusion: fixed and superseded by J6.7.7 epoch contract。J6.7.7复验发现“每请求删除旧projection并在尾部重建latest”会破坏DeepSeek完整message-prefix，focused/complex request-2+ cache降至2.89%/10.51%。最终合同为：fresh自然历史不平行注入projection；resume/compaction/new epoch只构造并持久化一次当前projection，后续canonical事件只追加。v4 focused/complex cache为96.42%/95.41%，同轮Standard为96.16%/94.05%；active projection uniqueness violation均为0。实现未压缩或重解释projection语义。
 - Related hypotheses:
   - H-001
   - H-002

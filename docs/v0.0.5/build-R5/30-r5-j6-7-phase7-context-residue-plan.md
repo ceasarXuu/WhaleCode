@@ -2,13 +2,14 @@
 
 - Created: 2026-07-12
 - Updated: 2026-07-12
-- Version: 1.1
-- Status: Planned
+- Version: 1.2
+- Status: A-F complete; G engineering/live gate complete; adversarial review pending authorization
 - Owner / Responsible: WhaleCode core runtime / TaskSpace context
 - Related Systems: canonical Event Store、provider linearizer、`taskspace_control`、projection、
   session finalization、rollout/replay、benchmark observer
 - Related Links: `22-r5-j6-7-canonical-task-context-plan.md`、
   `29-r5-j6-7-phase6-benefit-gate-result.md`、
+  `32-r5-j6-7-phase7-result.md`、
   `31-r5-map-native-context-compression-charter.md`、
   `coe/2026-07-10-22-56-r5-request-amplification.md`
 - Risk Level: High
@@ -233,6 +234,8 @@ sample，observer-only阶段可重放冻结artifact并另跑一次focused live s
 
 ### J6.7.7-A：字段Lineage观测与Owner冻结
 
+- Status：Complete。
+
 - Entry：J6.7.6 artifacts有效。
 - Tasks：
   1. observer增加`cross_carrier_lineage`，机械匹配final candidate、expanded nested args、success ack回显；
@@ -245,6 +248,8 @@ sample，observer-only阶段可重放冻结artifact并另跑一次focused live s
 - Next Gate：100%后进入B，否则pause。
 
 ### J6.7.7-B：空 Map 与Mode上下文收敛
+
+- Status：Complete。
 
 - Entry：A通过。
 - Tasks：
@@ -260,6 +265,8 @@ sample，observer-only阶段可重放冻结artifact并另跑一次focused live s
 
 ### J6.7.7-C：Terminal正文单一Owner
 
+- Status：Complete。
+
 - Entry：B通过。
 - Tasks：
   1. assistant final event成为final正文唯一provider owner；
@@ -274,6 +281,8 @@ sample，observer-only阶段可重放冻结artifact并另跑一次focused live s
 - Next Gate：全部通过后进入D。
 
 ### J6.7.7-D：Bootstrap Nested与Success Ack去重
+
+- Status：Complete。
 
 - Entry：C通过。
 - Tasks：
@@ -292,6 +301,9 @@ sample，observer-only阶段可重放冻结artifact并另跑一次focused live s
 
 ### J6.7.7-E：Projection全局骨架与局部详情分层
 
+- Status：Complete。fresh未压缩会话由canonical init/control自然历史保有全局Map；projection只在
+  resume/compaction/new epoch构造一次，避免平行副本和DeepSeek prefix断裂。
+
 - Entry：D通过。
 - Tasks：
   1. root详情、所有nodes/goals/status、所有edges/dependencies和current frontier始终完整暴露；
@@ -304,12 +316,16 @@ sample，observer-only阶段可重放冻结artifact并另跑一次focused live s
   protected failure和stale code-read identity；
   `subscription-billing-repair`与`multi-file-order-pipeline` Standard/R5各1次。
 - Exit：root/nodes/goals/edges覆盖率100%；D1-D3分类确定性100%；降级详情可100%按ref恢复；
-  protected miss=0；同epoch projection count=1；semantic replacement=0；正确性不回退。1000-node fixture若
+  protected miss=0；需要epoch重建时projection count=1，fresh自然历史epoch为0；semantic replacement=0；
+  正确性不回退。1000-node fixture若
   骨架超预算，必须产生`map_skeleton_over_budget`而不是partial map，且不阻塞D1-D3合同验收。
 - Fallback：回退本phase，不使用Map分页、LLM summary、语义相似度或Runtime优先级heuristic替代。
 - Next Gate：全部通过后进入F。
 
 ### J6.7.7-F：Replay Snapshot增量化
+
+- Status：Complete。delta相对前一状态链接；full checkpoint仅保留生命周期边界，不再按固定provider
+  response间隔写入不断变大的全量副本。
 
 - Entry：E通过。
 - Tasks：
@@ -327,6 +343,8 @@ sample，observer-only阶段可重放冻结artifact并另跑一次focused live s
 
 ### J6.7.7-G：收益门禁与对抗性审查
 
+- Status：Engineering/live gate complete；对抗性审查等待用户授权。
+
 - Entry：A-F全部100%完成。
 - Tasks：
   1. `count-call-stack`和`subscription-billing-repair` Standard/R5 Docker各1次；
@@ -342,13 +360,13 @@ sample，observer-only阶段可重放冻结artifact并另跑一次focused live s
 
 | Phase | Independent Verification | Forbidden Future Dependency | Exit Evidence | Completion Required | Proceed Decision |
 |---|---|---|---|---|---|
-| A | lineage fixtures + focused live | 不依赖behavior change | owner unknown=0 | 100% | proceed/pause |
-| B | bootstrap/session + Docker | 不依赖terminal | blank developer=0 | 100% | proceed/revert |
-| C | post-terminal reconstruction | 不依赖nested去重 | final exact occurrence=1 | 100% | proceed/revert |
-| D | provider pairing + nested failure | 不依赖projection详情分层 | native pair unique | 100% | proceed/revert |
-| E | global skeleton/detail tier fixtures + complex live | 不依赖snapshot storage或R5-K | skeleton 100% + ref recovery 100% | 100% | proceed/revert |
-| F | replay hash + bytes gate | 不依赖benefit run | snapshot -80% | 100% | proceed/revert |
-| G | paired Docker + authorized review | 不依赖J7 | all gates | 100% | unlock/pause |
+| A | lineage fixtures + focused live | 不依赖behavior change | owner unknown=0 | 100% | complete |
+| B | bootstrap/session + Docker | 不依赖terminal | blank developer=0 | 100% | complete |
+| C | post-terminal reconstruction | 不依赖nested去重 | final exact occurrence=1 | 100% | complete |
+| D | provider pairing + nested failure | 不依赖projection详情分层 | native pair unique | 100% | complete |
+| E | global skeleton/detail tier fixtures + complex live | 不依赖snapshot storage或R5-K | skeleton 100% + ref recovery 100% | 100% | complete |
+| F | replay hash + bytes gate | 不依赖benefit run | snapshot -80% | 100% | complete |
+| G | paired Docker + authorized review | 不依赖J7 | all gates | 100% | engineering/live complete；review pending |
 
 任何phase未达到100%时pause，不允许后续phase补写退出证据。
 
@@ -356,14 +374,14 @@ sample，observer-only阶段可重放冻结artifact并另跑一次focused live s
 
 | Plan Item | Expected Behavior | Production Code Path | Integration Entry | Test Evidence | Runtime Evidence | Mock/Stub | Status |
 |---|---|---|---|---|---|---|---|
-| lineage observer | 识别跨carrier机械重复 | benchmark observer | performance report | self-test | lineage events | none | planned |
-| blank context removal | fresh blank只由tool contract表达 | session/action_map context | first request | session/schema | fixed message bytes | none | planned |
-| terminal owner | final正文未来上下文一次 | finalization/event linearizer | finish_then_end | resume/compaction | post-terminal trace | none | planned |
-| nested owner | ordinary pair各一次 | sequence/event store/linearizer | initialize_then_actions | nested matrix | pair/orphan metrics | none | planned |
-| sparse success ack | 只返回新ID和状态 | taskspace handler | control output | schema tests | ack field count | none | planned |
-| global Map projection | 完整骨架 + 分层详情可恢复 | projection/event ref | resume/compaction | skeleton/tier/ref | coverage/detail bytes | none | planned |
-| incremental replay | full snapshot只在边界 | rollout/state replay | session persistence | replay hash | snapshot ratio | none | planned |
-| benefit gate | 无语义/成本负收益 | Docker benchmark | paired samples | validators | final report | none | planned |
+| lineage observer | 识别跨carrier机械重复 | benchmark observer | performance report | self-test | lineage events | none | complete |
+| blank context removal | fresh blank只由tool contract表达 | session/action_map context | first request | session/schema | fixed message bytes | none | complete |
+| terminal owner | final正文未来上下文一次 | finalization/event linearizer | finish_then_end | resume/compaction | post-terminal trace | none | complete |
+| nested owner | ordinary pair各一次 | sequence/event store/linearizer | initialize_then_actions | nested matrix | pair/orphan metrics | none | complete |
+| sparse success ack | 只返回新ID和状态 | taskspace handler | control output | schema tests | ack field count | none | complete |
+| global Map projection | fresh走canonical自然历史；新epoch完整骨架 + 分层详情可恢复 | projection/event ref | resume/compaction | skeleton/tier/ref | coverage/detail bytes | none | complete |
+| incremental replay | full snapshot只在边界 | rollout/state replay | session persistence | replay hash | snapshot ratio | none | complete |
+| benefit gate | 无语义/成本负收益 | Docker benchmark | paired samples | validators | final report | none | engineering/live complete; review pending |
 
 ## 9. Change-chain Logging Matrix
 
