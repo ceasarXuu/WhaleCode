@@ -232,11 +232,7 @@ impl ToolHandler for TaskSpaceControlHandler {
                     .await
                     .map_err(state_machine_error)?;
                 let result_id = session
-                    .block_action_map_main_node(
-                        &turn,
-                        &node_id,
-                        format!("agent_conclusion_event_id:{conclusion_event_id}"),
-                    )
+                    .block_action_map_main_node(&turn, &node_id, conclusion_event_id.to_string())
                     .await
                     .map_err(state_machine_error)?;
                 (
@@ -324,7 +320,7 @@ async fn execute_nonterminal_finish(
         .finish_action_map_current_or_named_node_with_next(
             turn,
             finish.node_id.as_deref(),
-            format!("agent_conclusion_event_id:{conclusion_event_id}"),
+            conclusion_event_id.to_string(),
             finish.next_node_id,
             draft,
         )
@@ -348,7 +344,7 @@ async fn execute_terminal_finish(
         .finish_action_map_node_with_terminal_candidate(
             turn,
             finish.node_id.as_deref(),
-            format!("agent_conclusion_event_id:{conclusion_event_id}"),
+            conclusion_event_id.to_string(),
             final_candidate,
         )
         .await

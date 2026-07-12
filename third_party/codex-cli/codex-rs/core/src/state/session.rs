@@ -102,6 +102,24 @@ impl SessionState {
         recorded
     }
 
+    pub(crate) fn record_taskspace_child_item(
+        &mut self,
+        item: &ResponseItem,
+        parent_call_id: String,
+    ) -> Result<TaskSpaceEvent, String> {
+        if self.action_map_runtime.mode() != MapRuntimeMode::Experiment {
+            return Err("TaskSpace child items require TaskSpace mode.".to_string());
+        }
+        self.taskspace_events
+            .record_item(
+                item,
+                self.action_map_runtime.context_owner_node_id(),
+                Some(parent_call_id),
+                chrono::Utc::now().timestamp_millis(),
+            )
+            .map_err(|error| format!("TaskSpace canonical child event record failed: {error}"))
+    }
+
     pub(crate) fn previous_turn_settings(&self) -> Option<PreviousTurnSettings> {
         self.previous_turn_settings.clone()
     }

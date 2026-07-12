@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use super::checkpoint_refs::checkpoint_output_refs;
 use codex_protocol::models::ResponseItem;
 use serde::Deserialize;
@@ -464,8 +462,7 @@ pub(super) fn is_taskspace_runtime_context_item(item: &ResponseItem) -> bool {
             | codex_protocol::models::ContentItem::OutputText { text } => text,
             codex_protocol::models::ContentItem::InputImage { .. } => return false,
         };
-        text.contains("TaskSpaceAgentContextBundleV1:")
-            || text.contains("ContextProjectionV1 epoch snapshot")
+        text.contains("ContextProjectionV1 epoch snapshot")
             || text.contains("TaskSpace mode is now active.")
     })
 }
@@ -473,3 +470,7 @@ pub(super) fn is_taskspace_runtime_context_item(item: &ResponseItem) -> bool {
 #[cfg(test)]
 #[path = "event_store_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "event_store_nested_tests.rs"]
+mod nested_tests;

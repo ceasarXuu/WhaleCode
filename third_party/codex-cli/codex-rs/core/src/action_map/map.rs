@@ -16,6 +16,7 @@ pub(crate) type TaskSpaceTraceEventId = String;
 pub(crate) enum TaskStatus {
     Active,
     Pending,
+    Completed,
 }
 
 impl TaskStatus {
@@ -23,6 +24,7 @@ impl TaskStatus {
         match self {
             TaskStatus::Active => "active",
             TaskStatus::Pending => "pending",
+            TaskStatus::Completed => "completed",
         }
     }
 }
@@ -336,7 +338,8 @@ pub(crate) struct NodeResult {
     pub(crate) kind: NodeResultKind,
     pub(crate) action_class: Option<ActionClass>,
     pub(crate) tool_success: Option<bool>,
-    pub(crate) body: String,
+    pub(crate) source_event_ref: String,
+    pub(crate) artifact_refs: Vec<String>,
     pub(crate) source_thread_id: ThreadId,
     pub(crate) created_at_ms: i64,
 }
@@ -350,8 +353,7 @@ pub(crate) struct NodeEvent {
     pub(crate) source: String,
     pub(crate) action_class: Option<ActionClass>,
     pub(crate) tool_success: Option<bool>,
-    pub(crate) body: String,
-    pub(crate) visible_excerpt: String,
+    pub(crate) source_event_id: Option<String>,
     pub(crate) raw_ref: Option<String>,
     pub(crate) artifact_refs: Vec<String>,
     pub(crate) call_id: Option<String>,

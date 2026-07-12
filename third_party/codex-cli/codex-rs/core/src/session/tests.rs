@@ -1483,6 +1483,21 @@ async fn session_main_tool_result_emits_taskspace_trace_event_and_snapshot() {
                 },
             )
             .expect("map initializes");
+        state
+            .taskspace_events
+            .record_item(
+                &ResponseItem::FunctionCall {
+                    id: None,
+                    name: "shell_command".to_string(),
+                    namespace: None,
+                    arguments: "{}".to_string(),
+                    call_id: "call-session-test".to_string(),
+                },
+                Some("validate"),
+                None,
+                1,
+            )
+            .expect("canonical tool call event");
     }
 
     session
@@ -1545,7 +1560,7 @@ async fn session_main_tool_result_emits_taskspace_trace_event_and_snapshot() {
                     let map = payload.snapshot.maps.first().expect("snapshot map");
                     let event = map.node_events.first().expect("node event snapshot");
                     assert_eq!(event.id, "node-event-1");
-                    assert_eq!(event.body, "pytest failed");
+                    assert_eq!(event.source_event_id.as_deref(), Some("task-event-1"));
                     snapshot_seen = true;
                 }
             }

@@ -25,6 +25,7 @@ use codex_protocol::protocol::MapRuntimeLeaseCreatedEvent;
 use codex_protocol::protocol::MapRuntimeLeaseReleasedEvent;
 use codex_protocol::protocol::MapRuntimeMaintenanceBarrierClearedEvent;
 use codex_protocol::protocol::MapRuntimeMapCreatedEvent;
+use codex_protocol::protocol::MapRuntimeMapStatusChangedEvent;
 use codex_protocol::protocol::MapRuntimeMode;
 use codex_protocol::protocol::MapRuntimeModeChangedEvent;
 use codex_protocol::protocol::MapRuntimeNodeEventRecordedEvent;
@@ -32,6 +33,7 @@ use codex_protocol::protocol::MapRuntimeNodeResultRecordedEvent;
 use codex_protocol::protocol::MapRuntimeNodeStatusChangedEvent;
 use codex_protocol::protocol::MapRuntimeSentinelWarningRaisedEvent;
 use codex_protocol::protocol::MapRuntimeTaskCreatedEvent;
+use codex_protocol::protocol::MapRuntimeTaskStatusChangedEvent;
 use codex_protocol::protocol::MapRuntimeTimeoutSummaryRequestedEvent;
 use codex_protocol::protocol::MapRuntimeTraceEventRecordedEvent;
 
@@ -297,7 +299,6 @@ pub(crate) struct ActionMapProviderRequestBudgetEventInput {
     pub(crate) exact_payload_scan_passed: Option<bool>,
     pub(crate) active_projection_present: Option<bool>,
     pub(crate) active_projection_count: Option<usize>,
-    pub(crate) legacy_taskspace_history_present: Option<bool>,
     pub(crate) large_raw_output_tokens: Option<usize>,
     pub(crate) protected_items_present: Option<bool>,
     pub(crate) replacement_confirmed: Option<bool>,
@@ -319,13 +320,6 @@ pub(crate) struct ActionMapExactPayloadScanEventInput {
     pub(crate) negative_checks_performed: Vec<String>,
     pub(crate) active_projection_present: bool,
     pub(crate) active_projection_count: usize,
-    pub(crate) context_bundle_present: bool,
-    pub(crate) exact_context_bundle_verified: bool,
-    pub(crate) cache_plan_verified: bool,
-    pub(crate) legacy_taskspace_history_present: bool,
-    pub(crate) raw_taskspace_control_history_tokens: usize,
-    pub(crate) completed_stale_node_history_tokens: usize,
-    pub(crate) rejected_subagent_body_tokens: usize,
     pub(crate) large_raw_output_tokens: usize,
     pub(crate) runtime_boundary_forbidden_markers: Vec<String>,
     pub(crate) protected_items_present: bool,
@@ -1284,7 +1278,8 @@ impl ActionMapRuntimeState {
                                 kind,
                                 action_class,
                                 tool_success: result.tool_success,
-                                body: result.body,
+                                source_event_ref: result.source_event_ref,
+                                artifact_refs: result.artifact_refs,
                                 source_thread_id: result.source_thread_id,
                                 created_at_ms: result.created_at_ms,
                             },
@@ -1309,8 +1304,7 @@ impl ActionMapRuntimeState {
                                 source: event.source,
                                 action_class,
                                 tool_success: event.tool_success,
-                                body: event.body,
-                                visible_excerpt: event.visible_excerpt,
+                                source_event_id: event.source_event_id,
                                 raw_ref: event.raw_ref,
                                 artifact_refs: event.artifact_refs,
                                 call_id: event.call_id,
@@ -1648,6 +1642,7 @@ impl ActionMapRuntimeState {
         &mut self,
         owner_session_id: ThreadId,
         call_id: &str,
+        source_event_id: String,
         tool_name: &str,
         success: bool,
         body: String,
@@ -1655,6 +1650,7 @@ impl ActionMapRuntimeState {
         self.record_main_tool_result_with_class(
             owner_session_id,
             call_id,
+            source_event_id,
             tool_name,
             None,
             success,
@@ -1666,6 +1662,7 @@ impl ActionMapRuntimeState {
         &mut self,
         owner_session_id: ThreadId,
         call_id: &str,
+        source_event_id: String,
         tool_name: &str,
         action_class: Option<ActionClass>,
         success: bool,
@@ -1674,8 +1671,8 @@ impl ActionMapRuntimeState {
         if self.mode != MapRuntimeMode::Experiment {
             return Ok(None);
         }
-
         let reservation = self.release_main_tool_reservation(call_id);
+        let source_event_id = require_nonempty_owned("source_event_id", source_event_id)?;
         let (
             map_id,
             node_id,
@@ -1742,8 +1739,6 @@ impl ActionMapRuntimeState {
                 push_unique_artifact_ref(&mut artifact_refs, artifact);
             }
         }
-        let visible_excerpt =
-            working_evidence_body_excerpt(&body, TASKSPACE_NODE_EVENT_VISIBLE_EXCERPT_MAX_CHARS);
         let raw_ref = first_output_ref_in_text(&body);
         let task_id = {
             let map = self
@@ -1764,8 +1759,7 @@ impl ActionMapRuntimeState {
                 source: "main_tool".to_string(),
                 action_class: recorded_action_class,
                 tool_success: Some(success),
-                body: body.clone(),
-                visible_excerpt,
+                source_event_id: Some(source_event_id),
                 raw_ref,
                 artifact_refs: artifact_refs.clone(),
                 call_id: Some(call_id.to_string()),
@@ -1806,113 +1800,6 @@ impl ActionMapRuntimeState {
             },
         )];
         events.extend(trace_events);
-        Ok(Some((node_event_id, events)))
-    }
-
-    pub(crate) fn record_runtime_feedback_for_current_node(
-        &mut self,
-        owner_session_id: ThreadId,
-        feedback_kind: &str,
-        success: bool,
-        feedback: String,
-    ) -> Result<Option<(NodeEventId, Vec<MapRuntimeEvent>)>, String> {
-        if self.mode != MapRuntimeMode::Experiment {
-            return Ok(None);
-        }
-
-        self.validate_main_binding(owner_session_id)?;
-        let map_id = self.active_map_id.clone().ok_or_else(|| {
-            "TaskSpace mode is active but no active task path exists.".to_string()
-        })?;
-        let node_id = self.current_main_node_id.clone().ok_or_else(|| {
-            "TaskSpace mode is active but no current node binding exists.".to_string()
-        })?;
-        let lease_id = self.current_main_lease_id.clone().ok_or_else(|| {
-            "TaskSpace mode is active but no current main lease exists.".to_string()
-        })?;
-        let node_event_id = self.next_node_event_id();
-        let created_at_ms = now_ms();
-        let body = format!(
-            "TaskSpace runtime feedback\n\
-feedback_kind: {}\n\
-success: {success}\n\
-feedback:\n\
-{feedback}",
-            single_line_preview(feedback_kind, 80),
-        );
-        let visible_excerpt =
-            working_evidence_body_excerpt(&body, TASKSPACE_NODE_EVENT_VISIBLE_EXCERPT_MAX_CHARS);
-        let task_id = {
-            let map = self
-                .maps
-                .get_mut(&map_id)
-                .ok_or_else(|| format!("TaskSpace active task path `{map_id}` is missing."))?;
-            let task_id = map.task_id.clone();
-            let node = map
-                .nodes
-                .get_mut(&node_id)
-                .ok_or_else(|| format!("TaskSpace current node `{node_id}` is missing."))?;
-
-            let node_event = NodeEvent {
-                id: node_event_id.clone(),
-                map_id: map_id.clone(),
-                node_id: node_id.clone(),
-                event_kind: "runtime_feedback".to_string(),
-                source: "runtime_feedback".to_string(),
-                action_class: None,
-                tool_success: Some(success),
-                body: body.clone(),
-                visible_excerpt,
-                raw_ref: None,
-                artifact_refs: Vec::new(),
-                call_id: None,
-                source_thread_id: owner_session_id,
-                created_at_ms,
-            };
-            map.node_events.insert(node_event_id.clone(), node_event);
-            node.node_events.push(NodeEventRef {
-                id: node_event_id.clone(),
-                kind: "runtime_feedback".to_string(),
-            });
-            task_id
-        };
-
-        let trace_event = TaskSpaceTraceEvent {
-            id: self.next_trace_event_id(),
-            kind: "runtime_feedback".to_string(),
-            task_id,
-            map_id: map_id.clone(),
-            node_id: node_id.clone(),
-            result_id: Some(node_event_id.clone()),
-            call_id: None,
-            action_class: None,
-            tool_success: Some(success),
-            tags: vec![
-                "schema:taskspace-runtime-feedback-v1".to_string(),
-                "producer:runtime_feedback".to_string(),
-                format!(
-                    "feedback_kind:{}",
-                    sanitize_provider_response_trace_tag_value(feedback_kind)
-                ),
-            ],
-            artifact_refs: Vec::new(),
-            created_at_ms,
-        };
-        self.taskspace_trace_events.push(trace_event.clone());
-
-        let mut events = vec![MapRuntimeEvent::NodeEventRecorded(
-            MapRuntimeNodeEventRecordedEvent {
-                map_id: map_id.clone(),
-                node_id: node_id.clone(),
-                lease_id,
-                node_event_id: node_event_id.clone(),
-                event_kind: "runtime_feedback".to_string(),
-                action_class: None,
-                tool_success: Some(success),
-                source_thread_id: owner_session_id,
-            },
-        )];
-        events.push(map_runtime_event_from_trace_event(trace_event));
         Ok(Some((node_event_id, events)))
     }
 
@@ -2347,11 +2234,6 @@ feedback:\n\
             if let Some(active_projection_count) = input.active_projection_count {
                 tags.push(format!("active_projection_count:{active_projection_count}"));
             }
-            if let Some(legacy_taskspace_history_present) = input.legacy_taskspace_history_present {
-                tags.push(format!(
-                    "legacy_taskspace_history_present:{legacy_taskspace_history_present}"
-                ));
-            }
             if let Some(large_raw_output_tokens) = input.large_raw_output_tokens {
                 tags.push(format!("large_raw_output_tokens:{large_raw_output_tokens}"));
             }
@@ -2366,30 +2248,6 @@ feedback:\n\
                     "exact_payload_scan_event_id:{}",
                     scan.scan_event_id
                 ));
-                tags.push(format!(
-                    "context_bundle_present:{}",
-                    scan.context_bundle_present
-                ));
-                tags.push(format!(
-                    "exact_context_bundle_verified:{}",
-                    scan.exact_context_bundle_verified
-                ));
-                tags.push(format!("cache_plan_verified:{}", scan.cache_plan_verified));
-                tags.push(format!(
-                    "raw_taskspace_control_history_tokens:{}",
-                    scan.raw_taskspace_control_history_tokens
-                ));
-                tags.push(format!(
-                    "completed_stale_node_history_tokens:{}",
-                    scan.completed_stale_node_history_tokens
-                ));
-                tags.push(format!(
-                    "rejected_subagent_body_tokens:{}",
-                    scan.rejected_subagent_body_tokens
-                ));
-            }
-            if input.status == "blocked" {
-                tags.push("legacy_blocked_input_observed:true".to_string());
             }
             let event = TaskSpaceTraceEvent {
                 id: id.clone(),
@@ -2464,28 +2322,6 @@ feedback:\n\
                         scan.active_projection_present
                     ),
                     format!("active_projection_count:{}", scan.active_projection_count),
-                    format!("context_bundle_present:{}", scan.context_bundle_present),
-                    format!(
-                        "exact_context_bundle_verified:{}",
-                        scan.exact_context_bundle_verified
-                    ),
-                    format!("cache_plan_verified:{}", scan.cache_plan_verified),
-                    format!(
-                        "legacy_taskspace_history_present:{}",
-                        scan.legacy_taskspace_history_present
-                    ),
-                    format!(
-                        "raw_taskspace_control_history_tokens:{}",
-                        scan.raw_taskspace_control_history_tokens
-                    ),
-                    format!(
-                        "completed_stale_node_history_tokens:{}",
-                        scan.completed_stale_node_history_tokens
-                    ),
-                    format!(
-                        "rejected_subagent_body_tokens:{}",
-                        scan.rejected_subagent_body_tokens
-                    ),
                     format!("large_raw_output_tokens:{}", scan.large_raw_output_tokens),
                     format!(
                         "runtime_boundary_forbidden_markers:{runtime_boundary_forbidden_markers}"
@@ -2513,17 +2349,9 @@ feedback:\n\
                 events.push(map_runtime_event_from_trace_event(scan_event));
             }
             let quality_id = self.next_trace_event_id();
-            let budget_action = if input.status == "blocked"
-                && input.budget_transition_reason == "provider_request_compact_checkpoint_required"
-            {
-                "legacy_compact_checkpoint_blocked_input"
-            } else if input.status == "blocked" {
-                "legacy_profile_hint_blocked_input"
-            } else {
-                "observe"
-            };
+            let budget_action = "observe";
             let final_classification = if input.status == "blocked" {
-                "legacy_blocked_input_observed"
+                "blocked_input_observed"
             } else {
                 "score_eligible"
             };
@@ -2939,6 +2767,7 @@ feedback:\n\
             (map_id, node_id, lease_id, action_class)
         };
         let result_id = self.next_result_id();
+        let artifact_refs = tool_result_artifact_refs(recorded_action_class, success, &body);
         let map = self
             .maps
             .get_mut(&map_id)
@@ -2956,7 +2785,8 @@ feedback:\n\
             kind: NodeResultKind::MainToolCall,
             action_class: recorded_action_class,
             tool_success: Some(success),
-            body,
+            source_event_ref: child_tool_source_event_ref(child_thread_id, call_id),
+            artifact_refs,
             source_thread_id: child_thread_id,
             created_at_ms: now_ms(),
         };
@@ -3609,112 +3439,11 @@ feedback:\n\
         Ok((blocker_result_id, events))
     }
 
-    pub(crate) fn active_map_has_successful_edit_artifacts(&self) -> bool {
-        let Some(map_id) = self.active_map_id.as_deref() else {
-            return false;
-        };
-        let Some(map) = self.maps.get(map_id) else {
-            return false;
-        };
-        map.nodes
-            .values()
-            .filter(|node| node.kind == NodeKind::ImplementSolution)
-            .any(|node| !successful_edit_artifact_set(map, node).is_empty())
-    }
-
-    pub(crate) fn backfill_successful_implementation_edit_artifacts(
-        &mut self,
-        call_id: &str,
-        preview: String,
-    ) -> Result<Option<Vec<MapRuntimeEvent>>, String> {
-        if self.mode != MapRuntimeMode::Experiment {
-            return Ok(None);
-        }
-        let map_id = match self.active_map_id.clone() {
-            Some(map_id) => map_id,
-            None => return Ok(None),
-        };
-        let artifacts = extract_edit_changed_artifacts_from_tool_body(&preview);
-        if artifacts.is_empty() {
-            return Ok(None);
-        }
-
-        let (task_id, node_id, result_id) = {
-            let map = self
-                .maps
-                .get(&map_id)
-                .ok_or_else(|| format!("TaskSpace active task path `{map_id}` is missing."))?;
-            let mut candidate: Option<(MapNodeId, NodeResultId, i64)> = None;
-            for node in map.nodes.values() {
-                if node.kind != NodeKind::ImplementSolution {
-                    continue;
-                }
-                for result_ref in &node.result_context {
-                    let Some(result) = map.results.get(&result_ref.id) else {
-                        continue;
-                    };
-                    if result.kind != NodeResultKind::MainToolCall
-                        || result.action_class != Some(ActionClass::Edit)
-                        || result.tool_success != Some(true)
-                    {
-                        continue;
-                    }
-                    if candidate
-                        .as_ref()
-                        .is_none_or(|(_, _, created_at_ms)| result.created_at_ms >= *created_at_ms)
-                    {
-                        candidate =
-                            Some((node.id.clone(), result.id.clone(), result.created_at_ms));
-                    }
-                }
-            }
-            let Some((node_id, result_id, _)) = candidate else {
-                return Ok(None);
-            };
-            (map.task_id.clone(), node_id, result_id)
-        };
-        let added_artifacts = artifacts
-            .into_iter()
-            .filter(|artifact| {
-                !self.taskspace_trace_events.iter().any(|event| {
-                    event.result_id.as_deref() == Some(result_id.as_str())
-                        && event
-                            .artifact_refs
-                            .iter()
-                            .any(|existing| existing == artifact)
-                })
-            })
-            .collect::<Vec<_>>();
-
-        if added_artifacts.is_empty() {
-            return Ok(None);
-        }
-        let trace_event = TaskSpaceTraceEvent {
-            id: self.next_trace_event_id(),
-            kind: "observed_implementation_edit_artifacts".to_string(),
-            task_id,
-            map_id,
-            node_id,
-            result_id: Some(result_id),
-            call_id: Some(call_id.to_string()),
-            action_class: Some(ActionClass::Edit),
-            tool_success: Some(true),
-            tags: added_artifacts
-                .iter()
-                .map(|artifact| format!("changed_artifact:{artifact}"))
-                .collect(),
-            artifact_refs: added_artifacts,
-            created_at_ms: now_ms(),
-        };
-        self.taskspace_trace_events.push(trace_event.clone());
-        Ok(Some(vec![map_runtime_event_from_trace_event(trace_event)]))
-    }
-
     pub(crate) fn record_main_final_response(
         &mut self,
         _owner_session_id: ThreadId,
         message: &str,
-    ) -> Result<Option<(NodeResultId, Vec<MapRuntimeEvent>)>, String> {
+    ) -> Result<Option<Vec<MapRuntimeEvent>>, String> {
         if self.mode != MapRuntimeMode::Experiment {
             return Ok(None);
         }
@@ -3731,10 +3460,13 @@ feedback:\n\
             .maps
             .get(&map_id)
             .ok_or_else(|| format!("TaskSpace active task path `{map_id}` is missing."))?;
-        let task = map
+        let task_id = map
             .task_id
-            .as_ref()
-            .and_then(|task_id| self.tasks.get(task_id))
+            .clone()
+            .ok_or_else(|| format!("TaskSpace active task for map `{map_id}` is missing."))?;
+        let task = self
+            .tasks
+            .get(&task_id)
             .ok_or_else(|| format!("TaskSpace active task for map `{map_id}` is missing."))?;
         if taskspace_task_path_is_mechanical_blank(task, map) {
             return Err(
@@ -3765,7 +3497,35 @@ feedback:\n\
                 open_node_ids.join(",")
             ));
         }
-        Ok(None)
+        let previous_map_status = map.status;
+        let previous_task_status = task.status;
+        self.maps
+            .get_mut(&map_id)
+            .expect("validated TaskSpace map must remain present")
+            .status = MapStatus::Completed;
+        let task = self
+            .tasks
+            .get_mut(&task_id)
+            .expect("validated TaskSpace task must remain present");
+        task.status = TaskStatus::Completed;
+        task.active_map_id = None;
+        self.active_map_id = None;
+        self.active_task_id = None;
+        self.routing_required = true;
+        self.bootstrap_required = false;
+
+        Ok(Some(vec![
+            MapRuntimeEvent::MapStatusChanged(MapRuntimeMapStatusChangedEvent {
+                map_id,
+                previous_status: previous_map_status.as_str().to_string(),
+                current_status: MapStatus::Completed.as_str().to_string(),
+            }),
+            MapRuntimeEvent::TaskStatusChanged(MapRuntimeTaskStatusChangedEvent {
+                task_id,
+                previous_status: previous_task_status.as_str().to_string(),
+                current_status: TaskStatus::Completed.as_str().to_string(),
+            }),
+        ]))
     }
 
     pub(crate) fn finish_main_node_with_terminal_candidate(
@@ -3779,14 +3539,17 @@ feedback:\n\
             return Err("TaskSpace terminal candidate must not be empty.".to_string());
         }
         let mut staged = self.clone();
-        let (outcome, events) = staged.finish_main_node_with_next(
+        let (outcome, mut events) = staged.finish_main_node_with_next(
             owner_session_id,
             node_id,
             agent_conclusion_event_ref,
             None,
             None,
         )?;
-        staged.record_main_final_response(owner_session_id, final_candidate)?;
+        let completion_events = staged
+            .record_main_final_response(owner_session_id, final_candidate)?
+            .ok_or_else(|| "TaskSpace terminal final response was not recorded.".to_string())?;
+        events.extend(completion_events);
         *self = staged;
         Ok((outcome, events))
     }
@@ -4029,7 +3792,7 @@ feedback:\n\
         }
         let (map_id, lease_id, node_id) = self.find_lease_by_thread(child_thread_id)?;
         let result_id = self.next_result_id();
-        let (kind, body) = result_from_status(status);
+        let kind = result_kind_from_status(status);
         let map = self.maps.get_mut(&map_id)?;
         let node = map.nodes.get_mut(&node_id)?;
         if node.active_lease.as_deref() != Some(lease_id.as_str()) {
@@ -4043,7 +3806,8 @@ feedback:\n\
             kind,
             action_class: None,
             tool_success: None,
-            body,
+            source_event_ref: child_thread_source_event_ref(child_thread_id),
+            artifact_refs: Vec::new(),
             source_thread_id: child_thread_id,
             created_at_ms: now_ms(),
         };
@@ -4467,7 +4231,7 @@ feedback:\n\
         owner_session_id: ThreadId,
         node_id: &str,
         kind: NodeResultKind,
-        body: String,
+        source_event_ref: String,
         next_status: NodeStatus,
         refresh_downstream: bool,
     ) -> Result<(NodeResultId, Vec<MapRuntimeEvent>), String> {
@@ -4565,7 +4329,8 @@ feedback:\n\
                 kind,
                 action_class: None,
                 tool_success: None,
-                body,
+                source_event_ref,
+                artifact_refs: Vec::new(),
                 source_thread_id: owner_session_id,
                 created_at_ms: now_ms(),
             };
@@ -5302,8 +5067,12 @@ pub(crate) fn format_action_map_snapshot(snapshot: &ActionMapSnapshot) -> String
                 }
                 output.push_str(" from=");
                 output.push_str(&result.source_thread_id.to_string());
-                output.push_str("\n  ");
-                output.push_str(&single_line_preview(&result.body, 220));
+                output.push_str(" source_event_ref=");
+                output.push_str(&result.source_event_ref);
+                if !result.artifact_refs.is_empty() {
+                    output.push_str(" artifact_refs=");
+                    output.push_str(&result.artifact_refs.join(","));
+                }
                 output.push('\n');
             }
         }
@@ -5314,8 +5083,7 @@ pub(crate) fn format_action_map_snapshot(snapshot: &ActionMapSnapshot) -> String
 
 fn taskspace_projection_integrity_context(map_id: &str, reason: &str) -> String {
     format!(
-        "TaskSpace v0.0.5 active thin projection.\n\
-ContextProjectionV1 epoch snapshot:\n\
+        "ContextProjectionV1 epoch snapshot:\n\
 - task_id: unavailable\n\
 - map_id: {map_id}\n\
 - integrity_status: invalid\n\
@@ -5487,7 +5255,10 @@ fn projection_result_refs_available(
 
 fn projection_event_ref(event: &NodeEvent) -> ProjectionEventRef {
     ProjectionEventRef {
-        id: event.id.clone(),
+        id: event
+            .source_event_id
+            .clone()
+            .unwrap_or_else(|| event.id.clone()),
         node_id: event.node_id.clone(),
         event_kind: event.event_kind.clone(),
         source: event.source.clone(),
@@ -5497,186 +5268,6 @@ fn projection_event_ref(event: &NodeEvent) -> ProjectionEventRef {
         tool_success: event.tool_success,
         raw_ref: event.raw_ref.clone(),
         artifact_refs: event.artifact_refs.clone(),
-    }
-}
-
-fn bounded_line_preserving_excerpt(text: &str, max_chars: usize) -> String {
-    let mut excerpt = String::new();
-    let mut count = 0usize;
-    for ch in text.chars() {
-        if count >= max_chars {
-            excerpt.push_str("\n...");
-            break;
-        }
-        if ch == '\r' {
-            continue;
-        }
-        excerpt.push(ch);
-        count += 1;
-    }
-    excerpt.trim_end().to_string()
-}
-
-fn bounded_head_tail_excerpt(text: &str, max_chars: usize) -> String {
-    if text.chars().count() <= max_chars {
-        return text.trim_end().to_string();
-    }
-    if max_chars < 64 {
-        return bounded_line_preserving_excerpt(text, max_chars);
-    }
-
-    let marker = "\n...\n";
-    let marker_chars = marker.chars().count();
-    let content_budget = max_chars.saturating_sub(marker_chars);
-    let head_budget = content_budget / 2;
-    let tail_budget = content_budget.saturating_sub(head_budget);
-    let head = text.chars().take(head_budget).collect::<String>();
-    let tail_chars = text.chars().rev().take(tail_budget).collect::<Vec<_>>();
-    let tail = tail_chars.into_iter().rev().collect::<String>();
-
-    format!(
-        "{}{}{}",
-        head.trim_end_matches(['\r', '\n']),
-        marker,
-        tail.trim_start_matches(['\r', '\n'])
-    )
-    .trim_end()
-    .to_string()
-}
-
-fn working_evidence_body_excerpt(body: &str, max_chars: usize) -> String {
-    let focused = body
-        .split_once("\nraw_output:\n")
-        .map(|(_, rest)| rest)
-        .or_else(|| body.split_once("\r\nraw_output:\r\n").map(|(_, rest)| rest))
-        .unwrap_or(body);
-    let max_chars = if read_file_summary_eof_reached(focused) == Some(true) {
-        max_chars.max(TASKSPACE_COMPLETE_READ_INLINE_MAX_CHARS)
-    } else {
-        max_chars
-    };
-    let mut output = String::new();
-    let mut count = 0usize;
-    if let Some(summary) = read_file_summary_line(focused) {
-        let summary_chars = summary.chars().count() + 1;
-        if summary_chars <= max_chars {
-            output.push_str(summary);
-            output.push('\n');
-            count += summary_chars;
-        }
-    }
-    for line in focused.lines() {
-        let trimmed = line.trim();
-        let lower = trimmed.to_ascii_lowercase();
-        if trimmed.is_empty()
-            || lower.starts_with("exit code:")
-            || lower.starts_with("wall time:")
-            || lower == "output:"
-            || lower.starts_with("taskspacetoolinvocationv1:")
-            || lower.starts_with("tool:")
-            || lower.starts_with("command:")
-            || lower.starts_with("raw_output:")
-            || lower.starts_with("preview:")
-            || lower.starts_with("success:")
-            || lower.starts_with("call_id:")
-            || lower.starts_with("action_class:")
-            || lower.starts_with("taskspacereadfilesummaryv1:")
-        {
-            continue;
-        }
-        let normalized = line.trim_end_matches('\r');
-        let line_chars = normalized.chars().count() + 1;
-        if count + line_chars > max_chars {
-            if diagnostic_output_is_tail_sensitive(focused) {
-                let remaining = focused
-                    .lines()
-                    .filter_map(working_evidence_visible_line)
-                    .collect::<Vec<_>>()
-                    .join("\n");
-                return bounded_head_tail_excerpt(&remaining, max_chars);
-            }
-            output.push_str("\n...");
-            break;
-        }
-        output.push_str(normalized);
-        output.push('\n');
-        count += line_chars;
-    }
-    let output = output.trim_end();
-    if output.is_empty() {
-        bounded_line_preserving_excerpt(body, max_chars)
-    } else {
-        output.to_string()
-    }
-}
-
-fn working_evidence_visible_line(line: &str) -> Option<&str> {
-    let trimmed = line.trim();
-    let lower = trimmed.to_ascii_lowercase();
-    if trimmed.is_empty()
-        || lower.starts_with("exit code:")
-        || lower.starts_with("wall time:")
-        || lower == "output:"
-        || lower.starts_with("taskspacetoolinvocationv1:")
-        || lower.starts_with("tool:")
-        || lower.starts_with("command:")
-        || lower.starts_with("raw_output:")
-        || lower.starts_with("preview:")
-        || lower.starts_with("success:")
-        || lower.starts_with("call_id:")
-        || lower.starts_with("action_class:")
-        || lower.starts_with("taskspacereadfilesummaryv1:")
-    {
-        return None;
-    }
-    Some(line.trim_end_matches('\r'))
-}
-
-fn diagnostic_output_is_tail_sensitive(text: &str) -> bool {
-    let lower = text.to_ascii_lowercase();
-    lower.contains("traceback")
-        || lower.contains("exit code: 1")
-        || lower.contains("exit code: 2")
-        || lower.contains("assertionerror")
-        || lower.contains("exception")
-        || lower.contains("error:")
-        || lower.contains("failed")
-        || lower.contains("conversion failed")
-        || lower.contains("no such file")
-        || lower.contains("command not found")
-}
-
-fn read_file_summary_line(body: &str) -> Option<&str> {
-    let mut fallback = None;
-    for line in body.lines().rev() {
-        let Some(start) = line.find("TaskSpaceReadFileSummaryV1:") else {
-            continue;
-        };
-        let summary = line[start..].trim();
-        if fallback.is_none() {
-            fallback = Some(summary);
-        }
-        if read_file_summary_has_parseable_eof(summary) {
-            return Some(summary);
-        }
-    }
-    fallback
-}
-
-fn read_file_summary_has_parseable_eof(summary: &str) -> bool {
-    summary
-        .split_whitespace()
-        .any(|part| matches!(part, "eof_reached=true" | "eof_reached=false"))
-}
-
-fn read_file_summary_eof_reached(body: &str) -> Option<bool> {
-    let line = read_file_summary_line(body)?.to_ascii_lowercase();
-    if line.contains("eof_reached=true") {
-        Some(true)
-    } else if line.contains("eof_reached=false") {
-        Some(false)
-    } else {
-        None
     }
 }
 
@@ -5747,6 +5338,7 @@ fn task_status_from_str(status: &str) -> Option<TaskStatus> {
     match status {
         "active" => Some(TaskStatus::Active),
         "pending" => Some(TaskStatus::Pending),
+        "completed" => Some(TaskStatus::Completed),
         _ => None,
     }
 }
@@ -6181,10 +5773,6 @@ fn is_known_trace_tag(tag: &str) -> bool {
         || tag.starts_with("exact_payload_scan_passed:")
         || tag.starts_with("active_projection_present:")
         || tag.starts_with("active_projection_count:")
-        || tag.starts_with("context_bundle_present:")
-        || tag.starts_with("exact_context_bundle_verified:")
-        || tag.starts_with("cache_plan_verified:")
-        || tag.starts_with("legacy_taskspace_history_present:")
         || tag.starts_with("large_raw_output_tokens:")
         || tag.starts_with("protected_items_present:")
         || tag.starts_with("replacement_confirmed:")
@@ -6194,9 +5782,6 @@ fn is_known_trace_tag(tag: &str) -> bool {
         || tag.starts_with("matcher_version:")
         || tag.starts_with("checked_byte_ranges:")
         || tag.starts_with("negative_checks_performed:")
-        || tag.starts_with("raw_taskspace_control_history_tokens:")
-        || tag.starts_with("completed_stale_node_history_tokens:")
-        || tag.starts_with("rejected_subagent_body_tokens:")
         || tag.starts_with("passed:")
         || tag.starts_with("failure_reasons:")
         || tag.starts_with("spawn_agent_call_count_")
@@ -6268,7 +5853,8 @@ fn snapshot_map(map: &ActionMapInstance) -> ActionMapSnapshotMap {
             kind: result.kind.as_str().to_string(),
             action_class: result.action_class.map(|class| class.as_str().to_string()),
             tool_success: result.tool_success,
-            body: result.body.clone(),
+            source_event_ref: result.source_event_ref.clone(),
+            artifact_refs: result.artifact_refs.clone(),
             source_thread_id: result.source_thread_id,
             created_at_ms: result.created_at_ms,
         })
@@ -6286,8 +5872,7 @@ fn snapshot_map(map: &ActionMapInstance) -> ActionMapSnapshotMap {
             source: event.source.clone(),
             action_class: event.action_class.map(|class| class.as_str().to_string()),
             tool_success: event.tool_success,
-            body: event.body.clone(),
-            visible_excerpt: event.visible_excerpt.clone(),
+            source_event_id: event.source_event_id.clone(),
             raw_ref: event.raw_ref.clone(),
             artifact_refs: event.artifact_refs.clone(),
             call_id: event.call_id.clone(),
@@ -6743,25 +6328,6 @@ fn maintenance_barrier_cleared_event(
     })
 }
 
-fn successful_edit_artifact_set(map: &ActionMapInstance, node: &MapNode) -> HashSet<String> {
-    let mut artifacts = HashSet::new();
-    for result_ref in &node.result_context {
-        let Some(result) = map.results.get(&result_ref.id) else {
-            continue;
-        };
-        if result.kind != NodeResultKind::MainToolCall
-            || result.tool_success != Some(true)
-            || result.action_class != Some(ActionClass::Edit)
-        {
-            continue;
-        }
-        for artifact in extract_edit_changed_artifacts_from_tool_body(&result.body) {
-            artifacts.insert(artifact_key(&artifact));
-        }
-    }
-    artifacts
-}
-
 fn result_body_taskspace_marker_artifact_refs(body: &str) -> Vec<String> {
     let mut artifacts = Vec::new();
     for line in result_body_raw_output_section(body).lines().map(str::trim) {
@@ -6804,13 +6370,6 @@ fn taskspace_marker_field(line: &str, field: &str) -> Option<String> {
         .filter(|value| !value.is_empty())
 }
 
-fn artifact_key(path: &str) -> String {
-    normalize_artifact_ref(path).to_ascii_lowercase()
-}
-
-const TASKSPACE_COMPLETE_READ_INLINE_MAX_CHARS: usize = 6000;
-const TASKSPACE_NODE_EVENT_VISIBLE_EXCERPT_MAX_CHARS: usize = 6000;
-
 fn assignment_prompt(
     map_id: &str,
     node_id: &str,
@@ -6837,28 +6396,49 @@ fn child_tool_reservation_key(child_thread_id: ThreadId, call_id: &str) -> Strin
     format!("{child_thread_id}:{call_id}")
 }
 
-fn result_from_status(status: &AgentStatus) -> (NodeResultKind, String) {
-    match status {
-        AgentStatus::Completed(Some(message)) if !message.trim().is_empty() => {
-            (NodeResultKind::Result, message.clone())
+fn child_thread_source_event_ref(child_thread_id: ThreadId) -> String {
+    format!("thread:{child_thread_id}")
+}
+
+fn child_tool_source_event_ref(child_thread_id: ThreadId, call_id: &str) -> String {
+    format!(
+        "{}/call:{call_id}",
+        child_thread_source_event_ref(child_thread_id)
+    )
+}
+
+fn tool_result_artifact_refs(
+    action_class: Option<ActionClass>,
+    success: bool,
+    body: &str,
+) -> Vec<String> {
+    if !success {
+        return Vec::new();
+    }
+    match action_class {
+        Some(ActionClass::Edit) => extract_edit_changed_artifacts_from_tool_body(body),
+        Some(ActionClass::Read) => {
+            let mut artifact_refs = result_body_taskspace_marker_artifact_refs(body);
+            if let Some(command) = result_body_command_from_body(body)
+                && let Some(artifact_ref) = read_command_artifact_ref(&command)
+            {
+                push_unique_artifact_ref(&mut artifact_refs, artifact_ref);
+            }
+            artifact_refs
         }
-        AgentStatus::Completed(_) => (
-            NodeResultKind::Result,
-            "Subagent completed without a final message.".to_string(),
-        ),
-        AgentStatus::Errored(message) => (NodeResultKind::Blocker, message.clone()),
-        AgentStatus::Shutdown => (
-            NodeResultKind::Blocker,
-            "Subagent was shut down before producing a node result.".to_string(),
-        ),
-        AgentStatus::NotFound => (
-            NodeResultKind::Blocker,
-            "Subagent disappeared before producing a node result.".to_string(),
-        ),
-        AgentStatus::Interrupted | AgentStatus::PendingInit | AgentStatus::Running => (
-            NodeResultKind::Blocker,
-            format!("Subagent stopped in non-final status: {status:?}"),
-        ),
+        _ => Vec::new(),
+    }
+}
+
+fn result_kind_from_status(status: &AgentStatus) -> NodeResultKind {
+    match status {
+        AgentStatus::Completed(_) => NodeResultKind::Result,
+        AgentStatus::Errored(_)
+        | AgentStatus::Shutdown
+        | AgentStatus::NotFound
+        | AgentStatus::Interrupted
+        | AgentStatus::PendingInit
+        | AgentStatus::Running => NodeResultKind::Blocker,
     }
 }
 

@@ -121,7 +121,7 @@ fn initialized_map_releases_provider_initialization_selection() {
 }
 
 #[test]
-fn tool_result_is_recorded_under_current_node_without_body_rewrite() {
+fn tool_result_is_recorded_under_current_node_by_canonical_event_ref() {
     let (mut state, owner, outcome) = initialized_state(vec![inspect_node("inspect")], "inspect");
     let descriptor = ToolActionDescriptor::new("read_file", ActionClass::Read, "src/lib.rs")
         .with_call_id("call-1");
@@ -133,6 +133,7 @@ fn tool_result_is_recorded_under_current_node_without_body_rewrite() {
         .record_main_tool_result_with_class(
             owner,
             "call-1",
+            "task-event-call-1".to_string(),
             "read_file",
             Some(ActionClass::Read),
             true,
@@ -144,8 +145,43 @@ fn tool_result_is_recorded_under_current_node_without_body_rewrite() {
     let map = state.maps.get(&outcome.map_id).expect("active map");
     let event = map.node_events.get(&event_id).expect("node event");
     assert_eq!(event.node_id, outcome.current_node_id);
-    assert_eq!(event.body, body);
+    assert_eq!(event.source_event_id.as_deref(), Some("task-event-call-1"));
     assert_eq!(event.tool_success, Some(true));
+}
+
+#[test]
+fn missing_canonical_event_does_not_leave_completed_tool_in_flight() {
+    let (mut state, owner, outcome) = initialized_state(vec![inspect_node("inspect")], "inspect");
+    state
+        .prepare_main_tool_call(
+            owner,
+            ToolActionDescriptor::new("exec_command", ActionClass::Read, "pwd")
+                .with_call_id("nested-call"),
+        )
+        .expect("reserve nested tool call");
+
+    let error = state
+        .record_main_tool_result_with_class(
+            owner,
+            "nested-call",
+            String::new(),
+            "exec_command",
+            Some(ActionClass::Read),
+            true,
+            "done".to_string(),
+        )
+        .expect_err("missing canonical event must remain explicit");
+    assert!(error.contains("source_event_id"));
+
+    state
+        .finish_main_node_with_next(
+            owner,
+            &outcome.current_node_id,
+            "Completed after attribution failure.".to_string(),
+            None,
+            None,
+        )
+        .expect("completed tool must not remain in flight");
 }
 
 #[test]
@@ -261,6 +297,7 @@ fn thin_projection_indexes_events_without_copying_raw_feedback() {
         .record_main_tool_result_with_class(
             owner,
             "call-1",
+            "task-event-call-1".to_string(),
             "read_file",
             Some(ActionClass::Read),
             false,
@@ -277,7 +314,7 @@ fn thin_projection_indexes_events_without_copying_raw_feedback() {
 
     let projection = state.build_developer_context().expect("projection");
     assert!(projection.contains("current_node_recent_events"));
-    assert_eq!(projection.matches("node-event-1").count(), 1);
+    assert_eq!(projection.matches("task-event-call-1").count(), 1);
     assert_eq!(projection.matches("inspect kind=").count(), 1);
     assert_eq!(
         projection
@@ -314,6 +351,7 @@ fn final_response_only_checks_mechanical_map_lifecycle() {
         .record_main_tool_result_with_class(
             owner,
             "call-1",
+            "task-event-call-1".to_string(),
             "read_file",
             Some(ActionClass::Read),
             true,
@@ -330,7 +368,38 @@ fn final_response_only_checks_mechanical_map_lifecycle() {
         )
         .expect("finish node");
 
-    assert_eq!(state.record_main_final_response(owner, "Done"), Ok(None));
+    let events = state
+        .record_main_final_response(owner, "Done")
+        .expect("final response completes task")
+        .expect("completion events");
+    assert!(events.iter().any(|event| matches!(
+        event,
+        MapRuntimeEvent::MapStatusChanged(event) if event.current_status == "completed"
+    )));
+    assert!(events.iter().any(|event| matches!(
+        event,
+        MapRuntimeEvent::TaskStatusChanged(event) if event.current_status == "completed"
+    )));
+    let snapshot = state.snapshot();
+    assert_eq!(snapshot.maps[0].status, "completed");
+    assert_eq!(snapshot.tasks[0].status, "completed");
+    assert!(snapshot.active_map_id.is_none());
+    assert!(snapshot.active_task_id.is_none());
+}
+
+#[test]
+fn child_tool_result_metadata_is_extracted_without_retaining_body() {
+    let child = ThreadId::new();
+    let body = "*** Update File: core/src/lib.rs\nraw_output:\nsecret payload";
+
+    assert_eq!(
+        child_tool_source_event_ref(child, "call-child-1"),
+        format!("thread:{child}/call:call-child-1")
+    );
+    assert_eq!(
+        tool_result_artifact_refs(Some(ActionClass::Edit), true, body),
+        vec!["core/src/lib.rs"]
+    );
 }
 
 #[test]

@@ -324,7 +324,6 @@ fn provider_request_budget_records_started_and_terminal_status() {
     assert_eq!(events[1].provider_payload_bytes, Some(payload_bytes));
     assert_eq!(events[1].exact_payload_scan_passed, Some(true));
     assert_eq!(events[1].active_projection_present, Some(true));
-    assert_eq!(events[1].legacy_taskspace_history_present, Some(false));
     assert_eq!(events[1].replacement_confirmed, Some(true));
     let exact_scan = events[1]
         .exact_payload_scan
@@ -381,7 +380,7 @@ fn provider_request_budget_records_started_and_terminal_status() {
 }
 
 #[test]
-fn provider_payload_scan_rejects_shadow_or_legacy_taskspace_history() {
+fn provider_payload_scan_validates_canonical_projection_shape() {
     let active_projection = concat!(
         "ContextProjectionV1 epoch snapshot:\n",
         "- task_id: task-1\n",
@@ -446,63 +445,12 @@ fn provider_payload_scan_rejects_shadow_or_legacy_taskspace_history() {
     }))
     .expect("active payload with transition notice");
     assert!(active_with_transition_notice.scan.passed);
-    assert!(
-        !active_with_transition_notice
-            .scan
-            .legacy_taskspace_history_present
-    );
-
-    let incomplete_legacy_transition = provider_payload_digest(&json!({
-        "input": format!(
-            "TaskSpace mode is now active.\nLegacy activation text without the current boundary fields.\n{active_projection}"
-        )
-    }))
-    .expect("legacy transition payload");
-    assert!(
-        incomplete_legacy_transition
-            .scan
-            .legacy_taskspace_history_present
-    );
-    assert!(!incomplete_legacy_transition.scan.passed);
 
     let bundled_active_with_forbidden_strategy = provider_payload_digest(&json!({
-        "input": concat!(
-            "ContextProjectionV1 epoch snapshot:\n",
-            "TaskSpaceAgentContextBundleV1:\n",
-            "- cache_plan:\n",
-            "  cache_plan_verified: true\n",
-            "- protected_items:\n",
-            "  - protected_item: current requirement\n",
-            "- next_valid_actions:\n",
-            "  - channel: taskspace_control\n",
-            "    action: finish_node\n",
-            "    render_hint: taskspace_control(action=finish_node)\n",
-            "TaskSpaceAgentContextBundleV1 end."
-        )
+        "input": format!("{active_projection}\nTaskSpaceAgentContextBundleV1\nnext_valid_actions")
     }))
     .expect("bundled active payload digest");
     assert!(!bundled_active_with_forbidden_strategy.scan.passed);
-    assert!(
-        bundled_active_with_forbidden_strategy
-            .scan
-            .context_bundle_present
-    );
-    assert!(
-        !bundled_active_with_forbidden_strategy
-            .scan
-            .exact_context_bundle_verified
-    );
-    assert!(
-        bundled_active_with_forbidden_strategy
-            .scan
-            .cache_plan_verified
-    );
-    assert_eq!(
-        bundled_active_with_forbidden_strategy
-            .scan
-            .raw_taskspace_control_history_tokens,
-        0
-    );
     assert!(
         bundled_active_with_forbidden_strategy
             .scan
@@ -523,15 +471,6 @@ fn provider_payload_scan_rejects_shadow_or_legacy_taskspace_history() {
             .failure_reasons
             .contains(&"runtime_boundary_forbidden_marker_present".to_string())
     );
-
-    let legacy = provider_payload_digest(&json!({
-        "input": format!("{active_projection}\nContextProjectionV1 shadow (not active replacement):\ntaskspace_control")
-    }))
-    .expect("legacy payload digest");
-    assert!(legacy.scan.active_projection_present);
-    assert!(legacy.scan.legacy_taskspace_history_present);
-    assert!(!legacy.scan.passed);
-    assert!(!legacy.scan.replacement_confirmed);
 
     let missing_protected = provider_payload_digest(&json!({
         "input": "ContextProjectionV1 epoch snapshot:\n- summary only"

@@ -1903,7 +1903,8 @@ pub struct ActionMapSnapshotResult {
     pub action_class: Option<String>,
     #[serde(default)]
     pub tool_success: Option<bool>,
-    pub body: String,
+    pub source_event_ref: String,
+    pub artifact_refs: Vec<String>,
     pub source_thread_id: ThreadId,
     pub created_at_ms: i64,
 }
@@ -1921,8 +1922,7 @@ pub struct ActionMapSnapshotNodeEvent {
     pub action_class: Option<String>,
     #[serde(default)]
     pub tool_success: Option<bool>,
-    pub body: String,
-    pub visible_excerpt: String,
+    pub source_event_id: Option<String>,
     #[serde(default)]
     pub raw_ref: Option<String>,
     #[serde(default)]
@@ -5778,7 +5778,8 @@ mod tests {
             kind: "main_tool_call".to_string(),
             action_class: Some("test".to_string()),
             tool_success: Some(true),
-            body: "pytest passed".to_string(),
+            source_event_ref: "thread:child-1/call:test-1".to_string(),
+            artifact_refs: vec!["tests/test_runtime.py".to_string()],
             source_thread_id: ThreadId::new(),
             created_at_ms: 1234,
         };
@@ -5792,6 +5793,9 @@ mod tests {
         assert_eq!(value["kind"], "main_tool_call");
         assert_eq!(value["actionClass"], "test");
         assert_eq!(value["toolSuccess"], true);
+        assert_eq!(value["sourceEventRef"], "thread:child-1/call:test-1");
+        assert_eq!(value["artifactRefs"][0], "tests/test_runtime.py");
+        assert!(value.get("body").is_none());
         assert!(value.get("tool_success").is_none());
         assert!(value.get("map_id").is_none());
         assert!(value.get("node_id").is_none());

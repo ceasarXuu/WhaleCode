@@ -28,6 +28,7 @@ use crate::tools::router::ToolRouter;
 use codex_protocol::ThreadId;
 use codex_protocol::error::CodexErr;
 use codex_protocol::models::ResponseInputItem;
+use codex_protocol::models::ResponseItem;
 use codex_protocol::protocol::SessionSource;
 use codex_protocol::protocol::SubAgentSource;
 use codex_tools::ToolSpec;
@@ -85,8 +86,21 @@ impl ToolCallRuntime {
         &self,
         action: &TaskSpaceNestedAction,
         call_id: String,
-    ) -> Result<Option<ToolCall>, FunctionCallError> {
-        ToolRouter::build_tool_call(&self.session, action.to_response_item(call_id)).await
+    ) -> Result<Option<(ToolCall, ResponseItem)>, FunctionCallError> {
+        let item = action.to_response_item(call_id);
+        let call = ToolRouter::build_tool_call(&self.session, item.clone()).await?;
+        Ok(call.map(|call| (call, item)))
+    }
+
+    pub(crate) async fn record_taskspace_child_item(
+        &self,
+        item: &ResponseItem,
+        parent_call_id: &str,
+    ) -> Result<String, CodexErr> {
+        self.session
+            .record_taskspace_child_item(item, parent_call_id)
+            .await
+            .map_err(CodexErr::Fatal)
     }
 
     pub(crate) fn invalid_call_response(
@@ -402,14 +416,6 @@ impl ToolCallRuntime {
                 .prepare_action_map_main_tool_call(turn, descriptor)
                 .await
             {
-                session
-                    .record_action_map_runtime_feedback(
-                        turn,
-                        "hard_gate_rejection",
-                        false,
-                        message.clone(),
-                    )
-                    .await;
                 return Err(FunctionCallError::RespondToModel(message));
             }
         }

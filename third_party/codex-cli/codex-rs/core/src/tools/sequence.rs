@@ -2,6 +2,7 @@ use codex_protocol::error::Result;
 use codex_protocol::models::FunctionCallOutputBody;
 use codex_protocol::models::FunctionCallOutputPayload;
 use codex_protocol::models::ResponseInputItem;
+use codex_protocol::models::ResponseItem;
 use futures::future::join_all;
 use tokio_util::sync::CancellationToken;
 
@@ -260,8 +261,11 @@ async fn execute_taskspace_barrier(
 
     let mut nested_outputs = Vec::with_capacity(nested_calls.len());
     let mut failed_call_id = None;
-    for nested_call in nested_calls {
+    for (nested_call, call_item) in nested_calls {
         let tool_name = nested_call.tool_name.display();
+        let call_event_ref = runtime
+            .record_taskspace_child_item(&call_item, &call.call_id)
+            .await?;
         let output = if let Some(prior_call_id) = failed_call_id.as_deref() {
             ToolCallRuntime::skipped_response(&nested_call, prior_call_id)
         } else {
@@ -277,7 +281,17 @@ async fn execute_taskspace_barrier(
             }
             execution.response
         };
-        nested_outputs.push((tool_name, output));
+        let output_item = ResponseItem::from(output.clone());
+        let output_event_ref = runtime
+            .record_taskspace_child_item(&output_item, &call.call_id)
+            .await?;
+        nested_outputs.push((
+            tool_name,
+            nested_call.call_id,
+            response_input_succeeded(&output),
+            call_event_ref,
+            output_event_ref,
+        ));
     }
 
     let success = failed_call_id.is_none();
@@ -311,7 +325,7 @@ fn taskspace_nested_actions(call: &ToolCall) -> Vec<TaskSpaceNestedAction> {
 fn aggregate_taskspace_batch_response(
     outer_call_id: &str,
     state_response: ResponseInputItem,
-    nested_outputs: Vec<(String, ResponseInputItem)>,
+    nested_outputs: Vec<(String, String, bool, String, String)>,
     success: bool,
 ) -> ResponseInputItem {
     let mut batch = state_response_text(&state_response)
@@ -332,12 +346,14 @@ fn aggregate_taskspace_batch_response(
         .and_then(|object| object.get_mut("steps"))
         .and_then(serde_json::Value::as_array_mut);
     if let Some(steps) = steps {
-        for (tool_name, response) in nested_outputs {
+        for (tool_name, call_id, success, call_event_ref, output_event_ref) in nested_outputs {
             steps.push(serde_json::json!({
                 "kind": "ordinary_tool",
                 "tool_name": tool_name,
-                "success": response_input_succeeded(&response),
-                "response": response,
+                "call_id": call_id,
+                "success": success,
+                "call_event_ref": call_event_ref,
+                "output_event_ref": output_event_ref,
             }));
         }
     }
@@ -534,7 +550,7 @@ mod tests {
     }
 
     #[test]
-    fn aggregate_preserves_raw_nested_response_and_outer_identity() {
+    fn aggregate_references_canonical_nested_events_without_copying_output() {
         let state = ResponseInputItem::FunctionCallOutput {
             call_id: "outer".into(),
             output: FunctionCallOutputPayload::from_text(
@@ -546,16 +562,16 @@ mod tests {
                 .to_string(),
             ),
         };
-        let nested = ResponseInputItem::CustomToolCallOutput {
-            call_id: "outer:nested:0".into(),
-            name: Some("apply_patch".into()),
-            output: FunctionCallOutputPayload::from_text("raw patch output".to_string()),
-        };
-
         let aggregated = aggregate_taskspace_batch_response(
             "outer",
             state,
-            vec![("apply_patch".into(), nested)],
+            vec![(
+                "apply_patch".into(),
+                "outer:nested:0".into(),
+                true,
+                "task-event-7".into(),
+                "task-event-8".into(),
+            )],
             true,
         );
         let ResponseInputItem::FunctionCallOutput { call_id, output } = aggregated else {
@@ -566,9 +582,8 @@ mod tests {
         let value: serde_json::Value =
             serde_json::from_str(&output.body.to_text().expect("text")).expect("batch json");
         assert_eq!(value["steps"].as_array().expect("steps").len(), 2);
-        assert_eq!(
-            value["steps"][1]["response"]["output"],
-            serde_json::json!("raw patch output")
-        );
+        assert_eq!(value["steps"][1]["call_event_ref"], "task-event-7");
+        assert_eq!(value["steps"][1]["output_event_ref"], "task-event-8");
+        assert!(value["steps"][1].get("response").is_none());
     }
 }

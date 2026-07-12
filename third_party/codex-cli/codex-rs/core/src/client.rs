@@ -147,10 +147,6 @@ const RESPONSES_WEBSOCKETS_V2_BETA_HEADER_VALUE: &str = "responses_websockets=20
 const RESPONSES_ENDPOINT: &str = "/responses";
 const RESPONSES_COMPACT_ENDPOINT: &str = "/responses/compact";
 const TASKSPACE_ACTIVE_PROJECTION_MARKER: &str = "ContextProjectionV1 epoch snapshot:";
-const TASKSPACE_AGENT_CONTEXT_BUNDLE_MARKER: &str = "TaskSpaceAgentContextBundleV1:";
-const TASKSPACE_AGENT_CONTEXT_BUNDLE_END_MARKER: &str = "TaskSpaceAgentContextBundleV1 end.";
-const TASKSPACE_SHADOW_PROJECTION_MARKER: &str =
-    "ContextProjectionV1 shadow (not active replacement):";
 const TASKSPACE_PROJECTION_REQUIRED_SECTIONS: &[&str] = &[
     "task_id",
     "map_id",
@@ -179,13 +175,6 @@ pub(crate) struct ExactPayloadScanEventV1 {
     pub(crate) negative_checks_performed: Vec<String>,
     pub(crate) active_projection_present: bool,
     pub(crate) active_projection_count: usize,
-    pub(crate) context_bundle_present: bool,
-    pub(crate) exact_context_bundle_verified: bool,
-    pub(crate) cache_plan_verified: bool,
-    pub(crate) legacy_taskspace_history_present: bool,
-    pub(crate) raw_taskspace_control_history_tokens: usize,
-    pub(crate) completed_stale_node_history_tokens: usize,
-    pub(crate) rejected_subagent_body_tokens: usize,
     pub(crate) large_raw_output_tokens: usize,
     pub(crate) runtime_boundary_forbidden_markers: Vec<String>,
     pub(crate) protected_items_present: bool,
@@ -228,7 +217,6 @@ pub(crate) struct ProviderRequestBudgetEvent {
     pub(crate) exact_payload_scan_passed: Option<bool>,
     pub(crate) active_projection_present: Option<bool>,
     pub(crate) active_projection_count: Option<usize>,
-    pub(crate) legacy_taskspace_history_present: Option<bool>,
     pub(crate) large_raw_output_tokens: Option<usize>,
     pub(crate) protected_items_present: Option<bool>,
     pub(crate) replacement_confirmed: Option<bool>,
@@ -495,7 +483,6 @@ impl ProviderRequestBudgetContext {
             exact_payload_scan_passed: None,
             active_projection_present: None,
             active_projection_count: None,
-            legacy_taskspace_history_present: None,
             large_raw_output_tokens: None,
             protected_items_present: None,
             replacement_confirmed: None,
@@ -597,9 +584,6 @@ impl ProviderRequestBudgetContext {
             exact_payload_scan_passed: scan.as_ref().map(|scan| scan.passed),
             active_projection_present: scan.as_ref().map(|scan| scan.active_projection_present),
             active_projection_count: scan.as_ref().map(|scan| scan.active_projection_count),
-            legacy_taskspace_history_present: scan
-                .as_ref()
-                .map(|scan| scan.legacy_taskspace_history_present),
             large_raw_output_tokens: scan.as_ref().map(|scan| scan.large_raw_output_tokens),
             protected_items_present: scan.as_ref().map(|scan| scan.protected_items_present),
             replacement_confirmed: scan.as_ref().map(|scan| scan.replacement_confirmed),
@@ -665,10 +649,6 @@ impl ProviderRequestBudgetContext {
                     .payload_scan
                     .as_ref()
                     .map(|scan| scan.active_projection_count),
-                legacy_taskspace_history_present: active_request
-                    .payload_scan
-                    .as_ref()
-                    .map(|scan| scan.legacy_taskspace_history_present),
                 large_raw_output_tokens: active_request
                     .payload_scan
                     .as_ref()
@@ -843,9 +823,6 @@ impl ProviderRequestBudgetDispatch {
                 active_projection_count: payload_scan
                     .as_ref()
                     .map(|scan| scan.active_projection_count),
-                legacy_taskspace_history_present: payload_scan
-                    .as_ref()
-                    .map(|scan| scan.legacy_taskspace_history_present),
                 large_raw_output_tokens: payload_scan
                     .as_ref()
                     .map(|scan| scan.large_raw_output_tokens),
@@ -974,23 +951,7 @@ fn scan_provider_payload_text(
     value: &serde_json::Value,
 ) -> ExactPayloadScanEventV1 {
     let active_projection_count = text.matches(TASKSPACE_ACTIVE_PROJECTION_MARKER).count();
-    let active_projection_present =
-        active_projection_count > 0 || text.contains(TASKSPACE_AGENT_CONTEXT_BUNDLE_MARKER);
-    let context_bundle_present = text.contains(TASKSPACE_AGENT_CONTEXT_BUNDLE_MARKER)
-        && text.contains(TASKSPACE_AGENT_CONTEXT_BUNDLE_END_MARKER);
-    let cache_plan_verified = context_bundle_present && text.contains("cache_plan_verified: true");
-    let legacy_scan_text = remove_taskspace_agent_context_bundle_sections(text);
-    let current_activation_notice_present = active_projection_present
-        && legacy_scan_text.contains("TaskSpace mode is now active.")
-        && legacy_scan_text.contains("hard_state:")
-        && legacy_scan_text.contains("execution_contract:")
-        && legacy_scan_text.contains("strategy_owner:");
-    let legacy_taskspace_history_present = legacy_scan_text
-        .contains(TASKSPACE_SHADOW_PROJECTION_MARKER)
-        || legacy_scan_text.contains("TaskSpace Bootstrap")
-        || legacy_scan_text.contains("TaskSpace ContextProjectionV1 shadow update")
-        || (legacy_scan_text.contains("TaskSpace mode is now active")
-            && !current_activation_notice_present);
+    let active_projection_present = active_projection_count > 0;
     let active_projection_block = text
         .split(TASKSPACE_ACTIVE_PROJECTION_MARKER)
         .nth(1)
@@ -1000,12 +961,6 @@ fn scan_provider_payload_text(
         || active_projection_block.contains("protected item")
         || active_projection_block.contains("protected evidence")
         || projection_block_contains_required_sections(active_projection_block);
-    let raw_taskspace_control_history_tokens =
-        estimate_marker_context_tokens(&legacy_scan_text, "taskspace_control(");
-    let completed_stale_node_history_tokens =
-        estimate_marker_context_tokens(&legacy_scan_text, "completed stale node");
-    let rejected_subagent_body_tokens =
-        estimate_marker_context_tokens(&legacy_scan_text, "rejected subagent");
     let large_raw_output_tokens = estimate_large_raw_output_tokens(value);
     let runtime_boundary_forbidden_markers = [
         "TaskSpaceProviderBudgetHardStopV1",
@@ -1022,12 +977,8 @@ fn scan_provider_payload_text(
     .map(str::to_string)
     .collect::<Vec<_>>();
     let replacement_confirmed = active_projection_count == 1
-        && !legacy_taskspace_history_present
         && large_raw_output_tokens == 0
-        && protected_items_present;
-    let exact_context_bundle_verified = replacement_confirmed
-        && context_bundle_present
-        && cache_plan_verified
+        && protected_items_present
         && runtime_boundary_forbidden_markers.is_empty();
     let mut failure_reasons = Vec::new();
     if !active_projection_present {
@@ -1035,15 +986,6 @@ fn scan_provider_payload_text(
     }
     if active_projection_count != 1 {
         failure_reasons.push("active_projection_not_unique".to_string());
-    }
-    if legacy_taskspace_history_present {
-        failure_reasons.push("legacy_taskspace_history_present".to_string());
-    }
-    if completed_stale_node_history_tokens > 0 {
-        failure_reasons.push("completed_stale_node_history_present".to_string());
-    }
-    if rejected_subagent_body_tokens > 0 {
-        failure_reasons.push("rejected_subagent_body_present".to_string());
     }
     if large_raw_output_tokens > 0 {
         failure_reasons.push("large_raw_output_present".to_string());
@@ -1059,26 +1001,16 @@ fn scan_provider_payload_text(
         scan_event_id: format!("scan:{request_id}:{sha256}"),
         request_id: request_id.to_string(),
         provider_payload_sha256: sha256.to_string(),
-        scanner_version: "v005-exact-scan-4".to_string(),
-        matcher_version: "v005-epoch-snapshot-and-natural-history-checks-4".to_string(),
+        scanner_version: "v005-exact-scan-5".to_string(),
+        matcher_version: "v005-canonical-projection-checks-5".to_string(),
         checked_byte_ranges: vec![(0, text.len())],
         negative_checks_performed: vec![
             "active_projection_uniqueness".to_string(),
-            "legacy_taskspace_history".to_string(),
-            "completed_stale_node_history".to_string(),
-            "rejected_subagent_body".to_string(),
             "large_raw_output".to_string(),
             "runtime_boundary_forbidden_markers".to_string(),
         ],
         active_projection_present,
         active_projection_count,
-        context_bundle_present,
-        exact_context_bundle_verified,
-        cache_plan_verified,
-        legacy_taskspace_history_present,
-        raw_taskspace_control_history_tokens,
-        completed_stale_node_history_tokens,
-        rejected_subagent_body_tokens,
         large_raw_output_tokens,
         runtime_boundary_forbidden_markers,
         protected_items_present,
@@ -1103,33 +1035,6 @@ fn projection_block_contains_section(block: &str, section: &str) -> bool {
             .unwrap_or_else(|| line.trim_start())
             .starts_with(&section_prefix)
     })
-}
-
-fn remove_taskspace_agent_context_bundle_sections(text: &str) -> String {
-    let mut remaining = text;
-    let mut output = String::with_capacity(text.len());
-    while let Some(start) = remaining.find(TASKSPACE_ACTIVE_PROJECTION_MARKER) {
-        output.push_str(&remaining[..start]);
-        let section = &remaining[start..];
-        let Some(end) = section.find(TASKSPACE_AGENT_CONTEXT_BUNDLE_END_MARKER) else {
-            output.push_str(section);
-            return output;
-        };
-        let after_end = start + end + TASKSPACE_AGENT_CONTEXT_BUNDLE_END_MARKER.len();
-        remaining = &remaining[after_end..];
-    }
-    output.push_str(remaining);
-    output
-}
-
-fn estimate_marker_context_tokens(text: &str, marker: &str) -> usize {
-    text.match_indices(marker)
-        .map(|(index, _)| {
-            let start = index.saturating_sub(1024);
-            let end = text.len().min(index.saturating_add(marker.len() + 1024));
-            end.saturating_sub(start).max(marker.len()).div_ceil(4)
-        })
-        .sum()
 }
 
 fn estimate_large_raw_output_tokens(value: &serde_json::Value) -> usize {

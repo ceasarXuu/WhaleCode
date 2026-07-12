@@ -5,7 +5,6 @@ use std::sync::atomic::Ordering;
 
 use crate::SkillInjections;
 use crate::SkillLoadOutcome;
-use crate::action_map::ActionClass;
 use crate::action_map::ActionMapProviderResponseActionabilityInput;
 use crate::build_skill_injections;
 use crate::client::ModelClientSession;
@@ -88,7 +87,6 @@ use codex_protocol::items::UserMessageItem;
 use codex_protocol::items::build_hook_prompt_message;
 use codex_protocol::models::BaseInstructions;
 use codex_protocol::models::ContentItem;
-use codex_protocol::models::FunctionCallOutputBody;
 use codex_protocol::models::MessagePhase;
 use codex_protocol::models::ResponseInputItem;
 use codex_protocol::models::ResponseItem;
@@ -124,13 +122,6 @@ use tracing::trace;
 use tracing::trace_span;
 use tracing::warn;
 
-const TASKSPACE_ACTIVE_PROFILE_MARKER: &str = "TaskSpace v0.0.5 active compact profile is enabled.";
-const TASKSPACE_ACTIVE_COMPACT_PROJECTION_MARKER: &str =
-    "TaskSpace v0.0.5 active compact projection.";
-const TASKSPACE_ACTIVE_THIN_PROJECTION_MARKER: &str = "TaskSpace v0.0.5 active thin projection.";
-const TASKSPACE_ACTIVE_PROJECTION_MARKER: &str = "ContextProjectionV1 epoch snapshot:";
-const TASKSPACE_SHADOW_PROJECTION_MARKER: &str =
-    "ContextProjectionV1 shadow (not active replacement):";
 const TASKSPACE_GATE_RECOVERY_MARKER: &str = "\"schema_version\":\"TaskSpaceGateResultV1\"";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1501,324 +1492,7 @@ pub(crate) async fn built_tools(
 }
 
 fn prepare_provider_visible_prompt_items(items: Vec<ResponseItem>) -> Vec<ResponseItem> {
-    let composition = compose_provider_visible_history(items);
-    let omitted_count = composition
-        .decisions
-        .iter()
-        .filter(|decision| matches!(decision.action, ProviderVisibleHistoryAction::Omit(_)))
-        .count();
-    if omitted_count > 0 {
-        trace!(
-            target = "codex_core::taskspace",
-            omitted_count,
-            included_count = composition.items.len(),
-            "taskspace_active_provider_visible_history_composed"
-        );
-    }
-    composition.items
-}
-
-fn is_taskspace_active_context_item(item: &ResponseItem) -> bool {
-    is_active_context_projection_item(item)
-        || response_item_text_contains_taskspace_active_marker(item)
-        || response_item_text_contains(item, "TaskSpace mode is now active.")
-}
-
-struct ProviderVisibleHistoryComposition {
-    items: Vec<ResponseItem>,
-    decisions: Vec<ProviderVisibleHistoryDecision>,
-}
-
-#[derive(Debug, PartialEq, Eq)]
-struct ProviderVisibleHistoryDecision {
-    index: usize,
-    category: ProviderVisibleItemCategory,
-    action: ProviderVisibleHistoryAction,
-}
-
-#[derive(Debug, PartialEq, Eq)]
-enum ProviderVisibleHistoryAction {
-    Include,
-    Omit(&'static str),
-}
-
-#[derive(Debug, PartialEq, Eq)]
-enum ProviderVisibleItemCategory {
-    ActiveProjection,
-    CurrentTaskspaceRuntimeFeedback,
-    ProtectedUserInput,
-    ProtectedDeveloperOrSystemInput,
-    ShadowProjection,
-    LegacyTaskspaceInstruction,
-    TaskspaceControlCall,
-    TaskspaceToolOutput,
-    Other,
-}
-
-fn compose_provider_visible_history(items: Vec<ResponseItem>) -> ProviderVisibleHistoryComposition {
-    if !items.iter().any(is_active_context_projection_item) {
-        let decisions = items
-            .iter()
-            .enumerate()
-            .map(|(index, item)| ProviderVisibleHistoryDecision {
-                index,
-                category: classify_provider_visible_item(item),
-                action: ProviderVisibleHistoryAction::Include,
-            })
-            .collect();
-        return ProviderVisibleHistoryComposition { items, decisions };
-    }
-
-    let current_feedback_tool_call_ids = items
-        .iter()
-        .filter(|item| is_current_taskspace_runtime_feedback_item(item))
-        .filter_map(response_item_tool_call_id)
-        .map(str::to_string)
-        .collect::<HashSet<_>>();
-    let classified_items = items
-        .into_iter()
-        .enumerate()
-        .map(|(index, item)| {
-            let category = classify_provider_visible_item(&item);
-            let action = if response_item_tool_call_id(&item)
-                .is_some_and(|call_id| current_feedback_tool_call_ids.contains(call_id))
-            {
-                ProviderVisibleHistoryAction::Include
-            } else {
-                provider_visible_history_action(&category)
-            };
-            (index, item, category, action)
-        })
-        .collect::<Vec<_>>();
-    let paired_omitted_tool_call_ids =
-        omitted_provider_visible_tool_call_ids(classified_items.as_slice());
-    let mut prepared = Vec::with_capacity(classified_items.len());
-    let mut decisions = Vec::with_capacity(classified_items.len());
-    for (index, item, category, base_action) in classified_items {
-        let action =
-            provider_visible_history_pair_action(&item, base_action, &paired_omitted_tool_call_ids);
-        if matches!(action, ProviderVisibleHistoryAction::Include) {
-            prepared.push(item);
-        }
-        decisions.push(ProviderVisibleHistoryDecision {
-            index,
-            category,
-            action,
-        });
-    }
-
-    ProviderVisibleHistoryComposition {
-        items: prepared,
-        decisions,
-    }
-}
-
-fn provider_visible_history_action(
-    category: &ProviderVisibleItemCategory,
-) -> ProviderVisibleHistoryAction {
-    match category {
-        ProviderVisibleItemCategory::ShadowProjection => {
-            ProviderVisibleHistoryAction::Omit("shadow_projection_replaced_by_active_projection")
-        }
-        ProviderVisibleItemCategory::LegacyTaskspaceInstruction => {
-            ProviderVisibleHistoryAction::Omit("legacy_taskspace_instruction_replaced")
-        }
-        ProviderVisibleItemCategory::ActiveProjection
-        | ProviderVisibleItemCategory::CurrentTaskspaceRuntimeFeedback
-        | ProviderVisibleItemCategory::TaskspaceControlCall
-        | ProviderVisibleItemCategory::TaskspaceToolOutput
-        | ProviderVisibleItemCategory::ProtectedUserInput
-        | ProviderVisibleItemCategory::ProtectedDeveloperOrSystemInput
-        | ProviderVisibleItemCategory::Other => ProviderVisibleHistoryAction::Include,
-    }
-}
-
-fn omitted_provider_visible_tool_call_ids(
-    classified_items: &[(
-        usize,
-        ResponseItem,
-        ProviderVisibleItemCategory,
-        ProviderVisibleHistoryAction,
-    )],
-) -> HashSet<String> {
-    classified_items
-        .iter()
-        .filter_map(|(_, item, _, action)| {
-            matches!(action, ProviderVisibleHistoryAction::Omit(_))
-                .then(|| response_item_tool_call_id(item))
-                .flatten()
-                .map(str::to_string)
-        })
-        .collect()
-}
-
-fn provider_visible_history_pair_action(
-    item: &ResponseItem,
-    base_action: ProviderVisibleHistoryAction,
-    paired_omitted_tool_call_ids: &HashSet<String>,
-) -> ProviderVisibleHistoryAction {
-    if matches!(base_action, ProviderVisibleHistoryAction::Include)
-        && response_item_tool_call_id(item)
-            .is_some_and(|call_id| paired_omitted_tool_call_ids.contains(call_id))
-    {
-        return ProviderVisibleHistoryAction::Omit(
-            "paired_tool_call_or_output_replaced_by_active_projection",
-        );
-    }
-    base_action
-}
-
-fn classify_provider_visible_item(item: &ResponseItem) -> ProviderVisibleItemCategory {
-    if is_active_context_projection_item(item) {
-        return ProviderVisibleItemCategory::ActiveProjection;
-    }
-    if is_current_taskspace_runtime_feedback_item(item) {
-        return ProviderVisibleItemCategory::CurrentTaskspaceRuntimeFeedback;
-    }
-    if response_item_text_contains(item, TASKSPACE_SHADOW_PROJECTION_MARKER) {
-        return ProviderVisibleItemCategory::ShadowProjection;
-    }
-    if is_taskspace_control_call(item) {
-        return ProviderVisibleItemCategory::TaskspaceControlCall;
-    }
-    if is_protected_user_input(item) {
-        return ProviderVisibleItemCategory::ProtectedUserInput;
-    }
-    if is_protected_developer_or_system_input(item) {
-        if is_legacy_taskspace_instruction(item) {
-            return ProviderVisibleItemCategory::LegacyTaskspaceInstruction;
-        }
-        return ProviderVisibleItemCategory::ProtectedDeveloperOrSystemInput;
-    }
-    if is_taskspace_tool_output(item) {
-        return ProviderVisibleItemCategory::TaskspaceToolOutput;
-    }
-    ProviderVisibleItemCategory::Other
-}
-
-fn is_active_context_projection_item(item: &ResponseItem) -> bool {
-    response_item_text_contains(item, TASKSPACE_ACTIVE_PROJECTION_MARKER)
-}
-
-fn response_item_text_contains_taskspace_active_marker(item: &ResponseItem) -> bool {
-    response_item_text_contains(item, TASKSPACE_ACTIVE_PROFILE_MARKER)
-        || response_item_text_contains(item, TASKSPACE_ACTIVE_COMPACT_PROJECTION_MARKER)
-        || response_item_text_contains(item, TASKSPACE_ACTIVE_THIN_PROJECTION_MARKER)
-}
-
-fn is_protected_user_input(item: &ResponseItem) -> bool {
-    matches!(item, ResponseItem::Message { role, .. } if role == "user")
-}
-
-fn is_protected_developer_or_system_input(item: &ResponseItem) -> bool {
-    matches!(item, ResponseItem::Message { role, .. } if role == "developer" || role == "system")
-}
-
-fn is_legacy_taskspace_instruction(item: &ResponseItem) -> bool {
-    response_item_text_contains(item, "TaskSpace mode is now active")
-        || response_item_text_contains(item, "TaskSpace final answer gate rejected")
-        || response_item_text_contains(item, "taskspace_control(")
-}
-
-fn is_taskspace_control_call(item: &ResponseItem) -> bool {
-    matches!(
-        item,
-        ResponseItem::FunctionCall { name, .. } | ResponseItem::CustomToolCall { name, .. }
-            if name == "taskspace_control"
-    )
-}
-
-fn response_item_tool_call_id(item: &ResponseItem) -> Option<&str> {
-    match item {
-        ResponseItem::FunctionCall { call_id, .. }
-        | ResponseItem::CustomToolCall { call_id, .. }
-        | ResponseItem::FunctionCallOutput { call_id, .. }
-        | ResponseItem::CustomToolCallOutput { call_id, .. } => Some(call_id.as_str()),
-        _ => None,
-    }
-}
-
-fn is_taskspace_tool_output(item: &ResponseItem) -> bool {
-    matches!(
-        item,
-        ResponseItem::FunctionCallOutput { .. } | ResponseItem::CustomToolCallOutput { .. }
-    ) && (response_item_text_contains(item, "TaskSpace")
-        || response_item_text_contains(item, "ActionMap")
-        || response_item_text_contains(item, "taskspace_control"))
-}
-
-fn is_current_taskspace_runtime_feedback_item(item: &ResponseItem) -> bool {
-    matches!(
-        item,
-        ResponseItem::FunctionCallOutput { .. } | ResponseItem::CustomToolCallOutput { .. }
-    ) && [
-        TASKSPACE_GATE_RECOVERY_MARKER,
-        "TaskSpaceFinalAnswerRejectedV1:",
-        "TaskSpaceBlockedRejectedV1:",
-    ]
-    .iter()
-    .any(|marker| response_item_text_contains(item, marker))
-}
-
-fn response_item_text_contains(item: &ResponseItem, needle: &str) -> bool {
-    response_item_texts_contain(item, &|text| text.contains(needle))
-}
-
-fn response_item_texts_contain(item: &ResponseItem, predicate: &dyn Fn(&str) -> bool) -> bool {
-    match item {
-        ResponseItem::Message { role, content, .. } => {
-            predicate(role)
-                || content.iter().any(|content_item| match content_item {
-                    ContentItem::InputText { text } | ContentItem::OutputText { text } => {
-                        predicate(text)
-                    }
-                    ContentItem::InputImage { image_url, .. } => predicate(image_url),
-                })
-        }
-        ResponseItem::FunctionCall {
-            name,
-            namespace,
-            arguments,
-            ..
-        } => predicate(name) || namespace.as_deref().is_some_and(predicate) || predicate(arguments),
-        ResponseItem::CustomToolCall { name, input, .. } => predicate(name) || predicate(input),
-        ResponseItem::FunctionCallOutput { output, .. }
-        | ResponseItem::CustomToolCallOutput { output, .. } => {
-            function_call_output_body_texts_contain(&output.body, predicate)
-        }
-        ResponseItem::ToolSearchCall {
-            execution,
-            arguments,
-            ..
-        } => predicate(execution) || predicate(&arguments.to_string()),
-        ResponseItem::ToolSearchOutput {
-            execution, tools, ..
-        } => predicate(execution) || tools.iter().any(|tool| predicate(&tool.to_string())),
-        ResponseItem::LocalShellCall { .. }
-        | ResponseItem::Reasoning { .. }
-        | ResponseItem::WebSearchCall { .. }
-        | ResponseItem::ImageGenerationCall { .. }
-        | ResponseItem::GhostSnapshot { .. }
-        | ResponseItem::Compaction { .. }
-        | ResponseItem::Other => false,
-    }
-}
-
-fn function_call_output_body_texts_contain(
-    body: &FunctionCallOutputBody,
-    predicate: &dyn Fn(&str) -> bool,
-) -> bool {
-    match body {
-        FunctionCallOutputBody::Text(text) => predicate(text),
-        FunctionCallOutputBody::ContentItems(items) => items.iter().any(|item| match item {
-            codex_protocol::models::FunctionCallOutputContentItem::InputText { text } => {
-                predicate(text)
-            }
-            codex_protocol::models::FunctionCallOutputContentItem::InputImage {
-                image_url, ..
-            } => predicate(image_url),
-        }),
-    }
+    items
 }
 
 #[cfg(test)]
@@ -1922,10 +1596,6 @@ mod active_context_replacement_tests {
         }
     }
 
-    fn tool_output(text: &str) -> ResponseItem {
-        tool_output_with_call_id("call-1", text)
-    }
-
     fn item_texts(items: &[ResponseItem]) -> Vec<String> {
         items
             .iter()
@@ -1959,20 +1629,19 @@ mod active_context_replacement_tests {
 
     #[test]
     fn final_gate_rejection_item_is_provider_visible_mechanical_feedback() {
-        let active_projection = message(
-            "developer",
-            &format!(
-                "{TASKSPACE_ACTIVE_PROFILE_MARKER}\n{TASKSPACE_ACTIVE_PROJECTION_MARKER}\ncurrent_node: node-1 kind=inspect_code_context status=running"
-            ),
-        );
         let rejection = taskspace_final_answer_gate_rejection_item(
             "TaskSpace final response is unavailable while node `node-1` is running. hard_state: active_node_open.",
         )
         .expect("rejection item");
 
-        let composition = compose_provider_visible_history(vec![active_projection, rejection]);
-        let joined = item_texts(&composition.items).join("\n");
+        let prepared = prepare_provider_visible_prompt_items(vec![rejection.clone()]);
+        let joined = item_texts(&prepared).join("\n");
 
+        assert_eq!(prepared, vec![rejection]);
+        assert!(matches!(
+            prepared.as_slice(),
+            [ResponseItem::Message { role, .. }] if role == "developer"
+        ));
         assert!(joined.contains("TaskSpaceFinalAnswerRejectedV1"));
         assert!(joined.contains("hard_state: active_node_open"));
         assert!(joined.contains("TaskSpace state is unchanged"));
@@ -2107,356 +1776,20 @@ mod active_context_replacement_tests {
     }
 
     #[test]
-    fn active_context_replacement_is_noop_without_active_projection() {
+    fn provider_visible_prompt_items_preserve_canonical_items_exactly() {
+        let large_raw_output = "x".repeat(12_001);
+        let output_reference = format!("OutputReferenceV1 output-ref://sha256/{}", "a".repeat(64));
         let items = vec![
-            message(
-                "developer",
-                "<skills_instructions>stable skills surface</skills_instructions>",
-            ),
-            message(
-                "developer",
-                "TaskSpace mode is now active; call taskspace_control(...)",
-            ),
             message("user", "Preserve this user requirement."),
+            tool_call("taskspace_control", "control-call"),
+            tool_output_with_call_id("control-call", r#"{"status":"ok"}"#),
+            tool_output_with_call_id("unreferenced-call", &large_raw_output),
+            tool_output_with_call_id("output-ref-call", &output_reference),
         ];
 
         let prepared = prepare_provider_visible_prompt_items(items.clone());
 
         assert_eq!(prepared, items);
-    }
-
-    #[test]
-    fn active_context_replacement_removes_legacy_taskspace_history() {
-        let active_projection = format!(
-            "{TASKSPACE_ACTIVE_PROFILE_MARKER}\n{TASKSPACE_ACTIVE_PROJECTION_MARKER}\nactive_objective: fix the bug"
-        );
-        let items = vec![
-            message(
-                "developer",
-                "<skills_instructions>stable skills surface</skills_instructions>",
-            ),
-            message(
-                "developer",
-                "TaskSpace mode is now active; call taskspace_control(...)",
-            ),
-            message("developer", &active_projection),
-            message(
-                "developer",
-                "TaskSpace ContextProjectionV1 shadow update.\nContextProjectionV1 shadow (not active replacement):",
-            ),
-            tool_call("taskspace_control", "control-call"),
-            tool_output_with_call_id(
-                "control-call",
-                "ActionMap node state from taskspace_control(action=create_node)",
-            ),
-            message("user", "Preserve this user requirement."),
-        ];
-
-        let prepared = prepare_provider_visible_prompt_items(items);
-        let texts = item_texts(&prepared);
-        let joined = texts.join("\n");
-
-        assert_eq!(prepared.len(), 5);
-        assert!(
-            joined.contains("<skills_instructions>stable skills surface</skills_instructions>")
-        );
-        assert!(joined.contains(TASKSPACE_ACTIVE_PROFILE_MARKER));
-        assert!(joined.contains(TASKSPACE_ACTIVE_PROJECTION_MARKER));
-        assert!(joined.contains("Preserve this user requirement."));
-        assert!(!joined.contains("TaskSpace mode is now active"));
-        assert!(!joined.contains(TASKSPACE_SHADOW_PROJECTION_MARKER));
-        assert!(joined.contains("ActionMap node state"));
-        assert!(prepared.iter().any(|item| matches!(
-            item,
-            ResponseItem::FunctionCall { name, .. } if name == "taskspace_control"
-        )));
-    }
-
-    #[test]
-    fn active_context_replacement_recognizes_thin_projection_without_legacy_profile_marker() {
-        let active_projection = format!(
-            "{TASKSPACE_ACTIVE_THIN_PROJECTION_MARKER}\n{TASKSPACE_ACTIVE_PROJECTION_MARKER}\ncurrent_node: node-1 kind=inspect_code_context"
-        );
-        let items = vec![
-            message(
-                "developer",
-                "TaskSpace mode is now active.\nBootstrap status: no Agent-authored map exists. taskspace_control(action=initialize_then_actions) is required before ordinary tools.",
-            ),
-            message("developer", &active_projection),
-            message("user", "Preserve the current bug-fix requirement."),
-        ];
-
-        let prepared = prepare_provider_visible_prompt_items(items);
-        let texts = item_texts(&prepared);
-        let joined = texts.join("\n");
-
-        assert_eq!(prepared.len(), 2);
-        assert!(joined.contains(TASKSPACE_ACTIVE_THIN_PROJECTION_MARKER));
-        assert!(joined.contains(TASKSPACE_ACTIVE_PROJECTION_MARKER));
-        assert!(!joined.contains("TaskSpaceAgentContextBundleV1:"));
-        assert!(joined.contains("Preserve the current bug-fix requirement."));
-        assert!(!joined.contains("Bootstrap status: no TaskSpace task exists"));
-        assert!(!joined.contains("TaskSpace mode is now active."));
-        assert!(!joined.contains("taskspace_control(action=initialize_then_actions)"));
-    }
-
-    #[test]
-    fn epoch_snapshot_preserves_taskspace_control_calls() {
-        let active_projection = format!(
-            "{TASKSPACE_ACTIVE_PROFILE_MARKER}\n{TASKSPACE_ACTIVE_PROJECTION_MARKER}\nactive_objective: fix the bug"
-        );
-        let items = vec![
-            message("developer", &active_projection),
-            tool_call("taskspace_control", "call-1"),
-            message("user", "Keep the current task constraints."),
-        ];
-
-        let prepared = prepare_provider_visible_prompt_items(items);
-
-        assert_eq!(prepared.len(), 3);
-        assert!(prepared.iter().any(|item| matches!(
-            item,
-            ResponseItem::FunctionCall { name, .. } if name == "taskspace_control"
-        )));
-    }
-
-    #[test]
-    fn active_context_replacement_preserves_current_gate_feedback_pair() {
-        let active_projection = format!(
-            "{TASKSPACE_ACTIVE_PROFILE_MARKER}\n{TASKSPACE_ACTIVE_PROJECTION_MARKER}\nactive_objective: fix the bug"
-        );
-        let items = vec![
-            message("developer", &active_projection),
-            tool_call("shell_command", "blocked-call"),
-            tool_output_with_call_id(
-                "blocked-call",
-                r#"{"schema_version":"TaskSpaceGateResultV1","status":"state_machine_failed","success":false,"error":{"class":"state_machine","code":"current_node_binding_missing","message":"TaskSpace blocked this tool call."}}"#,
-            ),
-            message("user", "Keep the direct user requirement."),
-        ];
-
-        let composition = compose_provider_visible_history(items);
-        let texts = item_texts(&composition.items);
-        let joined = texts.join("\n");
-
-        assert!(composition.items.iter().any(|item| matches!(
-            item,
-            ResponseItem::FunctionCall { call_id, .. }
-                if call_id == "blocked-call"
-        )));
-        assert!(joined.contains("TaskSpaceGateResultV1"));
-        assert!(joined.contains("Keep the direct user requirement."));
-        assert_eq!(
-            composition.decisions[1].action,
-            ProviderVisibleHistoryAction::Include
-        );
-        assert_eq!(
-            composition.decisions[2].action,
-            ProviderVisibleHistoryAction::Include
-        );
-    }
-
-    #[test]
-    fn duplicate_epoch_snapshots_are_not_hidden_by_composer() {
-        let stale_projection = format!(
-            "{TASKSPACE_ACTIVE_THIN_PROJECTION_MARKER}\n{TASKSPACE_ACTIVE_PROJECTION_MARKER}\ncurrent_node: node-1 status=running"
-        );
-        let latest_projection = format!(
-            "{TASKSPACE_ACTIVE_THIN_PROJECTION_MARKER}\n{TASKSPACE_ACTIVE_PROJECTION_MARKER}\ncurrent_node: none\n- node-1 status=completed"
-        );
-        let items = vec![
-            message("developer", &stale_projection),
-            tool_call("shell_command", "blocked-call"),
-            tool_output_with_call_id(
-                "blocked-call",
-                r#"{"schema_version":"TaskSpaceGateResultV1","status":"state_machine_failed","success":false,"error":{"class":"state_machine","code":"no_current_node_binding","message":"TaskSpace blocked this tool call."}}"#,
-            ),
-            message("developer", &latest_projection),
-            message("user", "Keep the direct user requirement."),
-        ];
-
-        let composition = compose_provider_visible_history(items);
-        let joined = item_texts(&composition.items).join("\n");
-
-        assert_eq!(
-            joined.matches(TASKSPACE_ACTIVE_PROJECTION_MARKER).count(),
-            2
-        );
-        assert!(joined.contains("current_node: node-1 status=running"));
-        assert!(joined.contains("current_node: none"));
-        assert!(joined.contains("node-1 status=completed"));
-        assert!(joined.contains("TaskSpaceGateResultV1"));
-        assert!(joined.contains("Keep the direct user requirement."));
-        assert_eq!(
-            composition.decisions[0].action,
-            ProviderVisibleHistoryAction::Include
-        );
-        assert_eq!(
-            composition.decisions[1].action,
-            ProviderVisibleHistoryAction::Include
-        );
-        assert_eq!(
-            composition.decisions[2].action,
-            ProviderVisibleHistoryAction::Include
-        );
-        assert_eq!(
-            composition.decisions[3].action,
-            ProviderVisibleHistoryAction::Include
-        );
-    }
-
-    #[test]
-    fn epoch_snapshot_preserves_taskspace_control_call_and_output_pair() {
-        let active_projection = format!(
-            "{TASKSPACE_ACTIVE_PROFILE_MARKER}\n{TASKSPACE_ACTIVE_PROJECTION_MARKER}\nactive_objective: fix the bug"
-        );
-        let items = vec![
-            message("developer", &active_projection),
-            tool_call("taskspace_control", "control-call"),
-            tool_output_with_call_id("control-call", r#"{"status":"ok"}"#),
-            message("user", "Keep the direct user requirement."),
-        ];
-
-        let composition = compose_provider_visible_history(items);
-        let texts = item_texts(&composition.items);
-        let joined = texts.join("\n");
-
-        assert!(composition.items.iter().any(|item| {
-            response_item_tool_call_id(item).is_some_and(|call_id| call_id == "control-call")
-        }));
-        assert!(joined.contains(r#"{"status":"ok"}"#));
-        assert!(joined.contains("Keep the direct user requirement."));
-        assert_eq!(
-            composition.decisions[1].action,
-            ProviderVisibleHistoryAction::Include
-        );
-        assert_eq!(
-            composition.decisions[2].action,
-            ProviderVisibleHistoryAction::Include
-        );
-    }
-
-    #[test]
-    fn epoch_snapshot_history_is_strictly_append_only() {
-        let snapshot = format!(
-            "{TASKSPACE_ACTIVE_PROFILE_MARKER}\n{TASKSPACE_ACTIVE_PROJECTION_MARKER}\ncurrent_node: node-1 status=running"
-        );
-        let previous = compose_provider_visible_history(vec![message("developer", &snapshot)]);
-        let current = compose_provider_visible_history(vec![
-            message("developer", &snapshot),
-            message("assistant", "Bind the implementation node."),
-            tool_call("taskspace_control", "bind-call"),
-            tool_output_with_call_id("bind-call", "TaskSpace main node bound: node-2"),
-        ]);
-
-        let previous_values = previous
-            .items
-            .iter()
-            .map(|item| serde_json::to_value(item).expect("serialize previous item"))
-            .collect::<Vec<_>>();
-        let current_values = current
-            .items
-            .iter()
-            .map(|item| serde_json::to_value(item).expect("serialize current item"))
-            .collect::<Vec<_>>();
-
-        assert_eq!(
-            current_values.get(..previous_values.len()),
-            Some(previous_values.as_slice())
-        );
-        assert_eq!(current_values.len(), previous_values.len() + 3);
-        assert!(current_values.iter().any(|value| {
-            value
-                .to_string()
-                .contains("TaskSpace main node bound: node-2")
-        }));
-    }
-
-    #[test]
-    fn active_context_replacement_preserves_user_text_that_mentions_taskspace() {
-        let active_projection = format!(
-            "{TASKSPACE_ACTIVE_PROFILE_MARKER}\n{TASKSPACE_ACTIVE_PROJECTION_MARKER}\nactive_objective: fix the bug"
-        );
-        let items = vec![
-            message("developer", &active_projection),
-            message(
-                "user",
-                "The bug report mentions TaskSpace, but this is user evidence.",
-            ),
-            tool_call("taskspace_control", "control-call"),
-            tool_output_with_call_id(
-                "control-call",
-                "ActionMap node state from taskspace_control(action=create_node)",
-            ),
-        ];
-
-        let composition = compose_provider_visible_history(items);
-        let texts = item_texts(&composition.items);
-        let joined = texts.join("\n");
-
-        assert!(joined.contains("this is user evidence"));
-        assert!(joined.contains("ActionMap node state"));
-        assert_eq!(
-            composition.decisions[1].category,
-            ProviderVisibleItemCategory::ProtectedUserInput
-        );
-        assert_eq!(
-            composition.decisions[1].action,
-            ProviderVisibleHistoryAction::Include
-        );
-        assert_eq!(
-            composition.decisions[2].category,
-            ProviderVisibleItemCategory::TaskspaceControlCall
-        );
-        assert_eq!(
-            composition.decisions[3].category,
-            ProviderVisibleItemCategory::TaskspaceToolOutput
-        );
-    }
-
-    #[test]
-    fn active_context_replacement_preserves_unreferenced_raw_tool_output() {
-        let active_projection = format!(
-            "{TASKSPACE_ACTIVE_PROFILE_MARKER}\n{TASKSPACE_ACTIVE_PROJECTION_MARKER}\nactive_objective: fix the bug"
-        );
-        let large_raw_output = "x".repeat(12_001);
-        let items = vec![
-            message("developer", &active_projection),
-            tool_output(&large_raw_output),
-            message("user", "Keep the direct user requirement."),
-        ];
-
-        let composition = compose_provider_visible_history(items);
-        let texts = item_texts(&composition.items);
-        let joined = texts.join("\n");
-
-        assert!(joined.contains(&large_raw_output));
-        assert!(joined.contains("Keep the direct user requirement."));
-        assert_eq!(
-            composition.decisions[1].category,
-            ProviderVisibleItemCategory::Other
-        );
-        assert_eq!(
-            composition.decisions[1].action,
-            ProviderVisibleHistoryAction::Include
-        );
-    }
-
-    #[test]
-    fn active_context_replacement_keeps_output_reference_payloads() {
-        let active_projection = format!(
-            "{TASKSPACE_ACTIVE_PROFILE_MARKER}\n{TASKSPACE_ACTIVE_PROJECTION_MARKER}\nactive_objective: fix the bug"
-        );
-        let referenced_output = format!("OutputReferenceV1 output-ref://sha256/{}", "a".repeat(64));
-        let items = vec![
-            message("developer", &active_projection),
-            tool_output(&referenced_output),
-        ];
-
-        let prepared = prepare_provider_visible_prompt_items(items);
-        let texts = item_texts(&prepared);
-
-        assert!(texts.join("\n").contains("OutputReferenceV1"));
     }
 }
 
@@ -3047,58 +2380,6 @@ fn taskspace_final_answer_gate_rejection_item(error: &str) -> Option<ResponseIte
     crate::context_manager::updates::build_developer_update_item(vec![
         taskspace_final_answer_gate_rejection_followup(error),
     ])
-}
-
-async fn record_taskspace_observed_implement_edit(
-    sess: &Arc<Session>,
-    turn_context: &Arc<TurnContext>,
-    turn_diff_tracker: &SharedTurnDiffTracker,
-    request_count: usize,
-) -> bool {
-    if sess
-        .action_map_active_map_has_successful_edit_artifacts()
-        .await
-    {
-        return false;
-    }
-    let unified_diff = {
-        let mut tracker = turn_diff_tracker.lock().await;
-        tracker.get_unified_diff().ok().flatten()
-    };
-    let Some(unified_diff) = unified_diff else {
-        return false;
-    };
-    if unified_diff.trim().is_empty() {
-        return false;
-    }
-    let preview = format!(
-        "TaskSpace observed implementation edit in turn diff: {}",
-        unified_diff
-            .lines()
-            .take(12)
-            .collect::<Vec<_>>()
-            .join("\\n")
-    );
-    if sess
-        .backfill_action_map_successful_implementation_edit_artifacts(
-            turn_context,
-            &format!("taskspace-observed-implement-edit-backfill-{request_count}"),
-            preview.clone(),
-        )
-        .await
-    {
-        return true;
-    }
-    sess.record_action_map_main_tool_result(
-        turn_context,
-        &format!("taskspace-observed-implement-edit-{request_count}"),
-        "apply_patch",
-        Some(ActionClass::Edit),
-        true,
-        preview,
-    )
-    .await;
-    true
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -3705,19 +2986,6 @@ async fn try_run_sampling_request(
                 result.last_agent_message = Some(terminal.message);
             }
         }
-    }
-
-    if outcome.is_ok()
-        && let Some(snapshot) = sess.action_map_provider_request_budget_snapshot().await
-        && snapshot.node_kind.as_deref() == Some("implement_solution")
-    {
-        let _ = record_taskspace_observed_implement_edit(
-            &sess,
-            &turn_context,
-            &turn_diff_tracker,
-            snapshot.request_count,
-        )
-        .await;
     }
 
     if cancellation_token.is_cancelled() {

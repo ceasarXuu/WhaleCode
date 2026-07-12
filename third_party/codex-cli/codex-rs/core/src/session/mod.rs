@@ -999,43 +999,6 @@ impl Session {
         }
     }
 
-    pub(crate) async fn action_map_active_map_has_successful_edit_artifacts(&self) -> bool {
-        let state = self.state.lock().await;
-        state
-            .action_map_runtime
-            .active_map_has_successful_edit_artifacts()
-    }
-
-    pub(crate) async fn backfill_action_map_successful_implementation_edit_artifacts(
-        &self,
-        turn_context: &TurnContext,
-        call_id: &str,
-        preview: String,
-    ) -> bool {
-        let result = {
-            let mut state = self.state.lock().await;
-            state
-                .action_map_runtime
-                .backfill_successful_implementation_edit_artifacts(call_id, preview)
-        };
-        match result {
-            Ok(Some(events)) => {
-                self.emit_action_map_events_for_turn(turn_context, events)
-                    .await;
-                true
-            }
-            Ok(None) => false,
-            Err(error) => {
-                warn!(
-                    %error,
-                    call_id,
-                    "failed to backfill TaskSpace implementation edit artifacts"
-                );
-                false
-            }
-        }
-    }
-
     pub(crate) async fn record_action_map_main_tool_result(
         &self,
         turn_context: &TurnContext,
@@ -1047,9 +1010,11 @@ impl Session {
     ) {
         let result = {
             let mut state = self.state.lock().await;
+            let source_event_id = state.taskspace_events.event_id_for_call(call_id);
             state.action_map_runtime.record_main_tool_result_with_class(
                 self.conversation_id,
                 call_id,
+                source_event_id.unwrap_or_default(),
                 tool_name,
                 action_class,
                 success,
@@ -1068,40 +1033,6 @@ impl Session {
                     call_id,
                     tool_name,
                     "failed to record TaskSpace main tool result"
-                );
-            }
-        }
-    }
-
-    pub(crate) async fn record_action_map_runtime_feedback(
-        &self,
-        turn_context: &TurnContext,
-        feedback_kind: &str,
-        success: bool,
-        feedback: String,
-    ) {
-        let result = {
-            let mut state = self.state.lock().await;
-            state
-                .action_map_runtime
-                .record_runtime_feedback_for_current_node(
-                    self.conversation_id,
-                    feedback_kind,
-                    success,
-                    feedback,
-                )
-        };
-        match result {
-            Ok(Some((_, events))) => {
-                self.emit_action_map_events_for_turn(turn_context, events)
-                    .await;
-            }
-            Ok(None) => {}
-            Err(error) => {
-                warn!(
-                    %error,
-                    feedback_kind,
-                    "failed to record TaskSpace runtime feedback"
                 );
             }
         }
@@ -1204,7 +1135,6 @@ impl Session {
                 exact_payload_scan_passed: event.exact_payload_scan_passed,
                 active_projection_present: event.active_projection_present,
                 active_projection_count: event.active_projection_count,
-                legacy_taskspace_history_present: event.legacy_taskspace_history_present,
                 large_raw_output_tokens: event.large_raw_output_tokens,
                 protected_items_present: event.protected_items_present,
                 replacement_confirmed: event.replacement_confirmed,
@@ -1219,15 +1149,6 @@ impl Session {
                         negative_checks_performed: scan.negative_checks_performed,
                         active_projection_present: scan.active_projection_present,
                         active_projection_count: scan.active_projection_count,
-                        context_bundle_present: scan.context_bundle_present,
-                        exact_context_bundle_verified: scan.exact_context_bundle_verified,
-                        cache_plan_verified: scan.cache_plan_verified,
-                        legacy_taskspace_history_present: scan.legacy_taskspace_history_present,
-                        raw_taskspace_control_history_tokens: scan
-                            .raw_taskspace_control_history_tokens,
-                        completed_stale_node_history_tokens: scan
-                            .completed_stale_node_history_tokens,
-                        rejected_subagent_body_tokens: scan.rejected_subagent_body_tokens,
                         large_raw_output_tokens: scan.large_raw_output_tokens,
                         runtime_boundary_forbidden_markers: scan.runtime_boundary_forbidden_markers,
                         protected_items_present: scan.protected_items_present,
@@ -1504,7 +1425,7 @@ impl Session {
                 .record_main_final_response(self.conversation_id, message)
         };
         match result {
-            Ok(Some((_, events))) => {
+            Ok(Some(events)) => {
                 self.emit_action_map_events_for_turn(turn_context, events)
                     .await;
                 Ok(true)
@@ -3316,6 +3237,23 @@ impl Session {
             self.persist_rollout_items(&rollout_items).await;
         }
         self.send_raw_response_items(turn_context, items).await;
+    }
+
+    pub(crate) async fn record_taskspace_child_item(
+        &self,
+        item: &ResponseItem,
+        parent_call_id: &str,
+    ) -> Result<String, String> {
+        let event = {
+            let mut state = self.state.lock().await;
+            state.record_taskspace_child_item(item, parent_call_id.to_string())?
+        };
+        let event_id = event.id.clone();
+        self.persist_rollout_items(&[RolloutItem::EventMsg(EventMsg::MapRuntime(
+            MapRuntimeEvent::TaskContextEventRecorded(event.to_protocol()),
+        ))])
+        .await;
+        Ok(event_id)
     }
 
     /// Append ResponseItems to the in-memory conversation history only.
