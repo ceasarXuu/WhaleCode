@@ -2583,5 +2583,22 @@
   complex snapshot: 9,102,490 / 9,481,901 bytes
   projection map_nodes/map_edges/source_event_ids: no item bound
   ```
-- Interpretation: 旧双轨正文已删除，但运输envelope、terminal派生正文、空Map结构消息和内部full snapshot仍形成第二份表达。修复应保留native call/result、assistant final、Map状态和失败原文，删除成功运输副本，并对Map执行机械分页而非语义裁剪。
+- Interpretation: 旧双轨正文已删除，但运输envelope、terminal派生正文、空Map结构消息和内部full snapshot仍形成第二份表达。修复应保留native call/result、assistant final、Map状态和失败原文，删除成功运输副本。Map projection必须保留完整全局骨架，只按图距离、node状态、event sequence和机械事件类型调整局部详情；骨架自身超预算由Map-native可逆压缩专项解决，不使用分页隐藏全局Map。
+- Time: 2026-07-12
+
+## Evidence E-058: 全局Map分页会破坏projection的导航职责
+- Related hypotheses:
+  - H-024
+- Direction: design-correction
+- Type: architecture-boundary-review
+- Source: J6.7.7-E方案复审
+- Prediction or plan link:
+  - `docs/v0.0.5/build-R5/30-r5-j6-7-phase7-context-residue-plan.md`
+  - `docs/v0.0.5/build-R5/31-r5-map-native-context-compression-charter.md`
+- Matched signal:
+  - 原E方案会按byte/item分页nodes、edges和goals，使Agent无法在单次projection中掌握完整全局路径；`read_map_slice`只是事后补读，不能恢复全局视图的即时作用。
+- Correlation keys:
+  - J6.7.7-E version 1.0
+  - design correction version 1.1
+- Interpretation: 普通projection应保持root、全部nodes/goals/edges和active frontier完整；只对node-local事件与证据详情做确定性分层。若最小骨架仍超预算，必须进入独立Map-native可逆压缩合同，不得由Runtime静默裁剪或生成语义摘要。
 - Time: 2026-07-12

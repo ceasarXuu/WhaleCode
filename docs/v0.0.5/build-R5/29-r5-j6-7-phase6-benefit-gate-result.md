@@ -128,7 +128,7 @@ J6.7.0-J6.7.5 已完成，J6.7.6 的工程与 live evidence 已完成。后续�
 - `finish_then_end.final_candidate`与assistant final正文完全相同；
 - bootstrap outer `actions[]`与expanded native call参数重复；
 - 595 B空Map developer message在初始化后继续作为旧epoch hard state出现；
-- projection存在无界nodes/edges/goals风险；
+- projection尚缺完整全局骨架与node-local详情分层合同；骨架自身超预算另行立项；
 - full snapshot占rollout约95%。
 
 因此本报告不再作为J6.7最终关闭门。J6.7已重开J6.7.7，详细计划见

@@ -2,13 +2,14 @@
 
 - Created: 2026-07-12
 - Updated: 2026-07-12
-- Version: 1.0
+- Version: 1.1
 - Status: Planned
 - Owner / Responsible: WhaleCode core runtime / TaskSpace context
 - Related Systems: canonical Event Store、provider linearizer、`taskspace_control`、projection、
   session finalization、rollout/replay、benchmark observer
 - Related Links: `22-r5-j6-7-canonical-task-context-plan.md`、
   `29-r5-j6-7-phase6-benefit-gate-result.md`、
+  `31-r5-map-native-context-compression-charter.md`、
   `coe/2026-07-10-22-56-r5-request-amplification.md`
 - Risk Level: High
 - Plan Type: Full
@@ -22,7 +23,7 @@ J6.7.6 证明旧 base history / TaskSpace projection 双轨已经删除，但进
 3. 空 Map developer message 把一次性 mode transition 和机械空 Map snapshot 合并，初始化后仍作为
    具有强显著性的旧 hard state 留在前缀；
 4. success ack 重复 Agent 已提交的 `node_id/next_node_id`；
-5. populated projection 的 nodes、edges、source event IDs 和完整 goal 未做机械分页；
+5. populated projection 尚未建立“全局骨架完整、局部详情分层”的稳定合同；
 6. full `snapshot_updated` 占 focused/complex rollout 约95.2%/96.0%，虽不进入模型上下文，仍构成
    replay/log 结构重复。
 
@@ -35,7 +36,7 @@ J6.7.6 证明旧 base history / TaskSpace projection 双轨已经删除，但进
 Map明确状态         -> TaskSpace Map字段和机械transition
 TaskSpace运输envelope -> 当前响应执行所需；成功展开/覆盖后不再作为第二份provider语义
 失败语义           -> 原始call/output完整保留，不折叠
-projection          -> 仅resume/compaction等epoch边界的有界Map视图
+projection          -> 仅resume/compaction等epoch边界的完整Map骨架与分层局部详情
 snapshot            -> 可重建checkpoint，不是每个trace event的事实副本
 ```
 
@@ -73,7 +74,7 @@ snapshot            -> 可重建checkpoint，不是每个trace event的事实副
 | final answer正文 | assistant final event | 自然assistant正文一次 | committed terminal call中的运输正文未来不可见 | final正文属于Agent回答，不属于Map |
 | terminal transition | Map/result transition | 新result IDs与completed状态 | 不复制final正文 | 与回答语义分账 |
 | fresh blank Map | Runtime Map状态 + bootstrap tool schema/choice | 不新增developer snapshot | 删除空Map projection和mode transition副本 | tool contract已明确必须初始化 |
-| resumed/compacted Map | 有界epoch projection | 当前状态、分页ref、明确omission | 不输出无界完整Map | 机械渐进暴露 |
+| resumed/compacted Map | current Map projection | 完整root/nodes/goals/edges + 分层node详情 | 不分页或裁掉全局骨架；远端过程详情改为ref | 保留全局导航，以机械规则分配局部细节 |
 | runtime trace | append-only trace event | 不进入provider | 不嵌入每个完整snapshot | observability不应制造事实副本 |
 | replay snapshot | lifecycle checkpoint | 不进入provider | 非边界事件不写full snapshot | snapshot是派生索引 |
 
@@ -109,7 +110,7 @@ snapshot            -> 可重建checkpoint，不是每个trace event的事实副
 |---|---|---|---|---|
 | canonical Event Store/codec | system | Ready | owner关系无法落地 | 复用J6.7.1-.5，不增加第二store |
 | provider历史tool pair接受度 | third-party | Ready/需probe | envelope折叠后请求被拒绝 | D在production改动前做pair fixture和live probe |
-| output ref/artifact store | system | Ready | projection省略后不可恢复 | E要求ref round-trip 100% |
+| output ref/artifact store | system | Ready | node详情降级后不可恢复 | E要求ref round-trip 100% |
 | Docker benchmark/logging | environment | Ready | 收益不可证 | 每phase固定sample |
 | R4 executable | environment | Unavailable | 无当前三边成本 | 标记historical/unavailable |
 | 对抗性审查授权 | person | Pending | G不能关闭 | A-F完成后申请 |
@@ -135,7 +136,7 @@ snapshot            -> 可重建checkpoint，不是每个trace event的事实副
 
 1. coverage只改变未来provider可见视图，不改变tool permission、sandbox、approval或执行结果。
 2. failed call/output、termination、stderr、exit code和ref权限事实不得被coverage。
-3. `read_map_slice`只读取当前会话有权访问的Map，不因ref存在扩大跨task/thread权限。
+3. node-local evidence ref只读取当前会话有权访问的事件或artifact，不因ref存在扩大跨task/thread权限。
 4. 日志只记录ID/hash/bytes/count，禁止记录secret和无界正文。
 
 ## 5. 目标 Provider 上下文
@@ -178,8 +179,51 @@ final正文只出现一次。raw terminal carrier继续保存在audit/replay事�
 
 ### 5.4 Resume / Compaction
 
-只在新epoch构造有界current Map projection。按稳定ID顺序分页，不按Runtime语义优先级排序。超出边界时
-给出`map_ref/cursor/omitted_count`，Agent可通过TaskSpace map读取action继续获取。
+只在新epoch构造current Map projection。projection始终完整展示root任务详情、所有node的ID/kind/status/goal、
+所有edge/dependency和current node，确保Agent无需翻页即可掌握全局路径。局部详情按图距离、事件新旧、
+node状态和机械事件类型分层；被降级的只是node内过程与证据正文，必须保留稳定event/artifact ref。
+
+#### 5.4.1 全局骨架合同
+
+以下内容不得因普通projection预算被分页、截断或省略：
+
+1. root原始用户任务、当前有效约束和用户明确追加要求；
+2. task/map ID、状态和current node；
+3. 所有node的ID、kind、Agent-authored goal和status；
+4. 所有edge/dependency及未闭合frontier；
+5. node最终result ID和Agent-authored conclusion ref（若存在）。
+
+如果仅上述骨架已经超过hard context budget，J6.7.7-E必须记录`map_skeleton_over_budget`并暂停，不得静默
+返回局部Map。该问题由独立R5-K专项解决，见`31-r5-map-native-context-compression-charter.md`。
+
+#### 5.4.2 局部详情分层
+
+分层只使用确定性结构事实，不使用LLM、embedding、关键词或Runtime生成的“相关性/重要性”判断：
+
+| Tier | Mechanical scope | Provider detail |
+|---|---|---|
+| D0 | root | 原始任务、约束、用户追加要求和root结果完整保留 |
+| D1 | current node、未闭合node、与current图距离1 | 最近事件、工具结果、失败、artifact/result ref和Agent结论保留最多详情 |
+| D2 | 与current图距离2或最近完成的直接前驱 | 保留最终outcome、关键机械事实、Agent结论和raw ref，过程正文可降级 |
+| D3 | 更远且已完成的历史node | 保留完整骨架、最终result/Agent结论和durable evidence ref；中间过程只保留ref |
+
+同一层内按原始event sequence排序，不按Runtime推测的任务价值重排。图距离相同的详情预算由稳定
+sequence和固定byte/item规则分配，保证同一Map输入得到相同projection。
+
+#### 5.4.3 证据效用分类
+
+这里的“效用”是事件类型合同，不是正文语义判断：
+
+| Class | Examples | Retention rule |
+|---|---|---|
+| P0 protected | 用户要求、失败/hard-state error、node result、final、Agent-authored conclusion | 不得整体省略：Agent正文逐字保留；超长工具失败保留机械结果、透明excerpt/truncation和raw ref |
+| P1 durable outcome | patch/edit结果、测试/validator结果、artifact ref、代码读取的path + content hash/revision + event ref | 长期保留机械结果与引用；正文过长时渐进读取 |
+| P2 operational outcome | shell exit/termination、成功工具结果、结构化计数 | 结果优先于调用过程；保留原始结果ref |
+| P3 transient process | 中间进度、重复list/probe、已被结果覆盖的执行过程 | 远端node只保留event ref；canonical store不删除 |
+
+代码读取正文可能在后续修改后过时，因此长期层保存读取时的path、content identity/revision和raw event ref，
+而不是把旧正文提升为当前事实；Agent明确写出的结论仍由Agent负责，可作为node result保留。Runtime不得从
+工具正文自动抽取“结论”，也不得自行总结过程。
 
 ## 6. 分阶段执行
 
@@ -246,20 +290,23 @@ sample，observer-only阶段可重放冻结artifact并另跑一次focused live s
 - Fallback：整phase revert；不得回到outer output复制全部nested body。
 - Next Gate：全部通过后进入E。
 
-### J6.7.7-E：Projection有界渐进暴露
+### J6.7.7-E：Projection全局骨架与局部详情分层
 
 - Entry：D通过。
 - Tasks：
-  1. source event IDs、nodes、edges、goals按机械byte/item预算分页；
-  2. 增加`map_ref/cursor/omitted_count`和只读`read_map_slice` action；
-  3. goal过长时保留确定性前缀与raw event ref，不做摘要；
-  4. recent events/result refs继续去重，失败和protected ref不得被省略；
-  5. projection只在resume/compaction/new epoch产生一次。
-- Validation：1/10/100/1000 nodes边界fixture、ref round-trip、protected failure；
+  1. root详情、所有nodes/goals/status、所有edges/dependencies和current frontier始终完整暴露；
+  2. 按5.4定义的图距离、node状态、event sequence和机械事件类型分配node-local详情；
+  3. 远端过程正文降级为稳定event/artifact ref，不删除canonical event，也不生成Runtime摘要；
+  4. 失败、用户要求、node result和Agent-authored conclusion按P0保护；
+  5. 代码读取保留path、content identity/revision和raw event ref，避免旧正文伪装成当前事实；
+  6. projection只在resume/compaction/new epoch产生一次；骨架本身超预算时显式失败并转R5-K。
+- Validation：1/10/100/1000 nodes边界fixture、全骨架覆盖、detail tier确定性、ref round-trip、
+  protected failure和stale code-read identity；
   `subscription-billing-repair`与`multi-file-order-pipeline` Standard/R5各1次。
-- Exit：projection严格低于profile budget；omitted item可100%按ref恢复；同epoch projection count=1；
-  semantic replacement=0；正确性不回退。
-- Fallback：回退本phase，不使用LLM summary或优先级heuristic替代。
+- Exit：root/nodes/goals/edges覆盖率100%；D1-D3分类确定性100%；降级详情可100%按ref恢复；
+  protected miss=0；同epoch projection count=1；semantic replacement=0；正确性不回退。1000-node fixture若
+  骨架超预算，必须产生`map_skeleton_over_budget`而不是partial map，且不阻塞D1-D3合同验收。
+- Fallback：回退本phase，不使用Map分页、LLM summary、语义相似度或Runtime优先级heuristic替代。
 - Next Gate：全部通过后进入F。
 
 ### J6.7.7-F：Replay Snapshot增量化
@@ -298,8 +345,8 @@ sample，observer-only阶段可重放冻结artifact并另跑一次focused live s
 | A | lineage fixtures + focused live | 不依赖behavior change | owner unknown=0 | 100% | proceed/pause |
 | B | bootstrap/session + Docker | 不依赖terminal | blank developer=0 | 100% | proceed/revert |
 | C | post-terminal reconstruction | 不依赖nested去重 | final exact occurrence=1 | 100% | proceed/revert |
-| D | provider pairing + nested failure | 不依赖projection分页 | native pair unique | 100% | proceed/revert |
-| E | bounded Map/ref fixtures + complex live | 不依赖snapshot storage | ref recovery=100% | 100% | proceed/revert |
+| D | provider pairing + nested failure | 不依赖projection详情分层 | native pair unique | 100% | proceed/revert |
+| E | global skeleton/detail tier fixtures + complex live | 不依赖snapshot storage或R5-K | skeleton 100% + ref recovery 100% | 100% | proceed/revert |
 | F | replay hash + bytes gate | 不依赖benefit run | snapshot -80% | 100% | proceed/revert |
 | G | paired Docker + authorized review | 不依赖J7 | all gates | 100% | unlock/pause |
 
@@ -314,7 +361,7 @@ sample，observer-only阶段可重放冻结artifact并另跑一次focused live s
 | terminal owner | final正文未来上下文一次 | finalization/event linearizer | finish_then_end | resume/compaction | post-terminal trace | none | planned |
 | nested owner | ordinary pair各一次 | sequence/event store/linearizer | initialize_then_actions | nested matrix | pair/orphan metrics | none | planned |
 | sparse success ack | 只返回新ID和状态 | taskspace handler | control output | schema tests | ack field count | none | planned |
-| bounded projection | Map渐进暴露可恢复 | projection/map read action | resume/compaction | boundary/ref | projection bytes | none | planned |
+| global Map projection | 完整骨架 + 分层详情可恢复 | projection/event ref | resume/compaction | skeleton/tier/ref | coverage/detail bytes | none | planned |
 | incremental replay | full snapshot只在边界 | rollout/state replay | session persistence | replay hash | snapshot ratio | none | planned |
 | benefit gate | 无语义/成本负收益 | Docker benchmark | paired samples | validators | final report | none | planned |
 
@@ -326,7 +373,8 @@ sample，observer-only阶段可重放冻结artifact并另跑一次focused live s
 | terminal owner | persisted/visible | `taskspace.final_owner_committed` | duplicate/missing | `owner_error` | task/call/final event | info/error |
 | nested expansion | expanded/paired | `taskspace.nested_pair_visible` | orphan/duplicate | `pair_error` | parent/call/output event | info/error |
 | blank context | omitted | `taskspace.blank_context_omitted` | stale marker | `marker` | request/epoch/map | info/error |
-| map pagination | rendered/read | `taskspace.map_slice_read` | ref/range failure | `error_code` | map/ref/cursor | info/error |
+| map detail tier | classified/rendered | `taskspace.map_detail_rendered` | protected/ref/coverage failure | `error_code` | map/node/event/tier | info/error |
+| map skeleton budget | measured/within-budget | `taskspace.map_skeleton_measured` | skeleton over hard budget | `map_skeleton_over_budget` | map/epoch/bytes/nodes | info/error |
 | checkpoint | written/replayed | `taskspace.checkpoint_replayed` | hash mismatch | `mismatch` | checkpoint/event range | info/error |
 
 日志只记录ID、hash、bytes、count和错误类别，不记录API key或无界正文。
@@ -338,7 +386,8 @@ sample，observer-only阶段可重放冻结artifact并另跑一次focused live s
 | envelope折叠破坏provider pair | Medium | High | provider拒绝/Agent缺反馈 | pre-wire pairing fixture + live early gate | revert phase |
 | terminal正文被误删 | Medium | High | next turn缺final | post-terminal exact reconstruction | revert C |
 | 空Map信息不足 | Medium | Medium | init未发生/错误上升 | schema/choice明确且只看稳定多run证据 | revert B，不加策略提示 |
-| projection分页丢protected失败 | Low/Medium | High | protected miss | failure优先保留+ref恢复 | revert E |
+| 详情分层丢protected失败 | Low/Medium | High | protected miss | P0保护+ref恢复 | revert E |
+| 全局骨架自身超预算 | Medium（长会话） | High | `map_skeleton_over_budget` | J6.7.7显式暂停；R5-K专门做可逆Map压缩 | 不返回partial map |
 | snapshot减少影响恢复 | Medium | High | replay hash mismatch | lifecycle checkpoint + crash fixtures | revert F |
 | 为去重重写语义 | Medium | High | body/hash变化 | field lineage机械覆盖，禁止summary | reject change |
 | 缓存下降 | Medium | Medium | request2+下降>2pp | 事件首次可见前确定视图，不逐请求改旧前缀 | pause/revert |
@@ -351,7 +400,7 @@ J6.7.7完成后应得到：
 
 1. final正文、ordinary tool参数和ordinary tool结果在未来provider上下文各只有一份；
 2. fresh blank Map不再注入陈旧结构消息，Agent通过工具schema理解初始化合同；
-3. Map在复杂任务中按机械分页渐进暴露，不靠Runtime语义裁剪；
+3. Map全局骨架始终可见，root和近层node保留更多详情，远端过程只按机械合同降级为引用；
 4. failure semantics、call pairing、role/order和output refs保持100%；
 5. rollout由事件主导，snapshot不再占绝大多数存储和解析成本；
 6. observer能发现post-terminal和跨carrier重复，不再只报告完整payload hash。
@@ -361,7 +410,8 @@ J6.7.7完成后应得到：
 | Question | Resolution Gate |
 |---|---|
 | DeepSeek最终wire是否接受省略已被Map/native events覆盖的successful outer pair | D provider probe；不通过则pause |
-| `read_map_slice`单页机械byte/item上限 | E基线按profile budget冻结，不使用语义优先级 |
+| D1/D2图距离和详情byte/item profile具体阈值 | E用fixture与paired sample冻结；不使用正文语义优先级 |
+| 全局骨架超过hard budget后的Map压缩合同 | R5-K专项，不在J6.7.7中用分页临时解决 |
 | lifecycle checkpoint最小安全频率 | F crash/replay矩阵冻结 |
 
 ## 13. Decision Log
@@ -373,12 +423,16 @@ J6.7.7完成后应得到：
 | 2026-07-12 | native pair归ordinary语义 | 不让outer wrapper替代原生工具反馈 |
 | 2026-07-12 | fresh blank不注入projection | bootstrap schema/choice已表达机械初始化合同 |
 | 2026-07-12 | snapshot改为checkpoint派生物 | Event Store才是事实源 |
+| 2026-07-12 | projection保留完整全局骨架 | Map视图用于持续掌握全局路径，分页会破坏该能力 |
+| 2026-07-12 | 局部详情只按结构与事件类型分层 | 控制上下文成本，但不授予Runtime语义判断权 |
+| 2026-07-12 | 骨架超预算独立立项R5-K | 长会话需要Map-native可逆压缩，不能用静默裁剪补丁代替 |
 
 ## 14. Change Log
 
 | Version | Date | Change |
 |---|---|---|
 | 1.0 | 2026-07-12 | 建立J6.7.7 owner、A-G phases、收益和回退门禁 |
+| 1.1 | 2026-07-12 | E改为完整全局骨架与局部详情分层；骨架超预算移交R5-K专项 |
 
 ## 15. Plan Quality Checklist
 
@@ -386,6 +440,6 @@ J6.7.7完成后应得到：
 - [x] 每个phase可独立验证，未完成时默认pause。
 - [x] production path、test、live evidence和mock暴露均已列出。
 - [x] correctness、语义、缓存、token和日志存储收益分别验收。
-- [x] 日志覆盖trigger、coverage、pair、projection、checkpoint和失败原因。
+- [x] 日志覆盖trigger、coverage、pair、projection detail tier、skeleton budget、checkpoint和失败原因。
 - [x] 不做兼容、双写、semantic summary或Runtime动作推断。
 - [x] 最终审查需要用户授权，J7保持锁定。

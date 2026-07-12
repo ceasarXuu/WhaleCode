@@ -416,13 +416,19 @@ developer message和full snapshot仍有残留，已重开为J6.7.7，原审查�
   4. fresh blank只由Map内部状态和bootstrap tool schema/choice表达；
   5. failed call/output始终原样保留；
   6. full snapshot是派生checkpoint，不是每个trace event的事实副本。
-- Subphases：A lineage observer、B blank context、C terminal owner、D nested/ack、E bounded projection、
+- Subphases：A lineage observer、B blank context、C terminal owner、D nested/ack、
+  E完整全局骨架与局部详情分层、
   F incremental snapshot、G Docker benefit/review。
 - Exit：known provider semantic duplicate=0；post-terminal final正文一次；stale blank marker=0；
-  failed feedback恢复100%；projection可按ref完整恢复；snapshot bytes下降至少80%；warm cache无>2pp负收益；
+  failed feedback恢复100%；root/nodes/goals/edges覆盖100%，降级详情可按ref完整恢复；snapshot bytes下降至少80%；
+  warm cache无>2pp负收益；
   无未关闭critical/high finding。
 - Fallback：每个subphase整阶段revert并丢弃实验会话；不增加兼容、双写或semantic fallback。
 - Next Gate：全部通过后关闭J6.7并解锁J7。
+
+全局Map骨架不得用分页裁剪。J6.7.7-E只按图距离、node状态、event sequence和机械事件类型调整
+node-local详情；若骨架本身超过hard context budget，显式报告`map_skeleton_over_budget`，由后续
+`31-r5-map-native-context-compression-charter.md`专项解决。
 
 ## 9. Phase Gate矩阵
 
@@ -435,7 +441,7 @@ developer message和full snapshot仍有残留，已重开为J6.7.7，原审查�
 | J6.7.4 | compaction/ref/cache sample | 不依赖dead-code deletion | no raw duplicate/miss | proceed/pause |
 | J6.7.5 | call graph/tests/build | 不依赖benefit run | old path zero caller | proceed/pause |
 | J6.7.6 | Docker evidence | 不依赖J7 | correctness + initial benefit gate | proceed to J6.7.7 |
-| J6.7.7 | lineage/post-terminal/projection/replay/Docker/review | 不依赖J7 | cross-carrier zero + bounded context | unlock J7/pause |
+| J6.7.7 | lineage/post-terminal/projection/replay/Docker/review | 不依赖J7或Map压缩专项 | cross-carrier zero + skeleton 100% | unlock J7/pause |
 
 任何phase未达到100%时默认pause；后续phase不得补写前一phase的退出证据。
 
@@ -451,7 +457,7 @@ developer message和full snapshot仍有残留，已重开为J6.7.7，原审查�
 | old path deletion | 无双写和兼容 | history composer/runtime | all TaskSpace turns | call graph/build | old_path_count=0 | landed |
 | initial benefit gate | 正确性和成本可证明 | Docker benchmark | paired run | validators | performance report | landed |
 | cross-carrier owner | final/nested/blank只保留唯一provider owner | event linearizer/session/control | next turn/resume | lineage fixtures | post-terminal report | planned |
-| bounded Map context | projection分页且可机械恢复 | projection/map read | resume/compaction | boundary/ref | projection bytes | planned |
+| global Map projection | 全局骨架完整，局部详情分层且可恢复 | projection/event ref | resume/compaction | skeleton/tier/ref | coverage/detail bytes | planned |
 | incremental replay | snapshot只在生命周期边界 | rollout/state replay | persistence | replay hash | snapshot ratio | planned |
 | final benefit/review | residual全部关闭 | Docker benchmark | paired run | validators/review | final report | planned |
 
