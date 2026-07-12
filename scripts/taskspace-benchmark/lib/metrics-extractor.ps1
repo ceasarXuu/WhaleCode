@@ -101,14 +101,28 @@ function Get-TaskspaceAgentCompletionEvidence {
     }
     $terminalAgentMessage = $lastAgentMessageIndex -gt $lastAgentActionIndex
     $taskspaceFinalCandidateObserved = $false
-    if ($LogicalMode -eq "taskspace" -and
-        -not [string]::IsNullOrWhiteSpace($RolloutPath) -and
+    $taskCompleteObserved = $false
+    if (-not [string]::IsNullOrWhiteSpace($RolloutPath) -and
         (Test-Path -LiteralPath $RolloutPath -PathType Leaf)) {
         foreach ($line in [System.IO.File]::ReadLines($RolloutPath)) {
             if ([string]::IsNullOrWhiteSpace($line)) { continue }
             try { $row = $line | ConvertFrom-Json } catch { continue }
+            $payload = $row.payload
+            if ($null -ne $payload -and [string]$payload.type -eq "task_complete") {
+                $taskCompleteObserved = $true
+            }
+            if ($null -ne $payload -and
+                [string]$payload.type -eq "taskspace_trace_event_recorded" -and
+                [string]$payload.kind -eq "provider_response_actionability") {
+                foreach ($tag in @($payload.tags)) {
+                    if ([string]$tag -match '^response_actionability:([a-z_]+)$') {
+                        $lastActionability = [string]$Matches[1]
+                    }
+                }
+            }
             $responseItem = Get-TaskspaceCanonicalResponseItem $row
-            if ($null -ne $responseItem -and
+            if ($LogicalMode -eq "taskspace" -and
+                $null -ne $responseItem -and
                 [string]$responseItem.type -eq "message" -and
                 [string]$responseItem.role -eq "assistant" -and
                 [string]$responseItem.phase -eq "final_answer") {
@@ -117,13 +131,16 @@ function Get-TaskspaceAgentCompletionEvidence {
         }
     }
     $finalObserved = if ($LogicalMode -eq "taskspace") {
-        $taskspaceFinalCandidateObserved -or ($terminalAgentMessage -and $lastActionability -eq "final_candidate")
+        $taskCompleteObserved -or $taskspaceFinalCandidateObserved -or
+            ($terminalAgentMessage -and $lastActionability -eq "final_candidate")
     } else {
-        $terminalAgentMessage
+        $taskCompleteObserved -or $terminalAgentMessage
     }
     [pscustomobject]@{
         agent_final_observed = [bool]$finalObserved
-        agent_completion_source = if ($finalObserved -and $LogicalMode -eq "taskspace") {
+        agent_completion_source = if ($taskCompleteObserved) {
+            "task_complete_event"
+        } elseif ($finalObserved -and $LogicalMode -eq "taskspace") {
             "taskspace_final_candidate"
         } elseif ($finalObserved) {
             "terminal_agent_message"
