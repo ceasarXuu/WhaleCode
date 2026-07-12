@@ -2,8 +2,8 @@
 
 - Created: 2026-07-12
 - Updated: 2026-07-13
-- Version: 1.1
-- Status: Blocked until R5-J6.7 adversarial review closes; documentation only, implementation not started
+- Version: 1.2
+- Status: J7.0 complete; J7.1 in progress
 - Owner / Responsible: WhaleCode TaskSpace / apply_patch substrate
 - Related Systems: provider response tool sequence、`taskspace_control` tool schema、nested ToolSpec、ToolRouter、
   `codex-apply-patch`、benchmark observer
@@ -136,6 +136,9 @@ J6.7修复后的3-repeat进一步证明原计划的scope不足。R5在active Map
 | J6.7后active Map允许顶层ordinary tools | `session/turn.rs` tool visibility、J6.7 live trace | carrier schema不能覆盖顶层兄弟patch |
 | 最新repeat-2顶层5 patch形成4 success + 1 failure | `target/r5-final-loop-fix-repeat3/.../pair-002/left` | request-wide preflight必须先于全部工具执行 |
 | 最新repeat-3顶层4 patch全部成功 | `target/r5-final-loop-fix-repeat3/.../pair-003/right` | 成功样本也不能证明多写批次安全 |
+| stable/beta strict均接受`contains/maxContains`但仍生成2个patch | `target/r5-j7-schema-probe/singular-patch-capability.json` | provider关键字不可作为约束；选择显式singular continuation |
+| function/custom patch最终共享同一`apply_patch`身份 | `tools/src/apply_patch_tool.rs`、Chat endpoint mapper | manifest按canonical tool name计数，payload carrier只影响提取方式 |
+| `ExecutorFileSystem`无rename/transaction API | `exec-server/src/file_system.rs::ExecutorFileSystem` | validation atomicity必须实现；I/O transaction不得虚假承诺 |
 
 ## 6. 目标工具契约
 
@@ -466,11 +469,11 @@ patch 正文、文件正文或 secret。
 
 | Question | Resolution Phase | Blocking Rule |
 |---|---|---|
-| 目标 DeepSeek endpoint 是否支持 `contains/maxContains` | J7.0 | 未确认不得选 Option A |
-| function/custom apply_patch 是否能共享 singular payload builder | J7.0 | 必须来自 model-visible ToolSpec，禁止手写双份 schema |
-| ExecutorFileSystem 能否可靠 staging + atomic rename | J7.0 | 决定 I/O atomicity 的可承诺层级 |
-| rollback failure 如何结构化报告 | J7.0/J7.1 | 不得只返回模糊 patch failed |
-| patch 前普通动作是否需要进入同一 continuation | J7.0 | 默认不需要；有结果依赖时必须下一 provider request |
+| 目标 DeepSeek endpoint 是否支持 `contains/maxContains` | Resolved J7.0 | 接受schema但stable/strict均生成2 patch，不采用Option A |
+| function/custom apply_patch 是否能共享 singular payload builder | Resolved J7.0 | 复用model-visible ToolSpec；manifest按canonical identity归一 |
+| ExecutorFileSystem 能否可靠 staging + atomic rename | Resolved J7.0 | 不能；trait无rename/transaction，禁止声明I/O atomicity |
+| rollback failure 如何结构化报告 | Resolved J7.0 | 报告committed/pending/restored/rollback_failed paths及status |
+| patch 前普通动作是否需要进入同一 continuation | Resolved J7.0 | 默认不需要；有结果依赖时下一provider request |
 
 ## 14. Decision Log
 
@@ -483,7 +486,8 @@ patch 正文、文件正文或 secret。
 | 先修 patch validation atomicity，再启用 singular carrier | Accepted | 否则“合并成一个 patch”仍可能部分写入 |
 | 普通多工具能力保持 | Accepted | 限制只作用于明确写工具身份 |
 | 不兼容旧 multi-patch 形态 | Accepted | 实验性产品无历史数据迁移要求 |
-| 当前只写计划，不执行 | Accepted | 本轮用户明确要求 |
+| 不采用`contains/maxContains` | Accepted | provider接受但stable/strict实测均未执行maxContains约束 |
+| I/O failure不声明跨文件事务 | Accepted | substrate无rename/transaction；只做best-effort rollback和忠实报告 |
 
 ## 15. Plan Quality Checklist
 
