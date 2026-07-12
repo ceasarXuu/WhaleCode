@@ -1,14 +1,15 @@
 # R5-J6.7.7 上下文残留收敛结果
 
 - Date: 2026-07-12
-- Status: Engineering and live gates complete; adversarial review pending authorization
+- Status: Reopened; 3-repeat gate exposed final-rejection provider loop
 - Scope: J6.7.7-A 到 J6.7.7-G engineering/live gate
 - Final commit: `906362b`
 - R4: historical/unavailable，未补造request、token或cache数据
 
 ## 1. 结论
 
-J6.7.7-A-F已完成，G阶段的工程与Docker收益门禁通过。TaskSpace fresh会话不再平行维护一份持续变化的
+J6.7.7-A-F已完成。G阶段的单次Docker收益门禁曾通过，但后续3-repeat复验暴露了严重的Runtime
+final-rejection provider loop，因此G已重开。TaskSpace fresh会话不再平行维护一份持续变化的
 Map projection：Agent提交的initialize/control及其原始反馈就是自然上下文；只有resume、compaction或
 new epoch需要重建上下文时，才构造一次完整全局Map projection。该结构同时关闭了旧状态矛盾和DeepSeek
 prefix缓存断裂。
@@ -17,7 +18,31 @@ snapshot改为“生命周期full checkpoint + 相邻状态delta链”。固定�
 full checkpoint的路径已删除。最终两个样本的checkpoint/rollout均低于30%，相对J6.7.6 full snapshot
 bytes下降超过96%。
 
-J6.7尚未正式关闭：按项目规则，G阶段对抗性审查需要用户明确授权。J7继续保持blocked。
+J6.7尚未正式关闭：必须先修复该loop并重新通过3-repeat gate，之后才进入授权对抗性审查。J7继续blocked。
+
+## 1.1 三次重复复验（2026-07-12 23:12）
+
+有效artifacts：
+
+- focused：`target/r5-j6-7-7-repeat3-final/count-call-stack/20260712-225957-221`；
+- complex：`target/r5-j6-7-7-repeat3-final/subscription-billing-repair/20260712-225957-211`。
+
+| Sample | Mode | Solved | Requests | Wall | Input | Uncached | Request 2+ cache |
+|---|---|---:|---:|---:|---:|---:|---:|
+| focused | Standard | 3/3 | 27 | 55.95s | 203,923 | 7,827 | 95.97% |
+| focused | R5 | 3/3 | 25 | 79.06s | 194,868 | 20,276 | 89.01% |
+| complex | Standard | 3/3 | 39 | 204.43s | 469,280 | 23,200 | 94.88% |
+| complex | R5 | 3/3 | 152 | 515.30s | 3,674,526 | 1,446,814 | 60.51% |
+
+focused三组correctness稳定，R5总requests/input低于Standard，但wall、uncached和cache受一次same-shape
+zero-hit影响，不能声明稳定成本收益。complex的聚合被pair-002异常主导：R5单组达到120 requests、15 nodes、
+56 controls、385.69s和3.28M input；另外两组为20/12 requests，说明这是history-dependent机制失控，
+不是稳定常态开销。
+
+异常组有50次`final_rejected`，Runtime每次都把拒绝设为`needs_follow_up=true`并自动继续provider sampling；
+rollout记录52份`TaskSpaceFinalAnswerRejectedV1` developer feedback。119次相邻请求中118次保持message prefix，
+因此不是projection结构再次破坏缓存，也不是provider transport retry。根因与证据见
+`coe/2026-07-12-23-17-r5-final-rejection-provider-loop.md`。
 
 ## 2. 最终有效证据
 
@@ -129,7 +154,7 @@ edges为0并触发observer机械warning `multi_node_map_without_edges`；Runtime
 | D nested/ack owner | complete |
 | E projection skeleton/detail | complete |
 | F incremental replay/storage | complete |
-| G engineering/live | complete |
-| G adversarial review | pending user authorization |
+| G engineering/live | failed on 3-repeat final-rejection loop |
+| G adversarial review | blocked until repair and rerun |
 
-对抗性审查完成且critical/high finding关闭后，才可正式关闭J6.7并解锁J7。
+修复loop、重新通过3-repeat gate并完成对抗性审查后，才可正式关闭J6.7并解锁J7。

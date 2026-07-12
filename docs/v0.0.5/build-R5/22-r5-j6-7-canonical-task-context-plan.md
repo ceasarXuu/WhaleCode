@@ -3,7 +3,7 @@
 - Created: 2026-07-12
 - Updated: 2026-07-12
 - Version: 1.2
-- Status: In progress / J6.7.0-J6.7.7 engineering and live gates complete; final adversarial review pending authorization
+- Status: In progress / J6.7.0-J6.7.7 A-F complete; G blocked by 3-repeat final-rejection provider loop
 - Owner / Responsible: WhaleCode core runtime / TaskSpace context
 - Related Systems: `action_map`、`ConversationHistory`、session turn、provider prompt builder、
   `taskspace_control`、compaction、output refs、benchmark observer
