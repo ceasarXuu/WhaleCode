@@ -3,7 +3,7 @@
 - Created: 2026-07-12
 - Updated: 2026-07-12
 - Version: 1.0
-- Status: In progress / J6.7.0 complete, J6.7.1 ready
+- Status: In progress / J6.7.0-J6.7.1 complete, J6.7.2 ready
 - Owner / Responsible: WhaleCode core runtime / TaskSpace context
 - Related Systems: `action_map`、`ConversationHistory`、session turn、provider prompt builder、
   `taskspace_control`、compaction、output refs、benchmark observer
@@ -262,6 +262,11 @@ observer self-test与两个现有Docker run读取通过。R4可执行快照不�
 - Review/Risk：schema/codec审查；主要风险是测试只覆盖text而漏image/MCP/custom output。
 - Fallback：回退本phase提交，不影响production path。
 - Next Gate：codec矩阵100%后进入J6.7.2。
+
+**实施结果（2026-07-12）：** 已完成。结果见
+`24-r5-j6-7-phase1-event-codec-result.md`。12类task semantic `ResponseItem`完成JSON持久化
+往返，provider item id与tool success sidecar无损，unsupported显式失败；codec无production caller，
+不存在shadow双写。`count-call-stack`和`large-output-ref-smoke` Docker Standard/R5四侧均solved。
 
 ### Phase J6.7.2：Canonical Store原子切换
 
