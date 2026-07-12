@@ -1,7 +1,7 @@
 # Problem P-001: R5相同请求形态出现零缓存命中
-- Status: validating
+- Status: fixed
 - Created: 2026-07-13 00:28
-- Updated: 2026-07-13 00:28
+- Updated: 2026-07-13 00:33
 - Objective: 解释R5在wire消息前缀和工具形态保持时仍出现`same_shape_zero_hit`的原因，避免把provider落盘时序误判为上下文结构或缓存键缺陷。
 - Symptoms:
   - 排除120-request异常配对后，5组R5样本中有3组各出现1次`same_shape_zero_hit`，Standard为0次。
@@ -31,15 +31,15 @@
   - 删除final rejection自动follow-up后，不再产生对应的无业务请求。
   - 新focused/complex样本不出现`TaskSpaceFinalAnswerRejectedV1`或`final_rejected`。
   - 若仍有零命中，按最终wire前缀和请求间隔作为新的独立证据重新分类。
-- Current conclusion: H-001已确认。缓存异常是final rejection越界循环的次生效应，不是已证实的缓存键或projection缺陷；与final loop同根修复，等待sample验证。
+- Current conclusion: H-001已确认并随final loop修复完成。新focused/complex R5样本共24个provider requests，0 zero hit、0 same-shape zero；无需缓存等待、重试或额外Runtime控制。
 - Related hypotheses:
   - H-001
   - H-002
   - H-003
 - Resolution basis:
-  - diagnostic evidence satisfied; fix validation pending
+  - historical timing correlation、确定性loop测试及新live cache trace
 - Close reason:
-  - not closed
+  - final rejection自动follow-up已删除，新样本未复现同形零命中
 
 ## Hypothesis H-001: final拒绝后的即时自动请求早于provider缓存落盘
 - Status: confirmed
@@ -81,8 +81,8 @@
   - E-003
   - E-004
 - Conclusion: confirmed
-- Repair design readiness: no separate cache repair；复用final loop边界修复
-- Next step: Docker sample fix validation
+- Repair design readiness: completed through final loop boundary repair
+- Next step: continue routine cache observation in three-repeat gate
 - Blocker:
   - none
 - Close reason:
@@ -218,7 +218,7 @@
   - H-001
 - Direction: supports
 - Type: runtime-timing-and-primary-documentation
-- Source: `provider-request-events.jsonl`；DeepSeek API官方Context Caching文档
+- Source: `provider-request-events.jsonl`；[DeepSeek API官方Context Caching文档](https://api-docs.deepseek.com/guides/kv_cache)
 - Prediction or plan link:
   - H-001小于100ms的时序预测
 - Matched signal:
@@ -256,3 +256,26 @@
   ```
 - Interpretation: 负对照支持final rejection即时请求是本轮可见零命中的共同触发条件。
 - Time: 2026-07-13 00:26
+
+## Evidence E-005: 修复后两组R5 live sample未出现零命中
+- Related hypotheses:
+  - H-001
+- Direction: supports
+- Type: fix-validation
+- Source: `target/r5-final-loop-fix-validation` performance observations及provider cache traces
+- Prediction or plan link:
+  - P-001删除final rejection自动follow-up后的缓存验收
+- Matched signal:
+  - focused R5 9 requests：request-2+ hit 95.75%，zero/same-shape-zero均0。
+  - complex R5 15 requests：request-2+ hit 96.53%，zero/same-shape-zero均0。
+  - complex R5与Standard request数同为15，R5 uncached input为6,254，低于Standard 7,739。
+- Correlation keys:
+  - `count-call-stack/20260713-001552-302`
+  - `subscription-billing-repair/20260713-001552-302`
+- Raw content:
+  ```text
+  focused: taskspace same_shape_zero=0, request_2_plus_hit=0.957538
+  complex: taskspace same_shape_zero=0, request_2_plus_hit=0.965290
+  ```
+- Interpretation: 同根修复消除了本轮已证实的缓存异常触发源；没有证据支持新增缓存层补丁。
+- Time: 2026-07-13 00:33

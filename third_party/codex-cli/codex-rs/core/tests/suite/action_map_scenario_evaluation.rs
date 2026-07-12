@@ -123,6 +123,72 @@ async fn terminal_candidate_finishes_turn_without_extra_provider_request() -> Re
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn plain_final_with_open_map_finishes_turn_without_resampling() -> Result<()> {
+    skip_if_no_network!(Ok(()));
+
+    let harness = TestCodexHarness::new().await?;
+    harness
+        .write_file("README.md", "Open map fixture.\n")
+        .await?;
+    let initialize = serde_json::to_string(&json!({
+        "action": "initialize_then_actions",
+        "initial_nodes": [{
+            "node_id": "inspect",
+            "kind": "inspect_code_context",
+            "goal": "Read README but leave the node open."
+        }],
+        "current_node_id": "inspect",
+        "actions": [{"tool_name": "exec_command", "arguments": {"cmd": "cat README.md"}}]
+    }))?;
+    responses::mount_sse_once_match(
+        harness.server(),
+        |req: &Request| body_contains(req, "验证开放Map的普通最终回答"),
+        sse(vec![
+            ev_response_created("open-final-response-1"),
+            ev_function_call("open-final-init", "taskspace_control", &initialize),
+            ev_completed("open-final-response-1"),
+        ]),
+    )
+    .await;
+
+    let plain_final = "The requested inspection is complete.";
+    responses::mount_sse_once_match(
+        harness.server(),
+        |req: &Request| body_contains(req, "open-final-init:nested:0"),
+        sse(vec![
+            ev_response_created("open-final-response-2"),
+            ev_assistant_message("open-final-message", plain_final),
+            ev_completed("open-final-response-2"),
+        ]),
+    )
+    .await;
+
+    enable_taskspace(&harness).await?;
+    harness.submit("验证开放Map的普通最终回答").await?;
+
+    let requests = harness.request_bodies().await;
+    assert_eq!(
+        requests.len(),
+        2,
+        "plain final must end the turn without a recovery request"
+    );
+    let snapshot = harness.test().codex.action_map_snapshot().await;
+    assert_eq!(snapshot.maps[0].nodes[0].status, "running");
+    assert_eq!(snapshot.maps[0].status, "active");
+    assert_eq!(snapshot.tasks[0].status, "active");
+
+    let rollout_path = harness
+        .test()
+        .codex
+        .rollout_path()
+        .context("rollout path")?;
+    let rollout = wait_for_rollout_fragment(&rollout_path, plain_final).await?;
+    assert!(!rollout.contains("TaskSpaceFinalAnswerRejectedV1"));
+    assert!(!rollout.contains("final_rejected"));
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn nonterminal_finish_executes_sibling_action_after_barrier() -> Result<()> {
     skip_if_no_network!(Ok(()));
 

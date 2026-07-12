@@ -1,7 +1,7 @@
 # Problem P-001: TaskSpace final rejection 自动放大 provider requests
 - Status: open
 - Created: 2026-07-12 23:17
-- Updated: 2026-07-13 00:28
+- Updated: 2026-07-13 00:33
 - Objective: 删除Runtime对未闭合Map最终回答的自动重采样控制，使硬状态反馈只忠实暴露一次，不在无新动作或状态变化时重复请求provider。
 - Symptoms:
   - `subscription-billing-repair` repeat-2 R5产生120 requests、56 controls、15 nodes和3,280,395 input tokens，仍最终solved。
@@ -33,7 +33,7 @@
   - 同一hard state和相同feedback下新增provider request数为0。
   - Agent回答、Map未闭合状态和硬错误均忠实保留，不伪造task completed。
   - focused/complex各3 repeats全部solved，无final-rejection loop；request/cache/wall重新进入门禁。
-- Current conclusion: 用户已授权修复。`session/turn.rs`已删除plain final拒绝注入、`final_rejected`分类和自动follow-up；显式`finish_then_end`硬校验及Map未闭合状态保持不变，正在执行sample验证。
+- Current conclusion: 根因修复及确定性集成验证通过：open Map收到plain final后只产生2次provider requests，回答正常交付，Map忠实保持open，不再自动重采样。focused/complex各1次Docker paired sample均solved且无拒绝；R5 G阶段3-repeat收益门禁仍需单独重跑。
 - Related hypotheses:
   - H-001
   - H-002
@@ -81,8 +81,8 @@
   - E-002
   - E-003
 - Conclusion: confirmed
-- Repair design readiness: implemented; awaiting runtime validation
-- Next step: run focused and complex Docker samples
+- Repair design readiness: implemented and directly validated
+- Next step: run R5 G three-repeat benefit gate
 - Blocker:
   - none
 - Close reason:
@@ -285,3 +285,47 @@
   ```
 - Interpretation: 单元层已证明plain final保持`FinalCandidate`且不要求recovery；仍需Docker sample证明原始症状不再出现。
 - Time: 2026-07-13 00:28
+
+## Evidence E-006: open Map plain final确定性集成测试只发出两次请求
+- Related hypotheses:
+  - H-001
+- Direction: supports
+- Type: fix-validation
+- Source: `core/tests/suite/action_map_scenario_evaluation.rs::plain_final_with_open_map_finishes_turn_without_resampling`
+- Prediction or plan link:
+  - H-001关于final gate error后新增provider request数为0的修复判据
+- Matched signal:
+  - request 1初始化Map并执行读取，node保持running；request 2返回plain final。
+  - turn正常结束且总request数严格为2；task/map/node保持`active/active/running`，rollout保留Agent回答，不含旧拒绝marker。
+- Correlation keys:
+  - `open-final-response-1`
+  - `open-final-response-2`
+- Raw content:
+  ```text
+  cargo test -p codex-core --test all plain_final_with_open_map_finishes_turn_without_resampling
+  1 passed; 0 failed
+  ```
+- Interpretation: 原始循环触发条件被确定性覆盖；Runtime既不伪造Map完成，也不替Agent决定继续请求。
+- Time: 2026-07-13 00:32
+
+## Evidence E-007: focused与complex Docker paired smoke无final拒绝
+- Related hypotheses:
+  - H-001
+- Direction: supports
+- Type: fix-validation
+- Source: `target/r5-final-loop-fix-validation`
+- Prediction or plan link:
+  - H-001真实provider回归判据
+- Matched signal:
+  - focused Standard/R5均solved，requests 7/9；complex Standard/R5均solved，requests 15/15。
+  - 两组R5均为terminal candidate、0 extra final requests、0 `final_rejected`、0 `TaskSpaceFinalAnswerRejectedV1`。
+- Correlation keys:
+  - `count-call-stack/20260713-001552-302`
+  - `subscription-billing-repair/20260713-001552-302`
+- Raw content:
+  ```text
+  focused R5: requests=9, tools=11, map=3 nodes/0 open
+  complex R5: requests=15, tools=25, map=4 nodes/0 open
+  ```
+- Interpretation: 正常闭合路径未回归，且未再触发旧final recovery协议。
+- Time: 2026-07-13 00:33
