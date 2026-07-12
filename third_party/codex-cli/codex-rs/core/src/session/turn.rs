@@ -131,7 +131,6 @@ enum TaskspaceProviderResponseActionability {
     ToolFeedbackRecovery,
     EmptyFollowUp,
     FinalCandidate,
-    FinalRejected,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -148,7 +147,6 @@ impl TaskspaceProviderResponseActionability {
             Self::ToolFeedbackRecovery => "tool_feedback_recovery",
             Self::EmptyFollowUp => "empty_follow_up",
             Self::FinalCandidate => "final_candidate",
-            Self::FinalRejected => "final_rejected",
         }
     }
 
@@ -156,10 +154,7 @@ impl TaskspaceProviderResponseActionability {
     fn needs_recovery(self) -> bool {
         matches!(
             self,
-            Self::NoActionFollowUp
-                | Self::ToolFeedbackRecovery
-                | Self::EmptyFollowUp
-                | Self::FinalRejected
+            Self::NoActionFollowUp | Self::ToolFeedbackRecovery | Self::EmptyFollowUp
         )
     }
 }
@@ -1111,12 +1106,9 @@ fn classify_taskspace_provider_response_actionability(
     assistant_message_present: bool,
     gate_recovery_message_present: bool,
     tool_failure_recovery_message_present: bool,
-    final_response_rejected: bool,
     _provider_budget_exhausted_followup: bool,
 ) -> TaskspaceProviderResponseActionability {
-    if final_response_rejected {
-        TaskspaceProviderResponseActionability::FinalRejected
-    } else if saw_actionable_output
+    if saw_actionable_output
         && (gate_recovery_message_present || tool_failure_recovery_message_present)
     {
         TaskspaceProviderResponseActionability::ToolFeedbackRecovery
@@ -1596,76 +1588,10 @@ mod active_context_replacement_tests {
         }
     }
 
-    fn item_texts(items: &[ResponseItem]) -> Vec<String> {
-        items
-            .iter()
-            .filter_map(|item| match item {
-                ResponseItem::Message { content, .. } => content.iter().find_map(|content| {
-                    if let ContentItem::InputText { text } = content {
-                        Some(text.clone())
-                    } else {
-                        None
-                    }
-                }),
-                ResponseItem::FunctionCallOutput { output, .. } => output.body.to_text(),
-                _ => None,
-            })
-            .collect()
-    }
-
-    #[test]
-    fn provider_response_actionability_classifies_final_gate_rejection_as_recovery() {
-        let classification = classify_taskspace_provider_response_actionability(
-            true, false, true, false, false, true, false,
-        );
-
-        assert_eq!(
-            classification,
-            TaskspaceProviderResponseActionability::FinalRejected
-        );
-        assert!(classification.needs_recovery());
-        assert_eq!(classification.as_str(), "final_rejected");
-    }
-
-    #[test]
-    fn final_gate_rejection_item_is_provider_visible_mechanical_feedback() {
-        let rejection = taskspace_final_answer_gate_rejection_item(
-            "TaskSpace final response is unavailable while node `node-1` is running. hard_state: active_node_open.",
-        )
-        .expect("rejection item");
-
-        let prepared = prepare_provider_visible_prompt_items(vec![rejection.clone()]);
-        let joined = item_texts(&prepared).join("\n");
-
-        assert_eq!(prepared, vec![rejection]);
-        assert!(matches!(
-            prepared.as_slice(),
-            [ResponseItem::Message { role, .. }] if role == "developer"
-        ));
-        assert!(joined.contains("TaskSpaceFinalAnswerRejectedV1"));
-        assert!(joined.contains("hard_state: active_node_open"));
-        assert!(joined.contains("TaskSpace state is unchanged"));
-        assert!(!joined.contains("next action"));
-        assert!(!joined.contains("must call"));
-    }
-
-    #[test]
-    fn provider_response_actionability_final_rejection_overrides_actionable_output() {
-        let classification = classify_taskspace_provider_response_actionability(
-            true, true, true, false, false, true, false,
-        );
-
-        assert_eq!(
-            classification,
-            TaskspaceProviderResponseActionability::FinalRejected
-        );
-        assert!(classification.needs_recovery());
-    }
-
     #[test]
     fn provider_response_actionability_classifies_no_action_follow_up() {
         let classification = classify_taskspace_provider_response_actionability(
-            true, false, true, false, false, false, false,
+            true, false, true, false, false, false,
         );
 
         assert_eq!(
@@ -1673,6 +1599,19 @@ mod active_context_replacement_tests {
             TaskspaceProviderResponseActionability::NoActionFollowUp
         );
         assert!(classification.needs_recovery());
+    }
+
+    #[test]
+    fn provider_response_actionability_delivers_plain_final_without_follow_up() {
+        let classification = classify_taskspace_provider_response_actionability(
+            false, false, true, false, false, false,
+        );
+
+        assert_eq!(
+            classification,
+            TaskspaceProviderResponseActionability::FinalCandidate
+        );
+        assert!(!classification.needs_recovery());
     }
 
     #[test]
@@ -1684,7 +1623,6 @@ mod active_context_replacement_tests {
         );
         let classification = classify_taskspace_provider_response_actionability(
             needs_follow_up,
-            false,
             false,
             false,
             false,
@@ -1710,7 +1648,6 @@ mod active_context_replacement_tests {
             false,
             false,
             false,
-            false,
         );
 
         assert_eq!(
@@ -1723,7 +1660,7 @@ mod active_context_replacement_tests {
     #[test]
     fn provider_response_actionability_keeps_actionable_response_out_of_recovery() {
         let classification = classify_taskspace_provider_response_actionability(
-            true, true, true, false, false, false, false,
+            true, true, true, false, false, false,
         );
 
         assert_eq!(
@@ -1736,7 +1673,7 @@ mod active_context_replacement_tests {
     #[test]
     fn provider_response_actionability_treats_gate_recovery_as_recovery() {
         let classification = classify_taskspace_provider_response_actionability(
-            true, true, true, true, false, false, false,
+            true, true, true, true, false, false,
         );
 
         assert_eq!(
@@ -1750,7 +1687,7 @@ mod active_context_replacement_tests {
     #[test]
     fn provider_response_actionability_treats_gate_recovery_without_tool_output_as_no_action() {
         let classification = classify_taskspace_provider_response_actionability(
-            true, false, true, true, false, false, false,
+            true, false, true, true, false, false,
         );
 
         assert_eq!(
@@ -1764,7 +1701,7 @@ mod active_context_replacement_tests {
     #[test]
     fn provider_response_actionability_treats_tool_failure_feedback_as_tool_feedback_recovery() {
         let classification = classify_taskspace_provider_response_actionability(
-            true, true, true, false, true, false, false,
+            true, true, true, false, true, false,
         );
 
         assert_eq!(
@@ -2369,21 +2306,6 @@ async fn publish_taskspace_terminal_agent_message(
     );
 }
 
-fn taskspace_final_answer_gate_rejection_followup(error: &str) -> String {
-    format!(
-        "TaskSpaceFinalAnswerRejectedV1:\n\
-accepted: false\n\
-rejection_reason: {error}\n\
-state_effect: final_answer was not recorded; TaskSpace state is unchanged."
-    )
-}
-
-fn taskspace_final_answer_gate_rejection_item(error: &str) -> Option<ResponseItem> {
-    crate::context_manager::updates::build_developer_update_item(vec![
-        taskspace_final_answer_gate_rejection_followup(error),
-    ])
-}
-
 #[allow(clippy::too_many_arguments)]
 #[instrument(level = "trace",
     skip_all,
@@ -2789,29 +2711,20 @@ async fn try_run_sampling_request(
                     .as_deref()
                     .map(|message| !message.trim().is_empty())
                     .unwrap_or(false);
-                let mut final_response_rejected = false;
                 if !terminal_candidate_released
                     && !needs_follow_up
                     && let Some(message) = last_agent_message.as_deref()
                 {
-                    match sess
+                    if let Err(error) = sess
                         .record_action_map_main_final_response(&turn_context, message)
                         .await
                     {
-                        Ok(_) => {}
-                        Err(error) => {
-                            needs_follow_up = true;
-                            final_response_rejected = true;
-                            let feedback = taskspace_final_answer_gate_rejection_followup(&error);
-                            if let Some(item) = taskspace_final_answer_gate_rejection_item(&error) {
-                                sess.record_conversation_items(
-                                    &turn_context,
-                                    std::slice::from_ref(&item),
-                                )
-                                .await;
-                            }
-                            last_agent_message = Some(feedback);
-                        }
+                        info!(
+                            target: "codex_core::taskspace",
+                            event_name = "taskspace.plain_final_delivered_with_open_map",
+                            hard_state_error = %error,
+                            "TaskSpace plain final delivered without changing the open map"
+                        );
                     }
                 }
                 let current_budget_snapshot =
@@ -2831,7 +2744,6 @@ async fn try_run_sampling_request(
                     assistant_message_present,
                     taskspace_message_has_gate_recovery(last_agent_message.as_deref()),
                     false,
-                    final_response_rejected,
                     false,
                 );
                 if let Some(snapshot) = current_budget_snapshot.as_ref() {
@@ -2850,9 +2762,6 @@ async fn try_run_sampling_request(
                         },
                     )
                     .await;
-                }
-                if final_response_rejected {
-                    last_agent_message = None;
                 }
                 break Ok(SamplingRequestResult {
                     needs_follow_up,

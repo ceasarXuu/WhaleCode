@@ -5725,7 +5725,7 @@ fn provider_request_trigger_kind(
     }
     if matches!(
         response_actionability_previous,
-        "no_action_follow_up" | "tool_feedback_recovery" | "final_rejected"
+        "no_action_follow_up" | "tool_feedback_recovery"
     ) {
         return "response_recovery".to_string();
     }

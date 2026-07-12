@@ -1,7 +1,7 @@
 # Problem P-001: TaskSpace final rejection 自动放大 provider requests
 - Status: open
 - Created: 2026-07-12 23:17
-- Updated: 2026-07-12 23:17
+- Updated: 2026-07-13 00:28
 - Objective: 删除Runtime对未闭合Map最终回答的自动重采样控制，使硬状态反馈只忠实暴露一次，不在无新动作或状态变化时重复请求provider。
 - Symptoms:
   - `subscription-billing-repair` repeat-2 R5产生120 requests、56 controls、15 nodes和3,280,395 input tokens，仍最终solved。
@@ -33,7 +33,7 @@
   - 同一hard state和相同feedback下新增provider request数为0。
   - Agent回答、Map未闭合状态和硬错误均忠实保留，不伪造task completed。
   - focused/complex各3 repeats全部solved，无final-rejection loop；request/cache/wall重新进入门禁。
-- Current conclusion: H-001已由runtime trace和代码路径确认；H-002是触发条件而非自动放大的充分原因；H-003已排除。修复尚未获得用户授权。
+- Current conclusion: 用户已授权修复。`session/turn.rs`已删除plain final拒绝注入、`final_rejected`分类和自动follow-up；显式`finish_then_end`硬校验及Map未闭合状态保持不变，正在执行sample验证。
 - Related hypotheses:
   - H-001
   - H-002
@@ -81,10 +81,10 @@
   - E-002
   - E-003
 - Conclusion: confirmed
-- Repair design readiness: ready; implementation requires user confirmation
-- Next step: request repair authorization
+- Repair design readiness: implemented; awaiting runtime validation
+- Next step: run focused and complex Docker samples
 - Blocker:
-  - user authorization
+  - none
 - Close reason:
   - not closed
 
@@ -264,3 +264,24 @@
   ```
 - Interpretation: Agent错误操作触发了hard state，但50次自动重采样由H-001 Runtime边界行为造成。
 - Time: 2026-07-12 23:16
+
+## Evidence E-005: plain final自动重采样路径已从Runtime删除
+- Related hypotheses:
+  - H-001
+- Direction: supports
+- Type: fix-validation
+- Source: `third_party/codex-cli/codex-rs/core/src/session/turn.rs`、`core/src/action_map/runtime.rs`
+- Prediction or plan link:
+  - H-001关于final gate error不得驱动下一次provider request的修复判据
+- Matched signal:
+  - plain final记录Map失败时仅写`taskspace.plain_final_delivered_with_open_map`结构化日志；不设置`needs_follow_up`、不改写或清空Agent message、不写developer rejection item。
+  - `FinalRejected` actionability及`response_recovery`中的`final_rejected`分支均已删除。
+- Correlation keys:
+  - `taskspace.plain_final_delivered_with_open_map`
+- Raw content:
+  ```text
+  cargo test -p codex-core active_context_replacement_tests
+  12 passed; 0 failed
+  ```
+- Interpretation: 单元层已证明plain final保持`FinalCandidate`且不要求recovery；仍需Docker sample证明原始症状不再出现。
+- Time: 2026-07-13 00:28
