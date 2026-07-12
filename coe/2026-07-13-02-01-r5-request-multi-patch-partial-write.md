@@ -1,5 +1,5 @@
 # Problem P-001: 单响应多 Patch 允许部分写入
-- Status: confirmed
+- Status: fixed
 - Created: 2026-07-13 02:01
 - Updated: 2026-07-13 02:01
 - Objective: 让Standard与TaskSpace的单个provider response最多声明一个`apply_patch`，并保证单patch的validation failure零文件副作用
@@ -34,7 +34,7 @@
   - 全部validation failure零文件副作用，Standard/TaskSpace共享同一patch实现。
   - carrier schema不再能表达第二个patch，同时保留单patch后的read/test动作。
   - 结构化日志可区分request preflight、patch prepare和commit failure。
-- Current conclusion: H-001由J7.1关闭，H-003由J7.2关闭，H-002由J7.3共享preflight关闭；等待J7.4可观测性门禁后关闭Problem。
+- Current conclusion: H-001由J7.1关闭，H-003由J7.2关闭，H-002由J7.3关闭；J7.4可观测性与回归门禁通过，Problem已修复。
 - Related hypotheses:
   - H-001
   - H-002
@@ -42,9 +42,9 @@
   - H-004
   - H-005
 - Resolution basis:
-  - not satisfied
+  - satisfied
 - Close reason:
-  - not closed
+  - J7.1-J7.4 engineering gates verified；J7.5只负责跨版本收益验收
 
 ## Hypothesis H-001: Patch边验证边写导致validation partial commit
 - Status: confirmed
@@ -476,3 +476,33 @@
   ```
 - Interpretation: request-wide hard rule位于共享sequence最前端，闭合反馈且零工具/Agent声明状态副作用。
 - Time: 2026-07-13 03:35
+
+## Evidence E-012: J7.4 observer与日志门禁通过
+- Related hypotheses:
+  - H-001
+  - H-002
+  - H-003
+  - H-004
+  - H-005
+- Direction: supports
+- Type: fix-validation
+- Source: `scripts/taskspace-benchmark/lib/patch-observability.ps1`、`codex-apply-patch`
+- Prediction or plan link:
+  - J7.4 exit gate
+- Matched signal:
+  - request/carrier/prepare/commit/post-action/read指标可分账；历史5-patch response被识别；输出不含patch/path正文
+- Correlation keys:
+  - request index
+  - tool call id
+- Raw content:
+  ```text
+  patch observer self-test: passed
+  performance observation self-test: passed
+  skill validation: passed
+  historical max_request_patch_count: 5
+  apply-patch: 86 passed
+  core sequence: 9 passed
+  locked Whale build: passed
+  ```
+- Interpretation: 修复后的执行硬规则、底层patch阶段和报告层现在具有一致且无payload泄漏的证据链。
+- Time: 2026-07-13 04:10

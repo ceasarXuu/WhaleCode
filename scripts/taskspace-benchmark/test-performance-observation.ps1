@@ -183,6 +183,7 @@ Assert-True ($taskspace.totals.provider_requests -eq 18) "taskspace request aggr
 Assert-True ($taskspace.totals.node_count -eq 6 -and $taskspace.totals.edge_count -eq 4) "map totals are incorrect"
 Assert-True ($taskspace.totals.unreviewed_result_count -eq 6) "result lifecycle totals are incorrect"
 Assert-True ($taskspace.totals.control_failures -eq 2) "control failures are missing"
+Assert-True ($taskspace.totals.request_patch_count -eq 2) "patch declarations are missing from aggregate"
 Assert-True ($report.ratios.provider_requests -eq 1.8) "request ratio is incorrect"
 Assert-True (@($report.rows | Where-Object { $_.observation_status -eq "skipped" }).Count -eq 1) "right-only placeholder side was not classified as skipped"
 Assert-True ($standard.observed_side_count -eq 3 -and $standard.excluded_side_count -eq 1) "skipped side contaminated the aggregate"
@@ -204,6 +205,7 @@ Assert-True ($markdown -match "## 精确重复载体") "markdown omitted exact c
 Assert-True ($markdown -match "## Cross carrier lineage") "markdown omitted cross carrier lineage details"
 Assert-True ($markdown -match "## Rollout storage") "markdown omitted rollout storage details"
 Assert-True ($markdown -match "Finish without sibling") "markdown omitted finish barrier validation counts"
+Assert-True ($markdown -match "## Patch lifecycle") "markdown omitted patch lifecycle metrics"
 Assert-True ($markdown -match "root_task_active_after_nodes_closed") "mechanical map warning was not rendered"
 
 if ($failures.Count -gt 0) {

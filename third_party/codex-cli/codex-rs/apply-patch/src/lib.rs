@@ -196,6 +196,11 @@ pub async fn apply_patch(
     let hunks = match parse_patch(patch) {
         Ok(source) => source.hunks,
         Err(e) => {
+            tracing::warn!(
+                target: "codex_apply_patch",
+                stage = "parse",
+                "apply_patch.prepare_failed"
+            );
             match &e {
                 InvalidPatchError(message) => {
                     writeln!(stderr, "Invalid patch: {message}").map_err(ApplyPatchError::from)?;
@@ -230,11 +235,54 @@ pub async fn apply_hunks(
     sandbox: Option<&FileSystemSandboxContext>,
 ) -> Result<(), ApplyPatchError> {
     let result = async {
-        let prepared = transaction::prepare_patch(hunks, cwd, fs, sandbox).await?;
-        transaction::validate_preconditions(&prepared, fs, sandbox).await?;
-        transaction::commit_patch(&prepared, fs, sandbox)
+        let prepared = transaction::prepare_patch(hunks, cwd, fs, sandbox)
             .await
-            .map_err(ApplyPatchError::from)
+            .inspect_err(|_| {
+                tracing::warn!(
+                    target: "codex_apply_patch",
+                    stage = "prepare",
+                    hunk_count = hunks.len(),
+                    "apply_patch.prepare_failed"
+                );
+            })?;
+        transaction::validate_preconditions(&prepared, fs, sandbox)
+            .await
+            .inspect_err(|_| {
+                tracing::warn!(
+                    target: "codex_apply_patch",
+                    stage = "precondition",
+                    hunk_count = hunks.len(),
+                    "apply_patch.prepare_failed"
+                );
+            })?;
+        tracing::info!(
+            target: "codex_apply_patch",
+            hunk_count = hunks.len(),
+            "apply_patch.prepare_completed"
+        );
+        match transaction::commit_patch(&prepared, fs, sandbox).await {
+            Ok(affected) => {
+                tracing::info!(
+                    target: "codex_apply_patch",
+                    added_count = affected.added.len(),
+                    modified_count = affected.modified.len(),
+                    deleted_count = affected.deleted.len(),
+                    "apply_patch.commit_completed"
+                );
+                Ok(affected)
+            }
+            Err(error) => {
+                tracing::warn!(
+                    target: "codex_apply_patch",
+                    committed_path_count = error.committed_paths.len(),
+                    pending_path_count = error.pending_paths.len(),
+                    rollback_restored_path_count = error.rollback_restored_paths.len(),
+                    rollback_failed_path_count = error.rollback_failed_paths.len(),
+                    "apply_patch.commit_failed"
+                );
+                Err(ApplyPatchError::from(error))
+            }
+        }
     }
     .await;
     match result {

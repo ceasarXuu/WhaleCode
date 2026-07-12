@@ -3,7 +3,7 @@
 - Created: 2026-07-12
 - Updated: 2026-07-13
 - Version: 1.2
-- Status: J7.0-J7.3 complete; J7.4 in progress
+- Status: J7.0-J7.4 complete; paused before J7.5
 - Owner / Responsible: WhaleCode TaskSpace / apply_patch substrate
 - Related Systems: provider response tool sequence、`taskspace_control` tool schema、nested ToolSpec、ToolRouter、
   `codex-apply-patch`、benchmark observer
@@ -418,29 +418,30 @@ patch 正文、文件正文或 secret。
 
 | Plan Item | Expected Behavior | Production Code Path | Test Evidence | Runtime / Log Evidence | Status |
 |---|---|---|---|---|---|
-| evidence and provider probe | 冻结真实失败和可用 schema | benchmark artifacts / ToolSpec serialization | wire fixtures | provider body/hash | planned |
+| evidence and provider probe | 冻结真实失败和可用 schema | benchmark artifacts / ToolSpec serialization | wire fixtures | provider body/hash | complete |
 | patch prepare/commit | validation failure 零副作用 | `apply-patch/src/transaction*.rs` | 64 lib + 22 CLI/scenario + fault injection | structured commit error | complete |
 | singular patch schema | bootstrap carrier最多一个patch；active走native siblings | `tools/src/taskspace_tool.rs` | 3 schema tests | model-visible ToolSpec | complete |
 | typed carrier parser | schema/parser单一契约，旧`actions[]`拒绝 | `taskspace_control_args.rs` | 19 parser/handler tests | protocol reason code | complete |
-| request tool manifest | 顶层/carrier/nested统一计算patch count | `tools/sequence_manifest.rs` + shared sequence入口 | 2 manifest + 6 sequence + 8 scenario tests | `tool.request_manifest_built` | complete |
+| request tool manifest | 顶层/carrier/nested统一计算patch count | `tools/sequence_manifest.rs` + shared sequence入口 | 2 manifest + 6 sequence + 8 scenario tests | `tool.request_patch_count_validated` | complete |
 | pre-state request validation | 非法request不执行任何工具、不提交Agent声明state、不改filesystem | `sequence_preflight.rs` + shared sequence | 9 unit + 2 zero-side-effect integration tests | validated/rejected events | complete |
 | native patch dispatch | 合法单patch继续走权限/沙箱/hook/反馈原链路 | ToolRouter/ToolCallRuntime | 9 scenario + 16 core apply_patch tests | canonical call ids | complete |
-| observer | patch lifecycle 和读取观察可分账 | performance observer | extractor fixtures | aggregate metrics | planned |
+| observer | patch lifecycle和显式读取观察可分账，不暴露payload | `patch-observability.ps1` + performance observer | extractor/performance/skill tests | lifecycle counts + request rows | complete |
 | benefit proof | 结构收益且无负向收益 | Docker runner | paired sample | report artifacts | planned |
 
 ## 11. Change-chain Logging Matrix
 
 | Change Link | Key State | Success Signal | Failure Signal | Failure Reason | Correlation | Level |
 |---|---|---|---|---|---|---|
-| carrier schema parse | parsed/validated | `taskspace.patch_carrier_validated` | `taskspace.patch_carrier_rejected` | `reason_code` | `request_id/outer_call_id` | info/warn |
-| request patch preflight | counted/validated | `tool.request_patch_count_validated` | `tool.request_multi_patch_rejected` | `reason_code` | `request_id/tool_call_ids` | info/warn |
-| patch prepare | prepared | `apply_patch.prepare_completed` | `apply_patch.prepare_failed` | `failure_class` | `call_id/patch_hash` | info/warn |
-| patch commit | committed | `apply_patch.commit_completed` | `apply_patch.commit_failed` | `failure_class/rollback_status` | `call_id/patch_hash` | info/error |
+| carrier schema parse | parsed/validated | model-visible schema + typed parser | existing typed invalid-arguments output | `reason_code` | `outer_call_id` | tool feedback |
+| request patch preflight | counted/validated | `tool.request_patch_count_validated` | `tool.request_multi_patch_rejected` | `reason_code` | enclosing turn/response sequence | info/warn |
+| patch prepare | prepared | `apply_patch.prepare_completed` | `apply_patch.prepare_failed` | `stage/hunk_count` | enclosing tool span `call_id` | info/warn |
+| patch commit | committed | `apply_patch.commit_completed` | `apply_patch.commit_failed` | affected/rollback path counts | enclosing tool span `call_id` | info/warn |
 | nested patch execution | completed | existing tool success | existing tool failure | native reason | `outer_call_id/derived_call_id` | info/warn |
 | post-patch actions | completed | batch completed | tail skipped | `prior_failed_call_id` | `outer_call_id/action_index` | info/warn |
-| read observation | observed | `taskspace.read_observation_recorded` | coverage missing | `missing_field` | `call_id/request_id/content_hash` | debug/warn |
+| read observation | observed | performance rollout extractor | coverage unavailable | explicit read identity only | `call_id/request_index` | report-only |
 
-日志只记录 path count、path hash、patch hash、状态和关联 id；不得记录 patch 正文或文件正文。
+日志只记录数量、阶段、状态和关联id；observer输出只保留聚合计数和request index。不得记录patch正文、路径正文、
+文件正文或secret。
 
 ## 12. 风险、替代方案与回退
 

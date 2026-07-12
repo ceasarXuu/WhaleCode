@@ -1,5 +1,6 @@
 Set-StrictMode -Version Latest
 . (Join-Path $PSScriptRoot "native-cadence.ps1")
+. (Join-Path $PSScriptRoot "patch-observability.ps1")
 . (Join-Path $PSScriptRoot "performance-duplication.ps1")
 function Get-PerformanceProperty {
     param($Object, [Parameter(Mandatory = $true)][string]$Name, $Default = $null)
@@ -32,7 +33,6 @@ function Get-PerformanceRatio {
     if ($null -eq $num -or $null -eq $den -or $den -eq 0) { return $null }
     [Math]::Round($num / $den, 4)
 }
-
 function Get-PerformanceWireRequestCount {
     param([string]$ArtifactDir, $CacheSummary)
     $summaryCount = Get-PerformanceNumber (Get-PerformanceProperty $CacheSummary "provider_request_count")
@@ -203,6 +203,7 @@ function Get-PerformanceSideObservation {
     $requests = Get-PerformanceWireRequestCount $artifactDir $cache
     $actions = Get-PerformanceActionCounts $artifactDir $Events
     $cadence = Get-TaskspaceNativeCadenceFacts $artifactDir $Events
+    $patchObservation = Get-TaskspacePatchObservability $artifactDir $Events
     $warnings = New-Object System.Collections.Generic.List[string]
     $taints = @((Get-PerformanceProperty $metrics "metrics_taints" @()))
     $skipped = @($taints | Where-Object { [string]$_ -match '^side_selection_skipped:' }).Count -gt 0
@@ -282,11 +283,11 @@ function Get-PerformanceSideObservation {
             trace_coverage = Get-PerformanceNumber (Get-PerformanceProperty $cache "trace_coverage")
         }
         map = $map
+        patch = $patchObservation
         duplication = $duplication
         warnings = @($warnings.ToArray())
     }
 }
-
 function Get-PerformanceModeAggregate {
     param([object[]]$Rows, [string]$Mode)
     $observed = @($Rows | Where-Object { $_.logical_mode -eq $Mode })
@@ -305,6 +306,7 @@ function Get-PerformanceModeAggregate {
         $values = @($selected | ForEach-Object { Get-PerformanceNumber $_.map.$field } | Where-Object { $null -ne $_ })
         $sum[$field] = if ($values.Count) { [double](($values | Measure-Object -Sum).Sum) } else { $null }
     }
+    Add-TaskspacePatchAggregateFields $sum $selected
     $cache2 = [double](($selected | ForEach-Object { Get-PerformanceNumber $_.cache.request_2_plus_cached_input_tokens } | Where-Object { $null -ne $_ } | Measure-Object -Sum).Sum)
     $uncached2 = [double](($selected | ForEach-Object { Get-PerformanceNumber $_.cache.request_2_plus_uncached_input_tokens } | Where-Object { $null -ne $_ } | Measure-Object -Sum).Sum)
     $prefixCount = [double](($selected | ForEach-Object { Get-PerformanceNumber $_.cache.prefix_comparison_count } | Where-Object { $null -ne $_ } | Measure-Object -Sum).Sum)
@@ -321,7 +323,6 @@ function Get-PerformanceModeAggregate {
         prefix_preserved_count = $prefixKept; prefix_comparison_count = $prefixCount
     }
 }
-
 function Format-PerformanceValue {
     param($Value, [string]$Kind = "number")
     if ($null -eq $Value -or [string]::IsNullOrWhiteSpace([string]$Value)) { return "N/A" }
@@ -332,7 +333,6 @@ function Format-PerformanceValue {
     if ($Value -is [ValueType]) { return ("{0:N0}" -f ([double]$Value)) }
     ([string]$Value).Replace("|", "\|").Replace("`r", " ").Replace("`n", " ")
 }
-
 function Format-PerformanceControlActions {
     param($Actions)
     if ($null -eq $Actions) { return "N/A" }
@@ -340,7 +340,6 @@ function Format-PerformanceControlActions {
     if ($parts.Count -eq 0) { return "N/A" }
     ($parts -join ", ").Replace("|", "\|")
 }
-
 function Write-TaskspacePerformanceObservation {
     param(
         [Parameter(Mandatory = $true)][string]$RunRoot,
@@ -420,6 +419,7 @@ function Write-TaskspacePerformanceObservation {
         }
     }
     $lines.Add("")
+    Add-TaskspacePatchObservationMarkdown $lines $rows
     $lines.Add("## 成本与缓存")
     $lines.Add("")
     $lines.Add("| Repeat | Mode | Input | Cached | Uncached | Output | Full hit | Request 2+ hit | Prefix | Zero hit | Warmup | Same-shape zero | Choice changes | Shape changes | Coverage |")
