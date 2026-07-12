@@ -1,7 +1,7 @@
 # Problem P-001: TaskSpace final rejection 自动放大 provider requests
-- Status: open
+- Status: fixed
 - Created: 2026-07-12 23:17
-- Updated: 2026-07-13 00:33
+- Updated: 2026-07-13 00:36
 - Objective: 删除Runtime对未闭合Map最终回答的自动重采样控制，使硬状态反馈只忠实暴露一次，不在无新动作或状态变化时重复请求provider。
 - Symptoms:
   - `subscription-billing-repair` repeat-2 R5产生120 requests、56 controls、15 nodes和3,280,395 input tokens，仍最终solved。
@@ -33,15 +33,15 @@
   - 同一hard state和相同feedback下新增provider request数为0。
   - Agent回答、Map未闭合状态和硬错误均忠实保留，不伪造task completed。
   - focused/complex各3 repeats全部solved，无final-rejection loop；request/cache/wall重新进入门禁。
-- Current conclusion: 根因修复及确定性集成验证通过：open Map收到plain final后只产生2次provider requests，回答正常交付，Map忠实保持open，不再自动重采样。focused/complex各1次Docker paired sample均solved且无拒绝；R5 G阶段3-repeat收益门禁仍需单独重跑。
+- Current conclusion: 根因修复完成。确定性open Map集成测试及修复后focused/complex各3次Docker paired gate均通过；12个run全部solved，6个R5 run均无final rejection或自动recovery loop。
 - Related hypotheses:
   - H-001
   - H-002
   - H-003
 - Resolution basis:
-  - not satisfied
+  - 代码路径删除、确定性集成测试、focused/complex 3-repeat live gate
 - Close reason:
-  - not closed
+  - plain final不再触发Runtime自动follow-up，原始120-request放大机制已不可达
 
 ## Hypothesis H-001: final gate rejection被Runtime转换为自动sampling循环
 - Status: confirmed
@@ -82,7 +82,7 @@
   - E-003
 - Conclusion: confirmed
 - Repair design readiness: implemented and directly validated
-- Next step: run R5 G three-repeat benefit gate
+- Next step: retain regression coverage；J6.7 adversarial review is a separate gate
 - Blocker:
   - none
 - Close reason:
@@ -329,3 +329,27 @@
   ```
 - Interpretation: 正常闭合路径未回归，且未再触发旧final recovery协议。
 - Time: 2026-07-13 00:33
+
+## Evidence E-008: 修复后3-repeat gate无拒绝循环
+- Related hypotheses:
+  - H-001
+- Direction: supports
+- Type: fix-validation
+- Source: `target/r5-final-loop-fix-repeat3`
+- Prediction or plan link:
+  - P-001 focused/complex各3 repeats修复判据
+- Matched signal:
+  - Standard/R5共12个run全部solved；focused R5合计26 requests，complex R5合计28 requests。
+  - 6个R5 run的`TaskSpaceFinalAnswerRejectedV1`和`final_rejected`均为0。
+  - focused三轮及complex repeat-2均以plain final结束并保留open Map，没有新增recovery request。
+- Correlation keys:
+  - `count-call-stack/20260713-002149-383`
+  - `subscription-billing-repair/20260713-002149-397`
+- Raw content:
+  ```text
+  focused: standard 3/3 solved, R5 3/3 solved, R5 requests=26
+  complex: standard 3/3 solved, R5 3/3 solved, R5 requests=28
+  R5 final rejection markers=0
+  ```
+- Interpretation: 原始history-dependent触发条件在多次真实Agent路径中出现时也不会再放大provider请求。
+- Time: 2026-07-13 00:36

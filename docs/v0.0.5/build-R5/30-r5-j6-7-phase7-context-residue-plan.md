@@ -3,7 +3,7 @@
 - Created: 2026-07-12
 - Updated: 2026-07-12
 - Version: 1.2
-- Status: A-F complete; G 3-repeat gate failed on final-rejection provider loop; repair authorization required
+- Status: A-F complete; G engineering/live complete after repair; adversarial review pending authorization
 - Owner / Responsible: WhaleCode core runtime / TaskSpace context
 - Related Systems: canonical Event Store、provider linearizer、`taskspace_control`、projection、
   session finalization、rollout/replay、benchmark observer
@@ -343,9 +343,9 @@ sample，observer-only阶段可重放冻结artifact并另跑一次focused live s
 
 ### J6.7.7-G：收益门禁与对抗性审查
 
-- Status：Blocked。单次live gate曾通过，但3-repeat complex pair-002出现120 requests，其中50次
-  `final_rejected`触发Runtime自动provider follow-up；见
-  `coe/2026-07-12-23-17-r5-final-rejection-provider-loop.md`。修复与复验前不得进入对抗性审查。
+- Status：Engineering/live complete。`0032a38`删除plain final自动provider follow-up，确定性open Map
+  集成测试通过；修复后focused/complex各3 repeats全部solved，0 final rejection、0 zero cache hit。
+  对抗性审查等待用户授权。
 
 - Entry：A-F全部100%完成。
 - Tasks：
@@ -368,7 +368,7 @@ sample，observer-only阶段可重放冻结artifact并另跑一次focused live s
 | D | provider pairing + nested failure | 不依赖projection详情分层 | native pair unique | 100% | complete |
 | E | global skeleton/detail tier fixtures + complex live | 不依赖snapshot storage或R5-K | skeleton 100% + ref recovery 100% | 100% | complete |
 | F | replay hash + bytes gate | 不依赖benefit run | snapshot -80% | 100% | complete |
-| G | paired Docker + authorized review | 不依赖J7 | all gates | 100% | blocked；3-repeat final-rejection loop |
+| G | paired Docker + authorized review | 不依赖J7 | all gates | 100% | engineering/live complete；review pending authorization |
 
 任何phase未达到100%时pause，不允许后续phase补写退出证据。
 
@@ -383,7 +383,7 @@ sample，observer-only阶段可重放冻结artifact并另跑一次focused live s
 | sparse success ack | 只返回新ID和状态 | taskspace handler | control output | schema tests | ack field count | none | complete |
 | global Map projection | fresh走canonical自然历史；新epoch完整骨架 + 分层详情可恢复 | projection/event ref | resume/compaction | skeleton/tier/ref | coverage/detail bytes | none | complete |
 | incremental replay | full snapshot只在边界 | rollout/state replay | session persistence | replay hash | snapshot ratio | none | complete |
-| benefit gate | 无语义/成本负收益 | Docker benchmark | paired samples | validators | final report | none | failed on complex repeat-2; repair pending |
+| benefit gate | 无语义/成本负收益 | Docker benchmark | paired samples | validators | final report | none | engineering/live passed after repair; review pending |
 
 ## 9. Change-chain Logging Matrix
 

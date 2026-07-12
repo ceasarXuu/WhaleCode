@@ -1,7 +1,7 @@
 # Problem P-001: R5相同请求形态出现零缓存命中
 - Status: fixed
 - Created: 2026-07-13 00:28
-- Updated: 2026-07-13 00:33
+- Updated: 2026-07-13 00:36
 - Objective: 解释R5在wire消息前缀和工具形态保持时仍出现`same_shape_zero_hit`的原因，避免把provider落盘时序误判为上下文结构或缓存键缺陷。
 - Symptoms:
   - 排除120-request异常配对后，5组R5样本中有3组各出现1次`same_shape_zero_hit`，Standard为0次。
@@ -31,7 +31,7 @@
   - 删除final rejection自动follow-up后，不再产生对应的无业务请求。
   - 新focused/complex样本不出现`TaskSpaceFinalAnswerRejectedV1`或`final_rejected`。
   - 若仍有零命中，按最终wire前缀和请求间隔作为新的独立证据重新分类。
-- Current conclusion: H-001已确认并随final loop修复完成。新focused/complex R5样本共24个provider requests，0 zero hit、0 same-shape zero；无需缓存等待、重试或额外Runtime控制。
+- Current conclusion: H-001已确认并随final loop修复完成。单轮smoke及后续3-repeat的R5共78个provider requests，0 zero hit、0 same-shape zero；无需缓存等待、重试或额外Runtime控制。
 - Related hypotheses:
   - H-001
   - H-002
@@ -279,3 +279,27 @@
   ```
 - Interpretation: 同根修复消除了本轮已证实的缓存异常触发源；没有证据支持新增缓存层补丁。
 - Time: 2026-07-13 00:33
+
+## Evidence E-006: 修复后3-repeat缓存异常未复现
+- Related hypotheses:
+  - H-001
+- Direction: supports
+- Type: fix-validation
+- Source: `target/r5-final-loop-fix-repeat3` provider cache traces
+- Prediction or plan link:
+  - P-001多轮稳定性验收
+- Matched signal:
+  - focused R5三轮26 requests，request-2+聚合命中95.28%；complex R5三轮28 requests，命中94.32%。
+  - 六轮zero cache hit和same-shape zero均为0，所有trace coverage为100%。
+  - complex相对Standard cache delta为-1.71pp，仍在预定不回退超过2pp门限内。
+- Correlation keys:
+  - `count-call-stack/20260713-002149-383`
+  - `subscription-billing-repair/20260713-002149-397`
+- Raw content:
+  ```text
+  R5 requests=54
+  zero_cache_hit=0
+  same_shape_zero_hit=0
+  ```
+- Interpretation: 删除即时自动follow-up后，历史可重现的同形零命中共同触发源已消失。
+- Time: 2026-07-13 00:36

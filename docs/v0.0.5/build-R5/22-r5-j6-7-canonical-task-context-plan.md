@@ -3,7 +3,7 @@
 - Created: 2026-07-12
 - Updated: 2026-07-12
 - Version: 1.2
-- Status: In progress / J6.7.0-J6.7.7 A-F complete; G blocked by 3-repeat final-rejection provider loop
+- Status: In progress / J6.7.0-J6.7.7 engineering/live complete; G adversarial review pending authorization
 - Owner / Responsible: WhaleCode core runtime / TaskSpace context
 - Related Systems: `action_map`、`ConversationHistory`、session turn、provider prompt builder、
   `taskspace_control`、compaction、output refs、benchmark observer
@@ -457,10 +457,10 @@ node-local详情；若骨架本身超过hard context budget，显式报告`map_s
 | checkpoint/ref | 渐进暴露无正文重复 | projection/compaction/output ref | context pressure | compaction tests | omission/ref trace | landed |
 | old path deletion | 无双写和兼容 | history composer/runtime | all TaskSpace turns | call graph/build | old_path_count=0 | landed |
 | initial benefit gate | 正确性和成本可证明 | Docker benchmark | paired run | validators | performance report | landed |
-| cross-carrier owner | final/nested/blank只保留唯一provider owner | event linearizer/session/control | next turn/resume | lineage fixtures | post-terminal report | planned |
-| global Map projection | 全局骨架完整，局部详情分层且可恢复 | projection/event ref | resume/compaction | skeleton/tier/ref | coverage/detail bytes | planned |
-| incremental replay | snapshot只在生命周期边界 | rollout/state replay | persistence | replay hash | snapshot ratio | planned |
-| final benefit/review | residual全部关闭 | Docker benchmark | paired run | validators/review | final report | planned |
+| cross-carrier owner | final/nested/blank只保留唯一provider owner | event linearizer/session/control | next turn/resume | lineage fixtures | post-terminal report | landed |
+| global Map projection | 全局骨架完整，局部详情分层且可恢复 | projection/event ref | resume/compaction | skeleton/tier/ref | coverage/detail bytes | landed |
+| incremental replay | snapshot只在生命周期边界 | rollout/state replay | persistence | replay hash | snapshot ratio | landed |
+| final benefit/review | residual全部关闭 | Docker benchmark | paired run | validators/review | final report | engineering/live landed；review pending |
 
 仅production path接通并取得runtime证据后可标记`landed`；schema、fixture或test-only codec不能单独完成迁移。
 

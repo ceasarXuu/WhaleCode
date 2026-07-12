@@ -1,15 +1,16 @@
 # R5-J6.7.7 上下文残留收敛结果
 
 - Date: 2026-07-12
-- Status: Reopened; 3-repeat gate exposed final-rejection provider loop
+- Status: Engineering/live gate complete after repair; adversarial review pending authorization
 - Scope: J6.7.7-A 到 J6.7.7-G engineering/live gate
-- Final commit: `906362b`
+- Repair commits: `0032a38`, `9e30128`
 - R4: historical/unavailable，未补造request、token或cache数据
 
 ## 1. 结论
 
-J6.7.7-A-F已完成。G阶段的单次Docker收益门禁曾通过，但后续3-repeat复验暴露了严重的Runtime
-final-rejection provider loop，因此G已重开。TaskSpace fresh会话不再平行维护一份持续变化的
+J6.7.7-A-F已完成。G阶段后续3-repeat复验曾暴露严重的Runtime final-rejection provider loop；
+`0032a38`删除plain final拒绝注入和自动follow-up，`9e30128`补充open Map确定性集成测试，修复后的
+3-repeat engineering/live gate已通过。TaskSpace fresh会话不再平行维护一份持续变化的
 Map projection：Agent提交的initialize/control及其原始反馈就是自然上下文；只有resume、compaction或
 new epoch需要重建上下文时，才构造一次完整全局Map projection。该结构同时关闭了旧状态矛盾和DeepSeek
 prefix缓存断裂。
@@ -18,7 +19,36 @@ snapshot改为“生命周期full checkpoint + 相邻状态delta链”。固定�
 full checkpoint的路径已删除。最终两个样本的checkpoint/rollout均低于30%，相对J6.7.6 full snapshot
 bytes下降超过96%。
 
-J6.7尚未正式关闭：必须先修复该loop并重新通过3-repeat gate，之后才进入授权对抗性审查。J7继续blocked。
+J6.7尚未正式关闭：engineering/live已完成，仍需用户授权执行对抗性审查。J7继续blocked。
+
+## 1.2 修复后3-repeat复验（2026-07-13 00:21）
+
+有效artifacts：
+
+- focused：`target/r5-final-loop-fix-repeat3/count-call-stack/20260713-002149-383`；
+- complex：`target/r5-final-loop-fix-repeat3/subscription-billing-repair/20260713-002149-397`。
+
+| Sample | Mode | Solved | Requests | Tools | Wall | Input | Uncached | Request 2+ cache |
+|---|---|---:|---:|---:|---:|---:|---:|---:|
+| focused | Standard | 3/3 | 20 | 34 | 64.37s | 140,777 | 7,017 | 94.57% |
+| focused | R5 | 3/3 | 26 | 34 | 88.67s | 200,267 | 9,035 | 95.28% |
+| complex | Standard | 3/3 | 47 | 71 | 224.56s | 556,639 | 21,471 | 96.03% |
+| complex | R5 | 3/3 | 28 | 55 | 152.08s | 285,800 | 15,848 | 94.32% |
+
+| Sample | Request ratio | Tool ratio | Wall ratio | Input ratio | Uncached ratio | Cache delta |
+|---|---:|---:|---:|---:|---:|---:|
+| focused | 1.30x | 1.00x | 1.38x | 1.42x | 1.29x | +0.71pp |
+| complex | 0.60x | 0.77x | 0.68x | 0.51x | 0.74x | -1.71pp |
+
+六个R5 runs全部solved，合计54 requests；`TaskSpaceFinalAnswerRejectedV1`、`final_rejected`、zero cache hit和
+same-shape zero均为0。focused三轮及complex repeat-2由Agent直接给出plain final且Map未闭合；Runtime正常
+交付回答并忠实保留active Map，没有自动产生recovery request。其他complex两轮由Agent显式`finish_then_end`
+完成Map。该差异是Agent是否正确使用账本工具的结果，Runtime不再替Agent纠正或推进。
+
+缓存异常同时闭环：旧批次三个非异常same-shape zero分别发生在final rejection后的50ms、81ms和88ms即时
+follow-up；DeepSeek缓存构建为秒级且best-effort。修复删除了这些无业务请求，新六轮没有零命中，因此没有
+增加缓存等待、重试或Runtime缓存控制。证据见
+`coe/2026-07-13-00-28-r5-same-shape-zero-cache.md`。
 
 ## 1.1 三次重复复验（2026-07-12 23:12）
 
@@ -154,7 +184,7 @@ edges为0并触发observer机械warning `multi_node_map_without_edges`；Runtime
 | D nested/ack owner | complete |
 | E projection skeleton/detail | complete |
 | F incremental replay/storage | complete |
-| G engineering/live | failed on 3-repeat final-rejection loop |
-| G adversarial review | blocked until repair and rerun |
+| G engineering/live | complete；修复后focused/complex各3 repeats全部solved |
+| G adversarial review | pending user authorization |
 
-修复loop、重新通过3-repeat gate并完成对抗性审查后，才可正式关闭J6.7并解锁J7。
+经用户授权完成对抗性审查并关闭critical/high finding后，才可正式关闭J6.7并解锁J7。
