@@ -3,7 +3,7 @@
 - Created: 2026-07-12
 - Updated: 2026-07-12
 - Version: 1.0
-- Status: Planned / implementation not started
+- Status: In progress / J6.7.0 complete, J6.7.1 ready
 - Owner / Responsible: WhaleCode core runtime / TaskSpace context
 - Related Systems: `action_map`、`ConversationHistory`、session turn、provider prompt builder、
   `taskspace_control`、compaction、output refs、benchmark observer
@@ -240,6 +240,11 @@ TaskSpace在已有Standard会话中激活时，任务相关items必须执行一�
 - Fallback：无代码行为变更，删除未完成观测改动。
 - Next Gate：证据完整后进入J6.7.1，否则停止。
 
+**实施结果（2026-07-12）：** 已完成。所有权矩阵、production调用链、生命周期路径和精确重复
+基线见 `23-r5-j6-7-phase0-ownership-audit.md`。production task item入口 owner unknown=0；
+observer self-test与两个现有Docker run读取通过。R4可执行快照不可用，按历史证据诚实标记，未补造复杂
+样本成本。J6.7.1 entry gate开放。
+
 ### Phase J6.7.1：无损事件合同与往返codec
 
 **目标：** 证明TaskSpace Store有能力完整承载基础任务上下文，尚不切production owner。
@@ -269,6 +274,8 @@ TaskSpace在已有Standard会话中激活时，任务相关items必须执行一�
   3. provider linearizer输出原生message/tool call/tool result结构。
   4. 删除TaskSpace对base task history的写入和读取；global context继续使用原history。
   5. 禁止silent fallback；event缺失、pair断裂或sequence冲突必须显式失败并记录。
+  6. 同一sequence合同修复退出、resume、rollback、fork和subagent owner；旧snapshot不得覆盖更新mode，
+     rollback不得恢复已撤销Map状态，fork不得保留错误lease owner，maintenance barrier不得丢失。
 - Deliverables：唯一production path、provider payload diff、删除清单。
 - Validation：session/unit/integration；`count-call-stack`和`multi-file-order-pipeline`横向各1次。
 - Exit：每个provider-visible task item有且只有一个source event；round-trip mismatch=0；
@@ -308,6 +315,7 @@ TaskSpace在已有Standard会话中激活时，任务相关items必须执行一�
   3. raw event仍在provider输入时，projection不得再次输出正文excerpt。
   4. compaction checkpoint记录covered sequence range、hash、refs和明确省略原因。
   5. 保持prefix append-only；不得逐请求重写前部完整Map。
+  6. output ref身份不得绑定单一thread rollout sidecar；fork/resume引用必须可机械恢复。
 - Deliverables：checkpoint contract、progressive exposure测试、cache trace。
 - Validation：`large-output-ref-smoke`与`multi-file-order-pipeline`横向各1次；压缩前后
   task/tool facts、role、pairing和可恢复引用一致。
