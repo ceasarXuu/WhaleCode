@@ -1365,7 +1365,7 @@ async fn build_initial_context_keeps_skills_without_blank_taskspace_context() {
 }
 
 #[tokio::test]
-async fn map_initialization_records_projection_after_control_output_once() {
+async fn clone_history_exposes_one_latest_unpersisted_map_projection() {
     let (session, turn_context) = make_session_and_context().await;
     {
         let mut state = session.state.lock().await;
@@ -1395,13 +1395,22 @@ async fn map_initialization_records_projection_after_control_output_once() {
                 crate::action_map::ActionMapInitializeInput {
                     task_title: "Initialize during turn".to_string(),
                     source_event_ids: vec!["task-event-1".to_string()],
-                    nodes: vec![crate::action_map::ActionMapInitializeNodeInput {
-                        id: "inspect".to_string(),
-                        kind: NodeKind::InspectCodeContext,
-                        title: "Inspect".to_string(),
-                        context_summary: "Inspect current code.".to_string(),
-                        dependency_node_ids: Vec::new(),
-                    }],
+                    nodes: vec![
+                        crate::action_map::ActionMapInitializeNodeInput {
+                            id: "inspect".to_string(),
+                            kind: NodeKind::InspectCodeContext,
+                            title: "Inspect".to_string(),
+                            context_summary: "Inspect current code.".to_string(),
+                            dependency_node_ids: Vec::new(),
+                        },
+                        crate::action_map::ActionMapInitializeNodeInput {
+                            id: "implement".to_string(),
+                            kind: NodeKind::ImplementSolution,
+                            title: "Implement".to_string(),
+                            context_summary: "Implement the verified change.".to_string(),
+                            dependency_node_ids: vec!["inspect".to_string()],
+                        },
+                    ],
                     current_node_id: "inspect".to_string(),
                 },
             )
@@ -1435,6 +1444,22 @@ async fn map_initialization_records_projection_after_control_output_once() {
         .position(is_action_map_projection_developer_item)
         .expect("projection");
     assert!(control_output_index < projection_index);
+    let developer_text = developer_input_texts(history.raw_items()).join("\n");
+    assert!(developer_text.contains("current_node: inspect"));
+
+    {
+        let mut state = session.state.lock().await;
+        state
+            .action_map_runtime
+            .finish_main_node_with_next(
+                session.conversation_id,
+                "inspect",
+                "task-event-result".to_string(),
+                Some("implement".to_string()),
+                None,
+            )
+            .expect("finish and bind next node");
+    }
 
     session
         .record_conversation_items(
@@ -1457,10 +1482,27 @@ async fn map_initialization_records_projection_after_control_output_once() {
             .count(),
         1
     );
+    let developer_text = developer_input_texts(history.raw_items()).join("\n");
+    assert!(developer_text.contains("current_node: implement"));
+    assert!(developer_text.contains("inspect kind=inspect_code_context status=completed"));
+
+    let canonical_projection_count = {
+        let state = session.state.lock().await;
+        state
+            .clone_history()
+            .raw_items()
+            .iter()
+            .filter(|item| is_action_map_projection_developer_item(item))
+            .count()
+    };
+    assert_eq!(
+        canonical_projection_count, 0,
+        "map projection is a current provider view and must not accumulate in canonical history"
+    );
 }
 
 #[tokio::test]
-async fn record_context_updates_keeps_one_taskspace_epoch_snapshot() {
+async fn record_context_updates_exposes_one_dynamic_taskspace_projection() {
     let (session, turn_context) = make_session_and_context().await;
     {
         let mut state = session.state.lock().await;
@@ -1528,14 +1570,23 @@ async fn record_context_updates_keeps_one_taskspace_epoch_snapshot() {
     let developer_text = developer_input_texts(history_after_second_update.raw_items()).join("\n");
     assert!(
         developer_text.contains("task_id: task-1") && developer_text.contains("map_id: map-1"),
-        "epoch snapshot should remain in append-only history: {developer_text}"
+        "provider history should expose the latest map projection: {developer_text}"
     );
     assert_eq!(
         developer_text
             .matches("ContextProjectionV1 epoch snapshot:")
             .count(),
         1,
-        "steady-state context updates must not append replacement snapshots: {developer_text}"
+        "provider history must contain exactly one dynamic map projection: {developer_text}"
+    );
+
+    let canonical_developer_text = {
+        let state = session.state.lock().await;
+        developer_input_texts(state.clone_history().raw_items()).join("\n")
+    };
+    assert!(
+        !canonical_developer_text.contains("ContextProjectionV1 epoch snapshot:"),
+        "dynamic map projection must not be persisted in canonical history: {canonical_developer_text}"
     );
 }
 

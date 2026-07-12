@@ -3313,50 +3313,6 @@ impl Session {
             self.persist_rollout_items(&rollout_items).await;
         }
         self.send_raw_response_items(turn_context, items).await;
-        self.record_action_map_epoch_projection_if_missing(turn_context)
-            .await;
-    }
-
-    async fn record_action_map_epoch_projection_if_missing(&self, turn_context: &TurnContext) {
-        let projection_item = {
-            let mut state = self.state.lock().await;
-            if state
-                .clone_history()
-                .raw_items()
-                .iter()
-                .any(is_action_map_projection_developer_item)
-            {
-                None
-            } else {
-                state
-                    .action_map_runtime
-                    .build_developer_context()
-                    .and_then(|context| {
-                        crate::context_manager::updates::build_developer_update_item(vec![context])
-                    })
-            }
-        };
-        let Some(projection_item) = projection_item else {
-            return;
-        };
-        if !is_action_map_projection_developer_item(&projection_item) {
-            return;
-        }
-
-        let taskspace_events = self
-            .record_into_context(std::slice::from_ref(&projection_item), turn_context)
-            .await;
-        let rollout_items = taskspace_events
-            .into_iter()
-            .map(|event| {
-                RolloutItem::EventMsg(EventMsg::MapRuntime(
-                    MapRuntimeEvent::TaskContextEventRecorded(event.to_protocol()),
-                ))
-            })
-            .collect::<Vec<_>>();
-        self.persist_rollout_items(&rollout_items).await;
-        self.send_raw_response_items(turn_context, &[projection_item])
-            .await;
     }
 
     pub(crate) async fn record_taskspace_child_item(
@@ -3623,10 +3579,6 @@ impl Session {
             let mut state = self.state.lock().await;
             state.action_map_runtime.take_pending_transition_notice()
         };
-        let action_map_context = {
-            let mut state = self.state.lock().await;
-            state.action_map_runtime.build_developer_context()
-        };
         if let Some(realtime_update) = crate::context_manager::updates::build_initial_realtime_item(
             reference_context_item.as_ref(),
             previous_turn_settings.as_ref(),
@@ -3709,9 +3661,6 @@ impl Session {
         // item so legacy TaskSpace filtering cannot drop stable developer text.
         if let Some(action_map_transition_notice) = action_map_transition_notice {
             taskspace_developer_sections.push(action_map_transition_notice);
-        }
-        if let Some(action_map_context) = action_map_context {
-            taskspace_developer_sections.push(action_map_context);
         }
         if let Some(user_instructions) = turn_context.user_instructions.as_deref() {
             contextual_user_sections.push(
@@ -3907,8 +3856,24 @@ impl Session {
     }
 
     pub(crate) async fn clone_history(&self) -> ContextManager {
-        let state = self.state.lock().await;
-        state.clone_history()
+        let mut state = self.state.lock().await;
+        let mut history = state.clone_history();
+        if state.action_map_runtime.mode() == MapRuntimeMode::Experiment {
+            let mut items = history
+                .raw_items()
+                .iter()
+                .filter(|item| !is_action_map_runtime_context_developer_item(item))
+                .cloned()
+                .collect::<Vec<_>>();
+            if let Some(context) = state.action_map_runtime.build_developer_context()
+                && let Some(item) =
+                    crate::context_manager::updates::build_developer_update_item(vec![context])
+            {
+                items.push(item);
+            }
+            history.replace(items);
+        }
+        history
     }
 
     pub(crate) async fn reference_context_item(&self) -> Option<TurnContextItem> {
@@ -3976,33 +3941,13 @@ impl Session {
             state.reference_context_item()
         };
         let should_inject_full_context = reference_context_item.is_none();
-        let mut context_items = if should_inject_full_context {
+        let context_items = if should_inject_full_context {
             self.build_initial_context(turn_context).await
         } else {
             // Steady-state path: append only context diffs to minimize token overhead.
             self.build_settings_update_items(reference_context_item.as_ref(), turn_context)
                 .await
         };
-        let action_map_epoch_snapshot_present = {
-            let state = self.state.lock().await;
-            state
-                .clone_history()
-                .raw_items()
-                .iter()
-                .any(is_action_map_projection_developer_item)
-        };
-        if !should_inject_full_context
-            && !action_map_epoch_snapshot_present
-            && let Some(action_map_context) = {
-                let mut state = self.state.lock().await;
-                state.action_map_runtime.build_developer_context()
-            }
-            && let Some(item) = crate::context_manager::updates::build_developer_update_item(vec![
-                action_map_context,
-            ])
-        {
-            context_items.push(item);
-        }
         let turn_context_item = turn_context.to_turn_context_item();
         if !context_items.is_empty() {
             self.record_conversation_items(turn_context, &context_items)
@@ -4608,6 +4553,23 @@ fn is_action_map_projection_developer_item(item: &ResponseItem) -> bool {
                 if text.contains("ContextProjectionV1 epoch snapshot:")
         )
     })
+}
+
+fn is_action_map_runtime_context_developer_item(item: &ResponseItem) -> bool {
+    if is_action_map_projection_developer_item(item) {
+        return true;
+    }
+    let ResponseItem::Message { role, content, .. } = item else {
+        return false;
+    };
+    role == "developer"
+        && content.iter().any(|entry| {
+            matches!(
+                entry,
+                ContentItem::InputText { text }
+                    if text.contains("TaskSpaceMapProjectionErrorV1")
+            )
+        })
 }
 
 use crate::memories::prompts::build_memory_tool_developer_instructions;
