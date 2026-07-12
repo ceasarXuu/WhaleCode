@@ -12,6 +12,7 @@ use crate::tools::handlers::taskspace_control_args::parse_taskspace_control_args
 use crate::tools::parallel::ToolCallExecution;
 use crate::tools::parallel::ToolCallRuntime;
 use crate::tools::router::ToolCall;
+use crate::tools::sequence_manifest::ToolSequenceManifest;
 
 pub(crate) struct TerminalAgentMessage {
     pub(crate) call_id: String,
@@ -39,6 +40,20 @@ pub(crate) async fn execute_response_tool_sequence(
             outputs: Vec::new(),
             terminal_agent_message: None,
         });
+    }
+
+    match ToolSequenceManifest::from_calls(&calls) {
+        Ok(manifest) => tracing::info!(
+            target: "codex_core::taskspace",
+            declared_tool_count = manifest.entries.len(),
+            request_patch_count = manifest.request_patch_count,
+            "tool.request_manifest_built"
+        ),
+        Err(error) => tracing::warn!(
+            target: "codex_core::taskspace",
+            error,
+            "tool.request_manifest_invalid"
+        ),
     }
 
     let segments = sequence_segments(&calls);
@@ -318,7 +333,7 @@ fn taskspace_nested_actions(call: &ToolCall) -> Vec<TaskSpaceNestedAction> {
         return Vec::new();
     };
     parse_taskspace_control_args(&arguments.to_string())
-        .map(|args| args.nested_actions().to_vec())
+        .map(|args| args.nested_actions())
         .unwrap_or_default()
 }
 
@@ -541,7 +556,7 @@ mod tests {
         let call = function_call_with_arguments(
             "taskspace_control",
             "outer",
-            r#"{"action":"initialize_then_actions","initial_nodes":[{"node_id":"node-1","kind":"inspect_code_context","goal":"Read"}],"current_node_id":"node-1","actions":[{"tool_name":"exec_command","arguments":{"cmd":"pwd"}}]}"#,
+            r#"{"action":"initialize_then_actions","initial_nodes":[{"node_id":"node-1","kind":"inspect_code_context","goal":"Read"}],"current_node_id":"node-1","continuation":{"kind":"actions","actions":[{"tool_name":"exec_command","arguments":{"cmd":"pwd"}}]}}"#,
         );
 
         let actions = taskspace_nested_actions(&call);

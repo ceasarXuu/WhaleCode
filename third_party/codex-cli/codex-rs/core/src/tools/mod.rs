@@ -12,6 +12,7 @@ pub(crate) mod router;
 pub(crate) mod runtimes;
 pub(crate) mod sandboxing;
 pub(crate) mod sequence;
+pub(crate) mod sequence_manifest;
 pub(crate) mod spec;
 pub(crate) mod tool_dispatch_trace;
 pub(crate) mod tool_search_entry;

@@ -3,7 +3,7 @@
 - Created: 2026-07-12
 - Updated: 2026-07-13
 - Version: 1.2
-- Status: J7.0-J7.1 complete; J7.2 in progress
+- Status: J7.0-J7.2 complete; J7.3 in progress
 - Owner / Responsible: WhaleCode TaskSpace / apply_patch substrate
 - Related Systems: provider response tool sequence、`taskspace_control` tool schema、nested ToolSpec、ToolRouter、
   `codex-apply-patch`、benchmark observer
@@ -174,13 +174,15 @@ request_patch_count <= 1
 
 ### 6.2 TaskSpace carrier推荐形态
 
-保留 J6 的 `initialize_then_actions` 和 `finish_then_actions` 顶层 action，但把宽泛 `actions[]` 替换为互斥的
-`continuation`：
+J6.6之后active Map已经通过provider response中的原生顶层ordinary tools表达后续动作，不再存在
+`finish_then_actions`。因此J7.2只替换bootstrap的`initialize_then_actions.actions[]`，将其收敛为互斥
+`continuation`；active control schema继续只表达Map状态操作，patch由共享request manifest覆盖：
 
 ```json
 {
-  "action": "finish_then_actions",
-  "finishes": ["Agent 声明的 finish steps"],
+  "action": "initialize_then_actions",
+  "initial_nodes": ["Agent 声明的初始节点"],
+  "current_node_id": "implement",
   "continuation": {
     "kind": "patch_then_actions",
     "patch": {
@@ -201,9 +203,10 @@ request_patch_count <= 1
 | `actions` | `actions: [non_patch_action, ...]` | 至少一个普通动作；列表中结构上不存在 `apply_patch` |
 | `patch_then_actions` | `patch: exact_apply_patch_payload` + `actions: [non_patch_action, ...]` | patch 恰好一个；尾部普通动作可为空 |
 
-该形态保留 `finish + patch + test` 的单 carrier 能力，同时让重复 patch 在 schema 中不可表达。`patch` 字段直接从
-当前 request 的 model-visible `apply_patch` ToolSpec 派生；若本轮未暴露 `apply_patch`，则不生成
-`patch_then_actions` 分支。
+该形态保留 `init map + patch + test` 的单carrier能力，同时让bootstrap内重复patch在schema中不可表达。
+active Map中的`finish + patch + test`继续通过同一provider response的顶层control barrier、patch和test表达。
+`patch`字段直接从当前request的model-visible `apply_patch` ToolSpec派生；若本轮未暴露`apply_patch`，则不生成
+`patch_then_actions`分支。
 
 ### 6.3 Provider 选择门禁
 
@@ -417,9 +420,9 @@ patch 正文、文件正文或 secret。
 |---|---|---|---|---|---|
 | evidence and provider probe | 冻结真实失败和可用 schema | benchmark artifacts / ToolSpec serialization | wire fixtures | provider body/hash | planned |
 | patch prepare/commit | validation failure 零副作用 | `apply-patch/src/transaction*.rs` | 64 lib + 22 CLI/scenario + fault injection | structured commit error | complete |
-| singular patch schema | carrier 最多一个 patch | `tools/src/taskspace_tool.rs` | schema snapshots | model-visible ToolSpec | planned |
-| typed carrier parser | schema/parser 单一契约 | `taskspace_control_args.rs` | positive/negative fixtures | protocol reason code | planned |
-| request tool manifest | 顶层/carrier/nested统一计算patch count | shared response tool-sequence dispatcher | Standard/TaskSpace fixtures | request patch count | planned |
+| singular patch schema | bootstrap carrier最多一个patch；active走native siblings | `tools/src/taskspace_tool.rs` | 3 schema tests | model-visible ToolSpec | complete |
+| typed carrier parser | schema/parser单一契约，旧`actions[]`拒绝 | `taskspace_control_args.rs` | 19 parser/handler tests | protocol reason code | complete |
+| request tool manifest | 顶层/carrier/nested统一计算patch count | `tools/sequence_manifest.rs` + shared sequence入口 | 2 manifest + 6 sequence + 8 scenario tests | `tool.request_manifest_built` | complete |
 | pre-state request validation | 非法request不执行任何工具、不改state/filesystem | shared dispatcher + `tools/sequence.rs` | snapshot integration | preflight event | planned |
 | native patch dispatch | 权限/沙箱/hook/反馈不分叉 | ToolRouter/ToolCallRuntime | security/output tests | derived call ids | planned |
 | observer | patch lifecycle 和读取观察可分账 | performance observer | extractor fixtures | aggregate metrics | planned |

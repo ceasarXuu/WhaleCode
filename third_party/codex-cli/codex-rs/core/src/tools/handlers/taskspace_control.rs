@@ -94,7 +94,7 @@ impl ToolHandler for TaskSpaceControlHandler {
             TaskSpaceControlArgs::InitializeThenActions {
                 initial_nodes,
                 current_node_id,
-                actions: _,
+                continuation: _,
             } => {
                 let source_event_ids = session
                     .taskspace_initialization_source_event_ids(&call_id)

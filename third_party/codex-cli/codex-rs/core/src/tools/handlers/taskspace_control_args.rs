@@ -9,7 +9,7 @@ pub(crate) enum TaskSpaceControlArgs {
     InitializeThenActions {
         initial_nodes: Vec<TaskSpaceInitializeNodeArgs>,
         current_node_id: String,
-        actions: Vec<TaskSpaceNestedAction>,
+        continuation: TaskSpaceContinuation,
     },
     FinishNodes {
         finishes: Vec<TaskSpaceNonterminalFinishArgs>,
@@ -81,6 +81,19 @@ pub(crate) struct TaskSpaceTerminalFinishArgs {
 }
 
 #[derive(Clone, Debug, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub(crate) enum TaskSpaceContinuation {
+    Actions {
+        actions: Vec<TaskSpaceNestedAction>,
+    },
+    PatchThenActions {
+        patch: TaskSpaceNestedAction,
+        #[serde(default)]
+        actions: Vec<TaskSpaceNestedAction>,
+    },
+}
+
+#[derive(Clone, Debug, Deserialize)]
 #[serde(untagged)]
 pub(crate) enum TaskSpaceNestedAction {
     Function(TaskSpaceNestedFunctionAction),
@@ -143,15 +156,15 @@ pub(crate) struct TaskSpaceNestedCustomAction {
 }
 
 impl TaskSpaceControlArgs {
-    pub(crate) fn nested_actions(&self) -> &[TaskSpaceNestedAction] {
+    pub(crate) fn nested_actions(&self) -> Vec<TaskSpaceNestedAction> {
         match self {
-            Self::InitializeThenActions { actions, .. } => actions,
+            Self::InitializeThenActions { continuation, .. } => continuation.actions(),
             Self::FinishNodes { .. }
             | Self::FinishThenEnd { .. }
             | Self::CreateNode { .. }
             | Self::BindNode { .. }
             | Self::BlockNode { .. }
-            | Self::ReadOutputRef { .. } => &[],
+            | Self::ReadOutputRef { .. } => Vec::new(),
         }
     }
 
@@ -159,15 +172,14 @@ impl TaskSpaceControlArgs {
         match self {
             Self::InitializeThenActions {
                 initial_nodes,
-                actions,
+                continuation,
                 ..
             } => {
                 require_non_empty(initial_nodes, "initial_nodes")?;
                 if initial_nodes.iter().any(|node| node.goal.trim().is_empty()) {
                     return invalid("each initial node requires a non-empty goal");
                 }
-                require_non_empty(actions, "actions")?;
-                validate_nested_actions(actions)
+                continuation.validate()
             }
             Self::FinishNodes { finishes } => {
                 require_non_empty(finishes, "finishes")?;
@@ -196,6 +208,35 @@ impl TaskSpaceControlArgs {
                 Ok(())
             }
             Self::BindNode { .. } | Self::BlockNode { .. } | Self::ReadOutputRef { .. } => Ok(()),
+        }
+    }
+}
+
+impl TaskSpaceContinuation {
+    fn actions(&self) -> Vec<TaskSpaceNestedAction> {
+        match self {
+            Self::Actions { actions } => actions.clone(),
+            Self::PatchThenActions { patch, actions } => {
+                let mut declared = Vec::with_capacity(actions.len() + 1);
+                declared.push(patch.clone());
+                declared.extend(actions.iter().cloned());
+                declared
+            }
+        }
+    }
+
+    fn validate(&self) -> Result<(), FunctionCallError> {
+        match self {
+            Self::Actions { actions } => {
+                require_non_empty(actions, "continuation.actions")?;
+                validate_nested_actions(actions)
+            }
+            Self::PatchThenActions { patch, actions } => {
+                if !is_plain_apply_patch(patch) {
+                    return invalid("continuation.patch must be the unnamespaced apply_patch tool");
+                }
+                validate_nested_actions(actions)
+            }
         }
     }
 }
@@ -233,18 +274,22 @@ pub(crate) fn parse_taskspace_control_args(
 
 fn validate_nested_actions(actions: &[TaskSpaceNestedAction]) -> Result<(), FunctionCallError> {
     for action in actions {
-        let name = match action {
-            TaskSpaceNestedAction::Function(action) => &action.tool_name,
-            TaskSpaceNestedAction::Custom(action) => &action.tool_name,
-        };
+        let name = action.tool_name();
         if name.trim().is_empty() {
             return invalid("nested action tool_name cannot be empty");
         }
-        if matches!(name.as_str(), "taskspace_control" | "update_plan") {
+        if matches!(name, "taskspace_control" | "update_plan") {
             return invalid("nested actions cannot call taskspace_control or update_plan");
+        }
+        if is_plain_apply_patch(action) {
+            return invalid("apply_patch is only valid in continuation.patch");
         }
     }
     Ok(())
+}
+
+fn is_plain_apply_patch(action: &TaskSpaceNestedAction) -> bool {
+    action.namespace().is_none() && action.tool_name() == "apply_patch"
 }
 
 fn require_non_empty<T>(items: &[T], field: &str) -> Result<(), FunctionCallError> {
@@ -305,7 +350,7 @@ mod tests {
     #[test]
     fn accepts_initialization_without_task_goal() {
         let args = parse_taskspace_control_args(
-            r#"{"action":"initialize_then_actions","initial_nodes":[{"node_id":"node-1","kind":"inspect_code_context","goal":"Inspect"}],"current_node_id":"node-1","actions":[{"tool_name":"exec_command","arguments":{"cmd":"pwd"}}]}"#,
+            r#"{"action":"initialize_then_actions","initial_nodes":[{"node_id":"node-1","kind":"inspect_code_context","goal":"Inspect"}],"current_node_id":"node-1","continuation":{"kind":"actions","actions":[{"tool_name":"exec_command","arguments":{"cmd":"pwd"}}]}}"#,
         )
         .expect("valid args");
         assert_eq!(args.nested_actions().len(), 1);
@@ -313,8 +358,30 @@ mod tests {
 
     #[test]
     fn rejects_removed_verbose_map_fields() {
-        let legacy = r#"{"action":"initialize_then_actions","task_goal":"goal","initial_nodes":[{"node_id":"node-1","kind":"inspect_code_context","goal":"Inspect"}],"current_node_id":"node-1","actions":[{"tool_name":"exec_command","arguments":{"cmd":"pwd"}}]}"#;
+        let legacy = r#"{"action":"initialize_then_actions","task_goal":"goal","initial_nodes":[{"node_id":"node-1","kind":"inspect_code_context","goal":"Inspect"}],"current_node_id":"node-1","continuation":{"kind":"actions","actions":[{"tool_name":"exec_command","arguments":{"cmd":"pwd"}}]}}"#;
         assert!(parse_taskspace_control_args(legacy).is_err());
+    }
+
+    #[test]
+    fn accepts_one_patch_followed_by_non_patch_actions() {
+        let args = parse_taskspace_control_args(
+            r#"{"action":"initialize_then_actions","initial_nodes":[{"node_id":"node-1","kind":"implement_solution","goal":"Edit"}],"current_node_id":"node-1","continuation":{"kind":"patch_then_actions","patch":{"tool_name":"apply_patch","input":"*** Begin Patch\n*** End Patch"},"actions":[{"tool_name":"exec_command","arguments":{"cmd":"cargo test"}}]}}"#,
+        )
+        .expect("valid patch continuation");
+        let actions = args.nested_actions();
+        assert_eq!(actions.len(), 2);
+        assert_eq!(actions[0].tool_name(), "apply_patch");
+        assert_eq!(actions[1].tool_name(), "exec_command");
+    }
+
+    #[test]
+    fn rejects_legacy_actions_and_patch_in_ordinary_actions() {
+        let legacy = r#"{"action":"initialize_then_actions","initial_nodes":[{"node_id":"node-1","kind":"implement_solution","goal":"Edit"}],"current_node_id":"node-1","actions":[{"tool_name":"apply_patch","input":"patch"}]}"#;
+        assert!(parse_taskspace_control_args(legacy).is_err());
+        let misplaced = r#"{"action":"initialize_then_actions","initial_nodes":[{"node_id":"node-1","kind":"implement_solution","goal":"Edit"}],"current_node_id":"node-1","continuation":{"kind":"actions","actions":[{"tool_name":"apply_patch","input":"patch"}]}}"#;
+        assert!(parse_taskspace_control_args(misplaced).is_err());
+        let repeated = r#"{"action":"initialize_then_actions","initial_nodes":[{"node_id":"node-1","kind":"implement_solution","goal":"Edit"}],"current_node_id":"node-1","continuation":{"kind":"patch_then_actions","patch":{"tool_name":"apply_patch","input":"patch-1"},"actions":[{"tool_name":"apply_patch","input":"patch-2"}]}}"#;
+        assert!(parse_taskspace_control_args(repeated).is_err());
     }
 
     #[test]

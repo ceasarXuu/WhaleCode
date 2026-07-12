@@ -10,7 +10,10 @@ fn bootstrap_call(call_id: &str) -> ResponseItem {
             "action": "initialize_then_actions",
             "initial_nodes": [{"node_id": "node-1", "kind": "inspect_code_context", "goal": "inspect"}],
             "current_node_id": "node-1",
-            "actions": [{"tool_name": "exec_command", "arguments": {"cmd": "pwd"}}]
+            "continuation": {
+                "kind": "actions",
+                "actions": [{"tool_name": "exec_command", "arguments": {"cmd": "pwd"}}]
+            }
         })
         .to_string(),
         call_id: call_id.into(),

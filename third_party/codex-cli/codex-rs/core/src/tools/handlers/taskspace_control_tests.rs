@@ -11,7 +11,10 @@ fn parses_agent_authored_map() {
                 "goal": "Read relevant code"
             }],
             "current_node_id": "inspect",
-            "actions": [{"tool_name": "exec_command", "arguments": {"cmd": "pwd"}}]
+            "continuation": {
+                "kind": "actions",
+                "actions": [{"tool_name": "exec_command", "arguments": {"cmd": "pwd"}}]
+            }
         })
         .to_string(),
     )

@@ -73,7 +73,10 @@ async fn terminal_candidate_finishes_turn_without_extra_provider_request() -> Re
             "goal": "Read README."
         }],
         "current_node_id": "inspect",
-        "actions": [{"tool_name": "exec_command", "arguments": {"cmd": "cat README.md"}}]
+        "continuation": {
+            "kind": "actions",
+            "actions": [{"tool_name": "exec_command", "arguments": {"cmd": "cat README.md"}}]
+        }
     }))?;
     responses::mount_sse_once_match(
         harness.server(),
@@ -138,7 +141,10 @@ async fn plain_final_with_open_map_finishes_turn_without_resampling() -> Result<
             "goal": "Read README but leave the node open."
         }],
         "current_node_id": "inspect",
-        "actions": [{"tool_name": "exec_command", "arguments": {"cmd": "cat README.md"}}]
+        "continuation": {
+            "kind": "actions",
+            "actions": [{"tool_name": "exec_command", "arguments": {"cmd": "cat README.md"}}]
+        }
     }))?;
     responses::mount_sse_once_match(
         harness.server(),
@@ -209,7 +215,10 @@ async fn nonterminal_finish_executes_sibling_action_after_barrier() -> Result<()
             }
         ],
         "current_node_id": "inspect",
-        "actions": [{"tool_name": "exec_command", "arguments": {"cmd": "pwd"}}]
+        "continuation": {
+            "kind": "actions",
+            "actions": [{"tool_name": "exec_command", "arguments": {"cmd": "pwd"}}]
+        }
     }))?;
     responses::mount_sse_once_match(
         harness.server(),
@@ -298,7 +307,10 @@ async fn adjacent_finish_calls_claim_successive_ready_targets() -> Result<()> {
             }
         ],
         "current_node_id": "first",
-        "actions": [{"tool_name": "exec_command", "arguments": {"cmd": "pwd"}}]
+        "continuation": {
+            "kind": "actions",
+            "actions": [{"tool_name": "exec_command", "arguments": {"cmd": "pwd"}}]
+        }
     }))?;
     responses::mount_sse_once_match(
         harness.server(),
@@ -382,7 +394,10 @@ async fn native_sequence_executes_dependent_tools_after_latest_state_barrier() -
             }
         ],
         "current_node_id": "inspect",
-        "actions": [{"tool_name": "exec_command", "arguments": {"cmd": "cat README.md"}}]
+        "continuation": {
+            "kind": "actions",
+            "actions": [{"tool_name": "exec_command", "arguments": {"cmd": "cat README.md"}}]
+        }
     }))?;
     responses::mount_sse_once_match(
         harness.server(),
@@ -515,7 +530,10 @@ async fn failed_state_barrier_skips_dependent_tail_without_side_effect() -> Resu
             "goal": "Read README before finishing."
         }],
         "current_node_id": "inspect",
-        "actions": [{"tool_name": "exec_command", "arguments": {"cmd": "cat README.md"}}]
+        "continuation": {
+            "kind": "actions",
+            "actions": [{"tool_name": "exec_command", "arguments": {"cmd": "cat README.md"}}]
+        }
     }))?;
     responses::mount_sse_once_match(
         harness.server(),
@@ -615,10 +633,13 @@ async fn map_runtime_conversation_records_node_bound_subagent_events() -> Result
             }
         ],
         "current_node_id": "coordinate",
-        "actions": [{
-            "tool_name": "spawn_agent",
-            "arguments": {"message": CHILD_PROMPT, "task_name": "scope"}
-        }]
+        "continuation": {
+            "kind": "actions",
+            "actions": [{
+                "tool_name": "spawn_agent",
+                "arguments": {"message": CHILD_PROMPT, "task_name": "scope"}
+            }]
+        }
     }))?;
 
     responses::mount_sse_once_match(
@@ -866,10 +887,13 @@ async fn mount_realistic_user_bugfix_responses(harness: &TestCodexHarness) -> Re
             }
         ],
         "current_node_id": "coordinate",
-        "actions": [{
-            "tool_name": "spawn_agent",
-            "arguments": {"message": REALISTIC_CHILD_PROMPT, "task_name": "scope"}
-        }]
+        "continuation": {
+            "kind": "actions",
+            "actions": [{
+                "tool_name": "spawn_agent",
+                "arguments": {"message": REALISTIC_CHILD_PROMPT, "task_name": "scope"}
+            }]
+        }
     }))?;
     responses::mount_sse_once_match(
         harness.server(),

@@ -86,26 +86,42 @@ fn custom_action_schema(name: &str) -> JsonSchema {
     )
 }
 
-fn nested_action_schema(visible_tools: &[ToolSpec]) -> JsonSchema {
-    let mut variants = Vec::new();
+struct NestedActionSchemas {
+    ordinary: JsonSchema,
+    patch: Option<JsonSchema>,
+}
+
+fn nested_action_schemas(visible_tools: &[ToolSpec]) -> NestedActionSchemas {
+    let mut ordinary_variants = Vec::new();
+    let mut patch_variant = None;
     for spec in visible_tools {
         match spec {
             ToolSpec::Function(tool)
                 if !matches!(tool.name.as_str(), "taskspace_control" | "update_plan") =>
             {
-                variants.push((tool.name.clone(), function_action_schema(tool, None)));
+                let schema = function_action_schema(tool, None);
+                if tool.name == "apply_patch" {
+                    patch_variant = Some(schema);
+                } else {
+                    ordinary_variants.push((tool.name.clone(), schema));
+                }
             }
             ToolSpec::Namespace(namespace) => {
                 for tool in &namespace.tools {
                     let ResponsesApiNamespaceTool::Function(tool) = tool;
-                    variants.push((
+                    ordinary_variants.push((
                         format!("{}.{}", namespace.name, tool.name),
                         function_action_schema(tool, Some(&namespace.name)),
                     ));
                 }
             }
             ToolSpec::Freeform(tool) => {
-                variants.push((tool.name.clone(), custom_action_schema(&tool.name)));
+                let schema = custom_action_schema(&tool.name);
+                if tool.name == "apply_patch" {
+                    patch_variant = Some(schema);
+                } else {
+                    ordinary_variants.push((tool.name.clone(), schema));
+                }
             }
             ToolSpec::Function(_)
             | ToolSpec::ToolSearch { .. }
@@ -114,11 +130,17 @@ fn nested_action_schema(visible_tools: &[ToolSpec]) -> JsonSchema {
             | ToolSpec::WebSearch { .. } => {}
         }
     }
-    variants.sort_by(|left, right| left.0.cmp(&right.0));
-    object_any_of(
-        variants.into_iter().map(|(_, schema)| schema).collect(),
-        "One Agent-authored ordinary tool call visible in this request.",
-    )
+    ordinary_variants.sort_by(|left, right| left.0.cmp(&right.0));
+    NestedActionSchemas {
+        ordinary: object_any_of(
+            ordinary_variants
+                .into_iter()
+                .map(|(_, schema)| schema)
+                .collect(),
+            "One ordinary non-patch tool call visible in this request.",
+        ),
+        patch: patch_variant,
+    }
 }
 
 fn initial_node_schema() -> JsonSchema {
@@ -211,7 +233,56 @@ fn terminal_finish_schema() -> JsonSchema {
     )
 }
 
-fn initialize_then_actions_schema(actions: &JsonSchema) -> JsonSchema {
+fn continuation_variant(
+    kind: &str,
+    mut properties: BTreeMap<String, JsonSchema>,
+    mut required: Vec<String>,
+) -> JsonSchema {
+    properties.insert(
+        "kind".into(),
+        JsonSchema::string_enum(vec![json!(kind)], Some("Continuation variant.".into())),
+    );
+    required.insert(0, "kind".into());
+    JsonSchema::object(properties, Some(required), Some(false.into()))
+}
+
+fn continuation_schema(has_patch: bool) -> JsonSchema {
+    let ordinary_action = JsonSchema::reference("#/$defs/ordinaryAction");
+    let mut variants = vec![continuation_variant(
+        "actions",
+        BTreeMap::from([(
+            "actions".into(),
+            JsonSchema::array(
+                ordinary_action.clone(),
+                Some("Immediate ordinary non-patch actions.".into()),
+            )
+            .with_min_items(1),
+        )]),
+        vec!["actions".into()],
+    )];
+    if has_patch {
+        variants.push(continuation_variant(
+            "patch_then_actions",
+            BTreeMap::from([
+                ("patch".into(), JsonSchema::reference("#/$defs/patchAction")),
+                (
+                    "actions".into(),
+                    JsonSchema::array(
+                        ordinary_action,
+                        Some("Ordinary non-patch actions after the patch.".into()),
+                    ),
+                ),
+            ]),
+            vec!["patch".into()],
+        ));
+    }
+    object_any_of(
+        variants,
+        "Exactly one declared continuation shape; patch_then_actions contains one patch slot.",
+    )
+}
+
+fn initialize_then_actions_schema(has_patch: bool) -> JsonSchema {
     object_variant(
         "initialize_then_actions",
         BTreeMap::from([
@@ -224,16 +295,12 @@ fn initialize_then_actions_schema(actions: &JsonSchema) -> JsonSchema {
                 "current_node_id".into(),
                 JsonSchema::string(Some("Initial node bound before actions execute.".into())),
             ),
-            (
-                "actions".into(),
-                JsonSchema::array(actions.clone(), Some("Immediate ordinary actions.".into()))
-                    .with_min_items(1),
-            ),
+            ("continuation".into(), continuation_schema(has_patch)),
         ]),
         vec![
             "initial_nodes".into(),
             "current_node_id".into(),
-            "actions".into(),
+            "continuation".into(),
         ],
     )
 }
@@ -329,17 +396,21 @@ fn simple_action_schemas() -> Vec<JsonSchema> {
 }
 
 pub fn create_taskspace_control_tool(visible_tools: &[ToolSpec]) -> ToolSpec {
-    let actions = nested_action_schema(visible_tools);
-    let actions_ref = JsonSchema::reference("#/$defs/ordinaryAction");
+    let actions = nested_action_schemas(visible_tools);
+    let has_patch = actions.patch.is_some();
+    let mut definitions = BTreeMap::from([("ordinaryAction".into(), actions.ordinary)]);
+    if let Some(patch) = actions.patch {
+        definitions.insert("patchAction".into(), patch);
+    }
     let parameters = object_any_of(
-        vec![initialize_then_actions_schema(&actions_ref)],
+        vec![initialize_then_actions_schema(has_patch)],
         "Initialize the TaskSpace map and execute immediate ordinary actions.",
     )
-    .with_definitions(BTreeMap::from([("ordinaryAction".into(), actions)]));
+    .with_definitions(definitions);
 
     ToolSpec::Function(ResponsesApiTool {
         name: "taskspace_control".into(),
-        description: "Mandatory mechanical TaskSpace bootstrap tool. initialize_then_actions initializes and binds the Agent-authored map before executing its non-empty ordinary action list. Runtime executes only the declared sequence and stops after the first failure.".into(),
+        description: "Mandatory mechanical TaskSpace bootstrap tool. initialize_then_actions initializes and binds the Agent-authored map, then executes its continuation in order. continuation.actions contains non-patch tools. continuation.patch_then_actions contains exactly one apply_patch slot followed by optional non-patch tools. Runtime executes only the declared sequence and stops after the first failure.".into(),
         strict: false,
         defer_loading: None,
         parameters,
@@ -361,76 +432,5 @@ pub fn create_taskspace_active_control_tool() -> ToolSpec {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::create_list_dir_tool;
-
-    #[test]
-    fn bootstrap_schema_requires_initialization_with_exact_actions() {
-        let list_dir = create_list_dir_tool();
-        let list_dir_value = serde_json::to_value(&list_dir).expect("serialize list_dir");
-        let value =
-            serde_json::to_value(create_taskspace_control_tool(&[list_dir])).expect("serialize");
-        assert_eq!(value["parameters"]["type"], json!("object"));
-        let variants = value["parameters"]["anyOf"].as_array().expect("variants");
-        let action_names = variants
-            .iter()
-            .filter_map(|variant| variant["properties"]["action"]["enum"][0].as_str())
-            .collect::<Vec<_>>();
-        assert_eq!(action_names, vec!["initialize_then_actions"]);
-        assert_eq!(
-            variants[0]["required"],
-            json!(["action", "initial_nodes", "current_node_id", "actions"])
-        );
-        let text = value.to_string();
-        assert!(!text.contains("task_goal"));
-        assert!(!text.contains("task_title"));
-        assert!(!text.contains("task_objective"));
-        assert!(!text.contains("context_summary"));
-        assert_eq!(
-            value["parameters"]["$defs"]["ordinaryAction"]["anyOf"][0]["properties"]["arguments"],
-            list_dir_value["parameters"]
-        );
-    }
-
-    #[test]
-    fn active_schema_contains_no_ordinary_tool_expression() {
-        let value =
-            serde_json::to_value(create_taskspace_active_control_tool()).expect("serialize");
-        let text = value.to_string();
-        let actions = value["parameters"]["anyOf"]
-            .as_array()
-            .expect("variants")
-            .iter()
-            .map(|variant| variant["properties"]["action"]["enum"][0].as_str().unwrap())
-            .collect::<Vec<_>>();
-        assert!(actions.contains(&"finish_nodes"));
-        assert!(actions.contains(&"finish_then_end"));
-        assert!(!text.contains("ordinaryAction"));
-        assert!(!text.contains("tool_name"));
-        assert!(!text.contains("arguments"));
-        assert!(text.contains("next_node_goal"));
-        assert!(!text.contains("result_summary"));
-        assert!(!text.contains("blocker_summary"));
-        assert!(!text.contains("task_title"));
-        assert!(!text.contains("context_summary"));
-        let block = value["parameters"]["anyOf"]
-            .as_array()
-            .expect("variants")
-            .iter()
-            .find(|variant| variant["properties"]["action"]["enum"][0] == json!("block_node"))
-            .expect("block variant");
-        let block_properties = block["properties"].as_object().expect("block properties");
-        assert_eq!(block_properties.len(), 2);
-        assert!(block_properties.contains_key("action"));
-        assert!(block_properties.contains_key("node_id"));
-        assert_eq!(block["required"], json!(["action", "node_id"]));
-        let finish = value["parameters"]["anyOf"]
-            .as_array()
-            .expect("variants")
-            .iter()
-            .find(|variant| variant["properties"]["action"]["enum"][0] == json!("finish_nodes"))
-            .expect("finish variant");
-        assert_eq!(finish["properties"]["finishes"]["minItems"], json!(1));
-    }
-}
+#[path = "taskspace_tool_tests.rs"]
+mod tests;
