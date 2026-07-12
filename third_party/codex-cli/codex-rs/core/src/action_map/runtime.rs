@@ -321,6 +321,7 @@ pub(crate) struct ActionMapExactPayloadScanEventInput {
     pub(crate) matcher_version: String,
     pub(crate) checked_byte_ranges: Vec<(usize, usize)>,
     pub(crate) negative_checks_performed: Vec<String>,
+    pub(crate) projection_required: bool,
     pub(crate) active_projection_present: bool,
     pub(crate) active_projection_count: usize,
     pub(crate) large_raw_output_tokens: usize,
@@ -2322,6 +2323,7 @@ impl ActionMapRuntimeState {
                     format!("matcher_version:{}", scan.matcher_version),
                     format!("checked_byte_ranges:{checked_byte_ranges}"),
                     format!("negative_checks_performed:{negative_checks_performed}"),
+                    format!("projection_required:{}", scan.projection_required),
                     format!(
                         "active_projection_present:{}",
                         scan.active_projection_present

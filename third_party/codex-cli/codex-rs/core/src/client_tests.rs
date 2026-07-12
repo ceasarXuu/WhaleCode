@@ -381,6 +381,19 @@ fn provider_request_budget_records_started_and_terminal_status() {
 
 #[test]
 fn provider_payload_scan_validates_canonical_projection_shape() {
+    let blank_bootstrap = provider_payload_digest(&json!({
+        "input": "user task",
+        "tools": [{
+            "type": "function",
+            "function": { "name": "taskspace_control" }
+        }]
+    }))
+    .expect("blank bootstrap payload digest");
+    assert!(!blank_bootstrap.scan.projection_required);
+    assert_eq!(blank_bootstrap.scan.active_projection_count, 0);
+    assert!(blank_bootstrap.scan.passed);
+    assert!(blank_bootstrap.scan.replacement_confirmed);
+
     let active_projection = concat!(
         "ContextProjectionV1 epoch snapshot:\n",
         "- task_id: task-1\n",
@@ -421,6 +434,7 @@ fn provider_payload_scan_validates_canonical_projection_shape() {
         "scan failure reasons: {:?}",
         active.scan.failure_reasons
     );
+    assert!(active.scan.projection_required);
     assert_eq!(active.scan.active_projection_count, 1);
     assert!(active.scan.replacement_confirmed);
 

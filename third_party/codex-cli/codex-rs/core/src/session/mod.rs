@@ -1149,6 +1149,7 @@ impl Session {
                         matcher_version: scan.matcher_version,
                         checked_byte_ranges: scan.checked_byte_ranges,
                         negative_checks_performed: scan.negative_checks_performed,
+                        projection_required: scan.projection_required,
                         active_projection_present: scan.active_projection_present,
                         active_projection_count: scan.active_projection_count,
                         large_raw_output_tokens: scan.large_raw_output_tokens,

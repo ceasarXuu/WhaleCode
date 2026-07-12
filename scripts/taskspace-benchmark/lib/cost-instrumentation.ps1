@@ -410,6 +410,7 @@ function New-TaskspaceExactPayloadScanEvents {
             matcher_version = [string]$tags.matcher_version
             checked_byte_ranges = [string]$tags.checked_byte_ranges
             negative_checks_performed = [string]$tags.negative_checks_performed
+            projection_required = Convert-TaskspaceTraceBool $tags.projection_required $true
             active_projection_present = Convert-TaskspaceTraceBool $tags.active_projection_present $false
             active_projection_count = Convert-TaskspaceTraceInt $tags.active_projection_count
             large_raw_output_tokens = Convert-TaskspaceTraceInt $tags.large_raw_output_tokens
@@ -442,7 +443,7 @@ function New-TaskspaceActiveReplacementArtifacts {
         $_ | Add-Member -NotePropertyName matching_provider_event -NotePropertyValue ([bool]$providerByJoin.ContainsKey($joinKey)) -Force
         $_
     })
-    $selected = @($scanEvents | Where-Object { [bool]$_.passed -and [bool]$_.matching_provider_event } | Select-Object -First 1)
+    $selected = @($scanEvents | Where-Object { [bool]$_.passed -and [bool]$_.matching_provider_event -and [bool]$_.projection_required } | Select-Object -First 1)
     if ($selected.Count -eq 0) {
         $selected = @($scanEvents | Select-Object -First 1)
     }
@@ -452,10 +453,11 @@ function New-TaskspaceActiveReplacementArtifacts {
         Group-Object -Property scan_event_id |
         ForEach-Object { $_.Group | Select-Object -First 1 })
     $failedMatchingScanEvents = @($matchingScanEvents | Where-Object { -not [bool]$_.passed })
-    $unconfirmedMatchingScanEvents = @($matchingScanEvents | Where-Object { -not [bool]$_.replacement_confirmed })
-    $projectionUniquenessViolations = @($matchingScanEvents | Where-Object { [int]$_.active_projection_count -ne 1 })
-    $projectionCountMaximum = if ($matchingScanEvents.Count -gt 0) {
-        [int](($matchingScanEvents | Measure-Object -Property active_projection_count -Maximum).Maximum)
+    $projectionScanEvents = @($matchingScanEvents | Where-Object { [bool]$_.projection_required })
+    $unconfirmedMatchingScanEvents = @($projectionScanEvents | Where-Object { -not [bool]$_.replacement_confirmed })
+    $projectionUniquenessViolations = @($projectionScanEvents | Where-Object { [int]$_.active_projection_count -ne 1 })
+    $projectionCountMaximum = if ($projectionScanEvents.Count -gt 0) {
+        [int](($projectionScanEvents | Measure-Object -Property active_projection_count -Maximum).Maximum)
     } else { 0 }
     $allMatchingPayloadScansPassed = ($matchingScanEvents.Count -gt 0 -and $failedMatchingScanEvents.Count -eq 0)
     $replacementConfirmed = ($allMatchingPayloadScansPassed -and $unconfirmedMatchingScanEvents.Count -eq 0 -and $projectionUniquenessViolations.Count -eq 0)

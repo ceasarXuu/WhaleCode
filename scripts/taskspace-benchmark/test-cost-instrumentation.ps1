@@ -122,6 +122,7 @@ $obs = [pscustomobject]@{
                 "matcher_version:v005-marker-and-structural-negative-checks-2",
                 "checked_byte_ranges:0-4321",
                 "negative_checks_performed:active_projection_uniqueness,large_raw_output,runtime_boundary_forbidden_markers",
+                "projection_required:true",
                 "active_projection_present:true",
                 "active_projection_count:1",
                 "large_raw_output_tokens:0",
@@ -495,6 +496,7 @@ Assert-True ($scanEvents.Count -eq 1 -and [bool]$scanEvents[0].passed -and [stri
 Assert-True ([bool]$scanEvents[0].protected_items_present) "exact payload scan should preserve protected item proof"
 Assert-True ([string]$scanEvents[0].runtime_boundary_forbidden_markers -eq "none") "exact payload scan should preserve boundary marker proof"
 Assert-True ([int]$scanEvents[0].active_projection_count -eq 1) "exact payload scan should preserve active projection count"
+Assert-True ([bool]$scanEvents[0].projection_required) "exact payload scan should preserve projection requirement"
 Assert-True ($providerEvents.Count -eq 3 -and [string]$providerEvents[0].schema_version -eq "taskspace-provider-request-budget-event-v1") "provider request events were not derived from runtime budget trace"
 Assert-True (@($providerEvents | Where-Object { [string]$_.producer -eq "provider_lifecycle" }).Count -eq 3) "provider request events did not preserve provider_lifecycle producer"
 Assert-True ([string]$providerEvents[0].provider_wire_api -eq "ChatCompletions" -and [int]$providerEvents[0].tools_count -eq 24 -and [string]$providerEvents[0].request_shape_classifier -eq "native_tools_schema_hot_path") "provider request events did not preserve cache request shape fields"
@@ -512,12 +514,29 @@ $repeatedLifecycleReplacement = New-TaskspaceActiveReplacementArtifacts $budgetE
 Assert-True ([int]$repeatedLifecycleReplacement.active_context_replacement_report.matching_payload_scan_count -eq 1) "repeated lifecycle scans should be deduplicated by scan event id"
 $budgetOnlyReplacement = New-TaskspaceActiveReplacementArtifacts $budgetEvents @()
 Assert-True (-not [bool]$budgetOnlyReplacement.active_context_replacement_report.exact_payload_scan_passed -and @($budgetOnlyReplacement.exact_payload_scan_events).Count -eq 0) "budget-only payload booleans should not synthesize exact scan evidence"
+$blankBootstrapScan = [pscustomobject]@{
+    scan_event_id = "scan-provider-request-blank"
+    request_id = [string]$scanEvents[0].request_id
+    provider_payload_sha256 = [string]$scanEvents[0].provider_payload_sha256
+    producer = "provider_payload_scanner"
+    matching_provider_event = $true
+    projection_required = $false
+    passed = $true
+    replacement_confirmed = $true
+    active_projection_count = 0
+    large_raw_output_tokens = 0
+    runtime_boundary_forbidden_markers = "none"
+    protected_items_present = $false
+}
+$mixedBootstrapReplacement = New-TaskspaceActiveReplacementArtifacts $budgetEvents @($blankBootstrapScan, $scanEvents[0])
+Assert-True ([bool]$mixedBootstrapReplacement.active_context_replacement_report.replacement_confirmed -and [int]$mixedBootstrapReplacement.active_context_replacement_report.active_projection_uniqueness_violation_count -eq 0) "blank bootstrap should not count as active projection uniqueness violation"
 $duplicateProjectionScan = [pscustomobject]@{
     scan_event_id = "scan-provider-request-duplicate"
     request_id = [string]$scanEvents[0].request_id
     provider_payload_sha256 = [string]$scanEvents[0].provider_payload_sha256
     producer = "provider_payload_scanner"
     matching_provider_event = $true
+    projection_required = $true
     passed = $false
     replacement_confirmed = $false
     active_projection_count = 2

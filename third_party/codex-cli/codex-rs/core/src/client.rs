@@ -175,6 +175,7 @@ pub(crate) struct ExactPayloadScanEventV1 {
     pub(crate) matcher_version: String,
     pub(crate) checked_byte_ranges: Vec<(usize, usize)>,
     pub(crate) negative_checks_performed: Vec<String>,
+    pub(crate) projection_required: bool,
     pub(crate) active_projection_present: bool,
     pub(crate) active_projection_count: usize,
     pub(crate) large_raw_output_tokens: usize,
@@ -952,6 +953,7 @@ fn scan_provider_payload_text(
     text: &str,
     value: &serde_json::Value,
 ) -> ExactPayloadScanEventV1 {
+    let projection_required = !provider_payload_is_blank_taskspace_bootstrap(value);
     let active_projection_count = text.matches(TASKSPACE_ACTIVE_PROJECTION_MARKER).count();
     let active_projection_present = active_projection_count > 0;
     let active_projection_block = text
@@ -978,16 +980,25 @@ fn scan_provider_payload_text(
     .filter(|marker| text.contains(marker))
     .map(str::to_string)
     .collect::<Vec<_>>();
-    let replacement_confirmed = active_projection_count == 1
-        && large_raw_output_tokens == 0
-        && protected_items_present
-        && runtime_boundary_forbidden_markers.is_empty();
+    let replacement_confirmed = if projection_required {
+        active_projection_count == 1
+            && large_raw_output_tokens == 0
+            && protected_items_present
+            && runtime_boundary_forbidden_markers.is_empty()
+    } else {
+        active_projection_count == 0
+            && large_raw_output_tokens == 0
+            && runtime_boundary_forbidden_markers.is_empty()
+    };
     let mut failure_reasons = Vec::new();
-    if !active_projection_present {
+    if projection_required && !active_projection_present {
         failure_reasons.push("active_projection_missing".to_string());
     }
-    if active_projection_count != 1 {
+    if projection_required && active_projection_count != 1 {
         failure_reasons.push("active_projection_not_unique".to_string());
+    }
+    if !projection_required && active_projection_count != 0 {
+        failure_reasons.push("blank_bootstrap_projection_present".to_string());
     }
     if large_raw_output_tokens > 0 {
         failure_reasons.push("large_raw_output_present".to_string());
@@ -995,7 +1006,7 @@ fn scan_provider_payload_text(
     if !runtime_boundary_forbidden_markers.is_empty() {
         failure_reasons.push("runtime_boundary_forbidden_marker_present".to_string());
     }
-    if !protected_items_present {
+    if projection_required && !protected_items_present {
         failure_reasons.push("projection_required_sections_missing".to_string());
     }
     ExactPayloadScanEventV1 {
@@ -1003,14 +1014,15 @@ fn scan_provider_payload_text(
         scan_event_id: format!("scan:{request_id}:{sha256}"),
         request_id: request_id.to_string(),
         provider_payload_sha256: sha256.to_string(),
-        scanner_version: "v005-exact-scan-5".to_string(),
-        matcher_version: "v005-canonical-projection-checks-5".to_string(),
+        scanner_version: "v005-exact-scan-6".to_string(),
+        matcher_version: "v005-canonical-projection-checks-6".to_string(),
         checked_byte_ranges: vec![(0, text.len())],
         negative_checks_performed: vec![
             "active_projection_uniqueness".to_string(),
             "large_raw_output".to_string(),
             "runtime_boundary_forbidden_markers".to_string(),
         ],
+        projection_required,
         active_projection_present,
         active_projection_count,
         large_raw_output_tokens,
@@ -1020,6 +1032,23 @@ fn scan_provider_payload_text(
         passed: failure_reasons.is_empty(),
         failure_reasons,
     }
+}
+
+fn provider_payload_is_blank_taskspace_bootstrap(value: &serde_json::Value) -> bool {
+    let Some(tools) = value.get("tools").and_then(serde_json::Value::as_array) else {
+        return false;
+    };
+    if tools.len() != 1 {
+        return false;
+    }
+    let tool = &tools[0];
+    tool.get("name")
+        .or_else(|| {
+            tool.get("function")
+                .and_then(|function| function.get("name"))
+        })
+        .and_then(serde_json::Value::as_str)
+        == Some("taskspace_control")
 }
 
 fn projection_block_contains_required_sections(block: &str) -> bool {
