@@ -112,6 +112,16 @@ fn mechanical_blank_map_blocks_ordinary_tools() {
 }
 
 #[test]
+fn mechanical_blank_map_has_no_provider_developer_context() {
+    let mut state = ActionMapRuntimeState::default();
+    let owner = ThreadId::new();
+    state.set_mode_for_session(MapRuntimeMode::Experiment, owner);
+
+    assert!(state.build_developer_context().is_none());
+    assert!(state.take_pending_transition_notice().is_none());
+}
+
+#[test]
 fn initialized_map_releases_provider_initialization_selection() {
     let (state, _, _) = initialized_state(vec![inspect_node("inspect")], "inspect");
     let snapshot = state

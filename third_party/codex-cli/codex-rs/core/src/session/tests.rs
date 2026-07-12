@@ -1291,7 +1291,7 @@ async fn record_initial_history_new_defers_initial_context_until_first_turn() {
 }
 
 #[tokio::test]
-async fn build_initial_context_consumes_action_map_transition_notice_once() {
+async fn build_initial_context_does_not_inject_blank_map_or_transition_context() {
     let (session, turn_context) = make_session_and_context().await;
     {
         let mut state = session.state.lock().await;
@@ -1301,30 +1301,27 @@ async fn build_initial_context_consumes_action_map_transition_notice_once() {
         );
     }
 
-    let first_context = session.build_initial_context(&turn_context).await;
-    let first_developer_text = developer_input_texts(&first_context).join("\n");
-    assert!(
-        first_developer_text.contains("TaskSpace mode is now active"),
-        "expected transition notice in developer context, got: {first_developer_text}"
-    );
-    assert!(first_developer_text.contains("execution_contract:"));
-    assert!(first_developer_text.contains("Agent-declared provider calls in order"));
-    assert!(first_developer_text.contains("strategy_owner: Agent"));
-    assert!(!first_developer_text.contains("nested actions"));
-    assert!(!first_developer_text.contains("Previous standard-mode conversation"));
-    assert!(!first_developer_text.contains("Prefer chaining"));
-    assert!(!first_developer_text.contains("standalone nonterminal finish"));
-
-    let second_context = session.build_initial_context(&turn_context).await;
-    let second_developer_text = developer_input_texts(&second_context).join("\n");
-    assert!(
-        !second_developer_text.contains("TaskSpace mode is now active"),
-        "transition notice should be consumed once, got: {second_developer_text}"
-    );
+    for context in [
+        session.build_initial_context(&turn_context).await,
+        session.build_initial_context(&turn_context).await,
+    ] {
+        let developer_text = developer_input_texts(&context).join("\n");
+        for stale in [
+            "TaskSpace mode is now active",
+            "ContextProjectionV1 epoch snapshot",
+            "TaskSpace v0.0.5 thin bootstrap",
+            "active_task_path_without_nodes",
+        ] {
+            assert!(
+                !developer_text.contains(stale),
+                "blank TaskSpace context must not inject {stale}: {developer_text}"
+            );
+        }
+    }
 }
 
 #[tokio::test]
-async fn build_initial_context_keeps_stable_skills_before_taskspace_context() {
+async fn build_initial_context_keeps_skills_without_blank_taskspace_context() {
     let (session, mut turn_context) = make_session_and_context().await;
     let mut outcome = SkillLoadOutcome::default();
     outcome.skills = vec![SkillMetadata {
@@ -1350,14 +1347,7 @@ async fn build_initial_context_keeps_stable_skills_before_taskspace_context() {
     let skills_index = first_developer_text
         .find("<skills_instructions>")
         .unwrap_or_else(|| panic!("expected skills instructions: {first_developer_text}"));
-    let taskspace_index = first_developer_text
-        .find("TaskSpace mode is now active")
-        .unwrap_or_else(|| panic!("expected TaskSpace context: {first_developer_text}"));
-
-    assert!(
-        skills_index < taskspace_index,
-        "stable skills block should precede dynamic TaskSpace context for provider prefix caching: {first_developer_text}"
-    );
+    assert!(skills_index < first_developer_text.len());
 
     let developer_texts = developer_input_texts(&initial_context);
     let stable_developer_text = developer_texts
@@ -1368,12 +1358,10 @@ async fn build_initial_context_keeps_stable_skills_before_taskspace_context() {
         !stable_developer_text.contains("TaskSpace mode is now active"),
         "stable developer item must not contain legacy TaskSpace markers that provider filtering omits: {stable_developer_text}"
     );
-    assert!(
-        developer_texts
-            .iter()
-            .any(|text| text.contains("TaskSpace mode is now active")),
-        "expected TaskSpace transition in a separate developer item: {developer_texts:?}"
-    );
+    assert!(developer_texts.iter().all(|text| {
+        !text.contains("TaskSpace mode is now active")
+            && !text.contains("ContextProjectionV1 epoch snapshot")
+    }));
 }
 
 #[tokio::test]

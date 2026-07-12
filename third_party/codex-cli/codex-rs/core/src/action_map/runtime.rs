@@ -1009,7 +1009,7 @@ impl ActionMapRuntimeState {
         let previous_mode = self.mode;
         self.mode = mode;
         if previous_mode != mode {
-            self.pending_transition_notice = Some(transition_notice(previous_mode, mode));
+            self.pending_transition_notice = transition_notice(previous_mode, mode);
             if mode == MapRuntimeMode::Experiment {
                 self.routing_required = true;
                 self.bootstrap_required = self.tasks.is_empty();
@@ -3889,6 +3889,27 @@ impl ActionMapRuntimeState {
         if self.mode != MapRuntimeMode::Experiment {
             return None;
         }
+        if self
+            .active_map_id
+            .as_ref()
+            .and_then(|map_id| self.maps.get(map_id))
+            .and_then(|map| {
+                map.task_id
+                    .as_ref()
+                    .and_then(|task_id| self.tasks.get(task_id))
+                    .map(|task| taskspace_task_path_is_mechanical_blank(task, map))
+            })
+            .unwrap_or(false)
+        {
+            tracing::debug!(
+                target: "codex_core::taskspace",
+                event_name = "taskspace.blank_context_omitted",
+                task_id = ?self.active_task_id,
+                map_id = ?self.active_map_id,
+                "mechanical blank map omitted from provider developer context"
+            );
+            return None;
+        }
         if let Some(context) = self.build_active_projection_developer_context() {
             return Some(context);
         }
@@ -6449,25 +6470,22 @@ fn now_ms() -> i64 {
         .unwrap_or_default()
 }
 
-fn transition_notice(previous_mode: MapRuntimeMode, current_mode: MapRuntimeMode) -> String {
+fn transition_notice(
+    previous_mode: MapRuntimeMode,
+    current_mode: MapRuntimeMode,
+) -> Option<String> {
     match (previous_mode, current_mode) {
-        (MapRuntimeMode::Standard, MapRuntimeMode::Experiment) => {
-            "TaskSpace mode is now active.\n\
-hard_state: ordinary tools require an active map node binding and lease.\n\
-execution_contract: runtime executes Agent-declared provider calls in order and enforces only hard state-machine rules.\n\
-strategy_owner: Agent."
-                .to_string()
-        }
-        (MapRuntimeMode::Experiment, MapRuntimeMode::Standard) => {
+        (MapRuntimeMode::Standard, MapRuntimeMode::Experiment) => None,
+        (MapRuntimeMode::Experiment, MapRuntimeMode::Standard) => Some(
             "TaskSpace mode is now disabled.\n\
 Existing task paths, nodes, leases, and results remain historical context only.\n\
 TaskSpace maintenance status: disabled. Task paths no longer impose node binding or task-driven protocol unless the user enables TaskSpace again.\n\
 Active runtime mode: standard Codex multi-agent behavior."
-                .to_string()
-        }
-        _ => {
-            format!("TaskSpace runtime mode changed from {previous_mode} to {current_mode}.")
-        }
+                .to_string(),
+        ),
+        _ => Some(format!(
+            "TaskSpace runtime mode changed from {previous_mode} to {current_mode}."
+        )),
     }
 }
 
