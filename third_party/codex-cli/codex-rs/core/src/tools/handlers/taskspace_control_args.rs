@@ -3,6 +3,8 @@ use codex_protocol::models::ResponseItem;
 use serde::Deserialize;
 use serde_json::Value as JsonValue;
 
+pub(crate) const TASKSPACE_CONTROL_RESULT_SCHEMA_VERSION: &str = "TaskSpaceControlResultV2";
+
 #[derive(Clone, Debug, Deserialize)]
 #[serde(tag = "action", rename_all = "snake_case", deny_unknown_fields)]
 pub(crate) enum TaskSpaceControlArgs {
@@ -17,7 +19,8 @@ pub(crate) enum TaskSpaceControlArgs {
     FinishThenEnd {
         #[serde(default)]
         preceding_finishes: Vec<TaskSpaceNonterminalFinishArgs>,
-        terminal_finish: TaskSpaceTerminalFinishArgs,
+        #[serde(default)]
+        terminal_node_id: Option<String>,
         final_candidate: String,
     },
     CreateNode {
@@ -63,21 +66,21 @@ pub(crate) struct TaskSpaceInitializeNodeArgs {
 pub(crate) struct TaskSpaceNonterminalFinishArgs {
     #[serde(default)]
     pub(crate) node_id: Option<String>,
-    #[serde(default)]
-    pub(crate) next_node_id: Option<String>,
-    #[serde(default)]
-    pub(crate) next_node_kind: Option<String>,
-    #[serde(default)]
-    pub(crate) next_node_goal: Option<String>,
-    #[serde(default)]
-    pub(crate) next_dependency_node_ids: Vec<String>,
+    pub(crate) next: TaskSpaceNextArgs,
 }
 
 #[derive(Clone, Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(crate) struct TaskSpaceTerminalFinishArgs {
-    #[serde(default)]
-    pub(crate) node_id: Option<String>,
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub(crate) enum TaskSpaceNextArgs {
+    Existing {
+        node_id: String,
+    },
+    Create {
+        node_kind: String,
+        goal: String,
+        #[serde(default)]
+        dependency_node_ids: Vec<String>,
+    },
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -243,23 +246,21 @@ impl TaskSpaceContinuation {
 
 impl TaskSpaceNonterminalFinishArgs {
     fn validate(&self) -> Result<(), FunctionCallError> {
-        let has_existing = non_empty(self.next_node_id.as_deref());
-        let draft_fields = [
-            self.next_node_kind.as_deref(),
-            self.next_node_goal.as_deref(),
-        ];
-        let has_any_draft = draft_fields.iter().any(|value| non_empty(*value))
-            || !self.next_dependency_node_ids.is_empty();
-        let has_complete_draft = draft_fields.iter().all(|value| non_empty(*value));
-        if has_existing == has_any_draft {
-            return invalid(
-                "each nonterminal finish requires exactly one next_node_id or next_node_* draft",
-            );
+        self.next.validate()
+    }
+}
+
+impl TaskSpaceNextArgs {
+    fn validate(&self) -> Result<(), FunctionCallError> {
+        match self {
+            Self::Existing { node_id } if node_id.trim().is_empty() => {
+                invalid("existing next binding requires a non-empty node_id")
+            }
+            Self::Create { goal, .. } if goal.trim().is_empty() => {
+                invalid("created next binding requires a non-empty goal")
+            }
+            Self::Existing { .. } | Self::Create { .. } => Ok(()),
         }
-        if has_any_draft && !has_complete_draft {
-            return invalid("next-node creation requires next_node_kind and next_node_goal");
-        }
-        Ok(())
     }
 }
 
@@ -302,10 +303,6 @@ fn require_non_empty<T>(items: &[T], field: &str) -> Result<(), FunctionCallErro
     }
 }
 
-fn non_empty(value: Option<&str>) -> bool {
-    value.is_some_and(|value| !value.trim().is_empty())
-}
-
 fn invalid<T>(message: impl Into<String>) -> Result<T, FunctionCallError> {
     Err(invalid_error(message.into()))
 }
@@ -313,7 +310,7 @@ fn invalid<T>(message: impl Into<String>) -> Result<T, FunctionCallError> {
 fn invalid_error(message: String) -> FunctionCallError {
     FunctionCallError::RespondToModel(
         serde_json::json!({
-            "schema_version": "TaskSpaceControlResultV1",
+            "schema_version": TASKSPACE_CONTROL_RESULT_SCHEMA_VERSION,
             "status": "protocol_failed",
             "success": false,
             "error": {
@@ -341,7 +338,7 @@ mod tests {
     #[test]
     fn accepts_complete_finish_barrier() {
         let args = parse_taskspace_control_args(
-            r#"{"action":"finish_nodes","finishes":[{"next_node_id":"node-2"}]}"#,
+            r#"{"action":"finish_nodes","finishes":[{"next":{"kind":"existing","node_id":"node-2"}}]}"#,
         )
         .expect("valid args");
         assert!(args.nested_actions().is_empty());
@@ -386,9 +383,9 @@ mod tests {
 
     #[test]
     fn rejects_removed_finish_result_summary() {
-        let nonterminal = r#"{"action":"finish_nodes","finishes":[{"result_summary":"done","next_node_id":"node-2"}]}"#;
+        let nonterminal = r#"{"action":"finish_nodes","finishes":[{"result_summary":"done","next":{"kind":"existing","node_id":"node-2"}}]}"#;
         assert!(parse_taskspace_control_args(nonterminal).is_err());
-        let terminal = r#"{"action":"finish_then_end","terminal_finish":{"result_summary":"done"},"final_candidate":"answer"}"#;
+        let terminal = r#"{"action":"finish_then_end","terminal_node_id":"node-2","result_summary":"done","final_candidate":"answer"}"#;
         assert!(parse_taskspace_control_args(terminal).is_err());
     }
 
@@ -401,9 +398,26 @@ mod tests {
     }
 
     #[test]
-    fn rejects_ambiguous_finish_binding() {
-        let ambiguous = r#"{"action":"finish_nodes","finishes":[{"next_node_id":"node-2","next_node_kind":"smoke_test","next_node_goal":"Run tests"}]}"#;
-        assert!(parse_taskspace_control_args(ambiguous).is_err());
+    fn accepts_tagged_created_binding_and_rejects_removed_flat_shape() {
+        let created = r#"{"action":"finish_nodes","finishes":[{"node_id":"node-1","next":{"kind":"create","node_kind":"smoke_test","goal":"Run tests","dependency_node_ids":["node-1"]}}]}"#;
+        parse_taskspace_control_args(created).expect("tagged created binding");
+
+        let removed = r#"{"action":"finish_nodes","finishes":[{"next_node_id":"node-2","next_node_kind":"smoke_test","next_node_goal":"Run tests"}]}"#;
+        assert!(parse_taskspace_control_args(removed).is_err());
+    }
+
+    #[test]
+    fn rejects_cross_variant_and_removed_terminal_wrapper() {
+        let cross_variant = r#"{"action":"finish_nodes","finishes":[{"next":{"kind":"existing","node_id":"node-2","goal":"Run tests"}}]}"#;
+        assert!(parse_taskspace_control_args(cross_variant).is_err());
+
+        let removed_terminal =
+            r#"{"action":"finish_then_end","terminal_finish":{},"final_candidate":"answer"}"#;
+        assert!(parse_taskspace_control_args(removed_terminal).is_err());
+        parse_taskspace_control_args(
+            r#"{"action":"finish_then_end","terminal_node_id":"node-2","final_candidate":"answer"}"#,
+        )
+        .expect("flat terminal target");
     }
 
     #[test]
@@ -420,7 +434,7 @@ mod tests {
         assert_eq!(
             value,
             serde_json::json!({
-                "schema_version": "TaskSpaceControlResultV1",
+                "schema_version": "TaskSpaceControlResultV2",
                 "status": "protocol_failed",
                 "success": false,
                 "error": {

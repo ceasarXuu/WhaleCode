@@ -24,7 +24,19 @@ fn committed_control_output(call_id: &str) -> ResponseItem {
     ResponseItem::FunctionCallOutput {
         call_id: call_id.into(),
         output: FunctionCallOutputPayload::from_text(
-            serde_json::json!({"status": "committed", "steps": []}).to_string(),
+            serde_json::json!({
+                "schema_version": "TaskSpaceControlResultV2",
+                "status": "committed",
+                "success": true,
+                "steps": [{
+                    "kind": "map_initialized",
+                    "task_id": "task-1",
+                    "map_id": "map-1",
+                    "created_node_ids": ["node-1"],
+                    "current_node_id": "node-1"
+                }]
+            })
+            .to_string(),
         ),
     }
 }
@@ -111,7 +123,7 @@ fn nested_call_and_output_are_independent_events_linked_to_outer_control() {
 }
 
 #[test]
-fn successful_bootstrap_hides_outer_pair_and_keeps_nested_pair_visible() {
+fn successful_bootstrap_keeps_identity_bearing_outer_pair_and_nested_pair_visible() {
     let mut store = TaskSpaceEventStore::new();
     let outer = bootstrap_call("outer-control");
     let outer_output = committed_control_output("outer-control");
@@ -138,7 +150,10 @@ fn successful_bootstrap_hides_outer_pair_and_keeps_nested_pair_visible() {
         .unwrap();
 
     assert_eq!(store.events().len(), 4);
-    assert_eq!(store.linearize(), vec![nested_call, nested_output]);
+    assert_eq!(
+        store.linearize(),
+        vec![outer, outer_output, nested_call, nested_output]
+    );
 }
 
 #[test]

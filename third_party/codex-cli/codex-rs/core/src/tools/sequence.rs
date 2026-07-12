@@ -365,7 +365,7 @@ fn aggregate_taskspace_batch_response(
         .and_then(|text| serde_json::from_str::<serde_json::Value>(text).ok())
         .unwrap_or_else(|| {
             serde_json::json!({
-                "schema_version": "TaskSpaceControlResultV1",
+                "schema_version": "TaskSpaceControlResultV2",
                 "status": "state_committed",
                 "success": true,
                 "steps": [{

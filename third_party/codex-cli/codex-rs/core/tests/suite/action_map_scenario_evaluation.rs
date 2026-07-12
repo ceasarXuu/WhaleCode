@@ -93,7 +93,7 @@ async fn terminal_candidate_finishes_turn_without_extra_provider_request() -> Re
     let exact_final = "Agent final line one.\nAgent final line two.";
     let finish = serde_json::to_string(&json!({
         "action": "finish_then_end",
-        "terminal_finish": {"node_id": "inspect"},
+        "terminal_node_id": "inspect",
         "final_candidate": exact_final
     }))?;
     responses::mount_sse_once_match(
@@ -123,6 +123,8 @@ async fn terminal_candidate_finishes_turn_without_extra_provider_request() -> Re
     let rollout = wait_for_rollout_fragment(&rollout_path, "Agent final line one.").await?;
     assert!(rollout.contains("\"phase\":\"final_answer\""));
     assert!(rollout.contains("Agent final line one.\\nAgent final line two."));
+    assert!(rollout.contains("terminal_transition"));
+    assert!(rollout.contains("finished_node_id"));
     Ok(())
 }
 
@@ -236,7 +238,7 @@ async fn nonterminal_finish_executes_sibling_action_after_barrier() -> Result<()
         "action": "finish_nodes",
         "finishes": [{
             "node_id": "inspect",
-            "next_node_id": "complete",
+            "next": {"kind": "existing", "node_id": "complete"},
         }]
     }))?;
     responses::mount_sse_once_match(
@@ -257,7 +259,7 @@ async fn nonterminal_finish_executes_sibling_action_after_barrier() -> Result<()
 
     let terminal_finish = serde_json::to_string(&json!({
         "action": "finish_then_end",
-        "terminal_finish": {"node_id": "complete"},
+        "terminal_node_id": "complete",
         "final_candidate": "Cadence ownership verified."
     }))?;
     responses::mount_sse_once_match(
@@ -328,9 +330,9 @@ async fn adjacent_finish_calls_claim_successive_ready_targets() -> Result<()> {
         "action": "finish_then_end",
         "preceding_finishes": [{
             "node_id": "first",
-            "next_node_id": "second"
+            "next": {"kind": "existing", "node_id": "second"}
         }],
-        "terminal_finish": {"node_id": "second"},
+        "terminal_node_id": "second",
         "final_candidate": "Both nodes finished in one response."
     }))?;
     responses::mount_sse_once_match(
@@ -416,7 +418,7 @@ async fn native_sequence_executes_dependent_tools_after_latest_state_barrier() -
         "action": "finish_nodes",
         "finishes": [{
             "node_id": "inspect",
-            "next_node_id": "implement"
+            "next": {"kind": "existing", "node_id": "implement"}
         }]
     }))?;
     responses::mount_sse_once_match(
@@ -435,7 +437,7 @@ async fn native_sequence_executes_dependent_tools_after_latest_state_barrier() -
         "action": "finish_nodes",
         "finishes": [{
             "node_id": "implement",
-            "next_node_id": "validate"
+            "next": {"kind": "existing", "node_id": "validate"}
         }]
     }))?;
     responses::mount_sse_once_match(
@@ -459,7 +461,7 @@ async fn native_sequence_executes_dependent_tools_after_latest_state_barrier() -
 
     let finish_validate = serde_json::to_string(&json!({
         "action": "finish_then_end",
-        "terminal_finish": {"node_id": "validate"},
+        "terminal_node_id": "validate",
         "final_candidate": "Fixture fixed and validated."
     }))?;
     responses::mount_sse_once_match(
@@ -489,6 +491,20 @@ async fn native_sequence_executes_dependent_tools_after_latest_state_barrier() -
         let text = request.to_string();
         text.contains(TEST_AFTER_FINISH_CALL_ID) && text.contains("validation-passed")
     }));
+    assert!(
+        requests
+            .iter()
+            .skip(1)
+            .any(|request| request.to_string().contains("created_node_ids")),
+        "initialization identities did not enter the next provider request"
+    );
+    assert!(
+        requests
+            .iter()
+            .skip(2)
+            .any(|request| request.to_string().contains("finished_node_id")),
+        "finish identities did not enter a later provider request"
+    );
     for call_id in [
         INIT_BARRIER_CALL_ID,
         READ_AFTER_INIT_CALL_ID,
@@ -639,7 +655,7 @@ async fn failed_state_barrier_skips_dependent_tail_without_side_effect() -> Resu
     .await;
     let finish = serde_json::to_string(&json!({
         "action": "finish_then_end",
-        "terminal_finish": {"node_id": "inspect"},
+        "terminal_node_id": "inspect",
         "final_candidate": "Failure path verified."
     }))?;
     responses::mount_sse_once_match(
@@ -824,6 +840,13 @@ async fn realistic_user_bugfix_runs_agent_actions_with_action_map() -> Result<()
     harness.submit(REALISTIC_USER_PROMPT).await?;
 
     let request_bodies = harness.request_bodies().await;
+    assert!(
+        request_bodies.iter().any(|request| {
+            let text = request.to_string();
+            text.contains("created") && text.contains("finished_node_id")
+        }),
+        "created-node identities did not enter a later request: {request_bodies:#?}"
+    );
     assert!(
         request_bodies
             .iter()
@@ -1035,8 +1058,11 @@ async fn mount_realistic_user_bugfix_responses(harness: &TestCodexHarness) -> Re
     let implementation_node_args = serde_json::to_string(&json!({
         "action": "finish_nodes",
         "finishes": [{
-            "next_node_kind": "implement_solution",
-            "next_node_goal": "Implement the cache key namespace normalization fix after the boundary investigation finished."
+            "next": {
+                "kind": "create",
+                "node_kind": "implement_solution",
+                "goal": "Implement the cache key namespace normalization fix after the boundary investigation finished."
+            }
         }]
     }))?;
     responses::mount_sse_once_match(
@@ -1079,7 +1105,6 @@ async fn mount_realistic_user_bugfix_responses(harness: &TestCodexHarness) -> Re
                 "taskspace_control",
                 &serde_json::to_string(&json!({
                     "action": "finish_then_end",
-                    "terminal_finish": {},
                     "final_candidate": "已修复缓存 key namespace 归一化问题，并运行验证通过。",
                 }))?,
             ),

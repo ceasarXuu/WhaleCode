@@ -4,7 +4,6 @@ use serde_json::Value as JsonValue;
 
 use crate::action_map::ActionMapInitializeInput;
 use crate::action_map::ActionMapInitializeNodeInput;
-use crate::action_map::ActionMapInitializeOutcome;
 use crate::action_map::ActionMapNextNodeDraft;
 use crate::action_map::NodeKind;
 use crate::action_map::TaskSpaceHardGateClass;
@@ -14,10 +13,16 @@ use crate::session::turn_context::TurnContext;
 use crate::tools::context::ToolInvocation;
 use crate::tools::context::ToolOutput;
 use crate::tools::context::ToolPayload;
+use crate::tools::handlers::taskspace_control_args::TASKSPACE_CONTROL_RESULT_SCHEMA_VERSION;
 use crate::tools::handlers::taskspace_control_args::TaskSpaceControlArgs;
+use crate::tools::handlers::taskspace_control_args::TaskSpaceNextArgs;
 use crate::tools::handlers::taskspace_control_args::TaskSpaceNonterminalFinishArgs;
-use crate::tools::handlers::taskspace_control_args::TaskSpaceTerminalFinishArgs;
 use crate::tools::handlers::taskspace_control_args::parse_taskspace_control_args;
+use crate::tools::handlers::taskspace_control_output::format_failed_state_step;
+use crate::tools::handlers::taskspace_control_output::format_initialize_step;
+use crate::tools::handlers::taskspace_control_output::format_state_batch;
+use crate::tools::handlers::taskspace_control_output::hard_state_reason;
+use crate::tools::handlers::taskspace_control_output::state_identity_coverage;
 use crate::tools::output_reference::OUTPUT_SLICE_MAX_BYTES;
 use crate::tools::output_reference::OutputSliceMode;
 use crate::tools::output_reference::OutputSliceRequest;
@@ -126,11 +131,7 @@ impl ToolHandler for TaskSpaceControlHandler {
                     .await
                     .map_err(state_machine_error)?;
                 (
-                    format_state_batch(
-                        "initialize_then_actions",
-                        vec![format_initialize_map_output(&outcome)],
-                        true,
-                    ),
+                    format_state_batch(vec![format_initialize_step(&outcome)], true),
                     true,
                     None,
                 )
@@ -143,15 +144,11 @@ impl ToolHandler for TaskSpaceControlHandler {
                 let (steps, success) =
                     execute_nonterminal_finishes(&session, &turn, finishes, &conclusion_event_id)
                         .await;
-                (
-                    format_state_batch("finish_nodes", steps, success),
-                    success,
-                    None,
-                )
+                (format_state_batch(steps, success), success, None)
             }
             TaskSpaceControlArgs::FinishThenEnd {
                 preceding_finishes,
-                terminal_finish,
+                terminal_node_id,
                 final_candidate,
             } => {
                 let conclusion_event_id = session
@@ -167,12 +164,14 @@ impl ToolHandler for TaskSpaceControlHandler {
                 .await;
                 let mut terminal_message = None;
                 if success {
+                    let terminal_index = steps.len();
                     match execute_terminal_finish(
                         &session,
                         &turn,
-                        terminal_finish,
+                        terminal_node_id,
                         &final_candidate,
                         &conclusion_event_id,
+                        terminal_index,
                     )
                     .await
                     {
@@ -187,7 +186,7 @@ impl ToolHandler for TaskSpaceControlHandler {
                     }
                 }
                 (
-                    format_state_batch("finish_then_end", steps, success),
+                    format_state_batch(steps, success),
                     success,
                     terminal_message,
                 )
@@ -278,6 +277,24 @@ impl ToolHandler for TaskSpaceControlHandler {
                 (slice, true, None)
             }
         };
+        if let Some((step_count, identity_complete)) = state_identity_coverage(&message) {
+            if success {
+                tracing::info!(
+                    target: "codex_core::taskspace",
+                    call_id,
+                    step_count,
+                    identity_complete,
+                    "taskspace.control_state_committed"
+                );
+            } else {
+                tracing::warn!(
+                    target: "codex_core::taskspace",
+                    call_id,
+                    step_count,
+                    "taskspace.control_state_rejected"
+                );
+            }
+        }
         Ok(TaskSpaceControlOutput {
             message,
             success,
@@ -294,7 +311,8 @@ async fn execute_nonterminal_finishes(
 ) -> (Vec<JsonValue>, bool) {
     let mut steps = Vec::with_capacity(finishes.len());
     for finish in finishes {
-        match execute_nonterminal_finish(session, turn, finish, conclusion_event_id).await {
+        let index = steps.len();
+        match execute_nonterminal_finish(session, turn, finish, conclusion_event_id, index).await {
             Ok(step) => steps.push(step),
             Err(error) => {
                 steps.push(format_failed_state_step(steps.len(), &error));
@@ -310,15 +328,21 @@ async fn execute_nonterminal_finish(
     turn: &TurnContext,
     finish: TaskSpaceNonterminalFinishArgs,
     conclusion_event_id: &str,
+    index: usize,
 ) -> Result<JsonValue, FunctionCallError> {
-    let requested_next_node_id = finish.next_node_id.clone();
-    let draft = build_next_node_draft(
-        finish.next_node_kind,
-        finish.next_node_goal,
-        finish.next_dependency_node_ids,
-    )?;
-    let creates_next_node = requested_next_node_id.is_none() && draft.is_some();
-    let (_, outcome) = session
+    let (requested_next_node_id, draft, next_kind) = match finish.next {
+        TaskSpaceNextArgs::Existing { node_id } => (Some(node_id), None, "existing"),
+        TaskSpaceNextArgs::Create {
+            node_kind,
+            goal,
+            dependency_node_ids,
+        } => (
+            None,
+            Some(build_next_node_draft(node_kind, goal, dependency_node_ids)?),
+            "created",
+        ),
+    };
+    let (finished_node_id, outcome) = session
         .finish_action_map_current_or_named_node_with_next(
             turn,
             finish.node_id.as_deref(),
@@ -328,68 +352,51 @@ async fn execute_nonterminal_finish(
         )
         .await
         .map_err(state_machine_error)?;
-    let mut step = serde_json::json!({
+    let next_node_id = outcome.next_node_id.ok_or_else(|| {
+        protocol_error(
+            "TaskSpace committed a nonterminal finish without a next node identity".into(),
+            "missing_committed_identity",
+        )
+    })?;
+    Ok(serde_json::json!({
+        "kind": "state_transition",
+        "index": index,
+        "finished_node_id": finished_node_id,
         "result_id": outcome.result_id,
-        "binding_status": if outcome.next_node_id.is_some() { "bound" } else { "unbound" },
-    });
-    if creates_next_node && let Some(bound_node_id) = outcome.next_node_id {
-        step["bound_node_id"] = JsonValue::String(bound_node_id);
-    }
-    Ok(step)
+        "next": {
+            "kind": next_kind,
+            "node_id": next_node_id,
+        },
+        "current_node_id": next_node_id,
+    }))
 }
 
 async fn execute_terminal_finish(
     session: &Session,
     turn: &TurnContext,
-    finish: TaskSpaceTerminalFinishArgs,
+    node_id: Option<String>,
     final_candidate: &str,
     conclusion_event_id: &str,
+    index: usize,
 ) -> Result<JsonValue, FunctionCallError> {
-    let (_, outcome) = session
+    let (finished_node_id, outcome) = session
         .finish_action_map_node_with_terminal_candidate(
             turn,
-            finish.node_id.as_deref(),
+            node_id.as_deref(),
             conclusion_event_id.to_string(),
             final_candidate,
         )
         .await
         .map_err(state_machine_error)?;
     Ok(serde_json::json!({
+        "kind": "terminal_transition",
+        "index": index,
+        "finished_node_id": finished_node_id,
         "result_id": outcome.result_id,
         "map_status": "completed",
         "task_status": "completed",
+        "current_node_id": JsonValue::Null,
     }))
-}
-
-fn format_failed_state_step(index: usize, error: &FunctionCallError) -> JsonValue {
-    let typed_result = serde_json::from_str::<JsonValue>(&error.to_string())
-        .unwrap_or_else(|_| serde_json::json!({"message": error.to_string()}));
-    let typed_error = typed_result.get("error").cloned().unwrap_or(typed_result);
-    serde_json::json!({
-        "kind": "state_transition",
-        "index": index,
-        "success": false,
-        "error": typed_error,
-    })
-}
-
-fn format_state_batch(action: &str, steps: Vec<JsonValue>, success: bool) -> String {
-    if success {
-        serde_json::json!({
-            "status": "committed",
-            "steps": steps,
-        })
-        .to_string()
-    } else {
-        serde_json::json!({
-            "schema_version": "TaskSpaceControlResultV1",
-            "action": action,
-            "status": "state_machine_failed",
-            "success": false,
-            "steps": steps,
-        })
-        .to_string()
-    }
 }
 
 fn parse_output_slice_mode(
@@ -440,40 +447,22 @@ fn parse_node_kind(field: &str, value: &str) -> Result<NodeKind, FunctionCallErr
 }
 
 fn build_next_node_draft(
-    kind: Option<String>,
-    goal: Option<String>,
+    kind: String,
+    goal: String,
     dependency_node_ids: Vec<String>,
-) -> Result<Option<ActionMapNextNodeDraft>, FunctionCallError> {
-    let has_any = kind
-        .as_deref()
-        .is_some_and(|value| !value.trim().is_empty())
-        || goal
-            .as_deref()
-            .is_some_and(|value| !value.trim().is_empty())
-        || !dependency_node_ids.is_empty();
-    if !has_any {
-        return Ok(None);
-    }
-    let kind = parse_node_kind("next_node_kind", kind.as_deref().unwrap_or_default())?;
-    let goal = goal.unwrap_or_default();
+) -> Result<ActionMapNextNodeDraft, FunctionCallError> {
+    let kind = parse_node_kind("next.node_kind", &kind)?;
     if goal.trim().is_empty() {
         return Err(protocol_error(
-            "finish next-node creation requires kind and goal".into(),
+            "finish next-node creation requires a non-empty goal".into(),
             "missing_argument",
         ));
     }
-    Ok(Some(ActionMapNextNodeDraft {
+    Ok(ActionMapNextNodeDraft {
         kind,
         title: goal.clone(),
         context_summary: goal,
         dependency_node_ids,
-    }))
-}
-
-fn format_initialize_map_output(outcome: &ActionMapInitializeOutcome) -> JsonValue {
-    serde_json::json!({
-        "task_id": outcome.task_id,
-        "map_id": outcome.map_id,
     })
 }
 
@@ -494,7 +483,7 @@ fn resource_error(message: String, reason: &str) -> FunctionCallError {
 
 fn gate_error(message: String, class: TaskSpaceHardGateClass, reason: &str) -> FunctionCallError {
     let result = serde_json::json!({
-        "schema_version": "TaskSpaceControlResultV1",
+        "schema_version": TASKSPACE_CONTROL_RESULT_SCHEMA_VERSION,
         "status": format!("{}_failed", class.as_str()),
         "success": false,
         "error": {
@@ -504,16 +493,6 @@ fn gate_error(message: String, class: TaskSpaceHardGateClass, reason: &str) -> F
         },
     });
     FunctionCallError::RespondToModel(result.to_string())
-}
-
-fn hard_state_reason(message: &str) -> Option<&str> {
-    message
-        .split_once("hard_state:")?
-        .1
-        .trim_start()
-        .split(|character: char| character.is_whitespace() || ".,;".contains(character))
-        .next()
-        .filter(|reason| !reason.is_empty())
 }
 
 #[cfg(test)]

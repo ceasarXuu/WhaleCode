@@ -1,4 +1,5 @@
 use super::*;
+use crate::action_map::ActionMapInitializeOutcome;
 
 #[test]
 fn parses_agent_authored_map() {
@@ -26,8 +27,8 @@ fn parses_agent_authored_map() {
 }
 
 #[test]
-fn initialize_output_only_returns_runtime_generated_ids() {
-    let output = format_initialize_map_output(&ActionMapInitializeOutcome {
+fn initialize_output_preserves_all_committed_identities() {
+    let output = format_initialize_step(&ActionMapInitializeOutcome {
         task_id: "task-1".into(),
         map_id: "map-1".into(),
         node_ids: vec!["inspect".into(), "implement".into()],
@@ -35,49 +36,49 @@ fn initialize_output_only_returns_runtime_generated_ids() {
     });
     let value: JsonValue = output;
 
-    assert!(value.get("schema_version").is_none());
-    assert!(value.get("action").is_none());
-    assert!(value.get("status").is_none());
+    assert_eq!(value["kind"], "map_initialized");
     assert_eq!(value["task_id"], "task-1");
     assert_eq!(value["map_id"], "map-1");
-    assert!(value.get("current_node_id").is_none());
-    assert!(value.get("node_ids").is_none());
+    assert_eq!(value["current_node_id"], "inspect");
+    assert_eq!(
+        value["created_node_ids"],
+        serde_json::json!(["inspect", "implement"])
+    );
 }
 
 #[test]
-fn successful_state_batch_is_compact() {
+fn successful_state_batch_preserves_committed_transition_identities() {
     let output = format_state_batch(
-        "finish_nodes",
         vec![serde_json::json!({
+            "kind": "state_transition",
+            "index": 0,
+            "finished_node_id": "inspect",
             "result_id": "result-1",
-            "binding_status": "bound",
+            "next": {"kind": "existing", "node_id": "implement"},
+            "current_node_id": "implement",
         })],
         true,
     );
     let value: JsonValue = serde_json::from_str(&output).expect("success batch json");
 
     assert_eq!(value["status"], "committed");
-    assert!(value.get("schema_version").is_none());
+    assert_eq!(value["schema_version"], "TaskSpaceControlResultV2");
     assert!(value.get("action").is_none());
-    assert!(value.get("success").is_none());
+    assert_eq!(value["success"], true);
+    assert_eq!(value["steps"][0]["finished_node_id"], "inspect");
     assert_eq!(value["steps"][0]["result_id"], "result-1");
-    assert_eq!(value["steps"][0]["binding_status"], "bound");
-    assert!(value["steps"][0].get("node_id").is_none());
-    assert!(value["steps"][0].get("next_node_id").is_none());
+    assert_eq!(value["steps"][0]["next"]["node_id"], "implement");
+    assert_eq!(value["steps"][0]["current_node_id"], "implement");
+    assert_eq!(state_identity_coverage(&output), Some((1, true)));
 }
 
 #[test]
 fn failed_state_batch_preserves_protocol_and_raw_error() {
     let error = FunctionCallError::RespondToModel("exact transition error".into());
-    let output = format_state_batch(
-        "finish_nodes",
-        vec![format_failed_state_step(0, &error)],
-        false,
-    );
+    let output = format_state_batch(vec![format_failed_state_step(0, &error)], false);
     let value: JsonValue = serde_json::from_str(&output).expect("failure batch json");
 
-    assert_eq!(value["schema_version"], "TaskSpaceControlResultV1");
-    assert_eq!(value["action"], "finish_nodes");
+    assert_eq!(value["schema_version"], "TaskSpaceControlResultV2");
     assert_eq!(value["status"], "state_machine_failed");
     assert_eq!(value["success"], false);
     assert_eq!(
@@ -91,7 +92,7 @@ fn parses_agent_authored_terminal_candidate() {
     let args = parse_taskspace_control_args(
         &serde_json::json!({
             "action": "finish_then_end",
-            "terminal_finish": {},
+            "terminal_node_id": "final",
             "final_candidate": "Exact final answer."
         })
         .to_string(),
@@ -124,7 +125,7 @@ fn rejects_removed_semantic_action_at_parse_boundary() {
 fn finish_without_next_action_is_rejected() {
     let error = parse_taskspace_control_args(r#"{"action":"finish_nodes","finishes":[{}]}"#)
         .expect_err("missing next binding");
-    assert!(error.to_string().contains("requires exactly one"));
+    assert!(error.to_string().contains("missing field `next`"));
 }
 
 #[test]
@@ -141,7 +142,7 @@ fn gate_error_has_one_typed_representation() {
         state_machine_error("blocked. hard_state: node_tool_calls_in_flight. rejected".to_string());
     let value: JsonValue = serde_json::from_str(&error.to_string()).expect("typed error json");
 
-    assert_eq!(value["schema_version"], "TaskSpaceControlResultV1");
+    assert_eq!(value["schema_version"], "TaskSpaceControlResultV2");
     assert_eq!(value["status"], "state_machine_failed");
     assert_eq!(value["error"]["code"], "node_tool_calls_in_flight");
     assert_eq!(

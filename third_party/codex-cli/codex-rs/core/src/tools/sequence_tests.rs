@@ -156,9 +156,15 @@ fn aggregate_references_canonical_nested_events_without_copying_output() {
         call_id: "outer".into(),
         output: FunctionCallOutputPayload::from_text(
             serde_json::json!({
-                "schema_version": "TaskSpaceControlResultV1",
+                "schema_version": "TaskSpaceControlResultV2",
                 "success": true,
-                "steps": [{"kind": "finish", "success": true}],
+                "steps": [{
+                    "kind": "map_initialized",
+                    "task_id": "task-1",
+                    "map_id": "map-1",
+                    "created_node_ids": ["inspect"],
+                    "current_node_id": "inspect"
+                }],
             })
             .to_string(),
         ),
@@ -183,6 +189,7 @@ fn aggregate_references_canonical_nested_events_without_copying_output() {
     let value: serde_json::Value =
         serde_json::from_str(&output.body.to_text().expect("text")).expect("batch json");
     assert_eq!(value["steps"].as_array().expect("steps").len(), 2);
+    assert_eq!(value["steps"][0]["current_node_id"], "inspect");
     assert_eq!(value["steps"][1]["call_event_ref"], "task-event-7");
     assert_eq!(value["steps"][1]["output_event_ref"], "task-event-8");
     assert!(value["steps"][1].get("response").is_none());

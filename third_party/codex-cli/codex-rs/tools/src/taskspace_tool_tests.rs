@@ -83,7 +83,12 @@ fn active_schema_contains_no_ordinary_tool_expression() {
     assert!(!text.contains("ordinaryAction"));
     assert!(!text.contains("tool_name"));
     assert!(!text.contains("arguments"));
-    assert!(text.contains("next_node_goal"));
+    assert!(text.contains("\"next\""));
+    assert!(text.contains("\"existing\""));
+    assert!(text.contains("\"create\""));
+    assert!(text.contains("terminal_node_id"));
+    assert!(!text.contains("next_node_goal"));
+    assert!(!text.contains("terminal_finish"));
     assert!(!text.contains("result_summary"));
     assert!(!text.contains("blocker_summary"));
     assert!(!text.contains("task_title"));
@@ -106,4 +111,13 @@ fn active_schema_contains_no_ordinary_tool_expression() {
         .find(|variant| variant["properties"]["action"]["enum"][0] == json!("finish_nodes"))
         .expect("finish variant");
     assert_eq!(finish["properties"]["finishes"]["minItems"], json!(1));
+    let next_variants = finish["properties"]["finishes"]["items"]["properties"]["next"]["anyOf"]
+        .as_array()
+        .expect("tagged next variants");
+    assert_eq!(next_variants.len(), 2);
+    assert_eq!(
+        next_variants[0]["properties"]["kind"]["enum"][0],
+        "existing"
+    );
+    assert_eq!(next_variants[1]["properties"]["kind"]["enum"][0], "create");
 }

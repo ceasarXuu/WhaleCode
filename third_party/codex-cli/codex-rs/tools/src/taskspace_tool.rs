@@ -170,65 +170,71 @@ fn initial_node_schema() -> JsonSchema {
     )
 }
 
-fn next_existing_finish_schema() -> JsonSchema {
-    JsonSchema::object(
-        BTreeMap::from([
-            (
-                "node_id".into(),
-                JsonSchema::string(Some("Optional explicit ready finish target.".into())),
-            ),
-            (
-                "next_node_id".into(),
-                JsonSchema::string(Some("Existing node bound after this finish.".into())),
-            ),
-        ]),
-        Some(vec!["next_node_id".into()]),
-        Some(false.into()),
+fn next_variant(
+    kind: &str,
+    mut properties: BTreeMap<String, JsonSchema>,
+    mut required: Vec<String>,
+) -> JsonSchema {
+    properties.insert(
+        "kind".into(),
+        JsonSchema::string_enum(vec![json!(kind)], Some("Next binding variant.".into())),
+    );
+    required.insert(0, "kind".into());
+    JsonSchema::object(properties, Some(required), Some(false.into()))
+}
+
+fn next_existing_schema() -> JsonSchema {
+    next_variant(
+        "existing",
+        BTreeMap::from([(
+            "node_id".into(),
+            JsonSchema::string(Some("Existing node bound after this finish.".into())),
+        )]),
+        vec!["node_id".into()],
     )
 }
 
-fn next_created_finish_schema() -> JsonSchema {
-    JsonSchema::object(
+fn next_created_schema() -> JsonSchema {
+    next_variant(
+        "create",
         BTreeMap::from([
             (
-                "node_id".into(),
-                JsonSchema::string(Some("Optional explicit ready finish target.".into())),
-            ),
-            (
-                "next_node_kind".into(),
+                "node_kind".into(),
                 JsonSchema::string_enum(node_kind_values(), Some("Created node type.".into())),
             ),
             (
-                "next_node_goal".into(),
+                "goal".into(),
                 JsonSchema::string(Some("Created node goal.".into())),
             ),
             (
-                "next_dependency_node_ids".into(),
+                "dependency_node_ids".into(),
                 JsonSchema::array(
                     JsonSchema::string(None),
                     Some("Created node prerequisites.".into()),
                 ),
             ),
         ]),
-        Some(vec!["next_node_kind".into(), "next_node_goal".into()]),
-        Some(false.into()),
+        vec!["node_kind".into(), "goal".into()],
+    )
+}
+
+fn next_schema() -> JsonSchema {
+    object_any_of(
+        vec![next_existing_schema(), next_created_schema()],
+        "Exactly one Agent-declared next binding.",
     )
 }
 
 fn nonterminal_finish_schema() -> JsonSchema {
-    object_any_of(
-        vec![next_existing_finish_schema(), next_created_finish_schema()],
-        "Finish one node and establish the next binding atomically.",
-    )
-}
-
-fn terminal_finish_schema() -> JsonSchema {
     JsonSchema::object(
-        BTreeMap::from([(
-            "node_id".into(),
-            JsonSchema::string(Some("Optional explicit ready terminal target.".into())),
-        )]),
-        None,
+        BTreeMap::from([
+            (
+                "node_id".into(),
+                JsonSchema::string(Some("Optional explicit ready finish target.".into())),
+            ),
+            ("next".into(), next_schema()),
+        ]),
+        Some(vec!["next".into()]),
         Some(false.into()),
     )
 }
@@ -331,13 +337,16 @@ fn finish_then_end_schema() -> JsonSchema {
                     Some("Optional ordered finishes before the terminal finish.".into()),
                 ),
             ),
-            ("terminal_finish".into(), terminal_finish_schema()),
+            (
+                "terminal_node_id".into(),
+                JsonSchema::string(Some("Optional explicit ready terminal target.".into())),
+            ),
             (
                 "final_candidate".into(),
                 JsonSchema::string(Some("Exact Agent-authored final answer.".into())),
             ),
         ]),
-        vec!["terminal_finish".into(), "final_candidate".into()],
+        vec!["final_candidate".into()],
     )
 }
 
@@ -423,7 +432,7 @@ pub fn create_taskspace_active_control_tool() -> ToolSpec {
     variants.extend(simple_action_schemas());
     ToolSpec::Function(ResponsesApiTool {
         name: "taskspace_control".into(),
-        description: "Mandatory mechanical TaskSpace map tool. finish_nodes commits ordered nonterminal finishes and establishes each next binding. Ordinary sibling tool calls later in the same provider response execute after this state barrier under the latest binding. finish_then_end commits optional preceding finishes and one terminal finish before releasing final_candidate unchanged. Runtime follows the Agent-declared call order and does not choose or infer actions.".into(),
+        description: "Mandatory mechanical TaskSpace map tool. finish_nodes commits ordered nonterminal finishes; each finish requires one tagged next binding: kind=existing binds next.node_id, kind=create creates the declared node. Ordinary sibling tool calls later in the same provider response execute after this state barrier under the latest binding. finish_then_end commits optional preceding nonterminal finishes and terminal_node_id (or the current node when omitted) before releasing final_candidate unchanged. Runtime follows the Agent-declared call order and does not choose or infer actions.".into(),
         strict: false,
         defer_loading: None,
         parameters: object_any_of(variants, "Active TaskSpace lifecycle operation."),
