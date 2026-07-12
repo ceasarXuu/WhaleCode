@@ -2,9 +2,10 @@
 
 - Created: 2026-07-12
 - Updated: 2026-07-12
-- Status: Analysis Complete / Implementation Not Started
+- Status: Implemented / Focused Validation Complete
 - Scope: R5-J6.6 `count-call-stack` paired run
-- Evidence: `target/r5-j6-6-active-single-expression/count-call-stack/count-call-stack/20260712-065907-459`
+- Baseline Evidence: `target/r5-j6-6-active-single-expression/count-call-stack/count-call-stack/20260712-065907-459`
+- Validation Evidence: `target/r5-k1-input/run/count-call-stack/count-call-stack/20260712-084344-432`
 
 ## 1. 结论
 
@@ -169,3 +170,77 @@ tool schema层的机械组合表达；不得由Runtime自动补动作，也不�
 | 继续压active工具schema | 很小；不建议优先 | 高 |
 
 各项存在重叠，不能相加作为承诺。P0 telemetry完成后再冻结收益门禁。
+
+## 7. 实施结果
+
+### 7.1 已完成改动
+
+| Direction | Result | Commit |
+|---|---|---|
+| projection telemetry | extractor读取snapshot内嵌trace event，历史artifact由`unavailable`恢复为189 tokens实测 | `99801e7` |
+| activation / blank epoch base | 删除重复和过时叙述；blank projection只保留task/map identity与hard state | `aecf410` |
+| Map写入契约 | init node收敛为`node_id/kind/goal/dependency`；finish summary改为可选；不保留旧字段兼容 | `7eaefc5` |
+| populated projection | current node不再重复进入skeleton；同一event不再同时进入recent与refs；空元数据省略 | `f713b35` |
+| control success ack | success只保留committed状态和必要ID；failure继续保留完整协议和原始错误 | `e7783b5` |
+
+这些改动只删除机械重复，不改写工具正文，不解释任务语义，不替Agent选择节点或下一动作。
+
+### 7.2 工程门禁
+
+| Gate | Result |
+|---|---|
+| `codex-tools` | 140 passed / 1 ignored |
+| core tools | 335 passed |
+| TaskSpace action-map unit | 12 passed |
+| TaskSpace scenario integration | 7 passed |
+| context update | 6 passed |
+| cost / performance / harness selftest | PASS / PASS / PASS |
+| DeepSeek provider probe | stable non-strict三种shape全部有效；strict返回空参数，不启用 |
+| locked build | `cargo build -p codex-cli --bin whale --locked` PASS |
+
+### 7.3 固定结构收益
+
+以下对比使用同一场景、模型和Docker harness；J6.6为历史基线，因此只用于结构字段对比，不把采样路径差异
+解释成精确因果收益。
+
+| Component | J6.6 | Current | Change |
+|---|---:|---:|---:|
+| activation + blank projection wire bytes | 1,796 | 569 | -68.3% |
+| projection estimated tokens | 189 | 70 | -63.0% |
+| blank non-message bytes/request | 14,246 | 14,047 | -1.4% |
+| first active non-message bytes/request | 22,488 | 22,107 | -1.7% |
+| init arguments bytes | 1,206 | 994 | -17.6%（含Agent措辞方差） |
+| one-step finish success output bytes | 242 | 117 | -51.7% |
+| terminal success output | 215 bytes / 1 step | 159 bytes / 2 steps | 当前以更少字节确认更多迁移 |
+
+新run在active shape首个冷启动之后，request 4+缓存命中为72,704 / 74,888 = 97.08%，与J6.6的
+97.27%基本一致；10次前缀比较只有bootstrap named-control切换active auto tools时发生一次shape变化。
+因此本轮没有以破坏append-only缓存前缀换取文本缩短。
+
+### 7.4 Live paired结果与边界
+
+| Metric | Current Standard | Current R5 | Ratio |
+|---|---:|---:|---:|
+| Result | solved | solved | equal |
+| Provider requests | 8 | 11 | 1.38x |
+| Input tokens | 57,857 | 90,412 | 1.56x |
+| Cached input | 55,424 | 76,800 | 1.39x |
+| Uncached input | 2,433 | 13,612 | 5.59x |
+| Output tokens | 1,262 | 2,412 | 1.91x |
+| Wall time | 14.33s | 24.64s | 1.72x |
+
+当前比例比历史J6.6的requests 1.50x、input 1.72x更低，但两轮Standard自身分别为6和8 requests，
+不能据此声明稳定的总成本改善。当前R5额外路径包括：首次错误选择两个pre-init ordinary tools、一次错误
+`create_node`、pytest/validator/CLI三次独立验证请求。所有失败和成功反馈都完整进入后续自然历史；
+`create_node`被硬状态正确拒绝后，Agent自行改用`finish_nodes`。
+
+Map最终为3个completed nodes、3个results、0个open leaf，没有发生Map坍缩；Agent未声明dependency，
+因此edge为0。root task仍显示active、results仍为unreviewed，作为机械生命周期观察保留，不由Runtime
+推断完成或自动review。
+
+### 7.5 剩余工作
+
+1. 在更多复杂样本观察pre-init错误、错误`create_node`和验证拆分是否稳定复现；单次方差不新增语义gate。
+2. P0已修复projection token提取；更细的activation/projection/control-history逐request组件账本仍可后续补齐，
+   当前使用final-wire message/non-message split，不阻塞本轮结构结论。
+3. 请求次数仍是总Input主因；继续优先改进tool schema可表达性和Agent采用率，Runtime不自动补动作。

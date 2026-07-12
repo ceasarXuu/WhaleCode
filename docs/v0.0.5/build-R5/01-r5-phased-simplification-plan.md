@@ -10,7 +10,7 @@
 Created: 2026-07-09
 Updated: 2026-07-12
 Version: v0.0.5 build-R5
-Status: In Progress - R5-J6.6 complete; R5-J7 is the next implementation phase
+Status: In Progress - R5-J6.6 input optimization follow-up complete; R5-J7 is the next implementation phase
 Owner / Responsible: WhaleCode core runtime
 Related Systems: TaskSpace runtime, action_map runtime, taskspace_control,
   context projection, provider-visible context, benchmark harness
@@ -123,6 +123,7 @@ multi-finish / finish+ordinary 采用率仍为0，不作为已兑现收益。
 | R5-J6 | Schema-first TaskSpace control | 将 init/finish 后续动作变成现有 tool schema 的 required 参数；复用 native ToolRouter；删除后置 cadence 惩罚 | provider/schema、反馈等价和权限门禁通过；control-only 非终态边界归零；Map 不坍缩 |
 | R5-J6.5 | Schema cost and cache observability | nested exact schema 单份定义复用；空 Map 只暴露 control；cache shape 纳入 tool choice | 语义完整不回退；三份暴露消失；冷启动和同 shape 0-hit 可区分 |
 | R5-J6.6 | Active single ordinary-tool expression | blank保留bootstrap carrier；active control仅Map生命周期；ordinary tools只在顶层表达 | active无ordinary schema重复；J2 barrier保持finish+next能力；paired correctness/成本通过 |
+| R5-J6.6 input follow-up | Epoch base / Map write / success ack sparsification | 删除固定base、Map字段和success output中的机械重复；failure与ordinary反馈保持原文 | projection estimate下降63%；active warm cache保持约97%；paired correctness通过 |
 | R5-J7 | Singular patch carrier | 单 carrier 最多一个 `apply_patch`；patch 全量预检先于写入；读取和 pytest 只观察 | multi-patch 不可表达；validation failure 零文件副作用；patch + test 能力保留 |
 
 ### 1.5.1 Phase 验收和工程收益矩阵
@@ -966,6 +967,7 @@ failure 零副作用。J7 先修 shared patch 全量预检，再把现有 contro
 | R5-J6.0-J6.4 | schema/provider probe、tool contract、native router复用、提示一致性、Docker paired samples | 每阶段不依赖后续补证 | standalone finish不可表示；原始反馈完整；control-only边界归零 | 100%完成 | landed；结构收益通过 |
 | R5-J6.5-A-D | `$defs/$ref`、blank-map tool visibility、cache-shape telemetry、Docker paired samples | 不依赖 J7 | exact schema只定义一次；Req2 tool-choice transition可见；payload成本下降 | 每阶段100%或暂停 | complete；J7 unblocked |
 | R5-J6.6-A-D | 3-run基线、bootstrap/active schema拆分、J2 sibling barrier、Docker paired sample | 不依赖 J7 | active ordinary schema只出现一次；correctness和成本证据 | 100%完成 | complete；J7 unblocked |
+| R5-J6.6 input follow-up | projection extractor、sparse epoch/map/ack、focused tests、Docker pair | 不依赖 J7 | 机械重复下降；失败透传和warm prefix不回退 | 100%完成 | complete；总request成本继续观察 |
 | R5-J7.0-J7.5 | patch atomicity audit、provider probe、singular patch schema、pre-state validation、Docker samples | 每阶段不依赖后续补证 | multi-patch不可表达；validation failure零文件副作用；读取/pytest保持观察 | 每阶段100%或暂停 | planned；不得提前实施 |
 | R5-I3/I4 | Docker complex pairs、等价/性能门禁、Docker-only call graph | 不依赖 closeout | performance observation、container parity、default-path scan | 工程实现与验证100%；不覆盖J4收益缺口 | Docker-only landed |
 | R5-G3 | complex paired runs、streaming extractor tests | 不依赖 closeout | 完整指标报告、失败分类 | 100% 完成 | G3 close，整体仍受J4 gate阻塞 |
@@ -1017,6 +1019,7 @@ provider request count、state-machine action count、wall time、失败分类�
 | R5-J6 schema-first control carrier | 生命周期迁移和立即动作成为一个 tool schema；runtime 只执行 Agent 声明；nested tool contract/反馈原样透传 | `taskspace_tool.rs`、TaskSpace typed args、ToolRouter/sequence、performance observer | TaskSpace native tool loop | tools 139/1 ignored；handler 9/9；runtime 11/11；scenario 7/7；context 24/24 | focused/complex 均 solved；latest requests 8/12；protocol/state failures=0；terminal extra=0 | 无旧 finish/init 兼容、无后置 cadence gate、无 runtime 自动动作 | landed；结构收益通过，总成本 parity 未通过 |
 | R5-J6.5 schema/cache repair | nested union单份定义；blank map不重复发送ordinary schema；cache shape包含tool choice | JsonSchema、taskspace tool、provider visibility、wire trace、observer | provider request construction | schema fidelity/bytes、named-auto LCP、instrumentation、Docker pairs | 两组均solved；blank约19.57 KB、active约36.35 KB；cold/warmup与warm partial hit已分开 | 无generic arguments、sleep、warmup request或actions-only wrapper | complete (`a7e47de`) |
 | R5-J6.6 active single expression | bootstrap control保留nested init；active control删除ordinary schema；普通工具作为J2 barrier后sibling calls | taskspace tool、typed args、handler、provider visibility、sequence tests | active provider request | tools 140/1 ignored；control 11/11；sequence 6/6；scenario 7/7；visibility 1/1 | 3-run baseline；paired均solved；active non-message约22.50 KB；9 vs 6 requests；terminal extra=0 | 无control-only wrapper、generic args、runtime自动动作或cadence惩罚 | complete (`fd9f759`)；live sibling adoption仍为0 |
+| R5-J6.6 input follow-up | 固定epoch base、Map写入和success ack仅保留机械必要字段；populated projection去重 | projection/runtime、TaskSpace schema/handler、cost extractor | provider context + control output | tools 140/1 ignored；core tools 335；action-map 12；scenario 7；harness自测 | paired均solved；projection 189->70 tokens；active fixed 22,488->22,107 bytes；warm cache 97.08% | failure原文、ordinary反馈、append-only journal均保留；无动态逐请求projection | complete (`99801e7`..`e7783b5`)；request path方差继续观察 |
 | R5-J7 singular patch carrier | 单 carrier 最多一个 patch；shared patch validation 先全量预检再写入；普通多工具不受限 | `apply-patch`、`taskspace_tool.rs`、typed args、sequence、performance observer | Standard/TaskSpace patch path | prepare/commit、schema、state/filesystem snapshot、Docker samples | single/multi patch、prepare/commit/skip、read observation 分账 | 无自动合并、后置 reject、旧形态兼容或读取 gate | planned；documentation only |
 
 ## 1.17 Change-chain Logging Matrix

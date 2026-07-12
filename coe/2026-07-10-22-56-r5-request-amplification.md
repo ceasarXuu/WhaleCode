@@ -2084,19 +2084,19 @@
     - 固定单份projection + 完整append-only state journal同时成立。
   - Refutes if:
     - projection实际动态变化、重复出现，或state delta不可见。
-  - Instrumentation status: existing-but-extractor-incomplete
+  - Instrumentation status: implemented-and-validated
   - Instrumentation lifecycle:
     - 保留runtime projection budget trace；修复benchmark extractor使其可直接分账。
 - Evidence gate: satisfied
 - Related evidence:
   - E-050
 - Conclusion: confirmed；当前语义布局是固定epoch base + 原始delta journal，不应通过逐请求刷新完整Map破坏prefix cache
-- Repair design readiness: ready-for-user-decision
-- Next step: 先修projection telemetry extractor，再设计最小epoch base和新epoch/compaction snapshot契约。
+- Repair design readiness: implemented
+- Next step: 在复杂样本继续观察请求采用率；不改为逐请求动态projection。
 - Blocker:
   - none
 - Close reason:
-  - none; optimization not implemented
+  - extractor、最小epoch base、稀疏populated snapshot和成功ack均已实现并完成focused live validation
 
 ## Evidence E-041: Agent收到完整源码后仍自行假设不存在的package目录
 - Related hypotheses:
@@ -2328,4 +2328,79 @@
   raw journal: initialize_then_actions -> finish_nodes -> finish_nodes -> finish_then_end
   ```
 - Interpretation: active-context uniqueness没有失败，但它保证的是每个payload只有一个epoch snapshot，不是每次都重建最新Map。语义变化由后置control journal保留，因此不应动态刷新前部projection；应压缩固定base并在新epoch/compaction时重建一次当前snapshot。`context-projection-summary`未提取已有trace，是独立观测缺口。
+- Time: 2026-07-12
+
+## Evidence E-051: Input结构重复已按机械字段边界收敛
+- Related hypotheses:
+  - H-022
+- Direction: supports
+- Type: implementation-and-regression
+- Source: commits `99801e7`、`aecf410`、`7eaefc5`、`f713b35`、`e7783b5`
+- Prediction or plan link:
+  - `docs/v0.0.5/build-R5/21-r5-input-token-optimization-audit.md`
+- Matched signal:
+  - projection extractor可读取snapshot内嵌trace；blank base、Map写入schema、populated projection和success ack均删除重复字段，failure原文保持。
+- Correlation keys:
+  - `projection_budget`
+  - `TaskSpaceControlBatchResultV1`
+  - commits above
+- Raw content:
+  ```text
+  codex-tools: 140 passed / 1 ignored
+  core tools: 335 passed
+  action-map: 12 passed
+  TaskSpace scenarios: 7 passed
+  cost/performance/harness selftests: PASS
+  locked build: PASS
+  ```
+- Interpretation: 实施没有增加Runtime语义判断，也没有通过隐藏失败或普通工具反馈换取token下降。
+- Time: 2026-07-12
+
+## Evidence E-052: 固定base和control ack成本显著下降且缓存前缀保持
+- Related hypotheses:
+  - H-022
+- Direction: supports
+- Type: historical-structure-comparison
+- Source: J6.6 historical run vs `20260712-084344-432`
+- Prediction or plan link:
+  - H-022 minimal epoch-base clause
+- Matched signal:
+  - activation + blank projection由1,796降到569 wire bytes；projection estimate由189降到70 tokens；active non-message由22,488降到22,107 bytes；one-step finish ack由242降到117 bytes。
+- Correlation keys:
+  - historical `20260712-065907-459`
+  - current `20260712-084344-432`
+- Raw content:
+  ```text
+  fixed system message: -68.3%
+  projection estimate: -63.0%
+  active fixed region: -381 bytes/request
+  active-shape request 4+ cache hit: 97.08%
+  J6.6 active-shape warm cache hit: 97.27%
+  ```
+- Interpretation: 结构瘦身取得直接收益，且没有破坏active append-only warm prefix。两轮Agent路径不同，不能把总token差当作精确before/after收益。
+- Time: 2026-07-12
+
+## Evidence E-053: 当前control错误不是反馈丢失
+- Related hypotheses:
+  - H-020
+  - H-022
+- Direction: refutes-context-loss
+- Type: live-rollout-trace
+- Source: current R5 Docker paired run
+- Prediction or plan link:
+  - feedback visibility clause
+- Matched signal:
+  - epoch base明确标为历史snapshot；init调用和成功输出完整保留；输出包含3个Agent节点ID。Agent读完源码后仍尝试create-and-bind新node，被`current_main_node_running`忠实拒绝，下一请求自行改用`finish_nodes`。
+- Correlation keys:
+  - `call_00_vw0xuByhIwfkv4qUwDgU8735`
+  - `call_00_hTCAmDRsCU7OYemZfuyZ8630`
+  - `call_00_Y6ZOtIi9SeAs32R3t8Fx1284`
+- Raw content:
+  ```text
+  init output: current_node_id=explore-codebase; node_ids=[explore-codebase, implement-fix, verify-fix]
+  rejected action: create_node(bind_current=true)
+  hard reason: current_main_node_running
+  recovery: finish_nodes(explore-codebase -> implement-fix)
+  ```
+- Interpretation: 本次错误动作发生在完整状态反馈可见的情况下，属于Agent路径方差；Runtime硬拒绝和反馈语义正确。单样本不支持增加Runtime语义约束。
 - Time: 2026-07-12
