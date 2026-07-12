@@ -133,7 +133,7 @@ async fn start_action_map_task_node(
             turn,
             crate::action_map::ActionMapInitializeInput {
                 task_title: title.to_string(),
-                task_objective: context_summary.to_string(),
+                source_event_ids: vec!["task-event-test".to_string()],
                 nodes,
                 current_node_id,
             },

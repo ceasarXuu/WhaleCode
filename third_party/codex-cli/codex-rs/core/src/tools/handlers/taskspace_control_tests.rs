@@ -5,7 +5,6 @@ fn parses_agent_authored_map() {
     let args = parse_taskspace_control_args(
         &serde_json::json!({
             "action": "initialize_then_actions",
-            "task_goal": "Fix and verify",
             "initial_nodes": [{
                 "node_id": "inspect",
                 "kind": "inspect_code_context",
@@ -75,11 +74,14 @@ fn failed_state_batch_preserves_protocol_and_raw_error() {
     );
     let value: JsonValue = serde_json::from_str(&output).expect("failure batch json");
 
-    assert_eq!(value["schema_version"], "TaskSpaceControlBatchResultV1");
+    assert_eq!(value["schema_version"], "TaskSpaceControlResultV1");
     assert_eq!(value["action"], "finish_nodes");
-    assert_eq!(value["status"], "state_failed");
+    assert_eq!(value["status"], "state_machine_failed");
     assert_eq!(value["success"], false);
-    assert_eq!(value["steps"][0]["output"], "exact transition error");
+    assert_eq!(
+        value["steps"][0]["error"]["message"],
+        "exact transition error"
+    );
 }
 
 #[test]
@@ -87,7 +89,7 @@ fn parses_agent_authored_terminal_candidate() {
     let args = parse_taskspace_control_args(
         &serde_json::json!({
             "action": "finish_then_end",
-            "terminal_finish": {"result_summary": "Validation passed."},
+            "terminal_finish": {},
             "final_candidate": "Exact final answer."
         })
         .to_string(),
@@ -118,10 +120,8 @@ fn rejects_removed_semantic_action_at_parse_boundary() {
 
 #[test]
 fn finish_without_next_action_is_rejected() {
-    let error = parse_taskspace_control_args(
-        r#"{"action":"finish_nodes","finishes":[{"result_summary":"done"}]}"#,
-    )
-    .expect_err("missing next binding");
+    let error = parse_taskspace_control_args(r#"{"action":"finish_nodes","finishes":[{}]}"#)
+        .expect_err("missing next binding");
     assert!(error.to_string().contains("requires exactly one"));
 }
 
@@ -131,4 +131,20 @@ fn hard_state_reason_is_mechanical() {
         hard_state_reason("blocked. hard_state: node_tool_calls_in_flight. rejected"),
         Some("node_tool_calls_in_flight")
     );
+}
+
+#[test]
+fn gate_error_has_one_typed_representation() {
+    let error =
+        state_machine_error("blocked. hard_state: node_tool_calls_in_flight. rejected".to_string());
+    let value: JsonValue = serde_json::from_str(&error.to_string()).expect("typed error json");
+
+    assert_eq!(value["schema_version"], "TaskSpaceControlResultV1");
+    assert_eq!(value["status"], "state_machine_failed");
+    assert_eq!(value["error"]["code"], "node_tool_calls_in_flight");
+    assert_eq!(
+        value["error"]["message"],
+        "blocked. hard_state: node_tool_calls_in_flight. rejected"
+    );
+    assert!(!error.to_string().contains("TaskSpaceGateRecoveryV1"));
 }

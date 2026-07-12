@@ -1518,27 +1518,22 @@ function New-TaskspaceControlUsageSummary {
                 if (-not [string]::IsNullOrWhiteSpace($callId) -and
                     ($rolloutNativeCallIds.Contains($callId) -or $rolloutActionContractCallIds.Contains($callId))) {
                     $output = [string](Get-TaskspaceCostProperty $payload @("output"))
-                    $controlFailed = $output.Contains("TaskSpaceGateRecoveryV1")
-                    $failureClass = if ($output -match '"gate_class"\s*:\s*"state_machine"') {
-                        "state"
-                    } elseif ($controlFailed) {
-                        "protocol"
-                    } else {
-                        ""
-                    }
-                    if (-not $controlFailed -and -not [string]::IsNullOrWhiteSpace($output)) {
+                    $controlFailed = $false
+                    $failureClass = ""
+                    if (-not [string]::IsNullOrWhiteSpace($output)) {
                         try {
                             $batch = $output | ConvertFrom-Json
-                            $controlFailed = (
-                                [string](Get-TaskspaceCostProperty $batch @("schema_version")) -eq "TaskSpaceControlBatchResultV1" -and
+                            $schemaVersion = [string](Get-TaskspaceCostProperty $batch @("schema_version"))
+                            $controlFailed = $schemaVersion -eq "TaskSpaceControlResultV1" -and
                                 $batch.PSObject.Properties.Name -contains "success" -and
                                 [bool](Get-TaskspaceCostProperty $batch @("success")) -eq $false
-                            )
                             if ($controlFailed) {
                                 $status = [string](Get-TaskspaceCostProperty $batch @("status"))
+                                $error = Get-TaskspaceCostProperty $batch @("error")
+                                $errorClass = [string](Get-TaskspaceCostProperty $error @("class"))
                                 $failureClass = if ($status -eq "partial") {
                                     "nested_action"
-                                } elseif ($status -eq "state_failed") {
+                                } elseif ($status -eq "state_machine_failed" -or $errorClass -eq "state_machine") {
                                     "state"
                                 } else {
                                     "protocol"

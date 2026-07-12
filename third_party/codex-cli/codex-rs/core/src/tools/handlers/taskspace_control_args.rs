@@ -7,7 +7,6 @@ use serde_json::Value as JsonValue;
 #[serde(tag = "action", rename_all = "snake_case", deny_unknown_fields)]
 pub(crate) enum TaskSpaceControlArgs {
     InitializeThenActions {
-        task_goal: String,
         initial_nodes: Vec<TaskSpaceInitializeNodeArgs>,
         current_node_id: String,
         actions: Vec<TaskSpaceNestedAction>,
@@ -34,7 +33,6 @@ pub(crate) enum TaskSpaceControlArgs {
     },
     BlockNode {
         node_id: String,
-        blocker_summary: String,
     },
     ReadOutputRef {
         output_ref: String,
@@ -65,7 +63,6 @@ pub(crate) struct TaskSpaceInitializeNodeArgs {
 pub(crate) struct TaskSpaceNonterminalFinishArgs {
     #[serde(default)]
     pub(crate) node_id: Option<String>,
-    pub(crate) result_summary: Option<String>,
     #[serde(default)]
     pub(crate) next_node_id: Option<String>,
     #[serde(default)]
@@ -81,7 +78,6 @@ pub(crate) struct TaskSpaceNonterminalFinishArgs {
 pub(crate) struct TaskSpaceTerminalFinishArgs {
     #[serde(default)]
     pub(crate) node_id: Option<String>,
-    pub(crate) result_summary: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -162,14 +158,10 @@ impl TaskSpaceControlArgs {
     fn validate(&self) -> Result<(), FunctionCallError> {
         match self {
             Self::InitializeThenActions {
-                task_goal,
                 initial_nodes,
                 actions,
                 ..
             } => {
-                if task_goal.trim().is_empty() {
-                    return invalid("initialize_then_actions requires a non-empty task_goal");
-                }
                 require_non_empty(initial_nodes, "initial_nodes")?;
                 if initial_nodes.iter().any(|node| node.goal.trim().is_empty()) {
                     return invalid("each initial node requires a non-empty goal");
@@ -274,9 +266,19 @@ fn invalid<T>(message: impl Into<String>) -> Result<T, FunctionCallError> {
 }
 
 fn invalid_error(message: String) -> FunctionCallError {
-    FunctionCallError::RespondToModel(format!(
-        "{message}\nTaskSpaceGateRecoveryV1: {{\"schema_version\":\"TaskSpaceGateRecoveryV1\",\"allowed\":false,\"gate_class\":\"protocol\",\"reason\":\"invalid_arguments\"}}"
-    ))
+    FunctionCallError::RespondToModel(
+        serde_json::json!({
+            "schema_version": "TaskSpaceControlResultV1",
+            "status": "protocol_failed",
+            "success": false,
+            "error": {
+                "class": "protocol",
+                "code": "invalid_arguments",
+                "message": message,
+            },
+        })
+        .to_string(),
+    )
 }
 
 #[cfg(test)]
@@ -301,14 +303,65 @@ mod tests {
     }
 
     #[test]
+    fn accepts_initialization_without_task_goal() {
+        let args = parse_taskspace_control_args(
+            r#"{"action":"initialize_then_actions","initial_nodes":[{"node_id":"node-1","kind":"inspect_code_context","goal":"Inspect"}],"current_node_id":"node-1","actions":[{"tool_name":"exec_command","arguments":{"cmd":"pwd"}}]}"#,
+        )
+        .expect("valid args");
+        assert_eq!(args.nested_actions().len(), 1);
+    }
+
+    #[test]
     fn rejects_removed_verbose_map_fields() {
-        let legacy = r#"{"action":"initialize_then_actions","task_title":"task","task_objective":"goal","initial_nodes":[{"node_id":"node-1","kind":"inspect_code_context","title":"Inspect","context_summary":"Read"}],"current_node_id":"node-1","actions":[{"tool_name":"exec_command","arguments":{"cmd":"pwd"}}]}"#;
+        let legacy = r#"{"action":"initialize_then_actions","task_goal":"goal","initial_nodes":[{"node_id":"node-1","kind":"inspect_code_context","goal":"Inspect"}],"current_node_id":"node-1","actions":[{"tool_name":"exec_command","arguments":{"cmd":"pwd"}}]}"#;
+        assert!(parse_taskspace_control_args(legacy).is_err());
+    }
+
+    #[test]
+    fn rejects_removed_finish_result_summary() {
+        let nonterminal = r#"{"action":"finish_nodes","finishes":[{"result_summary":"done","next_node_id":"node-2"}]}"#;
+        assert!(parse_taskspace_control_args(nonterminal).is_err());
+        let terminal = r#"{"action":"finish_then_end","terminal_finish":{"result_summary":"done"},"final_candidate":"answer"}"#;
+        assert!(parse_taskspace_control_args(terminal).is_err());
+    }
+
+    #[test]
+    fn block_node_only_accepts_node_id() {
+        parse_taskspace_control_args(r#"{"action":"block_node","node_id":"node-1"}"#)
+            .expect("node-only block args");
+        let legacy = r#"{"action":"block_node","node_id":"node-1","blocker_summary":"blocked"}"#;
         assert!(parse_taskspace_control_args(legacy).is_err());
     }
 
     #[test]
     fn rejects_ambiguous_finish_binding() {
-        let ambiguous = r#"{"action":"finish_nodes","finishes":[{"result_summary":"done","next_node_id":"node-2","next_node_kind":"smoke_test","next_node_goal":"Run tests"}]}"#;
+        let ambiguous = r#"{"action":"finish_nodes","finishes":[{"next_node_id":"node-2","next_node_kind":"smoke_test","next_node_goal":"Run tests"}]}"#;
         assert!(parse_taskspace_control_args(ambiguous).is_err());
+    }
+
+    #[test]
+    fn invalid_arguments_return_one_typed_json_payload() {
+        let arguments = r#"{"action":"unknown"}"#;
+        let source_error = serde_json::from_str::<TaskSpaceControlArgs>(arguments)
+            .expect_err("unknown action should fail");
+        let error =
+            parse_taskspace_control_args(arguments).expect_err("unknown action should fail");
+        let FunctionCallError::RespondToModel(payload) = error else {
+            panic!("expected model-facing error");
+        };
+        let value: JsonValue = serde_json::from_str(&payload).expect("single JSON payload");
+        assert_eq!(
+            value,
+            serde_json::json!({
+                "schema_version": "TaskSpaceControlResultV1",
+                "status": "protocol_failed",
+                "success": false,
+                "error": {
+                    "class": "protocol",
+                    "code": "invalid_arguments",
+                    "message": format!("invalid taskspace_control arguments: {source_error}"),
+                },
+            })
+        );
     }
 }

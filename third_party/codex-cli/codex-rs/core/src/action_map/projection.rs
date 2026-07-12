@@ -3,7 +3,7 @@ pub(super) struct ActiveProjectionInput {
     pub(super) task_status: String,
     pub(super) map_id: String,
     pub(super) map_status: String,
-    pub(super) task_goal: String,
+    pub(super) source_event_ids: Vec<String>,
     pub(super) current_node: String,
     pub(super) map_nodes: Vec<String>,
     pub(super) current_node_dependencies: Vec<String>,
@@ -27,7 +27,12 @@ pub(super) fn render_active_projection(input: ActiveProjectionInput) -> Rendered
     } else {
         push_field(&mut body, "task_status", &input.task_status);
         push_field(&mut body, "map_status", &input.map_status);
-        push_field(&mut body, "task_goal", &input.task_goal);
+        append_list(
+            &mut body,
+            "source_event_ids",
+            &input.source_event_ids,
+            false,
+        );
     }
     push_field(&mut body, "current_node", &input.current_node);
     append_list(&mut body, "map_nodes", &input.map_nodes, false);
@@ -102,7 +107,7 @@ mod tests {
             task_status: "active".into(),
             map_id: "map-1".into(),
             map_status: "active".into(),
-            task_goal: "Agent-authored objective pending".into(),
+            source_event_ids: Vec::new(),
             current_node: "none".into(),
             map_nodes: Vec::new(),
             current_node_dependencies: Vec::new(),

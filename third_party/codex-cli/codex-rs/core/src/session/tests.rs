@@ -1392,7 +1392,7 @@ async fn record_context_updates_keeps_one_taskspace_epoch_snapshot() {
                 session.conversation_id,
                 crate::action_map::ActionMapInitializeInput {
                     task_title: "Architecture review".to_string(),
-                    task_objective: "Find structure risks.".to_string(),
+                    source_event_ids: vec!["task-event-1".to_string()],
                     nodes: vec![crate::action_map::ActionMapInitializeNodeInput {
                         id: "scope".to_string(),
                         kind: NodeKind::InspectCodeContext,
@@ -1421,7 +1421,7 @@ async fn record_context_updates_keeps_one_taskspace_epoch_snapshot() {
         "expected initial epoch snapshot in steady-state context: {developer_text}"
     );
     assert!(
-        developer_text.contains("task_goal: Find structure risks."),
+        developer_text.contains("source_event_ids:"),
         "expected active objective in steady-state context: {developer_text}"
     );
     assert!(
@@ -1471,7 +1471,7 @@ async fn session_main_tool_result_emits_taskspace_trace_event_and_snapshot() {
                 session.conversation_id,
                 crate::action_map::ActionMapInitializeInput {
                     task_title: "Trace session path".to_string(),
-                    task_objective: "Record trace through the session event path.".to_string(),
+                    source_event_ids: vec!["task-event-1".to_string()],
                     nodes: vec![crate::action_map::ActionMapInitializeNodeInput {
                         id: "validate".to_string(),
                         kind: NodeKind::SmokeTest,

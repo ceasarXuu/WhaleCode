@@ -156,10 +156,6 @@ fn next_existing_finish_schema() -> JsonSchema {
                 JsonSchema::string(Some("Optional explicit ready finish target.".into())),
             ),
             (
-                "result_summary".into(),
-                JsonSchema::string(Some("Agent-authored node result.".into())),
-            ),
-            (
                 "next_node_id".into(),
                 JsonSchema::string(Some("Existing node bound after this finish.".into())),
             ),
@@ -175,10 +171,6 @@ fn next_created_finish_schema() -> JsonSchema {
             (
                 "node_id".into(),
                 JsonSchema::string(Some("Optional explicit ready finish target.".into())),
-            ),
-            (
-                "result_summary".into(),
-                JsonSchema::string(Some("Agent-authored node result.".into())),
             ),
             (
                 "next_node_kind".into(),
@@ -210,16 +202,10 @@ fn nonterminal_finish_schema() -> JsonSchema {
 
 fn terminal_finish_schema() -> JsonSchema {
     JsonSchema::object(
-        BTreeMap::from([
-            (
-                "node_id".into(),
-                JsonSchema::string(Some("Optional explicit ready terminal target.".into())),
-            ),
-            (
-                "result_summary".into(),
-                JsonSchema::string(Some("Agent-authored terminal node result.".into())),
-            ),
-        ]),
+        BTreeMap::from([(
+            "node_id".into(),
+            JsonSchema::string(Some("Optional explicit ready terminal target.".into())),
+        )]),
         None,
         Some(false.into()),
     )
@@ -229,10 +215,6 @@ fn initialize_then_actions_schema(actions: &JsonSchema) -> JsonSchema {
     object_variant(
         "initialize_then_actions",
         BTreeMap::from([
-            (
-                "task_goal".into(),
-                JsonSchema::string(Some("Root task goal.".into())),
-            ),
             (
                 "initial_nodes".into(),
                 JsonSchema::array(initial_node_schema(), Some("Initial node graph.".into()))
@@ -249,7 +231,6 @@ fn initialize_then_actions_schema(actions: &JsonSchema) -> JsonSchema {
             ),
         ]),
         vec![
-            "task_goal".into(),
             "initial_nodes".into(),
             "current_node_id".into(),
             "actions".into(),
@@ -318,11 +299,8 @@ fn simple_action_schemas() -> Vec<JsonSchema> {
         ),
         object_variant(
             "block_node",
-            BTreeMap::from([
-                ("node_id".into(), JsonSchema::string(None)),
-                ("blocker_summary".into(), JsonSchema::string(None)),
-            ]),
-            vec!["node_id".into(), "blocker_summary".into()],
+            BTreeMap::from([("node_id".into(), JsonSchema::string(None))]),
+            vec!["node_id".into()],
         ),
         object_variant(
             "read_output_ref",
@@ -400,8 +378,12 @@ mod tests {
             .filter_map(|variant| variant["properties"]["action"]["enum"][0].as_str())
             .collect::<Vec<_>>();
         assert_eq!(action_names, vec!["initialize_then_actions"]);
+        assert_eq!(
+            variants[0]["required"],
+            json!(["action", "initial_nodes", "current_node_id", "actions"])
+        );
         let text = value.to_string();
-        assert!(text.contains("task_goal"));
+        assert!(!text.contains("task_goal"));
         assert!(!text.contains("task_title"));
         assert!(!text.contains("task_objective"));
         assert!(!text.contains("context_summary"));
@@ -428,8 +410,21 @@ mod tests {
         assert!(!text.contains("tool_name"));
         assert!(!text.contains("arguments"));
         assert!(text.contains("next_node_goal"));
+        assert!(!text.contains("result_summary"));
+        assert!(!text.contains("blocker_summary"));
         assert!(!text.contains("task_title"));
         assert!(!text.contains("context_summary"));
+        let block = value["parameters"]["anyOf"]
+            .as_array()
+            .expect("variants")
+            .iter()
+            .find(|variant| variant["properties"]["action"]["enum"][0] == json!("block_node"))
+            .expect("block variant");
+        let block_properties = block["properties"].as_object().expect("block properties");
+        assert_eq!(block_properties.len(), 2);
+        assert!(block_properties.contains_key("action"));
+        assert!(block_properties.contains_key("node_id"));
+        assert_eq!(block["required"], json!(["action", "node_id"]));
         let finish = value["parameters"]["anyOf"]
             .as_array()
             .expect("variants")

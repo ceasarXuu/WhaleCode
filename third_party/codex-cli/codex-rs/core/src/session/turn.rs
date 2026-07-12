@@ -131,7 +131,7 @@ const TASKSPACE_ACTIVE_THIN_PROJECTION_MARKER: &str = "TaskSpace v0.0.5 active t
 const TASKSPACE_ACTIVE_PROJECTION_MARKER: &str = "ContextProjectionV1 epoch snapshot:";
 const TASKSPACE_SHADOW_PROJECTION_MARKER: &str =
     "ContextProjectionV1 shadow (not active replacement):";
-const TASKSPACE_GATE_RECOVERY_MARKER: &str = "TaskSpaceGateRecoveryV1:";
+const TASKSPACE_GATE_RECOVERY_MARKER: &str = "\"schema_version\":\"TaskSpaceGateResultV1\"";
 const TASKSPACE_ACTIVE_MAX_RAW_TOOL_OUTPUT_CHARS: usize = 12_000;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -2318,7 +2318,7 @@ mod active_context_replacement_tests {
             tool_call("shell_command", "blocked-call"),
             tool_output_with_call_id(
                 "blocked-call",
-                "TaskSpace blocked this tool call.\nTaskSpaceGateRecoveryV1: {\"allowed\":false,\"gate_class\":\"state_machine\",\"reason\":\"current_node_binding_missing\"}",
+                r#"{"schema_version":"TaskSpaceGateResultV1","status":"state_machine_failed","success":false,"error":{"class":"state_machine","code":"current_node_binding_missing","message":"TaskSpace blocked this tool call."}}"#,
             ),
             message("user", "Keep the direct user requirement."),
         ];
@@ -2332,7 +2332,7 @@ mod active_context_replacement_tests {
             ResponseItem::FunctionCall { call_id, .. }
                 if call_id == "blocked-call"
         )));
-        assert!(joined.contains("TaskSpaceGateRecoveryV1"));
+        assert!(joined.contains("TaskSpaceGateResultV1"));
         assert!(joined.contains("Keep the direct user requirement."));
         assert_eq!(
             composition.decisions[1].action,
@@ -2357,7 +2357,7 @@ mod active_context_replacement_tests {
             tool_call("shell_command", "blocked-call"),
             tool_output_with_call_id(
                 "blocked-call",
-                "TaskSpace blocked this tool call.\nTaskSpaceGateRecoveryV1: {\"allowed\":false,\"gate_class\":\"state_machine\",\"reason\":\"no_current_node_binding\"}",
+                r#"{"schema_version":"TaskSpaceGateResultV1","status":"state_machine_failed","success":false,"error":{"class":"state_machine","code":"no_current_node_binding","message":"TaskSpace blocked this tool call."}}"#,
             ),
             message("developer", &latest_projection),
             message("user", "Keep the direct user requirement."),
@@ -2373,7 +2373,7 @@ mod active_context_replacement_tests {
         assert!(joined.contains("current_node: node-1 status=running"));
         assert!(joined.contains("current_node: none"));
         assert!(joined.contains("node-1 status=completed"));
-        assert!(joined.contains("TaskSpaceGateRecoveryV1"));
+        assert!(joined.contains("TaskSpaceGateResultV1"));
         assert!(joined.contains("Keep the direct user requirement."));
         assert_eq!(
             composition.decisions[0].action,

@@ -93,6 +93,35 @@ impl TaskSpaceEventStore {
         self.events.is_empty()
     }
 
+    pub(crate) fn event_id_for_call(&self, call_id: &str) -> Option<String> {
+        self.events
+            .iter()
+            .find(|event| event.call_id.as_deref() == Some(call_id))
+            .map(|event| event.id.clone())
+    }
+
+    pub(crate) fn initialization_source_event_ids(&self, call_id: &str) -> Vec<String> {
+        let call_event = self
+            .events
+            .iter()
+            .find(|event| event.call_id.as_deref() == Some(call_id));
+        let Some(call_event) = call_event else {
+            return Vec::new();
+        };
+        let mut source_event_ids = self
+            .events
+            .iter()
+            .rev()
+            .find(|event| {
+                event.sequence < call_event.sequence
+                    && event.original_role.as_deref() == Some("user")
+            })
+            .map(|event| vec![event.id.clone()])
+            .unwrap_or_default();
+        source_event_ids.push(call_event.id.clone());
+        source_event_ids
+    }
+
     pub(crate) fn record_item(
         &mut self,
         item: &ResponseItem,

@@ -318,7 +318,7 @@ fn aggregate_taskspace_batch_response(
         .and_then(|text| serde_json::from_str::<serde_json::Value>(text).ok())
         .unwrap_or_else(|| {
             serde_json::json!({
-                "schema_version": "TaskSpaceControlBatchResultV1",
+                "schema_version": "TaskSpaceControlResultV1",
                 "status": "state_committed",
                 "success": true,
                 "steps": [{
@@ -525,7 +525,7 @@ mod tests {
         let call = function_call_with_arguments(
             "taskspace_control",
             "outer",
-            r#"{"action":"initialize_then_actions","task_goal":"objective","initial_nodes":[{"node_id":"node-1","kind":"inspect_code_context","goal":"Read"}],"current_node_id":"node-1","actions":[{"tool_name":"exec_command","arguments":{"cmd":"pwd"}}]}"#,
+            r#"{"action":"initialize_then_actions","initial_nodes":[{"node_id":"node-1","kind":"inspect_code_context","goal":"Read"}],"current_node_id":"node-1","actions":[{"tool_name":"exec_command","arguments":{"cmd":"pwd"}}]}"#,
         );
 
         let actions = taskspace_nested_actions(&call);
@@ -539,7 +539,7 @@ mod tests {
             call_id: "outer".into(),
             output: FunctionCallOutputPayload::from_text(
                 serde_json::json!({
-                    "schema_version": "TaskSpaceControlBatchResultV1",
+                    "schema_version": "TaskSpaceControlResultV1",
                     "success": true,
                     "steps": [{"kind": "finish", "success": true}],
                 })

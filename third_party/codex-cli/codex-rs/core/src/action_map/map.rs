@@ -31,7 +31,7 @@ impl TaskStatus {
 pub(crate) struct TaskState {
     pub(crate) id: TaskId,
     pub(crate) title: String,
-    pub(crate) objective: String,
+    pub(crate) source_event_ids: Vec<String>,
     pub(crate) status: TaskStatus,
     pub(crate) owner_session_id: Option<ThreadId>,
     pub(crate) active_map_id: Option<ActionMapId>,

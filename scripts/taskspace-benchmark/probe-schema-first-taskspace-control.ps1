@@ -35,7 +35,6 @@ $nestedAction = [ordered]@{
     type = 'object'
     properties = [ordered]@{
         tool_name = [ordered]@{ type = 'string'; enum = @('exec_command') }
-        payload_type = [ordered]@{ type = 'string'; enum = @('function') }
         arguments = [ordered]@{
             type = 'object'
             properties = [ordered]@{ cmd = [ordered]@{ type = 'string' } }
@@ -43,14 +42,13 @@ $nestedAction = [ordered]@{
             additionalProperties = $false
         }
     }
-    required = @('tool_name', 'payload_type', 'arguments')
+    required = @('tool_name', 'arguments')
     additionalProperties = $false
 }
 $finishStep = [ordered]@{
     type = 'object'
     properties = [ordered]@{
         node_id = [ordered]@{ type = 'string' }
-        result_summary = [ordered]@{ type = 'string' }
         next_node_id = [ordered]@{ type = 'string' }
     }
     required = @('node_id', 'next_node_id')
@@ -60,7 +58,6 @@ $terminalFinishStep = [ordered]@{
     type = 'object'
     properties = [ordered]@{
         node_id = [ordered]@{ type = 'string' }
-        result_summary = [ordered]@{ type = 'string' }
     }
     required = @('node_id')
     additionalProperties = $false
@@ -81,11 +78,10 @@ $parameters = [ordered]@{
     type = 'object'
     anyOf = @(
         (New-ActionSchema 'initialize_then_actions' ([ordered]@{
-                    task_goal = [ordered]@{ type = 'string' }
                     initial_nodes = [ordered]@{ type = 'array'; minItems = 1; items = $initialNode }
                     current_node_id = [ordered]@{ type = 'string' }
                     actions = $actionsProperty
-                }) @('task_goal', 'initial_nodes', 'current_node_id', 'actions')),
+                }) @('initial_nodes', 'current_node_id', 'actions')),
         (New-ActionSchema 'finish_nodes' ([ordered]@{
                     finishes = $finishesProperty
                 }) @('finishes')),
@@ -188,7 +184,7 @@ function Invoke-Probe {
 }
 
 $prompts = [ordered]@{
-    initialize_then_actions = 'Call initialize_then_actions with task_goal probe, one inspect node node-1 with goal inspect, current_node_id node-1, and one exec_command action whose cmd is pwd.'
+    initialize_then_actions = 'Call initialize_then_actions with one inspect node node-1 whose goal is inspect, current_node_id node-1, and one exec_command action whose cmd is pwd.'
     finish_nodes = 'Call finish_nodes with one finish for node-1 and next node-2.'
     finish_then_end = 'Call finish_then_end with terminal_finish node-2 and final_candidate DONE.'
 }

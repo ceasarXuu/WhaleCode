@@ -1820,7 +1820,7 @@ pub struct ActionMapSnapshot {
 pub struct ActionMapSnapshotTask {
     pub id: String,
     pub title: String,
-    pub objective: String,
+    pub source_event_ids: Vec<String>,
     pub status: String,
     pub owner_session_id: Option<ThreadId>,
     pub active_map_id: Option<String>,
@@ -2031,7 +2031,7 @@ pub struct MapRuntimeMapCreatedEvent {
 pub struct MapRuntimeTaskCreatedEvent {
     pub task_id: String,
     pub title: String,
-    pub objective: String,
+    pub source_event_ids: Vec<String>,
     pub owner_session_id: Option<ThreadId>,
     pub active_map_id: Option<String>,
 }

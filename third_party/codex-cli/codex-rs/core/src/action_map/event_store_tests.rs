@@ -256,6 +256,38 @@ fn store_marks_global_items_without_reordering_them() {
 }
 
 #[test]
+fn initialization_sources_reference_user_and_control_events() {
+    let mut store = TaskSpaceEventStore::new();
+    let user = ResponseItem::Message {
+        id: None,
+        role: "user".into(),
+        content: vec![ContentItem::InputText {
+            text: "task".into(),
+        }],
+        end_turn: None,
+        phase: None,
+    };
+    let call = ResponseItem::FunctionCall {
+        id: None,
+        name: "taskspace_control".into(),
+        namespace: None,
+        arguments: r#"{"action":"initialize_then_actions"}"#.into(),
+        call_id: "control-call".into(),
+    };
+    store.record_item(&user, None, None, 1).unwrap();
+    store.record_item(&call, None, None, 2).unwrap();
+
+    assert_eq!(
+        store.initialization_source_event_ids("control-call"),
+        vec!["task-event-1", "task-event-2"]
+    );
+    assert_eq!(
+        store.event_id_for_call("control-call").as_deref(),
+        Some("task-event-2")
+    );
+}
+
+#[test]
 fn store_restore_and_rollback_are_mechanical() {
     let mut store = TaskSpaceEventStore::new();
     for item in [

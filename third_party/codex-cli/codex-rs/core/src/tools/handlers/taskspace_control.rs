@@ -75,6 +75,7 @@ impl ToolHandler for TaskSpaceControlHandler {
         let ToolInvocation {
             session,
             turn,
+            call_id,
             payload,
             ..
         } = invocation;
@@ -91,11 +92,14 @@ impl ToolHandler for TaskSpaceControlHandler {
 
         let (message, success, terminal_agent_message) = match args {
             TaskSpaceControlArgs::InitializeThenActions {
-                task_goal,
                 initial_nodes,
                 current_node_id,
                 actions: _,
             } => {
+                let source_event_ids = session
+                    .taskspace_initialization_source_event_ids(&call_id)
+                    .await
+                    .map_err(state_machine_error)?;
                 let nodes = initial_nodes
                     .into_iter()
                     .map(|node| {
@@ -114,7 +118,7 @@ impl ToolHandler for TaskSpaceControlHandler {
                         &turn,
                         ActionMapInitializeInput {
                             task_title: "TaskSpace task".into(),
-                            task_objective: task_goal,
+                            source_event_ids,
                             nodes,
                             current_node_id,
                         },
@@ -132,8 +136,13 @@ impl ToolHandler for TaskSpaceControlHandler {
                 )
             }
             TaskSpaceControlArgs::FinishNodes { finishes } => {
+                let conclusion_event_id = session
+                    .taskspace_event_id_for_call(&call_id)
+                    .await
+                    .map_err(state_machine_error)?;
                 let (steps, success) =
-                    execute_nonterminal_finishes(&session, &turn, finishes).await;
+                    execute_nonterminal_finishes(&session, &turn, finishes, &conclusion_event_id)
+                        .await;
                 (
                     format_state_batch("finish_nodes", steps, success),
                     success,
@@ -145,8 +154,17 @@ impl ToolHandler for TaskSpaceControlHandler {
                 terminal_finish,
                 final_candidate,
             } => {
-                let (mut steps, mut success) =
-                    execute_nonterminal_finishes(&session, &turn, preceding_finishes).await;
+                let conclusion_event_id = session
+                    .taskspace_event_id_for_call(&call_id)
+                    .await
+                    .map_err(state_machine_error)?;
+                let (mut steps, mut success) = execute_nonterminal_finishes(
+                    &session,
+                    &turn,
+                    preceding_finishes,
+                    &conclusion_event_id,
+                )
+                .await;
                 let mut terminal_message = None;
                 if success {
                     match execute_terminal_finish(
@@ -154,6 +172,7 @@ impl ToolHandler for TaskSpaceControlHandler {
                         &turn,
                         terminal_finish,
                         &final_candidate,
+                        &conclusion_event_id,
                     )
                     .await
                     {
@@ -207,12 +226,17 @@ impl ToolHandler for TaskSpaceControlHandler {
                     .map_err(state_machine_error)?;
                 (format!("TaskSpace main node bound: {node_id}"), true, None)
             }
-            TaskSpaceControlArgs::BlockNode {
-                node_id,
-                blocker_summary,
-            } => {
+            TaskSpaceControlArgs::BlockNode { node_id } => {
+                let conclusion_event_id = session
+                    .taskspace_event_id_for_call(&call_id)
+                    .await
+                    .map_err(state_machine_error)?;
                 let result_id = session
-                    .block_action_map_main_node(&turn, &node_id, blocker_summary)
+                    .block_action_map_main_node(
+                        &turn,
+                        &node_id,
+                        format!("agent_conclusion_event_id:{conclusion_event_id}"),
+                    )
                     .await
                     .map_err(state_machine_error)?;
                 (
@@ -270,10 +294,11 @@ async fn execute_nonterminal_finishes(
     session: &Session,
     turn: &TurnContext,
     finishes: Vec<TaskSpaceNonterminalFinishArgs>,
+    conclusion_event_id: &str,
 ) -> (Vec<JsonValue>, bool) {
     let mut steps = Vec::with_capacity(finishes.len());
     for finish in finishes {
-        match execute_nonterminal_finish(session, turn, finish).await {
+        match execute_nonterminal_finish(session, turn, finish, conclusion_event_id).await {
             Ok(step) => steps.push(step),
             Err(error) => {
                 steps.push(format_failed_state_step(steps.len(), &error));
@@ -288,6 +313,7 @@ async fn execute_nonterminal_finish(
     session: &Session,
     turn: &TurnContext,
     finish: TaskSpaceNonterminalFinishArgs,
+    conclusion_event_id: &str,
 ) -> Result<JsonValue, FunctionCallError> {
     let draft = build_next_node_draft(
         finish.next_node_kind,
@@ -298,7 +324,7 @@ async fn execute_nonterminal_finish(
         .finish_action_map_current_or_named_node_with_next(
             turn,
             finish.node_id.as_deref(),
-            finish.result_summary.unwrap_or_default(),
+            format!("agent_conclusion_event_id:{conclusion_event_id}"),
             finish.next_node_id,
             draft,
         )
@@ -316,12 +342,13 @@ async fn execute_terminal_finish(
     turn: &TurnContext,
     finish: TaskSpaceTerminalFinishArgs,
     final_candidate: &str,
+    conclusion_event_id: &str,
 ) -> Result<JsonValue, FunctionCallError> {
     let (node_id, outcome) = session
         .finish_action_map_node_with_terminal_candidate(
             turn,
             finish.node_id.as_deref(),
-            finish.result_summary.unwrap_or_default(),
+            format!("agent_conclusion_event_id:{conclusion_event_id}"),
             final_candidate,
         )
         .await
@@ -333,11 +360,14 @@ async fn execute_terminal_finish(
 }
 
 fn format_failed_state_step(index: usize, error: &FunctionCallError) -> JsonValue {
+    let typed_result = serde_json::from_str::<JsonValue>(&error.to_string())
+        .unwrap_or_else(|_| serde_json::json!({"message": error.to_string()}));
+    let typed_error = typed_result.get("error").cloned().unwrap_or(typed_result);
     serde_json::json!({
         "kind": "state_transition",
         "index": index,
         "success": false,
-        "output": error.to_string(),
+        "error": typed_error,
     })
 }
 
@@ -350,9 +380,9 @@ fn format_state_batch(action: &str, steps: Vec<JsonValue>, success: bool) -> Str
         .to_string()
     } else {
         serde_json::json!({
-            "schema_version": "TaskSpaceControlBatchResultV1",
+            "schema_version": "TaskSpaceControlResultV1",
             "action": action,
-            "status": "state_failed",
+            "status": "state_machine_failed",
             "success": false,
             "steps": steps,
         })
@@ -463,13 +493,17 @@ fn resource_error(message: String, reason: &str) -> FunctionCallError {
 }
 
 fn gate_error(message: String, class: TaskSpaceHardGateClass, reason: &str) -> FunctionCallError {
-    let metadata = serde_json::json!({
-        "schema_version": "TaskSpaceGateRecoveryV1",
-        "allowed": false,
-        "gate_class": class.as_str(),
-        "reason": reason,
+    let result = serde_json::json!({
+        "schema_version": "TaskSpaceControlResultV1",
+        "status": format!("{}_failed", class.as_str()),
+        "success": false,
+        "error": {
+            "class": class.as_str(),
+            "code": reason,
+            "message": message,
+        },
     });
-    FunctionCallError::RespondToModel(format!("{message}\nTaskSpaceGateRecoveryV1: {metadata}"))
+    FunctionCallError::RespondToModel(result.to_string())
 }
 
 fn hard_state_reason(message: &str) -> Option<&str> {

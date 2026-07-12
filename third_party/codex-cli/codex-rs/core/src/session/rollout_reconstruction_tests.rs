@@ -93,7 +93,7 @@ async fn reconstruct_history_restores_latest_map_runtime_snapshot() {
             session.conversation_id,
             crate::action_map::ActionMapInitializeInput {
                 task_title: "Architecture review".to_string(),
-                task_objective: "Find structure risks.".to_string(),
+                source_event_ids: vec!["task-event-1".to_string()],
                 nodes: vec![crate::action_map::ActionMapInitializeNodeInput {
                     id: "scope".to_string(),
                     kind: crate::action_map::NodeKind::InspectCodeContext,

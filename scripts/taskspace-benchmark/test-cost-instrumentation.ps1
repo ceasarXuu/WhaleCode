@@ -705,8 +705,8 @@ $rolloutControlJsonl = Join-Path $RunRoot "rollout-control-whale-exec.jsonl"
     '{"type":"response_item","payload":{"type":"function_call","name":"taskspace_control","arguments":"{\"action\":\"finish_nodes\"}","call_id":"native-control-1"}}',
     '{"type":"response_item","payload":{"type":"function_call","name":"taskspace_control","arguments":"{\"action\":\"finish_nodes\"}","call_id":"native-control-2"}}',
     '{"type":"response_item","payload":{"type":"function_call","name":"taskspace_control","arguments":"{\"action\":\"bind_node\"}","call_id":"taskspace-action-contract-3-taskspace_control"}}',
-    '{"type":"response_item","payload":{"type":"function_call_output","call_id":"native-control-1","output":"{\"schema_version\":\"TaskSpaceControlBatchResultV1\",\"success\":false,\"status\":\"partial\"}"}}',
-    '{"type":"response_item","payload":{"type":"function_call_output","call_id":"native-control-2","output":"TaskSpaceGateRecoveryV1: {\"allowed\":false}"}}'
+    '{"type":"response_item","payload":{"type":"function_call_output","call_id":"native-control-1","output":"{\"schema_version\":\"TaskSpaceControlResultV1\",\"success\":false,\"status\":\"partial\"}"}}',
+    '{"type":"response_item","payload":{"type":"function_call_output","call_id":"native-control-2","output":"{\"schema_version\":\"TaskSpaceControlResultV1\",\"success\":false,\"status\":\"protocol_failed\",\"error\":{\"class\":\"protocol\",\"code\":\"invalid_arguments\",\"message\":\"invalid\"}}"}}'
 ) | Set-Content -LiteralPath (Join-Path $rolloutControlDir "rollout.jsonl") -Encoding UTF8
 $rolloutControlInstrumentation = Write-TaskspaceCostInstrumentationArtifacts -ArtifactDir $rolloutControlDir -JsonlPath $rolloutControlJsonl -ObservabilityJsonPath ""
 Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.taskspace_control_count -eq 3) "rollout taskspace_control calls were not counted"

@@ -1417,7 +1417,7 @@ impl Session {
         &self,
         turn_context: &TurnContext,
         node_id: Option<&str>,
-        result_summary: String,
+        agent_conclusion_event_ref: String,
         next_node_id: Option<String>,
         next_node_draft: Option<ActionMapNextNodeDraft>,
     ) -> Result<(String, ActionMapFinishNodeOutcome), String> {
@@ -1432,7 +1432,7 @@ impl Session {
             let (outcome, events) = state.action_map_runtime.finish_main_node_with_next(
                 self.conversation_id,
                 &node_id,
-                result_summary,
+                agent_conclusion_event_ref,
                 next_node_id,
                 next_node_draft,
             )?;
@@ -1447,7 +1447,7 @@ impl Session {
         &self,
         turn_context: &TurnContext,
         node_id: Option<&str>,
-        result_summary: String,
+        agent_conclusion_event_ref: String,
         final_candidate: &str,
     ) -> Result<(String, ActionMapFinishNodeOutcome), String> {
         let (node_id, outcome, events) = {
@@ -1463,7 +1463,7 @@ impl Session {
                 .finish_main_node_with_terminal_candidate(
                     self.conversation_id,
                     &node_id,
-                    result_summary,
+                    agent_conclusion_event_ref,
                     final_candidate,
                 )?;
             (node_id, outcome, events)
@@ -1477,13 +1477,15 @@ impl Session {
         &self,
         turn_context: &TurnContext,
         node_id: &str,
-        blocker_summary: String,
+        agent_conclusion_event_ref: String,
     ) -> Result<String, String> {
         let (result_id, events) = {
             let mut state = self.state.lock().await;
-            state
-                .action_map_runtime
-                .block_main_node(self.conversation_id, node_id, blocker_summary)
+            state.action_map_runtime.block_main_node(
+                self.conversation_id,
+                node_id,
+                agent_conclusion_event_ref,
+            )
         }?;
         self.emit_action_map_events_for_turn(turn_context, events)
             .await;
@@ -3846,6 +3848,34 @@ impl Session {
     pub(crate) async fn taskspace_mode_active(&self) -> bool {
         let state = self.state.lock().await;
         state.action_map_runtime.mode() == MapRuntimeMode::Experiment
+    }
+
+    pub(crate) async fn taskspace_event_id_for_call(
+        &self,
+        call_id: &str,
+    ) -> Result<String, String> {
+        let state = self.state.lock().await;
+        state
+            .taskspace_events
+            .event_id_for_call(call_id)
+            .ok_or_else(|| format!("TaskSpace canonical event is missing for call `{call_id}`."))
+    }
+
+    pub(crate) async fn taskspace_initialization_source_event_ids(
+        &self,
+        call_id: &str,
+    ) -> Result<Vec<String>, String> {
+        let state = self.state.lock().await;
+        let source_event_ids = state
+            .taskspace_events
+            .initialization_source_event_ids(call_id);
+        if source_event_ids.is_empty() {
+            Err(format!(
+                "TaskSpace canonical initialization sources are missing for call `{call_id}`."
+            ))
+        } else {
+            Ok(source_event_ids)
+        }
     }
 
     /// Persist the latest turn context snapshot for the first real user turn and for

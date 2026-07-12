@@ -69,7 +69,6 @@ use super::sentinel::TaskSpaceSentinelWarningType;
 
 const TASKSPACE_MECHANICAL_BLANK_TASK_TITLE: &str = "TaskSpace blank task";
 const TASKSPACE_MECHANICAL_BLANK_MAP_TITLE: &str = "TaskSpace blank map";
-const TASKSPACE_MECHANICAL_BLANK_OBJECTIVE: &str = "Agent-authored objective pending";
 const TASKSPACE_MAP_SCHEMA_VERSION: &str = "taskspace-map-v1";
 use super::sentinel::warning_drafts_for_trace_event;
 
@@ -106,15 +105,19 @@ fn gate_recovery_message(
     blocking_items: Vec<String>,
     missing_evidence: Vec<String>,
 ) -> String {
-    let recovery = serde_json::json!({
-        "schema_version": "TaskSpaceGateRecoveryV1",
-        "allowed": false,
-        "gate_class": gate_class.as_str(),
-        "reason": reason,
-        "blocking_items": blocking_items,
-        "missing_evidence": missing_evidence,
-    });
-    format!("{message}\nTaskSpaceGateRecoveryV1: {recovery}")
+    serde_json::json!({
+        "schema_version": "TaskSpaceGateResultV1",
+        "status": format!("{}_failed", gate_class.as_str()),
+        "success": false,
+        "error": {
+            "class": gate_class.as_str(),
+            "code": reason,
+            "message": message,
+            "blocking_items": blocking_items,
+            "missing_evidence": missing_evidence,
+        },
+    })
+    .to_string()
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -126,19 +129,15 @@ pub(crate) struct ActionMapGateError {
 impl ActionMapGateError {
     fn new(message: impl Into<String>, events: Vec<MapRuntimeEvent>) -> Self {
         let message = message.into();
-        let message = if message.contains("TaskSpaceGateRecoveryV1:") {
-            message
-        } else {
-            let reason = hard_state_reason_from_message(&message)
-                .unwrap_or_else(|| "state_machine_transition_rejected".to_string());
-            gate_recovery_message(
-                &message,
-                TaskSpaceHardGateClass::StateMachine,
-                &reason,
-                Vec::new(),
-                Vec::new(),
-            )
-        };
+        let reason = hard_state_reason_from_message(&message)
+            .unwrap_or_else(|| "state_machine_transition_rejected".to_string());
+        let message = gate_recovery_message(
+            &message,
+            TaskSpaceHardGateClass::StateMachine,
+            &reason,
+            Vec::new(),
+            Vec::new(),
+        );
         Self { message, events }
     }
 
@@ -210,7 +209,7 @@ pub(crate) struct ActionMapInitializeNodeInput {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ActionMapInitializeInput {
     pub(crate) task_title: String,
-    pub(crate) task_objective: String,
+    pub(crate) source_event_ids: Vec<String>,
     pub(crate) nodes: Vec<ActionMapInitializeNodeInput>,
     pub(crate) current_node_id: String,
 }
@@ -1074,7 +1073,7 @@ impl ActionMapRuntimeState {
         let task = TaskState {
             id: task_id.clone(),
             title: TASKSPACE_MECHANICAL_BLANK_TASK_TITLE.to_string(),
-            objective: TASKSPACE_MECHANICAL_BLANK_OBJECTIVE.to_string(),
+            source_event_ids: Vec::new(),
             status: TaskStatus::Active,
             owner_session_id: Some(owner_session_id),
             active_map_id: None,
@@ -1231,7 +1230,7 @@ impl ActionMapRuntimeState {
                     TaskState {
                         id,
                         title: task.title,
-                        objective: task.objective,
+                        source_event_ids: task.source_event_ids,
                         status: task_status_from_str(&task.status).unwrap_or(TaskStatus::Pending),
                         owner_session_id: task.owner_session_id,
                         active_map_id: task.active_map_id,
@@ -3136,7 +3135,20 @@ feedback:\n\
         }
 
         let task_title = require_nonempty_owned("task_title", input.task_title)?;
-        let task_objective = require_nonempty_owned("task_objective", input.task_objective)?;
+        if input.source_event_ids.is_empty() {
+            return Err("TaskSpace map initialization requires source_event_ids.".to_string());
+        }
+        let mut source_event_ids = Vec::with_capacity(input.source_event_ids.len());
+        let mut seen_source_event_ids = HashSet::new();
+        for source_event_id in input.source_event_ids {
+            let source_event_id = require_nonempty_owned("source_event_id", source_event_id)?;
+            if !seen_source_event_ids.insert(source_event_id.clone()) {
+                return Err(format!(
+                    "TaskSpace map initialization source_event_id `{source_event_id}` is duplicated."
+                ));
+            }
+            source_event_ids.push(source_event_id);
+        }
         let current_node_id = require_nonempty_owned("current_node_id", input.current_node_id)?;
         if input.nodes.is_empty() {
             return Err(
@@ -3204,7 +3216,7 @@ feedback:\n\
                 .get_mut(&task_id)
                 .expect("mechanical blank task was validated");
             task.title = task_title.clone();
-            task.objective = task_objective.clone();
+            task.source_event_ids = source_event_ids;
             let map = self
                 .maps
                 .get_mut(&map_id)
@@ -3474,7 +3486,7 @@ feedback:\n\
         &mut self,
         owner_session_id: ThreadId,
         node_id: &str,
-        result_summary: String,
+        agent_conclusion_event_ref: String,
         next_node_id: Option<String>,
         next_node_draft: Option<ActionMapNextNodeDraft>,
     ) -> Result<(ActionMapFinishNodeOutcome, Vec<MapRuntimeEvent>), String> {
@@ -3484,7 +3496,7 @@ feedback:\n\
             let (outcome, finish_events) = staged.finish_main_node_with_next(
                 owner_session_id,
                 node_id,
-                result_summary,
+                agent_conclusion_event_ref,
                 next_node_id,
                 next_node_draft,
             )?;
@@ -3492,9 +3504,9 @@ feedback:\n\
             *self = staged;
             return Ok((outcome, events));
         }
-        let result_summary = result_summary.trim();
-        if result_summary.is_empty() {
-            return Err("TaskSpace finish result_summary cannot be empty.".to_string());
+        let agent_conclusion_event_ref = agent_conclusion_event_ref.trim();
+        if agent_conclusion_event_ref.is_empty() {
+            return Err("TaskSpace finish agent conclusion event ref cannot be empty.".to_string());
         }
         let next_node_id = next_node_id
             .as_deref()
@@ -3523,7 +3535,7 @@ feedback:\n\
             owner_session_id,
             node_id,
             NodeResultKind::Result,
-            result_summary.to_string(),
+            agent_conclusion_event_ref.to_string(),
             NodeStatus::Completed,
             true,
         )?;
@@ -3562,11 +3574,13 @@ feedback:\n\
         &mut self,
         owner_session_id: ThreadId,
         node_id: &str,
-        blocker_summary: String,
+        agent_conclusion_event_ref: String,
     ) -> Result<(NodeResultId, Vec<MapRuntimeEvent>), String> {
-        let blocker_summary = blocker_summary.trim();
-        if blocker_summary.is_empty() {
-            return Err("TaskSpace block_node blocker_summary cannot be empty.".to_string());
+        let agent_conclusion_event_ref = agent_conclusion_event_ref.trim();
+        if agent_conclusion_event_ref.is_empty() {
+            return Err(
+                "TaskSpace block_node agent conclusion event ref cannot be empty.".to_string(),
+            );
         }
         let map_id = self.active_map_id.clone().ok_or_else(|| {
             "TaskSpace mode is active but no active task path exists.".to_string()
@@ -3582,7 +3596,7 @@ feedback:\n\
             owner_session_id,
             node_id,
             NodeResultKind::Blocker,
-            blocker_summary.to_string(),
+            agent_conclusion_event_ref.to_string(),
             NodeStatus::Blocked,
             false,
         )?;
@@ -3755,7 +3769,7 @@ feedback:\n\
         &mut self,
         owner_session_id: ThreadId,
         node_id: &str,
-        result_summary: String,
+        agent_conclusion_event_ref: String,
         final_candidate: &str,
     ) -> Result<(ActionMapFinishNodeOutcome, Vec<MapRuntimeEvent>), String> {
         if final_candidate.trim().is_empty() {
@@ -3765,7 +3779,7 @@ feedback:\n\
         let (outcome, events) = staged.finish_main_node_with_next(
             owner_session_id,
             node_id,
-            result_summary,
+            agent_conclusion_event_ref,
             None,
             None,
         )?;
@@ -4133,8 +4147,8 @@ feedback:\n\
                     context.push_str(task.status.as_str());
                     context.push_str("] ");
                     context.push_str(&single_line_preview(&task.title, 100));
-                    context.push_str(" objective=");
-                    context.push_str(&single_line_preview(&task.objective, 140));
+                    context.push_str(" source_events=");
+                    context.push_str(&task.source_event_ids.join(","));
                     context.push('\n');
                 }
             }
@@ -5313,7 +5327,7 @@ ContextProjectionV1 epoch snapshot end."
 
 fn taskspace_task_path_is_mechanical_blank(task: &TaskState, map: &ActionMapInstance) -> bool {
     task.title == TASKSPACE_MECHANICAL_BLANK_TASK_TITLE
-        && task.objective == TASKSPACE_MECHANICAL_BLANK_OBJECTIVE
+        && task.source_event_ids.is_empty()
         && map.title == TASKSPACE_MECHANICAL_BLANK_MAP_TITLE
         && map.nodes.is_empty()
         && map.edges.is_empty()
@@ -5390,7 +5404,7 @@ fn append_context_projection_active(
         task_status: task.status.as_str().to_string(),
         map_id: map.id.clone(),
         map_status: map.status.as_str().to_string(),
-        task_goal: single_line_preview(&task.objective, 220),
+        source_event_ids: task.source_event_ids.clone(),
         current_node,
         map_nodes: node_skeleton,
         current_node_dependencies,
@@ -5913,7 +5927,7 @@ fn snapshot_task(task: &TaskState) -> ActionMapSnapshotTask {
     ActionMapSnapshotTask {
         id: task.id.clone(),
         title: task.title.clone(),
-        objective: task.objective.clone(),
+        source_event_ids: task.source_event_ids.clone(),
         status: task.status.as_str().to_string(),
         owner_session_id: task.owner_session_id,
         active_map_id: task.active_map_id.clone(),
@@ -6771,7 +6785,7 @@ fn task_created_event(task: &TaskState) -> MapRuntimeEvent {
     MapRuntimeEvent::TaskCreated(MapRuntimeTaskCreatedEvent {
         task_id: task.id.clone(),
         title: task.title.clone(),
-        objective: task.objective.clone(),
+        source_event_ids: task.source_event_ids.clone(),
         owner_session_id: task.owner_session_id,
         active_map_id: task.active_map_id.clone(),
     })

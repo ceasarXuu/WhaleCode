@@ -12,7 +12,7 @@ fn initialized_state(
             owner,
             ActionMapInitializeInput {
                 task_title: "Agent-authored task".to_string(),
-                task_objective: "Complete the requested change".to_string(),
+                source_event_ids: vec!["task-event-1".to_string()],
                 nodes,
                 current_node_id: current_node_id.to_string(),
             },
@@ -104,7 +104,7 @@ fn mechanical_blank_map_blocks_ordinary_tools() {
         .expect_err("blank map must block ordinary tools");
 
     assert!(error.to_string().contains("active_task_path_without_nodes"));
-    assert!(error.to_string().contains("TaskSpaceGateRecoveryV1"));
+    assert!(error.to_string().contains("TaskSpaceGateResultV1"));
     let snapshot = state
         .provider_request_budget_snapshot()
         .expect("blank map provider snapshot");
