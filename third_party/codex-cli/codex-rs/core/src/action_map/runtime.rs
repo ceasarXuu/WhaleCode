@@ -4096,9 +4096,7 @@ feedback:\n\
                     "active_task_record_missing",
                 ));
             };
-            let mut context = String::from(
-                "TaskSpace v0.0.5 active thin projection. This surface contains the TaskSpace map skeleton, current-node event excerpts, result references, and hard state-machine status. Runtime state remains authoritative.\n",
-            );
+            let mut context = String::new();
             if self.bootstrap_required {
                 context.push_str(
                     "Bootstrap status: required before ordinary tools or subagent spawn.\n",
@@ -4106,11 +4104,6 @@ feedback:\n\
             } else if self.routing_required {
                 context.push_str(
                     "Task routing status: required before ordinary tools or subagent spawn.\n",
-                );
-            }
-            if taskspace_task_path_is_mechanical_blank(task, map) {
-                context.push_str(
-                    "Map initialization:\n- source: runtime_mechanical_blank\n- semantic_state: agent-authored objective and node plan are not recorded yet\n- hard_state: active_task_path_without_nodes\n- initialization_contract: taskspace_control(action=initialize_then_actions)\n",
                 );
             }
             if let Some(barrier) = self.active_maintenance_barrier() {
@@ -5264,7 +5257,6 @@ fn append_context_projection_active(
     current_node_id: Option<&str>,
     _active_budget: Option<&TaskSpaceActiveBudgetV1>,
 ) -> usize {
-    let projection_id = format!("projection-taskspace-{}-{}", task.id, map.id);
     let current_node = current_node_id
         .and_then(|node_id| map.nodes.get(node_id))
         .map(|node| {
@@ -5317,12 +5309,10 @@ fn append_context_projection_active(
     let result_refs_available = projection_result_refs_available(map, 8);
 
     let rendered = render_active_projection(ActiveProjectionInput {
-        projection_id,
         task_id: task.id.clone(),
         task_title: single_line_preview(&task.title, 120),
         task_status: task.status.as_str().to_string(),
         map_id: map.id.clone(),
-        map_title: single_line_preview(&map.title, 120),
         map_status: map.status.as_str().to_string(),
         active_objective: single_line_preview(&task.objective, 220),
         current_node,
@@ -6984,10 +6974,9 @@ fn transition_notice(previous_mode: MapRuntimeMode, current_mode: MapRuntimeMode
     match (previous_mode, current_mode) {
         (MapRuntimeMode::Standard, MapRuntimeMode::Experiment) => {
             "TaskSpace mode is now active.\n\
-Previous standard-mode conversation remains background context only.\n\
-hard_state: ordinary tools and multi-agent actions require an active TaskSpace task path, current node binding, and lease.\n\
-control_contract: use the model-visible taskspace_control schema; runtime executes only Agent-declared transitions and nested actions.\n\
-map_runtime_boundary: runtime manages the task map, node binding, tool/event attribution, and hard state-machine rules; task strategy remains Agent-owned."
+hard_state: ordinary tools require an active map node binding and lease.\n\
+execution_contract: runtime executes Agent-declared provider calls in order and enforces only hard state-machine rules.\n\
+strategy_owner: Agent."
                 .to_string()
         }
         (MapRuntimeMode::Experiment, MapRuntimeMode::Standard) => {

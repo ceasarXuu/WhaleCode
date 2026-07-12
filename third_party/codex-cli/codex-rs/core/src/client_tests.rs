@@ -438,9 +438,9 @@ fn provider_payload_scan_rejects_shadow_or_legacy_taskspace_history() {
     let active_with_transition_notice = provider_payload_digest(&json!({
         "input": format!(
             "TaskSpace mode is now active.\n\
-             Previous standard-mode conversation remains background context only.\n\
              hard_state: current node binding is required.\n\
-             map_runtime_boundary: runtime manages the task map.\n\
+             execution_contract: runtime executes Agent-declared provider calls in order.\n\
+             strategy_owner: Agent.\n\
              {active_projection}"
         )
     }))

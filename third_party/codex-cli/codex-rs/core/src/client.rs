@@ -982,10 +982,9 @@ fn scan_provider_payload_text(
     let legacy_scan_text = remove_taskspace_agent_context_bundle_sections(text);
     let current_activation_notice_present = active_projection_present
         && legacy_scan_text.contains("TaskSpace mode is now active.")
-        && legacy_scan_text
-            .contains("Previous standard-mode conversation remains background context only.")
         && legacy_scan_text.contains("hard_state:")
-        && legacy_scan_text.contains("map_runtime_boundary:");
+        && legacy_scan_text.contains("execution_contract:")
+        && legacy_scan_text.contains("strategy_owner:");
     let legacy_taskspace_history_present = legacy_scan_text
         .contains(TASKSPACE_SHADOW_PROJECTION_MARKER)
         || legacy_scan_text.contains("TaskSpace Bootstrap")

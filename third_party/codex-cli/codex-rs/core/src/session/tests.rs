@@ -1307,8 +1307,11 @@ async fn build_initial_context_consumes_action_map_transition_notice_once() {
         first_developer_text.contains("TaskSpace mode is now active"),
         "expected transition notice in developer context, got: {first_developer_text}"
     );
-    assert!(first_developer_text.contains("use the model-visible taskspace_control schema"));
-    assert!(first_developer_text.contains("runtime executes only Agent-declared transitions"));
+    assert!(first_developer_text.contains("execution_contract:"));
+    assert!(first_developer_text.contains("Agent-declared provider calls in order"));
+    assert!(first_developer_text.contains("strategy_owner: Agent"));
+    assert!(!first_developer_text.contains("nested actions"));
+    assert!(!first_developer_text.contains("Previous standard-mode conversation"));
     assert!(!first_developer_text.contains("Prefer chaining"));
     assert!(!first_developer_text.contains("standalone nonterminal finish"));
 
@@ -1410,11 +1413,11 @@ async fn record_context_updates_keeps_one_taskspace_epoch_snapshot() {
     let history = session.clone_history().await;
     let developer_text = developer_input_texts(history.raw_items()).join("\n");
     assert!(
-        developer_text.contains("TaskSpace v0.0.5 active thin projection."),
+        developer_text.contains("ContextProjectionV1 epoch snapshot:"),
         "expected TaskSpace epoch snapshot in steady-state context: {developer_text}"
     );
     assert!(
-        developer_text.contains("projection_id: projection-taskspace-task-1-map-1"),
+        developer_text.contains("task_id: task-1") && developer_text.contains("map_id: map-1"),
         "expected initial epoch snapshot in steady-state context: {developer_text}"
     );
     assert!(
@@ -1441,7 +1444,7 @@ async fn record_context_updates_keeps_one_taskspace_epoch_snapshot() {
     let history_after_second_update = session.clone_history().await;
     let developer_text = developer_input_texts(history_after_second_update.raw_items()).join("\n");
     assert!(
-        developer_text.contains("projection-taskspace-task-1-map-1"),
+        developer_text.contains("task_id: task-1") && developer_text.contains("map_id: map-1"),
         "epoch snapshot should remain in append-only history: {developer_text}"
     );
     assert_eq!(
