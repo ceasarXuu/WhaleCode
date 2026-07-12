@@ -595,6 +595,38 @@ Assert-True ([int]$shadowProjectionArtifacts.context_projection_summary.shadow_p
 $shadowProjectionEventLine = Get-Content -LiteralPath $shadowProjectionArtifacts.projection_events_path -Encoding UTF8 | Select-Object -First 1
 $shadowProjectionEvent = $shadowProjectionEventLine | ConvertFrom-Json
 Assert-True ([string]$shadowProjectionEvent.projection_kind -eq "shadow") "legacy shadow projection kind was not parsed"
+$epochProjectionRollout = Join-Path $costDir "projection-epoch-rollout.jsonl"
+@(
+    ([pscustomobject]@{
+            type = "event_msg"
+            payload = [pscustomobject]@{
+                type = "snapshot_updated"
+                snapshot = [pscustomobject]@{
+                    traceEvents = @(
+                        [pscustomobject]@{
+                            id = "trace-projection-1"
+                            kind = "projection_budget"
+                            taskId = "task-1"
+                            mapId = "map-1"
+                            nodeId = "projection"
+                            tags = @(
+                                "schema:taskspace-projection-budget-v1",
+                                "projection_tokens:189",
+                                "max_projection_tokens:16000",
+                                "status:within_budget"
+                            )
+                        }
+                    )
+                }
+            }
+        } | ConvertTo-Json -Compress -Depth 12)
+) | Set-Content -LiteralPath $epochProjectionRollout -Encoding UTF8
+$epochProjectionSummary = New-TaskspaceContextProjectionSummary "" "" $epochProjectionRollout
+Assert-True ([string]$epochProjectionSummary.availability -eq "measured") "epoch projection trace was not measured"
+Assert-True ([int]$epochProjectionSummary.projection_count -eq 1) "epoch projection trace was not counted"
+Assert-True ([int]$epochProjectionSummary.projection_tokens_total -eq 189) "epoch projection tokens were not extracted"
+Assert-True ([int]$epochProjectionSummary.active_projection_count -eq 1) "epoch projection was not active"
+Assert-True ([string]$epochProjectionSummary.events[0].projection_kind -eq "epoch_snapshot") "epoch projection kind was not preserved"
 $costObsFallback = Join-Path $costDir "observability-output-ref-fallback.json"
 [pscustomobject]@{
     timeline = @(

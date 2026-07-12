@@ -110,6 +110,16 @@ function Get-TaskspaceTraceEvents {
                 try { $row = $line | ConvertFrom-Json } catch { continue }
                 if ([string]$row.type -ne "event_msg" -or $null -eq $row.payload) { continue }
                 $payload = $row.payload
+                $snapshot = Get-TaskspaceCostProperty $payload @("snapshot")
+                foreach ($traceEvent in @((Get-TaskspaceCostProperty $snapshot @("traceEvents", "trace_events")))) {
+                    $traceKind = [string](Get-TaskspaceTraceField $traceEvent @("kind"))
+                    if ($Kinds -notcontains $traceKind) { continue }
+                    $traceId = [string](Get-TaskspaceTraceField $traceEvent @("traceEventId", "trace_event_id", "id"))
+                    $dedupeKey = if ([string]::IsNullOrWhiteSpace($traceId)) { "rollout-snapshot:${traceKind}:$($events.Count)" } else { "${traceKind}:$traceId" }
+                    if ($seen.ContainsKey($dedupeKey)) { continue }
+                    $seen[$dedupeKey] = $true
+                    $events.Add($traceEvent)
+                }
                 $kind = [string]$payload.kind
                 if ($Kinds -notcontains $kind) { continue }
                 $traceId = [string]$payload.traceEventId
@@ -1900,6 +1910,34 @@ function New-TaskspaceContextProjectionEvent {
     }
 }
 
+function New-TaskspaceContextProjectionTraceEvents {
+    param(
+        [AllowEmptyString()][string]$ObservabilityJsonPath = "",
+        [AllowEmptyString()][string]$RolloutJsonlPath = ""
+    )
+    $events = New-Object System.Collections.Generic.List[object]
+    foreach ($event in @(Get-TaskspaceTraceEvents $ObservabilityJsonPath @("projection_budget") $RolloutJsonlPath)) {
+        $tags = Convert-TaskspaceTraceTags $event
+        $taskId = [string](Get-TaskspaceTraceField $event @("taskId", "task_id"))
+        $mapId = [string](Get-TaskspaceTraceField $event @("mapId", "map_id"))
+        $traceId = [string](Get-TaskspaceTraceField $event @("traceEventId", "trace_event_id", "id"))
+        $events.Add([pscustomobject]@{
+            schema_version = "taskspace-context-projection-event-v1"
+            projection_id = if ([string]::IsNullOrWhiteSpace($taskId) -or [string]::IsNullOrWhiteSpace($mapId)) { "" } else { "projection-taskspace-$taskId-$mapId" }
+            task_id = $taskId
+            map_id = $mapId
+            mode = "taskspace"
+            projection_kind = "epoch_snapshot"
+            estimated_tokens = Convert-TaskspaceTraceNullableInt $tags.projection_tokens
+            protected_miss_count = 0
+            protected_missing_sections = @()
+            source = "runtime_trace"
+            trace_event_id = $traceId
+        })
+    }
+    @($events.ToArray())
+}
+
 function New-TaskspaceContextProjectionSummary {
     param(
         [AllowEmptyString()][string]$JsonlPath = "",
@@ -1910,15 +1948,16 @@ function New-TaskspaceContextProjectionSummary {
     foreach ($path in @($JsonlPath, $ObservabilityJsonPath, $RolloutJsonlPath)) {
         if (-not [string]::IsNullOrWhiteSpace($path) -and (Test-Path -LiteralPath $path)) { $sourcePresent = $true }
     }
-    $events = @(Get-TaskspaceContextProjectionBlocks $JsonlPath $ObservabilityJsonPath $RolloutJsonlPath | ForEach-Object {
+    $blockEvents = @(Get-TaskspaceContextProjectionBlocks $JsonlPath $ObservabilityJsonPath $RolloutJsonlPath | ForEach-Object {
             New-TaskspaceContextProjectionEvent $_
         })
+    $events = @($blockEvents) + @(New-TaskspaceContextProjectionTraceEvents $ObservabilityJsonPath $RolloutJsonlPath)
     $tokenValues = @($events | Where-Object { $null -ne $_.estimated_tokens } | ForEach-Object { [int64]$_.estimated_tokens })
     $tokenTotal = [int64]0
     foreach ($value in $tokenValues) { $tokenTotal += [int64]$value }
     $protectedMiss = 0
     foreach ($event in $events) { $protectedMiss += [int]$event.protected_miss_count }
-    $activeProjectionCount = @($events | Where-Object { [string]$_.projection_kind -eq "active_replacement" }).Count
+    $activeProjectionCount = @($events | Where-Object { [string]$_.projection_kind -in @("active_replacement", "epoch_snapshot") }).Count
     $shadowProjectionCount = @($events | Where-Object { [string]$_.projection_kind -eq "shadow" }).Count
     [pscustomobject]@{
         schema_version = "taskspace-context-projection-summary-v1"
