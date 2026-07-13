@@ -163,8 +163,14 @@ foreach ($sampleName in @("simple", "complex")) {
                 "-AllowNonE2Result"
             )
             if ([bool]$arm.allow_stale) { $arguments += "-AllowStaleWhaleBin" }
-            foreach ($override in @($contract.provider.config_overrides)) {
-                $arguments += @("-ConfigOverride", [string]$override)
+            $additionalOverrides = @($contract.provider.config_overrides |
+                ForEach-Object { [string]$_ } |
+                Where-Object { $_ -ne 'model_reasoning_effort="max"' })
+            if ($additionalOverrides.Count -gt 1) {
+                throw "map compression runner supports one additional config override, got $($additionalOverrides.Count)"
+            }
+            if ($additionalOverrides.Count -eq 1) {
+                $arguments += @("-AdditionalConfigOverride", [string]$additionalOverrides[0])
             }
             $tasks.Add([pscustomobject]@{
                 sample_class = $sampleName

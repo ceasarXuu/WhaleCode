@@ -7,6 +7,7 @@ param(
     [string]$Model = "deepseek-v4-flash",
     [int]$TimeoutSeconds = 900, [int]$ValidationTimeoutSeconds = 420, [int]$ValidationPretestTimeoutSeconds = 120, [int]$ValidationTestTimeoutSeconds = 420,
     [string[]]$ConfigOverride = @('model_reasoning_effort="max"'),
+    [string]$AdditionalConfigOverride = "",
     [ValidateSet("deferred_materialization_allowed", "hard_sandbox_only")]
     [string]$OracleIsolationPolicy = "deferred_materialization_allowed",
     [string]$AuditReviewRoot = "",
@@ -269,7 +270,11 @@ $whaleSha = [string]$binaryHealth.whale_binary_sha256
 $containerContract = Read-TaskspaceContainerContract $repoRoot
 $containerImage = Resolve-TaskspaceContainerImage $repoRoot $containerContract
 $containerRunId = Split-Path -Leaf $runDir
-$effectiveConfigOverrides = @($ConfigOverride) + @($containerContract.agent_config_overrides | ForEach-Object { [string]$_ })
+$effectiveConfigOverrides = @($ConfigOverride)
+if (-not [string]::IsNullOrWhiteSpace($AdditionalConfigOverride)) {
+    $effectiveConfigOverrides += $AdditionalConfigOverride
+}
+$effectiveConfigOverrides += @($containerContract.agent_config_overrides | ForEach-Object { [string]$_ })
 Write-TaskspaceRunEvent $runDir "container_image_ready" @{
     image_digest = [string]$containerImage.image_digest
     docker_server_version = [string]$containerImage.docker_server_version

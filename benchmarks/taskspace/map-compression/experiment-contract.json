@@ -18,7 +18,7 @@
   },
   "runner": {
     "entrypoint": "scripts/taskspace-benchmark/run-taskspace-benchmark.ps1",
-    "entrypoint_sha256": "13825b26e15fef951f9d33217431ec5668710b2705f729af609b622f067676c7",
+    "entrypoint_sha256": "652bb148dd839aac6f76d4021a2e4367629816d25bf4f89f3e2a2e7d36bc82bd",
     "observer": "scripts/taskspace-benchmark/lib/performance-observation.ps1",
     "observer_sha256": "5f658f77687b7f0af0d53a5aa3ced39c036a1632937d5b2c778ea7e2b9f5ed21"
   },
