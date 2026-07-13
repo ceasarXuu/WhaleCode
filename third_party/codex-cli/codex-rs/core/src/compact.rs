@@ -295,7 +295,7 @@ async fn run_compact_task_inner_impl(
     // request tracking)
     // survives retries within this compact turn.
 
-    loop {
+    let compact_output_items = loop {
         // Clone is required because of the loop
         let turn_input = history
             .clone()
@@ -320,7 +320,7 @@ async fn run_compact_task_inner_impl(
         .await;
 
         match attempt_result {
-            Ok(()) => {
+            Ok(output_items) => {
                 if truncated_count > 0 {
                     sess.notify_background_event(
                         turn_context.as_ref(),
@@ -330,7 +330,7 @@ async fn run_compact_task_inner_impl(
                     )
                     .await;
                 }
-                break;
+                break output_items;
             }
             Err(CodexErr::Interrupted) => {
                 return Err(CodexErr::Interrupted);
@@ -370,12 +370,13 @@ async fn run_compact_task_inner_impl(
                 }
             }
         }
-    }
+    };
 
     let trace_input_history = history.raw_items().to_vec();
     let history_snapshot = sess.clone_history().await;
     let history_items = history_snapshot.raw_items();
-    let summary_suffix = get_last_assistant_message_from_turn(history_items).unwrap_or_default();
+    let summary_suffix =
+        get_last_assistant_message_from_turn(&compact_output_items).unwrap_or_default();
     let summary_text = format!("{SUMMARY_PREFIX}\n{summary_suffix}");
     let user_messages = collect_user_messages(history_items);
 
@@ -669,7 +670,7 @@ async fn drain_to_completed(
     turn_metadata_header: Option<&str>,
     compaction_id: &str,
     prompt: &Prompt,
-) -> CodexResult<()> {
+) -> CodexResult<Vec<ResponseItem>> {
     let compact_turn_id = format!("{}:compact:{compaction_id}", turn_context.sub_id);
     let inference_trace = sess.services.rollout_thread_trace.inference_trace_context(
         compact_turn_id,
@@ -688,6 +689,8 @@ async fn drain_to_completed(
             &inference_trace,
         )
         .await?;
+    // Compaction inference feeds the replacement checkpoint; it is not conversation history.
+    let mut output_items = Vec::new();
     loop {
         let maybe_event = stream.next().await;
         let Some(event) = maybe_event else {
@@ -698,8 +701,7 @@ async fn drain_to_completed(
         };
         match event {
             Ok(ResponseEvent::OutputItemDone(item)) => {
-                sess.record_into_history(std::slice::from_ref(&item), turn_context)
-                    .await;
+                output_items.push(item);
             }
             Ok(ResponseEvent::ServerReasoningIncluded(included)) => {
                 sess.set_server_reasoning_included(included).await;
@@ -710,7 +712,7 @@ async fn drain_to_completed(
             Ok(ResponseEvent::Completed { token_usage, .. }) => {
                 sess.update_token_usage_info(turn_context, token_usage.as_ref())
                     .await;
-                return Ok(());
+                return Ok(output_items);
             }
             Ok(_) => continue,
             Err(e) => return Err(e),
