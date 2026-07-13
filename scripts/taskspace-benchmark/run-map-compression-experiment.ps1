@@ -82,10 +82,12 @@ $candidateAttestationJson = Get-Content -Raw -Encoding UTF8 -LiteralPath $candid
 if ([string]$candidateAttestationJson.whale_binary_sha256 -ne $candidateSha) {
     throw "candidate attestation does not match candidate binary"
 }
-$candidateCommit = (& git -C $repoRoot rev-parse HEAD).Trim()
-if ([string]$candidateAttestationJson.current_git_head -ne $candidateCommit) {
-    throw "candidate attestation commit mismatch: rebuild and attest current HEAD"
+$orchestratorCommit = (& git -C $repoRoot rev-parse HEAD).Trim()
+$candidateCodexCommit = (& git -C $repoRoot log -1 --format=%H -- third_party/codex-cli).Trim()
+if ([string]$candidateAttestationJson.codex_source_latest_commit -ne $candidateCodexCommit) {
+    throw "candidate attestation Codex source mismatch: rebuild and attest current Codex source"
 }
+$candidateCommit = [string]$candidateAttestationJson.current_git_head
 
 foreach ($sampleName in @("simple", "complex")) {
     $sample = $contract.samples.$sampleName
@@ -161,6 +163,7 @@ if ($PlanOnly) {
     [ordered]@{
         schema_version = "taskspace-map-compression-run-plan-v1"
         phase = $Phase
+        orchestrator_commit = $orchestratorCommit
         candidate_commit = $candidateCommit
         candidate_binary_sha256 = $candidateSha
         baseline_binary_sha256 = [string]$contract.baseline_binary.sha256
@@ -214,6 +217,7 @@ while ($pending.Count -gt 0 -or $running.Count -gt 0) {
 $index = [ordered]@{
     schema_version = "taskspace-map-compression-run-index-v1"
     phase = $Phase
+    orchestrator_commit = $orchestratorCommit
     super_runner_sha256 = Get-LowerSha256 $PSCommandPath
     experiment_observer_sha256 = Get-LowerSha256 (Join-Path $PSScriptRoot "observe-map-compression-experiment.ps1")
     contract_path = $ContractPath
