@@ -26,6 +26,26 @@ function Get-LowerSha256 {
     (Get-FileHash -Algorithm SHA256 -LiteralPath $Path).Hash.ToLowerInvariant()
 }
 
+function Import-LocalCredentialIfNeeded {
+    param([Parameter(Mandatory = $true)][string]$Name)
+    if (-not [string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($Name))) { return }
+    $envPath = Join-Path $repoRoot ".env.local"
+    if (-not (Test-Path -LiteralPath $envPath -PathType Leaf)) { return }
+    foreach ($line in Get-Content -Encoding UTF8 -LiteralPath $envPath) {
+        $trimmed = $line.Trim()
+        if ([string]::IsNullOrWhiteSpace($trimmed) -or $trimmed.StartsWith("#")) { continue }
+        $separator = $trimmed.IndexOf("=")
+        if ($separator -lt 1 -or $trimmed.Substring(0, $separator).Trim() -ne $Name) { continue }
+        $value = $trimmed.Substring($separator + 1).Trim()
+        if ($value.Length -ge 2 -and (($value.StartsWith('"') -and $value.EndsWith('"')) -or
+            ($value.StartsWith("'") -and $value.EndsWith("'")))) {
+            $value = $value.Substring(1, $value.Length - 2)
+        }
+        [Environment]::SetEnvironmentVariable($Name, $value, "Process")
+        return
+    }
+}
+
 function Assert-ExpectedSha256 {
     param(
         [Parameter(Mandatory = $true)][string]$Path,
@@ -63,6 +83,9 @@ if ([string]::IsNullOrWhiteSpace($ContractPath)) {
 }
 $ContractPath = Resolve-RepoRelativePath $ContractPath
 $contract = Get-Content -Raw -Encoding UTF8 -LiteralPath $ContractPath | ConvertFrom-Json
+foreach ($credentialName in @($contract.provider.credential_env_names)) {
+    Import-LocalCredentialIfNeeded ([string]$credentialName)
+}
 $baselineBin = Resolve-RepoRelativePath ([string]$contract.baseline_binary.repo_relative_path)
 $baselineAttestation = Resolve-RepoRelativePath ([string]$contract.baseline_binary.attestation_repo_relative_path)
 $CandidateWhaleBin = Resolve-RepoRelativePath $CandidateWhaleBin
