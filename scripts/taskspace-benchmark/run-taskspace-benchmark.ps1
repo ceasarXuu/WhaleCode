@@ -1,7 +1,6 @@
 param(
     [string]$Scenario = "single-file-fast-fix",
     [string]$ScenarioPath = "",
-    [string]$PreludePromptPath = "",
     [int]$Repeats = 1,
     [string]$RunRoot = "",
     [string]$WhaleBin = "$env:USERPROFILE\.whale\bin\whale.exe",
@@ -72,20 +71,6 @@ $promptGuard = Invoke-TaskspacePromptGuard -PromptText $prompt -AllowedContextTe
 if ($promptGuard.invalid_prompt) {
     throw "Scenario prompt leaks internal TaskSpace concepts: $(@($promptGuard.hard_hits) -join ', ')"
 }
-$preludePrompt = ""
-$preludePromptGuard = $null
-if (-not [string]::IsNullOrWhiteSpace($PreludePromptPath)) {
-    $resolvedPreludePath = if ([System.IO.Path]::IsPathRooted($PreludePromptPath)) {
-        (Resolve-Path -LiteralPath $PreludePromptPath).Path
-    } else {
-        (Resolve-Path -LiteralPath (Join-Path $repoRoot $PreludePromptPath)).Path
-    }
-    $preludePrompt = Get-Content -Raw -Encoding UTF8 -LiteralPath $resolvedPreludePath
-    $preludePromptGuard = Invoke-TaskspacePromptGuard -PromptText $preludePrompt -AllowedContextTerms $allowedContextTerms -SourceSpans $sourceSpans
-    if ($preludePromptGuard.invalid_prompt) {
-        throw "Prelude prompt leaks internal TaskSpace concepts: $(@($preludePromptGuard.hard_hits) -join ', ')"
-    }
-}
 $commandLine = if ($MyInvocation.Line) { [string]$MyInvocation.Line } else { [Environment]::CommandLine }
 $runDir = ""
 if (-not [string]::IsNullOrWhiteSpace($RunId)) {
@@ -153,17 +138,9 @@ Update-TaskspaceBenchmarkRunStatusFields $runDir @{
 $promptCopy = Join-Path $runDir "prompt.txt"
 Write-Text $promptCopy $prompt
 Write-TaskspaceJson $promptGuard (Join-Path $runDir "prompt-guard.json")
-if ($preludePromptGuard) {
-    Write-Text (Join-Path $runDir "prelude-prompt.txt") $preludePrompt
-    Write-TaskspaceJson $preludePromptGuard (Join-Path $runDir "prelude-prompt-guard.json")
-}
 Write-TaskspaceRunEvent $runDir "prompt_guard_completed" @{ invalid_prompt = [bool]$promptGuard.invalid_prompt; manual_review_required = [bool]$promptGuard.manual_review_required }
 $routingDecision = New-TaskspaceRoutingDecision $manifest $prompt
 $taskspacePrompt = $prompt + (New-TaskspaceRoutingPrompt $routingDecision)
-$taskspacePreludePrompt = if ($preludePromptGuard) {
-    $preludeDecision = New-TaskspaceRoutingDecision $manifest $preludePrompt
-    $preludePrompt + (New-TaskspaceRoutingPrompt $preludeDecision)
-} else { "" }
 $routingDecisionPath = Join-Path $runDir "routing-decision.json"
 Write-TaskspaceJson $routingDecision $routingDecisionPath
 Write-TaskspaceRunEvent $runDir "routing_decision_completed" @{ mode = [string]$routingDecision.recommended_mode; confidence = [string]$routingDecision.confidence; status = [string]$routingDecision.status; path = $routingDecisionPath }
@@ -456,7 +433,6 @@ for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
         repeat = $repeat
         prompt_sha256_left = $promptSha
         prompt_sha256_right = $promptSha
-        prelude_prompt_sha256 = if ($preludePromptGuard) { Get-TaskspaceTextSha256 $preludePrompt } else { "" }
         fixture_sha256_left = $fixtureSha
         fixture_sha256_right = $fixtureSha
         whale_bin_left = (Resolve-Path -LiteralPath $WhaleBin).Path
@@ -502,6 +478,7 @@ for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
             $processTimingPath = Join-Path $side.ArtifactDir "process-timing.json"
             $stdinPath = Join-Path $side.ArtifactDir "user-prompt.txt"
             $sidePrompt = if ($side.LogicalMode -eq "taskspace") { $taskspacePrompt } else { $prompt }
+            Write-Text $stdinPath $sidePrompt
             $executionRepoDir = [string]$containerContract.paths.workspace
             $containerLastMessagePath = Join-Path ([string]$containerContract.paths.artifacts) "last-message.md"
             $args = New-TaskspaceWhaleArgv $side.LogicalMode $Model $executionRepoDir $containerLastMessagePath $effectiveConfigOverrides
@@ -513,30 +490,9 @@ for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
                 $childEnvironment["WHALE_TASKSPACE_ROUTE_MODE"] = [string]$routingDecision.recommended_mode
                 $childEnvironment["WHALE_TASKSPACE_PROFILE_NAME"] = "taskspace-v005-$($routingDecision.recommended_mode)"
             }
-            $resumeArgs = if ($preludePromptGuard) { New-TaskspaceWhaleResumeArgv $side.LogicalMode $Model $containerLastMessagePath $effectiveConfigOverrides } else { @() }
-            Write-TaskspaceJson ([pscustomobject]@{ logical_mode = $side.LogicalMode; argv = @($args); resume_argv = @($resumeArgs); common_argv_without_treatment = @($commonArgs); treatment_delta = @("--taskspace"); execution_substrate = "docker"; container_workdir = $executionRepoDir; child_environment = $childEnvironment }) (Join-Path $side.ArtifactDir "whale-argv.json")
+            Write-TaskspaceJson ([pscustomobject]@{ logical_mode = $side.LogicalMode; argv = @($args); common_argv_without_treatment = @($commonArgs); treatment_delta = @("--taskspace"); execution_substrate = "docker"; container_workdir = $executionRepoDir; child_environment = $childEnvironment }) (Join-Path $side.ArtifactDir "whale-argv.json")
             $started = Get-Date
-            $preludeExec = $null
-            $continuationRan = $false
-            if ($preludePromptGuard) {
-                $sidePrelude = if ($side.LogicalMode -eq "taskspace") { $taskspacePreludePrompt } else { $preludePrompt }
-                Write-Text $stdinPath $sidePrelude
-                $preludeExec = Invoke-TaskspaceDockerAgent $containerRunId $manifest.Id ("pair-{0:000}-prelude" -f $repeat) $side $containerImage $containerContract $WhaleBin $args $childEnvironment $env:DEEPSEEK_API_KEY $TimeoutSeconds
-                Copy-TaskspaceAgentTurnArtifacts $side.ArtifactDir "prelude"
-            }
-            if ($preludeExec -and ([bool]$preludeExec.timed_out -or [int]$preludeExec.exit_code -ne 0)) {
-                $containerExec = $preludeExec
-            } else {
-                Write-Text $stdinPath $sidePrompt
-                $turnArgs = if ($preludePromptGuard) { $resumeArgs } else { $args }
-                $containerExec = Invoke-TaskspaceDockerAgent $containerRunId $manifest.Id ("pair-{0:000}" -f $repeat) $side $containerImage $containerContract $WhaleBin $turnArgs $childEnvironment $env:DEEPSEEK_API_KEY $TimeoutSeconds
-                $continuationRan = [bool]$preludePromptGuard
-            }
-            if ($preludeExec -and $continuationRan) {
-                $containerExec.wall_time_ms = [int64]$preludeExec.wall_time_ms + [int64]$containerExec.wall_time_ms
-                $containerExec.timed_out = [bool]$preludeExec.timed_out -or [bool]$containerExec.timed_out
-                Write-TaskspaceContinuationProtocol $side.ArtifactDir $preludeExec $containerExec
-            }
+            $containerExec = Invoke-TaskspaceDockerAgent $containerRunId $manifest.Id ("pair-{0:000}" -f $repeat) $side $containerImage $containerContract $WhaleBin $args $childEnvironment $env:DEEPSEEK_API_KEY $TimeoutSeconds
             $exitCode = [int]$containerExec.exit_code
             $timedOut = [bool]$containerExec.timed_out
             $finished = Get-Date

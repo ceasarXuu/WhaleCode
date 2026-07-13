@@ -720,12 +720,6 @@ $taskspaceArgv = New-TaskspaceWhaleArgv "taskspace" "model-x" "C:\neutral\right\
 $normalizedStandard = Get-NormalizedTaskspaceWhaleArgv $standardArgv
 $normalizedTaskspace = @(Get-NormalizedTaskspaceWhaleArgv $taskspaceArgv | Where-Object { $_ -ne "--taskspace" })
 Assert-True (($normalizedStandard -join "`n") -eq ($normalizedTaskspace -join "`n")) "standard/taskspace argv differ by more than --taskspace after path normalization"
-$resumeStandardArgv = New-TaskspaceWhaleResumeArgv "standard" "model-x" "C:\neutral\left\last.md"
-$resumeTaskspaceArgv = New-TaskspaceWhaleResumeArgv "taskspace" "model-x" "C:\neutral\right\last.md"
-$normalizedResumeStandard = Get-NormalizedTaskspaceWhaleArgv $resumeStandardArgv
-$normalizedResumeTaskspace = @(Get-NormalizedTaskspaceWhaleArgv $resumeTaskspaceArgv | Where-Object { $_ -ne "--taskspace" })
-Assert-True (($normalizedResumeStandard -join "`n") -eq ($normalizedResumeTaskspace -join "`n")) "standard/taskspace resume argv differ by more than --taskspace"
-Assert-True (($resumeStandardArgv -join " ") -match '^exec resume --last --json') "resume argv does not use exec resume --last"
 
 $promptGuardOk = Invoke-TaskspacePromptGuard "Please fix the failing tax calculation test."
 $evidenceRepeatOne = Get-TaskspaceEvidenceGate 1 $promptGuardOk "soft_denylist" "provider-default-or-unknown"

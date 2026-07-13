@@ -83,53 +83,6 @@ exit "${code}"
     }
 }
 
-function Copy-TaskspaceAgentTurnArtifacts {
-    param(
-        [Parameter(Mandatory = $true)][string]$ArtifactDir,
-        [Parameter(Mandatory = $true)][string]$TurnName
-    )
-    $turnDir = New-Dir (Join-Path $ArtifactDir $TurnName)
-    foreach ($name in @('whale-exec.jsonl', 'whale-exec.stderr.log', 'last-message.md', 'process-timing.json', 'rollout.jsonl')) {
-        $source = Join-Path $ArtifactDir $name
-        if (Test-Path -LiteralPath $source -PathType Leaf) {
-            Copy-Item -LiteralPath $source -Destination (Join-Path $turnDir $name) -Force
-        }
-    }
-    $turnDir
-}
-
-function Write-TaskspaceContinuationProtocol {
-    param(
-        [Parameter(Mandatory = $true)][string]$ArtifactDir,
-        [Parameter(Mandatory = $true)]$PreludeExec,
-        [Parameter(Mandatory = $true)]$CombinedExec
-    )
-    $preludeWall = [int64]$PreludeExec.wall_time_ms
-    $totalWall = [int64]$CombinedExec.wall_time_ms
-    $continuationWall = [Math]::Max(0, $totalWall - $preludeWall)
-    Write-TaskspaceContainerJson ([pscustomobject]@{
-            schema_version = 'taskspace-live-continuation-v1'
-            turns = 2
-            prelude_exit_code = [int]$PreludeExec.exit_code
-            prelude_timed_out = [bool]$PreludeExec.timed_out
-            prelude_wall_time_ms = $preludeWall
-            continuation_exit_code = [int]$CombinedExec.exit_code
-            continuation_timed_out = [bool]$CombinedExec.timed_out
-            continuation_wall_time_ms = $continuationWall
-            total_wall_time_ms = $totalWall
-            resume_mode = 'exec_resume_last'
-        }) (Join-Path $ArtifactDir 'continuation-protocol.json')
-    Write-TaskspaceContainerJson ([pscustomobject]@{
-            schema_version = 1
-            process_launch_wait_ms = 0
-            wall_time_ms = $totalWall
-            timed_out = [bool]$CombinedExec.timed_out
-            completed = (-not [bool]$CombinedExec.timed_out)
-            exit_code = [int]$CombinedExec.exit_code
-            execution_substrate = 'docker_live_continuation'
-        }) (Join-Path $ArtifactDir 'process-timing.json')
-}
-
 function Invoke-TaskspaceDockerValidation {
     param(
         [string]$RunId,

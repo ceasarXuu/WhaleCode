@@ -12,9 +12,6 @@ $identity = New-TaskspaceContainerIdentity 'selftest' 'benchmark-runner' 'pair-0
 
 $bypassArgv = New-TaskspaceWhaleArgv 'standard' 'model-x' '/workspace' '/artifacts/last-message.md'
 Assert-TaskspaceDockerWhaleArgv $bypassArgv
-$resumeArgv = New-TaskspaceWhaleResumeArgv 'taskspace' 'model-x' '/artifacts/last-message.md'
-Assert-TaskspaceDockerWhaleArgv $resumeArgv
-if (($resumeArgv -join ' ') -notmatch '^exec resume --last --json --taskspace') { throw 'TaskSpace resume argv is malformed' }
 $nestedSandboxRejected = $false
 try {
     $nestedArgv = @($bypassArgv | Where-Object { $_ -ne '--dangerously-bypass-approvals-and-sandbox' }) + @('--full-auto')
@@ -45,16 +42,6 @@ if ($oracle.exit_code -ne 0 -or $oracle.oracle_isolation_level -ne 'hard_contain
     throw 'Oracle wrapper failed'
 }
 if ((Get-Content -Raw -LiteralPath $oracle.stdout_path) -notmatch 'oracle-ok') { throw 'Oracle output missing' }
-
-Write-Text (Join-Path $artifacts 'whale-exec.jsonl') "{}`n"
-Write-Text (Join-Path $artifacts 'rollout.jsonl') "{}`n"
-$preludeDir = Copy-TaskspaceAgentTurnArtifacts $artifacts 'prelude'
-if (-not (Test-Path -LiteralPath (Join-Path $preludeDir 'rollout.jsonl'))) { throw 'Prelude rollout was not preserved' }
-$preludeExec = [pscustomobject]@{ exit_code = 0; timed_out = $false; wall_time_ms = 120 }
-$combinedExec = [pscustomobject]@{ exit_code = 0; timed_out = $false; wall_time_ms = 200 }
-Write-TaskspaceContinuationProtocol $artifacts $preludeExec $combinedExec
-$protocol = Get-Content -Raw -LiteralPath (Join-Path $artifacts 'continuation-protocol.json') | ConvertFrom-Json
-if ($protocol.continuation_wall_time_ms -ne 80 -or $protocol.total_wall_time_ms -ne 200) { throw 'Continuation timing was not partitioned' }
 
 $persistedRollout = Join-Path $artifacts 'rollout.jsonl'
 Write-Text $persistedRollout "{}`n"

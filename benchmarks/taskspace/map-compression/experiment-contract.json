@@ -18,14 +18,15 @@
   },
   "runner": {
     "entrypoint": "scripts/taskspace-benchmark/run-taskspace-benchmark.ps1",
-    "entrypoint_sha256": "df7e746000286a75e70e621d9fa0ef3226de21a0c36c17d73f2d099f1790eb73",
+    "entrypoint_sha256": "652bb148dd839aac6f76d4021a2e4367629816d25bf4f89f3e2a2e7d36bc82bd",
     "observer": "scripts/taskspace-benchmark/lib/performance-observation.ps1",
     "observer_sha256": "5f658f77687b7f0af0d53a5aa3ced39c036a1632937d5b2c778ea7e2b9f5ed21"
   },
   "provider": {
     "model": "deepseek-v4-flash",
     "config_overrides": [
-      "model_reasoning_effort=\"max\""
+      "model_reasoning_effort=\"max\"",
+      "model_auto_compact_token_limit=15000"
     ],
     "credential_env_names": [
       "DEEPSEEK_API_KEY"
@@ -65,8 +66,6 @@
     "complex": {
       "scenario": "subscription-billing-repair",
       "prompt_sha256": "7878c010e29d081e3e58b6f766a3bb2c1e5457513694d634e22515893689e0fd",
-      "prelude_prompt_repo_relative_path": "benchmarks/taskspace/map-compression/subscription-billing-repair-prelude.txt",
-      "prelude_prompt_sha256": "ce7cb5fc4f9ff2bdbbff703d31a8a0bbd7c9e641a265c2f9c7127cc8a43d3d36",
       "fixture_sha256": "6befe34b1fbdface4ac989f8b43fad36f497dcc0ba414493f163b4222a10c19c",
       "repeats": 3,
       "expected_strategy_activation": 1
