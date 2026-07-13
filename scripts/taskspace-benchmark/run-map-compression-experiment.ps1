@@ -163,6 +163,9 @@ foreach ($sampleName in @("simple", "complex")) {
                 "-AllowNonE2Result"
             )
             if ([bool]$arm.allow_stale) { $arguments += "-AllowStaleWhaleBin" }
+            foreach ($override in @($contract.provider.config_overrides)) {
+                $arguments += @("-ConfigOverride", [string]$override)
+            }
             $tasks.Add([pscustomobject]@{
                 sample_class = $sampleName
                 scenario = $scenario
@@ -190,6 +193,7 @@ if ($PlanOnly) {
         candidate_commit = $candidateCommit
         candidate_binary_sha256 = $candidateSha
         baseline_binary_sha256 = [string]$contract.baseline_binary.sha256
+        provider_config_overrides = @($contract.provider.config_overrides | ForEach-Object { [string]$_ })
         repeats = $Repeats
         max_parallel = $MaxParallel
         tasks = @($tasks | Select-Object sample_class, scenario, repeat, arm, logical_mode, selected_side, binary_sha256, source_commit, run_root)
@@ -248,6 +252,7 @@ $index = [ordered]@{
     candidate_commit = $candidateCommit
     candidate_binary_sha256 = $candidateSha
     baseline_binary_sha256 = [string]$contract.baseline_binary.sha256
+    provider_config_overrides = @($contract.provider.config_overrides | ForEach-Object { [string]$_ })
     p0_alias_of = "B0"
     repeats = $Repeats
     max_parallel = $MaxParallel
