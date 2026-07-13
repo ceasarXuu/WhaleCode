@@ -26,7 +26,7 @@
     "model": "deepseek-v4-flash",
     "config_overrides": [
       "model_reasoning_effort=\"max\"",
-      "model_auto_compact_token_limit=30000"
+      "model_auto_compact_token_limit=10000"
     ],
     "credential_env_names": [
       "DEEPSEEK_API_KEY"
