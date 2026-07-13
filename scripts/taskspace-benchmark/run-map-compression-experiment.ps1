@@ -114,12 +114,12 @@ $candidateCommit = [string]$candidateAttestationJson.current_git_head
 
 foreach ($sampleName in @("simple", "complex")) {
     $sample = $contract.samples.$sampleName
-    $scenarioManifest = Read-TaskspaceScenarioManifest $repoRoot ([string]$sample.scenario)
-    Assert-ExpectedSha256 ([string]$scenarioManifest.PromptPath) ([string]$sample.prompt_sha256) "$sampleName prompt"
+    $scenarioRoot = Join-Path $repoRoot "benchmarks/taskspace/scenarios/$([string]$sample.scenario)"
+    Assert-ExpectedSha256 (Join-Path $scenarioRoot "prompt.txt") ([string]$sample.prompt_sha256) "$sampleName prompt"
     if ($sample.PSObject.Properties.Name -contains "prelude_prompt_repo_relative_path") {
         Assert-ExpectedSha256 (Resolve-RepoRelativePath ([string]$sample.prelude_prompt_repo_relative_path)) ([string]$sample.prelude_prompt_sha256) "$sampleName prelude prompt"
     }
-    $fixtureSha = Get-TaskspaceDirectorySha256 ([string]$scenarioManifest.FixtureDir)
+    $fixtureSha = Get-TaskspaceDirectorySha256 (Join-Path $scenarioRoot "fixture")
     if ($fixtureSha -ne [string]$sample.fixture_sha256) {
         throw "$sampleName fixture sha256 mismatch: expected $($sample.fixture_sha256), got $fixtureSha"
     }

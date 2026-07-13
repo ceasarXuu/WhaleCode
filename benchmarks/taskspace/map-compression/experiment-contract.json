@@ -25,8 +25,7 @@
   "provider": {
     "model": "deepseek-v4-flash",
     "config_overrides": [
-      "model_reasoning_effort=\"max\"",
-      "model_auto_compact_token_limit=13000"
+      "model_reasoning_effort=\"max\""
     ],
     "credential_env_names": [
       "DEEPSEEK_API_KEY"
@@ -64,8 +63,10 @@
       "expected_strategy_activation": 0
     },
     "complex": {
-      "scenario": "subscription-billing-staged-repair",
-      "prompt_sha256": "2a58f8d4118ca50ee1deea8f9e5ad62f6dd26fd4fd03f06dc3cdb4834b209f67",
+      "scenario": "subscription-billing-repair",
+      "prompt_sha256": "7878c010e29d081e3e58b6f766a3bb2c1e5457513694d634e22515893689e0fd",
+      "prelude_prompt_repo_relative_path": "benchmarks/taskspace/map-compression/subscription-billing-repair-prelude.txt",
+      "prelude_prompt_sha256": "ce7cb5fc4f9ff2bdbbff703d31a8a0bbd7c9e641a265c2f9c7127cc8a43d3d36",
       "fixture_sha256": "6befe34b1fbdface4ac989f8b43fad36f497dcc0ba414493f163b4222a10c19c",
       "repeats": 3,
       "expected_strategy_activation": 1
