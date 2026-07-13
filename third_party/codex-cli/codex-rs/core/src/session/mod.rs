@@ -1292,6 +1292,14 @@ impl Session {
         Ok(outcome)
     }
 
+    pub(crate) async fn action_map_control_state(
+        &self,
+        map_id_hint: Option<&str>,
+    ) -> Option<crate::action_map::ActionMapControlState> {
+        let state = self.state.lock().await;
+        state.action_map_runtime.control_state(map_id_hint)
+    }
+
     #[allow(dead_code)]
     pub(crate) async fn create_action_map_node_for_main(
         &self,

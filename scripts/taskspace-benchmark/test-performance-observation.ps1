@@ -92,6 +92,8 @@ function New-SideFixture {
                     type = "function_call_output"; call_id = "init-control"
                     output = (@{
                             schema_version = "TaskSpaceControlResultV2"; status = "committed"; success = $true
+                            state_commit = "full"
+                            map_state = @{ current_node_id = "node-1"; pending_node_ids = @(); open_node_ids = @("node-1"); blocked_node_ids = @(); completed_node_count = 0; total_node_count = 1 }
                             steps = @(@{ kind = "map_initialized"; task_id = "task-1"; map_id = "map-1"; created_node_ids = @("node-1"); current_node_id = "node-1" })
                         } | ConvertTo-Json -Compress -Depth 10)
                 } },
@@ -117,7 +119,22 @@ function New-SideFixture {
                     type = "function_call_output"; call_id = "finish-nodes-control"
                     output = (@{
                             schema_version = "TaskSpaceControlResultV2"; status = "committed"; success = $true
+                            state_commit = "full"
+                            map_state = @{ current_node_id = "node-2"; pending_node_ids = @(); open_node_ids = @("node-2"); blocked_node_ids = @(); completed_node_count = 1; total_node_count = 2 }
                             steps = @(@{ kind = "state_transition"; index = 0; finished_node_id = "node-1"; result_id = "result-1"; next = @{ kind = "existing"; node_id = "node-2" }; current_node_id = "node-2" })
+                        } | ConvertTo-Json -Compress -Depth 10)
+                } },
+            [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{
+                    type = "function_call"; name = "taskspace_control"; call_id = "terminal-failure-control"
+                    arguments = (@{ action = "finish_then_end"; finish_node_ids = @("node-2"); final_candidate = "Rejected candidate" } | ConvertTo-Json -Compress -Depth 10)
+                } },
+            [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{
+                    type = "function_call_output"; call_id = "terminal-failure-control"
+                    output = (@{
+                            schema_version = "TaskSpaceControlResultV2"; status = "state_machine_failed"; success = $false
+                            state_commit = "partial"
+                            map_state = @{ current_node_id = "node-2"; pending_node_ids = @(); open_node_ids = @("node-2"); blocked_node_ids = @(); completed_node_count = 1; total_node_count = 2 }
+                            steps = @(@{ kind = "state_transition"; index = 0; success = $false; error = @{ code = "fixture_reject" } })
                         } | ConvertTo-Json -Compress -Depth 10)
                 } },
             [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "function_call"; name = "apply_patch"; arguments = '{"input":"patch"}' } },
@@ -221,6 +238,10 @@ Assert-True (@($report.rows | Where-Object {
             $_.duplication.cross_carrier_lineage.control_identity_missing_count -eq 0 -and
             $_.duplication.cross_carrier_lineage.committed_repeat_finish_count -eq 0 -and
             $_.duplication.cross_carrier_lineage.terminal_finish_chain_duplicate_count -eq 0 -and
+            $_.duplication.cross_carrier_lineage.control_map_state_present_count -eq 3 -and
+            $_.duplication.cross_carrier_lineage.control_map_state_missing_count -eq 0 -and
+            $_.duplication.cross_carrier_lineage.control_open_node_visibility_count -eq 3 -and
+            $_.duplication.cross_carrier_lineage.terminal_failure_nonzero_commit_count -eq 1 -and
             $_.duplication.cross_carrier_lineage.control_output_init_node_id_echo_count -eq 1 -and
             $_.duplication.cross_carrier_lineage.control_output_finished_node_id_echo_count -eq 1 -and
             $_.duplication.cross_carrier_lineage.control_output_next_node_echo_count -eq 1 -and

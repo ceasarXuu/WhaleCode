@@ -206,6 +206,20 @@ pub(crate) struct ActionMapFinishNodeOutcome {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ActionMapControlState {
+    pub(crate) task_id: TaskId,
+    pub(crate) task_status: String,
+    pub(crate) map_id: ActionMapId,
+    pub(crate) map_status: String,
+    pub(crate) current_node_id: Option<MapNodeId>,
+    pub(crate) pending_node_ids: Vec<MapNodeId>,
+    pub(crate) open_node_ids: Vec<MapNodeId>,
+    pub(crate) blocked_node_ids: Vec<MapNodeId>,
+    pub(crate) completed_node_count: usize,
+    pub(crate) total_node_count: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ActionMapInitializeNodeInput {
     pub(crate) id: String,
     pub(crate) kind: NodeKind,
@@ -1551,6 +1565,55 @@ impl ActionMapRuntimeState {
             .as_ref()
             .and_then(|map_id| self.maps.get(map_id))
             .filter(|map| map.status == MapStatus::Active)
+    }
+
+    pub(crate) fn control_state(&self, map_id_hint: Option<&str>) -> Option<ActionMapControlState> {
+        let map_id = map_id_hint
+            .map(str::to_string)
+            .or_else(|| self.active_map_id.clone())?;
+        let map = self.maps.get(&map_id)?;
+        let task_id = map.task_id.as_ref()?.clone();
+        let task = self.tasks.get(&task_id)?;
+        let mut open_node_ids = map
+            .nodes
+            .values()
+            .filter(|node| matches!(node.status, NodeStatus::Ready | NodeStatus::Running))
+            .map(|node| node.id.clone())
+            .collect::<Vec<_>>();
+        let mut pending_node_ids = map
+            .nodes
+            .values()
+            .filter(|node| node.status == NodeStatus::Pending)
+            .map(|node| node.id.clone())
+            .collect::<Vec<_>>();
+        let mut blocked_node_ids = map
+            .nodes
+            .values()
+            .filter(|node| node.status == NodeStatus::Blocked)
+            .map(|node| node.id.clone())
+            .collect::<Vec<_>>();
+        open_node_ids.sort();
+        pending_node_ids.sort();
+        blocked_node_ids.sort();
+        Some(ActionMapControlState {
+            task_id,
+            task_status: task.status.as_str().to_string(),
+            map_id,
+            map_status: map.status.as_str().to_string(),
+            current_node_id: self
+                .current_main_node_id
+                .clone()
+                .filter(|node_id| map.nodes.contains_key(node_id)),
+            pending_node_ids,
+            open_node_ids,
+            blocked_node_ids,
+            completed_node_count: map
+                .nodes
+                .values()
+                .filter(|node| node.status == NodeStatus::Completed)
+                .count(),
+            total_node_count: map.nodes.len(),
+        })
     }
 
     pub(crate) fn snapshot(&self) -> ActionMapSnapshot {

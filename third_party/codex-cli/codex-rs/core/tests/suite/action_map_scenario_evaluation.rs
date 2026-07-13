@@ -125,6 +125,9 @@ async fn terminal_candidate_finishes_turn_without_extra_provider_request() -> Re
     assert!(rollout.contains("Agent final line one.\\nAgent final line two."));
     assert!(rollout.contains("terminal_transition"));
     assert!(rollout.contains("finished_node_id"));
+    assert!(rollout.contains("\\\"state_commit\\\":\\\"full\\\""));
+    assert!(rollout.contains("\\\"map_state\\\""));
+    assert!(rollout.contains("\\\"open_node_ids\\\":[]"));
     Ok(())
 }
 

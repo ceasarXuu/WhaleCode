@@ -1,6 +1,23 @@
 use super::*;
+use crate::action_map::ActionMapControlState;
 use crate::action_map::ActionMapFinishNodeOutcome;
 use crate::action_map::ActionMapInitializeOutcome;
+use crate::tools::handlers::taskspace_control_output::format_terminal_chain_steps;
+
+fn control_state() -> ActionMapControlState {
+    ActionMapControlState {
+        task_id: "task-1".into(),
+        task_status: "active".into(),
+        map_id: "map-1".into(),
+        map_status: "active".into(),
+        current_node_id: Some("implement".into()),
+        pending_node_ids: Vec::new(),
+        open_node_ids: vec!["implement".into(), "verify".into()],
+        blocked_node_ids: Vec::new(),
+        completed_node_count: 1,
+        total_node_count: 3,
+    }
+}
 
 #[test]
 fn parses_agent_authored_map() {
@@ -59,6 +76,8 @@ fn successful_state_batch_preserves_committed_transition_identities() {
             "current_node_id": "implement",
         })],
         true,
+        StateCommit::Full,
+        Some(&control_state()),
     );
     let value: JsonValue = serde_json::from_str(&output).expect("success batch json");
 
@@ -66,6 +85,11 @@ fn successful_state_batch_preserves_committed_transition_identities() {
     assert_eq!(value["schema_version"], "TaskSpaceControlResultV2");
     assert!(value.get("action").is_none());
     assert_eq!(value["success"], true);
+    assert_eq!(value["state_commit"], "full");
+    assert_eq!(
+        value["map_state"]["open_node_ids"],
+        serde_json::json!(["implement", "verify"])
+    );
     assert_eq!(value["steps"][0]["finished_node_id"], "inspect");
     assert_eq!(value["steps"][0]["result_id"], "result-1");
     assert_eq!(value["steps"][0]["next"]["node_id"], "implement");
@@ -92,7 +116,13 @@ fn terminal_chain_output_preserves_every_committed_identity() {
         ),
     ])
     .expect("format terminal chain");
-    let output = format_state_batch(steps, true);
+    let mut state = control_state();
+    state.task_status = "completed".into();
+    state.map_status = "completed".into();
+    state.current_node_id = None;
+    state.open_node_ids.clear();
+    state.completed_node_count = 3;
+    let output = format_state_batch(steps, true, StateCommit::Full, Some(&state));
     let value: JsonValue = serde_json::from_str(&output).expect("terminal chain json");
 
     assert_eq!(value["steps"][0]["finished_node_id"], "implement");
@@ -106,15 +136,46 @@ fn terminal_chain_output_preserves_every_committed_identity() {
 #[test]
 fn failed_state_batch_preserves_protocol_and_raw_error() {
     let error = FunctionCallError::RespondToModel("exact transition error".into());
-    let output = format_state_batch(vec![format_failed_state_step(0, &error)], false);
+    let output = format_state_batch(
+        vec![format_failed_state_step(0, &error)],
+        false,
+        StateCommit::None,
+        Some(&control_state()),
+    );
     let value: JsonValue = serde_json::from_str(&output).expect("failure batch json");
 
     assert_eq!(value["schema_version"], "TaskSpaceControlResultV2");
     assert_eq!(value["status"], "state_machine_failed");
     assert_eq!(value["success"], false);
+    assert_eq!(value["state_commit"], "none");
+    assert_eq!(value["map_state"]["current_node_id"], "implement");
     assert_eq!(
         value["steps"][0]["error"]["message"],
         "exact transition error"
+    );
+}
+
+#[test]
+fn partial_state_batch_reports_committed_prefix() {
+    let steps = vec![
+        serde_json::json!({
+            "kind": "state_transition",
+            "finished_node_id": "inspect",
+            "result_id": "result-1",
+            "next": {"kind": "existing", "node_id": "implement"},
+            "current_node_id": "implement",
+        }),
+        serde_json::json!({
+            "kind": "state_transition",
+            "success": false,
+            "error": {"code": "rejected"},
+        }),
+    ];
+    assert_eq!(state_commit_for_steps(&steps, false), StateCommit::Partial);
+    let output = format_state_batch(steps, false, StateCommit::Partial, Some(&control_state()));
+    assert_eq!(
+        control_state_observation(&output),
+        Some(("partial".to_string(), 2, 0, true))
     );
 }
 

@@ -13,6 +13,7 @@ pub(crate) use map::ActionClass;
 pub(crate) use map::NodeKind;
 pub(crate) use map::ToolActionDescriptor;
 pub(crate) use runtime::ActionMapAssignment;
+pub(crate) use runtime::ActionMapControlState;
 pub(crate) use runtime::ActionMapExactPayloadScanEventInput;
 pub(crate) use runtime::ActionMapFinishNodeOutcome;
 pub(crate) use runtime::ActionMapInitializeInput;

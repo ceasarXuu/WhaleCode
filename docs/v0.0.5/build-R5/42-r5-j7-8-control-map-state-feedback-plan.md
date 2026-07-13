@@ -33,6 +33,7 @@ J7.7 billing R5 的业务修改和外部验证均正确，但首次 terminal 提
     "map_id": "map-1",
     "map_status": "active",
     "current_node_id": "verify_tests",
+    "pending_node_ids": [],
     "open_node_ids": ["run_tests_initial", "verify_tests"],
     "blocked_node_ids": [],
     "completed_node_count": 4,
@@ -45,7 +46,7 @@ J7.7 billing R5 的业务修改和外部验证均正确，但首次 terminal 提
 约束：
 
 1. `map_state` 直接读取 canonical Action Map，不推断任务语义，不生成 next action、建议或优先级。
-2. ID 排序确定；open 仅指 `ready/running`，blocked 单列；不复制 goal、工具正文或历史 result。
+2. ID 排序确定；pending、open（`ready/running`）、blocked 分列；不复制 goal、工具正文或历史 result。
 3. terminal chain 失败必须返回 `state_commit=none` 和失败后的真实 current/open 状态，明确全链零提交。
 4. 普通 `finish_nodes` 保留现有逐步提交语义；若前序成功、后序失败，返回 `state_commit=partial`，不得谎报原子。
 5. 成功初始化、非终态 finish、create/bind/block 返回 `state_commit=full`；纯读取不附加状态快照。

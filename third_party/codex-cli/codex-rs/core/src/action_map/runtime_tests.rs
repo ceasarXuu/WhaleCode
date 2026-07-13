@@ -50,6 +50,32 @@ fn agent_initializes_explicit_graph_and_current_binding() {
 }
 
 #[test]
+fn control_state_exposes_mechanical_open_map_state() {
+    let implement = ActionMapInitializeNodeInput {
+        id: "implement".to_string(),
+        kind: NodeKind::ImplementSolution,
+        title: "Implement".to_string(),
+        context_summary: "Apply the chosen change.".to_string(),
+        dependency_node_ids: vec!["inspect".to_string()],
+    };
+    let (state, _, outcome) =
+        initialized_state(vec![inspect_node("inspect"), implement], "inspect");
+
+    let control = state
+        .control_state(Some(&outcome.map_id))
+        .expect("control state");
+
+    assert_eq!(control.task_id, outcome.task_id);
+    assert_eq!(control.map_id, outcome.map_id);
+    assert_eq!(control.current_node_id.as_deref(), Some("inspect"));
+    assert_eq!(control.pending_node_ids, vec!["implement"]);
+    assert_eq!(control.open_node_ids, vec!["inspect"]);
+    assert!(control.blocked_node_ids.is_empty());
+    assert_eq!(control.completed_node_count, 0);
+    assert_eq!(control.total_node_count, 2);
+}
+
+#[test]
 fn fork_rebinds_runtime_owner_and_main_lease() {
     let (mut state, original_owner, outcome) =
         initialized_state(vec![inspect_node("inspect")], "inspect");
@@ -609,6 +635,14 @@ fn terminal_finish_chain_commits_declared_order_atomically() {
             .all(|node| node.status == NodeStatus::Completed)
     );
     assert_eq!(map.status, MapStatus::Completed);
+    let control = state
+        .control_state(Some(&outcome.map_id))
+        .expect("completed control state");
+    assert_eq!(control.task_status, "completed");
+    assert_eq!(control.map_status, "completed");
+    assert!(control.current_node_id.is_none());
+    assert!(control.open_node_ids.is_empty());
+    assert_eq!(control.completed_node_count, 2);
 }
 
 #[test]

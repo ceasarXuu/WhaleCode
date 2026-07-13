@@ -4,26 +4,29 @@ use serde_json::Value as JsonValue;
 
 use crate::action_map::ActionMapInitializeInput;
 use crate::action_map::ActionMapInitializeNodeInput;
-use crate::action_map::ActionMapNextNodeDraft;
-use crate::action_map::NodeKind;
-use crate::action_map::TaskSpaceHardGateClass;
 use crate::function_tool::FunctionCallError;
-use crate::session::session::Session;
-use crate::session::turn_context::TurnContext;
 use crate::tools::context::ToolInvocation;
 use crate::tools::context::ToolOutput;
 use crate::tools::context::ToolPayload;
-use crate::tools::handlers::taskspace_control_args::TASKSPACE_CONTROL_RESULT_SCHEMA_VERSION;
 use crate::tools::handlers::taskspace_control_args::TaskSpaceControlArgs;
-use crate::tools::handlers::taskspace_control_args::TaskSpaceNextArgs;
-use crate::tools::handlers::taskspace_control_args::TaskSpaceNonterminalFinishArgs;
 use crate::tools::handlers::taskspace_control_args::parse_taskspace_control_args;
+use crate::tools::handlers::taskspace_control_lifecycle::execute_bind_node;
+use crate::tools::handlers::taskspace_control_lifecycle::execute_block_node;
+use crate::tools::handlers::taskspace_control_lifecycle::execute_create_node;
+use crate::tools::handlers::taskspace_control_lifecycle::execute_nonterminal_finishes;
+use crate::tools::handlers::taskspace_control_lifecycle::execute_terminal_finish_chain;
+use crate::tools::handlers::taskspace_control_lifecycle::parse_node_kind;
+use crate::tools::handlers::taskspace_control_output::StateCommit;
+use crate::tools::handlers::taskspace_control_output::control_state_observation;
 use crate::tools::handlers::taskspace_control_output::format_failed_state_step;
 use crate::tools::handlers::taskspace_control_output::format_initialize_step;
 use crate::tools::handlers::taskspace_control_output::format_state_batch;
-use crate::tools::handlers::taskspace_control_output::format_terminal_chain_steps;
 use crate::tools::handlers::taskspace_control_output::hard_state_reason;
+use crate::tools::handlers::taskspace_control_output::protocol_error;
+use crate::tools::handlers::taskspace_control_output::resource_error;
+use crate::tools::handlers::taskspace_control_output::state_commit_for_steps;
 use crate::tools::handlers::taskspace_control_output::state_identity_coverage;
+use crate::tools::handlers::taskspace_control_output::state_machine_error;
 use crate::tools::output_reference::OUTPUT_SLICE_MAX_BYTES;
 use crate::tools::output_reference::OutputSliceMode;
 use crate::tools::output_reference::OutputSliceRequest;
@@ -131,8 +134,16 @@ impl ToolHandler for TaskSpaceControlHandler {
                     )
                     .await
                     .map_err(state_machine_error)?;
+                let map_state = session
+                    .action_map_control_state(Some(&outcome.map_id))
+                    .await;
                 (
-                    format_state_batch(vec![format_initialize_step(&outcome)], true),
+                    format_state_batch(
+                        vec![format_initialize_step(&outcome)],
+                        true,
+                        StateCommit::Full,
+                        map_state.as_ref(),
+                    ),
                     true,
                     None,
                 )
@@ -145,7 +156,13 @@ impl ToolHandler for TaskSpaceControlHandler {
                 let (steps, success) =
                     execute_nonterminal_finishes(&session, &turn, finishes, &conclusion_event_id)
                         .await;
-                (format_state_batch(steps, success), success, None)
+                let state_commit = state_commit_for_steps(&steps, success);
+                let map_state = session.action_map_control_state(None).await;
+                (
+                    format_state_batch(steps, success, state_commit, map_state.as_ref()),
+                    success,
+                    None,
+                )
             }
             TaskSpaceControlArgs::FinishThenEnd {
                 finish_node_ids,
@@ -162,6 +179,10 @@ impl ToolHandler for TaskSpaceControlHandler {
                     declared_step_count,
                     "taskspace.terminal_finish_chain_declared"
                 );
+                let map_id_hint = session
+                    .action_map_control_state(None)
+                    .await
+                    .map(|state| state.map_id);
                 match execute_terminal_finish_chain(
                     &session,
                     &turn,
@@ -178,7 +199,14 @@ impl ToolHandler for TaskSpaceControlHandler {
                             committed_step_count = steps.len(),
                             "taskspace.terminal_finish_chain_committed"
                         );
-                        (format_state_batch(steps, true), true, Some(final_candidate))
+                        let map_state = session
+                            .action_map_control_state(map_id_hint.as_deref())
+                            .await;
+                        (
+                            format_state_batch(steps, true, StateCommit::Full, map_state.as_ref()),
+                            true,
+                            Some(final_candidate),
+                        )
                     }
                     Err(error) => {
                         let error_text = error.to_string();
@@ -191,8 +219,16 @@ impl ToolHandler for TaskSpaceControlHandler {
                             reason_code,
                             "taskspace.terminal_finish_chain_rejected"
                         );
+                        let map_state = session
+                            .action_map_control_state(map_id_hint.as_deref())
+                            .await;
                         (
-                            format_state_batch(vec![format_failed_state_step(0, &error)], false),
+                            format_state_batch(
+                                vec![format_failed_state_step(0, &error)],
+                                false,
+                                StateCommit::None,
+                                map_state.as_ref(),
+                            ),
                             false,
                             None,
                         )
@@ -205,48 +241,25 @@ impl ToolHandler for TaskSpaceControlHandler {
                 dependency_node_ids,
                 bind_current,
             } => {
-                let node_id = session
-                    .create_action_map_node_for_main_with_kind(
-                        &turn,
-                        parse_node_kind("kind", &kind)?,
-                        goal.clone(),
-                        goal,
-                        dependency_node_ids,
-                        bind_current,
-                    )
-                    .await
-                    .map_err(state_machine_error)?;
-                if bind_current {
-                    (
-                        format!("TaskSpace node created and bound: {node_id}"),
-                        true,
-                        None,
-                    )
-                } else {
-                    (format!("TaskSpace node created: {node_id}"), true, None)
-                }
+                let (message, success) = execute_create_node(
+                    &session,
+                    &turn,
+                    kind,
+                    goal,
+                    dependency_node_ids,
+                    bind_current,
+                )
+                .await?;
+                (message, success, None)
             }
             TaskSpaceControlArgs::BindNode { node_id } => {
-                session
-                    .bind_action_map_main_node(&turn, &node_id)
-                    .await
-                    .map_err(state_machine_error)?;
-                (format!("TaskSpace main node bound: {node_id}"), true, None)
+                let (message, success) = execute_bind_node(&session, &turn, node_id).await;
+                (message, success, None)
             }
             TaskSpaceControlArgs::BlockNode { node_id } => {
-                let conclusion_event_id = session
-                    .taskspace_event_id_for_call(&call_id)
-                    .await
-                    .map_err(state_machine_error)?;
-                let result_id = session
-                    .block_action_map_main_node(&turn, &node_id, conclusion_event_id.to_string())
-                    .await
-                    .map_err(state_machine_error)?;
-                (
-                    format!("TaskSpace node blocked: {node_id} result {result_id}"),
-                    true,
-                    None,
-                )
+                let (message, success) =
+                    execute_block_node(&session, &turn, &call_id, node_id).await?;
+                (message, success, None)
             }
             TaskSpaceControlArgs::ReadOutputRef {
                 output_ref,
@@ -303,99 +316,25 @@ impl ToolHandler for TaskSpaceControlHandler {
                 );
             }
         }
+        if let Some((state_commit, open_node_count, blocked_node_count, has_current_node)) =
+            control_state_observation(&message)
+        {
+            tracing::info!(
+                target: "codex_core::taskspace",
+                call_id,
+                state_commit,
+                open_node_count,
+                blocked_node_count,
+                has_current_node,
+                "taskspace.control_map_state_exposed"
+            );
+        }
         Ok(TaskSpaceControlOutput {
             message,
             success,
             terminal_agent_message,
         })
     }
-}
-
-async fn execute_nonterminal_finishes(
-    session: &Session,
-    turn: &TurnContext,
-    finishes: Vec<TaskSpaceNonterminalFinishArgs>,
-    conclusion_event_id: &str,
-) -> (Vec<JsonValue>, bool) {
-    let mut steps = Vec::with_capacity(finishes.len());
-    for finish in finishes {
-        let index = steps.len();
-        match execute_nonterminal_finish(session, turn, finish, conclusion_event_id, index).await {
-            Ok(step) => steps.push(step),
-            Err(error) => {
-                steps.push(format_failed_state_step(steps.len(), &error));
-                return (steps, false);
-            }
-        }
-    }
-    (steps, true)
-}
-
-async fn execute_nonterminal_finish(
-    session: &Session,
-    turn: &TurnContext,
-    finish: TaskSpaceNonterminalFinishArgs,
-    conclusion_event_id: &str,
-    index: usize,
-) -> Result<JsonValue, FunctionCallError> {
-    let (requested_next_node_id, draft, next_kind) = match finish.next {
-        TaskSpaceNextArgs::Existing { node_id } => (Some(node_id), None, "existing"),
-        TaskSpaceNextArgs::Create {
-            node_kind,
-            goal,
-            dependency_node_ids,
-        } => (
-            None,
-            Some(build_next_node_draft(node_kind, goal, dependency_node_ids)?),
-            "created",
-        ),
-    };
-    let (finished_node_id, outcome) = session
-        .finish_action_map_current_or_named_node_with_next(
-            turn,
-            finish.node_id.as_deref(),
-            conclusion_event_id.to_string(),
-            requested_next_node_id,
-            draft,
-        )
-        .await
-        .map_err(state_machine_error)?;
-    let next_node_id = outcome.next_node_id.ok_or_else(|| {
-        protocol_error(
-            "TaskSpace committed a nonterminal finish without a next node identity".into(),
-            "missing_committed_identity",
-        )
-    })?;
-    Ok(serde_json::json!({
-        "kind": "state_transition",
-        "index": index,
-        "finished_node_id": finished_node_id,
-        "result_id": outcome.result_id,
-        "next": {
-            "kind": next_kind,
-            "node_id": next_node_id,
-        },
-        "current_node_id": next_node_id,
-    }))
-}
-
-async fn execute_terminal_finish_chain(
-    session: &Session,
-    turn: &TurnContext,
-    node_ids: Vec<String>,
-    final_candidate: &str,
-    conclusion_event_id: &str,
-) -> Result<Vec<JsonValue>, FunctionCallError> {
-    let outcomes = session
-        .finish_action_map_node_chain_with_terminal_candidate(
-            turn,
-            &node_ids,
-            conclusion_event_id.to_string(),
-            final_candidate,
-        )
-        .await
-        .map_err(state_machine_error)?;
-    format_terminal_chain_steps(outcomes)
 }
 
 fn parse_output_slice_mode(
@@ -434,64 +373,6 @@ fn parse_output_slice_mode(
             "invalid_argument_value",
         )),
     }
-}
-
-fn parse_node_kind(field: &str, value: &str) -> Result<NodeKind, FunctionCallError> {
-    NodeKind::from_str(value).ok_or_else(|| {
-        protocol_error(
-            format!("taskspace_control {field} has invalid node kind `{value}`"),
-            "invalid_argument_value",
-        )
-    })
-}
-
-fn build_next_node_draft(
-    kind: String,
-    goal: String,
-    dependency_node_ids: Vec<String>,
-) -> Result<ActionMapNextNodeDraft, FunctionCallError> {
-    let kind = parse_node_kind("next.node_kind", &kind)?;
-    if goal.trim().is_empty() {
-        return Err(protocol_error(
-            "finish next-node creation requires a non-empty goal".into(),
-            "missing_argument",
-        ));
-    }
-    Ok(ActionMapNextNodeDraft {
-        kind,
-        title: goal.clone(),
-        context_summary: goal,
-        dependency_node_ids,
-    })
-}
-
-fn state_machine_error(message: String) -> FunctionCallError {
-    let reason = hard_state_reason(&message)
-        .unwrap_or("transition_rejected")
-        .to_string();
-    gate_error(message, TaskSpaceHardGateClass::StateMachine, &reason)
-}
-
-pub(super) fn protocol_error(message: String, reason: &str) -> FunctionCallError {
-    gate_error(message, TaskSpaceHardGateClass::Protocol, reason)
-}
-
-fn resource_error(message: String, reason: &str) -> FunctionCallError {
-    gate_error(message, TaskSpaceHardGateClass::Resource, reason)
-}
-
-fn gate_error(message: String, class: TaskSpaceHardGateClass, reason: &str) -> FunctionCallError {
-    let result = serde_json::json!({
-        "schema_version": TASKSPACE_CONTROL_RESULT_SCHEMA_VERSION,
-        "status": format!("{}_failed", class.as_str()),
-        "success": false,
-        "error": {
-            "class": class.as_str(),
-            "code": reason,
-            "message": message,
-        },
-    });
-    FunctionCallError::RespondToModel(result.to_string())
 }
 
 #[cfg(test)]
