@@ -1,0 +1,58 @@
+{
+  "schema_version": "taskspace-map-compression-strategy-ledger-v1",
+  "baseline_id": "R5-K-B0",
+  "selected_strategy_id": "S1",
+  "strategies": [
+    {
+      "id": "S1",
+      "name": "completed_inactive_leaf_batch_archive_projection",
+      "status": "selected",
+      "relationship": "incremental",
+      "previous": "R5-K-B0",
+      "single_behavior_delta": "In provider projection only, replace a deterministic batch of completed, inactive, edge-isolated leaf nodes with one reversible mechanical archive index.",
+      "eligibility": {
+        "minimum_node_count": 3,
+        "required_status": "completed",
+        "active_or_current_allowed": false,
+        "incident_edge_allowed": false,
+        "active_lease_allowed": false
+      },
+      "mechanical_fields": [
+        "archive_ref",
+        "covered_node_count",
+        "covered_node_ids_sha256",
+        "canonical_payload_sha256",
+        "terminal_status",
+        "result_refs"
+      ],
+      "primary_metric": {
+        "name": "activated_projection_bytes",
+        "candidate_previous_max_ratio": 0.9
+      },
+      "forbidden_co_changes": [
+        "canonical_action_map_schema",
+        "checkpoint_or_delta_format",
+        "replay_semantics",
+        "runtime_generated_natural_language_summary",
+        "semantic_relevance_ranking",
+        "global_skeleton_pagination",
+        "agent_state_transition",
+        "new_tool_action_or_schema"
+      ]
+    },
+    {
+      "id": "S2",
+      "name": "completed_linear_subgraph_archive_projection",
+      "status": "unselected",
+      "relationship": "mutually_exclusive_with_S1_selection_rule",
+      "single_behavior_delta": "Archive one completed linear connected subgraph while preserving explicit entry and exit edges."
+    },
+    {
+      "id": "S3",
+      "name": "agent_checkpoint_boundary_archive",
+      "status": "unselected",
+      "relationship": "incremental",
+      "single_behavior_delta": "Use an Agent-authored checkpoint event as the visible semantic boundary for an otherwise mechanical archive."
+    }
+  ]
+}
