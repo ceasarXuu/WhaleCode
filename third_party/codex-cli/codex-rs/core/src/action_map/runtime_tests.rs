@@ -616,6 +616,64 @@ fn s1_projection_does_not_activate_below_threshold_or_for_incident_nodes() {
 }
 
 #[test]
+fn s1_projection_scale_round_trip_preserves_canonical_map() {
+    for node_count in [100, 1_000, 10_000] {
+        let (mut state, _, outcome) = initialized_state(vec![inspect_node("active")], "active");
+        let map = state.maps.get_mut(&outcome.map_id).expect("active map");
+        for index in 0..node_count {
+            let id = format!("archive-{index:05}");
+            map.nodes.insert(
+                id.clone(),
+                MapNode {
+                    id,
+                    title: format!("Archive node {index}"),
+                    kind: NodeKind::Custom,
+                    status: NodeStatus::Completed,
+                    context: NodeContext {
+                        summary: format!("Completed deterministic work item {index}"),
+                        source_refs: vec![format!("task-event-{index}")],
+                    },
+                    active_lease: None,
+                    result_context: Vec::new(),
+                    node_events: Vec::new(),
+                    origin_node_id: None,
+                },
+            );
+        }
+        let maps_before = state.snapshot().maps;
+
+        let projection = state.build_developer_context().expect("projection");
+        let archive_ref = state
+            .projection_archives
+            .keys()
+            .next()
+            .expect("archive ref")
+            .clone();
+        let bytes = state
+            .projection_archive_bytes(&archive_ref)
+            .expect("archive bytes");
+        let decoded =
+            crate::action_map::projection_archive::decode_projection_archive(&archive_ref, &bytes)
+                .expect("decode archive");
+        let reencoded = crate::action_map::projection_archive::encode_projection_archive(decoded)
+            .expect("re-encode archive");
+
+        assert_eq!(reencoded.archive_ref, archive_ref);
+        assert_eq!(reencoded.bytes, bytes);
+        assert_eq!(
+            state.snapshot().maps,
+            maps_before,
+            "canonical map changed at {node_count} nodes"
+        );
+        assert!(projection.contains(&format!("covered_node_count={node_count}")));
+        assert_eq!(
+            projection.matches(" kind=custom status=completed").count(),
+            0
+        );
+    }
+}
+
+#[test]
 fn active_projection_reports_skeleton_over_budget_without_partial_map() {
     let (mut state, _, outcome) = initialized_state(vec![inspect_node("inspect")], "inspect");
     let map = state.maps.get_mut(&outcome.map_id).expect("active map");
