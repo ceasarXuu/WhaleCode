@@ -138,7 +138,7 @@ try {
     $rolloutPath = Join-Path $rolloutDir "rollout.jsonl"
     $jsonlPath = Join-Path $rolloutDir "whale-exec.jsonl"
     $exportDir = Join-Path $rolloutDir "export"
-    $snapshotEvent = [ordered]@{ timestamp = "2026-06-05T00:05:00Z"; payload = [ordered]@{ type = "snapshot_updated"; snapshot = [ordered]@{ tasks = $context.Tasks; maps = @([ordered]@{ id = "map-1"; taskId = "task-1"; title = "Fix app"; ownerSessionId = "thread-1"; createdFrom = $null; edges = @(); nodes = @([ordered]@{ id = "node-1"; title = "Implement app"; kind = "implement_solution"; status = "completed" }); results = @([ordered]@{ id = "result-1"; nodeId = "node-1"; assignmentId = "lease-1"; sourceThreadId = "thread-1"; kind = "result"; actionClass = "edit"; body = "validated"; evidencePackage = $context.Nodes[0].results[0].evidencePackage }) }); maintenanceBarriers = @(); sentinelWarnings = @([ordered]@{ id = "sentinel-export"; sentinelType = "validator_failure"; status = "active"; severity = "warning"; taskId = "task-1"; mapId = "map-1"; nodeId = "node-1"; resultId = "result-1"; traceEventIds = @("trace-export"); reason = "validator failed first"; clearanceAction = ""; createdAtMs = "5"; clearedAtMs = $null }) } } }
+    $snapshotEvent = [ordered]@{ timestamp = "2026-06-05T00:05:00Z"; payload = [ordered]@{ type = "map_runtime"; map_event_type = "snapshot_updated"; snapshot = [ordered]@{ tasks = $context.Tasks; maps = @([ordered]@{ id = "map-1"; taskId = "task-1"; title = "Fix app"; ownerSessionId = "thread-1"; createdFrom = $null; edges = @(); nodes = @([ordered]@{ id = "node-1"; title = "Implement app"; kind = "implement_solution"; status = "completed" }); results = @([ordered]@{ id = "result-1"; nodeId = "node-1"; assignmentId = "lease-1"; sourceThreadId = "thread-1"; kind = "result"; actionClass = "edit"; body = "validated"; evidencePackage = $context.Nodes[0].results[0].evidencePackage }) }); maintenanceBarriers = @(); sentinelWarnings = @([ordered]@{ id = "sentinel-export"; sentinelType = "validator_failure"; status = "active"; severity = "warning"; taskId = "task-1"; mapId = "map-1"; nodeId = "node-1"; resultId = "result-1"; traceEventIds = @("trace-export"); reason = "validator failed first"; clearanceAction = ""; createdAtMs = "5"; clearedAtMs = $null }) } } }
     $clearEvent = [ordered]@{ timestamp = "2026-06-05T00:06:00Z"; payload = [ordered]@{ type = "sentinel_warning_cleared"; sentinelId = "sentinel-export"; clearAction = "FixApplied"; taskId = "task-1"; mapId = "map-1"; nodeId = "node-1"; resultId = "result-1"; clearedBy = "main-agent"; clearedAtMs = "6"; clearEventIds = @("clear-export") } }
     $validityEvent = [ordered]@{ timestamp = "2026-06-05T00:07:00Z"; payload = [ordered]@{ type = "result_validity_changed"; resultId = "result-1"; validity = "accepted" } }
     @($snapshotEvent, $clearEvent, $validityEvent) | ForEach-Object { $_ | ConvertTo-Json -Depth 30 -Compress } | Set-Content -LiteralPath $rolloutPath -Encoding UTF8
@@ -157,7 +157,8 @@ try {
     $derivedClearSnapshot = [ordered]@{
         timestamp = "2026-06-05T00:06:00Z"
         payload = [ordered]@{
-            type = "snapshot_updated"
+            type = "map_runtime"
+            map_event_type = "snapshot_updated"
             snapshot = [ordered]@{
                 tasks = $context.Tasks
                 maps = @([ordered]@{

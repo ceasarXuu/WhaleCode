@@ -32,7 +32,8 @@ for ($i = 1; $i -le 135; $i++) {
     $snapshot = [ordered]@{
         timestamp = "2026-06-29T00:00:$($i % 60).000Z"
         payload = [ordered]@{
-            type = "snapshot_updated"
+            type = "map_runtime"
+            map_event_type = "snapshot_updated"
             snapshot = [ordered]@{
                 tasks = @([ordered]@{ id = "task-1"; title = "Large export"; objective = "Bound observability"; status = "active"; ownerSessionId = "thread-1"; activeMapId = "map-1"; mapIds = @("map-1") })
                 maps = @([ordered]@{
@@ -67,7 +68,7 @@ for ($i = 1; $i -le 135; $i++) {
 }
 $lines.Add(([ordered]@{
     timestamp = "2026-06-29T00:01:00.000Z"
-    payload = [ordered]@{ type = "taskspace_trace_event_recorded"; kind = "output_ref.created"; traceEventId = "trace-output-ref"; artifactRef = "output-ref://sha256/" + ("a" * 64) }
+    payload = [ordered]@{ type = "map_runtime"; map_event_type = "taskspace_trace_event_recorded"; kind = "output_ref.created"; traceEventId = "trace-output-ref"; artifactRef = "output-ref://sha256/" + ("a" * 64) }
 } | ConvertTo-Json -Compress -Depth 10))
 $lines.Add(([ordered]@{
     timestamp = "2026-06-29T00:01:01.000Z"
@@ -75,7 +76,7 @@ $lines.Add(([ordered]@{
 } | ConvertTo-Json -Compress -Depth 10))
 $lines.Add(([ordered]@{
     timestamp = "2026-06-29T00:01:02.000Z"
-    payload = [ordered]@{ type = "snapshot_updated"; oversized = ("oversized-line-marker-" * 5000) }
+    payload = [ordered]@{ type = "map_runtime"; map_event_type = "snapshot_updated"; oversized = ("oversized-line-marker-" * 5000) }
 } | ConvertTo-Json -Compress -Depth 10))
 $lines | Set-Content -LiteralPath $rolloutPath -Encoding UTF8
 "" | Set-Content -LiteralPath $jsonlPath -Encoding UTF8

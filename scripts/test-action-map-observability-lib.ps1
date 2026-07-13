@@ -383,7 +383,8 @@ try {
     $snapshotEvent = [ordered]@{
         timestamp = "2026-05-30T00:07:00Z"
         payload = [ordered]@{
-            type = "snapshot_updated"
+            type = "map_runtime"
+            map_event_type = "snapshot_updated"
             snapshot = [ordered]@{
                 tasks = @([ordered]@{
                         id = "task-1"

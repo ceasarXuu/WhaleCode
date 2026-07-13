@@ -1,6 +1,7 @@
 param(
     [string]$OutputRoot = "target/r5-k0-map-budget",
-    [string]$CargoManifest = "third_party/codex-cli/codex-rs/Cargo.toml"
+    [string]$CargoManifest = "third_party/codex-cli/codex-rs/Cargo.toml",
+    [string]$CapturedRolloutPath = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -12,6 +13,7 @@ $runDir = Join-Path $repoRoot (Join-Path $OutputRoot $stamp)
 New-Item -ItemType Directory -Force -Path $runDir | Out-Null
 $probePath = Join-Path $runDir "k0-probe.raw.json"
 $longReplayProbePath = Join-Path $runDir "k0-long-replay.raw.json"
+$capturedReplayProbePath = ""
 $cargoLog = Join-Path $runDir "cargo-tests.log"
 $probeCommand = "cargo test -p codex-core --lib action_map::k0_scale_tests::writes_k0_scale_probe_artifact -- --nocapture"
 
@@ -58,6 +60,28 @@ try {
 } finally {
     $env:TASKSPACE_K0_LONG_REPLAY_OUTPUT = $oldLongReplayProbePath
 }
+if (-not [string]::IsNullOrWhiteSpace($CapturedRolloutPath)) {
+    $capturedRolloutCandidate = if ([IO.Path]::IsPathRooted($CapturedRolloutPath)) {
+        $CapturedRolloutPath
+    } else {
+        Join-Path $repoRoot $CapturedRolloutPath
+    }
+    $resolvedCapturedRollout = (Resolve-Path $capturedRolloutCandidate).Path
+    $capturedReplayProbePath = Join-Path $runDir "k0-captured-replay.raw.json"
+    $oldCapturedRollout = $env:TASKSPACE_K0_CAPTURED_ROLLOUT
+    $oldCapturedReplayOutput = $env:TASKSPACE_K0_CAPTURED_REPLAY_OUTPUT
+    try {
+        $env:TASKSPACE_K0_CAPTURED_ROLLOUT = $resolvedCapturedRollout
+        $env:TASKSPACE_K0_CAPTURED_REPLAY_OUTPUT = $capturedReplayProbePath
+        Invoke-K0CargoTest `
+            -Filter "session::k0_long_replay_tests::writes_k0_captured_rollout_replay_probe" `
+            -Label "captured-docker-rollout-replay" `
+            -ExpectedPasses 1
+    } finally {
+        $env:TASKSPACE_K0_CAPTURED_ROLLOUT = $oldCapturedRollout
+        $env:TASKSPACE_K0_CAPTURED_REPLAY_OUTPUT = $oldCapturedReplayOutput
+    }
+}
 Invoke-K0CargoTest `
     -Filter "action_map::snapshot_delta::tests" `
     -Label "snapshot-delta-corruption" `
@@ -77,12 +101,14 @@ $verification = @{
     event_checkpoint_hash = "passed"
     session_resume_corruption = "passed_expected_panic"
     session_native_long_replay = "passed"
+    captured_rollout_replay = if ($capturedReplayProbePath) { "passed" } else { "not_requested" }
     cargo_log = $cargoLog
 }
 . (Join-Path $PSScriptRoot "lib/map-budget-k0.ps1")
 $artifacts = Write-K0MapBudgetArtifacts `
     -ProbePath $probePath `
     -LongReplayProbePath $longReplayProbePath `
+    -CapturedReplayProbePath $capturedReplayProbePath `
     -OutputDir $runDir `
     -SourceCommit $sourceCommit `
     -ProbeCommand $probeCommand `
@@ -95,6 +121,7 @@ $artifacts = Write-K0MapBudgetArtifacts `
     source_commit = $sourceCommit
     probe_path = $probePath
     long_replay_probe_path = $longReplayProbePath
+    captured_replay_probe_path = $capturedReplayProbePath
     report_path = $artifacts.JsonPath
     events_path = $artifacts.EventsPath
     completed_at = (Get-Date).ToString("o")

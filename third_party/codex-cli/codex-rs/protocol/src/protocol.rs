@@ -2266,8 +2266,8 @@ pub struct MapRuntimeSnapshotDeltaEvent {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
-#[serde(tag = "type", rename_all = "snake_case")]
-#[ts(tag = "type")]
+#[serde(tag = "map_event_type", rename_all = "snake_case")]
+#[ts(tag = "map_event_type")]
 pub enum MapRuntimeEvent {
     ModeChanged(MapRuntimeModeChangedEvent),
     TaskCreated(MapRuntimeTaskCreatedEvent),
@@ -5820,6 +5820,28 @@ mod tests {
     }
 
     #[test]
+    fn map_runtime_event_uses_distinct_outer_and_inner_discriminators() -> Result<()> {
+        let event =
+            EventMsg::MapRuntime(MapRuntimeEvent::ModeChanged(MapRuntimeModeChangedEvent {
+                previous_mode: MapRuntimeMode::Standard,
+                current_mode: MapRuntimeMode::Experiment,
+            }));
+
+        let encoded = serde_json::to_string(&event)?;
+        let value: Value = serde_json::from_str(&encoded)?;
+        assert_eq!(value["type"], "map_runtime");
+        assert_eq!(value["map_event_type"], "mode_changed");
+        assert_eq!(encoded.matches("\"type\"").count(), 1);
+        let decoded: EventMsg = serde_json::from_str(&encoded)?;
+        let EventMsg::MapRuntime(MapRuntimeEvent::ModeChanged(decoded)) = decoded else {
+            panic!("map runtime event did not round-trip");
+        };
+        assert_eq!(decoded.previous_mode, MapRuntimeMode::Standard);
+        assert_eq!(decoded.current_mode, MapRuntimeMode::Experiment);
+        Ok(())
+    }
+
+    #[test]
     fn map_runtime_trace_event_recorded_serializes_refs_without_raw_output() -> Result<()> {
         let event =
             MapRuntimeEvent::TaskspaceTraceEventRecorded(MapRuntimeTraceEventRecordedEvent {
@@ -5839,7 +5861,7 @@ mod tests {
 
         let value = serde_json::to_value(&event)?;
 
-        assert_eq!(value["type"], "taskspace_trace_event_recorded");
+        assert_eq!(value["map_event_type"], "taskspace_trace_event_recorded");
         assert_eq!(value["traceEventId"], "trace-1");
         assert_eq!(value["resultId"], "result-1");
         assert_eq!(value["actionClass"], "test");
@@ -5871,7 +5893,10 @@ mod tests {
         let recorded = MapRuntimeEvent::TaskContextEventRecorded(record.clone());
         let recorded_value = serde_json::to_value(&recorded)?;
 
-        assert_eq!(recorded_value["type"], "task_context_event_recorded");
+        assert_eq!(
+            recorded_value["map_event_type"],
+            "task_context_event_recorded"
+        );
         assert_eq!(recorded_value["id"], "task-context-1");
         assert_eq!(recorded_value["toolSuccess"], false);
         assert_eq!(recorded_value["rawPayload"], record.raw_payload);
@@ -5888,7 +5913,10 @@ mod tests {
         );
         let ownership_value = serde_json::to_value(&ownership)?;
 
-        assert_eq!(ownership_value["type"], "task_context_ownership_changed");
+        assert_eq!(
+            ownership_value["map_event_type"],
+            "task_context_ownership_changed"
+        );
         assert_eq!(ownership_value["events"][0]["id"], "task-context-1");
         assert_eq!(ownership_value["events"][0]["toolSuccess"], false);
         assert_eq!(
@@ -5917,7 +5945,7 @@ mod tests {
 
         let value = serde_json::to_value(&event)?;
 
-        assert_eq!(value["type"], "sentinel_warning_raised");
+        assert_eq!(value["map_event_type"], "sentinel_warning_raised");
         assert_eq!(value["sentinelId"], "sentinel-1");
         assert_eq!(value["sentinelType"], "validator_failure");
         assert_eq!(value["status"], "active");

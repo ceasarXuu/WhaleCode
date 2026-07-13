@@ -52,6 +52,10 @@ For R5-K map-scale, projection-budget, checkpoint, or replay analysis, run:
 pwsh -NoProfile -File scripts/taskspace-benchmark/run-map-budget-k0.ps1
 ```
 
+After a Docker pair exists, bind its TaskSpace rollout into the same baseline with
+`-CapturedRolloutPath <right/artifacts/rollout.jsonl>`. This replays recorded lifecycle events; it
+does not replace the synthetic 100/1k/10k scale probe or the session-native compaction fixture.
+
 Read `k0-map-budget-report.json`, `k0-map-budget-report.md`, and
 `k0-map-budget-events.jsonl` from the emitted run directory. Report node and edge profiles separately;
 keep skeleton and node-detail bytes separate; state the first measured node count over every active

@@ -100,7 +100,8 @@ function Get-TaskspacePatchObservability {
         if ($null -eq $payload) { continue }
         $parentCallId = ""
         $toolSuccess = $null
-        if ([string]$row.type -eq "event_msg" -and [string]$row.payload.type -eq "task_context_event_recorded") {
+        if ([string]$row.type -eq "event_msg" -and
+            (Get-TaskspaceRolloutPayloadType $row.payload) -eq "task_context_event_recorded") {
             $parentCallId = [string](Get-PatchObservationProperty $row.payload "parentCallId" "")
             $toolSuccess = Get-PatchObservationProperty $row.payload "toolSuccess"
         }

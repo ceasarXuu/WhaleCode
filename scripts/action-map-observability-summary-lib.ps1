@@ -50,6 +50,15 @@ function Convert-ActionMapSummaryCounts {
     [pscustomobject]$ordered
 }
 
+function Get-ActionMapRolloutPayloadType {
+    param($Payload)
+    if ($null -eq $Payload) { return "" }
+    if ([string]$Payload.type -eq "map_runtime") {
+        return [string]$Payload.map_event_type
+    }
+    return [string]$Payload.type
+}
+
 function Add-ActionMapSummaryTimeline {
     param(
         [System.Collections.Generic.List[object]]$Timeline,
@@ -76,6 +85,8 @@ function Get-ActionMapPayloadTypeFromPrefix {
     param([string]$Line)
     $prefixLength = [Math]::Min(32768, $Line.Length)
     $prefix = $Line.Substring(0, $prefixLength)
+    $mapMatch = [regex]::Match($prefix, '(?s)"payload"\s*:\s*\{.*?"map_event_type"\s*:\s*"([^"]+)"')
+    if ($mapMatch.Success) { return [string]$mapMatch.Groups[1].Value }
     $match = [regex]::Match($prefix, '(?s)"payload"\s*:\s*\{.*?"type"\s*:\s*"([^"]+)"')
     if ($match.Success) { return [string]$match.Groups[1].Value }
     $top = [regex]::Match($prefix, '"type"\s*:\s*"([^"]+)"')
@@ -117,7 +128,7 @@ function Read-ActionMapSummaryLine {
     try {
         $row = $Line | ConvertFrom-Json
         if ($Stats) { $Stats.parsedLines = [int]$Stats.parsedLines + 1 }
-        return [pscustomobject]@{ parsed = $true; large_line_skipped = $false; payload_type = [string]$row.payload.type; line_chars = [int64]$Line.Length; row = $row }
+        return [pscustomobject]@{ parsed = $true; large_line_skipped = $false; payload_type = Get-ActionMapRolloutPayloadType $row.payload; line_chars = [int64]$Line.Length; row = $row }
     } catch {
         if ($Stats) {
             $Stats.parseErrorCount = [int]$Stats.parseErrorCount + 1
@@ -191,7 +202,7 @@ function New-ActionMapLargeRolloutSummary {
         $payload = $item.payload
         $at = [string]$item.timestamp
         if ($payload -and $payload.type) {
-            $kind = [string]$payload.type
+            $kind = Get-ActionMapRolloutPayloadType $payload
             Add-ActionMapSummaryCount $runtimeCounts $kind
             $traceKind = [string]$payload.kind
             if ($kind -eq "taskspace_trace_event_recorded" -and -not [string]::IsNullOrWhiteSpace($traceKind)) {

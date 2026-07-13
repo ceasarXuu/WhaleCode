@@ -600,7 +600,8 @@ $epochProjectionRollout = Join-Path $costDir "projection-epoch-rollout.jsonl"
     ([pscustomobject]@{
             type = "event_msg"
             payload = [pscustomobject]@{
-                type = "snapshot_updated"
+                type = "map_runtime"
+                map_event_type = "snapshot_updated"
                 snapshot = [pscustomobject]@{
                     traceEvents = @(
                         [pscustomobject]@{

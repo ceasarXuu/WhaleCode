@@ -312,7 +312,7 @@ function Get-PerformanceRolloutStorage {
         try {
             $row = $line | ConvertFrom-Json
             $payload = Get-PerformanceProperty $row "payload" $row
-            $payloadType = [string](Get-PerformanceProperty $payload "type")
+            $payloadType = Get-TaskspaceRolloutPayloadType $payload
             $payloadBytes = [System.Text.Encoding]::UTF8.GetByteCount((ConvertTo-PerformanceCanonicalJson $payload))
             if ($payloadType -eq "snapshot_updated") {
                 $snapshotLines++

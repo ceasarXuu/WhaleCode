@@ -71,7 +71,8 @@ function Get-SnapshotSentinelClearAction {
 
 foreach ($item in $rolloutItems) {
     $payload = $item.payload
-    if (-not $payload -or $payload.type -notin @(
+    $kind = Get-ActionMapRolloutPayloadType $payload
+    if (-not $payload -or $kind -notin @(
             "mode_changed",
             "task_created",
             "task_status_changed",
@@ -96,7 +97,6 @@ foreach ($item in $rolloutItems) {
         continue
     }
 
-    $kind = [string]$payload.type
     $at = [string]$item.timestamp
     switch ($kind) {
         "mode_changed" {

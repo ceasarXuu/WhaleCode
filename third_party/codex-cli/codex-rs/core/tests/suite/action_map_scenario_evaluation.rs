@@ -1145,26 +1145,7 @@ fn map_runtime_timeline(rollout: &str) -> Result<Vec<Value>> {
 }
 
 fn is_map_runtime_event(value: &Value) -> bool {
-    let text = value.to_string();
-    [
-        "mode_changed",
-        "task_created",
-        "task_status_changed",
-        "task_routed",
-        "map_created",
-        "map_status_changed",
-        "node_status_changed",
-        "lease_created",
-        "lease_attached",
-        "lease_released",
-        "node_result_recorded",
-        "timeout_summary_requested",
-        "maintenance_barrier_raised",
-        "maintenance_barrier_cleared",
-        "snapshot_updated",
-    ]
-    .iter()
-    .any(|event_type| text.contains(event_type))
+    value["type"] == "event_msg" && value["payload"]["type"] == "map_runtime"
 }
 
 fn assert_event_present(timeline: &[Value], event_type: &str) {

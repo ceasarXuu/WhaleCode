@@ -42,7 +42,7 @@ function Test-TaskspaceOrdinaryToolBeforeBindingInRollout {
         try { $event = $line | ConvertFrom-Json } catch { continue }
         $payload = $event.payload
         if ($null -eq $payload) { continue }
-        $payloadType = [string]$payload.type
+        $payloadType = Get-TaskspaceRolloutPayloadType $payload
         if ($payloadType -eq "lease_created" -or
             ($payloadType -eq "taskspace_trace_event_recorded" -and
                 [string]$payload.kind -eq "mechanical_blank_map_initialized")) {
@@ -108,11 +108,12 @@ function Get-TaskspaceAgentCompletionEvidence {
             if ([string]::IsNullOrWhiteSpace($line)) { continue }
             try { $row = $line | ConvertFrom-Json } catch { continue }
             $payload = $row.payload
-            if ($null -ne $payload -and [string]$payload.type -eq "task_complete") {
+            $payloadType = Get-TaskspaceRolloutPayloadType $payload
+            if ($null -ne $payload -and $payloadType -eq "task_complete") {
                 $taskCompleteObserved = $true
             }
             if ($null -ne $payload -and
-                [string]$payload.type -eq "taskspace_trace_event_recorded" -and
+                $payloadType -eq "taskspace_trace_event_recorded" -and
                 [string]$payload.kind -eq "provider_response_actionability") {
                 foreach ($tag in @($payload.tags)) {
                     if ([string]$tag -match '^response_actionability:([a-z_]+)$') {

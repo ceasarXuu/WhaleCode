@@ -47,6 +47,20 @@ function Assert-K0LongReplayProbe {
     }
 }
 
+function Assert-K0CapturedReplayProbe {
+    param([Parameter(Mandatory = $true)]$Probe)
+
+    if ([string]$Probe.schema_version -ne "taskspace-map-budget-k0-captured-replay-v1") {
+        throw "Unsupported K0 captured replay schema: $($Probe.schema_version)"
+    }
+    if ([int]$Probe.snapshot_checkpoint_count -lt 1 -or [int]$Probe.snapshot_delta_count -lt 1) {
+        throw "K0 captured replay must contain checkpoint and delta events"
+    }
+    if ([int]$Probe.stable_snapshot_count -ne [int]$Probe.replay_cycles) {
+        throw "K0 captured replay produced unstable snapshots"
+    }
+}
+
 function Get-K0GrowthSlope {
     param(
         [Parameter(Mandatory = $true)][object[]]$Rows,
@@ -75,6 +89,7 @@ function Write-K0MapBudgetArtifacts {
     param(
         [Parameter(Mandatory = $true)][string]$ProbePath,
         [Parameter(Mandatory = $true)][string]$LongReplayProbePath,
+        [string]$CapturedReplayProbePath = "",
         [Parameter(Mandatory = $true)][string]$OutputDir,
         [Parameter(Mandatory = $true)][string]$SourceCommit,
         [Parameter(Mandatory = $true)][string]$ProbeCommand,
@@ -83,6 +98,11 @@ function Write-K0MapBudgetArtifacts {
 
     $probe = Get-Content -Raw -Encoding UTF8 $ProbePath | ConvertFrom-Json
     $longReplayProbe = Get-Content -Raw -Encoding UTF8 $LongReplayProbePath | ConvertFrom-Json
+    $capturedReplayProbe = $null
+    if (-not [string]::IsNullOrWhiteSpace($CapturedReplayProbePath)) {
+        $capturedReplayProbe = Get-Content -Raw -Encoding UTF8 $CapturedReplayProbePath | ConvertFrom-Json
+        Assert-K0CapturedReplayProbe -Probe $capturedReplayProbe
+    }
     Assert-K0MapBudgetProbe -Probe $probe
     Assert-K0LongReplayProbe -Probe $longReplayProbe
     New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
@@ -114,12 +134,16 @@ function Write-K0MapBudgetArtifacts {
         budget_crossings = $crossings
         replay_rows = $replayRows
         long_replay_fixture = $longReplayProbe
+        captured_replay_fixture = $capturedReplayProbe
         summary = [ordered]@{
             projection_row_count = $projectionRows.Count
             budget_crossing_count = $crossings.Count
             replay_row_count = $replayRows.Count
             replay_exact_count = @($replayRows | Where-Object { [bool]$_.replay_exact }).Count
             long_replay_exact_count = [int]$longReplayProbe.exact_replay_count
+            captured_replay_stable_count = if ($capturedReplayProbe) {
+                [int]$capturedReplayProbe.stable_snapshot_count
+            } else { $null }
             skeleton_tokens_per_node_1k_to_10k = $slopes
             chain_10k_node_skeleton_share = $nodeSkeletonShare
             chain_10k_detail_projection_share = $detailProjectionShare
@@ -189,6 +213,15 @@ function Write-K0MapBudgetArtifacts {
     $lines.Add("- Skeleton over budget outcomes: $($longReplayProbe.skeleton_over_budget_count)")
     $lines.Add("- Resume / projection duration us: $($longReplayProbe.resume_duration_us) / $($longReplayProbe.projection_duration_us)")
     $lines.Add("")
+    if ($capturedReplayProbe) {
+        $lines.Add("## Docker captured rollout 重放")
+        $lines.Add("")
+        $lines.Add("- Rollout bytes / items: $($capturedReplayProbe.rollout_bytes) / $($capturedReplayProbe.rollout_item_count)")
+        $lines.Add("- Checkpoints / deltas / compactions: $($capturedReplayProbe.snapshot_checkpoint_count) / $($capturedReplayProbe.snapshot_delta_count) / $($capturedReplayProbe.compaction_count)")
+        $lines.Add("- Stable replay: $($capturedReplayProbe.stable_snapshot_count)/$($capturedReplayProbe.replay_cycles)")
+        $lines.Add("- Replay duration us: $($capturedReplayProbe.replay_duration_us)")
+        $lines.Add("")
+    }
     $lines.Add("## Corruption 合同")
     $lines.Add("")
     $lines.Add("- Snapshot delta matrix: ``$($Verification.snapshot_delta_matrix)``")
@@ -248,6 +281,22 @@ function Write-K0MapBudgetArtifacts {
         skeleton_over_budget_count = [int]$longReplayProbe.skeleton_over_budget_count
         replay_exact = $true
     } | ConvertTo-Json -Compress | Add-Content -Encoding UTF8 $eventsPath
+    if ($capturedReplayProbe) {
+        [ordered]@{
+            event_name = "taskspace.map_replay_measured"
+            schema_version = "taskspace-map-budget-k0-event-v1"
+            fixture_kind = [string]$capturedReplayProbe.fixture_kind
+            rollout_bytes = [long]$capturedReplayProbe.rollout_bytes
+            rollout_item_count = [int]$capturedReplayProbe.rollout_item_count
+            snapshot_checkpoint_count = [int]$capturedReplayProbe.snapshot_checkpoint_count
+            snapshot_delta_count = [int]$capturedReplayProbe.snapshot_delta_count
+            compaction_count = [int]$capturedReplayProbe.compaction_count
+            replay_cycles = [int]$capturedReplayProbe.replay_cycles
+            stable_snapshot_count = [int]$capturedReplayProbe.stable_snapshot_count
+            replay_duration_us = [long]$capturedReplayProbe.replay_duration_us
+            replay_exact = $true
+        } | ConvertTo-Json -Compress | Add-Content -Encoding UTF8 $eventsPath
+    }
     [ordered]@{
         event_name = "taskspace.map_corruption_contract_frozen"
         schema_version = "taskspace-map-budget-k0-event-v1"

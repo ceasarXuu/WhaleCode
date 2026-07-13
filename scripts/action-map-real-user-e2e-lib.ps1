@@ -189,7 +189,11 @@ function Get-SuccessfulTaskspaceOrdering([string]$RolloutText) {
         if ([string]::IsNullOrWhiteSpace($line)) { continue }
         try { $evt = $line | ConvertFrom-Json } catch { continue }
         if (-not $firstBinding -and $evt.type -eq "event_msg") {
-            $eventKind = [string]$evt.payload.type
+            $eventKind = if ([string]$evt.payload.type -eq "map_runtime") {
+                [string]$evt.payload.map_event_type
+            } else {
+                [string]$evt.payload.type
+            }
             if ($eventKind -eq "lease_created") {
                 $firstBinding = [pscustomobject]@{ Timestamp = [string]$evt.timestamp; Evidence = "lease_created" }
             }

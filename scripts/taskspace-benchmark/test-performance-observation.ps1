@@ -107,8 +107,8 @@ function New-SideFixture {
                         [pscustomobject]@{ type = "input_text"; text = "TaskSpace mode is now active." },
                         [pscustomobject]@{ type = "input_text"; text = "ContextProjectionV1 epoch snapshot: active_task_path_without_nodes TaskSpace blank TaskSpace v0.0.5 thin bootstrap" }
                     ) } },
-            [pscustomobject]@{ type = "event_msg"; payload = [pscustomobject]@{ type = "snapshot_updated"; snapshot = [pscustomobject]@{ node_id = "node-1"; status = "open" } } },
-            [pscustomobject]@{ type = "event_msg"; payload = [pscustomobject]@{ type = "snapshot_delta"; baseCheckpointId = "checkpoint-1"; sequence = 1; patch = @([pscustomobject]@{ op = "replace"; path = "/routingRequired"; value = $false }) } },
+            [pscustomobject]@{ type = "event_msg"; payload = [pscustomobject]@{ type = "map_runtime"; map_event_type = "snapshot_updated"; snapshot = [pscustomobject]@{ node_id = "node-1"; status = "open" } } },
+            [pscustomobject]@{ type = "event_msg"; payload = [pscustomobject]@{ type = "map_runtime"; map_event_type = "snapshot_delta"; baseCheckpointId = "checkpoint-1"; sequence = 1; patch = @([pscustomobject]@{ op = "replace"; path = "/routingRequired"; value = $false }) } },
             [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "function_call_output"; call_id = "gate-1"; output = "same gate" } },
             [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "function_call_output"; call_id = "gate-2"; output = "same gate" } },
             [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{

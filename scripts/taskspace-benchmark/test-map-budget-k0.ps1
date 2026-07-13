@@ -77,9 +77,25 @@ try {
         skeleton_over_budget_count = 5
         final_snapshot_sha256 = "def"
     } | ConvertTo-Json -Depth 4 | Set-Content -Encoding UTF8 $longReplayProbePath
+    $capturedReplayProbePath = Join-Path $tempRoot "captured-replay.json"
+    [ordered]@{
+        schema_version = "taskspace-map-budget-k0-captured-replay-v1"
+        fixture_kind = "captured_docker_rollout"
+        rollout_bytes = 10000
+        rollout_item_count = 100
+        snapshot_checkpoint_count = 1
+        snapshot_delta_count = 10
+        compaction_count = 0
+        replay_cycles = 3
+        stable_snapshot_count = 3
+        replay_duration_us = 100
+        final_node_count = 5
+        final_snapshot_sha256 = "ghi"
+    } | ConvertTo-Json -Depth 4 | Set-Content -Encoding UTF8 $capturedReplayProbePath
     $artifacts = Write-K0MapBudgetArtifacts `
         -ProbePath $probePath `
         -LongReplayProbePath $longReplayProbePath `
+        -CapturedReplayProbePath $capturedReplayProbePath `
         -OutputDir (Join-Path $tempRoot "report") `
         -SourceCommit "test-commit" `
         -ProbeCommand "test-command" `
@@ -94,11 +110,12 @@ try {
     if ($report.summary.projection_row_count -ne 9) { throw "Projection count mismatch" }
     if ($report.summary.replay_exact_count -ne 3) { throw "Replay exact count mismatch" }
     if ($report.summary.long_replay_exact_count -ne 5) { throw "Long replay exact count mismatch" }
+    if ($report.summary.captured_replay_stable_count -ne 3) { throw "Captured replay count mismatch" }
     if ($report.corruption_contract.selected_contract -ne "structured_session_fatal_error") {
         throw "Corruption contract mismatch"
     }
     $events = @(Get-Content -Encoding UTF8 $artifacts.EventsPath)
-    if ($events.Count -ne 14) { throw "Expected 14 K0 events, got $($events.Count)" }
+    if ($events.Count -ne 15) { throw "Expected 15 K0 events, got $($events.Count)" }
     Write-Host "K0 map budget report selftest passed"
 } finally {
     Remove-Item -LiteralPath $tempRoot -Recurse -Force -ErrorAction SilentlyContinue
