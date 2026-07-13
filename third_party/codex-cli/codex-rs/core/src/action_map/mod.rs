@@ -5,6 +5,7 @@ mod event_store;
 mod k0_scale_tests;
 mod map;
 mod projection;
+mod projection_archive;
 mod runtime;
 mod sentinel;
 mod snapshot_delta;
