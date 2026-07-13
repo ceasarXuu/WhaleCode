@@ -3,7 +3,7 @@
 - Created: 2026-07-12
 - Updated: 2026-07-13
 - Version: 1.2
-- Status: J7.0-J7.4 complete; J7.5 executed and gate paused
+- Status: J7.0-J7.4 complete; J7.5 executed and gate paused; J7.7 approved for H-026
 - Owner / Responsible: WhaleCode TaskSpace / apply_patch substrate
 - Related Systems: provider response tool sequence、`taskspace_control` tool schema、nested ToolSpec、ToolRouter、
   `codex-apply-patch`、benchmark observer
@@ -423,6 +423,18 @@ Map open=0 且外部验证通过，才重新判定 J7.5。
 **Result（2026-07-13）：** success identity coverage 100%、repeat committed finish 0、两组 Map open 0，H-025
 验证关闭；order 新暴露 terminal self-loop affordance 并产生1次state reject。J7.5 重算为12/14，继续 paused。
 详见 `40-r5-j7-6-control-contract-fidelity-result.md`。
+
+### J7.7：Terminal finish chain
+
+**Priority:** 关闭 H-026 后立即复验 J7.5；不得先进入 R5-K/G3/H。
+
+`finish_then_end` 改为唯一的 Agent 显式 `finish_node_ids[]` 有序链：最后一个 ID 是 terminal，前面每个节点只
+机械绑定数组下一个 ID。删除 `preceding_finishes`、`terminal_node_id` 和全部旧解析路径；全链在 Action Map clone
+上通过后一次提交，失败零部分状态。详细合同、日志、测试和 Docker 门禁见
+`41-r5-j7-7-terminal-finish-chain-plan.md`。
+
+**Exit:** 两组 R5 terminal duplicate/protocol/state failure=0、identity missing/repeat finish=0、Map open=0，
+并满足 J7.5 correctness gate。
 
 ## 9. Phase Gate Matrix
 

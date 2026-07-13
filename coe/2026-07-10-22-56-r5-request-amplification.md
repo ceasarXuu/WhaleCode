@@ -2675,10 +2675,24 @@
 - Related evidence:
   - E-061
 - Conclusion: confirmed；这是后续 tool schema/shape 设计问题，不应以 Runtime 自动纠正 self-loop 处理
-- Repair design readiness: needs focused design discussion
-- Next step: paused per user request
-- Blocker:
-  - user direction required before follow-up
+- Repair design readiness: ready；J7.7 contract frozen
+- Next step: implement Agent-authored ordered `finish_node_ids[]` terminal chain, then revalidate J7.5
+- Blocker: none
+
+## Evidence E-063: H-026 静态合同审计确认双角色字段是必要触发条件
+- Related hypotheses:
+  - H-026
+- Direction: supports
+- Type: static-schema-parser-runtime-trace
+- Source: `taskspace_tool.rs`、`taskspace_control_args.rs`、`taskspace_control.rs`
+- Prediction or plan link:
+  - H-026 parser/state distinction
+- Matched signal:
+  - ToolSpec 同时暴露 `preceding_finishes[].next` 与可省略 `terminal_node_id`；typed parser 只逐项校验 next，
+    不存在跨角色身份合同；handler 先逐个提交 preceding，再解析 terminal current。
+- Interpretation: self-loop 不是状态反馈生成，也不是 Runtime 选择 next；无效空间由工具输入结构直接暴露。
+  J7.7 以单一 Agent-authored ordered finish chain 消除双角色，不加入 Runtime semantic recovery。
+- Time: 2026-07-13
 
 ## Evidence E-060: J7.6 两组 live run 关闭 H-025 成功身份缺口
 - Related hypotheses:
