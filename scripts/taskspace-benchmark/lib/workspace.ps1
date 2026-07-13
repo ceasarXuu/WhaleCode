@@ -389,6 +389,21 @@ function New-TaskspaceWhaleArgv {
     @($args)
 }
 
+function New-TaskspaceWhaleResumeArgv {
+    param(
+        [Parameter(Mandatory = $true)][string]$LogicalMode,
+        [Parameter(Mandatory = $true)][string]$Model,
+        [Parameter(Mandatory = $true)][string]$LastMessagePath,
+        [string[]]$ConfigOverrides = @()
+    )
+    $args = @("exec", "resume", "--last", "--json")
+    if ($LogicalMode -eq "taskspace") { $args += "--taskspace" }
+    foreach ($override in @($ConfigOverrides)) { $args += @("-c", $override) }
+    $args += @("-m", $Model, "--dangerously-bypass-approvals-and-sandbox")
+    $args += @("--output-last-message", $LastMessagePath, "-")
+    @($args)
+}
+
 function Get-NormalizedTaskspaceWhaleArgv {
     param([Parameter(Mandatory = $true)][string[]]$Argv)
     $normalized = @()

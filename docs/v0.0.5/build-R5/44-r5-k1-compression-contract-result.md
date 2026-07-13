@@ -41,13 +41,26 @@ checkpoint/delta 和 replay 不改变。
 | P0 | B0 的同一身份别名，首轮不重复消耗 provider 请求 |
 | C1 | 仅增加 S1 的 candidate TaskSpace |
 
-简单样本固定为 `single-file-fast-fix`，复杂样本固定为 `subscription-billing-repair`，均运行 3 次。复杂样本已知
-会建立 5 个彼此无边的 Map 节点，并在后续请求中出现至少 3 个已完成、非当前节点，能够触发 S1。Standard 与
-TaskSpace 使用同一 prompt、fixture、model、Docker contract、validator 和 oracle；差异仅为上下文组织模式。
+简单样本固定为 `single-file-fast-fix`，复杂样本固定为 `subscription-billing-repair`，均运行 3 次。复杂样本使用
+同一会话两轮 live continuation：第一轮要求分别完成 README、实现和测试三项只读调查并结束，第二轮通过
+`exec resume --last` 实施原修复任务。Standard、B0 与 C 使用相同 prelude、主 prompt、fixture、model、Docker
+contract、validator 和 oracle；TaskSpace 在 resume 时自然生成 projection，S1 不新增自动触发逻辑。
 
 复杂样本的预登记 primary benefit 是：发生激活的 projection bytes 相对 P0/B0 中位数至少下降 10%。运行后不得
 更换指标。简单样本必须 activation=0，且 requests/input/wall 中位数比不高于 1.10，Req2+ cache 下降不超过
 2 个百分点。
+
+### 3.1 触发前提校正
+
+K3 首轮实测否定了原合同中“单轮复杂样本稳定建立 5 节点”的假设：Agent 会建立 3–6 个节点，且节点完成时机
+随执行路径变化。使用 10K/15K token 阈值强制 compaction 时，projection 可能在首节点运行中出现，既无法触发
+S1，也会改变 B0/C 的语义连续性和请求路径。该数据不得作为 S1 收益证据。
+
+因此在正式三次矩阵前修正实验触发协议，不修正 S1：复杂样本增加固定只读 prelude
+`subscription-billing-repair-prelude.txt`，其 SHA-256 为
+`ce7cb5fc4f9ff2bdbbff703d31a8a0bbd7c9e641a265c2f9c7127cc8a43d3d36`；三臂在同一 Docker workspace 和
+`WHALE_HOME` 中 resume。provider 配置恢复默认 compaction 阈值。该修正只提供确定的 projection epoch，不改变
+canonical Map、S1 eligibility 或生产触发语义。
 
 ## 4. 公共不变量
 

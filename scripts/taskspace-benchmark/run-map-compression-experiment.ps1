@@ -116,6 +116,9 @@ foreach ($sampleName in @("simple", "complex")) {
     $sample = $contract.samples.$sampleName
     $scenarioRoot = Join-Path $repoRoot "benchmarks/taskspace/scenarios/$([string]$sample.scenario)"
     Assert-ExpectedSha256 (Join-Path $scenarioRoot "prompt.txt") ([string]$sample.prompt_sha256) "$sampleName prompt"
+    if ($sample.PSObject.Properties.Name -contains "prelude_prompt_repo_relative_path") {
+        Assert-ExpectedSha256 (Resolve-RepoRelativePath ([string]$sample.prelude_prompt_repo_relative_path)) ([string]$sample.prelude_prompt_sha256) "$sampleName prelude prompt"
+    }
     $fixtureSha = Get-TaskspaceDirectorySha256 (Join-Path $scenarioRoot "fixture")
     if ($fixtureSha -ne [string]$sample.fixture_sha256) {
         throw "$sampleName fixture sha256 mismatch: expected $($sample.fixture_sha256), got $fixtureSha"
@@ -138,7 +141,8 @@ $arms["C"] = [pscustomobject]@{ mode = "taskspace"; side = "right"; binary = $Ca
 
 $tasks = [System.Collections.Generic.List[object]]::new()
 foreach ($sampleName in @("simple", "complex")) {
-    $scenario = [string]$contract.samples.$sampleName.scenario
+    $sample = $contract.samples.$sampleName
+    $scenario = [string]$sample.scenario
     for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
         foreach ($armId in @(Get-ArmOrder $repeat @($arms.Keys))) {
             $arm = $arms[$armId]
@@ -163,6 +167,9 @@ foreach ($sampleName in @("simple", "complex")) {
                 "-AllowNonE2Result"
             )
             if ([bool]$arm.allow_stale) { $arguments += "-AllowStaleWhaleBin" }
+            if ($sample.PSObject.Properties.Name -contains "prelude_prompt_repo_relative_path") {
+                $arguments += @("-PreludePromptPath", (Resolve-RepoRelativePath ([string]$sample.prelude_prompt_repo_relative_path)))
+            }
             $additionalOverrides = @($contract.provider.config_overrides |
                 ForEach-Object { [string]$_ } |
                 Where-Object { $_ -ne 'model_reasoning_effort="max"' })
