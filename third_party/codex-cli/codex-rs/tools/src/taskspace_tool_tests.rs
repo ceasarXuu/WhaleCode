@@ -86,7 +86,9 @@ fn active_schema_contains_no_ordinary_tool_expression() {
     assert!(text.contains("\"next\""));
     assert!(text.contains("\"existing\""));
     assert!(text.contains("\"create\""));
-    assert!(text.contains("terminal_node_id"));
+    assert!(text.contains("finish_node_ids"));
+    assert!(!text.contains("terminal_node_id"));
+    assert!(!text.contains("preceding_finishes"));
     assert!(!text.contains("next_node_goal"));
     assert!(!text.contains("terminal_finish"));
     assert!(!text.contains("result_summary"));
@@ -120,4 +122,15 @@ fn active_schema_contains_no_ordinary_tool_expression() {
         "existing"
     );
     assert_eq!(next_variants[1]["properties"]["kind"]["enum"][0], "create");
+    let terminal = value["parameters"]["anyOf"]
+        .as_array()
+        .expect("variants")
+        .iter()
+        .find(|variant| variant["properties"]["action"]["enum"][0] == json!("finish_then_end"))
+        .expect("terminal variant");
+    assert_eq!(
+        terminal["required"],
+        json!(["action", "finish_node_ids", "final_candidate"])
+    );
+    assert_eq!(terminal["properties"]["finish_node_ids"]["minItems"], 1);
 }

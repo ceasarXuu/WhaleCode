@@ -1,4 +1,5 @@
 use super::*;
+use crate::action_map::ActionMapFinishNodeOutcome;
 use crate::action_map::ActionMapInitializeOutcome;
 
 #[test]
@@ -73,6 +74,36 @@ fn successful_state_batch_preserves_committed_transition_identities() {
 }
 
 #[test]
+fn terminal_chain_output_preserves_every_committed_identity() {
+    let steps = format_terminal_chain_steps(vec![
+        (
+            "implement".into(),
+            ActionMapFinishNodeOutcome {
+                result_id: "result-1".into(),
+                next_node_id: Some("verify".into()),
+            },
+        ),
+        (
+            "verify".into(),
+            ActionMapFinishNodeOutcome {
+                result_id: "result-2".into(),
+                next_node_id: None,
+            },
+        ),
+    ])
+    .expect("format terminal chain");
+    let output = format_state_batch(steps, true);
+    let value: JsonValue = serde_json::from_str(&output).expect("terminal chain json");
+
+    assert_eq!(value["steps"][0]["finished_node_id"], "implement");
+    assert_eq!(value["steps"][0]["next"]["node_id"], "verify");
+    assert_eq!(value["steps"][0]["current_node_id"], "verify");
+    assert_eq!(value["steps"][1]["finished_node_id"], "verify");
+    assert_eq!(value["steps"][1]["current_node_id"], JsonValue::Null);
+    assert_eq!(state_identity_coverage(&output), Some((2, true)));
+}
+
+#[test]
 fn failed_state_batch_preserves_protocol_and_raw_error() {
     let error = FunctionCallError::RespondToModel("exact transition error".into());
     let output = format_state_batch(vec![format_failed_state_step(0, &error)], false);
@@ -92,7 +123,7 @@ fn parses_agent_authored_terminal_candidate() {
     let args = parse_taskspace_control_args(
         &serde_json::json!({
             "action": "finish_then_end",
-            "terminal_node_id": "final",
+            "finish_node_ids": ["final"],
             "final_candidate": "Exact final answer."
         })
         .to_string(),
@@ -126,6 +157,21 @@ fn finish_without_next_action_is_rejected() {
     let error = parse_taskspace_control_args(r#"{"action":"finish_nodes","finishes":[{}]}"#)
         .expect_err("missing next binding");
     assert!(error.to_string().contains("missing field `next`"));
+}
+
+#[test]
+fn terminal_finish_chain_rejects_empty_and_duplicate_node_ids() {
+    let empty = parse_taskspace_control_args(
+        r#"{"action":"finish_then_end","finish_node_ids":[],"final_candidate":"answer"}"#,
+    )
+    .expect_err("empty terminal chain");
+    assert!(empty.to_string().contains("must contain at least one item"));
+
+    let duplicate = parse_taskspace_control_args(
+        r#"{"action":"finish_then_end","finish_node_ids":["verify","verify"],"final_candidate":"answer"}"#,
+    )
+    .expect_err("duplicate terminal chain");
+    assert!(duplicate.to_string().contains("unique finish_node_ids"));
 }
 
 #[test]

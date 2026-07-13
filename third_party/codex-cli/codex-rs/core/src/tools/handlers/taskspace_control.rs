@@ -21,6 +21,7 @@ use crate::tools::handlers::taskspace_control_args::parse_taskspace_control_args
 use crate::tools::handlers::taskspace_control_output::format_failed_state_step;
 use crate::tools::handlers::taskspace_control_output::format_initialize_step;
 use crate::tools::handlers::taskspace_control_output::format_state_batch;
+use crate::tools::handlers::taskspace_control_output::format_terminal_chain_steps;
 use crate::tools::handlers::taskspace_control_output::hard_state_reason;
 use crate::tools::handlers::taskspace_control_output::state_identity_coverage;
 use crate::tools::output_reference::OUTPUT_SLICE_MAX_BYTES;
@@ -147,49 +148,56 @@ impl ToolHandler for TaskSpaceControlHandler {
                 (format_state_batch(steps, success), success, None)
             }
             TaskSpaceControlArgs::FinishThenEnd {
-                preceding_finishes,
-                terminal_node_id,
+                finish_node_ids,
                 final_candidate,
             } => {
                 let conclusion_event_id = session
                     .taskspace_event_id_for_call(&call_id)
                     .await
                     .map_err(state_machine_error)?;
-                let (mut steps, mut success) = execute_nonterminal_finishes(
+                let declared_step_count = finish_node_ids.len();
+                tracing::info!(
+                    target: "codex_core::taskspace",
+                    call_id,
+                    declared_step_count,
+                    "taskspace.terminal_finish_chain_declared"
+                );
+                match execute_terminal_finish_chain(
                     &session,
                     &turn,
-                    preceding_finishes,
+                    finish_node_ids,
+                    &final_candidate,
                     &conclusion_event_id,
                 )
-                .await;
-                let mut terminal_message = None;
-                if success {
-                    let terminal_index = steps.len();
-                    match execute_terminal_finish(
-                        &session,
-                        &turn,
-                        terminal_node_id,
-                        &final_candidate,
-                        &conclusion_event_id,
-                        terminal_index,
-                    )
-                    .await
-                    {
-                        Ok(step) => {
-                            steps.push(step);
-                            terminal_message = Some(final_candidate);
-                        }
-                        Err(error) => {
-                            steps.push(format_failed_state_step(steps.len(), &error));
-                            success = false;
-                        }
+                .await
+                {
+                    Ok(steps) => {
+                        tracing::info!(
+                            target: "codex_core::taskspace",
+                            call_id,
+                            committed_step_count = steps.len(),
+                            "taskspace.terminal_finish_chain_committed"
+                        );
+                        (format_state_batch(steps, true), true, Some(final_candidate))
+                    }
+                    Err(error) => {
+                        let error_text = error.to_string();
+                        let reason_code =
+                            hard_state_reason(&error_text).unwrap_or("transition_rejected");
+                        tracing::warn!(
+                            target: "codex_core::taskspace",
+                            call_id,
+                            declared_step_count,
+                            reason_code,
+                            "taskspace.terminal_finish_chain_rejected"
+                        );
+                        (
+                            format_state_batch(vec![format_failed_state_step(0, &error)], false),
+                            false,
+                            None,
+                        )
                     }
                 }
-                (
-                    format_state_batch(steps, success),
-                    success,
-                    terminal_message,
-                )
             }
             TaskSpaceControlArgs::CreateNode {
                 kind,
@@ -371,32 +379,23 @@ async fn execute_nonterminal_finish(
     }))
 }
 
-async fn execute_terminal_finish(
+async fn execute_terminal_finish_chain(
     session: &Session,
     turn: &TurnContext,
-    node_id: Option<String>,
+    node_ids: Vec<String>,
     final_candidate: &str,
     conclusion_event_id: &str,
-    index: usize,
-) -> Result<JsonValue, FunctionCallError> {
-    let (finished_node_id, outcome) = session
-        .finish_action_map_node_with_terminal_candidate(
+) -> Result<Vec<JsonValue>, FunctionCallError> {
+    let outcomes = session
+        .finish_action_map_node_chain_with_terminal_candidate(
             turn,
-            node_id.as_deref(),
+            &node_ids,
             conclusion_event_id.to_string(),
             final_candidate,
         )
         .await
         .map_err(state_machine_error)?;
-    Ok(serde_json::json!({
-        "kind": "terminal_transition",
-        "index": index,
-        "finished_node_id": finished_node_id,
-        "result_id": outcome.result_id,
-        "map_status": "completed",
-        "task_status": "completed",
-        "current_node_id": JsonValue::Null,
-    }))
+    format_terminal_chain_steps(outcomes)
 }
 
 fn parse_output_slice_mode(
@@ -473,7 +472,7 @@ fn state_machine_error(message: String) -> FunctionCallError {
     gate_error(message, TaskSpaceHardGateClass::StateMachine, &reason)
 }
 
-fn protocol_error(message: String, reason: &str) -> FunctionCallError {
+pub(super) fn protocol_error(message: String, reason: &str) -> FunctionCallError {
     gate_error(message, TaskSpaceHardGateClass::Protocol, reason)
 }
 

@@ -9,6 +9,7 @@ fn terminal_candidate_is_redacted_only_from_tool_logs() {
     let payload = ToolPayload::Function {
         arguments: serde_json::json!({
             "action": "finish_then_end",
+            "finish_node_ids": ["final"],
             "final_candidate": "private final text"
         })
         .to_string(),

@@ -1367,34 +1367,27 @@ impl Session {
         Ok((node_id, outcome))
     }
 
-    pub(crate) async fn finish_action_map_node_with_terminal_candidate(
+    pub(crate) async fn finish_action_map_node_chain_with_terminal_candidate(
         &self,
         turn_context: &TurnContext,
-        node_id: Option<&str>,
+        node_ids: &[String],
         agent_conclusion_event_ref: String,
         final_candidate: &str,
-    ) -> Result<(String, ActionMapFinishNodeOutcome), String> {
-        let (node_id, outcome, events) = {
+    ) -> Result<Vec<(String, ActionMapFinishNodeOutcome)>, String> {
+        let (outcomes, events) = {
             let mut state = self.state.lock().await;
-            let node_id = match node_id {
-                Some(node_id) => node_id.to_string(),
-                None => state
-                    .action_map_runtime
-                    .current_main_node_id_for_owner(self.conversation_id)?,
-            };
-            let (outcome, events) = state
+            state
                 .action_map_runtime
-                .finish_main_node_with_terminal_candidate(
+                .finish_main_node_chain_with_terminal_candidate(
                     self.conversation_id,
-                    &node_id,
+                    node_ids,
                     agent_conclusion_event_ref,
                     final_candidate,
-                )?;
-            (node_id, outcome, events)
+                )?
         };
         self.emit_action_map_events_for_turn(turn_context, events)
             .await;
-        Ok((node_id, outcome))
+        Ok(outcomes)
     }
 
     pub(crate) async fn block_action_map_main_node(

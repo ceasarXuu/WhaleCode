@@ -3561,6 +3561,63 @@ impl ActionMapRuntimeState {
         Ok((outcome, events))
     }
 
+    pub(crate) fn finish_main_node_chain_with_terminal_candidate(
+        &mut self,
+        owner_session_id: ThreadId,
+        node_ids: &[String],
+        agent_conclusion_event_ref: String,
+        final_candidate: &str,
+    ) -> Result<
+        (
+            Vec<(String, ActionMapFinishNodeOutcome)>,
+            Vec<MapRuntimeEvent>,
+        ),
+        String,
+    > {
+        if node_ids.is_empty() {
+            return Err("TaskSpace terminal finish chain cannot be empty.".to_string());
+        }
+        let mut seen = HashSet::with_capacity(node_ids.len());
+        for node_id in node_ids {
+            if node_id.trim().is_empty() {
+                return Err("TaskSpace terminal finish chain node ID cannot be empty.".to_string());
+            }
+            if !seen.insert(node_id) {
+                return Err(format!(
+                    "TaskSpace terminal finish chain contains duplicate node `{node_id}`."
+                ));
+            }
+        }
+
+        let mut staged = self.clone();
+        let mut outcomes = Vec::with_capacity(node_ids.len());
+        let mut events = Vec::new();
+        for pair in node_ids.windows(2) {
+            let node_id = &pair[0];
+            let next_node_id = &pair[1];
+            let (outcome, step_events) = staged.finish_main_node_with_next(
+                owner_session_id,
+                node_id,
+                agent_conclusion_event_ref.clone(),
+                Some(next_node_id.clone()),
+                None,
+            )?;
+            outcomes.push((node_id.clone(), outcome));
+            events.extend(step_events);
+        }
+        let terminal_node_id = node_ids.last().expect("non-empty chain validated");
+        let (outcome, terminal_events) = staged.finish_main_node_with_terminal_candidate(
+            owner_session_id,
+            terminal_node_id,
+            agent_conclusion_event_ref,
+            final_candidate,
+        )?;
+        outcomes.push((terminal_node_id.clone(), outcome));
+        events.extend(terminal_events);
+        *self = staged;
+        Ok((outcomes, events))
+    }
+
     pub(crate) fn prepare_spawn_assignment(
         &mut self,
         _owner_session_id: ThreadId,

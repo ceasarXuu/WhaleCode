@@ -575,3 +575,88 @@ fn rejected_terminal_candidate_leaves_node_open() {
         NodeStatus::Running
     );
 }
+
+#[test]
+fn terminal_finish_chain_commits_declared_order_atomically() {
+    let verify = ActionMapInitializeNodeInput {
+        id: "verify".to_string(),
+        kind: NodeKind::RegressionTest,
+        title: "Verify".to_string(),
+        context_summary: "Run regression tests.".to_string(),
+        dependency_node_ids: vec!["inspect".to_string()],
+    };
+    let (mut state, owner, outcome) =
+        initialized_state(vec![inspect_node("inspect"), verify], "inspect");
+
+    let (steps, _) = state
+        .finish_main_node_chain_with_terminal_candidate(
+            owner,
+            &["inspect".to_string(), "verify".to_string()],
+            "Agent conclusion event.".to_string(),
+            "Exact Agent final.",
+        )
+        .expect("terminal chain");
+
+    assert_eq!(steps.len(), 2);
+    assert_eq!(steps[0].0, "inspect");
+    assert_eq!(steps[0].1.next_node_id.as_deref(), Some("verify"));
+    assert_eq!(steps[1].0, "verify");
+    assert!(steps[1].1.next_node_id.is_none());
+    let map = state.maps.get(&outcome.map_id).expect("completed map");
+    assert!(
+        map.nodes
+            .values()
+            .all(|node| node.status == NodeStatus::Completed)
+    );
+    assert_eq!(map.status, MapStatus::Completed);
+}
+
+#[test]
+fn rejected_terminal_finish_chain_has_zero_partial_state() {
+    let implement = ActionMapInitializeNodeInput {
+        id: "implement".to_string(),
+        kind: NodeKind::ImplementSolution,
+        title: "Implement".to_string(),
+        context_summary: "Apply the change.".to_string(),
+        dependency_node_ids: vec!["inspect".to_string()],
+    };
+    let verify = ActionMapInitializeNodeInput {
+        id: "verify".to_string(),
+        kind: NodeKind::RegressionTest,
+        title: "Verify".to_string(),
+        context_summary: "Run regression tests.".to_string(),
+        dependency_node_ids: vec!["implement".to_string()],
+    };
+    let (mut state, owner, _) =
+        initialized_state(vec![inspect_node("inspect"), implement, verify], "inspect");
+    let before = state.snapshot();
+
+    state
+        .finish_main_node_chain_with_terminal_candidate(
+            owner,
+            &["inspect".to_string(), "verify".to_string()],
+            "Agent conclusion event.".to_string(),
+            "Invalid final.",
+        )
+        .expect_err("pending verify must reject chain");
+
+    assert_eq!(state.snapshot(), before);
+}
+
+#[test]
+fn duplicate_terminal_finish_chain_has_zero_partial_state() {
+    let (mut state, owner, _) = initialized_state(vec![inspect_node("inspect")], "inspect");
+    let before = state.snapshot();
+
+    let error = state
+        .finish_main_node_chain_with_terminal_candidate(
+            owner,
+            &["inspect".to_string(), "inspect".to_string()],
+            "Agent conclusion event.".to_string(),
+            "Invalid final.",
+        )
+        .expect_err("duplicate chain");
+
+    assert!(error.contains("duplicate node"));
+    assert_eq!(state.snapshot(), before);
+}

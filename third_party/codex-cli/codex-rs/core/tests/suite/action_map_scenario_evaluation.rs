@@ -93,7 +93,7 @@ async fn terminal_candidate_finishes_turn_without_extra_provider_request() -> Re
     let exact_final = "Agent final line one.\nAgent final line two.";
     let finish = serde_json::to_string(&json!({
         "action": "finish_then_end",
-        "terminal_node_id": "inspect",
+        "finish_node_ids": ["inspect"],
         "final_candidate": exact_final
     }))?;
     responses::mount_sse_once_match(
@@ -259,7 +259,7 @@ async fn nonterminal_finish_executes_sibling_action_after_barrier() -> Result<()
 
     let terminal_finish = serde_json::to_string(&json!({
         "action": "finish_then_end",
-        "terminal_node_id": "complete",
+        "finish_node_ids": ["complete"],
         "final_candidate": "Cadence ownership verified."
     }))?;
     responses::mount_sse_once_match(
@@ -328,11 +328,7 @@ async fn adjacent_finish_calls_claim_successive_ready_targets() -> Result<()> {
 
     let finish_second = serde_json::to_string(&json!({
         "action": "finish_then_end",
-        "preceding_finishes": [{
-            "node_id": "first",
-            "next": {"kind": "existing", "node_id": "second"}
-        }],
-        "terminal_node_id": "second",
+        "finish_node_ids": ["first", "second"],
         "final_candidate": "Both nodes finished in one response."
     }))?;
     responses::mount_sse_once_match(
@@ -461,7 +457,7 @@ async fn native_sequence_executes_dependent_tools_after_latest_state_barrier() -
 
     let finish_validate = serde_json::to_string(&json!({
         "action": "finish_then_end",
-        "terminal_node_id": "validate",
+        "finish_node_ids": ["validate"],
         "final_candidate": "Fixture fixed and validated."
     }))?;
     responses::mount_sse_once_match(
@@ -655,7 +651,7 @@ async fn failed_state_barrier_skips_dependent_tail_without_side_effect() -> Resu
     .await;
     let finish = serde_json::to_string(&json!({
         "action": "finish_then_end",
-        "terminal_node_id": "inspect",
+        "finish_node_ids": ["inspect"],
         "final_candidate": "Failure path verified."
     }))?;
     responses::mount_sse_once_match(
@@ -1105,6 +1101,7 @@ async fn mount_realistic_user_bugfix_responses(harness: &TestCodexHarness) -> Re
                 "taskspace_control",
                 &serde_json::to_string(&json!({
                     "action": "finish_then_end",
+                    "finish_node_ids": ["node-1"],
                     "final_candidate": "已修复缓存 key namespace 归一化问题，并运行验证通过。",
                 }))?,
             ),

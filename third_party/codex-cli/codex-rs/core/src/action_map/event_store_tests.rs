@@ -478,6 +478,7 @@ fn terminal_control_call(final_candidate: &str, call_id: &str) -> ResponseItem {
         namespace: None,
         arguments: serde_json::json!({
             "action": "finish_then_end",
+            "finish_node_ids": ["final"],
             "final_candidate": final_candidate
         })
         .to_string(),

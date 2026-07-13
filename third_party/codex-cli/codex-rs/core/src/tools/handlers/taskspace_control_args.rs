@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use crate::function_tool::FunctionCallError;
 use codex_protocol::models::ResponseItem;
 use serde::Deserialize;
@@ -17,10 +19,7 @@ pub(crate) enum TaskSpaceControlArgs {
         finishes: Vec<TaskSpaceNonterminalFinishArgs>,
     },
     FinishThenEnd {
-        #[serde(default)]
-        preceding_finishes: Vec<TaskSpaceNonterminalFinishArgs>,
-        #[serde(default)]
-        terminal_node_id: Option<String>,
+        finish_node_ids: Vec<String>,
         final_candidate: String,
     },
     CreateNode {
@@ -192,12 +191,18 @@ impl TaskSpaceControlArgs {
                 Ok(())
             }
             Self::FinishThenEnd {
-                preceding_finishes,
+                finish_node_ids,
                 final_candidate,
-                ..
             } => {
-                for finish in preceding_finishes {
-                    finish.validate()?;
+                require_non_empty(finish_node_ids, "finish_node_ids")?;
+                let mut unique_node_ids = HashSet::with_capacity(finish_node_ids.len());
+                for node_id in finish_node_ids {
+                    if node_id.trim().is_empty() {
+                        return invalid("finish_then_end requires non-empty finish_node_ids");
+                    }
+                    if !unique_node_ids.insert(node_id) {
+                        return invalid("finish_then_end requires unique finish_node_ids");
+                    }
                 }
                 if final_candidate.trim().is_empty() {
                     return invalid("finish_then_end requires a non-empty final_candidate");
@@ -385,7 +390,7 @@ mod tests {
     fn rejects_removed_finish_result_summary() {
         let nonterminal = r#"{"action":"finish_nodes","finishes":[{"result_summary":"done","next":{"kind":"existing","node_id":"node-2"}}]}"#;
         assert!(parse_taskspace_control_args(nonterminal).is_err());
-        let terminal = r#"{"action":"finish_then_end","terminal_node_id":"node-2","result_summary":"done","final_candidate":"answer"}"#;
+        let terminal = r#"{"action":"finish_then_end","finish_node_ids":["node-2"],"result_summary":"done","final_candidate":"answer"}"#;
         assert!(parse_taskspace_control_args(terminal).is_err());
     }
 
@@ -415,9 +420,11 @@ mod tests {
             r#"{"action":"finish_then_end","terminal_finish":{},"final_candidate":"answer"}"#;
         assert!(parse_taskspace_control_args(removed_terminal).is_err());
         parse_taskspace_control_args(
-            r#"{"action":"finish_then_end","terminal_node_id":"node-2","final_candidate":"answer"}"#,
+            r#"{"action":"finish_then_end","finish_node_ids":["node-1","node-2"],"final_candidate":"answer"}"#,
         )
-        .expect("flat terminal target");
+        .expect("ordered terminal chain");
+        let removed_dual_role = r#"{"action":"finish_then_end","preceding_finishes":[{"node_id":"node-1","next":{"kind":"existing","node_id":"node-2"}}],"terminal_node_id":"node-2","final_candidate":"answer"}"#;
+        assert!(parse_taskspace_control_args(removed_dual_role).is_err());
     }
 
     #[test]
