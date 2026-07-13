@@ -56,7 +56,7 @@ $rolloutWriter = [System.IO.StreamWriter]::new($rolloutPath, $false, [System.Tex
 try {
     $rolloutWriter.WriteLine('{"type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":100,"output_tokens":20,"cached_input_tokens":80}}}}')
     $rolloutWriter.WriteLine('{"type":"response_item","payload":{"type":"function_call","name":"taskspace_control","call_id":"control-1","arguments":"{\"action\":\"initialize_then_actions\"}"}}')
-    $rolloutWriter.WriteLine('{"type":"event_msg","payload":{"type":"task_context_event_recorded","id":"task-event-1","sequence":1,"eventType":"function_call","rawPayload":{"type":"function_call","name":"taskspace_control","call_id":"control-2","arguments":"{\"action\":\"finish_then_end\",\"final_candidate\":\"done\"}"}}}')
+    $rolloutWriter.WriteLine('{"type":"event_msg","payload":{"type":"task_context_event_recorded","id":"task-event-1","sequence":1,"eventType":"function_call","rawPayload":{"type":"function_call","name":"taskspace_control","call_id":"control-2","arguments":"{\"action\":\"finish_then_end\",\"finish_node_ids\":[\"verify\"],\"final_candidate\":\"done\"}"}}}')
     $rolloutWriter.WriteLine('{"type":"event_msg","payload":{"type":"task_context_event_recorded","id":"task-event-2","sequence":2,"eventType":"message","originalRole":"assistant","rawPayload":{"type":"message","role":"assistant","phase":"final_answer","content":[{"type":"output_text","text":"done"}]}}}')
     $rolloutWriter.WriteLine('malformed-line')
     $rolloutWriter.WriteLine('{"type":"event_msg","payload":{"type":"fixture","content":"' + ('x' * 2097152) + '"}}')

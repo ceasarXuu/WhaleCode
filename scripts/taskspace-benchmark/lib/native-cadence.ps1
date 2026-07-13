@@ -66,7 +66,8 @@ function Get-TaskspaceNativeCadenceFacts {
                     $finishesProperty = $arguments.PSObject.Properties["finishes"]
                     if ($null -ne $finishesProperty) { $finishCount = @($finishesProperty.Value).Count }
                     if ($action -eq "finish_then_end") {
-                        $finishCount += 1
+                        $chainProperty = $arguments.PSObject.Properties["finish_node_ids"]
+                        if ($null -ne $chainProperty) { $finishCount = @($chainProperty.Value).Count }
                         $candidateProperty = $arguments.PSObject.Properties["final_candidate"]
                         $hasTerminalCandidate = $null -ne $candidateProperty -and -not [string]::IsNullOrWhiteSpace([string]$candidateProperty.Value)
                     }

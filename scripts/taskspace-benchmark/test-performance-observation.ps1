@@ -124,7 +124,7 @@ function New-SideFixture {
             [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "function_call_output" } },
             [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{
                     type = "function_call"; name = "taskspace_control"
-                    arguments = (@{ action = "finish_then_end"; terminal_node_id = "node-2"; final_candidate = "done" } | ConvertTo-Json -Compress -Depth 10)
+                    arguments = (@{ action = "finish_then_end"; finish_node_ids = @("node-2"); final_candidate = "done" } | ConvertTo-Json -Compress -Depth 10)
                 } },
             [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "message"; role = "assistant"; phase = "final_answer"; content = @([pscustomobject]@{ type = "output_text"; text = "done" }) } }
         )
@@ -152,7 +152,7 @@ $finishArgs = @{
     )
 } | ConvertTo-Json -Compress -Depth 10
 $terminalArgs = @{
-    action = "finish_then_end"; terminal_node_id = "validate"; final_candidate = "Agent final"
+    action = "finish_then_end"; finish_node_ids = @("validate"); final_candidate = "Agent final"
 } | ConvertTo-Json -Compress -Depth 10
 Write-JsonLines @(
     [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "function_call"; name = "taskspace_control"; call_id = "init"; arguments = $initializeArgs } },
@@ -220,6 +220,7 @@ Assert-True (@($report.rows | Where-Object {
             $_.duplication.cross_carrier_lineage.control_identity_step_count -eq 2 -and
             $_.duplication.cross_carrier_lineage.control_identity_missing_count -eq 0 -and
             $_.duplication.cross_carrier_lineage.committed_repeat_finish_count -eq 0 -and
+            $_.duplication.cross_carrier_lineage.terminal_finish_chain_duplicate_count -eq 0 -and
             $_.duplication.cross_carrier_lineage.control_output_init_node_id_echo_count -eq 1 -and
             $_.duplication.cross_carrier_lineage.control_output_finished_node_id_echo_count -eq 1 -and
             $_.duplication.cross_carrier_lineage.control_output_next_node_echo_count -eq 1 -and
