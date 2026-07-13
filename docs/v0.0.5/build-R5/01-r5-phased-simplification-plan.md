@@ -10,7 +10,7 @@
 Created: 2026-07-09
 Updated: 2026-07-13
 Version: v0.0.5 build-R5
-Status: In Progress - R5-J7.8 repairing H-027 feedback gap; R5-K remains locked
+Status: In Progress - R5-J7 complete; next R5-K
 Owner / Responsible: WhaleCode core runtime
 Related Systems: TaskSpace runtime, action_map runtime, taskspace_control,
   context projection, provider-visible context, benchmark harness
@@ -107,8 +107,8 @@ TaskSpace 拉回三个职责：
 
 ## 1.5 Phase 总览
 
-当前剩余执行顺序：`R5-J7.8 -> R5-J7.5 revalidation -> R5-K -> R5-G3 final regression -> R5-H closeout`。J7.7 工程门禁已完成，
-第一次 J7.5 复验的 billing trace 暴露 H-027 control map-state 反馈缺口。J6.7 final-rejection loop、
+当前剩余执行顺序：`R5-K -> R5-G3 final regression -> R5-H closeout`。J7.7/J7.8 与 J7.5 14/14 final gate 已完成，
+H-026/H-027 已验证关闭。J6.7 final-rejection loop、
 3-repeat gate和两轮对抗性审查已完成。J5 工程能力已完成，但真实
 multi-finish / finish+ordinary 采用率仍为0，不作为已兑现收益。
 字母编号保留历史文档稳定性，实际推进只以 1.15 的依赖和门禁矩阵为准。
@@ -137,7 +137,7 @@ multi-finish / finish+ordinary 采用率仍为0，不作为已兑现收益。
 | R5-J7 | Singular request patch slot | J6.7完成后，Standard/TaskSpace单个provider response最多一个`apply_patch`；carrier schema直接约束，共享tool-sequence执行前校验顶层/carrier/nested总数；patch全量预检先于写入；读取和pytest只观察 | request-wide multi-patch零执行；validation failure零文件副作用；patch + test能力保留 |
 | R5-J7.6 | Control contract fidelity | 用 tagged next 与扁平 terminal 形成唯一输入形状；成功反馈返回 init/finished/next/current 等已提交机械事实 | 旧形状不可表达；success identity coverage 100%；order 无 committed 后重复 finish；Map 完整闭合 |
 | R5-J7.7 | Terminal finish chain | 用 Agent 显式有序 `finish_node_ids[]` 替代 preceding/terminal 双角色；全链在 clone 上原子提交 | terminal self-loop 不可由单节点双角色构造；失败零部分提交；J7.5 state/protocol failure=0 |
-| R5-J7.8 | Control map-state feedback | mutation 回执忠实返回 commit 范围和最小 Map 状态 | open/current 可见；terminal 原子失败明确零提交；J7.5 state/protocol failure=0 |
+| R5-J7.8 | Control map-state feedback | mutation 回执忠实返回 commit 范围和最小 Map 状态 | complete；open/current 可见，terminal 原子失败明确零提交，J7.5 14/14 |
 | R5-K | Map-native context compression | 长会话中将满足硬拓扑条件的已闭合子图可逆归档为macro node | root/frontier与全局路径保留；展开/replay 100%；无Runtime语义摘要 |
 
 ### 1.5.1 Phase 验收和工程收益矩阵
@@ -158,9 +158,9 @@ multi-finish / finish+ordinary 采用率仍为0，不作为已兑现收益。
 | R5-H | closeout 列出已删/降级/保留结构和后续删除条件，git clean | 形成可交接的架构边界和后续路线，避免 R5 结论再次散落 | closeout 文档、证据索引、clean git、保留复杂结构 owner/exit condition |
 | R5-I | Agent、public validator、hidden oracle 全部进入隔离容器；日志、digest、资源和时间可审计 | 消除宿主环境干扰并建立正式 benchmark 的可复现证据链 | 详细门禁见 `13-r5-unified-docker-benchmark-and-logging-plan.md`；当前只登记，不执行 |
 | R5-J | P0 消除空 Map 无效工具选择；P1 承载 Agent 明确声明的状态迁移和后续动作；P3 合并最后 finish 和 Agent final candidate；J5允许连续显式 finish | 已消除 pre-init和 terminal额外往返，并补齐多 finish执行能力；真实 Agent未采用时不以 runtime强制追求 control-only下降 | provider repeated-control probe；sequence/integration tests；`pre_init_ordinary=0`；terminal extra request=0；multi-control/chained-finish/mixed独立观测；详细门禁见 `14-r5-native-control-cadence-plan.md` |
-| R5-J7.6 | tagged next、扁平 terminal 和 V2 success identity 全部落地；两组 identity missing/repeat finish 均为0 | 修复成功反馈过度裁剪，Map 从旧 order 9/4 open 收敛为3/0 | 4+20+1+9 focused tests；Docker order/billing；H-025关闭，H-026 live gate paused |
-| R5-J7.7 | terminal 只接受 Agent 显式有序完成链；旧双角色字段删除；全链失败零副作用 | 消除 H-026 self-loop affordance 和恢复请求，同时保持状态机硬规则及 Agent 控制权 | schema/parser/atomicity fixtures；Docker order/billing；详细门禁见 `41-r5-j7-7-terminal-finish-chain-plan.md` |
-| R5-J7.8 | mutation 回执包含 `state_commit` 与 current/open/blocked/counts；不包含动作建议 | Agent 无需从局部 delta 猜剩余 Map，且能区分原子失败与部分提交 | handler/runtime fixtures；Docker order/billing；详细门禁见 `42-r5-j7-8-control-map-state-feedback-plan.md` |
+| R5-J7.6 | tagged next、扁平 terminal 和 V2 success identity 全部落地；两组 identity missing/repeat finish 均为0 | 修复成功反馈过度裁剪，Map 从旧 order 9/4 open 收敛为3/0 | 4+20+1+9 focused tests；Docker order/billing；H-025关闭；当时暴露的H-026已由J7.7关闭 |
+| R5-J7.7 | terminal 只接受 Agent 显式有序完成链；旧双角色字段删除；全链失败零副作用 | 消除 H-026 self-loop affordance 和恢复请求，同时保持状态机硬规则及 Agent 控制权 | complete；schema/parser/atomicity fixtures、Docker order/billing，见 `41-r5-j7-7-terminal-finish-chain-plan.md` |
+| R5-J7.8 | mutation 回执包含 `state_commit` 与 current/open/blocked/counts；不包含动作建议 | Agent 无需从局部 delta 猜剩余 Map，且能区分原子失败与部分提交 | complete；handler/runtime fixtures、Docker order/billing，见 `42-r5-j7-8-control-map-state-feedback-plan.md` |
 | R5-K | K0/K1先证明长会话规模和冻结压缩合同；K2-K5再实现可逆archive/macro、20轮恢复和Docker门禁 | 让真实长会话可频繁压缩而不丢全局导航或把语义权交给Runtime | 100/1k/10k nodes；root/frontier/protected 100%；expand/replay hash 100%；详细门禁见 `31-r5-map-native-context-compression-charter.md` |
 
 ## 1.6 Phase R5-A：当前结构盘点和基线
@@ -989,7 +989,7 @@ schema 直接表达 singular patch continuation；不限制读取或 pytest，�
 | R5-J6.6 input follow-up | projection extractor、sparse epoch/map/ack、focused tests、Docker pair | 不依赖 J7 | 机械重复下降；失败透传和warm prefix不回退 | 100%完成 | complete；总request成本继续观察 |
 | R5-J6.7.0-J6.7.6 | ownership audit、event codec、原子cutover、control去重、checkpoint、旧路径删除、Docker初始收益门禁 | 不依赖J7 | single canonical owner；round-trip 100%；raw duplicate=0；warm cache下降不超过2pp | 每阶段100%或暂停 | engineering/live evidence complete；cross-carrier residue moved to J6.7.7 |
 | R5-J6.7.7-A-G | lineage observer、blank context、terminal owner、nested/ack、全局骨架与局部详情分层、incremental snapshot、Docker/review | 不依赖J7或R5-K | provider semantic duplicate=0；skeleton 100%；stale blank=0；failure 100%；snapshot -80%；cache不回退 | 每阶段100%或暂停 | complete；two-round adversarial review passed |
-| R5-J7.0-J7.5 | J6.7后重审response/carrier；patch atomicity audit、provider probe、request tool manifest、singular carrier schema、pre-state/request validation、Docker samples | 必须等J6.7完成 | carrier multi-patch不可表达；request-wide multi-patch执行数为0；validation failure零文件副作用；读取/pytest保持观察 | 每阶段100%或暂停 | J7.0-J7.4 complete；J7.5已执行，11/14 gates，paused |
+| R5-J7.0-J7.8 | J6.7后重审response/carrier；patch atomicity、singular carrier、request preflight、control fidelity、terminal chain、Map反馈、Docker samples | 必须等J6.7完成 | multi-patch零执行；validation failure零副作用；control state/protocol failure=0；Map闭合 | 每阶段100%或暂停 | complete；J7.5 14/14 gates |
 | R5-K0-K5 | 长会话预算基线、压缩合同、archive schema/tool、压缩引擎、多轮恢复、Docker/review | 必须等J7完成；K2依赖K0/K1证据 | root/frontier 100%；global macro path连通；expand/replay 100%；无semantic summary | 每阶段100%或暂停 | planned；K0/K1 discovery first |
 | R5-I3/I4 | Docker complex pairs、等价/性能门禁、Docker-only call graph | 不依赖 closeout | performance observation、container parity、default-path scan | 工程实现与验证100%；不覆盖J4收益缺口 | Docker-only landed |
 | R5-G3 | complex paired runs、streaming extractor tests | 不依赖 closeout | 完整指标报告、失败分类 | 100% 完成 | G3 close，整体仍受J4 gate阻塞 |
@@ -1044,7 +1044,7 @@ provider request count、state-machine action count、wall time、失败分类�
 | R5-J6.6 input follow-up | 固定epoch base、Map写入和success ack仅保留机械必要字段；populated projection去重 | projection/runtime、TaskSpace schema/handler、cost extractor | provider context + control output | tools 140/1 ignored；core tools 335；action-map 12；scenario 7；harness自测 | paired均solved；projection 189->70 tokens；active fixed 22,488->22,107 bytes；warm cache 97.08% | failure原文、ordinary反馈、append-only journal均保留；无动态逐请求projection | complete (`99801e7`..`e7783b5`)；request path方差继续观察 |
 | R5-J6.7 canonical task context | Map/Event Store为唯一任务事实源；provider忠实线性化；control/result/projection引用同一events | action_map event store/codec、session ingress、provider linearizer、compaction/ref | every TaskSpace turn | ownership、round-trip、pair/order、compaction、Docker samples | source event、linearization、duplicate、checkpoint和cache trace | 无双写、compat、semantic reducer或silent fallback | J6.7.0-.7 A-F landed；G blocker open |
 | R5-J6.7.7 context residue | final/nested/blank/projection/snapshot各自单一owner；fresh走canonical自然历史，新epoch projection保留完整骨架和机械分层详情 | event linearizer、session finalization、projection、rollout replay | bootstrap/terminal/resume | lineage/post-terminal/skeleton/tier/ref/replay | semantic duplicate、skeleton coverage、stale marker、snapshot ratio | 无Map分页、语义相似度、summary、compat或silent fallback | complete；two-round adversarial review passed |
-| R5-J7 singular request patch slot | J6.7完成后，Standard/TaskSpace单response最多一个patch；carrier schema排除重复patch，共享dispatcher在任何工具执行前统计顶层/carrier/nested patch；shared patch validation先全量预检再写入；非patch多工具不受限 | `apply-patch`、provider response tool sequence、TaskSpace carrier、typed args、performance observer | Standard/TaskSpace patch path | request manifest、prepare/commit、schema、state/filesystem snapshot、Docker samples | request patch count、single/multi patch、prepare/commit/skip、read observation分账 | 无自动合并、部分执行后拒绝、旧形态兼容或读取gate | J7.0-J7.4 complete；J7.5已执行，gate paused（见38） |
+| R5-J7 singular request patch slot | J6.7完成后，Standard/TaskSpace单response最多一个patch；carrier schema排除重复patch，共享dispatcher在任何工具执行前统计顶层/carrier/nested patch；shared patch validation先全量预检再写入；非patch多工具不受限 | `apply-patch`、provider response tool sequence、TaskSpace carrier、typed args、performance observer | Standard/TaskSpace patch path | request manifest、prepare/commit、schema、state/filesystem snapshot、Docker samples | request patch count、single/multi patch、prepare/commit/skip、read observation分账 | 无自动合并、部分执行后拒绝、旧形态兼容或读取gate | J7.0-J7.8 complete；J7.5 14/14（见38） |
 | R5-K Map-native compression | 超大Map按硬拓扑条件可逆归档，macro粒度保持全局导航 | Map archive/projection/checkpoint/ref/replay | skeleton hard-budget boundary | scale/round-trip/20-cycle/Docker | budget/archive/expand/replay trace | 无Runtime summary、relevance判断、partial map或兼容层 | planned；K0/K1先冻结合同 |
 
 ## 1.17 Change-chain Logging Matrix

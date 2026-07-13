@@ -1,7 +1,7 @@
 # R5-J7.8 Control Map 状态反馈收敛计划
 
 - Date: 2026-07-13
-- Status: APPROVED FOR IMPLEMENTATION
+- Status: COMPLETE
 - Scope: H-027；J7.5 第二次复验前置门
 - Related: `38-r5-j7-phase5-docker-benefit-result.md`、`41-r5-j7-7-terminal-finish-chain-plan.md`
 
@@ -91,3 +91,18 @@ R5 Map open = 0；task/map completed；外部 validator 通过。
 
 若 live Agent 在完整 `map_state` 下仍做错排序，记录为 Agent 能力波动；不得继续扩大 Runtime 状态规则来追求
 样本通过。
+
+## 5. 实施结果
+
+J7.8 A-D 已完成：canonical `ActionMapControlState`、`state_commit=full|partial|none`、mutation V2 output、
+`taskspace.control_map_state_exposed` 日志及 observer 指标全部落地。Runtime 只读取并回传 canonical Map 机械事实，
+未增加自动 finish/bind/create/dedupe/order/recovery。
+
+工程验证通过：`codex-core taskspace_control` 23项、terminal chain 4项、Action Map scenario 9项、event store/
+redaction 2项、`codex-tools taskspace` 4项，以及 observer、cost instrumentation、metrics harness、skill validation、
+fmt、locked `whale` build 和 binary attestation。
+
+最终 Docker 复验中，order/billing R5 的 `map_state present/missing` 分别为 `2/0`、`6/0`，open-node visibility
+分别为1、5；protocol/state failure、identity missing、committed repeat finish、terminal bad commit 和 Map open 均为0，
+外部 validator 通过。J7.8 退出门禁和 J7.5 14/14 门禁均关闭。完整证据见
+`38-r5-j7-phase5-docker-benefit-result.md` 第9节。

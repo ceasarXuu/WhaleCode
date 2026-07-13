@@ -1,7 +1,7 @@
 # R5-J7.7 Terminal Finish Chain 修复计划
 
 - Date: 2026-07-13
-- Status: APPROVED FOR IMPLEMENTATION
+- Status: COMPLETE
 - Scope: H-026；J7.5 复验前置门
 
 ## 1. 问题与证据
@@ -128,3 +128,13 @@ request-wide multi-patch executed = 0；R5 patch max/request = 1。
 - live state/protocol failure 非零：保留原始 trace，新增 CoE evidence，不进入 R5-K。
 - J7.5 只有全部 correctness gate 通过才关闭；成本只报告，不以降成本替代正确性。
 
+## 7. 实施结果
+
+J7.7 A-D 已完成：active schema 只接受 Agent 显式有序 `finish_node_ids[]`，旧双角色字段和解析路径已删除；
+terminal chain 在 cloned Action Map 上验证并一次提交，失败零部分状态；V2 steps、结构化日志和 observer 已覆盖。
+focused tests、相关回归、locked build 与 binary attestation 均通过。
+
+第一次 Docker 复验中，order 达到 state failure=0；billing 暴露 H-027：局部成功回执没有显示剩余 open Map，
+原子失败也没有显式 `state_commit=none`。该缺口由 J7.8 修复。最终复验两组 R5 terminal duplicate、state/protocol
+failure、identity missing、repeat finish、Map open 均为0。最终证据见
+`38-r5-j7-phase5-docker-benefit-result.md` 第9节。

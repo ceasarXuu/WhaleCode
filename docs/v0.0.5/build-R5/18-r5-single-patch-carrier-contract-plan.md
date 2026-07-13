@@ -3,7 +3,7 @@
 - Created: 2026-07-12
 - Updated: 2026-07-13
 - Version: 1.2
-- Status: J7.0-J7.4 complete; J7.5 executed and gate paused; J7.7 approved for H-026
+- Status: COMPLETE；J7.0-J7.8 与 J7.5 14/14 final gate verified
 - Owner / Responsible: WhaleCode TaskSpace / apply_patch substrate
 - Related Systems: provider response tool sequence、`taskspace_control` tool schema、nested ToolSpec、ToolRouter、
   `codex-apply-patch`、benchmark observer
@@ -403,14 +403,14 @@ patch 正文、文件正文或 secret。
 
 **Exit:** correctness 与工具结构收益同时通过才关闭 J7。成本未改善时只声明工具契约和副作用边界收益。
 
-**实施结果（2026-07-13）：** J7.5 已执行，11/14 acceptance gates verified，但严格退出门禁未通过。
+**首次实施结果（2026-07-13，历史）：** J7.5 已执行，11/14 acceptance gates verified，但严格退出门禁未通过。
 非法 multi-patch response 零执行、multi-file prepare/commit 和忠实反馈收益成立；billing R5 首次仍声明4个
 patch，order R5 出现4次state failure并留下4个open node。J7保持paused。完整证据、成本与R4 unavailable
 说明见 `38-r5-j7-phase5-docker-benefit-result.md`。
 
 ### J7.6：TaskSpace Control 契约忠实性修复
 
-**Priority:** 在 J7.5 复验前执行；不得先进入 R5-K/G3/H。
+**历史 Priority:** 在首次 J7.5 复验后执行；该门禁已由 J7.6-J7.8 和最终复验关闭。
 
 J7.5 order trace 证明状态机提交正确，但 success ack 删除了 init/finish 的节点身份，且 active schema 的
 existing/create next 与 terminal 形状存在不必要歧义。J7.6 只修改 tool contract、typed parser、忠实回执与
@@ -426,7 +426,7 @@ Map open=0 且外部验证通过，才重新判定 J7.5。
 
 ### J7.7：Terminal finish chain
 
-**Priority:** J7.7 已关闭 H-026 工程缺口；先完成 H-027/J7.8 并复验 J7.5，不得先进入 R5-K/G3/H。
+**Result:** J7.7 已关闭 H-026 工程缺口；H-027/J7.8 与 J7.5 最终复验也已完成。
 
 `finish_then_end` 改为唯一的 Agent 显式 `finish_node_ids[]` 有序链：最后一个 ID 是 terminal，前面每个节点只
 机械绑定数组下一个 ID。删除 `preceding_finishes`、`terminal_node_id` 和全部旧解析路径；全链在 Action Map clone
@@ -435,6 +435,14 @@ Map open=0 且外部验证通过，才重新判定 J7.5。
 
 **Exit:** 两组 R5 terminal duplicate/protocol/state failure=0、identity missing/repeat finish=0、Map open=0，
 并满足 J7.5 correctness gate。
+
+### J7.8：Control Map 状态反馈
+
+**Result（2026-07-13）：** mutation 回执统一包含 `state_commit` 与 canonical `map_state`，terminal 原子失败明确
+零提交；不添加动作建议或 Runtime 自动状态推进。focused/regression/build/attestation 均通过。最终 order/billing
+Docker 复验中两组 R5 state/protocol failure、map-state missing、terminal bad commit、identity missing、repeat finish、
+Map open 均为0，J7.5 14/14 gate 关闭。详见 `42-r5-j7-8-control-map-state-feedback-plan.md` 和
+`38-r5-j7-phase5-docker-benefit-result.md` 第9节。
 
 ## 9. Phase Gate Matrix
 
@@ -445,7 +453,7 @@ Map open=0 且外部验证通过，才重新判定 J7.5。
 | J7.2 | schema snapshot、typed fixtures、request manifest、provider body | 不依赖 runtime observer | carrier multi-patch不可表达；request count可计算 | 100% | proceed J7.3 |
 | J7.3 | Standard/TaskSpace response sequence、state/filesystem snapshots、router/security integration | 不依赖 live sample | request-wide预检顺序与反馈完整 | 100% | proceed J7.4 |
 | J7.4 | telemetry schema/extractor fixtures | 不依赖 J7.5 补证 | 失败类别和读取观察可分账 | 100% | proceed J7.5 |
-| J7.5 | Docker Standard/R4/R5 samples | 无后续 phase 补证 | correctness + structural benefit | 100% | close or pause |
+| J7.5 | Docker Standard/R4/R5 samples | 无后续 phase 补证 | correctness + structural benefit | 100% | complete；14/14 |
 
 ## 10. Implementation Completeness Matrix
 
@@ -459,7 +467,7 @@ Map open=0 且外部验证通过，才重新判定 J7.5。
 | pre-state request validation | 非法request不执行任何工具、不提交Agent声明state、不改filesystem | `sequence_preflight.rs` + shared sequence | 9 unit + 2 zero-side-effect integration tests | validated/rejected events | complete |
 | native patch dispatch | 合法单patch继续走权限/沙箱/hook/反馈原链路 | ToolRouter/ToolCallRuntime | 9 scenario + 16 core apply_patch tests | canonical call ids | complete |
 | observer | patch lifecycle和显式读取观察可分账，不暴露payload | `patch-observability.ps1` + performance observer | extractor/performance/skill tests | lifecycle counts + request rows | complete |
-| benefit proof | 结构收益且无负向收益 | Docker runner | paired sample | report artifacts | partial：11/14 gates；J7 paused |
+| benefit proof | 结构收益且无负向收益 | Docker runner | paired sample | report artifacts | complete：14/14 gates；J7 closed |
 
 ## 11. Change-chain Logging Matrix
 

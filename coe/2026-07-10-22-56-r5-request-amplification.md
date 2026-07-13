@@ -2656,7 +2656,7 @@
 - Time: 2026-07-13
 
 ## Hypothesis H-026: finish_then_end 仍允许结构合法但生命周期无效的 terminal self-loop
-- Status: confirmed
+- Status: fixed-validated
 - Parent: P-001
 - Claim: 新 terminal schema 允许省略 `terminal_node_id` 来终结 current，同时可选 `preceding_finishes` 仍接受
   current node 和任意 tagged next；JSON Schema 无法表达 finished node 与 next node 不得相同，因而
@@ -2676,7 +2676,7 @@
   - E-061
 - Conclusion: confirmed；这是后续 tool schema/shape 设计问题，不应以 Runtime 自动纠正 self-loop 处理
 - Repair design readiness: ready；J7.7 contract frozen
-- Next step: implement Agent-authored ordered `finish_node_ids[]` terminal chain, then revalidate J7.5
+- Next step: closed by J7.7 and final J7.5 revalidation
 - Blocker: none
 
 ## Evidence E-063: H-026 静态合同审计确认双角色字段是必要触发条件
@@ -2754,7 +2754,7 @@
 - Time: 2026-07-13
 
 ## Hypothesis H-027: control 局部 delta 未暴露剩余 Map，原子失败未声明零提交
-- Status: confirmed
+- Status: fixed-validated
 - Parent: P-001
 - Claim: J7.7 billing 中 init 和所有 control/tool output 均进入 provider 上下文，但 mutation success 只返回本次
   transition 身份，不返回剩余 open/current Map 状态；terminal 原子失败只返回失败 step，未显式声明全链零提交。
@@ -2774,7 +2774,7 @@
   - E-064
 - Conclusion: confirmed；应补充机械 `state_commit` 和最小 `map_state`，不得自动选择或推进节点
 - Repair design readiness: ready
-- Next step: execute `docs/v0.0.5/build-R5/42-r5-j7-8-control-map-state-feedback-plan.md`
+- Next step: closed by J7.8 and final J7.5 revalidation
 - Blocker: none
 
 ## Evidence E-064: J7.7 billing 精确复现 open-node 遗漏与原子失败误读
@@ -2804,4 +2804,29 @@
   ```
 - Interpretation: 上下文没有丢掉 init 或错误正文，但局部 delta 合同要求 Agent 手工重建当前全局状态，且原子失败的
   commit 事实不够显式。修复属于工具反馈忠实性，不是 Runtime 语义纠错。
+- Time: 2026-07-13
+
+## Evidence E-065: J7.8 双样本关闭 H-026/H-027 与 J7.5 严格门禁
+- Related hypotheses:
+  - H-026
+  - H-027
+- Direction: fix-validation
+- Type: focused-regression-build-and-live-docker
+- Source: J7.8 implementation tests、locked binary、order/billing Standard-R5 Docker runs
+- Prediction or plan link:
+  - J7.7 terminal chain atomicity
+  - J7.8 state commit / current open Map feedback
+- Matched signal:
+  - 两组 Standard/R5 均 complete、external passed；R5 protocol/state failure、terminal duplicate、identity missing、
+    committed repeat finish、Map open、map-state missing、terminal bad commit 和 request multi-patch 均为0。
+  - order/billing R5 `map_state present` 为2/6，open-node visibility为1/5；patch max/request均为1。
+  - order R5 requests/input/wall相对Standard为`0.70x/0.69x/0.85x`；billing为`1.42x/1.75x/1.42x`，
+    成本方向相反，不形成稳定性能归因。
+- Correlation keys:
+  - order `target/r5-j7-8-order/multi-file-order-pipeline/20260713-192050-364`
+  - billing `target/r5-j7-8-billing/subscription-billing-repair/20260713-192050-364`
+  - binary commit `f48f3c80dcbd3d5241925bbb5792f2934abd61d0`
+  - binary SHA-256 `e03912bd7f254dd96595c0ccd66634732aaf631e1352d298ae17ca0f1dc656a9`
+- Interpretation: H-026 的双角色 terminal affordance 与 H-027 的局部 delta/commit 反馈缺口均未复现。修复发生在
+  tool schema、原子状态事务和忠实机械结果层，没有向 Runtime 增加语义排序、恢复或决策权。J7.5 14/14关闭。
 - Time: 2026-07-13

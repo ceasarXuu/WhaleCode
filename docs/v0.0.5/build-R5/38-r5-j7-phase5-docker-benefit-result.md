@@ -1,22 +1,21 @@
 # R5-J7.5 Docker 样本与收益验收结果
 
 - Date: 2026-07-13
-- Status: **PAUSED，11/14 acceptance gates verified**
-- Binary commit: `30bb1c0`
-- Binary SHA-256: `e492e89e1cad99475cd4478d843f5ef61d78f9c4f3158726f252e97a8bfebea4`
+- Status: **COMPLETE，14/14 acceptance gates verified**
+- Final binary commit: `f48f3c80dcbd3d5241925bbb5792f2934abd61d0`
+- Final binary SHA-256: `e03912bd7f254dd96595c0ccd66634732aaf631e1352d298ae17ca0f1dc656a9`
 - Execution substrate: Docker hard boundary
 - Model: `deepseek-v4-flash`
 
 ## 1. 结论
 
-J7.5 已执行，但不能关闭 J7。工具安全边界已成立：非法 multi-patch response 在任何工具执行前整组拒绝，
-validation failure 零文件副作用，两个 R5 样本最终都使用单个 prepared multi-file patch 完成相关修改，且
-partial commit 与 patch tail skipped 均为 0。
+J7.5 在 J7.6-J7.8 修复后完成第二次 Docker 复验并关闭。两个样本的 Standard/R5 均完成且通过外部验证；
+两组 R5 的 protocol/state failure、terminal duplicate、identity missing、committed repeat finish、Map open、
+request-wide multi-patch 和 terminal bad commit 均为 0，patch max/request 均为 1。14 项 correctness/benefit
+门禁全部通过。
 
-结构收益没有达到 100% 门禁。`subscription-billing-repair` 的 R5 首次仍在一个 response 声明 4 个
-`apply_patch`；runtime 忠实拒绝后，Agent 下一请求才合并为一个四文件 patch。`multi-file-order-pipeline`
-虽然 Standard/R5 都直接使用一个 multi-file patch，但 R5 产生 4 次状态机失败并留下 4 个 open node。
-因此不能把单样本 correctness 或成本下降解释为 J7 已闭环。
+下文第2-8节保留首次验收及 J7.6 中间复验的历史证据；最终结果以第9节为准。不能把 order 的单次成本下降
+或 billing 的单次成本上升外推为稳定性能收益。
 
 ## 2. 执行证据
 
@@ -93,7 +92,7 @@ R5 分别为 `0.50x`、`0.44x`、`0.82x`。样本数为 1，且两条 Agent 路�
 | R4 同口径基线缺失 | 历史 artifact 不满足当前 Docker/observer 合同 | 不能量化 R4→R5 收益 | 明确 unavailable；不为补表重建旧产品路径 |
 | live `finish+patch+test` 未采用 | unit 能力通过，但两个样本 post action=0 | 只能声明能力保留，不能声明 cadence 收益 | 后续复杂样本继续观测 |
 
-## 7. 决定
+## 7. 首次决定（已被第9节取代）
 
 J7.0-J7.4 保持 complete；J7.5 已执行但 gate paused。J7 不因模型偶发遵守或外部验证通过而关闭。
 后续应先把本轮暴露的 TaskSpace control 可用性/Map 生命周期问题纳入下一阶段诊断，再决定是否复验 J7.5；
@@ -106,3 +105,71 @@ J7.6 恢复 control committed identity 并收敛输入 schema 后，order R5 从
 missing=0、repeat committed finish=0。Map health gate 恢复，但 order 新出现一次 terminal self-loop reject；
 billing Standard 仍产生一次 multi-patch request。因此 J7.5 更新为12/14，保持 paused。完整证据见
 `40-r5-j7-6-control-contract-fidelity-result.md`。
+
+## 9. J7.7-J7.8 最终复验（2026-07-13）
+
+### 9.1 证据与资格
+
+| Sample | Evidence | Eligibility |
+|---|---|---|
+| `multi-file-order-pipeline` | `target/r5-j7-8-order/multi-file-order-pipeline/20260713-192050-364` | valid single-run diagnostic；两侧 complete/solved |
+| `subscription-billing-repair` | `target/r5-j7-8-billing/subscription-billing-repair/20260713-192050-364` | valid single-run diagnostic；两侧 complete/solved |
+
+runner 因 `Repeats=1` 固定报告 `repeats_lt_3,aggregate_not_enabled`，因此不进入统计 utility aggregate；本轮是计划
+要求的单次结构验收，pair audit、public/hidden validator、rollout、provider cache trace 和 Map artifact 均完整。
+R4 仍无同 revision、同 Docker contract、同 observer 口径 artifact，继续标记 unavailable。
+
+### 9.2 结果、动作与成本
+
+| Sample | Mode | Requests | Runtime tools | Controls | State failures | Patch max/request | Map nodes/open | Wall | Input | Cached | Uncached | Output | Req2+ cache |
+|---|---|---:|---:|---:|---:|---:|---|---:|---:|---:|---:|---:|---:|
+| order | Standard | 10 | 15 | 0 | 0 | 1 | N/A | 52.81s | 98,944 | 90,240 | 8,704 | 5,726 | 90.70% |
+| order | R5 | 7 | 12 | 2 | 0 | 1 | 4/0 | 44.87s | 67,906 | 60,416 | 7,490 | 5,304 | 88.33% |
+| billing | Standard | 12 | 19 | 0 | 0 | 1 | N/A | 45.18s | 133,631 | 128,128 | 5,503 | 4,869 | 95.73% |
+| billing | R5 | 17 | 19 | 6 | 0 | 1 | 5/0 | 64.22s | 233,317 | 222,848 | 10,469 | 6,880 | 95.46% |
+
+order R5 相对 Standard：requests `0.70x`、wall `0.85x`、input `0.69x`、uncached input `0.86x`。billing
+R5 相对 Standard：requests `1.42x`、wall `1.42x`、input `1.75x`、uncached input `1.90x`。两组均无 zero-hit
+或 same-shape-zero；R5 只保留 bootstrap `named -> auto` 的一次 tool-choice/cache-shape 转换。成本方向相反，
+不声明稳定成本收益。
+
+### 9.3 最终门禁：14/14
+
+| 类别 | Gate | Result | Evidence |
+|---|---|---|---|
+| Correctness | Standard/R5 最终正确 | PASS | 两组 public/hidden validator=0，Agent complete，external passed |
+| Correctness | validation failure workspace hash 不变 | PASS | J7.1 fault fixtures；本轮 partial commit=0 |
+| Correctness | request-wide multi-patch executed=0 | PASS | 四侧 multi request=0 |
+| Correctness | R5 multi-patch carrier accepted/generated=0 | PASS | 两组 carrier attempt=0 |
+| Correctness | protocol/state failure=0 | PASS | 两组 R5 均为0 |
+| Correctness | permission/sandbox/hook/cancel/raw feedback 无回退 | PASS | shared router/security regression 与 Docker execution clean |
+| Correctness | Map node/edge/result health 不下降 | PASS | 4/5 nodes 均各有 result，open=0，task completed；无相对 J7.6 edge 回退 |
+| Benefit | Standard/R5 patch max/request=1 | PASS | 四侧均为1 |
+| Benefit | 同一 carrier patch slot max=1 | PASS | multi carrier=0 |
+| Benefit | 前 patch 失败导致后续 patch skipped=0 | PASS | 四侧均为0 |
+| Benefit | 相关多文件修改由一个 prepared patch 表达 | PASS | order 两侧、billing 两侧均有 multi-file prepared patch |
+| Benefit | `finish + patch + test` 能力保持 | PASS | J7.3 sequence fixture；live adoption 不作为门禁替代物 |
+| Benefit | request/token/cache/wall 完整分账 | PASS | performance observation coverage=100% |
+| Benefit | 不以少读、少测或 Map 坍缩制造收益 | PASS | 两组外部验证通过；Map闭合且节点/结果一一对应 |
+
+### 9.4 J7.7/J7.8 专项反馈门禁
+
+| Signal | order R5 | billing R5 | Result |
+|---|---:|---:|---|
+| terminal chain duplicate | 0 | 0 | PASS |
+| identity missing / committed repeat finish | 0 / 0 | 0 / 0 | PASS |
+| `map_state` present / missing | 2 / 0 | 6 / 0 | PASS |
+| open-node visibility | 1 | 5 | PASS |
+| terminal failure nonzero commit | 0 | 0 | PASS |
+| terminal extra request | 0 | 0 | PASS |
+
+billing 仍有4次 `finish_nodes` 未携带 sibling ordinary action，形成额外 request 成本；它没有造成状态失败、
+语义丢失或 Map 未闭合，按既定边界只记录为 Agent/tool cadence 效率观察，不新增 Runtime 语义约束。
+
+两组 R5 的 Map 均为多节点但无 dependency edge，observer 保留 `multi_node_map_without_edges` 警告。J7.6
+同样本基线也是0 edge，因此不构成 J7.5 的 Map health 回退；它仍是后续 G3 应跨复杂样本观察的 Agent Map
+建模质量信号，Runtime 不自动补边。
+
+### 9.5 最终决定
+
+J7.0-J7.8 全部完成，J7.5 以14/14关闭。后续路线解锁为 `R5-K -> R5-G3 final regression -> R5-H closeout`。
