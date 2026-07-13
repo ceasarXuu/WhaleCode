@@ -10,7 +10,7 @@
 Created: 2026-07-09
 Updated: 2026-07-13
 Version: v0.0.5 build-R5
-Status: In Progress - R5-J7.7 approved for H-026 repair; R5-K remains locked
+Status: In Progress - R5-J7.8 repairing H-027 feedback gap; R5-K remains locked
 Owner / Responsible: WhaleCode core runtime
 Related Systems: TaskSpace runtime, action_map runtime, taskspace_control,
   context projection, provider-visible context, benchmark harness
@@ -38,6 +38,8 @@ Related Links:
   docs/v0.0.5/build-R5/31-r5-map-native-context-compression-charter.md
   docs/v0.0.5/build-R5/39-r5-j7-6-control-contract-fidelity-plan.md
   docs/v0.0.5/build-R5/40-r5-j7-6-control-contract-fidelity-result.md
+  docs/v0.0.5/build-R5/41-r5-j7-7-terminal-finish-chain-plan.md
+  docs/v0.0.5/build-R5/42-r5-j7-8-control-map-state-feedback-plan.md
   coe/2026-07-10-01-54-r5-normal-progress-budget-hard-stop.md
   coe/2026-07-10-05-03-r5-stale-active-projection-accumulation.md
   coe/2026-07-10-22-56-r5-request-amplification.md
@@ -105,7 +107,8 @@ TaskSpace 拉回三个职责：
 
 ## 1.5 Phase 总览
 
-当前剩余执行顺序：`R5-J7.7 -> R5-J7.5 revalidation -> R5-K -> R5-G3 final regression -> R5-H closeout`。J6.7 final-rejection loop、
+当前剩余执行顺序：`R5-J7.8 -> R5-J7.5 revalidation -> R5-K -> R5-G3 final regression -> R5-H closeout`。J7.7 工程门禁已完成，
+第一次 J7.5 复验的 billing trace 暴露 H-027 control map-state 反馈缺口。J6.7 final-rejection loop、
 3-repeat gate和两轮对抗性审查已完成。J5 工程能力已完成，但真实
 multi-finish / finish+ordinary 采用率仍为0，不作为已兑现收益。
 字母编号保留历史文档稳定性，实际推进只以 1.15 的依赖和门禁矩阵为准。
@@ -134,6 +137,7 @@ multi-finish / finish+ordinary 采用率仍为0，不作为已兑现收益。
 | R5-J7 | Singular request patch slot | J6.7完成后，Standard/TaskSpace单个provider response最多一个`apply_patch`；carrier schema直接约束，共享tool-sequence执行前校验顶层/carrier/nested总数；patch全量预检先于写入；读取和pytest只观察 | request-wide multi-patch零执行；validation failure零文件副作用；patch + test能力保留 |
 | R5-J7.6 | Control contract fidelity | 用 tagged next 与扁平 terminal 形成唯一输入形状；成功反馈返回 init/finished/next/current 等已提交机械事实 | 旧形状不可表达；success identity coverage 100%；order 无 committed 后重复 finish；Map 完整闭合 |
 | R5-J7.7 | Terminal finish chain | 用 Agent 显式有序 `finish_node_ids[]` 替代 preceding/terminal 双角色；全链在 clone 上原子提交 | terminal self-loop 不可由单节点双角色构造；失败零部分提交；J7.5 state/protocol failure=0 |
+| R5-J7.8 | Control map-state feedback | mutation 回执忠实返回 commit 范围和最小 Map 状态 | open/current 可见；terminal 原子失败明确零提交；J7.5 state/protocol failure=0 |
 | R5-K | Map-native context compression | 长会话中将满足硬拓扑条件的已闭合子图可逆归档为macro node | root/frontier与全局路径保留；展开/replay 100%；无Runtime语义摘要 |
 
 ### 1.5.1 Phase 验收和工程收益矩阵
@@ -156,6 +160,7 @@ multi-finish / finish+ordinary 采用率仍为0，不作为已兑现收益。
 | R5-J | P0 消除空 Map 无效工具选择；P1 承载 Agent 明确声明的状态迁移和后续动作；P3 合并最后 finish 和 Agent final candidate；J5允许连续显式 finish | 已消除 pre-init和 terminal额外往返，并补齐多 finish执行能力；真实 Agent未采用时不以 runtime强制追求 control-only下降 | provider repeated-control probe；sequence/integration tests；`pre_init_ordinary=0`；terminal extra request=0；multi-control/chained-finish/mixed独立观测；详细门禁见 `14-r5-native-control-cadence-plan.md` |
 | R5-J7.6 | tagged next、扁平 terminal 和 V2 success identity 全部落地；两组 identity missing/repeat finish 均为0 | 修复成功反馈过度裁剪，Map 从旧 order 9/4 open 收敛为3/0 | 4+20+1+9 focused tests；Docker order/billing；H-025关闭，H-026 live gate paused |
 | R5-J7.7 | terminal 只接受 Agent 显式有序完成链；旧双角色字段删除；全链失败零副作用 | 消除 H-026 self-loop affordance 和恢复请求，同时保持状态机硬规则及 Agent 控制权 | schema/parser/atomicity fixtures；Docker order/billing；详细门禁见 `41-r5-j7-7-terminal-finish-chain-plan.md` |
+| R5-J7.8 | mutation 回执包含 `state_commit` 与 current/open/blocked/counts；不包含动作建议 | Agent 无需从局部 delta 猜剩余 Map，且能区分原子失败与部分提交 | handler/runtime fixtures；Docker order/billing；详细门禁见 `42-r5-j7-8-control-map-state-feedback-plan.md` |
 | R5-K | K0/K1先证明长会话规模和冻结压缩合同；K2-K5再实现可逆archive/macro、20轮恢复和Docker门禁 | 让真实长会话可频繁压缩而不丢全局导航或把语义权交给Runtime | 100/1k/10k nodes；root/frontier/protected 100%；expand/replay hash 100%；详细门禁见 `31-r5-map-native-context-compression-charter.md` |
 
 ## 1.6 Phase R5-A：当前结构盘点和基线

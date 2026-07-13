@@ -2752,3 +2752,56 @@
     output。
 - Interpretation: V2 identity fields没有造成结构性cache破坏；TaskSpace仍有已知bootstrap tool-choice切换成本。
 - Time: 2026-07-13
+
+## Hypothesis H-027: control 局部 delta 未暴露剩余 Map，原子失败未声明零提交
+- Status: confirmed
+- Parent: P-001
+- Claim: J7.7 billing 中 init 和所有 control/tool output 均进入 provider 上下文，但 mutation success 只返回本次
+  transition 身份，不返回剩余 open/current Map 状态；terminal 原子失败只返回失败 step，未显式声明全链零提交。
+  Agent 因而漏闭合一个已实际执行过工作的节点，并在失败后误认为 terminal current 已部分完成。
+- Layer: taskspace-control-result-feedback
+- Factor relation: causal for first terminal reject and three recovery rejects; independent from H-026
+- Falsifiable predictions:
+  - If true: 首次 terminal 前历史含 `run_tests_initial` init ID 和局部 finish delta，但没有最新 open-node 集合；
+    terminal failure 后 Map hash/current 不变，而 Agent reasoning 声称 `verify_tests` 已 finished。
+  - If false: 最新 control output 已包含 remaining open/current 和 atomic commit 结果，或 terminal 真实发生部分提交。
+- Diagnostic evidence plan:
+  - Signal: canonical control call/output、provider-visible reasoning、terminal before/after Map、projection lifecycle。
+  - Capture method: J7.7 billing rollout + Action Map atomic implementation审计。
+  - Differentiates from: 工具结果丢失、失败语义扭曲、状态机错误拒绝、Runtime 应自动排序。
+- Evidence gate: satisfied
+- Related evidence:
+  - E-064
+- Conclusion: confirmed；应补充机械 `state_commit` 和最小 `map_state`，不得自动选择或推进节点
+- Repair design readiness: ready
+- Next step: execute `docs/v0.0.5/build-R5/42-r5-j7-8-control-map-state-feedback-plan.md`
+- Blocker: none
+
+## Evidence E-064: J7.7 billing 精确复现 open-node 遗漏与原子失败误读
+- Related hypotheses:
+  - H-027
+- Direction: supports
+- Type: live-docker-provider-visible-trace
+- Source: J7.7 billing R5 rollout
+- Prediction or plan link:
+  - H-027 remaining Map / commit semantics
+- Matched signal:
+  - Agent 执行 initial pytest 后从 `inspect_tests` 直接 finish 到 `fix_implementation`；随后 `fix -> verify`
+    success output 只含 finished/result/next/current，没有 `run_tests_initial` 仍 open 的当前 Map 状态。
+  - terminal `[verify_tests]` 被 `active_map_has_open_nodes: run_tests_initial` 拒绝；atomic staged implementation未提交。
+  - 下一轮 reasoning 明确声称 `verify_tests was already finished in the first finish_then_end attempt`，随后依次触发
+    `next_node_lease_conflict`、`lifecycle_target_not_current`、`current_main_node_running`。
+- Correlation keys:
+  - run `target/r5-j7-7-billing/subscription-billing-repair/20260713-185457-940`
+  - first terminal `call_00_sn0FqIW0reKRjz6vauns5869`
+  - recovery calls `call_00_AZr6...`、`call_00_14z...`、`call_00_NWL...`
+- Raw content:
+  ```text
+  R5: requests=27, state_failures=4, map=7 nodes / 0 open, external solved
+  first terminal failure: active_map_has_open_nodes(run_tests_initial)
+  terminal implementation: cloned staged map; commit only after all steps succeed
+  provider-visible fresh epoch projection_count=0; canonical init/control history retained
+  ```
+- Interpretation: 上下文没有丢掉 init 或错误正文，但局部 delta 合同要求 Agent 手工重建当前全局状态，且原子失败的
+  commit 事实不够显式。修复属于工具反馈忠实性，不是 Runtime 语义纠错。
+- Time: 2026-07-13

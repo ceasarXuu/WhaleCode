@@ -426,7 +426,7 @@ Map open=0 且外部验证通过，才重新判定 J7.5。
 
 ### J7.7：Terminal finish chain
 
-**Priority:** 关闭 H-026 后立即复验 J7.5；不得先进入 R5-K/G3/H。
+**Priority:** J7.7 已关闭 H-026 工程缺口；先完成 H-027/J7.8 并复验 J7.5，不得先进入 R5-K/G3/H。
 
 `finish_then_end` 改为唯一的 Agent 显式 `finish_node_ids[]` 有序链：最后一个 ID 是 terminal，前面每个节点只
 机械绑定数组下一个 ID。删除 `preceding_finishes`、`terminal_node_id` 和全部旧解析路径；全链在 Action Map clone
