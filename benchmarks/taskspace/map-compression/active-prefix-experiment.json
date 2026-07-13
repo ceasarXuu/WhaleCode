@@ -1,0 +1,66 @@
+{
+  "schema_version": "taskspace-active-prefix-experiment-v1",
+  "sample_contract": "benchmarks/taskspace/map-compression/samples/subscription-billing-active-prefix/sample.json",
+  "sample_contract_sha256": "2965931f04804ddd4be77641550e7cb53b86989aedbb9b0e6fb84b9c76f3c348",
+  "repeats": 3,
+  "arms": [
+    {
+      "id": "STD",
+      "mode": "standard",
+      "source_commit": "a66fb22ee72e138c898d92bba4e27323a7e96ee1",
+      "app_server": "target/r5-map-compression/candidate-C1/bin/whale-app-server",
+      "app_server_sha256": "b2317a46eeefdb5eb9ff2cd827c69d74b1dd49209ec967a214873f563613c156"
+    },
+    {
+      "id": "P1",
+      "mode": "taskspace",
+      "role": "matched_pre_S1_control",
+      "source_commit": "1a024902cb1c1f1d4819969a4fe631c00b3c2a39",
+      "shared_fix_commit": "a66fb22ee72e138c898d92bba4e27323a7e96ee1",
+      "shared_fix_scope": [
+        "third_party/codex-cli/codex-rs/core/src/compact.rs"
+      ],
+      "app_server": "target/r5-map-compression/matched-control-P1/bin/whale-app-server",
+      "app_server_sha256": "57dcada2e57d7126dd41039d958aa64d8fa98be0e3d5835ea51d9d08773d959f"
+    },
+    {
+      "id": "C1",
+      "mode": "taskspace",
+      "role": "S1_candidate",
+      "source_commit": "a66fb22ee72e138c898d92bba4e27323a7e96ee1",
+      "app_server": "target/r5-map-compression/candidate-C1/bin/whale-app-server",
+      "app_server_sha256": "b2317a46eeefdb5eb9ff2cd827c69d74b1dd49209ec967a214873f563613c156"
+    }
+  ],
+  "driver": {
+    "matrix": "scripts/taskspace-benchmark/run-active-prefix-matrix.py",
+    "matrix_sha256": "e3a050aa597594dedcc6e85ff80a62f168753de71a384eb1d32e524e9f328a0f",
+    "rpc_client": "scripts/taskspace-benchmark/app-server-active-prefix.py",
+    "rpc_client_sha256": "ccb5a98245523bee110284af8401cb86d2d50d6fbf40c4d1b32ae14b8f5a09b8",
+    "analyzer": "scripts/taskspace-benchmark/analyze-active-prefix.py",
+    "analyzer_sha256": "b1d11f330c70c23e52db9c41a894e014b14bd85697bf1a09293bb1cc540c6dd0",
+    "tests": "scripts/taskspace-benchmark/test-active-prefix-tools.py",
+    "tests_sha256": "9b5f552db86fc684cf5b42f65ab296c98f4d83e49249a60d64840460c553f716"
+  },
+  "gates": {
+    "initial_public_validation_exit_code": 1,
+    "final_public_validation_exit_code": 0,
+    "rpc_error_count": 0,
+    "terminal_provider_error_count": 0,
+    "P1_projection_bytes": 1963,
+    "C1_strategy_activation_count": 1,
+    "C1_covered_node_count": 3,
+    "C1_after_before_max_ratio": 0.9,
+    "P1_C1_recorded_map_equality_required": true
+  },
+  "invalid_harness_conditions": [
+    "source or materialized prefix hash mismatch",
+    "fixture Git commit mismatch",
+    "workspace patch or continuation prompt hash mismatch",
+    "any JSON-RPC response error",
+    "terminal provider error",
+    "manual compaction failure",
+    "initial task already passes public validation",
+    "private oracle visible to Agent"
+  ]
+}

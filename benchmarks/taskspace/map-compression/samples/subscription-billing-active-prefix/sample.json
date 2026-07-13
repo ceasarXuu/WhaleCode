@@ -1,0 +1,59 @@
+{
+  "schema_version": "taskspace-natural-active-prefix-v1",
+  "id": "subscription-billing-active-prefix",
+  "scenario": "subscription-billing-repair",
+  "provenance": {
+    "source_run": "target/r5-map-compression/S1-smoke/complex/repeat-001/C/subscription-billing-repair/20260714-002528-646/pair-001/right",
+    "source_run_started_at": "2026-07-14T00:25:28+08:00",
+    "source_rollout_sha256": "aefeadad376524dadc862ba3717c1ae024be853b11d5f838343f6861f785618d",
+    "source_repo_head": "fd24886833f725e072b0410760deed5772b199f2",
+    "source_repo_tree": "d853928079b507b69bd580673dc85a5f1d53ca15",
+    "source_prompt_sha256": "7878c010e29d081e3e58b6f766a3bb2c1e5457513694d634e22515893689e0fd",
+    "source_fixture_sha256": "6befe34b1fbdface4ac989f8b43fad36f497dcc0ba414493f163b4222a10c19c"
+  },
+  "prefix": {
+    "path": "rollout-prefix.jsonl.gz",
+    "compression": "gzip-n",
+    "compressed_sha256": "a2692b2887a8fad87c129839ecf95e74495b23dfa8066b78307c2331a56bbfca",
+    "decompressed_sha256": "ad588cd40e71511232a81aa1d5627eee758a944a6f172cb287ee78241683c228",
+    "line_count": 324,
+    "last_task_context_sequence": 68
+  },
+  "selection": {
+    "kind": "first_committed_control_state",
+    "predicate": {
+      "task_status": "active",
+      "map_status": "active",
+      "completed_node_count": 3,
+      "total_node_count": 4,
+      "current_node_id": "run_tests",
+      "open_node_ids": ["run_tests"]
+    },
+    "boundary_event_type": "function_call_output",
+    "boundary_result_status": "committed"
+  },
+  "workspace": {
+    "base_fixture": "benchmarks/taskspace/scenarios/subscription-billing-repair/fixture",
+    "base_commit": "fd24886833f725e072b0410760deed5772b199f2",
+    "patch": "workspace.patch",
+    "patch_sha256": "3e96c8ec9ec2d0a363a8ecd68961ece5cf56660f22038fbe4daaa34d7f7c261d"
+  },
+  "continuation": {
+    "prompt": "continuation-prompt.txt",
+    "prompt_sha256": "b417d79801c5de0db4fd4ae5f5903917a429c6a7c5077c1596893c351680898f",
+    "public_validation": ["python", "-m", "pytest", "tests", "-q"],
+    "expected_initial_public_validation_exit_code": 1,
+    "expected_final_public_validation_exit_code": 0
+  },
+  "anti_overfit": {
+    "agent_generated_prefix": true,
+    "synthetic_taskspace_events": false,
+    "forced_compaction_threshold": false,
+    "runtime_activation_trigger": false,
+    "strategy_specific_prompt": false,
+    "future_test_output_in_prefix": false,
+    "future_fix_in_prefix": false,
+    "private_oracle_visible_to_agent": false,
+    "raw_prefix_rewrite_allowed": false
+  }
+}
