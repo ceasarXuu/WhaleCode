@@ -192,4 +192,100 @@ mod tests {
         assert!(second_patch.contains("rebornRequested"));
         assert!(!second_patch.contains("routingRequired"));
     }
+
+    #[test]
+    fn delta_corruption_matrix_fails_without_partial_snapshot() {
+        let base = snapshot(true);
+        let expected = snapshot(false);
+        let base_hash = snapshot_sha256(&base).unwrap();
+        let mut checkpoint = ActionMapCheckpointState::default();
+        checkpoint.install(
+            "map-checkpoint-test".to_string(),
+            base_hash.clone(),
+            base.clone(),
+        );
+        let delta = build_snapshot_delta(&mut checkpoint, &expected)
+            .unwrap()
+            .unwrap();
+
+        let cases = [
+            (
+                "checkpoint_id",
+                apply_snapshot_delta("wrong-checkpoint", &base_hash, &base, &delta),
+                "snapshot delta base checkpoint mismatch",
+            ),
+            (
+                "base_hash",
+                apply_snapshot_delta("map-checkpoint-test", "wrong-hash", &base, &delta),
+                "snapshot delta base hash mismatch",
+            ),
+        ];
+        for (case, result, expected_error) in cases {
+            let error = result.expect_err(case);
+            assert!(
+                error.contains(expected_error),
+                "{case} returned unexpected error: {error}"
+            );
+        }
+
+        let mut previous_hash_corrupt = delta.clone();
+        previous_hash_corrupt.previous_snapshot_sha256 = "wrong-previous".to_string();
+        assert_eq!(
+            apply_snapshot_delta(
+                "map-checkpoint-test",
+                &base_hash,
+                &base,
+                &previous_hash_corrupt,
+            )
+            .unwrap_err(),
+            "snapshot delta previous hash mismatch"
+        );
+
+        let mut result_hash_corrupt = delta;
+        result_hash_corrupt.snapshot_sha256 = "wrong-result".to_string();
+        assert_eq!(
+            apply_snapshot_delta(
+                "map-checkpoint-test",
+                &base_hash,
+                &base,
+                &result_hash_corrupt,
+            )
+            .unwrap_err(),
+            "snapshot delta result hash mismatch"
+        );
+    }
+
+    #[test]
+    fn delta_build_requires_complete_checkpoint_identity() {
+        let current = snapshot(false);
+        let mut missing_id = ActionMapCheckpointState {
+            latest_snapshot: Some(snapshot(true)),
+            ..Default::default()
+        };
+        assert_eq!(
+            build_snapshot_delta(&mut missing_id, &current).unwrap_err(),
+            "checkpoint snapshot is missing checkpoint id"
+        );
+
+        let mut missing_base_hash = ActionMapCheckpointState {
+            checkpoint_id: Some("checkpoint".into()),
+            latest_snapshot: Some(snapshot(true)),
+            ..Default::default()
+        };
+        assert_eq!(
+            build_snapshot_delta(&mut missing_base_hash, &current).unwrap_err(),
+            "checkpoint snapshot is missing content hash"
+        );
+
+        let mut missing_latest_hash = ActionMapCheckpointState {
+            checkpoint_id: Some("checkpoint".into()),
+            snapshot_sha256: Some("base".into()),
+            latest_snapshot: Some(snapshot(true)),
+            ..Default::default()
+        };
+        assert_eq!(
+            build_snapshot_delta(&mut missing_latest_hash, &current).unwrap_err(),
+            "checkpoint latest snapshot is missing content hash"
+        );
+    }
 }

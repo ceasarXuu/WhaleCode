@@ -486,6 +486,32 @@ fn active_projection_reports_skeleton_over_budget_without_partial_map() {
     assert!(projection.contains("error: map_skeleton_over_budget"));
     assert!(!projection.contains("ContextProjectionV1 epoch snapshot:"));
     assert!(!projection.contains("large-node-999"));
+    let snapshot = state.snapshot();
+    let budget_event = snapshot
+        .trace_events
+        .iter()
+        .find(|event| event.kind == "projection_budget")
+        .expect("projection budget trace event");
+    for tag_prefix in [
+        "projection_bytes:",
+        "skeleton_projection_bytes:",
+        "projection_header_bytes:",
+        "projection_root_source_bytes:",
+        "projection_frontier_bytes:",
+        "projection_node_bytes:",
+        "projection_edge_bytes:",
+        "projection_detail_bytes:",
+        "projection_footer_bytes:",
+    ] {
+        assert!(
+            budget_event
+                .tags
+                .iter()
+                .any(|tag| tag.starts_with(tag_prefix)),
+            "missing {tag_prefix} in {:?}",
+            budget_event.tags
+        );
+    }
 }
 
 #[test]

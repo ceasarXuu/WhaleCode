@@ -43,40 +43,74 @@ pub(super) struct RenderedProjection {
     pub(super) body: String,
     pub(super) estimated_tokens: usize,
     pub(super) skeleton_estimated_tokens: usize,
+    pub(super) size_breakdown: ProjectionSizeBreakdown,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(super) struct ProjectionSizeBreakdown {
+    pub(super) header_bytes: usize,
+    pub(super) root_source_bytes: usize,
+    pub(super) active_frontier_bytes: usize,
+    pub(super) map_node_bytes: usize,
+    pub(super) map_edge_bytes: usize,
+    pub(super) node_detail_bytes: usize,
+    pub(super) footer_bytes: usize,
+    pub(super) skeleton_bytes: usize,
+    pub(super) projection_bytes: usize,
 }
 
 pub(super) fn render_active_projection(input: ActiveProjectionInput) -> RenderedProjection {
     let mut body = String::new();
+    let mut size_breakdown = ProjectionSizeBreakdown::default();
+    let section_start = body.len();
     body.push_str("ContextProjectionV1 epoch snapshot:\n");
     push_field(&mut body, "task_id", &input.task_id);
     push_field(&mut body, "map_id", &input.map_id);
     push_field(&mut body, "task_status", &input.task_status);
     push_field(&mut body, "map_status", &input.map_status);
+    size_breakdown.header_bytes += body.len() - section_start;
+    let section_start = body.len();
     append_list(
         &mut body,
         "root_source_event_ids",
         &input.root_source_event_ids,
     );
+    size_breakdown.root_source_bytes = body.len() - section_start;
+    let section_start = body.len();
     push_field(
         &mut body,
         "current_node",
         input.current_node_id.as_deref().unwrap_or("none"),
     );
+    size_breakdown.header_bytes += body.len() - section_start;
+    let section_start = body.len();
     append_list(&mut body, "active_frontier", &input.active_frontier);
+    size_breakdown.active_frontier_bytes = body.len() - section_start;
+    let section_start = body.len();
     append_list(&mut body, "map_nodes", &render_nodes(&input.map_nodes));
+    size_breakdown.map_node_bytes = body.len() - section_start;
+    let section_start = body.len();
     append_list(&mut body, "map_edges", &render_edges(&input.map_edges));
+    size_breakdown.map_edge_bytes = body.len() - section_start;
+    size_breakdown.skeleton_bytes = body.len();
     let skeleton_estimated_tokens = body.len().div_ceil(4);
+    let section_start = body.len();
     append_list(
         &mut body,
         "node_details",
         &render_event_refs(&input.node_details),
     );
+    size_breakdown.node_detail_bytes = body.len() - section_start;
+    let section_start = body.len();
     body.push_str("ContextProjectionV1 epoch snapshot end.\n");
+    size_breakdown.footer_bytes = body.len() - section_start;
+    size_breakdown.projection_bytes = body.len();
     let estimated_tokens = body.len().div_ceil(4);
     RenderedProjection {
         body,
         estimated_tokens,
         skeleton_estimated_tokens,
+        size_breakdown,
     }
 }
 
@@ -218,6 +252,24 @@ mod tests {
         }
         assert!(!rendered.body.contains("projection_id"));
         assert!(rendered.skeleton_estimated_tokens < rendered.estimated_tokens);
+        assert_eq!(
+            rendered.size_breakdown.projection_bytes,
+            rendered.size_breakdown.header_bytes
+                + rendered.size_breakdown.root_source_bytes
+                + rendered.size_breakdown.active_frontier_bytes
+                + rendered.size_breakdown.map_node_bytes
+                + rendered.size_breakdown.map_edge_bytes
+                + rendered.size_breakdown.node_detail_bytes
+                + rendered.size_breakdown.footer_bytes
+        );
+        assert_eq!(
+            rendered.size_breakdown.projection_bytes,
+            rendered.body.len()
+        );
+        assert_eq!(
+            rendered.size_breakdown.skeleton_bytes.div_ceil(4),
+            rendered.skeleton_estimated_tokens
+        );
     }
 
     #[test]

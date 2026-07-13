@@ -44,12 +44,30 @@ pwsh -NoProfile -File scripts/taskspace-benchmark/write-performance-observation.
 
 Generate one report per sample run. For cross-version comparison, report each run's exact evidence and label non-contemporaneous baselines as historical; compare ratios only when scenarios, prompts, model/provider settings, validators, and artifact coverage are equivalent.
 
+## Map Budget Baselines
+
+For R5-K map-scale, projection-budget, checkpoint, or replay analysis, run:
+
+```bash
+pwsh -NoProfile -File scripts/taskspace-benchmark/run-map-budget-k0.ps1
+```
+
+Read `k0-map-budget-report.json`, `k0-map-budget-report.md`, and
+`k0-map-budget-events.jsonl` from the emitted run directory. Report node and edge profiles separately;
+keep skeleton and node-detail bytes separate; state the first measured node count over every active
+projection budget. Do not infer a compression algorithm from K0 size curves. Replay is valid only when
+`replay_exact=true`, and corruption evidence must distinguish the current panic behavior from the selected
+structured session-fatal contract. Report the session-native fixture independently from the synthetic delta
+microbench: verify its resume, compaction, code-revision, exact-replay, and projection-outcome counts, and do
+not combine its lifecycle cost with provider request cost.
+
 ## Validation
 
 After changing the report tool, run:
 
 ```bash
 pwsh -NoProfile -File scripts/taskspace-benchmark/test-performance-observation.ps1
+pwsh -NoProfile -File scripts/taskspace-benchmark/test-map-budget-k0.ps1
 python /home/zhangxu/.codex/skills/.system/skill-creator/scripts/quick_validate.py \
   .agents/skills/observe-taskspace-performance
 ```

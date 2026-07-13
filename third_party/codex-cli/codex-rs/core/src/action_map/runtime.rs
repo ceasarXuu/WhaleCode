@@ -69,6 +69,7 @@ use super::projection::ActiveProjectionInput;
 use super::projection::ProjectionEdge;
 use super::projection::ProjectionEventRef;
 use super::projection::ProjectionNode;
+use super::projection::ProjectionSizeBreakdown;
 use super::projection::render_active_projection;
 use super::sentinel::TaskSpaceSentinelSeverity;
 use super::sentinel::TaskSpaceSentinelWarning;
@@ -4159,6 +4160,26 @@ impl ActionMapRuntimeState {
         } else {
             "over_budget"
         };
+        tracing::debug!(
+            target: "codex_core::taskspace",
+            event_name = "taskspace.map_budget_measured",
+            task_id,
+            map_id,
+            projection_bytes = projection.size_breakdown.projection_bytes,
+            skeleton_bytes = projection.size_breakdown.skeleton_bytes,
+            projection_tokens = estimated_tokens,
+            skeleton_tokens = projection.skeleton_estimated_tokens,
+            header_bytes = projection.size_breakdown.header_bytes,
+            root_source_bytes = projection.size_breakdown.root_source_bytes,
+            active_frontier_bytes = projection.size_breakdown.active_frontier_bytes,
+            map_node_bytes = projection.size_breakdown.map_node_bytes,
+            map_edge_bytes = projection.size_breakdown.map_edge_bytes,
+            node_detail_bytes = projection.size_breakdown.node_detail_bytes,
+            footer_bytes = projection.size_breakdown.footer_bytes,
+            max_projection_tokens,
+            status,
+            "measured TaskSpace map projection budget"
+        );
         let _ = self.record_runtime_budget_trace_event(
             "projection_budget",
             Some(task_id),
@@ -4174,8 +4195,44 @@ impl ActionMapRuntimeState {
                 format!("profile_name:{profile_name}"),
                 format!("projection_tokens:{estimated_tokens}"),
                 format!(
+                    "projection_bytes:{}",
+                    projection.size_breakdown.projection_bytes
+                ),
+                format!(
                     "skeleton_projection_tokens:{}",
                     projection.skeleton_estimated_tokens
+                ),
+                format!(
+                    "skeleton_projection_bytes:{}",
+                    projection.size_breakdown.skeleton_bytes
+                ),
+                format!(
+                    "projection_header_bytes:{}",
+                    projection.size_breakdown.header_bytes
+                ),
+                format!(
+                    "projection_root_source_bytes:{}",
+                    projection.size_breakdown.root_source_bytes
+                ),
+                format!(
+                    "projection_frontier_bytes:{}",
+                    projection.size_breakdown.active_frontier_bytes
+                ),
+                format!(
+                    "projection_node_bytes:{}",
+                    projection.size_breakdown.map_node_bytes
+                ),
+                format!(
+                    "projection_edge_bytes:{}",
+                    projection.size_breakdown.map_edge_bytes
+                ),
+                format!(
+                    "projection_detail_bytes:{}",
+                    projection.size_breakdown.node_detail_bytes
+                ),
+                format!(
+                    "projection_footer_bytes:{}",
+                    projection.size_breakdown.footer_bytes
                 ),
                 format!("max_projection_tokens:{max_projection_tokens}"),
                 format!("status:{status}"),
@@ -5348,6 +5405,7 @@ fn append_context_projection_active(
         },
         skeleton_estimated_tokens: rendered.skeleton_estimated_tokens,
         skeleton_over_budget,
+        size_breakdown: rendered.size_breakdown,
     }
 }
 
@@ -5356,6 +5414,7 @@ struct ProjectionRenderStats {
     estimated_tokens: usize,
     skeleton_estimated_tokens: usize,
     skeleton_over_budget: bool,
+    size_breakdown: ProjectionSizeBreakdown,
 }
 
 fn projection_node_details(
@@ -6006,6 +6065,15 @@ fn is_known_trace_tag(tag: &str) -> bool {
         || tag.starts_with("budget_gate_reason:")
         || tag.starts_with("reason:")
         || tag.starts_with("projection_tokens")
+        || tag.starts_with("projection_bytes:")
+        || tag.starts_with("projection_header_bytes:")
+        || tag.starts_with("projection_root_source_bytes:")
+        || tag.starts_with("projection_frontier_bytes:")
+        || tag.starts_with("projection_node_bytes:")
+        || tag.starts_with("projection_edge_bytes:")
+        || tag.starts_with("projection_detail_bytes:")
+        || tag.starts_with("projection_footer_bytes:")
+        || tag.starts_with("skeleton_projection_bytes:")
         || tag.starts_with("max_projection_tokens:")
 }
 

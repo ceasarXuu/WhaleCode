@@ -230,6 +230,8 @@ use self::turn::realtime_text_for_event;
 use self::turn_context::TurnContext;
 use self::turn_context::TurnSkillsContext;
 #[cfg(test)]
+mod k0_long_replay_tests;
+#[cfg(test)]
 mod rollout_reconstruction_tests;
 
 #[derive(Debug, PartialEq)]

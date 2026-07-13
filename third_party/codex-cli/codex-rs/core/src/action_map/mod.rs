@@ -1,6 +1,8 @@
 mod checkpoint_refs;
 mod event_codec;
 mod event_store;
+#[cfg(test)]
+mod k0_scale_tests;
 mod map;
 mod projection;
 mod runtime;
