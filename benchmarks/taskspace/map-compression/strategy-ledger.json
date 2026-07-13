@@ -6,7 +6,7 @@
     {
       "id": "S1",
       "name": "completed_inactive_leaf_batch_archive_projection",
-      "status": "selected",
+      "status": "revise",
       "relationship": "incremental",
       "previous": "R5-K-B0",
       "single_behavior_delta": "In provider projection only, replace a deterministic batch of completed, inactive, edge-isolated leaf nodes with one reversible mechanical archive index.",
@@ -29,6 +29,8 @@
         "name": "activated_projection_bytes",
         "candidate_previous_max_ratio": 0.9
       },
+      "revision_reason": "Production round-trip and scale tests pass, but no live run reached the conjunction of an active projection epoch and at least three eligible completed nodes. Fixed token thresholds distort the Agent path, while terminal resume moves history out of the active map.",
+      "next_required_evidence": "A mechanically seeded, hash-equivalent active-map continuation with at least three eligible completed nodes and one open work node; no forced token threshold and no new Runtime trigger.",
       "forbidden_co_changes": [
         "canonical_action_map_schema",
         "checkpoint_or_delta_format",

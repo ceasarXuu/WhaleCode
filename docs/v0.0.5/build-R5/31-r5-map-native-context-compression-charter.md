@@ -1,9 +1,9 @@
 # R5-K Map-native 上下文压缩专项立项
 
 - Created: 2026-07-12
-- Updated: 2026-07-13
-- Version: 1.2
-- Status: K0 COMPLETE / K1 READY
+- Updated: 2026-07-14
+- Version: 1.3
+- Status: K0/K1/K2 COMPLETE / K3-S1 REVISE
 - Owner / Responsible: WhaleCode core runtime / TaskSpace Map
 - Related Systems: canonical Event Store、Map projection、compaction、checkpoint、resume/replay、artifact refs
 - Related Links: `22-r5-j6-7-canonical-task-context-plan.md`、
@@ -375,6 +375,7 @@ K0/K1属于专项发现和合同冻结；只有证据证明骨架规模、触发
 | 2026-07-13 | corruption目标选择structured session fatal | partial restore、silent fallback和operator recoverable均不符合canonical Map完整性 |
 | 2026-07-13 | 压缩改为逐策略实验阶梯 | 固定B0并比较Previous/Candidate，避免多个策略叠加后无法拆解收益和回归 |
 | 2026-07-13 | 每策略同时验收简单和复杂sample | 复杂任务压缩收益不能证明普通任务没有request、token或语义回归 |
+| 2026-07-14 | S1判定为REVISE并暂停 | codec/scale通过，但live样本未稳定同时满足active projection epoch与3个eligible completed nodes；禁止用低token阈值或新增Runtime触发器制造通过 |
 
 ## 14. Plan Quality Checklist
 

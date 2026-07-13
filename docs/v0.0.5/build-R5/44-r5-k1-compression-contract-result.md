@@ -41,13 +41,17 @@ checkpoint/delta 和 replay 不改变。
 | P0 | B0 的同一身份别名，首轮不重复消耗 provider 请求 |
 | C1 | 仅增加 S1 的 candidate TaskSpace |
 
-简单样本固定为 `single-file-fast-fix`，复杂样本固定为 `subscription-billing-repair`，均运行 3 次。复杂样本已知
-会建立 5 个彼此无边的 Map 节点，并在后续请求中出现至少 3 个已完成、非当前节点，能够触发 S1。Standard 与
-TaskSpace 使用同一 prompt、fixture、model、Docker contract、validator 和 oracle；差异仅为上下文组织模式。
+简单样本固定为 `single-file-fast-fix`，复杂样本固定为 `subscription-billing-repair`，均计划运行 3 次。K3 实测
+否定了“复杂样本稳定建立 5 节点并在 projection epoch 前完成至少 3 个节点”的前提：Agent 实际建立 3–6 个节点，
+完成时机随路径变化。Standard 与 TaskSpace 仍使用同一 prompt、fixture、model、Docker contract、validator 和
+oracle，但复杂样本在补齐 active-map continuation fixture 前不能作为 S1 正式收益证据。
 
 复杂样本的预登记 primary benefit 是：发生激活的 projection bytes 相对 P0/B0 中位数至少下降 10%。运行后不得
 更换指标。简单样本必须 activation=0，且 requests/input/wall 中位数比不高于 1.10，Req2+ cache 下降不超过
 2 个百分点。
+
+K1 冻结的 S1 语义不因此改变。不得通过降低全局 token 阈值、增加 Runtime 自动投影触发或修改 eligibility 来迁就
+样本；这些都会引入未登记行为变量。K3-S1 的修订结果见 `47-r5-k3-s1-result.md`。
 
 ## 4. 公共不变量
 
@@ -68,6 +72,6 @@ TaskSpace 使用同一 prompt、fixture、model、Docker contract、validator �
 
 ## 6. 风险关闭情况
 
-K1 已关闭 S1 行为边界、owner、样本、重复次数、primary metric、fallback 和 forbidden co-change。仍需由 K2.0
-实际证明 codec 可逆、runner 身份可信；仍需由 K2.F 证明损坏链路不会 panic 或 partial restore。这些是进入 S1
-production slice 的硬门禁，不由 live sample 的随机成功替代。
+K1 已关闭 S1 行为边界、owner、重复次数、primary metric、fallback 和 forbidden co-change。K2.0 已证明 codec
+可逆和runner身份可信，K2.F已证明损坏链路为structured session fatal且不恢复partial Map。当前未关闭项只剩
+复杂live样本的确定激活与收益门禁；该缺口不能由scale test或随机成功替代。
