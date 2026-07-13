@@ -290,7 +290,8 @@ async fn resumed_compacted_map_rebuilds_one_projection_from_checkpoint_and_delta
             history: rollout_items,
             rollout_path: Some(PathBuf::from("/tmp/resume-map.jsonl")),
         }))
-        .await;
+        .await
+        .expect("restore initial history");
     let restored = session.action_map_snapshot().await;
     assert_eq!(restored.mode, MapRuntimeMode::Experiment);
     assert_eq!(restored.active_task_id.as_deref(), Some("task-1"));
@@ -330,9 +331,10 @@ async fn resumed_compacted_map_rebuilds_one_projection_from_checkpoint_and_delta
 }
 
 #[tokio::test]
-#[should_panic(expected = "has no surviving checkpoint")]
 async fn resumed_history_rejects_snapshot_delta_without_checkpoint() {
     let (session, _turn_context) = make_session_and_context().await;
+    let state_before = session.action_map_snapshot().await;
+    let history_before = session.clone_history().await.raw_items().to_vec();
     let base = ActionMapRuntimeState::default().snapshot();
     let mut expected = base.clone();
     expected.routing_required = !base.routing_required;
@@ -343,7 +345,7 @@ async fn resumed_history_rejects_snapshot_delta_without_checkpoint() {
         .unwrap()
         .unwrap();
 
-    session
+    let error = session
         .record_initial_history(InitialHistory::Resumed(ResumedHistory {
             conversation_id: ThreadId::default(),
             history: vec![RolloutItem::EventMsg(EventMsg::MapRuntime(
@@ -351,13 +353,20 @@ async fn resumed_history_rejects_snapshot_delta_without_checkpoint() {
             ))],
             rollout_path: Some(PathBuf::from("/tmp/resume-missing-checkpoint.jsonl")),
         }))
-        .await;
+        .await
+        .expect_err("delta without checkpoint must fail");
+
+    assert_eq!(error.phase, "map_checkpoint_delta_chain");
+    assert!(error.message.contains("has no surviving checkpoint"));
+    assert_eq!(session.action_map_snapshot().await, state_before);
+    assert_eq!(session.clone_history().await.raw_items(), history_before);
 }
 
 #[tokio::test]
-#[should_panic(expected = "snapshot delta previous hash mismatch")]
 async fn resumed_history_rejects_missing_middle_snapshot_delta() {
     let (session, _turn_context) = make_session_and_context().await;
+    let state_before = session.action_map_snapshot().await;
+    let history_before = session.clone_history().await.raw_items().to_vec();
     let base = ActionMapRuntimeState::default().snapshot();
     let mut middle = base.clone();
     middle.routing_required = !base.routing_required;
@@ -373,7 +382,7 @@ async fn resumed_history_rejects_missing_middle_snapshot_delta() {
         .unwrap()
         .unwrap();
 
-    session
+    let error = session
         .record_initial_history(InitialHistory::Resumed(ResumedHistory {
             conversation_id: ThreadId::default(),
             history: vec![
@@ -386,7 +395,118 @@ async fn resumed_history_rejects_missing_middle_snapshot_delta() {
             ],
             rollout_path: Some(PathBuf::from("/tmp/resume-missing-delta.jsonl")),
         }))
-        .await;
+        .await
+        .expect_err("missing middle delta must fail");
+
+    assert_eq!(error.phase, "map_checkpoint_delta_chain");
+    assert!(
+        error
+            .message
+            .contains("snapshot delta previous hash mismatch")
+    );
+    assert_eq!(session.action_map_snapshot().await, state_before);
+    assert_eq!(session.clone_history().await.raw_items(), history_before);
+}
+
+#[tokio::test]
+async fn resumed_history_rejects_corrupt_checkpoint_hash_without_partial_restore() {
+    let (session, _turn_context) = make_session_and_context().await;
+    let state_before = session.action_map_snapshot().await;
+    let history_before = session.clone_history().await.raw_items().to_vec();
+    let mut checkpoint = map_checkpoint_event("corrupt-checkpoint", state_before.clone());
+    checkpoint.snapshot_sha256 = "0".repeat(64);
+
+    let error = session
+        .record_initial_history(InitialHistory::Resumed(ResumedHistory {
+            conversation_id: ThreadId::default(),
+            history: vec![RolloutItem::EventMsg(EventMsg::MapRuntime(
+                MapRuntimeEvent::SnapshotUpdated(checkpoint),
+            ))],
+            rollout_path: Some(PathBuf::from("/tmp/resume-corrupt-checkpoint.jsonl")),
+        }))
+        .await
+        .expect_err("corrupt checkpoint hash must fail");
+
+    assert_eq!(error.phase, "map_checkpoint_delta_chain");
+    assert!(error.message.contains("map checkpoint hash mismatch"));
+    assert_eq!(session.action_map_snapshot().await, state_before);
+    assert_eq!(session.clone_history().await.raw_items(), history_before);
+}
+
+#[tokio::test]
+async fn resumed_history_rejects_invalid_taskspace_ownership_sequence() {
+    let (session, _turn_context) = make_session_and_context().await;
+    let state_before = session.action_map_snapshot().await;
+    let history_before = session.clone_history().await.raw_items().to_vec();
+    let mut store = TaskSpaceEventStore::new();
+    let mut event = store
+        .record_item(&user_message("owned task"), None, None, 1)
+        .expect("record canonical event")
+        .to_protocol();
+    event.sequence = 2;
+
+    let error = session
+        .record_initial_history(InitialHistory::Resumed(ResumedHistory {
+            conversation_id: ThreadId::default(),
+            history: vec![RolloutItem::EventMsg(EventMsg::MapRuntime(
+                MapRuntimeEvent::TaskContextOwnershipChanged(
+                    MapRuntimeTaskContextOwnershipChangedEvent {
+                        active: true,
+                        events: vec![event],
+                    },
+                ),
+            ))],
+            rollout_path: Some(PathBuf::from("/tmp/resume-invalid-ownership.jsonl")),
+        }))
+        .await
+        .expect_err("invalid ownership sequence must fail");
+
+    assert_eq!(error.phase, "taskspace_ownership_checkpoint");
+    assert!(error.message.contains("sequence"));
+    assert_eq!(session.action_map_snapshot().await, state_before);
+    assert_eq!(session.clone_history().await.raw_items(), history_before);
+}
+
+#[tokio::test]
+async fn resumed_history_rejects_invalid_taskspace_event_sequence() {
+    let (session, _turn_context) = make_session_and_context().await;
+    let state_before = session.action_map_snapshot().await;
+    let history_before = session.clone_history().await.raw_items().to_vec();
+    let mut store = TaskSpaceEventStore::new();
+    let first = store
+        .record_item(&user_message("first"), None, None, 1)
+        .expect("record first event");
+    let mut second = store
+        .record_item(&assistant_message("second"), None, None, 2)
+        .expect("record second event")
+        .to_protocol();
+    second.sequence = 3;
+
+    let error = session
+        .record_initial_history(InitialHistory::Resumed(ResumedHistory {
+            conversation_id: ThreadId::default(),
+            history: vec![
+                RolloutItem::EventMsg(EventMsg::MapRuntime(
+                    MapRuntimeEvent::TaskContextOwnershipChanged(
+                        MapRuntimeTaskContextOwnershipChangedEvent {
+                            active: true,
+                            events: vec![first.to_protocol()],
+                        },
+                    ),
+                )),
+                RolloutItem::EventMsg(EventMsg::MapRuntime(
+                    MapRuntimeEvent::TaskContextEventRecorded(second),
+                )),
+            ],
+            rollout_path: Some(PathBuf::from("/tmp/resume-invalid-event.jsonl")),
+        }))
+        .await
+        .expect_err("invalid event sequence must fail");
+
+    assert_eq!(error.phase, "taskspace_event_sequence");
+    assert!(error.message.contains("sequence"));
+    assert_eq!(session.action_map_snapshot().await, state_before);
+    assert_eq!(session.clone_history().await.raw_items(), history_before);
 }
 
 #[tokio::test]
@@ -502,7 +622,8 @@ async fn record_initial_history_resumed_bare_turn_context_does_not_hydrate_previ
             history: rollout_items,
             rollout_path: Some(PathBuf::from("/tmp/resume.jsonl")),
         }))
-        .await;
+        .await
+        .expect("restore initial history");
 
     assert_eq!(session.previous_turn_settings().await, None);
     assert!(session.reference_context_item().await.is_none());
@@ -576,7 +697,8 @@ async fn record_initial_history_resumed_hydrates_previous_turn_settings_from_lif
             history: rollout_items,
             rollout_path: Some(PathBuf::from("/tmp/resume.jsonl")),
         }))
-        .await;
+        .await
+        .expect("restore initial history");
 
     assert_eq!(
         session.previous_turn_settings().await,
@@ -1109,7 +1231,8 @@ async fn record_initial_history_resumed_rollback_skips_only_user_turns() {
             history: rollout_items,
             rollout_path: Some(PathBuf::from("/tmp/resume.jsonl")),
         }))
-        .await;
+        .await
+        .expect("restore initial history");
 
     assert_eq!(session.previous_turn_settings().await, None);
     assert!(session.reference_context_item().await.is_none());
@@ -1183,7 +1306,8 @@ async fn record_initial_history_resumed_rollback_drops_incomplete_user_turn_comp
             history: rollout_items,
             rollout_path: Some(PathBuf::from("/tmp/resume.jsonl")),
         }))
-        .await;
+        .await
+        .expect("restore initial history");
 
     assert_eq!(
         session.previous_turn_settings().await,
@@ -1212,7 +1336,8 @@ async fn record_initial_history_resumed_bare_turn_context_does_not_seed_referenc
             history: rollout_items,
             rollout_path: Some(PathBuf::from("/tmp/resume.jsonl")),
         }))
-        .await;
+        .await
+        .expect("restore initial history");
 
     assert!(session.reference_context_item().await.is_none());
 }
@@ -1235,7 +1360,8 @@ async fn record_initial_history_resumed_does_not_seed_reference_context_item_aft
             history: rollout_items,
             rollout_path: Some(PathBuf::from("/tmp/resume.jsonl")),
         }))
-        .await;
+        .await
+        .expect("restore initial history");
 
     assert_eq!(session.previous_turn_settings().await, None);
     assert!(session.reference_context_item().await.is_none());
@@ -1389,7 +1515,8 @@ async fn record_initial_history_resumed_turn_context_after_compaction_reestablis
             history: rollout_items,
             rollout_path: Some(PathBuf::from("/tmp/resume.jsonl")),
         }))
-        .await;
+        .await
+        .expect("restore initial history");
 
     assert_eq!(
         session.previous_turn_settings().await,
@@ -1523,7 +1650,8 @@ async fn record_initial_history_resumed_aborted_turn_without_id_clears_active_tu
             history: rollout_items,
             rollout_path: Some(PathBuf::from("/tmp/resume.jsonl")),
         }))
-        .await;
+        .await
+        .expect("restore initial history");
 
     assert_eq!(
         session.previous_turn_settings().await,
@@ -1639,7 +1767,8 @@ async fn record_initial_history_resumed_unmatched_abort_preserves_active_turn_fo
             history: rollout_items,
             rollout_path: Some(PathBuf::from("/tmp/resume.jsonl")),
         }))
-        .await;
+        .await
+        .expect("restore initial history");
 
     assert_eq!(
         session.previous_turn_settings().await,
@@ -1744,7 +1873,8 @@ async fn record_initial_history_resumed_trailing_incomplete_turn_compaction_clea
             history: rollout_items,
             rollout_path: Some(PathBuf::from("/tmp/resume.jsonl")),
         }))
-        .await;
+        .await
+        .expect("restore initial history");
 
     assert_eq!(
         session.previous_turn_settings().await,
@@ -1791,7 +1921,8 @@ async fn record_initial_history_resumed_trailing_incomplete_turn_preserves_turn_
             history: rollout_items,
             rollout_path: Some(PathBuf::from("/tmp/resume.jsonl")),
         }))
-        .await;
+        .await
+        .expect("restore initial history");
 
     assert_eq!(
         session.previous_turn_settings().await,
@@ -1907,7 +2038,8 @@ async fn record_initial_history_resumed_replaced_incomplete_compacted_turn_clear
             history: rollout_items,
             rollout_path: Some(PathBuf::from("/tmp/resume.jsonl")),
         }))
-        .await;
+        .await
+        .expect("restore initial history");
 
     assert_eq!(
         session.previous_turn_settings().await,

@@ -814,8 +814,20 @@ pub async fn thread_rollback(sess: &Arc<Session>, sub_id: String, num_turns: u32
         .into_iter()
         .chain(std::iter::once(RolloutItem::EventMsg(rollback_msg.clone())))
         .collect::<Vec<_>>();
-    sess.apply_rollout_reconstruction(turn_context.as_ref(), replay_items.as_slice(), false, None)
+    if let Err(error) = sess
+        .apply_rollout_reconstruction(turn_context.as_ref(), replay_items.as_slice(), false, None)
+        .await
+    {
+        sess.send_event_raw(Event {
+            id: turn_context.sub_id.clone(),
+            msg: EventMsg::Error(ErrorEvent {
+                message: format!("Failed to restore session rollout: {error}"),
+                codex_error_info: Some(CodexErrorInfo::Other),
+            }),
+        })
         .await;
+        return;
+    }
     sess.recompute_token_usage(turn_context.as_ref()).await;
 
     sess.persist_rollout_items(&[RolloutItem::EventMsg(rollback_msg.clone())])

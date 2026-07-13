@@ -923,7 +923,25 @@ impl Session {
             };
 
             // record_initial_history can emit events. We record only after the SessionConfiguredEvent is emitted.
-            sess.record_initial_history(initial_history).await;
+            if let Err(error) = sess.record_initial_history(initial_history).await {
+                tracing::error!(
+                    target: "codex_core::taskspace",
+                    event_name = "taskspace.rollout_reconstruction_fatal",
+                    phase = error.phase,
+                    reason = %error.message,
+                    "failed to restore persisted session rollout"
+                );
+                let error_turn = sess.new_default_turn().await;
+                sess.send_event(
+                    error_turn.as_ref(),
+                    EventMsg::Error(ErrorEvent {
+                        message: format!("Failed to restore session rollout: {error}"),
+                        codex_error_info: Some(CodexErrorInfo::Other),
+                    }),
+                )
+                .await;
+                return Err(anyhow::Error::new(error));
+            }
             {
                 let mut state = sess.state.lock().await;
                 state.set_pending_session_start_source(Some(session_start_source));

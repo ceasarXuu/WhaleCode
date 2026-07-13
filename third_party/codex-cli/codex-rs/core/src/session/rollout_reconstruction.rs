@@ -5,6 +5,30 @@ use crate::action_map::apply_snapshot_delta;
 use crate::context_manager::is_user_turn_boundary;
 use codex_protocol::protocol::MapRuntimeSnapshotDeltaEvent;
 use codex_protocol::protocol::MapRuntimeSnapshotUpdatedEvent;
+use std::fmt;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct RolloutReconstructionError {
+    pub(super) phase: &'static str,
+    pub(super) message: String,
+}
+
+impl RolloutReconstructionError {
+    fn new(phase: &'static str, message: impl Into<String>) -> Self {
+        Self {
+            phase,
+            message: message.into(),
+        }
+    }
+}
+
+impl fmt::Display for RolloutReconstructionError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(formatter, "{}: {}", self.phase, self.message)
+    }
+}
+
+impl std::error::Error for RolloutReconstructionError {}
 
 // Return value of `Session::reconstruct_history_from_rollout`, bundling the rebuilt history with
 // the resume/fork hydration metadata derived from the same replay.
@@ -175,11 +199,22 @@ fn reconstruct_map_runtime_state(
 }
 
 impl Session {
+    #[cfg(test)]
     pub(super) async fn reconstruct_history_from_rollout(
         &self,
         turn_context: &TurnContext,
         rollout_items: &[RolloutItem],
     ) -> RolloutReconstruction {
+        self.try_reconstruct_history_from_rollout(turn_context, rollout_items)
+            .await
+            .expect("test rollout must be valid")
+    }
+
+    pub(super) async fn try_reconstruct_history_from_rollout(
+        &self,
+        turn_context: &TurnContext,
+        rollout_items: &[RolloutItem],
+    ) -> Result<RolloutReconstruction, RolloutReconstructionError> {
         // Replay metadata should already match the shape of the future lazy reverse loader, even
         // while history materialization still uses an eager bridge. Scan newest-to-oldest,
         // stopping once a surviving replacement-history checkpoint and the required resume metadata
@@ -363,8 +398,9 @@ impl Session {
         }
 
         let (replayed_map_runtime_snapshot, map_runtime_checkpoint) =
-            reconstruct_map_runtime_state(&surviving_map_runtime_segments)
-                .expect("persisted map checkpoint/delta chain must be valid");
+            reconstruct_map_runtime_state(&surviving_map_runtime_segments).map_err(|message| {
+                RolloutReconstructionError::new("map_checkpoint_delta_chain", message)
+            })?;
         if replayed_map_runtime_snapshot.is_some() {
             map_runtime_snapshot = replayed_map_runtime_snapshot;
         }
@@ -418,8 +454,13 @@ impl Session {
                 }
                 RolloutItem::EventMsg(EventMsg::ThreadRolledBack(rollback)) => {
                     if taskspace_context_active {
-                        let mut store = TaskSpaceEventStore::restore(taskspace_events)
-                            .expect("persisted TaskSpace events must be valid");
+                        let mut store =
+                            TaskSpaceEventStore::restore(taskspace_events).map_err(|error| {
+                                RolloutReconstructionError::new(
+                                    "taskspace_rollback_restore",
+                                    error.to_string(),
+                                )
+                            })?;
                         store.drop_last_n_user_turns(rollback.num_turns);
                         taskspace_events = store.events().to_vec();
                     } else {
@@ -436,14 +477,30 @@ impl Session {
                             .cloned()
                             .map(TaskSpaceEvent::from_protocol)
                             .collect::<Result<Vec<_>, _>>()
-                            .expect("TaskSpace ownership checkpoint must be valid");
-                        TaskSpaceEventStore::restore(taskspace_events.clone())
-                            .expect("TaskSpace ownership checkpoint sequence must be valid");
+                            .map_err(|error| {
+                                RolloutReconstructionError::new(
+                                    "taskspace_ownership_checkpoint",
+                                    error.to_string(),
+                                )
+                            })?;
+                        TaskSpaceEventStore::restore(taskspace_events.clone()).map_err(
+                            |error| {
+                                RolloutReconstructionError::new(
+                                    "taskspace_ownership_checkpoint",
+                                    error.to_string(),
+                                )
+                            },
+                        )?;
                         history.replace(Vec::new());
                         taskspace_context_active = true;
                     } else {
-                        let mut store = TaskSpaceEventStore::restore(taskspace_events)
-                            .expect("TaskSpace ownership release must be valid");
+                        let mut store =
+                            TaskSpaceEventStore::restore(taskspace_events).map_err(|error| {
+                                RolloutReconstructionError::new(
+                                    "taskspace_ownership_checkpoint",
+                                    error.to_string(),
+                                )
+                            })?;
                         history.replace(store.take_linearized());
                         taskspace_events = Vec::new();
                         taskspace_context_active = false;
@@ -452,12 +509,20 @@ impl Session {
                 RolloutItem::EventMsg(EventMsg::MapRuntime(
                     MapRuntimeEvent::TaskContextEventRecorded(event),
                 )) if taskspace_context_active => {
-                    taskspace_events.push(
-                        TaskSpaceEvent::from_protocol(event.clone())
-                            .expect("persisted TaskSpace event must be valid"),
-                    );
-                    TaskSpaceEventStore::restore(taskspace_events.clone())
-                        .expect("persisted TaskSpace event sequence must be valid");
+                    taskspace_events.push(TaskSpaceEvent::from_protocol(event.clone()).map_err(
+                        |error| {
+                            RolloutReconstructionError::new(
+                                "taskspace_event_sequence",
+                                error.to_string(),
+                            )
+                        },
+                    )?);
+                    TaskSpaceEventStore::restore(taskspace_events.clone()).map_err(|error| {
+                        RolloutReconstructionError::new(
+                            "taskspace_event_sequence",
+                            error.to_string(),
+                        )
+                    })?;
                 }
                 RolloutItem::EventMsg(_)
                 | RolloutItem::TurnContext(_)
@@ -477,7 +542,7 @@ impl Session {
             reference_context_item
         };
 
-        RolloutReconstruction {
+        Ok(RolloutReconstruction {
             history: history.raw_items().to_vec(),
             taskspace_events,
             previous_turn_settings,
@@ -485,6 +550,6 @@ impl Session {
             map_runtime_mode,
             map_runtime_snapshot,
             map_runtime_checkpoint,
-        }
+        })
     }
 }

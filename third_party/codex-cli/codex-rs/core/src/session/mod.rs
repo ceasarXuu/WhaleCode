@@ -2030,7 +2030,10 @@ impl Session {
         state.clear_connector_selection();
     }
 
-    async fn record_initial_history(&self, conversation_history: InitialHistory) {
+    async fn record_initial_history(
+        &self,
+        conversation_history: InitialHistory,
+    ) -> Result<(), rollout_reconstruction::RolloutReconstructionError> {
         let turn_context = self.new_default_turn().await;
         let is_subagent = {
             let state = self.state.lock().await;
@@ -2040,10 +2043,6 @@ impl Session {
             )
         };
         let has_prior_user_turns = initial_history_has_prior_user_turns(&conversation_history);
-        {
-            let mut state = self.state.lock().await;
-            state.set_next_turn_is_first(!has_prior_user_turns);
-        }
         match conversation_history {
             InitialHistory::New | InitialHistory::Cleared => {
                 // Defer initial context insertion until the first real turn starts so
@@ -2055,7 +2054,7 @@ impl Session {
                 let rollout_items = resumed_history.history;
                 let previous_turn_settings = self
                     .apply_rollout_reconstruction(&turn_context, &rollout_items, false, None)
-                    .await;
+                    .await?;
 
                 // If resuming, warn when the last recorded model differs from the current one.
                 let curr: &str = turn_context.model_info.slug.as_str();
@@ -2097,7 +2096,7 @@ impl Session {
                     is_subagent,
                     (!is_subagent).then_some(self.conversation_id),
                 )
-                .await;
+                .await?;
 
                 // Seed usage info from the recorded rollout so UIs can show token counts
                 // immediately on resume/fork.
@@ -2124,6 +2123,11 @@ impl Session {
                 }
             }
         }
+        {
+            let mut state = self.state.lock().await;
+            state.set_next_turn_is_first(!has_prior_user_turns);
+        }
+        Ok(())
     }
 
     async fn apply_rollout_reconstruction(
@@ -2132,10 +2136,11 @@ impl Session {
         rollout_items: &[RolloutItem],
         linearize_taskspace_for_subagent: bool,
         fork_owner_session_id: Option<ThreadId>,
-    ) -> Option<PreviousTurnSettings> {
+    ) -> Result<Option<PreviousTurnSettings>, rollout_reconstruction::RolloutReconstructionError>
+    {
         let reconstructed_rollout = self
-            .reconstruct_history_from_rollout(turn_context, rollout_items)
-            .await;
+            .try_reconstruct_history_from_rollout(turn_context, rollout_items)
+            .await?;
         let previous_turn_settings = reconstructed_rollout.previous_turn_settings.clone();
         {
             let mut state = self.state.lock().await;
@@ -2172,7 +2177,7 @@ impl Session {
         }
         self.set_previous_turn_settings(previous_turn_settings.clone())
             .await;
-        previous_turn_settings
+        Ok(previous_turn_settings)
     }
 
     fn last_token_info_from_rollout(rollout_items: &[RolloutItem]) -> Option<TokenUsageInfo> {

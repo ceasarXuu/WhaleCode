@@ -168,7 +168,8 @@ async fn writes_k0_session_native_long_replay_probe() {
                     "/tmp/k0-session-replay-{cycle}.jsonl"
                 ))),
             }))
-            .await;
+            .await
+            .expect("restore initial history");
         resume_duration_us += resume_started.elapsed().as_micros();
         let restored = session.action_map_snapshot().await;
         assert_eq!(
