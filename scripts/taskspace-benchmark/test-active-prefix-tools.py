@@ -130,6 +130,7 @@ class AnalyzerTest(unittest.TestCase):
                 "payload": {
                     "type": "map_runtime",
                     "map_event_type": "snapshot_delta",
+                    "previousSnapshotSha256": "canonical-map-sha",
                     "patch": [{"op": "add", "value": projection}],
                 },
             },
@@ -149,6 +150,7 @@ class AnalyzerTest(unittest.TestCase):
         self.assertEqual(metrics["activationCount"], 1)
         self.assertEqual(metrics["bytesBeforeStrategy"], 1963)
         self.assertEqual(metrics["bytesAfterStrategy"], 856)
+        self.assertEqual(metrics["inputSnapshotSha256"], "canonical-map-sha")
 
     def test_standard_mode_keeps_historical_map_inactive(self) -> None:
         rollout = [
