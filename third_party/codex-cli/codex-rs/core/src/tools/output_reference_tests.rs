@@ -47,6 +47,34 @@ fn reference_text_redacts_sensitive_head_and_tail_values() {
     assert!(!text.contains("tail-secret-token"));
 }
 
+#[test]
+fn read_output_bytes_slice_verifies_content_addressed_archive_bytes() {
+    let raw_output = br#"{"schema_version":"TaskSpaceProjectionArchiveV1","nodes":["a"]}"#;
+    let sha = format!("{:x}", Sha256::digest(raw_output));
+    let output_ref = format!("output-ref://sha256/{sha}");
+    let slice = read_output_bytes_slice(
+        &output_ref,
+        raw_output,
+        OutputSliceRequest {
+            mode: OutputSliceMode::Head,
+            max_bytes: 4096,
+        },
+    )
+    .expect("read archive bytes");
+    assert!(slice.contains("TaskSpaceProjectionArchiveV1"));
+
+    let error = read_output_bytes_slice(
+        &output_ref,
+        b"corrupt",
+        OutputSliceRequest {
+            mode: OutputSliceMode::Head,
+            max_bytes: 4096,
+        },
+    )
+    .expect_err("corrupt archive bytes must fail");
+    assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
+}
+
 #[tokio::test]
 async fn output_artifact_is_portable_across_rollout_paths() {
     let temp = tempfile::tempdir().expect("create temp dir");

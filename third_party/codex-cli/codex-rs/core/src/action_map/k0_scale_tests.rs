@@ -103,6 +103,7 @@ fn projection_input(node_count: usize, edge_width: usize, details: bool) -> Acti
                 event_count: usize::from(details),
             })
             .collect(),
+        map_node_archives: Vec::new(),
         map_edges: projection_edges(node_count, edge_width),
         node_details: if details {
             (0..node_count)

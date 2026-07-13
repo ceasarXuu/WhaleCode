@@ -31,6 +31,7 @@ use crate::tools::output_reference::OUTPUT_SLICE_MAX_BYTES;
 use crate::tools::output_reference::OutputSliceMode;
 use crate::tools::output_reference::OutputSliceRequest;
 use crate::tools::output_reference::read_output_artifact_slice;
+use crate::tools::output_reference::read_output_bytes_slice;
 use crate::tools::registry::ToolHandler;
 use crate::tools::registry::ToolKind;
 
@@ -273,15 +274,20 @@ impl ToolHandler for TaskSpaceControlHandler {
                     mode: parse_output_slice_mode(&mode, start_line, end_line, pattern)?,
                     max_bytes: max_bytes.unwrap_or(OUTPUT_SLICE_MAX_BYTES),
                 };
-                let rollout_path = session.current_rollout_path().await.map_err(|error| {
-                    resource_error(error.to_string(), "output_reference_store_unavailable")
+                let slice = if let Some(bytes) = session
+                    .action_map_projection_archive_bytes(&output_ref)
+                    .await
+                {
+                    read_output_bytes_slice(&output_ref, &bytes, request)
+                } else {
+                    let rollout_path = session.current_rollout_path().await.map_err(|error| {
+                        resource_error(error.to_string(), "output_reference_store_unavailable")
+                    })?;
+                    read_output_artifact_slice(rollout_path.as_deref(), &output_ref, request).await
+                }
+                .map_err(|error| {
+                    resource_error(error.to_string(), "output_reference_read_failed")
                 })?;
-                let slice =
-                    read_output_artifact_slice(rollout_path.as_deref(), &output_ref, request)
-                        .await
-                        .map_err(|error| {
-                            resource_error(error.to_string(), "output_reference_read_failed")
-                        })?;
                 session
                     .record_action_map_output_ref_trace_event(
                         &turn,

@@ -455,6 +455,167 @@ fn active_projection_tiers_node_details_by_graph_distance() {
 }
 
 #[test]
+fn s1_projection_archives_completed_isolated_nodes_reversibly() {
+    let nodes = ["a", "b", "c", "active"]
+        .into_iter()
+        .map(inspect_node)
+        .collect();
+    let (mut state, owner, outcome) = initialized_state(nodes, "active");
+    let map = state.maps.get_mut(&outcome.map_id).expect("active map");
+    for (index, node_id) in ["a", "b", "c"].into_iter().enumerate() {
+        let result_id = format!("result-{node_id}");
+        let event_id = format!("node-event-{}", index + 1);
+        let node = map.nodes.get_mut(node_id).expect("archive node");
+        node.status = NodeStatus::Completed;
+        node.result_context.push(NodeResultRef {
+            id: result_id.clone(),
+            kind: NodeResultKind::Result,
+        });
+        node.node_events.push(NodeEventRef {
+            id: event_id.clone(),
+            kind: "tool_result".into(),
+        });
+        map.results.insert(
+            result_id.clone(),
+            NodeResult {
+                id: result_id,
+                assignment_id: format!("lease-{node_id}"),
+                map_id: outcome.map_id.clone(),
+                node_id: node_id.into(),
+                kind: NodeResultKind::Result,
+                action_class: Some(ActionClass::Read),
+                tool_success: Some(true),
+                source_event_ref: format!("task-event-result-{node_id}"),
+                artifact_refs: vec![format!("src/{node_id}.rs")],
+                source_thread_id: owner,
+                created_at_ms: index as i64,
+            },
+        );
+        map.node_events.insert(
+            event_id.clone(),
+            NodeEvent {
+                id: event_id,
+                map_id: outcome.map_id.clone(),
+                node_id: node_id.into(),
+                event_kind: "tool_result".into(),
+                source: "main_tool".into(),
+                action_class: Some(ActionClass::Read),
+                tool_success: Some(true),
+                content_sha256: format!("hash-{node_id}"),
+                source_event_id: Some(format!("task-event-{node_id}")),
+                raw_ref: Some(format!("output-ref-{node_id}")),
+                artifact_refs: vec![format!("src/{node_id}.rs")],
+                call_id: Some(format!("call-{node_id}")),
+                source_thread_id: owner,
+                created_at_ms: index as i64,
+            },
+        );
+    }
+    let maps_before = state.snapshot().maps;
+
+    let projection = state.build_developer_context().expect("projection");
+
+    assert!(projection.contains("map_node_archives:"));
+    assert!(projection.contains("strategy=S1"));
+    assert!(projection.contains("covered_node_count=3"));
+    assert!(projection.contains("result_refs=result-a,result-b,result-c"));
+    for node_id in ["a", "b", "c"] {
+        assert!(!projection.contains(&format!("{node_id} kind=")));
+    }
+    assert!(projection.contains("active kind=inspect_code_context status=running"));
+    let archive_ref = state
+        .projection_archives
+        .keys()
+        .next()
+        .expect("archive ref")
+        .clone();
+    let bytes = state
+        .projection_archive_bytes(&archive_ref)
+        .expect("archive bytes");
+    let decoded =
+        crate::action_map::projection_archive::decode_projection_archive(&archive_ref, &bytes)
+            .expect("decode archive");
+    assert_eq!(decoded.nodes.len(), 3);
+    assert_eq!(decoded.results.len(), 3);
+    assert_eq!(decoded.node_events.len(), 3);
+    let canonical_map = &maps_before[0];
+    assert_eq!(
+        decoded.nodes,
+        canonical_map
+            .nodes
+            .iter()
+            .filter(|node| ["a", "b", "c"].contains(&node.id.as_str()))
+            .cloned()
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(
+        decoded.results,
+        canonical_map
+            .results
+            .iter()
+            .filter(|result| ["a", "b", "c"].contains(&result.node_id.as_str()))
+            .cloned()
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(
+        decoded.node_events,
+        canonical_map
+            .node_events
+            .iter()
+            .filter(|event| ["a", "b", "c"].contains(&event.node_id.as_str()))
+            .cloned()
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(state.snapshot().maps, maps_before);
+    let trace = state
+        .snapshot()
+        .trace_events
+        .into_iter()
+        .find(|event| event.kind == "projection_budget")
+        .expect("projection trace");
+    assert!(
+        trace
+            .tags
+            .iter()
+            .any(|tag| tag == "strategy_activation_count:1")
+    );
+    assert_eq!(state.take_pending_projection_trace_events().len(), 1);
+}
+
+#[test]
+fn s1_projection_does_not_activate_below_threshold_or_for_incident_nodes() {
+    let nodes = ["a", "b", "c", "d", "active"]
+        .into_iter()
+        .map(inspect_node)
+        .collect();
+    let (mut state, _, outcome) = initialized_state(nodes, "active");
+    let map = state.maps.get_mut(&outcome.map_id).expect("active map");
+    for node_id in ["a", "b", "c", "d"] {
+        map.nodes.get_mut(node_id).expect("node").status = NodeStatus::Completed;
+    }
+    map.edges.push(MapEdge {
+        from: "a".into(),
+        to: "b".into(),
+    });
+
+    assert_eq!(s1_eligible_node_ids(map, Some("active")), vec!["c", "d"]);
+    let projection = state.build_developer_context().expect("projection");
+    assert!(!projection.contains("map_node_archives:"));
+    assert!(state.projection_archives.is_empty());
+    assert!(
+        state
+            .snapshot()
+            .trace_events
+            .iter()
+            .find(|event| event.kind == "projection_budget")
+            .expect("projection trace")
+            .tags
+            .iter()
+            .any(|tag| tag == "strategy_activation_count:0")
+    );
+}
+
+#[test]
 fn active_projection_reports_skeleton_over_budget_without_partial_map() {
     let (mut state, _, outcome) = initialized_state(vec![inspect_node("inspect")], "inspect");
     let map = state.maps.get_mut(&outcome.map_id).expect("active map");

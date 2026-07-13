@@ -26,12 +26,66 @@ function Get-Ratio {
     [math]::Round(([double]$Numerator / [double]$Denominator), 4)
 }
 
+function Convert-TraceTags {
+    param($Tags)
+    $result = @{}
+    foreach ($tag in @($Tags)) {
+        $text = [string]$tag
+        $separator = $text.IndexOf(":")
+        if ($separator -lt 1) { continue }
+        $result[$text.Substring(0, $separator)] = $text.Substring($separator + 1)
+    }
+    $result
+}
+
+function Get-CompressionTraceMetrics {
+    param([string]$RolloutPath)
+    if ([string]::IsNullOrWhiteSpace($RolloutPath) -or -not (Test-Path -LiteralPath $RolloutPath)) {
+        return [pscustomobject]@{ availability = "unavailable"; evaluation_count = $null; activation_count = $null; before_median = $null; after_median = $null; activated_ratio = $null; covered_node_count_median = $null; archive_payload_bytes_median = $null }
+    }
+    $events = [System.Collections.Generic.List[object]]::new()
+    foreach ($line in [System.IO.File]::ReadLines($RolloutPath)) {
+        if ([string]::IsNullOrWhiteSpace($line)) { continue }
+        try { $record = $line | ConvertFrom-Json -Depth 30 } catch { continue }
+        $payload = $record.payload
+        if ([string]$record.type -ne "event_msg" -or [string]$payload.type -ne "map_runtime" -or
+            [string]$payload.map_event_type -ne "taskspace_trace_event_recorded" -or
+            [string]$payload.kind -ne "projection_budget") { continue }
+        $tags = Convert-TraceTags $payload.tags
+        if ([string]$tags.strategy_id -ne "S1") { continue }
+        $events.Add([pscustomobject]@{
+            activation = [double]$tags.strategy_activation_count
+            before = [double]$tags.projection_bytes_before_strategy
+            after = [double]$tags.projection_bytes_after_strategy
+            covered = [double]$tags.covered_node_count
+            archive_payload_bytes = [double]$tags.archive_payload_bytes
+        })
+    }
+    if ($events.Count -eq 0) {
+        return [pscustomobject]@{ availability = "trace_absent"; evaluation_count = 0; activation_count = $null; before_median = $null; after_median = $null; activated_ratio = $null; covered_node_count_median = $null; archive_payload_bytes_median = $null }
+    }
+    $activated = @($events | Where-Object { $_.activation -gt 0 })
+    $before = Get-Median @($activated.before)
+    $after = Get-Median @($activated.after)
+    [pscustomobject]@{
+        availability = "rollout_trace"
+        evaluation_count = $events.Count
+        activation_count = [double](($events | Measure-Object activation -Sum).Sum)
+        before_median = $before
+        after_median = $after
+        activated_ratio = Get-Ratio $after $before
+        covered_node_count_median = Get-Median @($activated.covered)
+        archive_payload_bytes_median = Get-Median @($activated.archive_payload_bytes)
+    }
+}
+
 $rows = [System.Collections.Generic.List[object]]::new()
 foreach ($entry in @($index.results)) {
     if ([string]::IsNullOrWhiteSpace([string]$entry.metrics_path) -or -not (Test-Path -LiteralPath $entry.metrics_path)) {
         throw "metrics missing for $($entry.sample_class)/$($entry.repeat)/$($entry.arm)"
     }
     $metrics = Get-Content -Raw -Encoding UTF8 -LiteralPath $entry.metrics_path | ConvertFrom-Json
+    $compression = Get-CompressionTraceMetrics ([string]$metrics.rollout_path)
     $rows.Add([pscustomobject]@{
         sample_class = [string]$entry.sample_class
         scenario = [string]$entry.scenario
@@ -49,6 +103,14 @@ foreach ($entry in @($index.results)) {
         projection_tokens_max = [double]$metrics.projection_tokens_max
         nodes = [double]$metrics.nodes
         edges = [double]$metrics.edges
+        compression_trace_availability = $compression.availability
+        strategy_evaluation_count = $compression.evaluation_count
+        strategy_activation_count = $compression.activation_count
+        activated_projection_before_median = $compression.before_median
+        activated_projection_after_median = $compression.after_median
+        activated_projection_ratio = $compression.activated_ratio
+        covered_node_count_median = $compression.covered_node_count_median
+        archive_payload_bytes_median = $compression.archive_payload_bytes_median
         metrics_path = [string]$entry.metrics_path
     })
 }
@@ -71,6 +133,11 @@ foreach ($sampleClass in @($rows.sample_class | Sort-Object -Unique)) {
             projection_tokens_max_median = Get-Median @($group.projection_tokens_max)
             nodes_median = Get-Median @($group.nodes)
             edges_median = Get-Median @($group.edges)
+            strategy_activation_count_median = Get-Median @($group.strategy_activation_count | Where-Object { $null -ne $_ })
+            activated_projection_before_median = Get-Median @($group.activated_projection_before_median | Where-Object { $null -ne $_ })
+            activated_projection_after_median = Get-Median @($group.activated_projection_after_median | Where-Object { $null -ne $_ })
+            activated_projection_ratio_median = Get-Median @($group.activated_projection_ratio | Where-Object { $null -ne $_ })
+            covered_node_count_median = Get-Median @($group.covered_node_count_median | Where-Object { $null -ne $_ })
         })
     }
 }
@@ -116,6 +183,12 @@ $lines.Add("| Sample | Arm | Success | Requests median | Input median | Cached m
 $lines.Add("|---|---|---:|---:|---:|---:|---:|---:|")
 foreach ($row in $aggregates) {
     $lines.Add("| $($row.sample_class) | $($row.arm) | $($row.success_count)/$($row.runs) | $($row.requests_median) | $($row.input_tokens_median) | $($row.cached_input_tokens_median) | $($row.wall_time_ms_median) | $($row.projection_tokens_max_median) |")
+}
+$lines.Add("")
+$lines.Add("| Sample | Arm | S1 activation median | Activated bytes before | Activated bytes after | After/before | Covered nodes |")
+$lines.Add("|---|---|---:|---:|---:|---:|---:|")
+foreach ($row in $aggregates) {
+    $lines.Add("| $($row.sample_class) | $($row.arm) | $($row.strategy_activation_count_median) | $($row.activated_projection_before_median) | $($row.activated_projection_after_median) | $($row.activated_projection_ratio_median) | $($row.covered_node_count_median) |")
 }
 $lines.Add("")
 $lines.Add("| Sample | Comparison | Requests ratio | Input ratio | Cached ratio | Wall ratio | Projection ratio |")

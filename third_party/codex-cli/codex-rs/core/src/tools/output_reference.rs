@@ -176,7 +176,16 @@ pub(crate) async fn read_output_artifact_slice(
     let sha = parse_output_ref_sha(output_ref)?;
     let artifact_path = output_artifact_dir(rollout_path).join(format!("{sha}.stdout"));
     let raw_output = tokio::fs::read(&artifact_path).await?;
-    let actual_sha = format!("{:x}", Sha256::digest(&raw_output));
+    read_output_bytes_slice(output_ref, &raw_output, request)
+}
+
+pub(crate) fn read_output_bytes_slice(
+    output_ref: &str,
+    raw_output: &[u8],
+    request: OutputSliceRequest,
+) -> std::io::Result<String> {
+    let sha = parse_output_ref_sha(output_ref)?;
+    let actual_sha = format!("{:x}", Sha256::digest(raw_output));
     if actual_sha != sha {
         return Err(std::io::Error::new(
             std::io::ErrorKind::InvalidData,

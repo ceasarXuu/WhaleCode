@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 
 use codex_protocol::protocol::ActionMapSnapshotEdge;
+use codex_protocol::protocol::ActionMapSnapshotMap;
 use codex_protocol::protocol::ActionMapSnapshotNode;
 use codex_protocol::protocol::ActionMapSnapshotNodeEvent;
 use codex_protocol::protocol::ActionMapSnapshotResult;
@@ -12,6 +13,7 @@ use std::collections::HashSet;
 
 const ARCHIVE_SCHEMA_VERSION: &str = "TaskSpaceProjectionArchiveV1";
 const OUTPUT_REF_PREFIX: &str = "output-ref://sha256/";
+pub(super) const S1_MINIMUM_NODE_COUNT: usize = 3;
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 pub(super) struct ProjectionArchivePayload {
@@ -105,6 +107,83 @@ pub(super) struct EncodedProjectionArchive {
     pub(super) payload_sha256: String,
     pub(super) covered_node_ids_sha256: String,
     pub(super) bytes: Vec<u8>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct ProjectionArchiveCandidate {
+    pub(super) encoded: EncodedProjectionArchive,
+    pub(super) covered_node_ids: Vec<String>,
+    pub(super) result_refs: Vec<String>,
+}
+
+pub(super) fn build_s1_projection_archive(
+    map: &ActionMapSnapshotMap,
+    current_node_id: Option<&str>,
+    covered_node_ids: &[String],
+) -> Result<ProjectionArchiveCandidate, String> {
+    if covered_node_ids.len() < S1_MINIMUM_NODE_COUNT {
+        return Err(format!(
+            "S1 projection archive requires at least {S1_MINIMUM_NODE_COUNT} nodes"
+        ));
+    }
+    let covered = unique_ids(covered_node_ids.iter().map(String::as_str), "covered node")?;
+    let nodes = map
+        .nodes
+        .iter()
+        .filter(|node| covered.contains(node.id.as_str()))
+        .cloned()
+        .collect::<Vec<_>>();
+    if nodes.len() != covered.len() {
+        return Err("S1 projection archive references a missing canonical node".to_string());
+    }
+    for node in &nodes {
+        if node.status != "completed"
+            || node.active_lease.is_some()
+            || current_node_id == Some(node.id.as_str())
+            || map.leases.iter().any(|lease| lease.node_id == node.id)
+        {
+            return Err(format!("node {} is not eligible for S1 archive", node.id));
+        }
+    }
+    if let Some(edge) = map
+        .edges
+        .iter()
+        .find(|edge| covered.contains(edge.from.as_str()) || covered.contains(edge.to.as_str()))
+    {
+        return Err(format!(
+            "node incident to edge {}->{} is not eligible for S1 archive",
+            edge.from, edge.to
+        ));
+    }
+    let results = map
+        .results
+        .iter()
+        .filter(|result| covered.contains(result.node_id.as_str()))
+        .cloned()
+        .collect::<Vec<_>>();
+    let result_refs = results.iter().map(|result| result.id.clone()).collect();
+    let node_events = map
+        .node_events
+        .iter()
+        .filter(|event| covered.contains(event.node_id.as_str()))
+        .cloned()
+        .collect::<Vec<_>>();
+    let encoded = encode_projection_archive(ProjectionArchivePayload::new(
+        map.id.clone(),
+        nodes,
+        Vec::new(),
+        Vec::new(),
+        Vec::new(),
+        results,
+        node_events,
+    ))?;
+    let mut covered_node_ids = covered_node_ids.to_vec();
+    covered_node_ids.sort();
+    Ok(ProjectionArchiveCandidate {
+        encoded,
+        covered_node_ids,
+        result_refs,
+    })
 }
 
 pub(super) fn encode_projection_archive(

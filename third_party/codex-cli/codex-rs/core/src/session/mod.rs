@@ -1065,6 +1065,16 @@ impl Session {
         }
     }
 
+    pub(crate) async fn action_map_projection_archive_bytes(
+        &self,
+        archive_ref: &str,
+    ) -> Option<Vec<u8>> {
+        let state = self.state.lock().await;
+        state
+            .action_map_runtime
+            .projection_archive_bytes(archive_ref)
+    }
+
     pub(crate) async fn action_map_provider_request_budget_snapshot(
         &self,
     ) -> Option<ActionMapProviderRequestBudgetSnapshot> {
@@ -3570,10 +3580,18 @@ impl Session {
             let mut state = self.state.lock().await;
             state.action_map_runtime.take_pending_transition_notice()
         };
-        let action_map_context = {
+        let (action_map_context, projection_trace_events) = {
             let mut state = self.state.lock().await;
-            state.action_map_runtime.build_developer_context()
+            let context = state.action_map_runtime.build_developer_context();
+            let events = state
+                .action_map_runtime
+                .take_pending_projection_trace_events();
+            (context, events)
         };
+        if !projection_trace_events.is_empty() {
+            self.emit_action_map_events_for_turn(turn_context, projection_trace_events)
+                .await;
+        }
         if let Some(realtime_update) = crate::context_manager::updates::build_initial_realtime_item(
             reference_context_item.as_ref(),
             previous_turn_settings.as_ref(),
