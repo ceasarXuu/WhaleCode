@@ -4,6 +4,7 @@
 - Status: COMPLETE（7/7，100%）
 - Scope: R5-K0；K1 entry gate
 - Source commits: `9bbe67d8c50f2ae6b7e4ba472010a44fd3161c36`、`c774467436460cfab371e9eae5df4d80a662a02f`
+- Promoted baseline: `R5-K-B0` = `37bddb2bad9f8f92d52b082eb55c0c1a4171654a`
 - Related: `31-r5-map-native-context-compression-charter.md`
 
 ## 1. 结论
@@ -151,14 +152,16 @@ replay修复范围，也不通过Runtime自动补边处理。
 
 | Item | Reason | Impact | Next phase |
 |---|---|---|---|
-| 单一压缩方案选择 | K0只提供规模证据 | 仍会显式`map_skeleton_over_budget` | K1 |
-| eligible subgraph与macro/ref合同 | 尚未冻结 | 不允许实现archive engine | K1 |
-| 结构化session fatal | 当前仍panic | corrupted rollout终止形态不够结构化 | K2 |
+| B0 artifact与策略实验矩阵 | K0只记录测量commit，尚未冻结可重跑image/receipt | 后续策略无法做同期基线比较 | K1 |
+| 公共压缩合同与S1选择 | K0只提供规模证据 | 仍会显式`map_skeleton_over_budget` | K1 |
+| eligible subgraph与macro/ref不变量 | 尚未冻结 | 不允许实现archive engine | K1 |
+| 结构化session fatal | 当前仍panic | corrupted rollout终止形态不够结构化 | K2.F |
 | archive/expand实现 | 合同未选定 | 超大Map不可逆向降载 | K2-K3 |
 | 20轮resume/fork/crash验证 | engine未实现 | 无长期无漂移证明 | K4 |
 | 短/中/长收益与对抗性审查 | production压缩未实现且未获本轮审查授权 | 不可声明最终收益 | K5 |
 
-下一步按charter进入K1，只做合同比较、失败场景和单一方案选择；K1达到100%之前不得开始K2代码。
+下一步按charter进入K1：冻结当前版本为`R5-K-B0`，建立Standard/B0/Previous/Candidate四arm和简单/复杂
+sample矩阵，将候选拆成atomic strategy ledger，并只选择S1。K1达到100%之前不得开始K2代码。
 
 ## 10. Evidence索引
 

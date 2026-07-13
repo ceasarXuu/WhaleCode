@@ -108,7 +108,7 @@ TaskSpace 拉回三个职责：
 
 ## 1.5 Phase 总览
 
-当前剩余执行顺序：`R5-K1 -> R5-K2 -> R5-K3 -> R5-K4 -> R5-K5 -> R5-G3 final regression -> R5-H closeout`。
+当前剩余执行顺序：`R5-K1 -> R5-K2.0 -> R5-K2.F -> R5-K3-Sn逐策略门禁 -> R5-K4 -> R5-K5 -> R5-G3 final regression -> R5-H closeout`。
 K0已按7/7完成并开放K1。J7.7/J7.8 与 J7.5 14/14 final gate 已完成，
 H-026/H-027 已验证关闭。J6.7 final-rejection loop、
 3-repeat gate和两轮对抗性审查已完成。J5 工程能力已完成，但真实
@@ -163,7 +163,7 @@ multi-finish / finish+ordinary 采用率仍为0，不作为已兑现收益。
 | R5-J7.6 | tagged next、扁平 terminal 和 V2 success identity 全部落地；两组 identity missing/repeat finish 均为0 | 修复成功反馈过度裁剪，Map 从旧 order 9/4 open 收敛为3/0 | 4+20+1+9 focused tests；Docker order/billing；H-025关闭；当时暴露的H-026已由J7.7关闭 |
 | R5-J7.7 | terminal 只接受 Agent 显式有序完成链；旧双角色字段删除；全链失败零副作用 | 消除 H-026 self-loop affordance 和恢复请求，同时保持状态机硬规则及 Agent 控制权 | complete；schema/parser/atomicity fixtures、Docker order/billing，见 `41-r5-j7-7-terminal-finish-chain-plan.md` |
 | R5-J7.8 | mutation 回执包含 `state_commit` 与 current/open/blocked/counts；不包含动作建议 | Agent 无需从局部 delta 猜剩余 Map，且能区分原子失败与部分提交 | complete；handler/runtime fixtures、Docker order/billing，见 `42-r5-j7-8-control-map-state-feedback-plan.md` |
-| R5-K | K0/K1先证明长会话规模和冻结压缩合同；K2-K5再实现可逆archive/macro、20轮恢复和Docker门禁 | 让真实长会话可频繁压缩而不丢全局导航或把语义权交给Runtime | 100/1k/10k nodes；root/frontier/protected 100%；expand/replay hash 100%；详细门禁见 `31-r5-map-native-context-compression-charter.md` |
+| R5-K | K0冻结规模；K1冻结B0和atomic strategy ledger；K2.0建立无行为基建；K2.F单独修正fatal；K3-Sn每次只增加一个策略；K4/K5再做组合恢复和收益门禁 | 让压缩收益和回归可逐策略归因，同时保持全局导航和Agent语义权 | 每策略Standard/B0/Previous/Candidate；simple+complex；expand/replay hash 100%；详见`31-r5-map-native-context-compression-charter.md` |
 
 ## 1.6 Phase R5-A：当前结构盘点和基线
 
@@ -993,7 +993,11 @@ schema 直接表达 singular patch continuation；不限制读取或 pytest，�
 | R5-J6.7.7-A-G | lineage observer、blank context、terminal owner、nested/ack、全局骨架与局部详情分层、incremental snapshot、Docker/review | 不依赖J7或R5-K | provider semantic duplicate=0；skeleton 100%；stale blank=0；failure 100%；snapshot -80%；cache不回退 | 每阶段100%或暂停 | complete；two-round adversarial review passed |
 | R5-J7.0-J7.8 | J6.7后重审response/carrier；patch atomicity、singular carrier、request preflight、control fidelity、terminal chain、Map反馈、Docker samples | 必须等J6.7完成 | multi-patch零执行；validation failure零副作用；control state/protocol failure=0；Map闭合 | 每阶段100%或暂停 | complete；J7.5 14/14 gates |
 | R5-K0 | 长会话预算、projection分账、replay与corruption合同基线 | 必须等J7完成；不依赖K1实现 | 9规模点、15 crossings、两类长链fixture、真实rollout 3/3 replay、unknown owner=0 | 100% | complete；proceed to K1（见43） |
-| R5-K1-K5 | 压缩合同、archive schema/tool、压缩引擎、多轮恢复、Docker/review | K2依赖K1单一方案和零unknown合同 | root/frontier 100%；global macro path连通；expand/replay 100%；无semantic summary | 每阶段100%或暂停 | planned；K1 next |
+| R5-K1 | B0 manifest、公共合同、atomic strategy ledger、S1和样本矩阵 | 不依赖K2实现 | immutable B0；zero unknown；四arm与simple/complex固定 | 100% | planned；next |
+| R5-K2.0 | 无行为schema/ref/runner/logging基建 | 依赖K1；不得提前实现S1行为 | round-trip 100%；相对B0行为等价；activation=0 | 100% | planned |
+| R5-K2.F | structured session fatal单变更 | 依赖K2.0；不得混入压缩策略 | corruption fatal 100%；partial=0；正常路径等价 | 100% | planned |
+| R5-K3-Sn | 每次只增加一个策略并运行STD/B0/Previous/Candidate | 每个Sn不能依赖Sn+1补证 | 单策略边际收益明确；simple零回归；complex实际激活 | 每个Sn 100%或暂停 | planned；逐策略accept/reject/revise |
+| R5-K4/K5 | 已接受策略组合的20轮恢复、Docker收益和授权审查 | 只组合已独立通过的策略 | zero drift/orphan；最终收益可回溯到逐策略artifact | 100% | planned |
 | R5-I3/I4 | Docker complex pairs、等价/性能门禁、Docker-only call graph | 不依赖 closeout | performance observation、container parity、default-path scan | 工程实现与验证100%；不覆盖J4收益缺口 | Docker-only landed |
 | R5-G3 | complex paired runs、streaming extractor tests | 不依赖 closeout | 完整指标报告、失败分类 | 100% 完成 | streaming extractor已落地；K后第二复杂样本和final paired regression待执行 |
 | R5-H | closeout review | 无 | closeout 文档和 clean git | R5-F/I/J/G3 全部完成 | pause |
@@ -1018,6 +1022,11 @@ provider request count、state-machine action count、wall time、失败分类�
 以及 feedback/event/ref 是否忠实透传。
 若 R5 失败，第一优先级检查上下文语义是否丢失、扭曲、过度结构化或被预算/裁剪截断；
 不得为了让样本通过新增 runtime 语义约束。
+
+R5-K从K1起采用更严格的逐策略规则，覆盖上述“每phase各1次”最低要求：固定当前版本为immutable `R5-K-B0`，
+每个candidate只允许一个新策略，并运行`Standard / B0 / Previous / Candidate`四arm；至少一个simple live和一个
+实际触发策略的complex live各3次，方向混合时扩展到5次。每个策略单独报告并暂停，simple回归不能由complex收益
+抵消。详细阈值、revert纪律和artifact identity见`31-r5-map-native-context-compression-charter.md`第6.1至6.3节。
 
 ## 1.16 Implementation Completeness Matrix
 
@@ -1048,7 +1057,7 @@ provider request count、state-machine action count、wall time、失败分类�
 | R5-J6.7 canonical task context | Map/Event Store为唯一任务事实源；provider忠实线性化；control/result/projection引用同一events | action_map event store/codec、session ingress、provider linearizer、compaction/ref | every TaskSpace turn | ownership、round-trip、pair/order、compaction、Docker samples | source event、linearization、duplicate、checkpoint和cache trace | 无双写、compat、semantic reducer或silent fallback | J6.7.0-.7 complete；两轮对抗性审查通过 |
 | R5-J6.7.7 context residue | final/nested/blank/projection/snapshot各自单一owner；fresh走canonical自然历史，新epoch projection保留完整骨架和机械分层详情 | event linearizer、session finalization、projection、rollout replay | bootstrap/terminal/resume | lineage/post-terminal/skeleton/tier/ref/replay | semantic duplicate、skeleton coverage、stale marker、snapshot ratio | 无Map分页、语义相似度、summary、compat或silent fallback | complete；two-round adversarial review passed |
 | R5-J7 singular request patch slot | J6.7完成后，Standard/TaskSpace单response最多一个patch；carrier schema排除重复patch，共享dispatcher在任何工具执行前统计顶层/carrier/nested patch；shared patch validation先全量预检再写入；非patch多工具不受限 | `apply-patch`、provider response tool sequence、TaskSpace carrier、typed args、performance observer | Standard/TaskSpace patch path | request manifest、prepare/commit、schema、state/filesystem snapshot、Docker samples | request patch count、single/multi patch、prepare/commit/skip、read observation分账 | 无自动合并、部分执行后拒绝、旧形态兼容或读取gate | J7.0-J7.8 complete；J7.5 14/14（见38） |
-| R5-K Map-native compression | 超大Map按硬拓扑条件可逆归档，macro粒度保持全局导航 | Map archive/projection/checkpoint/ref/replay | skeleton hard-budget boundary | scale/round-trip/20-cycle/Docker | budget/archive/expand/replay trace | 无Runtime summary、relevance判断、partial map或兼容层 | K0 complete；K1 next；K2-K5未开始 |
+| R5-K Map-native compression | 固定B0；每个candidate只增加一个压缩策略；简单和复杂sample均需独立通过 | Map archive/projection/checkpoint/ref/replay + strategy experiment runner | skeleton hard-budget boundary | STD/B0/Previous/Candidate、scale/round-trip/20-cycle/Docker | strategy/arm/activation/budget/archive/expand/replay trace | 无策略捆绑、Runtime summary、partial map、兼容层或长期feature flag | K0 complete；K1 next；K2.0/K2.F/K3-K5未开始 |
 
 ## 1.17 Change-chain Logging Matrix
 
@@ -1131,7 +1140,8 @@ payload 均只有一份最新 projection，输入 token 由污染样本的 26909
 `initialize_map`，复杂样本单 map 完成。成本复核确认 E4 没有修复缓存前缀：R5 cache hit
 17.4%，可比 standard 为 95.9%；pytest 环境探测同时暴露 shell 单一 exit code 隐藏上游管道
 状态。E5/G0/G1/F/I/J均已完成对应工程门禁；K0进一步建立9个规模点、15个budget crossing、长链和真实
-rollout重放基线，结果见`43-r5-k0-map-budget-baseline-result.md`。下一步进入K1压缩合同和单一方案选择。
+rollout重放基线，结果见`43-r5-k0-map-budget-baseline-result.md`。下一步进入K1，冻结B0、四arm实验矩阵、
+atomic strategy ledger和S1；后续每个策略单独验收，不一次性叠加实现。
 
 ## 1.20 R5-A/B 后计划校准
 

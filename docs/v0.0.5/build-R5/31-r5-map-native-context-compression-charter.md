@@ -2,7 +2,7 @@
 
 - Created: 2026-07-12
 - Updated: 2026-07-13
-- Version: 1.1
+- Version: 1.2
 - Status: K0 COMPLETE / K1 READY
 - Owner / Responsible: WhaleCode core runtime / TaskSpace Map
 - Related Systems: canonical Event Store、Map projection、compaction、checkpoint、resume/replay、artifact refs
@@ -130,6 +130,77 @@ ArchiveNode
 9. 同一checkpoint输入重复压缩得到稳定等价结果；
 10. 超预算、缺ref、hash mismatch或replay失败必须显式停止，不能返回partial map。
 
+### 6.1 单策略实验纪律
+
+R5-K不得把多个压缩策略一次性实现后再用最终结果反推收益。冻结当前版本为不可变基线：
+
+```text
+Baseline ID: R5-K-B0
+Source commit: 37bddb2bad9f8f92d52b082eb55c0c1a4171654a
+Production behavior: 无archive/macro压缩；骨架超预算时显式失败
+Evidence: 43-r5-k0-map-budget-baseline-result.md
+```
+
+K1必须生成包含完整commit、locked binary SHA、Docker image digest、harness/profile hash和sample prompt hash的
+baseline manifest。后续不得移动`B0`；代码继续演进时仍从该immutable artifact重跑基线，不用历史均值代替同期运行。
+
+每个策略`S<n>`只能包含一个预先声明的行为变化。schema、tool surface、触发条件、候选选择、详情保留、macro
+展示、自动触发和expand方式中，只要会改变provider可见内容或Runtime行为，就分别视为策略，不得捆绑。纯内部
+schema/ref/logging基建可以先落地，但必须证明production行为与B0一致；一旦行为发生变化，就重新归类为一个策略。
+
+每轮固定四个观察臂：
+
+| Arm | Definition | Purpose |
+|---|---|---|
+| `STD<n>` | 当前candidate build的Standard模式 | 同期自然上下文参照 |
+| `B0` | 固定基线commit的TaskSpace模式 | 观察相对初始版本的累计变化 |
+| `P<n-1>` | 上一个已接受策略版本 | 隔离本轮唯一策略的边际变化 |
+| `C<n>` | `P<n-1>`加且只加`S<n>` | 当前候选 |
+
+首轮`P0=B0`。互斥策略不能累计：每个候选都必须分别从B0构建和运行，再选择其中一个。增量策略可以建立在上一
+已接受版本上，但必须同时报告`C<n> vs P<n-1>`、`C<n> vs B0`和`C<n> vs STD<n>`，禁止只报告最终累计结果。
+
+策略代码和测试按单主题commit提交；一个candidate build中不得有两个策略commit。被拒策略使用可审计的revert
+恢复到`P<n-1>`，不留下长期feature flag、compat adapter、双写或dormant实现。接受策略后先冻结其commit、binary
+SHA和image digest，才能开始下一策略。
+
+### 6.2 每策略样本矩阵
+
+每个`S<n>`至少执行一个简单sample和一个能实际触发该策略的复杂sample；synthetic 100/1k/10k只验证结构和
+规模，不能替代Agent live sample。
+
+| Sample class | Required behavior | Required arms | Repeats |
+|---|---|---|---:|
+| simple live | 不达到压缩阈值，验证普通任务零回归 | STD/B0/P/C | 3；方向混合时增至5 |
+| complex live | 达到本策略触发条件，验证真实Agent工作流 | STD/B0/P/C | 3；方向混合时增至5 |
+| deterministic scale/replay | 100/1k/10k、corruption、expand hash | B0/P/C；Standard不适用项标N/A | 每fixture至少1 |
+
+K1冻结具体sample、prompt/task hash和等价历史构造。复杂sample必须让Standard看到等价的自然顺序历史，让
+TaskSpace看到由同一canonical事件集组织出的Map；需要生成equivalence receipt，禁止通过给TaskSpace额外任务提示
+或给Standard删除约束制造差异。各arm使用相同model/profile、Docker base digest、资源、网络、validator和oracle。
+可并行运行独立repeat，但必须轮换arm顺序，避免provider cache预热顺序固定偏向某一版本。
+
+### 6.3 单策略门禁
+
+每个策略在进入下一策略前独立关闭，后续策略不能补证前一策略：
+
+| Dimension | Simple gate | Complex gate |
+|---|---|---|
+| correctness | Agent complete且public/hidden validator全部通过 | Agent complete且public/hidden validator全部通过 |
+| activation | `strategy_activation_count=0` | candidate每次运行`strategy_activation_count>0` |
+| semantic fidelity | root/user constraints、tool failure/ref无丢失或重写 | root/frontier/protected保留100%，expand/replay hash 100% |
+| deterministic cost | projection/tool schema差异必须完全等于strategy manifest | archive/macro bytes和触发次数可分账 |
+| stochastic guardrail | C/P的requests、input、wall三项median ratio均不高于1.10；Req2+ cache下降不超过2pp | 预先登记的primary benefit相对P改善；其他成本和正确性无未解释回退 |
+| topology | canonical nodes/edges无变化 | archive前后expand得到原canonical topology 100% |
+
+三次运行若方向混合，或简单sample任一median ratio位于`1.10~1.20`，扩展到五次；五次后仍超过1.10则策略暂停。
+任何correctness失败、简单sample意外激活、provider-visible未登记差异、partial archive或hash mismatch都直接阻止
+promotion，不得用复杂sample收益抵消简单sample回归。复杂sample的primary benefit及最小改善阈值必须在运行前写入
+strategy manifest，运行后不得改指标追求通过。
+
+每个`S<n>`完成后单独产出报告并暂停，明确`accept/reject/revise`。只有accept可以成为新的`P<n>`；revise仍视为
+同一策略的新candidate，不得夹带下一策略。
+
 ## 7. 分阶段计划
 
 ### R5-K0：长会话规模与预算基线
@@ -161,54 +232,68 @@ replay合同，不改变production projection或引入压缩策略。
 
 - Entry：K0通过。
 - Tasks：
-  1. 比较closed connected subgraph archive、hierarchical submap和Agent checkpoint boundary；
-  2. 冻结eligible subgraph的纯机械判定；
-  3. 冻结macro node、archive ref、expand和replay合同；
-  4. 证明active frontier与全局连通性不受影响；
-  5. 为每个方案执行失败场景审查，不通过则不进入K2。
-- Exit：单一方案被选定；schema、ownership、权限、失败语义和回退均无unknown。
+  1. 物化并冻结`R5-K-B0` baseline manifest和可重跑Docker artifact；
+  2. 比较closed connected subgraph archive、hierarchical submap和Agent checkpoint boundary；
+  3. 冻结所有候选共享的最小archive/ref/expand/replay不变量，不冻结多策略组合实现；
+  4. 将候选拆成atomic strategy ledger，标明互斥或增量、唯一行为delta、primary metric和forbidden co-change；
+  5. 冻结简单/复杂sample、等价历史receipt、四arm矩阵、重复次数和strategy report schema；
+  6. 只选择下一项`S1`进入实施，不预先批准后续策略叠加；
+  7. 为B0、公共合同和S1执行失败场景审查，不通过则不进入K2。
+- Exit：B0可重跑；公共schema、ownership、权限、失败语义无unknown；strategy ledger可拆分；S1和验收阈值唯一。
 - Fallback：保持J6.7.7显式`map_skeleton_over_budget`，不加入临时分页。
 
-### R5-K2：可逆Schema、Tools与日志
+### R5-K2.0：无行为公共基建
 
 - Entry：K1通过。
 - Tasks：
-  1. 实现archive/macro最小schema和canonical refs；
-  2. 为Agent提供显式inspect/expand入口，不把展开动作包装成Runtime建议；
-  3. Agent可显式写checkpoint/conclusion，Runtime只校验source ownership和引用完整性；
-  4. 增加eligible/archived/expanded/replayed/failed全链日志；
+  1. 实现不改变production projection的archive/ref内部schema和hash codec；
+  2. 建立strategy manifest、四arm runner、equivalence receipt和逐策略报告器；
+  3. 增加strategy evaluated/accepted/rejected和replay mismatch日志；
+  4. provider-visible tool/schema或自动触发不得在本phase落地，它们必须进入独立`S<n>`；
   5. 不保留旧Map压缩格式兼容路径。
-- Exit：schema round-trip、权限、hash、ref和failure matrix 100%通过。
+- Exit：schema round-trip、hash/ref/failure matrix 100%；简单/复杂B0与K2.0 build行为等价；策略激活为0。
 - Fallback：整phase revert并丢弃实验Map。
 
-### R5-K3：Map压缩引擎
+### R5-K2.F：Corruption fatal单变更
 
-- Entry：K2通过。
+- Entry：K2.0通过。
 - Tasks：
-  1. 在hard budget阈值触发机械candidate选择；
-  2. 只归档closed且不属于active依赖闭包的子图；
-  3. 原子写archive + macro projection，失败时保持原Map；
-  4. 支持按ref展开并恢复完整局部图；
-  5. 保持canonical event sequence和result refs不变。
-- Exit：100/1,000/10,000 node下不变量全部通过；任何故障均零partial state。
-- Fallback：整phase revert，不做双格式读取。
+  1. 只把当前`panic_via_expect`转换为K0已选定的structured session fatal error；
+  2. checkpoint/delta缺失、错序、hash mismatch和损坏archive均返回同一session-fatal类别；
+  3. 保持partial restore和silent fallback为禁止，不顺带加入archive、tool或projection策略；
+  4. 独立执行corruption matrix，并用simple/complex smoke证明正常路径相对K2.0无变化。
+- Exit：corruption fixture 100%命中结构化fatal；partial state=0；正常路径strategy activation=0且行为等价。
+- Fallback：revert K2.F单独commit回到K2.0；不得以兼容fallback替代结构化fatal。
+
+### R5-K3-Sn：单策略垂直切片循环
+
+- Entry：K2.0和K2.F分别通过。
+- 每个`S<n>`重复以下步骤：
+  1. 从`P<n-1>`增加且只增加strategy manifest声明的一项行为；
+  2. 补齐该行为所需的最小production vertical slice和日志，不顺带加入下一策略；
+  3. 执行simple/complex四arm各3次和deterministic scale/replay；必要时扩至5次；
+  4. 分别报告对Standard、B0和Previous的正确性、动作、Map、projection、request/token/cache/wall差异；
+  5. 单独判定accept/reject/revise并暂停；未accept不得开始`S<n+1>`。
+- Exit：本策略6.3门禁全部通过；任何故障均零partial state；candidate identity和结果artifact齐全。
+- Fallback：revert本策略commit回到`P<n-1>`并验证binary/source identity；不保留禁用分支。
 
 ### R5-K4：多轮压缩与恢复
 
-- Entry：K3通过。
+- Entry：计划纳入最终组合的每个策略均已独立通过K3-Sn门禁。
 - Tasks：
   1. 连续执行至少20轮append -> compress -> resume；
   2. 覆盖fork、rollback、crash recovery、archive嵌套和旧代码读取版本；
   3. 校验重复压缩幂等、展开hash、全局连通和active frontier；
-  4. 验证Agent主动读取历史子图后可继续工作，不要求Runtime解释其内容。
-- Exit：state/event/result hash 100%；orphan/overlap/partial archive=0；20轮无漂移。
+  4. 验证Agent主动读取历史子图后可继续工作，不要求Runtime解释其内容；
+  5. 若组合暴露回归，用`P<n-1>/C<n>`逐策略artifact定位首次出现版本，不增加修复策略掩盖原因。
+- Exit：state/event/result hash 100%；orphan/overlap/partial archive=0；20轮无漂移；组合回归归因明确。
 - Fallback：回退K3/K4，保留显式超预算错误。
 
 ### R5-K5：收益门禁与对抗性审查
 
 - Entry：K0-K4全部通过。
 - Tasks：
-  1. Docker执行短、中、长三档Standard/R5对照；
+  1. Docker执行短、中、长三档Standard/B0/final R5对照，并保留各已接受`P<n>`的逐策略证据索引；
   2. 报告correctness、requests、input/cache、wall、projection bytes和压缩频率；
   3. 检查root/frontier、全局路径、失败和Agent结论的保留率；
   4. 经用户授权执行对抗性审查，关闭critical/high findings。
@@ -221,9 +306,10 @@ replay合同，不改变production projection或引入压缩策略。
 | Phase | Independent verification | Exit evidence | Completion required | Decision |
 |---|---|---|---|---|
 | K0 | synthetic + real replay observer | scale/budget curve | 100% | complete；proceed to K1 |
-| K1 | contract and failure review | zero unknown ownership | 100% | select/pause |
-| K2 | schema/ref/permission fixtures | round-trip 100% | 100% | proceed/revert |
-| K3 | 100/1k/10k engine tests | invariants 100% | 100% | proceed/revert |
+| K1 | B0/contract/strategy ledger/failure review | zero unknown；S1唯一 | 100% | select S1/pause |
+| K2.0 | schema/ref/runner parity fixtures | round-trip 100%；相对B0行为等价；activation=0 | 100% | proceed/revert |
+| K2.F | corruption matrix + normal-path smoke | structured fatal 100%；partial=0；正常路径等价 | 100% | proceed/revert |
+| K3-Sn | STD/B0/Previous/Candidate；simple+complex+scale | 单策略正确性、边际收益与零简单回归 | 每个Sn 100% | accept/reject/revise；pause |
 | K4 | 20-cycle resume/fork/replay | zero drift/orphan | 100% | proceed/revert |
 | K5 | Docker paired + authorized review | all benefit gates | 100% | close/revert |
 
@@ -236,6 +322,9 @@ replay合同，不改变production projection或引入压缩策略。
 | archive commit | `taskspace.map_archive_committed` | `taskspace.map_archive_failed` | archive/macro/event range/hash |
 | expansion | `taskspace.map_archive_expanded` | `taskspace.map_archive_expand_failed` | archive/ref/hash/request |
 | replay | `taskspace.map_archive_replayed` | `taskspace.map_archive_replay_mismatch` | checkpoint/archive/expected/actual hash |
+| strategy experiment | `taskspace.map_strategy_evaluated` | `taskspace.map_strategy_evaluation_failed` | strategy/arm/baseline/previous/candidate/sample/repeat |
+| strategy decision | `taskspace.map_strategy_accepted` | `taskspace.map_strategy_rejected` | strategy/candidate commit/binary/image/report |
+| arm equivalence | `taskspace.map_experiment_equivalence_verified` | `taskspace.map_experiment_equivalence_failed` | strategy/arm/prompt/history/image/profile hash |
 
 日志只记录机械ID、hash、count、budget和reason code，不记录API key、无界正文或Runtime生成摘要。
 
@@ -249,6 +338,9 @@ replay合同，不改变production projection或引入压缩策略。
 | 多轮压缩形成archive套archive漂移 | High | stable covered set/hash；K4 20轮幂等门禁 |
 | 预算触发后留下partial Map | High | archive原子提交；失败保持原Map并显式报错 |
 | 为压缩诱导Agent减少建图 | High | benchmark检查node granularity；prompt/schema不增加粗化建议 |
+| 多策略叠加后无法归因 | Critical | 固定B0、Previous和Candidate四arm；每个build只含一个新策略 |
+| 复杂样本收益掩盖简单任务回归 | High | 每策略强制simple live门禁；简单回归不能由复杂收益抵消 |
+| 历史基线受provider时序和cache污染 | High | immutable B0同期重跑、arm顺序轮换、3次方向混合扩至5次 |
 
 ## 11. 开放问题
 
@@ -281,6 +373,8 @@ K0/K1属于专项发现和合同冻结；只有证据证明骨架规模、触发
 | 2026-07-12 | 语义载荷只接受原始事件或Agent checkpoint | Runtime只管理硬规则和Map，不替Agent解释工作 |
 | 2026-07-13 | K0按7/7关闭并开放K1 | 9个规模点、15个阈值、两类长链fixture和真实rollout重放证据齐全，unknown owner=0 |
 | 2026-07-13 | corruption目标选择structured session fatal | partial restore、silent fallback和operator recoverable均不符合canonical Map完整性 |
+| 2026-07-13 | 压缩改为逐策略实验阶梯 | 固定B0并比较Previous/Candidate，避免多个策略叠加后无法拆解收益和回归 |
+| 2026-07-13 | 每策略同时验收简单和复杂sample | 复杂任务压缩收益不能证明普通任务没有request、token或语义回归 |
 
 ## 14. Plan Quality Checklist
 
@@ -290,3 +384,5 @@ K0/K1属于专项发现和合同冻结；只有证据证明骨架规模、触发
 - [x] production、schema、tool、日志、测试、Docker和审查路径完整。
 - [x] 不做兼容、双写、静默分页、语义summary或Runtime relevance判断。
 - [x] 每阶段可独立验证，未达到100%默认暂停或回退。
+- [x] 每个candidate只新增一个策略，并固定比较Standard、B0、Previous和Candidate。
+- [x] 每策略均包含simple和complex live sample，不用synthetic结果替代Agent行为。
