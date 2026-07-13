@@ -1,14 +1,15 @@
 # Problem P-001: TaskSpace rollout 中的 Map runtime 事件无法重放
-- Status: open
+- Status: fixed
 - Created: 2026-07-13 21:25
-- Updated: 2026-07-13 21:31
+- Updated: 2026-07-13 21:58
 - Objective: 让生产 rollout 中已持久化的 Map checkpoint/delta 能被同一生产 loader 完整读取并稳定重放。
 - Symptoms:
   - Docker TaskSpace rollout 原文件包含 checkpoint/delta，`RolloutRecorder::get_rollout_history` 读回后计数为 0。
 - Expected behavior:
   - rollout 写入和读取使用同一无歧义 schema；Map checkpoint/delta 不丢失，重放 snapshot hash 稳定。
 - Actual behavior:
-  - `EventMsg::MapRuntime(MapRuntimeEvent)` 的两个内部 tag 都叫 `type`；loader 先转 `serde_json::Value` 后外层 tag 被覆盖，相关行作为 parse error 跳过。
+  - 修复前 `EventMsg::MapRuntime(MapRuntimeEvent)` 的两个内部 tag 都叫 `type`，相关行无法反序列化并被 loader 跳过。
+  - 修复后外层固定为 `type=map_runtime`，内层使用 `map_event_type`；不保留旧 wire schema 兼容路径。
 - Impact:
   - R5 TaskSpace session resume/replay 可能丢失完整 Map runtime 状态；K0 真实 rollout fixture 无法通过。
 - Reproduction:
@@ -23,14 +24,14 @@
   - fixture 缺少 snapshot 事件。
 - Fix criteria:
   - captured rollout loader checkpoint/delta 计数与原文件一致；连续 3 次重放 snapshot hash 3/3 稳定；既有 rollout/session 回归通过；benchmark extractor 口径不失效。
-- Current conclusion: tag 冲突已证实；直接解析和 Value 中转均无法恢复 Map runtime 事件，必须消除 wire schema 的重复 tag。
+- Current conclusion: tag 冲突已消除；生产 loader 与直接解析均读取真实 Docker rollout 的2个checkpoint和87个delta，连续3次重放得到同一snapshot hash。
 - Related hypotheses:
   - H-001
   - H-002
 - Resolution basis:
-  - not satisfied
+  - protocol round-trip、rollout/session/action-map回归通过；真实Docker rollout计数一致且3/3稳定重放，修复标准全部满足。
 - Close reason:
-  - not closed
+  - fixed by distinct outer/inner discriminators and verified against a newly captured production-format rollout
 
 ## Hypothesis H-001: 嵌套 internally-tagged enum 生成重复 discriminator
 - Status: confirmed
@@ -72,7 +73,7 @@
 - Blocker:
   - none
 - Close reason:
-  - not closed
+  - root cause fixed and regression-covered
 
 ## Hypothesis H-002: Value 中转是 loader 丢失外层 tag 的直接触发点
 - Status: refuted
@@ -114,7 +115,7 @@
 - Blocker:
   - none
 - Close reason:
-  - not closed
+  - refuted by direct parse control; Value mediation was not an independently repairable cause
 
 ## Evidence E-001: 真实 rollout 行包含重复 type
 - Related hypotheses:
@@ -193,3 +194,48 @@
   ```
 - Interpretation: 消除 Value 中转不能修复该事件；wire schema 必须使用不同的内外 discriminator。
 - Time: 2026-07-13 21:31
+
+## Evidence E-005: 协议使用不同内外判别字段并完整回归
+- Related hypotheses:
+  - H-001
+- Direction: supports
+- Type: code-and-test
+- Source: `protocol/src/protocol.rs`及protocol/rollout/core回归
+- Prediction or plan link:
+  - H-001修复必须让同一payload只有一个`type`并可round-trip
+- Matched signal:
+  - 外层`type=map_runtime`；内层`map_event_type=mode_changed`；编码文本只有一个精确`"type"`键
+- Correlation keys:
+  - commit `c774467436460cfab371e9eae5df4d80a662a02f`
+- Raw content:
+  ```text
+  codex-protocol: 194 passed
+  codex-rollout: 45 passed
+  action_map: 46 passed
+  session rollout reconstruction: 27 passed
+  ```
+- Interpretation: wire schema不再歧义，核心写入、读取和重建消费者均通过回归。
+- Time: 2026-07-13 21:58
+
+## Evidence E-006: 新Docker rollout可由生产loader稳定重放
+- Related hypotheses:
+  - H-001
+- Direction: supports
+- Type: runtime-validation
+- Source: `target/r5-k0-map-budget-final-replayable/20260713-214723-730/k0-map-budget-report.json`
+- Prediction or plan link:
+  - P-001修复标准要求loader计数与直接解析一致且3次重放hash稳定
+- Matched signal:
+  - checkpoint=2；delta=87；loader/direct计数相等；stable replay=3/3
+- Correlation keys:
+  - Docker pair `20260713-214411-844/pair-001/right`
+- Raw content:
+  ```text
+  rollout_items=540
+  snapshot_checkpoint_count=2
+  snapshot_delta_count=87
+  stable_snapshot_count=3/3
+  final_snapshot_sha256=c4aad1c4385f2407e74895d1accfdeb66f6529f683ecf15941238899a515878a
+  ```
+- Interpretation: 修复已在真实生产格式持久化链上满足读取和确定性重放标准。
+- Time: 2026-07-13 21:58

@@ -10,7 +10,7 @@
 Created: 2026-07-09
 Updated: 2026-07-13
 Version: v0.0.5 build-R5
-Status: In Progress - R5-J7 complete; next R5-K
+Status: In Progress - R5-K0 complete; next R5-K1
 Owner / Responsible: WhaleCode core runtime
 Related Systems: TaskSpace runtime, action_map runtime, taskspace_control,
   context projection, provider-visible context, benchmark harness
@@ -40,6 +40,7 @@ Related Links:
   docs/v0.0.5/build-R5/40-r5-j7-6-control-contract-fidelity-result.md
   docs/v0.0.5/build-R5/41-r5-j7-7-terminal-finish-chain-plan.md
   docs/v0.0.5/build-R5/42-r5-j7-8-control-map-state-feedback-plan.md
+  docs/v0.0.5/build-R5/43-r5-k0-map-budget-baseline-result.md
   coe/2026-07-10-01-54-r5-normal-progress-budget-hard-stop.md
   coe/2026-07-10-05-03-r5-stale-active-projection-accumulation.md
   coe/2026-07-10-22-56-r5-request-amplification.md
@@ -107,7 +108,8 @@ TaskSpace 拉回三个职责：
 
 ## 1.5 Phase 总览
 
-当前剩余执行顺序：`R5-K -> R5-G3 final regression -> R5-H closeout`。J7.7/J7.8 与 J7.5 14/14 final gate 已完成，
+当前剩余执行顺序：`R5-K1 -> R5-K2 -> R5-K3 -> R5-K4 -> R5-K5 -> R5-G3 final regression -> R5-H closeout`。
+K0已按7/7完成并开放K1。J7.7/J7.8 与 J7.5 14/14 final gate 已完成，
 H-026/H-027 已验证关闭。J6.7 final-rejection loop、
 3-repeat gate和两轮对抗性审查已完成。J5 工程能力已完成，但真实
 multi-finish / finish+ordinary 采用率仍为0，不作为已兑现收益。
@@ -624,11 +626,11 @@ standard 与 TaskSpace 必须使用同一执行和反馈契约。
 已执行顺序：
 
 ```text
-R5-E5 -> R5-G0 -> R5-G1 -> R5-F -> R5-G3 -> R5-H
+R5-E5 -> R5-G0 -> R5-G1 -> R5-F -> R5-I -> R5-J -> R5-K0
 ```
 
-E5/G0/G1/F 均已通过独立门禁；后续阶段不得恢复旧反馈解释、semantic ledger 或 history
-replacement。
+E5/G0/G1/F/I/J/K0均已通过各自工程门禁；后续阶段不得恢复旧反馈解释、semantic ledger或history
+replacement。下一步为K1合同选择；G3 final regression和H closeout保持在K之后。
 
 ## 1.12 Phase R5-F：死代码清理和模块拆分
 
@@ -678,8 +680,8 @@ guardian `8/8` 通过。全量 core 回归结果记录在本阶段提交和 R5-G
 证明简化没有带来明确负收益，并记录真实收益/代价。
 
 G0/G1 已提升为 R5-F 之前的缓存阻断门；详细计划见
-`docs/v0.0.5/build-R5/11-r5-feedback-cache-priority-plan.md`。G2 已完成；G3 调整到
-R5-I/J 完成之后，使用统一 Docker 路径验证复杂样本、提取完整性和 cadence 收益。
+`docs/v0.0.5/build-R5/11-r5-feedback-cache-priority-plan.md`。G2 已完成；G3的streaming extractor已落地，
+第二复杂样本和final paired regression调整到R5-K完成之后，使用统一Docker路径验收完整性和最终收益。
 
 Phase C 后，R5-G 必须把 Agent lifecycle、correctness、semantic cleanliness、request cadence
 分开验收。R5-E0 未完成或 `agent_completion_status != complete` 的样本只能作为诊断证据：
@@ -990,9 +992,10 @@ schema 直接表达 singular patch continuation；不限制读取或 pytest，�
 | R5-J6.7.0-J6.7.6 | ownership audit、event codec、原子cutover、control去重、checkpoint、旧路径删除、Docker初始收益门禁 | 不依赖J7 | single canonical owner；round-trip 100%；raw duplicate=0；warm cache下降不超过2pp | 每阶段100%或暂停 | engineering/live evidence complete；cross-carrier residue moved to J6.7.7 |
 | R5-J6.7.7-A-G | lineage observer、blank context、terminal owner、nested/ack、全局骨架与局部详情分层、incremental snapshot、Docker/review | 不依赖J7或R5-K | provider semantic duplicate=0；skeleton 100%；stale blank=0；failure 100%；snapshot -80%；cache不回退 | 每阶段100%或暂停 | complete；two-round adversarial review passed |
 | R5-J7.0-J7.8 | J6.7后重审response/carrier；patch atomicity、singular carrier、request preflight、control fidelity、terminal chain、Map反馈、Docker samples | 必须等J6.7完成 | multi-patch零执行；validation failure零副作用；control state/protocol failure=0；Map闭合 | 每阶段100%或暂停 | complete；J7.5 14/14 gates |
-| R5-K0-K5 | 长会话预算基线、压缩合同、archive schema/tool、压缩引擎、多轮恢复、Docker/review | 必须等J7完成；K2依赖K0/K1证据 | root/frontier 100%；global macro path连通；expand/replay 100%；无semantic summary | 每阶段100%或暂停 | planned；K0/K1 discovery first |
+| R5-K0 | 长会话预算、projection分账、replay与corruption合同基线 | 必须等J7完成；不依赖K1实现 | 9规模点、15 crossings、两类长链fixture、真实rollout 3/3 replay、unknown owner=0 | 100% | complete；proceed to K1（见43） |
+| R5-K1-K5 | 压缩合同、archive schema/tool、压缩引擎、多轮恢复、Docker/review | K2依赖K1单一方案和零unknown合同 | root/frontier 100%；global macro path连通；expand/replay 100%；无semantic summary | 每阶段100%或暂停 | planned；K1 next |
 | R5-I3/I4 | Docker complex pairs、等价/性能门禁、Docker-only call graph | 不依赖 closeout | performance observation、container parity、default-path scan | 工程实现与验证100%；不覆盖J4收益缺口 | Docker-only landed |
-| R5-G3 | complex paired runs、streaming extractor tests | 不依赖 closeout | 完整指标报告、失败分类 | 100% 完成 | G3 close，整体仍受J4 gate阻塞 |
+| R5-G3 | complex paired runs、streaming extractor tests | 不依赖 closeout | 完整指标报告、失败分类 | 100% 完成 | streaming extractor已落地；K后第二复杂样本和final paired regression待执行 |
 | R5-H | closeout review | 无 | closeout 文档和 clean git | R5-F/I/J/G3 全部完成 | pause |
 
 ### 1.15.1 每阶段样本验证规则
@@ -1035,17 +1038,17 @@ provider request count、state-machine action count、wall time、失败分类�
 | R5-G1 append-only history | epoch snapshot + Agent 原始状态工具 journal；不删除已发送历史 | provider history、projection、compaction | TaskSpace provider request | strict-prefix、control feedback、epoch snapshot tests | 3-repeat paired + complex right-only | 无语义摘要、双写或兼容层 | landed |
 | R5-G2 single map initialization | TaskSpace 根 map 只能由 Agent 通过 `initialize_map` 初始化；线性 plan 和旧 root lifecycle 均不可旁路 | provider tool visibility、taskspace_control handler、action-contract bootstrap、mechanical blank map | whale exec `--taskspace` | tools 139/0/1；focused core 5/0；scenario fixtures 2/0 | `target/r5-g2-single-map-validation/.../20260710-074551-730`：maps=1、nodes=4、edges=3、24 requests、complete | 无 update_plan bridge；无 start_task/route_task compatibility | landed |
 | R5-F module split | active path 仅保留 map/node/event/ref；projection 为无语义决策构造器 | `action_map/map.rs`, `action_map/projection.rs`, `action_map/runtime.rs` | whale exec --taskspace | protocol 192/192；runtime 6/6；multi-agent 82/82；rollout 21/21 | raw body/ref 和 map lifecycle trace 保持 | 无 legacy snapshot adapter、semantic ledger 或双写 | landed |
-| R5-G benefit gate | 简化无明确负收益 | benchmark harness | targeted samples | paired report | metrics json/report | none | G0-G3 complete；correctness无回退，J4 cadence收益未达成 |
+| R5-G benefit gate | 简化无明确负收益 | benchmark harness | targeted samples | paired report | metrics json/report | none | G0-G2完成；G3 extractor已落地，K后final paired regression待执行 |
 | R5-I Docker-only benchmark | 正式样本不再继承宿主 Python/pytest/PATH；容器日志可完整关联 | `container-runtime.ps1`、`container-benchmark-runner.ps1` | benchmark Docker roles | I0-I4 fixtures + real paired Docker runs | container manifest/lifecycle/log/stats/rollout artifacts | I4 已删除本机 fallback | I0-I4 landed；Docker-only complete |
 | R5-J native control cadence | P0 hard-state tool selection；P1 ordered state barrier；P3 Agent-authored terminal transaction；P2 明确禁止 | provider request construction、native tool scheduler、TaskSpace preflight、turn completion | TaskSpace native tool loop | J0-J4 order/failure/provenance tests + Docker reports | production mixed barrier=0；control-only 7-18；terminal candidate按Agent选择生效 | 不恢复 action-contract；无 map coarsening | J0-J3 complete；J4 benefit gate failed |
 | R5-J6 schema-first control carrier | 生命周期迁移和立即动作成为一个 tool schema；runtime 只执行 Agent 声明；nested tool contract/反馈原样透传 | `taskspace_tool.rs`、TaskSpace typed args、ToolRouter/sequence、performance observer | TaskSpace native tool loop | tools 139/1 ignored；handler 9/9；runtime 11/11；scenario 7/7；context 24/24 | focused/complex 均 solved；latest requests 8/12；protocol/state failures=0；terminal extra=0 | 无旧 finish/init 兼容、无后置 cadence gate、无 runtime 自动动作 | landed；结构收益通过，总成本 parity 未通过 |
 | R5-J6.5 schema/cache repair | nested union单份定义；blank map不重复发送ordinary schema；cache shape包含tool choice | JsonSchema、taskspace tool、provider visibility、wire trace、observer | provider request construction | schema fidelity/bytes、named-auto LCP、instrumentation、Docker pairs | 两组均solved；blank约19.57 KB、active约36.35 KB；cold/warmup与warm partial hit已分开 | 无generic arguments、sleep、warmup request或actions-only wrapper | complete (`a7e47de`) |
 | R5-J6.6 active single expression | bootstrap control保留nested init；active control删除ordinary schema；普通工具作为J2 barrier后sibling calls | taskspace tool、typed args、handler、provider visibility、sequence tests | active provider request | tools 140/1 ignored；control 11/11；sequence 6/6；scenario 7/7；visibility 1/1 | 3-run baseline；paired均solved；active non-message约22.50 KB；9 vs 6 requests；terminal extra=0 | 无control-only wrapper、generic args、runtime自动动作或cadence惩罚 | complete (`fd9f759`)；live sibling adoption仍为0 |
 | R5-J6.6 input follow-up | 固定epoch base、Map写入和success ack仅保留机械必要字段；populated projection去重 | projection/runtime、TaskSpace schema/handler、cost extractor | provider context + control output | tools 140/1 ignored；core tools 335；action-map 12；scenario 7；harness自测 | paired均solved；projection 189->70 tokens；active fixed 22,488->22,107 bytes；warm cache 97.08% | failure原文、ordinary反馈、append-only journal均保留；无动态逐请求projection | complete (`99801e7`..`e7783b5`)；request path方差继续观察 |
-| R5-J6.7 canonical task context | Map/Event Store为唯一任务事实源；provider忠实线性化；control/result/projection引用同一events | action_map event store/codec、session ingress、provider linearizer、compaction/ref | every TaskSpace turn | ownership、round-trip、pair/order、compaction、Docker samples | source event、linearization、duplicate、checkpoint和cache trace | 无双写、compat、semantic reducer或silent fallback | J6.7.0-.7 A-F landed；G blocker open |
+| R5-J6.7 canonical task context | Map/Event Store为唯一任务事实源；provider忠实线性化；control/result/projection引用同一events | action_map event store/codec、session ingress、provider linearizer、compaction/ref | every TaskSpace turn | ownership、round-trip、pair/order、compaction、Docker samples | source event、linearization、duplicate、checkpoint和cache trace | 无双写、compat、semantic reducer或silent fallback | J6.7.0-.7 complete；两轮对抗性审查通过 |
 | R5-J6.7.7 context residue | final/nested/blank/projection/snapshot各自单一owner；fresh走canonical自然历史，新epoch projection保留完整骨架和机械分层详情 | event linearizer、session finalization、projection、rollout replay | bootstrap/terminal/resume | lineage/post-terminal/skeleton/tier/ref/replay | semantic duplicate、skeleton coverage、stale marker、snapshot ratio | 无Map分页、语义相似度、summary、compat或silent fallback | complete；two-round adversarial review passed |
 | R5-J7 singular request patch slot | J6.7完成后，Standard/TaskSpace单response最多一个patch；carrier schema排除重复patch，共享dispatcher在任何工具执行前统计顶层/carrier/nested patch；shared patch validation先全量预检再写入；非patch多工具不受限 | `apply-patch`、provider response tool sequence、TaskSpace carrier、typed args、performance observer | Standard/TaskSpace patch path | request manifest、prepare/commit、schema、state/filesystem snapshot、Docker samples | request patch count、single/multi patch、prepare/commit/skip、read observation分账 | 无自动合并、部分执行后拒绝、旧形态兼容或读取gate | J7.0-J7.8 complete；J7.5 14/14（见38） |
-| R5-K Map-native compression | 超大Map按硬拓扑条件可逆归档，macro粒度保持全局导航 | Map archive/projection/checkpoint/ref/replay | skeleton hard-budget boundary | scale/round-trip/20-cycle/Docker | budget/archive/expand/replay trace | 无Runtime summary、relevance判断、partial map或兼容层 | planned；K0/K1先冻结合同 |
+| R5-K Map-native compression | 超大Map按硬拓扑条件可逆归档，macro粒度保持全局导航 | Map archive/projection/checkpoint/ref/replay | skeleton hard-budget boundary | scale/round-trip/20-cycle/Docker | budget/archive/expand/replay trace | 无Runtime summary、relevance判断、partial map或兼容层 | K0 complete；K1 next；K2-K5未开始 |
 
 ## 1.17 Change-chain Logging Matrix
 
@@ -1072,6 +1075,8 @@ provider request count、state-machine action count、wall time、失败分类�
 | map topology guard | captured/compared | `taskspace.topology_preserved` | `taskspace.topology_regressed` | `topology_delta` | `run_id/pair_id/map_id` | info/error | benchmark gate |
 | patch prepare/commit | prepared/committed | `apply_patch.prepare_completed` / `apply_patch.commit_completed` | prepare/commit failure | `failure_class/rollback_status` | `call_id/patch_hash` | info/error | tool/runtime audit |
 | singular patch carrier | validated/executed | `taskspace.patch_carrier_validated` | `taskspace.patch_carrier_rejected` | `reason_code` | `request_id/outer_call_id` | info/warn | TaskSpace owner |
+| Map budget measurement | measured | `taskspace.map_budget_measured` | `taskspace.map_skeleton_over_budget` | `budget_profile` | `task_id/map_id/nodes/edges/bytes/tokens` | info/warn | K owner/benchmark |
+| Map replay measurement | replayed | `taskspace.map_replay_measured` | replay/hash/count mismatch | `fixture_kind` | `checkpoint_count/delta_count/snapshot_hash` | info/error | K owner/benchmark |
 
 ## 1.18 风险
 
@@ -1125,7 +1130,8 @@ payload 均只有一份最新 projection，输入 token 由污染样本的 26909
 由 46971ms 降至 23649ms。随后插入完成 R5-G2：TaskSpace 根 map 只保留 Agent-authored
 `initialize_map`，复杂样本单 map 完成。成本复核确认 E4 没有修复缓存前缀：R5 cache hit
 17.4%，可比 standard 为 95.9%；pytest 环境探测同时暴露 shell 单一 exit code 隐藏上游管道
-状态。E5/G0/G1 已完成反馈事实与 append-only history 门禁；下一步进入 R5-F 物理删除和模块拆分。
+状态。E5/G0/G1/F/I/J均已完成对应工程门禁；K0进一步建立9个规模点、15个budget crossing、长链和真实
+rollout重放基线，结果见`43-r5-k0-map-budget-baseline-result.md`。下一步进入K1压缩合同和单一方案选择。
 
 ## 1.20 R5-A/B 后计划校准
 

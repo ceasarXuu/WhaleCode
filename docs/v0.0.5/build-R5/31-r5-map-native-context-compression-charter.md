@@ -1,14 +1,15 @@
 # R5-K Map-native 上下文压缩专项立项
 
 - Created: 2026-07-12
-- Updated: 2026-07-12
-- Version: 1.0
-- Status: Planned / Discovery Required
+- Updated: 2026-07-13
+- Version: 1.1
+- Status: K0 COMPLETE / K1 READY
 - Owner / Responsible: WhaleCode core runtime / TaskSpace Map
 - Related Systems: canonical Event Store、Map projection、compaction、checkpoint、resume/replay、artifact refs
 - Related Links: `22-r5-j6-7-canonical-task-context-plan.md`、
   `30-r5-j6-7-phase7-context-residue-plan.md`、
-  `32-r5-j6-7-phase7-result.md`
+  `32-r5-j6-7-phase7-result.md`、
+  `43-r5-k0-map-budget-baseline-result.md`
 - Risk Level: High
 - Plan Type: Full charter；K0/K1通过前不冻结实现方案
 
@@ -147,6 +148,15 @@ ArchiveNode
 - Exit：规模曲线、hard budget profiles和至少两个真实/合成长任务fixture齐全；未知owner=0。
 - Fallback：observer revert；不得凭估算进入实现。
 
+实施结果（2026-07-13）：K0验收`7/7`、完成度100%，允许进入K1。100/1,000/10,000 nodes与
+`none/chain/forward_4`三种edge profile共9个规模点、15个budget crossing、3档checkpoint/delta replay、
+1,000-node 5轮session-native resume/compaction/code revision及真实Docker rollout 3/3 replay均已落盘。
+unknown owner=0。完整测量、artifact和未完成项见`43-r5-k0-map-budget-baseline-result.md`。
+
+K0实施中修复了Map runtime rollout内外层重复`type`导致checkpoint/delta不可反序列化的问题。新协议不保留
+旧数据兼容；真实rollout的2个checkpoint、87个delta可由生产loader完整读取并稳定重放。该修复恢复的是既有
+replay合同，不改变production projection或引入压缩策略。
+
 ### R5-K1：压缩合同与方案选择
 
 - Entry：K0通过。
@@ -210,7 +220,7 @@ ArchiveNode
 
 | Phase | Independent verification | Exit evidence | Completion required | Decision |
 |---|---|---|---|---|
-| K0 | synthetic + real replay observer | scale/budget curve | 100% | proceed/pause |
+| K0 | synthetic + real replay observer | scale/budget curve | 100% | complete；proceed to K1 |
 | K1 | contract and failure review | zero unknown ownership | 100% | select/pause |
 | K2 | schema/ref/permission fixtures | round-trip 100% | 100% | proceed/revert |
 | K3 | 100/1k/10k engine tests | invariants 100% | 100% | proceed/revert |
@@ -242,7 +252,7 @@ ArchiveNode
 
 ## 11. 开放问题
 
-以下问题必须由K0/K1证据回答，当前不预设：
+以下问题必须由K1证据回答，当前不预设：
 
 1. eligible subgraph最小规模和closed-age阈值是多少；
 2. macro node是否允许分层嵌套，还是每次从canonical events重建扁平archive；
@@ -269,6 +279,8 @@ K0/K1属于专项发现和合同冻结；只有证据证明骨架规模、触发
 | 2026-07-12 | 普通projection不分页全局骨架 | projection的核心价值是持续掌握全局路径 |
 | 2026-07-12 | 压缩以可逆历史子图为候选 | 保持全局导航并允许精确展开，而不是隐藏未知节点 |
 | 2026-07-12 | 语义载荷只接受原始事件或Agent checkpoint | Runtime只管理硬规则和Map，不替Agent解释工作 |
+| 2026-07-13 | K0按7/7关闭并开放K1 | 9个规模点、15个阈值、两类长链fixture和真实rollout重放证据齐全，unknown owner=0 |
+| 2026-07-13 | corruption目标选择structured session fatal | partial restore、silent fallback和operator recoverable均不符合canonical Map完整性 |
 
 ## 14. Plan Quality Checklist
 
