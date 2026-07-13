@@ -1,12 +1,12 @@
 {
   "schema_version": "taskspace-map-compression-strategy-ledger-v1",
   "baseline_id": "R5-K-B0",
-  "selected_strategy_id": "S1",
+  "selected_strategy_id": null,
   "strategies": [
     {
       "id": "S1",
       "name": "completed_inactive_leaf_batch_archive_projection",
-      "status": "revise",
+      "status": "rejected",
       "relationship": "incremental",
       "previous": "R5-K-B0",
       "single_behavior_delta": "In provider projection only, replace a deterministic batch of completed, inactive, edge-isolated leaf nodes with one reversible mechanical archive index.",
@@ -29,8 +29,9 @@
         "name": "activated_projection_bytes",
         "candidate_previous_max_ratio": 0.9
       },
-      "revision_reason": "Production round-trip and scale tests pass, but no live run reached the conjunction of an active projection epoch and at least three eligible completed nodes. Fixed token thresholds distort the Agent path, while terminal resume moves history out of the active map.",
-      "next_required_evidence": "A mechanically seeded, hash-equivalent active-map continuation with at least three eligible completed nodes and one open work node; no forced token threshold and no new Runtime trigger.",
+      "decision_reason": "A natural active-map prefix activated S1 in 3/3 runs and reduced projection bytes from 1963 to 856, but candidate median continuation requests, input tokens, and wall time were 1.50x, 1.68x, and 1.51x the matched previous version. The simple no-compaction sample also missed the preregistered 1.10x candidate/previous cost gate.",
+      "result_document": "docs/v0.0.5/build-R5/48-r5-k3-s1-natural-prefix-result.md",
+      "next_required_evidence": "Any locality-preserving archive rule must be registered as a new atomic strategy and compared against P1 and Standard; S1 must not be revised in place or combined with S2.",
       "forbidden_co_changes": [
         "canonical_action_map_schema",
         "checkpoint_or_delta_format",

@@ -2,14 +2,15 @@
 
 - Created: 2026-07-12
 - Updated: 2026-07-14
-- Version: 1.3
-- Status: K0/K1/K2 COMPLETE / K3-S1 REVISE
+- Version: 1.4
+- Status: K0/K1/K2 COMPLETE / K3-S1 REJECTED / PAUSED
 - Owner / Responsible: WhaleCode core runtime / TaskSpace Map
 - Related Systems: canonical Event Store、Map projection、compaction、checkpoint、resume/replay、artifact refs
 - Related Links: `22-r5-j6-7-canonical-task-context-plan.md`、
   `30-r5-j6-7-phase7-context-residue-plan.md`、
   `32-r5-j6-7-phase7-result.md`、
-  `43-r5-k0-map-budget-baseline-result.md`
+  `43-r5-k0-map-budget-baseline-result.md`、
+  `48-r5-k3-s1-natural-prefix-result.md`
 - Risk Level: High
 - Plan Type: Full charter；K0/K1通过前不冻结实现方案
 
@@ -376,6 +377,7 @@ K0/K1属于专项发现和合同冻结；只有证据证明骨架规模、触发
 | 2026-07-13 | 压缩改为逐策略实验阶梯 | 固定B0并比较Previous/Candidate，避免多个策略叠加后无法拆解收益和回归 |
 | 2026-07-13 | 每策略同时验收简单和复杂sample | 复杂任务压缩收益不能证明普通任务没有request、token或语义回归 |
 | 2026-07-14 | S1判定为REVISE并暂停 | codec/scale通过，但live样本未稳定同时满足active projection epoch与3个eligible completed nodes；禁止用低token阈值或新增Runtime触发器制造通过 |
+| 2026-07-14 | S1自然active-prefix复验后判定为REJECTED | 同一canonical snapshot上projection减少56.4%，但复杂样本requests/input/wall为P1的1.50x/1.68x/1.51x，简单样本成本门也未通过；停止且不进入S2 |
 
 ## 14. Plan Quality Checklist
 

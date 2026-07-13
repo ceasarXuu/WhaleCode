@@ -7,6 +7,10 @@
 - 判定：`REVISE`
 - 后续：暂停；不得进入 S2
 
+> 该文档保留首次 live 校准未激活的历史结论。后续已用自然 Agent 轨迹构建 active-prefix 正式样本，S1 实际
+> 激活后因工程成本负收益判定为 `REJECTED`。最终结果见
+> `48-r5-k3-s1-natural-prefix-result.md`。
+
 ## 1. 结论
 
 S1 的 production slice、可逆 archive、hash 校验、读取引用和 100/1,000/10,000 节点规模测试通过，canonical Map
@@ -71,4 +75,5 @@ S1下一次候选不改production语义，先补一个机械且可审计的 acti
 4. continuation由真实Agent完成代码任务和validators，synthetic只负责前置状态，不替代live执行；
 5. 不设置低token阈值，不新增Runtime触发器；先1次冒烟，确认激活后再执行STD/B0/C各3次。
 
-在该fixture和等价性证明通过前，S1保持`REVISE`，S2保持`unselected`。
+该 fixture 和等价性证明后来已经完成；本页的修订入口不再是当前状态。最终判定以
+`48-r5-k3-s1-natural-prefix-result.md` 为准，S2 仍保持 `unselected`。

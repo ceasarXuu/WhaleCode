@@ -993,11 +993,11 @@ schema 直接表达 singular patch continuation；不限制读取或 pytest，�
 | R5-J6.7.7-A-G | lineage observer、blank context、terminal owner、nested/ack、全局骨架与局部详情分层、incremental snapshot、Docker/review | 不依赖J7或R5-K | provider semantic duplicate=0；skeleton 100%；stale blank=0；failure 100%；snapshot -80%；cache不回退 | 每阶段100%或暂停 | complete；two-round adversarial review passed |
 | R5-J7.0-J7.8 | J6.7后重审response/carrier；patch atomicity、singular carrier、request preflight、control fidelity、terminal chain、Map反馈、Docker samples | 必须等J6.7完成 | multi-patch零执行；validation failure零副作用；control state/protocol failure=0；Map闭合 | 每阶段100%或暂停 | complete；J7.5 14/14 gates |
 | R5-K0 | 长会话预算、projection分账、replay与corruption合同基线 | 必须等J7完成；不依赖K1实现 | 9规模点、15 crossings、两类长链fixture、真实rollout 3/3 replay、unknown owner=0 | 100% | complete；proceed to K1（见43） |
-| R5-K1 | B0 manifest、公共合同、atomic strategy ledger、S1和样本矩阵 | 不依赖K2实现 | immutable B0；zero unknown；四arm与simple/complex固定 | 100% | planned；next |
-| R5-K2.0 | 无行为schema/ref/runner/logging基建 | 依赖K1；不得提前实现S1行为 | round-trip 100%；相对B0行为等价；activation=0 | 100% | planned |
-| R5-K2.F | structured session fatal单变更 | 依赖K2.0；不得混入压缩策略 | corruption fatal 100%；partial=0；正常路径等价 | 100% | planned |
-| R5-K3-Sn | 每次只增加一个策略并运行STD/B0/Previous/Candidate | 每个Sn不能依赖Sn+1补证 | 单策略边际收益明确；simple零回归；complex实际激活 | 每个Sn 100%或暂停 | planned；逐策略accept/reject/revise |
-| R5-K4/K5 | 已接受策略组合的20轮恢复、Docker收益和授权审查 | 只组合已独立通过的策略 | zero drift/orphan；最终收益可回溯到逐策略artifact | 100% | planned |
+| R5-K1 | B0 manifest、公共合同、atomic strategy ledger、S1和样本矩阵 | 不依赖K2实现 | immutable B0；zero unknown；四arm与simple/complex固定 | 100% | complete；见44 |
+| R5-K2.0 | 无行为schema/ref/runner/logging基建 | 依赖K1；不得提前实现S1行为 | round-trip 100%；相对B0行为等价；activation=0 | 100% | complete；见45 |
+| R5-K2.F | structured session fatal单变更 | 依赖K2.0；不得混入压缩策略 | corruption fatal 100%；partial=0；正常路径等价 | 100% | complete；见46 |
+| R5-K3-Sn | 每次只增加一个策略并运行STD/B0/Previous/Candidate | 每个Sn不能依赖Sn+1补证 | 单策略边际收益明确；simple零回归；complex实际激活 | 每个Sn 100%或暂停 | S1 rejected；专项暂停，见47/48 |
+| R5-K4/K5 | 已接受策略组合的20轮恢复、Docker收益和授权审查 | 只组合已独立通过的策略 | zero drift/orphan；最终收益可回溯到逐策略artifact | 100% | not eligible；当前无accepted策略 |
 | R5-I3/I4 | Docker complex pairs、等价/性能门禁、Docker-only call graph | 不依赖 closeout | performance observation、container parity、default-path scan | 工程实现与验证100%；不覆盖J4收益缺口 | Docker-only landed |
 | R5-G3 | complex paired runs、streaming extractor tests | 不依赖 closeout | 完整指标报告、失败分类 | 100% 完成 | streaming extractor已落地；K后第二复杂样本和final paired regression待执行 |
 | R5-H | closeout review | 无 | closeout 文档和 clean git | R5-F/I/J/G3 全部完成 | pause |
@@ -1140,8 +1140,10 @@ payload 均只有一份最新 projection，输入 token 由污染样本的 26909
 `initialize_map`，复杂样本单 map 完成。成本复核确认 E4 没有修复缓存前缀：R5 cache hit
 17.4%，可比 standard 为 95.9%；pytest 环境探测同时暴露 shell 单一 exit code 隐藏上游管道
 状态。E5/G0/G1/F/I/J均已完成对应工程门禁；K0进一步建立9个规模点、15个budget crossing、长链和真实
-rollout重放基线，结果见`43-r5-k0-map-budget-baseline-result.md`。下一步进入K1，冻结B0、四arm实验矩阵、
-atomic strategy ledger和S1；后续每个策略单独验收，不一次性叠加实现。
+rollout重放基线，结果见`43-r5-k0-map-budget-baseline-result.md`。K1/K2随后完成B0、公共合同、archive基建和
+corruption fatal合同。K3-S1通过自然active-prefix实际激活并完成三次对照，但projection缩小伴随明显请求、token和
+耗时负收益，最终判定`REJECTED`，见`47-r5-k3-s1-result.md`和
+`48-r5-k3-s1-natural-prefix-result.md`。专项当前暂停，不进入S2；任何近邻保留方案必须作为新策略独立登记。
 
 ## 1.20 R5-A/B 后计划校准
 
