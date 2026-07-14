@@ -3,8 +3,10 @@ $ErrorActionPreference = "Stop"
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 $contractPath = Join-Path $repoRoot "benchmarks/taskspace/r6/rooted-dag-contract.json"
 $fixturesPath = Join-Path $repoRoot "benchmarks/taskspace/r6/rooted-dag-contract-fixtures.json"
+$inventoryPath = Join-Path $repoRoot "benchmarks/taskspace/r6/phase-a-ownership-inventory.json"
 $contract = Get-Content -Raw -Encoding UTF8 -LiteralPath $contractPath | ConvertFrom-Json -Depth 30
 $fixtures = Get-Content -Raw -Encoding UTF8 -LiteralPath $fixturesPath | ConvertFrom-Json -Depth 30
+$inventory = Get-Content -Raw -Encoding UTF8 -LiteralPath $inventoryPath | ConvertFrom-Json -Depth 30
 
 function Assert-Equal {
     param($Actual, $Expected, [string]$Message)
@@ -185,4 +187,27 @@ foreach ($case in @($fixtures.cases)) {
     }
 }
 
-Write-Host "R6 rooted DAG contract tests passed: $(@($fixtures.cases).Count) fixtures"
+Assert-Equal $inventory.status "complete" "Ownership inventory is incomplete"
+$coveredDomains = @($inventory.items | ForEach-Object { [string]$_.domain } | Sort-Object -Unique)
+foreach ($domain in @($inventory.coverage_domains)) {
+    if ($coveredDomains -notcontains [string]$domain) {
+        throw "Ownership inventory does not cover domain: $domain"
+    }
+}
+$allowedClassifications = @($inventory.allowed_classifications | ForEach-Object { [string]$_ })
+foreach ($item in @($inventory.items)) {
+    foreach ($field in @("id", "domain", "current_owner", "current_path", "classification", "target_owner", "target_phase", "reason")) {
+        if ([string]::IsNullOrWhiteSpace([string]$item.$field)) {
+            throw "Ownership inventory item is missing ${field}: $($item.id)"
+        }
+    }
+    if ($allowedClassifications -notcontains [string]$item.classification) {
+        throw "Ownership inventory item has unknown classification: $($item.id)=$($item.classification)"
+    }
+    $fullPath = Join-Path $repoRoot ([string]$item.current_path)
+    if (-not (Test-Path -LiteralPath $fullPath)) {
+        throw "Ownership inventory path does not exist: $($item.id)=$fullPath"
+    }
+}
+
+Write-Host "R6 rooted DAG contract tests passed: $(@($fixtures.cases).Count) fixtures, $(@($inventory.items).Count) ownership items"
