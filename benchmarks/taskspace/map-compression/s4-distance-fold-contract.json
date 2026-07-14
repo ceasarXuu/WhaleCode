@@ -1,0 +1,110 @@
+{
+  "schema_version": "taskspace-map-distance-fold-contract-v1",
+  "strategy_id": "S4",
+  "name": "distance_based_node_detail_fold_with_agent_expand",
+  "status": "designed_not_implemented",
+  "previous": "R5-K-B0",
+  "single_behavior_delta": "Keep every canonical node and edge visible while folding only the baseline node-local detail projection of completed non-root nodes at least three graph edges from every active frontier node; an Agent expansion permanently marks the node agent-important.",
+  "topology_contract": {
+    "all_canonical_nodes_visible": true,
+    "all_canonical_edges_visible": true,
+    "macro_or_archive_node_allowed": false,
+    "node_pagination_allowed": false,
+    "runtime_summary_allowed": false
+  },
+  "frontier_contract": {
+    "statuses": [
+      "pending",
+      "ready",
+      "running",
+      "blocked"
+    ],
+    "include_current_node": true
+  },
+  "root_contract": {
+    "task_root_always_full": true,
+    "graph_root_definition": "node_with_zero_in_degree",
+    "graph_root_fold_allowed": false
+  },
+  "distance_contract": {
+    "metric": "minimum_undirected_edge_distance_to_any_active_frontier_node",
+    "fold_threshold_inclusive": 3,
+    "unknown_or_unreachable_distance": "ineligible"
+  },
+  "eligibility_contract": {
+    "required_status": "completed",
+    "root_allowed": false,
+    "current_or_frontier_allowed": false,
+    "active_lease_allowed": false,
+    "agent_important_allowed": false,
+    "minimum_frontier_distance": 3
+  },
+  "canonical_node_attribute": {
+    "name": "importance",
+    "values": [
+      "default",
+      "agent_important"
+    ],
+    "creation_default": "default",
+    "agent_may_set_during_create_or_initialize": false,
+    "runtime_may_infer_or_promote": false,
+    "allowed_transition": "default_to_agent_important_via_expand_only",
+    "downgrade_or_reset_allowed": false
+  },
+  "projection_state": {
+    "field": "detail_state",
+    "values": [
+      "full",
+      "folded",
+      "expanded"
+    ],
+    "canonical_workflow_status_unchanged": true,
+    "folded_is_derived_not_a_node_status": true
+  },
+  "folded_projection_contract": {
+    "retain_fields": [
+      "node_id",
+      "kind",
+      "goal",
+      "status",
+      "importance",
+      "detail_state",
+      "frontier_distance",
+      "dependency_edges",
+      "result_ids",
+      "event_count",
+      "detail_ref",
+      "detail_sha256"
+    ],
+    "hidden_payload": "baseline_node_local_detail_projection_only",
+    "semantic_rewrite_allowed": false
+  },
+  "agent_action_contract": {
+    "tool": "taskspace_control",
+    "action": "expand_nodes",
+    "input": "node_ids_non_empty_unique_array",
+    "atomic_batch": true,
+    "precondition": "every_target_is_currently_folded",
+    "commit_effect": "persist_importance_as_agent_important",
+    "automatic_refold_after_commit": false,
+    "other_fold_or_importance_actions_exposed": false
+  },
+  "failure_contract": {
+    "invalid_expand": "structured_protocol_error_with_zero_state_commit",
+    "important_details_over_budget": "map_projection_over_budget",
+    "silent_refold_of_agent_important_node": false,
+    "partial_batch_commit": false
+  },
+  "forbidden_co_changes": [
+    "runtime_semantic_relevance_ranking",
+    "runtime_generated_summary",
+    "node_or_edge_removal_from_projection",
+    "archive_or_macro_replacement",
+    "global_skeleton_pagination",
+    "importance_at_node_creation",
+    "agent_or_runtime_refold_action",
+    "importance_downgrade",
+    "compatibility_adapter",
+    "long_lived_feature_flag"
+  ]
+}

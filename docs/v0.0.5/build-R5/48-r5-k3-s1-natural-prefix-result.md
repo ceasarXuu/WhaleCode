@@ -8,7 +8,10 @@
 - 候选：`a66fb22`，app-server SHA-256 `b2317a46eeefdb5eb9ff2cd827c69d74b1dd49209ec967a214873f563613c156`
 - 匹配前版：`1a02490` + 共享 compaction 修复 `a66fb22`，app-server SHA-256 `57dcada2e57d7126dd41039d958aa64d8fa98be0e3d5835ea51d9d08773d959f`
 - 判定：`REJECTED`
-- 后续：暂停；不得进入 S2 或叠加其他压缩策略
+- 后续：S1/S2/S3 archive方向均已废弃；替代设计为S4，见`49-r5-k3-s4-distance-fold-design.md`
+
+> 2026-07-14后续决策：本报告继续作为S1历史实验事实保留，但S1不得修订、复用或作为fallback保留。
+> S2/S3未实施即废弃。S4不归档节点，只折叠远端节点的局部详情，并由Agent单向展开和标记重要。
 
 ## 1. 判定
 

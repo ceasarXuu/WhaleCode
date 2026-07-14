@@ -1,13 +1,15 @@
 {
-  "schema_version": "taskspace-map-compression-strategy-ledger-v1",
+  "schema_version": "taskspace-map-compression-strategy-ledger-v2",
   "baseline_id": "R5-K-B0",
-  "selected_strategy_id": null,
+  "selected_strategy_id": "S4",
   "strategies": [
     {
       "id": "S1",
       "name": "completed_inactive_leaf_batch_archive_projection",
-      "status": "rejected",
-      "relationship": "incremental",
+      "status": "abandoned",
+      "historical_outcome": "rejected_after_live_validation",
+      "superseded_by": "S4",
+      "relationship": "historical",
       "previous": "R5-K-B0",
       "single_behavior_delta": "In provider projection only, replace a deterministic batch of completed, inactive, edge-isolated leaf nodes with one reversible mechanical archive index.",
       "eligibility": {
@@ -29,9 +31,9 @@
         "name": "activated_projection_bytes",
         "candidate_previous_max_ratio": 0.9
       },
-      "decision_reason": "A natural active-map prefix activated S1 in 3/3 runs and reduced projection bytes from 1963 to 856, but candidate median continuation requests, input tokens, and wall time were 1.50x, 1.68x, and 1.51x the matched previous version. The simple no-compaction sample also missed the preregistered 1.10x candidate/previous cost gate.",
+      "decision_reason": "A natural active-map prefix activated S1 in 3/3 runs and reduced projection bytes from 1963 to 856, but candidate median continuation requests, input tokens, and wall time were 1.50x, 1.68x, and 1.51x the matched previous version. The simple no-compaction sample also missed the preregistered 1.10x candidate/previous cost gate. The archive direction was later abandoned because removing nodes from the global projection conflicts with the TaskSpace global-map product contract.",
       "result_document": "docs/v0.0.5/build-R5/48-r5-k3-s1-natural-prefix-result.md",
-      "next_required_evidence": "Any locality-preserving archive rule must be registered as a new atomic strategy and compared against P1 and Standard; S1 must not be revised in place or combined with S2.",
+      "next_required_evidence": "None. S1 must not be revised, re-enabled, or retained as a dormant fallback.",
       "forbidden_co_changes": [
         "canonical_action_map_schema",
         "checkpoint_or_delta_format",
@@ -46,16 +48,69 @@
     {
       "id": "S2",
       "name": "completed_linear_subgraph_archive_projection",
-      "status": "unselected",
-      "relationship": "mutually_exclusive_with_S1_selection_rule",
-      "single_behavior_delta": "Archive one completed linear connected subgraph while preserving explicit entry and exit edges."
+      "status": "abandoned",
+      "historical_outcome": "never_implemented",
+      "superseded_by": "S4",
+      "relationship": "historical",
+      "single_behavior_delta": "Archive one completed linear connected subgraph while preserving explicit entry and exit edges.",
+      "decision_reason": "Abandoned before implementation because replacing a connected subgraph with an archive still removes canonical nodes from the always-visible global Map."
     },
     {
       "id": "S3",
       "name": "agent_checkpoint_boundary_archive",
-      "status": "unselected",
-      "relationship": "incremental",
-      "single_behavior_delta": "Use an Agent-authored checkpoint event as the visible semantic boundary for an otherwise mechanical archive."
+      "status": "abandoned",
+      "historical_outcome": "never_implemented",
+      "superseded_by": "S4",
+      "relationship": "historical",
+      "single_behavior_delta": "Use an Agent-authored checkpoint event as the visible semantic boundary for an otherwise mechanical archive.",
+      "decision_reason": "Abandoned before implementation because an Agent checkpoint does not correct the underlying loss of node-level global visibility and would make archive boundaries more semantically prominent."
+    },
+    {
+      "id": "S4",
+      "name": "distance_based_node_detail_fold_with_agent_expand",
+      "status": "selected_design_not_implemented",
+      "relationship": "replacement_for_S1_S2_S3",
+      "previous": "R5-K-B0",
+      "single_behavior_delta": "Keep every canonical node and edge visible while folding only the baseline node-local detail projection of completed non-root nodes at least three graph edges from every active frontier node; an Agent expansion permanently marks the node agent-important.",
+      "distance": {
+        "metric": "minimum_undirected_edge_distance_to_any_active_frontier_node",
+        "minimum_inclusive": 3,
+        "unknown_or_unreachable": "ineligible"
+      },
+      "eligibility": {
+        "required_status": "completed",
+        "root_allowed": false,
+        "active_or_current_allowed": false,
+        "active_lease_allowed": false,
+        "agent_important_allowed": false
+      },
+      "agent_transition": {
+        "tool": "taskspace_control",
+        "action": "expand_nodes",
+        "from": "folded_default",
+        "to": "expanded_agent_important",
+        "reverse_allowed": false,
+        "creation_override_allowed": false
+      },
+      "primary_metric": {
+        "name": "activated_node_detail_projection_bytes",
+        "candidate_previous_max_ratio": 0.9
+      },
+      "design_document": "docs/v0.0.5/build-R5/49-r5-k3-s4-distance-fold-design.md",
+      "contract": "benchmarks/taskspace/map-compression/s4-distance-fold-contract.json",
+      "implementation_gate": "Retire all S1 archive production code before adding S4 foundations; enable fold and expand as one complete provider-visible safety contract.",
+      "forbidden_co_changes": [
+        "runtime_semantic_relevance_ranking",
+        "runtime_generated_natural_language_summary",
+        "node_or_edge_removal_from_projection",
+        "archive_or_macro_replacement",
+        "global_skeleton_pagination",
+        "importance_at_node_creation",
+        "agent_or_runtime_refold_action",
+        "importance_downgrade",
+        "compatibility_adapter",
+        "long_lived_feature_flag"
+      ]
     }
   ]
 }

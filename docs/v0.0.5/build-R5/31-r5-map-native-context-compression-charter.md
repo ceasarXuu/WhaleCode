@@ -2,15 +2,16 @@
 
 - Created: 2026-07-12
 - Updated: 2026-07-14
-- Version: 1.4
-- Status: K0/K1/K2 COMPLETE / K3-S1 REJECTED / PAUSED
+- Version: 1.5
+- Status: K0/K1/K2 COMPLETE / S1-S3 ABANDONED / S4 DESIGNED / PAUSED
 - Owner / Responsible: WhaleCode core runtime / TaskSpace Map
 - Related Systems: canonical Event Store、Map projection、compaction、checkpoint、resume/replay、artifact refs
 - Related Links: `22-r5-j6-7-canonical-task-context-plan.md`、
   `30-r5-j6-7-phase7-context-residue-plan.md`、
   `32-r5-j6-7-phase7-result.md`、
   `43-r5-k0-map-budget-baseline-result.md`、
-  `48-r5-k3-s1-natural-prefix-result.md`
+  `48-r5-k3-s1-natural-prefix-result.md`、
+  `49-r5-k3-s4-distance-fold-design.md`
 - Risk Level: High
 - Plan Type: Full charter；K0/K1通过前不冻结实现方案
 
@@ -26,11 +27,11 @@ J6.7.7-E负责在普通规模Map中保持完整全局骨架，并按机械规则
 
 目标不是“尽量少展示Map”，而是：
 
-1. 在硬上下文预算内持续保留root任务、当前active frontier和全局可导航路径；
-2. 将满足硬拓扑条件的历史已闭合子图可逆地折叠为macro/archive node；
-3. 压缩后的语义内容只能来自原始事件或Agent明确写入的checkpoint/conclusion；
-4. 任意折叠子图均可按稳定ref展开、校验和replay；
-5. 多轮压缩、resume、fork和继续工作不产生双事实源或Map坍缩。
+1. 在硬上下文预算内持续保留root任务、全部nodes/edges、当前active frontier和全局可导航路径；
+2. 只折叠远离active frontier的历史completed节点的node-local详情，不归档或替换节点；
+3. 折叠内容只能来自原始事件和稳定ref，Runtime不生成摘要或判断重要性；
+4. Agent可把已折叠节点单向展开并永久标记为`agent_important`；
+5. 展开、resume、fork和replay不产生双事实源、自动refold或Map坍缩。
 
 ## 2. 非目标
 
@@ -39,7 +40,7 @@ R5-K不做：
 - 让Runtime根据正文“相关性”“价值”或任务理解挑选节点；
 - 用LLM在Runtime后台自动总结、改写或合并Agent语义；
 - 通过减少节点、限制Agent建图或提示Agent粗化任务规避规模问题；
-- 只保留当前局部并把全局Map分页隐藏；
+- 只保留当前局部并把全局Map分页隐藏，或用macro/archive替换canonical nodes；
 - 删除canonical events或不可逆清理历史；
 - 为旧实验数据增加兼容adapter、双写、feature flag或silent fallback；
 - 将普通context compaction直接套在Map JSON/text上并宣称问题已解决。
@@ -73,8 +74,8 @@ Runtime只根据机械状态执行：
 - node status是否closed，是否位于active frontier；
 - 图的连通、依赖、祖先/后继和最短距离；
 - event sequence、时间戳、hash、ref、size和checkpoint覆盖范围；
-- archive/macro ref是否完整、可读、hash匹配且可replay；
-- Agent是否显式提交了可用于压缩的node result/checkpoint。
+- node-local detail ref是否完整、可读、hash匹配且可replay；
+- Agent是否通过合法expand动作把已折叠节点标记为重要。
 
 ### 4.2 Runtime不得决定的内容
 
@@ -87,49 +88,42 @@ Runtime不得：
 - 为了满足预算伪造completed、忽略依赖或隐藏active node；
 - 把压缩结果包装成Agent说过但实际未说过的内容。
 
-## 5. 候选目标模型
+## 5. 冻结目标模型
 
-以下仅是K1待验证候选，不是已冻结schema：
+S1/S2/S3的archive/macro候选已经废弃，S4冻结为唯一待实施方向：
 
 ```text
 TaskSpaceMap
   root
   active_frontier[]
-  live_nodes[]
-  archive_nodes[]
-
-ArchiveNode
-  id
-  covered_node_ids[] | covered_range_ref
-  entry_edge_ids[]
-  exit_edge_ids[]
-  terminal_status
-  agent_checkpoint_event_id?
-  result_refs[]
-  archive_ref
-  content_hash
-  child_count
-  created_at_sequence
+  nodes[]                 # 始终完整可见
+    status                # canonical工作流状态
+    importance            # default | agent_important
+    detail_state          # full | folded | expanded，projection派生
+    detail_ref?
+    detail_sha256?
+  edges[]                 # 始终完整可见
 ```
 
-压缩后projection中的macro node不是语义摘要，而是可验证的拓扑索引：它表达“这组已闭合node在这里，入口、
-出口、状态和精确archive ref是什么”。只有Agent已明确写入checkpoint/conclusion时，macro node才可以展示该
-语义正文；否则只显示机械字段和result refs。
+`importance`由Agent通过`taskspace_control.expand_nodes`单向维护并持久化；`detail_state`由Runtime只按状态、root、
+active frontier、图距离和importance机械派生。S4不得产生`archive_nodes`或macro node。完整合同见
+`49-r5-k3-s4-distance-fold-design.md`和
+`benchmarks/taskspace/map-compression/s4-distance-fold-contract.json`。
 
 ## 6. 不变量
 
-任何候选方案必须同时满足：
+S4及后续任何修订必须同时满足：
 
 1. root原始任务和当前有效用户约束完整保留；
-2. active、blocked、failed、in-flight及其依赖闭包不得归档；
-3. 每个被折叠node都恰好属于一个可解析archive ref，不重叠、不丢失；
-4. macro node完整保留子图的入口边、出口边、terminal status和child count；
-5. 展开后node/edge/event/result hash与压缩前100%一致；
-6. provider projection中的全局路径在macro粒度仍然连通；
-7. Runtime不新增自然语言summary；Agent语义正文必须有source event ID；
-8. compaction是派生视图变换，canonical Event Store仍是唯一事实源；
-9. 同一checkpoint输入重复压缩得到稳定等价结果；
-10. 超预算、缺ref、hash mismatch或replay失败必须显式停止，不能返回partial map。
+2. 全部canonical nodes和edges始终保留，active、blocked、in-flight和graph roots的详情不得折叠；
+3. 只有`completed && non-root && min_frontier_distance>=3 && importance=default`的节点可折叠；
+4. 距离未知、不可达、无边或无active frontier时不得猜测折叠；
+5. folded节点必须明确标记并保留目标、状态、拓扑、result refs、detail ref和hash；
+6. Agent只能把folded节点单向展开为`agent_important`，不能在创建时声明重要、取消重要或主动refold；
+7. 展开后node/edge/event/result和node-local detail hash与折叠前100%一致；
+8. Runtime不新增自然语言summary或重要性推断；Agent语义正文必须有source event ID；
+9. fold是派生视图，canonical Event Store仍是唯一事实源；Agent importance是canonical可replay状态；
+10. 超预算、缺ref、hash mismatch或replay失败必须显式停止，不能返回partial map或静默折叠重要节点。
 
 ### 6.1 单策略实验纪律
 
@@ -138,16 +132,17 @@ R5-K不得把多个压缩策略一次性实现后再用最终结果反推收益�
 ```text
 Baseline ID: R5-K-B0
 Source commit: 37bddb2bad9f8f92d52b082eb55c0c1a4171654a
-Production behavior: 无archive/macro压缩；骨架超预算时显式失败
+Production behavior: 无archive/macro或detail fold；骨架超预算时显式失败
 Evidence: 43-r5-k0-map-budget-baseline-result.md
 ```
 
 K1必须生成包含完整commit、locked binary SHA、Docker image digest、harness/profile hash和sample prompt hash的
 baseline manifest。后续不得移动`B0`；代码继续演进时仍从该immutable artifact重跑基线，不用历史均值代替同期运行。
 
-每个策略`S<n>`只能包含一个预先声明的行为变化。schema、tool surface、触发条件、候选选择、详情保留、macro
-展示、自动触发和expand方式中，只要会改变provider可见内容或Runtime行为，就分别视为策略，不得捆绑。纯内部
-schema/ref/logging基建可以先落地，但必须证明production行为与B0一致；一旦行为发生变化，就重新归类为一个策略。
+每个策略`S<n>`只能包含一个预先声明的产品行为合同。schema、tool surface、触发条件、候选选择和详情保留中，
+只要可独立启用且改变provider可见内容或Runtime行为，就分别视为策略，不得捆绑。纯内部schema/ref/logging基建
+可以先落地，但必须证明production行为与B0一致。S4的自动fold与Agent expand属于同一可逆状态转换合同，任一侧
+单独启用都会形成不可恢复折叠或无效工具，因此必须原子启用，不能拆成两个不完整provider行为。
 
 每轮固定四个观察臂：
 
@@ -190,12 +185,12 @@ TaskSpace看到由同一canonical事件集组织出的Map；需要生成equivale
 | correctness | Agent complete且public/hidden validator全部通过 | Agent complete且public/hidden validator全部通过 |
 | activation | `strategy_activation_count=0` | candidate每次运行`strategy_activation_count>0` |
 | semantic fidelity | root/user constraints、tool failure/ref无丢失或重写 | root/frontier/protected保留100%，expand/replay hash 100% |
-| deterministic cost | projection/tool schema差异必须完全等于strategy manifest | archive/macro bytes和触发次数可分账 |
+| deterministic cost | projection/tool schema差异必须完全等于strategy manifest | folded detail bytes、tool schema bytes和触发次数可分账 |
 | stochastic guardrail | C/P的requests、input、wall三项median ratio均不高于1.10；Req2+ cache下降不超过2pp | 预先登记的primary benefit相对P改善；其他成本和正确性无未解释回退 |
-| topology | canonical nodes/edges无变化 | archive前后expand得到原canonical topology 100% |
+| topology | canonical nodes/edges无变化 | fold前后全局topology可见率100%，expand detail hash 100% |
 
 三次运行若方向混合，或简单sample任一median ratio位于`1.10~1.20`，扩展到五次；五次后仍超过1.10则策略暂停。
-任何correctness失败、简单sample意外激活、provider-visible未登记差异、partial archive或hash mismatch都直接阻止
+任何correctness失败、简单sample意外激活、provider-visible未登记差异、partial expand或hash mismatch都直接阻止
 promotion，不得用复杂sample收益抵消简单sample回归。复杂sample的primary benefit及最小改善阈值必须在运行前写入
 strategy manifest，运行后不得改指标追求通过。
 
@@ -231,6 +226,8 @@ replay合同，不改变production projection或引入压缩策略。
 
 ### R5-K1：压缩合同与方案选择
 
+> 历史phase，已完成。其archive候选选择后来被S1 live证据和S4产品边界推翻，不再作为当前目标设计。
+
 - Entry：K0通过。
 - Tasks：
   1. 物化并冻结`R5-K-B0` baseline manifest和可重跑Docker artifact；
@@ -244,6 +241,8 @@ replay合同，不改变production projection或引入压缩策略。
 - Fallback：保持J6.7.7显式`map_skeleton_over_budget`，不加入临时分页。
 
 ### R5-K2.0：无行为公共基建
+
+> 历史phase，已完成。仅保留仍被S4使用的中性ref/hash/runner能力；S1专用archive接线由K3-R0删除。
 
 - Entry：K1通过。
 - Tasks：
@@ -269,25 +268,28 @@ replay合同，不改变production projection或引入压缩策略。
 ### R5-K3-Sn：单策略垂直切片循环
 
 - Entry：K2.0和K2.F分别通过。
-- 每个`S<n>`重复以下步骤：
-  1. 从`P<n-1>`增加且只增加strategy manifest声明的一项行为；
-  2. 补齐该行为所需的最小production vertical slice和日志，不顺带加入下一策略；
-  3. 执行simple/complex四arm各3次和deterministic scale/replay；必要时扩至5次；
-  4. 分别报告对Standard、B0和Previous的正确性、动作、Map、projection、request/token/cache/wall差异；
-  5. 单独判定accept/reject/revise并暂停；未accept不得开始`S<n+1>`。
+- 当前执行顺序：
+  1. `K3-R0`先物理删除S1 archive production path，验证回到P1/B0等价行为；
+  2. `K3-S4.0`只落importance/event/snapshot/distance/logging基建，provider-visible行为保持B0；
+  3. `K3-S4.1`原子启用distance fold和Agent expand，不顺带修改prompt、compaction或普通tool反馈；
+  4. 执行simple/complex四arm各3次和deterministic scale/replay；必要时扩至5次；
+  5. 分别报告对Standard、B0和S4.0的正确性、动作、Map、projection、request/token/cache/wall差异；
+  6. 单独判定accept/reject/revise并暂停；未accept不得进入K4。
 - Exit：本策略6.3门禁全部通过；任何故障均零partial state；candidate identity和结果artifact齐全。
-- Fallback：revert本策略commit回到`P<n-1>`并验证binary/source identity；不保留禁用分支。
+- Fallback：整体revert S4.1回到S4.0并验证binary/source identity；fold和expand不得只保留一侧，不保留禁用分支。
+
+详细字段、算法、tool合同、phase gate和测试矩阵见`49-r5-k3-s4-distance-fold-design.md`。
 
 ### R5-K4：多轮压缩与恢复
 
-- Entry：计划纳入最终组合的每个策略均已独立通过K3-Sn门禁。
+- Entry：S4.1已通过K3门禁并被accept。
 - Tasks：
-  1. 连续执行至少20轮append -> compress -> resume；
-  2. 覆盖fork、rollback、crash recovery、archive嵌套和旧代码读取版本；
-  3. 校验重复压缩幂等、展开hash、全局连通和active frontier；
-  4. 验证Agent主动读取历史子图后可继续工作，不要求Runtime解释其内容；
-  5. 若组合暴露回归，用`P<n-1>/C<n>`逐策略artifact定位首次出现版本，不增加修复策略掩盖原因。
-- Exit：state/event/result hash 100%；orphan/overlap/partial archive=0；20轮无漂移；组合回归归因明确。
+  1. 连续执行至少20轮append -> finish -> fold -> expand -> resume；
+  2. 覆盖多active frontier、fork、rollback、crash recovery和旧代码读取版本；
+  3. 校验importance单调、fold集合确定、展开hash、全局连通和active frontier；
+  4. 验证Agent主动展开历史节点后可继续工作，不要求Runtime解释其内容；
+  5. 若暴露回归，使用B0/S4.0/S4.1 artifact定位，不增加修复策略掩盖原因。
+- Exit：state/event/result hash 100%；node/edge可见率100%；自动refold/partial expand=0；20轮无漂移。
 - Fallback：回退K3/K4，保留显式超预算错误。
 
 ### R5-K5：收益门禁与对抗性审查
@@ -307,10 +309,10 @@ replay合同，不改变production projection或引入压缩策略。
 | Phase | Independent verification | Exit evidence | Completion required | Decision |
 |---|---|---|---|---|
 | K0 | synthetic + real replay observer | scale/budget curve | 100% | complete；proceed to K1 |
-| K1 | B0/contract/strategy ledger/failure review | zero unknown；S1唯一 | 100% | select S1/pause |
+| K1 | B0/contract/strategy ledger/failure review | 历史完成；S1结果已被后续证据拒绝 | 100% | complete/historical |
 | K2.0 | schema/ref/runner parity fixtures | round-trip 100%；相对B0行为等价；activation=0 | 100% | proceed/revert |
 | K2.F | corruption matrix + normal-path smoke | structured fatal 100%；partial=0；正常路径等价 | 100% | proceed/revert |
-| K3-Sn | STD/B0/Previous/Candidate；simple+complex+scale | 单策略正确性、边际收益与零简单回归 | 每个Sn 100% | accept/reject/revise；pause |
+| K3-R0/S4 | P1 parity；STD/B0/S4.0/S4.1；simple+complex+scale | S1代码清零；S4正确性、边际收益与零简单回归 | 每个stage 100% | S4 designed；implementation paused |
 | K4 | 20-cycle resume/fork/replay | zero drift/orphan | 100% | proceed/revert |
 | K5 | Docker paired + authorized review | all benefit gates | 100% | close/revert |
 
@@ -319,10 +321,10 @@ replay合同，不改变production projection或引入压缩策略。
 | Change link | Success event | Failure event | Correlation fields |
 |---|---|---|---|
 | budget measurement | `taskspace.map_budget_measured` | `taskspace.map_skeleton_over_budget` | task/map/epoch/bytes/tokens/nodes/edges |
-| candidate selection | `taskspace.map_archive_candidate` | `taskspace.map_archive_ineligible` | map/subgraph/nodes/reason code |
-| archive commit | `taskspace.map_archive_committed` | `taskspace.map_archive_failed` | archive/macro/event range/hash |
-| expansion | `taskspace.map_archive_expanded` | `taskspace.map_archive_expand_failed` | archive/ref/hash/request |
-| replay | `taskspace.map_archive_replayed` | `taskspace.map_archive_replay_mismatch` | checkpoint/archive/expected/actual hash |
+| fold eligibility | `taskspace.node_fold_evaluated` | distance/topology unavailable | map/node/frontiers/distance/status/root/importance/reason |
+| fold projection | `taskspace.node_detail_folded` | `taskspace.node_detail_fold_failed` | epoch/node/detail ref/hash/bytes |
+| expansion | `taskspace.node_expand_requested` / `taskspace.node_importance_changed` | `taskspace.node_expand_commit_failed` | call/map/node/from/to/state commit |
+| replay | `taskspace.node_importance_replayed` | importance/detail hash mismatch | checkpoint/delta/node/expected/actual |
 | strategy experiment | `taskspace.map_strategy_evaluated` | `taskspace.map_strategy_evaluation_failed` | strategy/arm/baseline/previous/candidate/sample/repeat |
 | strategy decision | `taskspace.map_strategy_accepted` | `taskspace.map_strategy_rejected` | strategy/candidate commit/binary/image/report |
 | arm equivalence | `taskspace.map_experiment_equivalence_verified` | `taskspace.map_experiment_equivalence_failed` | strategy/arm/prompt/history/image/profile hash |
@@ -333,11 +335,11 @@ replay合同，不改变production projection或引入压缩策略。
 
 | Risk | Impact | Required mitigation |
 |---|---|---|
-| macro node掩盖关键依赖 | High | active dependency closure不可归档；entry/exit edges 100% |
+| folded详情掩盖Agent后来需要的证据 | High | 全局节点仍可见且明确标folded；Agent可单向展开并永久重要 |
 | Agent结论缺失时Runtime补写摘要 | High | schema禁止Runtime自然语言summary；只允许source event ref |
 | 旧代码读取被当作当前事实 | High | 保存content identity/revision；展开显示读取时版本 |
-| 多轮压缩形成archive套archive漂移 | High | stable covered set/hash；K4 20轮幂等门禁 |
-| 预算触发后留下partial Map | High | archive原子提交；失败保持原Map并显式报错 |
+| 多轮距离变化导致展开节点再次折叠 | High | `agent_important`单调持久，Runtime不得自动refold |
+| 预算触发后静默折叠重要节点 | High | 尊重Agent选择；显式over-budget，不返回partial Map |
 | 为压缩诱导Agent减少建图 | High | benchmark检查node granularity；prompt/schema不增加粗化建议 |
 | 多策略叠加后无法归因 | Critical | 固定B0、Previous和Candidate四arm；每个build只含一个新策略 |
 | 复杂样本收益掩盖简单任务回归 | High | 每策略强制simple live门禁；简单回归不能由复杂收益抵消 |
@@ -345,13 +347,13 @@ replay合同，不改变production projection或引入压缩策略。
 
 ## 11. 开放问题
 
-以下问题必须由K1证据回答，当前不预设：
+S4设计已关闭archive方向的开放问题。仍需由实施证据回答：
 
-1. eligible subgraph最小规模和closed-age阈值是多少；
-2. macro node是否允许分层嵌套，还是每次从canonical events重建扁平archive；
-3. Agent checkpoint是压缩前强制动作、可选增强，还是只在自然产生时使用；
-4. expand是provider下一轮完整展开，还是读取到普通tool result后由Agent自行使用；
-5. 不同DeepSeek profile的skeleton reserve和active frontier reserve如何配置；
+1. `distance>=3`在自然复杂任务中的fold频率和净收益是否稳定；
+2. 一个窄`expand_nodes` variant对active tool schema和DeepSeek cache的实际成本是多少；
+3. Agent在无额外prompt引导时是否会在真实需要下自然展开节点；
+4. `agent_important`长期累积导致projection over-budget的实际频率；
+5. 不同DeepSeek profile的skeleton/detail reserve如何配置；
 6. 长会话下缓存前缀与新epoch projection之间的最优边界在哪里。
 
 ## 12. 路线位置
@@ -370,7 +372,7 @@ K0/K1属于专项发现和合同冻结；只有证据证明骨架规模、触发
 |---|---|---|
 | 2026-07-12 | Map骨架超预算独立立项 | 当前sample不触发，但真实长会话高概率触发，不能继续没有专门合同 |
 | 2026-07-12 | 普通projection不分页全局骨架 | projection的核心价值是持续掌握全局路径 |
-| 2026-07-12 | 压缩以可逆历史子图为候选 | 保持全局导航并允许精确展开，而不是隐藏未知节点 |
+| 2026-07-12 | 压缩以可逆历史子图为候选 | 历史候选；后由S1负收益和全局视野原则推翻 |
 | 2026-07-12 | 语义载荷只接受原始事件或Agent checkpoint | Runtime只管理硬规则和Map，不替Agent解释工作 |
 | 2026-07-13 | K0按7/7关闭并开放K1 | 9个规模点、15个阈值、两类长链fixture和真实rollout重放证据齐全，unknown owner=0 |
 | 2026-07-13 | corruption目标选择structured session fatal | partial restore、silent fallback和operator recoverable均不符合canonical Map完整性 |
@@ -378,6 +380,8 @@ K0/K1属于专项发现和合同冻结；只有证据证明骨架规模、触发
 | 2026-07-13 | 每策略同时验收简单和复杂sample | 复杂任务压缩收益不能证明普通任务没有request、token或语义回归 |
 | 2026-07-14 | S1判定为REVISE并暂停 | codec/scale通过，但live样本未稳定同时满足active projection epoch与3个eligible completed nodes；禁止用低token阈值或新增Runtime触发器制造通过 |
 | 2026-07-14 | S1自然active-prefix复验后判定为REJECTED | 同一canonical snapshot上projection减少56.4%，但复杂样本requests/input/wall为P1的1.50x/1.68x/1.51x，简单样本成本门也未通过；停止且不进入S2 |
+| 2026-07-14 | S1/S2/S3全部废弃，S4替代 | archive/macro会让节点退出全局视野；S4保留全部节点和边，只折叠distance>=3的completed非root节点详情 |
+| 2026-07-14 | Agent importance只能由folded展开单向产生 | 禁止创建时预先pin、Runtime推断重要性和自动refold；让Agent拥有语义决定权 |
 
 ## 14. Plan Quality Checklist
 
@@ -389,3 +393,4 @@ K0/K1属于专项发现和合同冻结；只有证据证明骨架规模、触发
 - [x] 每阶段可独立验证，未达到100%默认暂停或回退。
 - [x] 每个candidate只新增一个策略，并固定比较Standard、B0、Previous和Candidate。
 - [x] 每策略均包含simple和complex live sample，不用synthetic结果替代Agent行为。
+- [x] S4保持全部node/edge可见，并把workflow status、projection detail state和Agent importance分离。

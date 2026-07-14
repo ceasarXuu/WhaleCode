@@ -140,7 +140,7 @@ multi-finish / finish+ordinary 采用率仍为0，不作为已兑现收益。
 | R5-J7.6 | Control contract fidelity | 用 tagged next 与扁平 terminal 形成唯一输入形状；成功反馈返回 init/finished/next/current 等已提交机械事实 | 旧形状不可表达；success identity coverage 100%；order 无 committed 后重复 finish；Map 完整闭合 |
 | R5-J7.7 | Terminal finish chain | 用 Agent 显式有序 `finish_node_ids[]` 替代 preceding/terminal 双角色；全链在 clone 上原子提交 | terminal self-loop 不可由单节点双角色构造；失败零部分提交；J7.5 state/protocol failure=0 |
 | R5-J7.8 | Control map-state feedback | mutation 回执忠实返回 commit 范围和最小 Map 状态 | complete；open/current 可见，terminal 原子失败明确零提交，J7.5 14/14 |
-| R5-K | Map-native context compression | 长会话中将满足硬拓扑条件的已闭合子图可逆归档为macro node | root/frontier与全局路径保留；展开/replay 100%；无Runtime语义摘要 |
+| R5-K | Map-native context compression | 全局Map骨架始终完整，只折叠距活跃前沿至少3边的已完成非root节点详情；Agent可单向展开并永久标记重要 | nodes/edges/root/frontier保留100%；展开/replay 100%；无Runtime语义摘要或重要性推断 |
 
 ### 1.5.1 Phase 验收和工程收益矩阵
 
@@ -993,10 +993,10 @@ schema 直接表达 singular patch continuation；不限制读取或 pytest，�
 | R5-J6.7.7-A-G | lineage observer、blank context、terminal owner、nested/ack、全局骨架与局部详情分层、incremental snapshot、Docker/review | 不依赖J7或R5-K | provider semantic duplicate=0；skeleton 100%；stale blank=0；failure 100%；snapshot -80%；cache不回退 | 每阶段100%或暂停 | complete；two-round adversarial review passed |
 | R5-J7.0-J7.8 | J6.7后重审response/carrier；patch atomicity、singular carrier、request preflight、control fidelity、terminal chain、Map反馈、Docker samples | 必须等J6.7完成 | multi-patch零执行；validation failure零副作用；control state/protocol failure=0；Map闭合 | 每阶段100%或暂停 | complete；J7.5 14/14 gates |
 | R5-K0 | 长会话预算、projection分账、replay与corruption合同基线 | 必须等J7完成；不依赖K1实现 | 9规模点、15 crossings、两类长链fixture、真实rollout 3/3 replay、unknown owner=0 | 100% | complete；proceed to K1（见43） |
-| R5-K1 | B0 manifest、公共合同、atomic strategy ledger、S1和样本矩阵 | 不依赖K2实现 | immutable B0；zero unknown；四arm与simple/complex固定 | 100% | complete；见44 |
-| R5-K2.0 | 无行为schema/ref/runner/logging基建 | 依赖K1；不得提前实现S1行为 | round-trip 100%；相对B0行为等价；activation=0 | 100% | complete；见45 |
+| R5-K1 | B0 manifest、公共合同、atomic strategy ledger、历史S1和样本矩阵 | 不依赖K2实现 | immutable B0；zero unknown；四arm与simple/complex固定 | 100% | complete/historical；S1-S3后续废弃，见44/49 |
+| R5-K2.0 | 历史无行为archive/ref/runner/logging基建 | 依赖K1；不得提前实现策略行为 | round-trip 100%；相对B0行为等价；activation=0 | 100% | complete/historical；S1专用代码待R0删除 |
 | R5-K2.F | structured session fatal单变更 | 依赖K2.0；不得混入压缩策略 | corruption fatal 100%；partial=0；正常路径等价 | 100% | complete；见46 |
-| R5-K3-Sn | 每次只增加一个策略并运行STD/B0/Previous/Candidate | 每个Sn不能依赖Sn+1补证 | 单策略边际收益明确；simple零回归；complex实际激活 | 每个Sn 100%或暂停 | S1 rejected；专项暂停，见47/48 |
+| R5-K3-R0/S4 | 先删除S1生产路径；再以S4.0零行为基建和S4.1完整fold/expand合同运行STD/B0/Previous/Candidate | R0、S4.0、S4.1各自独立关闭；S4.1不能只启用fold或expand一侧 | S1符号清零；全局骨架100%；单策略边际收益明确；simple零回归；complex实际fold | 每个stage 100%或暂停 | S4设计完成，implementation paused，见49 |
 | R5-K4/K5 | 已接受策略组合的20轮恢复、Docker收益和授权审查 | 只组合已独立通过的策略 | zero drift/orphan；最终收益可回溯到逐策略artifact | 100% | not eligible；当前无accepted策略 |
 | R5-I3/I4 | Docker complex pairs、等价/性能门禁、Docker-only call graph | 不依赖 closeout | performance observation、container parity、default-path scan | 工程实现与验证100%；不覆盖J4收益缺口 | Docker-only landed |
 | R5-G3 | complex paired runs、streaming extractor tests | 不依赖 closeout | 完整指标报告、失败分类 | 100% 完成 | streaming extractor已落地；K后第二复杂样本和final paired regression待执行 |
@@ -1057,7 +1057,7 @@ R5-K从K1起采用更严格的逐策略规则，覆盖上述“每phase各1次�
 | R5-J6.7 canonical task context | Map/Event Store为唯一任务事实源；provider忠实线性化；control/result/projection引用同一events | action_map event store/codec、session ingress、provider linearizer、compaction/ref | every TaskSpace turn | ownership、round-trip、pair/order、compaction、Docker samples | source event、linearization、duplicate、checkpoint和cache trace | 无双写、compat、semantic reducer或silent fallback | J6.7.0-.7 complete；两轮对抗性审查通过 |
 | R5-J6.7.7 context residue | final/nested/blank/projection/snapshot各自单一owner；fresh走canonical自然历史，新epoch projection保留完整骨架和机械分层详情 | event linearizer、session finalization、projection、rollout replay | bootstrap/terminal/resume | lineage/post-terminal/skeleton/tier/ref/replay | semantic duplicate、skeleton coverage、stale marker、snapshot ratio | 无Map分页、语义相似度、summary、compat或silent fallback | complete；two-round adversarial review passed |
 | R5-J7 singular request patch slot | J6.7完成后，Standard/TaskSpace单response最多一个patch；carrier schema排除重复patch，共享dispatcher在任何工具执行前统计顶层/carrier/nested patch；shared patch validation先全量预检再写入；非patch多工具不受限 | `apply-patch`、provider response tool sequence、TaskSpace carrier、typed args、performance observer | Standard/TaskSpace patch path | request manifest、prepare/commit、schema、state/filesystem snapshot、Docker samples | request patch count、single/multi patch、prepare/commit/skip、read observation分账 | 无自动合并、部分执行后拒绝、旧形态兼容或读取gate | J7.0-J7.8 complete；J7.5 14/14（见38） |
-| R5-K Map-native compression | 固定B0；每个candidate只增加一个压缩策略；简单和复杂sample均需独立通过 | Map archive/projection/checkpoint/ref/replay + strategy experiment runner | skeleton hard-budget boundary | STD/B0/Previous/Candidate、scale/round-trip/20-cycle/Docker | strategy/arm/activation/budget/archive/expand/replay trace | 无策略捆绑、Runtime summary、partial map、兼容层或长期feature flag | K0 complete；K1 next；K2.0/K2.F/K3-K5未开始 |
+| R5-K Map-native compression | 固定B0；S1/S2/S3废弃；S4保留全局骨架，只折叠远端节点详情，Agent展开后永久重要 | Map importance/projection/detail ref/checkpoint/replay + strategy runner；先删除S1 archive生产路径 | active projection + `taskspace_control.expand_nodes` | STD/B0/S4.0/S4.1、scale/round-trip/20-cycle/Docker | strategy/fold distance/detail state/importance/expand/replay/cost trace | 无archive/macro、Runtime summary、节点分页、反向重要性转换、兼容层或长期feature flag | K0-K2 complete；S1 rejected且S1-S3已废弃；S4设计完成，尚未实施 |
 
 ## 1.17 Change-chain Logging Matrix
 
@@ -1143,7 +1143,9 @@ payload 均只有一份最新 projection，输入 token 由污染样本的 26909
 rollout重放基线，结果见`43-r5-k0-map-budget-baseline-result.md`。K1/K2随后完成B0、公共合同、archive基建和
 corruption fatal合同。K3-S1通过自然active-prefix实际激活并完成三次对照，但projection缩小伴随明显请求、token和
 耗时负收益，最终判定`REJECTED`，见`47-r5-k3-s1-result.md`和
-`48-r5-k3-s1-natural-prefix-result.md`。专项当前暂停，不进入S2；任何近邻保留方案必须作为新策略独立登记。
+`48-r5-k3-s1-natural-prefix-result.md`。2026-07-14进一步废弃S1/S2/S3的节点archive方向，选择S4：全局node/edge
+骨架始终可见，只折叠距任一active frontier至少3边的completed非root节点详情；Agent只能把已折叠节点单向展开为
+`agent_important`且此后不得自动折叠。设计见`49-r5-k3-s4-distance-fold-design.md`，当前尚未进入代码实施。
 
 ## 1.20 R5-A/B 后计划校准
 
