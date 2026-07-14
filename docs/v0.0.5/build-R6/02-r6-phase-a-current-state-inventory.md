@@ -200,5 +200,8 @@ Phase A 使用固定 R5 binary 同时跑 Standard/R5。R6-A0 尚无生产代码�
 | 正反例 fixture 与独立合同测试 | PASS |
 | ownership domain 覆盖完整，无 unknown | PASS |
 | 旧路径全部有 replace/delete/retain 决定 | PASS |
-| Standard/R5 两样本 Docker 基线 | 待运行 |
-| R6-A0 与 R5 production code identity | 待最终 commit 后复核 |
+| Standard/R5 两样本 Docker 基线 | PASS |
+| R6-A0 与 R5 production code identity | PASS |
+
+完整运行结果、指标和证据 hash 见 `03-r6-phase-a-result.md` 与
+`benchmarks/taskspace/r6/phase-a-baseline-result.json`。

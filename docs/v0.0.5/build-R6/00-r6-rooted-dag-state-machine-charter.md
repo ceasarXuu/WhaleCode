@@ -10,7 +10,7 @@
 Created: 2026-07-15
 Updated: 2026-07-15
 Version: v0.0.5 build-R6
-Status: Draft / Contract Freeze Pending
+Status: Phase A Frozen
 Owner / Responsible: WhaleCode core runtime / TaskSpace
 Related Systems: action_map, taskspace_control, event store, snapshot/replay,
   context projection, Docker benchmark, Web Viewer

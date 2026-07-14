@@ -5,10 +5,12 @@ $contractPath = Join-Path $repoRoot "benchmarks/taskspace/r6/rooted-dag-contract
 $fixturesPath = Join-Path $repoRoot "benchmarks/taskspace/r6/rooted-dag-contract-fixtures.json"
 $inventoryPath = Join-Path $repoRoot "benchmarks/taskspace/r6/phase-a-ownership-inventory.json"
 $baselinePath = Join-Path $repoRoot "benchmarks/taskspace/r6/phase-a-baseline-contract.json"
+$baselineResultPath = Join-Path $repoRoot "benchmarks/taskspace/r6/phase-a-baseline-result.json"
 $contract = Get-Content -Raw -Encoding UTF8 -LiteralPath $contractPath | ConvertFrom-Json -Depth 30
 $fixtures = Get-Content -Raw -Encoding UTF8 -LiteralPath $fixturesPath | ConvertFrom-Json -Depth 30
 $inventory = Get-Content -Raw -Encoding UTF8 -LiteralPath $inventoryPath | ConvertFrom-Json -Depth 30
 $baseline = Get-Content -Raw -Encoding UTF8 -LiteralPath $baselinePath | ConvertFrom-Json -Depth 30
+$baselineResult = Get-Content -Raw -Encoding UTF8 -LiteralPath $baselineResultPath | ConvertFrom-Json -Depth 30
 
 function Assert-Equal {
     param($Actual, $Expected, [string]$Message)
@@ -238,4 +240,40 @@ foreach ($productionPath in @($baseline.r6_a0_identity.production_paths)) {
     }
 }
 
-Write-Host "R6 rooted DAG contract tests passed: $(@($fixtures.cases).Count) fixtures, $(@($inventory.items).Count) ownership items, $(@($baseline.scenarios).Count) baseline scenarios"
+Assert-Equal $baselineResult.status "complete" "Phase A result is incomplete"
+Assert-Equal $baselineResult.execution.substrate "docker_hard_boundary" "Phase A result is not Docker-only"
+Assert-Equal $baselineResult.execution.aggregate_utility_allowed $false "Single-run result enabled utility aggregation"
+$baselineContractSha = (Get-FileHash -Algorithm SHA256 -LiteralPath $baselinePath).Hash.ToLowerInvariant()
+Assert-Equal $baselineResult.baseline_contract.sha256 $baselineContractSha "Phase A baseline contract hash mismatch"
+Assert-Equal $baselineResult.r6_a0_identity.production_diff_count 0 "R6 A0 is not code-identical to R5"
+Assert-Equal $baselineResult.r6_a0_identity.passed $true "R6 A0 identity gate failed"
+Assert-Equal @($baselineResult.scenarios).Count @($baseline.scenarios).Count "Baseline result scenario count mismatch"
+foreach ($scenarioResult in @($baselineResult.scenarios)) {
+    foreach ($arm in @($scenarioResult.standard, $scenarioResult.r5)) {
+        Assert-Equal $arm.business_success $true "Baseline arm did not solve $($scenarioResult.scenario_id)"
+        Assert-Equal $arm.agent_completion_status "complete" "Baseline arm did not complete $($scenarioResult.scenario_id)"
+        Assert-Equal $arm.external_validation_status "passed" "Baseline arm failed validation $($scenarioResult.scenario_id)"
+    }
+    Assert-Equal $scenarioResult.r5.control_state_failures 0 "R5 state failure in $($scenarioResult.scenario_id)"
+    Assert-Equal $scenarioResult.r5.control_protocol_failures 0 "R5 protocol failure in $($scenarioResult.scenario_id)"
+    Assert-Equal $scenarioResult.r5.nested_action_failures 0 "R5 nested action failure in $($scenarioResult.scenario_id)"
+    Assert-Equal $scenarioResult.r5.edge_count 0 "Phase A no-edge observation drifted for $($scenarioResult.scenario_id)"
+
+    $runRoot = Join-Path $repoRoot ([string]$scenarioResult.run_root)
+    $evidenceFiles = @{
+        performance_observation_sha256 = Join-Path $runRoot "performance-observation.json"
+        pair_report_sha256 = Join-Path $runRoot "pair-001/pair-report.md"
+        resolved_manifest_sha256 = Join-Path $runRoot "pair-001/manifest.resolved.json"
+    }
+    foreach ($entry in $evidenceFiles.GetEnumerator()) {
+        $actualSha = (Get-FileHash -Algorithm SHA256 -LiteralPath $entry.Value).Hash.ToLowerInvariant()
+        Assert-Equal $scenarioResult.evidence.($entry.Key) $actualSha "Evidence hash mismatch for $($scenarioResult.scenario_id):$($entry.Key)"
+    }
+}
+Assert-Equal $baselineResult.phase_a_gates.contract_fixture_count @($fixtures.cases).Count "Fixture count result drifted"
+Assert-Equal $baselineResult.phase_a_gates.ownership_item_count @($inventory.items).Count "Ownership count result drifted"
+Assert-Equal $baselineResult.phase_a_gates.unknown_ownership_count 0 "Unknown ownership remains"
+Assert-Equal $baselineResult.phase_a_gates.production_behavior_changed $false "Phase A changed production behavior"
+Assert-Equal $baselineResult.phase_a_gates.phase_b_ready $true "Phase B readiness gate failed"
+
+Write-Host "R6 rooted DAG contract tests passed: $(@($fixtures.cases).Count) fixtures, $(@($inventory.items).Count) ownership items, $(@($baseline.scenarios).Count) baseline results"
