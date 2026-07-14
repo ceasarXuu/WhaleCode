@@ -2,10 +2,10 @@
   "schema_version": "taskspace-map-distance-fold-contract-v3",
   "strategy_id": "S4",
   "name": "distance_based_node_detail_fold_with_agent_expand",
-  "status": "s4_2_approved_for_implementation",
-  "implementation_state": "S4.0_foundation_retained_S4.2_not_implemented",
+  "status": "s4_2_implementation_complete_live_benefit_unverified",
+  "implementation_state": "S4.2_implemented_on_B0_visible_selection",
   "design_document": "docs/v0.0.5/build-R5/51-r5-k3-s4-2-recoverable-tier-fold-design.md",
-  "result_document": "docs/v0.0.5/build-R5/50-r5-k3-s4-result.md",
+  "result_document": "docs/v0.0.5/build-R5/52-r5-k3-s4-2-result.md",
   "historical_s4_1_decision": {
     "candidate_commit": "afcae13",
     "fallback_commit": "64f54b4",

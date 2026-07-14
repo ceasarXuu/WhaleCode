@@ -8,9 +8,9 @@
 
 ```text
 Created: 2026-07-09
-Updated: 2026-07-13
+Updated: 2026-07-14
 Version: v0.0.5 build-R5
-Status: In Progress - R5-K3 S4.2 recoverable B0 tier fold approved
+Status: In Progress - R5-K3 S4.2 implemented; live benefit unverified
 Owner / Responsible: WhaleCode core runtime
 Related Systems: TaskSpace runtime, action_map runtime, taskspace_control,
   context projection, provider-visible context, benchmark harness
@@ -996,7 +996,7 @@ schema 直接表达 singular patch continuation；不限制读取或 pytest，�
 | R5-K1 | B0 manifest、公共合同、atomic strategy ledger、历史S1和样本矩阵 | 不依赖K2实现 | immutable B0；zero unknown；四arm与simple/complex固定 | 100% | complete/historical；S1-S3后续废弃，见44/49 |
 | R5-K2.0 | 历史无行为archive/ref/runner/logging基建 | 依赖K1；不得提前实现策略行为 | round-trip 100%；相对B0行为等价；activation=0 | 100% | complete/historical；S1专用代码待R0删除 |
 | R5-K2.F | structured session fatal单变更 | 依赖K2.0；不得混入压缩策略 | corruption fatal 100%；partial=0；正常路径等价 | 100% | complete；见46 |
-| R5-K3-R0/S4 | S4.0之后以S4.2补全B0 hidden详情的fold/expand合同，运行STD/B0/Previous/Candidate | 保留B0 visible；marker/expand/full-detail恢复原子启用 | 全局骨架100%；hidden可恢复100%；零hidden零开销；complex实际fold | 每个stage 100%或暂停 | S4.1 rejected；S4.2 approved/pending，见50/51 |
+| R5-K3-R0/S4 | S4.0之后以S4.2补全B0 hidden详情的fold/expand合同，运行STD/B0/Previous/Candidate | 保留B0 visible；marker/expand/full-detail恢复原子启用 | 全局骨架100%；hidden可恢复100%；零hidden零开销；complex实际fold | 每个stage 100%或暂停 | S4.1 rejected；S4.2机制完成，natural live零深边，收益未验证，见50-52 |
 | R5-K4/K5 | 已接受策略组合的20轮恢复、Docker收益和授权审查 | 只组合已独立通过的策略 | zero drift/orphan；最终收益可回溯到逐策略artifact | 100% | not eligible；当前无accepted策略 |
 | R5-I3/I4 | Docker complex pairs、等价/性能门禁、Docker-only call graph | 不依赖 closeout | performance observation、container parity、default-path scan | 工程实现与验证100%；不覆盖J4收益缺口 | Docker-only landed |
 | R5-G3 | complex paired runs、streaming extractor tests | 不依赖 closeout | 完整指标报告、失败分类 | 100% 完成 | streaming extractor已落地；K后第二复杂样本和final paired regression待执行 |
@@ -1057,7 +1057,7 @@ R5-K从K1起采用更严格的逐策略规则，覆盖上述“每phase各1次�
 | R5-J6.7 canonical task context | Map/Event Store为唯一任务事实源；provider忠实线性化；control/result/projection引用同一events | action_map event store/codec、session ingress、provider linearizer、compaction/ref | every TaskSpace turn | ownership、round-trip、pair/order、compaction、Docker samples | source event、linearization、duplicate、checkpoint和cache trace | 无双写、compat、semantic reducer或silent fallback | J6.7.0-.7 complete；两轮对抗性审查通过 |
 | R5-J6.7.7 context residue | final/nested/blank/projection/snapshot各自单一owner；fresh走canonical自然历史，新epoch projection保留完整骨架和机械分层详情 | event linearizer、session finalization、projection、rollout replay | bootstrap/terminal/resume | lineage/post-terminal/skeleton/tier/ref/replay | semantic duplicate、skeleton coverage、stale marker、snapshot ratio | 无Map分页、语义相似度、summary、compat或silent fallback | complete；two-round adversarial review passed |
 | R5-J7 singular request patch slot | J6.7完成后，Standard/TaskSpace单response最多一个patch；carrier schema排除重复patch，共享dispatcher在任何工具执行前统计顶层/carrier/nested patch；shared patch validation先全量预检再写入；非patch多工具不受限 | `apply-patch`、provider response tool sequence、TaskSpace carrier、typed args、performance observer | Standard/TaskSpace patch path | request manifest、prepare/commit、schema、state/filesystem snapshot、Docker samples | request patch count、single/multi patch、prepare/commit/skip、read observation分账 | 无自动合并、部分执行后拒绝、旧形态兼容或读取gate | J7.0-J7.8 complete；J7.5 14/14（见38） |
-| R5-K Map-native compression | 固定B0；S1/S2/S3废弃；S4保留全局骨架，只折叠远端节点详情，Agent展开后由canonical事件永久排除refold | Map expansion event/projection/detail ref/checkpoint/replay + strategy runner；先删除S1 archive生产路径 | active projection + `taskspace_control.expand_nodes` | STD/B0/S4.0/S4.1、scale/round-trip/20-cycle/Docker | strategy/fold distance/detail state/expand event/replay/detail与skeleton分账 | 无importance属性、archive/macro、Runtime summary、节点分页、展开撤销、骨架超限夹带策略、兼容层或长期feature flag | K0-K2 complete；S1 rejected且S1-S3已废弃；S4设计完成，尚未实施 |
+| R5-K Map-native compression | 固定B0；S1/S2/S3废弃；S4保留全局骨架，只折叠远端节点详情，Agent展开后由canonical事件永久排除refold | Map expansion event/projection/detail ref/checkpoint/replay + strategy runner；先删除S1 archive生产路径 | active projection + `taskspace_control.expand_nodes` | STD/B0/S4.0/S4.2、scale/round-trip/20-cycle/Docker | strategy/fold distance/detail state/expand event/replay/detail与skeleton分账 | 无importance属性、archive/macro、Runtime summary、节点分页、展开撤销、骨架超限夹带策略、兼容层或长期feature flag | K0-K2 complete；S4.2机制与零触发回归通过，natural live收益未验证，K4未开放 |
 
 ## 1.17 Change-chain Logging Matrix
 
@@ -1150,6 +1150,9 @@ corruption fatal合同。K3-S1通过自然active-prefix实际激活并完成三�
 可折叠依赖链，已整体回退到S4.0。结果见`50-r5-k3-s4-result.md`。用户随后纠正策略关系：S4.2保留B0已选
 详情，只把B0未展示详情补全为显式可恢复fold；零hidden不增加状态字段，展开后恢复全部事件引用。修订合同见
 `51-r5-k3-s4-2-recoverable-tier-fold-design.md`。
+S4.2随后完成实现与三次自然active-prefix、24次fresh Docker矩阵：确定性fold/expand、B0 visible保留、hidden恢复和
+零hidden projection parity均通过；但所有自然样本均未形成足够深的依赖边，实际fold/Agent expand收益仍未验证，
+因此暂停在K3且不开放K4。结果见`52-r5-k3-s4-2-result.md`。
 
 ## 1.20 R5-A/B 后计划校准
 

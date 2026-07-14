@@ -2,8 +2,8 @@
 
 - Created: 2026-07-12
 - Updated: 2026-07-14
-- Version: 1.8
-- Status: K0/K1/K2 COMPLETE / S4.1 REJECTED / S4.2 APPROVED FOR IMPLEMENTATION
+- Version: 1.9
+- Status: K0/K1/K2 COMPLETE / S4.1 REJECTED / S4.2 MECHANISM VERIFIED / LIVE BENEFIT UNVERIFIED
 - Owner / Responsible: WhaleCode core runtime / TaskSpace Map
 - Related Systems: canonical Event Store、Map projection、compaction、checkpoint、resume/replay、artifact refs
 - Related Links: `22-r5-j6-7-canonical-task-context-plan.md`、
@@ -13,7 +13,8 @@
   `48-r5-k3-s1-natural-prefix-result.md`、
   `49-r5-k3-s4-distance-fold-design.md`、
   `50-r5-k3-s4-result.md`、
-  `51-r5-k3-s4-2-recoverable-tier-fold-design.md`
+  `51-r5-k3-s4-2-recoverable-tier-fold-design.md`、
+  `52-r5-k3-s4-2-result.md`
 - Risk Level: High
 - Plan Type: Full charter；K0/K1通过前不冻结实现方案
 
@@ -289,7 +290,7 @@ replay合同，不改变production projection或引入压缩策略。
 
 ### R5-K4：多轮压缩与恢复
 
-- Entry：存在通过K3门禁并被accept的策略。当前S4.1已被拒绝，S4.2尚未验证，Entry未满足。
+- Entry：存在通过K3门禁并被accept的策略。当前S4.1已被拒绝，S4.2机制通过但natural live收益未验证，Entry未满足。
 - Tasks：
   1. 连续执行至少20轮append -> finish -> fold -> expand -> resume；
   2. 覆盖多active frontier、fork、rollback、crash recovery和旧代码读取版本；
@@ -319,7 +320,7 @@ replay合同，不改变production projection或引入压缩策略。
 | K1 | B0/contract/strategy ledger/failure review | 历史完成；S1结果已被后续证据拒绝 | 100% | complete/historical |
 | K2.0 | schema/ref/runner parity fixtures | round-trip 100%；相对B0行为等价；activation=0 | 100% | proceed/revert |
 | K2.F | corruption matrix + normal-path smoke | structured fatal 100%；partial=0；正常路径等价 | 100% | proceed/revert |
-| K3-R0/S4 | P1 parity；STD/B0/S4.0/S4.2；simple+complex+scale | S1代码清零；B0 visible保留、hidden可恢复、simple零固定开销、complex实际fold | 每个stage 100% | S4.1 rejected；S4.2 approved/pending，见50/51 |
+| K3-R0/S4 | P1 parity；STD/B0/S4.0/S4.2；simple+complex+scale | S1代码清零；B0 visible保留、hidden可恢复、simple零固定开销、complex实际fold | 每个stage 100% | S4.1 rejected；S4.2机制通过、natural live零深边，收益未验证，见50-52 |
 | K4 | 20-cycle resume/fork/replay | zero drift/orphan | 100% | proceed/revert |
 | K5 | Docker paired + authorized review | all benefit gates | 100% | close/revert |
 
@@ -393,6 +394,7 @@ K0/K1属于专项发现和合同冻结；只有证据证明骨架规模、触发
 | 2026-07-14 | S4不承担最终骨架超限 | S4只减少node-local details；最小骨架最终仍可能超限，未来必须用独立策略处理 |
 | 2026-07-14 | S4.1验证拒绝并整体回退S4.0 | B0的D3已在相同距离把普通详情压到1条；S4典型路径ref/hash成本抵消收益，deterministic相对S4.0净增79 bytes，natural live 3/3零fold，simple wall门未过 |
 | 2026-07-14 | S4.2在用户纠正后重新开放 | S4应补全B0静默省略而不是删除B0已选详情；保留B0 visible，只对hidden集合建立可恢复fold，零hidden零标记，展开恢复全部事件引用 |
+| 2026-07-14 | S4.2机制通过但收益保持HOLD | 确定性链路和零hidden parity通过；自然active-prefix及fresh simple/complex均无足够深依赖边，不能用synthetic替代Agent收益结论，K4 Entry继续关闭 |
 
 ## 14. Plan Quality Checklist
 

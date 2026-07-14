@@ -1,10 +1,12 @@
 # R5-K3 S4.2 可恢复详情分级折叠设计
 
 - Created: 2026-07-14
-- Status: APPROVED FOR IMPLEMENTATION
+- Status: IMPLEMENTED / MECHANISM VERIFIED / LIVE BENEFIT UNVERIFIED
 - Previous: S4.0 `7040547`
 - Supersedes candidate: S4.1 `afcae13`（已由`64f54b4`回退）
 - Scope: 只补全B0详情分级的显式折叠与Agent展开机制
+- Implementation: `080ed60`, `935afe1`, `c7aa795`
+- Result: `52-r5-k3-s4-2-result.md`
 
 ## 1. 问题修正
 
