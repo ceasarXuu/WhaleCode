@@ -3,7 +3,6 @@ use serde_json::Value as JsonValue;
 use crate::action_map::ActionMapControlState;
 use crate::action_map::ActionMapFinishNodeOutcome;
 use crate::action_map::ActionMapInitializeOutcome;
-use crate::action_map::ActionMapNodeDetailExpansionOutcome;
 use crate::action_map::TaskSpaceHardGateClass;
 use crate::function_tool::FunctionCallError;
 use crate::tools::handlers::taskspace_control_args::TASKSPACE_CONTROL_RESULT_SCHEMA_VERSION;
@@ -32,20 +31,6 @@ pub(super) fn format_initialize_step(outcome: &ActionMapInitializeOutcome) -> Js
         "map_id": outcome.map_id,
         "created_node_ids": outcome.node_ids,
         "current_node_id": outcome.current_node_id,
-    })
-}
-
-pub(super) fn format_node_detail_expansion_step(
-    index: usize,
-    outcome: &ActionMapNodeDetailExpansionOutcome,
-) -> JsonValue {
-    serde_json::json!({
-        "kind": "node_detail_expanded",
-        "index": index,
-        "node_id": outcome.node_id,
-        "expansion_event_id": outcome.expansion_event_id,
-        "detail_ref": outcome.detail_ref,
-        "detail_sha256": outcome.detail_sha256,
     })
 }
 
@@ -232,12 +217,6 @@ fn step_has_required_identity(step: &JsonValue) -> bool {
         Some("node_created") => has_text(step, "node_id"),
         Some("node_bound") => has_text(step, "current_node_id"),
         Some("node_blocked") => has_text(step, "node_id") && has_text(step, "result_id"),
-        Some("node_detail_expanded") => {
-            has_text(step, "node_id")
-                && has_text(step, "expansion_event_id")
-                && has_text(step, "detail_ref")
-                && has_text(step, "detail_sha256")
-        }
         Some("ordinary_tool") => has_text(step, "call_id") && has_text(step, "output_event_ref"),
         _ => false,
     }

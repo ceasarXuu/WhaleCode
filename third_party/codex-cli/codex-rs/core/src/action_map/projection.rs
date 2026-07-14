@@ -1,6 +1,3 @@
-use sha2::Digest;
-use sha2::Sha256;
-
 #[derive(Clone)]
 pub(super) struct ActiveProjectionInput {
     pub(super) task_id: String,
@@ -23,11 +20,6 @@ pub(super) struct ProjectionNode {
     pub(super) goal: String,
     pub(super) result_ids: Vec<String>,
     pub(super) event_count: usize,
-    pub(super) detail_state: String,
-    pub(super) frontier_distance: Option<usize>,
-    pub(super) detail_ref: Option<String>,
-    pub(super) detail_sha256: Option<String>,
-    pub(super) expansion_event_id: Option<String>,
 }
 
 #[derive(Clone)]
@@ -49,12 +41,6 @@ pub(super) struct ProjectionEventRef {
     pub(super) content_sha256: Option<String>,
     pub(super) raw_ref: Option<String>,
     pub(super) artifact_refs: Vec<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct ProjectionNodeDetailIdentity {
-    pub(super) detail_ref: String,
-    pub(super) detail_sha256: String,
 }
 
 pub(super) struct RenderedProjection {
@@ -159,8 +145,8 @@ fn render_nodes(nodes: &[ProjectionNode]) -> Vec<String> {
     nodes
         .iter()
         .map(|node| {
-            let mut rendered = format!(
-                "{} kind={} status={} goal={:?} result_ids={} event_count={} detail_state={}",
+            format!(
+                "{} kind={} status={} goal={:?} result_ids={} event_count={}",
                 node.id,
                 node.kind,
                 node.status,
@@ -171,21 +157,7 @@ fn render_nodes(nodes: &[ProjectionNode]) -> Vec<String> {
                     node.result_ids.join(",")
                 },
                 node.event_count,
-                node.detail_state,
-            );
-            if let Some(frontier_distance) = node.frontier_distance {
-                rendered.push_str(&format!(" frontier_distance={frontier_distance}"));
-            }
-            if let Some(detail_ref) = node.detail_ref.as_deref() {
-                rendered.push_str(&format!(" detail_ref={detail_ref}"));
-            }
-            if let Some(detail_sha256) = node.detail_sha256.as_deref() {
-                rendered.push_str(&format!(" detail_sha256={detail_sha256}"));
-            }
-            if let Some(expansion_event_id) = node.expansion_event_id.as_deref() {
-                rendered.push_str(&format!(" expansion_event_id={expansion_event_id}"));
-            }
-            rendered
+            )
         })
         .collect()
 }
@@ -230,34 +202,6 @@ fn render_event_refs(events: &[ProjectionEventRef]) -> Vec<String> {
         .collect()
 }
 
-pub(super) fn node_detail_identity(
-    map_id: &str,
-    node_id: &str,
-    events: &[ProjectionEventRef],
-) -> ProjectionNodeDetailIdentity {
-    let mut payload = format!("NodeDetailProjectionV1\nmap_id:{map_id}\nnode_id:{node_id}\n");
-    append_list(&mut payload, "node_details", &render_event_refs(events));
-    let detail_sha256 = format!("{:x}", Sha256::digest(payload.as_bytes()));
-    ProjectionNodeDetailIdentity {
-        detail_ref: format!("taskspace-detail://sha256/{detail_sha256}"),
-        detail_sha256,
-    }
-}
-
-pub(super) fn node_detail_fold_saves_bytes(
-    baseline_node: &ProjectionNode,
-    folded_node: &ProjectionNode,
-    events: &[ProjectionEventRef],
-) -> bool {
-    let baseline_node_bytes = render_nodes(std::slice::from_ref(baseline_node))[0].len();
-    let folded_node_bytes = render_nodes(std::slice::from_ref(folded_node))[0].len();
-    let removed_detail_bytes = render_event_refs(events)
-        .iter()
-        .map(|event| "    - ".len() + event.len() + '\n'.len_utf8())
-        .sum::<usize>();
-    folded_node_bytes < baseline_node_bytes.saturating_add(removed_detail_bytes)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -279,11 +223,6 @@ mod tests {
                 goal: "Inspect".into(),
                 result_ids: vec!["result-1".into()],
                 event_count: 1,
-                detail_state: "full".into(),
-                frontier_distance: None,
-                detail_ref: None,
-                detail_sha256: None,
-                expansion_event_id: None,
             }],
             map_edges: Vec::new(),
             node_details: vec![ProjectionEventRef {
@@ -356,11 +295,6 @@ mod tests {
                     goal: format!("goal-{index}"),
                     result_ids: vec![format!("result-{index}")],
                     event_count: 1,
-                    detail_state: "full".into(),
-                    frontier_distance: None,
-                    detail_ref: None,
-                    detail_sha256: None,
-                    expansion_event_id: None,
                 })
                 .collect(),
             map_edges: (1..node_count)
@@ -390,43 +324,5 @@ mod tests {
         );
         assert!(!rendered.body.contains("omitted"));
         assert!(!rendered.body.contains("cursor"));
-    }
-
-    #[test]
-    fn fold_does_not_activate_when_reference_metadata_would_increase_context() {
-        let baseline = ProjectionNode {
-            id: "node-1".into(),
-            kind: "custom".into(),
-            status: "completed".into(),
-            goal: "Goal".into(),
-            result_ids: Vec::new(),
-            event_count: 1,
-            detail_state: "full".into(),
-            frontier_distance: None,
-            detail_ref: None,
-            detail_sha256: None,
-            expansion_event_id: None,
-        };
-        let event = ProjectionEventRef {
-            id: "e".into(),
-            node_id: "node-1".into(),
-            event_kind: "x".into(),
-            source: "x".into(),
-            detail_tier: "D3".into(),
-            evidence_class: "P3".into(),
-            action_class: None,
-            tool_success: None,
-            content_sha256: None,
-            raw_ref: None,
-            artifact_refs: Vec::new(),
-        };
-        let identity = node_detail_identity("map-1", "node-1", std::slice::from_ref(&event));
-        let mut folded = baseline.clone();
-        folded.detail_state = "folded".into();
-        folded.frontier_distance = Some(3);
-        folded.detail_ref = Some(identity.detail_ref);
-        folded.detail_sha256 = Some(identity.detail_sha256);
-
-        assert!(!node_detail_fold_saves_bytes(&baseline, &folded, &[event]));
     }
 }
