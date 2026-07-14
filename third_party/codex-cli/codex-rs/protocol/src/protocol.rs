@@ -5855,6 +5855,24 @@ mod tests {
     }
 
     #[test]
+    fn map_runtime_node_detail_expanded_event_round_trips() -> Result<()> {
+        let event = MapRuntimeEvent::NodeDetailExpanded(MapRuntimeNodeDetailExpandedEvent {
+            map_id: "map-1".into(),
+            node_id: "node-1".into(),
+            expansion_event_id: "node-event-1".into(),
+            call_id: "call-1".into(),
+            source_event_id: "task-event-1".into(),
+            source_thread_id: ThreadId::new(),
+        });
+
+        let value = serde_json::to_value(&event)?;
+        assert_eq!(value["map_event_type"], "node_detail_expanded");
+        let decoded: MapRuntimeEvent = serde_json::from_value(value)?;
+        assert_eq!(decoded, event);
+        Ok(())
+    }
+
+    #[test]
     fn map_runtime_trace_event_recorded_serializes_refs_without_raw_output() -> Result<()> {
         let event =
             MapRuntimeEvent::TaskspaceTraceEventRecorded(MapRuntimeTraceEventRecordedEvent {

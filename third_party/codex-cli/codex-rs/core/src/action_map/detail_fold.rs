@@ -22,7 +22,6 @@ pub(super) struct NodeDetailPlan {
 }
 
 impl NodeDetailPlan {
-    #[allow(dead_code)]
     pub(super) fn state(&self, node_id: &str) -> Option<&NodeDetailState> {
         self.states.get(node_id)
     }

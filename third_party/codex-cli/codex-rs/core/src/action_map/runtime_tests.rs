@@ -46,6 +46,26 @@ fn initialized_five_node_chain() -> (ActionMapRuntimeState, ThreadId, ActionMapI
         .collect();
     let (mut state, owner, outcome) = initialized_state(nodes, "node-0");
     for index in 0..4 {
+        let call_id = format!("call-read-{index}");
+        state
+            .prepare_main_tool_call(
+                owner,
+                ToolActionDescriptor::new("read_file", ActionClass::Read, "src/lib.rs")
+                    .with_call_id(call_id.clone()),
+            )
+            .expect("reserve chain read");
+        state
+            .record_main_tool_result_with_class(
+                owner,
+                &call_id,
+                format!("task-event-read-{index}"),
+                "read_file",
+                Some(ActionClass::Read),
+                true,
+                format!("evidence for node {index}"),
+            )
+            .expect("record chain read")
+            .expect("recorded chain event");
         state
             .finish_main_node_with_next(
                 owner,
@@ -211,6 +231,80 @@ fn node_detail_expansion_rejects_mixed_batch_without_partial_commit() {
 
     assert!(error.contains("node_detail_not_folded"));
     assert_eq!(state.snapshot(), before);
+}
+
+#[test]
+fn s4_folds_only_remote_details_and_expand_restores_exact_baseline_details() {
+    let (mut state, owner, _) = initialized_five_node_chain();
+
+    let folded_context = state
+        .build_developer_context()
+        .expect("folded projection context");
+
+    assert!(folded_context.contains("node-0 kind=inspect_code_context status=completed"));
+    assert!(folded_context.contains("node-1 kind=inspect_code_context status=completed"));
+    assert!(folded_context.contains("node-2 kind=inspect_code_context status=completed"));
+    assert!(folded_context.contains("node-3 kind=inspect_code_context status=completed"));
+    assert!(folded_context.contains("node-4 kind=inspect_code_context status=running"));
+    assert!(folded_context.contains("node-0->node-1"));
+    assert!(folded_context.contains("node-3->node-4"));
+    let folded_node_line = folded_context
+        .lines()
+        .find(|line| line.contains("node-1 kind=inspect_code_context"))
+        .expect("folded node skeleton");
+    assert!(folded_node_line.contains("status=completed"));
+    assert!(folded_node_line.contains("goal=\"Complete step 1.\""));
+    assert!(folded_node_line.contains("event_count=1"));
+    assert!(folded_node_line.contains("detail_state=folded frontier_distance=3"));
+    assert!(folded_context.contains("detail_ref=taskspace-detail://sha256/"));
+    assert!(!folded_context.contains("task-event-read-1 node=node-1"));
+    assert!(folded_context.contains("task-event-read-2 node=node-2"));
+    let snapshot = state.snapshot();
+    let budget_event = snapshot
+        .trace_events
+        .iter()
+        .rev()
+        .find(|event| event.kind == "projection_budget")
+        .expect("S4 projection budget event");
+    let metric = |name: &str| {
+        budget_event
+            .tags
+            .iter()
+            .find_map(|tag| tag.strip_prefix(name))
+            .and_then(|value| value.parse::<usize>().ok())
+            .expect("numeric projection metric")
+    };
+    assert_eq!(metric("folded_node_count:"), 1);
+    assert!(
+        metric("projection_bytes_before_strategy:") > metric("projection_bytes_after_strategy:")
+    );
+    assert!(
+        metric("node_detail_bytes_before_strategy:") > metric("node_detail_bytes_after_strategy:")
+    );
+    assert_eq!(
+        metric("skeleton_bytes_before_strategy:"),
+        metric("skeleton_bytes_after_strategy:")
+    );
+
+    let (expanded, _) = state
+        .expand_node_details_for_main(
+            owner,
+            vec!["node-1".into()],
+            "call-expand-visible".into(),
+            "task-event-expand-visible".into(),
+        )
+        .expect("expand folded details");
+    assert!(folded_context.contains(&expanded[0].detail_ref));
+    assert!(folded_context.contains(&expanded[0].detail_sha256));
+    let expanded_context = state
+        .build_developer_context()
+        .expect("expanded projection context");
+    assert!(expanded_context.contains(&format!(
+        "detail_state=expanded expansion_event_id={}",
+        expanded[0].expansion_event_id
+    )));
+    assert!(expanded_context.contains("task-event-read-1 node=node-1"));
+    assert!(!expanded_context.contains("detail_state=folded frontier_distance=3"));
 }
 
 #[test]
@@ -596,6 +690,11 @@ fn active_projection_reports_skeleton_over_budget_without_partial_map() {
         "projection_edge_bytes:",
         "projection_detail_bytes:",
         "projection_footer_bytes:",
+        "folded_node_count:",
+        "node_detail_bytes_before_strategy:",
+        "node_detail_bytes_after_strategy:",
+        "skeleton_bytes_before_strategy:",
+        "skeleton_bytes_after_strategy:",
     ] {
         assert!(
             budget_event
@@ -606,6 +705,52 @@ fn active_projection_reports_skeleton_over_budget_without_partial_map() {
             budget_event.tags
         );
     }
+}
+
+#[test]
+fn expanded_details_over_budget_fail_explicitly_without_automatic_refold() {
+    let (mut state, owner, outcome) = initialized_five_node_chain();
+    state
+        .expand_node_details_for_main(
+            owner,
+            vec!["node-1".into()],
+            "call-expand-budget".into(),
+            "task-event-expand-budget".into(),
+        )
+        .expect("expand folded details");
+    let task = state.tasks.get(&outcome.task_id).expect("task");
+    let map = state.maps.get(&outcome.map_id).expect("map");
+    let mut unbounded_context = String::new();
+    let unbounded = append_context_projection_active(
+        &mut unbounded_context,
+        task,
+        map,
+        state.current_main_node_id.as_deref(),
+        None,
+    )
+    .expect("unbounded projection");
+    assert!(unbounded.stats.estimated_tokens > unbounded.stats.skeleton_estimated_tokens);
+    let max_projection_tokens = unbounded.stats.estimated_tokens - 1;
+    state
+        .active_budget
+        .as_mut()
+        .expect("active budget")
+        .max_projection_tokens = max_projection_tokens;
+
+    let context = state
+        .build_developer_context()
+        .expect("projection over-budget context");
+
+    assert!(context.contains("error: map_projection_over_budget"));
+    assert!(context.contains("automatic_refold_of_expanded_nodes: false"));
+    assert!(!context.contains("ContextProjectionV1 epoch snapshot:"));
+    let map = state.maps.get(&outcome.map_id).expect("map after failure");
+    assert!(
+        map.nodes["node-1"]
+            .node_events
+            .iter()
+            .any(|event| event.kind == NODE_DETAIL_EXPANDED_EVENT_KIND)
+    );
 }
 
 #[test]

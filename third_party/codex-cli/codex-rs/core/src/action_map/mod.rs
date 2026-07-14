@@ -23,6 +23,7 @@ pub(crate) use runtime::ActionMapInitializeInput;
 pub(crate) use runtime::ActionMapInitializeNodeInput;
 pub(crate) use runtime::ActionMapInitializeOutcome;
 pub(crate) use runtime::ActionMapNextNodeDraft;
+pub(crate) use runtime::ActionMapNodeDetailExpansionOutcome;
 pub(crate) use runtime::ActionMapProviderRequestBudgetEventInput;
 pub(crate) use runtime::ActionMapProviderRequestBudgetSnapshot;
 pub(crate) use runtime::ActionMapProviderResponseActionabilityInput;

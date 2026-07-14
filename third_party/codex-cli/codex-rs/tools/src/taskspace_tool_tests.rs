@@ -80,6 +80,7 @@ fn active_schema_contains_no_ordinary_tool_expression() {
         .collect::<Vec<_>>();
     assert!(actions.contains(&"finish_nodes"));
     assert!(actions.contains(&"finish_then_end"));
+    assert!(actions.contains(&"expand_nodes"));
     assert!(!text.contains("ordinaryAction"));
     assert!(!text.contains("tool_name"));
     assert!(!text.contains("arguments"));
@@ -133,4 +134,13 @@ fn active_schema_contains_no_ordinary_tool_expression() {
         json!(["action", "finish_node_ids", "final_candidate"])
     );
     assert_eq!(terminal["properties"]["finish_node_ids"]["minItems"], 1);
+    let expand = value["parameters"]["anyOf"]
+        .as_array()
+        .expect("variants")
+        .iter()
+        .find(|variant| variant["properties"]["action"]["enum"][0] == json!("expand_nodes"))
+        .expect("expand variant");
+    assert_eq!(expand["required"], json!(["action", "node_ids"]));
+    assert_eq!(expand["properties"]["node_ids"]["minItems"], 1);
+    assert_eq!(expand["additionalProperties"], false);
 }

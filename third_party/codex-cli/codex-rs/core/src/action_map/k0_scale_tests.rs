@@ -101,6 +101,11 @@ fn projection_input(node_count: usize, edge_width: usize, details: bool) -> Acti
                 goal: format!("Execute deterministic K0 work item {index}"),
                 result_ids: vec![format!("result-{index}")],
                 event_count: usize::from(details),
+                detail_state: "full".into(),
+                frontier_distance: None,
+                detail_ref: None,
+                detail_sha256: None,
+                expansion_event_id: None,
             })
             .collect(),
         map_edges: projection_edges(node_count, edge_width),

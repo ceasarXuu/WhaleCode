@@ -36,6 +36,9 @@ pub(crate) enum TaskSpaceControlArgs {
     BlockNode {
         node_id: String,
     },
+    ExpandNodes {
+        node_ids: Vec<String>,
+    },
     ReadOutputRef {
         output_ref: String,
         mode: String,
@@ -166,6 +169,7 @@ impl TaskSpaceControlArgs {
             | Self::CreateNode { .. }
             | Self::BindNode { .. }
             | Self::BlockNode { .. }
+            | Self::ExpandNodes { .. }
             | Self::ReadOutputRef { .. } => Vec::new(),
         }
     }
@@ -212,6 +216,19 @@ impl TaskSpaceControlArgs {
             Self::CreateNode { goal, .. } => {
                 if goal.trim().is_empty() {
                     return invalid("create_node requires a non-empty goal");
+                }
+                Ok(())
+            }
+            Self::ExpandNodes { node_ids } => {
+                require_non_empty(node_ids, "node_ids")?;
+                let mut unique_node_ids = HashSet::with_capacity(node_ids.len());
+                for node_id in node_ids {
+                    if node_id.trim().is_empty() {
+                        return invalid("expand_nodes requires non-empty node_ids");
+                    }
+                    if !unique_node_ids.insert(node_id) {
+                        return invalid("expand_nodes requires unique node_ids");
+                    }
                 }
                 Ok(())
             }
@@ -400,6 +417,27 @@ mod tests {
             .expect("node-only block args");
         let legacy = r#"{"action":"block_node","node_id":"node-1","blocker_summary":"blocked"}"#;
         assert!(parse_taskspace_control_args(legacy).is_err());
+    }
+
+    #[test]
+    fn expand_nodes_requires_non_empty_unique_node_ids() {
+        parse_taskspace_control_args(r#"{"action":"expand_nodes","node_ids":["node-1","node-2"]}"#)
+            .expect("valid expansion batch");
+        assert!(
+            parse_taskspace_control_args(r#"{"action":"expand_nodes","node_ids":[]}"#).is_err()
+        );
+        assert!(
+            parse_taskspace_control_args(
+                r#"{"action":"expand_nodes","node_ids":["node-1","node-1"]}"#
+            )
+            .is_err()
+        );
+        assert!(
+            parse_taskspace_control_args(
+                r#"{"action":"create_node","kind":"inspect_code_context","goal":"Inspect","detail_state":"expanded"}"#
+            )
+            .is_err()
+        );
     }
 
     #[test]
