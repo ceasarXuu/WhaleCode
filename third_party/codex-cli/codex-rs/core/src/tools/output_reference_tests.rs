@@ -49,7 +49,7 @@ fn reference_text_redacts_sensitive_head_and_tail_values() {
 
 #[test]
 fn read_output_bytes_slice_verifies_content_addressed_archive_bytes() {
-    let raw_output = br#"{"schema_version":"TaskSpaceProjectionArchiveV1","nodes":["a"]}"#;
+    let raw_output = br#"{"schema_version":"LargeToolOutputV1","items":["a"]}"#;
     let sha = format!("{:x}", Sha256::digest(raw_output));
     let output_ref = format!("output-ref://sha256/{sha}");
     let slice = read_output_bytes_slice(
@@ -61,7 +61,7 @@ fn read_output_bytes_slice_verifies_content_addressed_archive_bytes() {
         },
     )
     .expect("read archive bytes");
-    assert!(slice.contains("TaskSpaceProjectionArchiveV1"));
+    assert!(slice.contains("LargeToolOutputV1"));
 
     let error = read_output_bytes_slice(
         &output_ref,

@@ -1065,16 +1065,6 @@ impl Session {
         }
     }
 
-    pub(crate) async fn action_map_projection_archive_bytes(
-        &self,
-        archive_ref: &str,
-    ) -> Option<Vec<u8>> {
-        let state = self.state.lock().await;
-        state
-            .action_map_runtime
-            .projection_archive_bytes(archive_ref)
-    }
-
     pub(crate) async fn action_map_provider_request_budget_snapshot(
         &self,
     ) -> Option<ActionMapProviderRequestBudgetSnapshot> {

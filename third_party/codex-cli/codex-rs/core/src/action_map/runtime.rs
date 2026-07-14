@@ -66,15 +66,11 @@ use super::map::TaskState;
 use super::map::TaskStatus;
 use super::map::ToolActionDescriptor;
 use super::projection::ActiveProjectionInput;
-use super::projection::ProjectionArchiveIndex;
 use super::projection::ProjectionEdge;
 use super::projection::ProjectionEventRef;
 use super::projection::ProjectionNode;
 use super::projection::ProjectionSizeBreakdown;
 use super::projection::render_active_projection;
-use super::projection_archive::EncodedProjectionArchive;
-use super::projection_archive::S1_MINIMUM_NODE_COUNT;
-use super::projection_archive::build_s1_projection_archive;
 use super::sentinel::TaskSpaceSentinelSeverity;
 use super::sentinel::TaskSpaceSentinelWarning;
 use super::sentinel::TaskSpaceSentinelWarningStatus;
@@ -553,7 +549,6 @@ pub(crate) struct ActionMapRuntimeState {
     tasks: HashMap<TaskId, TaskState>,
     maps: HashMap<ActionMapId, ActionMapInstance>,
     taskspace_trace_events: Vec<TaskSpaceTraceEvent>,
-    projection_archives: HashMap<String, Vec<u8>>,
     pending_projection_trace_events: Vec<MapRuntimeEvent>,
     provider_request_count: usize,
     active_budget: Option<TaskSpaceActiveBudgetV1>,
@@ -715,7 +710,6 @@ impl Default for ActionMapRuntimeState {
             tasks: HashMap::new(),
             maps: HashMap::new(),
             taskspace_trace_events: Vec::new(),
-            projection_archives: HashMap::new(),
             pending_projection_trace_events: Vec::new(),
             provider_request_count: 0,
             active_budget: None,
@@ -748,10 +742,6 @@ impl ActionMapRuntimeState {
 
     pub(crate) fn context_owner_node_id(&self) -> Option<&str> {
         self.current_main_node_id.as_deref()
-    }
-
-    pub(crate) fn projection_archive_bytes(&self, archive_ref: &str) -> Option<Vec<u8>> {
-        self.projection_archives.get(archive_ref).cloned()
     }
 
     pub(crate) fn take_pending_projection_trace_events(&mut self) -> Vec<MapRuntimeEvent> {
@@ -1208,7 +1198,6 @@ impl ActionMapRuntimeState {
         self.current_main_lease_id = None;
         self.main_tool_reservations.clear();
         self.child_tool_reservations.clear();
-        self.projection_archives.clear();
         self.pending_projection_trace_events.clear();
         self.taskspace_trace_events = snapshot
             .trace_events
@@ -4098,7 +4087,6 @@ impl ActionMapRuntimeState {
 
     fn build_active_projection_developer_context(&mut self) -> Option<String> {
         let map_id = self.active_map_id.clone()?;
-        self.projection_archives.clear();
         let (task_id, current_node_id, context, projection, max_projection_tokens) = {
             let Some(map) = self.maps.get(&map_id) else {
                 return Some(taskspace_projection_integrity_context(
@@ -4161,11 +4149,6 @@ impl ActionMapRuntimeState {
                     .unwrap_or(usize::MAX),
             )
         };
-        if let Some(archive) = projection.archive.as_ref() {
-            self.projection_archives
-                .insert(archive.archive_ref.clone(), archive.bytes.clone());
-        }
-        let strategy = projection.strategy.clone();
         let projection = projection.stats;
         let estimated_tokens = projection.estimated_tokens;
         self.budget_counters.projection_tokens_last = estimated_tokens;
@@ -4206,12 +4189,10 @@ impl ActionMapRuntimeState {
             map_edge_bytes = projection.size_breakdown.map_edge_bytes,
             node_detail_bytes = projection.size_breakdown.node_detail_bytes,
             footer_bytes = projection.size_breakdown.footer_bytes,
-            strategy_id = "S1",
-            strategy_activation_count = strategy.activation_count,
-            projection_bytes_before_strategy = strategy.projection_bytes_before,
-            projection_bytes_after_strategy = strategy.projection_bytes_after,
-            covered_node_count = strategy.covered_node_count,
-            archive_ref = strategy.archive_ref.as_deref().unwrap_or("none"),
+            strategy_id = "none",
+            strategy_activation_count = 0,
+            projection_bytes_before_strategy = projection.size_breakdown.projection_bytes,
+            projection_bytes_after_strategy = projection.size_breakdown.projection_bytes,
             max_projection_tokens,
             status,
             "measured TaskSpace map projection budget"
@@ -4259,10 +4240,6 @@ impl ActionMapRuntimeState {
                     projection.size_breakdown.map_node_bytes
                 ),
                 format!(
-                    "projection_archive_index_bytes:{}",
-                    projection.size_breakdown.map_node_archive_bytes
-                ),
-                format!(
                     "projection_edge_bytes:{}",
                     projection.size_breakdown.map_edge_bytes
                 ),
@@ -4276,22 +4253,16 @@ impl ActionMapRuntimeState {
                 ),
                 format!("max_projection_tokens:{max_projection_tokens}"),
                 format!("status:{status}"),
-                "strategy_id:S1".to_string(),
-                format!("strategy_activation_count:{}", strategy.activation_count),
+                "strategy_id:none".to_string(),
+                "strategy_activation_count:0".to_string(),
                 format!(
                     "projection_bytes_before_strategy:{}",
-                    strategy.projection_bytes_before
+                    projection.size_breakdown.projection_bytes
                 ),
                 format!(
                     "projection_bytes_after_strategy:{}",
-                    strategy.projection_bytes_after
+                    projection.size_breakdown.projection_bytes
                 ),
-                format!("covered_node_count:{}", strategy.covered_node_count),
-                format!(
-                    "archive_ref:{}",
-                    strategy.archive_ref.as_deref().unwrap_or("none")
-                ),
-                format!("archive_payload_bytes:{}", strategy.archive_payload_bytes),
             ],
         );
         self.pending_projection_trace_events
@@ -5423,7 +5394,6 @@ fn append_context_projection_active(
         })
         .collect::<Vec<_>>();
     let node_details = projection_node_details(map, current_node_id.as_deref());
-    let eligible_node_ids = s1_eligible_node_ids(map, current_node_id.as_deref());
     let full_input = ActiveProjectionInput {
         task_id: task.id.clone(),
         task_status: task.status.as_str().to_string(),
@@ -5433,60 +5403,10 @@ fn append_context_projection_active(
         current_node_id: current_node_id.clone(),
         active_frontier,
         map_nodes: node_skeleton,
-        map_node_archives: Vec::new(),
         map_edges,
         node_details,
     };
-    let (rendered, archive, strategy) = if eligible_node_ids.len() >= S1_MINIMUM_NODE_COUNT {
-        let snapshot = snapshot_map(map);
-        let candidate =
-            build_s1_projection_archive(&snapshot, current_node_id.as_deref(), &eligible_node_ids)?;
-        let before = render_active_projection(full_input.clone());
-        let covered = candidate
-            .covered_node_ids
-            .iter()
-            .map(String::as_str)
-            .collect::<HashSet<_>>();
-        let mut compressed_input = full_input;
-        compressed_input
-            .map_nodes
-            .retain(|node| !covered.contains(node.id.as_str()));
-        compressed_input
-            .node_details
-            .retain(|event| !covered.contains(event.node_id.as_str()));
-        compressed_input
-            .map_node_archives
-            .push(ProjectionArchiveIndex {
-                archive_ref: candidate.encoded.archive_ref.clone(),
-                covered_node_count: candidate.covered_node_ids.len(),
-                covered_node_ids_sha256: candidate.encoded.covered_node_ids_sha256.clone(),
-                canonical_payload_sha256: candidate.encoded.payload_sha256.clone(),
-                terminal_status: "completed".to_string(),
-                result_refs: candidate.result_refs,
-            });
-        let rendered = render_active_projection(compressed_input);
-        let strategy = ProjectionStrategyObservation {
-            activation_count: 1,
-            projection_bytes_before: before.size_breakdown.projection_bytes,
-            projection_bytes_after: rendered.size_breakdown.projection_bytes,
-            covered_node_count: candidate.covered_node_ids.len(),
-            archive_ref: Some(candidate.encoded.archive_ref.clone()),
-            archive_payload_bytes: candidate.encoded.bytes.len(),
-        };
-        (rendered, Some(candidate.encoded), strategy)
-    } else {
-        let rendered = render_active_projection(full_input);
-        let projection_bytes = rendered.size_breakdown.projection_bytes;
-        (
-            rendered,
-            None,
-            ProjectionStrategyObservation {
-                projection_bytes_before: projection_bytes,
-                projection_bytes_after: projection_bytes,
-                ..ProjectionStrategyObservation::default()
-            },
-        )
-    };
+    let rendered = render_active_projection(full_input);
     let max_projection_tokens = active_budget
         .map(|budget| budget.max_projection_tokens)
         .unwrap_or(usize::MAX);
@@ -5519,45 +5439,11 @@ fn append_context_projection_active(
             skeleton_over_budget,
             size_breakdown: rendered.size_breakdown,
         },
-        archive,
-        strategy,
     })
-}
-
-fn s1_eligible_node_ids(map: &ActionMapInstance, current_node_id: Option<&str>) -> Vec<MapNodeId> {
-    let incident_node_ids = map
-        .edges
-        .iter()
-        .flat_map(|edge| [edge.from.as_str(), edge.to.as_str()])
-        .collect::<HashSet<_>>();
-    ordered_node_ids(map)
-        .into_iter()
-        .filter(|node_id| {
-            map.nodes.get(node_id).is_some_and(|node| {
-                node.status == NodeStatus::Completed
-                    && node.active_lease.is_none()
-                    && current_node_id != Some(node.id.as_str())
-                    && !incident_node_ids.contains(node.id.as_str())
-                    && !map.leases.values().any(|lease| lease.node_id == node.id)
-            })
-        })
-        .collect()
 }
 
 struct ProjectionRenderOutcome {
     stats: ProjectionRenderStats,
-    archive: Option<EncodedProjectionArchive>,
-    strategy: ProjectionStrategyObservation,
-}
-
-#[derive(Clone, Default)]
-struct ProjectionStrategyObservation {
-    activation_count: usize,
-    projection_bytes_before: usize,
-    projection_bytes_after: usize,
-    covered_node_count: usize,
-    archive_ref: Option<String>,
-    archive_payload_bytes: usize,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -6221,7 +6107,6 @@ fn is_known_trace_tag(tag: &str) -> bool {
         || tag.starts_with("projection_root_source_bytes:")
         || tag.starts_with("projection_frontier_bytes:")
         || tag.starts_with("projection_node_bytes:")
-        || tag.starts_with("projection_archive_index_bytes:")
         || tag.starts_with("projection_edge_bytes:")
         || tag.starts_with("projection_detail_bytes:")
         || tag.starts_with("projection_footer_bytes:")
@@ -6231,9 +6116,6 @@ fn is_known_trace_tag(tag: &str) -> bool {
         || tag.starts_with("strategy_activation_count:")
         || tag.starts_with("projection_bytes_before_strategy:")
         || tag.starts_with("projection_bytes_after_strategy:")
-        || tag.starts_with("covered_node_count:")
-        || tag.starts_with("archive_ref:")
-        || tag.starts_with("archive_payload_bytes:")
 }
 
 fn snapshot_map(map: &ActionMapInstance) -> ActionMapSnapshotMap {

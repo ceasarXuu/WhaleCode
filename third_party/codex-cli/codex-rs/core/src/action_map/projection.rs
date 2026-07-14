@@ -8,7 +8,6 @@ pub(super) struct ActiveProjectionInput {
     pub(super) current_node_id: Option<String>,
     pub(super) active_frontier: Vec<String>,
     pub(super) map_nodes: Vec<ProjectionNode>,
-    pub(super) map_node_archives: Vec<ProjectionArchiveIndex>,
     pub(super) map_edges: Vec<ProjectionEdge>,
     pub(super) node_details: Vec<ProjectionEventRef>,
 }
@@ -21,16 +20,6 @@ pub(super) struct ProjectionNode {
     pub(super) goal: String,
     pub(super) result_ids: Vec<String>,
     pub(super) event_count: usize,
-}
-
-#[derive(Clone)]
-pub(super) struct ProjectionArchiveIndex {
-    pub(super) archive_ref: String,
-    pub(super) covered_node_count: usize,
-    pub(super) covered_node_ids_sha256: String,
-    pub(super) canonical_payload_sha256: String,
-    pub(super) terminal_status: String,
-    pub(super) result_refs: Vec<String>,
 }
 
 #[derive(Clone)]
@@ -67,7 +56,6 @@ pub(super) struct ProjectionSizeBreakdown {
     pub(super) root_source_bytes: usize,
     pub(super) active_frontier_bytes: usize,
     pub(super) map_node_bytes: usize,
-    pub(super) map_node_archive_bytes: usize,
     pub(super) map_edge_bytes: usize,
     pub(super) node_detail_bytes: usize,
     pub(super) footer_bytes: usize,
@@ -105,15 +93,6 @@ pub(super) fn render_active_projection(input: ActiveProjectionInput) -> Rendered
     let section_start = body.len();
     append_list(&mut body, "map_nodes", &render_nodes(&input.map_nodes));
     size_breakdown.map_node_bytes = body.len() - section_start;
-    if !input.map_node_archives.is_empty() {
-        let section_start = body.len();
-        append_list(
-            &mut body,
-            "map_node_archives",
-            &render_archive_indexes(&input.map_node_archives),
-        );
-        size_breakdown.map_node_archive_bytes = body.len() - section_start;
-    }
     let section_start = body.len();
     append_list(&mut body, "map_edges", &render_edges(&input.map_edges));
     size_breakdown.map_edge_bytes = body.len() - section_start;
@@ -190,27 +169,6 @@ fn render_edges(edges: &[ProjectionEdge]) -> Vec<String> {
         .collect()
 }
 
-fn render_archive_indexes(archives: &[ProjectionArchiveIndex]) -> Vec<String> {
-    archives
-        .iter()
-        .map(|archive| {
-            format!(
-                "strategy=S1 archive_ref={} covered_node_count={} covered_node_ids_sha256={} canonical_payload_sha256={} terminal_status={} result_refs={}",
-                archive.archive_ref,
-                archive.covered_node_count,
-                archive.covered_node_ids_sha256,
-                archive.canonical_payload_sha256,
-                archive.terminal_status,
-                if archive.result_refs.is_empty() {
-                    "none".to_string()
-                } else {
-                    archive.result_refs.join(",")
-                },
-            )
-        })
-        .collect()
-}
-
 fn render_event_refs(events: &[ProjectionEventRef]) -> Vec<String> {
     events
         .iter()
@@ -266,7 +224,6 @@ mod tests {
                 result_ids: vec!["result-1".into()],
                 event_count: 1,
             }],
-            map_node_archives: Vec::new(),
             map_edges: Vec::new(),
             node_details: vec![ProjectionEventRef {
                 id: "task-event-2".into(),
@@ -298,7 +255,6 @@ mod tests {
             assert!(rendered.body.contains(field), "missing {field}");
         }
         assert!(!rendered.body.contains("projection_id"));
-        assert!(!rendered.body.contains("map_node_archives"));
         assert!(rendered.skeleton_estimated_tokens < rendered.estimated_tokens);
         assert_eq!(
             rendered.size_breakdown.projection_bytes,
@@ -306,7 +262,6 @@ mod tests {
                 + rendered.size_breakdown.root_source_bytes
                 + rendered.size_breakdown.active_frontier_bytes
                 + rendered.size_breakdown.map_node_bytes
-                + rendered.size_breakdown.map_node_archive_bytes
                 + rendered.size_breakdown.map_edge_bytes
                 + rendered.size_breakdown.node_detail_bytes
                 + rendered.size_breakdown.footer_bytes
@@ -342,7 +297,6 @@ mod tests {
                     event_count: 1,
                 })
                 .collect(),
-            map_node_archives: Vec::new(),
             map_edges: (1..node_count)
                 .map(|index| ProjectionEdge {
                     from: format!("node-{}", index - 1),
@@ -370,36 +324,5 @@ mod tests {
         );
         assert!(!rendered.body.contains("omitted"));
         assert!(!rendered.body.contains("cursor"));
-    }
-
-    #[test]
-    fn projection_renders_only_mechanical_archive_index_fields() {
-        let rendered = render_active_projection(ActiveProjectionInput {
-            task_id: "task-archive".into(),
-            task_status: "active".into(),
-            map_id: "map-archive".into(),
-            map_status: "active".into(),
-            root_source_event_ids: vec!["task-event-root".into()],
-            current_node_id: Some("active".into()),
-            active_frontier: vec!["active".into()],
-            map_nodes: Vec::new(),
-            map_node_archives: vec![ProjectionArchiveIndex {
-                archive_ref: "output-ref://sha256/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".into(),
-                covered_node_count: 3,
-                covered_node_ids_sha256: "covered-hash".into(),
-                canonical_payload_sha256: "payload-hash".into(),
-                terminal_status: "completed".into(),
-                result_refs: vec!["result-a".into(), "result-b".into()],
-            }],
-            map_edges: Vec::new(),
-            node_details: Vec::new(),
-        });
-
-        assert!(rendered.body.contains("map_node_archives:"));
-        assert!(rendered.body.contains("strategy=S1"));
-        assert!(rendered.body.contains("covered_node_count=3"));
-        assert!(rendered.body.contains("result_refs=result-a,result-b"));
-        assert!(!rendered.body.contains("summary="));
-        assert!(rendered.size_breakdown.map_node_archive_bytes > 0);
     }
 }
