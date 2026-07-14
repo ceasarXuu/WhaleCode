@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import statistics
 from collections import Counter
 from pathlib import Path
 from typing import Any
@@ -12,10 +13,18 @@ from typing import Any
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--artifacts", required=True)
-    parser.add_argument("--arm", choices=("STD", "P1", "C1"), required=True)
+    parser.add_argument("--artifacts", default="")
+    parser.add_argument("--records", default="")
+    parser.add_argument("--arm", choices=("STD", "P1", "C1"))
     parser.add_argument("--output", default="")
-    return parser.parse_args()
+    args = parser.parse_args()
+    if bool(args.artifacts) == bool(args.records):
+        parser.error("provide exactly one of --artifacts or --records")
+    if args.artifacts and not args.arm:
+        parser.error("--arm is required with --artifacts")
+    if args.records and args.arm:
+        parser.error("--arm is not valid with --records")
+    return args
 
 
 def read_json(path: Path) -> dict[str, Any]:
@@ -199,8 +208,116 @@ def action_metrics(events: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def numeric_stats(values: list[int | float]) -> dict[str, int | float] | None:
+    if not values:
+        return None
+    total = sum(values)
+    return {
+        "total": total,
+        "mean": round(total / len(values), 2),
+        "median": round(statistics.median(values), 2),
+    }
+
+
+def aggregate_metrics(records: list[dict[str, Any]]) -> dict[str, Any]:
+    metric_paths = {
+        "requests": ("provider", "continuation", "requestCount"),
+        "wallMs": ("time", "continuation_ms"),
+        "inputTokens": ("tokens", "continuation", "inputTokens"),
+        "cachedInputTokens": ("tokens", "continuation", "cachedInputTokens"),
+        "uncachedInputTokens": ("tokens", "continuation", "uncachedInputTokens"),
+        "outputTokens": ("tokens", "continuation", "outputTokens"),
+        "commands": ("actions", "commandCount"),
+        "failedCommands": ("actions", "failedCommandCount"),
+        "projectionBytes": ("projection", "projectionBytes"),
+    }
+
+    def value_at(record: dict[str, Any], path: tuple[str, ...]) -> Any:
+        value: Any = record
+        for key in path:
+            value = value[key]
+        return value
+
+    arms: dict[str, Any] = {}
+    for arm in ("STD", "P1", "C1"):
+        arm_records = [record for record in records if record.get("arm") == arm]
+        if not arm_records:
+            continue
+        metrics: dict[str, Any] = {}
+        for name, path in metric_paths.items():
+            values = [value_at(record, path) for record in arm_records]
+            metrics[name] = numeric_stats([value for value in values if value is not None])
+        cache_rates = [
+            float(record["tokens"]["continuation"]["cacheHitPercent"])
+            for record in arm_records
+        ]
+        cached_total = metrics["cachedInputTokens"]["total"]
+        input_total = metrics["inputTokens"]["total"]
+        arms[arm] = {
+            "runCount": len(arm_records),
+            "successCount": sum(
+                record.get("validation", {}).get("finalExitCode") == 0
+                for record in arm_records
+            ),
+            "metrics": metrics,
+            "cacheHitPercent": {
+                "weighted": round(cached_total * 100 / input_total, 2)
+                if input_total
+                else None,
+                "mean": round(sum(cache_rates) / len(cache_rates), 2),
+                "median": round(statistics.median(cache_rates), 2),
+            },
+        }
+
+    ratios: dict[str, Any] = {}
+    if "P1" in arms and "C1" in arms:
+        for name in metric_paths:
+            previous = arms["P1"]["metrics"][name]
+            candidate = arms["C1"]["metrics"][name]
+            if previous is None or candidate is None:
+                continue
+            previous_runs = arms["P1"]["runCount"]
+            candidate_runs = arms["C1"]["runCount"]
+            ratios[name] = {
+                "total": round(candidate["total"] / previous["total"], 3)
+                if previous["total"]
+                else None,
+                "mean": round(
+                    (candidate["total"] / candidate_runs)
+                    / (previous["total"] / previous_runs),
+                    3,
+                )
+                if previous["total"]
+                else None,
+                "median": round(candidate["median"] / previous["median"], 3)
+                if previous["median"]
+                else None,
+            }
+        ratios["cacheHitDeltaPercentagePoints"] = {
+            key: round(
+                arms["C1"]["cacheHitPercent"][key]
+                - arms["P1"]["cacheHitPercent"][key],
+                2,
+            )
+            for key in ("weighted", "mean", "median")
+        }
+    return {
+        "schemaVersion": "taskspace-active-prefix-summary-v2",
+        "arms": arms,
+        "candidatePreviousRatios": ratios,
+    }
+
+
 def main() -> int:
     args = parse_args()
+    if args.records:
+        records_path = Path(args.records)
+        metrics = aggregate_metrics(json.loads(records_path.read_text(encoding="utf-8")))
+        output = Path(args.output) if args.output else records_path.with_name("summary.json")
+        output.write_text(json.dumps(metrics, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        print(output)
+        return 0
+
     artifacts = Path(args.artifacts)
     summary = read_json(artifacts / "client-summary.json")
     events = read_jsonl(artifacts / "app-server-events.jsonl")

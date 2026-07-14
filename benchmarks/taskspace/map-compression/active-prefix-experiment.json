@@ -38,9 +38,9 @@
     "rpc_client": "scripts/taskspace-benchmark/app-server-active-prefix.py",
     "rpc_client_sha256": "ccb5a98245523bee110284af8401cb86d2d50d6fbf40c4d1b32ae14b8f5a09b8",
     "analyzer": "scripts/taskspace-benchmark/analyze-active-prefix.py",
-    "analyzer_sha256": "3e7cf6fe9e1c841fd90eda742c2d099521636c9e530c54ca3596eaed85b289a3",
+    "analyzer_sha256": "3f3512ff3e553dd527e542d0a4376b89da29a55105ed973e68fdacfea9007d4f",
     "tests": "scripts/taskspace-benchmark/test-active-prefix-tools.py",
-    "tests_sha256": "dd6c3b178a05b29ce1402be5437a4022734004e6b416cd7328bc903b0a620da8"
+    "tests_sha256": "b4455ad87f508fa558ae0eb549436c2f67ddc78488d647bb486afe942ecf8fc3"
   },
   "gates": {
     "initial_public_validation_exit_code": 1,

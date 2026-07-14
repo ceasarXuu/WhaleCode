@@ -185,6 +185,48 @@ class AnalyzerTest(unittest.TestCase):
         self.assertEqual(metrics["activeOpenNodeIds"], [])
         self.assertFalse(metrics["taskContextOwnershipActive"])
 
+    def test_aggregate_reports_total_mean_median_and_weighted_cache(self) -> None:
+        def record(arm: str, requests: int, input_tokens: int, cached: int) -> dict:
+            return {
+                "arm": arm,
+                "validation": {"finalExitCode": 0},
+                "provider": {"continuation": {"requestCount": requests}},
+                "time": {"continuation_ms": requests * 100},
+                "tokens": {
+                    "continuation": {
+                        "inputTokens": input_tokens,
+                        "cachedInputTokens": cached,
+                        "uncachedInputTokens": input_tokens - cached,
+                        "outputTokens": requests * 10,
+                        "cacheHitPercent": cached * 100 / input_tokens,
+                    }
+                },
+                "actions": {"commandCount": requests + 1, "failedCommandCount": 0},
+                "projection": {
+                    "projectionBytes": 1000 if arm == "P1" else 500 if arm == "C1" else None
+                },
+            }
+
+        summary = self.analyzer.aggregate_metrics(
+            [
+                record("STD", 2, 100, 80),
+                record("STD", 4, 300, 270),
+                record("P1", 2, 100, 80),
+                record("P1", 4, 300, 270),
+                record("C1", 3, 200, 180),
+                record("C1", 6, 400, 380),
+            ]
+        )
+        standard = summary["arms"]["STD"]
+        self.assertEqual(standard["metrics"]["requests"], {"total": 6, "mean": 3.0, "median": 3.0})
+        self.assertIsNone(standard["metrics"]["projectionBytes"])
+        self.assertEqual(standard["cacheHitPercent"]["weighted"], 87.5)
+        self.assertEqual(summary["candidatePreviousRatios"]["requests"]["total"], 1.5)
+        self.assertEqual(
+            summary["candidatePreviousRatios"]["cacheHitDeltaPercentagePoints"]["weighted"],
+            5.83,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
