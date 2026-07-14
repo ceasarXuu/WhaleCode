@@ -20,6 +20,18 @@ function Get-Median {
     ([double]$sorted[$middle - 1] + [double]$sorted[$middle]) / 2.0
 }
 
+function Get-Sum {
+    param([double[]]$Values)
+    if ($Values.Count -eq 0) { return $null }
+    [double](($Values | Measure-Object -Sum).Sum)
+}
+
+function Get-Mean {
+    param([double[]]$Values)
+    if ($Values.Count -eq 0) { return $null }
+    [math]::Round([double](($Values | Measure-Object -Average).Average), 2)
+}
+
 function Get-Ratio {
     param($Numerator, $Denominator)
     if ($null -eq $Numerator -or $null -eq $Denominator -or [double]$Denominator -eq 0) { return $null }
@@ -38,10 +50,16 @@ function Convert-TraceTags {
     $result
 }
 
+function Get-OptionalTagDouble {
+    param($Tags, [string]$Name)
+    if (-not $Tags.ContainsKey($Name)) { return $null }
+    [double]$Tags[$Name]
+}
+
 function Get-CompressionTraceMetrics {
     param([string]$RolloutPath)
     if ([string]::IsNullOrWhiteSpace($RolloutPath) -or -not (Test-Path -LiteralPath $RolloutPath)) {
-        return [pscustomobject]@{ availability = "unavailable"; evaluation_count = $null; activation_count = $null; before_median = $null; after_median = $null; activated_ratio = $null; covered_node_count_median = $null; archive_payload_bytes_median = $null }
+        return [pscustomobject]@{ availability = "unavailable"; strategy_ids = @(); evaluation_count = $null; activation_count = $null; before_median = $null; after_median = $null; activated_ratio = $null; folded_node_count_median = $null; eligible_node_count_median = $null; node_detail_before_median = $null; node_detail_after_median = $null; skeleton_before_median = $null; skeleton_after_median = $null; covered_node_count_median = $null; archive_payload_bytes_median = $null }
     }
     $events = [System.Collections.Generic.List[object]]::new()
     foreach ($line in [System.IO.File]::ReadLines($RolloutPath)) {
@@ -52,30 +70,45 @@ function Get-CompressionTraceMetrics {
             [string]$payload.map_event_type -ne "taskspace_trace_event_recorded" -or
             [string]$payload.kind -ne "projection_budget") { continue }
         $tags = Convert-TraceTags $payload.tags
-        if ([string]$tags.strategy_id -ne "S1") { continue }
+        $strategyId = [string]$tags.strategy_id
+        if ([string]::IsNullOrWhiteSpace($strategyId) -or $strategyId -eq "none") { continue }
         $events.Add([pscustomobject]@{
-            activation = [double]$tags.strategy_activation_count
-            before = [double]$tags.projection_bytes_before_strategy
-            after = [double]$tags.projection_bytes_after_strategy
-            covered = [double]$tags.covered_node_count
-            archive_payload_bytes = [double]$tags.archive_payload_bytes
+            strategy_id = $strategyId
+            activation = Get-OptionalTagDouble $tags "strategy_activation_count"
+            before = Get-OptionalTagDouble $tags "projection_bytes_before_strategy"
+            after = Get-OptionalTagDouble $tags "projection_bytes_after_strategy"
+            folded = Get-OptionalTagDouble $tags "folded_node_count"
+            eligible = Get-OptionalTagDouble $tags "fold_eligible_node_count"
+            node_detail_before = Get-OptionalTagDouble $tags "node_detail_bytes_before_strategy"
+            node_detail_after = Get-OptionalTagDouble $tags "node_detail_bytes_after_strategy"
+            skeleton_before = Get-OptionalTagDouble $tags "skeleton_bytes_before_strategy"
+            skeleton_after = Get-OptionalTagDouble $tags "skeleton_bytes_after_strategy"
+            covered = Get-OptionalTagDouble $tags "covered_node_count"
+            archive_payload_bytes = Get-OptionalTagDouble $tags "archive_payload_bytes"
         })
     }
     if ($events.Count -eq 0) {
-        return [pscustomobject]@{ availability = "trace_absent"; evaluation_count = 0; activation_count = $null; before_median = $null; after_median = $null; activated_ratio = $null; covered_node_count_median = $null; archive_payload_bytes_median = $null }
+        return [pscustomobject]@{ availability = "trace_absent"; strategy_ids = @(); evaluation_count = 0; activation_count = $null; before_median = $null; after_median = $null; activated_ratio = $null; folded_node_count_median = $null; eligible_node_count_median = $null; node_detail_before_median = $null; node_detail_after_median = $null; skeleton_before_median = $null; skeleton_after_median = $null; covered_node_count_median = $null; archive_payload_bytes_median = $null }
     }
     $activated = @($events | Where-Object { $_.activation -gt 0 })
-    $before = Get-Median @($activated.before)
-    $after = Get-Median @($activated.after)
+    $before = Get-Median @($activated.before | Where-Object { $null -ne $_ })
+    $after = Get-Median @($activated.after | Where-Object { $null -ne $_ })
     [pscustomobject]@{
         availability = "rollout_trace"
+        strategy_ids = @($events.strategy_id | Sort-Object -Unique)
         evaluation_count = $events.Count
         activation_count = [double](($events | Measure-Object activation -Sum).Sum)
         before_median = $before
         after_median = $after
         activated_ratio = Get-Ratio $after $before
-        covered_node_count_median = Get-Median @($activated.covered)
-        archive_payload_bytes_median = Get-Median @($activated.archive_payload_bytes)
+        folded_node_count_median = Get-Median @($activated.folded | Where-Object { $null -ne $_ })
+        eligible_node_count_median = Get-Median @($activated.eligible | Where-Object { $null -ne $_ })
+        node_detail_before_median = Get-Median @($activated.node_detail_before | Where-Object { $null -ne $_ })
+        node_detail_after_median = Get-Median @($activated.node_detail_after | Where-Object { $null -ne $_ })
+        skeleton_before_median = Get-Median @($activated.skeleton_before | Where-Object { $null -ne $_ })
+        skeleton_after_median = Get-Median @($activated.skeleton_after | Where-Object { $null -ne $_ })
+        covered_node_count_median = Get-Median @($activated.covered | Where-Object { $null -ne $_ })
+        archive_payload_bytes_median = Get-Median @($activated.archive_payload_bytes | Where-Object { $null -ne $_ })
     }
 }
 
@@ -98,17 +131,26 @@ foreach ($entry in @($index.results)) {
         requests = [double]$metrics.model_request_count
         input_tokens = [double]$metrics.input_tokens
         cached_input_tokens = [double]$metrics.cached_input_tokens
+        uncached_input_tokens = [double]$metrics.uncached_input_tokens
+        cache_input_ratio = Get-Ratio ([double]$metrics.cached_input_tokens) ([double]$metrics.input_tokens)
         output_tokens = [double]$metrics.output_tokens
         wall_time_ms = [double]$metrics.wall_time_ms
         projection_tokens_max = [double]$metrics.projection_tokens_max
         nodes = [double]$metrics.nodes
         edges = [double]$metrics.edges
         compression_trace_availability = $compression.availability
+        strategy_ids = @($compression.strategy_ids)
         strategy_evaluation_count = $compression.evaluation_count
         strategy_activation_count = $compression.activation_count
         activated_projection_before_median = $compression.before_median
         activated_projection_after_median = $compression.after_median
         activated_projection_ratio = $compression.activated_ratio
+        folded_node_count_median = $compression.folded_node_count_median
+        eligible_node_count_median = $compression.eligible_node_count_median
+        node_detail_before_median = $compression.node_detail_before_median
+        node_detail_after_median = $compression.node_detail_after_median
+        skeleton_before_median = $compression.skeleton_before_median
+        skeleton_after_median = $compression.skeleton_after_median
         covered_node_count_median = $compression.covered_node_count_median
         archive_payload_bytes_median = $compression.archive_payload_bytes_median
         metrics_path = [string]$entry.metrics_path
@@ -125,10 +167,26 @@ foreach ($sampleClass in @($rows.sample_class | Sort-Object -Unique)) {
             arm = $arm
             runs = $group.Count
             success_count = @($group | Where-Object { $_.business_success }).Count
+            requests_sum = Get-Sum @($group.requests)
+            requests_mean = Get-Mean @($group.requests)
             requests_median = Get-Median @($group.requests)
+            input_tokens_sum = Get-Sum @($group.input_tokens)
+            input_tokens_mean = Get-Mean @($group.input_tokens)
             input_tokens_median = Get-Median @($group.input_tokens)
+            cached_input_tokens_sum = Get-Sum @($group.cached_input_tokens)
+            cached_input_tokens_mean = Get-Mean @($group.cached_input_tokens)
             cached_input_tokens_median = Get-Median @($group.cached_input_tokens)
+            uncached_input_tokens_sum = Get-Sum @($group.uncached_input_tokens)
+            uncached_input_tokens_mean = Get-Mean @($group.uncached_input_tokens)
+            uncached_input_tokens_median = Get-Median @($group.uncached_input_tokens)
+            cache_input_ratio_total = Get-Ratio (Get-Sum @($group.cached_input_tokens)) (Get-Sum @($group.input_tokens))
+            cache_input_ratio_mean = Get-Mean @($group.cache_input_ratio)
+            cache_input_ratio_median = Get-Median @($group.cache_input_ratio)
+            output_tokens_sum = Get-Sum @($group.output_tokens)
+            output_tokens_mean = Get-Mean @($group.output_tokens)
             output_tokens_median = Get-Median @($group.output_tokens)
+            wall_time_ms_sum = Get-Sum @($group.wall_time_ms)
+            wall_time_ms_mean = Get-Mean @($group.wall_time_ms)
             wall_time_ms_median = Get-Median @($group.wall_time_ms)
             projection_tokens_max_median = Get-Median @($group.projection_tokens_max)
             nodes_median = Get-Median @($group.nodes)
@@ -137,6 +195,12 @@ foreach ($sampleClass in @($rows.sample_class | Sort-Object -Unique)) {
             activated_projection_before_median = Get-Median @($group.activated_projection_before_median | Where-Object { $null -ne $_ })
             activated_projection_after_median = Get-Median @($group.activated_projection_after_median | Where-Object { $null -ne $_ })
             activated_projection_ratio_median = Get-Median @($group.activated_projection_ratio | Where-Object { $null -ne $_ })
+            folded_node_count_median = Get-Median @($group.folded_node_count_median | Where-Object { $null -ne $_ })
+            eligible_node_count_median = Get-Median @($group.eligible_node_count_median | Where-Object { $null -ne $_ })
+            node_detail_before_median = Get-Median @($group.node_detail_before_median | Where-Object { $null -ne $_ })
+            node_detail_after_median = Get-Median @($group.node_detail_after_median | Where-Object { $null -ne $_ })
+            skeleton_before_median = Get-Median @($group.skeleton_before_median | Where-Object { $null -ne $_ })
+            skeleton_after_median = Get-Median @($group.skeleton_after_median | Where-Object { $null -ne $_ })
             covered_node_count_median = Get-Median @($group.covered_node_count_median | Where-Object { $null -ne $_ })
         })
     }
@@ -162,7 +226,7 @@ foreach ($sampleClass in @($rows.sample_class | Sort-Object -Unique)) {
 }
 
 $observation = [ordered]@{
-    schema_version = "taskspace-map-compression-observation-v1"
+    schema_version = "taskspace-map-compression-observation-v2"
     phase = [string]$index.phase
     run_index_path = $RunIndexPath
     p0_alias_of = [string]$index.p0_alias_of
@@ -179,16 +243,16 @@ $lines.Add("")
 $lines.Add("- Phase: $($index.phase)")
 $lines.Add("- P0: alias of B0")
 $lines.Add("")
-$lines.Add("| Sample | Arm | Success | Requests median | Input median | Cached median | Wall ms median | Projection max median |")
-$lines.Add("|---|---|---:|---:|---:|---:|---:|---:|")
+$lines.Add("| Sample | Arm | Success | Requests sum/mean/P50 | Input sum/mean/P50 | Cached sum/mean/P50 | Cache total/mean/P50 | Wall ms sum/mean/P50 | Projection max P50 |")
+$lines.Add("|---|---|---:|---:|---:|---:|---:|---:|---:|")
 foreach ($row in $aggregates) {
-    $lines.Add("| $($row.sample_class) | $($row.arm) | $($row.success_count)/$($row.runs) | $($row.requests_median) | $($row.input_tokens_median) | $($row.cached_input_tokens_median) | $($row.wall_time_ms_median) | $($row.projection_tokens_max_median) |")
+    $lines.Add("| $($row.sample_class) | $($row.arm) | $($row.success_count)/$($row.runs) | $($row.requests_sum)/$($row.requests_mean)/$($row.requests_median) | $($row.input_tokens_sum)/$($row.input_tokens_mean)/$($row.input_tokens_median) | $($row.cached_input_tokens_sum)/$($row.cached_input_tokens_mean)/$($row.cached_input_tokens_median) | $($row.cache_input_ratio_total)/$($row.cache_input_ratio_mean)/$($row.cache_input_ratio_median) | $($row.wall_time_ms_sum)/$($row.wall_time_ms_mean)/$($row.wall_time_ms_median) | $($row.projection_tokens_max_median) |")
 }
 $lines.Add("")
-$lines.Add("| Sample | Arm | S1 activation median | Activated bytes before | Activated bytes after | After/before | Covered nodes |")
+$lines.Add("| Sample | Arm | Activation P50 | Projection before/after/ratio | Folded/eligible nodes P50 | Detail before/after | Skeleton before/after |")
 $lines.Add("|---|---|---:|---:|---:|---:|---:|")
 foreach ($row in $aggregates) {
-    $lines.Add("| $($row.sample_class) | $($row.arm) | $($row.strategy_activation_count_median) | $($row.activated_projection_before_median) | $($row.activated_projection_after_median) | $($row.activated_projection_ratio_median) | $($row.covered_node_count_median) |")
+    $lines.Add("| $($row.sample_class) | $($row.arm) | $($row.strategy_activation_count_median) | $($row.activated_projection_before_median)/$($row.activated_projection_after_median)/$($row.activated_projection_ratio_median) | $($row.folded_node_count_median)/$($row.eligible_node_count_median) | $($row.node_detail_before_median)/$($row.node_detail_after_median) | $($row.skeleton_before_median)/$($row.skeleton_after_median) |")
 }
 $lines.Add("")
 $lines.Add("| Sample | Comparison | Requests ratio | Input ratio | Cached ratio | Wall ratio | Projection ratio |")

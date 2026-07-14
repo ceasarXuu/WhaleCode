@@ -16,21 +16,29 @@ $traceBase = @{
 $events = @(
     @(
         "schema:taskspace-projection-budget-v1",
-        "strategy_id:S1",
+        "strategy_id:S4",
         "strategy_activation_count:0",
         "projection_bytes_before_strategy:500",
         "projection_bytes_after_strategy:500",
-        "covered_node_count:0",
-        "archive_payload_bytes:0"
+        "folded_node_count:0",
+        "fold_eligible_node_count:0",
+        "node_detail_bytes_before_strategy:100",
+        "node_detail_bytes_after_strategy:100",
+        "skeleton_bytes_before_strategy:400",
+        "skeleton_bytes_after_strategy:400"
     ),
     @(
         "schema:taskspace-projection-budget-v1",
-        "strategy_id:S1",
+        "strategy_id:S4",
         "strategy_activation_count:1",
         "projection_bytes_before_strategy:1000",
         "projection_bytes_after_strategy:800",
-        "covered_node_count:3",
-        "archive_payload_bytes:1200"
+        "folded_node_count:3",
+        "fold_eligible_node_count:4",
+        "node_detail_bytes_before_strategy:500",
+        "node_detail_bytes_after_strategy:300",
+        "skeleton_bytes_before_strategy:500",
+        "skeleton_bytes_after_strategy:500"
     )
 )
 $lines = foreach ($tags in $events) {
@@ -49,6 +57,7 @@ $metricsPath = Join-Path $root "metrics.json"
     model_request_count = 2
     input_tokens = 100
     cached_input_tokens = 80
+    uncached_input_tokens = 20
     output_tokens = 20
     wall_time_ms = 1000
     projection_tokens_max = 250
@@ -82,6 +91,9 @@ if ([double]$row.strategy_activation_count -ne 1) { throw "activation count mism
 if ([double]$row.activated_projection_before_median -ne 1000) { throw "before bytes mismatch" }
 if ([double]$row.activated_projection_after_median -ne 800) { throw "after bytes mismatch" }
 if ([double]$row.activated_projection_ratio -ne 0.8) { throw "ratio mismatch" }
-if ([double]$row.covered_node_count_median -ne 3) { throw "covered node count mismatch" }
+if ([double]$row.folded_node_count_median -ne 3) { throw "folded node count mismatch" }
+if ([double]$row.eligible_node_count_median -ne 4) { throw "eligible node count mismatch" }
+if ([double]$row.node_detail_before_median -ne 500 -or [double]$row.node_detail_after_median -ne 300) { throw "detail bytes mismatch" }
+if ([double]$row.skeleton_before_median -ne 500 -or [double]$row.skeleton_after_median -ne 500) { throw "skeleton bytes mismatch" }
 
 Write-Host "Map compression observer test: PASS"
