@@ -4,9 +4,11 @@ $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 $contractPath = Join-Path $repoRoot "benchmarks/taskspace/r6/rooted-dag-contract.json"
 $fixturesPath = Join-Path $repoRoot "benchmarks/taskspace/r6/rooted-dag-contract-fixtures.json"
 $inventoryPath = Join-Path $repoRoot "benchmarks/taskspace/r6/phase-a-ownership-inventory.json"
+$baselinePath = Join-Path $repoRoot "benchmarks/taskspace/r6/phase-a-baseline-contract.json"
 $contract = Get-Content -Raw -Encoding UTF8 -LiteralPath $contractPath | ConvertFrom-Json -Depth 30
 $fixtures = Get-Content -Raw -Encoding UTF8 -LiteralPath $fixturesPath | ConvertFrom-Json -Depth 30
 $inventory = Get-Content -Raw -Encoding UTF8 -LiteralPath $inventoryPath | ConvertFrom-Json -Depth 30
+$baseline = Get-Content -Raw -Encoding UTF8 -LiteralPath $baselinePath | ConvertFrom-Json -Depth 30
 
 function Assert-Equal {
     param($Actual, $Expected, [string]$Message)
@@ -210,4 +212,30 @@ foreach ($item in @($inventory.items)) {
     }
 }
 
-Write-Host "R6 rooted DAG contract tests passed: $(@($fixtures.cases).Count) fixtures, $(@($inventory.items).Count) ownership items"
+Assert-Equal $baseline.status "frozen_pre_run" "Phase A baseline must be frozen before execution"
+Assert-Equal $baseline.execution_substrate "docker_hard_boundary" "Baseline is not Docker-only"
+Assert-Equal $baseline.repeats_per_arm 1 "Phase A quick baseline repeat count drifted"
+Assert-Equal $baseline.aggregate_utility_allowed $false "Single-run utility aggregation was enabled"
+$binaryPath = Join-Path $repoRoot ([string]$baseline.r5.binary_path)
+$actualBinarySha = (Get-FileHash -Algorithm SHA256 -LiteralPath $binaryPath).Hash.ToLowerInvariant()
+Assert-Equal $actualBinarySha ([string]$baseline.r5.binary_sha256) "Frozen R5 binary hash mismatch"
+$attestationPath = Join-Path $repoRoot ([string]$baseline.r5.attestation_path)
+$attestation = Get-Content -Raw -Encoding UTF8 -LiteralPath $attestationPath | ConvertFrom-Json
+Assert-Equal $attestation.codex_source_latest_commit $baseline.r5.runtime_commit "Frozen R5 binary source mismatch"
+foreach ($scenario in @($baseline.scenarios)) {
+    $scenarioPath = Join-Path $repoRoot ([string]$scenario.scenario_path)
+    if (-not (Test-Path -LiteralPath $scenarioPath -PathType Leaf)) {
+        throw "Baseline scenario is missing: $scenarioPath"
+    }
+}
+$r6Arm = @($baseline.arms | Where-Object { [string]$_.id -eq "r6_a0" })
+Assert-Equal $r6Arm.Count 1 "R6 A0 identity arm is missing"
+Assert-Equal $r6Arm[0].provider_execution $false "Code-identical R6 A0 should not duplicate provider execution"
+foreach ($productionPath in @($baseline.r6_a0_identity.production_paths)) {
+    $fullPath = Join-Path $repoRoot ([string]$productionPath)
+    if (-not (Test-Path -LiteralPath $fullPath)) {
+        throw "R6 A0 identity path is missing: $fullPath"
+    }
+}
+
+Write-Host "R6 rooted DAG contract tests passed: $(@($fixtures.cases).Count) fixtures, $(@($inventory.items).Count) ownership items, $(@($baseline.scenarios).Count) baseline scenarios"
