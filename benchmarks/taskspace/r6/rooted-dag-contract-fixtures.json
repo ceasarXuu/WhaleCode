@@ -1,0 +1,223 @@
+{
+  "schema_version": 1,
+  "contract_id": "taskspace-rooted-dag-v1",
+  "cases": [
+    {
+      "id": "valid_trivial",
+      "valid": true,
+      "root_node_id": "root",
+      "finish_node_id": "finish",
+      "nodes": [
+        { "id": "root", "role": "task_root", "status": "open" },
+        { "id": "finish", "role": "finish", "status": "ready" }
+      ],
+      "edges": [{ "from": "root", "to": "finish" }],
+      "expected_codes": []
+    },
+    {
+      "id": "valid_chain",
+      "valid": true,
+      "root_node_id": "root",
+      "finish_node_id": "finish",
+      "nodes": [
+        { "id": "root", "role": "task_root", "status": "open" },
+        { "id": "inspect", "role": "work", "status": "ready" },
+        { "id": "patch", "role": "work", "status": "pending" },
+        { "id": "finish", "role": "finish", "status": "pending" }
+      ],
+      "edges": [
+        { "from": "root", "to": "inspect" },
+        { "from": "inspect", "to": "patch" },
+        { "from": "patch", "to": "finish" }
+      ],
+      "expected_codes": []
+    },
+    {
+      "id": "valid_fork_join",
+      "valid": true,
+      "root_node_id": "root",
+      "finish_node_id": "finish",
+      "nodes": [
+        { "id": "root", "role": "task_root", "status": "open" },
+        { "id": "read-rules", "role": "work", "status": "ready" },
+        { "id": "read-tests", "role": "work", "status": "ready" },
+        { "id": "decide", "role": "work", "status": "pending" },
+        { "id": "finish", "role": "finish", "status": "pending" }
+      ],
+      "edges": [
+        { "from": "root", "to": "read-rules" },
+        { "from": "root", "to": "read-tests" },
+        { "from": "read-rules", "to": "decide" },
+        { "from": "read-tests", "to": "decide" },
+        { "from": "decide", "to": "finish" }
+      ],
+      "expected_codes": []
+    },
+    {
+      "id": "invalid_multiple_roots",
+      "valid": false,
+      "root_node_id": "root-a",
+      "finish_node_id": "finish",
+      "nodes": [
+        { "id": "root-a", "role": "task_root", "status": "open" },
+        { "id": "root-b", "role": "task_root", "status": "open" },
+        { "id": "finish", "role": "finish", "status": "pending" }
+      ],
+      "edges": [
+        { "from": "root-a", "to": "finish" },
+        { "from": "root-b", "to": "finish" }
+      ],
+      "expected_codes": ["multiple_roots", "non_root_zero_indegree", "node_unreachable_from_root"]
+    },
+    {
+      "id": "invalid_multiple_finishes",
+      "valid": false,
+      "root_node_id": "root",
+      "finish_node_id": "finish-a",
+      "nodes": [
+        { "id": "root", "role": "task_root", "status": "open" },
+        { "id": "finish-a", "role": "finish", "status": "pending" },
+        { "id": "finish-b", "role": "finish", "status": "pending" }
+      ],
+      "edges": [
+        { "from": "root", "to": "finish-a" },
+        { "from": "root", "to": "finish-b" }
+      ],
+      "expected_codes": ["multiple_finishes", "non_finish_zero_outdegree", "finish_unreachable_from_node"]
+    },
+    {
+      "id": "invalid_additional_source",
+      "valid": false,
+      "root_node_id": "root",
+      "finish_node_id": "finish",
+      "nodes": [
+        { "id": "root", "role": "task_root", "status": "open" },
+        { "id": "orphan-source", "role": "work", "status": "ready" },
+        { "id": "finish", "role": "finish", "status": "pending" }
+      ],
+      "edges": [
+        { "from": "root", "to": "finish" },
+        { "from": "orphan-source", "to": "finish" }
+      ],
+      "expected_codes": ["non_root_zero_indegree", "node_unreachable_from_root"]
+    },
+    {
+      "id": "invalid_additional_sink",
+      "valid": false,
+      "root_node_id": "root",
+      "finish_node_id": "finish",
+      "nodes": [
+        { "id": "root", "role": "task_root", "status": "open" },
+        { "id": "orphan-sink", "role": "work", "status": "pending" },
+        { "id": "finish", "role": "finish", "status": "pending" }
+      ],
+      "edges": [
+        { "from": "root", "to": "orphan-sink" },
+        { "from": "root", "to": "finish" }
+      ],
+      "expected_codes": ["non_finish_zero_outdegree", "finish_unreachable_from_node"]
+    },
+    {
+      "id": "invalid_cycle",
+      "valid": false,
+      "root_node_id": "root",
+      "finish_node_id": "finish",
+      "nodes": [
+        { "id": "root", "role": "task_root", "status": "open" },
+        { "id": "a", "role": "work", "status": "ready" },
+        { "id": "b", "role": "work", "status": "pending" },
+        { "id": "finish", "role": "finish", "status": "pending" }
+      ],
+      "edges": [
+        { "from": "root", "to": "a" },
+        { "from": "a", "to": "b" },
+        { "from": "b", "to": "a" },
+        { "from": "b", "to": "finish" }
+      ],
+      "expected_codes": ["cycle_detected"]
+    },
+    {
+      "id": "invalid_self_loop",
+      "valid": false,
+      "root_node_id": "root",
+      "finish_node_id": "finish",
+      "nodes": [
+        { "id": "root", "role": "task_root", "status": "open" },
+        { "id": "work", "role": "work", "status": "ready" },
+        { "id": "finish", "role": "finish", "status": "pending" }
+      ],
+      "edges": [
+        { "from": "root", "to": "work" },
+        { "from": "work", "to": "work" },
+        { "from": "work", "to": "finish" }
+      ],
+      "expected_codes": ["self_loop", "cycle_detected"]
+    },
+    {
+      "id": "invalid_missing_endpoint",
+      "valid": false,
+      "root_node_id": "root",
+      "finish_node_id": "finish",
+      "nodes": [
+        { "id": "root", "role": "task_root", "status": "open" },
+        { "id": "finish", "role": "finish", "status": "pending" }
+      ],
+      "edges": [
+        { "from": "root", "to": "missing" },
+        { "from": "missing", "to": "finish" }
+      ],
+      "expected_codes": ["edge_endpoint_missing", "non_root_zero_indegree", "non_finish_zero_outdegree"]
+    },
+    {
+      "id": "invalid_duplicate_edge",
+      "valid": false,
+      "root_node_id": "root",
+      "finish_node_id": "finish",
+      "nodes": [
+        { "id": "root", "role": "task_root", "status": "open" },
+        { "id": "finish", "role": "finish", "status": "ready" }
+      ],
+      "edges": [
+        { "from": "root", "to": "finish" },
+        { "from": "root", "to": "finish" }
+      ],
+      "expected_codes": ["duplicate_edge"]
+    },
+    {
+      "id": "invalid_role_status",
+      "valid": false,
+      "root_node_id": "root",
+      "finish_node_id": "finish",
+      "nodes": [
+        { "id": "root", "role": "task_root", "status": "completed" },
+        { "id": "finish", "role": "finish", "status": "ready" }
+      ],
+      "edges": [{ "from": "root", "to": "finish" }],
+      "expected_codes": ["role_status_invalid"]
+    },
+    {
+      "id": "invalid_root_id",
+      "valid": false,
+      "root_node_id": "not-root",
+      "finish_node_id": "finish",
+      "nodes": [
+        { "id": "root", "role": "task_root", "status": "open" },
+        { "id": "finish", "role": "finish", "status": "ready" }
+      ],
+      "edges": [{ "from": "root", "to": "finish" }],
+      "expected_codes": ["root_id_mismatch"]
+    },
+    {
+      "id": "invalid_finish_id",
+      "valid": false,
+      "root_node_id": "root",
+      "finish_node_id": "not-finish",
+      "nodes": [
+        { "id": "root", "role": "task_root", "status": "open" },
+        { "id": "finish", "role": "finish", "status": "ready" }
+      ],
+      "edges": [{ "from": "root", "to": "finish" }],
+      "expected_codes": ["finish_id_mismatch"]
+    }
+  ]
+}
