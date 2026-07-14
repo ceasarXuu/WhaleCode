@@ -2,7 +2,20 @@
   "schema_version": "taskspace-map-distance-fold-contract-v2",
   "strategy_id": "S4",
   "name": "distance_based_node_detail_fold_with_agent_expand",
-  "status": "designed_not_implemented",
+  "status": "rejected_after_evaluation",
+  "implementation_state": "S4.0_foundation_retained_S4.1_reverted",
+  "result_document": "docs/v0.0.5/build-R5/50-r5-k3-s4-result.md",
+  "decision": {
+    "candidate_commit": "afcae13",
+    "fallback_commit": "64f54b4",
+    "accepted": false,
+    "reason_codes": [
+      "overlaps_existing_D3_detail_tiering",
+      "negative_net_projection_bytes_vs_S4.0",
+      "complex_live_activation_missing",
+      "simple_wall_gate_failed"
+    ]
+  },
   "previous": "R5-K-B0",
   "single_behavior_delta": "Keep every canonical node and edge visible while folding only the baseline node-local detail projection of completed non-root nodes at least three graph edges from every active frontier node; a canonical Agent expansion event permanently excludes that node from later folds.",
   "scope_limit": {

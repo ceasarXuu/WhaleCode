@@ -2,17 +2,22 @@
 
 - Created: 2026-07-14
 - Updated: 2026-07-14
-- Version: 1.1
-- Status: Designed / Not Implemented
+- Version: 1.2
+- Status: Evaluated / Rejected / S4.1 reverted to S4.0
 - Owner / Responsible: WhaleCode core runtime / TaskSpace Map
 - Related Systems: canonical Map、projection、`taskspace_control`、checkpoint/delta、resume/replay、benchmark
 - Related Links: `31-r5-map-native-context-compression-charter.md`、
   `48-r5-k3-s1-natural-prefix-result.md`、
+  `50-r5-k3-s4-result.md`、
   `benchmarks/taskspace/map-compression/s4-distance-fold-contract.json`
 - Risk Level: High
 - Plan Type: Full
 
 ## 1. 决策摘要
+
+> 2026-07-14实施后结论：S4.1被拒绝并整体回退到S4.0。B0对`distance >= 3`节点已执行D3详情
+> 分层，通常只保留1条普通详情；S4新增的state/ref/hash成本大于进一步删除该详情的收益。完整证据见
+> `50-r5-k3-s4-result.md`。以下保留原设计合同，用于审计被验证和被否定的假设，不代表当前production行为。
 
 S1、S2、S3全部废弃。三者共同把历史节点或子图替换为archive/macro，削弱了TaskSpace projection持续提供
 全局Map视野的产品目标。S4不归档节点、不移除边、不分页全局骨架，只折叠远离活跃前沿的节点局部详情。

@@ -2,8 +2,8 @@
 
 - Created: 2026-07-12
 - Updated: 2026-07-14
-- Version: 1.6
-- Status: K0/K1/K2 COMPLETE / S1-S3 ABANDONED / S4 DESIGNED / PAUSED
+- Version: 1.7
+- Status: K0/K1/K2 COMPLETE / S1-S4 REJECTED / S4.1 REVERTED / PAUSED
 - Owner / Responsible: WhaleCode core runtime / TaskSpace Map
 - Related Systems: canonical Event Store、Map projection、compaction、checkpoint、resume/replay、artifact refs
 - Related Links: `22-r5-j6-7-canonical-task-context-plan.md`、
@@ -11,7 +11,8 @@
   `32-r5-j6-7-phase7-result.md`、
   `43-r5-k0-map-budget-baseline-result.md`、
   `48-r5-k3-s1-natural-prefix-result.md`、
-  `49-r5-k3-s4-distance-fold-design.md`
+  `49-r5-k3-s4-distance-fold-design.md`、
+  `50-r5-k3-s4-result.md`
 - Risk Level: High
 - Plan Type: Full charter；K0/K1通过前不冻结实现方案
 
@@ -287,7 +288,7 @@ replay合同，不改变production projection或引入压缩策略。
 
 ### R5-K4：多轮压缩与恢复
 
-- Entry：S4.1已通过K3门禁并被accept。
+- Entry：存在通过K3门禁并被accept的策略。当前S4.1已被拒绝并回退，Entry未满足。
 - Tasks：
   1. 连续执行至少20轮append -> finish -> fold -> expand -> resume；
   2. 覆盖多active frontier、fork、rollback、crash recovery和旧代码读取版本；
@@ -317,7 +318,7 @@ replay合同，不改变production projection或引入压缩策略。
 | K1 | B0/contract/strategy ledger/failure review | 历史完成；S1结果已被后续证据拒绝 | 100% | complete/historical |
 | K2.0 | schema/ref/runner parity fixtures | round-trip 100%；相对B0行为等价；activation=0 | 100% | proceed/revert |
 | K2.F | corruption matrix + normal-path smoke | structured fatal 100%；partial=0；正常路径等价 | 100% | proceed/revert |
-| K3-R0/S4 | P1 parity；STD/B0/S4.0/S4.1；simple+complex+scale | S1代码清零；S4正确性、边际收益与零简单回归 | 每个stage 100% | S4 designed；implementation paused |
+| K3-R0/S4 | P1 parity；STD/B0/S4.0/S4.1；simple+complex+scale | S1代码清零；S4正确性、边际收益与零简单回归 | 每个stage 100% | S4.1 rejected and reverted to S4.0；见50 |
 | K4 | 20-cycle resume/fork/replay | zero drift/orphan | 100% | proceed/revert |
 | K5 | Docker paired + authorized review | all benefit gates | 100% | close/revert |
 
@@ -389,6 +390,7 @@ K0/K1属于专项发现和合同冻结；只有证据证明骨架规模、触发
 | 2026-07-14 | S1/S2/S3全部废弃，S4替代 | archive/macro会让节点退出全局视野；S4保留全部节点和边，只折叠distance>=3的completed非root节点详情 |
 | 2026-07-14 | 删除node importance属性，以展开事件作为唯一持久机制 | `NodeDetailExpanded`只记录Agent动作事实，避免引入无明确机制的语义参数；事件不可撤销且可replay |
 | 2026-07-14 | S4不承担最终骨架超限 | S4只减少node-local details；最小骨架最终仍可能超限，未来必须用独立策略处理 |
+| 2026-07-14 | S4.1验证拒绝并整体回退S4.0 | B0的D3已在相同距离把普通详情压到1条；S4典型路径ref/hash成本抵消收益，deterministic相对S4.0净增79 bytes，natural live 3/3零fold，simple wall门未过 |
 
 ## 14. Plan Quality Checklist
 

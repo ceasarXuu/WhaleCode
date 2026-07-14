@@ -10,7 +10,7 @@
 Created: 2026-07-09
 Updated: 2026-07-13
 Version: v0.0.5 build-R5
-Status: In Progress - R5-K0 complete; next R5-K1
+Status: In Progress - R5-K3 S4 rejected and reverted; compression strategy paused
 Owner / Responsible: WhaleCode core runtime
 Related Systems: TaskSpace runtime, action_map runtime, taskspace_control,
   context projection, provider-visible context, benchmark harness
@@ -996,7 +996,7 @@ schema 直接表达 singular patch continuation；不限制读取或 pytest，�
 | R5-K1 | B0 manifest、公共合同、atomic strategy ledger、历史S1和样本矩阵 | 不依赖K2实现 | immutable B0；zero unknown；四arm与simple/complex固定 | 100% | complete/historical；S1-S3后续废弃，见44/49 |
 | R5-K2.0 | 历史无行为archive/ref/runner/logging基建 | 依赖K1；不得提前实现策略行为 | round-trip 100%；相对B0行为等价；activation=0 | 100% | complete/historical；S1专用代码待R0删除 |
 | R5-K2.F | structured session fatal单变更 | 依赖K2.0；不得混入压缩策略 | corruption fatal 100%；partial=0；正常路径等价 | 100% | complete；见46 |
-| R5-K3-R0/S4 | 先删除S1生产路径；再以S4.0零行为基建和S4.1完整fold/expand合同运行STD/B0/Previous/Candidate | R0、S4.0、S4.1各自独立关闭；S4.1不能只启用fold或expand一侧 | S1符号清零；全局骨架100%；单策略边际收益明确；simple零回归；complex实际fold | 每个stage 100%或暂停 | S4设计完成，implementation paused，见49 |
+| R5-K3-R0/S4 | 先删除S1生产路径；再以S4.0零行为基建和S4.1完整fold/expand合同运行STD/B0/Previous/Candidate | R0、S4.0、S4.1各自独立关闭；S4.1不能只启用fold或expand一侧 | S1符号清零；全局骨架100%；单策略边际收益明确；simple零回归；complex实际fold | 每个stage 100%或暂停 | S4.1 rejected并整体回退S4.0，见50 |
 | R5-K4/K5 | 已接受策略组合的20轮恢复、Docker收益和授权审查 | 只组合已独立通过的策略 | zero drift/orphan；最终收益可回溯到逐策略artifact | 100% | not eligible；当前无accepted策略 |
 | R5-I3/I4 | Docker complex pairs、等价/性能门禁、Docker-only call graph | 不依赖 closeout | performance observation、container parity、default-path scan | 工程实现与验证100%；不覆盖J4收益缺口 | Docker-only landed |
 | R5-G3 | complex paired runs、streaming extractor tests | 不依赖 closeout | 完整指标报告、失败分类 | 100% 完成 | streaming extractor已落地；K后第二复杂样本和final paired regression待执行 |
@@ -1146,7 +1146,8 @@ corruption fatal合同。K3-S1通过自然active-prefix实际激活并完成三�
 `48-r5-k3-s1-natural-prefix-result.md`。2026-07-14进一步废弃S1/S2/S3的节点archive方向，选择S4：全局node/edge
 骨架始终可见，只折叠距任一active frontier至少3边的completed非root节点详情；Agent展开会写入不可撤销、可replay
 的`NodeDetailExpanded`事件，此后不得自动折叠。S4不增加importance属性，也不解决Map骨架最终超限；后者需要未来
-独立策略。设计见`49-r5-k3-s4-distance-fold-design.md`，当前尚未进入代码实施。
+独立策略。S4.1实施后发现其与B0现有D3详情分层重叠，deterministic相对S4.0净增加projection，natural live未形成
+可折叠依赖链，已整体回退到S4.0。结果见`50-r5-k3-s4-result.md`；当前没有accepted压缩策略。
 
 ## 1.20 R5-A/B 后计划校准
 

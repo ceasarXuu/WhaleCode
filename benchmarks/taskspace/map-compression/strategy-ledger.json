@@ -1,7 +1,7 @@
 {
   "schema_version": "taskspace-map-compression-strategy-ledger-v3",
   "baseline_id": "R5-K-B0",
-  "selected_strategy_id": "S4",
+  "selected_strategy_id": null,
   "strategies": [
     {
       "id": "S1",
@@ -68,7 +68,8 @@
     {
       "id": "S4",
       "name": "distance_based_node_detail_fold_with_agent_expand",
-      "status": "selected_design_not_implemented",
+      "status": "rejected_after_evaluation",
+      "historical_outcome": "implemented_then_reverted_to_S4.0",
       "relationship": "replacement_for_S1_S2_S3",
       "previous": "R5-K-B0",
       "single_behavior_delta": "Keep every canonical node and edge visible while folding only the baseline node-local detail projection of completed non-root nodes at least three graph edges from every active frontier node; a canonical Agent expansion event permanently excludes that node from later folds.",
@@ -104,6 +105,8 @@
       },
       "design_document": "docs/v0.0.5/build-R5/49-r5-k3-s4-distance-fold-design.md",
       "contract": "benchmarks/taskspace/map-compression/s4-distance-fold-contract.json",
+      "result_document": "docs/v0.0.5/build-R5/50-r5-k3-s4-result.md",
+      "decision_reason": "The existing B0 projection already limits distance>=3 completed nodes to one ordinary D3 detail. S4 replaced that already-compressed line with detail state, distance, ref, and hash metadata. A five-node deterministic chain reduced the S4-internal projection by only 11 bytes, while the comparable S4.0 body was 79 bytes smaller than S4.1. The natural active-prefix had zero dependency edges and zero live folds in 3/3 runs; the zero-activation wall median was 1.161x S4.0. S4.1 was reverted as one unit.",
       "implementation_gate": "Retire all S1 archive production code before adding S4 foundations; enable fold and expand as one complete provider-visible safety contract.",
       "forbidden_co_changes": [
         "node_importance_attribute",
