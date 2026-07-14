@@ -117,11 +117,17 @@ class AnalyzerTest(unittest.TestCase):
             "id": "trace-1",
             "kind": "projection_budget",
             "tags": [
+                "strategy_id:S4",
                 "projection_bytes:856",
                 "strategy_activation_count:1",
                 "projection_bytes_before_strategy:1963",
                 "projection_bytes_after_strategy:856",
-                "covered_node_count:3",
+                "folded_node_count:3",
+                "fold_eligible_node_count:4",
+                "node_detail_bytes_before_strategy:1200",
+                "node_detail_bytes_after_strategy:93",
+                "skeleton_bytes_before_strategy:763",
+                "skeleton_bytes_after_strategy:763",
             ],
         }
         rollout = [
@@ -148,8 +154,14 @@ class AnalyzerTest(unittest.TestCase):
         metrics = self.analyzer.projection_metrics(rollout)
         self.assertEqual(metrics["eventCount"], 1)
         self.assertEqual(metrics["activationCount"], 1)
+        self.assertEqual(metrics["strategyId"], "S4")
         self.assertEqual(metrics["bytesBeforeStrategy"], 1963)
         self.assertEqual(metrics["bytesAfterStrategy"], 856)
+        self.assertEqual(metrics["foldedNodeCount"], 3)
+        self.assertEqual(metrics["eligibleNodeCount"], 4)
+        self.assertEqual(metrics["nodeDetailAfterBeforeRatio"], 0.0775)
+        self.assertEqual(metrics["skeletonBytesBeforeStrategy"], 763)
+        self.assertEqual(metrics["skeletonBytesAfterStrategy"], 763)
         self.assertEqual(metrics["inputSnapshotSha256"], "canonical-map-sha")
 
     def test_standard_mode_keeps_historical_map_inactive(self) -> None:
@@ -203,7 +215,11 @@ class AnalyzerTest(unittest.TestCase):
                 },
                 "actions": {"commandCount": requests + 1, "failedCommandCount": 0},
                 "projection": {
-                    "projectionBytes": 1000 if arm == "P1" else 500 if arm == "C1" else None
+                    "projectionBytes": 1000 if arm == "P1" else 500 if arm == "C1" else None,
+                    "activationCount": 1 if arm == "C1" else 0,
+                    "foldedNodeCount": 3 if arm == "C1" else 0,
+                    "eligibleNodeCount": 3 if arm == "C1" else 0,
+                    "nodeDetailBytesAfterStrategy": 200 if arm == "C1" else 400,
                 },
             }
 

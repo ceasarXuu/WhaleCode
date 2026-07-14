@@ -139,14 +139,36 @@ def projection_metrics(rollout: list[dict[str, Any]]) -> dict[str, Any]:
     activation = int(latest.get("strategy_activation_count", "0"))
     before = int(latest["projection_bytes_before_strategy"]) if "projection_bytes_before_strategy" in latest else None
     after = int(latest["projection_bytes_after_strategy"]) if "projection_bytes_after_strategy" in latest else None
+    detail_before = int(latest["node_detail_bytes_before_strategy"]) if "node_detail_bytes_before_strategy" in latest else None
+    detail_after = int(latest["node_detail_bytes_after_strategy"]) if "node_detail_bytes_after_strategy" in latest else None
     return {
         "available": bool(budgets),
         "eventCount": len(budgets),
+        "strategyId": latest.get("strategy_id"),
         "activationCount": activation,
         "projectionBytes": int(latest["projection_bytes"]) if "projection_bytes" in latest else None,
         "bytesBeforeStrategy": before,
         "bytesAfterStrategy": after,
         "afterBeforeRatio": round(after / before, 4) if before and after is not None else None,
+        "foldedNodeCount": int(latest.get("folded_node_count", "0")),
+        "eligibleNodeCount": int(latest.get("fold_eligible_node_count", "0")),
+        "nodeDetailBytesBeforeStrategy": detail_before,
+        "nodeDetailBytesAfterStrategy": detail_after,
+        "nodeDetailAfterBeforeRatio": (
+            round(detail_after / detail_before, 4)
+            if detail_before and detail_after is not None
+            else None
+        ),
+        "skeletonBytesBeforeStrategy": (
+            int(latest["skeleton_bytes_before_strategy"])
+            if "skeleton_bytes_before_strategy" in latest
+            else None
+        ),
+        "skeletonBytesAfterStrategy": (
+            int(latest["skeleton_bytes_after_strategy"])
+            if "skeleton_bytes_after_strategy" in latest
+            else None
+        ),
         "coveredNodeCount": int(latest["covered_node_count"]) if "covered_node_count" in latest else 0,
         "archiveRef": latest.get("archive_ref"),
         "inputSnapshotSha256": input_snapshot_hash,
@@ -230,6 +252,10 @@ def aggregate_metrics(records: list[dict[str, Any]]) -> dict[str, Any]:
         "commands": ("actions", "commandCount"),
         "failedCommands": ("actions", "failedCommandCount"),
         "projectionBytes": ("projection", "projectionBytes"),
+        "projectionActivations": ("projection", "activationCount"),
+        "foldedNodes": ("projection", "foldedNodeCount"),
+        "eligibleNodes": ("projection", "eligibleNodeCount"),
+        "nodeDetailBytes": ("projection", "nodeDetailBytesAfterStrategy"),
     }
 
     def value_at(record: dict[str, Any], path: tuple[str, ...]) -> Any:
