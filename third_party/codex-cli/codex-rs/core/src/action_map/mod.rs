@@ -6,6 +6,8 @@ mod event_store;
 mod k0_scale_tests;
 mod map;
 mod projection;
+#[cfg(test)]
+mod rooted_dag;
 mod runtime;
 mod sentinel;
 mod snapshot_delta;
