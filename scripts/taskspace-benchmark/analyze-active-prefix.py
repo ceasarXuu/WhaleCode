@@ -65,6 +65,23 @@ def token_metrics(events: list[dict[str, Any]], turn_id: str) -> dict[str, Any]:
         if totals["inputTokens"]
         else None
     )
+    warm_usages = usages[1:]
+    totals["request2PlusInputTokens"] = sum(
+        int(usage.get("inputTokens", 0)) for usage in warm_usages
+    )
+    totals["request2PlusCachedInputTokens"] = sum(
+        int(usage.get("cachedInputTokens", 0)) for usage in warm_usages
+    )
+    totals["request2PlusCacheHitPercent"] = (
+        round(
+            totals["request2PlusCachedInputTokens"]
+            * 100
+            / totals["request2PlusInputTokens"],
+            2,
+        )
+        if totals["request2PlusInputTokens"]
+        else None
+    )
     totals["usageEventCount"] = len(usages)
     return totals
 
@@ -244,9 +261,24 @@ def numeric_stats(values: list[int | float]) -> dict[str, int | float] | None:
 def aggregate_metrics(records: list[dict[str, Any]]) -> dict[str, Any]:
     metric_paths = {
         "requests": ("provider", "continuation", "requestCount"),
+        "strictPrefixPreserved": (
+            "provider",
+            "continuation",
+            "strictPrefixPreservedCount",
+        ),
         "wallMs": ("time", "continuation_ms"),
         "inputTokens": ("tokens", "continuation", "inputTokens"),
         "cachedInputTokens": ("tokens", "continuation", "cachedInputTokens"),
+        "request2PlusInputTokens": (
+            "tokens",
+            "continuation",
+            "request2PlusInputTokens",
+        ),
+        "request2PlusCachedInputTokens": (
+            "tokens",
+            "continuation",
+            "request2PlusCachedInputTokens",
+        ),
         "uncachedInputTokens": ("tokens", "continuation", "uncachedInputTokens"),
         "outputTokens": ("tokens", "continuation", "outputTokens"),
         "commands": ("actions", "commandCount"),
@@ -277,6 +309,16 @@ def aggregate_metrics(records: list[dict[str, Any]]) -> dict[str, Any]:
             float(record["tokens"]["continuation"]["cacheHitPercent"])
             for record in arm_records
         ]
+        warm_cache_rates = [
+            float(value)
+            for record in arm_records
+            if (
+                value := record["tokens"]["continuation"].get(
+                    "request2PlusCacheHitPercent"
+                )
+            )
+            is not None
+        ]
         cached_total = metrics["cachedInputTokens"]["total"]
         input_total = metrics["inputTokens"]["total"]
         arms[arm] = {
@@ -292,6 +334,22 @@ def aggregate_metrics(records: list[dict[str, Any]]) -> dict[str, Any]:
                 else None,
                 "mean": round(sum(cache_rates) / len(cache_rates), 2),
                 "median": round(statistics.median(cache_rates), 2),
+            },
+            "request2PlusCacheHitPercent": {
+                "weighted": round(
+                    metrics["request2PlusCachedInputTokens"]["total"]
+                    * 100
+                    / metrics["request2PlusInputTokens"]["total"],
+                    2,
+                )
+                if metrics["request2PlusInputTokens"]["total"]
+                else None,
+                "mean": round(sum(warm_cache_rates) / len(warm_cache_rates), 2)
+                if warm_cache_rates
+                else None,
+                "median": round(statistics.median(warm_cache_rates), 2)
+                if warm_cache_rates
+                else None,
             },
         }
 
@@ -323,6 +381,14 @@ def aggregate_metrics(records: list[dict[str, Any]]) -> dict[str, Any]:
             key: round(
                 arms["C1"]["cacheHitPercent"][key]
                 - arms["P1"]["cacheHitPercent"][key],
+                2,
+            )
+            for key in ("weighted", "mean", "median")
+        }
+        ratios["request2PlusCacheHitDeltaPercentagePoints"] = {
+            key: round(
+                arms["C1"]["request2PlusCacheHitPercent"][key]
+                - arms["P1"]["request2PlusCacheHitPercent"][key],
                 2,
             )
             for key in ("weighted", "mean", "median")

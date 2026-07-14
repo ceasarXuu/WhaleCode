@@ -202,7 +202,12 @@ class AnalyzerTest(unittest.TestCase):
             return {
                 "arm": arm,
                 "validation": {"finalExitCode": 0},
-                "provider": {"continuation": {"requestCount": requests}},
+                "provider": {
+                    "continuation": {
+                        "requestCount": requests,
+                        "strictPrefixPreservedCount": max(0, requests - 1),
+                    }
+                },
                 "time": {"continuation_ms": requests * 100},
                 "tokens": {
                     "continuation": {
@@ -211,6 +216,9 @@ class AnalyzerTest(unittest.TestCase):
                         "uncachedInputTokens": input_tokens - cached,
                         "outputTokens": requests * 10,
                         "cacheHitPercent": cached * 100 / input_tokens,
+                        "request2PlusInputTokens": input_tokens - 20,
+                        "request2PlusCachedInputTokens": cached - 10,
+                        "request2PlusCacheHitPercent": (cached - 10) * 100 / (input_tokens - 20),
                     }
                 },
                 "actions": {"commandCount": requests + 1, "failedCommandCount": 0},
@@ -237,6 +245,7 @@ class AnalyzerTest(unittest.TestCase):
         self.assertEqual(standard["metrics"]["requests"], {"total": 6, "mean": 3.0, "median": 3.0})
         self.assertIsNone(standard["metrics"]["projectionBytes"])
         self.assertEqual(standard["cacheHitPercent"]["weighted"], 87.5)
+        self.assertEqual(standard["request2PlusCacheHitPercent"]["weighted"], 91.67)
         self.assertEqual(summary["candidatePreviousRatios"]["requests"]["total"], 1.5)
         self.assertEqual(
             summary["candidatePreviousRatios"]["cacheHitDeltaPercentagePoints"]["weighted"],
