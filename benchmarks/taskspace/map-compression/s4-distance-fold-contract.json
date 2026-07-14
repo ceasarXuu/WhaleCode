@@ -1,10 +1,17 @@
 {
-  "schema_version": "taskspace-map-distance-fold-contract-v1",
+  "schema_version": "taskspace-map-distance-fold-contract-v2",
   "strategy_id": "S4",
   "name": "distance_based_node_detail_fold_with_agent_expand",
   "status": "designed_not_implemented",
   "previous": "R5-K-B0",
-  "single_behavior_delta": "Keep every canonical node and edge visible while folding only the baseline node-local detail projection of completed non-root nodes at least three graph edges from every active frontier node; an Agent expansion permanently marks the node agent-important.",
+  "single_behavior_delta": "Keep every canonical node and edge visible while folding only the baseline node-local detail projection of completed non-root nodes at least three graph edges from every active frontier node; a canonical Agent expansion event permanently excludes that node from later folds.",
+  "scope_limit": {
+    "optimization_target": "node_local_detail_projection_bytes",
+    "map_skeleton_bytes_reduced": false,
+    "ultimate_context_overflow_solved": false,
+    "skeleton_over_budget_behavior": "explicit_map_skeleton_over_budget_error",
+    "future_skeleton_strategy": "required_but_out_of_scope"
+  },
   "topology_contract": {
     "all_canonical_nodes_visible": true,
     "all_canonical_edges_visible": true,
@@ -36,20 +43,17 @@
     "root_allowed": false,
     "current_or_frontier_allowed": false,
     "active_lease_allowed": false,
-    "agent_important_allowed": false,
+    "previously_expanded_allowed": false,
     "minimum_frontier_distance": 3
   },
-  "canonical_node_attribute": {
-    "name": "importance",
-    "values": [
-      "default",
-      "agent_important"
-    ],
-    "creation_default": "default",
-    "agent_may_set_during_create_or_initialize": false,
-    "runtime_may_infer_or_promote": false,
-    "allowed_transition": "default_to_agent_important_via_expand_only",
-    "downgrade_or_reset_allowed": false
+  "canonical_expansion_record": {
+    "event": "NodeDetailExpanded",
+    "owner": "agent_via_taskspace_control_expand_nodes",
+    "node_attribute_added": false,
+    "creation_or_initialization_allowed": false,
+    "runtime_inference_allowed": false,
+    "reverse_or_delete_allowed": false,
+    "replay_required": true
   },
   "projection_state": {
     "field": "detail_state",
@@ -58,8 +62,9 @@
       "folded",
       "expanded"
     ],
+    "expanded_source": "canonical_NodeDetailExpanded_event",
     "canonical_workflow_status_unchanged": true,
-    "folded_is_derived_not_a_node_status": true
+    "detail_state_is_derived_not_a_node_status": true
   },
   "folded_projection_contract": {
     "retain_fields": [
@@ -67,7 +72,6 @@
       "kind",
       "goal",
       "status",
-      "importance",
       "detail_state",
       "frontier_distance",
       "dependency_edges",
@@ -85,25 +89,27 @@
     "input": "node_ids_non_empty_unique_array",
     "atomic_batch": true,
     "precondition": "every_target_is_currently_folded",
-    "commit_effect": "persist_importance_as_agent_important",
+    "commit_effect": "append_canonical_NodeDetailExpanded_event_for_each_target",
     "automatic_refold_after_commit": false,
-    "other_fold_or_importance_actions_exposed": false
+    "other_fold_or_expansion_reset_actions_exposed": false
   },
   "failure_contract": {
     "invalid_expand": "structured_protocol_error_with_zero_state_commit",
-    "important_details_over_budget": "map_projection_over_budget",
-    "silent_refold_of_agent_important_node": false,
+    "expanded_details_over_budget": "map_projection_over_budget",
+    "silent_refold_of_previously_expanded_node": false,
     "partial_batch_commit": false
   },
   "forbidden_co_changes": [
+    "node_importance_attribute",
     "runtime_semantic_relevance_ranking",
     "runtime_generated_summary",
     "node_or_edge_removal_from_projection",
     "archive_or_macro_replacement",
     "global_skeleton_pagination",
-    "importance_at_node_creation",
+    "expanded_state_at_node_creation",
     "agent_or_runtime_refold_action",
-    "importance_downgrade",
+    "expansion_event_deletion_or_reset",
+    "skeleton_overflow_strategy",
     "compatibility_adapter",
     "long_lived_feature_flag"
   ]

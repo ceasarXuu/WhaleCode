@@ -2,7 +2,7 @@
 
 - Created: 2026-07-12
 - Updated: 2026-07-14
-- Version: 1.5
+- Version: 1.6
 - Status: K0/K1/K2 COMPLETE / S1-S3 ABANDONED / S4 DESIGNED / PAUSED
 - Owner / Responsible: WhaleCode core runtime / TaskSpace Map
 - Related Systems: canonical Event Store、Map projection、compaction、checkpoint、resume/replay、artifact refs
@@ -27,11 +27,15 @@ J6.7.7-E负责在普通规模Map中保持完整全局骨架，并按机械规则
 
 目标不是“尽量少展示Map”，而是：
 
-1. 在硬上下文预算内持续保留root任务、全部nodes/edges、当前active frontier和全局可导航路径；
+1. 在最小Map骨架仍可容纳的范围内，持续保留root任务、全部nodes/edges、当前active frontier和全局可导航路径；
 2. 只折叠远离active frontier的历史completed节点的node-local详情，不归档或替换节点；
-3. 折叠内容只能来自原始事件和稳定ref，Runtime不生成摘要或判断重要性；
-4. Agent可把已折叠节点单向展开并永久标记为`agent_important`；
+3. 折叠内容只能来自原始事件和稳定ref，Runtime不生成摘要或解释Agent展开动机；
+4. Agent可把已折叠节点单向展开，canonical展开事件使其此后不再折叠；
 5. 展开、resume、fork和replay不产生双事实源、自动refold或Map坍缩。
+
+S4只优化node-local details，不压缩root、node skeleton、edges或active frontier，因此不能根治Map无限增长导致的
+上下文超限。当最小骨架本身超过预算时，S4继续显式返回`map_skeleton_over_budget`。骨架级压缩需要未来独立策略，
+本阶段不展开设计，也不把它计入S4完成条件。
 
 ## 2. 非目标
 
@@ -75,7 +79,7 @@ Runtime只根据机械状态执行：
 - 图的连通、依赖、祖先/后继和最短距离；
 - event sequence、时间戳、hash、ref、size和checkpoint覆盖范围；
 - node-local detail ref是否完整、可读、hash匹配且可replay；
-- Agent是否通过合法expand动作把已折叠节点标记为重要。
+- Agent是否通过合法expand动作写入了canonical `NodeDetailExpanded`事件。
 
 ### 4.2 Runtime不得决定的内容
 
@@ -98,15 +102,15 @@ TaskSpaceMap
   active_frontier[]
   nodes[]                 # 始终完整可见
     status                # canonical工作流状态
-    importance            # default | agent_important
     detail_state          # full | folded | expanded，projection派生
     detail_ref?
     detail_sha256?
   edges[]                 # 始终完整可见
+  node_detail_expanded_events[]
 ```
 
-`importance`由Agent通过`taskspace_control.expand_nodes`单向维护并持久化；`detail_state`由Runtime只按状态、root、
-active frontier、图距离和importance机械派生。S4不得产生`archive_nodes`或macro node。完整合同见
+`NodeDetailExpanded`由Agent通过`taskspace_control.expand_nodes`触发并持久化；`detail_state`由Runtime只按状态、
+root、active frontier、图距离和展开事件机械派生。S4不增加importance属性，也不得产生`archive_nodes`或macro node。完整合同见
 `49-r5-k3-s4-distance-fold-design.md`和
 `benchmarks/taskspace/map-compression/s4-distance-fold-contract.json`。
 
@@ -116,14 +120,15 @@ S4及后续任何修订必须同时满足：
 
 1. root原始任务和当前有效用户约束完整保留；
 2. 全部canonical nodes和edges始终保留，active、blocked、in-flight和graph roots的详情不得折叠；
-3. 只有`completed && non-root && min_frontier_distance>=3 && importance=default`的节点可折叠；
+3. 只有`completed && non-root && min_frontier_distance>=3 && no_expand_event`的节点可折叠；
 4. 距离未知、不可达、无边或无active frontier时不得猜测折叠；
 5. folded节点必须明确标记并保留目标、状态、拓扑、result refs、detail ref和hash；
-6. Agent只能把folded节点单向展开为`agent_important`，不能在创建时声明重要、取消重要或主动refold；
+6. Agent只能为folded节点单向写入`NodeDetailExpanded`，不能在创建时声明已展开、撤销事件或主动refold；
 7. 展开后node/edge/event/result和node-local detail hash与折叠前100%一致；
-8. Runtime不新增自然语言summary或重要性推断；Agent语义正文必须有source event ID；
-9. fold是派生视图，canonical Event Store仍是唯一事实源；Agent importance是canonical可replay状态；
-10. 超预算、缺ref、hash mismatch或replay失败必须显式停止，不能返回partial map或静默折叠重要节点。
+8. Runtime不新增自然语言summary或展开动机推断；Agent语义正文必须有source event ID；
+9. fold是派生视图，canonical Event Store仍是唯一事实源；Agent展开事件是canonical可replay事实；
+10. 超预算、缺ref、hash mismatch或replay失败必须显式停止，不能返回partial map或静默折叠已展开节点；
+11. S4不减少最小Map骨架，骨架超预算仍显式失败并留给未来独立策略。
 
 ### 6.1 单策略实验纪律
 
@@ -270,7 +275,7 @@ replay合同，不改变production projection或引入压缩策略。
 - Entry：K2.0和K2.F分别通过。
 - 当前执行顺序：
   1. `K3-R0`先物理删除S1 archive production path，验证回到P1/B0等价行为；
-  2. `K3-S4.0`只落importance/event/snapshot/distance/logging基建，provider-visible行为保持B0；
+  2. `K3-S4.0`只落expand event/snapshot/distance/logging基建，provider-visible行为保持B0；
   3. `K3-S4.1`原子启用distance fold和Agent expand，不顺带修改prompt、compaction或普通tool反馈；
   4. 执行simple/complex四arm各3次和deterministic scale/replay；必要时扩至5次；
   5. 分别报告对Standard、B0和S4.0的正确性、动作、Map、projection、request/token/cache/wall差异；
@@ -286,7 +291,7 @@ replay合同，不改变production projection或引入压缩策略。
 - Tasks：
   1. 连续执行至少20轮append -> finish -> fold -> expand -> resume；
   2. 覆盖多active frontier、fork、rollback、crash recovery和旧代码读取版本；
-  3. 校验importance单调、fold集合确定、展开hash、全局连通和active frontier；
+  3. 校验展开事件不可逆、fold集合确定、展开hash、全局连通和active frontier；
   4. 验证Agent主动展开历史节点后可继续工作，不要求Runtime解释其内容；
   5. 若暴露回归，使用B0/S4.0/S4.1 artifact定位，不增加修复策略掩盖原因。
 - Exit：state/event/result hash 100%；node/edge可见率100%；自动refold/partial expand=0；20轮无漂移。
@@ -300,8 +305,8 @@ replay合同，不改变production projection或引入压缩策略。
   2. 报告correctness、requests、input/cache、wall、projection bytes和压缩频率；
   3. 检查root/frontier、全局路径、失败和Agent结论的保留率；
   4. 经用户授权执行对抗性审查，关闭critical/high findings。
-- Exit：正确性无回退；root/frontier/protected保留100%；展开恢复100%；长任务保持在hard budget内；
-  无Runtime semantic summary；无critical/high finding。
+- Exit：正确性无回退；root/frontier/protected保留100%；展开恢复100%；在骨架仍可容纳的样本域内详情成本有明确收益；
+  骨架超限继续显式失败；无Runtime semantic summary；无critical/high finding。
 - Fallback：不声明收益并回退production压缩，保留K0 observer。
 
 ## 8. Phase Gate矩阵
@@ -321,10 +326,10 @@ replay合同，不改变production projection或引入压缩策略。
 | Change link | Success event | Failure event | Correlation fields |
 |---|---|---|---|
 | budget measurement | `taskspace.map_budget_measured` | `taskspace.map_skeleton_over_budget` | task/map/epoch/bytes/tokens/nodes/edges |
-| fold eligibility | `taskspace.node_fold_evaluated` | distance/topology unavailable | map/node/frontiers/distance/status/root/importance/reason |
+| fold eligibility | `taskspace.node_fold_evaluated` | distance/topology unavailable | map/node/frontiers/distance/status/root/expanded_before/reason |
 | fold projection | `taskspace.node_detail_folded` | `taskspace.node_detail_fold_failed` | epoch/node/detail ref/hash/bytes |
-| expansion | `taskspace.node_expand_requested` / `taskspace.node_importance_changed` | `taskspace.node_expand_commit_failed` | call/map/node/from/to/state commit |
-| replay | `taskspace.node_importance_replayed` | importance/detail hash mismatch | checkpoint/delta/node/expected/actual |
+| expansion | `taskspace.node_expand_requested` / `taskspace.node_detail_expansion_recorded` | `taskspace.node_expand_commit_failed` | call/map/node/event/state commit |
+| replay | `taskspace.node_detail_expansion_replayed` | expansion event/detail hash mismatch | checkpoint/delta/node/expected/actual |
 | strategy experiment | `taskspace.map_strategy_evaluated` | `taskspace.map_strategy_evaluation_failed` | strategy/arm/baseline/previous/candidate/sample/repeat |
 | strategy decision | `taskspace.map_strategy_accepted` | `taskspace.map_strategy_rejected` | strategy/candidate commit/binary/image/report |
 | arm equivalence | `taskspace.map_experiment_equivalence_verified` | `taskspace.map_experiment_equivalence_failed` | strategy/arm/prompt/history/image/profile hash |
@@ -335,11 +340,12 @@ replay合同，不改变production projection或引入压缩策略。
 
 | Risk | Impact | Required mitigation |
 |---|---|---|
-| folded详情掩盖Agent后来需要的证据 | High | 全局节点仍可见且明确标folded；Agent可单向展开并永久重要 |
+| folded详情掩盖Agent后来需要的证据 | High | 全局节点仍可见且明确标folded；Agent可单向展开，canonical事件阻止再次折叠 |
 | Agent结论缺失时Runtime补写摘要 | High | schema禁止Runtime自然语言summary；只允许source event ref |
 | 旧代码读取被当作当前事实 | High | 保存content identity/revision；展开显示读取时版本 |
-| 多轮距离变化导致展开节点再次折叠 | High | `agent_important`单调持久，Runtime不得自动refold |
-| 预算触发后静默折叠重要节点 | High | 尊重Agent选择；显式over-budget，不返回partial Map |
+| 多轮距离变化导致展开节点再次折叠 | High | canonical展开事件不可撤销，Runtime不得自动refold |
+| 预算触发后静默折叠已展开节点 | High | 尊重Agent动作；显式over-budget，不返回partial Map |
+| S4被误当成最终上下文上限方案 | High | 单独报告skeleton/detail bytes；骨架超限保持显式失败，未来策略另行立项 |
 | 为压缩诱导Agent减少建图 | High | benchmark检查node granularity；prompt/schema不增加粗化建议 |
 | 多策略叠加后无法归因 | Critical | 固定B0、Previous和Candidate四arm；每个build只含一个新策略 |
 | 复杂样本收益掩盖简单任务回归 | High | 每策略强制simple live门禁；简单回归不能由复杂收益抵消 |
@@ -352,7 +358,7 @@ S4设计已关闭archive方向的开放问题。仍需由实施证据回答：
 1. `distance>=3`在自然复杂任务中的fold频率和净收益是否稳定；
 2. 一个窄`expand_nodes` variant对active tool schema和DeepSeek cache的实际成本是多少；
 3. Agent在无额外prompt引导时是否会在真实需要下自然展开节点；
-4. `agent_important`长期累积导致projection over-budget的实际频率；
+4. Agent展开事件长期累积导致projection over-budget的实际频率；
 5. 不同DeepSeek profile的skeleton/detail reserve如何配置；
 6. 长会话下缓存前缀与新epoch projection之间的最优边界在哪里。
 
@@ -381,7 +387,8 @@ K0/K1属于专项发现和合同冻结；只有证据证明骨架规模、触发
 | 2026-07-14 | S1判定为REVISE并暂停 | codec/scale通过，但live样本未稳定同时满足active projection epoch与3个eligible completed nodes；禁止用低token阈值或新增Runtime触发器制造通过 |
 | 2026-07-14 | S1自然active-prefix复验后判定为REJECTED | 同一canonical snapshot上projection减少56.4%，但复杂样本requests/input/wall为P1的1.50x/1.68x/1.51x，简单样本成本门也未通过；停止且不进入S2 |
 | 2026-07-14 | S1/S2/S3全部废弃，S4替代 | archive/macro会让节点退出全局视野；S4保留全部节点和边，只折叠distance>=3的completed非root节点详情 |
-| 2026-07-14 | Agent importance只能由folded展开单向产生 | 禁止创建时预先pin、Runtime推断重要性和自动refold；让Agent拥有语义决定权 |
+| 2026-07-14 | 删除node importance属性，以展开事件作为唯一持久机制 | `NodeDetailExpanded`只记录Agent动作事实，避免引入无明确机制的语义参数；事件不可撤销且可replay |
+| 2026-07-14 | S4不承担最终骨架超限 | S4只减少node-local details；最小骨架最终仍可能超限，未来必须用独立策略处理 |
 
 ## 14. Plan Quality Checklist
 
@@ -393,4 +400,5 @@ K0/K1属于专项发现和合同冻结；只有证据证明骨架规模、触发
 - [x] 每阶段可独立验证，未达到100%默认暂停或回退。
 - [x] 每个candidate只新增一个策略，并固定比较Standard、B0、Previous和Candidate。
 - [x] 每策略均包含simple和complex live sample，不用synthetic结果替代Agent行为。
-- [x] S4保持全部node/edge可见，并把workflow status、projection detail state和Agent importance分离。
+- [x] S4保持全部node/edge可见，并把workflow status、projection detail state和canonical Agent展开事件分离。
+- [x] S4收益边界明确，不把详情折叠误报为骨架超限根治方案。

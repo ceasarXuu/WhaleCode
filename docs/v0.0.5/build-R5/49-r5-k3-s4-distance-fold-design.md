@@ -2,7 +2,7 @@
 
 - Created: 2026-07-14
 - Updated: 2026-07-14
-- Version: 1.0
+- Version: 1.1
 - Status: Designed / Not Implemented
 - Owner / Responsible: WhaleCode core runtime / TaskSpace Map
 - Related Systems: canonical Map、projection、`taskspace_control`、checkpoint/delta、resume/replay、benchmark
@@ -20,16 +20,30 @@ S1、S2、S3全部废弃。三者共同把历史节点或子图替换为archive/
 S4的完整产品合同是：
 
 1. root、全部nodes、全部edges和active frontier始终可见；
-2. 只有已完成、非root、距任一活跃节点至少3条图边、且未被Agent标为重要的节点可以折叠；
+2. 只有已完成、非root、距任一活跃节点至少3条图边、且从未被Agent展开过的节点可以折叠；
 3. 折叠节点明确显示`detail_state=folded`，保留目标、状态、拓扑、结果引用和精确详情引用；
 4. Agent只能对已经折叠的节点执行`expand_nodes`；
-5. 展开会把节点的canonical `importance`从`default`单向改为`agent_important`；
-6. `agent_important`节点此后永久保持详情展开，Runtime不得再次折叠；
-7. Agent不能在初始化或创建节点时声明重要，不能主动折叠、取消重要或重新折叠节点；
-8. Runtime不判断正文重要性，不生成摘要，不重写语义。
+5. 展开会为节点写入canonical `NodeDetailExpanded`事件；
+6. 存在该事件的节点此后永久保持详情展开，Runtime不得再次折叠；
+7. Agent不能在初始化或创建节点时声明已展开，不能主动折叠、撤销展开或重新折叠节点；
+8. Runtime不解释Agent为什么展开，不生成摘要，不重写语义。
 
 自动折叠与Agent展开是一个不可拆开的安全合同，不是两个可独立上线的压缩启发式。只上线自动折叠会造成
 Agent无法恢复信息；只上线展开没有可操作对象。因此可以先落无行为schema基建，但provider-visible行为必须原子启用。
+
+### 1.1 能力边界
+
+S4是上下文压缩优化，不是上下文超限的根治方案。它只减少`node-local details`，不会减少：
+
+- root和用户约束；
+- 每个node的骨架行；
+- canonical edges；
+- current node和active frontier；
+- provider tool schema及其他自然历史。
+
+因此随着Map持续增长，最终可能出现仅nodes/edges组成的最小骨架就超过provider上下文限制。S4对此保持现有
+`map_skeleton_over_budget`显式失败，不分页、不删节点，也不引入临时fallback。骨架超限需要后续独立策略，当前不定义
+其目标模型、触发条件或实现路径，避免和S4的收益及回归混在一起。
 
 ## 2. 问题与根因
 
@@ -47,22 +61,22 @@ Map拓扑收敛为node-local projection，canonical Map和Agent全局视野不�
 现有`NodeStatus = pending | ready | running | blocked | completed`只描述任务生命周期。S4不得增加`folded`到
 `NodeStatus`，否则会把显示状态混入状态机。
 
-S4增加两个正交字段：
+S4不增加`importance`或其他语义属性，只增加一个canonical事件类型和一个projection字段：
 
-| Field | Owner | Values | Persistence |
+| Item | Owner | Values | Persistence |
 |---|---|---|---|
-| `importance` | Agent通过受限tool action维护 | `default` / `agent_important` | canonical Map、snapshot、delta、replay |
+| `NodeDetailExpanded` | Agent通过`expand_nodes`触发 | node ID、source call/event IDs | canonical event、snapshot、delta、replay |
 | `detail_state` | Runtime机械派生 | `full` / `folded` / `expanded` | 每次projection计算，不作为工作流状态写回 |
 
 派生关系：
 
 ```text
-importance=agent_important             -> detail_state=expanded
-importance=default && fold_eligible    -> detail_state=folded
-importance=default && !fold_eligible   -> detail_state=full
+存在该节点的 NodeDetailExpanded 事件  -> detail_state=expanded
+不存在展开事件 && fold_eligible       -> detail_state=folded
+不存在展开事件 && !fold_eligible      -> detail_state=full
 ```
 
-`detail_state=expanded`明确表示该节点不是因为距离较近而自然完整，而是Agent曾经主动展开并将其标为重要。
+`detail_state=expanded`只表达可验证事实“Agent曾主动展开该节点”，不解释该动作的动机或语义。
 
 ### 3.2 root定义
 
@@ -100,10 +114,10 @@ status in {pending, ready, running, blocked} 的全部节点
 4. 没有active lease，也不存在指向该节点的未释放lease；
 5. 到全部活跃前沿的最小图距离至少为3；
 6. 距离可由当前canonical edges证明；
-7. `importance == default`。
+7. canonical事件中不存在该节点的`NodeDetailExpanded`。
 
-Runtime只做上述布尔判断。它不得因为节点包含失败、代码读取、测试、结论或某种工具类型而主观提高或降低重要性。
-这些信息在节点接近前沿时已经忠实可见；节点折叠后是否值得长期展开，由Agent决定。
+Runtime只做上述布尔判断。它不得因为节点包含失败、代码读取、测试、结论或某种工具类型而决定是否永久保留。
+这些信息在节点接近前沿时已经忠实可见；节点折叠后是否展开，由Agent决定。
 
 ## 5. Projection合同
 
@@ -116,7 +130,7 @@ Runtime只做上述布尔判断。它不得因为节点包含失败、代码读�
 - 每条canonical edge；
 - current node和全部active frontier；
 - 每个节点的`id/kind/goal/status/result_ids/event_count`；
-- 每个节点的`importance/detail_state`。
+- 每个节点的`detail_state`。
 
 S4禁止`archive_nodes`、macro node、covered node count替代、全局分页或“其余节点请读取引用”等节点级隐藏。
 
@@ -133,15 +147,15 @@ detail_sha256=<exact payload hash>
 ```
 
 `detail_ref`指向该节点按B0规则本应展示的完整node-local detail payload。Runtime不得为它写自然语言summary、关键词、
-结论或重要性解释。折叠前后的payload hash必须可机械验证。
+结论或展开原因解释。折叠前后的payload hash必须可机械验证。
 
 ### 5.3 展开后的可见内容
 
 展开节点恢复B0对该节点的完整node-local detail projection，并显示：
 
 ```text
-importance=agent_important
 detail_state=expanded
+expansion_event_id=<canonical event id>
 ```
 
 “完整”以B0现有投影合同为准，不借S4扩大成无界原始tool output。已有`raw_ref`和渐进读取合同继续负责超长单项
@@ -163,34 +177,34 @@ detail_state=expanded
 1. `node_ids`至少1项、非空、唯一；
 2. 整批节点在动作执行时都必须处于`detail_state=folded`；
 3. 先全量验证，再原子提交，任一非法则整批`state_commit=false`；
-4. 成功后为每个节点持久化`importance: default -> agent_important`；
-5. tool result只返回已提交node IDs、importance、detail ref/hash和当前Map机械状态，不生成解释；
+4. 成功后为每个节点追加一条canonical `NodeDetailExpanded`事件；
+5. tool result只返回已提交node IDs、expansion event IDs、detail ref/hash和当前Map机械状态，不生成解释；
 6. 下一次projection恢复这些节点的B0详情；
 7. sibling ordinary tools仍遵守现有state barrier，但不能假设在同一provider response中读取尚未返回的展开结果。
 
 以下形态在schema中不可表达：
 
-- initialize/create/finish-next-create携带`importance`、`detail_state`或`expanded`；
-- `fold_node`、`collapse_node`、`mark_important`、`unmark_important`、`refold_node`；
+- initialize/create/finish-next-create携带`detail_state`、`expanded`或expansion event；
+- `fold_node`、`collapse_node`、`reset_expansion`、`refold_node`；
 - 对`full`、`expanded`、root、active或距离不足3的节点执行expand；
-- Runtime自动expand或自动重置Agent重要性。
+- Runtime自动expand、删除或重置Agent展开事件。
 
 Agent只能完成一次单向状态变化：
 
 ```text
-folded + importance=default
+folded + no NodeDetailExpanded event
   -- taskspace_control.expand_nodes -->
-expanded + importance=agent_important
+expanded + canonical NodeDetailExpanded event
 ```
 
 ## 7. Canonical与Replay设计
 
-`importance`是Map节点的新canonical属性，不是projection临时偏好。实施时需要：
+S4不增加Map节点语义属性。Agent展开通过canonical事件保存，实施时需要：
 
-1. `MapNode`和`ActionMapSnapshotNode`增加required `importance`字段，不加旧数据`serde(default)`兼容；
-2. 新节点由Runtime机械写入`default`，Agent输入schema不提供该字段；
-3. 新增一等`NodeImportanceChanged` runtime event，记录Agent expand触发的唯一允许转换；
-4. snapshot、delta、checkpoint、resume、fork和replay必须保留该字段；
+1. 新增一等`NodeDetailExpanded` runtime event，记录node ID、Agent call ID和source event ID；
+2. 新节点不携带展开字段，Agent输入schema也不提供预先展开能力；
+3. snapshot、delta、checkpoint、resume、fork和replay必须保留并重放该事件；
+4. projection通过canonical事件索引判断节点是否曾被展开；
 5. S4折叠本身不写canonical mutation event，`detail_state`每次由同一Map状态确定性派生；
 6. 相同canonical snapshot必须产生相同折叠集合、detail refs和hash。
 
@@ -210,17 +224,17 @@ expanded + importance=agent_important
 ### R5-K3-S4.0：无行为状态与观测基建
 
 - Entry：R0完成。
-- Tasks：增加`importance` canonical字段、事件、snapshot/delta/replay；增加`detail_state`内部计算器、距离fixture和日志，
+- Tasks：增加`NodeDetailExpanded` canonical事件、snapshot/delta/replay；增加`detail_state`内部计算器、距离fixture和日志，
   但production projection仍固定输出B0内容，active tool尚不暴露expand。
 - Independent validation：B0与S4.0 provider-visible body/tool schema逐字节一致；snapshot round-trip和20-cycle replay保持
-  `importance=default`；activation=0。
+  expansion event不丢失；activation=0。
 - Exit：state/schema/logging完整，production行为零变化。
 - Fallback：回退S4.0，不增加兼容字段。
 
 ### R5-K3-S4.1：原子启用折叠与展开
 
 - Entry：S4.0完成且行为等价证据通过。
-- Tasks：一次性启用distance fold projection、`expand_nodes` schema/handler、重要性提交和folded detail ref读取；不修改阈值、
+- Tasks：一次性启用distance fold projection、`expand_nodes` schema/handler、展开事件提交和folded detail ref读取；不修改阈值、
   普通tool反馈、系统提示词、compaction或Agent行为引导。
 - Independent validation：执行第10节全部deterministic和live矩阵。
 - Exit：正确性、语义、拓扑、展开、成本和缓存门禁全部通过；单独产出accept/reject报告并暂停。
@@ -229,8 +243,8 @@ expanded + importance=agent_important
 ### R5-K4：长会话稳定性
 
 - Entry：S4.1被accept。
-- Tasks：20轮append/finish/fold/expand/resume，覆盖并行frontier、fork、crash recovery和多个Agent重要节点。
-- Exit：importance单调性、fold集合确定性、detail hash和全局骨架均100%；无漂移、partial commit或自动refold。
+- Tasks：20轮append/finish/fold/expand/resume，覆盖并行frontier、fork、crash recovery和多个已展开节点。
+- Exit：展开事件不可逆、fold集合确定性、detail hash和全局骨架均100%；无漂移、partial commit或自动refold。
 - Fallback：回退S4.1，保留显式`map_projection_over_budget`。
 
 ## 9. 实现完整性矩阵
@@ -238,10 +252,10 @@ expanded + importance=agent_important
 | Plan Item | Expected Behavior | Production Code Path | Integration Entry | Test Evidence | Runtime / Log Evidence | Status |
 |---|---|---|---|---|---|---|
 | retire S1-S3 | production无archive策略 | `action_map/runtime.rs`, `projection_archive.rs` | active projection | P1 body parity、forbidden scan | activation=0 | planned |
-| canonical importance | 只持久化Agent expand选择 | `map.rs`, protocol snapshot/event, replay | `taskspace_control` commit | round-trip/delta/fork | importance transition trace | planned |
-| fold selector | 只选completed、non-root、distance>=3、default节点 | projection selector | active projection | graph matrix | eligible/ineligible reason | planned |
+| canonical expansion event | 只持久化Agent expand事实 | protocol event, snapshot/replay | `taskspace_control` commit | round-trip/delta/fork | expansion event trace | planned |
+| fold selector | 只选completed、non-root、distance>=3、无展开事件节点 | projection selector | active projection | graph matrix | eligible/ineligible reason | planned |
 | folded renderer | 全节点/边保留，仅详情变ref | `projection.rs` | provider context | skeleton/hash fixture | bytes before/after | planned |
-| expand tool | folded到agent_important原子转换 | `taskspace_tool.rs`, handler, runtime | active tool | schema/atomic failure | requested/committed/failed | planned |
+| expand tool | folded节点原子写入展开事件 | `taskspace_tool.rs`, handler, runtime | active tool | schema/atomic failure | requested/committed/failed | planned |
 | benchmark | 对比Standard/B0/S4.0/S4.1 | Docker runner/analyzer | live samples | 3 repeats/arm | request/token/cache/wall/map | planned |
 
 ## 10. 测试与收益门禁
@@ -256,11 +270,12 @@ expanded + importance=agent_important
 4. pending/ready/running/blocked节点永不折叠；
 5. 无边、断开或空frontier时距离不可证明，节点不折叠；
 6. folded marker、detail ref/hash和全量node/edge coverage 100%；
-7. expand成功后importance持久化，frontier继续前移也不再折叠；
+7. expand成功后`NodeDetailExpanded`持久化，frontier继续前移也不再折叠；
 8. expand full/root/active/unknown/duplicate节点整批失败且零提交；
-9. initialize/create schema拒绝importance/detail state字段；
-10. checkpoint/delta/resume/fork/20-cycle保持重要性和detail hash；
-11. important详情使projection超预算时显式失败，不静默refold。
+9. initialize/create schema拒绝detail state或预先展开字段；
+10. checkpoint/delta/resume/fork/20-cycle保持展开事件和detail hash；
+11. 已展开详情使projection超预算时显式失败，不静默refold；
+12. synthetic Map增长到骨架超预算时仍显式`map_skeleton_over_budget`，S4不得声称已根治。
 
 ### 10.2 Live samples
 
@@ -288,12 +303,12 @@ complex必须在预登记primary metric上优于S4.0，且correctness、全局�
 
 | Change Link | Success Signal | Failure Signal | Required Fields |
 |---|---|---|---|
-| fold eligibility | `taskspace.node_fold_evaluated` | distance/topology unavailable | task/map/node/frontiers/distance/status/root/importance/reason |
+| fold eligibility | `taskspace.node_fold_evaluated` | distance/topology unavailable | task/map/node/frontiers/distance/status/root/expanded_before/reason |
 | fold projection | `taskspace.node_detail_folded` | `taskspace.node_detail_fold_failed` | epoch/node/detail_ref/hash/bytes_before/after |
 | expand request | `taskspace.node_expand_requested` | schema/precondition failure | call/map/node_ids/current_detail_states |
-| importance commit | `taskspace.node_importance_changed` | `taskspace.node_expand_commit_failed` | event/node/from/to/call/state_commit |
+| expansion commit | `taskspace.node_detail_expansion_recorded` | `taskspace.node_expand_commit_failed` | event/node/call/state_commit |
 | expanded projection | `taskspace.node_detail_expanded` | hash/ref mismatch | epoch/node/ref/expected_hash/actual_hash |
-| replay | `taskspace.node_importance_replayed` | replay mismatch | checkpoint/delta/node/importance/hash |
+| replay | `taskspace.node_detail_expansion_replayed` | replay mismatch | checkpoint/delta/node/event/hash |
 | experiment | `taskspace.map_strategy_evaluated` | evaluation failure | strategy/arm/sample/repeat/build/image/profile hashes |
 
 日志只记录机械字段、有限reason code和hash，不记录API key、无界正文或Runtime生成语义。
@@ -302,25 +317,27 @@ complex必须在预登记primary metric上优于S4.0，且correctness、全局�
 
 | Risk | Impact | Handling |
 |---|---|---|
-| Agent展开过多节点导致详情持续增长 | High | 尊重Agent重要性；显式over-budget，不静默refold；通过live成本观察而非Runtime纠正 |
+| Agent展开过多节点导致详情持续增长 | High | 尊重Agent动作记录；显式over-budget，不静默refold；通过live成本观察而非Runtime纠正 |
 | 图缺边导致老节点不折叠 | Medium | 距离不可证明即不折叠，并记录reason；Map质量问题单独解决 |
 | 把folded混入NodeStatus | High | 独立`detail_state`派生字段，状态机枚举不变 |
-| Runtime根据失败/代码类型推断重要性 | High | selector只接受状态、拓扑、距离和Agent importance |
-| Agent在创建时预先pin全部节点 | High | schema不暴露importance，typed parser拒绝未知字段 |
+| Runtime根据失败/代码类型决定永久保留 | High | selector只接受状态、拓扑、距离和canonical展开事件 |
+| Agent在创建时预先展开全部节点 | High | schema不暴露预展开字段，typed parser拒绝未知字段 |
 | expand部分成功导致状态歧义 | High | 全量预检、clone提交、整批原子失败 |
 | S1代码作为fallback长期残留 | High | R0先物理删除，禁止feature flag/compat/dormant path |
 | tool schema增大所有active请求 | Medium | 分账schema bytes；只新增一个窄variant；simple成本门独立阻断 |
+| 把S4误报为上下文超限根治方案 | High | 分账skeleton/detail bytes；骨架超限fixture必须继续显式失败；未来策略单独立项 |
 
 ## 13. 明确不做
 
 - 不复用S1/S2/S3编号或修改其历史结论；
 - 不把节点替换成archive、macro、checkpoint summary；
 - 不删除或分页全局节点骨架；
-- 不允许Runtime决定语义重要性；
-- 不允许Agent创建节点时声明重要；
-- 不提供折叠、取消重要、重新折叠动作；
+- 不增加node importance或类似语义属性；
+- 不允许Agent创建节点时声明已展开；
+- 不提供折叠、撤销展开、重新折叠动作；
 - 不在系统提示词中增加“应该展开什么”的策略指导；
 - 不因样本表现修改阈值、距离定义或选择规则；
+- 不在S4中设计或实现骨架超限策略；
 - 不做旧实验数据兼容。
 
 ## 14. 完成定义
@@ -330,8 +347,9 @@ S4只有在以下条件全部满足时才可accept：
 1. S1/S2/S3 production path为0，历史证据仍可审计；
 2. 全部canonical nodes/edges在每个projection中100%可见；
 3. 折叠集合与合同完全一致，未知距离零误折叠；
-4. Agent只能通过expand把folded节点单向标为`agent_important`；
-5. 展开、resume、fork、replay的详情hash和importance 100%一致；
-6. Runtime语义摘要、importance推断、自动refold均为0；
+4. Agent只能通过expand为folded节点追加不可逆`NodeDetailExpanded`事件；
+5. 展开、resume、fork、replay的详情hash和展开事件100%一致；
+6. Runtime语义摘要、展开动机推断、自动refold均为0；
 7. simple和complex live门禁通过，成本、缓存和动作变化可解释；
-8. S4.1结果单独汇报并暂停，等待用户决定是否进入K4。
+8. 报告明确S4只减少详情成本，骨架超限仍未解决；
+9. S4.1结果单独汇报并暂停，等待用户决定是否进入K4。

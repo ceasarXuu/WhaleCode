@@ -1,5 +1,5 @@
 {
-  "schema_version": "taskspace-map-compression-strategy-ledger-v2",
+  "schema_version": "taskspace-map-compression-strategy-ledger-v3",
   "baseline_id": "R5-K-B0",
   "selected_strategy_id": "S4",
   "strategies": [
@@ -71,7 +71,13 @@
       "status": "selected_design_not_implemented",
       "relationship": "replacement_for_S1_S2_S3",
       "previous": "R5-K-B0",
-      "single_behavior_delta": "Keep every canonical node and edge visible while folding only the baseline node-local detail projection of completed non-root nodes at least three graph edges from every active frontier node; an Agent expansion permanently marks the node agent-important.",
+      "single_behavior_delta": "Keep every canonical node and edge visible while folding only the baseline node-local detail projection of completed non-root nodes at least three graph edges from every active frontier node; a canonical Agent expansion event permanently excludes that node from later folds.",
+      "scope_limit": {
+        "optimization_target": "node_local_detail_projection_bytes",
+        "map_skeleton_bytes_reduced": false,
+        "ultimate_context_overflow_solved": false,
+        "future_skeleton_strategy": "out_of_scope"
+      },
       "distance": {
         "metric": "minimum_undirected_edge_distance_to_any_active_frontier_node",
         "minimum_inclusive": 3,
@@ -82,13 +88,13 @@
         "root_allowed": false,
         "active_or_current_allowed": false,
         "active_lease_allowed": false,
-        "agent_important_allowed": false
+        "previously_expanded_allowed": false
       },
       "agent_transition": {
         "tool": "taskspace_control",
         "action": "expand_nodes",
-        "from": "folded_default",
-        "to": "expanded_agent_important",
+        "from": "folded_without_expansion_event",
+        "to": "expanded_with_canonical_NodeDetailExpanded_event",
         "reverse_allowed": false,
         "creation_override_allowed": false
       },
@@ -100,14 +106,16 @@
       "contract": "benchmarks/taskspace/map-compression/s4-distance-fold-contract.json",
       "implementation_gate": "Retire all S1 archive production code before adding S4 foundations; enable fold and expand as one complete provider-visible safety contract.",
       "forbidden_co_changes": [
+        "node_importance_attribute",
         "runtime_semantic_relevance_ranking",
         "runtime_generated_natural_language_summary",
         "node_or_edge_removal_from_projection",
         "archive_or_macro_replacement",
         "global_skeleton_pagination",
-        "importance_at_node_creation",
+        "expanded_state_at_node_creation",
         "agent_or_runtime_refold_action",
-        "importance_downgrade",
+        "expansion_event_deletion_or_reset",
+        "skeleton_overflow_strategy",
         "compatibility_adapter",
         "long_lived_feature_flag"
       ]
