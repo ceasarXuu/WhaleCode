@@ -1,6 +1,8 @@
 param(
     [Parameter(Mandatory = $true)][string]$Phase,
     [Parameter(Mandatory = $true)][string]$CandidateWhaleBin,
+    [string]$PreviousWhaleBin = "",
+    [string]$PreviousSourceVersion = "",
     [string]$ContractPath = "",
     [string]$RunRoot = "",
     [int]$Repeats = 3,
@@ -111,6 +113,28 @@ if ([string]$candidateAttestationJson.codex_source_latest_commit -ne $candidateC
     throw "candidate attestation Codex source mismatch: rebuild and attest current Codex source"
 }
 $candidateCommit = [string]$candidateAttestationJson.current_git_head
+$previousBinary = ""
+$previousCommit = ""
+if (-not [string]::IsNullOrWhiteSpace($PreviousWhaleBin)) {
+    $previousBinary = Resolve-RepoRelativePath $PreviousWhaleBin
+    $previousAttestationPath = "$previousBinary.build-attestation.json"
+    if (-not (Test-Path -LiteralPath $previousAttestationPath -PathType Leaf)) {
+        throw "previous attestation missing: $previousAttestationPath"
+    }
+    $previousAttestation = Get-Content -Raw -Encoding UTF8 -LiteralPath $previousAttestationPath | ConvertFrom-Json
+    $previousSha = Get-LowerSha256 $previousBinary
+    if ([string]$previousAttestation.whale_binary_sha256 -ne $previousSha) {
+        throw "previous attestation does not match previous binary"
+    }
+    $previousCommit = if ([string]::IsNullOrWhiteSpace($PreviousSourceVersion)) {
+        [string]$previousAttestation.codex_source_latest_commit
+    } else {
+        $PreviousSourceVersion
+    }
+    if ([string]$previousAttestation.codex_source_latest_commit -ne $previousCommit) {
+        throw "previous attestation source mismatch"
+    }
+}
 
 foreach ($sampleName in @("simple", "complex")) {
     $sample = $contract.samples.$sampleName
@@ -134,6 +158,9 @@ if (-not $SkipStandard) {
     $arms["STD"] = [pscustomobject]@{ mode = "standard"; side = "left"; binary = $CandidateWhaleBin; commit = $candidateCommit; allow_stale = $false }
 }
 $arms["B0"] = [pscustomobject]@{ mode = "taskspace"; side = "right"; binary = $baselineBin; commit = [string]$contract.baseline_source_commit; allow_stale = $true }
+if (-not [string]::IsNullOrWhiteSpace($previousBinary)) {
+    $arms["P"] = [pscustomobject]@{ mode = "taskspace"; side = "right"; binary = $previousBinary; commit = $previousCommit; allow_stale = $true }
+}
 $arms["C"] = [pscustomobject]@{ mode = "taskspace"; side = "right"; binary = $CandidateWhaleBin; commit = $candidateCommit; allow_stale = $false }
 
 $tasks = [System.Collections.Generic.List[object]]::new()
@@ -198,6 +225,8 @@ if ($PlanOnly) {
         orchestrator_commit = $orchestratorCommit
         candidate_commit = $candidateCommit
         candidate_binary_sha256 = $candidateSha
+        previous_binary_sha256 = if ([string]::IsNullOrWhiteSpace($previousBinary)) { $null } else { Get-LowerSha256 $previousBinary }
+        previous_source_commit = if ([string]::IsNullOrWhiteSpace($previousCommit)) { $null } else { $previousCommit }
         baseline_binary_sha256 = [string]$contract.baseline_binary.sha256
         provider_config_overrides = @($contract.provider.config_overrides | ForEach-Object { [string]$_ })
         repeats = $Repeats
@@ -257,6 +286,8 @@ $index = [ordered]@{
     contract_sha256 = Get-LowerSha256 $ContractPath
     candidate_commit = $candidateCommit
     candidate_binary_sha256 = $candidateSha
+    previous_binary_sha256 = if ([string]::IsNullOrWhiteSpace($previousBinary)) { $null } else { Get-LowerSha256 $previousBinary }
+    previous_source_commit = if ([string]::IsNullOrWhiteSpace($previousCommit)) { $null } else { $previousCommit }
     baseline_binary_sha256 = [string]$contract.baseline_binary.sha256
     provider_config_overrides = @($contract.provider.config_overrides | ForEach-Object { [string]$_ })
     p0_alias_of = "B0"

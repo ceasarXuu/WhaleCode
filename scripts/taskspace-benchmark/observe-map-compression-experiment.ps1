@@ -225,7 +225,7 @@ foreach ($sampleClass in @($rows.sample_class | Sort-Object -Unique)) {
 $comparisons = [System.Collections.Generic.List[object]]::new()
 foreach ($sampleClass in @($rows.sample_class | Sort-Object -Unique)) {
     $candidate = $aggregates | Where-Object { $_.sample_class -eq $sampleClass -and $_.arm -eq "C" } | Select-Object -First 1
-    foreach ($baselineArm in @("B0", "STD")) {
+    foreach ($baselineArm in @("P", "B0", "STD")) {
         $baseline = $aggregates | Where-Object { $_.sample_class -eq $sampleClass -and $_.arm -eq $baselineArm } | Select-Object -First 1
         if ($null -eq $candidate -or $null -eq $baseline) { continue }
         $comparisons.Add([pscustomobject]@{
