@@ -1,0 +1,209 @@
+{
+  "schema_version": 1,
+  "result_id": "r6-phase-b",
+  "status": "complete",
+  "completed_at": "2026-07-15T06:12:11+08:00",
+  "candidate_commit": "b3d45ec94655b3f31277d349c29b623a9f190864",
+  "scope": {
+    "domain_core_path": "third_party/codex-cli/codex-rs/core/src/action_map/rooted_dag",
+    "production_reachable": false,
+    "compile_gate": "cfg(test)",
+    "provider_schema_changed": false,
+    "handler_changed": false,
+    "projection_changed": false,
+    "snapshot_changed": false,
+    "production_behavior_changed": false
+  },
+  "implementation": {
+    "node_roles": ["task_root", "work", "finish"],
+    "model_files": 9,
+    "max_file_lines": 385,
+    "validator": {
+      "graph_engine": "petgraph_0.8.3",
+      "stable_ordering": true,
+      "checks": [
+        "single_root_and_finish",
+        "edge_endpoints_and_uniqueness",
+        "self_loop_and_cycle",
+        "single_source_and_sink",
+        "forward_and_reverse_reachability",
+        "role_status_coherence",
+        "terminal_coherence"
+      ]
+    },
+    "transactions": [
+      "initialize_map",
+      "mutate_graph",
+      "transition_node",
+      "finish_end"
+    ],
+    "commit_model": "clone_event_reduce_validate_commit",
+    "rejection_state_commit": false,
+    "canonical_event_reducer": true,
+    "empty_event_batch_rejected": true,
+    "agent_text_preserved": [
+      "root_goal",
+      "work_goal",
+      "finish_goal",
+      "source_refs_order_and_duplicates",
+      "final_summary"
+    ]
+  },
+  "verification": {
+    "cargo_targeted": {
+      "command": "cargo test -p codex-core action_map::rooted_dag --lib --locked",
+      "passed": 18,
+      "failed": 0,
+      "filtered_out": 1858
+    },
+    "bazel_targeted": {
+      "command": "bazel test //codex-rs/core:core-unit-tests --test_arg=action_map::rooted_dag --test_output=errors",
+      "passed": true,
+      "shards": 8
+    },
+    "fixtures": {
+      "phase_a_graph_cases": 14,
+      "role_status_combinations": 21,
+      "valid_cases_accepted": true,
+      "invalid_cases_rejected": true
+    },
+    "property_tests": {
+      "tests": 4,
+      "cases_per_test": 256,
+      "fixed_seed": "0x05ee_dd46_2026",
+      "validator_panics": 0,
+      "ordering_mismatches": 0
+    },
+    "replay": {
+      "work_cycles": 20,
+      "terminal_revision": 42,
+      "field_equality": true,
+      "state_hash_equality": true
+    },
+    "atomicity": {
+      "rejected_mutation_hash_unchanged": true,
+      "rejected_mutation_revision_unchanged": true,
+      "stale_revision_rejected": true,
+      "partial_commit_count": 0
+    },
+    "supporting_gates": {
+      "cargo_check_production": true,
+      "clippy_fix_completed": true,
+      "rustfmt_completed": true,
+      "bazel_lock_check": true,
+      "contract_harness": true,
+      "performance_observer_self_test": true,
+      "production_binary_build": true
+    },
+    "non_gating_full_target_observation": {
+      "trigger": "bazel_test_filter_did_not_forward_to_rust_harness",
+      "rooted_dag_tests_failed": 0,
+      "full_target_passed": false,
+      "failure_classes": [
+        "existing_config_fixture",
+        "existing_file_watcher",
+        "guardian_provider_credential",
+        "existing_session_thread_manager"
+      ],
+      "release_claim_allowed": false
+    }
+  },
+  "docker_identity_smoke": {
+    "scenario_id": "single-file-fast-fix",
+    "model": "deepseek-v4-flash",
+    "substrate": "docker_hard_boundary",
+    "repeats_per_arm": 1,
+    "run_root": "target/r6-phase-b-baseline/simple/single-file-fast-fix/20260715-061009-393",
+    "standard": {
+      "business_success": true,
+      "external_validation_status": "passed",
+      "provider_requests": 6,
+      "ordinary_tools": 8,
+      "control_calls": 0,
+      "failed_tools": 0,
+      "wall_time_ms": 13263,
+      "input_tokens": 39276,
+      "cached_input_tokens": 37760,
+      "uncached_input_tokens": 1516,
+      "output_tokens": 1220,
+      "total_tokens": 40496,
+      "request_2_plus_cache_hit_rate": 0.95805,
+      "prefix_preserved_rate": 1.0
+    },
+    "r6_phase_b_identity": {
+      "production_implementation": "r5_unchanged",
+      "business_success": true,
+      "external_validation_status": "passed",
+      "provider_requests": 7,
+      "ordinary_tools": 9,
+      "control_calls": 1,
+      "failed_tools": 1,
+      "failed_tool_class": "expected_pre_fix_pytest_failure",
+      "control_failures": 0,
+      "wall_time_ms": 20024,
+      "input_tokens": 53317,
+      "cached_input_tokens": 50432,
+      "uncached_input_tokens": 2885,
+      "output_tokens": 2121,
+      "total_tokens": 55438,
+      "request_2_plus_cache_hit_rate": 0.941425,
+      "prefix_preserved_rate": 0.833333,
+      "map_count": 1,
+      "node_count": 3,
+      "edge_count": 0,
+      "result_count": 0,
+      "open_leaf_nodes": 3
+    },
+    "r6_identity_over_standard": {
+      "provider_requests": 1.1667,
+      "ordinary_tools": 1.125,
+      "wall_time": 1.5098,
+      "input_tokens": 1.3575,
+      "uncached_input_tokens": 1.9029,
+      "output_tokens": 1.7385,
+      "total_tokens": 1.369,
+      "request_2_plus_cache_hit_delta_pp": -1.6625
+    },
+    "frozen_r5_reference": {
+      "commit": "d12818f055494e510c6bd1d34f5b7b5154536471",
+      "run_root": "target/r6-phase-a-baseline/simple/single-file-fast-fix/20260715-045642-750",
+      "provider_requests": 7,
+      "input_tokens": 50746,
+      "total_tokens": 52492,
+      "wall_time_ms": 20464,
+      "node_count": 3,
+      "edge_count": 0,
+      "result_count": 3
+    },
+    "evidence": {
+      "performance_observation_sha256": "da3594e615318ce2fe2b9a36c5308227f42e413f46c2e02506c4c13022dbf83f",
+      "pair_report_sha256": "872c8811ea650186b2cbac961106baf76b4e22225314f8c52bb244534d9b9bb6",
+      "resolved_manifest_sha256": "4785eca0e60ef09f50dcc9ef7aef495f5150503f3e6e269ebd2e52352fcc06d6",
+      "binary_attestation_sha256": "1edcfad5383b7118a553ed349024cf8b36f175135c8a1a21ce6f57e30aa95600"
+    }
+  },
+  "phase_b_gates": {
+    "valid_fixture_acceptance": true,
+    "invalid_fixture_rejection": true,
+    "reject_state_unchanged": true,
+    "twenty_cycle_replay_exact": true,
+    "validator_property_checks": true,
+    "production_path_unchanged": true,
+    "docker_smoke_both_sides_passed": true,
+    "phase_c_ready": true
+  },
+  "deferred_by_design": [
+    "production_schema_and_handler_cutover_phase_c",
+    "running_node_mutation_causality_phase_d",
+    "concurrent_frontier_and_lease_rules_phase_d",
+    "persisted_corruption_and_crash_matrix_phase_e",
+    "node_detail_expanded_event_phase_g"
+  ],
+  "interpretation_limits": [
+    "phase_b_domain_core_is_not_live_in_production",
+    "single_docker_repeat_is_diagnostic_only",
+    "r6_phase_b_taskspace_arm_uses_unchanged_r5_production_code",
+    "open_zero_edge_map_is_r5_baseline_evidence_not_r6_domain_behavior",
+    "no_performance_or_utility_benefit_claim"
+  ]
+}

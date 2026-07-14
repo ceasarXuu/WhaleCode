@@ -6,11 +6,13 @@ $fixturesPath = Join-Path $repoRoot "benchmarks/taskspace/r6/rooted-dag-contract
 $inventoryPath = Join-Path $repoRoot "benchmarks/taskspace/r6/phase-a-ownership-inventory.json"
 $baselinePath = Join-Path $repoRoot "benchmarks/taskspace/r6/phase-a-baseline-contract.json"
 $baselineResultPath = Join-Path $repoRoot "benchmarks/taskspace/r6/phase-a-baseline-result.json"
+$phaseBResultPath = Join-Path $repoRoot "benchmarks/taskspace/r6/phase-b-result.json"
 $contract = Get-Content -Raw -Encoding UTF8 -LiteralPath $contractPath | ConvertFrom-Json -Depth 30
 $fixtures = Get-Content -Raw -Encoding UTF8 -LiteralPath $fixturesPath | ConvertFrom-Json -Depth 30
 $inventory = Get-Content -Raw -Encoding UTF8 -LiteralPath $inventoryPath | ConvertFrom-Json -Depth 30
 $baseline = Get-Content -Raw -Encoding UTF8 -LiteralPath $baselinePath | ConvertFrom-Json -Depth 30
 $baselineResult = Get-Content -Raw -Encoding UTF8 -LiteralPath $baselineResultPath | ConvertFrom-Json -Depth 30
+$phaseBResult = Get-Content -Raw -Encoding UTF8 -LiteralPath $phaseBResultPath | ConvertFrom-Json -Depth 30
 
 function Assert-Equal {
     param($Actual, $Expected, [string]$Message)
@@ -276,4 +278,38 @@ Assert-Equal $baselineResult.phase_a_gates.unknown_ownership_count 0 "Unknown ow
 Assert-Equal $baselineResult.phase_a_gates.production_behavior_changed $false "Phase A changed production behavior"
 Assert-Equal $baselineResult.phase_a_gates.phase_b_ready $true "Phase B readiness gate failed"
 
-Write-Host "R6 rooted DAG contract tests passed: $(@($fixtures.cases).Count) fixtures, $(@($inventory.items).Count) ownership items, $(@($baseline.scenarios).Count) baseline results"
+Assert-Equal $phaseBResult.status "complete" "Phase B result is incomplete"
+Assert-Equal $phaseBResult.scope.production_reachable $false "Phase B core became production reachable"
+Assert-Equal $phaseBResult.scope.compile_gate "cfg(test)" "Phase B compile gate drifted"
+Assert-Equal $phaseBResult.scope.production_behavior_changed $false "Phase B changed production behavior"
+Assert-Equal $phaseBResult.verification.cargo_targeted.passed 18 "Phase B Cargo test count drifted"
+Assert-Equal $phaseBResult.verification.cargo_targeted.failed 0 "Phase B Cargo tests failed"
+Assert-Equal $phaseBResult.verification.fixtures.phase_a_graph_cases @($fixtures.cases).Count "Phase B fixture count drifted"
+Assert-Equal $phaseBResult.verification.fixtures.role_status_combinations 21 "Role/status matrix is incomplete"
+Assert-Equal $phaseBResult.verification.property_tests.validator_panics 0 "Property validator panic detected"
+Assert-Equal $phaseBResult.verification.replay.work_cycles 20 "Replay cycle count drifted"
+Assert-Equal $phaseBResult.verification.replay.state_hash_equality $true "Replay state hash mismatch"
+Assert-Equal $phaseBResult.verification.atomicity.partial_commit_count 0 "Phase B partial commit detected"
+Assert-Equal $phaseBResult.phase_b_gates.phase_c_ready $true "Phase C readiness gate failed"
+
+$phaseBRunRoot = Join-Path $repoRoot ([string]$phaseBResult.docker_identity_smoke.run_root)
+$phaseBEvidenceFiles = @{
+    performance_observation_sha256 = Join-Path $phaseBRunRoot "performance-observation.json"
+    pair_report_sha256 = Join-Path $phaseBRunRoot "pair-001/pair-report.md"
+    resolved_manifest_sha256 = Join-Path $phaseBRunRoot "pair-001/manifest.resolved.json"
+    binary_attestation_sha256 = Join-Path $repoRoot "target/r6-phase-b/bin/whale.build-attestation.json"
+}
+foreach ($entry in $phaseBEvidenceFiles.GetEnumerator()) {
+    $actualSha = (Get-FileHash -Algorithm SHA256 -LiteralPath $entry.Value).Hash.ToLowerInvariant()
+    Assert-Equal $phaseBResult.docker_identity_smoke.evidence.($entry.Key) $actualSha "Phase B evidence hash mismatch: $($entry.Key)"
+}
+$phaseBObservation = Get-Content -Raw -Encoding UTF8 -LiteralPath $phaseBEvidenceFiles.performance_observation_sha256 | ConvertFrom-Json -Depth 30
+$standardRow = @($phaseBObservation.rows | Where-Object { [string]$_.logical_mode -eq "standard" })
+$taskspaceRow = @($phaseBObservation.rows | Where-Object { [string]$_.logical_mode -eq "taskspace" })
+Assert-Equal $standardRow.Count 1 "Phase B Standard row missing"
+Assert-Equal $taskspaceRow.Count 1 "Phase B TaskSpace row missing"
+Assert-Equal $standardRow[0].result.external_validation_status "passed" "Phase B Standard validation failed"
+Assert-Equal $taskspaceRow[0].result.external_validation_status "passed" "Phase B TaskSpace validation failed"
+Assert-Equal $taskspaceRow[0].actions.control_failures 0 "Phase B identity arm control failure detected"
+
+Write-Host "R6 rooted DAG contract tests passed: $(@($fixtures.cases).Count) fixtures, $(@($inventory.items).Count) ownership items, Phase A baseline + Phase B result"

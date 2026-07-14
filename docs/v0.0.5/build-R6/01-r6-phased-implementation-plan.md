@@ -10,7 +10,7 @@
 Created: 2026-07-15
 Updated: 2026-07-15
 Version: v0.0.5 build-R6
-Status: Phase A Complete / Phase B Ready
+Status: Phase B Complete / Phase C Ready
 Owner / Responsible: WhaleCode core runtime / TaskSpace
 Risk Level: Critical
 Plan Type: Full
@@ -349,15 +349,15 @@ docs、schema、tests、logs、viewer 对 role/status/error code 定义一致。
 
 | Plan Item | Production Path | Test Evidence | Runtime Evidence | Phase | Status |
 |---|---|---|---|---|---|
-| Root/Finish 一等模型 | `action_map/model` | role/status matrix | init digest | B/C | planned |
-| 单入口单出口 validator | `action_map/invariants` | graph/property tests | violation codes | B | planned |
+| Root/Finish 一等模型 | `action_map/model` | role/status matrix | init digest | B/C | B core complete / C production pending |
+| 单入口单出口 validator | `action_map/invariants` | graph/property tests | violation codes | B | complete |
 | Agent 原子图事务 | control handler + mutation | atomicity/revision tests | mutation trace | C/D | planned |
-| Root-open readiness | transitions/runtime | chain/fork/join tests | frontier changes | C/D | planned |
-| Agent 手动 Finish | control/runtime | terminal negative matrix | terminal trace | C/E | planned |
-| Event reducer/replay | events/snapshot | 20-cycle/fork/crash | hash/revision | B/E | planned |
+| Root-open readiness | transitions/runtime | chain/fork/join tests | frontier changes | B/C/D | B pure complete / C production pending |
+| Agent 手动 Finish | control/runtime | terminal negative matrix | terminal trace | B/C/E | B pure complete / C production pending |
+| Event reducer/replay | events/snapshot | 20-cycle/fork/crash | hash/revision | B/E | B reducer complete / E persistence pending |
 | 纯 projection | projection/context | coverage/dedup/hash | wire LCP | C/F | planned |
 | Viewer DAG | Web Viewer | fixture/screenshot smoke | render digest | D/H | planned |
-| Docker 三臂观察 | benchmark harness | 1x/3x matrices | request/cache/map logs | A-G | planned |
+| Docker 三臂观察 | benchmark harness | 1x/3x matrices | request/cache/map logs | A-G | A baseline + B identity smoke complete |
 | 压缩重基线 | projection/observer | B0/strategy matrix | activation/bytes | G | planned |
 
 ## 1.16 日志建设矩阵
