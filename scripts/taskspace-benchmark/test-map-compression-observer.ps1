@@ -16,12 +16,16 @@ $traceBase = @{
 $events = @(
     @(
         "schema:taskspace-projection-budget-v1",
-        "strategy_id:S4",
+        "strategy_id:S4.2",
         "strategy_activation_count:0",
         "projection_bytes_before_strategy:500",
         "projection_bytes_after_strategy:500",
+        "b0_projection_bytes:500",
         "folded_node_count:0",
+        "expanded_node_count:0",
         "fold_eligible_node_count:0",
+        "recoverable_hidden_event_count:0",
+        "folded_hidden_event_count:0",
         "node_detail_bytes_before_strategy:100",
         "node_detail_bytes_after_strategy:100",
         "skeleton_bytes_before_strategy:400",
@@ -29,12 +33,16 @@ $events = @(
     ),
     @(
         "schema:taskspace-projection-budget-v1",
-        "strategy_id:S4",
+        "strategy_id:S4.2",
         "strategy_activation_count:1",
         "projection_bytes_before_strategy:1000",
         "projection_bytes_after_strategy:800",
+        "b0_projection_bytes:700",
         "folded_node_count:3",
+        "expanded_node_count:1",
         "fold_eligible_node_count:4",
+        "recoverable_hidden_event_count:12",
+        "folded_hidden_event_count:9",
         "node_detail_bytes_before_strategy:500",
         "node_detail_bytes_after_strategy:300",
         "skeleton_bytes_before_strategy:500",
@@ -88,11 +96,15 @@ $row = (Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $output "map-com
 
 if ($row.compression_trace_availability -ne "rollout_trace") { throw "trace availability mismatch" }
 if ([double]$row.strategy_activation_count -ne 1) { throw "activation count mismatch" }
+if ([double]$row.b0_projection_bytes_median -ne 700) { throw "B0 bytes mismatch" }
 if ([double]$row.activated_projection_before_median -ne 1000) { throw "before bytes mismatch" }
 if ([double]$row.activated_projection_after_median -ne 800) { throw "after bytes mismatch" }
 if ([double]$row.activated_projection_ratio -ne 0.8) { throw "ratio mismatch" }
 if ([double]$row.folded_node_count_median -ne 3) { throw "folded node count mismatch" }
+if ([double]$row.expanded_node_count_median -ne 1) { throw "expanded node count mismatch" }
 if ([double]$row.eligible_node_count_median -ne 4) { throw "eligible node count mismatch" }
+if ([double]$row.recoverable_hidden_event_count_median -ne 12) { throw "recoverable hidden count mismatch" }
+if ([double]$row.folded_hidden_event_count_median -ne 9) { throw "folded hidden count mismatch" }
 if ([double]$row.node_detail_before_median -ne 500 -or [double]$row.node_detail_after_median -ne 300) { throw "detail bytes mismatch" }
 if ([double]$row.skeleton_before_median -ne 500 -or [double]$row.skeleton_after_median -ne 500) { throw "skeleton bytes mismatch" }
 

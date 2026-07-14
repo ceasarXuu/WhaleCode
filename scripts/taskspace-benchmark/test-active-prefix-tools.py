@@ -117,13 +117,17 @@ class AnalyzerTest(unittest.TestCase):
             "id": "trace-1",
             "kind": "projection_budget",
             "tags": [
-                "strategy_id:S4",
+                "strategy_id:S4.2",
                 "projection_bytes:856",
                 "strategy_activation_count:1",
+                "b0_projection_bytes:700",
                 "projection_bytes_before_strategy:1963",
                 "projection_bytes_after_strategy:856",
                 "folded_node_count:3",
+                "expanded_node_count:1",
                 "fold_eligible_node_count:4",
+                "recoverable_hidden_event_count:12",
+                "folded_hidden_event_count:9",
                 "node_detail_bytes_before_strategy:1200",
                 "node_detail_bytes_after_strategy:93",
                 "skeleton_bytes_before_strategy:763",
@@ -154,11 +158,15 @@ class AnalyzerTest(unittest.TestCase):
         metrics = self.analyzer.projection_metrics(rollout)
         self.assertEqual(metrics["eventCount"], 1)
         self.assertEqual(metrics["activationCount"], 1)
-        self.assertEqual(metrics["strategyId"], "S4")
+        self.assertEqual(metrics["strategyId"], "S4.2")
+        self.assertEqual(metrics["b0ProjectionBytes"], 700)
         self.assertEqual(metrics["bytesBeforeStrategy"], 1963)
         self.assertEqual(metrics["bytesAfterStrategy"], 856)
         self.assertEqual(metrics["foldedNodeCount"], 3)
+        self.assertEqual(metrics["expandedNodeCount"], 1)
         self.assertEqual(metrics["eligibleNodeCount"], 4)
+        self.assertEqual(metrics["recoverableHiddenEventCount"], 12)
+        self.assertEqual(metrics["foldedHiddenEventCount"], 9)
         self.assertEqual(metrics["nodeDetailAfterBeforeRatio"], 0.0775)
         self.assertEqual(metrics["skeletonBytesBeforeStrategy"], 763)
         self.assertEqual(metrics["skeletonBytesAfterStrategy"], 763)
