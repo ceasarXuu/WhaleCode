@@ -1,7 +1,7 @@
 {
   "schema_version": "taskspace-map-compression-strategy-ledger-v3",
   "baseline_id": "R5-K-B0",
-  "selected_strategy_id": null,
+  "selected_strategy_id": "S4",
   "strategies": [
     {
       "id": "S1",
@@ -68,11 +68,11 @@
     {
       "id": "S4",
       "name": "distance_based_node_detail_fold_with_agent_expand",
-      "status": "rejected_after_evaluation",
-      "historical_outcome": "implemented_then_reverted_to_S4.0",
+      "status": "s4_2_approved_for_implementation",
+      "historical_outcome": "S4.1_rejected_and_reverted; S4.2_redefined_on_user_correction",
       "relationship": "replacement_for_S1_S2_S3",
       "previous": "R5-K-B0",
-      "single_behavior_delta": "Keep every canonical node and edge visible while folding only the baseline node-local detail projection of completed non-root nodes at least three graph edges from every active frontier node; a canonical Agent expansion event permanently excludes that node from later folds.",
+      "single_behavior_delta": "Keep B0-visible details unchanged, explicitly reference only the canonical details that B0 omits for eligible distance>=3 nodes, and let an Agent expansion event restore all node details permanently.",
       "scope_limit": {
         "optimization_target": "node_local_detail_projection_bytes",
         "map_skeleton_bytes_reduced": false,
@@ -100,14 +100,18 @@
         "creation_override_allowed": false
       },
       "primary_metric": {
-        "name": "activated_node_detail_projection_bytes",
-        "candidate_previous_max_ratio": 0.9
+        "name": "recoverable_hidden_detail_coverage",
+        "target": 1.0,
+        "zero_hidden_projection_vs_S4_0": "byte_identical",
+        "fold_profitability": "fold_marker_bytes_less_than_hidden_detail_bytes"
       },
       "design_document": "docs/v0.0.5/build-R5/49-r5-k3-s4-distance-fold-design.md",
+      "revision_design_document": "docs/v0.0.5/build-R5/51-r5-k3-s4-2-recoverable-tier-fold-design.md",
       "contract": "benchmarks/taskspace/map-compression/s4-distance-fold-contract.json",
       "result_document": "docs/v0.0.5/build-R5/50-r5-k3-s4-result.md",
       "decision_reason": "The existing B0 projection already limits distance>=3 completed nodes to one ordinary D3 detail. S4 replaced that already-compressed line with detail state, distance, ref, and hash metadata. A five-node deterministic chain reduced the S4-internal projection by only 11 bytes, while the comparable S4.0 body was 79 bytes smaller than S4.1. The natural active-prefix had zero dependency edges and zero live folds in 3/3 runs; the zero-activation wall median was 1.161x S4.0. S4.1 was reverted as one unit.",
-      "implementation_gate": "Retire all S1 archive production code before adding S4 foundations; enable fold and expand as one complete provider-visible safety contract.",
+      "revision_reason": "S4.2 treats B0 D3 as the visible subset and folds only the canonical details omitted by B0. It adds no marker when nothing is hidden, exposes one content-addressed ref without duplicate hash, and expansion restores all node detail refs.",
+      "implementation_gate": "Keep the B0-visible detail set unchanged; enable hidden-detail marker, Agent expansion, immediate restored refs, and expanded full-detail projection as one provider-visible contract.",
       "forbidden_co_changes": [
         "node_importance_attribute",
         "runtime_semantic_relevance_ranking",

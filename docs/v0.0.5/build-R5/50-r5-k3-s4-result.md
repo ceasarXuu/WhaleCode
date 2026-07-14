@@ -8,6 +8,10 @@
 - Previous: S4.0 `7040547`
 - Scope: S4单策略实现、deterministic probe、Docker new-epoch active-prefix各3次
 
+> 2026-07-14后续修订：本文结论只拒绝S4.1“删除B0已选详情”的实现。用户纠正后，S4.2改为保留B0可见
+> 详情，只对B0未展示的canonical详情建立显式可恢复折叠；新合同见
+> `51-r5-k3-s4-2-recoverable-tier-fold-design.md`。S4.1的负收益数据继续作为有效历史证据。
+
 ## 1. 结论
 
 S4.1不接受，production已整体回退到S4.0。fold和`expand_nodes`均未作为禁用分支、feature flag或半套能力保留。
