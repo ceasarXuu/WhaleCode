@@ -31,6 +31,34 @@ fn inspect_node(id: &str) -> ActionMapInitializeNodeInput {
     }
 }
 
+fn initialized_five_node_chain() -> (ActionMapRuntimeState, ThreadId, ActionMapInitializeOutcome) {
+    let nodes = (0..5)
+        .map(|index| ActionMapInitializeNodeInput {
+            id: format!("node-{index}"),
+            kind: NodeKind::InspectCodeContext,
+            title: format!("Node {index}"),
+            context_summary: format!("Complete step {index}."),
+            dependency_node_ids: (index > 0)
+                .then(|| format!("node-{}", index - 1))
+                .into_iter()
+                .collect(),
+        })
+        .collect();
+    let (mut state, owner, outcome) = initialized_state(nodes, "node-0");
+    for index in 0..4 {
+        state
+            .finish_main_node_with_next(
+                owner,
+                &format!("node-{index}"),
+                format!("task-event-finish-{index}"),
+                Some(format!("node-{}", index + 1)),
+                None,
+            )
+            .expect("advance chain");
+    }
+    (state, owner, outcome)
+}
+
 #[test]
 fn agent_initializes_explicit_graph_and_current_binding() {
     let implement = ActionMapInitializeNodeInput {
@@ -117,6 +145,72 @@ fn snapshot_restore_preserves_maintenance_barrier() {
     restored.restore_snapshot(snapshot);
 
     assert_eq!(restored.snapshot().maintenance_barriers, expected);
+}
+
+#[test]
+fn node_detail_expansion_is_atomic_and_survives_repeated_snapshot_restore() {
+    let (mut state, owner, outcome) = initialized_five_node_chain();
+
+    let (expanded, events) = state
+        .expand_node_details_for_main(
+            owner,
+            vec!["node-1".into()],
+            "call-expand-1".into(),
+            "task-event-expand-1".into(),
+        )
+        .expect("expand folded node");
+
+    assert_eq!(expanded.len(), 1);
+    assert!(matches!(
+        events.as_slice(),
+        [MapRuntimeEvent::NodeDetailExpanded(event)]
+            if event.node_id == "node-1"
+                && event.expansion_event_id == expanded[0].expansion_event_id
+    ));
+    let expected_event_id = expanded[0].expansion_event_id.clone();
+    let mut snapshot = state.snapshot();
+    for _ in 0..20 {
+        let mut restored = ActionMapRuntimeState::default();
+        restored.restore_snapshot(snapshot);
+        snapshot = restored.snapshot();
+    }
+    let map = snapshot
+        .maps
+        .iter()
+        .find(|map| map.id == outcome.map_id)
+        .expect("restored map");
+    assert!(map.node_events.iter().any(|event| {
+        event.id == expected_event_id
+            && event.event_kind == NODE_DETAIL_EXPANDED_EVENT_KIND
+            && event.call_id.as_deref() == Some("call-expand-1")
+            && event.source_event_id.as_deref() == Some("task-event-expand-1")
+    }));
+    assert!(
+        map.nodes
+            .iter()
+            .find(|node| node.id == "node-1")
+            .expect("expanded node")
+            .node_event_ids
+            .contains(&expected_event_id)
+    );
+}
+
+#[test]
+fn node_detail_expansion_rejects_mixed_batch_without_partial_commit() {
+    let (mut state, owner, _) = initialized_five_node_chain();
+    let before = state.snapshot();
+
+    let error = state
+        .expand_node_details_for_main(
+            owner,
+            vec!["node-1".into(), "node-2".into()],
+            "call-expand-invalid".into(),
+            "task-event-expand-invalid".into(),
+        )
+        .expect_err("full node makes the entire batch invalid");
+
+    assert!(error.contains("node_detail_not_folded"));
+    assert_eq!(state.snapshot(), before);
 }
 
 #[test]

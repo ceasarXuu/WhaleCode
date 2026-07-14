@@ -29,6 +29,7 @@ use codex_protocol::protocol::MapRuntimeMapCreatedEvent;
 use codex_protocol::protocol::MapRuntimeMapStatusChangedEvent;
 use codex_protocol::protocol::MapRuntimeMode;
 use codex_protocol::protocol::MapRuntimeModeChangedEvent;
+use codex_protocol::protocol::MapRuntimeNodeDetailExpandedEvent;
 use codex_protocol::protocol::MapRuntimeNodeEventRecordedEvent;
 use codex_protocol::protocol::MapRuntimeNodeResultRecordedEvent;
 use codex_protocol::protocol::MapRuntimeNodeStatusChangedEvent;
@@ -40,6 +41,9 @@ use codex_protocol::protocol::MapRuntimeTraceEventRecordedEvent;
 use sha2::Digest;
 use sha2::Sha256;
 
+use super::detail_fold::NODE_DETAIL_EXPANDED_EVENT_KIND;
+use super::detail_fold::NodeDetailState;
+use super::detail_fold::node_detail_plan;
 use super::map::ActionClass;
 use super::map::ActionMapId;
 use super::map::ActionMapInstance;
@@ -243,6 +247,13 @@ pub(crate) struct ActionMapInitializeOutcome {
     pub(crate) map_id: ActionMapId,
     pub(crate) node_ids: Vec<MapNodeId>,
     pub(crate) current_node_id: MapNodeId,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[allow(dead_code)]
+pub(crate) struct ActionMapNodeDetailExpansionOutcome {
+    pub(crate) node_id: MapNodeId,
+    pub(crate) expansion_event_id: NodeEventId,
 }
 
 #[allow(dead_code)]
@@ -3223,6 +3234,154 @@ impl ActionMapRuntimeState {
         )
     }
 
+    #[allow(dead_code)]
+    pub(crate) fn expand_node_details_for_main(
+        &mut self,
+        owner_session_id: ThreadId,
+        node_ids: Vec<MapNodeId>,
+        call_id: String,
+        source_event_id: String,
+    ) -> Result<
+        (
+            Vec<ActionMapNodeDetailExpansionOutcome>,
+            Vec<MapRuntimeEvent>,
+        ),
+        String,
+    > {
+        let mut candidate = self.clone();
+        let outcome = candidate.expand_node_details_for_main_inner(
+            owner_session_id,
+            node_ids,
+            call_id,
+            source_event_id,
+        )?;
+        *self = candidate;
+        Ok(outcome)
+    }
+
+    #[allow(dead_code)]
+    fn expand_node_details_for_main_inner(
+        &mut self,
+        owner_session_id: ThreadId,
+        node_ids: Vec<MapNodeId>,
+        call_id: String,
+        source_event_id: String,
+    ) -> Result<
+        (
+            Vec<ActionMapNodeDetailExpansionOutcome>,
+            Vec<MapRuntimeEvent>,
+        ),
+        String,
+    > {
+        if self.mode != MapRuntimeMode::Experiment {
+            return Err("TaskSpace mode is not active.".to_string());
+        }
+        self.validate_routing_complete()?;
+        if node_ids.is_empty() {
+            return Err(
+                "TaskSpace expand_nodes requires at least one node_id. hard_state: empty_expand_nodes."
+                    .to_string(),
+            );
+        }
+        let call_id = require_nonempty_owned("call_id", call_id)?;
+        let source_event_id = require_nonempty_owned("source_event_id", source_event_id)?;
+        let map_id = self.active_map_id.clone().ok_or_else(|| {
+            "TaskSpace has no active map. hard_state: no_active_task_path.".to_string()
+        })?;
+        let map = self
+            .maps
+            .get(&map_id)
+            .ok_or_else(|| format!("TaskSpace active task path `{map_id}` is missing."))?;
+        if map.owner_session_id != Some(owner_session_id) {
+            return Err(
+                "TaskSpace active map is owned by another session. hard_state: map_owner_mismatch."
+                    .to_string(),
+            );
+        }
+        let mut unique_node_ids = HashSet::with_capacity(node_ids.len());
+        let detail_plan = node_detail_plan(map, self.current_main_node_id.as_deref());
+        for node_id in &node_ids {
+            if node_id.trim().is_empty() {
+                return Err(
+                    "TaskSpace expand_nodes requires non-empty node_ids. hard_state: empty_expand_node_id."
+                        .to_string(),
+                );
+            }
+            if !unique_node_ids.insert(node_id.clone()) {
+                return Err(format!(
+                    "TaskSpace expand_nodes repeats node `{node_id}`. hard_state: duplicate_expand_node_id."
+                ));
+            }
+            if !map.nodes.contains_key(node_id) {
+                return Err(format!(
+                    "TaskSpace expand_nodes target `{node_id}` does not exist. hard_state: expand_node_missing."
+                ));
+            }
+            if !matches!(
+                detail_plan.state(node_id),
+                Some(NodeDetailState::Folded { .. })
+            ) {
+                return Err(format!(
+                    "TaskSpace expand_nodes target `{node_id}` is not folded. hard_state: node_detail_not_folded."
+                ));
+            }
+        }
+
+        let created_at_ms = now_ms();
+        let mut outcomes = Vec::with_capacity(node_ids.len());
+        let mut events = Vec::with_capacity(node_ids.len());
+        for node_id in node_ids {
+            let expansion_event_id = self.next_node_event_id();
+            let content = format!(
+                "NodeDetailExpandedV1\nmap_id:{map_id}\nnode_id:{node_id}\ncall_id:{call_id}\nsource_event_id:{source_event_id}"
+            );
+            let event = NodeEvent {
+                id: expansion_event_id.clone(),
+                map_id: map_id.clone(),
+                node_id: node_id.clone(),
+                event_kind: NODE_DETAIL_EXPANDED_EVENT_KIND.to_string(),
+                source: "agent_taskspace_control".to_string(),
+                action_class: None,
+                tool_success: None,
+                content_sha256: format!("{:x}", Sha256::digest(content.as_bytes())),
+                source_event_id: Some(source_event_id.clone()),
+                raw_ref: None,
+                artifact_refs: Vec::new(),
+                call_id: Some(call_id.clone()),
+                source_thread_id: owner_session_id,
+                created_at_ms,
+            };
+            let map = self
+                .maps
+                .get_mut(&map_id)
+                .expect("active map was validated before expansion commit");
+            map.node_events.insert(expansion_event_id.clone(), event);
+            map.nodes
+                .get_mut(&node_id)
+                .expect("expansion target was validated before commit")
+                .node_events
+                .push(NodeEventRef {
+                    id: expansion_event_id.clone(),
+                    kind: NODE_DETAIL_EXPANDED_EVENT_KIND.to_string(),
+                });
+            outcomes.push(ActionMapNodeDetailExpansionOutcome {
+                node_id: node_id.clone(),
+                expansion_event_id: expansion_event_id.clone(),
+            });
+            events.push(MapRuntimeEvent::NodeDetailExpanded(
+                MapRuntimeNodeDetailExpandedEvent {
+                    map_id: map_id.clone(),
+                    node_id,
+                    expansion_event_id,
+                    call_id: call_id.clone(),
+                    source_event_id: source_event_id.clone(),
+                    source_thread_id: owner_session_id,
+                },
+            ));
+        }
+        Ok((outcomes, events))
+    }
+
     fn create_node_for_main_with_id(
         &mut self,
         owner_session_id: ThreadId,
@@ -4189,8 +4348,9 @@ impl ActionMapRuntimeState {
             map_edge_bytes = projection.size_breakdown.map_edge_bytes,
             node_detail_bytes = projection.size_breakdown.node_detail_bytes,
             footer_bytes = projection.size_breakdown.footer_bytes,
-            strategy_id = "none",
+            strategy_id = "S4.0",
             strategy_activation_count = 0,
+            fold_eligible_node_count = projection.fold_eligible_node_count,
             projection_bytes_before_strategy = projection.size_breakdown.projection_bytes,
             projection_bytes_after_strategy = projection.size_breakdown.projection_bytes,
             max_projection_tokens,
@@ -4253,8 +4413,12 @@ impl ActionMapRuntimeState {
                 ),
                 format!("max_projection_tokens:{max_projection_tokens}"),
                 format!("status:{status}"),
-                "strategy_id:none".to_string(),
+                "strategy_id:S4.0".to_string(),
                 "strategy_activation_count:0".to_string(),
+                format!(
+                    "fold_eligible_node_count:{}",
+                    projection.fold_eligible_node_count
+                ),
                 format!(
                     "projection_bytes_before_strategy:{}",
                     projection.size_breakdown.projection_bytes
@@ -5359,6 +5523,7 @@ fn append_context_projection_active(
     let current_node_id = current_node_id
         .filter(|node_id| map.nodes.contains_key(*node_id))
         .map(str::to_string);
+    let detail_plan = node_detail_plan(map, current_node_id.as_deref());
     let ordered_node_ids = ordered_node_ids(map);
     let node_skeleton = ordered_node_ids
         .iter()
@@ -5438,6 +5603,7 @@ fn append_context_projection_active(
             skeleton_estimated_tokens: rendered.skeleton_estimated_tokens,
             skeleton_over_budget,
             size_breakdown: rendered.size_breakdown,
+            fold_eligible_node_count: detail_plan.folded_node_count(),
         },
     })
 }
@@ -5452,6 +5618,7 @@ struct ProjectionRenderStats {
     skeleton_estimated_tokens: usize,
     skeleton_over_budget: bool,
     size_breakdown: ProjectionSizeBreakdown,
+    fold_eligible_node_count: usize,
 }
 
 fn projection_node_details(
@@ -5473,7 +5640,9 @@ fn projection_node_details(
         let events = ordered_node_event_ids(map)
             .into_iter()
             .filter_map(|event_id| map.node_events.get(&event_id))
-            .filter(|event| event.node_id == node_id)
+            .filter(|event| {
+                event.node_id == node_id && event.event_kind != NODE_DETAIL_EXPANDED_EVENT_KIND
+            })
             .collect::<Vec<_>>();
         for event in events
             .iter()
@@ -6114,6 +6283,7 @@ fn is_known_trace_tag(tag: &str) -> bool {
         || tag.starts_with("max_projection_tokens:")
         || tag.starts_with("strategy_id:")
         || tag.starts_with("strategy_activation_count:")
+        || tag.starts_with("fold_eligible_node_count:")
         || tag.starts_with("projection_bytes_before_strategy:")
         || tag.starts_with("projection_bytes_after_strategy:")
 }

@@ -1,4 +1,5 @@
 mod checkpoint_refs;
+mod detail_fold;
 mod event_codec;
 mod event_store;
 #[cfg(test)]

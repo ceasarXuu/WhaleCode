@@ -2141,6 +2141,18 @@ pub struct MapRuntimeNodeEventRecordedEvent {
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(rename_all = "camelCase")]
+pub struct MapRuntimeNodeDetailExpandedEvent {
+    pub map_id: String,
+    pub node_id: String,
+    pub expansion_event_id: String,
+    pub call_id: String,
+    pub source_event_id: String,
+    pub source_thread_id: ThreadId,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
 pub struct MapRuntimeTraceEventRecordedEvent {
     pub trace_event_id: String,
     pub kind: String,
@@ -2281,6 +2293,7 @@ pub enum MapRuntimeEvent {
     LeaseReleased(MapRuntimeLeaseReleasedEvent),
     NodeResultRecorded(MapRuntimeNodeResultRecordedEvent),
     NodeEventRecorded(MapRuntimeNodeEventRecordedEvent),
+    NodeDetailExpanded(MapRuntimeNodeDetailExpandedEvent),
     TaskspaceTraceEventRecorded(MapRuntimeTraceEventRecordedEvent),
     TaskContextEventRecorded(MapRuntimeTaskContextEventRecordedEvent),
     TaskContextOwnershipChanged(MapRuntimeTaskContextOwnershipChangedEvent),
