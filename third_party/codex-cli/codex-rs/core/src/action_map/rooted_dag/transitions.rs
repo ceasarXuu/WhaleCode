@@ -8,7 +8,7 @@ use serde::Serialize;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub(super) enum NodeTransition {
+pub(crate) enum NodeTransition {
     Bind,
     Complete,
     Block,
@@ -16,13 +16,13 @@ pub(super) enum NodeTransition {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct ReadinessChange {
+pub(crate) struct ReadinessChange {
     pub(super) node_id: NodeId,
     pub(super) from: NodeStatus,
     pub(super) to: NodeStatus,
 }
 
-pub(super) fn transition_target(
+pub(crate) fn transition_target(
     role: NodeRole,
     status: NodeStatus,
     transition: NodeTransition,
@@ -38,7 +38,7 @@ pub(super) fn transition_target(
     }
 }
 
-pub(super) fn readiness_changes(map: &TaskSpaceMap) -> Vec<ReadinessChange> {
+pub(crate) fn readiness_changes(map: &TaskSpaceMap) -> Vec<ReadinessChange> {
     map.nodes
         .iter()
         .filter_map(|(id, node)| {
@@ -60,7 +60,7 @@ pub(super) fn readiness_changes(map: &TaskSpaceMap) -> Vec<ReadinessChange> {
         .collect()
 }
 
-pub(super) fn predecessors_satisfied(map: &TaskSpaceMap, node_id: &NodeId) -> bool {
+pub(crate) fn predecessors_satisfied(map: &TaskSpaceMap, node_id: &NodeId) -> bool {
     let predecessors: Vec<_> = map
         .edges
         .iter()

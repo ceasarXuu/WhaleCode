@@ -5,18 +5,18 @@ use sha2::Sha256;
 use std::collections::BTreeMap;
 use std::fmt;
 
-pub(super) type Revision = u64;
+pub(crate) type Revision = u64;
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
-pub(super) struct MapId(String);
+pub(crate) struct MapId(String);
 
 impl MapId {
-    pub(super) fn new(value: impl Into<String>) -> Self {
+    pub(crate) fn new(value: impl Into<String>) -> Self {
         Self(value.into())
     }
 
-    pub(super) fn as_str(&self) -> &str {
+    pub(crate) fn as_str(&self) -> &str {
         &self.0
     }
 }
@@ -29,11 +29,15 @@ impl fmt::Display for MapId {
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
-pub(super) struct NodeId(String);
+pub(crate) struct NodeId(String);
 
 impl NodeId {
-    pub(super) fn new(value: impl Into<String>) -> Self {
+    pub(crate) fn new(value: impl Into<String>) -> Self {
         Self(value.into())
+    }
+
+    pub(crate) fn as_str(&self) -> &str {
+        &self.0
     }
 }
 
@@ -45,7 +49,7 @@ impl fmt::Display for NodeId {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub(super) enum NodeRole {
+pub(crate) enum NodeRole {
     TaskRoot,
     Work,
     Finish,
@@ -53,7 +57,7 @@ pub(super) enum NodeRole {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub(super) enum NodeStatus {
+pub(crate) enum NodeStatus {
     Open,
     Closed,
     Pending,
@@ -64,15 +68,15 @@ pub(super) enum NodeStatus {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub(super) struct MapNode {
-    pub(super) role: NodeRole,
-    pub(super) goal: String,
-    pub(super) source_refs: Vec<String>,
-    pub(super) status: NodeStatus,
+pub(crate) struct MapNode {
+    pub(crate) role: NodeRole,
+    pub(crate) goal: String,
+    pub(crate) source_refs: Vec<String>,
+    pub(crate) status: NodeStatus,
 }
 
 impl MapNode {
-    pub(super) fn task_root(goal: impl Into<String>, source_refs: Vec<String>) -> Self {
+    pub(crate) fn task_root(goal: impl Into<String>, source_refs: Vec<String>) -> Self {
         Self {
             role: NodeRole::TaskRoot,
             goal: goal.into(),
@@ -81,7 +85,7 @@ impl MapNode {
         }
     }
 
-    pub(super) fn work(goal: impl Into<String>) -> Self {
+    pub(crate) fn work(goal: impl Into<String>) -> Self {
         Self {
             role: NodeRole::Work,
             goal: goal.into(),
@@ -90,7 +94,7 @@ impl MapNode {
         }
     }
 
-    pub(super) fn finish(goal: impl Into<String>) -> Self {
+    pub(crate) fn finish(goal: impl Into<String>) -> Self {
         Self {
             role: NodeRole::Finish,
             goal: goal.into(),
@@ -99,7 +103,7 @@ impl MapNode {
         }
     }
 
-    pub(super) fn status_allowed(&self) -> bool {
+    pub(crate) fn status_allowed(&self) -> bool {
         matches!(
             (self.role, self.status),
             (NodeRole::TaskRoot, NodeStatus::Open | NodeStatus::Closed)
@@ -120,13 +124,13 @@ impl MapNode {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-pub(super) struct MapEdge {
-    pub(super) from: NodeId,
-    pub(super) to: NodeId,
+pub(crate) struct MapEdge {
+    pub(crate) from: NodeId,
+    pub(crate) to: NodeId,
 }
 
 impl MapEdge {
-    pub(super) fn new(from: impl Into<String>, to: impl Into<String>) -> Self {
+    pub(crate) fn new(from: impl Into<String>, to: impl Into<String>) -> Self {
         Self {
             from: NodeId::new(from),
             to: NodeId::new(to),
@@ -135,28 +139,28 @@ impl MapEdge {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub(super) struct TaskSpaceMap {
-    pub(super) id: MapId,
-    pub(super) root_node_id: NodeId,
-    pub(super) finish_node_id: NodeId,
-    pub(super) nodes: BTreeMap<NodeId, MapNode>,
-    pub(super) edges: Vec<MapEdge>,
-    pub(super) revision: Revision,
-    pub(super) current_binding: Option<NodeId>,
-    pub(super) terminal_summary_ref: Option<String>,
+pub(crate) struct TaskSpaceMap {
+    pub(crate) id: MapId,
+    pub(crate) root_node_id: NodeId,
+    pub(crate) finish_node_id: NodeId,
+    pub(crate) nodes: BTreeMap<NodeId, MapNode>,
+    pub(crate) edges: Vec<MapEdge>,
+    pub(crate) revision: Revision,
+    pub(crate) current_binding: Option<NodeId>,
+    pub(crate) terminal_summary_ref: Option<String>,
 }
 
 impl TaskSpaceMap {
-    pub(super) fn state_sha256(&self) -> Result<String, serde_json::Error> {
+    pub(crate) fn state_sha256(&self) -> Result<String, serde_json::Error> {
         let bytes = serde_json::to_vec(self)?;
         Ok(format!("{:x}", Sha256::digest(bytes)))
     }
 
-    pub(super) fn node(&self, id: &NodeId) -> Option<&MapNode> {
+    pub(crate) fn node(&self, id: &NodeId) -> Option<&MapNode> {
         self.nodes.get(id)
     }
 
-    pub(super) fn is_complete(&self) -> bool {
+    pub(crate) fn is_complete(&self) -> bool {
         self.node(&self.root_node_id)
             .is_some_and(|node| node.status == NodeStatus::Closed)
             && self
@@ -164,7 +168,7 @@ impl TaskSpaceMap {
                 .is_some_and(|node| node.status == NodeStatus::Closed)
     }
 
-    pub(super) fn canonicalize(&mut self) {
+    pub(crate) fn canonicalize(&mut self) {
         self.edges.sort();
     }
 }

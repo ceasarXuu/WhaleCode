@@ -13,7 +13,7 @@ use std::collections::BTreeSet;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub(super) enum ViolationCode {
+pub(crate) enum ViolationCode {
     RootMissing,
     MultipleRoots,
     FinishMissing,
@@ -38,7 +38,7 @@ pub(super) enum ViolationCode {
 }
 
 impl ViolationCode {
-    pub(super) fn as_str(self) -> &'static str {
+    pub(crate) fn as_str(self) -> &'static str {
         match self {
             Self::RootMissing => "root_missing",
             Self::MultipleRoots => "multiple_roots",
@@ -66,14 +66,14 @@ impl ViolationCode {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub(super) struct Violation {
-    pub(super) code: ViolationCode,
-    pub(super) subjects: Vec<String>,
+pub(crate) struct Violation {
+    pub(crate) code: ViolationCode,
+    pub(crate) subjects: Vec<String>,
 }
 
 type Violations = BTreeMap<ViolationCode, BTreeSet<String>>;
 
-pub(super) fn validate(map: &TaskSpaceMap) -> Vec<Violation> {
+pub(crate) fn validate(map: &TaskSpaceMap) -> Vec<Violation> {
     let mut found = Violations::new();
     validate_roles(map, &mut found);
     let graph = validate_edges(map, &mut found);

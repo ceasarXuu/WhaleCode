@@ -19,36 +19,36 @@ use super::transitions::transition_target;
 use std::collections::BTreeMap;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct InitializeMap {
-    pub(super) map_id: MapId,
-    pub(super) root_node_id: NodeId,
-    pub(super) root_goal: String,
-    pub(super) source_refs: Vec<String>,
-    pub(super) finish_node_id: NodeId,
-    pub(super) finish_goal: String,
-    pub(super) work_nodes: BTreeMap<NodeId, String>,
-    pub(super) edges: Vec<MapEdge>,
+pub(crate) struct InitializeMap {
+    pub(crate) map_id: MapId,
+    pub(crate) root_node_id: NodeId,
+    pub(crate) root_goal: String,
+    pub(crate) source_refs: Vec<String>,
+    pub(crate) finish_node_id: NodeId,
+    pub(crate) finish_goal: String,
+    pub(crate) work_nodes: BTreeMap<NodeId, String>,
+    pub(crate) edges: Vec<MapEdge>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct GraphMutation {
-    pub(super) expected_revision: Revision,
-    pub(super) add_nodes: BTreeMap<NodeId, String>,
-    pub(super) add_edges: Vec<MapEdge>,
-    pub(super) remove_edges: Vec<MapEdge>,
+pub(crate) struct GraphMutation {
+    pub(crate) expected_revision: Revision,
+    pub(crate) add_nodes: BTreeMap<NodeId, String>,
+    pub(crate) add_edges: Vec<MapEdge>,
+    pub(crate) remove_edges: Vec<MapEdge>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct Commit {
-    pub(super) map: TaskSpaceMap,
-    pub(super) events: EventBatch,
+pub(crate) struct Commit {
+    pub(crate) map: TaskSpaceMap,
+    pub(crate) events: EventBatch,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct Rejection {
-    pub(super) state_commit: bool,
-    pub(super) current_revision: Revision,
-    pub(super) violations: Vec<Violation>,
+pub(crate) struct Rejection {
+    pub(crate) state_commit: bool,
+    pub(crate) current_revision: Revision,
+    pub(crate) violations: Vec<Violation>,
 }
 
 impl Rejection {
@@ -72,7 +72,7 @@ impl Rejection {
     }
 }
 
-pub(super) fn initialize(input: InitializeMap) -> Result<Commit, Rejection> {
+pub(crate) fn initialize(input: InitializeMap) -> Result<Commit, Rejection> {
     let mut nodes = BTreeMap::new();
     nodes.insert(
         input.root_node_id.clone(),
@@ -121,7 +121,7 @@ pub(super) fn initialize(input: InitializeMap) -> Result<Commit, Rejection> {
     commit(None, EventBatch::new(input.map_id, 1, events))
 }
 
-pub(super) fn mutate_graph(
+pub(crate) fn mutate_graph(
     current: &TaskSpaceMap,
     mutation: GraphMutation,
 ) -> Result<Commit, Rejection> {
@@ -154,7 +154,7 @@ pub(super) fn mutate_graph(
     )
 }
 
-pub(super) fn transition_node(
+pub(crate) fn transition_node(
     current: &TaskSpaceMap,
     expected_revision: Revision,
     node_id: NodeId,
@@ -190,7 +190,7 @@ pub(super) fn transition_node(
     )
 }
 
-pub(super) fn finish_end(
+pub(crate) fn finish_end(
     current: &TaskSpaceMap,
     expected_revision: Revision,
     final_summary: String,

@@ -87,6 +87,7 @@ indexmap = { workspace = true }
 libc = { workspace = true }
 notify = { workspace = true }
 once_cell = { workspace = true }
+petgraph = { workspace = true }
 rand = { workspace = true }
 regex-lite = { workspace = true }
 reqwest = { workspace = true, features = ["json", "stream"] }
@@ -161,7 +162,6 @@ opentelemetry_sdk = { workspace = true, features = [
     "experimental_metrics_custom_reader",
     "metrics",
 ] }
-petgraph = { workspace = true }
 proptest = { workspace = true }
 serial_test = { workspace = true }
 tempfile = { workspace = true }

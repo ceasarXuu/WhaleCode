@@ -14,7 +14,7 @@ use std::collections::BTreeMap;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
-pub(super) enum MapEvent {
+pub(crate) enum MapEvent {
     MapInitialized {
         map: TaskSpaceMap,
     },
@@ -46,23 +46,23 @@ pub(super) enum MapEvent {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub(super) struct MapEventRecord {
-    pub(super) event_id: String,
-    pub(super) map_id: MapId,
-    pub(super) revision: Revision,
-    pub(super) sequence: u32,
-    pub(super) event: MapEvent,
+pub(crate) struct MapEventRecord {
+    pub(crate) event_id: String,
+    pub(crate) map_id: MapId,
+    pub(crate) revision: Revision,
+    pub(crate) sequence: u32,
+    pub(crate) event: MapEvent,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub(super) struct EventBatch {
-    pub(super) map_id: MapId,
-    pub(super) revision: Revision,
-    pub(super) records: Vec<MapEventRecord>,
+pub(crate) struct EventBatch {
+    pub(crate) map_id: MapId,
+    pub(crate) revision: Revision,
+    pub(crate) records: Vec<MapEventRecord>,
 }
 
 impl EventBatch {
-    pub(super) fn new(map_id: MapId, revision: Revision, events: Vec<MapEvent>) -> Self {
+    pub(crate) fn new(map_id: MapId, revision: Revision, events: Vec<MapEvent>) -> Self {
         let records = events
             .into_iter()
             .enumerate()
@@ -83,7 +83,7 @@ impl EventBatch {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) enum ReplayError {
+pub(crate) enum ReplayError {
     InitializationRequired,
     DuplicateInitialization,
     EmptyBatch,
@@ -104,7 +104,7 @@ pub(super) enum ReplayError {
     InvariantViolations(Vec<Violation>),
 }
 
-pub(super) fn apply_batch(
+pub(crate) fn apply_batch(
     current: Option<&TaskSpaceMap>,
     batch: &EventBatch,
 ) -> Result<TaskSpaceMap, ReplayError> {
@@ -165,7 +165,7 @@ fn event_id(map_id: &MapId, revision: Revision, sequence: usize) -> String {
     )
 }
 
-pub(super) fn replay_batches(batches: &[EventBatch]) -> Result<TaskSpaceMap, ReplayError> {
+pub(crate) fn replay_batches(batches: &[EventBatch]) -> Result<TaskSpaceMap, ReplayError> {
     let mut current = None;
     for batch in batches {
         current = Some(apply_batch(current.as_ref(), batch)?);
