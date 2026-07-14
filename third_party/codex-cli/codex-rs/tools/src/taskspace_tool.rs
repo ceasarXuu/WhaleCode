@@ -379,6 +379,21 @@ fn simple_action_schemas() -> Vec<JsonSchema> {
             vec!["node_id".into()],
         ),
         object_variant(
+            "expand_nodes",
+            BTreeMap::from([(
+                "node_ids".into(),
+                JsonSchema::array(
+                    JsonSchema::string(None),
+                    Some(
+                        "Currently folded node identifiers whose hidden event refs must be restored atomically."
+                            .into(),
+                    ),
+                )
+                .with_min_items(1),
+            )]),
+            vec!["node_ids".into()],
+        ),
+        object_variant(
             "read_output_ref",
             BTreeMap::from([
                 ("output_ref".into(), JsonSchema::string(None)),
@@ -432,7 +447,7 @@ pub fn create_taskspace_active_control_tool() -> ToolSpec {
     variants.extend(simple_action_schemas());
     ToolSpec::Function(ResponsesApiTool {
         name: "taskspace_control".into(),
-        description: "Mandatory mechanical TaskSpace map tool. finish_nodes commits ordered nonterminal finishes; each finish requires one tagged next binding: kind=existing binds next.node_id, kind=create creates the declared node. Ordinary sibling tool calls later in the same provider response execute after this state barrier under the latest binding. finish_then_end commits the Agent-declared finish_node_ids in order, uses the last ID as the terminal node, and releases final_candidate unchanged. Mutation results report state_commit plus the current and remaining open Map state. Runtime follows the declared order and does not choose or infer actions.".into(),
+        description: "Mandatory mechanical TaskSpace map tool. finish_nodes commits ordered nonterminal finishes; each finish requires one tagged next binding: kind=existing binds next.node_id, kind=create creates the declared node. Ordinary sibling tool calls later in the same provider response execute after this state barrier under the latest binding. finish_then_end commits the Agent-declared finish_node_ids in order, uses the last ID as the terminal node, and releases final_candidate unchanged. expand_nodes atomically returns the hidden event refs of folded nodes, records the Agent expansion event, and keeps every detail ref visible in later projections. Mutation results report state_commit plus the current and remaining open Map state. Runtime follows the declared order and does not choose or infer actions.".into(),
         strict: false,
         defer_loading: None,
         parameters: object_any_of(variants, "Active TaskSpace lifecycle operation."),

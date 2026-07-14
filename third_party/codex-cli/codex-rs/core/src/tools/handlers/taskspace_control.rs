@@ -20,6 +20,7 @@ use crate::tools::handlers::taskspace_control_output::StateCommit;
 use crate::tools::handlers::taskspace_control_output::control_state_observation;
 use crate::tools::handlers::taskspace_control_output::format_failed_state_step;
 use crate::tools::handlers::taskspace_control_output::format_initialize_step;
+use crate::tools::handlers::taskspace_control_output::format_node_detail_expansion_step;
 use crate::tools::handlers::taskspace_control_output::format_state_batch;
 use crate::tools::handlers::taskspace_control_output::hard_state_reason;
 use crate::tools::handlers::taskspace_control_output::protocol_error;
@@ -260,6 +261,78 @@ impl ToolHandler for TaskSpaceControlHandler {
                 let (message, success) =
                     execute_block_node(&session, &turn, &call_id, node_id).await?;
                 (message, success, None)
+            }
+            TaskSpaceControlArgs::ExpandNodes { node_ids } => {
+                let source_event_id = session
+                    .taskspace_event_id_for_call(&call_id)
+                    .await
+                    .map_err(state_machine_error)?;
+                let map_id_hint = session
+                    .action_map_control_state(None)
+                    .await
+                    .map(|state| state.map_id);
+                let requested_node_count = node_ids.len();
+                match session
+                    .expand_action_map_node_details(
+                        &turn,
+                        node_ids,
+                        call_id.clone(),
+                        source_event_id,
+                    )
+                    .await
+                {
+                    Ok(outcomes) => {
+                        let restored_detail_count = outcomes
+                            .iter()
+                            .map(|outcome| outcome.restored_details.len())
+                            .sum::<usize>();
+                        tracing::info!(
+                            target: "codex_core::taskspace",
+                            call_id,
+                            requested_node_count,
+                            committed_node_count = outcomes.len(),
+                            restored_detail_count,
+                            "taskspace.node_details_expanded"
+                        );
+                        let steps = outcomes
+                            .iter()
+                            .enumerate()
+                            .map(|(index, outcome)| {
+                                format_node_detail_expansion_step(index, outcome)
+                            })
+                            .collect();
+                        let map_state = session
+                            .action_map_control_state(map_id_hint.as_deref())
+                            .await;
+                        (
+                            format_state_batch(steps, true, StateCommit::Full, map_state.as_ref()),
+                            true,
+                            None,
+                        )
+                    }
+                    Err(error_message) => {
+                        let error = state_machine_error(error_message);
+                        tracing::warn!(
+                            target: "codex_core::taskspace",
+                            call_id,
+                            requested_node_count,
+                            "taskspace.node_details_expansion_rejected"
+                        );
+                        let map_state = session
+                            .action_map_control_state(map_id_hint.as_deref())
+                            .await;
+                        (
+                            format_state_batch(
+                                vec![format_failed_state_step(0, &error)],
+                                false,
+                                StateCommit::None,
+                                map_state.as_ref(),
+                            ),
+                            false,
+                            None,
+                        )
+                    }
+                }
             }
             TaskSpaceControlArgs::ReadOutputRef {
                 output_ref,

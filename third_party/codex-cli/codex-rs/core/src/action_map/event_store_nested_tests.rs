@@ -25,7 +25,7 @@ fn committed_control_output(call_id: &str) -> ResponseItem {
         call_id: call_id.into(),
         output: FunctionCallOutputPayload::from_text(
             serde_json::json!({
-                "schema_version": "TaskSpaceControlResultV2",
+                "schema_version": "TaskSpaceControlResultV3",
                 "status": "committed",
                 "success": true,
                 "steps": [{

@@ -1,8 +1,11 @@
 use serde_json::Value as JsonValue;
 
 use crate::action_map::ActionMapControlState;
+#[cfg(test)]
+use crate::action_map::ActionMapExpandedDetailRef;
 use crate::action_map::ActionMapFinishNodeOutcome;
 use crate::action_map::ActionMapInitializeOutcome;
+use crate::action_map::ActionMapNodeDetailExpansionOutcome;
 use crate::action_map::TaskSpaceHardGateClass;
 use crate::function_tool::FunctionCallError;
 use crate::tools::handlers::taskspace_control_args::TASKSPACE_CONTROL_RESULT_SCHEMA_VERSION;
@@ -31,6 +34,39 @@ pub(super) fn format_initialize_step(outcome: &ActionMapInitializeOutcome) -> Js
         "map_id": outcome.map_id,
         "created_node_ids": outcome.node_ids,
         "current_node_id": outcome.current_node_id,
+    })
+}
+
+pub(super) fn format_node_detail_expansion_step(
+    index: usize,
+    outcome: &ActionMapNodeDetailExpansionOutcome,
+) -> JsonValue {
+    let restored_details = outcome
+        .restored_details
+        .iter()
+        .map(|detail| {
+            serde_json::json!({
+                "event_id": detail.event_id,
+                "event_kind": detail.event_kind,
+                "source": detail.source,
+                "detail_tier": detail.detail_tier,
+                "evidence_class": detail.evidence_class,
+                "action_class": detail.action_class,
+                "tool_success": detail.tool_success,
+                "content_sha256": detail.content_sha256,
+                "raw_ref": detail.raw_ref,
+                "artifact_refs": detail.artifact_refs,
+            })
+        })
+        .collect::<Vec<_>>();
+    serde_json::json!({
+        "kind": "node_detail_expanded",
+        "index": index,
+        "node_id": outcome.node_id,
+        "expansion_event_id": outcome.expansion_event_id,
+        "detail_ref": outcome.detail_ref,
+        "restored_detail_count": restored_details.len(),
+        "restored_details": restored_details,
     })
 }
 
@@ -217,6 +253,15 @@ fn step_has_required_identity(step: &JsonValue) -> bool {
         Some("node_created") => has_text(step, "node_id"),
         Some("node_bound") => has_text(step, "current_node_id"),
         Some("node_blocked") => has_text(step, "node_id") && has_text(step, "result_id"),
+        Some("node_detail_expanded") => {
+            has_text(step, "node_id")
+                && has_text(step, "expansion_event_id")
+                && has_text(step, "detail_ref")
+                && step
+                    .get("restored_details")
+                    .and_then(JsonValue::as_array)
+                    .is_some_and(|details| !details.is_empty())
+        }
         Some("ordinary_tool") => has_text(step, "call_id") && has_text(step, "output_event_ref"),
         _ => false,
     }
@@ -227,4 +272,38 @@ fn has_text(value: &JsonValue, field: &str) -> bool {
         .get(field)
         .and_then(JsonValue::as_str)
         .is_some_and(|text| !text.is_empty())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn expansion_step_returns_hidden_event_refs_without_duplicate_hash_field() {
+        let outcome = ActionMapNodeDetailExpansionOutcome {
+            node_id: "node-1".into(),
+            expansion_event_id: "node-event-expand".into(),
+            detail_ref: "taskspace-detail://sha256/abc".into(),
+            restored_details: vec![ActionMapExpandedDetailRef {
+                event_id: "node-event-read".into(),
+                event_kind: "tool_result".into(),
+                source: "main_tool".into(),
+                detail_tier: "D3".into(),
+                evidence_class: "P1".into(),
+                action_class: Some("read".into()),
+                tool_success: Some(true),
+                content_sha256: Some("def".into()),
+                raw_ref: Some("output-ref-1".into()),
+                artifact_refs: vec!["src/lib.rs".into()],
+            }],
+        };
+
+        let step = format_node_detail_expansion_step(0, &outcome);
+
+        assert_eq!(step["restored_detail_count"], 1);
+        assert_eq!(step["restored_details"][0]["event_id"], "node-event-read");
+        assert_eq!(step["restored_details"][0]["raw_ref"], "output-ref-1");
+        assert!(step.get("detail_sha256").is_none());
+        assert!(step_has_required_identity(&step));
+    }
 }

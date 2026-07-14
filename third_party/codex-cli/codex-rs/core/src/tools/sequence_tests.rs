@@ -156,7 +156,7 @@ fn aggregate_references_canonical_nested_events_without_copying_output() {
         call_id: "outer".into(),
         output: FunctionCallOutputPayload::from_text(
             serde_json::json!({
-                "schema_version": "TaskSpaceControlResultV2",
+                "schema_version": "TaskSpaceControlResultV3",
                 "success": true,
                 "steps": [{
                     "kind": "map_initialized",

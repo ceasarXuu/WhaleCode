@@ -73,7 +73,11 @@ use super::projection::ActiveProjectionInput;
 use super::projection::ProjectionEdge;
 use super::projection::ProjectionEventRef;
 use super::projection::ProjectionNode;
+use super::projection::ProjectionNodeDetailIdentity;
+use super::projection::ProjectionNodeDetailState;
 use super::projection::ProjectionSizeBreakdown;
+use super::projection::node_detail_fold_saves_bytes;
+use super::projection::node_detail_identity;
 use super::projection::render_active_projection;
 use super::sentinel::TaskSpaceSentinelSeverity;
 use super::sentinel::TaskSpaceSentinelWarning;
@@ -250,10 +254,25 @@ pub(crate) struct ActionMapInitializeOutcome {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[allow(dead_code)]
 pub(crate) struct ActionMapNodeDetailExpansionOutcome {
     pub(crate) node_id: MapNodeId,
     pub(crate) expansion_event_id: NodeEventId,
+    pub(crate) detail_ref: String,
+    pub(crate) restored_details: Vec<ActionMapExpandedDetailRef>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ActionMapExpandedDetailRef {
+    pub(crate) event_id: String,
+    pub(crate) event_kind: String,
+    pub(crate) source: String,
+    pub(crate) detail_tier: String,
+    pub(crate) evidence_class: String,
+    pub(crate) action_class: Option<String>,
+    pub(crate) tool_success: Option<bool>,
+    pub(crate) content_sha256: Option<String>,
+    pub(crate) raw_ref: Option<String>,
+    pub(crate) artifact_refs: Vec<String>,
 }
 
 #[allow(dead_code)]
@@ -3234,7 +3253,6 @@ impl ActionMapRuntimeState {
         )
     }
 
-    #[allow(dead_code)]
     pub(crate) fn expand_node_details_for_main(
         &mut self,
         owner_session_id: ThreadId,
@@ -3259,7 +3277,6 @@ impl ActionMapRuntimeState {
         Ok(outcome)
     }
 
-    #[allow(dead_code)]
     fn expand_node_details_for_main_inner(
         &mut self,
         owner_session_id: ThreadId,
@@ -3300,6 +3317,10 @@ impl ActionMapRuntimeState {
         }
         let mut unique_node_ids = HashSet::with_capacity(node_ids.len());
         let detail_plan = node_detail_plan(map, self.current_main_node_id.as_deref());
+        let baseline_details =
+            baseline_projection_node_details(map, self.current_main_node_id.as_deref());
+        let all_details = projection_all_node_details(map, self.current_main_node_id.as_deref());
+        let mut detail_payloads = Vec::with_capacity(node_ids.len());
         for node_id in &node_ids {
             if node_id.trim().is_empty() {
                 return Err(
@@ -3312,25 +3333,32 @@ impl ActionMapRuntimeState {
                     "TaskSpace expand_nodes repeats node `{node_id}`. hard_state: duplicate_expand_node_id."
                 ));
             }
-            if !map.nodes.contains_key(node_id) {
+            let Some(node) = map.nodes.get(node_id) else {
                 return Err(format!(
                     "TaskSpace expand_nodes target `{node_id}` does not exist. hard_state: expand_node_missing."
                 ));
-            }
-            if !matches!(
-                detail_plan.state(node_id),
-                Some(NodeDetailState::Folded { .. })
-            ) {
+            };
+            let Some(NodeDetailState::FoldEligible { .. }) = detail_plan.state(node_id) else {
                 return Err(format!(
                     "TaskSpace expand_nodes target `{node_id}` is not folded. hard_state: node_detail_not_folded."
                 ));
-            }
+            };
+            let hidden_details = hidden_node_details(node_id, &all_details, &baseline_details);
+            let Some((_, detail_identity)) = folded_projection_node(&map_id, node, &hidden_details)
+            else {
+                return Err(format!(
+                    "TaskSpace expand_nodes target `{node_id}` is not folded. hard_state: node_detail_not_folded."
+                ));
+            };
+            detail_payloads.push((detail_identity, hidden_details));
         }
 
         let created_at_ms = now_ms();
         let mut outcomes = Vec::with_capacity(node_ids.len());
         let mut events = Vec::with_capacity(node_ids.len());
-        for node_id in node_ids {
+        for (node_id, (detail_identity, hidden_details)) in
+            node_ids.into_iter().zip(detail_payloads)
+        {
             let expansion_event_id = self.next_node_event_id();
             let content = format!(
                 "NodeDetailExpandedV1\nmap_id:{map_id}\nnode_id:{node_id}\ncall_id:{call_id}\nsource_event_id:{source_event_id}"
@@ -3367,6 +3395,8 @@ impl ActionMapRuntimeState {
             outcomes.push(ActionMapNodeDetailExpansionOutcome {
                 node_id: node_id.clone(),
                 expansion_event_id: expansion_event_id.clone(),
+                detail_ref: detail_identity.detail_ref,
+                restored_details: hidden_details.iter().map(expanded_detail_ref).collect(),
             });
             events.push(MapRuntimeEvent::NodeDetailExpanded(
                 MapRuntimeNodeDetailExpandedEvent {
@@ -4327,6 +4357,8 @@ impl ActionMapRuntimeState {
             .unwrap_or("unknown");
         let status = if projection.skeleton_over_budget {
             "map_skeleton_over_budget"
+        } else if projection.projection_over_budget {
+            "map_projection_over_budget"
         } else if estimated_tokens <= max_projection_tokens {
             "within_budget"
         } else {
@@ -4348,11 +4380,22 @@ impl ActionMapRuntimeState {
             map_edge_bytes = projection.size_breakdown.map_edge_bytes,
             node_detail_bytes = projection.size_breakdown.node_detail_bytes,
             footer_bytes = projection.size_breakdown.footer_bytes,
-            strategy_id = "S4.0",
-            strategy_activation_count = 0,
+            strategy_id = "S4.2",
+            strategy_activation_count = usize::from(
+                projection.folded_node_count > 0 || projection.expanded_node_count > 0
+            ),
             fold_eligible_node_count = projection.fold_eligible_node_count,
-            projection_bytes_before_strategy = projection.size_breakdown.projection_bytes,
+            folded_node_count = projection.folded_node_count,
+            expanded_node_count = projection.expanded_node_count,
+            recoverable_hidden_event_count = projection.recoverable_hidden_event_count,
+            folded_hidden_event_count = projection.folded_hidden_event_count,
+            b0_projection_bytes = projection.b0_projection_bytes,
+            projection_bytes_before_strategy = projection.projection_bytes_before_strategy,
             projection_bytes_after_strategy = projection.size_breakdown.projection_bytes,
+            node_detail_bytes_before_strategy = projection.node_detail_bytes_before_strategy,
+            node_detail_bytes_after_strategy = projection.size_breakdown.node_detail_bytes,
+            skeleton_bytes_before_strategy = projection.b0_skeleton_bytes,
+            skeleton_bytes_after_strategy = projection.size_breakdown.skeleton_bytes,
             max_projection_tokens,
             status,
             "measured TaskSpace map projection budget"
@@ -4413,19 +4456,51 @@ impl ActionMapRuntimeState {
                 ),
                 format!("max_projection_tokens:{max_projection_tokens}"),
                 format!("status:{status}"),
-                "strategy_id:S4.0".to_string(),
-                "strategy_activation_count:0".to_string(),
+                "strategy_id:S4.2".to_string(),
+                format!(
+                    "strategy_activation_count:{}",
+                    usize::from(
+                        projection.folded_node_count > 0 || projection.expanded_node_count > 0
+                    )
+                ),
                 format!(
                     "fold_eligible_node_count:{}",
                     projection.fold_eligible_node_count
                 ),
+                format!("folded_node_count:{}", projection.folded_node_count),
+                format!("expanded_node_count:{}", projection.expanded_node_count),
+                format!(
+                    "recoverable_hidden_event_count:{}",
+                    projection.recoverable_hidden_event_count
+                ),
+                format!(
+                    "folded_hidden_event_count:{}",
+                    projection.folded_hidden_event_count
+                ),
+                format!("b0_projection_bytes:{}", projection.b0_projection_bytes),
                 format!(
                     "projection_bytes_before_strategy:{}",
-                    projection.size_breakdown.projection_bytes
+                    projection.projection_bytes_before_strategy
                 ),
                 format!(
                     "projection_bytes_after_strategy:{}",
                     projection.size_breakdown.projection_bytes
+                ),
+                format!(
+                    "node_detail_bytes_before_strategy:{}",
+                    projection.node_detail_bytes_before_strategy
+                ),
+                format!(
+                    "node_detail_bytes_after_strategy:{}",
+                    projection.size_breakdown.node_detail_bytes
+                ),
+                format!(
+                    "skeleton_bytes_before_strategy:{}",
+                    projection.b0_skeleton_bytes
+                ),
+                format!(
+                    "skeleton_bytes_after_strategy:{}",
+                    projection.size_breakdown.skeleton_bytes
                 ),
             ],
         );
@@ -5513,6 +5588,59 @@ fn taskspace_task_path_is_mechanical_blank(task: &TaskState, map: &ActionMapInst
         && map.node_events.is_empty()
 }
 
+fn baseline_projection_node(node: &MapNode) -> ProjectionNode {
+    ProjectionNode {
+        id: node.id.clone(),
+        kind: node.kind.as_str().to_string(),
+        status: node.status.as_str().to_string(),
+        goal: node.context.summary.clone(),
+        result_ids: node
+            .result_context
+            .iter()
+            .map(|result| result.id.clone())
+            .collect(),
+        event_count: node
+            .node_events
+            .iter()
+            .filter(|event| event.kind != NODE_DETAIL_EXPANDED_EVENT_KIND)
+            .count(),
+        detail_state: None,
+    }
+}
+
+fn folded_projection_node(
+    map_id: &str,
+    node: &MapNode,
+    hidden_details: &[ProjectionEventRef],
+) -> Option<(ProjectionNode, ProjectionNodeDetailIdentity)> {
+    if hidden_details.is_empty() {
+        return None;
+    }
+    let baseline = baseline_projection_node(node);
+    let identity = node_detail_identity(map_id, &node.id, hidden_details);
+    let mut folded = baseline.clone();
+    folded.detail_state = Some(ProjectionNodeDetailState::Folded {
+        hidden_event_count: hidden_details.len(),
+        detail_ref: identity.detail_ref.clone(),
+    });
+    node_detail_fold_saves_bytes(&baseline, &folded, hidden_details).then_some((folded, identity))
+}
+
+fn expanded_detail_ref(event: &ProjectionEventRef) -> ActionMapExpandedDetailRef {
+    ActionMapExpandedDetailRef {
+        event_id: event.id.clone(),
+        event_kind: event.event_kind.clone(),
+        source: event.source.clone(),
+        detail_tier: event.detail_tier.clone(),
+        evidence_class: event.evidence_class.clone(),
+        action_class: event.action_class.clone(),
+        tool_success: event.tool_success,
+        content_sha256: event.content_sha256.clone(),
+        raw_ref: event.raw_ref.clone(),
+        artifact_refs: event.artifact_refs.clone(),
+    }
+}
+
 fn append_context_projection_active(
     context: &mut String,
     task: &TaskState,
@@ -5525,21 +5653,10 @@ fn append_context_projection_active(
         .map(str::to_string);
     let detail_plan = node_detail_plan(map, current_node_id.as_deref());
     let ordered_node_ids = ordered_node_ids(map);
-    let node_skeleton = ordered_node_ids
+    let baseline_node_skeleton = ordered_node_ids
         .iter()
         .filter_map(|node_id| map.nodes.get(node_id))
-        .map(|node| ProjectionNode {
-            id: node.id.clone(),
-            kind: node.kind.as_str().to_string(),
-            status: node.status.as_str().to_string(),
-            goal: node.context.summary.clone(),
-            result_ids: node
-                .result_context
-                .iter()
-                .map(|result| result.id.clone())
-                .collect(),
-            event_count: node.node_events.len(),
-        })
+        .map(baseline_projection_node)
         .collect::<Vec<_>>();
     let map_edges = map
         .edges
@@ -5558,8 +5675,81 @@ fn append_context_projection_active(
                 .is_some_and(|node| node.status != NodeStatus::Completed)
         })
         .collect::<Vec<_>>();
-    let node_details = projection_node_details(map, current_node_id.as_deref());
-    let full_input = ActiveProjectionInput {
+    let baseline_node_details = baseline_projection_node_details(map, current_node_id.as_deref());
+    let all_node_details = projection_all_node_details(map, current_node_id.as_deref());
+    let mut node_skeleton = baseline_node_skeleton.clone();
+    let mut visible_detail_ids = baseline_node_details
+        .iter()
+        .map(|event| event.id.clone())
+        .collect::<HashSet<_>>();
+    let mut full_recoverable_detail_ids = visible_detail_ids.clone();
+    let mut folded_node_ids = HashSet::new();
+    let mut recoverable_hidden_event_count = 0;
+    let mut folded_hidden_event_count = 0;
+    let mut expanded_node_count = 0;
+    for node in &mut node_skeleton {
+        match detail_plan.state(&node.id) {
+            Some(NodeDetailState::FoldEligible { .. }) => {
+                let hidden_details =
+                    hidden_node_details(&node.id, &all_node_details, &baseline_node_details);
+                recoverable_hidden_event_count += hidden_details.len();
+                full_recoverable_detail_ids
+                    .extend(hidden_details.iter().map(|event| event.id.clone()));
+                let Some(map_node) = map.nodes.get(&node.id) else {
+                    continue;
+                };
+                let Some((folded, _)) = folded_projection_node(&map.id, map_node, &hidden_details)
+                else {
+                    visible_detail_ids.extend(hidden_details.iter().map(|event| event.id.clone()));
+                    continue;
+                };
+                *node = folded;
+                folded_hidden_event_count += hidden_details.len();
+                folded_node_ids.insert(node.id.clone());
+            }
+            Some(NodeDetailState::Expanded { expansion_event_id }) => {
+                let hidden_details =
+                    hidden_node_details(&node.id, &all_node_details, &baseline_node_details);
+                recoverable_hidden_event_count += hidden_details.len();
+                visible_detail_ids.extend(hidden_details.iter().map(|event| event.id.clone()));
+                full_recoverable_detail_ids
+                    .extend(hidden_details.iter().map(|event| event.id.clone()));
+                node.detail_state = Some(ProjectionNodeDetailState::Expanded {
+                    expansion_event_id: expansion_event_id.clone(),
+                });
+                expanded_node_count += 1;
+            }
+            Some(NodeDetailState::Full) | None => {}
+        }
+    }
+    let node_details = all_node_details
+        .iter()
+        .filter(|event| visible_detail_ids.contains(&event.id))
+        .cloned()
+        .collect::<Vec<_>>();
+    let full_recoverable_node_details = all_node_details
+        .iter()
+        .filter(|event| full_recoverable_detail_ids.contains(&event.id))
+        .cloned()
+        .collect::<Vec<_>>();
+    let baseline_input = ActiveProjectionInput {
+        task_id: task.id.clone(),
+        task_status: task.status.as_str().to_string(),
+        map_id: map.id.clone(),
+        map_status: map.status.as_str().to_string(),
+        root_source_event_ids: task.source_event_ids.clone(),
+        current_node_id: current_node_id.clone(),
+        active_frontier: active_frontier.clone(),
+        map_nodes: baseline_node_skeleton,
+        map_edges: map_edges.clone(),
+        node_details: baseline_node_details,
+    };
+    let b0_projection = render_active_projection(baseline_input.clone());
+    let before_strategy = render_active_projection(ActiveProjectionInput {
+        node_details: full_recoverable_node_details,
+        ..baseline_input
+    });
+    let rendered = render_active_projection(ActiveProjectionInput {
         task_id: task.id.clone(),
         task_status: task.status.as_str().to_string(),
         map_id: map.id.clone(),
@@ -5570,12 +5760,13 @@ fn append_context_projection_active(
         map_nodes: node_skeleton,
         map_edges,
         node_details,
-    };
-    let rendered = render_active_projection(full_input);
+    });
     let max_projection_tokens = active_budget
         .map(|budget| budget.max_projection_tokens)
         .unwrap_or(usize::MAX);
     let skeleton_over_budget = rendered.skeleton_estimated_tokens > max_projection_tokens;
+    let projection_over_budget =
+        !skeleton_over_budget && rendered.estimated_tokens > max_projection_tokens;
     if skeleton_over_budget {
         context.push_str("TaskSpaceMapProjectionErrorV1:\n");
         context.push_str("- error: map_skeleton_over_budget\n");
@@ -5590,6 +5781,20 @@ fn append_context_projection_active(
         context.push_str(&format!(
             "- max_projection_tokens: {max_projection_tokens}\n"
         ));
+    } else if projection_over_budget {
+        context.push_str("TaskSpaceMapProjectionErrorV1:\n");
+        context.push_str("- error: map_projection_over_budget\n");
+        context.push_str(&format!("- task_id: {}\n", task.id));
+        context.push_str(&format!("- map_id: {}\n", map.id));
+        context.push_str(&format!(
+            "- projection_tokens: {}\n",
+            rendered.estimated_tokens
+        ));
+        context.push_str(&format!(
+            "- max_projection_tokens: {max_projection_tokens}\n"
+        ));
+        context.push_str(&format!("- folded_node_count: {}\n", folded_node_ids.len()));
+        context.push_str("- automatic_refold_of_expanded_nodes: false\n");
     } else {
         context.push_str(&rendered.body);
     }
@@ -5602,8 +5807,17 @@ fn append_context_projection_active(
             },
             skeleton_estimated_tokens: rendered.skeleton_estimated_tokens,
             skeleton_over_budget,
+            projection_over_budget,
             size_breakdown: rendered.size_breakdown,
-            fold_eligible_node_count: detail_plan.folded_node_count(),
+            fold_eligible_node_count: detail_plan.eligible_node_count(),
+            folded_node_count: folded_node_ids.len(),
+            expanded_node_count,
+            recoverable_hidden_event_count,
+            folded_hidden_event_count,
+            b0_projection_bytes: b0_projection.size_breakdown.projection_bytes,
+            b0_skeleton_bytes: b0_projection.size_breakdown.skeleton_bytes,
+            projection_bytes_before_strategy: before_strategy.size_breakdown.projection_bytes,
+            node_detail_bytes_before_strategy: before_strategy.size_breakdown.node_detail_bytes,
         },
     })
 }
@@ -5617,11 +5831,20 @@ struct ProjectionRenderStats {
     estimated_tokens: usize,
     skeleton_estimated_tokens: usize,
     skeleton_over_budget: bool,
+    projection_over_budget: bool,
     size_breakdown: ProjectionSizeBreakdown,
     fold_eligible_node_count: usize,
+    folded_node_count: usize,
+    expanded_node_count: usize,
+    recoverable_hidden_event_count: usize,
+    folded_hidden_event_count: usize,
+    b0_projection_bytes: usize,
+    b0_skeleton_bytes: usize,
+    projection_bytes_before_strategy: usize,
+    node_detail_bytes_before_strategy: usize,
 }
 
-fn projection_node_details(
+fn baseline_projection_node_details(
     map: &ActionMapInstance,
     current_node_id: Option<&str>,
 ) -> Vec<ProjectionEventRef> {
@@ -5672,6 +5895,49 @@ fn projection_node_details(
                 .unwrap_or("D3");
             projection_event_ref(event, tier, projection_evidence_class(event))
         })
+        .collect()
+}
+
+fn projection_all_node_details(
+    map: &ActionMapInstance,
+    current_node_id: Option<&str>,
+) -> Vec<ProjectionEventRef> {
+    let distances = projection_graph_distances(map, current_node_id);
+    ordered_node_event_ids(map)
+        .into_iter()
+        .filter_map(|event_id| map.node_events.get(&event_id))
+        .filter(|event| event.event_kind != NODE_DETAIL_EXPANDED_EVENT_KIND)
+        .map(|event| {
+            let tier = map
+                .nodes
+                .get(&event.node_id)
+                .map(|node| {
+                    projection_detail_tier(
+                        node,
+                        current_node_id,
+                        distances.get(&event.node_id).copied(),
+                    )
+                })
+                .unwrap_or("D3");
+            projection_event_ref(event, tier, projection_evidence_class(event))
+        })
+        .collect()
+}
+
+fn hidden_node_details(
+    node_id: &str,
+    all_details: &[ProjectionEventRef],
+    baseline_details: &[ProjectionEventRef],
+) -> Vec<ProjectionEventRef> {
+    let visible_ids = baseline_details
+        .iter()
+        .filter(|event| event.node_id == node_id)
+        .map(|event| event.id.as_str())
+        .collect::<HashSet<_>>();
+    all_details
+        .iter()
+        .filter(|event| event.node_id == node_id && !visible_ids.contains(event.id.as_str()))
+        .cloned()
         .collect()
 }
 
@@ -6284,8 +6550,17 @@ fn is_known_trace_tag(tag: &str) -> bool {
         || tag.starts_with("strategy_id:")
         || tag.starts_with("strategy_activation_count:")
         || tag.starts_with("fold_eligible_node_count:")
+        || tag.starts_with("folded_node_count:")
+        || tag.starts_with("expanded_node_count:")
+        || tag.starts_with("recoverable_hidden_event_count:")
+        || tag.starts_with("folded_hidden_event_count:")
+        || tag.starts_with("b0_projection_bytes:")
         || tag.starts_with("projection_bytes_before_strategy:")
         || tag.starts_with("projection_bytes_after_strategy:")
+        || tag.starts_with("node_detail_bytes_before_strategy:")
+        || tag.starts_with("node_detail_bytes_after_strategy:")
+        || tag.starts_with("skeleton_bytes_before_strategy:")
+        || tag.starts_with("skeleton_bytes_after_strategy:")
 }
 
 fn snapshot_map(map: &ActionMapInstance) -> ActionMapSnapshotMap {

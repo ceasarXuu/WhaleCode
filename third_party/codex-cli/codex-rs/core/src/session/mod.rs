@@ -1302,6 +1302,27 @@ impl Session {
         state.action_map_runtime.control_state(map_id_hint)
     }
 
+    pub(crate) async fn expand_action_map_node_details(
+        &self,
+        turn_context: &TurnContext,
+        node_ids: Vec<String>,
+        call_id: String,
+        source_event_id: String,
+    ) -> Result<Vec<crate::action_map::ActionMapNodeDetailExpansionOutcome>, String> {
+        let (outcomes, events) = {
+            let mut state = self.state.lock().await;
+            state.action_map_runtime.expand_node_details_for_main(
+                self.conversation_id,
+                node_ids,
+                call_id,
+                source_event_id,
+            )
+        }?;
+        self.emit_action_map_events_for_turn(turn_context, events)
+            .await;
+        Ok(outcomes)
+    }
+
     #[allow(dead_code)]
     pub(crate) async fn create_action_map_node_for_main(
         &self,

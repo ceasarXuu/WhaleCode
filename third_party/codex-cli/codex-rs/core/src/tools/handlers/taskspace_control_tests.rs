@@ -82,7 +82,7 @@ fn successful_state_batch_preserves_committed_transition_identities() {
     let value: JsonValue = serde_json::from_str(&output).expect("success batch json");
 
     assert_eq!(value["status"], "committed");
-    assert_eq!(value["schema_version"], "TaskSpaceControlResultV2");
+    assert_eq!(value["schema_version"], "TaskSpaceControlResultV3");
     assert!(value.get("action").is_none());
     assert_eq!(value["success"], true);
     assert_eq!(value["state_commit"], "full");
@@ -144,7 +144,7 @@ fn failed_state_batch_preserves_protocol_and_raw_error() {
     );
     let value: JsonValue = serde_json::from_str(&output).expect("failure batch json");
 
-    assert_eq!(value["schema_version"], "TaskSpaceControlResultV2");
+    assert_eq!(value["schema_version"], "TaskSpaceControlResultV3");
     assert_eq!(value["status"], "state_machine_failed");
     assert_eq!(value["success"], false);
     assert_eq!(value["state_commit"], "none");
@@ -249,7 +249,7 @@ fn gate_error_has_one_typed_representation() {
         state_machine_error("blocked. hard_state: node_tool_calls_in_flight. rejected".to_string());
     let value: JsonValue = serde_json::from_str(&error.to_string()).expect("typed error json");
 
-    assert_eq!(value["schema_version"], "TaskSpaceControlResultV2");
+    assert_eq!(value["schema_version"], "TaskSpaceControlResultV3");
     assert_eq!(value["status"], "state_machine_failed");
     assert_eq!(value["error"]["code"], "node_tool_calls_in_flight");
     assert_eq!(

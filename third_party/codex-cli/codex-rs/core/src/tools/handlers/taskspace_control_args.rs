@@ -5,7 +5,7 @@ use codex_protocol::models::ResponseItem;
 use serde::Deserialize;
 use serde_json::Value as JsonValue;
 
-pub(crate) const TASKSPACE_CONTROL_RESULT_SCHEMA_VERSION: &str = "TaskSpaceControlResultV2";
+pub(crate) const TASKSPACE_CONTROL_RESULT_SCHEMA_VERSION: &str = "TaskSpaceControlResultV3";
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(tag = "action", rename_all = "snake_case", deny_unknown_fields)]
@@ -35,6 +35,9 @@ pub(crate) enum TaskSpaceControlArgs {
     },
     BlockNode {
         node_id: String,
+    },
+    ExpandNodes {
+        node_ids: Vec<String>,
     },
     ReadOutputRef {
         output_ref: String,
@@ -166,6 +169,7 @@ impl TaskSpaceControlArgs {
             | Self::CreateNode { .. }
             | Self::BindNode { .. }
             | Self::BlockNode { .. }
+            | Self::ExpandNodes { .. }
             | Self::ReadOutputRef { .. } => Vec::new(),
         }
     }
@@ -212,6 +216,19 @@ impl TaskSpaceControlArgs {
             Self::CreateNode { goal, .. } => {
                 if goal.trim().is_empty() {
                     return invalid("create_node requires a non-empty goal");
+                }
+                Ok(())
+            }
+            Self::ExpandNodes { node_ids } => {
+                require_non_empty(node_ids, "node_ids")?;
+                let mut unique_node_ids = HashSet::with_capacity(node_ids.len());
+                for node_id in node_ids {
+                    if node_id.trim().is_empty() {
+                        return invalid("expand_nodes requires non-empty node_ids");
+                    }
+                    if !unique_node_ids.insert(node_id) {
+                        return invalid("expand_nodes requires unique node_ids");
+                    }
                 }
                 Ok(())
             }
@@ -403,6 +420,27 @@ mod tests {
     }
 
     #[test]
+    fn expand_nodes_requires_non_empty_unique_node_ids() {
+        parse_taskspace_control_args(r#"{"action":"expand_nodes","node_ids":["node-1","node-2"]}"#)
+            .expect("valid expansion batch");
+        assert!(
+            parse_taskspace_control_args(r#"{"action":"expand_nodes","node_ids":[]}"#).is_err()
+        );
+        assert!(
+            parse_taskspace_control_args(
+                r#"{"action":"expand_nodes","node_ids":["node-1","node-1"]}"#
+            )
+            .is_err()
+        );
+        assert!(
+            parse_taskspace_control_args(
+                r#"{"action":"create_node","kind":"inspect_code_context","goal":"Inspect","detail_state":"expanded"}"#
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
     fn accepts_tagged_created_binding_and_rejects_removed_flat_shape() {
         let created = r#"{"action":"finish_nodes","finishes":[{"node_id":"node-1","next":{"kind":"create","node_kind":"smoke_test","goal":"Run tests","dependency_node_ids":["node-1"]}}]}"#;
         parse_taskspace_control_args(created).expect("tagged created binding");
@@ -441,7 +479,7 @@ mod tests {
         assert_eq!(
             value,
             serde_json::json!({
-                "schema_version": "TaskSpaceControlResultV2",
+                "schema_version": "TaskSpaceControlResultV3",
                 "status": "protocol_failed",
                 "success": false,
                 "error": {

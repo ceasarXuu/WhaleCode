@@ -12,7 +12,7 @@ pub(super) const NODE_DETAIL_EXPANDED_EVENT_KIND: &str = "node_detail_expanded";
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum NodeDetailState {
     Full,
-    Folded { frontier_distance: usize },
+    FoldEligible { frontier_distance: usize },
     Expanded { expansion_event_id: String },
 }
 
@@ -22,15 +22,14 @@ pub(super) struct NodeDetailPlan {
 }
 
 impl NodeDetailPlan {
-    #[allow(dead_code)]
     pub(super) fn state(&self, node_id: &str) -> Option<&NodeDetailState> {
         self.states.get(node_id)
     }
 
-    pub(super) fn folded_node_count(&self) -> usize {
+    pub(super) fn eligible_node_count(&self) -> usize {
         self.states
             .values()
-            .filter(|state| matches!(state, NodeDetailState::Folded { .. }))
+            .filter(|state| matches!(state, NodeDetailState::FoldEligible { .. }))
             .count()
     }
 }
@@ -60,7 +59,7 @@ pub(super) fn node_detail_plan(
                     .get(node_id)
                     .is_some_and(|distance| *distance >= MINIMUM_FRONTIER_DISTANCE)
             {
-                NodeDetailState::Folded {
+                NodeDetailState::FoldEligible {
                     frontier_distance: distances[node_id],
                 }
             } else {
@@ -181,7 +180,7 @@ mod tests {
         assert_eq!(plan.state("node-0"), Some(&NodeDetailState::Full));
         assert_eq!(
             plan.state("node-1"),
-            Some(&NodeDetailState::Folded {
+            Some(&NodeDetailState::FoldEligible {
                 frontier_distance: 3
             })
         );
@@ -213,7 +212,7 @@ mod tests {
 
         let plan = node_detail_plan(&map, Some("node-1"));
 
-        assert_eq!(plan.folded_node_count(), 0);
+        assert_eq!(plan.eligible_node_count(), 0);
     }
 
     #[test]
