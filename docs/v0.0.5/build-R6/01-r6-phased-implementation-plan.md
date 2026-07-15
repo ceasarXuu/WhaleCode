@@ -259,9 +259,13 @@ Agent 未建立理想图时只记录能力现象，不由 Runtime 自动补图�
 
 **目标**：确保唯一 Finish 是 Agent 手动闭合的终点，并可在中断、恢复和分叉后保持一致。
 
+**终结边界增补**：Finish 只保留终点身份，不接受 `goal` 或任何工作描述。读取、修改、验证均属于
+Agent 自主规划的 Work；Runtime 不按关键词识别验证语义，也不强制 Work 拆分粒度。详细合同见
+`08-r6-phase-e-finish-boundary-design.md`。
+
 实施项：
 
-1. `finish_end` schema 不接受任意 finish 列表，只作用于 map 固有 Finish。
+1. `initialize_map.finish` schema 只接受 `node_id`；`finish_end` 只作用于 map 固有 Finish。
 2. final summary 必须由 Agent 提供并原样形成 terminal event；Runtime 不总结、不润色。
 3. terminal 预检覆盖 Finish ready、无未完成必要节点、图不变量和 revision。
 4. Finish close、Root close、terminal event、snapshot revision 在单一事务提交。
