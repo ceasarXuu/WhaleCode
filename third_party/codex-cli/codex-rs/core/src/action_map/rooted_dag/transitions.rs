@@ -5,6 +5,8 @@ use super::model::NodeStatus;
 use super::model::TaskSpaceMap;
 use serde::Deserialize;
 use serde::Serialize;
+use std::collections::BTreeSet;
+use std::collections::VecDeque;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -13,6 +15,7 @@ pub(crate) enum NodeTransition {
     Complete,
     Block,
     Unblock,
+    Rework,
     ReleaseLease,
 }
 
@@ -35,6 +38,7 @@ pub(crate) fn transition_target(
         }
         (NodeRole::Work, NodeStatus::Running, NodeTransition::Block) => Ok(NodeStatus::Blocked),
         (NodeRole::Work, NodeStatus::Blocked, NodeTransition::Unblock) => Ok(NodeStatus::Ready),
+        (NodeRole::Work, NodeStatus::Completed, NodeTransition::Rework) => Ok(NodeStatus::Ready),
         (NodeRole::Work, NodeStatus::Running, NodeTransition::ReleaseLease) => {
             Ok(NodeStatus::Ready)
         }
@@ -53,6 +57,11 @@ pub(crate) fn readiness_changes(map: &TaskSpaceMap) -> Vec<ReadinessChange> {
                 (NodeRole::Finish, NodeStatus::Pending) if predecessors_satisfied(map, id) => {
                     NodeStatus::Ready
                 }
+                (NodeRole::Work | NodeRole::Finish, NodeStatus::Ready)
+                    if !predecessors_satisfied(map, id) =>
+                {
+                    NodeStatus::Pending
+                }
                 _ => return None,
             };
             Some(ReadinessChange {
@@ -62,6 +71,35 @@ pub(crate) fn readiness_changes(map: &TaskSpaceMap) -> Vec<ReadinessChange> {
             })
         })
         .collect()
+}
+
+pub(crate) fn rework_conflicts(map: &TaskSpaceMap, node_id: &NodeId) -> Vec<NodeId> {
+    let mut queue = VecDeque::from([node_id.clone()]);
+    let mut visited = BTreeSet::from([node_id.clone()]);
+    let mut conflicts = BTreeSet::new();
+    while let Some(current) = queue.pop_front() {
+        for successor in map
+            .edges
+            .iter()
+            .filter(|edge| edge.from == current)
+            .map(|edge| &edge.to)
+        {
+            if !visited.insert(successor.clone()) {
+                continue;
+            }
+            if map.node(successor).is_some_and(|node| {
+                node.role == NodeRole::Work
+                    && matches!(
+                        node.status,
+                        NodeStatus::Running | NodeStatus::Blocked | NodeStatus::Completed
+                    )
+            }) {
+                conflicts.insert(successor.clone());
+            }
+            queue.push_back(successor.clone());
+        }
+    }
+    conflicts.into_iter().collect()
 }
 
 pub(crate) fn predecessors_satisfied(map: &TaskSpaceMap, node_id: &NodeId) -> bool {

@@ -467,6 +467,7 @@ fn map_transition(transition: TaskSpaceNodeTransition) -> NodeTransition {
         TaskSpaceNodeTransition::Complete => NodeTransition::Complete,
         TaskSpaceNodeTransition::Block => NodeTransition::Block,
         TaskSpaceNodeTransition::Unblock => NodeTransition::Unblock,
+        TaskSpaceNodeTransition::Rework => NodeTransition::Rework,
     }
 }
 

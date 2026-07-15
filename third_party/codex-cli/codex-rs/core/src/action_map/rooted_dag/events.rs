@@ -8,9 +8,11 @@ use super::model::NodeId;
 use super::model::NodeStatus;
 use super::model::Revision;
 use super::model::TaskSpaceMap;
+use super::transitions::rework_conflicts;
 use serde::Deserialize;
 use serde::Serialize;
 use std::collections::BTreeMap;
+use std::collections::BTreeSet;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -33,6 +35,9 @@ pub(crate) enum MapEvent {
         node_id: NodeId,
     },
     NodeUnblocked {
+        node_id: NodeId,
+    },
+    NodeReworked {
         node_id: NodeId,
     },
     NodeLeaseReleased {
@@ -230,6 +235,16 @@ fn apply_existing_event(
         MapEvent::NodeUnblocked { node_id } => {
             set_status(map, node_id, NodeStatus::Blocked, NodeStatus::Ready)?;
         }
+        MapEvent::NodeReworked { node_id } => {
+            let conflicts = rework_conflicts(map, node_id);
+            if !conflicts.is_empty() {
+                return Err(ReplayError::EventInvalid {
+                    code: ViolationCode::ExecutionCausalityConflict,
+                    subjects: conflicts,
+                });
+            }
+            set_status(map, node_id, NodeStatus::Completed, NodeStatus::Ready)?;
+        }
         MapEvent::NodeLeaseReleased { node_id } => {
             require_binding(map, node_id)?;
             set_status(map, node_id, NodeStatus::Running, NodeStatus::Ready)?;
@@ -266,6 +281,26 @@ fn apply_graph_mutation(
     add_edges: &[MapEdge],
     remove_edges: &[MapEdge],
 ) -> Result<(), ReplayError> {
+    let causality_conflicts = add_edges
+        .iter()
+        .chain(remove_edges)
+        .filter_map(|edge| {
+            map.node(&edge.to)
+                .is_some_and(|node| {
+                    matches!(
+                        node.status,
+                        NodeStatus::Running | NodeStatus::Blocked | NodeStatus::Completed
+                    )
+                })
+                .then(|| format!("{}->{}", edge.from, edge.to))
+        })
+        .collect::<BTreeSet<_>>();
+    if !causality_conflicts.is_empty() {
+        return Err(ReplayError::EventInvalid {
+            code: ViolationCode::ExecutionCausalityConflict,
+            subjects: causality_conflicts.into_iter().collect(),
+        });
+    }
     for edge in remove_edges {
         let Some(index) = map.edges.iter().position(|current| current == edge) else {
             return invalid_text(

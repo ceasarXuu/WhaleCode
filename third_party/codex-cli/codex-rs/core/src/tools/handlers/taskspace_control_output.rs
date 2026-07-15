@@ -63,6 +63,7 @@ pub(super) fn format_state_batch(
         "status": if success { "committed" } else { "state_machine_failed" },
         "success": success,
         "state_commit": state_commit,
+        "partial_commit": 0,
         "map_state": map_state.map(format_map_state),
         "steps": steps,
     })
@@ -101,6 +102,7 @@ pub(super) fn rejected_control_result(
             map_state,
         );
     }
+    exact_error["partial_commit"] = JsonValue::from(0);
     exact_error["map_state"] = map_state.map(format_map_state).unwrap_or(JsonValue::Null);
     exact_error.to_string()
 }

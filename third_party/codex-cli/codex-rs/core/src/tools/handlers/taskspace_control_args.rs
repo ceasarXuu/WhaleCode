@@ -71,6 +71,7 @@ pub(crate) enum TaskSpaceNodeTransition {
     Complete,
     Block,
     Unblock,
+    Rework,
 }
 
 #[derive(Clone, Debug, Deserialize)]

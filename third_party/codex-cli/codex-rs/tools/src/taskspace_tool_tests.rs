@@ -137,7 +137,7 @@ fn active_schema_contains_no_ordinary_tool_expression() {
     );
     assert_eq!(
         transition["properties"]["transition"]["enum"],
-        json!(["bind", "complete", "block", "unblock"])
+        json!(["bind", "complete", "block", "unblock", "rework"])
     );
     let mutation = value["parameters"]["anyOf"]
         .as_array()

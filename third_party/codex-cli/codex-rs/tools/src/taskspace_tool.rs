@@ -314,6 +314,7 @@ fn transition_node_schema() -> JsonSchema {
                         json!("complete"),
                         json!("block"),
                         json!("unblock"),
+                        json!("rework"),
                     ],
                     Some("Mechanical node transition.".into()),
                 ),
@@ -419,7 +420,7 @@ pub fn create_taskspace_active_control_tool() -> ToolSpec {
     variants.extend(simple_action_schemas());
     ToolSpec::Function(ResponsesApiTool {
         name: "taskspace_control".into(),
-        description: "Mandatory mechanical TaskSpace map tool. mutate_graph applies required graph transaction arrays under expected_revision. transition_node applies bind, complete, block, or unblock under expected_revision. finish_end releases final_summary unchanged under expected_revision. expand_nodes and read_output_ref are mechanical observation operations. Runtime follows the declared order and does not choose or infer actions.".into(),
+        description: "Mandatory mechanical TaskSpace map tool. mutate_graph applies required graph transaction arrays under expected_revision. transition_node applies bind, complete, block, unblock, or rework under expected_revision. finish_end releases final_summary unchanged under expected_revision. expand_nodes and read_output_ref are mechanical observation operations. Runtime follows the declared order and does not choose or infer actions.".into(),
         strict: false,
         defer_loading: None,
         parameters: object_any_of(variants, "Active TaskSpace lifecycle operation."),

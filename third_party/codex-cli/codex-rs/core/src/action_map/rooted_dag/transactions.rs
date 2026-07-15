@@ -171,6 +171,7 @@ pub(crate) fn transition_node(
         NodeTransition::Complete => MapEvent::NodeCompleted { node_id },
         NodeTransition::Block => MapEvent::NodeBlocked { node_id },
         NodeTransition::Unblock => MapEvent::NodeUnblocked { node_id },
+        NodeTransition::Rework => MapEvent::NodeReworked { node_id },
         NodeTransition::ReleaseLease => MapEvent::NodeLeaseReleased { node_id },
     };
     let revision = next_revision(current)?;
@@ -178,7 +179,10 @@ pub(crate) fn transition_node(
     let candidate = apply_batch(Some(current), &provisional)
         .map_err(|error| rejection_from_replay(current.revision, error))?;
     let mut events = vec![event];
-    if transition == NodeTransition::Complete {
+    if matches!(
+        transition,
+        NodeTransition::Complete | NodeTransition::Rework
+    ) {
         events.extend(readiness_events(&candidate));
     }
     commit(

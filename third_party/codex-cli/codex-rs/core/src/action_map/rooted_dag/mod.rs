@@ -26,6 +26,8 @@ pub(crate) use transitions::NodeTransition;
 #[cfg(test)]
 mod fixture_tests;
 #[cfg(test)]
+mod phase_d_tests;
+#[cfg(test)]
 mod property_tests;
 #[cfg(test)]
 mod replay_tests;

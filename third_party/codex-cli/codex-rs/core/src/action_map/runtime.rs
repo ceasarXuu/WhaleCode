@@ -173,6 +173,7 @@ fn rooted_rejection_message(rejection: Rejection) -> String {
         "status": "state_machine_failed",
         "success": false,
         "state_commit": rejection.state_commit,
+        "partial_commit": 0,
         "current_revision": rejection.current_revision,
         "violations": rejection
             .violations
@@ -3262,7 +3263,7 @@ impl ActionMapRuntimeState {
                     .clone()
                     .ok_or_else(|| "TaskSpace current binding has no main lease.".to_string())?,
             ),
-            NodeTransition::Unblock => None,
+            NodeTransition::Unblock | NodeTransition::Rework => None,
             NodeTransition::ReleaseLease => self.current_main_lease_id.clone(),
         };
         let result_id = matches!(transition, NodeTransition::Complete | NodeTransition::Block)
@@ -3346,7 +3347,7 @@ impl ActionMapRuntimeState {
                     },
                 ));
             }
-            NodeTransition::Unblock => {}
+            NodeTransition::Unblock | NodeTransition::Rework => {}
             NodeTransition::ReleaseLease => {
                 if let Some(lease_id) = lease_id {
                     map.leases.remove(&lease_id);
@@ -6196,6 +6197,9 @@ Active runtime mode: standard Codex multi-agent behavior."
     }
 }
 
+#[cfg(test)]
+#[path = "runtime_phase_d_tests.rs"]
+mod phase_d_tests;
 #[cfg(test)]
 #[path = "runtime_tests.rs"]
 mod tests;

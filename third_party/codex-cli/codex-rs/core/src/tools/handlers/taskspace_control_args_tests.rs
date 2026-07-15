@@ -65,7 +65,11 @@ fn accepts_r6_active_actions() {
     )
     .expect("valid transition");
     parse_taskspace_control_args(
-        r#"{"action":"finish_end","expected_revision":3,"final_summary":"Done"}"#,
+        r#"{"action":"transition_node","expected_revision":3,"node_id":"new","transition":"rework"}"#,
+    )
+    .expect("valid rework transition");
+    parse_taskspace_control_args(
+        r#"{"action":"finish_end","expected_revision":4,"final_summary":"Done"}"#,
     )
     .expect("valid finish");
 }
