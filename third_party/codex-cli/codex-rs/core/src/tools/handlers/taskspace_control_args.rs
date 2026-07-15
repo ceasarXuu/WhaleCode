@@ -12,10 +12,10 @@ pub(crate) const TASKSPACE_CONTROL_RESULT_SCHEMA_VERSION: &str = "TaskSpaceContr
 pub(crate) enum TaskSpaceControlArgs {
     InitializeMap {
         root: TaskSpaceGraphNodeArgs,
+        current_work_node: TaskSpaceGraphNodeArgs,
         finish: TaskSpaceGraphNodeArgs,
         work_nodes: Vec<TaskSpaceGraphNodeArgs>,
         edges: Vec<TaskSpaceGraphEdgeArgs>,
-        current_node_id: String,
         continuation: TaskSpaceContinuation,
     },
     MutateGraph {
@@ -164,13 +164,13 @@ impl TaskSpaceControlArgs {
         match self {
             Self::InitializeMap {
                 root,
+                current_work_node,
                 finish,
                 work_nodes,
                 edges,
-                current_node_id,
                 continuation,
             } => {
-                validate_initialize_map(root, finish, work_nodes, edges, current_node_id)?;
+                validate_initialize_map(root, current_work_node, finish, work_nodes, edges)?;
                 continuation.validate()?;
                 Ok(())
             }
@@ -260,16 +260,14 @@ pub(crate) fn parse_taskspace_control_args(
 
 fn validate_initialize_map(
     root: &TaskSpaceGraphNodeArgs,
+    current_work_node: &TaskSpaceGraphNodeArgs,
     finish: &TaskSpaceGraphNodeArgs,
     work_nodes: &[TaskSpaceGraphNodeArgs],
     edges: &[TaskSpaceGraphEdgeArgs],
-    current_node_id: &str,
 ) -> Result<(), FunctionCallError> {
-    if current_node_id.trim().is_empty() {
-        return invalid("initialize_map requires a non-empty current_node_id");
-    }
-    let mut all_nodes = Vec::with_capacity(work_nodes.len() + 2);
+    let mut all_nodes = Vec::with_capacity(work_nodes.len() + 3);
     all_nodes.push(root);
+    all_nodes.push(current_work_node);
     all_nodes.push(finish);
     all_nodes.extend(work_nodes);
     validate_unique_nodes(&all_nodes, "initialize_map nodes")?;

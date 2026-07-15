@@ -108,9 +108,10 @@ async fn start_action_map_task_node(
         id: "node-1".to_string(),
         goal: context_summary.to_string(),
     };
-    let (work_nodes, edges, current_node_id) = if bind_current {
+    let (current_work_node, work_nodes, edges) = if bind_current {
         (
-            vec![target],
+            target,
+            Vec::new(),
             vec![
                 crate::action_map::ActionMapEdgeInput {
                     from: "root".into(),
@@ -121,17 +122,14 @@ async fn start_action_map_task_node(
                     to: "finish".into(),
                 },
             ],
-            "node-1".to_string(),
         )
     } else {
         (
-            vec![
-                target,
-                crate::action_map::ActionMapInitializeNodeInput {
-                    id: "node-2".to_string(),
-                    goal: "Track the active delegated node.".to_string(),
-                },
-            ],
+            crate::action_map::ActionMapInitializeNodeInput {
+                id: "node-2".to_string(),
+                goal: "Track the active delegated node.".to_string(),
+            },
+            vec![target],
             vec![
                 crate::action_map::ActionMapEdgeInput {
                     from: "root".into(),
@@ -150,7 +148,6 @@ async fn start_action_map_task_node(
                     to: "finish".into(),
                 },
             ],
-            "node-2".to_string(),
         )
     };
     let outcome = session
@@ -161,6 +158,7 @@ async fn start_action_map_task_node(
                     id: "root".into(),
                     goal: title.to_string(),
                 },
+                current_work_node,
                 finish: crate::action_map::ActionMapInitializeNodeInput {
                     id: "finish".into(),
                     goal: "Finish the delegated task".into(),
@@ -168,7 +166,6 @@ async fn start_action_map_task_node(
                 source_event_ids: vec!["task-event-test".to_string()],
                 work_nodes,
                 edges,
-                current_node_id,
             },
         )
         .await
@@ -942,7 +939,7 @@ async fn legacy_spawn_agent_rejects_before_map_initialization() {
     let FunctionCallError::RespondToModel(message) = err else {
         panic!("TaskSpace gate should return a model-facing error");
     };
-    assert!(message.contains("no ready node is available"));
+    assert!(message.contains("hard_state: no_task_path"), "{message}");
     assert!(manager.captured_ops().is_empty());
 }
 
@@ -977,7 +974,7 @@ async fn v2_spawn_agent_rejects_before_map_initialization() {
     let FunctionCallError::RespondToModel(message) = err else {
         panic!("TaskSpace gate should return a model-facing error");
     };
-    assert!(message.contains("no ready node is available"));
+    assert!(message.contains("hard_state: no_task_path"), "{message}");
     assert!(manager.captured_ops().is_empty());
 }
 

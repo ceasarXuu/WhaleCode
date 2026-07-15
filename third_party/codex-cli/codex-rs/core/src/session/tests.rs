@@ -1400,21 +1400,19 @@ async fn fresh_map_uses_canonical_control_context_without_parallel_projection() 
                         id: "root".into(),
                         goal: "Initialize during turn".into(),
                     },
+                    current_work_node: crate::action_map::ActionMapInitializeNodeInput {
+                        id: "inspect".to_string(),
+                        goal: "Inspect current code.".to_string(),
+                    },
                     finish: crate::action_map::ActionMapInitializeNodeInput {
                         id: "finish".into(),
                         goal: "Finish the task".into(),
                     },
                     source_event_ids: vec!["task-event-1".to_string()],
-                    work_nodes: vec![
-                        crate::action_map::ActionMapInitializeNodeInput {
-                            id: "inspect".to_string(),
-                            goal: "Inspect current code.".to_string(),
-                        },
-                        crate::action_map::ActionMapInitializeNodeInput {
-                            id: "implement".to_string(),
-                            goal: "Implement the verified change.".to_string(),
-                        },
-                    ],
+                    work_nodes: vec![crate::action_map::ActionMapInitializeNodeInput {
+                        id: "implement".to_string(),
+                        goal: "Implement the verified change.".to_string(),
+                    }],
                     edges: vec![
                         crate::action_map::ActionMapEdgeInput {
                             from: "root".into(),
@@ -1429,7 +1427,6 @@ async fn fresh_map_uses_canonical_control_context_without_parallel_projection() 
                             to: "finish".into(),
                         },
                     ],
-                    current_node_id: "inspect".to_string(),
                 },
             )
             .expect("map initializes");
@@ -1520,15 +1517,16 @@ async fn record_context_updates_persists_one_epoch_taskspace_projection() {
                         id: "root".into(),
                         goal: "Architecture review".into(),
                     },
+                    current_work_node: crate::action_map::ActionMapInitializeNodeInput {
+                        id: "scope".to_string(),
+                        goal: "Collect current architecture scope.".to_string(),
+                    },
                     finish: crate::action_map::ActionMapInitializeNodeInput {
                         id: "finish".into(),
                         goal: "Finish architecture review".into(),
                     },
                     source_event_ids: vec!["task-event-1".to_string()],
-                    work_nodes: vec![crate::action_map::ActionMapInitializeNodeInput {
-                        id: "scope".to_string(),
-                        goal: "Collect current architecture scope.".to_string(),
-                    }],
+                    work_nodes: Vec::new(),
                     edges: vec![
                         crate::action_map::ActionMapEdgeInput {
                             from: "root".into(),
@@ -1539,7 +1537,6 @@ async fn record_context_updates_persists_one_epoch_taskspace_projection() {
                             to: "finish".into(),
                         },
                     ],
-                    current_node_id: "scope".to_string(),
                 },
             )
             .expect("map initializes");
@@ -1629,15 +1626,16 @@ async fn session_main_tool_result_is_checkpointed_at_explicit_boundary() {
                         id: "root".into(),
                         goal: "Trace session path".into(),
                     },
+                    current_work_node: crate::action_map::ActionMapInitializeNodeInput {
+                        id: "validate".to_string(),
+                        goal: "Run a validation command.".to_string(),
+                    },
                     finish: crate::action_map::ActionMapInitializeNodeInput {
                         id: "finish".into(),
                         goal: "Finish trace".into(),
                     },
                     source_event_ids: vec!["task-event-1".to_string()],
-                    work_nodes: vec![crate::action_map::ActionMapInitializeNodeInput {
-                        id: "validate".to_string(),
-                        goal: "Run a validation command.".to_string(),
-                    }],
+                    work_nodes: Vec::new(),
                     edges: vec![
                         crate::action_map::ActionMapEdgeInput {
                             from: "root".into(),
@@ -1648,7 +1646,6 @@ async fn session_main_tool_result_is_checkpointed_at_explicit_boundary() {
                             to: "finish".into(),
                         },
                     ],
-                    current_node_id: "validate".to_string(),
                 },
             )
             .expect("map initializes");

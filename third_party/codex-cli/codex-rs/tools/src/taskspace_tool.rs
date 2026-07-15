@@ -221,6 +221,12 @@ fn initialize_map_schema(has_patch: bool) -> JsonSchema {
         "initialize_map",
         BTreeMap::from([
             ("root".into(), graph_node_schema("Root node.")),
+            (
+                "current_work_node".into(),
+                graph_node_schema(
+                    "Agent-selected initial Work node. Declared edges must make it Ready at initialization; Runtime binds it before continuation actions execute.",
+                ),
+            ),
             ("finish".into(), graph_node_schema("Finish node.")),
             (
                 "work_nodes".into(),
@@ -233,18 +239,14 @@ fn initialize_map_schema(has_patch: bool) -> JsonSchema {
                     Some("Directed graph edges.".into()),
                 ),
             ),
-            (
-                "current_node_id".into(),
-                JsonSchema::string(Some("Initial node bound before actions execute.".into())),
-            ),
             ("continuation".into(), continuation_schema(has_patch)),
         ]),
         vec![
             "root".into(),
+            "current_work_node".into(),
             "finish".into(),
             "work_nodes".into(),
             "edges".into(),
-            "current_node_id".into(),
             "continuation".into(),
         ],
     )
@@ -394,7 +396,7 @@ pub fn create_taskspace_control_tool(visible_tools: &[ToolSpec]) -> ToolSpec {
 
     ToolSpec::Function(ResponsesApiTool {
         name: "taskspace_control".into(),
-        description: "Mandatory mechanical TaskSpace bootstrap tool. initialize_map declares root, work_nodes, finish, required edges, current_node_id, and continuation. continuation.actions contains non-patch tools. continuation.patch_then_actions contains exactly one apply_patch slot followed by optional non-patch tools. Runtime executes only the declared sequence and stops after the first failure.".into(),
+        description: "Mandatory mechanical TaskSpace bootstrap tool. initialize_map declares root, one current_work_node, remaining work_nodes, finish, required edges, and continuation. The current_work_node is the Agent-selected initial Work node; declared edges must make it Ready so Runtime can bind it before execution. Root and Finish cannot be selected. continuation.actions contains non-patch tools. continuation.patch_then_actions contains exactly one apply_patch slot followed by optional non-patch tools. Runtime executes only the declared sequence and stops after the first failure.".into(),
         strict: false,
         defer_loading: None,
         parameters,

@@ -21,6 +21,7 @@ use crate::tools::handlers::taskspace_control_output::format_initialize_step;
 use crate::tools::handlers::taskspace_control_output::format_node_detail_expansion_step;
 use crate::tools::handlers::taskspace_control_output::format_state_batch;
 use crate::tools::handlers::taskspace_control_output::protocol_error;
+use crate::tools::handlers::taskspace_control_output::rejected_control_result;
 use crate::tools::handlers::taskspace_control_output::resource_error;
 use crate::tools::handlers::taskspace_control_output::state_identity_coverage;
 use crate::tools::handlers::taskspace_control_output::state_machine_error;
@@ -99,10 +100,10 @@ impl ToolHandler for TaskSpaceControlHandler {
         let (message, success, terminal_agent_message) = match args {
             TaskSpaceControlArgs::InitializeMap {
                 root,
+                current_work_node,
                 finish,
                 work_nodes,
                 edges,
-                current_node_id,
                 continuation: _,
             } => {
                 let source_event_ids = session
@@ -114,28 +115,44 @@ impl ToolHandler for TaskSpaceControlHandler {
                         &turn,
                         ActionMapInitializeInput {
                             root: map_node_input(root),
+                            current_work_node: map_node_input(current_work_node),
                             finish: map_node_input(finish),
                             work_nodes: work_nodes.into_iter().map(map_node_input).collect(),
                             edges: edges.into_iter().map(map_edge_input).collect(),
                             source_event_ids,
-                            current_node_id,
                         },
                     )
-                    .await
-                    .map_err(state_machine_error)?;
-                let map_state = session
-                    .action_map_control_state(Some(&outcome.map_id))
                     .await;
-                (
-                    format_state_batch(
-                        vec![format_initialize_step(&outcome)],
-                        true,
-                        true,
-                        map_state.as_ref(),
-                    ),
-                    true,
-                    None,
-                )
+                match outcome {
+                    Ok(outcome) => {
+                        let map_state = session
+                            .action_map_control_state(Some(&outcome.map_id))
+                            .await;
+                        (
+                            format_state_batch(
+                                vec![format_initialize_step(&outcome)],
+                                true,
+                                true,
+                                map_state.as_ref(),
+                            ),
+                            true,
+                            None,
+                        )
+                    }
+                    Err(error) => {
+                        tracing::warn!(
+                            target: "codex_core::taskspace",
+                            call_id,
+                            "taskspace.map_initialization_rejected"
+                        );
+                        let map_state = session.action_map_control_state(None).await;
+                        (
+                            rejected_control_result(&error, map_state.as_ref()),
+                            false,
+                            None,
+                        )
+                    }
+                }
             }
             TaskSpaceControlArgs::MutateGraph {
                 expected_revision,
@@ -438,23 +455,6 @@ fn map_transition(transition: TaskSpaceNodeTransition) -> NodeTransition {
         TaskSpaceNodeTransition::Block => NodeTransition::Block,
         TaskSpaceNodeTransition::Unblock => NodeTransition::Unblock,
     }
-}
-
-fn rejected_control_result(
-    error: &str,
-    map_state: Option<&crate::action_map::ActionMapControlState>,
-) -> String {
-    let exact_error = serde_json::from_str::<JsonValue>(error)
-        .unwrap_or_else(|_| serde_json::json!({"message": error}));
-    format_state_batch(
-        vec![serde_json::json!({
-            "kind": "state_rejection",
-            "error": exact_error,
-        })],
-        false,
-        false,
-        map_state,
-    )
 }
 
 fn parse_output_slice_mode(

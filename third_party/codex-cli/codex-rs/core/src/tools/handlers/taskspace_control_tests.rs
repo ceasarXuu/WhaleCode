@@ -65,6 +65,27 @@ fn rejected_output_cannot_report_partial_commit() {
 }
 
 #[test]
+fn rooted_rejection_is_exposed_once_without_string_wrapping() {
+    let error = serde_json::json!({
+        "schema_version": TASKSPACE_CONTROL_RESULT_SCHEMA_VERSION,
+        "status": "state_machine_failed",
+        "success": false,
+        "state_commit": false,
+        "current_revision": 0,
+        "violations": [{"code": "transition_invalid", "subjects": ["work"]}],
+    })
+    .to_string();
+
+    let output = rejected_control_result(&error, None);
+    let value: JsonValue = serde_json::from_str(&output).expect("one typed JSON result");
+    assert_eq!(value["current_revision"], 0);
+    assert_eq!(value["violations"][0]["subjects"][0], "work");
+    assert!(value["map_state"].is_null());
+    assert!(value.get("steps").is_none());
+    assert!(value.get("error").is_none());
+}
+
+#[test]
 fn graph_and_terminal_steps_have_required_identity() {
     for step in [
         serde_json::json!({

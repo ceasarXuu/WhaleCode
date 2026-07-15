@@ -5,6 +5,10 @@ fn initialized_state(
     edges: &[(&str, &str)],
     current_node_id: &str,
 ) -> (ActionMapRuntimeState, ThreadId, ActionMapInitializeOutcome) {
+    let (current_node_id, current_node_goal) = work_nodes
+        .iter()
+        .find(|(id, _)| *id == current_node_id)
+        .expect("current work node is declared");
     let owner = ThreadId::new();
     let mut state = ActionMapRuntimeState::default();
     state.set_mode_for_session(MapRuntimeMode::Experiment, owner);
@@ -16,12 +20,17 @@ fn initialized_state(
                     id: "root".into(),
                     goal: "Solve the requested task".into(),
                 },
+                current_work_node: ActionMapInitializeNodeInput {
+                    id: (*current_node_id).into(),
+                    goal: (*current_node_goal).into(),
+                },
                 finish: ActionMapInitializeNodeInput {
                     id: "finish".into(),
                     goal: "Close the task with the final summary".into(),
                 },
                 work_nodes: work_nodes
                     .iter()
+                    .filter(|(id, _)| id != current_node_id)
                     .map(|(id, goal)| ActionMapInitializeNodeInput {
                         id: (*id).into(),
                         goal: (*goal).into(),
@@ -35,7 +44,6 @@ fn initialized_state(
                     })
                     .collect(),
                 source_event_ids: vec!["task-event-root".into()],
-                current_node_id: current_node_id.into(),
             },
         )
         .expect("valid rooted map initializes");
@@ -71,6 +79,58 @@ fn initialization_exposes_one_root_one_finish_and_revision_events() {
         1
     );
     assert_eq!(outcome.node_ids, ["root", "inspect", "finish"]);
+}
+
+#[test]
+fn non_ready_current_work_rejection_is_atomic_and_reports_prestate_revision() {
+    let owner = ThreadId::new();
+    let mut state = ActionMapRuntimeState::default();
+    state.set_mode_for_session(MapRuntimeMode::Experiment, owner);
+    let before = state.snapshot();
+    let error = state
+        .initialize_map_for_main(
+            owner,
+            ActionMapInitializeInput {
+                root: ActionMapInitializeNodeInput {
+                    id: "root".into(),
+                    goal: "Solve the task".into(),
+                },
+                current_work_node: ActionMapInitializeNodeInput {
+                    id: "implement".into(),
+                    goal: "Implement after inspection".into(),
+                },
+                finish: ActionMapInitializeNodeInput {
+                    id: "finish".into(),
+                    goal: "Finish".into(),
+                },
+                work_nodes: vec![ActionMapInitializeNodeInput {
+                    id: "inspect".into(),
+                    goal: "Inspect first".into(),
+                }],
+                edges: vec![
+                    ActionMapEdgeInput {
+                        from: "root".into(),
+                        to: "inspect".into(),
+                    },
+                    ActionMapEdgeInput {
+                        from: "inspect".into(),
+                        to: "implement".into(),
+                    },
+                    ActionMapEdgeInput {
+                        from: "implement".into(),
+                        to: "finish".into(),
+                    },
+                ],
+                source_event_ids: vec!["task-event-root".into()],
+            },
+        )
+        .expect_err("pending work cannot be the initial binding");
+
+    let rejection: serde_json::Value = serde_json::from_str(&error).expect("typed rejection");
+    assert_eq!(rejection["state_commit"], false);
+    assert_eq!(rejection["current_revision"], 0);
+    assert_eq!(rejection["violations"][0]["code"], "transition_invalid");
+    assert_eq!(state.snapshot(), before);
 }
 
 #[test]

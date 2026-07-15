@@ -20,12 +20,17 @@ fn bootstrap_schema_requires_initialization_with_continuation() {
         json!([
             "action",
             "root",
+            "current_work_node",
             "finish",
             "work_nodes",
             "edges",
-            "current_node_id",
             "continuation"
         ])
+    );
+    assert!(variants[0]["properties"].get("current_node_id").is_none());
+    assert_eq!(
+        variants[0]["properties"]["current_work_node"]["description"],
+        "Agent-selected initial Work node. Declared edges must make it Ready at initialization; Runtime binds it before continuation actions execute."
     );
     let text = value.to_string();
     assert!(!text.contains("initialize_then_actions"));

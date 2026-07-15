@@ -69,6 +69,42 @@ pub(super) fn format_state_batch(
     .to_string()
 }
 
+pub(super) fn rejected_control_result(
+    error: &str,
+    map_state: Option<&ActionMapControlState>,
+) -> String {
+    let Ok(mut exact_error) = serde_json::from_str::<JsonValue>(error) else {
+        return format_state_batch(
+            vec![serde_json::json!({
+                "kind": "state_rejection",
+                "error": {"message": error},
+            })],
+            false,
+            false,
+            map_state,
+        );
+    };
+    let is_rooted_rejection = exact_error
+        .get("schema_version")
+        .and_then(JsonValue::as_str)
+        == Some(TASKSPACE_CONTROL_RESULT_SCHEMA_VERSION)
+        && exact_error.get("status").and_then(JsonValue::as_str) == Some("state_machine_failed")
+        && exact_error.get("state_commit").and_then(JsonValue::as_bool) == Some(false);
+    if !is_rooted_rejection {
+        return format_state_batch(
+            vec![serde_json::json!({
+                "kind": "state_rejection",
+                "error": exact_error,
+            })],
+            false,
+            false,
+            map_state,
+        );
+    }
+    exact_error["map_state"] = map_state.map(format_map_state).unwrap_or(JsonValue::Null);
+    exact_error.to_string()
+}
+
 pub(super) fn control_state_observation(message: &str) -> Option<(bool, usize, usize, bool)> {
     let value = serde_json::from_str::<JsonValue>(message).ok()?;
     let state_commit = value.get("state_commit")?.as_bool()?;

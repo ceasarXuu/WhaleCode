@@ -243,11 +243,11 @@ pub(crate) struct ActionMapEdgeInput {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ActionMapInitializeInput {
     pub(crate) root: ActionMapInitializeNodeInput,
+    pub(crate) current_work_node: ActionMapInitializeNodeInput,
     pub(crate) finish: ActionMapInitializeNodeInput,
     pub(crate) work_nodes: Vec<ActionMapInitializeNodeInput>,
     pub(crate) edges: Vec<ActionMapEdgeInput>,
     pub(crate) source_event_ids: Vec<String>,
-    pub(crate) current_node_id: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -2973,10 +2973,15 @@ impl ActionMapRuntimeState {
         let root_goal = require_nonempty_owned("root.goal", input.root.goal)?;
         let finish_id = require_nonempty_owned("finish.node_id", input.finish.id)?;
         let finish_goal = require_nonempty_owned("finish.goal", input.finish.goal)?;
-        let current_node_id = require_nonempty_owned("current_node_id", input.current_node_id)?;
+        let current_node_id =
+            require_nonempty_owned("current_work_node.node_id", input.current_work_node.id)?;
+        let current_node_goal =
+            require_nonempty_owned("current_work_node.goal", input.current_work_node.goal)?;
         let mut work_nodes = BTreeMap::new();
-        let mut input_order = Vec::with_capacity(input.work_nodes.len() + 2);
+        let mut input_order = Vec::with_capacity(input.work_nodes.len() + 3);
         input_order.push(root_id.clone());
+        work_nodes.insert(current_node_id.clone(), current_node_goal);
+        input_order.push(current_node_id.clone());
         for node in input.work_nodes {
             let id = require_nonempty_owned("work_node.node_id", node.id)?;
             let goal = require_nonempty_owned("work_node.goal", node.goal)?;
@@ -3013,7 +3018,18 @@ impl ActionMapRuntimeState {
             current_node_id.clone(),
             NodeTransition::Bind,
         )
-        .map_err(rooted_rejection_message)?;
+        .map_err(|mut rejection| {
+            rejection.current_revision = 0;
+            tracing::warn!(
+                target: "codex_core::taskspace",
+                requested_work_node_id = current_node_id,
+                current_revision = 0,
+                state_commit = false,
+                violation_count = rejection.violations.len(),
+                "taskspace.map_initial_binding_rejected"
+            );
+            rooted_rejection_message(rejection)
+        })?;
         let graph_events = vec![initialized.events, bound.events];
         let lease_id = self.next_lease_id();
         let mut map =

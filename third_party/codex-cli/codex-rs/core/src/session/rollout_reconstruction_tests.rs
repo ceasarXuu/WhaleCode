@@ -165,15 +165,16 @@ async fn reconstruct_history_restores_latest_map_runtime_snapshot() {
                     id: "root".into(),
                     goal: "Architecture review".into(),
                 },
+                current_work_node: crate::action_map::ActionMapInitializeNodeInput {
+                    id: "scope".to_string(),
+                    goal: "Collect architecture scope.".to_string(),
+                },
                 finish: crate::action_map::ActionMapInitializeNodeInput {
                     id: "finish".into(),
                     goal: "Finish architecture review".into(),
                 },
                 source_event_ids: vec!["task-event-1".to_string()],
-                work_nodes: vec![crate::action_map::ActionMapInitializeNodeInput {
-                    id: "scope".to_string(),
-                    goal: "Collect architecture scope.".to_string(),
-                }],
+                work_nodes: Vec::new(),
                 edges: vec![
                     crate::action_map::ActionMapEdgeInput {
                         from: "root".into(),
@@ -184,7 +185,6 @@ async fn reconstruct_history_restores_latest_map_runtime_snapshot() {
                         to: "finish".into(),
                     },
                 ],
-                current_node_id: "scope".to_string(),
             },
         )
         .expect("map initializes");
@@ -253,15 +253,16 @@ async fn resumed_compacted_map_rebuilds_one_projection_from_checkpoint_and_delta
                     id: "root".into(),
                     goal: "Resume canonical map".into(),
                 },
+                current_work_node: crate::action_map::ActionMapInitializeNodeInput {
+                    id: "resume-node".to_string(),
+                    goal: "Restore this goal from the canonical map.".to_string(),
+                },
                 finish: crate::action_map::ActionMapInitializeNodeInput {
                     id: "finish".into(),
                     goal: "Finish resumed map".into(),
                 },
                 source_event_ids: vec!["task-event-root".to_string()],
-                work_nodes: vec![crate::action_map::ActionMapInitializeNodeInput {
-                    id: "resume-node".to_string(),
-                    goal: "Restore this goal from the canonical map.".to_string(),
-                }],
+                work_nodes: Vec::new(),
                 edges: vec![
                     crate::action_map::ActionMapEdgeInput {
                         from: "root".into(),
@@ -272,7 +273,6 @@ async fn resumed_compacted_map_rebuilds_one_projection_from_checkpoint_and_delta
                         to: "finish".into(),
                     },
                 ],
-                current_node_id: "resume-node".to_string(),
             },
         )
         .expect("map initializes");
@@ -342,13 +342,13 @@ async fn resumed_compacted_map_rebuilds_one_projection_from_checkpoint_and_delta
         .await;
     let first_history = serde_json::to_string(session.clone_history().await.raw_items()).unwrap();
     assert_eq!(
-        first_history
-            .matches("ContextProjectionV1 epoch snapshot:")
-            .count(),
+        first_history.matches("TaskSpaceMapProjectionR6V1:").count(),
         1
     );
-    assert!(first_history.contains("task_id: task-1"));
     assert!(first_history.contains("map_id: map-1"));
+    assert!(first_history.contains("root_node_id: root"));
+    assert!(first_history.contains("finish_node_id: finish"));
+    assert!(!first_history.contains("task_id:"));
     assert!(first_history.contains("resume-node"));
     assert!(first_history.contains("Restore this goal from the canonical map."));
 
