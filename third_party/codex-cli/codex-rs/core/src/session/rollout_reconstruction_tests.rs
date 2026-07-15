@@ -340,10 +340,11 @@ async fn resumed_compacted_map_rebuilds_one_projection_from_checkpoint_and_delta
     session
         .record_context_updates_and_set_reference_context_item(&turn_context)
         .await;
-    let first_history =
-        serde_json::to_string(session.clone_history_for_provider().await.raw_items()).unwrap();
+    let first_history = serde_json::to_string(session.clone_history().await.raw_items()).unwrap();
     assert_eq!(
-        first_history.matches("TaskSpaceMapProjectionR6V1:").count(),
+        first_history
+            .matches("TaskSpaceMapEpochSnapshotR6V1:")
+            .count(),
         1
     );
     assert!(first_history.contains("map_id: map-1"));
@@ -356,8 +357,7 @@ async fn resumed_compacted_map_rebuilds_one_projection_from_checkpoint_and_delta
     session
         .record_context_updates_and_set_reference_context_item(&turn_context)
         .await;
-    let second_history =
-        serde_json::to_string(session.clone_history_for_provider().await.raw_items()).unwrap();
+    let second_history = serde_json::to_string(session.clone_history().await.raw_items()).unwrap();
     assert_eq!(second_history, first_history);
 }
 

@@ -20,7 +20,6 @@ use crate::action_map::ActionMapRuntimeState;
 use crate::action_map::TaskSpaceEvent;
 use crate::action_map::ToolActionDescriptor;
 use crate::action_map::build_snapshot_delta;
-use crate::action_map::is_taskspace_map_projection_item;
 use crate::action_map::snapshot_sha256;
 use crate::agent::AgentControl;
 use crate::agent::AgentStatus;
@@ -3498,6 +3497,18 @@ impl Session {
             let mut state = self.state.lock().await;
             state.action_map_runtime.take_pending_transition_notice()
         };
+        let (action_map_epoch_snapshot, projection_trace_events) = {
+            let mut state = self.state.lock().await;
+            let context = state.action_map_runtime.build_developer_context();
+            let events = state
+                .action_map_runtime
+                .take_pending_projection_trace_events();
+            (context, events)
+        };
+        if !projection_trace_events.is_empty() {
+            self.emit_action_map_events_for_turn(turn_context, projection_trace_events)
+                .await;
+        }
         if let Some(realtime_update) = crate::context_manager::updates::build_initial_realtime_item(
             reference_context_item.as_ref(),
             previous_turn_settings.as_ref(),
@@ -3580,6 +3591,9 @@ impl Session {
         // item so legacy TaskSpace filtering cannot drop stable developer text.
         if let Some(action_map_transition_notice) = action_map_transition_notice {
             taskspace_developer_sections.push(action_map_transition_notice);
+        }
+        if let Some(action_map_epoch_snapshot) = action_map_epoch_snapshot {
+            taskspace_developer_sections.push(action_map_epoch_snapshot);
         }
         if let Some(user_instructions) = turn_context.user_instructions.as_deref() {
             contextual_user_sections.push(
@@ -3779,37 +3793,6 @@ impl Session {
         state.clone_history()
     }
 
-    pub(crate) async fn clone_history_for_provider(&self) -> ContextManager {
-        let (mut history, projection, projection_trace_events) = {
-            let mut state = self.state.lock().await;
-            let history = state.clone_history();
-            let projection = state.action_map_runtime.build_developer_context();
-            let events = state
-                .action_map_runtime
-                .take_pending_projection_trace_events();
-            (history, projection, events)
-        };
-        if let Some(projection) = projection {
-            let mut items = history
-                .raw_items()
-                .iter()
-                .filter(|item| !is_taskspace_map_projection_item(item))
-                .cloned()
-                .collect::<Vec<_>>();
-            if let Some(item) =
-                crate::context_manager::updates::build_developer_update_item(vec![projection])
-            {
-                items.push(item);
-            }
-            history.replace(items);
-        }
-        if !projection_trace_events.is_empty() {
-            self.emit_action_map_events_raw(projection_trace_events)
-                .await;
-        }
-        history
-    }
-
     pub(crate) async fn reference_context_item(&self) -> Option<TurnContextItem> {
         let state = self.state.lock().await;
         state.reference_context_item()
@@ -3882,6 +3865,34 @@ impl Session {
             self.build_settings_update_items(reference_context_item.as_ref(), turn_context)
                 .await
         };
+        let action_map_epoch_snapshot_present = {
+            let state = self.state.lock().await;
+            state
+                .clone_history()
+                .raw_items()
+                .iter()
+                .any(is_action_map_epoch_snapshot_developer_item)
+        };
+        let mut context_items = context_items;
+        if !should_inject_full_context && !action_map_epoch_snapshot_present {
+            let (action_map_epoch_snapshot, projection_trace_events) = {
+                let mut state = self.state.lock().await;
+                let context = state.action_map_runtime.build_developer_context();
+                let events = state
+                    .action_map_runtime
+                    .take_pending_projection_trace_events();
+                (context, events)
+            };
+            if !projection_trace_events.is_empty() {
+                self.emit_action_map_events_for_turn(turn_context, projection_trace_events)
+                    .await;
+            }
+            if let Some(item) = action_map_epoch_snapshot.and_then(|snapshot| {
+                crate::context_manager::updates::build_developer_update_item(vec![snapshot])
+            }) {
+                context_items.push(item);
+            }
+        }
         let turn_context_item = turn_context.to_turn_context_item();
         if !context_items.is_empty() {
             self.record_conversation_items(turn_context, &context_items)
@@ -4473,8 +4484,7 @@ fn errors_to_info(errors: &[SkillError]) -> Vec<SkillErrorInfo> {
         .collect()
 }
 
-#[cfg(test)]
-fn is_action_map_projection_developer_item(item: &ResponseItem) -> bool {
+fn is_action_map_epoch_snapshot_developer_item(item: &ResponseItem) -> bool {
     let ResponseItem::Message { role, content, .. } = item else {
         return false;
     };
@@ -4485,7 +4495,7 @@ fn is_action_map_projection_developer_item(item: &ResponseItem) -> bool {
         matches!(
             entry,
             ContentItem::InputText { text }
-                if text.contains("TaskSpaceMapProjectionR6V1:")
+                if text.contains("TaskSpaceMapEpochSnapshotR6V1:")
         )
     })
 }

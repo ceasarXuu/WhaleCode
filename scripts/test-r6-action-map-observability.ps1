@@ -93,7 +93,7 @@ Assert-True (@($managed | Where-Object { $_.id -eq "root" -and $_.map_id -eq "ma
 . (Join-Path $PSScriptRoot "taskspace-benchmark/lib/cost-instrumentation.ps1")
 $projectionPath = Join-Path $RunRoot "projection.txt"
 @"
-TaskSpaceMapProjectionR6V1:
+TaskSpaceMapEpochSnapshotR6V1:
 - map_id: map-1
 - revision: 6
 - root_node_id: root
@@ -115,7 +115,7 @@ TaskSpaceMapProjectionR6V1:
     - patch->finish
   node_details:
     - none
-TaskSpaceMapProjectionR6V1 end.
+TaskSpaceMapEpochSnapshotR6V1 end.
 "@ | Set-Content -LiteralPath $projectionPath -Encoding UTF8
 $projection = New-TaskspaceContextProjectionSummary $projectionPath "" ""
 Assert-Equal ([string]$projection.availability) "measured" "R6 projection availability"

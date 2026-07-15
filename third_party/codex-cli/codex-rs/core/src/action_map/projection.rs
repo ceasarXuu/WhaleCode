@@ -88,7 +88,7 @@ pub(super) fn render_active_projection(input: ActiveProjectionInput) -> Rendered
     let mut body = String::new();
     let mut size_breakdown = ProjectionSizeBreakdown::default();
     let section_start = body.len();
-    body.push_str("TaskSpaceMapProjectionR6V1:\n");
+    body.push_str("TaskSpaceMapEpochSnapshotR6V1:\n");
     push_field(&mut body, "map_id", &input.map_id);
     push_field(&mut body, "revision", &input.revision.to_string());
     push_field(&mut body, "root_node_id", &input.root_node_id);
@@ -132,7 +132,7 @@ pub(super) fn render_active_projection(input: ActiveProjectionInput) -> Rendered
     );
     size_breakdown.node_detail_bytes = body.len() - section_start;
     let section_start = body.len();
-    body.push_str("TaskSpaceMapProjectionR6V1 end.\n");
+    body.push_str("TaskSpaceMapEpochSnapshotR6V1 end.\n");
     size_breakdown.footer_bytes = body.len() - section_start;
     size_breakdown.projection_bytes = body.len();
     let estimated_tokens = body.len().div_ceil(4);

@@ -1294,7 +1294,7 @@ async fn record_initial_history_new_defers_initial_context_until_first_turn() {
 }
 
 #[tokio::test]
-async fn build_initial_context_does_not_inject_blank_map_or_transition_context() {
+async fn build_initial_context_injects_one_blank_map_epoch_snapshot() {
     let (session, turn_context) = make_session_and_context().await;
     {
         let mut state = session.state.lock().await;
@@ -1309,23 +1309,21 @@ async fn build_initial_context_does_not_inject_blank_map_or_transition_context()
         session.build_initial_context(&turn_context).await,
     ] {
         let developer_text = developer_input_texts(&context).join("\n");
-        for stale in [
-            "TaskSpace mode is now active",
-            "ContextProjectionV1 epoch snapshot",
-            "TaskSpaceMapProjectionR6V1:",
-            "TaskSpace v0.0.5 thin bootstrap",
-            "active_task_path_without_nodes",
-        ] {
-            assert!(
-                !developer_text.contains(stale),
-                "blank TaskSpace context must not inject {stale}: {developer_text}"
-            );
-        }
+        assert!(!developer_text.contains("TaskSpace mode is now active"));
+        assert_eq!(
+            developer_text
+                .matches("TaskSpaceMapEpochSnapshotR6V1:")
+                .count(),
+            1
+        );
+        assert!(developer_text.contains("- map: none"));
+        assert!(developer_text.contains("- bootstrap_required: true"));
+        assert!(!developer_text.contains("active_task_path_without_nodes"));
     }
 }
 
 #[tokio::test]
-async fn build_initial_context_keeps_skills_without_blank_taskspace_context() {
+async fn build_initial_context_keeps_epoch_snapshot_separate_from_skills() {
     let (session, mut turn_context) = make_session_and_context().await;
     let mut outcome = SkillLoadOutcome::default();
     outcome.skills = vec![SkillMetadata {
@@ -1362,15 +1360,18 @@ async fn build_initial_context_keeps_skills_without_blank_taskspace_context() {
         !stable_developer_text.contains("TaskSpace mode is now active"),
         "stable developer item must not contain legacy TaskSpace markers that provider filtering omits: {stable_developer_text}"
     );
-    assert!(developer_texts.iter().all(|text| {
-        !text.contains("TaskSpace mode is now active")
-            && !text.contains("ContextProjectionV1 epoch snapshot")
-            && !text.contains("TaskSpaceMapProjectionR6V1:")
-    }));
+    assert!(!stable_developer_text.contains("TaskSpaceMapEpochSnapshotR6V1:"));
+    assert_eq!(
+        developer_texts
+            .iter()
+            .filter(|text| text.contains("TaskSpaceMapEpochSnapshotR6V1:"))
+            .count(),
+        1
+    );
 }
 
 #[tokio::test]
-async fn provider_history_replaces_projection_from_same_turn_map_state() {
+async fn map_epoch_snapshot_history_stays_append_only_after_same_turn_changes() {
     let (session, turn_context) = make_session_and_context().await;
     {
         let mut state = session.state.lock().await;
@@ -1379,6 +1380,9 @@ async fn provider_history_replaces_projection_from_same_turn_map_state() {
             session.conversation_id,
         );
     }
+    session
+        .record_context_updates_and_set_reference_context_item(&turn_context)
+        .await;
     session
         .record_conversation_items(
             &turn_context,
@@ -1447,17 +1451,19 @@ async fn provider_history_replaces_projection_from_same_turn_map_state() {
     let projection_count = history
         .raw_items()
         .iter()
-        .filter(|item| is_action_map_projection_developer_item(item))
+        .filter(|item| is_action_map_epoch_snapshot_developer_item(item))
         .count();
-    assert_eq!(projection_count, 0);
-    let provider_history = session.clone_history_for_provider().await;
-    let provider_text = developer_input_texts(provider_history.raw_items()).join("\n");
+    assert_eq!(projection_count, 1);
+    let provider_text = developer_input_texts(history.raw_items()).join("\n");
     assert_eq!(
-        provider_text.matches("TaskSpaceMapProjectionR6V1:").count(),
+        provider_text
+            .matches("TaskSpaceMapEpochSnapshotR6V1:")
+            .count(),
         1
     );
-    assert!(provider_text.contains("revision: 2"));
-    assert!(provider_text.contains("current_node: inspect"));
+    assert!(provider_text.contains("- map: none"));
+    assert!(!provider_text.contains("revision: 2"));
+    let history_before_transitions = history.raw_items().to_vec();
 
     {
         let mut state = session.state.lock().await;
@@ -1500,26 +1506,21 @@ async fn provider_history_replaces_projection_from_same_turn_map_state() {
         history
             .raw_items()
             .iter()
-            .filter(|item| is_action_map_projection_developer_item(item))
+            .filter(|item| is_action_map_epoch_snapshot_developer_item(item))
             .count(),
-        0
+        1
     );
     assert!(history.raw_items().iter().any(
         |item| matches!(item, ResponseItem::FunctionCallOutput { call_id, .. } if call_id == "init-control")
     ));
-    let provider_history = session.clone_history_for_provider().await;
-    let provider_text = developer_input_texts(provider_history.raw_items()).join("\n");
     assert_eq!(
-        provider_text.matches("TaskSpaceMapProjectionR6V1:").count(),
-        1
+        history.raw_items().get(..history_before_transitions.len()),
+        Some(history_before_transitions.as_slice())
     );
-    assert!(provider_text.contains("revision: 4"));
-    assert!(provider_text.contains("current_node: implement"));
-    assert!(!provider_text.contains("current_node: inspect"));
 }
 
 #[tokio::test]
-async fn provider_projection_is_transient_and_canonical_map_derived() {
+async fn map_epoch_snapshot_is_canonical_map_derived_and_written_once() {
     let (session, turn_context) = make_session_and_context().await;
     {
         let mut state = session.state.lock().await;
@@ -1567,13 +1568,13 @@ async fn provider_projection_is_transient_and_canonical_map_derived() {
 
     let canonical_history = session.clone_history().await;
     let canonical_developer_text = developer_input_texts(canonical_history.raw_items()).join("\n");
-    assert!(!canonical_developer_text.contains("TaskSpaceMapProjectionR6V1:"));
+    assert!(canonical_developer_text.contains("TaskSpaceMapEpochSnapshotR6V1:"));
 
-    let history = session.clone_history_for_provider().await;
+    let history = session.clone_history().await;
     let developer_text = developer_input_texts(history.raw_items()).join("\n");
     assert!(
-        developer_text.contains("TaskSpaceMapProjectionR6V1:"),
-        "expected R6 map projection in provider context: {developer_text}"
+        developer_text.contains("TaskSpaceMapEpochSnapshotR6V1:"),
+        "expected R6 map epoch snapshot in canonical context: {developer_text}"
     );
     assert!(
         developer_text.contains("map_id: map-1")
@@ -1599,7 +1600,10 @@ async fn provider_projection_is_transient_and_canonical_map_derived() {
         "steady-state active profile should not inject shadow projection: {developer_text}"
     );
 
-    let history_after_second_update = session.clone_history_for_provider().await;
+    session
+        .record_context_updates_and_set_reference_context_item(&turn_context)
+        .await;
+    let history_after_second_update = session.clone_history().await;
     let developer_text = developer_input_texts(history_after_second_update.raw_items()).join("\n");
     assert!(
         developer_text.contains("map_id: map-1")
@@ -1609,10 +1613,10 @@ async fn provider_projection_is_transient_and_canonical_map_derived() {
     );
     assert_eq!(
         developer_text
-            .matches("TaskSpaceMapProjectionR6V1:")
+            .matches("TaskSpaceMapEpochSnapshotR6V1:")
             .count(),
         1,
-        "provider history must contain exactly one current map projection: {developer_text}"
+        "history must contain exactly one map epoch snapshot: {developer_text}"
     );
 
     let canonical_developer_text = {
@@ -1620,8 +1624,8 @@ async fn provider_projection_is_transient_and_canonical_map_derived() {
         developer_input_texts(state.clone_history().raw_items()).join("\n")
     };
     assert!(
-        !canonical_developer_text.contains("TaskSpaceMapProjectionR6V1:"),
-        "runtime projection must not become a stale canonical history item: {canonical_developer_text}"
+        canonical_developer_text.contains("TaskSpaceMapEpochSnapshotR6V1:"),
+        "epoch snapshot must remain in append-only canonical history: {canonical_developer_text}"
     );
     assert!(!canonical_developer_text.contains("task_status:"));
     assert!(!canonical_developer_text.contains("map_status:"));

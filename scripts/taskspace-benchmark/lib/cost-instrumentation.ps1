@@ -1843,7 +1843,7 @@ function Get-TaskspaceContextProjectionBlocks {
     }
     if (-not [string]::IsNullOrWhiteSpace($RolloutJsonlPath) -and (Test-Path -LiteralPath $RolloutJsonlPath -PathType Leaf)) {
         foreach ($line in [System.IO.File]::ReadLines($RolloutJsonlPath)) {
-            if ($line -notmatch 'ContextProjectionV1|TaskSpaceMapProjectionR6V1') { continue }
+            if ($line -notmatch 'ContextProjectionV1|TaskSpaceMapEpochSnapshotR6V1') { continue }
             $texts.Add(($line -replace "\\r\\n", "`n" -replace "\\n", "`n"))
         }
     }
@@ -1853,7 +1853,7 @@ function Get-TaskspaceContextProjectionBlocks {
             $block = [string]$match.Value
             if (-not [string]::IsNullOrWhiteSpace($block)) { $blocks.Add($block) }
         }
-        foreach ($match in [regex]::Matches($text, "(?s)TaskSpaceMapProjectionR6V1:.*?TaskSpaceMapProjectionR6V1 end\.")) {
+        foreach ($match in [regex]::Matches($text, "(?s)TaskSpaceMapEpochSnapshotR6V1:.*?TaskSpaceMapEpochSnapshotR6V1 end\.")) {
             $block = [string]$match.Value
             if (-not [string]::IsNullOrWhiteSpace($block)) { $blocks.Add($block) }
         }
@@ -1863,8 +1863,8 @@ function Get-TaskspaceContextProjectionBlocks {
 
 function New-TaskspaceContextProjectionEvent {
     param([Parameter(Mandatory = $true)][string]$Block)
-    $projectionKind = if ($Block -match "TaskSpaceMapProjectionR6V1:" -and $Block -match "(?m)^- map:\s*none\s*$") { "bootstrap" } elseif ($Block -match "TaskSpaceMapProjectionR6V1:" -and $Block -match "(?m)^- integrity_status:\s*invalid\s*$") { "invalid" } elseif ($Block -match "TaskSpaceMapProjectionR6V1:") { "rooted_map" } elseif ($Block -match "ContextProjectionV1 active replacement:") { "active_replacement" } elseif ($Block -match "ContextProjectionV1 shadow \(not active replacement\):") { "shadow" } else { "unknown" }
-    $requiredSections = if ($projectionKind -eq "rooted_map") {
+    $projectionKind = if ($Block -match "TaskSpaceMapEpochSnapshotR6V1:" -and $Block -match "(?m)^- map:\s*none\s*$") { "bootstrap" } elseif ($Block -match "TaskSpaceMapEpochSnapshotR6V1:" -and $Block -match "(?m)^- integrity_status:\s*invalid\s*$") { "invalid" } elseif ($Block -match "TaskSpaceMapEpochSnapshotR6V1:") { "rooted_map_epoch" } elseif ($Block -match "ContextProjectionV1 active replacement:") { "active_replacement" } elseif ($Block -match "ContextProjectionV1 shadow \(not active replacement\):") { "shadow" } else { "unknown" }
+    $requiredSections = if ($projectionKind -eq "rooted_map_epoch") {
         @("map_id", "revision", "root_node_id", "finish_node_id", "complete", "root_source_event_ids", "current_node", "active_frontier", "map_nodes", "map_edges", "node_details")
     } elseif ($projectionKind -eq "active_replacement") {
         @("task_id", "map_id", "current_node", "map_nodes", "current_node_recent_events", "result_refs_available")
@@ -1949,7 +1949,7 @@ function New-TaskspaceContextProjectionSummary {
     foreach ($value in $tokenValues) { $tokenTotal += [int64]$value }
     $protectedMiss = 0
     foreach ($event in $events) { $protectedMiss += [int]$event.protected_miss_count }
-    $activeProjectionCount = @($events | Where-Object { [string]$_.projection_kind -in @("active_replacement", "rooted_map", "epoch_snapshot") }).Count
+    $activeProjectionCount = @($events | Where-Object { [string]$_.projection_kind -in @("active_replacement", "rooted_map_epoch", "bootstrap", "epoch_snapshot") }).Count
     $shadowProjectionCount = @($events | Where-Object { [string]$_.projection_kind -eq "shadow" }).Count
     [pscustomobject]@{
         schema_version = "taskspace-context-projection-summary-v1"

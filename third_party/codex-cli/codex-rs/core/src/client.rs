@@ -146,8 +146,8 @@ pub const X_RESPONSESAPI_INCLUDE_TIMING_METRICS_HEADER: &str =
 const RESPONSES_WEBSOCKETS_V2_BETA_HEADER_VALUE: &str = "responses_websockets=2026-02-06";
 const RESPONSES_ENDPOINT: &str = "/responses";
 const RESPONSES_COMPACT_ENDPOINT: &str = "/responses/compact";
-const TASKSPACE_PROJECTION_MARKER: &str = "TaskSpaceMapProjectionR6V1:";
-const TASKSPACE_PROJECTION_END_MARKER: &str = "TaskSpaceMapProjectionR6V1 end.";
+const TASKSPACE_PROJECTION_MARKER: &str = "TaskSpaceMapEpochSnapshotR6V1:";
+const TASKSPACE_PROJECTION_END_MARKER: &str = "TaskSpaceMapEpochSnapshotR6V1 end.";
 const TASKSPACE_PROJECTION_REQUIRED_SECTIONS: &[&str] = &[
     "map_id",
     "revision",
@@ -963,19 +963,13 @@ fn scan_provider_payload_text(
     text: &str,
     value: &serde_json::Value,
 ) -> ExactPayloadScanEventV1 {
-    let projection_required = provider_payload_has_tool(value, "taskspace_control")
-        && !provider_payload_is_blank_taskspace_bootstrap(value);
+    let projection_required = provider_payload_has_tool(value, "taskspace_control");
     let projection_blocks = taskspace_projection_blocks(text);
-    let active_projection_blocks = projection_blocks
-        .iter()
-        .copied()
-        .filter(|block| projection_block_is_active_candidate(block))
-        .collect::<Vec<_>>();
-    let active_projection_count = active_projection_blocks.len();
+    let active_projection_count = projection_blocks.len();
     let active_projection_present = active_projection_count > 0;
-    let protected_items_present = active_projection_blocks
+    let protected_items_present = projection_blocks
         .first()
-        .is_some_and(|block| projection_block_contains_required_sections(block));
+        .is_some_and(|block| epoch_snapshot_block_is_valid(block));
     let large_raw_output_tokens = estimate_large_raw_output_tokens(value);
     let runtime_boundary_forbidden_markers = [
         "TaskSpaceProviderBudgetHardStopV1",
@@ -1003,13 +997,13 @@ fn scan_provider_payload_text(
     };
     let mut failure_reasons = Vec::new();
     if projection_required && active_projection_count == 0 {
-        failure_reasons.push("active_projection_missing".to_string());
+        failure_reasons.push("epoch_snapshot_missing".to_string());
     }
     if projection_required && active_projection_count > 1 {
-        failure_reasons.push("active_projection_not_unique".to_string());
+        failure_reasons.push("epoch_snapshot_not_unique".to_string());
     }
     if !projection_required && active_projection_count != 0 {
-        failure_reasons.push("unexpected_active_projection".to_string());
+        failure_reasons.push("unexpected_epoch_snapshot".to_string());
     }
     if large_raw_output_tokens > 0 {
         failure_reasons.push("large_raw_output_present".to_string());
@@ -1018,18 +1012,18 @@ fn scan_provider_payload_text(
         failure_reasons.push("runtime_boundary_forbidden_marker_present".to_string());
     }
     if projection_required && active_projection_count == 1 && !protected_items_present {
-        failure_reasons.push("projection_required_sections_missing".to_string());
+        failure_reasons.push("epoch_snapshot_required_sections_missing".to_string());
     }
     ExactPayloadScanEventV1 {
         schema_version: "taskspace-exact-payload-scan-event-v1",
         scan_event_id: format!("scan:{request_id}:{sha256}"),
         request_id: request_id.to_string(),
         provider_payload_sha256: sha256.to_string(),
-        scanner_version: "r6-exact-scan-1".to_string(),
-        matcher_version: "r6-rooted-projection-checks-1".to_string(),
+        scanner_version: "r6-exact-scan-2".to_string(),
+        matcher_version: "r6-epoch-snapshot-checks-1".to_string(),
         checked_byte_ranges: vec![(0, text.len())],
         negative_checks_performed: vec![
-            "active_projection_uniqueness".to_string(),
+            "epoch_snapshot_uniqueness".to_string(),
             "large_raw_output".to_string(),
             "runtime_boundary_forbidden_markers".to_string(),
         ],
@@ -1056,23 +1050,24 @@ fn taskspace_projection_blocks(text: &str) -> Vec<&str> {
         .collect()
 }
 
-fn projection_block_is_active_candidate(block: &str) -> bool {
+fn epoch_snapshot_block_is_valid(block: &str) -> bool {
     let normalized = block.replace("\\r\\n", "\n").replace("\\n", "\n");
-    projection_block_contains_section(&normalized, "map_id")
-        && !normalized.lines().any(|line| {
-            line.trim().starts_with("- integrity_status: invalid")
-                || line.trim().starts_with("integrity_status: invalid")
-        })
-}
-
-fn provider_payload_is_blank_taskspace_bootstrap(value: &serde_json::Value) -> bool {
-    let Some(tools) = value.get("tools").and_then(serde_json::Value::as_array) else {
-        return false;
-    };
-    if tools.len() != 1 {
+    if normalized.lines().any(|line| {
+        line.trim().starts_with("- integrity_status: invalid")
+            || line.trim().starts_with("integrity_status: invalid")
+    }) {
         return false;
     }
-    provider_tool_name(&tools[0]) == Some("taskspace_control")
+    let blank_bootstrap = normalized
+        .lines()
+        .any(|line| line.trim().starts_with("- map: none") || line.trim().starts_with("map: none"));
+    if blank_bootstrap {
+        return normalized.lines().any(|line| {
+            line.trim().starts_with("- bootstrap_required: true")
+                || line.trim().starts_with("bootstrap_required: true")
+        });
+    }
+    projection_block_contains_required_sections(&normalized)
 }
 
 fn provider_payload_has_tool(value: &serde_json::Value, expected: &str) -> bool {

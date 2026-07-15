@@ -3937,7 +3937,7 @@ impl ActionMapRuntimeState {
     }
 
     fn build_bootstrap_compact_developer_context(&self) -> String {
-        "TaskSpaceMapProjectionR6V1:\n- map: none\n- bootstrap_required: true\nTaskSpaceMapProjectionR6V1 end.\n"
+        "TaskSpaceMapEpochSnapshotR6V1:\n- map: none\n- bootstrap_required: true\nTaskSpaceMapEpochSnapshotR6V1 end.\n"
             .to_string()
     }
 
@@ -4741,7 +4741,7 @@ pub(crate) fn format_action_map_snapshot(snapshot: &ActionMapSnapshot) -> String
 
 fn taskspace_projection_integrity_context(map_id: &str, reason: &str) -> String {
     format!(
-        "TaskSpaceMapProjectionR6V1:\n\
+        "TaskSpaceMapEpochSnapshotR6V1:\n\
 - map_id: {map_id}\n\
 - integrity_status: invalid\n\
 - integrity_reason: {reason}\n\
@@ -4750,7 +4750,7 @@ fn taskspace_projection_integrity_context(map_id: &str, reason: &str) -> String 
 - map_nodes:\n  - none\n\
 - map_edges:\n  - none\n\
 - node_details:\n  - none\n\
-TaskSpaceMapProjectionR6V1 end."
+TaskSpaceMapEpochSnapshotR6V1 end."
     )
 }
 

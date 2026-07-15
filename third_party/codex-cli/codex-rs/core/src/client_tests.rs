@@ -393,15 +393,15 @@ fn provider_payload_scan_validates_canonical_projection_shape() {
     assert!(standard.scan.passed);
 
     let blank_bootstrap = provider_payload_digest(&json!({
-        "input": "user task",
+        "input": "TaskSpaceMapEpochSnapshotR6V1:\n- map: none\n- bootstrap_required: true\nTaskSpaceMapEpochSnapshotR6V1 end.",
         "tools": [{
             "type": "function",
             "function": { "name": "taskspace_control" }
         }]
     }))
     .expect("blank bootstrap payload digest");
-    assert!(!blank_bootstrap.scan.projection_required);
-    assert_eq!(blank_bootstrap.scan.active_projection_count, 0);
+    assert!(blank_bootstrap.scan.projection_required);
+    assert_eq!(blank_bootstrap.scan.active_projection_count, 1);
     assert!(blank_bootstrap.scan.passed);
     assert!(blank_bootstrap.scan.replacement_confirmed);
 
@@ -424,11 +424,11 @@ fn provider_payload_scan_validates_canonical_projection_shape() {
         fresh_active_without_projection
             .scan
             .failure_reasons
-            .contains(&"active_projection_missing".to_string())
+            .contains(&"epoch_snapshot_missing".to_string())
     );
 
     let active_projection = concat!(
-        "TaskSpaceMapProjectionR6V1:\n",
+        "TaskSpaceMapEpochSnapshotR6V1:\n",
         "- map_id: map-1\n",
         "- revision: 2\n",
         "- root_node_id: root\n",
@@ -448,7 +448,7 @@ fn provider_payload_scan_validates_canonical_projection_shape() {
         "    - node-1->finish\n",
         "  node_details:\n",
         "    - none\n",
-        "TaskSpaceMapProjectionR6V1 end.\n",
+        "TaskSpaceMapEpochSnapshotR6V1 end.\n",
     );
     let active_tools = json!([
         { "type": "function", "function": { "name": "taskspace_control" } },
@@ -480,7 +480,7 @@ fn provider_payload_scan_validates_canonical_projection_shape() {
         duplicate_active
             .scan
             .failure_reasons
-            .contains(&"active_projection_not_unique".to_string())
+            .contains(&"epoch_snapshot_not_unique".to_string())
     );
 
     let active_with_transition_notice = provider_payload_digest(&json!({
@@ -524,7 +524,7 @@ fn provider_payload_scan_validates_canonical_projection_shape() {
     );
 
     let missing_protected = provider_payload_digest(&json!({
-        "input": "TaskSpaceMapProjectionR6V1:\n- map_id: map-1\n- summary: incomplete\nTaskSpaceMapProjectionR6V1 end.",
+        "input": "TaskSpaceMapEpochSnapshotR6V1:\n- map_id: map-1\n- summary: incomplete\nTaskSpaceMapEpochSnapshotR6V1 end.",
         "tools": active_tools
     }))
     .expect("missing protected payload digest");
@@ -533,7 +533,7 @@ fn provider_payload_scan_validates_canonical_projection_shape() {
     assert!(!missing_protected.scan.passed);
     assert_eq!(
         missing_protected.scan.failure_reasons,
-        vec!["projection_required_sections_missing".to_string()]
+        vec!["epoch_snapshot_required_sections_missing".to_string()]
     );
 
     let large_instruction_text = "x".repeat(60 * 1024);

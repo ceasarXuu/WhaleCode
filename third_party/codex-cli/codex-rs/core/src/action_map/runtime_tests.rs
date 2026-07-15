@@ -231,7 +231,7 @@ fn projection_reads_canonical_graph_without_task_or_map_status() {
     );
     let projection = state.build_developer_context().expect("projection");
 
-    assert!(projection.contains("TaskSpaceMapProjectionR6V1"));
+    assert!(projection.contains("TaskSpaceMapEpochSnapshotR6V1"));
     assert!(projection.contains("root_node_id: root"));
     assert!(projection.contains("finish_node_id: finish"));
     assert!(projection.contains("inspect role=work status=running"));

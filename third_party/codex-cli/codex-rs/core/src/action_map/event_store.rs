@@ -449,7 +449,7 @@ pub(super) fn is_call_item(item: &ResponseItem) -> bool {
     )
 }
 
-pub(crate) fn is_taskspace_map_projection_item(item: &ResponseItem) -> bool {
+fn is_taskspace_map_epoch_snapshot_item(item: &ResponseItem) -> bool {
     let ResponseItem::Message { role, content, .. } = item else {
         return false;
     };
@@ -462,12 +462,12 @@ pub(crate) fn is_taskspace_map_projection_item(item: &ResponseItem) -> bool {
             | codex_protocol::models::ContentItem::OutputText { text } => text,
             codex_protocol::models::ContentItem::InputImage { .. } => return false,
         };
-        text.contains("TaskSpaceMapProjectionR6V1:")
+        text.contains("TaskSpaceMapEpochSnapshotR6V1:")
     })
 }
 
 pub(super) fn is_taskspace_runtime_context_item(item: &ResponseItem) -> bool {
-    if is_taskspace_map_projection_item(item) {
+    if is_taskspace_map_epoch_snapshot_item(item) {
         return true;
     }
     let ResponseItem::Message { role, content, .. } = item else {
