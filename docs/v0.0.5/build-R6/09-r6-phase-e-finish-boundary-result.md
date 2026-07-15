@@ -111,3 +111,7 @@ observer 没有反映后续 delta。报告的成本、请求和 control 数可�
 1. Agent 最终回答绕过 `finish_end` 的显式终结缺口；
 2. benchmark observer 对 snapshot delta 的最终状态重放缺口；
 3. 再进入 resume/fork/crash 原子性矩阵。
+
+两项缺口的系统修复设计已写入 `10-r6-terminal-replay-convergence-design.md`。方案不新增 terminal tool 或
+平行 Map 状态：Finish READY 复用现有 named `taskspace_control` hard-state selection；observer 通过
+canonical Rust replay 获取最终 snapshot；hook 只承担生命周期扩展和异常观测，不自动推进 Map。

@@ -265,7 +265,8 @@ Agent 自主规划的 Work；Runtime 不按关键词识别验证语义，也不�
 
 **当前结果**：Finish 无工作语义的纵向切换与单样本门禁已完成；live trace 同时暴露出 Agent 可在
 Finish READY 后直接最终回答而未调用 `finish_end`，以及 observer 未反映后续 snapshot delta 的
-状态重放缺口。Phase E 仍在进行，详见 `09-r6-phase-e-finish-boundary-result.md`。
+状态重放缺口。Phase E 仍在进行，结果见 `09-r6-phase-e-finish-boundary-result.md`；两项缺口统一按
+`10-r6-terminal-replay-convergence-design.md` 的单终结权威、单 replay 权威方案收敛。
 
 实施项：
 
@@ -276,6 +277,16 @@ Finish READY 后直接最终回答而未调用 `finish_end`，以及 observer �
 5. 在每个提交边界注入 crash/failure，验证恢复后不是部分闭合。
 6. snapshot、delta、resume、fork、replay 和 corruption fatal 建立完整矩阵。
 7. 删除任何“看起来完成”自动 end、自动选择最后节点或拒绝后策略提示。
+8. Finish READY 时复用 named `taskspace_control` hard-state tool choice；Agent 自主选择 finish、rework、
+   扩图或读取 Map 信息，Runtime 不选择 variant。
+9. TurnComplete 前只校验 canonical Map 是否闭合；provider 违反 terminal tool contract 时明确失败，不解析
+   最终文本、不自动闭合、不产生 recovery loop。
+10. production resume 与 offline observer 复用同一 Rust checkpoint + delta replay；observer 删除
+    checkpoint-only final state 和 silent fallback。
+11. provider control mode 作为 turn-local response contract 贯通 stream、tool sequence 和 completion，避免
+    plain text 在最终门控前先被发布为 final-answer。
+12. Hook 统一遵循 pre-commit veto、post-commit observe；为 `taskspace_control` 接入既有 PreToolUse，提交后
+    hook 不得改判、回滚或阻止 terminal carrier。
 
 退出门禁：
 
@@ -284,7 +295,11 @@ Finish READY 后直接最终回答而未调用 `finish_end`，以及 observer �
 任一 terminal precondition 失败时 Root/Finish/revision/event 均不变化。
 成功 terminal 后 Root/Finish 同 revision 闭合，summary 字节级保持 Agent 输入。
 20-cycle replay/resume/fork 状态 hash 100% 一致；corruption 明确 fatal。
-resume + rework 三臂各1次完成，无 reject loop。
+resume + rework 确定性矩阵 100% 通过，无 reject loop。
+Finish READY 请求只暴露 named taskspace_control，但不强制具体 control variant。
+observer、resume 与 raw terminal event 的 final revision/hash 一致。
+terminal protocol anomaly 不产生额外 provider recovery request。
+simple 与 complex 的 Standard/R5/R6 各3次完成；R6 finish_end adoption=100%。
 ```
 
 主要收益：任务结束从外置约定变为图内、显式、可回放的唯一终点。
