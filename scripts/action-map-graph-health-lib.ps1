@@ -393,10 +393,23 @@ function Test-TaskspaceDirectEdgesFromAll([object[]]$Edges, [string[]]$FromIds, 
     return $true
 }
 
+function ConvertFrom-TaskspaceEventTime($Value) {
+    $text = [string]$Value
+    if ([string]::IsNullOrWhiteSpace($text)) { return $null }
+    [long]$epoch = 0
+    if ([long]::TryParse($text, [Globalization.NumberStyles]::Integer, [Globalization.CultureInfo]::InvariantCulture, [ref]$epoch)) {
+        if ([Math]::Abs($epoch) -ge 100000000000) {
+            return [datetimeoffset]::FromUnixTimeMilliseconds($epoch).UtcDateTime
+        }
+        return [datetimeoffset]::FromUnixTimeSeconds($epoch).UtcDateTime
+    }
+    return [datetime]::Parse($text, [Globalization.CultureInfo]::InvariantCulture)
+}
+
 function Get-NodeCompletedAt($Node) {
     foreach ($event in @($Node.events)) {
         if ([string]$event.to -eq "completed" -and -not [string]::IsNullOrWhiteSpace([string]$event.at)) {
-            return [datetime]::Parse([string]$event.at)
+            return ConvertFrom-TaskspaceEventTime $event.at
         }
     }
     return $null
@@ -432,12 +445,12 @@ function Test-TaskspacePathExists([object[]]$Edges, [string[]]$FromIds, [string[
 function Get-NodeFirstWorkAt($Node) {
     foreach ($event in @($Node.events)) {
         if ([string]$event.to -in @("running", "completed") -and -not [string]::IsNullOrWhiteSpace([string]$event.at)) {
-            return [datetime]::Parse([string]$event.at)
+            return ConvertFrom-TaskspaceEventTime $event.at
         }
     }
     foreach ($result in @($Node.results)) {
         if (-not [string]::IsNullOrWhiteSpace([string]$result.at)) {
-            return [datetime]::Parse([string]$result.at)
+            return ConvertFrom-TaskspaceEventTime $result.at
         }
     }
     return $null
