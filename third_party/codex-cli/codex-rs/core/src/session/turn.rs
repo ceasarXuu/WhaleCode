@@ -2529,8 +2529,6 @@ async fn publish_taskspace_terminal_agent_message(
         sess.emit_turn_item_completed(turn_context, turn_item).await;
     }
     record_completed_response_item(sess, turn_context, &item).await;
-    sess.emit_action_map_checkpoint_for_turn(turn_context, "terminal")
-        .await;
     tracing::info!(
         target: "codex_core::taskspace",
         call_id,

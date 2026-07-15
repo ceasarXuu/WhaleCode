@@ -8,6 +8,7 @@ use codex_protocol::protocol::MapRuntimeEvent;
 use codex_protocol::protocol::MapRuntimeMode;
 use codex_protocol::protocol::MapRuntimeSnapshotDeltaEvent;
 use codex_protocol::protocol::MapRuntimeSnapshotUpdatedEvent;
+use codex_protocol::protocol::MapRuntimeTerminalCommittedEvent;
 use codex_protocol::protocol::RolloutItem;
 use codex_rollout::RolloutRecorder;
 use serde::Serialize;
@@ -28,6 +29,7 @@ pub enum TaskSpaceReplayErrorCode {
     PreviousHash,
     ResultHash,
     InvalidPatch,
+    IncompleteTransaction,
     UnsupportedSnapshotSchema,
     DomainInvariant,
     NoncanonicalSnapshot,
@@ -45,6 +47,7 @@ impl TaskSpaceReplayErrorCode {
             Self::PreviousHash => "previous_hash",
             Self::ResultHash => "result_hash",
             Self::InvalidPatch => "invalid_patch",
+            Self::IncompleteTransaction => "incomplete_transaction",
             Self::UnsupportedSnapshotSchema => "unsupported_snapshot_schema",
             Self::DomainInvariant => "domain_invariant",
             Self::NoncanonicalSnapshot => "noncanonical_snapshot",
@@ -110,6 +113,8 @@ pub(crate) struct ReplayedActionMapRestore {
 enum ReplayItem {
     Mode(MapRuntimeMode),
     Checkpoint(MapRuntimeSnapshotUpdatedEvent),
+    TerminalCheckpoint(Box<MapRuntimeTerminalCommittedEvent>),
+    IncompleteTerminalCommit,
     Delta(MapRuntimeSnapshotDeltaEvent),
 }
 
@@ -178,7 +183,12 @@ pub(crate) fn replay_rollout_items(
     let surviving_checkpoint_count = surviving_segments
         .iter()
         .flat_map(|segment| segment.iter())
-        .filter(|item| matches!(item, ReplayItem::Checkpoint(_)))
+        .filter(|item| {
+            matches!(
+                item,
+                ReplayItem::Checkpoint(_) | ReplayItem::TerminalCheckpoint(_)
+            )
+        })
         .count();
     let surviving_delta_count = surviving_segments
         .iter()
@@ -256,6 +266,18 @@ fn surviving_segments_newest_first(items: &[RolloutItem]) -> Vec<Vec<ReplayItem>
             RolloutItem::EventMsg(EventMsg::MapRuntime(MapRuntimeEvent::SnapshotDelta(event))) => {
                 active.items.push(ReplayItem::Delta(event.clone()));
             }
+            RolloutItem::EventMsg(EventMsg::MapRuntime(MapRuntimeEvent::TerminalCommitted(
+                event,
+            ))) => {
+                active
+                    .items
+                    .push(ReplayItem::TerminalCheckpoint(event.clone()));
+            }
+            RolloutItem::EventMsg(EventMsg::MapRuntime(
+                MapRuntimeEvent::GraphRevisionCommitted(event),
+            )) if event.operation == "finish_end" => {
+                active.items.push(ReplayItem::IncompleteTerminalCommit);
+            }
             RolloutItem::EventMsg(EventMsg::MapRuntime(MapRuntimeEvent::ModeChanged(event))) => {
                 active.items.push(ReplayItem::Mode(event.current_mode));
             }
@@ -275,7 +297,10 @@ fn mode_from_segments(segments_newest_first: &[Vec<ReplayItem>]) -> MapRuntimeMo
         .flat_map(|segment| segment.iter().rev())
         .filter_map(|item| match item {
             ReplayItem::Mode(mode) => Some(*mode),
-            ReplayItem::Checkpoint(_) | ReplayItem::Delta(_) => None,
+            ReplayItem::Checkpoint(_)
+            | ReplayItem::TerminalCheckpoint(_)
+            | ReplayItem::IncompleteTerminalCommit
+            | ReplayItem::Delta(_) => None,
         })
         .next_back()
         .unwrap_or_default()
@@ -317,6 +342,17 @@ fn replay_segments(
                 install_checkpoint(event, &mut checkpoint)?;
                 restored_snapshot = Some(event.snapshot.clone());
                 active_delta_count = 0;
+            }
+            ReplayItem::TerminalCheckpoint(event) => {
+                install_terminal_checkpoint(event, &mut checkpoint)?;
+                restored_snapshot = Some(event.snapshot.clone());
+                active_delta_count = 0;
+            }
+            ReplayItem::IncompleteTerminalCommit => {
+                return Err(TaskSpaceReplayError::new(
+                    TaskSpaceReplayErrorCode::IncompleteTransaction,
+                    "finish_end graph event is missing its terminal transaction envelope",
+                ));
             }
             ReplayItem::Delta(event) => {
                 let previous_snapshot = checkpoint.latest_snapshot.clone().ok_or_else(|| {
@@ -369,6 +405,48 @@ fn install_checkpoint(
         return Err(TaskSpaceReplayError::new(
             TaskSpaceReplayErrorCode::ResultHash,
             format!("checkpoint hash mismatch for {}", event.checkpoint_id),
+        ));
+    }
+    checkpoint.install(
+        event.checkpoint_id.clone(),
+        event.snapshot_sha256.clone(),
+        event.snapshot.clone(),
+    );
+    Ok(())
+}
+
+fn install_terminal_checkpoint(
+    event: &MapRuntimeTerminalCommittedEvent,
+    checkpoint: &mut ActionMapCheckpointState,
+) -> Result<(), TaskSpaceReplayError> {
+    let actual_hash = snapshot_sha256(&event.snapshot).map_err(|error| {
+        TaskSpaceReplayError::new(TaskSpaceReplayErrorCode::ResultHash, error.to_string())
+    })?;
+    if actual_hash != event.snapshot_sha256 {
+        return Err(TaskSpaceReplayError::new(
+            TaskSpaceReplayErrorCode::ResultHash,
+            format!(
+                "terminal checkpoint hash mismatch for {}",
+                event.checkpoint_id
+            ),
+        ));
+    }
+    let map = event.snapshot.map.as_ref().ok_or_else(|| {
+        TaskSpaceReplayError::new(
+            TaskSpaceReplayErrorCode::IncompleteTransaction,
+            "terminal checkpoint has no canonical map",
+        )
+    })?;
+    if event.graph_revision.operation != "finish_end"
+        || event.trace_event.kind != "terminal_committed"
+        || event.graph_revision.map_id != event.trace_event.map_id
+        || event.graph_revision.map_id != map.id
+        || event.graph_revision.revision != map.revision
+        || !map.complete
+    {
+        return Err(TaskSpaceReplayError::new(
+            TaskSpaceReplayErrorCode::IncompleteTransaction,
+            "terminal checkpoint identity or closed state is inconsistent",
         ));
     }
     checkpoint.install(
@@ -436,7 +514,9 @@ fn validate_snapshot(snapshot: &ActionMapSnapshot) -> Result<(), TaskSpaceReplay
 fn is_checkpoint(item: &&RolloutItem) -> bool {
     matches!(
         item,
-        RolloutItem::EventMsg(EventMsg::MapRuntime(MapRuntimeEvent::SnapshotUpdated(_)))
+        RolloutItem::EventMsg(EventMsg::MapRuntime(
+            MapRuntimeEvent::SnapshotUpdated(_) | MapRuntimeEvent::TerminalCommitted(_)
+        ))
     )
 }
 

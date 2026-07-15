@@ -227,6 +227,53 @@ async fn committed_finish_carrier_is_the_only_taskspace_final() -> anyhow::Resul
         EventMsg::TurnComplete(completed)
             if completed.last_agent_message.as_deref() == Some(FINAL_SUMMARY)
     )));
+    assert!(events.iter().any(|event| matches!(
+        event,
+        EventMsg::MapRuntime(MapRuntimeEvent::TerminalCommitted(committed))
+            if committed.graph_revision.revision == 4
+                && committed.snapshot.map.as_ref().is_some_and(|map| map.complete)
+    )));
+    let rollout_path = test.codex.rollout_path().expect("rollout path");
+    let loaded = codex_core::taskspace_replay::load_rollout(&rollout_path).await?;
+    let terminal_envelope_count = loaded
+        .items
+        .iter()
+        .filter(|item| {
+            matches!(
+                item,
+                codex_protocol::protocol::RolloutItem::EventMsg(EventMsg::MapRuntime(
+                    MapRuntimeEvent::TerminalCommitted(_)
+                ))
+            )
+        })
+        .count();
+    let split_terminal_graph_count = loaded
+        .items
+        .iter()
+        .filter(|item| {
+            matches!(
+                item,
+                codex_protocol::protocol::RolloutItem::EventMsg(EventMsg::MapRuntime(
+                    MapRuntimeEvent::GraphRevisionCommitted(event)
+                )) if event.operation == "finish_end"
+            )
+        })
+        .count();
+    assert_eq!(terminal_envelope_count, 1);
+    assert_eq!(split_terminal_graph_count, 0);
+    let replayed = codex_core::taskspace_replay::replay_loaded_rollout(&loaded)?;
+    assert!(
+        replayed
+            .snapshot
+            .map
+            .as_ref()
+            .is_some_and(|map| map.complete)
+    );
+    assert_eq!(
+        replayed.snapshot.map.as_ref().map(|map| map.revision),
+        Some(4)
+    );
+    assert!(replayed.active_checkpoint_id.starts_with("map-terminal-"));
     assert_terminal_request_shape(&responses);
     Ok(())
 }

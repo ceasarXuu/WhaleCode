@@ -207,6 +207,7 @@ mod review;
 mod rollout_reconstruction;
 #[allow(clippy::module_inception)]
 pub(crate) mod session;
+mod taskspace_terminal;
 pub(crate) mod turn;
 pub(crate) mod turn_context;
 #[cfg(test)]
@@ -217,6 +218,7 @@ use self::session::AppServerClientMetadata;
 use self::session::Session;
 use self::session::SessionConfiguration;
 pub(crate) use self::session::SessionSettingsUpdate;
+pub(crate) use self::taskspace_terminal::FinishActionMapError;
 #[cfg(test)]
 use self::turn::AssistantMessageStreamParsers;
 #[cfg(test)]
@@ -1320,25 +1322,6 @@ impl Session {
         Ok(outcome)
     }
 
-    pub(crate) async fn finish_action_map(
-        &self,
-        turn_context: &TurnContext,
-        expected_revision: u64,
-        final_summary: String,
-    ) -> Result<crate::action_map::ActionMapFinishEndOutcome, String> {
-        let (outcome, events) = {
-            let mut state = self.state.lock().await;
-            state.action_map_runtime.finish_end_for_main(
-                self.conversation_id,
-                expected_revision,
-                final_summary,
-            )
-        }?;
-        self.emit_action_map_events_for_turn(turn_context, events)
-            .await;
-        Ok(outcome)
-    }
-
     pub(crate) async fn expand_action_map_node_details(
         &self,
         turn_context: &TurnContext,
@@ -2300,6 +2283,21 @@ impl Session {
 
     /// Persist the event to rollout and send it to clients.
     pub(crate) async fn send_event(&self, turn_context: &TurnContext, msg: EventMsg) {
+        self.send_event_with_persistence(turn_context, msg, true)
+            .await;
+    }
+
+    async fn send_persisted_event(&self, turn_context: &TurnContext, msg: EventMsg) {
+        self.send_event_with_persistence(turn_context, msg, false)
+            .await;
+    }
+
+    async fn send_event_with_persistence(
+        &self,
+        turn_context: &TurnContext,
+        msg: EventMsg,
+        persist: bool,
+    ) {
         let legacy_source = msg.clone();
         self.services
             .rollout_thread_trace
@@ -2311,7 +2309,11 @@ impl Session {
             id: turn_context.sub_id.clone(),
             msg,
         };
-        self.send_event_raw(event).await;
+        if persist {
+            self.send_event_raw(event).await;
+        } else {
+            self.dispatch_persisted_event_raw(event).await;
+        }
         self.maybe_notify_parent_of_terminal_turn(turn_context, &legacy_source)
             .await;
         self.maybe_mirror_event_text_to_realtime(&legacy_source)
@@ -2456,6 +2458,10 @@ impl Session {
         // Persist the event into rollout storage (the store filters as needed).
         let rollout_items = vec![RolloutItem::EventMsg(event.msg.clone())];
         self.persist_rollout_items(&rollout_items).await;
+        self.dispatch_persisted_event_raw(event).await;
+    }
+
+    async fn dispatch_persisted_event_raw(&self, event: Event) {
         self.services
             .rollout_thread_trace
             .record_protocol_event(&event.msg);

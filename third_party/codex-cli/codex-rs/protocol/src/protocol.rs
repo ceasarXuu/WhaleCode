@@ -2198,11 +2198,23 @@ pub struct MapRuntimeSnapshotDeltaEvent {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct MapRuntimeTerminalCommittedEvent {
+    pub checkpoint_id: String,
+    pub snapshot_sha256: String,
+    pub snapshot: ActionMapSnapshot,
+    pub graph_revision: MapRuntimeGraphRevisionCommittedEvent,
+    pub trace_event: MapRuntimeTraceEventRecordedEvent,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
 #[serde(tag = "map_event_type", rename_all = "snake_case")]
 #[ts(tag = "map_event_type")]
 pub enum MapRuntimeEvent {
     ModeChanged(MapRuntimeModeChangedEvent),
     GraphRevisionCommitted(MapRuntimeGraphRevisionCommittedEvent),
+    TerminalCommitted(Box<MapRuntimeTerminalCommittedEvent>),
     LeaseCreated(MapRuntimeLeaseCreatedEvent),
     LeaseAttached(MapRuntimeLeaseAttachedEvent),
     LeaseReleased(MapRuntimeLeaseReleasedEvent),
@@ -5920,6 +5932,62 @@ mod tests {
         assert_eq!(value["operation"], "transition_node");
         assert_eq!(value["eventIds"], json!(["event-1"]));
         assert_eq!(value["events"][0]["event_type"], "node_completed");
+        assert_eq!(serde_json::from_value::<MapRuntimeEvent>(value)?, event);
+        Ok(())
+    }
+
+    #[test]
+    fn terminal_committed_round_trips_one_durable_envelope() -> Result<()> {
+        let snapshot = ActionMapSnapshot {
+            schema_version: "taskspace-rooted-dag-v1".to_string(),
+            mode: MapRuntimeMode::Experiment,
+            routing_required: true,
+            bootstrap_required: false,
+            reborn_requested: false,
+            map: None,
+            maintenance_barriers: Vec::new(),
+            trace_summary: ActionMapSnapshotTraceSummary::default(),
+            trace_events: Vec::new(),
+            sentinel_summary: ActionMapSnapshotSentinelSummary::default(),
+            sentinel_warnings: Vec::new(),
+        };
+        let event =
+            MapRuntimeEvent::TerminalCommitted(Box::new(MapRuntimeTerminalCommittedEvent {
+                checkpoint_id: "map-terminal-abcd".to_string(),
+                snapshot_sha256: "abcd".to_string(),
+                snapshot,
+                graph_revision: MapRuntimeGraphRevisionCommittedEvent {
+                    map_id: "map-1".to_string(),
+                    revision: 4,
+                    operation: "finish_end".to_string(),
+                    event_ids: vec!["event-1".to_string()],
+                    events: vec![json!({
+                        "event_type": "terminal_committed",
+                        "final_summary": "exact summary",
+                    })],
+                },
+                trace_event: MapRuntimeTraceEventRecordedEvent {
+                    trace_event_id: "trace-1".to_string(),
+                    kind: "terminal_committed".to_string(),
+                    task_id: None,
+                    map_id: "map-1".to_string(),
+                    node_id: "finish".to_string(),
+                    result_id: None,
+                    call_id: None,
+                    action_class: None,
+                    tool_success: None,
+                    tags: vec!["state_commit:true".to_string()],
+                    artifact_refs: Vec::new(),
+                    created_at_ms: 1234,
+                },
+            }));
+
+        let value = serde_json::to_value(&event)?;
+
+        assert_eq!(value["map_event_type"], "terminal_committed");
+        assert_eq!(value["checkpointId"], "map-terminal-abcd");
+        assert_eq!(value["graphRevision"]["revision"], 4);
+        assert_eq!(value["traceEvent"]["kind"], "terminal_committed");
         assert_eq!(serde_json::from_value::<MapRuntimeEvent>(value)?, event);
         Ok(())
     }

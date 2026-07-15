@@ -15,6 +15,7 @@ use codex_protocol::protocol::MapRuntimeEvent;
 use codex_protocol::protocol::MapRuntimeMode;
 use codex_protocol::protocol::MapRuntimeModeChangedEvent;
 use codex_protocol::protocol::MapRuntimeSnapshotUpdatedEvent;
+use codex_protocol::protocol::MapRuntimeTerminalCommittedEvent;
 use codex_protocol::protocol::RolloutItem;
 use codex_protocol::protocol::RolloutLine;
 use codex_protocol::protocol::ThreadRolledBackEvent;
@@ -91,7 +92,12 @@ fn delta_item(delta: codex_protocol::protocol::MapRuntimeSnapshotDeltaEvent) -> 
     RolloutItem::EventMsg(EventMsg::MapRuntime(MapRuntimeEvent::SnapshotDelta(delta)))
 }
 
-fn terminal_crash_window() -> (ActionMapSnapshot, ActionMapSnapshot, RolloutItem) {
+fn terminal_crash_window() -> (
+    ActionMapSnapshot,
+    ActionMapSnapshot,
+    RolloutItem,
+    RolloutItem,
+) {
     let owner = ThreadId::new();
     let mut runtime = ActionMapRuntimeState::default();
     runtime.set_mode_for_session(MapRuntimeMode::Experiment, owner);
@@ -139,15 +145,30 @@ fn terminal_crash_window() -> (ActionMapSnapshot, ActionMapSnapshot, RolloutItem
         .finish_end_for_main(owner, 3, "terminal summary".into())
         .unwrap();
     let terminal = runtime.snapshot();
-    let graph_event = events
-        .into_iter()
-        .find(|event| matches!(event, MapRuntimeEvent::GraphRevisionCommitted(_)))
-        .expect("finish emits a graph revision event");
-    (
-        pre_terminal,
-        terminal,
-        RolloutItem::EventMsg(EventMsg::MapRuntime(graph_event)),
-    )
+    let mut graph_revision = None;
+    let mut trace_event = None;
+    for event in events {
+        match event {
+            MapRuntimeEvent::GraphRevisionCommitted(event) => graph_revision = Some(event),
+            MapRuntimeEvent::TaskspaceTraceEventRecorded(event) => trace_event = Some(event),
+            other => panic!("unexpected terminal event: {other:?}"),
+        }
+    }
+    let graph_revision = graph_revision.expect("finish emits a graph revision event");
+    let graph_event = RolloutItem::EventMsg(EventMsg::MapRuntime(
+        MapRuntimeEvent::GraphRevisionCommitted(graph_revision.clone()),
+    ));
+    let snapshot_sha256 = snapshot_sha256(&terminal).unwrap();
+    let terminal_event = RolloutItem::EventMsg(EventMsg::MapRuntime(
+        MapRuntimeEvent::TerminalCommitted(Box::new(MapRuntimeTerminalCommittedEvent {
+            checkpoint_id: format!("map-terminal-{}", &snapshot_sha256[..16]),
+            snapshot_sha256,
+            snapshot: terminal.clone(),
+            graph_revision,
+            trace_event: trace_event.expect("finish emits a trace event"),
+        })),
+    ));
+    (pre_terminal, terminal, graph_event, terminal_event)
 }
 
 #[test]
@@ -180,19 +201,72 @@ fn replay_applies_checkpoint_and_chained_deltas() {
 }
 
 #[test]
-fn replay_currently_ignores_terminal_graph_commit_without_delta() {
-    let (pre_terminal, terminal, graph_event) = terminal_crash_window();
-    let replayed = replay_rollout_items(
+fn replay_rejects_terminal_graph_commit_without_transaction_envelope() {
+    let (pre_terminal, _, graph_event, _) = terminal_crash_window();
+    let error = replay_rollout_items(
         "terminal-crash-window".into(),
         0,
-        &[checkpoint("pre-terminal", pre_terminal.clone()), graph_event],
+        &[checkpoint("pre-terminal", pre_terminal), graph_event],
+    )
+    .unwrap_err();
+
+    assert_eq!(error.code, TaskSpaceReplayErrorCode::IncompleteTransaction);
+}
+
+#[test]
+fn terminal_transaction_envelope_replays_as_one_checkpoint() {
+    let (pre_terminal, terminal, _, terminal_event) = terminal_crash_window();
+    let replayed = replay_rollout_items(
+        "terminal-transaction".into(),
+        0,
+        &[checkpoint("pre-terminal", pre_terminal), terminal_event],
     )
     .unwrap();
 
-    assert!(!pre_terminal.map.as_ref().unwrap().complete);
-    assert!(terminal.map.as_ref().unwrap().complete);
-    assert_eq!(replayed.state.snapshot, pre_terminal);
-    assert_ne!(replayed.state.snapshot, terminal);
+    assert_eq!(replayed.state.snapshot, terminal);
+    assert_eq!(replayed.state.parsed_checkpoint_count, 2);
+    assert_eq!(replayed.state.active_chain_applied_delta_count, 0);
+    assert!(replayed.state.snapshot.map.as_ref().unwrap().complete);
+}
+
+#[test]
+fn terminal_transaction_corruption_is_fatal_without_partial_restore() {
+    let (pre_terminal, _, _, terminal_item) = terminal_crash_window();
+    let RolloutItem::EventMsg(EventMsg::MapRuntime(MapRuntimeEvent::TerminalCommitted(terminal))) =
+        terminal_item
+    else {
+        panic!("terminal fixture must produce an envelope");
+    };
+
+    let mut bad_hash = (*terminal).clone();
+    bad_hash.snapshot_sha256 = "bad-hash".into();
+    let mut bad_revision = (*terminal).clone();
+    bad_revision.graph_revision.revision += 1;
+    let mut bad_trace = (*terminal).clone();
+    bad_trace.trace_event.kind = "not-terminal".into();
+
+    let cases = [
+        (bad_hash, TaskSpaceReplayErrorCode::ResultHash),
+        (
+            bad_revision,
+            TaskSpaceReplayErrorCode::IncompleteTransaction,
+        ),
+        (bad_trace, TaskSpaceReplayErrorCode::IncompleteTransaction),
+    ];
+    for (event, expected_code) in cases {
+        let error = replay_rollout_items(
+            "terminal-corruption".into(),
+            0,
+            &[
+                checkpoint("pre-terminal", pre_terminal.clone()),
+                RolloutItem::EventMsg(EventMsg::MapRuntime(MapRuntimeEvent::TerminalCommitted(
+                    Box::new(event),
+                ))),
+            ],
+        )
+        .unwrap_err();
+        assert_eq!(error.code, expected_code);
+    }
 }
 
 #[test]

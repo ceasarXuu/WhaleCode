@@ -2,7 +2,12 @@ use super::*;
 
 use super::tests::make_session_and_context;
 use crate::action_map::ActionMapCheckpointState;
+use crate::action_map::ActionMapEdgeInput;
+use crate::action_map::ActionMapInitializeFinishInput;
+use crate::action_map::ActionMapInitializeInput;
+use crate::action_map::ActionMapInitializeNodeInput;
 use crate::action_map::ActionMapRuntimeState;
+use crate::action_map::NodeTransition;
 use crate::action_map::TaskSpaceEventStore;
 use crate::action_map::build_snapshot_delta;
 use crate::action_map::snapshot_sha256;
@@ -45,6 +50,63 @@ fn map_checkpoint_event(
         snapshot_sha256: snapshot_sha256(&snapshot).unwrap(),
         snapshot,
     }
+}
+
+fn terminal_rollout_items(owner: ThreadId) -> Vec<RolloutItem> {
+    let mut runtime = ActionMapRuntimeState::default();
+    runtime.set_mode_for_session(MapRuntimeMode::Experiment, owner);
+    runtime
+        .initialize_map_for_main(
+            owner,
+            ActionMapInitializeInput {
+                root: ActionMapInitializeNodeInput {
+                    id: "root".into(),
+                    goal: "Restore a terminal map".into(),
+                },
+                current_work_node: ActionMapInitializeNodeInput {
+                    id: "work".into(),
+                    goal: "Complete the work".into(),
+                },
+                finish: ActionMapInitializeFinishInput {
+                    id: "finish".into(),
+                },
+                work_nodes: Vec::new(),
+                edges: vec![
+                    ActionMapEdgeInput {
+                        from: "root".into(),
+                        to: "work".into(),
+                    },
+                    ActionMapEdgeInput {
+                        from: "work".into(),
+                        to: "finish".into(),
+                    },
+                ],
+                source_event_ids: Vec::new(),
+            },
+        )
+        .unwrap();
+    runtime
+        .transition_node_for_main(
+            owner,
+            2,
+            "work".into(),
+            NodeTransition::Complete,
+            "complete-event".into(),
+        )
+        .unwrap();
+    let pre_terminal = runtime.snapshot();
+    let (_, events) = runtime
+        .finish_end_for_main(owner, 3, "exact terminal summary".into())
+        .unwrap();
+    let terminal = Session::terminal_commit_event(events, runtime.snapshot()).unwrap();
+    vec![
+        RolloutItem::EventMsg(EventMsg::MapRuntime(MapRuntimeEvent::SnapshotUpdated(
+            map_checkpoint_event("pre-terminal", pre_terminal),
+        ))),
+        RolloutItem::EventMsg(EventMsg::MapRuntime(MapRuntimeEvent::TerminalCommitted(
+            Box::new(terminal),
+        ))),
+    ]
 }
 
 fn assistant_message(text: &str) -> ResponseItem {
@@ -101,6 +163,52 @@ async fn reconstruct_history_restores_latest_map_runtime_mode() {
         .await;
 
     assert_eq!(reconstructed.map_runtime_mode, MapRuntimeMode::Standard);
+}
+
+#[tokio::test]
+async fn resumed_history_restores_terminal_transaction_checkpoint() {
+    let (session, _) = make_session_and_context().await;
+    let items = terminal_rollout_items(session.conversation_id);
+
+    session
+        .record_initial_history(InitialHistory::Resumed(ResumedHistory {
+            conversation_id: session.conversation_id,
+            history: items,
+            rollout_path: Some(PathBuf::from("/tmp/resume-terminal-map.jsonl")),
+        }))
+        .await
+        .unwrap();
+
+    let snapshot = session.action_map_snapshot().await;
+    let map = snapshot.map.as_ref().unwrap();
+    assert!(map.complete);
+    assert_eq!(map.revision, 4);
+    let state = session.state.lock().await;
+    assert!(
+        state
+            .action_map_checkpoint
+            .checkpoint_id
+            .as_deref()
+            .is_some_and(|id| id.starts_with("map-terminal-"))
+    );
+}
+
+#[tokio::test]
+async fn forked_history_restores_terminal_transaction_and_rebinds_owner() {
+    let source_owner = ThreadId::new();
+    let (session, _) = make_session_and_context().await;
+    let items = terminal_rollout_items(source_owner);
+
+    session
+        .record_initial_history(InitialHistory::Forked(items))
+        .await
+        .unwrap();
+
+    let snapshot = session.action_map_snapshot().await;
+    let map = snapshot.map.as_ref().unwrap();
+    assert!(map.complete);
+    assert_eq!(map.revision, 4);
+    assert_eq!(map.owner_session_id, Some(session.conversation_id));
 }
 
 #[tokio::test]

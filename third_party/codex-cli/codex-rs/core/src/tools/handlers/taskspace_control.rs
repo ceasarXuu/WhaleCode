@@ -9,6 +9,7 @@ use crate::action_map::ActionMapInitializeInput;
 use crate::action_map::ActionMapInitializeNodeInput;
 use crate::action_map::NodeTransition;
 use crate::function_tool::FunctionCallError;
+use crate::session::FinishActionMapError;
 use crate::tools::context::TaskSpaceTerminalCarrier;
 use crate::tools::context::ToolInvocation;
 use crate::tools::context::ToolOutput;
@@ -302,7 +303,7 @@ impl ToolHandler for TaskSpaceControlHandler {
                             }),
                         )
                     }
-                    Err(error) => {
+                    Err(FinishActionMapError::Rejected(error)) => {
                         let map_state = session
                             .action_map_control_state(map_id_hint.as_deref())
                             .await;
@@ -311,6 +312,12 @@ impl ToolHandler for TaskSpaceControlHandler {
                             false,
                             None,
                         )
+                    }
+                    Err(FinishActionMapError::Persistence(error)) => {
+                        return Err(resource_error(error, "terminal_persistence_failed"));
+                    }
+                    Err(FinishActionMapError::Internal(error)) => {
+                        return Err(protocol_error(error, "terminal_transaction_invalid"));
                     }
                 }
             }
