@@ -1,0 +1,281 @@
+#![cfg(not(target_os = "windows"))]
+
+use anyhow::Ok;
+use codex_protocol::items::AgentMessageContent;
+use codex_protocol::items::TurnItem;
+use codex_protocol::models::MessagePhase;
+use codex_protocol::protocol::EventMsg;
+use codex_protocol::protocol::ItemCompletedEvent;
+use codex_protocol::protocol::MapRuntimeEvent;
+use codex_protocol::protocol::MapRuntimeMode;
+use codex_protocol::protocol::Op;
+use codex_protocol::user_input::UserInput;
+use core_test_support::responses::ResponseMock;
+use core_test_support::responses::ev_assistant_message;
+use core_test_support::responses::ev_completed;
+use core_test_support::responses::ev_function_call;
+use core_test_support::responses::ev_message_item_added;
+use core_test_support::responses::ev_output_text_delta;
+use core_test_support::responses::ev_response_created;
+use core_test_support::responses::mount_sse_sequence;
+use core_test_support::responses::sse;
+use core_test_support::responses::start_mock_server;
+use core_test_support::skip_if_no_network;
+use core_test_support::test_codex::TestCodex;
+use core_test_support::test_codex::test_codex;
+use core_test_support::wait_for_event;
+use pretty_assertions::assert_eq;
+use serde_json::json;
+
+const FINAL_SUMMARY: &str = "Exact Agent terminal summary.";
+const PLAIN_PROVIDER_TEXT: &str = "Provider tried to finish without finish_end.";
+
+fn initialize_arguments(dir_path: &str) -> String {
+    json!({
+        "action": "initialize_map",
+        "root": {"node_id": "root", "goal": "Complete the test task"},
+        "initial_work_node": {"node_id": "work", "goal": "Inspect the workspace"},
+        "finish": {"node_id": "finish"},
+        "additional_work_nodes": [],
+        "edges": [
+            {"from": "root", "to": "work"},
+            {"from": "work", "to": "finish"}
+        ],
+        "continuation": {
+            "kind": "actions",
+            "actions": [{
+                "tool_name": "exec_command",
+                "arguments": {"cmd": "pwd", "workdir": dir_path}
+            }]
+        }
+    })
+    .to_string()
+}
+
+fn transition_arguments() -> String {
+    json!({
+        "action": "transition_node",
+        "expected_revision": 2,
+        "node_id": "work",
+        "transition": "complete"
+    })
+    .to_string()
+}
+
+fn finish_arguments() -> String {
+    json!({
+        "action": "finish_end",
+        "expected_revision": 3,
+        "final_summary": FINAL_SUMMARY
+    })
+    .to_string()
+}
+
+async fn enable_taskspace(test: &TestCodex) {
+    test.codex
+        .submit(Op::SetMapRuntimeMode {
+            mode: MapRuntimeMode::Experiment,
+        })
+        .await
+        .expect("enable TaskSpace");
+    wait_for_event(&test.codex, |event| {
+        matches!(event, EventMsg::MapRuntime(MapRuntimeEvent::ModeChanged(_)))
+    })
+    .await;
+}
+
+async fn submit_and_collect(test: &TestCodex) -> Vec<EventMsg> {
+    test.codex
+        .submit(Op::UserInput {
+            environments: None,
+            items: vec![UserInput::Text {
+                text: "exercise the terminal contract".into(),
+                text_elements: Vec::new(),
+            }],
+            final_output_json_schema: None,
+            responsesapi_client_metadata: None,
+        })
+        .await
+        .expect("submit test turn");
+
+    let mut events = Vec::new();
+    loop {
+        let event = wait_for_event(&test.codex, |_| true).await;
+        let complete = matches!(event, EventMsg::TurnComplete(_));
+        events.push(event);
+        if complete {
+            return events;
+        }
+    }
+}
+
+fn common_responses(test: &TestCodex) -> Vec<String> {
+    vec![
+        sse(vec![
+            ev_response_created("init-response"),
+            ev_function_call(
+                "init-call",
+                "taskspace_control",
+                &initialize_arguments(&test.cwd_path().display().to_string()),
+            ),
+            ev_completed("init-response"),
+        ]),
+        sse(vec![
+            ev_response_created("complete-response"),
+            ev_function_call(
+                "complete-call",
+                "taskspace_control",
+                &transition_arguments(),
+            ),
+            ev_completed("complete-response"),
+        ]),
+    ]
+}
+
+fn assert_terminal_request_shape(responses: &ResponseMock) {
+    let requests = responses.requests();
+    assert_eq!(
+        requests.len(),
+        3,
+        "terminal handling must not add a request"
+    );
+    let terminal = requests[2].body_json();
+    let tool_choice = terminal["tool_choice"].clone();
+    let tool_names = terminal["tools"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|tool| tool["name"].as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        terminal["tool_choice"]["name"], "taskspace_control",
+        "unexpected terminal request shape: tool_choice={tool_choice}, tools={tool_names:?}"
+    );
+    assert_eq!(terminal["tools"].as_array().map(Vec::len), Some(1));
+}
+
+fn error_messages(events: &[EventMsg]) -> Vec<&str> {
+    events
+        .iter()
+        .filter_map(|event| match event {
+            EventMsg::Error(error) => Some(error.message.as_str()),
+            _ => None,
+        })
+        .collect()
+}
+
+fn control_output_diagnostics(responses: &ResponseMock) -> Vec<(&'static str, String)> {
+    ["init-call", "complete-call", "finish-call"]
+        .into_iter()
+        .filter_map(|call_id| {
+            responses
+                .function_call_output_text(call_id)
+                .map(|output| (call_id, output))
+        })
+        .collect()
+}
+
+fn agent_text(item: &TurnItem) -> Option<(String, Option<MessagePhase>)> {
+    let TurnItem::AgentMessage(message) = item else {
+        return None;
+    };
+    let text = message
+        .content
+        .iter()
+        .map(|content| match content {
+            AgentMessageContent::Text { text } => text.as_str(),
+        })
+        .collect::<String>();
+    Some((text, message.phase.clone()))
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn committed_finish_carrier_is_the_only_taskspace_final() -> anyhow::Result<()> {
+    skip_if_no_network!(Ok(()));
+    let server = start_mock_server().await;
+    let test = test_codex().build(&server).await?;
+    enable_taskspace(&test).await;
+
+    let mut bodies = common_responses(&test);
+    bodies.push(sse(vec![
+        ev_response_created("finish-response"),
+        ev_function_call("finish-call", "taskspace_control", &finish_arguments()),
+        ev_completed("finish-response"),
+    ]));
+    let responses = mount_sse_sequence(&server, bodies).await;
+    let events = submit_and_collect(&test).await;
+    let errors = error_messages(&events);
+    assert!(
+        errors.is_empty(),
+        "unexpected errors: {errors:?}; control outputs: {:?}",
+        control_output_diagnostics(&responses)
+    );
+
+    let completed_messages = events
+        .iter()
+        .filter_map(|event| match event {
+            EventMsg::ItemCompleted(ItemCompletedEvent { item, .. }) => agent_text(item),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        completed_messages,
+        vec![(FINAL_SUMMARY.to_string(), Some(MessagePhase::FinalAnswer))]
+    );
+    assert!(events.iter().any(|event| matches!(
+        event,
+        EventMsg::TurnComplete(completed)
+            if completed.last_agent_message.as_deref() == Some(FINAL_SUMMARY)
+    )));
+    assert_terminal_request_shape(&responses);
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn plain_provider_final_is_nonterminal_and_does_not_retry() -> anyhow::Result<()> {
+    skip_if_no_network!(Ok(()));
+    let server = start_mock_server().await;
+    let test = test_codex().build(&server).await?;
+    enable_taskspace(&test).await;
+
+    let mut bodies = common_responses(&test);
+    bodies.push(sse(vec![
+        ev_response_created("plain-response"),
+        ev_message_item_added("plain-message", "Provider tried "),
+        ev_output_text_delta("to finish without finish_end."),
+        ev_assistant_message("plain-message", PLAIN_PROVIDER_TEXT),
+        ev_completed("plain-response"),
+    ]));
+    let responses = mount_sse_sequence(&server, bodies).await;
+    let events = submit_and_collect(&test).await;
+
+    let completed_messages = events
+        .iter()
+        .filter_map(|event| match event {
+            EventMsg::ItemCompleted(ItemCompletedEvent { item, .. }) => agent_text(item),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        completed_messages,
+        vec![(
+            PLAIN_PROVIDER_TEXT.to_string(),
+            Some(MessagePhase::Commentary)
+        )]
+    );
+    assert!(!events.iter().any(|event| matches!(
+        event,
+        EventMsg::AgentMessageDelta(_) | EventMsg::AgentMessageContentDelta(_)
+    )));
+    assert!(events.iter().any(|event| matches!(
+        event,
+        EventMsg::Error(error)
+            if error.message.contains("taskspace_terminal_protocol_violation")
+    )));
+    assert!(events.iter().any(|event| matches!(
+        event,
+        EventMsg::TurnComplete(completed) if completed.last_agent_message.is_none()
+    )));
+    assert_terminal_request_shape(&responses);
+    Ok(())
+}

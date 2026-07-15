@@ -271,7 +271,9 @@ replay 已完成并通过独立门禁，详见 `11-r6-phase-e2-canonical-replay-
 observer 已统一消费 canonical proof，结果见
 `12-r6-phase-e3-observer-convergence-result.md`。E4 terminal hard-state affordance 也已完成：Finish READY
 请求使用 named `taskspace_control` 且只暴露 active control schema，Agent 仍自主选择 finish、rework、改图或
-读取；结果见 `13-r6-phase-e4-terminal-hard-state-result.md`。当前进入 E5 completion gate。
+读取；结果见 `13-r6-phase-e4-terminal-hard-state-result.md`。E5 completion gate 也已完成：只有 committed
+`finish_end` carrier 可发布 TaskSpace final，plain provider final 被原样保留为 Commentary 并以稳定协议错误结束，
+不生成 recovery request；结果见 `14-r6-phase-e5-completion-gate-result.md`。当前进入 E6 原子性与 live 收益门禁。
 
 实施项：
 

@@ -124,6 +124,7 @@ use tracing::trace_span;
 use tracing::warn;
 
 const TASKSPACE_GATE_RECOVERY_MARKER: &str = "\"schema_version\":\"TaskSpaceGateResultV1\"";
+const TASKSPACE_TERMINAL_PROTOCOL_VIOLATION: &str = "taskspace_terminal_protocol_violation";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum TaskspaceProviderResponseActionability {
@@ -131,6 +132,7 @@ enum TaskspaceProviderResponseActionability {
     NoActionFollowUp,
     ToolFeedbackRecovery,
     EmptyFollowUp,
+    ProtocolViolation,
     TurnComplete,
 }
 
@@ -147,6 +149,7 @@ impl TaskspaceProviderResponseActionability {
             Self::NoActionFollowUp => "no_action_follow_up",
             Self::ToolFeedbackRecovery => "tool_feedback_recovery",
             Self::EmptyFollowUp => "empty_follow_up",
+            Self::ProtocolViolation => "protocol_violation",
             Self::TurnComplete => "turn_complete",
         }
     }
@@ -1008,6 +1011,13 @@ enum TaskspaceProviderControlMode {
     TerminalControlRequired,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct TaskspaceProviderResponseContract {
+    control_mode: TaskspaceProviderControlMode,
+    map_id: Option<String>,
+    revision: Option<u64>,
+}
+
 impl TaskspaceProviderControlMode {
     fn as_str(self) -> &'static str {
         match self {
@@ -1038,6 +1048,30 @@ fn taskspace_provider_control_mode(
     } else {
         TaskspaceProviderControlMode::WorkActive
     }
+}
+
+fn taskspace_terminal_protocol_violation(
+    contract: Option<&TaskspaceProviderResponseContract>,
+    terminal_committed: bool,
+    needs_follow_up: bool,
+) -> bool {
+    contract.is_some() && !terminal_committed && !needs_follow_up
+}
+
+fn taskspace_nonterminal_assistant_message(item: &ResponseItem) -> Option<ResponseItem> {
+    let ResponseItem::Message {
+        id, role, content, ..
+    } = item
+    else {
+        return None;
+    };
+    (role == "assistant").then(|| ResponseItem::Message {
+        id: id.clone(),
+        role: role.clone(),
+        content: content.clone(),
+        end_turn: Some(false),
+        phase: Some(MessagePhase::Commentary),
+    })
 }
 
 fn apply_provider_tool_visibility(
@@ -1290,27 +1324,37 @@ async fn run_sampling_request(
         } else {
             None
         };
-        let taskspace_control_mode = taskspace_context_visible.then(|| {
-            taskspace_provider_control_mode(
+        let taskspace_response_contract = taskspace_context_visible.then(|| {
+            let control_mode = taskspace_provider_control_mode(
                 provider_budget_snapshot
                     .as_ref()
                     .is_some_and(|snapshot| snapshot.map_requires_initialization),
                 action_map_control_state.as_ref(),
-            )
-        });
-        if let Some(control_mode) = taskspace_control_mode {
-            info!(
-                target = "codex_core::taskspace",
-                control_mode = control_mode.as_str(),
-                map_id = action_map_control_state
+            );
+            TaskspaceProviderResponseContract {
+                control_mode,
+                map_id: action_map_control_state
                     .as_ref()
-                    .map(|state| state.map_id.as_str())
+                    .map(|state| state.map_id.clone())
                     .or_else(|| {
                         provider_budget_snapshot
                             .as_ref()
-                            .map(|snapshot| snapshot.map_id.as_str())
+                            .map(|snapshot| snapshot.map_id.clone())
                     }),
-                revision = ?action_map_control_state.as_ref().map(|state| state.revision),
+                revision: action_map_control_state
+                    .as_ref()
+                    .map(|state| state.revision),
+            }
+        });
+        let taskspace_control_mode = taskspace_response_contract
+            .as_ref()
+            .map(|contract| contract.control_mode);
+        if let Some(contract) = taskspace_response_contract.as_ref() {
+            info!(
+                target = "codex_core::taskspace",
+                control_mode = contract.control_mode.as_str(),
+                map_id = contract.map_id.as_deref(),
+                revision = ?contract.revision,
                 "taskspace_provider_control_mode_selected"
             );
         }
@@ -1330,6 +1374,7 @@ async fn run_sampling_request(
             turn_metadata_header,
             Arc::clone(&turn_diff_tracker),
             &prompt,
+            taskspace_response_contract.as_ref(),
             cancellation_token.child_token(),
         )
         .await
@@ -1606,6 +1651,14 @@ mod active_context_replacement_tests {
         }
     }
 
+    fn terminal_response_contract() -> TaskspaceProviderResponseContract {
+        TaskspaceProviderResponseContract {
+            control_mode: TaskspaceProviderControlMode::TerminalControlRequired,
+            map_id: Some("map-1".into()),
+            revision: Some(7),
+        }
+    }
+
     #[test]
     fn taskspace_control_modes_align_named_choice_visibility_and_schema() {
         let visible = vec![
@@ -1738,6 +1791,60 @@ mod active_context_replacement_tests {
             TaskspaceProviderResponseActionability::TurnComplete
         );
         assert!(!classification.needs_recovery());
+    }
+
+    #[test]
+    fn taskspace_completion_requires_a_committed_terminal_carrier() {
+        let contract = terminal_response_contract();
+        assert!(taskspace_terminal_protocol_violation(
+            Some(&contract),
+            false,
+            false
+        ));
+        assert!(!taskspace_terminal_protocol_violation(
+            Some(&contract),
+            true,
+            false
+        ));
+        assert!(!taskspace_terminal_protocol_violation(
+            Some(&contract),
+            false,
+            true
+        ));
+        assert!(!taskspace_terminal_protocol_violation(None, false, false));
+    }
+
+    #[test]
+    fn taskspace_provider_text_is_presented_as_nonterminal_without_rewriting_text() {
+        let original = ResponseItem::Message {
+            id: Some("message-1".into()),
+            role: "assistant".into(),
+            content: vec![ContentItem::OutputText {
+                text: "exact provider text".into(),
+            }],
+            end_turn: Some(true),
+            phase: Some(MessagePhase::FinalAnswer),
+        };
+
+        let presented =
+            taskspace_nonterminal_assistant_message(&original).expect("assistant message");
+        let ResponseItem::Message {
+            content,
+            end_turn,
+            phase,
+            ..
+        } = presented
+        else {
+            panic!("expected assistant message");
+        };
+        assert_eq!(
+            content,
+            vec![ContentItem::OutputText {
+                text: "exact provider text".into(),
+            }]
+        );
+        assert_eq!(end_turn, Some(false));
+        assert_eq!(phase, Some(MessagePhase::Commentary));
     }
 
     #[test]
@@ -2434,6 +2541,38 @@ async fn publish_taskspace_terminal_agent_message(
     );
 }
 
+async fn publish_taskspace_nonterminal_provider_messages(
+    sess: &Session,
+    turn_context: &TurnContext,
+    messages: Vec<ResponseItem>,
+) {
+    let mut published_count = 0usize;
+    let mut published_bytes = 0usize;
+    for item in messages {
+        let Some(item) = taskspace_nonterminal_assistant_message(&item) else {
+            continue;
+        };
+        published_bytes += raw_assistant_output_text_from_item(&item)
+            .map(|text| text.len())
+            .unwrap_or_default();
+        if let Some(turn_item) =
+            handle_non_tool_response_item(sess, turn_context, &item, /*plan_mode*/ false).await
+        {
+            sess.emit_turn_item_started(turn_context, &turn_item).await;
+            sess.emit_turn_item_completed(turn_context, turn_item).await;
+            published_count += 1;
+        }
+    }
+    if published_count > 0 {
+        tracing::info!(
+            target: "codex_core::taskspace",
+            published_count,
+            published_bytes,
+            "taskspace_provider_assistant_text_published_nonterminal"
+        );
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 #[instrument(level = "trace",
     skip_all,
@@ -2450,6 +2589,7 @@ async fn try_run_sampling_request(
     turn_metadata_header: Option<&str>,
     turn_diff_tracker: SharedTurnDiffTracker,
     prompt: &Prompt,
+    taskspace_response_contract: Option<&TaskspaceProviderResponseContract>,
     cancellation_token: CancellationToken,
 ) -> CodexResult<SamplingRequestResult> {
     feedback_tags!(
@@ -2516,6 +2656,9 @@ async fn try_run_sampling_request(
         Box<dyn ToolArgumentDiffConsumer>,
     )> = None;
     let mut should_emit_turn_diff = false;
+    let mut taskspace_assistant_item_active = false;
+    let mut provider_assistant_message_present = false;
+    let mut deferred_taskspace_assistant_messages = Vec::new();
     let plan_mode = turn_context.collaboration_mode.mode == ModeKind::Plan;
     let mut assistant_message_stream_parsers = AssistantMessageStreamParsers::new(plan_mode);
     let mut plan_mode_state = plan_mode.then(|| PlanModeStreamState::new(&turn_context.sub_id));
@@ -2601,6 +2744,18 @@ async fn try_run_sampling_request(
                     sess.send_event(&turn_context, event).await;
                 }
                 let previously_active_item = active_item.take();
+                if taskspace_response_contract.is_some()
+                    && taskspace_nonterminal_assistant_message(&item).is_some()
+                {
+                    taskspace_assistant_item_active = false;
+                    provider_assistant_message_present |=
+                        raw_assistant_output_text_from_item(&item)
+                            .is_some_and(|text| !text.trim().is_empty());
+                    record_completed_response_item(sess.as_ref(), turn_context.as_ref(), &item)
+                        .await;
+                    deferred_taskspace_assistant_messages.push(item);
+                    continue;
+                }
                 if let Some(previous) = previously_active_item.as_ref()
                     && matches!(previous, TurnItem::AgentMessage(_))
                 {
@@ -2682,6 +2837,12 @@ async fn try_run_sampling_request(
                 }
             }
             ResponseEvent::OutputItemAdded(item) => {
+                if taskspace_response_contract.is_some()
+                    && taskspace_nonterminal_assistant_message(&item).is_some()
+                {
+                    taskspace_assistant_item_active = true;
+                    continue;
+                }
                 if let ResponseItem::CustomToolCall { call_id, name, .. } = &item {
                     let tool_name = ToolName::plain(name.as_str());
                     active_tool_argument_diff_consumer = tool_runtime
@@ -2832,32 +2993,60 @@ async fn try_run_sampling_request(
                     } else {
                         false
                     };
+                if terminal_candidate_released {
+                    if !deferred_taskspace_assistant_messages.is_empty() {
+                        tracing::info!(
+                            target: "codex_core::taskspace",
+                            suppressed_count = deferred_taskspace_assistant_messages.len(),
+                            "taskspace_provider_assistant_text_suppressed_by_terminal_carrier"
+                        );
+                        deferred_taskspace_assistant_messages.clear();
+                    }
+                } else {
+                    publish_taskspace_nonterminal_provider_messages(
+                        sess.as_ref(),
+                        turn_context.as_ref(),
+                        std::mem::take(&mut deferred_taskspace_assistant_messages),
+                    )
+                    .await;
+                }
                 if !terminal_candidate_released && let Some(false) = end_turn {
                     needs_follow_up = true;
                 }
-                let assistant_message_present = last_agent_message
-                    .as_deref()
-                    .map(|message| !message.trim().is_empty())
-                    .unwrap_or(false);
+                let assistant_message_present = provider_assistant_message_present
+                    || last_agent_message
+                        .as_deref()
+                        .is_some_and(|message| !message.trim().is_empty());
                 let current_budget_snapshot =
                     sess.action_map_provider_request_budget_snapshot().await;
-                if taskspace_bound_node_empty_response_requires_follow_up(
-                    current_budget_snapshot
-                        .as_ref()
-                        .and_then(|snapshot| snapshot.node_role.as_deref()),
-                    saw_actionable_output,
-                    assistant_message_present,
-                ) {
+                let terminal_protocol_violation = taskspace_terminal_protocol_violation(
+                    taskspace_response_contract,
+                    terminal_candidate_released,
+                    needs_follow_up,
+                );
+                if !terminal_protocol_violation
+                    && taskspace_bound_node_empty_response_requires_follow_up(
+                        current_budget_snapshot
+                            .as_ref()
+                            .and_then(|snapshot| snapshot.node_role.as_deref()),
+                        saw_actionable_output,
+                        assistant_message_present,
+                    )
+                {
                     needs_follow_up = true;
                 }
-                let response_actionability = classify_taskspace_provider_response_actionability(
-                    needs_follow_up,
-                    saw_actionable_output,
-                    assistant_message_present,
-                    taskspace_message_has_gate_recovery(last_agent_message.as_deref()),
-                    false,
-                    false,
-                );
+                let response_actionability = if terminal_protocol_violation {
+                    TaskspaceProviderResponseActionability::ProtocolViolation
+                } else {
+                    classify_taskspace_provider_response_actionability(
+                        needs_follow_up,
+                        saw_actionable_output,
+                        assistant_message_present,
+                        taskspace_message_has_gate_recovery(last_agent_message.as_deref()),
+                        false,
+                        false,
+                    )
+                };
                 if let Some(snapshot) = current_budget_snapshot.as_ref() {
                     sess.record_action_map_provider_response_actionability(
                         &turn_context,
@@ -2875,12 +3064,36 @@ async fn try_run_sampling_request(
                     )
                     .await;
                 }
+                if terminal_protocol_violation {
+                    let Some(contract) = taskspace_response_contract else {
+                        break Err(CodexErr::Fatal(
+                            TASKSPACE_TERMINAL_PROTOCOL_VIOLATION.to_string(),
+                        ));
+                    };
+                    tracing::error!(
+                        target: "codex_core::taskspace",
+                        reason_code = TASKSPACE_TERMINAL_PROTOCOL_VIOLATION,
+                        control_mode = contract.control_mode.as_str(),
+                        map_id = contract.map_id.as_deref(),
+                        revision = ?contract.revision,
+                        provider_assistant_message_present,
+                        saw_actionable_output,
+                        end_turn = ?end_turn,
+                        "taskspace_terminal_protocol_violation"
+                    );
+                    break Err(CodexErr::Fatal(
+                        TASKSPACE_TERMINAL_PROTOCOL_VIOLATION.to_string(),
+                    ));
+                }
                 break Ok(SamplingRequestResult {
                     needs_follow_up,
                     last_agent_message,
                 });
             }
             ResponseEvent::OutputTextDelta(delta) => {
+                if taskspace_assistant_item_active {
+                    continue;
+                }
                 // In review child threads, suppress assistant text deltas; the
                 // UI will show a selection popup from the final ReviewOutput.
                 if let Some(active) = active_item.as_ref() {
