@@ -206,8 +206,10 @@ Standard/R6 Docker 臂均通过，冻结 R5 对照沿用 Phase A 的 commit-pinn
 6. 删除 `TaskStatus`、独立 `MapStatus`、旧 terminal list 语义和 root 推断路径。
 7. 删除旧 fixture/adapter，重新生成 R6 fixtures；旧 session 返回明确 unsupported schema fatal。
 
-本阶段在 production 接线提交前允许新模块存在，但接线后不得有运行时模式开关。若整阶段未通过，
-用 Git 回退到 Phase B/R5 生产路径，不在产品中保留半切换状态。
+本阶段在 production 接线提交前允许新模块存在，但接线后不得有 R5 legacy/R6 rooted 两套
+TaskSpace 实现之间的运行时开关。产品级 Standard 与 TaskSpace 模式选择不属于兼容开关：Standard
+不启用 TaskSpace，TaskSpace 一旦启用就只能进入 R6 Rooted DAG。若整阶段未通过，用 Git 回退到
+Phase B/R5 生产路径，不在产品中保留半切换状态。
 
 退出门禁：
 

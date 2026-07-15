@@ -775,11 +775,12 @@ pub enum Op {
     /// model.
     SetThreadMemoryMode { mode: ThreadMemoryMode },
 
-    /// Select the session-scoped TaskSpace runtime mode.
+    /// Select whether the session uses TaskSpace.
     ///
-    /// This is a local-only operation handled by codex-core; it does not
-    /// involve the model. `standard` preserves the current multi-agent
-    /// behavior, while `experiment` enables TaskSpace hooks as they land.
+    /// This is a local-only product-mode choice handled by codex-core; it does
+    /// not involve the model. `standard` uses natural context without
+    /// TaskSpace, while `experiment` uses the current Rooted DAG TaskSpace.
+    /// It does not select between legacy and current TaskSpace implementations.
     SetMapRuntimeMode { mode: MapRuntimeMode },
 
     /// Reborn the active TaskSpace path using the existing map runtime.
@@ -1781,10 +1782,10 @@ pub struct RealtimeConversationSdpEvent {
 #[ts(rename_all = "snake_case")]
 #[strum(serialize_all = "snake_case")]
 pub enum MapRuntimeMode {
-    /// Preserve the current multi-agent behavior.
+    /// Use natural context without TaskSpace.
     #[default]
     Standard,
-    /// Enable Action Map runtime hooks as they are implemented.
+    /// Use the current Rooted DAG TaskSpace implementation.
     Experiment,
 }
 
