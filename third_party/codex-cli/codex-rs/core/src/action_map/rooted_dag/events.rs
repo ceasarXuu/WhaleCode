@@ -284,16 +284,15 @@ fn apply_graph_mutation(
     let causality_conflicts = add_edges
         .iter()
         .chain(remove_edges)
-        .filter_map(|edge| {
-            map.node(&edge.to)
-                .is_some_and(|node| {
-                    matches!(
-                        node.status,
-                        NodeStatus::Running | NodeStatus::Blocked | NodeStatus::Completed
-                    )
-                })
-                .then(|| format!("{}->{}", edge.from, edge.to))
+        .filter(|&edge| {
+            map.node(&edge.to).is_some_and(|node| {
+                matches!(
+                    node.status,
+                    NodeStatus::Running | NodeStatus::Blocked | NodeStatus::Completed
+                )
+            })
         })
+        .map(|edge| format!("{}->{}", edge.from, edge.to))
         .collect::<BTreeSet<_>>();
     if !causality_conflicts.is_empty() {
         return Err(ReplayError::EventInvalid {

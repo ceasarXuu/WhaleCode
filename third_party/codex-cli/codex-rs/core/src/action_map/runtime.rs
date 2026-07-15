@@ -5859,12 +5859,11 @@ fn validate_active_frontier_leases(map: &ActionMapInstance) -> Result<(), String
                 lease.id, lease.node_id
             ));
         }
-        if lease.holder == LeaseHolder::Main {
-            if main_lease_node_id.replace(lease.node_id.clone()).is_some()
-                || lease.agent_thread_id != map.owner_session_id
-            {
-                return Err("TaskSpace main lease owner is inconsistent.".to_string());
-            }
+        if lease.holder == LeaseHolder::Main
+            && (main_lease_node_id.replace(lease.node_id.clone()).is_some()
+                || lease.agent_thread_id != map.owner_session_id)
+        {
+            return Err("TaskSpace main lease owner is inconsistent.".to_string());
         }
     }
     for (node_id, node) in &map.nodes {

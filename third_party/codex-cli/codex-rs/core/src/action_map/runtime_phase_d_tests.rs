@@ -211,7 +211,7 @@ fn control_state_exposes_only_work_nodes_as_the_active_frontier() {
     assert_eq!(initial.ready_work_node_ids, Vec::<String>::new());
     assert_eq!(initial.running_work_node_ids, ["first"]);
     assert_eq!(initial.blocked_work_node_ids, Vec::<String>::new());
-    assert_eq!(initial.finish_ready, false);
+    assert!(!initial.finish_ready);
 
     transition(&mut state, owner, 2, "first", NodeTransition::Complete);
     let after_first = state.control_state(None).unwrap();
@@ -226,7 +226,7 @@ fn control_state_exposes_only_work_nodes_as_the_active_frontier() {
         terminal_frontier.running_work_node_ids,
         Vec::<String>::new()
     );
-    assert_eq!(terminal_frontier.finish_ready, true);
+    assert!(terminal_frontier.finish_ready);
 }
 
 #[test]
