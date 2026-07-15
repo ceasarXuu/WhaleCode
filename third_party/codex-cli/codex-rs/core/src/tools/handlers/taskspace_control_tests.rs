@@ -13,10 +13,12 @@ fn control_state() -> ActionMapControlState {
         finish_node_id: "finish".into(),
         complete: false,
         current_node_id: Some("work".into()),
-        pending_node_ids: vec!["finish".into()],
-        open_node_ids: vec!["root".into(), "work".into(), "finish".into()],
-        blocked_node_ids: Vec::new(),
-        completed_node_count: 0,
+        pending_work_node_ids: Vec::new(),
+        ready_work_node_ids: Vec::new(),
+        running_work_node_ids: vec!["work".into()],
+        blocked_work_node_ids: Vec::new(),
+        finish_ready: false,
+        completed_work_node_count: 0,
         total_node_count: 3,
     }
 }
@@ -39,6 +41,8 @@ fn initialize_output_exposes_rooted_map_identity() {
     assert_eq!(value["state_commit"], true);
     assert_eq!(value["map_state"]["root_node_id"], "root");
     assert_eq!(value["map_state"]["finish_node_id"], "finish");
+    assert_eq!(value["map_state"]["running_work_node_ids"][0], "work");
+    assert_eq!(value["map_state"]["finish_ready"], false);
     assert_eq!(state_identity_coverage(&output), Some((1, true)));
 }
 
@@ -60,7 +64,7 @@ fn rejected_output_cannot_report_partial_commit() {
     assert_eq!(value["partial_commit"], 0);
     assert_eq!(
         control_state_observation(&output),
-        Some((false, 3, 0, true))
+        Some((false, 1, 0, true))
     );
 }
 

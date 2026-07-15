@@ -12,6 +12,7 @@ pub(crate) use super::rooted_dag::MapNode;
 pub(crate) use super::rooted_dag::NodeEventRef;
 pub(crate) use super::rooted_dag::NodeResultKind;
 pub(crate) use super::rooted_dag::NodeResultRef;
+use super::rooted_dag::NodeRole;
 pub(crate) use super::rooted_dag::NodeStatus;
 use super::rooted_dag::TaskSpaceMap;
 
@@ -226,10 +227,10 @@ impl ActionMapInstance {
         }
     }
 
-    pub(crate) fn ready_node_count(&self) -> usize {
+    pub(crate) fn ready_work_node_count(&self) -> usize {
         self.nodes
             .values()
-            .filter(|node| node.status == NodeStatus::Ready)
+            .filter(|node| node.role == NodeRole::Work && node.status == NodeStatus::Ready)
             .count()
     }
 
@@ -238,17 +239,17 @@ impl ActionMapInstance {
         self.graph_events.push(events);
     }
 
-    pub(crate) fn running_node_count(&self) -> usize {
+    pub(crate) fn running_work_node_count(&self) -> usize {
         self.nodes
             .values()
-            .filter(|node| node.status == NodeStatus::Running)
+            .filter(|node| node.role == NodeRole::Work && node.status == NodeStatus::Running)
             .count()
     }
 
-    pub(crate) fn completed_node_count(&self) -> usize {
+    pub(crate) fn completed_work_node_count(&self) -> usize {
         self.nodes
             .values()
-            .filter(|node| node.status == NodeStatus::Completed)
+            .filter(|node| node.role == NodeRole::Work && node.status == NodeStatus::Completed)
             .count()
     }
 }

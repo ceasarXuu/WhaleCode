@@ -201,6 +201,9 @@ function New-TaskspaceGraphHealthReport {
         $decisions = @($Observability.tasks | ForEach-Object { @($_.problemLedger.decisions) + @($_.problem_ledger.decisions) } | Where-Object { $null -ne $_ })
     }
     $blockedNodes = @($nodes | Where-Object { [string]$_.status -eq "blocked" })
+    $readyWorkNodes = @($nodes | Where-Object { [string]$_.kind -eq "work" -and [string]$_.status -eq "ready" })
+    $runningWorkNodes = @($nodes | Where-Object { [string]$_.kind -eq "work" -and [string]$_.status -eq "running" })
+    $finishReady = @($nodes | Where-Object { [string]$_.kind -eq "finish" -and [string]$_.status -eq "ready" }).Count -eq 1
     $spawnCalls = @($toolCalls | Where-Object { [string]$_.tool -eq "spawn_agent" -and [string]$_.status -eq "completed" })
     $subagentPlans = if ($Observability -and $Observability.PSObject.Properties.Name -contains "maps") {
         @($Observability.maps | ForEach-Object { @($_.subagentPlans) + @($_.subagent_plans) } | Where-Object { $null -ne $_ })
@@ -261,6 +264,10 @@ function New-TaskspaceGraphHealthReport {
         max_depth = [int]$rootedHealth.max_depth
         max_in_degree = [int]$rootedHealth.max_in_degree
         max_out_degree = [int]$rootedHealth.max_out_degree
+        ready_work_node_count = @($readyWorkNodes).Count
+        running_work_node_count = @($runningWorkNodes).Count
+        active_frontier_count = @($readyWorkNodes).Count + @($runningWorkNodes).Count
+        finish_ready = $finishReady
         result_count = $resultCount
         decision_count = $decisionCount
         accepted_result_count = @($accepted).Count

@@ -198,3 +198,76 @@ fn runtime_rework_rejects_consumed_results_atomically() {
     );
     assert_eq!(state.snapshot(), before);
 }
+
+#[test]
+fn control_state_exposes_only_work_nodes_as_the_active_frontier() {
+    let (mut state, owner) = initialized_chain();
+    let projection = state.build_developer_context().unwrap();
+    assert!(projection.contains("  active_frontier:\n    - first\n"));
+    assert!(!projection.contains("  active_frontier:\n    - root\n"));
+    assert!(!projection.contains("  active_frontier:\n    - finish\n"));
+    let initial = state.control_state(None).unwrap();
+    assert_eq!(initial.pending_work_node_ids, ["second"]);
+    assert_eq!(initial.ready_work_node_ids, Vec::<String>::new());
+    assert_eq!(initial.running_work_node_ids, ["first"]);
+    assert_eq!(initial.blocked_work_node_ids, Vec::<String>::new());
+    assert_eq!(initial.finish_ready, false);
+
+    transition(&mut state, owner, 2, "first", NodeTransition::Complete);
+    let after_first = state.control_state(None).unwrap();
+    assert_eq!(after_first.ready_work_node_ids, ["second"]);
+    assert_eq!(after_first.running_work_node_ids, Vec::<String>::new());
+
+    transition(&mut state, owner, 3, "second", NodeTransition::Bind);
+    transition(&mut state, owner, 4, "second", NodeTransition::Complete);
+    let terminal_frontier = state.control_state(None).unwrap();
+    assert_eq!(terminal_frontier.ready_work_node_ids, Vec::<String>::new());
+    assert_eq!(
+        terminal_frontier.running_work_node_ids,
+        Vec::<String>::new()
+    );
+    assert_eq!(terminal_frontier.finish_ready, true);
+}
+
+#[test]
+fn finish_cannot_be_selected_as_a_worker_frontier_node() {
+    let (mut state, owner) = initialized_chain();
+    transition(&mut state, owner, 2, "first", NodeTransition::Complete);
+    transition(&mut state, owner, 3, "second", NodeTransition::Bind);
+    transition(&mut state, owner, 4, "second", NodeTransition::Complete);
+    let map_id = state.active_map_id.clone().unwrap();
+
+    let error = state
+        .validate_requested_spawn_node(&map_id, "finish")
+        .unwrap_err();
+
+    assert!(error.contains("target_node_role_invalid"));
+}
+
+#[test]
+fn snapshot_restore_rejects_a_finish_lease() {
+    let (state, _) = initialized_chain();
+    let mut snapshot = state.snapshot();
+    let map = snapshot.map.as_mut().unwrap();
+    let lease_id = map.leases[0].id.clone();
+    let first = map
+        .nodes
+        .iter_mut()
+        .find(|node| node.id == "first")
+        .unwrap();
+    first.status = "ready".into();
+    first.active_lease = None;
+    let finish = map
+        .nodes
+        .iter_mut()
+        .find(|node| node.id == "finish")
+        .unwrap();
+    finish.active_lease = Some(lease_id);
+    map.leases[0].node_id = "finish".into();
+    map.current_node_id = Some("finish".into());
+
+    let mut restored = ActionMapRuntimeState::default();
+    let error = restored.restore_snapshot(snapshot).unwrap_err();
+
+    assert!(error.contains("does not reference a running work node"));
+}

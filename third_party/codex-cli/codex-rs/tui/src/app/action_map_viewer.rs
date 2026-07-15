@@ -227,6 +227,7 @@ summary{cursor:pointer}
 .graph-help{position:absolute;left:8px;bottom:8px;color:#777;background:Canvas;padding:2px 5px;border:1px solid #777}
 .graph-node{position:absolute;box-sizing:border-box;width:220px;min-height:76px;border:1px solid #777;background:Canvas;padding:7px}
 .graph-node.running{border-color:#0a84ff}.graph-node.ready{border-color:#6a8f00}.graph-node.completed,.graph-node.closed{border-color:#2d8a4d}.graph-node.blocked{border-color:#b00020}
+.graph-node.frontier{box-shadow:inset 0 0 0 2px color-mix(in srgb,CanvasText 32%,transparent)}
 .node-title{font-weight:700;margin-bottom:5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .node-meta{color:#777;margin-top:5px}
 .edge{fill:none;stroke:#777;stroke-width:1.2}
@@ -279,6 +280,8 @@ function renderGraph(m){
   const g=el('div');g.className='graph';
   if(!m.nodes.length){g.appendChild(el('div','No nodes yet.','node-meta'));return g}
   const layout=graphLayout(m.nodes,m.edges);
+  const incoming=new Map(m.nodes.map(n=>[n.id,0])),outgoing=new Map(m.nodes.map(n=>[n.id,0]));
+  m.edges.forEach(e=>{if(incoming.has(e.to))incoming.set(e.to,incoming.get(e.to)+1);if(outgoing.has(e.from))outgoing.set(e.from,outgoing.get(e.from)+1)});
   const key='graph:'+m.id;
   const state=graphState(key);
   const controls=el('div');controls.className='graph-controls';
@@ -292,7 +295,7 @@ function renderGraph(m){
   const head=document.createElementNS(svg.namespaceURI,'path');head.setAttribute('d','M0,0 L7,3 L0,6 Z');head.setAttribute('fill','#777');marker.appendChild(head);defs.appendChild(marker);svg.appendChild(defs);
   m.edges.forEach(e=>{const a=layout.pos.get(e.from),b=layout.pos.get(e.to);if(!a||!b)return;const p=document.createElementNS(svg.namespaceURI,'path');const x1=a.x+a.w,y1=a.y+a.h/2,x2=b.x,y2=b.y+b.h/2,mid=(x1+x2)/2;p.setAttribute('class','edge');p.setAttribute('marker-end','url(#arrow)');p.setAttribute('d',`M ${x1} ${y1} C ${mid} ${y1}, ${mid} ${y2}, ${x2} ${y2}`);svg.appendChild(p)});
   inner.appendChild(svg);
-  m.nodes.forEach(n=>{const p=layout.pos.get(n.id);const card=el('div');card.className='graph-node '+(n.status||'');card.style.left=p.x+'px';card.style.top=p.y+'px';card.appendChild(el('div',short(n.goal||n.id,32),'node-title'));card.appendChild(el('div',n.id+' | '+(n.role||'')+' | '+(n.status||''),'node-meta'));card.appendChild(el('div','results '+((n.resultIds||[]).length)+' | '+(n.activeLease?'leased':'free'),'node-meta'));inner.appendChild(card)});
+  m.nodes.forEach(n=>{const p=layout.pos.get(n.id);const frontier=n.role==='work'&&(n.status==='ready'||n.status==='running');const card=el('div');card.className='graph-node '+(n.status||'')+(frontier?' frontier':'');card.style.left=p.x+'px';card.style.top=p.y+'px';card.appendChild(el('div',short(n.goal||n.id,32),'node-title'));card.appendChild(el('div',n.id+' | '+(n.role||'')+' | '+(n.status||''),'node-meta'));card.appendChild(el('div','in '+incoming.get(n.id)+' | out '+outgoing.get(n.id)+' | '+(frontier?'frontier':(n.activeLease?'leased':'inactive')),'node-meta'));inner.appendChild(card)});
   g.appendChild(inner);g.appendChild(el('div','drag to pan | wheel to zoom','graph-help'));
   function zoomAt(factor, cx, cy){
     const rect=g.getBoundingClientRect(), px=cx-rect.left, py=cy-rect.top;
@@ -344,7 +347,7 @@ function render(data){
     const rootNode=m.nodes.find(n=>n.id===m.rootNodeId);
     next.appendChild(el('h2',`${rootNode?rootNode.goal:'TaskSpace'} (${m.id})`));
     const line=el('div');
-    ['revision '+m.revision,'complete '+m.complete,'root '+m.rootNodeId,'finish '+m.finishNodeId,'current '+(m.currentNodeId||'none'),'ready '+m.readyNodeCount,'running '+m.runningNodeCount,'completed '+m.completedNodeCount].forEach(x=>line.appendChild(el('span',x,'pill')));
+    ['revision '+m.revision,'complete '+m.complete,'root '+m.rootNodeId,'finish '+m.finishNodeId,'current '+(m.currentNodeId||'none'),'ready work '+m.readyWorkNodeCount,'running work '+m.runningWorkNodeCount,'completed work '+m.completedWorkNodeCount,'finish ready '+m.finishReady].forEach(x=>line.appendChild(el('span',x,'pill')));
     next.appendChild(line);
     next.appendChild(renderGraph(m));
     next.appendChild(detail('nodes:'+m.id,'nodes',table(['id','role','status','goal','source refs','lease','results','events'],m.nodes.map(n=>[n.id,n.role,n.status,n.goal,list(n.sourceRefs),n.activeLease||'',list(n.resultIds),list(n.nodeEventIds)]))));
@@ -405,6 +408,11 @@ mod tests {
         assert!(ACTION_MAP_VIEWER_HTML.contains("m.rootNodeId"));
         assert!(ACTION_MAP_VIEWER_HTML.contains("m.finishNodeId"));
         assert!(ACTION_MAP_VIEWER_HTML.contains("m.revision"));
+        assert!(ACTION_MAP_VIEWER_HTML.contains("m.readyWorkNodeCount"));
+        assert!(ACTION_MAP_VIEWER_HTML.contains("m.finishReady"));
+        assert!(ACTION_MAP_VIEWER_HTML.contains("frontier=n.role==='work'"));
+        assert!(ACTION_MAP_VIEWER_HTML.contains("incoming.get(n.id)"));
+        assert!(ACTION_MAP_VIEWER_HTML.contains("outgoing.get(n.id)"));
         assert!(ACTION_MAP_VIEWER_HTML.contains("n.role"));
         assert!(ACTION_MAP_VIEWER_HTML.contains("n.goal"));
         assert!(ACTION_MAP_VIEWER_HTML.contains("m.nodeEvents"));
@@ -412,5 +420,20 @@ mod tests {
         assert!(!ACTION_MAP_VIEWER_HTML.contains("activeMapId"));
         assert!(!ACTION_MAP_VIEWER_HTML.contains("s.maps"));
         assert!(!ACTION_MAP_VIEWER_HTML.contains("cognitive state"));
+    }
+
+    #[test]
+    fn viewer_frontier_semantics_snapshot() {
+        let visible_contract = ACTION_MAP_VIEWER_HTML
+            .lines()
+            .filter(|line| {
+                line.contains(".graph-node.frontier")
+                    || line.contains("frontier=n.role")
+                    || line.contains("'ready work '")
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        insta::assert_snapshot!("action_map_viewer_frontier_semantics", visible_contract);
     }
 }

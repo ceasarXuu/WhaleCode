@@ -1687,14 +1687,14 @@
     "MapRuntimeMode": {
       "oneOf": [
         {
-          "description": "Preserve the current multi-agent behavior.",
+          "description": "Use natural context without TaskSpace.",
           "enum": [
             "standard"
           ],
           "type": "string"
         },
         {
-          "description": "Enable Action Map runtime hooks as they are implemented.",
+          "description": "Use the current Rooted DAG TaskSpace implementation.",
           "enum": [
             "experiment"
           ],

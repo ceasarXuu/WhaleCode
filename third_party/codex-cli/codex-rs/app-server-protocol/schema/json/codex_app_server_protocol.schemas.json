@@ -5524,7 +5524,7 @@
           "complete": {
             "type": "boolean"
           },
-          "completedNodeCount": {
+          "completedWorkNodeCount": {
             "format": "uint",
             "minimum": 0.0,
             "type": "integer"
@@ -5543,6 +5543,9 @@
           },
           "finishNodeId": {
             "type": "string"
+          },
+          "finishReady": {
+            "type": "boolean"
           },
           "id": {
             "type": "string"
@@ -5576,7 +5579,7 @@
               }
             ]
           },
-          "readyNodeCount": {
+          "readyWorkNodeCount": {
             "format": "uint",
             "minimum": 0.0,
             "type": "integer"
@@ -5595,7 +5598,7 @@
           "rootNodeId": {
             "type": "string"
           },
-          "runningNodeCount": {
+          "runningWorkNodeCount": {
             "format": "uint",
             "minimum": 0.0,
             "type": "integer"
@@ -5615,17 +5618,18 @@
         },
         "required": [
           "complete",
-          "completedNodeCount",
+          "completedWorkNodeCount",
           "edges",
           "finishNodeId",
+          "finishReady",
           "id",
           "leases",
           "nodes",
-          "readyNodeCount",
+          "readyWorkNodeCount",
           "results",
           "revision",
           "rootNodeId",
-          "runningNodeCount"
+          "runningWorkNodeCount"
         ],
         "type": "object"
       },
@@ -10996,14 +11000,14 @@
       "MapRuntimeMode": {
         "oneOf": [
           {
-            "description": "Preserve the current multi-agent behavior.",
+            "description": "Use natural context without TaskSpace.",
             "enum": [
               "standard"
             ],
             "type": "string"
           },
           {
-            "description": "Enable Action Map runtime hooks as they are implemented.",
+            "description": "Use the current Rooted DAG TaskSpace implementation.",
             "enum": [
               "experiment"
             ],

@@ -222,10 +222,12 @@ pub(crate) struct ActionMapControlState {
     pub(crate) finish_node_id: MapNodeId,
     pub(crate) complete: bool,
     pub(crate) current_node_id: Option<MapNodeId>,
-    pub(crate) pending_node_ids: Vec<MapNodeId>,
-    pub(crate) open_node_ids: Vec<MapNodeId>,
-    pub(crate) blocked_node_ids: Vec<MapNodeId>,
-    pub(crate) completed_node_count: usize,
+    pub(crate) pending_work_node_ids: Vec<MapNodeId>,
+    pub(crate) ready_work_node_ids: Vec<MapNodeId>,
+    pub(crate) running_work_node_ids: Vec<MapNodeId>,
+    pub(crate) blocked_work_node_ids: Vec<MapNodeId>,
+    pub(crate) finish_ready: bool,
+    pub(crate) completed_work_node_count: usize,
     pub(crate) total_node_count: usize,
 }
 
@@ -1447,6 +1449,7 @@ impl ActionMapRuntimeState {
                     ))
                 })
                 .collect::<Result<HashMap<_, _>, String>>()?;
+            validate_active_frontier_leases(&instance)?;
             let complete = instance.is_complete();
             self.tasks.insert(
                 task_id.clone(),
@@ -1621,27 +1624,25 @@ impl ActionMapRuntimeState {
             .or_else(|| self.active_map_id.clone())?;
         let map = self.maps.get(&map_id)?;
         let task_id = map.task_id.as_ref()?.clone();
-        let mut open_node_ids = map
+        let work_nodes_with_status = |status| {
+            map.nodes
+                .iter()
+                .filter(|(_, node)| node.role == NodeRole::Work && node.status == status)
+                .map(|(node_id, _)| node_id.clone())
+                .collect::<Vec<_>>()
+        };
+        let mut pending_work_node_ids = work_nodes_with_status(NodeStatus::Pending);
+        let mut ready_work_node_ids = work_nodes_with_status(NodeStatus::Ready);
+        let mut running_work_node_ids = work_nodes_with_status(NodeStatus::Running);
+        let mut blocked_work_node_ids = work_nodes_with_status(NodeStatus::Blocked);
+        pending_work_node_ids.sort();
+        ready_work_node_ids.sort();
+        running_work_node_ids.sort();
+        blocked_work_node_ids.sort();
+        let finish_ready = map
             .nodes
-            .iter()
-            .filter(|(_, node)| matches!(node.status, NodeStatus::Ready | NodeStatus::Running))
-            .map(|(node_id, _)| node_id.clone())
-            .collect::<Vec<_>>();
-        let mut pending_node_ids = map
-            .nodes
-            .iter()
-            .filter(|(_, node)| node.status == NodeStatus::Pending)
-            .map(|(node_id, _)| node_id.clone())
-            .collect::<Vec<_>>();
-        let mut blocked_node_ids = map
-            .nodes
-            .iter()
-            .filter(|(_, node)| node.status == NodeStatus::Blocked)
-            .map(|(node_id, _)| node_id.clone())
-            .collect::<Vec<_>>();
-        open_node_ids.sort();
-        pending_node_ids.sort();
-        blocked_node_ids.sort();
+            .get(&map.finish_node_id)
+            .is_some_and(|node| node.status == NodeStatus::Ready);
         Some(ActionMapControlState {
             task_id,
             map_id,
@@ -1650,13 +1651,15 @@ impl ActionMapRuntimeState {
             finish_node_id: map.finish_node_id.clone(),
             complete: map.is_complete(),
             current_node_id: map.current_binding.clone(),
-            pending_node_ids,
-            open_node_ids,
-            blocked_node_ids,
-            completed_node_count: map
+            pending_work_node_ids,
+            ready_work_node_ids,
+            running_work_node_ids,
+            blocked_work_node_ids,
+            finish_ready,
+            completed_work_node_count: map
                 .nodes
                 .values()
-                .filter(|node| node.status == NodeStatus::Completed)
+                .filter(|node| node.role == NodeRole::Work && node.status == NodeStatus::Completed)
                 .count(),
             total_node_count: map.nodes.len(),
         })
@@ -4217,6 +4220,11 @@ impl ActionMapRuntimeState {
         let Some(node) = map.nodes.get(node_id) else {
             return Err(format!("TaskSpace current node `{node_id}` is missing."));
         };
+        if node.role != NodeRole::Work {
+            return Err(format!(
+                "TaskSpace current node `{node_id}` cannot hold a main lease. hard_state: current_node_role_invalid."
+            ));
+        }
         if node.status == NodeStatus::Pending {
             return Err(format!(
                 "TaskSpace current node `{node_id}` is still pending. hard_state: current_node_dependencies_incomplete."
@@ -4437,7 +4445,9 @@ impl ActionMapRuntimeState {
             .into_iter()
             .filter(|node_id| {
                 map.nodes.get(node_id).is_some_and(|node| {
-                    node.status == NodeStatus::Ready && node.active_lease.is_none()
+                    node.role == NodeRole::Work
+                        && node.status == NodeStatus::Ready
+                        && node.active_lease.is_none()
                 })
             })
             .collect()
@@ -4475,6 +4485,11 @@ impl ActionMapRuntimeState {
         let node = map.nodes.get(node_id).ok_or_else(|| {
             format!("TaskSpace node `{node_id}` does not exist on active task path `{map_id}`.")
         })?;
+        if node.role != NodeRole::Work {
+            return Err(format!(
+                "TaskSpace node `{node_id}` cannot hold a worker lease. hard_state: target_node_role_invalid."
+            ));
+        }
         if node.active_lease.is_some() {
             return Err(format!(
                 "TaskSpace node `{node_id}` is held by an active lease. hard_state: target_node_lease_conflict."
@@ -4839,9 +4854,10 @@ fn append_context_projection_active(
     let active_frontier = ordered_node_ids
         .iter()
         .filter(|&node_id| {
-            map.nodes
-                .get(node_id)
-                .is_some_and(|node| node.status != NodeStatus::Completed)
+            map.nodes.get(node_id).is_some_and(|node| {
+                node.role == NodeRole::Work
+                    && matches!(node.status, NodeStatus::Ready | NodeStatus::Running)
+            })
         })
         .cloned()
         .collect::<Vec<_>>();
@@ -5797,9 +5813,13 @@ fn snapshot_map(map: &ActionMapInstance) -> ActionMapSnapshotMap {
         current_node_id: map.current_binding.clone(),
         terminal_summary_ref: map.terminal_summary_ref.clone(),
         complete: map.is_complete(),
-        ready_node_count: map.ready_node_count(),
-        running_node_count: map.running_node_count(),
-        completed_node_count: map.completed_node_count(),
+        ready_work_node_count: map.ready_work_node_count(),
+        running_work_node_count: map.running_work_node_count(),
+        completed_work_node_count: map.completed_work_node_count(),
+        finish_ready: map
+            .nodes
+            .get(&map.finish_node_id)
+            .is_some_and(|node| node.status == NodeStatus::Ready),
         nodes,
         edges: map
             .edges
@@ -5813,6 +5833,65 @@ fn snapshot_map(map: &ActionMapInstance) -> ActionMapSnapshotMap {
         results,
         node_events,
     }
+}
+
+fn validate_active_frontier_leases(map: &ActionMapInstance) -> Result<(), String> {
+    let mut leased_node_ids = BTreeSet::new();
+    let mut main_lease_node_id = None;
+    for lease in map.leases.values() {
+        let node = map.nodes.get(&lease.node_id).ok_or_else(|| {
+            format!(
+                "TaskSpace lease `{}` references missing node `{}`.",
+                lease.id, lease.node_id
+            )
+        })?;
+        if node.role != NodeRole::Work || node.status != NodeStatus::Running {
+            return Err(format!(
+                "TaskSpace lease `{}` does not reference a running work node.",
+                lease.id
+            ));
+        }
+        if node.active_lease.as_deref() != Some(lease.id.as_str())
+            || !leased_node_ids.insert(lease.node_id.clone())
+        {
+            return Err(format!(
+                "TaskSpace lease `{}` is inconsistent with node `{}`.",
+                lease.id, lease.node_id
+            ));
+        }
+        if lease.holder == LeaseHolder::Main {
+            if main_lease_node_id.replace(lease.node_id.clone()).is_some()
+                || lease.agent_thread_id != map.owner_session_id
+            {
+                return Err("TaskSpace main lease owner is inconsistent.".to_string());
+            }
+        }
+    }
+    for (node_id, node) in &map.nodes {
+        if node.role != NodeRole::Work && node.active_lease.is_some() {
+            return Err(format!(
+                "TaskSpace non-work node `{node_id}` cannot hold an active lease."
+            ));
+        }
+        if node.role == NodeRole::Work
+            && ((node.status == NodeStatus::Running) != node.active_lease.is_some())
+        {
+            return Err(format!(
+                "TaskSpace work node `{node_id}` has inconsistent running and lease state."
+            ));
+        }
+        if let Some(lease_id) = node.active_lease.as_ref()
+            && !map.leases.contains_key(lease_id)
+        {
+            return Err(format!(
+                "TaskSpace node `{node_id}` references missing lease `{lease_id}`."
+            ));
+        }
+    }
+    if map.current_binding != main_lease_node_id {
+        return Err("TaskSpace current binding and main lease are inconsistent.".to_string());
+    }
+    Ok(())
 }
 
 fn single_line_preview(text: &str, max_chars: usize) -> String {

@@ -1,0 +1,7 @@
+---
+source: tui/src/app/action_map_viewer.rs
+expression: visible_contract
+---
+.graph-node.frontier{box-shadow:inset 0 0 0 2px color-mix(in srgb,CanvasText 32%,transparent)}
+  m.nodes.forEach(n=>{const p=layout.pos.get(n.id);const frontier=n.role==='work'&&(n.status==='ready'||n.status==='running');const card=el('div');card.className='graph-node '+(n.status||'')+(frontier?' frontier':'');card.style.left=p.x+'px';card.style.top=p.y+'px';card.appendChild(el('div',short(n.goal||n.id,32),'node-title'));card.appendChild(el('div',n.id+' | '+(n.role||'')+' | '+(n.status||''),'node-meta'));card.appendChild(el('div','in '+incoming.get(n.id)+' | out '+outgoing.get(n.id)+' | '+(frontier?'frontier':(n.activeLease?'leased':'inactive')),'node-meta'));inner.appendChild(card)});
+    ['revision '+m.revision,'complete '+m.complete,'root '+m.rootNodeId,'finish '+m.finishNodeId,'current '+(m.currentNodeId||'none'),'ready work '+m.readyWorkNodeCount,'running work '+m.runningWorkNodeCount,'completed work '+m.completedWorkNodeCount,'finish ready '+m.finishReady].forEach(x=>line.appendChild(el('span',x,'pill')));

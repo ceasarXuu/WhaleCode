@@ -113,8 +113,9 @@ pub(super) fn control_state_observation(message: &str) -> Option<(bool, usize, u
     let map_state = value.get("map_state")?.as_object()?;
     Some((
         state_commit,
-        map_state.get("open_node_ids")?.as_array()?.len(),
-        map_state.get("blocked_node_ids")?.as_array()?.len(),
+        map_state.get("ready_work_node_ids")?.as_array()?.len()
+            + map_state.get("running_work_node_ids")?.as_array()?.len(),
+        map_state.get("blocked_work_node_ids")?.as_array()?.len(),
         !map_state.get("current_node_id")?.is_null(),
     ))
 }
@@ -176,10 +177,12 @@ fn format_map_state(state: &ActionMapControlState) -> JsonValue {
         "finish_node_id": state.finish_node_id,
         "complete": state.complete,
         "current_node_id": state.current_node_id,
-        "pending_node_ids": state.pending_node_ids,
-        "open_node_ids": state.open_node_ids,
-        "blocked_node_ids": state.blocked_node_ids,
-        "completed_node_count": state.completed_node_count,
+        "pending_work_node_ids": state.pending_work_node_ids,
+        "ready_work_node_ids": state.ready_work_node_ids,
+        "running_work_node_ids": state.running_work_node_ids,
+        "blocked_work_node_ids": state.blocked_work_node_ids,
+        "finish_ready": state.finish_ready,
+        "completed_work_node_count": state.completed_work_node_count,
         "total_node_count": state.total_node_count,
     })
 }
