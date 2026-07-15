@@ -13,6 +13,7 @@ pub(crate) enum NodeTransition {
     Complete,
     Block,
     Unblock,
+    ReleaseLease,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -34,6 +35,9 @@ pub(crate) fn transition_target(
         }
         (NodeRole::Work, NodeStatus::Running, NodeTransition::Block) => Ok(NodeStatus::Blocked),
         (NodeRole::Work, NodeStatus::Blocked, NodeTransition::Unblock) => Ok(NodeStatus::Ready),
+        (NodeRole::Work, NodeStatus::Running, NodeTransition::ReleaseLease) => {
+            Ok(NodeStatus::Ready)
+        }
         _ => Err(ViolationCode::TransitionInvalid),
     }
 }

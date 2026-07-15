@@ -2,9 +2,7 @@ use super::invariants::Violation;
 use super::invariants::ViolationCode;
 use super::invariants::validate;
 use super::model::MapEdge;
-use super::model::MapId;
 use super::model::MapNode;
-use super::model::NodeId;
 use super::model::TaskSpaceMap;
 use pretty_assertions::assert_eq;
 use proptest::prelude::*;
@@ -32,18 +30,18 @@ fn map_with_external_edges(
     let ids = external_node_ids(work_node_count);
     let mut nodes = BTreeMap::new();
     nodes.insert(
-        NodeId::new(ROOT_ID),
+        (ROOT_ID).to_string(),
         MapNode::task_root("generated root", Vec::new()),
     );
     for id in ids.iter().skip(1).take(work_node_count) {
-        nodes.insert(NodeId::new(id), MapNode::work(id));
+        nodes.insert((id).to_string(), MapNode::work(id));
     }
-    nodes.insert(NodeId::new(FINISH_ID), MapNode::finish("generated finish"));
+    nodes.insert((FINISH_ID).to_string(), MapNode::finish("generated finish"));
 
     TaskSpaceMap {
-        id: MapId::new("generated-map"),
-        root_node_id: NodeId::new(ROOT_ID),
-        finish_node_id: NodeId::new(FINISH_ID),
+        id: ("generated-map").to_string(),
+        root_node_id: (ROOT_ID).to_string(),
+        finish_node_id: (FINISH_ID).to_string(),
         nodes,
         edges: external_edges
             .into_iter()

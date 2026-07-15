@@ -260,9 +260,15 @@ impl ProviderRequestAttribution {
     ) -> Self {
         Self {
             request_scope_id: Some(request_scope_id.to_string()),
-            task_id: snapshot.task_id.as_ref().map(|id| id.to_string()),
+            task_id: snapshot
+                .task_id
+                .as_ref()
+                .map(std::string::ToString::to_string),
             map_id: Some(snapshot.map_id.to_string()),
-            node_id: snapshot.node_id.as_ref().map(|id| id.to_string()),
+            node_id: snapshot
+                .node_id
+                .as_ref()
+                .map(std::string::ToString::to_string),
             request_phase: snapshot.request_phase.clone(),
         }
     }
@@ -452,7 +458,7 @@ impl ProviderRequestBudgetContext {
             .state
             .active_request
             .lock()
-            .expect("provider request budget active mutex poisoned") = Some(active_request.clone());
+            .expect("provider request budget active mutex poisoned") = Some(active_request);
         self.push_event(ProviderRequestBudgetEvent {
             request_id: request_id.clone(),
             logical_request_id: request_identity.logical_request_id.clone(),
@@ -886,7 +892,7 @@ fn provider_payload_digest_for_wire_value(
     let tools_count = value
         .get("tools")
         .and_then(|tools| tools.as_array())
-        .map(|tools| tools.len())
+        .map(std::vec::Vec::len)
         .unwrap_or(0);
     let tools_present = tools_count > 0;
     let request_shape_classifier = if tools_present {

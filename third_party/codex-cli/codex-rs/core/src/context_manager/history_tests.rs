@@ -1419,7 +1419,7 @@ fn normalize_moves_deferred_output_after_earlier_matching_call() {
     let items = vec![
         ResponseItem::FunctionCallOutput {
             call_id: "call-taskspace".to_string(),
-            output: FunctionCallOutputPayload::from_text("TaskSpace node created".to_string()),
+            output: FunctionCallOutputPayload::from_text("TaskSpace graph mutated".to_string()),
         },
         ResponseItem::Message {
             id: None,
@@ -1434,7 +1434,7 @@ fn normalize_moves_deferred_output_after_earlier_matching_call() {
             id: None,
             name: "taskspace_control".to_string(),
             namespace: None,
-            arguments: r#"{"action":"create_node"}"#.to_string(),
+            arguments: r#"{"action":"mutate_graph"}"#.to_string(),
             call_id: "call-taskspace".to_string(),
         },
     ];
@@ -1458,12 +1458,12 @@ fn normalize_moves_deferred_output_after_earlier_matching_call() {
                 id: None,
                 name: "taskspace_control".to_string(),
                 namespace: None,
-                arguments: r#"{"action":"create_node"}"#.to_string(),
+                arguments: r#"{"action":"mutate_graph"}"#.to_string(),
                 call_id: "call-taskspace".to_string(),
             },
             ResponseItem::FunctionCallOutput {
                 call_id: "call-taskspace".to_string(),
-                output: FunctionCallOutputPayload::from_text("TaskSpace node created".to_string()),
+                output: FunctionCallOutputPayload::from_text("TaskSpace graph mutated".to_string()),
             },
         ]
     );

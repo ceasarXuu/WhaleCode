@@ -411,13 +411,11 @@ impl ToolCallRuntime {
                 )
                 .await
                 .map_err(FunctionCallError::RespondToModel)?;
-        } else {
-            if let Err(message) = session
-                .prepare_action_map_main_tool_call(turn, descriptor)
-                .await
-            {
-                return Err(FunctionCallError::RespondToModel(message));
-            }
+        } else if let Err(message) = session
+            .prepare_action_map_main_tool_call(turn, descriptor)
+            .await
+        {
+            return Err(FunctionCallError::RespondToModel(message));
         }
         Ok(())
     }

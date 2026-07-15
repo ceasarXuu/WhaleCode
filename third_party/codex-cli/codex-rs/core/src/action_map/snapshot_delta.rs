@@ -113,14 +113,12 @@ mod tests {
 
     fn snapshot(routing_required: bool) -> ActionMapSnapshot {
         ActionMapSnapshot {
+            schema_version: "TaskSpaceSnapshotR6V1".into(),
             mode: MapRuntimeMode::Experiment,
             routing_required,
             bootstrap_required: true,
             reborn_requested: false,
-            active_task_id: None,
-            active_map_id: None,
-            tasks: Vec::new(),
-            maps: Vec::new(),
+            map: None,
             maintenance_barriers: Vec::new(),
             trace_summary: Default::default(),
             trace_events: Vec::new(),

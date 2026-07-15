@@ -987,8 +987,7 @@ async fn user_shell_commands_do_not_inherit_managed_network_proxy() -> anyhow::R
     );
     #[cfg(not(windows))]
     let command = format!(
-        r#"sh -c 'if [ "${{HTTP_PROXY:-}}" = "{}" ]; then printf managed-proxy; else printf not-managed; fi'"#,
-        managed_proxy_url
+        r#"sh -c 'if [ "${{HTTP_PROXY:-}}" = "{managed_proxy_url}" ]; then printf managed-proxy; else printf not-managed; fi'"#
     );
 
     execute_user_shell_command(
@@ -1397,22 +1396,37 @@ async fn fresh_map_uses_canonical_control_context_without_parallel_projection() 
             .initialize_map_for_main(
                 session.conversation_id,
                 crate::action_map::ActionMapInitializeInput {
-                    task_title: "Initialize during turn".to_string(),
+                    root: crate::action_map::ActionMapInitializeNodeInput {
+                        id: "root".into(),
+                        goal: "Initialize during turn".into(),
+                    },
+                    finish: crate::action_map::ActionMapInitializeNodeInput {
+                        id: "finish".into(),
+                        goal: "Finish the task".into(),
+                    },
                     source_event_ids: vec!["task-event-1".to_string()],
-                    nodes: vec![
+                    work_nodes: vec![
                         crate::action_map::ActionMapInitializeNodeInput {
                             id: "inspect".to_string(),
-                            kind: NodeKind::InspectCodeContext,
-                            title: "Inspect".to_string(),
-                            context_summary: "Inspect current code.".to_string(),
-                            dependency_node_ids: Vec::new(),
+                            goal: "Inspect current code.".to_string(),
                         },
                         crate::action_map::ActionMapInitializeNodeInput {
                             id: "implement".to_string(),
-                            kind: NodeKind::ImplementSolution,
-                            title: "Implement".to_string(),
-                            context_summary: "Implement the verified change.".to_string(),
-                            dependency_node_ids: vec!["inspect".to_string()],
+                            goal: "Implement the verified change.".to_string(),
+                        },
+                    ],
+                    edges: vec![
+                        crate::action_map::ActionMapEdgeInput {
+                            from: "root".into(),
+                            to: "inspect".into(),
+                        },
+                        crate::action_map::ActionMapEdgeInput {
+                            from: "inspect".into(),
+                            to: "implement".into(),
+                        },
+                        crate::action_map::ActionMapEdgeInput {
+                            from: "implement".into(),
+                            to: "finish".into(),
                         },
                     ],
                     current_node_id: "inspect".to_string(),
@@ -1442,14 +1456,24 @@ async fn fresh_map_uses_canonical_control_context_without_parallel_projection() 
         let mut state = session.state.lock().await;
         state
             .action_map_runtime
-            .finish_main_node_with_next(
+            .transition_node_for_main(
                 session.conversation_id,
-                "inspect",
+                2,
+                "inspect".into(),
+                crate::action_map::NodeTransition::Complete,
                 "task-event-result".to_string(),
-                Some("implement".to_string()),
-                None,
             )
-            .expect("finish and bind next node");
+            .expect("complete current node");
+        state
+            .action_map_runtime
+            .transition_node_for_main(
+                session.conversation_id,
+                3,
+                "implement".into(),
+                crate::action_map::NodeTransition::Bind,
+                "task-event-bind".to_string(),
+            )
+            .expect("bind next node");
     }
 
     session
@@ -1492,15 +1516,29 @@ async fn record_context_updates_persists_one_epoch_taskspace_projection() {
             .initialize_map_for_main(
                 session.conversation_id,
                 crate::action_map::ActionMapInitializeInput {
-                    task_title: "Architecture review".to_string(),
+                    root: crate::action_map::ActionMapInitializeNodeInput {
+                        id: "root".into(),
+                        goal: "Architecture review".into(),
+                    },
+                    finish: crate::action_map::ActionMapInitializeNodeInput {
+                        id: "finish".into(),
+                        goal: "Finish architecture review".into(),
+                    },
                     source_event_ids: vec!["task-event-1".to_string()],
-                    nodes: vec![crate::action_map::ActionMapInitializeNodeInput {
+                    work_nodes: vec![crate::action_map::ActionMapInitializeNodeInput {
                         id: "scope".to_string(),
-                        kind: NodeKind::InspectCodeContext,
-                        title: "Scope review".to_string(),
-                        context_summary: "Collect current architecture scope.".to_string(),
-                        dependency_node_ids: Vec::new(),
+                        goal: "Collect current architecture scope.".to_string(),
                     }],
+                    edges: vec![
+                        crate::action_map::ActionMapEdgeInput {
+                            from: "root".into(),
+                            to: "scope".into(),
+                        },
+                        crate::action_map::ActionMapEdgeInput {
+                            from: "scope".into(),
+                            to: "finish".into(),
+                        },
+                    ],
                     current_node_id: "scope".to_string(),
                 },
             )
@@ -1514,12 +1552,15 @@ async fn record_context_updates_persists_one_epoch_taskspace_projection() {
     let history = session.clone_history().await;
     let developer_text = developer_input_texts(history.raw_items()).join("\n");
     assert!(
-        developer_text.contains("ContextProjectionV1 epoch snapshot:"),
-        "expected TaskSpace epoch snapshot in steady-state context: {developer_text}"
+        developer_text.contains("TaskSpaceMapProjectionR6V1:"),
+        "expected R6 map projection in steady-state context: {developer_text}"
     );
     assert!(
-        developer_text.contains("task_id: task-1") && developer_text.contains("map_id: map-1"),
-        "expected initial epoch snapshot in steady-state context: {developer_text}"
+        developer_text.contains("map_id: map-1")
+            && developer_text.contains("revision: 2")
+            && developer_text.contains("root_node_id: root")
+            && developer_text.contains("finish_node_id: finish"),
+        "expected rooted revision identity in steady-state context: {developer_text}"
     );
     assert!(
         developer_text.contains("root_source_event_ids:"),
@@ -1545,12 +1586,14 @@ async fn record_context_updates_persists_one_epoch_taskspace_projection() {
     let history_after_second_update = session.clone_history().await;
     let developer_text = developer_input_texts(history_after_second_update.raw_items()).join("\n");
     assert!(
-        developer_text.contains("task_id: task-1") && developer_text.contains("map_id: map-1"),
+        developer_text.contains("map_id: map-1")
+            && developer_text.contains("root->scope")
+            && developer_text.contains("scope->finish"),
         "provider history should expose the epoch map projection: {developer_text}"
     );
     assert_eq!(
         developer_text
-            .matches("ContextProjectionV1 epoch snapshot:")
+            .matches("TaskSpaceMapProjectionR6V1:")
             .count(),
         1,
         "provider history must contain exactly one epoch map projection: {developer_text}"
@@ -1561,9 +1604,11 @@ async fn record_context_updates_persists_one_epoch_taskspace_projection() {
         developer_input_texts(state.clone_history().raw_items()).join("\n")
     };
     assert!(
-        canonical_developer_text.contains("ContextProjectionV1 epoch snapshot:"),
+        canonical_developer_text.contains("TaskSpaceMapProjectionR6V1:"),
         "epoch map projection must be persisted once so later messages extend the provider prefix: {canonical_developer_text}"
     );
+    assert!(!canonical_developer_text.contains("task_status:"));
+    assert!(!canonical_developer_text.contains("map_status:"));
 }
 
 #[tokio::test]
@@ -1580,15 +1625,29 @@ async fn session_main_tool_result_is_checkpointed_at_explicit_boundary() {
             .initialize_map_for_main(
                 session.conversation_id,
                 crate::action_map::ActionMapInitializeInput {
-                    task_title: "Trace session path".to_string(),
+                    root: crate::action_map::ActionMapInitializeNodeInput {
+                        id: "root".into(),
+                        goal: "Trace session path".into(),
+                    },
+                    finish: crate::action_map::ActionMapInitializeNodeInput {
+                        id: "finish".into(),
+                        goal: "Finish trace".into(),
+                    },
                     source_event_ids: vec!["task-event-1".to_string()],
-                    nodes: vec![crate::action_map::ActionMapInitializeNodeInput {
+                    work_nodes: vec![crate::action_map::ActionMapInitializeNodeInput {
                         id: "validate".to_string(),
-                        kind: NodeKind::SmokeTest,
-                        title: "Run validation".to_string(),
-                        context_summary: "Run a validation command.".to_string(),
-                        dependency_node_ids: Vec::new(),
+                        goal: "Run a validation command.".to_string(),
                     }],
+                    edges: vec![
+                        crate::action_map::ActionMapEdgeInput {
+                            from: "root".into(),
+                            to: "validate".into(),
+                        },
+                        crate::action_map::ActionMapEdgeInput {
+                            from: "validate".into(),
+                            to: "finish".into(),
+                        },
+                    ],
                     current_node_id: "validate".to_string(),
                 },
             )
@@ -1695,7 +1754,7 @@ async fn session_main_tool_result_is_checkpointed_at_explicit_boundary() {
                             && event.result_id.as_deref() == Some("node-event-1")
                     })
                 {
-                    let map = payload.snapshot.maps.first().expect("snapshot map");
+                    let map = payload.snapshot.map.as_ref().expect("snapshot map");
                     let event = map.node_events.first().expect("node event snapshot");
                     assert_eq!(event.id, "node-event-1");
                     assert_eq!(event.source_event_id.as_deref(), Some("task-event-1"));

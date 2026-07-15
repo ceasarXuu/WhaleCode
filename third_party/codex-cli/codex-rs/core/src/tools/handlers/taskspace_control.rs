@@ -2,30 +2,26 @@ use codex_protocol::models::FunctionCallOutputPayload;
 use codex_protocol::models::ResponseInputItem;
 use serde_json::Value as JsonValue;
 
+use crate::action_map::ActionMapEdgeInput;
+use crate::action_map::ActionMapGraphMutationInput;
 use crate::action_map::ActionMapInitializeInput;
 use crate::action_map::ActionMapInitializeNodeInput;
+use crate::action_map::NodeTransition;
 use crate::function_tool::FunctionCallError;
 use crate::tools::context::ToolInvocation;
 use crate::tools::context::ToolOutput;
 use crate::tools::context::ToolPayload;
 use crate::tools::handlers::taskspace_control_args::TaskSpaceControlArgs;
+use crate::tools::handlers::taskspace_control_args::TaskSpaceGraphEdgeArgs;
+use crate::tools::handlers::taskspace_control_args::TaskSpaceGraphNodeArgs;
+use crate::tools::handlers::taskspace_control_args::TaskSpaceNodeTransition;
 use crate::tools::handlers::taskspace_control_args::parse_taskspace_control_args;
-use crate::tools::handlers::taskspace_control_lifecycle::execute_bind_node;
-use crate::tools::handlers::taskspace_control_lifecycle::execute_block_node;
-use crate::tools::handlers::taskspace_control_lifecycle::execute_create_node;
-use crate::tools::handlers::taskspace_control_lifecycle::execute_nonterminal_finishes;
-use crate::tools::handlers::taskspace_control_lifecycle::execute_terminal_finish_chain;
-use crate::tools::handlers::taskspace_control_lifecycle::parse_node_kind;
-use crate::tools::handlers::taskspace_control_output::StateCommit;
 use crate::tools::handlers::taskspace_control_output::control_state_observation;
-use crate::tools::handlers::taskspace_control_output::format_failed_state_step;
 use crate::tools::handlers::taskspace_control_output::format_initialize_step;
 use crate::tools::handlers::taskspace_control_output::format_node_detail_expansion_step;
 use crate::tools::handlers::taskspace_control_output::format_state_batch;
-use crate::tools::handlers::taskspace_control_output::hard_state_reason;
 use crate::tools::handlers::taskspace_control_output::protocol_error;
 use crate::tools::handlers::taskspace_control_output::resource_error;
-use crate::tools::handlers::taskspace_control_output::state_commit_for_steps;
 use crate::tools::handlers::taskspace_control_output::state_identity_coverage;
 use crate::tools::handlers::taskspace_control_output::state_machine_error;
 use crate::tools::output_reference::OUTPUT_SLICE_MAX_BYTES;
@@ -101,8 +97,11 @@ impl ToolHandler for TaskSpaceControlHandler {
         let args = parse_taskspace_control_args(&arguments)?;
 
         let (message, success, terminal_agent_message) = match args {
-            TaskSpaceControlArgs::InitializeThenActions {
-                initial_nodes,
+            TaskSpaceControlArgs::InitializeMap {
+                root,
+                finish,
+                work_nodes,
+                edges,
                 current_node_id,
                 continuation: _,
             } => {
@@ -110,26 +109,15 @@ impl ToolHandler for TaskSpaceControlHandler {
                     .taskspace_initialization_source_event_ids(&call_id)
                     .await
                     .map_err(state_machine_error)?;
-                let nodes = initial_nodes
-                    .into_iter()
-                    .map(|node| {
-                        let title = node.node_id.clone();
-                        Ok(ActionMapInitializeNodeInput {
-                            id: node.node_id,
-                            kind: parse_node_kind("initial_nodes.kind", &node.kind)?,
-                            title,
-                            context_summary: node.goal,
-                            dependency_node_ids: node.dependency_node_ids,
-                        })
-                    })
-                    .collect::<Result<Vec<_>, FunctionCallError>>()?;
                 let outcome = session
                     .initialize_action_map_for_main(
                         &turn,
                         ActionMapInitializeInput {
-                            task_title: "TaskSpace task".into(),
+                            root: map_node_input(root),
+                            finish: map_node_input(finish),
+                            work_nodes: work_nodes.into_iter().map(map_node_input).collect(),
+                            edges: edges.into_iter().map(map_edge_input).collect(),
                             source_event_ids,
-                            nodes,
                             current_node_id,
                         },
                     )
@@ -142,125 +130,152 @@ impl ToolHandler for TaskSpaceControlHandler {
                     format_state_batch(
                         vec![format_initialize_step(&outcome)],
                         true,
-                        StateCommit::Full,
+                        true,
                         map_state.as_ref(),
                     ),
                     true,
                     None,
                 )
             }
-            TaskSpaceControlArgs::FinishNodes { finishes } => {
-                let conclusion_event_id = session
-                    .taskspace_event_id_for_call(&call_id)
-                    .await
-                    .map_err(state_machine_error)?;
-                let (steps, success) =
-                    execute_nonterminal_finishes(&session, &turn, finishes, &conclusion_event_id)
-                        .await;
-                let state_commit = state_commit_for_steps(&steps, success);
-                let map_state = session.action_map_control_state(None).await;
-                (
-                    format_state_batch(steps, success, state_commit, map_state.as_ref()),
-                    success,
-                    None,
-                )
-            }
-            TaskSpaceControlArgs::FinishThenEnd {
-                finish_node_ids,
-                final_candidate,
-            } => {
-                let conclusion_event_id = session
-                    .taskspace_event_id_for_call(&call_id)
-                    .await
-                    .map_err(state_machine_error)?;
-                let declared_step_count = finish_node_ids.len();
-                tracing::info!(
-                    target: "codex_core::taskspace",
-                    call_id,
-                    declared_step_count,
-                    "taskspace.terminal_finish_chain_declared"
-                );
-                let map_id_hint = session
-                    .action_map_control_state(None)
-                    .await
-                    .map(|state| state.map_id);
-                match execute_terminal_finish_chain(
-                    &session,
+            TaskSpaceControlArgs::MutateGraph {
+                expected_revision,
+                add_nodes,
+                add_edges,
+                remove_edges,
+            } => match session
+                .mutate_action_map_graph(
                     &turn,
-                    finish_node_ids,
-                    &final_candidate,
-                    &conclusion_event_id,
+                    ActionMapGraphMutationInput {
+                        expected_revision,
+                        add_nodes: add_nodes.into_iter().map(map_node_input).collect(),
+                        add_edges: add_edges.into_iter().map(map_edge_input).collect(),
+                        remove_edges: remove_edges.into_iter().map(map_edge_input).collect(),
+                    },
                 )
                 .await
-                {
-                    Ok(steps) => {
-                        tracing::info!(
-                            target: "codex_core::taskspace",
-                            call_id,
-                            committed_step_count = steps.len(),
-                            "taskspace.terminal_finish_chain_committed"
-                        );
-                        let map_state = session
-                            .action_map_control_state(map_id_hint.as_deref())
-                            .await;
-                        (
-                            format_state_batch(steps, true, StateCommit::Full, map_state.as_ref()),
+            {
+                Ok(outcome) => {
+                    let map_state = session
+                        .action_map_control_state(Some(&outcome.map_id))
+                        .await;
+                    (
+                        format_state_batch(
+                            vec![serde_json::json!({
+                                "kind": "graph_mutation",
+                                "map_id": outcome.map_id,
+                                "revision": outcome.revision,
+                            })],
                             true,
-                            Some(final_candidate),
-                        )
-                    }
-                    Err(error) => {
-                        let error_text = error.to_string();
-                        let reason_code =
-                            hard_state_reason(&error_text).unwrap_or("transition_rejected");
-                        tracing::warn!(
-                            target: "codex_core::taskspace",
-                            call_id,
-                            declared_step_count,
-                            reason_code,
-                            "taskspace.terminal_finish_chain_rejected"
-                        );
+                            true,
+                            map_state.as_ref(),
+                        ),
+                        true,
+                        None,
+                    )
+                }
+                Err(error) => {
+                    let map_state = session.action_map_control_state(None).await;
+                    (
+                        rejected_control_result(&error, map_state.as_ref()),
+                        false,
+                        None,
+                    )
+                }
+            },
+            TaskSpaceControlArgs::TransitionNode {
+                expected_revision,
+                node_id,
+                transition,
+            } => {
+                let source_event_ref = session
+                    .taskspace_event_id_for_call(&call_id)
+                    .await
+                    .map_err(state_machine_error)?;
+                match session
+                    .transition_action_map_node(
+                        &turn,
+                        expected_revision,
+                        node_id,
+                        map_transition(transition),
+                        source_event_ref,
+                    )
+                    .await
+                {
+                    Ok(outcome) => {
                         let map_state = session
-                            .action_map_control_state(map_id_hint.as_deref())
+                            .action_map_control_state(Some(&outcome.map_id))
                             .await;
                         (
                             format_state_batch(
-                                vec![format_failed_state_step(0, &error)],
-                                false,
-                                StateCommit::None,
+                                vec![serde_json::json!({
+                                    "kind": "node_transition",
+                                    "map_id": outcome.map_id,
+                                    "node_id": outcome.node_id,
+                                    "revision": outcome.revision,
+                                    "status": outcome.status,
+                                })],
+                                true,
+                                true,
                                 map_state.as_ref(),
                             ),
+                            true,
+                            None,
+                        )
+                    }
+                    Err(error) => {
+                        let map_state = session.action_map_control_state(None).await;
+                        (
+                            rejected_control_result(&error, map_state.as_ref()),
                             false,
                             None,
                         )
                     }
                 }
             }
-            TaskSpaceControlArgs::CreateNode {
-                kind,
-                goal,
-                dependency_node_ids,
-                bind_current,
+            TaskSpaceControlArgs::FinishEnd {
+                expected_revision,
+                final_summary,
             } => {
-                let (message, success) = execute_create_node(
-                    &session,
-                    &turn,
-                    kind,
-                    goal,
-                    dependency_node_ids,
-                    bind_current,
-                )
-                .await?;
-                (message, success, None)
-            }
-            TaskSpaceControlArgs::BindNode { node_id } => {
-                let (message, success) = execute_bind_node(&session, &turn, node_id).await;
-                (message, success, None)
-            }
-            TaskSpaceControlArgs::BlockNode { node_id } => {
-                let (message, success) =
-                    execute_block_node(&session, &turn, &call_id, node_id).await?;
-                (message, success, None)
+                let map_id_hint = session
+                    .action_map_control_state(None)
+                    .await
+                    .map(|state| state.map_id);
+                match session
+                    .finish_action_map(&turn, expected_revision, final_summary.clone())
+                    .await
+                {
+                    Ok(outcome) => {
+                        let map_state = session
+                            .action_map_control_state(map_id_hint.as_deref())
+                            .await;
+                        (
+                            format_state_batch(
+                                vec![serde_json::json!({
+                                    "kind": "terminal_transition",
+                                    "map_id": outcome.map_id,
+                                    "revision": outcome.revision,
+                                    "finish_closed": true,
+                                    "root_closed": true,
+                                })],
+                                true,
+                                true,
+                                map_state.as_ref(),
+                            ),
+                            true,
+                            Some(outcome.final_summary),
+                        )
+                    }
+                    Err(error) => {
+                        let map_state = session
+                            .action_map_control_state(map_id_hint.as_deref())
+                            .await;
+                        (
+                            rejected_control_result(&error, map_state.as_ref()),
+                            false,
+                            None,
+                        )
+                    }
+                }
             }
             TaskSpaceControlArgs::ExpandNodes { node_ids } => {
                 let source_event_id = session
@@ -305,13 +320,12 @@ impl ToolHandler for TaskSpaceControlHandler {
                             .action_map_control_state(map_id_hint.as_deref())
                             .await;
                         (
-                            format_state_batch(steps, true, StateCommit::Full, map_state.as_ref()),
+                            format_state_batch(steps, true, true, map_state.as_ref()),
                             true,
                             None,
                         )
                     }
                     Err(error_message) => {
-                        let error = state_machine_error(error_message);
                         tracing::warn!(
                             target: "codex_core::taskspace",
                             call_id,
@@ -322,12 +336,7 @@ impl ToolHandler for TaskSpaceControlHandler {
                             .action_map_control_state(map_id_hint.as_deref())
                             .await;
                         (
-                            format_state_batch(
-                                vec![format_failed_state_step(0, &error)],
-                                false,
-                                StateCommit::None,
-                                map_state.as_ref(),
-                            ),
+                            rejected_control_result(&error_message, map_state.as_ref()),
                             false,
                             None,
                         )
@@ -410,6 +419,44 @@ impl ToolHandler for TaskSpaceControlHandler {
     }
 }
 
+fn map_node_input(node: TaskSpaceGraphNodeArgs) -> ActionMapInitializeNodeInput {
+    ActionMapInitializeNodeInput {
+        id: node.node_id,
+        goal: node.goal,
+    }
+}
+fn map_edge_input(edge: TaskSpaceGraphEdgeArgs) -> ActionMapEdgeInput {
+    ActionMapEdgeInput {
+        from: edge.from,
+        to: edge.to,
+    }
+}
+fn map_transition(transition: TaskSpaceNodeTransition) -> NodeTransition {
+    match transition {
+        TaskSpaceNodeTransition::Bind => NodeTransition::Bind,
+        TaskSpaceNodeTransition::Complete => NodeTransition::Complete,
+        TaskSpaceNodeTransition::Block => NodeTransition::Block,
+        TaskSpaceNodeTransition::Unblock => NodeTransition::Unblock,
+    }
+}
+
+fn rejected_control_result(
+    error: &str,
+    map_state: Option<&crate::action_map::ActionMapControlState>,
+) -> String {
+    let exact_error = serde_json::from_str::<JsonValue>(error)
+        .unwrap_or_else(|_| serde_json::json!({"message": error}));
+    format_state_batch(
+        vec![serde_json::json!({
+            "kind": "state_rejection",
+            "error": exact_error,
+        })],
+        false,
+        false,
+        map_state,
+    )
+}
+
 fn parse_output_slice_mode(
     mode: &str,
     start_line: Option<usize>,
@@ -447,7 +494,6 @@ fn parse_output_slice_mode(
         )),
     }
 }
-
 #[cfg(test)]
 #[path = "taskspace_control_tests.rs"]
 mod tests;

@@ -106,23 +106,48 @@ async fn start_action_map_task_node(
 ) -> String {
     let target = crate::action_map::ActionMapInitializeNodeInput {
         id: "node-1".to_string(),
-        kind: crate::action_map::NodeKind::InspectCodeContext,
-        title: title.to_string(),
-        context_summary: context_summary.to_string(),
-        dependency_node_ids: Vec::new(),
+        goal: context_summary.to_string(),
     };
-    let (nodes, current_node_id) = if bind_current {
-        (vec![target], "node-1".to_string())
+    let (work_nodes, edges, current_node_id) = if bind_current {
+        (
+            vec![target],
+            vec![
+                crate::action_map::ActionMapEdgeInput {
+                    from: "root".into(),
+                    to: "node-1".into(),
+                },
+                crate::action_map::ActionMapEdgeInput {
+                    from: "node-1".into(),
+                    to: "finish".into(),
+                },
+            ],
+            "node-1".to_string(),
+        )
     } else {
         (
             vec![
                 target,
                 crate::action_map::ActionMapInitializeNodeInput {
                     id: "node-2".to_string(),
-                    kind: crate::action_map::NodeKind::InspectCodeContext,
-                    title: "Coordinate delegated work".to_string(),
-                    context_summary: "Track the active delegated node.".to_string(),
-                    dependency_node_ids: Vec::new(),
+                    goal: "Track the active delegated node.".to_string(),
+                },
+            ],
+            vec![
+                crate::action_map::ActionMapEdgeInput {
+                    from: "root".into(),
+                    to: "node-1".into(),
+                },
+                crate::action_map::ActionMapEdgeInput {
+                    from: "root".into(),
+                    to: "node-2".into(),
+                },
+                crate::action_map::ActionMapEdgeInput {
+                    from: "node-1".into(),
+                    to: "finish".into(),
+                },
+                crate::action_map::ActionMapEdgeInput {
+                    from: "node-2".into(),
+                    to: "finish".into(),
                 },
             ],
             "node-2".to_string(),
@@ -132,28 +157,83 @@ async fn start_action_map_task_node(
         .initialize_action_map_for_main(
             turn,
             crate::action_map::ActionMapInitializeInput {
-                task_title: title.to_string(),
+                root: crate::action_map::ActionMapInitializeNodeInput {
+                    id: "root".into(),
+                    goal: title.to_string(),
+                },
+                finish: crate::action_map::ActionMapInitializeNodeInput {
+                    id: "finish".into(),
+                    goal: "Finish the delegated task".into(),
+                },
                 source_event_ids: vec!["task-event-test".to_string()],
-                nodes,
+                work_nodes,
+                edges,
                 current_node_id,
             },
         )
         .await
         .expect("TaskSpace map should initialize");
+    if !bind_current {
+        session
+            .transition_action_map_node(
+                turn,
+                2,
+                "node-2".into(),
+                crate::action_map::NodeTransition::Complete,
+                "task-event-mechanical-init-complete".into(),
+            )
+            .await
+            .expect("mechanical initialization binding should be released");
+    }
     assert!(outcome.node_ids.iter().any(|node_id| node_id == "node-1"));
     "node-1".to_string()
 }
 
+async fn add_action_map_work_node(
+    session: &Arc<crate::session::session::Session>,
+    turn: &Arc<TurnContext>,
+    node_id: &str,
+    goal: &str,
+    dependencies: Vec<String>,
+) -> String {
+    let snapshot = session.action_map_snapshot().await;
+    let map = snapshot.map.expect("active rooted map");
+    let predecessors = if dependencies.is_empty() {
+        vec![map.root_node_id.clone()]
+    } else {
+        dependencies
+    };
+    let mut add_edges = predecessors
+        .into_iter()
+        .map(|from| crate::action_map::ActionMapEdgeInput {
+            from,
+            to: node_id.to_string(),
+        })
+        .collect::<Vec<_>>();
+    add_edges.push(crate::action_map::ActionMapEdgeInput {
+        from: node_id.to_string(),
+        to: map.finish_node_id,
+    });
+    session
+        .mutate_action_map_graph(
+            turn,
+            crate::action_map::ActionMapGraphMutationInput {
+                expected_revision: map.revision,
+                add_nodes: vec![crate::action_map::ActionMapInitializeNodeInput {
+                    id: node_id.to_string(),
+                    goal: goal.to_string(),
+                }],
+                add_edges,
+                remove_edges: Vec::new(),
+            },
+        )
+        .await
+        .expect("work node mutation should commit");
+    node_id.to_string()
+}
+
 fn active_action_map_snapshot_map(snapshot: &ActionMapSnapshot) -> &ActionMapSnapshotMap {
-    let active_map_id = snapshot
-        .active_map_id
-        .as_deref()
-        .expect("snapshot should have an active map");
-    snapshot
-        .maps
-        .iter()
-        .find(|map| map.id == active_map_id)
-        .expect("active map should exist")
+    snapshot.map.as_ref().expect("active map should exist")
 }
 
 async fn active_action_map_node_statuses(
@@ -971,16 +1051,14 @@ async fn legacy_spawn_agent_requires_node_id_for_multiple_ready_nodes() {
         false,
     )
     .await;
-    let second_node_id = session
-        .create_action_map_node_for_main(
-            &turn,
-            "Review tests".to_string(),
-            "Review test evidence.".to_string(),
-            Vec::new(),
-            false,
-        )
-        .await
-        .expect("second ready node should be created");
+    let second_node_id = add_action_map_work_node(
+        &session,
+        &turn,
+        "node-3",
+        "Review test evidence.",
+        Vec::new(),
+    )
+    .await;
     assert_eq!(second_node_id, "node-3");
 
     let err = SpawnAgentHandler
@@ -999,8 +1077,8 @@ async fn legacy_spawn_agent_requires_node_id_for_multiple_ready_nodes() {
         panic!("TaskSpace node selection should return a model-facing error");
     };
     assert!(message.contains("multiple ready nodes"));
-    assert!(message.contains("node-1 (Review architecture)"));
-    assert!(message.contains("node-3 (Review tests)"));
+    assert!(message.contains("node-1 (Review architecture evidence.)"));
+    assert!(message.contains("node-3 (Review test evidence.)"));
     assert!(manager.captured_ops().is_empty());
     assert_eq!(active_action_map_lease_count(&session).await, 0);
     let statuses = active_action_map_node_statuses(&session).await;
@@ -1034,16 +1112,14 @@ async fn legacy_spawn_agent_claims_explicit_node_id() {
         false,
     )
     .await;
-    let second_node_id = session
-        .create_action_map_node_for_main(
-            &turn,
-            "Review tests".to_string(),
-            "Review test evidence.".to_string(),
-            Vec::new(),
-            false,
-        )
-        .await
-        .expect("second ready node should be created");
+    let second_node_id = add_action_map_work_node(
+        &session,
+        &turn,
+        "node-3",
+        "Review test evidence.",
+        Vec::new(),
+    )
+    .await;
     let output = SpawnAgentHandler
         .handle(invocation(
             session.clone(),
@@ -1062,7 +1138,8 @@ async fn legacy_spawn_agent_claims_explicit_node_id() {
     let child_id = parse_agent_id(&result.agent_id);
     let op = captured_op_for_thread(&manager, child_id).expect("child op should be captured");
     let content = inter_agent_content(&op).expect("child op should contain text");
-    assert!(content.contains("Node: node-3 - Review tests"));
+    assert!(content.contains("Node: node-3\n"));
+    assert!(content.contains("Goal: Review test evidence."));
     assert!(content.contains("inspect tests"));
     assert_eq!(active_action_map_lease_count(&session).await, 1);
     let statuses = active_action_map_node_statuses(&session).await;
@@ -1358,16 +1435,14 @@ async fn action_map_experiment_spawn_requires_node_id_for_multiple_ready_nodes()
         false,
     )
     .await;
-    let second_node_id = session
-        .create_action_map_node_for_main(
-            &turn,
-            "Review tests".to_string(),
-            "Review test evidence.".to_string(),
-            Vec::new(),
-            false,
-        )
-        .await
-        .expect("second ready node should be created");
+    let second_node_id = add_action_map_work_node(
+        &session,
+        &turn,
+        "node-3",
+        "Review test evidence.",
+        Vec::new(),
+    )
+    .await;
     assert_eq!(second_node_id, "node-3");
 
     let err = SpawnAgentHandlerV2
@@ -1387,8 +1462,8 @@ async fn action_map_experiment_spawn_requires_node_id_for_multiple_ready_nodes()
         panic!("TaskSpace node selection should return a model-facing error");
     };
     assert!(message.contains("multiple ready nodes"));
-    assert!(message.contains("node-1 (Review architecture)"));
-    assert!(message.contains("node-3 (Review tests)"));
+    assert!(message.contains("node-1 (Review architecture evidence.)"));
+    assert!(message.contains("node-3 (Review test evidence.)"));
     assert!(manager.captured_ops().is_empty());
     assert_eq!(active_action_map_lease_count(&session).await, 0);
     let statuses = active_action_map_node_statuses(&session).await;
@@ -1428,16 +1503,14 @@ async fn action_map_experiment_spawn_claims_explicit_node_id() {
         false,
     )
     .await;
-    let second_node_id = session
-        .create_action_map_node_for_main(
-            &turn,
-            "Review tests".to_string(),
-            "Review test evidence.".to_string(),
-            Vec::new(),
-            false,
-        )
-        .await
-        .expect("second ready node should be created");
+    let second_node_id = add_action_map_work_node(
+        &session,
+        &turn,
+        "node-3",
+        "Review test evidence.",
+        Vec::new(),
+    )
+    .await;
     let output = SpawnAgentHandlerV2
         .handle(invocation(
             session.clone(),
@@ -1467,7 +1540,8 @@ async fn action_map_experiment_spawn_claims_explicit_node_id() {
         .expect("spawned node agent should resolve");
     let op = captured_op_for_thread(&manager, child_id).expect("child op should be captured");
     let content = inter_agent_content(&op).expect("child op should contain text");
-    assert!(content.contains("Node: node-3 - Review tests"));
+    assert!(content.contains("Node: node-3\n"));
+    assert!(content.contains("Goal: Review test evidence."));
     assert!(content.contains("inspect tests"));
     assert_eq!(active_action_map_lease_count(&session).await, 1);
     let statuses = active_action_map_node_statuses(&session).await;
@@ -1502,16 +1576,14 @@ async fn action_map_experiment_spawn_rejects_pending_explicit_node_id() {
         false,
     )
     .await;
-    let second_node_id = session
-        .create_action_map_node_for_main(
-            &turn,
-            "Review tests".to_string(),
-            "Review test evidence after architecture review.".to_string(),
-            vec![first_node_id],
-            false,
-        )
-        .await
-        .expect("dependent second node should be created");
+    let second_node_id = add_action_map_work_node(
+        &session,
+        &turn,
+        "node-3",
+        "Review test evidence after architecture review.",
+        vec![first_node_id],
+    )
+    .await;
     assert_eq!(second_node_id, "node-3");
 
     let err = SpawnAgentHandlerV2
@@ -1572,16 +1644,14 @@ async fn action_map_experiment_hidden_metadata_spawn_claims_explicit_node_id() {
         false,
     )
     .await;
-    let second_node_id = session
-        .create_action_map_node_for_main(
-            &turn,
-            "Review tests".to_string(),
-            "Review test evidence.".to_string(),
-            Vec::new(),
-            false,
-        )
-        .await
-        .expect("second ready node should be created");
+    let second_node_id = add_action_map_work_node(
+        &session,
+        &turn,
+        "node-3",
+        "Review test evidence.",
+        Vec::new(),
+    )
+    .await;
     let output = SpawnAgentHandlerV2
         .handle(invocation(
             session.clone(),
@@ -1613,7 +1683,8 @@ async fn action_map_experiment_hidden_metadata_spawn_claims_explicit_node_id() {
         .expect("spawned node agent should resolve");
     let op = captured_op_for_thread(&manager, child_id).expect("child op should be captured");
     let content = inter_agent_content(&op).expect("child op should contain text");
-    assert!(content.contains("Node: node-3 - Review tests"));
+    assert!(content.contains("Node: node-3\n"));
+    assert!(content.contains("Goal: Review test evidence."));
 }
 
 #[tokio::test]
@@ -1678,7 +1749,10 @@ async fn action_map_experiment_spawn_keeps_requested_task_name_for_dynamic_node(
         .expect("spawned node agent should resolve");
     let op = captured_op_for_thread(&manager, child_id).expect("child op should be captured");
     let content = inter_agent_content(&op).expect("child op should contain text");
-    assert!(content.contains("Node: node-1 - Dynamic review"));
+    assert!(content.contains("Node: node-1\n"));
+    assert!(
+        content.contains("Goal: Dynamic review evidence should keep the requested child path.")
+    );
     assert!(content.contains("Lease: lease-2"));
 }
 
@@ -1713,17 +1787,14 @@ async fn action_map_completion_watcher_advances_next_spawn_to_next_node() {
     )
     .await;
     assert_eq!(first_node_id, "node-1");
-    let second_node_id = session
-        .create_action_map_node_for_main_with_kind(
-            &turn,
-            crate::action_map::NodeKind::RegressionTest,
-            "Validate downstream context".to_string(),
-            "Second bounded validation handoff after scope is defined.".to_string(),
-            vec!["node-1".to_string()],
-            false,
-        )
-        .await
-        .expect("dependent second node should be created");
+    let second_node_id = add_action_map_work_node(
+        &session,
+        &turn,
+        "node-3",
+        "Second bounded validation handoff after scope is defined.",
+        vec!["node-1".to_string()],
+    )
+    .await;
     assert_eq!(second_node_id, "node-3");
     let first_output = SpawnAgentHandlerV2
         .handle(invocation(
@@ -1797,9 +1868,9 @@ async fn action_map_completion_watcher_advances_next_spawn_to_next_node() {
         loop {
             let snapshot = session.action_map_snapshot().await;
             let result_exists = snapshot
-                .maps
-                .iter()
-                .any(|map| map.results.iter().any(|result| result.id == "result-2"));
+                .map
+                .as_ref()
+                .is_some_and(|map| map.results.iter().any(|result| result.id == "result-2"));
             if result_exists {
                 break;
             }

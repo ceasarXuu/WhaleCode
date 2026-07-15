@@ -180,7 +180,7 @@ impl ProviderWireTrace {
             provider_payload_bytes,
             messages_hash,
             tools_hash: tools_hash.clone(),
-            cache_shape_hash: cache_shape_hash.clone(),
+            cache_shape_hash,
             tools_count,
             tool_choice_kind,
             tool_choice_name,

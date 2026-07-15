@@ -4,18 +4,7 @@ use crate::JsonSchema;
 use crate::ResponsesApiNamespaceTool;
 use crate::ResponsesApiTool;
 use crate::ToolSpec;
-use serde_json::Value;
 use serde_json::json;
-
-fn node_kind_values() -> Vec<Value> {
-    vec![
-        json!("inspect_code_context"),
-        json!("implement_solution"),
-        json!("smoke_test"),
-        json!("regression_test"),
-        json!("final_synthesis"),
-    ]
-}
 
 fn action_tag(action: &str) -> JsonSchema {
     JsonSchema::string_enum(
@@ -143,100 +132,39 @@ fn nested_action_schemas(visible_tools: &[ToolSpec]) -> NestedActionSchemas {
     }
 }
 
-fn initial_node_schema() -> JsonSchema {
-    JsonSchema::object(
+fn graph_node_schema(description: &str) -> JsonSchema {
+    let mut schema = JsonSchema::object(
         BTreeMap::from([
             (
                 "node_id".into(),
-                JsonSchema::string(Some(
-                    "Stable Agent-authored node identifier used by all later actions.".into(),
-                )),
-            ),
-            (
-                "kind".into(),
-                JsonSchema::string_enum(node_kind_values(), Some("Node type.".into())),
+                JsonSchema::string(Some("Stable Agent-authored node identifier.".into())),
             ),
             ("goal".into(), JsonSchema::string(Some("Node goal.".into()))),
-            (
-                "dependency_node_ids".into(),
-                JsonSchema::array(
-                    JsonSchema::string(None),
-                    Some("Agent-authored prerequisite node identifiers.".into()),
-                ),
-            ),
         ]),
-        Some(vec!["node_id".into(), "kind".into(), "goal".into()]),
+        Some(vec!["node_id".into(), "goal".into()]),
         Some(false.into()),
-    )
-}
-
-fn next_variant(
-    kind: &str,
-    mut properties: BTreeMap<String, JsonSchema>,
-    mut required: Vec<String>,
-) -> JsonSchema {
-    properties.insert(
-        "kind".into(),
-        JsonSchema::string_enum(vec![json!(kind)], Some("Next binding variant.".into())),
     );
-    required.insert(0, "kind".into());
-    JsonSchema::object(properties, Some(required), Some(false.into()))
+    schema.description = Some(description.into());
+    schema
 }
 
-fn next_existing_schema() -> JsonSchema {
-    next_variant(
-        "existing",
-        BTreeMap::from([(
-            "node_id".into(),
-            JsonSchema::string(Some("Existing node bound after this finish.".into())),
-        )]),
-        vec!["node_id".into()],
-    )
-}
-
-fn next_created_schema() -> JsonSchema {
-    next_variant(
-        "create",
+fn edge_schema(description: &str) -> JsonSchema {
+    let mut schema = JsonSchema::object(
         BTreeMap::from([
             (
-                "node_kind".into(),
-                JsonSchema::string_enum(node_kind_values(), Some("Created node type.".into())),
+                "from".into(),
+                JsonSchema::string(Some("Source node identifier.".into())),
             ),
             (
-                "goal".into(),
-                JsonSchema::string(Some("Created node goal.".into())),
-            ),
-            (
-                "dependency_node_ids".into(),
-                JsonSchema::array(
-                    JsonSchema::string(None),
-                    Some("Created node prerequisites.".into()),
-                ),
+                "to".into(),
+                JsonSchema::string(Some("Target node identifier.".into())),
             ),
         ]),
-        vec!["node_kind".into(), "goal".into()],
-    )
-}
-
-fn next_schema() -> JsonSchema {
-    object_any_of(
-        vec![next_existing_schema(), next_created_schema()],
-        "Exactly one Agent-declared next binding.",
-    )
-}
-
-fn nonterminal_finish_schema() -> JsonSchema {
-    JsonSchema::object(
-        BTreeMap::from([
-            (
-                "node_id".into(),
-                JsonSchema::string(Some("Optional explicit ready finish target.".into())),
-            ),
-            ("next".into(), next_schema()),
-        ]),
-        Some(vec!["next".into()]),
+        Some(vec!["from".into(), "to".into()]),
         Some(false.into()),
-    )
+    );
+    schema.description = Some(description.into());
+    schema
 }
 
 fn continuation_variant(
@@ -288,14 +216,22 @@ fn continuation_schema(has_patch: bool) -> JsonSchema {
     )
 }
 
-fn initialize_then_actions_schema(has_patch: bool) -> JsonSchema {
+fn initialize_map_schema(has_patch: bool) -> JsonSchema {
     object_variant(
-        "initialize_then_actions",
+        "initialize_map",
         BTreeMap::from([
+            ("root".into(), graph_node_schema("Root node.")),
+            ("finish".into(), graph_node_schema("Finish node.")),
             (
-                "initial_nodes".into(),
-                JsonSchema::array(initial_node_schema(), Some("Initial node graph.".into()))
-                    .with_min_items(1),
+                "work_nodes".into(),
+                JsonSchema::array(graph_node_schema("Work node."), Some("Work nodes.".into())),
+            ),
+            (
+                "edges".into(),
+                JsonSchema::array(
+                    edge_schema("Graph edge."),
+                    Some("Directed graph edges.".into()),
+                ),
             ),
             (
                 "current_node_id".into(),
@@ -304,80 +240,104 @@ fn initialize_then_actions_schema(has_patch: bool) -> JsonSchema {
             ("continuation".into(), continuation_schema(has_patch)),
         ]),
         vec![
-            "initial_nodes".into(),
+            "root".into(),
+            "finish".into(),
+            "work_nodes".into(),
+            "edges".into(),
             "current_node_id".into(),
             "continuation".into(),
         ],
     )
 }
 
-fn finish_nodes_schema() -> JsonSchema {
+fn mutate_graph_schema() -> JsonSchema {
     object_variant(
-        "finish_nodes",
-        BTreeMap::from([(
-            "finishes".into(),
-            JsonSchema::array(
-                nonterminal_finish_schema(),
-                Some("Ordered nonterminal finishes.".into()),
-            )
-            .with_min_items(1),
-        )]),
-        vec!["finishes".into()],
+        "mutate_graph",
+        BTreeMap::from([
+            (
+                "expected_revision".into(),
+                JsonSchema::integer(Some("Expected graph revision.".into())),
+            ),
+            (
+                "add_nodes".into(),
+                JsonSchema::array(
+                    graph_node_schema("Node to add."),
+                    Some("Nodes to add.".into()),
+                ),
+            ),
+            (
+                "add_edges".into(),
+                JsonSchema::array(edge_schema("Edge to add."), Some("Edges to add.".into())),
+            ),
+            (
+                "remove_edges".into(),
+                JsonSchema::array(
+                    edge_schema("Edge to remove."),
+                    Some("Edges to remove.".into()),
+                ),
+            ),
+        ]),
+        vec![
+            "expected_revision".into(),
+            "add_nodes".into(),
+            "add_edges".into(),
+            "remove_edges".into(),
+        ],
     )
 }
 
-fn finish_then_end_schema() -> JsonSchema {
+fn transition_node_schema() -> JsonSchema {
     object_variant(
-        "finish_then_end",
+        "transition_node",
         BTreeMap::from([
             (
-                "finish_node_ids".into(),
-                JsonSchema::array(
-                    JsonSchema::string(None),
-                    Some(
-                        "Agent-declared finish order; each node binds to the next ID and the last node is terminal."
-                            .into(),
-                    ),
-                )
-                .with_min_items(1),
+                "expected_revision".into(),
+                JsonSchema::integer(Some("Expected graph revision.".into())),
             ),
             (
-                "final_candidate".into(),
-                JsonSchema::string(Some("Exact Agent-authored final answer.".into())),
+                "node_id".into(),
+                JsonSchema::string(Some("Target node.".into())),
+            ),
+            (
+                "transition".into(),
+                JsonSchema::string_enum(
+                    vec![
+                        json!("bind"),
+                        json!("complete"),
+                        json!("block"),
+                        json!("unblock"),
+                    ],
+                    Some("Mechanical node transition.".into()),
+                ),
             ),
         ]),
-        vec!["finish_node_ids".into(), "final_candidate".into()],
+        vec![
+            "expected_revision".into(),
+            "node_id".into(),
+            "transition".into(),
+        ],
+    )
+}
+
+fn finish_end_schema() -> JsonSchema {
+    object_variant(
+        "finish_end",
+        BTreeMap::from([
+            (
+                "expected_revision".into(),
+                JsonSchema::integer(Some("Expected graph revision.".into())),
+            ),
+            (
+                "final_summary".into(),
+                JsonSchema::string(Some("Exact Agent-authored final summary.".into())),
+            ),
+        ]),
+        vec!["expected_revision".into(), "final_summary".into()],
     )
 }
 
 fn simple_action_schemas() -> Vec<JsonSchema> {
     vec![
-        object_variant(
-            "create_node",
-            BTreeMap::from([
-                (
-                    "kind".into(),
-                    JsonSchema::string_enum(node_kind_values(), None),
-                ),
-                ("goal".into(), JsonSchema::string(None)),
-                (
-                    "dependency_node_ids".into(),
-                    JsonSchema::array(JsonSchema::string(None), None),
-                ),
-                ("bind_current".into(), JsonSchema::boolean(None)),
-            ]),
-            vec!["kind".into(), "goal".into()],
-        ),
-        object_variant(
-            "bind_node",
-            BTreeMap::from([("node_id".into(), JsonSchema::string(None))]),
-            vec!["node_id".into()],
-        ),
-        object_variant(
-            "block_node",
-            BTreeMap::from([("node_id".into(), JsonSchema::string(None))]),
-            vec!["node_id".into()],
-        ),
         object_variant(
             "expand_nodes",
             BTreeMap::from([(
@@ -427,14 +387,14 @@ pub fn create_taskspace_control_tool(visible_tools: &[ToolSpec]) -> ToolSpec {
         definitions.insert("patchAction".into(), patch);
     }
     let parameters = object_any_of(
-        vec![initialize_then_actions_schema(has_patch)],
+        vec![initialize_map_schema(has_patch)],
         "Initialize the TaskSpace map and execute immediate ordinary actions.",
     )
     .with_definitions(definitions);
 
     ToolSpec::Function(ResponsesApiTool {
         name: "taskspace_control".into(),
-        description: "Mandatory mechanical TaskSpace bootstrap tool. initialize_then_actions initializes and binds the Agent-authored map, then executes its continuation in order. continuation.actions contains non-patch tools. continuation.patch_then_actions contains exactly one apply_patch slot followed by optional non-patch tools. Runtime executes only the declared sequence and stops after the first failure.".into(),
+        description: "Mandatory mechanical TaskSpace bootstrap tool. initialize_map declares root, work_nodes, finish, required edges, current_node_id, and continuation. continuation.actions contains non-patch tools. continuation.patch_then_actions contains exactly one apply_patch slot followed by optional non-patch tools. Runtime executes only the declared sequence and stops after the first failure.".into(),
         strict: false,
         defer_loading: None,
         parameters,
@@ -443,11 +403,15 @@ pub fn create_taskspace_control_tool(visible_tools: &[ToolSpec]) -> ToolSpec {
 }
 
 pub fn create_taskspace_active_control_tool() -> ToolSpec {
-    let mut variants = vec![finish_nodes_schema(), finish_then_end_schema()];
+    let mut variants = vec![
+        mutate_graph_schema(),
+        transition_node_schema(),
+        finish_end_schema(),
+    ];
     variants.extend(simple_action_schemas());
     ToolSpec::Function(ResponsesApiTool {
         name: "taskspace_control".into(),
-        description: "Mandatory mechanical TaskSpace map tool. finish_nodes commits ordered nonterminal finishes; each finish requires one tagged next binding: kind=existing binds next.node_id, kind=create creates the declared node. Ordinary sibling tool calls later in the same provider response execute after this state barrier under the latest binding. finish_then_end commits the Agent-declared finish_node_ids in order, uses the last ID as the terminal node, and releases final_candidate unchanged. expand_nodes atomically returns the hidden event refs of folded nodes, records the Agent expansion event, and keeps every detail ref visible in later projections. Mutation results report state_commit plus the current and remaining open Map state. Runtime follows the declared order and does not choose or infer actions.".into(),
+        description: "Mandatory mechanical TaskSpace map tool. mutate_graph applies required graph transaction arrays under expected_revision. transition_node applies bind, complete, block, or unblock under expected_revision. finish_end releases final_summary unchanged under expected_revision. expand_nodes and read_output_ref are mechanical observation operations. Runtime follows the declared order and does not choose or infer actions.".into(),
         strict: false,
         defer_loading: None,
         parameters: object_any_of(variants, "Active TaskSpace lifecycle operation."),

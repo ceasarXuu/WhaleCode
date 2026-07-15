@@ -3,29 +3,11 @@ use serde_json::Value as JsonValue;
 use crate::action_map::ActionMapControlState;
 #[cfg(test)]
 use crate::action_map::ActionMapExpandedDetailRef;
-use crate::action_map::ActionMapFinishNodeOutcome;
 use crate::action_map::ActionMapInitializeOutcome;
 use crate::action_map::ActionMapNodeDetailExpansionOutcome;
 use crate::action_map::TaskSpaceHardGateClass;
 use crate::function_tool::FunctionCallError;
 use crate::tools::handlers::taskspace_control_args::TASKSPACE_CONTROL_RESULT_SCHEMA_VERSION;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum StateCommit {
-    None,
-    Partial,
-    Full,
-}
-
-impl StateCommit {
-    fn as_str(self) -> &'static str {
-        match self {
-            Self::None => "none",
-            Self::Partial => "partial",
-            Self::Full => "full",
-        }
-    }
-}
 
 pub(super) fn format_initialize_step(outcome: &ActionMapInitializeOutcome) -> JsonValue {
     serde_json::json!({
@@ -70,98 +52,33 @@ pub(super) fn format_node_detail_expansion_step(
     })
 }
 
-pub(super) fn format_failed_state_step(index: usize, error: &FunctionCallError) -> JsonValue {
-    let typed_result = serde_json::from_str::<JsonValue>(&error.to_string())
-        .unwrap_or_else(|_| serde_json::json!({"message": error.to_string()}));
-    let typed_error = typed_result.get("error").cloned().unwrap_or(typed_result);
-    serde_json::json!({
-        "kind": "state_transition",
-        "index": index,
-        "success": false,
-        "error": typed_error,
-    })
-}
-
 pub(super) fn format_state_batch(
     steps: Vec<JsonValue>,
     success: bool,
-    state_commit: StateCommit,
+    state_commit: bool,
     map_state: Option<&ActionMapControlState>,
 ) -> String {
     serde_json::json!({
         "schema_version": TASKSPACE_CONTROL_RESULT_SCHEMA_VERSION,
         "status": if success { "committed" } else { "state_machine_failed" },
         "success": success,
-        "state_commit": state_commit.as_str(),
+        "state_commit": state_commit,
         "map_state": map_state.map(format_map_state),
         "steps": steps,
     })
     .to_string()
 }
 
-pub(super) fn state_commit_for_steps(steps: &[JsonValue], success: bool) -> StateCommit {
-    if success {
-        return StateCommit::Full;
-    }
-    if steps.iter().any(|step| {
-        step.get("kind").and_then(JsonValue::as_str) == Some("state_transition")
-            && step.get("success") != Some(&JsonValue::Bool(false))
-    }) {
-        StateCommit::Partial
-    } else {
-        StateCommit::None
-    }
-}
-
-pub(super) fn control_state_observation(message: &str) -> Option<(String, usize, usize, bool)> {
+pub(super) fn control_state_observation(message: &str) -> Option<(bool, usize, usize, bool)> {
     let value = serde_json::from_str::<JsonValue>(message).ok()?;
-    let state_commit = value.get("state_commit")?.as_str()?;
+    let state_commit = value.get("state_commit")?.as_bool()?;
     let map_state = value.get("map_state")?.as_object()?;
     Some((
-        state_commit.to_string(),
+        state_commit,
         map_state.get("open_node_ids")?.as_array()?.len(),
         map_state.get("blocked_node_ids")?.as_array()?.len(),
         !map_state.get("current_node_id")?.is_null(),
     ))
-}
-
-pub(super) fn format_terminal_chain_steps(
-    outcomes: Vec<(String, ActionMapFinishNodeOutcome)>,
-) -> Result<Vec<JsonValue>, FunctionCallError> {
-    let step_count = outcomes.len();
-    outcomes
-        .into_iter()
-        .enumerate()
-        .map(|(index, (finished_node_id, outcome))| {
-            if index + 1 == step_count {
-                Ok(serde_json::json!({
-                    "kind": "terminal_transition",
-                    "index": index,
-                    "finished_node_id": finished_node_id,
-                    "result_id": outcome.result_id,
-                    "map_status": "completed",
-                    "task_status": "completed",
-                    "current_node_id": JsonValue::Null,
-                }))
-            } else {
-                let next_node_id = outcome.next_node_id.ok_or_else(|| {
-                    protocol_error(
-                        "TaskSpace committed a terminal chain step without a next node identity"
-                            .into(),
-                        "missing_committed_identity",
-                    )
-                })?;
-                Ok(serde_json::json!({
-                    "kind": "state_transition",
-                    "index": index,
-                    "finished_node_id": finished_node_id,
-                    "result_id": outcome.result_id,
-                    "next": {"kind": "existing", "node_id": next_node_id},
-                    "current_node_id": next_node_id,
-                }))
-            }
-        })
-        .collect()
 }
 
 pub(super) fn state_identity_coverage(message: &str) -> Option<(usize, bool)> {
@@ -215,9 +132,11 @@ fn gate_error(message: String, class: TaskSpaceHardGateClass, reason: &str) -> F
 fn format_map_state(state: &ActionMapControlState) -> JsonValue {
     serde_json::json!({
         "task_id": state.task_id,
-        "task_status": state.task_status,
         "map_id": state.map_id,
-        "map_status": state.map_status,
+        "revision": state.revision,
+        "root_node_id": state.root_node_id,
+        "finish_node_id": state.finish_node_id,
+        "complete": state.complete,
         "current_node_id": state.current_node_id,
         "pending_node_ids": state.pending_node_ids,
         "open_node_ids": state.open_node_ids,
@@ -227,7 +146,7 @@ fn format_map_state(state: &ActionMapControlState) -> JsonValue {
     })
 }
 
-fn step_has_required_identity(step: &JsonValue) -> bool {
+pub(super) fn step_has_required_identity(step: &JsonValue) -> bool {
     match step.get("kind").and_then(JsonValue::as_str) {
         Some("map_initialized") => {
             has_text(step, "task_id")
@@ -238,21 +157,19 @@ fn step_has_required_identity(step: &JsonValue) -> bool {
                     .is_some_and(|ids| !ids.is_empty())
                 && has_text(step, "current_node_id")
         }
-        Some("state_transition") if step.get("success") == Some(&JsonValue::Bool(false)) => true,
-        Some("state_transition") => {
-            has_text(step, "finished_node_id")
-                && has_text(step, "result_id")
-                && has_text(step.get("next").unwrap_or(&JsonValue::Null), "node_id")
-                && has_text(step, "current_node_id")
+        Some("graph_mutation") => has_text(step, "map_id") && step.get("revision").is_some(),
+        Some("node_transition") => {
+            has_text(step, "map_id")
+                && has_text(step, "node_id")
+                && has_text(step, "status")
+                && step.get("revision").is_some()
         }
         Some("terminal_transition") => {
-            has_text(step, "finished_node_id")
-                && has_text(step, "result_id")
-                && step.get("current_node_id") == Some(&JsonValue::Null)
+            has_text(step, "map_id")
+                && step.get("revision").is_some()
+                && step.get("finish_closed") == Some(&JsonValue::Bool(true))
+                && step.get("root_closed") == Some(&JsonValue::Bool(true))
         }
-        Some("node_created") => has_text(step, "node_id"),
-        Some("node_bound") => has_text(step, "current_node_id"),
-        Some("node_blocked") => has_text(step, "node_id") && has_text(step, "result_id"),
         Some("node_detail_expanded") => {
             has_text(step, "node_id")
                 && has_text(step, "expansion_event_id")

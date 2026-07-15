@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+use std::collections::BTreeSet;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::collections::VecDeque;
@@ -16,26 +18,20 @@ use codex_protocol::protocol::ActionMapSnapshotNodeEvent;
 use codex_protocol::protocol::ActionMapSnapshotResult;
 use codex_protocol::protocol::ActionMapSnapshotSentinelSummary;
 use codex_protocol::protocol::ActionMapSnapshotSentinelWarningRef;
-use codex_protocol::protocol::ActionMapSnapshotTask;
 use codex_protocol::protocol::ActionMapSnapshotTraceEventRef;
 use codex_protocol::protocol::ActionMapSnapshotTraceSummary;
 use codex_protocol::protocol::AgentStatus;
 use codex_protocol::protocol::MapRuntimeEvent;
+use codex_protocol::protocol::MapRuntimeGraphRevisionCommittedEvent;
 use codex_protocol::protocol::MapRuntimeLeaseAttachedEvent;
 use codex_protocol::protocol::MapRuntimeLeaseCreatedEvent;
 use codex_protocol::protocol::MapRuntimeLeaseReleasedEvent;
-use codex_protocol::protocol::MapRuntimeMaintenanceBarrierClearedEvent;
-use codex_protocol::protocol::MapRuntimeMapCreatedEvent;
-use codex_protocol::protocol::MapRuntimeMapStatusChangedEvent;
 use codex_protocol::protocol::MapRuntimeMode;
 use codex_protocol::protocol::MapRuntimeModeChangedEvent;
 use codex_protocol::protocol::MapRuntimeNodeDetailExpandedEvent;
 use codex_protocol::protocol::MapRuntimeNodeEventRecordedEvent;
 use codex_protocol::protocol::MapRuntimeNodeResultRecordedEvent;
-use codex_protocol::protocol::MapRuntimeNodeStatusChangedEvent;
 use codex_protocol::protocol::MapRuntimeSentinelWarningRaisedEvent;
-use codex_protocol::protocol::MapRuntimeTaskCreatedEvent;
-use codex_protocol::protocol::MapRuntimeTaskStatusChangedEvent;
 use codex_protocol::protocol::MapRuntimeTimeoutSummaryRequestedEvent;
 use codex_protocol::protocol::MapRuntimeTraceEventRecordedEvent;
 use sha2::Digest;
@@ -53,21 +49,17 @@ use super::map::LeaseHolder;
 use super::map::MapEdge;
 use super::map::MapNode;
 use super::map::MapNodeId;
-use super::map::MapStatus;
-use super::map::NodeContext;
 use super::map::NodeEvent;
 use super::map::NodeEventId;
 use super::map::NodeEventRef;
-use super::map::NodeKind;
 use super::map::NodeResult;
 use super::map::NodeResultId;
 use super::map::NodeResultKind;
 use super::map::NodeResultRef;
 use super::map::NodeStatus;
 use super::map::TaskId;
+use super::map::TaskRecord;
 use super::map::TaskSpaceTraceEvent;
-use super::map::TaskState;
-use super::map::TaskStatus;
 use super::map::ToolActionDescriptor;
 use super::projection::ActiveProjectionInput;
 use super::projection::ProjectionEdge;
@@ -79,24 +71,25 @@ use super::projection::ProjectionSizeBreakdown;
 use super::projection::node_detail_fold_saves_bytes;
 use super::projection::node_detail_identity;
 use super::projection::render_active_projection;
+use super::rooted_dag::EventBatch;
+use super::rooted_dag::GraphMutation;
+use super::rooted_dag::InitializeMap;
+use super::rooted_dag::NodeRole;
+use super::rooted_dag::NodeTransition;
+use super::rooted_dag::Rejection;
+use super::rooted_dag::TaskSpaceMap;
+use super::rooted_dag::finish_end;
+use super::rooted_dag::initialize;
+use super::rooted_dag::mutate_graph;
+use super::rooted_dag::transition_node;
+use super::rooted_dag::validate;
 use super::sentinel::TaskSpaceSentinelSeverity;
 use super::sentinel::TaskSpaceSentinelWarning;
 use super::sentinel::TaskSpaceSentinelWarningStatus;
 use super::sentinel::TaskSpaceSentinelWarningType;
 
-const TASKSPACE_MECHANICAL_BLANK_TASK_TITLE: &str = "TaskSpace blank task";
-const TASKSPACE_MECHANICAL_BLANK_MAP_TITLE: &str = "TaskSpace blank map";
-const TASKSPACE_MAP_SCHEMA_VERSION: &str = "taskspace-map-v1";
+const TASKSPACE_SNAPSHOT_SCHEMA_VERSION: &str = "TaskSpaceSnapshotR6V1";
 use super::sentinel::warning_drafts_for_trace_event;
-
-const SEED_NODE_IDS: &[&str] = &[
-    "define_scope",
-    "inspect_code_context",
-    "design_solution",
-    "implement_solution",
-    "smoke_test",
-    "final_synthesis",
-];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum TaskSpaceHardGateClass {
@@ -174,6 +167,25 @@ fn hard_state_reason_from_message(message: &str) -> Option<String> {
     (!reason.is_empty()).then(|| reason.to_string())
 }
 
+fn rooted_rejection_message(rejection: Rejection) -> String {
+    serde_json::json!({
+        "schema_version": "TaskSpaceControlResultR6V1",
+        "status": "state_machine_failed",
+        "success": false,
+        "state_commit": rejection.state_commit,
+        "current_revision": rejection.current_revision,
+        "violations": rejection
+            .violations
+            .into_iter()
+            .map(|violation| serde_json::json!({
+                "code": violation.code.as_str(),
+                "subjects": violation.subjects,
+            }))
+            .collect::<Vec<_>>(),
+    })
+    .to_string()
+}
+
 impl From<String> for ActionMapGateError {
     fn from(message: String) -> Self {
         Self::new(message, Vec::new())
@@ -201,25 +213,13 @@ impl std::fmt::Display for ActionMapGateError {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct ActionMapNextNodeDraft {
-    pub(crate) kind: NodeKind,
-    pub(crate) title: String,
-    pub(crate) context_summary: String,
-    pub(crate) dependency_node_ids: Vec<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct ActionMapFinishNodeOutcome {
-    pub(crate) result_id: NodeResultId,
-    pub(crate) next_node_id: Option<MapNodeId>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ActionMapControlState {
     pub(crate) task_id: TaskId,
-    pub(crate) task_status: String,
     pub(crate) map_id: ActionMapId,
-    pub(crate) map_status: String,
+    pub(crate) revision: u64,
+    pub(crate) root_node_id: MapNodeId,
+    pub(crate) finish_node_id: MapNodeId,
+    pub(crate) complete: bool,
     pub(crate) current_node_id: Option<MapNodeId>,
     pub(crate) pending_node_ids: Vec<MapNodeId>,
     pub(crate) open_node_ids: Vec<MapNodeId>,
@@ -231,18 +231,31 @@ pub(crate) struct ActionMapControlState {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ActionMapInitializeNodeInput {
     pub(crate) id: String,
-    pub(crate) kind: NodeKind,
-    pub(crate) title: String,
-    pub(crate) context_summary: String,
-    pub(crate) dependency_node_ids: Vec<String>,
+    pub(crate) goal: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ActionMapEdgeInput {
+    pub(crate) from: String,
+    pub(crate) to: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ActionMapInitializeInput {
-    pub(crate) task_title: String,
+    pub(crate) root: ActionMapInitializeNodeInput,
+    pub(crate) finish: ActionMapInitializeNodeInput,
+    pub(crate) work_nodes: Vec<ActionMapInitializeNodeInput>,
+    pub(crate) edges: Vec<ActionMapEdgeInput>,
     pub(crate) source_event_ids: Vec<String>,
-    pub(crate) nodes: Vec<ActionMapInitializeNodeInput>,
     pub(crate) current_node_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ActionMapGraphMutationInput {
+    pub(crate) expected_revision: u64,
+    pub(crate) add_nodes: Vec<ActionMapInitializeNodeInput>,
+    pub(crate) add_edges: Vec<ActionMapEdgeInput>,
+    pub(crate) remove_edges: Vec<ActionMapEdgeInput>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -251,6 +264,27 @@ pub(crate) struct ActionMapInitializeOutcome {
     pub(crate) map_id: ActionMapId,
     pub(crate) node_ids: Vec<MapNodeId>,
     pub(crate) current_node_id: MapNodeId,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ActionMapGraphMutationOutcome {
+    pub(crate) map_id: ActionMapId,
+    pub(crate) revision: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ActionMapTransitionOutcome {
+    pub(crate) map_id: ActionMapId,
+    pub(crate) node_id: MapNodeId,
+    pub(crate) revision: u64,
+    pub(crate) status: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ActionMapFinishEndOutcome {
+    pub(crate) map_id: ActionMapId,
+    pub(crate) revision: u64,
+    pub(crate) final_summary: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -300,7 +334,7 @@ pub(crate) struct ActionMapProviderRequestBudgetSnapshot {
     pub(crate) task_id: Option<TaskId>,
     pub(crate) map_id: ActionMapId,
     pub(crate) node_id: Option<MapNodeId>,
-    pub(crate) node_kind: Option<String>,
+    pub(crate) node_role: Option<String>,
     pub(crate) route_mode: Option<String>,
     pub(crate) profile_name: Option<String>,
     pub(crate) request_phase: Option<String>,
@@ -576,7 +610,7 @@ pub(crate) struct ActionMapRuntimeState {
     maintenance_barriers: HashMap<ActionMapId, ActionMapMaintenanceBarrier>,
     main_tool_reservations: HashMap<String, MainToolReservation>,
     child_tool_reservations: HashMap<String, ChildToolReservation>,
-    tasks: HashMap<TaskId, TaskState>,
+    tasks: HashMap<TaskId, TaskRecord>,
     maps: HashMap<ActionMapId, ActionMapInstance>,
     taskspace_trace_events: Vec<TaskSpaceTraceEvent>,
     pending_projection_trace_events: Vec<MapRuntimeEvent>,
@@ -589,7 +623,6 @@ pub(crate) struct ActionMapRuntimeState {
     sentinel_warnings: Vec<TaskSpaceSentinelWarning>,
     next_task_seq: u64,
     next_map_seq: u64,
-    next_node_seq: u64,
     next_lease_seq: u64,
     next_node_event_seq: u64,
     next_result_seq: u64,
@@ -750,7 +783,6 @@ impl Default for ActionMapRuntimeState {
             sentinel_warnings: Vec::new(),
             next_task_seq: 1,
             next_map_seq: 1,
-            next_node_seq: 1,
             next_lease_seq: 1,
             next_node_event_seq: 1,
             next_result_seq: 1,
@@ -937,35 +969,6 @@ impl ActionMapRuntimeState {
         ))
     }
 
-    pub(crate) fn gate_create_node_budget(
-        &mut self,
-        map_id: &str,
-        _candidate_node_kind: NodeKind,
-    ) -> TaskSpaceBudgetGateDecision {
-        let budget = self.active_budget.as_ref();
-        let max_nodes = budget
-            .map(|budget| budget.max_nodes)
-            .unwrap_or(Self::DEFAULT_ACTIVE_NODE_BUDGET_MAX);
-        let node_count = self
-            .maps
-            .get(map_id)
-            .map(|map| map.nodes.len())
-            .unwrap_or_default();
-        TaskSpaceBudgetGateDecision {
-            allowed: true,
-            budget_state: self.budget_state,
-            reason: if node_count < max_nodes {
-                "node_budget_available".to_string()
-            } else {
-                "node_profile_hint_exceeded".to_string()
-            },
-            blocking_items: Vec::new(),
-            next_valid_actions: Vec::new(),
-            recovery_request_phase: None,
-            quality_impact_required: false,
-        }
-    }
-
     pub(crate) fn gate_spawn_budget(
         &mut self,
         _map_id: &str,
@@ -1067,7 +1070,7 @@ impl ActionMapRuntimeState {
             self.pending_transition_notice = transition_notice(previous_mode, mode);
             if mode == MapRuntimeMode::Experiment {
                 self.routing_required = true;
-                self.bootstrap_required = self.tasks.is_empty();
+                self.bootstrap_required = self.active_map_id.is_none();
             } else {
                 self.routing_required = false;
                 self.bootstrap_required = false;
@@ -1116,46 +1119,25 @@ impl ActionMapRuntimeState {
         &mut self,
         owner_session_id: ThreadId,
     ) -> Vec<MapRuntimeEvent> {
-        if self.mode != MapRuntimeMode::Experiment || self.active_map().is_some() {
+        if self.mode != MapRuntimeMode::Experiment || self.active_map_id.is_some() {
             return Vec::new();
         }
 
         let task_id = self.next_task_id();
         let map_id = self.next_map_id();
-        let task = TaskState {
-            id: task_id.clone(),
-            title: TASKSPACE_MECHANICAL_BLANK_TASK_TITLE.to_string(),
-            source_event_ids: Vec::new(),
-            status: TaskStatus::Active,
+        let task = TaskRecord {
             owner_session_id: Some(owner_session_id),
-            active_map_id: None,
-            map_ids: Vec::new(),
         };
-        let mut map = ActionMapInstance::new(
-            map_id.clone(),
-            TASKSPACE_MECHANICAL_BLANK_MAP_TITLE.to_string(),
-            Some(owner_session_id),
-            TASKSPACE_MAP_SCHEMA_VERSION,
-        );
-        map.task_id = Some(task_id.clone());
         self.tasks.insert(task_id.clone(), task);
-        self.maps.insert(map_id.clone(), map);
-        self.register_map_to_task(&task_id, &map_id);
         self.active_task_id = Some(task_id.clone());
         self.active_map_id = Some(map_id.clone());
         self.current_main_node_id = None;
         self.current_main_lease_id = None;
-        self.mark_routing_complete();
+        self.routing_required = false;
+        self.bootstrap_required = true;
+        self.reborn_requested = false;
 
-        let task = self
-            .tasks
-            .get(&task_id)
-            .expect("mechanical blank task must exist before event emission");
-        let map = self
-            .maps
-            .get(&map_id)
-            .expect("mechanical blank map must exist before event emission");
-        let mut events = vec![task_created_event(task), map_created_event(map)];
+        let mut events = Vec::new();
         events.push(self.record_runtime_budget_trace_event(
             "mechanical_blank_map_initialized",
             Some(task_id),
@@ -1187,13 +1169,16 @@ impl ActionMapRuntimeState {
         let previous = (self.routing_required, self.bootstrap_required);
         if self.reborn_requested {
             self.routing_required = true;
-            self.bootstrap_required = self.tasks.is_empty();
+            self.bootstrap_required = self.active_map_id.is_none();
         } else if self.active_map().is_some() {
             self.routing_required = false;
             self.bootstrap_required = false;
+        } else if self.active_map_id.is_some() {
+            self.routing_required = false;
+            self.bootstrap_required = true;
         } else {
             self.routing_required = true;
-            self.bootstrap_required = self.tasks.is_empty();
+            self.bootstrap_required = true;
         }
         previous != (self.routing_required, self.bootstrap_required)
     }
@@ -1209,21 +1194,32 @@ impl ActionMapRuntimeState {
         }
         self.reborn_requested = true;
         self.routing_required = true;
-        if self.tasks.is_empty() {
+        if self.active_map_id.is_none() {
             self.bootstrap_required = true;
         }
         events
     }
 
-    pub(crate) fn restore_snapshot(&mut self, snapshot: ActionMapSnapshot) {
-        let maintenance_barriers = snapshot.maintenance_barriers.clone();
+    pub(crate) fn restore_snapshot(&mut self, snapshot: ActionMapSnapshot) -> Result<(), String> {
+        if snapshot.schema_version != TASKSPACE_SNAPSHOT_SCHEMA_VERSION {
+            return Err(serde_json::json!({
+                "schema_version": TASKSPACE_SNAPSHOT_SCHEMA_VERSION,
+                "status": "fatal",
+                "error": {
+                    "code": "legacy_schema_unsupported",
+                    "received_schema_version": snapshot.schema_version,
+                },
+            })
+            .to_string());
+        }
+        let maintenance_barriers = snapshot.maintenance_barriers;
         self.mode = snapshot.mode;
         self.pending_transition_notice = None;
         self.routing_required = snapshot.routing_required;
         self.bootstrap_required = snapshot.bootstrap_required;
         self.reborn_requested = snapshot.reborn_requested;
-        self.active_task_id = snapshot.active_task_id;
-        self.active_map_id = snapshot.active_map_id;
+        self.active_task_id = None;
+        self.active_map_id = None;
         self.current_main_node_id = None;
         self.current_main_lease_id = None;
         self.main_tool_reservations.clear();
@@ -1273,177 +1269,196 @@ impl ActionMapRuntimeState {
             })
             .collect();
 
-        self.tasks = snapshot
-            .tasks
-            .into_iter()
-            .map(|task| {
-                let id = task.id;
-                (
-                    id.clone(),
-                    TaskState {
-                        id,
-                        title: task.title,
-                        source_event_ids: task.source_event_ids,
-                        status: task_status_from_str(&task.status).unwrap_or(TaskStatus::Pending),
-                        owner_session_id: task.owner_session_id,
-                        active_map_id: task.active_map_id,
-                        map_ids: task.map_ids,
-                    },
-                )
-            })
-            .collect();
-
-        self.maps = snapshot
-            .maps
-            .into_iter()
-            .map(|map| {
-                let id = map.id;
-                let mut instance = ActionMapInstance::new(
-                    id.clone(),
-                    map.title,
-                    map.owner_session_id,
-                    map.base_map_version,
-                );
-                instance.task_id = map.task_id;
-                instance.status = map_status_from_str(&map.status).unwrap_or(MapStatus::Active);
-                instance.created_from = map.created_from;
-                instance.edges = map
+        self.tasks.clear();
+        self.maps.clear();
+        if let Some(map) = snapshot.map {
+            let map_id = map.id.clone();
+            let task_id = map
+                .task_id
+                .clone()
+                .unwrap_or_else(|| format!("task-{map_id}"));
+            let results = map
+                .results
+                .into_iter()
+                .map(|result| {
+                    let kind = node_result_kind_from_str(&result.kind).ok_or_else(|| {
+                        format!(
+                            "TaskSpace snapshot result kind `{}` is invalid.",
+                            result.kind
+                        )
+                    })?;
+                    Ok((
+                        result.id.clone(),
+                        NodeResult {
+                            id: result.id,
+                            assignment_id: result.assignment_id,
+                            map_id: result.map_id,
+                            node_id: result.node_id,
+                            kind,
+                            action_class: result
+                                .action_class
+                                .as_deref()
+                                .and_then(ActionClass::from_str),
+                            tool_success: result.tool_success,
+                            source_event_ref: result.source_event_ref,
+                            artifact_refs: result.artifact_refs,
+                            source_thread_id: result.source_thread_id,
+                            created_at_ms: result.created_at_ms,
+                        },
+                    ))
+                })
+                .collect::<Result<HashMap<_, _>, String>>()?;
+            let node_events = map
+                .node_events
+                .into_iter()
+                .map(|event| {
+                    (
+                        event.id.clone(),
+                        NodeEvent {
+                            id: event.id,
+                            map_id: event.map_id,
+                            node_id: event.node_id,
+                            event_kind: event.event_kind,
+                            source: event.source,
+                            action_class: event
+                                .action_class
+                                .as_deref()
+                                .and_then(ActionClass::from_str),
+                            tool_success: event.tool_success,
+                            content_sha256: event.content_sha256,
+                            source_event_id: event.source_event_id,
+                            raw_ref: event.raw_ref,
+                            artifact_refs: event.artifact_refs,
+                            call_id: event.call_id,
+                            source_thread_id: event.source_thread_id,
+                            created_at_ms: event.created_at_ms,
+                        },
+                    )
+                })
+                .collect::<HashMap<_, _>>();
+            let nodes = map
+                .nodes
+                .into_iter()
+                .map(|node| {
+                    let role = node_role_from_str(&node.role).ok_or_else(|| {
+                        format!("TaskSpace node role `{}` is invalid.", node.role)
+                    })?;
+                    let status = node_status_from_str(&node.status).ok_or_else(|| {
+                        format!("TaskSpace node status `{}` is invalid.", node.status)
+                    })?;
+                    let result_context = node
+                        .result_ids
+                        .into_iter()
+                        .map(|result_id| {
+                            let kind = results
+                                .get(&result_id)
+                                .ok_or_else(|| {
+                                    format!("TaskSpace result `{result_id}` is missing.")
+                                })?
+                                .kind;
+                            Ok(NodeResultRef {
+                                id: result_id,
+                                kind,
+                            })
+                        })
+                        .collect::<Result<Vec<_>, String>>()?;
+                    let event_refs = node
+                        .node_event_ids
+                        .into_iter()
+                        .map(|event_id| {
+                            let kind = node_events
+                                .get(&event_id)
+                                .ok_or_else(|| {
+                                    format!("TaskSpace node event `{event_id}` is missing.")
+                                })?
+                                .event_kind
+                                .clone();
+                            Ok(NodeEventRef { id: event_id, kind })
+                        })
+                        .collect::<Result<Vec<_>, String>>()?;
+                    Ok((
+                        node.id,
+                        MapNode {
+                            role,
+                            goal: node.goal,
+                            source_refs: node.source_refs,
+                            status,
+                            active_lease: node.active_lease,
+                            result_context,
+                            node_events: event_refs,
+                            origin_node_id: None,
+                        },
+                    ))
+                })
+                .collect::<Result<BTreeMap<_, _>, String>>()?;
+            let graph = TaskSpaceMap {
+                id: map_id.clone(),
+                root_node_id: map.root_node_id,
+                finish_node_id: map.finish_node_id,
+                nodes,
+                edges: map
                     .edges
                     .into_iter()
-                    .map(|edge| MapEdge {
-                        from: edge.from,
-                        to: edge.to,
-                    })
-                    .collect();
-                instance.results = map
-                    .results
-                    .into_iter()
-                    .filter_map(|result| {
-                        let kind = node_result_kind_from_str(&result.kind)?;
-                        let action_class = result
-                            .action_class
-                            .as_deref()
-                            .and_then(ActionClass::from_str);
-                        Some((
-                            result.id.clone(),
-                            NodeResult {
-                                id: result.id,
-                                assignment_id: result.assignment_id,
-                                map_id: result.map_id,
-                                node_id: result.node_id,
-                                kind,
-                                action_class,
-                                tool_success: result.tool_success,
-                                source_event_ref: result.source_event_ref,
-                                artifact_refs: result.artifact_refs,
-                                source_thread_id: result.source_thread_id,
-                                created_at_ms: result.created_at_ms,
-                            },
-                        ))
-                    })
-                    .collect();
-                instance.node_events = map
-                    .node_events
-                    .into_iter()
-                    .map(|event| {
-                        let action_class = event
-                            .action_class
-                            .as_deref()
-                            .and_then(ActionClass::from_str);
-                        (
-                            event.id.clone(),
-                            NodeEvent {
-                                id: event.id,
-                                map_id: event.map_id,
-                                node_id: event.node_id,
-                                event_kind: event.event_kind,
-                                source: event.source,
-                                action_class,
-                                tool_success: event.tool_success,
-                                content_sha256: event.content_sha256,
-                                source_event_id: event.source_event_id,
-                                raw_ref: event.raw_ref,
-                                artifact_refs: event.artifact_refs,
-                                call_id: event.call_id,
-                                source_thread_id: event.source_thread_id,
-                                created_at_ms: event.created_at_ms,
-                            },
-                        )
-                    })
-                    .collect();
-                instance.nodes = map
-                    .nodes
-                    .into_iter()
-                    .map(|node| {
-                        let result_context = node
-                            .result_ids
-                            .into_iter()
-                            .filter_map(|result_id| {
-                                let result = instance.results.get(&result_id)?;
-                                Some(NodeResultRef {
-                                    id: result_id,
-                                    kind: result.kind,
-                                })
-                            })
-                            .collect();
-                        let id = node.id;
-                        let title = node.title;
-                        let kind = NodeKind::from_str(&node.kind)
-                            .unwrap_or_else(|| NodeKind::from_node_id_or_title(&id, &title));
-                        (
-                            id.clone(),
-                            MapNode {
-                                id,
-                                title,
-                                kind,
-                                status: node_status_from_str(&node.status)
-                                    .unwrap_or(NodeStatus::Pending),
-                                context: NodeContext {
-                                    summary: node.context_summary,
-                                    source_refs: node.source_refs,
-                                },
-                                active_lease: node.active_lease,
-                                result_context,
-                                node_events: node
-                                    .node_event_ids
-                                    .into_iter()
-                                    .filter_map(|node_event_id| {
-                                        let event = instance.node_events.get(&node_event_id)?;
-                                        Some(NodeEventRef {
-                                            id: node_event_id,
-                                            kind: event.event_kind.clone(),
-                                        })
-                                    })
-                                    .collect(),
-                                origin_node_id: node.origin_node_id,
-                            },
-                        )
-                    })
-                    .collect();
-                instance.leases = map
-                    .leases
-                    .into_iter()
-                    .filter_map(|lease| {
-                        let holder = lease_holder_from_str(&lease.holder)?;
-                        let previous_node_status =
-                            node_status_from_str(&lease.previous_node_status)?;
-                        Some((
-                            lease.id.clone(),
-                            AssignmentLease {
-                                id: lease.id,
-                                map_id: lease.map_id,
-                                node_id: lease.node_id,
-                                holder,
-                                previous_node_status,
-                                agent_thread_id: lease.agent_thread_id,
-                                agent_path: lease.agent_path,
-                            },
-                        ))
-                    })
-                    .collect();
-                (id, instance)
-            })
-            .collect();
+                    .map(|edge| MapEdge::new(edge.from, edge.to))
+                    .collect(),
+                revision: map.revision,
+                current_binding: map.current_node_id,
+                terminal_summary_ref: map.terminal_summary_ref,
+            };
+            let violations = validate(&graph);
+            if !violations.is_empty() {
+                return Err(rooted_rejection_message(Rejection {
+                    state_commit: false,
+                    current_revision: graph.revision,
+                    violations,
+                }));
+            }
+            let mut instance =
+                ActionMapInstance::from_graph(graph, Vec::new(), map.owner_session_id);
+            instance.task_id = Some(task_id.clone());
+            instance.results = results;
+            instance.node_events = node_events;
+            instance.leases = map
+                .leases
+                .into_iter()
+                .map(|lease| {
+                    let holder = lease_holder_from_str(&lease.holder).ok_or_else(|| {
+                        format!("TaskSpace lease holder `{}` is invalid.", lease.holder)
+                    })?;
+                    let previous_node_status = node_status_from_str(&lease.previous_node_status)
+                        .ok_or_else(|| {
+                            format!(
+                                "TaskSpace lease status `{}` is invalid.",
+                                lease.previous_node_status
+                            )
+                        })?;
+                    Ok((
+                        lease.id.clone(),
+                        AssignmentLease {
+                            id: lease.id,
+                            map_id: lease.map_id,
+                            node_id: lease.node_id,
+                            holder,
+                            previous_node_status,
+                            agent_thread_id: lease.agent_thread_id,
+                            agent_path: lease.agent_path,
+                        },
+                    ))
+                })
+                .collect::<Result<HashMap<_, _>, String>>()?;
+            let complete = instance.is_complete();
+            self.tasks.insert(
+                task_id.clone(),
+                TaskRecord {
+                    owner_session_id: instance.owner_session_id,
+                },
+            );
+            self.maps.insert(map_id.clone(), instance);
+            if !complete {
+                self.active_task_id = Some(task_id);
+                self.active_map_id = Some(map_id);
+            }
+        }
 
         self.maintenance_barriers = maintenance_barriers
             .into_iter()
@@ -1468,7 +1483,7 @@ impl ActionMapRuntimeState {
             self.current_main_node_id = None;
             self.current_main_lease_id = None;
             self.routing_required = true;
-            self.bootstrap_required = self.tasks.is_empty();
+            self.bootstrap_required = self.maps.is_empty();
         }
 
         if let Some(active_map_id) = self.active_map_id.as_ref()
@@ -1484,8 +1499,6 @@ impl ActionMapRuntimeState {
 
         self.next_task_seq = next_numeric_seq(self.tasks.keys(), "task-");
         self.next_map_seq = next_numeric_seq(self.maps.keys(), "map-");
-        self.next_node_seq =
-            next_numeric_seq(self.maps.values().flat_map(|map| map.nodes.keys()), "node-");
         self.next_lease_seq = next_numeric_seq(
             self.maps.values().flat_map(|map| map.leases.keys()),
             "lease-",
@@ -1511,7 +1524,7 @@ impl ActionMapRuntimeState {
             self.bootstrap_required = false;
             self.reborn_requested = false;
         } else {
-            self.bootstrap_required = self.bootstrap_required || self.tasks.is_empty();
+            self.bootstrap_required = self.bootstrap_required || self.maps.is_empty();
             self.routing_required =
                 self.routing_required || self.bootstrap_required || self.active_task_id.is_none();
             if self
@@ -1525,6 +1538,7 @@ impl ActionMapRuntimeState {
                 self.reconstruct_budget_state_from_trace_events();
             }
         }
+        Ok(())
     }
 
     pub(crate) fn rebind_after_fork(&mut self, owner_session_id: ThreadId) -> usize {
@@ -1576,20 +1590,15 @@ impl ActionMapRuntimeState {
         ) {
             (None, None) => true,
             (Some(task_id), Some(map_id)) => {
-                let Some(task) = self.tasks.get(task_id) else {
+                if !self.tasks.contains_key(task_id) {
                     return false;
-                };
+                }
                 let Some(map) = self.maps.get(map_id) else {
                     return false;
                 };
-                map.task_id.as_deref() == Some(task_id)
-                    && task.active_map_id.as_deref() == Some(map_id)
-                    && task.map_ids.iter().any(|candidate| candidate == map_id)
+                map.task_id.as_deref() == Some(task_id) && !map.is_complete()
             }
-            (Some(task_id), None) => self
-                .tasks
-                .get(task_id)
-                .is_some_and(|task| task.active_map_id.is_none()),
+            (Some(_), None) => false,
             (None, Some(_)) => false,
         }
     }
@@ -1602,7 +1611,7 @@ impl ActionMapRuntimeState {
         self.active_map_id
             .as_ref()
             .and_then(|map_id| self.maps.get(map_id))
-            .filter(|map| map.status == MapStatus::Active)
+            .filter(|map| !map.is_complete())
     }
 
     pub(crate) fn control_state(&self, map_id_hint: Option<&str>) -> Option<ActionMapControlState> {
@@ -1611,37 +1620,35 @@ impl ActionMapRuntimeState {
             .or_else(|| self.active_map_id.clone())?;
         let map = self.maps.get(&map_id)?;
         let task_id = map.task_id.as_ref()?.clone();
-        let task = self.tasks.get(&task_id)?;
         let mut open_node_ids = map
             .nodes
-            .values()
-            .filter(|node| matches!(node.status, NodeStatus::Ready | NodeStatus::Running))
-            .map(|node| node.id.clone())
+            .iter()
+            .filter(|(_, node)| matches!(node.status, NodeStatus::Ready | NodeStatus::Running))
+            .map(|(node_id, _)| node_id.clone())
             .collect::<Vec<_>>();
         let mut pending_node_ids = map
             .nodes
-            .values()
-            .filter(|node| node.status == NodeStatus::Pending)
-            .map(|node| node.id.clone())
+            .iter()
+            .filter(|(_, node)| node.status == NodeStatus::Pending)
+            .map(|(node_id, _)| node_id.clone())
             .collect::<Vec<_>>();
         let mut blocked_node_ids = map
             .nodes
-            .values()
-            .filter(|node| node.status == NodeStatus::Blocked)
-            .map(|node| node.id.clone())
+            .iter()
+            .filter(|(_, node)| node.status == NodeStatus::Blocked)
+            .map(|(node_id, _)| node_id.clone())
             .collect::<Vec<_>>();
         open_node_ids.sort();
         pending_node_ids.sort();
         blocked_node_ids.sort();
         Some(ActionMapControlState {
             task_id,
-            task_status: task.status.as_str().to_string(),
             map_id,
-            map_status: map.status.as_str().to_string(),
-            current_node_id: self
-                .current_main_node_id
-                .clone()
-                .filter(|node_id| map.nodes.contains_key(node_id)),
+            revision: map.revision,
+            root_node_id: map.root_node_id.clone(),
+            finish_node_id: map.finish_node_id.clone(),
+            complete: map.is_complete(),
+            current_node_id: map.current_binding.clone(),
             pending_node_ids,
             open_node_ids,
             blocked_node_ids,
@@ -1655,18 +1662,16 @@ impl ActionMapRuntimeState {
     }
 
     pub(crate) fn snapshot(&self) -> ActionMapSnapshot {
-        let mut maps = self
-            .maps
-            .values()
-            .map(snapshot_map)
-            .collect::<Vec<ActionMapSnapshotMap>>();
-        maps.sort_by(|left, right| left.id.cmp(&right.id));
-        let mut tasks = self
-            .tasks
-            .values()
-            .map(snapshot_task)
-            .collect::<Vec<ActionMapSnapshotTask>>();
-        tasks.sort_by(|left, right| left.id.cmp(&right.id));
+        let map = self
+            .active_map_id
+            .as_ref()
+            .and_then(|map_id| self.maps.get(map_id))
+            .or_else(|| {
+                self.maps
+                    .values()
+                    .max_by(|left, right| left.id.cmp(&right.id))
+            })
+            .map(snapshot_map);
         let mut maintenance_barriers = self
             .maintenance_barriers
             .values()
@@ -1684,14 +1689,12 @@ impl ActionMapRuntimeState {
             .map(snapshot_sentinel_warning_ref)
             .collect::<Vec<_>>();
         ActionMapSnapshot {
+            schema_version: TASKSPACE_SNAPSHOT_SCHEMA_VERSION.to_string(),
             mode: self.mode,
             routing_required: self.routing_required,
             bootstrap_required: self.bootstrap_required,
             reborn_requested: self.reborn_requested,
-            active_task_id: self.active_task_id.clone(),
-            active_map_id: self.active_map_id.clone(),
-            tasks,
-            maps,
+            map,
             maintenance_barriers,
             trace_summary: trace_summary(&trace_events),
             trace_events,
@@ -1852,11 +1855,6 @@ impl ActionMapRuntimeState {
                 .get_mut(&map_id)
                 .ok_or_else(|| format!("TaskSpace active task path `{map_id}` is missing."))?;
             let task_id = map.task_id.clone();
-            let node = map
-                .nodes
-                .get_mut(&node_id)
-                .ok_or_else(|| format!("TaskSpace current node `{node_id}` is missing."))?;
-
             let node_event = NodeEvent {
                 id: node_event_id.clone(),
                 map_id: map_id.clone(),
@@ -1874,10 +1872,14 @@ impl ActionMapRuntimeState {
                 created_at_ms,
             };
             map.node_events.insert(node_event_id.clone(), node_event);
-            node.node_events.push(NodeEventRef {
-                id: node_event_id.clone(),
-                kind: "tool_result".to_string(),
-            });
+            map.nodes
+                .get_mut(&node_id)
+                .ok_or_else(|| format!("TaskSpace current node `{node_id}` is missing."))?
+                .node_events
+                .push(NodeEventRef {
+                    id: node_event_id.clone(),
+                    kind: "tool_result".to_string(),
+                });
             task_id
         };
         self.clear_blocked_action_repeats_for_node(&map_id, &node_id);
@@ -1890,7 +1892,7 @@ impl ActionMapRuntimeState {
             tool_name: recorded_tool_name,
             action_class: recorded_action_class,
             tool_success: success,
-            body: body.clone(),
+            body,
             artifact_refs,
             created_at_ms,
         });
@@ -2025,14 +2027,11 @@ impl ActionMapRuntimeState {
                 .get(&map_id)
                 .and_then(|map| map.nodes.get(node_id))
         });
-        let node_kind = current_node.map(|node| node.kind.as_str().to_string());
+        let node_role = current_node.map(|node| node.role.as_str().to_string());
         let provider_request_context_missing_reason =
             self.provider_request_context_missing_reason(&map_id, node_id.as_deref(), phase);
         let task_id = self.maps.get(&map_id).and_then(|map| map.task_id.clone());
-        let map_requires_initialization = self
-            .maps
-            .get(&map_id)
-            .is_some_and(|map| map.nodes.is_empty());
+        let map_requires_initialization = self.maps.get(&map_id).is_none();
         let node_request_count = node_id
             .as_ref()
             .and_then(|node_id| {
@@ -2046,7 +2045,7 @@ impl ActionMapRuntimeState {
             task_id,
             map_id,
             node_id,
-            node_kind,
+            node_role,
             route_mode: Some(budget.route_mode.as_str().to_string()),
             profile_name: Some(budget.profile_name.clone()),
             request_phase,
@@ -2070,12 +2069,9 @@ impl ActionMapRuntimeState {
         else {
             return TaskSpaceProviderRequestPhase::Unknown;
         };
-        match node.kind {
-            NodeKind::FinalSynthesis => TaskSpaceProviderRequestPhase::FinalSynthesis,
-            NodeKind::SmokeTest | NodeKind::RegressionTest => {
-                TaskSpaceProviderRequestPhase::ValidationRecovery
-            }
-            _ => TaskSpaceProviderRequestPhase::ModelSampling,
+        match node.role {
+            NodeRole::Work => TaskSpaceProviderRequestPhase::ModelSampling,
+            NodeRole::TaskRoot | NodeRole::Finish => TaskSpaceProviderRequestPhase::Unknown,
         }
     }
 
@@ -2132,14 +2128,12 @@ impl ActionMapRuntimeState {
                     .copied()
                     .unwrap_or(snapshot.node_request_count)
             };
-            if input.status == "started" {
-                if node_id != "provider-context-missing" {
-                    let next_node_count = node_request_count_before + 1;
-                    node_request_counts.insert(node_id.clone(), next_node_count);
-                    self.budget_counters
-                        .model_request_count_by_node
-                        .insert(node_id.clone(), next_node_count);
-                }
+            if input.status == "started" && node_id != "provider-context-missing" {
+                let next_node_count = node_request_count_before + 1;
+                node_request_counts.insert(node_id.clone(), next_node_count);
+                self.budget_counters
+                    .model_request_count_by_node
+                    .insert(node_id.clone(), next_node_count);
             }
             if let Some(budget) = self.active_budget.as_ref() {
                 self.budget_state = budget_state_for_counter(
@@ -2215,8 +2209,8 @@ impl ActionMapRuntimeState {
                 format!("request_phase:{request_phase}"),
                 "schema:taskspace-provider-request-reason-v1".to_string(),
                 format!(
-                    "node_kind:{}",
-                    snapshot.node_kind.as_deref().unwrap_or("unknown")
+                    "node_role:{}",
+                    snapshot.node_role.as_deref().unwrap_or("unknown")
                 ),
                 format!("trigger_kind:{}", reason_fields.trigger_kind),
                 format!(
@@ -2728,17 +2722,17 @@ impl ActionMapRuntimeState {
         if let Some(reason) = snapshot.provider_request_context_missing_reason.as_deref() {
             tags.push(format!("provider_request_context_missing_reason:{reason}"));
         }
-        if let Some(preview) = input.last_agent_message_preview {
-            if !preview.trim().is_empty() {
-                tags.push(format!(
-                    "last_agent_message_preview:{}",
-                    sanitize_provider_response_trace_tag_value(&preview)
-                ));
-            }
+        if let Some(preview) = input.last_agent_message_preview
+            && !preview.trim().is_empty()
+        {
+            tags.push(format!(
+                "last_agent_message_preview:{}",
+                sanitize_provider_response_trace_tag_value(&preview)
+            ));
         }
         let tool_success = Some(matches!(
             input.response_actionability.as_str(),
-            "actionable" | "final_candidate"
+            "actionable" | "turn_complete"
         ));
         let event = TaskSpaceTraceEvent {
             id: id.clone(),
@@ -2795,7 +2789,7 @@ impl ActionMapRuntimeState {
         let map = self.maps.get(&map_id).ok_or_else(|| {
             ActionMapGateError::from(format!("TaskSpace child task path `{map_id}` is missing."))
         })?;
-        if map.status != MapStatus::Active {
+        if map.is_complete() {
             return Err(ActionMapGateError::from(format!(
                 "TaskSpace child task path `{map_id}` is not active."
             )));
@@ -2880,11 +2874,6 @@ impl ActionMapRuntimeState {
             .maps
             .get_mut(&map_id)
             .ok_or_else(|| format!("TaskSpace child task path `{map_id}` is missing."))?;
-        let node = map
-            .nodes
-            .get_mut(&node_id)
-            .ok_or_else(|| format!("TaskSpace child node `{node_id}` is missing."))?;
-
         let result = NodeResult {
             id: result_id.clone(),
             assignment_id: lease_id.clone(),
@@ -2899,14 +2888,18 @@ impl ActionMapRuntimeState {
             created_at_ms: now_ms(),
         };
         map.results.insert(result_id.clone(), result);
-        node.result_context.push(NodeResultRef {
-            id: result_id.clone(),
-            kind: NodeResultKind::MainToolCall,
-        });
+        map.nodes
+            .get_mut(&node_id)
+            .ok_or_else(|| format!("TaskSpace child node `{node_id}` is missing."))?
+            .result_context
+            .push(NodeResultRef {
+                id: result_id.clone(),
+                kind: NodeResultKind::MainToolCall,
+            });
         let events = vec![MapRuntimeEvent::NodeResultRecorded(
             MapRuntimeNodeResultRecordedEvent {
                 map_id: map_id.clone(),
-                node_id: node_id.clone(),
+                node_id,
                 lease_id,
                 result_id: result_id.clone(),
                 kind: NodeResultKind::MainToolCall.as_str().to_string(),
@@ -2915,78 +2908,6 @@ impl ActionMapRuntimeState {
             },
         )];
         Ok(Some((result_id, events)))
-    }
-
-    pub(crate) fn bind_main_node(
-        &mut self,
-        owner_session_id: ThreadId,
-        node_id: &str,
-    ) -> Result<Vec<MapRuntimeEvent>, String> {
-        if self.mode != MapRuntimeMode::Experiment {
-            return Ok(Vec::new());
-        }
-        self.validate_routing_complete()?;
-        let map_id = self.active_map_id.clone().ok_or_else(|| {
-            "TaskSpace mode is active but no active task path exists.".to_string()
-        })?;
-        let map = self
-            .maps
-            .get(&map_id)
-            .ok_or_else(|| format!("TaskSpace active task path `{map_id}` is missing."))?;
-        let node = map
-            .nodes
-            .get(node_id)
-            .ok_or_else(|| format!("TaskSpace node `{node_id}` does not exist."))?;
-        if self.current_main_node_id.as_deref() == Some(node_id)
-            && let Some(lease_id) = self.current_main_lease_id.as_ref()
-            && node.active_lease.as_deref() == Some(lease_id.as_str())
-            && let Some(lease) = map.leases.get(lease_id)
-            && lease.holder == LeaseHolder::Main
-            && lease.agent_thread_id == Some(owner_session_id)
-        {
-            return Ok(Vec::new());
-        }
-        if let Some(current_node_id) = self.current_main_node_id.as_deref()
-            && current_node_id != node_id
-            && self.current_main_lease_id.is_some()
-        {
-            return Err(format!(
-                "TaskSpace current main node `{current_node_id}` is still running. hard_state: current_main_node_running. binding target `{node_id}` was not applied."
-            ));
-        }
-        if node.status == NodeStatus::Pending {
-            return Err(format!(
-                "TaskSpace node `{node_id}` is pending. hard_state: target_node_dependencies_incomplete."
-            ));
-        }
-        if node.status == NodeStatus::Completed {
-            return Err(format!(
-                "TaskSpace node `{node_id}` is completed. hard_state: target_node_completed."
-            ));
-        }
-        if node.status == NodeStatus::Running || node.active_lease.is_some() {
-            return Err(format!(
-                "TaskSpace node `{node_id}` is held by another lease. hard_state: target_node_lease_conflict."
-            ));
-        }
-        let mut events = self.release_current_main_lease("main_rebound")?;
-        events.extend(self.claim_main_node(owner_session_id, &map_id, node_id)?);
-        events.extend(self.clear_maintenance_barrier_for_recovery(node_id));
-        Ok(events)
-    }
-
-    pub(crate) fn current_main_node_id_for_owner(
-        &self,
-        owner_session_id: ThreadId,
-    ) -> Result<MapNodeId, String> {
-        if self.mode != MapRuntimeMode::Experiment {
-            return Err("TaskSpace mode is not active.".to_string());
-        }
-        self.validate_main_binding(owner_session_id)?;
-        self.current_main_node_id.clone().ok_or_else(|| {
-            "TaskSpace mode is active but no current node binding exists. hard_state: no_current_node_binding."
-                .to_string()
-        })
     }
 
     pub(crate) fn prepare_child_spawn(&self, child_thread_id: ThreadId) -> Result<(), String> {
@@ -3002,25 +2923,6 @@ impl ActionMapRuntimeState {
         Err(
             "TaskSpace blocked nested spawn_agent from a node-bound subagent. hard_state: nested_spawn_not_supported."
                 .to_string(),
-        )
-    }
-
-    #[allow(dead_code)]
-    pub(crate) fn create_node_for_main(
-        &mut self,
-        owner_session_id: ThreadId,
-        title: String,
-        context_summary: String,
-        dependency_node_ids: Vec<String>,
-        bind_current: bool,
-    ) -> Result<(MapNodeId, Vec<MapRuntimeEvent>), String> {
-        self.create_node_for_main_with_kind(
-            owner_session_id,
-            NodeKind::InspectCodeContext,
-            title,
-            context_summary,
-            dependency_node_ids,
-            bind_current,
         )
     }
 
@@ -3043,168 +2945,113 @@ impl ActionMapRuntimeState {
         if self.mode != MapRuntimeMode::Experiment {
             return Err("TaskSpace mode is not active.".to_string());
         }
-        self.validate_routing_complete()?;
+        if self.routing_required || !self.bootstrap_required {
+            return Err(
+                "TaskSpace rooted map initialization requires an empty bootstrap state. hard_state: map_already_initialized."
+                    .to_string(),
+            );
+        }
         let task_id = self.active_task_id.clone().ok_or_else(|| {
             "TaskSpace has no active task. hard_state: no_active_task_path.".to_string()
         })?;
         let map_id = self.active_map_id.clone().ok_or_else(|| {
             "TaskSpace has no active map. hard_state: no_active_task_path.".to_string()
         })?;
+        self.tasks
+            .get(&task_id)
+            .ok_or_else(|| format!("TaskSpace active task `{task_id}` is missing."))?;
+        if self.tasks[&task_id].owner_session_id != Some(owner_session_id)
+            || self.maps.contains_key(&map_id)
         {
-            let task = self
-                .tasks
-                .get(&task_id)
-                .ok_or_else(|| format!("TaskSpace active task `{task_id}` is missing."))?;
-            let map = self
-                .maps
-                .get(&map_id)
-                .ok_or_else(|| format!("TaskSpace active task path `{map_id}` is missing."))?;
-            if task.owner_session_id != Some(owner_session_id)
-                || map.owner_session_id != Some(owner_session_id)
-            {
-                return Err(
-                    "TaskSpace mechanical blank map is owned by another session. hard_state: map_owner_mismatch."
-                        .to_string(),
-                );
-            }
-            if !taskspace_task_path_is_mechanical_blank(task, map) {
-                return Err(
-                "TaskSpace map initialization requires an untouched runtime mechanical blank map. hard_state: map_already_initialized."
-                        .to_string(),
-                );
-            }
-        }
-
-        let task_title = require_nonempty_owned("task_title", input.task_title)?;
-        if input.source_event_ids.is_empty() {
-            return Err("TaskSpace map initialization requires source_event_ids.".to_string());
-        }
-        let mut source_event_ids = Vec::with_capacity(input.source_event_ids.len());
-        let mut seen_source_event_ids = HashSet::new();
-        for source_event_id in input.source_event_ids {
-            let source_event_id = require_nonempty_owned("source_event_id", source_event_id)?;
-            if !seen_source_event_ids.insert(source_event_id.clone()) {
-                return Err(format!(
-                    "TaskSpace map initialization source_event_id `{source_event_id}` is duplicated."
-                ));
-            }
-            source_event_ids.push(source_event_id);
-        }
-        let current_node_id = require_nonempty_owned("current_node_id", input.current_node_id)?;
-        if input.nodes.is_empty() {
             return Err(
-                "TaskSpace map initialization requires at least one initial node. hard_state: active_task_path_without_nodes."
+                "TaskSpace rooted map initialization requires the reserved empty map owned by this session. hard_state: map_owner_mismatch."
                     .to_string(),
             );
         }
 
-        let mut node_ids = HashSet::new();
-        let mut normalized_nodes = Vec::with_capacity(input.nodes.len());
-        for node in input.nodes {
-            validate_live_node_kind(node.kind)?;
-            let id = require_nonempty_owned("node_id", node.id)?;
-            if !node_ids.insert(id.clone()) {
-                return Err(format!(
-                    "TaskSpace map initialization node_id `{id}` is duplicated."
-                ));
+        let root_id = require_nonempty_owned("root.node_id", input.root.id)?;
+        let root_goal = require_nonempty_owned("root.goal", input.root.goal)?;
+        let finish_id = require_nonempty_owned("finish.node_id", input.finish.id)?;
+        let finish_goal = require_nonempty_owned("finish.goal", input.finish.goal)?;
+        let current_node_id = require_nonempty_owned("current_node_id", input.current_node_id)?;
+        let mut work_nodes = BTreeMap::new();
+        let mut input_order = Vec::with_capacity(input.work_nodes.len() + 2);
+        input_order.push(root_id.clone());
+        for node in input.work_nodes {
+            let id = require_nonempty_owned("work_node.node_id", node.id)?;
+            let goal = require_nonempty_owned("work_node.goal", node.goal)?;
+            if work_nodes.insert(id.clone(), goal).is_some() {
+                return Err(format!("TaskSpace work node `{id}` is duplicated."));
             }
-            let title = require_nonempty_owned("node title", node.title)?;
-            let context_summary =
-                require_nonempty_owned("node context_summary", node.context_summary)?;
-            let mut dependency_node_ids = Vec::new();
-            let mut node_dependencies = HashSet::new();
-            for dependency in node.dependency_node_ids {
-                let dependency = require_nonempty_owned("dependency_node_id", dependency)?;
-                if dependency == id {
-                    return Err(format!(
-                        "TaskSpace map initialization node `{id}` cannot depend on itself."
-                    ));
-                }
-                if !node_dependencies.insert(dependency.clone()) {
-                    return Err(format!(
-                        "TaskSpace map initialization node `{id}` repeats dependency `{dependency}`."
-                    ));
-                }
-                dependency_node_ids.push(dependency);
-            }
-            normalized_nodes.push(ActionMapInitializeNodeInput {
-                id,
-                kind: node.kind,
-                title,
-                context_summary,
-                dependency_node_ids,
-            });
+            input_order.push(id);
         }
-        if !node_ids.contains(&current_node_id) {
-            return Err(format!(
-                "TaskSpace map initialization current_node_id `{current_node_id}` does not exist."
-            ));
-        }
-        for node in &normalized_nodes {
-            for dependency in &node.dependency_node_ids {
-                if !node_ids.contains(dependency) {
-                    return Err(format!(
-                        "TaskSpace map initialization node `{}` references missing dependency node `{dependency}`.",
-                        node.id
-                    ));
-                }
-            }
-        }
+        input_order.push(finish_id.clone());
+        let edges = input
+            .edges
+            .into_iter()
+            .map(|edge| {
+                Ok(MapEdge::new(
+                    require_nonempty_owned("edge.from", edge.from)?,
+                    require_nonempty_owned("edge.to", edge.to)?,
+                ))
+            })
+            .collect::<Result<Vec<_>, String>>()?;
+        let initialized = initialize(InitializeMap {
+            map_id: map_id.clone(),
+            root_node_id: root_id,
+            root_goal,
+            source_refs: input.source_event_ids,
+            finish_node_id: finish_id,
+            finish_goal,
+            work_nodes,
+            edges,
+        })
+        .map_err(rooted_rejection_message)?;
+        let bound = transition_node(
+            &initialized.map,
+            initialized.map.revision,
+            current_node_id.clone(),
+            NodeTransition::Bind,
+        )
+        .map_err(rooted_rejection_message)?;
+        let graph_events = vec![initialized.events, bound.events];
+        let lease_id = self.next_lease_id();
+        let mut map =
+            ActionMapInstance::from_graph(bound.map, graph_events.clone(), Some(owner_session_id));
+        map.task_id = Some(task_id.clone());
+        map.leases.insert(
+            lease_id.clone(),
+            AssignmentLease {
+                id: lease_id.clone(),
+                map_id: map_id.clone(),
+                node_id: current_node_id.clone(),
+                holder: LeaseHolder::Main,
+                previous_node_status: NodeStatus::Ready,
+                agent_thread_id: Some(owner_session_id),
+                agent_path: None,
+            },
+        );
+        map.nodes
+            .get_mut(&current_node_id)
+            .expect("rooted transaction bound an existing work node")
+            .active_lease = Some(lease_id.clone());
+        let edge_count = map.edges.len();
+        let node_count = map.nodes.len();
+        self.maps.insert(map_id.clone(), map);
+        self.current_main_node_id = Some(current_node_id.clone());
+        self.current_main_lease_id = Some(lease_id.clone());
+        self.mark_routing_complete();
 
-        {
-            let task = self
-                .tasks
-                .get_mut(&task_id)
-                .expect("mechanical blank task was validated");
-            task.title = task_title.clone();
-            task.source_event_ids = source_event_ids;
-            let map = self
-                .maps
-                .get_mut(&map_id)
-                .expect("mechanical blank map was validated");
-            map.title = task_title;
-        }
-
-        let input_order = normalized_nodes
+        let mut events = graph_events
             .iter()
-            .map(|node| node.id.clone())
+            .map(|batch| graph_revision_committed_event(batch, "initialize_map"))
             .collect::<Vec<_>>();
-        let mut pending = normalized_nodes;
-        let mut created_node_ids = HashSet::new();
-        let mut events = Vec::new();
-        while !pending.is_empty() {
-            let ready_index = pending.iter().position(|node| {
-                node.dependency_node_ids
-                    .iter()
-                    .all(|dependency| created_node_ids.contains(dependency))
-            });
-            let Some(ready_index) = ready_index else {
-                return Err(
-                    "TaskSpace map initialization dependency graph contains a cycle.".to_string(),
-                );
-            };
-            let node = pending.remove(ready_index);
-            let node_id = node.id;
-            let (created_node_id, mut node_events) = self.create_node_for_main_with_id(
-                owner_session_id,
-                Some(node_id.clone()),
-                node.kind,
-                node.title,
-                node.context_summary,
-                node.dependency_node_ids,
-                false,
-            )?;
-            debug_assert_eq!(created_node_id, node_id);
-            created_node_ids.insert(node_id);
-            events.append(&mut node_events);
-        }
-
-        events.extend(self.bind_main_node(owner_session_id, &current_node_id)?);
-        let edge_count = self
-            .maps
-            .get(&map_id)
-            .map(|map| map.edges.len())
-            .unwrap_or_default();
+        events.push(MapRuntimeEvent::LeaseCreated(MapRuntimeLeaseCreatedEvent {
+            map_id: map_id.clone(),
+            node_id: current_node_id.clone(),
+            lease_id,
+            holder: LeaseHolder::Main.as_str().to_string(),
+        }));
         events.push(self.record_runtime_budget_trace_event(
             "agent_map_initialized",
             Some(task_id.clone()),
@@ -3215,8 +3062,8 @@ impl ActionMapRuntimeState {
             vec![
                 "schema:taskspace-agent-map-initialized-v1".to_string(),
                 "producer:agent_taskspace_control".to_string(),
-                "action:initialize_then_actions".to_string(),
-                format!("node_count:{}", created_node_ids.len()),
+                "action:initialize_map".to_string(),
+                format!("node_count:{node_count}"),
                 format!("edge_count:{edge_count}"),
                 "semantic_source:agent".to_string(),
                 "runtime_inferred_semantics:false".to_string(),
@@ -3233,24 +3080,352 @@ impl ActionMapRuntimeState {
         ))
     }
 
-    pub(crate) fn create_node_for_main_with_kind(
+    pub(crate) fn mutate_graph_for_main(
         &mut self,
         owner_session_id: ThreadId,
-        kind: NodeKind,
-        title: String,
-        context_summary: String,
-        dependency_node_ids: Vec<String>,
-        bind_current: bool,
-    ) -> Result<(MapNodeId, Vec<MapRuntimeEvent>), String> {
-        self.create_node_for_main_with_id(
-            owner_session_id,
-            None,
-            kind,
-            title,
-            context_summary,
-            dependency_node_ids,
-            bind_current,
+        input: ActionMapGraphMutationInput,
+    ) -> Result<(ActionMapGraphMutationOutcome, Vec<MapRuntimeEvent>), String> {
+        let mut candidate = self.clone();
+        let outcome = candidate.mutate_graph_for_main_inner(owner_session_id, input)?;
+        *self = candidate;
+        Ok(outcome)
+    }
+
+    fn mutate_graph_for_main_inner(
+        &mut self,
+        owner_session_id: ThreadId,
+        input: ActionMapGraphMutationInput,
+    ) -> Result<(ActionMapGraphMutationOutcome, Vec<MapRuntimeEvent>), String> {
+        self.validate_routing_complete()?;
+        let map_id = self
+            .active_map_id
+            .clone()
+            .ok_or_else(|| "TaskSpace has no active rooted map.".to_string())?;
+        let map = self
+            .maps
+            .get(&map_id)
+            .ok_or_else(|| format!("TaskSpace rooted map `{map_id}` is missing."))?;
+        if map.owner_session_id != Some(owner_session_id) {
+            return Err("TaskSpace rooted map owner mismatch.".to_string());
+        }
+        let mut add_nodes = BTreeMap::new();
+        for node in input.add_nodes {
+            let id = require_nonempty_owned("add_node.node_id", node.id)?;
+            let goal = require_nonempty_owned("add_node.goal", node.goal)?;
+            if add_nodes.insert(id.clone(), goal).is_some() {
+                return Err(format!("TaskSpace graph mutation repeats node `{id}`."));
+            }
+        }
+        let convert_edges = |edges: Vec<ActionMapEdgeInput>| {
+            edges
+                .into_iter()
+                .map(|edge| {
+                    Ok(MapEdge::new(
+                        require_nonempty_owned("edge.from", edge.from)?,
+                        require_nonempty_owned("edge.to", edge.to)?,
+                    ))
+                })
+                .collect::<Result<Vec<_>, String>>()
+        };
+        let committed = mutate_graph(
+            map,
+            GraphMutation {
+                expected_revision: input.expected_revision,
+                add_nodes,
+                add_edges: convert_edges(input.add_edges)?,
+                remove_edges: convert_edges(input.remove_edges)?,
+            },
         )
+        .map_err(rooted_rejection_message)?;
+        let revision = committed.map.revision;
+        let graph_event = graph_revision_committed_event(&committed.events, "mutate_graph");
+        self.maps
+            .get_mut(&map_id)
+            .expect("validated rooted map remains present")
+            .commit_graph(committed.map, committed.events);
+        let event = self.record_runtime_budget_trace_event(
+            "graph_mutation_committed",
+            self.active_task_id.clone(),
+            map_id.clone(),
+            self.current_main_node_id
+                .clone()
+                .unwrap_or_else(|| "map".to_string()),
+            None,
+            true,
+            vec![
+                "schema:taskspace-rooted-graph-event-v1".to_string(),
+                "operation:mutate_graph".to_string(),
+                format!("revision:{revision}"),
+                "state_commit:true".to_string(),
+                "runtime_inferred_semantics:false".to_string(),
+            ],
+        );
+        Ok((
+            ActionMapGraphMutationOutcome { map_id, revision },
+            vec![graph_event, event],
+        ))
+    }
+
+    pub(crate) fn transition_node_for_main(
+        &mut self,
+        owner_session_id: ThreadId,
+        expected_revision: u64,
+        node_id: String,
+        transition: NodeTransition,
+        source_event_ref: String,
+    ) -> Result<(ActionMapTransitionOutcome, Vec<MapRuntimeEvent>), String> {
+        let mut candidate = self.clone();
+        let outcome = candidate.transition_node_for_main_inner(
+            owner_session_id,
+            expected_revision,
+            node_id,
+            transition,
+            source_event_ref,
+        )?;
+        *self = candidate;
+        Ok(outcome)
+    }
+
+    fn transition_node_for_main_inner(
+        &mut self,
+        owner_session_id: ThreadId,
+        expected_revision: u64,
+        node_id: String,
+        transition: NodeTransition,
+        source_event_ref: String,
+    ) -> Result<(ActionMapTransitionOutcome, Vec<MapRuntimeEvent>), String> {
+        self.validate_routing_complete()?;
+        let map_id = self
+            .active_map_id
+            .clone()
+            .ok_or_else(|| "TaskSpace has no active rooted map.".to_string())?;
+        {
+            let map = self
+                .maps
+                .get(&map_id)
+                .ok_or_else(|| format!("TaskSpace rooted map `{map_id}` is missing."))?;
+            if map.owner_session_id != Some(owner_session_id) {
+                return Err("TaskSpace rooted map owner mismatch.".to_string());
+            }
+            map.nodes
+                .get(&node_id)
+                .ok_or_else(|| format!("TaskSpace node `{node_id}` is missing."))?;
+        }
+        if matches!(transition, NodeTransition::Complete | NodeTransition::Block) {
+            self.validate_main_binding(owner_session_id)?;
+            if self.current_main_node_id.as_deref() != Some(node_id.as_str()) {
+                return Err(format!(
+                    "TaskSpace node `{node_id}` is not the current binding."
+                ));
+            }
+            self.validate_no_main_tool_reservations_for_node(&map_id, &node_id, "transition_node")?;
+        }
+        let committed = {
+            let map = self
+                .maps
+                .get(&map_id)
+                .expect("rooted map was validated before transition");
+            transition_node(map, expected_revision, node_id.clone(), transition)
+                .map_err(rooted_rejection_message)?
+        };
+        let revision = committed.map.revision;
+        let status = committed
+            .map
+            .nodes
+            .get(&node_id)
+            .expect("transition target remains present")
+            .status;
+        let mut events = vec![graph_revision_committed_event(
+            &committed.events,
+            "transition_node",
+        )];
+        let lease_id = match transition {
+            NodeTransition::Bind => Some(self.next_lease_id()),
+            NodeTransition::Complete | NodeTransition::Block => Some(
+                self.current_main_lease_id
+                    .clone()
+                    .ok_or_else(|| "TaskSpace current binding has no main lease.".to_string())?,
+            ),
+            NodeTransition::Unblock => None,
+            NodeTransition::ReleaseLease => self.current_main_lease_id.clone(),
+        };
+        let result_id = matches!(transition, NodeTransition::Complete | NodeTransition::Block)
+            .then(|| self.next_result_id());
+        let map = self
+            .maps
+            .get_mut(&map_id)
+            .expect("validated rooted map remains present");
+        map.commit_graph(committed.map, committed.events);
+        match transition {
+            NodeTransition::Bind => {
+                let lease_id = lease_id.expect("bind allocated a lease");
+                map.nodes
+                    .get_mut(&node_id)
+                    .expect("bound node exists")
+                    .active_lease = Some(lease_id.clone());
+                map.leases.insert(
+                    lease_id.clone(),
+                    AssignmentLease {
+                        id: lease_id.clone(),
+                        map_id: map_id.clone(),
+                        node_id: node_id.clone(),
+                        holder: LeaseHolder::Main,
+                        previous_node_status: NodeStatus::Ready,
+                        agent_thread_id: Some(owner_session_id),
+                        agent_path: None,
+                    },
+                );
+                self.current_main_node_id = Some(node_id.clone());
+                self.current_main_lease_id = Some(lease_id.clone());
+                events.push(MapRuntimeEvent::LeaseCreated(MapRuntimeLeaseCreatedEvent {
+                    map_id: map_id.clone(),
+                    node_id: node_id.clone(),
+                    lease_id,
+                    holder: LeaseHolder::Main.as_str().to_string(),
+                }));
+            }
+            NodeTransition::Complete | NodeTransition::Block => {
+                let lease_id = lease_id.expect("bound transition has a lease");
+                map.leases.remove(&lease_id);
+                let kind = if transition == NodeTransition::Complete {
+                    NodeResultKind::Result
+                } else {
+                    NodeResultKind::Blocker
+                };
+                let result_id = result_id.expect("bound terminal transition records a result");
+                map.results.insert(
+                    result_id.clone(),
+                    NodeResult {
+                        id: result_id.clone(),
+                        assignment_id: lease_id.clone(),
+                        map_id: map_id.clone(),
+                        node_id: node_id.clone(),
+                        kind,
+                        action_class: None,
+                        tool_success: None,
+                        source_event_ref,
+                        artifact_refs: Vec::new(),
+                        source_thread_id: owner_session_id,
+                        created_at_ms: now_ms(),
+                    },
+                );
+                let node = map
+                    .nodes
+                    .get_mut(&node_id)
+                    .expect("transition target exists");
+                node.active_lease = None;
+                node.result_context.push(NodeResultRef {
+                    id: result_id,
+                    kind,
+                });
+                self.current_main_node_id = None;
+                self.current_main_lease_id = None;
+                events.push(MapRuntimeEvent::LeaseReleased(
+                    MapRuntimeLeaseReleasedEvent {
+                        map_id: map_id.clone(),
+                        node_id: node_id.clone(),
+                        lease_id,
+                        holder: LeaseHolder::Main.as_str().to_string(),
+                        reason: "node_transition_committed".to_string(),
+                    },
+                ));
+            }
+            NodeTransition::Unblock => {}
+            NodeTransition::ReleaseLease => {
+                if let Some(lease_id) = lease_id {
+                    map.leases.remove(&lease_id);
+                }
+                if let Some(node) = map.nodes.get_mut(&node_id) {
+                    node.active_lease = None;
+                }
+                self.current_main_node_id = None;
+                self.current_main_lease_id = None;
+            }
+        }
+        Ok((
+            ActionMapTransitionOutcome {
+                map_id,
+                node_id,
+                revision,
+                status: status.as_str().to_string(),
+            },
+            events,
+        ))
+    }
+
+    pub(crate) fn finish_end_for_main(
+        &mut self,
+        owner_session_id: ThreadId,
+        expected_revision: u64,
+        final_summary: String,
+    ) -> Result<(ActionMapFinishEndOutcome, Vec<MapRuntimeEvent>), String> {
+        let mut candidate = self.clone();
+        let outcome = candidate.finish_end_for_main_inner(
+            owner_session_id,
+            expected_revision,
+            final_summary,
+        )?;
+        *self = candidate;
+        Ok(outcome)
+    }
+
+    fn finish_end_for_main_inner(
+        &mut self,
+        owner_session_id: ThreadId,
+        expected_revision: u64,
+        final_summary: String,
+    ) -> Result<(ActionMapFinishEndOutcome, Vec<MapRuntimeEvent>), String> {
+        self.validate_routing_complete()?;
+        let map_id = self
+            .active_map_id
+            .clone()
+            .ok_or_else(|| "TaskSpace has no active rooted map.".to_string())?;
+        let committed = {
+            let map = self
+                .maps
+                .get(&map_id)
+                .ok_or_else(|| format!("TaskSpace rooted map `{map_id}` is missing."))?;
+            if map.owner_session_id != Some(owner_session_id) {
+                return Err("TaskSpace rooted map owner mismatch.".to_string());
+            }
+            finish_end(map, expected_revision, final_summary.clone())
+                .map_err(rooted_rejection_message)?
+        };
+        let revision = committed.map.revision;
+        let graph_event = graph_revision_committed_event(&committed.events, "finish_end");
+        self.maps
+            .get_mut(&map_id)
+            .expect("validated rooted map remains present")
+            .commit_graph(committed.map, committed.events);
+        self.active_map_id = None;
+        self.active_task_id = None;
+        self.current_main_node_id = None;
+        self.current_main_lease_id = None;
+        self.routing_required = true;
+        self.bootstrap_required = false;
+        let event = self.record_runtime_budget_trace_event(
+            "terminal_committed",
+            None,
+            map_id.clone(),
+            "finish".to_string(),
+            None,
+            true,
+            vec![
+                "schema:taskspace-rooted-terminal-event-v1".to_string(),
+                format!("revision:{revision}"),
+                "state_commit:true".to_string(),
+                "summary_source:agent".to_string(),
+                "runtime_inferred_semantics:false".to_string(),
+            ],
+        );
+        Ok((
+            ActionMapFinishEndOutcome {
+                map_id,
+                revision,
+                final_summary,
+            },
+            vec![graph_event, event],
+        ))
     }
 
     pub(crate) fn expand_node_details_for_main(
@@ -3344,7 +3519,8 @@ impl ActionMapRuntimeState {
                 ));
             };
             let hidden_details = hidden_node_details(node_id, &all_details, &baseline_details);
-            let Some((_, detail_identity)) = folded_projection_node(&map_id, node, &hidden_details)
+            let Some((_, detail_identity)) =
+                folded_projection_node(&map_id, node_id, node, &hidden_details)
             else {
                 return Err(format!(
                     "TaskSpace expand_nodes target `{node_id}` is not folded. hard_state: node_detail_not_folded."
@@ -3412,472 +3588,6 @@ impl ActionMapRuntimeState {
         Ok((outcomes, events))
     }
 
-    fn create_node_for_main_with_id(
-        &mut self,
-        owner_session_id: ThreadId,
-        requested_node_id: Option<String>,
-        kind: NodeKind,
-        title: String,
-        context_summary: String,
-        dependency_node_ids: Vec<String>,
-        bind_current: bool,
-    ) -> Result<(MapNodeId, Vec<MapRuntimeEvent>), String> {
-        if self.mode != MapRuntimeMode::Experiment {
-            return Err("TaskSpace mode is not active.".to_string());
-        }
-        self.validate_routing_complete()?;
-        validate_live_node_kind(kind)?;
-        let title = title.trim();
-        let context_summary = context_summary.trim();
-        if title.is_empty() {
-            return Err("TaskSpace node title cannot be empty.".to_string());
-        }
-        if context_summary.is_empty() {
-            return Err("TaskSpace node context summary cannot be empty.".to_string());
-        }
-        if bind_current
-            && let Some(current_node_id) = self.current_main_node_id.as_deref()
-            && self.current_main_lease_id.is_some()
-        {
-            return Err(format!(
-                "TaskSpace current main node `{current_node_id}` is still running. hard_state: current_main_node_running. create-and-bind requires no active main lease on another node."
-            ));
-        }
-        if self.active_map().is_none()
-            && dependency_node_ids
-                .iter()
-                .any(|dependency| !dependency.trim().is_empty())
-        {
-            return Err(
-                "TaskSpace cannot create a dependency-bound node without an active task path. hard_state: no_active_task_path."
-                    .to_string(),
-            );
-        }
-        let mut events = Vec::new();
-        let map_id = self.active_map_id.clone().ok_or_else(|| {
-            "TaskSpace mode is active but no active task path exists. hard_state: no_active_task_path. node creation requires an active task path."
-                .to_string()
-        })?;
-        let node_count_before = {
-            let map = self
-                .maps
-                .get(&map_id)
-                .ok_or_else(|| format!("TaskSpace active task path `{map_id}` is missing."))?;
-            map.nodes.len()
-        };
-        let active_budget = self.active_budget.as_ref().cloned().unwrap_or_else(|| {
-            taskspace_active_budget_for_route(
-                "taskspace-v005-active",
-                TaskSpaceRouteMode::DefaultCompact,
-            )
-        });
-        self.budget_counters.node_count = node_count_before;
-        let max_nodes = active_budget.max_nodes;
-        let gate_decision = self.gate_create_node_budget(&map_id, kind);
-        let node_id = match requested_node_id {
-            Some(node_id) => {
-                let node_id = require_nonempty_owned("node_id", node_id)?;
-                if self
-                    .maps
-                    .values()
-                    .any(|map| map.nodes.contains_key(&node_id))
-                {
-                    return Err(format!("TaskSpace node_id `{node_id}` already exists."));
-                }
-                node_id
-            }
-            None => self.next_node_id(),
-        };
-        let map = self
-            .maps
-            .get_mut(&map_id)
-            .ok_or_else(|| format!("TaskSpace active task path `{map_id}` is missing."))?;
-        let mut dependencies = Vec::new();
-        for dependency in dependency_node_ids {
-            let dependency = dependency.trim();
-            if dependency.is_empty() {
-                continue;
-            }
-            let Some(node) = map.nodes.get(dependency) else {
-                return Err(format!(
-                    "TaskSpace dependency node `{dependency}` does not exist."
-                ));
-            };
-            dependencies.push((dependency.to_string(), node.status));
-        }
-        let ready = dependencies
-            .iter()
-            .all(|(_, status)| *status == NodeStatus::Completed);
-        if bind_current && !ready {
-            return Err(
-                "TaskSpace cannot bind the new node because its dependencies are incomplete. hard_state: target_node_dependencies_incomplete."
-                    .to_string(),
-            );
-        }
-        map.nodes.insert(
-            node_id.clone(),
-            MapNode {
-                id: node_id.clone(),
-                title: title.to_string(),
-                kind,
-                status: if ready {
-                    NodeStatus::Ready
-                } else {
-                    NodeStatus::Pending
-                },
-                context: NodeContext {
-                    summary: context_summary.to_string(),
-                    source_refs: Vec::new(),
-                },
-                active_lease: None,
-                result_context: Vec::new(),
-                node_events: Vec::new(),
-                origin_node_id: None,
-            },
-        );
-        for (dependency, _) in dependencies {
-            map.edges.push(MapEdge {
-                from: dependency,
-                to: node_id.clone(),
-            });
-        }
-        if ready {
-            events.push(node_status_changed_event(
-                &map_id,
-                &node_id,
-                title,
-                NodeStatus::Pending,
-                NodeStatus::Ready,
-            ));
-        }
-        if bind_current {
-            events.extend(self.bind_main_node(owner_session_id, &node_id)?);
-        }
-        let task_id_for_budget = self.maps.get(&map_id).and_then(|map| map.task_id.clone());
-        self.budget_counters.node_count = node_count_before + 1;
-        events.push(self.record_runtime_budget_trace_event(
-            "spawn_node_budget",
-            task_id_for_budget,
-            map_id.clone(),
-            node_id.clone(),
-            None,
-            true,
-            vec![
-                "schema:taskspace-spawn-node-budget-event-v1".to_string(),
-                "producer:runtime".to_string(),
-                "budget_kind:node".to_string(),
-                "action:create_node".to_string(),
-                "status:allowed".to_string(),
-                format!("node_count_before:{node_count_before}"),
-                format!("node_count_after:{}", node_count_before + 1),
-                "active_budget_source:runtime".to_string(),
-                "enforcement:advisory".to_string(),
-                format!("route_mode:{}", active_budget.route_mode.as_str()),
-                format!("profile_name:{}", active_budget.profile_name.as_str()),
-                format!("max_nodes:{max_nodes}"),
-                "budget_response_action_taken:false".to_string(),
-                format!("budget_gate_reason:{}", gate_decision.reason),
-            ],
-        ));
-        Ok((node_id, events))
-    }
-
-    pub(crate) fn finish_main_node_with_next(
-        &mut self,
-        owner_session_id: ThreadId,
-        node_id: &str,
-        agent_conclusion_event_ref: String,
-        next_node_id: Option<String>,
-        next_node_draft: Option<ActionMapNextNodeDraft>,
-    ) -> Result<(ActionMapFinishNodeOutcome, Vec<MapRuntimeEvent>), String> {
-        if self.current_main_node_id.is_none() {
-            let mut staged = self.clone();
-            let mut events = staged.bind_main_node(owner_session_id, node_id)?;
-            let (outcome, finish_events) = staged.finish_main_node_with_next(
-                owner_session_id,
-                node_id,
-                agent_conclusion_event_ref,
-                next_node_id,
-                next_node_draft,
-            )?;
-            events.extend(finish_events);
-            *self = staged;
-            return Ok((outcome, events));
-        }
-        let agent_conclusion_event_ref = agent_conclusion_event_ref.trim();
-        if agent_conclusion_event_ref.is_empty() {
-            return Err("TaskSpace finish agent conclusion event ref cannot be empty.".to_string());
-        }
-        let next_node_id = next_node_id
-            .as_deref()
-            .map(str::trim)
-            .filter(|node_id| !node_id.is_empty());
-        if next_node_id.is_some() && next_node_draft.is_some() {
-            return Err(
-                "TaskSpace finish cannot provide both next_node_id and next node draft fields."
-                    .to_string(),
-            );
-        }
-        if let Some(next_node_id) = next_node_id {
-            self.validate_next_main_binding_after_finish(node_id, next_node_id)?;
-        }
-        if let Some(draft) = next_node_draft.as_ref() {
-            validate_live_node_kind(draft.kind)?;
-            if draft.title.trim().is_empty() {
-                return Err("TaskSpace next_node_title cannot be empty.".to_string());
-            }
-            if draft.context_summary.trim().is_empty() {
-                return Err("TaskSpace next_node_context_summary cannot be empty.".to_string());
-            }
-            self.validate_next_node_draft_after_finish(node_id, draft)?;
-        }
-        let (result_id, mut events) = self.record_main_node_lifecycle_result(
-            owner_session_id,
-            node_id,
-            NodeResultKind::Result,
-            agent_conclusion_event_ref.to_string(),
-            NodeStatus::Completed,
-            true,
-        )?;
-        let mut bound_next_node_id = None;
-        if let Some(next_node_id) = next_node_id {
-            let bind_events = self.bind_main_node(owner_session_id, next_node_id)?;
-            events.extend(bind_events);
-            bound_next_node_id = Some(next_node_id.to_string());
-        } else if let Some(draft) = next_node_draft {
-            let dependency_node_ids = if draft.dependency_node_ids.is_empty() {
-                vec![node_id.to_string()]
-            } else {
-                draft.dependency_node_ids
-            };
-            let (created_node_id, node_events) = self.create_node_for_main_with_kind(
-                owner_session_id,
-                draft.kind,
-                draft.title,
-                draft.context_summary,
-                dependency_node_ids,
-                true,
-            )?;
-            events.extend(node_events);
-            bound_next_node_id = Some(created_node_id);
-        }
-        Ok((
-            ActionMapFinishNodeOutcome {
-                result_id,
-                next_node_id: bound_next_node_id,
-            },
-            events,
-        ))
-    }
-
-    pub(crate) fn block_main_node(
-        &mut self,
-        owner_session_id: ThreadId,
-        node_id: &str,
-        agent_conclusion_event_ref: String,
-    ) -> Result<(NodeResultId, Vec<MapRuntimeEvent>), String> {
-        let agent_conclusion_event_ref = agent_conclusion_event_ref.trim();
-        if agent_conclusion_event_ref.is_empty() {
-            return Err(
-                "TaskSpace block_node agent conclusion event ref cannot be empty.".to_string(),
-            );
-        }
-        let map_id = self.active_map_id.clone().ok_or_else(|| {
-            "TaskSpace mode is active but no active task path exists.".to_string()
-        })?;
-        let map = self
-            .maps
-            .get(&map_id)
-            .ok_or_else(|| format!("TaskSpace active task path `{map_id}` is missing."))?;
-        if !map.nodes.contains_key(node_id) {
-            return Err(format!("TaskSpace node `{node_id}` is missing."));
-        }
-        let (blocker_result_id, mut events) = self.record_main_node_lifecycle_result(
-            owner_session_id,
-            node_id,
-            NodeResultKind::Blocker,
-            agent_conclusion_event_ref.to_string(),
-            NodeStatus::Blocked,
-            false,
-        )?;
-        if let Some(map) = self.maps.get_mut(&map_id) {
-            events.extend(refresh_ready_validation_rework_nodes(map, node_id));
-        }
-        Ok((blocker_result_id, events))
-    }
-
-    pub(crate) fn record_main_final_response(
-        &mut self,
-        _owner_session_id: ThreadId,
-        message: &str,
-    ) -> Result<Option<Vec<MapRuntimeEvent>>, String> {
-        if self.mode != MapRuntimeMode::Experiment {
-            return Ok(None);
-        }
-        let message = message.trim();
-        if message.is_empty() {
-            return Ok(None);
-        }
-        self.validate_routing_complete()?;
-        let map_id = match self.active_map_id.clone() {
-            Some(map_id) => map_id,
-            None => return Ok(None),
-        };
-        let map = self
-            .maps
-            .get(&map_id)
-            .ok_or_else(|| format!("TaskSpace active task path `{map_id}` is missing."))?;
-        let task_id = map
-            .task_id
-            .clone()
-            .ok_or_else(|| format!("TaskSpace active task for map `{map_id}` is missing."))?;
-        let task = self
-            .tasks
-            .get(&task_id)
-            .ok_or_else(|| format!("TaskSpace active task for map `{map_id}` is missing."))?;
-        if taskspace_task_path_is_mechanical_blank(task, map) {
-            return Err(
-                "TaskSpace final response is unavailable while the task map is mechanically blank. hard_state: active_task_path_without_nodes."
-                    .to_string(),
-            );
-        }
-        if let Some(node_id) = self.current_main_node_id.as_deref() {
-            let node = map
-                .nodes
-                .get(node_id)
-                .ok_or_else(|| format!("TaskSpace current node `{node_id}` is missing."))?;
-            return Err(format!(
-                "TaskSpace final response is unavailable while node `{node_id}` is {}. hard_state: active_node_open.",
-                node.status.as_str()
-            ));
-        }
-        let mut open_node_ids = map
-            .nodes
-            .values()
-            .filter(|node| matches!(node.status, NodeStatus::Ready | NodeStatus::Running))
-            .map(|node| node.id.clone())
-            .collect::<Vec<_>>();
-        open_node_ids.sort();
-        if !open_node_ids.is_empty() {
-            return Err(format!(
-                "TaskSpace final response is unavailable while runnable nodes remain: {}. hard_state: active_map_has_open_nodes.",
-                open_node_ids.join(",")
-            ));
-        }
-        let previous_map_status = map.status;
-        let previous_task_status = task.status;
-        self.maps
-            .get_mut(&map_id)
-            .expect("validated TaskSpace map must remain present")
-            .status = MapStatus::Completed;
-        let task = self
-            .tasks
-            .get_mut(&task_id)
-            .expect("validated TaskSpace task must remain present");
-        task.status = TaskStatus::Completed;
-        task.active_map_id = None;
-        self.active_map_id = None;
-        self.active_task_id = None;
-        self.routing_required = true;
-        self.bootstrap_required = false;
-
-        Ok(Some(vec![
-            MapRuntimeEvent::MapStatusChanged(MapRuntimeMapStatusChangedEvent {
-                map_id,
-                previous_status: previous_map_status.as_str().to_string(),
-                current_status: MapStatus::Completed.as_str().to_string(),
-            }),
-            MapRuntimeEvent::TaskStatusChanged(MapRuntimeTaskStatusChangedEvent {
-                task_id,
-                previous_status: previous_task_status.as_str().to_string(),
-                current_status: TaskStatus::Completed.as_str().to_string(),
-            }),
-        ]))
-    }
-
-    pub(crate) fn finish_main_node_with_terminal_candidate(
-        &mut self,
-        owner_session_id: ThreadId,
-        node_id: &str,
-        agent_conclusion_event_ref: String,
-        final_candidate: &str,
-    ) -> Result<(ActionMapFinishNodeOutcome, Vec<MapRuntimeEvent>), String> {
-        if final_candidate.trim().is_empty() {
-            return Err("TaskSpace terminal candidate must not be empty.".to_string());
-        }
-        let mut staged = self.clone();
-        let (outcome, mut events) = staged.finish_main_node_with_next(
-            owner_session_id,
-            node_id,
-            agent_conclusion_event_ref,
-            None,
-            None,
-        )?;
-        let completion_events = staged
-            .record_main_final_response(owner_session_id, final_candidate)?
-            .ok_or_else(|| "TaskSpace terminal final response was not recorded.".to_string())?;
-        events.extend(completion_events);
-        *self = staged;
-        Ok((outcome, events))
-    }
-
-    pub(crate) fn finish_main_node_chain_with_terminal_candidate(
-        &mut self,
-        owner_session_id: ThreadId,
-        node_ids: &[String],
-        agent_conclusion_event_ref: String,
-        final_candidate: &str,
-    ) -> Result<
-        (
-            Vec<(String, ActionMapFinishNodeOutcome)>,
-            Vec<MapRuntimeEvent>,
-        ),
-        String,
-    > {
-        if node_ids.is_empty() {
-            return Err("TaskSpace terminal finish chain cannot be empty.".to_string());
-        }
-        let mut seen = HashSet::with_capacity(node_ids.len());
-        for node_id in node_ids {
-            if node_id.trim().is_empty() {
-                return Err("TaskSpace terminal finish chain node ID cannot be empty.".to_string());
-            }
-            if !seen.insert(node_id) {
-                return Err(format!(
-                    "TaskSpace terminal finish chain contains duplicate node `{node_id}`."
-                ));
-            }
-        }
-
-        let mut staged = self.clone();
-        let mut outcomes = Vec::with_capacity(node_ids.len());
-        let mut events = Vec::new();
-        for pair in node_ids.windows(2) {
-            let node_id = &pair[0];
-            let next_node_id = &pair[1];
-            let (outcome, step_events) = staged.finish_main_node_with_next(
-                owner_session_id,
-                node_id,
-                agent_conclusion_event_ref.clone(),
-                Some(next_node_id.clone()),
-                None,
-            )?;
-            outcomes.push((node_id.clone(), outcome));
-            events.extend(step_events);
-        }
-        let terminal_node_id = node_ids.last().expect("non-empty chain validated");
-        let (outcome, terminal_events) = staged.finish_main_node_with_terminal_candidate(
-            owner_session_id,
-            terminal_node_id,
-            agent_conclusion_event_ref,
-            final_candidate,
-        )?;
-        outcomes.push((terminal_node_id.clone(), outcome));
-        events.extend(terminal_events);
-        *self = staged;
-        Ok((outcomes, events))
-    }
-
     pub(crate) fn prepare_spawn_assignment(
         &mut self,
         _owner_session_id: ThreadId,
@@ -3931,16 +3641,21 @@ impl ActionMapRuntimeState {
             .maps
             .get_mut(&map_id)
             .expect("active map id should exist");
+        let previous_node_status = map
+            .nodes
+            .get(&node_id)
+            .expect("ready node id should exist")
+            .status;
+        let committed = transition_node(map, map.revision, node_id.clone(), NodeTransition::Bind)
+            .map_err(rooted_rejection_message)?;
+        let graph_event = graph_revision_committed_event(&committed.events, "subagent_bind");
+        map.commit_graph(committed.map, committed.events);
         let node = map
             .nodes
             .get_mut(&node_id)
-            .expect("ready node id should exist");
-        let previous_node_status = node.status;
-        node.status = NodeStatus::Running;
+            .expect("bound node remains present");
         node.active_lease = Some(lease_id.clone());
-        let node_title = node.title.clone();
-        let node_context_summary = node.context.summary.clone();
-        let node_kind = node.kind;
+        let node_goal = node.goal.clone();
         map.leases.insert(
             lease_id.clone(),
             AssignmentLease {
@@ -3953,13 +3668,7 @@ impl ActionMapRuntimeState {
                 agent_path: None,
             },
         );
-        events.push(node_status_changed_event(
-            &map_id,
-            &node_id,
-            &node_title,
-            previous_node_status,
-            NodeStatus::Running,
-        ));
+        events.push(graph_event);
         events.push(MapRuntimeEvent::LeaseCreated(MapRuntimeLeaseCreatedEvent {
             map_id: map_id.clone(),
             node_id: node_id.clone(),
@@ -3997,17 +3706,10 @@ impl ActionMapRuntimeState {
 
         Ok((
             Some(ActionMapAssignment {
-                message_prefix: assignment_prompt(
-                    &map_id,
-                    &node_id,
-                    &node_title,
-                    &node_context_summary,
-                    node_kind,
-                    &lease_id,
-                ),
+                message_prefix: assignment_prompt(&map_id, &node_id, &node_goal, &lease_id),
                 map_id,
                 node_id,
-                node_title,
+                node_title: node_goal,
                 lease_id,
             }),
             events,
@@ -4027,10 +3729,10 @@ impl ActionMapRuntimeState {
             if lease.holder != LeaseHolder::SubAgent {
                 return None;
             }
-            if let Some(attached_thread_id) = lease.agent_thread_id {
-                if attached_thread_id != thread_id {
-                    return None;
-                }
+            if let Some(attached_thread_id) = lease.agent_thread_id
+                && attached_thread_id != thread_id
+            {
+                return None;
             }
             lease.agent_thread_id = Some(thread_id);
             lease.agent_path = agent_path.clone();
@@ -4054,34 +3756,34 @@ impl ActionMapRuntimeState {
     ) -> Vec<MapRuntimeEvent> {
         let reason = reason.into();
         for map in self.maps.values_mut() {
-            let Some(lease) = map.leases.remove(lease_id) else {
+            let Some(lease) = map.leases.get(lease_id).cloned() else {
                 continue;
             };
+            let committed = transition_node(
+                map,
+                map.revision,
+                lease.node_id.clone(),
+                NodeTransition::ReleaseLease,
+            )
+            .expect("an active lease must own the canonical running binding");
+            let graph_event = graph_revision_committed_event(&committed.events, "release_lease");
+            map.commit_graph(committed.map, committed.events);
+            map.leases.remove(lease_id);
             let released_main_lease = lease.holder == LeaseHolder::Main;
-            let mut events = vec![MapRuntimeEvent::LeaseReleased(
-                MapRuntimeLeaseReleasedEvent {
+            let events = vec![
+                graph_event,
+                MapRuntimeEvent::LeaseReleased(MapRuntimeLeaseReleasedEvent {
                     map_id: lease.map_id.clone(),
                     node_id: lease.node_id.clone(),
                     lease_id: lease.id.clone(),
                     holder: lease.holder.as_str().to_string(),
                     reason,
-                },
-            )];
+                }),
+            ];
             if let Some(node) = map.nodes.get_mut(&lease.node_id)
                 && node.active_lease.as_deref() == Some(lease_id)
             {
                 node.active_lease = None;
-                if node.status == NodeStatus::Running {
-                    let previous_status = node.status;
-                    node.status = lease.previous_node_status;
-                    events.push(node_status_changed_event(
-                        &map.id,
-                        &node.id,
-                        &node.title,
-                        previous_status,
-                        node.status,
-                    ));
-                }
             }
             if released_main_lease {
                 self.current_main_lease_id = None;
@@ -4117,11 +3819,19 @@ impl ActionMapRuntimeState {
         let (map_id, lease_id, node_id) = self.find_lease_by_thread(child_thread_id)?;
         let result_id = self.next_result_id();
         let kind = result_kind_from_status(status);
+        let transition = match kind {
+            NodeResultKind::Result | NodeResultKind::MapUpdateRequest => NodeTransition::Complete,
+            NodeResultKind::Blocker | NodeResultKind::TimeoutSummary => NodeTransition::Block,
+            NodeResultKind::MainToolCall => return None,
+        };
         let map = self.maps.get_mut(&map_id)?;
-        let node = map.nodes.get_mut(&node_id)?;
+        let node = map.nodes.get(&node_id)?;
         if node.active_lease.as_deref() != Some(lease_id.as_str()) {
             return None;
         }
+        let committed = transition_node(map, map.revision, node_id.clone(), transition).ok()?;
+        let graph_event = graph_revision_committed_event(&committed.events, "subagent_result");
+        map.commit_graph(committed.map, committed.events);
         let result = NodeResult {
             id: result_id.clone(),
             assignment_id: lease_id.clone(),
@@ -4136,21 +3846,17 @@ impl ActionMapRuntimeState {
             created_at_ms: now_ms(),
         };
         map.results.insert(result_id.clone(), result);
+        let node = map.nodes.get_mut(&node_id)?;
         node.result_context.push(NodeResultRef {
             id: result_id.clone(),
             kind,
         });
-        let previous_node_status = node.status;
         node.active_lease = None;
-        node.status = match kind {
-            NodeResultKind::Result | NodeResultKind::MapUpdateRequest => NodeStatus::Completed,
-            NodeResultKind::Blocker | NodeResultKind::TimeoutSummary => NodeStatus::Blocked,
-            NodeResultKind::MainToolCall => NodeStatus::Running,
-        };
         map.leases.remove(&lease_id);
         self.child_tool_reservations
             .retain(|_, reservation| reservation.lease_id != lease_id);
-        let mut events = vec![
+        let events = vec![
+            graph_event,
             MapRuntimeEvent::NodeResultRecorded(MapRuntimeNodeResultRecordedEvent {
                 map_id: map_id.clone(),
                 node_id: node_id.clone(),
@@ -4167,15 +3873,7 @@ impl ActionMapRuntimeState {
                 holder: LeaseHolder::SubAgent.as_str().to_string(),
                 reason: "result_recorded".to_string(),
             }),
-            node_status_changed_event(
-                &map_id,
-                &node_id,
-                &node.title,
-                previous_node_status,
-                node.status,
-            ),
         ];
-        events.extend(refresh_ready_nodes(map));
         Some((result_id, events))
     }
 
@@ -4213,65 +3911,15 @@ impl ActionMapRuntimeState {
         if self.mode != MapRuntimeMode::Experiment {
             return None;
         }
-        if self
-            .active_map_id
-            .as_ref()
-            .and_then(|map_id| self.maps.get(map_id))
-            .and_then(|map| {
-                map.task_id
-                    .as_ref()
-                    .and_then(|task_id| self.tasks.get(task_id))
-                    .map(|task| taskspace_task_path_is_mechanical_blank(task, map))
-            })
-            .unwrap_or(false)
-        {
-            tracing::debug!(
-                target: "codex_core::taskspace",
-                event_name = "taskspace.blank_context_omitted",
-                task_id = ?self.active_task_id,
-                map_id = ?self.active_map_id,
-                "mechanical blank map omitted from provider developer context"
-            );
-            return None;
-        }
         if let Some(context) = self.build_active_projection_developer_context() {
             return Some(context);
         }
         Some(self.build_bootstrap_compact_developer_context())
     }
+
     fn build_bootstrap_compact_developer_context(&self) -> String {
-        let mut context =
-            String::from("TaskSpace v0.0.5 thin bootstrap. Runtime state is authoritative.\n");
-        if self.tasks.is_empty() {
-            context.push_str(
-                "Hard state: runtime mechanical blank map is missing. ordinary tools and spawn_agent are unavailable.\n",
-            );
-        } else {
-            context.push_str(
-                "Hard state: no active TaskSpace path is bound for this turn. ordinary tools and spawn_agent require an active task path.\n",
-            );
-            context.push_str("Task inventory compact:\n");
-            for task_id in ordered_task_ids(&self.tasks).into_iter().take(6) {
-                if let Some(task) = self.tasks.get(&task_id) {
-                    context.push_str("- ");
-                    context.push_str(&task.id);
-                    context.push_str(" [");
-                    context.push_str(task.status.as_str());
-                    context.push_str("] ");
-                    context.push_str(&single_line_preview(&task.title, 100));
-                    context.push_str(" source_events=");
-                    context.push_str(&task.source_event_ids.join(","));
-                    context.push('\n');
-                }
-            }
-            append_omitted_count(&mut context, self.tasks.len(), 6, "tasks");
-        }
-        if self.reborn_requested {
-            context.push_str(
-                "Task reborn status: requested. hard_state: reborn_route_unbound. ordinary tools require an active task path, current node binding, and lease.\n",
-            );
-        }
-        context
+        "TaskSpaceMapProjectionR6V1:\n- map: none\n- bootstrap_required: true\nTaskSpaceMapProjectionR6V1 end.\n"
+            .to_string()
     }
 
     fn build_active_projection_developer_context(&mut self) -> Option<String> {
@@ -4281,17 +3929,6 @@ impl ActionMapRuntimeState {
                 return Some(taskspace_projection_integrity_context(
                     &map_id,
                     "active_map_record_missing",
-                ));
-            };
-            let Some(task) = map
-                .task_id
-                .as_ref()
-                .or(self.active_task_id.as_ref())
-                .and_then(|task_id| self.tasks.get(task_id))
-            else {
-                return Some(taskspace_projection_integrity_context(
-                    &map_id,
-                    "active_task_record_missing",
                 ));
             };
             let mut context = String::new();
@@ -4315,7 +3952,6 @@ impl ActionMapRuntimeState {
             }
             let projection = match append_context_projection_active(
                 &mut context,
-                task,
                 map,
                 self.current_main_node_id.as_deref(),
                 self.active_budget.as_ref(),
@@ -4326,7 +3962,7 @@ impl ActionMapRuntimeState {
                 }
             };
             (
-                task.id.clone(),
+                map.task_id.clone().unwrap_or_else(|| map.id.clone()),
                 self.current_main_node_id
                     .clone()
                     .unwrap_or_else(|| "projection".to_string()),
@@ -4524,102 +4160,10 @@ impl ActionMapRuntimeState {
         ))
     }
 
-    fn register_map_to_task(&mut self, task_id: &str, map_id: &str) {
-        let task = self
-            .tasks
-            .get_mut(task_id)
-            .expect("map registration must target an existing TaskSpace task");
-        task.status = TaskStatus::Active;
-        task.active_map_id = Some(map_id.to_string());
-        if !task.map_ids.iter().any(|id| id == map_id) {
-            task.map_ids.push(map_id.to_string());
-        }
-    }
-
-    fn release_current_main_lease(&mut self, reason: &str) -> Result<Vec<MapRuntimeEvent>, String> {
-        let Some(lease_id) = self.current_main_lease_id.clone() else {
-            self.current_main_node_id = None;
-            return Ok(Vec::new());
-        };
-        if let (Some(map_id), Some(node_id)) = (
-            self.active_map_id.as_deref(),
-            self.current_main_node_id.as_deref(),
-        ) {
-            self.validate_no_main_tool_reservations_for_node(map_id, node_id, reason)?;
-        }
-        Ok(self.release_lease(&lease_id, reason))
-    }
-
     fn mark_routing_complete(&mut self) {
         self.routing_required = false;
         self.bootstrap_required = false;
         self.reborn_requested = false;
-    }
-
-    fn claim_main_node(
-        &mut self,
-        owner_session_id: ThreadId,
-        map_id: &str,
-        node_id: &str,
-    ) -> Result<Vec<MapRuntimeEvent>, String> {
-        let lease_id = self.next_lease_id();
-        let map = self
-            .maps
-            .get_mut(map_id)
-            .ok_or_else(|| format!("TaskSpace active task path `{map_id}` is missing."))?;
-        let node = map
-            .nodes
-            .get_mut(node_id)
-            .ok_or_else(|| format!("TaskSpace node `{node_id}` does not exist."))?;
-        if node.status == NodeStatus::Pending {
-            return Err(format!(
-                "TaskSpace node `{node_id}` is pending. hard_state: target_node_dependencies_incomplete."
-            ));
-        }
-        if node.status == NodeStatus::Completed {
-            return Err(format!(
-                "TaskSpace node `{node_id}` is completed. hard_state: target_node_completed."
-            ));
-        }
-        if node.status == NodeStatus::Running || node.active_lease.is_some() {
-            return Err(format!(
-                "TaskSpace node `{node_id}` is held by another lease. hard_state: target_node_lease_conflict."
-            ));
-        }
-
-        let previous_node_status = node.status;
-        node.status = NodeStatus::Running;
-        node.active_lease = Some(lease_id.clone());
-        let node_title = node.title.clone();
-        map.leases.insert(
-            lease_id.clone(),
-            AssignmentLease {
-                id: lease_id.clone(),
-                map_id: map_id.to_string(),
-                node_id: node_id.to_string(),
-                holder: LeaseHolder::Main,
-                previous_node_status,
-                agent_thread_id: Some(owner_session_id),
-                agent_path: None,
-            },
-        );
-        self.current_main_node_id = Some(node_id.to_string());
-        self.current_main_lease_id = Some(lease_id.clone());
-        Ok(vec![
-            node_status_changed_event(
-                map_id,
-                node_id,
-                &node_title,
-                previous_node_status,
-                NodeStatus::Running,
-            ),
-            MapRuntimeEvent::LeaseCreated(MapRuntimeLeaseCreatedEvent {
-                map_id: map_id.to_string(),
-                node_id: node_id.to_string(),
-                lease_id,
-                holder: LeaseHolder::Main.as_str().to_string(),
-            }),
-        ])
     }
 
     fn validate_main_binding(&self, owner_session_id: ThreadId) -> Result<(), String> {
@@ -4633,7 +4177,7 @@ impl ActionMapRuntimeState {
         let Some(map) = self.maps.get(map_id) else {
             return Err(format!("TaskSpace active task path `{map_id}` is missing."));
         };
-        if map.status != MapStatus::Active {
+        if map.is_complete() {
             return Err(format!(
                 "TaskSpace active task path `{map_id}` is not active."
             ));
@@ -4706,257 +4250,6 @@ impl ActionMapRuntimeState {
         Ok(())
     }
 
-    fn record_main_node_lifecycle_result(
-        &mut self,
-        owner_session_id: ThreadId,
-        node_id: &str,
-        kind: NodeResultKind,
-        source_event_ref: String,
-        next_status: NodeStatus,
-        refresh_downstream: bool,
-    ) -> Result<(NodeResultId, Vec<MapRuntimeEvent>), String> {
-        if self.mode != MapRuntimeMode::Experiment {
-            return Err("TaskSpace mode is not active.".to_string());
-        }
-        self.validate_routing_complete()?;
-        let map_id = self.active_map_id.clone().ok_or_else(|| {
-            "TaskSpace mode is active but no active task path exists.".to_string()
-        })?;
-        let current_node_id = self.current_main_node_id.clone().ok_or_else(|| {
-            "TaskSpace mode is active but no current node binding exists. hard_state: no_current_node_binding. lifecycle records require a current node binding and lease."
-                .to_string()
-        })?;
-        if current_node_id != node_id {
-            if let Some(map) = self.maps.get(&map_id)
-                && let Some(node) = map.nodes.get(node_id)
-                && node.status == NodeStatus::Completed
-            {
-                return Err(format!(
-                    "TaskSpace node `{node_id}` is already completed. hard_state: lifecycle_target_already_completed. lifecycle records apply to current bound node `{current_node_id}`."
-                ));
-            }
-            return Err(format!(
-                "TaskSpace node `{node_id}` is not the current main action node `{current_node_id}`. hard_state: lifecycle_target_not_current. lifecycle records apply to the current bound node."
-            ));
-        }
-        let current_lease_id = self.current_main_lease_id.clone().ok_or_else(|| {
-            "TaskSpace mode is active but no current main lease exists. hard_state: no_current_main_lease."
-                .to_string()
-        })?;
-
-        {
-            let map = self
-                .maps
-                .get(&map_id)
-                .ok_or_else(|| format!("TaskSpace active task path `{map_id}` is missing."))?;
-            if map.status != MapStatus::Active {
-                return Err(format!(
-                    "TaskSpace active task path `{map_id}` is not active."
-                ));
-            }
-            let node = map
-                .nodes
-                .get(node_id)
-                .ok_or_else(|| format!("TaskSpace node `{node_id}` does not exist."))?;
-            if node.status == NodeStatus::Pending {
-                return Err(format!(
-                    "TaskSpace node `{node_id}` is pending. hard_state: lifecycle_target_dependencies_incomplete."
-                ));
-            }
-            if node.status == NodeStatus::Completed {
-                return Err(format!(
-                    "TaskSpace node `{node_id}` is already completed. hard_state: lifecycle_target_already_completed."
-                ));
-            }
-            let lease = map.leases.get(&current_lease_id).ok_or_else(|| {
-                format!("TaskSpace current main lease `{current_lease_id}` is missing.")
-            })?;
-            if lease.holder != LeaseHolder::Main
-                || lease.node_id != node_id
-                || lease.agent_thread_id != Some(owner_session_id)
-                || node.active_lease.as_deref() != Some(current_lease_id.as_str())
-            {
-                return Err(format!(
-                    "TaskSpace node `{node_id}` is not held by the current main agent lease."
-                ));
-            }
-        }
-        self.validate_no_main_tool_reservations_for_node(
-            &map_id,
-            node_id,
-            "recording a node lifecycle result",
-        )?;
-
-        let result_id = self.next_result_id();
-        let mut barrier_to_clear = None;
-        let mut events = Vec::new();
-        {
-            let map = self
-                .maps
-                .get_mut(&map_id)
-                .ok_or_else(|| format!("TaskSpace active task path `{map_id}` is missing."))?;
-            let node = map
-                .nodes
-                .get_mut(node_id)
-                .ok_or_else(|| format!("TaskSpace node `{node_id}` does not exist."))?;
-            let previous_status = node.status;
-            map.leases.remove(&current_lease_id);
-            let result = NodeResult {
-                id: result_id.clone(),
-                assignment_id: current_lease_id.clone(),
-                map_id: map_id.clone(),
-                node_id: node_id.to_string(),
-                kind,
-                action_class: None,
-                tool_success: None,
-                source_event_ref,
-                artifact_refs: Vec::new(),
-                source_thread_id: owner_session_id,
-                created_at_ms: now_ms(),
-            };
-            map.results.insert(result_id.clone(), result);
-            node.result_context.push(NodeResultRef {
-                id: result_id.clone(),
-                kind,
-            });
-            node.status = next_status;
-            node.active_lease = None;
-            events.push(MapRuntimeEvent::NodeResultRecorded(
-                MapRuntimeNodeResultRecordedEvent {
-                    map_id: map_id.clone(),
-                    node_id: node_id.to_string(),
-                    lease_id: current_lease_id.clone(),
-                    result_id: result_id.clone(),
-                    kind: kind.as_str().to_string(),
-                    action_class: None,
-                    source_thread_id: owner_session_id,
-                },
-            ));
-            events.push(MapRuntimeEvent::LeaseReleased(
-                MapRuntimeLeaseReleasedEvent {
-                    map_id: map_id.clone(),
-                    node_id: node_id.to_string(),
-                    lease_id: current_lease_id.clone(),
-                    holder: LeaseHolder::Main.as_str().to_string(),
-                    reason: "result_recorded".to_string(),
-                },
-            ));
-            if previous_status != next_status {
-                events.push(node_status_changed_event(
-                    &map_id,
-                    node_id,
-                    &node.title,
-                    previous_status,
-                    next_status,
-                ));
-            }
-            if refresh_downstream {
-                events.extend(refresh_ready_nodes(map));
-            }
-        }
-
-        self.current_main_node_id = None;
-        self.current_main_lease_id = None;
-        if let Some(barrier) = self.maintenance_barriers.get(&map_id)
-            && barrier.map_id == map_id
-            && barrier.node_id == node_id
-        {
-            barrier_to_clear = Some(maintenance_barrier_cleared_event(
-                barrier,
-                "node_lifecycle_recorded",
-            ));
-        }
-        if let Some(event) = barrier_to_clear {
-            self.maintenance_barriers.remove(&map_id);
-            events.push(event);
-        }
-        Ok((result_id, events))
-    }
-
-    fn validate_next_main_binding_after_finish(
-        &self,
-        finishing_node_id: &str,
-        next_node_id: &str,
-    ) -> Result<(), String> {
-        if finishing_node_id == next_node_id {
-            return Err(format!(
-                "TaskSpace cannot bind next_node_id `{next_node_id}` because the current node will be completed."
-            ));
-        }
-        let map_id = self.active_map_id.as_ref().ok_or_else(|| {
-            "TaskSpace mode is active but no active task path exists.".to_string()
-        })?;
-        let map = self
-            .maps
-            .get(map_id)
-            .ok_or_else(|| format!("TaskSpace active task path `{map_id}` is missing."))?;
-        let node = map
-            .nodes
-            .get(next_node_id)
-            .ok_or_else(|| format!("TaskSpace next node `{next_node_id}` does not exist."))?;
-        if node.status == NodeStatus::Completed {
-            return Err(format!(
-                "TaskSpace next node `{next_node_id}` is completed. hard_state: next_node_completed."
-            ));
-        }
-        if node.status == NodeStatus::Running || node.active_lease.is_some() {
-            return Err(format!(
-                "TaskSpace next node `{next_node_id}` is held by another lease. hard_state: next_node_lease_conflict."
-            ));
-        }
-        if node.status == NodeStatus::Pending
-            && !dependencies_will_be_completed_after_finish(map, finishing_node_id, next_node_id)
-        {
-            return Err(format!(
-                "TaskSpace next node `{next_node_id}` is still pending after the current node completes."
-            ));
-        }
-        if let Some(barrier) = self.maintenance_barriers.get(map_id)
-            && barrier.node_id == next_node_id
-        {
-            return Err(format!(
-                "TaskSpace maintenance barrier is active for next node `{next_node_id}`. hard_state: next_node_maintenance_barrier_active."
-            ));
-        }
-        Ok(())
-    }
-
-    fn validate_next_node_draft_after_finish(
-        &self,
-        finishing_node_id: &str,
-        draft: &ActionMapNextNodeDraft,
-    ) -> Result<(), String> {
-        let map_id = self.active_map_id.as_ref().ok_or_else(|| {
-            "TaskSpace mode is active but no active task path exists.".to_string()
-        })?;
-        let map = self
-            .maps
-            .get(map_id)
-            .ok_or_else(|| format!("TaskSpace active task path `{map_id}` is missing."))?;
-        let dependency_node_ids = if draft.dependency_node_ids.is_empty() {
-            vec![finishing_node_id.to_string()]
-        } else {
-            draft.dependency_node_ids.clone()
-        };
-        for dependency in &dependency_node_ids {
-            let dependency = dependency.trim();
-            if dependency.is_empty() {
-                continue;
-            }
-            let Some(node) = map.nodes.get(dependency) else {
-                return Err(format!(
-                    "TaskSpace dependency node `{dependency}` does not exist."
-                ));
-            };
-            if dependency != finishing_node_id && node.status != NodeStatus::Completed {
-                return Err(format!(
-                    "TaskSpace dependency node `{dependency}` will not be completed after finishing `{finishing_node_id}`."
-                ));
-            }
-        }
-        Ok(())
-    }
-
     fn validate_maintenance_barrier(&self) -> Result<(), String> {
         Ok(())
     }
@@ -5021,7 +4314,7 @@ impl ActionMapRuntimeState {
                 reservation.map_id
             )
         })?;
-        if map.status != MapStatus::Active {
+        if map.is_complete() {
             return Err(format!(
                 "TaskSpace tool result target map `{}` is not active.",
                 reservation.map_id
@@ -5063,7 +4356,7 @@ impl ActionMapRuntimeState {
                 reservation.map_id
             )
         })?;
-        if map.status != MapStatus::Active {
+        if map.is_complete() {
             return Err(format!(
                 "TaskSpace subagent tool result target map `{}` is not active.",
                 reservation.map_id
@@ -5108,24 +4401,6 @@ impl ActionMapRuntimeState {
         Err(format!(
             "TaskSpace node `{node_id}` has {in_flight} in-flight main tool call(s). hard_state: node_tool_calls_in_flight. rejected_action: {action}."
         ))
-    }
-
-    fn clear_maintenance_barrier_for_recovery(
-        &mut self,
-        recovery_node_id: &str,
-    ) -> Vec<MapRuntimeEvent> {
-        let Some(map_id) = self.active_map_id.clone() else {
-            return Vec::new();
-        };
-        let Some(barrier) = self.maintenance_barriers.get(&map_id) else {
-            return Vec::new();
-        };
-        if barrier.node_id == recovery_node_id {
-            return Vec::new();
-        }
-        let event = maintenance_barrier_cleared_event(barrier, "bound_recovery_node");
-        self.maintenance_barriers.remove(&map_id);
-        vec![event]
     }
 
     fn active_maintenance_barrier(&self) -> Option<&ActionMapMaintenanceBarrier> {
@@ -5198,6 +4473,9 @@ impl ActionMapRuntimeState {
             )),
             NodeStatus::Completed => Err(format!(
                 "TaskSpace node `{node_id}` is completed. hard_state: target_node_completed."
+            )),
+            NodeStatus::Open | NodeStatus::Closed => Err(format!(
+                "TaskSpace node `{node_id}` cannot hold a worker lease. hard_state: target_node_role_invalid."
             )),
         }
     }
@@ -5324,16 +4602,6 @@ impl ActionMapRuntimeState {
         id
     }
 
-    fn next_node_id(&mut self) -> MapNodeId {
-        loop {
-            let id = format!("node-{}", self.next_node_seq);
-            self.next_node_seq += 1;
-            if !self.maps.values().any(|map| map.nodes.contains_key(&id)) {
-                return id;
-            }
-        }
-    }
-
     fn next_lease_id(&mut self) -> AssignmentLeaseId {
         let id = format!("lease-{}", self.next_lease_seq);
         self.next_lease_seq += 1;
@@ -5361,37 +4629,13 @@ impl ActionMapRuntimeState {
 
 pub(crate) fn format_action_map_snapshot(snapshot: &ActionMapSnapshot) -> String {
     let mut output = String::new();
-    output.push_str("TaskSpace\n");
-    output.push_str("- mode: ");
-    output.push_str(&snapshot.mode.to_string());
-    output.push('\n');
-    output.push_str("- routing required: ");
-    output.push_str(if snapshot.routing_required {
-        "yes"
-    } else {
-        "no"
-    });
-    output.push('\n');
-    output.push_str("- bootstrap required: ");
-    output.push_str(if snapshot.bootstrap_required {
-        "yes"
-    } else {
-        "no"
-    });
-    output.push('\n');
-    output.push_str("- reborn requested: ");
-    output.push_str(if snapshot.reborn_requested {
-        "yes"
-    } else {
-        "no"
-    });
-    output.push('\n');
-    output.push_str("- active task: ");
-    output.push_str(snapshot.active_task_id.as_deref().unwrap_or("none"));
-    output.push('\n');
-    output.push_str("- active map: ");
-    output.push_str(snapshot.active_map_id.as_deref().unwrap_or("none"));
-    output.push('\n');
+    output.push_str("TaskSpace R6\n");
+    output.push_str(&format!("- schema: {}\n", snapshot.schema_version));
+    output.push_str(&format!("- mode: {}\n", snapshot.mode));
+    output.push_str(&format!(
+        "- bootstrap_required: {}\n",
+        snapshot.bootstrap_required
+    ));
     output.push_str("- trace events: total=");
     output.push_str(&snapshot.trace_summary.total_event_count.to_string());
     output.push_str(", tools=");
@@ -5427,22 +4671,6 @@ pub(crate) fn format_action_map_snapshot(snapshot: &ActionMapSnapshot) -> String
             .to_string(),
     );
     output.push('\n');
-    if !snapshot.tasks.is_empty() {
-        output.push_str("\nTasks:\n");
-        for task in &snapshot.tasks {
-            output.push_str("- ");
-            output.push_str(&task.id);
-            output.push_str(" [");
-            output.push_str(&task.status);
-            output.push_str("] ");
-            output.push_str(&task.title);
-            if let Some(map_id) = task.active_map_id.as_ref() {
-                output.push_str(" active_map=");
-                output.push_str(map_id);
-            }
-            output.push('\n');
-        }
-    }
     if !snapshot.maintenance_barriers.is_empty() {
         output.push_str("\nMaintenance barriers:\n");
         for barrier in &snapshot.maintenance_barriers {
@@ -5459,112 +4687,42 @@ pub(crate) fn format_action_map_snapshot(snapshot: &ActionMapSnapshot) -> String
             output.push('\n');
         }
     }
-    if snapshot.maps.is_empty() {
-        output.push_str("\nNo task path has been created in this thread.\n");
+    let Some(map) = snapshot.map.as_ref() else {
+        output.push_str("\nMap: none\n");
         return output;
+    };
+    output.push_str(&format!(
+        "\nMap {} revision={} root={} finish={} complete={}\n",
+        map.id, map.revision, map.root_node_id, map.finish_node_id, map.complete
+    ));
+    output.push_str(&format!(
+        "- current_node: {}\n",
+        map.current_node_id.as_deref().unwrap_or("none")
+    ));
+    output.push_str("Nodes:\n");
+    for node in &map.nodes {
+        output.push_str(&format!(
+            "- {} role={} status={} goal={:?}",
+            node.id, node.role, node.status, node.goal
+        ));
+        if let Some(lease) = node.active_lease.as_ref() {
+            output.push_str(&format!(" lease={lease}"));
+        }
+        if !node.result_ids.is_empty() {
+            output.push_str(&format!(" results={}", node.result_ids.join(",")));
+        }
+        output.push('\n');
     }
-
-    for map in &snapshot.maps {
-        output.push('\n');
-        output.push_str("Map ");
-        output.push_str(&map.id);
-        output.push_str(": ");
-        output.push_str(&map.title);
-        output.push('\n');
-        output.push_str("- status: ");
-        output.push_str(&map.status);
-        output.push_str("\n- nodes: ready=");
-        output.push_str(&map.ready_node_count.to_string());
-        output.push_str(", running=");
-        output.push_str(&map.running_node_count.to_string());
-        output.push_str(", completed=");
-        output.push_str(&map.completed_node_count.to_string());
-        output.push('\n');
-        output.push_str("- owner session: ");
-        output.push_str(
-            &map.owner_session_id
-                .map(|id| id.to_string())
-                .unwrap_or_else(|| "none".to_string()),
-        );
-        output.push('\n');
-        output.push_str("\nNodes:\n");
-        for node in &map.nodes {
-            output.push_str("- ");
-            output.push_str(&node.id);
-            output.push_str(" [");
-            output.push_str(&node.status);
-            output.push_str("] ");
-            output.push_str(&node.title);
-            output.push_str(" kind=");
-            output.push_str(&node.kind);
-            if let Some(lease) = node.active_lease.as_ref() {
-                output.push_str(" lease=");
-                output.push_str(lease);
-            }
-            if !node.result_ids.is_empty() {
-                output.push_str(" results=");
-                output.push_str(&node.result_ids.join(","));
-            }
-            output.push('\n');
-        }
-
-        if !map.leases.is_empty() {
-            output.push_str("\nLeases:\n");
-            for lease in &map.leases {
-                output.push_str("- ");
-                output.push_str(&lease.id);
-                output.push_str(" node=");
-                output.push_str(&lease.node_id);
-                output.push_str(" holder=");
-                output.push_str(&lease.holder);
-                output.push_str(" agent=");
-                output.push_str(
-                    &lease
-                        .agent_thread_id
-                        .map(|id| id.to_string())
-                        .unwrap_or_else(|| "unattached".to_string()),
-                );
-                if let Some(path) = lease.agent_path.as_ref() {
-                    output.push_str(" path=");
-                    output.push_str(path);
-                }
-                output.push('\n');
-            }
-        }
-
-        if !map.results.is_empty() {
-            output.push_str("\nResults:\n");
-            for result in &map.results {
-                output.push_str("- ");
-                output.push_str(&result.id);
-                output.push_str(" node=");
-                output.push_str(&result.node_id);
-                output.push_str(" kind=");
-                output.push_str(&result.kind);
-                if let Some(action_class) = result.action_class.as_ref() {
-                    output.push_str(" action_class=");
-                    output.push_str(action_class);
-                }
-                output.push_str(" from=");
-                output.push_str(&result.source_thread_id.to_string());
-                output.push_str(" source_event_ref=");
-                output.push_str(&result.source_event_ref);
-                if !result.artifact_refs.is_empty() {
-                    output.push_str(" artifact_refs=");
-                    output.push_str(&result.artifact_refs.join(","));
-                }
-                output.push('\n');
-            }
-        }
+    output.push_str("Edges:\n");
+    for edge in &map.edges {
+        output.push_str(&format!("- {} -> {}\n", edge.from, edge.to));
     }
-
     output
 }
 
 fn taskspace_projection_integrity_context(map_id: &str, reason: &str) -> String {
     format!(
-        "ContextProjectionV1 epoch snapshot:\n\
-- task_id: unavailable\n\
+        "TaskSpaceMapProjectionR6V1:\n\
 - map_id: {map_id}\n\
 - integrity_status: invalid\n\
 - integrity_reason: {reason}\n\
@@ -5573,27 +4731,16 @@ fn taskspace_projection_integrity_context(map_id: &str, reason: &str) -> String 
 - map_nodes:\n  - none\n\
 - map_edges:\n  - none\n\
 - node_details:\n  - none\n\
-ContextProjectionV1 epoch snapshot end."
+TaskSpaceMapProjectionR6V1 end."
     )
 }
 
-fn taskspace_task_path_is_mechanical_blank(task: &TaskState, map: &ActionMapInstance) -> bool {
-    task.title == TASKSPACE_MECHANICAL_BLANK_TASK_TITLE
-        && task.source_event_ids.is_empty()
-        && map.title == TASKSPACE_MECHANICAL_BLANK_MAP_TITLE
-        && map.nodes.is_empty()
-        && map.edges.is_empty()
-        && map.leases.is_empty()
-        && map.results.is_empty()
-        && map.node_events.is_empty()
-}
-
-fn baseline_projection_node(node: &MapNode) -> ProjectionNode {
+fn baseline_projection_node(node_id: &str, node: &MapNode) -> ProjectionNode {
     ProjectionNode {
-        id: node.id.clone(),
-        kind: node.kind.as_str().to_string(),
+        id: node_id.to_string(),
+        role: node.role.as_str().to_string(),
         status: node.status.as_str().to_string(),
-        goal: node.context.summary.clone(),
+        goal: node.goal.clone(),
         result_ids: node
             .result_context
             .iter()
@@ -5610,14 +4757,15 @@ fn baseline_projection_node(node: &MapNode) -> ProjectionNode {
 
 fn folded_projection_node(
     map_id: &str,
+    node_id: &str,
     node: &MapNode,
     hidden_details: &[ProjectionEventRef],
 ) -> Option<(ProjectionNode, ProjectionNodeDetailIdentity)> {
     if hidden_details.is_empty() {
         return None;
     }
-    let baseline = baseline_projection_node(node);
-    let identity = node_detail_identity(map_id, &node.id, hidden_details);
+    let baseline = baseline_projection_node(node_id, node);
+    let identity = node_detail_identity(map_id, node_id, hidden_details);
     let mut folded = baseline.clone();
     folded.detail_state = Some(ProjectionNodeDetailState::Folded {
         hidden_event_count: hidden_details.len(),
@@ -5643,7 +4791,6 @@ fn expanded_detail_ref(event: &ProjectionEventRef) -> ActionMapExpandedDetailRef
 
 fn append_context_projection_active(
     context: &mut String,
-    task: &TaskState,
     map: &ActionMapInstance,
     current_node_id: Option<&str>,
     active_budget: Option<&TaskSpaceActiveBudgetV1>,
@@ -5655,8 +4802,11 @@ fn append_context_projection_active(
     let ordered_node_ids = ordered_node_ids(map);
     let baseline_node_skeleton = ordered_node_ids
         .iter()
-        .filter_map(|node_id| map.nodes.get(node_id))
-        .map(baseline_projection_node)
+        .filter_map(|node_id| {
+            map.nodes
+                .get(node_id)
+                .map(|node| baseline_projection_node(node_id, node))
+        })
         .collect::<Vec<_>>();
     let map_edges = map
         .edges
@@ -5668,12 +4818,12 @@ fn append_context_projection_active(
         .collect::<Vec<_>>();
     let active_frontier = ordered_node_ids
         .iter()
-        .cloned()
-        .filter(|node_id| {
+        .filter(|&node_id| {
             map.nodes
                 .get(node_id)
                 .is_some_and(|node| node.status != NodeStatus::Completed)
         })
+        .cloned()
         .collect::<Vec<_>>();
     let baseline_node_details = baseline_projection_node_details(map, current_node_id.as_deref());
     let all_node_details = projection_all_node_details(map, current_node_id.as_deref());
@@ -5698,7 +4848,8 @@ fn append_context_projection_active(
                 let Some(map_node) = map.nodes.get(&node.id) else {
                     continue;
                 };
-                let Some((folded, _)) = folded_projection_node(&map.id, map_node, &hidden_details)
+                let Some((folded, _)) =
+                    folded_projection_node(&map.id, &node.id, map_node, &hidden_details)
                 else {
                     visible_detail_ids.extend(hidden_details.iter().map(|event| event.id.clone()));
                     continue;
@@ -5733,11 +4884,16 @@ fn append_context_projection_active(
         .cloned()
         .collect::<Vec<_>>();
     let baseline_input = ActiveProjectionInput {
-        task_id: task.id.clone(),
-        task_status: task.status.as_str().to_string(),
         map_id: map.id.clone(),
-        map_status: map.status.as_str().to_string(),
-        root_source_event_ids: task.source_event_ids.clone(),
+        revision: map.revision,
+        root_node_id: map.root_node_id.clone(),
+        finish_node_id: map.finish_node_id.clone(),
+        complete: map.is_complete(),
+        root_source_event_ids: map
+            .nodes
+            .get(&map.root_node_id)
+            .map(|node| node.source_refs.clone())
+            .unwrap_or_default(),
         current_node_id: current_node_id.clone(),
         active_frontier: active_frontier.clone(),
         map_nodes: baseline_node_skeleton,
@@ -5750,12 +4906,17 @@ fn append_context_projection_active(
         ..baseline_input
     });
     let rendered = render_active_projection(ActiveProjectionInput {
-        task_id: task.id.clone(),
-        task_status: task.status.as_str().to_string(),
         map_id: map.id.clone(),
-        map_status: map.status.as_str().to_string(),
-        root_source_event_ids: task.source_event_ids.clone(),
-        current_node_id: current_node_id.clone(),
+        revision: map.revision,
+        root_node_id: map.root_node_id.clone(),
+        finish_node_id: map.finish_node_id.clone(),
+        complete: map.is_complete(),
+        root_source_event_ids: map
+            .nodes
+            .get(&map.root_node_id)
+            .map(|node| node.source_refs.clone())
+            .unwrap_or_default(),
+        current_node_id,
         active_frontier,
         map_nodes: node_skeleton,
         map_edges,
@@ -5770,7 +4931,6 @@ fn append_context_projection_active(
     if skeleton_over_budget {
         context.push_str("TaskSpaceMapProjectionErrorV1:\n");
         context.push_str("- error: map_skeleton_over_budget\n");
-        context.push_str(&format!("- task_id: {}\n", task.id));
         context.push_str(&format!("- map_id: {}\n", map.id));
         context.push_str(&format!("- node_count: {}\n", map.nodes.len()));
         context.push_str(&format!("- edge_count: {}\n", map.edges.len()));
@@ -5784,7 +4944,6 @@ fn append_context_projection_active(
     } else if projection_over_budget {
         context.push_str("TaskSpaceMapProjectionErrorV1:\n");
         context.push_str("- error: map_projection_over_budget\n");
-        context.push_str(&format!("- task_id: {}\n", task.id));
         context.push_str(&format!("- map_id: {}\n", map.id));
         context.push_str(&format!(
             "- projection_tokens: {}\n",
@@ -5854,7 +5013,12 @@ fn baseline_projection_node_details(
         let Some(node) = map.nodes.get(&node_id) else {
             continue;
         };
-        let tier = projection_detail_tier(node, current_node_id, distances.get(&node_id).copied());
+        let tier = projection_detail_tier(
+            &node_id,
+            node,
+            current_node_id,
+            distances.get(&node_id).copied(),
+        );
         let limit = match tier {
             "D1" => 8,
             "D2" => 4,
@@ -5887,6 +5051,7 @@ fn baseline_projection_node_details(
                 .get(&event.node_id)
                 .map(|node| {
                     projection_detail_tier(
+                        &event.node_id,
                         node,
                         current_node_id,
                         distances.get(&event.node_id).copied(),
@@ -5913,6 +5078,7 @@ fn projection_all_node_details(
                 .get(&event.node_id)
                 .map(|node| {
                     projection_detail_tier(
+                        &event.node_id,
                         node,
                         current_node_id,
                         distances.get(&event.node_id).copied(),
@@ -5972,11 +5138,12 @@ fn projection_graph_distances(
 }
 
 fn projection_detail_tier(
+    node_id: &str,
     node: &MapNode,
     current_node_id: Option<&str>,
     distance: Option<usize>,
 ) -> &'static str {
-    if current_node_id == Some(node.id.as_str())
+    if current_node_id == Some(node_id)
         || node.status != NodeStatus::Completed
         || distance.is_some_and(|distance| distance <= 1)
     {
@@ -6028,30 +5195,39 @@ fn projection_event_ref(
     }
 }
 
-fn append_omitted_count(context: &mut String, len: usize, limit: usize, label: &str) {
-    if len > limit {
-        context.push_str("  - ... ");
-        context.push_str(&(len - limit).to_string());
-        context.push(' ');
-        context.push_str(label);
-        context.push_str(" omitted\n");
-    }
-}
-
 fn ordered_node_ids(map: &ActionMapInstance) -> Vec<MapNodeId> {
-    let mut ordered = SEED_NODE_IDS
-        .iter()
-        .filter(|node_id| map.nodes.contains_key(**node_id))
-        .map(|node_id| (*node_id).to_string())
-        .collect::<Vec<_>>();
-    let mut dynamic = map
+    let mut indegree = map
         .nodes
         .keys()
-        .filter(|node_id| !SEED_NODE_IDS.contains(&node_id.as_str()))
-        .cloned()
-        .collect::<Vec<_>>();
-    dynamic.sort_by(|left, right| node_id_sort_key(left).cmp(&node_id_sort_key(right)));
-    ordered.extend(dynamic);
+        .map(|node_id| (node_id.clone(), 0_usize))
+        .collect::<BTreeMap<_, _>>();
+    for edge in &map.edges {
+        if let Some(count) = indegree.get_mut(&edge.to) {
+            *count += 1;
+        }
+    }
+    let mut ready = indegree
+        .iter()
+        .filter_map(|(node_id, count)| (*count == 0).then_some(node_id.clone()))
+        .collect::<BTreeSet<_>>();
+    let mut ordered = Vec::with_capacity(map.nodes.len());
+    while let Some(node_id) = ready.pop_first() {
+        ordered.push(node_id.clone());
+        for edge in map.edges.iter().filter(|edge| edge.from == node_id) {
+            let count = indegree
+                .get_mut(&edge.to)
+                .expect("edge target belongs to canonical map");
+            *count -= 1;
+            if *count == 0 {
+                ready.insert(edge.to.clone());
+            }
+        }
+    }
+    for node_id in map.nodes.keys() {
+        if !ordered.contains(node_id) {
+            ordered.push(node_id.clone());
+        }
+    }
     ordered
 }
 
@@ -6062,22 +5238,6 @@ fn ordered_node_event_ids(map: &ActionMapInstance) -> Vec<NodeEventId> {
     event_ids
 }
 
-fn ordered_task_ids(tasks: &HashMap<TaskId, TaskState>) -> Vec<TaskId> {
-    let mut task_ids = tasks.keys().cloned().collect::<Vec<_>>();
-    task_ids.sort_by(|left, right| task_id_sort_key(left).cmp(&task_id_sort_key(right)));
-    task_ids
-}
-
-fn task_id_sort_key(task_id: &str) -> (u8, u64, &str) {
-    if let Some(number) = task_id
-        .strip_prefix("task-")
-        .and_then(|suffix| suffix.parse::<u64>().ok())
-    {
-        return (0, number, task_id);
-    }
-    (1, 0, task_id)
-}
-
 fn next_numeric_seq<'a>(ids: impl Iterator<Item = &'a String>, prefix: &str) -> u64 {
     ids.filter_map(|id| id.strip_prefix(prefix)?.parse::<u64>().ok())
         .max()
@@ -6085,26 +5245,19 @@ fn next_numeric_seq<'a>(ids: impl Iterator<Item = &'a String>, prefix: &str) -> 
         + 1
 }
 
-fn task_status_from_str(status: &str) -> Option<TaskStatus> {
-    match status {
-        "active" => Some(TaskStatus::Active),
-        "pending" => Some(TaskStatus::Pending),
-        "completed" => Some(TaskStatus::Completed),
-        _ => None,
-    }
-}
-
-fn map_status_from_str(status: &str) -> Option<MapStatus> {
-    match status {
-        "active" => Some(MapStatus::Active),
-        "completed" => Some(MapStatus::Completed),
-        "abandoned" => Some(MapStatus::Abandoned),
+fn node_role_from_str(role: &str) -> Option<NodeRole> {
+    match role {
+        "task_root" => Some(NodeRole::TaskRoot),
+        "work" => Some(NodeRole::Work),
+        "finish" => Some(NodeRole::Finish),
         _ => None,
     }
 }
 
 fn node_status_from_str(status: &str) -> Option<NodeStatus> {
     match status {
+        "open" => Some(NodeStatus::Open),
+        "closed" => Some(NodeStatus::Closed),
         "pending" => Some(NodeStatus::Pending),
         "ready" => Some(NodeStatus::Ready),
         "running" => Some(NodeStatus::Running),
@@ -6143,26 +5296,6 @@ fn maintenance_barrier_reason_from_str(reason: &str) -> Option<MaintenanceBarrie
     }
 }
 
-fn validate_live_node_kind(kind: NodeKind) -> Result<(), String> {
-    if kind == NodeKind::Custom {
-        return Err(
-            "TaskSpace live node creation requires a concrete node_kind. `custom` is reserved for restored legacy nodes; choose inspect_code_context, implement_solution, smoke_test, regression_test, or final_synthesis."
-                .to_string(),
-        );
-    }
-    Ok(())
-}
-
-fn node_id_sort_key(node_id: &str) -> (u8, u64, &str) {
-    if let Some(number) = node_id
-        .strip_prefix("node-")
-        .and_then(|suffix| suffix.parse::<u64>().ok())
-    {
-        return (0, number, node_id);
-    }
-    (1, 0, node_id)
-}
-
 fn node_event_id_sort_key(event_id: &str) -> (u8, u64, &str) {
     if let Some(number) = event_id
         .strip_prefix("node-event-")
@@ -6183,18 +5316,6 @@ fn require_nonempty(field: &str, value: &str) -> Result<String, String> {
 
 fn require_nonempty_owned(field: &str, value: String) -> Result<String, String> {
     require_nonempty(field, &value)
-}
-
-fn snapshot_task(task: &TaskState) -> ActionMapSnapshotTask {
-    ActionMapSnapshotTask {
-        id: task.id.clone(),
-        title: task.title.clone(),
-        source_event_ids: task.source_event_ids.clone(),
-        status: task.status.as_str().to_string(),
-        owner_session_id: task.owner_session_id,
-        active_map_id: task.active_map_id.clone(),
-        map_ids: task.map_ids.clone(),
-    }
 }
 
 fn snapshot_maintenance_barrier(
@@ -6471,7 +5592,7 @@ fn is_known_trace_tag(tag: &str) -> bool {
         || tag.starts_with("request_phase:")
         || tag.starts_with("request_phase_missing_reason:")
         || tag.starts_with("provider_request_context_missing_reason:")
-        || tag.starts_with("node_kind:")
+        || tag.starts_with("node_role:")
         || tag.starts_with("feedback_kind:")
         || tag.starts_with("trigger_kind:")
         || tag.starts_with("response_actionability_previous:")
@@ -6566,15 +5687,13 @@ fn is_known_trace_tag(tag: &str) -> bool {
 fn snapshot_map(map: &ActionMapInstance) -> ActionMapSnapshotMap {
     let mut nodes = map
         .nodes
-        .values()
-        .map(|node| ActionMapSnapshotNode {
-            id: node.id.clone(),
-            title: node.title.clone(),
-            kind: node.kind.as_str().to_string(),
-            canonical_kind: node.kind.canonical_kind().to_string(),
+        .iter()
+        .map(|(node_id, node)| ActionMapSnapshotNode {
+            id: node_id.clone(),
+            role: node.role.as_str().to_string(),
+            goal: node.goal.clone(),
             status: node.status.as_str().to_string(),
-            context_summary: node.context.summary.clone(),
-            source_refs: node.context.source_refs.clone(),
+            source_refs: node.source_refs.clone(),
             active_lease: node.active_lease.clone(),
             result_ids: node
                 .result_context
@@ -6586,7 +5705,6 @@ fn snapshot_map(map: &ActionMapInstance) -> ActionMapSnapshotMap {
                 .iter()
                 .map(|event| event.id.clone())
                 .collect(),
-            origin_node_id: node.origin_node_id.clone(),
         })
         .collect::<Vec<_>>();
     nodes.sort_by(|left, right| left.id.cmp(&right.id));
@@ -6652,11 +5770,13 @@ fn snapshot_map(map: &ActionMapInstance) -> ActionMapSnapshotMap {
     ActionMapSnapshotMap {
         id: map.id.clone(),
         task_id: map.task_id.clone(),
-        title: map.title.clone(),
-        status: map.status.as_str().to_string(),
         owner_session_id: map.owner_session_id,
-        base_map_version: map.base_map_version.clone(),
-        created_from: map.created_from.clone(),
+        root_node_id: map.root_node_id.clone(),
+        finish_node_id: map.finish_node_id.clone(),
+        revision: map.revision,
+        current_node_id: map.current_binding.clone(),
+        terminal_summary_ref: map.terminal_summary_ref.clone(),
+        complete: map.is_complete(),
         ready_node_count: map.ready_node_count(),
         running_node_count: map.running_node_count(),
         completed_node_count: map.completed_node_count(),
@@ -6689,154 +5809,15 @@ fn format_node_candidates(map: &ActionMapInstance, node_ids: &[MapNodeId]) -> St
     node_ids
         .iter()
         .map(|node_id| {
-            let title = map
+            let goal = map
                 .nodes
                 .get(node_id)
-                .map(|node| single_line_preview(&node.title, 80))
+                .map(|node| single_line_preview(&node.goal, 80))
                 .unwrap_or_default();
-            format!("{node_id} ({title})")
+            format!("{node_id} ({goal})")
         })
         .collect::<Vec<_>>()
         .join(", ")
-}
-
-fn refresh_ready_nodes(map: &mut ActionMapInstance) -> Vec<MapRuntimeEvent> {
-    if map.status != MapStatus::Active {
-        return Vec::new();
-    }
-    let mut events = Vec::new();
-    let pending_ids = map
-        .nodes
-        .iter()
-        .filter_map(|(id, node)| (node.status == NodeStatus::Pending).then_some(id.clone()))
-        .collect::<Vec<_>>();
-    for node_id in pending_ids {
-        let deps = map
-            .edges
-            .iter()
-            .filter(|edge| edge.to == node_id)
-            .map(|edge| edge.from.clone())
-            .collect::<Vec<_>>();
-        let ready = !deps.is_empty()
-            && map.nodes.get(&node_id).is_some_and(|node| {
-                deps.iter()
-                    .all(|dependency_id| node_dependency_ready(map, node, dependency_id))
-            });
-        if ready && let Some(node) = map.nodes.get_mut(&node_id) {
-            let previous_status = node.status;
-            node.status = NodeStatus::Ready;
-            events.push(node_status_changed_event(
-                &map.id,
-                &node.id,
-                &node.title,
-                previous_status,
-                node.status,
-            ));
-        }
-    }
-    events
-}
-
-fn refresh_ready_validation_rework_nodes(
-    map: &mut ActionMapInstance,
-    validation_node_id: &str,
-) -> Vec<MapRuntimeEvent> {
-    if map.status != MapStatus::Active
-        || !map.nodes.get(validation_node_id).is_some_and(|node| {
-            matches!(node.kind, NodeKind::SmokeTest | NodeKind::RegressionTest)
-                && node.status == NodeStatus::Blocked
-        })
-    {
-        return Vec::new();
-    }
-    let mut events = Vec::new();
-    let pending_ids = map
-        .nodes
-        .iter()
-        .filter_map(|(id, node)| {
-            (node.kind == NodeKind::ImplementSolution
-                && node.status == NodeStatus::Pending
-                && node.origin_node_id.as_deref() == Some(validation_node_id))
-            .then_some(id.clone())
-        })
-        .collect::<Vec<_>>();
-    for node_id in pending_ids {
-        let deps = map
-            .edges
-            .iter()
-            .filter(|edge| edge.to == node_id)
-            .map(|edge| edge.from.clone())
-            .collect::<Vec<_>>();
-        let ready = !deps.is_empty()
-            && map.nodes.get(&node_id).is_some_and(|node| {
-                deps.iter()
-                    .all(|dependency_id| node_dependency_ready(map, node, dependency_id))
-            });
-        if ready && let Some(node) = map.nodes.get_mut(&node_id) {
-            let previous_status = node.status;
-            node.status = NodeStatus::Ready;
-            events.push(node_status_changed_event(
-                &map.id,
-                &node.id,
-                &node.title,
-                previous_status,
-                node.status,
-            ));
-        }
-    }
-    events
-}
-
-fn node_dependency_ready(map: &ActionMapInstance, node: &MapNode, dependency_id: &str) -> bool {
-    map.nodes.get(dependency_id).is_some_and(|dependency| {
-        dependency.status == NodeStatus::Completed
-            || new_node_dependency_ready_from_status(
-                map,
-                node.kind,
-                node.origin_node_id.as_deref(),
-                dependency_id,
-                dependency.status,
-            )
-    })
-}
-
-fn new_node_dependency_ready_from_status(
-    map: &ActionMapInstance,
-    node_kind: NodeKind,
-    origin_node_id: Option<&str>,
-    dependency_id: &str,
-    dependency_status: NodeStatus,
-) -> bool {
-    node_kind == NodeKind::ImplementSolution
-        && origin_node_id == Some(dependency_id)
-        && dependency_status == NodeStatus::Blocked
-        && map.nodes.get(dependency_id).is_some_and(|dependency| {
-            matches!(
-                dependency.kind,
-                NodeKind::SmokeTest | NodeKind::RegressionTest
-            )
-        })
-}
-
-fn dependencies_will_be_completed_after_finish(
-    map: &ActionMapInstance,
-    finishing_node_id: &str,
-    target_node_id: &str,
-) -> bool {
-    let deps = map
-        .edges
-        .iter()
-        .filter(|edge| edge.to == target_node_id)
-        .map(|edge| edge.from.as_str())
-        .collect::<Vec<_>>();
-    !deps.is_empty()
-        && deps.iter().all(|dependency_id| {
-            *dependency_id == finishing_node_id
-                || map
-                    .nodes
-                    .get(*dependency_id)
-                    .is_some_and(|node| node.status == NodeStatus::Completed)
-        })
 }
 
 fn budget_state_for_counter(counter_value: usize, counter_limit: usize) -> TaskSpaceBudgetState {
@@ -7047,49 +6028,24 @@ fn normalize_artifact_ref(path: &str) -> String {
         .replace('\\', "/")
 }
 
-fn map_created_event(map: &ActionMapInstance) -> MapRuntimeEvent {
-    MapRuntimeEvent::MapCreated(MapRuntimeMapCreatedEvent {
-        map_id: map.id.clone(),
-        title: map.title.clone(),
-        owner_session_id: map.owner_session_id,
-        created_from: map.created_from.clone(),
-    })
-}
-
-fn task_created_event(task: &TaskState) -> MapRuntimeEvent {
-    MapRuntimeEvent::TaskCreated(MapRuntimeTaskCreatedEvent {
-        task_id: task.id.clone(),
-        title: task.title.clone(),
-        source_event_ids: task.source_event_ids.clone(),
-        owner_session_id: task.owner_session_id,
-        active_map_id: task.active_map_id.clone(),
-    })
-}
-
-fn node_status_changed_event(
-    map_id: &str,
-    node_id: &str,
-    node_title: &str,
-    previous_status: NodeStatus,
-    current_status: NodeStatus,
-) -> MapRuntimeEvent {
-    MapRuntimeEvent::NodeStatusChanged(MapRuntimeNodeStatusChangedEvent {
-        map_id: map_id.to_string(),
-        node_id: node_id.to_string(),
-        node_title: node_title.to_string(),
-        previous_status: previous_status.as_str().to_string(),
-        current_status: current_status.as_str().to_string(),
-    })
-}
-
-fn maintenance_barrier_cleared_event(
-    barrier: &ActionMapMaintenanceBarrier,
-    reason: impl Into<String>,
-) -> MapRuntimeEvent {
-    MapRuntimeEvent::MaintenanceBarrierCleared(MapRuntimeMaintenanceBarrierClearedEvent {
-        map_id: barrier.map_id.clone(),
-        node_id: barrier.node_id.clone(),
-        reason: reason.into(),
+fn graph_revision_committed_event(batch: &EventBatch, operation: &str) -> MapRuntimeEvent {
+    MapRuntimeEvent::GraphRevisionCommitted(MapRuntimeGraphRevisionCommittedEvent {
+        map_id: batch.map_id.clone(),
+        revision: batch.revision,
+        operation: operation.to_string(),
+        event_ids: batch
+            .records
+            .iter()
+            .map(|record| record.event_id.clone())
+            .collect(),
+        events: batch
+            .records
+            .iter()
+            .map(|record| {
+                serde_json::to_value(&record.event)
+                    .expect("rooted DAG domain event is serializable")
+            })
+            .collect(),
     })
 }
 
@@ -7135,25 +6091,13 @@ fn taskspace_marker_field(line: &str, field: &str) -> Option<String> {
         .filter(|value| !value.is_empty())
 }
 
-fn assignment_prompt(
-    map_id: &str,
-    node_id: &str,
-    node_title: &str,
-    node_context_summary: &str,
-    node_kind: NodeKind,
-    lease_id: &str,
-) -> String {
+fn assignment_prompt(map_id: &str, node_id: &str, node_goal: &str, lease_id: &str) -> String {
     format!(
         "TaskSpace node assignment\n\
 Map: {map_id}\n\
-Node: {node_id} - {node_title}\n\
-Node context: {node_context_summary}\n\
-Node kind: {}\n\
-Lease: {lease_id}\n\
-\n\
-Runtime map notes:\n\
-- tool calls and results are recorded under this leased node.\n\n",
-        node_kind.as_str(),
+Node: {node_id}\n\
+Goal: {node_goal}\n\
+Lease: {lease_id}\n",
     )
 }
 

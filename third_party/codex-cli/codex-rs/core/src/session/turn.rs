@@ -130,7 +130,7 @@ enum TaskspaceProviderResponseActionability {
     NoActionFollowUp,
     ToolFeedbackRecovery,
     EmptyFollowUp,
-    FinalCandidate,
+    TurnComplete,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -146,7 +146,7 @@ impl TaskspaceProviderResponseActionability {
             Self::NoActionFollowUp => "no_action_follow_up",
             Self::ToolFeedbackRecovery => "tool_feedback_recovery",
             Self::EmptyFollowUp => "empty_follow_up",
-            Self::FinalCandidate => "final_candidate",
+            Self::TurnComplete => "turn_complete",
         }
     }
 
@@ -1123,16 +1123,16 @@ fn classify_taskspace_provider_response_actionability(
     } else if needs_follow_up {
         TaskspaceProviderResponseActionability::EmptyFollowUp
     } else {
-        TaskspaceProviderResponseActionability::FinalCandidate
+        TaskspaceProviderResponseActionability::TurnComplete
     }
 }
 
-fn taskspace_active_node_empty_response_requires_follow_up(
-    node_kind: Option<&str>,
+fn taskspace_bound_node_empty_response_requires_follow_up(
+    node_role: Option<&str>,
     saw_actionable_output: bool,
     assistant_message_present: bool,
 ) -> bool {
-    node_kind.is_some() && !saw_actionable_output && !assistant_message_present
+    node_role.is_some() && !saw_actionable_output && !assistant_message_present
 }
 
 fn taskspace_last_message_preview(message: Option<&str>) -> Option<String> {
@@ -1609,14 +1609,14 @@ mod active_context_replacement_tests {
 
         assert_eq!(
             classification,
-            TaskspaceProviderResponseActionability::FinalCandidate
+            TaskspaceProviderResponseActionability::TurnComplete
         );
         assert!(!classification.needs_recovery());
     }
 
     #[test]
     fn provider_response_actionability_treats_empty_active_node_response_as_recovery() {
-        let needs_follow_up = taskspace_active_node_empty_response_requires_follow_up(
+        let needs_follow_up = taskspace_bound_node_empty_response_requires_follow_up(
             Some("inspect_code_context"),
             false,
             false,
@@ -1638,9 +1638,9 @@ mod active_context_replacement_tests {
     }
 
     #[test]
-    fn provider_response_actionability_allows_empty_response_without_active_node_final_candidate() {
+    fn provider_response_actionability_allows_empty_response_without_bound_node() {
         let needs_follow_up =
-            taskspace_active_node_empty_response_requires_follow_up(None, false, false);
+            taskspace_bound_node_empty_response_requires_follow_up(None, false, false);
         let classification = classify_taskspace_provider_response_actionability(
             needs_follow_up,
             false,
@@ -1652,7 +1652,7 @@ mod active_context_replacement_tests {
 
         assert_eq!(
             classification,
-            TaskspaceProviderResponseActionability::FinalCandidate
+            TaskspaceProviderResponseActionability::TurnComplete
         );
         assert!(!classification.needs_recovery());
     }
@@ -2711,28 +2711,12 @@ async fn try_run_sampling_request(
                     .as_deref()
                     .map(|message| !message.trim().is_empty())
                     .unwrap_or(false);
-                if !terminal_candidate_released
-                    && !needs_follow_up
-                    && let Some(message) = last_agent_message.as_deref()
-                {
-                    if let Err(error) = sess
-                        .record_action_map_main_final_response(&turn_context, message)
-                        .await
-                    {
-                        info!(
-                            target: "codex_core::taskspace",
-                            event_name = "taskspace.plain_final_delivered_with_open_map",
-                            hard_state_error = %error,
-                            "TaskSpace plain final delivered without changing the open map"
-                        );
-                    }
-                }
                 let current_budget_snapshot =
                     sess.action_map_provider_request_budget_snapshot().await;
-                if taskspace_active_node_empty_response_requires_follow_up(
+                if taskspace_bound_node_empty_response_requires_follow_up(
                     current_budget_snapshot
                         .as_ref()
-                        .and_then(|snapshot| snapshot.node_kind.as_deref()),
+                        .and_then(|snapshot| snapshot.node_role.as_deref()),
                     saw_actionable_output,
                     assistant_message_present,
                 ) {

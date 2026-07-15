@@ -271,7 +271,7 @@ fn initialization_sources_reference_user_and_control_events() {
         id: None,
         name: "taskspace_control".into(),
         namespace: None,
-        arguments: r#"{"action":"initialize_then_actions"}"#.into(),
+        arguments: r#"{"action":"initialize_map"}"#.into(),
         call_id: "control-call".into(),
     };
     store.record_item(&user, None, None, 1).unwrap();
@@ -471,15 +471,15 @@ fn restore_rejects_checkpoint_when_covered_raw_event_changed() {
     );
 }
 
-fn terminal_control_call(final_candidate: &str, call_id: &str) -> ResponseItem {
+fn terminal_control_call(final_summary: &str, call_id: &str) -> ResponseItem {
     ResponseItem::FunctionCall {
         id: None,
         name: "taskspace_control".into(),
         namespace: None,
         arguments: serde_json::json!({
-            "action": "finish_then_end",
-            "finish_node_ids": ["final"],
-            "final_candidate": final_candidate
+            "action": "finish_end",
+            "expected_revision": 4,
+            "final_summary": final_summary
         })
         .to_string(),
         call_id: call_id.into(),
@@ -506,7 +506,7 @@ fn assistant_final_answer(text: &str) -> ResponseItem {
 }
 
 #[test]
-fn terminal_success_hides_control_pair_when_final_answer_exactly_matches_once() {
+fn terminal_success_keeps_control_feedback_visible() {
     let mut store = TaskSpaceEventStore::new();
     let call = terminal_control_call("done", "terminal-control");
     let output = taskspace_control_output("terminal-control", "committed");
@@ -516,8 +516,11 @@ fn terminal_success_hides_control_pair_when_final_answer_exactly_matches_once() 
     store.record_item(&final_answer, None, None, 3).unwrap();
 
     assert_eq!(store.events().len(), 3);
-    assert_eq!(store.linearize(), vec![final_answer.clone()]);
-    assert_eq!(store.take_linearized(), vec![final_answer]);
+    assert_eq!(
+        store.linearize(),
+        vec![call.clone(), output.clone(), final_answer.clone()]
+    );
+    assert_eq!(store.take_linearized(), vec![call, output, final_answer]);
 }
 
 #[test]

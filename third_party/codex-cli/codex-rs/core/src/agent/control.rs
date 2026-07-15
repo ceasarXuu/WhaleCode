@@ -1062,7 +1062,6 @@ impl AgentControl {
                 let _ = control
                     .record_action_map_child_result(parent_thread_id, child_thread_id, &status)
                     .await;
-                return;
             }
         });
     }

@@ -1,3 +1,4 @@
+use codex_protocol::error::CodexErr;
 use codex_protocol::error::Result;
 use codex_protocol::models::FunctionCallOutputBody;
 use codex_protocol::models::FunctionCallOutputPayload;
@@ -7,6 +8,7 @@ use futures::future::join_all;
 use tokio_util::sync::CancellationToken;
 
 use crate::tools::context::ToolPayload;
+use crate::tools::handlers::taskspace_control_args::TASKSPACE_CONTROL_RESULT_SCHEMA_VERSION;
 use crate::tools::handlers::taskspace_control_args::TaskSpaceNestedAction;
 use crate::tools::handlers::taskspace_control_args::parse_taskspace_control_args;
 use crate::tools::parallel::ToolCallExecution;
@@ -341,7 +343,7 @@ async fn execute_taskspace_barrier(
             state_execution.response,
             nested_outputs,
             success,
-        ),
+        )?,
         terminal_agent_message: None,
     })
 }
@@ -360,49 +362,50 @@ fn aggregate_taskspace_batch_response(
     state_response: ResponseInputItem,
     nested_outputs: Vec<(String, String, bool, String, String)>,
     success: bool,
-) -> ResponseInputItem {
-    let mut batch = state_response_text(&state_response)
-        .and_then(|text| serde_json::from_str::<serde_json::Value>(text).ok())
-        .unwrap_or_else(|| {
-            serde_json::json!({
-                "schema_version": "TaskSpaceControlResultV3",
-                "status": "state_committed",
-                "success": true,
-                "steps": [{
-                    "kind": "state_transition",
-                    "response": state_response,
-                }],
-            })
-        });
+) -> Result<ResponseInputItem> {
+    let state_text = state_response_text(&state_response).ok_or_else(|| {
+        CodexErr::Fatal("taskspace control batch received a non-text state response".into())
+    })?;
+    let mut batch = serde_json::from_str::<serde_json::Value>(state_text).map_err(|error| {
+        CodexErr::Fatal(format!(
+            "taskspace control batch received invalid state JSON: {error}"
+        ))
+    })?;
+    if batch
+        .get("schema_version")
+        .and_then(serde_json::Value::as_str)
+        != Some(TASKSPACE_CONTROL_RESULT_SCHEMA_VERSION)
+    {
+        return Err(CodexErr::Fatal(
+            "taskspace control batch received an unsupported state response schema".into(),
+        ));
+    }
     let steps = batch
         .as_object_mut()
         .and_then(|object| object.get_mut("steps"))
-        .and_then(serde_json::Value::as_array_mut);
-    if let Some(steps) = steps {
-        for (tool_name, call_id, success, call_event_ref, output_event_ref) in nested_outputs {
-            steps.push(serde_json::json!({
-                "kind": "ordinary_tool",
-                "tool_name": tool_name,
-                "call_id": call_id,
-                "success": success,
-                "call_event_ref": call_event_ref,
-                "output_event_ref": output_event_ref,
-            }));
-        }
+        .and_then(serde_json::Value::as_array_mut)
+        .ok_or_else(|| {
+            CodexErr::Fatal("taskspace control batch state response has no steps array".into())
+        })?;
+    for (tool_name, call_id, success, call_event_ref, output_event_ref) in nested_outputs {
+        steps.push(serde_json::json!({
+            "kind": "ordinary_tool",
+            "tool_name": tool_name,
+            "call_id": call_id,
+            "success": success,
+            "call_event_ref": call_event_ref,
+            "output_event_ref": output_event_ref,
+        }));
     }
     if let Some(object) = batch.as_object_mut() {
         object.insert("success".into(), serde_json::json!(success));
-        object.insert(
-            "status".into(),
-            serde_json::json!(if success { "completed" } else { "partial" }),
-        );
     }
     let mut output = FunctionCallOutputPayload::from_text(batch.to_string());
     output.success = Some(success);
-    ResponseInputItem::FunctionCallOutput {
+    Ok(ResponseInputItem::FunctionCallOutput {
         call_id: outer_call_id.to_string(),
         output,
-    }
+    })
 }
 
 fn state_response_text(response: &ResponseInputItem) -> Option<&str> {

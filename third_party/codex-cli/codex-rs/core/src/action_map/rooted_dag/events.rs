@@ -35,6 +35,9 @@ pub(crate) enum MapEvent {
     NodeUnblocked {
         node_id: NodeId,
     },
+    NodeLeaseReleased {
+        node_id: NodeId,
+    },
     ReadinessChanged {
         node_id: NodeId,
         from: NodeStatus,
@@ -158,13 +161,10 @@ pub(crate) fn apply_batch(
 }
 
 fn event_id(map_id: &MapId, revision: Revision, sequence: usize) -> String {
-    format!(
-        "event:{}:{}:{revision}:{sequence}",
-        map_id.as_str().len(),
-        map_id
-    )
+    format!("event:{}:{}:{revision}:{sequence}", map_id.len(), map_id)
 }
 
+#[cfg(test)]
 pub(crate) fn replay_batches(batches: &[EventBatch]) -> Result<TaskSpaceMap, ReplayError> {
     let mut current = None;
     for batch in batches {
@@ -229,6 +229,11 @@ fn apply_existing_event(
         }
         MapEvent::NodeUnblocked { node_id } => {
             set_status(map, node_id, NodeStatus::Blocked, NodeStatus::Ready)?;
+        }
+        MapEvent::NodeLeaseReleased { node_id } => {
+            require_binding(map, node_id)?;
+            set_status(map, node_id, NodeStatus::Running, NodeStatus::Ready)?;
+            map.current_binding = None;
         }
         MapEvent::ReadinessChanged { node_id, from, to } => {
             set_status(map, node_id, *from, *to)?;

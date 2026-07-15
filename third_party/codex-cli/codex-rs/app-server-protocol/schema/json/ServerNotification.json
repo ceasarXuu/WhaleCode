@@ -1028,6 +1028,18 @@
       ],
       "type": "object"
     },
+    "ExecOutcome": {
+      "enum": [
+        "exited",
+        "timed_out",
+        "cancelled",
+        "signaled",
+        "spawn_failed",
+        "rejected",
+        "execution_error"
+      ],
+      "type": "string"
+    },
     "ExternalAgentConfigImportCompletedNotification": {
       "type": "object"
     },
@@ -3317,7 +3329,7 @@
               ]
             },
             "exitCode": {
-              "description": "The command's exit code.",
+              "description": "The shell exit code when the process exited normally.",
               "format": "int32",
               "type": [
                 "integer",
@@ -3326,6 +3338,28 @@
             },
             "id": {
               "type": "string"
+            },
+            "outcome": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/ExecOutcome"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Mechanical execution outcome when the command has completed."
+            },
+            "pipelineStageExitCodes": {
+              "description": "Per-stage pipeline statuses when they were mechanically observable.",
+              "items": {
+                "format": "int32",
+                "type": "integer"
+              },
+              "type": [
+                "array",
+                "null"
+              ]
             },
             "processId": {
               "description": "Identifier for the underlying PTY process (when available).",
@@ -3344,6 +3378,14 @@
             },
             "status": {
               "$ref": "#/definitions/CommandExecutionStatus"
+            },
+            "terminationSignal": {
+              "description": "POSIX signal number when `outcome` is `signaled`.",
+              "format": "int32",
+              "type": [
+                "integer",
+                "null"
+              ]
             },
             "type": {
               "enum": [

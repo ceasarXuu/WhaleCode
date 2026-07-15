@@ -13,13 +13,10 @@ use std::time::UNIX_EPOCH;
 use crate::action_map::ActionClass;
 use crate::action_map::ActionMapAssignment;
 use crate::action_map::ActionMapExactPayloadScanEventInput;
-use crate::action_map::ActionMapFinishNodeOutcome;
-use crate::action_map::ActionMapNextNodeDraft;
 use crate::action_map::ActionMapProviderRequestBudgetEventInput;
 use crate::action_map::ActionMapProviderRequestBudgetSnapshot;
 use crate::action_map::ActionMapProviderResponseActionabilityInput;
 use crate::action_map::ActionMapRuntimeState;
-use crate::action_map::NodeKind;
 use crate::action_map::TaskSpaceEvent;
 use crate::action_map::ToolActionDescriptor;
 use crate::action_map::build_snapshot_delta;
@@ -229,8 +226,6 @@ use self::turn::filter_connectors_for_input;
 use self::turn::realtime_text_for_event;
 use self::turn_context::TurnContext;
 use self::turn_context::TurnSkillsContext;
-#[cfg(test)]
-mod k0_long_replay_tests;
 #[cfg(test)]
 mod rollout_reconstruction_tests;
 
@@ -1087,7 +1082,7 @@ impl Session {
                     turn_context,
                     EventMsg::Warning(WarningEvent {
                         message: format!(
-                            "TaskSpaceProviderRequestBudgetEventV1 status={} request_count={}->{} max={} state={}->{} phase={} node_kind={} transport={} reason={}",
+                            "TaskSpaceProviderRequestBudgetEventV1 status={} request_count={}->{} max={} state={}->{} phase={} node_role={} transport={} reason={}",
                             event.status,
                             event.request_count_before,
                             event.request_count_after,
@@ -1095,7 +1090,7 @@ impl Session {
                             event.budget_state_before,
                             event.budget_state_after,
                             event.request_phase.as_deref().unwrap_or("unknown"),
-                            snapshot.node_kind.as_deref().unwrap_or("unknown"),
+                            snapshot.node_role.as_deref().unwrap_or("unknown"),
                             event.transport,
                             event.budget_transition_reason,
                         ),
@@ -1191,13 +1186,13 @@ impl Session {
                 turn_context,
                 EventMsg::Warning(WarningEvent {
                     message: format!(
-                        "TaskSpaceProviderResponseActionabilityV1 actionability={} recovery_action={} request_count={}/{} phase={} node_kind={} assistant_message_present={} saw_actionable_output={} end_turn={} preview={}",
+                        "TaskSpaceProviderResponseActionabilityV1 actionability={} recovery_action={} request_count={}/{} phase={} node_role={} assistant_message_present={} saw_actionable_output={} end_turn={} preview={}",
                         input.response_actionability,
                         input.recovery_action,
                         snapshot.request_count,
                         snapshot.max_requests,
                         snapshot.request_phase.as_deref().unwrap_or("unknown"),
-                        snapshot.node_kind.as_deref().unwrap_or("unknown"),
+                        snapshot.node_role.as_deref().unwrap_or("unknown"),
                         input.assistant_message_present,
                         input.saw_actionable_output,
                         input.end_turn
@@ -1262,22 +1257,6 @@ impl Session {
         }
     }
 
-    pub(crate) async fn bind_action_map_main_node(
-        &self,
-        turn_context: &TurnContext,
-        node_id: &str,
-    ) -> Result<(), String> {
-        let events = {
-            let mut state = self.state.lock().await;
-            state
-                .action_map_runtime
-                .bind_main_node(self.conversation_id, node_id)
-        }?;
-        self.emit_action_map_events_for_turn(turn_context, events)
-            .await;
-        Ok(())
-    }
-
     pub(crate) async fn initialize_action_map_for_main(
         &self,
         turn_context: &TurnContext,
@@ -1302,6 +1281,64 @@ impl Session {
         state.action_map_runtime.control_state(map_id_hint)
     }
 
+    pub(crate) async fn mutate_action_map_graph(
+        &self,
+        turn_context: &TurnContext,
+        input: crate::action_map::ActionMapGraphMutationInput,
+    ) -> Result<crate::action_map::ActionMapGraphMutationOutcome, String> {
+        let (outcome, events) = {
+            let mut state = self.state.lock().await;
+            state
+                .action_map_runtime
+                .mutate_graph_for_main(self.conversation_id, input)
+        }?;
+        self.emit_action_map_events_for_turn(turn_context, events)
+            .await;
+        Ok(outcome)
+    }
+
+    pub(crate) async fn transition_action_map_node(
+        &self,
+        turn_context: &TurnContext,
+        expected_revision: u64,
+        node_id: String,
+        transition: crate::action_map::NodeTransition,
+        source_event_ref: String,
+    ) -> Result<crate::action_map::ActionMapTransitionOutcome, String> {
+        let (outcome, events) = {
+            let mut state = self.state.lock().await;
+            state.action_map_runtime.transition_node_for_main(
+                self.conversation_id,
+                expected_revision,
+                node_id,
+                transition,
+                source_event_ref,
+            )
+        }?;
+        self.emit_action_map_events_for_turn(turn_context, events)
+            .await;
+        Ok(outcome)
+    }
+
+    pub(crate) async fn finish_action_map(
+        &self,
+        turn_context: &TurnContext,
+        expected_revision: u64,
+        final_summary: String,
+    ) -> Result<crate::action_map::ActionMapFinishEndOutcome, String> {
+        let (outcome, events) = {
+            let mut state = self.state.lock().await;
+            state.action_map_runtime.finish_end_for_main(
+                self.conversation_id,
+                expected_revision,
+                final_summary,
+            )
+        }?;
+        self.emit_action_map_events_for_turn(turn_context, events)
+            .await;
+        Ok(outcome)
+    }
+
     pub(crate) async fn expand_action_map_node_details(
         &self,
         turn_context: &TurnContext,
@@ -1321,148 +1358,6 @@ impl Session {
         self.emit_action_map_events_for_turn(turn_context, events)
             .await;
         Ok(outcomes)
-    }
-
-    #[allow(dead_code)]
-    pub(crate) async fn create_action_map_node_for_main(
-        &self,
-        turn_context: &TurnContext,
-        title: String,
-        context_summary: String,
-        dependency_node_ids: Vec<String>,
-        bind_current: bool,
-    ) -> Result<String, String> {
-        self.create_action_map_node_for_main_with_kind(
-            turn_context,
-            NodeKind::InspectCodeContext,
-            title,
-            context_summary,
-            dependency_node_ids,
-            bind_current,
-        )
-        .await
-    }
-
-    pub(crate) async fn create_action_map_node_for_main_with_kind(
-        &self,
-        turn_context: &TurnContext,
-        kind: NodeKind,
-        title: String,
-        context_summary: String,
-        dependency_node_ids: Vec<String>,
-        bind_current: bool,
-    ) -> Result<String, String> {
-        let (node_id, events) = {
-            let mut state = self.state.lock().await;
-            state.action_map_runtime.create_node_for_main_with_kind(
-                self.conversation_id,
-                kind,
-                title,
-                context_summary,
-                dependency_node_ids,
-                bind_current,
-            )
-        }?;
-        self.emit_action_map_events_for_turn(turn_context, events)
-            .await;
-        Ok(node_id)
-    }
-
-    pub(crate) async fn finish_action_map_current_or_named_node_with_next(
-        &self,
-        turn_context: &TurnContext,
-        node_id: Option<&str>,
-        agent_conclusion_event_ref: String,
-        next_node_id: Option<String>,
-        next_node_draft: Option<ActionMapNextNodeDraft>,
-    ) -> Result<(String, ActionMapFinishNodeOutcome), String> {
-        let (node_id, outcome, events) = {
-            let mut state = self.state.lock().await;
-            let node_id = match node_id {
-                Some(node_id) => node_id.to_string(),
-                None => state
-                    .action_map_runtime
-                    .current_main_node_id_for_owner(self.conversation_id)?,
-            };
-            let (outcome, events) = state.action_map_runtime.finish_main_node_with_next(
-                self.conversation_id,
-                &node_id,
-                agent_conclusion_event_ref,
-                next_node_id,
-                next_node_draft,
-            )?;
-            (node_id, outcome, events)
-        };
-        self.emit_action_map_events_for_turn(turn_context, events)
-            .await;
-        Ok((node_id, outcome))
-    }
-
-    pub(crate) async fn finish_action_map_node_chain_with_terminal_candidate(
-        &self,
-        turn_context: &TurnContext,
-        node_ids: &[String],
-        agent_conclusion_event_ref: String,
-        final_candidate: &str,
-    ) -> Result<Vec<(String, ActionMapFinishNodeOutcome)>, String> {
-        let (outcomes, events) = {
-            let mut state = self.state.lock().await;
-            state
-                .action_map_runtime
-                .finish_main_node_chain_with_terminal_candidate(
-                    self.conversation_id,
-                    node_ids,
-                    agent_conclusion_event_ref,
-                    final_candidate,
-                )?
-        };
-        self.emit_action_map_events_for_turn(turn_context, events)
-            .await;
-        Ok(outcomes)
-    }
-
-    pub(crate) async fn block_action_map_main_node(
-        &self,
-        turn_context: &TurnContext,
-        node_id: &str,
-        agent_conclusion_event_ref: String,
-    ) -> Result<String, String> {
-        let (result_id, events) = {
-            let mut state = self.state.lock().await;
-            state.action_map_runtime.block_main_node(
-                self.conversation_id,
-                node_id,
-                agent_conclusion_event_ref,
-            )
-        }?;
-        self.emit_action_map_events_for_turn(turn_context, events)
-            .await;
-        Ok(result_id)
-    }
-
-    pub(crate) async fn record_action_map_main_final_response(
-        &self,
-        turn_context: &TurnContext,
-        message: &str,
-    ) -> Result<bool, String> {
-        let result = {
-            let mut state = self.state.lock().await;
-            state
-                .action_map_runtime
-                .record_main_final_response(self.conversation_id, message)
-        };
-        match result {
-            Ok(Some(events)) => {
-                self.emit_action_map_events_for_turn(turn_context, events)
-                    .await;
-                Ok(true)
-            }
-            Ok(None) => Ok(false),
-            Err(error) => {
-                warn!(%error, "failed to record TaskSpace final response");
-                Err(error)
-            }
-        }
     }
 
     #[cfg(test)]
@@ -1646,7 +1541,8 @@ impl Session {
         let starts_map_lifecycle = events.iter().any(|event| {
             matches!(
                 event,
-                MapRuntimeEvent::TaskCreated(_) | MapRuntimeEvent::MapCreated(_)
+                MapRuntimeEvent::GraphRevisionCommitted(event)
+                    if event.operation == "initialize_map" && event.revision == 1
             )
         });
         for event in events {
@@ -1675,7 +1571,7 @@ impl Session {
         input: &ActionMapProviderResponseActionabilityInput,
     ) -> bool {
         input.recovery_action != "none"
-            || input.response_actionability != "final_candidate"
+            || input.response_actionability != "turn_complete"
             || snapshot.request_count.saturating_mul(2) >= snapshot.max_requests
     }
 
@@ -1706,8 +1602,10 @@ impl Session {
             reason,
             snapshot_sha256,
             snapshot_bytes = snapshot_bytes.len(),
-            task_count = snapshot.tasks.len(),
-            map_count = snapshot.maps.len(),
+            map_present = snapshot.map.is_some(),
+            map_revision = snapshot.map.as_ref().map(|map| map.revision),
+            node_count = snapshot.map.as_ref().map_or(0, |map| map.nodes.len()),
+            edge_count = snapshot.map.as_ref().map_or(0, |map| map.edges.len()),
             "TaskSpace map checkpoint persisted"
         );
         self.send_event(
@@ -2178,7 +2076,15 @@ impl Session {
                     reconstructed_rollout.reference_context_item,
                 );
                 if let Some(snapshot) = reconstructed_rollout.map_runtime_snapshot {
-                    state.action_map_runtime.restore_snapshot(snapshot);
+                    state
+                        .action_map_runtime
+                        .restore_snapshot(snapshot)
+                        .map_err(
+                            |message| rollout_reconstruction::RolloutReconstructionError {
+                                phase: "taskspace_snapshot_restore",
+                                message,
+                            },
+                        )?;
                     state.action_map_checkpoint = reconstructed_rollout.map_runtime_checkpoint;
                 } else {
                     state

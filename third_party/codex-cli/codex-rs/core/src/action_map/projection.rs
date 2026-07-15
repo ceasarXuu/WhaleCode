@@ -3,10 +3,11 @@ use sha2::Sha256;
 
 #[derive(Clone)]
 pub(super) struct ActiveProjectionInput {
-    pub(super) task_id: String,
-    pub(super) task_status: String,
     pub(super) map_id: String,
-    pub(super) map_status: String,
+    pub(super) revision: u64,
+    pub(super) root_node_id: String,
+    pub(super) finish_node_id: String,
+    pub(super) complete: bool,
     pub(super) root_source_event_ids: Vec<String>,
     pub(super) current_node_id: Option<String>,
     pub(super) active_frontier: Vec<String>,
@@ -18,7 +19,7 @@ pub(super) struct ActiveProjectionInput {
 #[derive(Clone)]
 pub(super) struct ProjectionNode {
     pub(super) id: String,
-    pub(super) kind: String,
+    pub(super) role: String,
     pub(super) status: String,
     pub(super) goal: String,
     pub(super) result_ids: Vec<String>,
@@ -87,11 +88,16 @@ pub(super) fn render_active_projection(input: ActiveProjectionInput) -> Rendered
     let mut body = String::new();
     let mut size_breakdown = ProjectionSizeBreakdown::default();
     let section_start = body.len();
-    body.push_str("ContextProjectionV1 epoch snapshot:\n");
-    push_field(&mut body, "task_id", &input.task_id);
+    body.push_str("TaskSpaceMapProjectionR6V1:\n");
     push_field(&mut body, "map_id", &input.map_id);
-    push_field(&mut body, "task_status", &input.task_status);
-    push_field(&mut body, "map_status", &input.map_status);
+    push_field(&mut body, "revision", &input.revision.to_string());
+    push_field(&mut body, "root_node_id", &input.root_node_id);
+    push_field(&mut body, "finish_node_id", &input.finish_node_id);
+    push_field(
+        &mut body,
+        "complete",
+        if input.complete { "true" } else { "false" },
+    );
     size_breakdown.header_bytes += body.len() - section_start;
     let section_start = body.len();
     append_list(
@@ -126,7 +132,7 @@ pub(super) fn render_active_projection(input: ActiveProjectionInput) -> Rendered
     );
     size_breakdown.node_detail_bytes = body.len() - section_start;
     let section_start = body.len();
-    body.push_str("ContextProjectionV1 epoch snapshot end.\n");
+    body.push_str("TaskSpaceMapProjectionR6V1 end.\n");
     size_breakdown.footer_bytes = body.len() - section_start;
     size_breakdown.projection_bytes = body.len();
     let estimated_tokens = body.len().div_ceil(4);
@@ -166,9 +172,9 @@ fn render_nodes(nodes: &[ProjectionNode]) -> Vec<String> {
         .iter()
         .map(|node| {
             let mut rendered = format!(
-                "{} kind={} status={} goal={:?} result_ids={} event_count={}",
+                "{} role={} status={} goal={:?} result_ids={} event_count={}",
                 node.id,
-                node.kind,
+                node.role,
                 node.status,
                 node.goal,
                 if node.result_ids.is_empty() {
@@ -270,16 +276,17 @@ mod tests {
     #[test]
     fn projection_keeps_complete_skeleton_and_typed_details() {
         let rendered = render_active_projection(ActiveProjectionInput {
-            task_id: "task-1".into(),
-            task_status: "active".into(),
             map_id: "map-1".into(),
-            map_status: "active".into(),
+            revision: 2,
+            root_node_id: "root".into(),
+            finish_node_id: "finish".into(),
+            complete: false,
             root_source_event_ids: vec!["task-event-1".into()],
             current_node_id: Some("node-1".into()),
             active_frontier: vec!["node-1".into()],
             map_nodes: vec![ProjectionNode {
                 id: "node-1".into(),
-                kind: "inspect_code_context".into(),
+                role: "work".into(),
                 status: "running".into(),
                 goal: "Inspect".into(),
                 result_ids: vec!["result-1".into()],
@@ -303,12 +310,14 @@ mod tests {
         });
 
         for field in [
-            "task_id: task-1",
             "map_id: map-1",
+            "revision: 2",
+            "root_node_id: root",
+            "finish_node_id: finish",
             "root_source_event_ids:",
             "current_node: node-1",
             "active_frontier:",
-            "node-1 kind=inspect_code_context status=running goal=\"Inspect\" result_ids=result-1",
+            "node-1 role=work status=running goal=\"Inspect\" result_ids=result-1",
             "map_edges:",
             "node_details:",
             "tier=D1 evidence=P1",
@@ -342,17 +351,18 @@ mod tests {
     fn projection_does_not_page_large_skeletons() {
         let node_count = 1_000;
         let rendered = render_active_projection(ActiveProjectionInput {
-            task_id: "task-large".into(),
-            task_status: "active".into(),
             map_id: "map-large".into(),
-            map_status: "active".into(),
+            revision: 1,
+            root_node_id: "node-0".into(),
+            finish_node_id: "node-999".into(),
+            complete: false,
             root_source_event_ids: vec!["task-event-root".into()],
             current_node_id: Some("node-999".into()),
             active_frontier: vec!["node-999".into()],
             map_nodes: (0..node_count)
                 .map(|index| ProjectionNode {
                     id: format!("node-{index}"),
-                    kind: "custom".into(),
+                    role: "work".into(),
                     status: "completed".into(),
                     goal: format!("goal-{index}"),
                     result_ids: vec![format!("result-{index}")],
@@ -373,7 +383,7 @@ mod tests {
             rendered
                 .body
                 .lines()
-                .filter(|line| line.contains(" kind=custom status=completed goal="))
+                .filter(|line| line.contains(" role=work status=completed goal="))
                 .count(),
             node_count
         );
@@ -393,7 +403,7 @@ mod tests {
     fn fold_does_not_activate_when_reference_metadata_would_increase_context() {
         let baseline = ProjectionNode {
             id: "node-1".into(),
-            kind: "custom".into(),
+            role: "work".into(),
             status: "completed".into(),
             goal: "Goal".into(),
             result_ids: Vec::new(),

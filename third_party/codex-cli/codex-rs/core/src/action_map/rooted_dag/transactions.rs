@@ -82,7 +82,7 @@ pub(crate) fn initialize(input: InitializeMap) -> Result<Commit, Rejection> {
         return Err(Rejection::one(
             0,
             ViolationCode::FinishIdMismatch,
-            input.finish_node_id.to_string(),
+            input.finish_node_id,
         ));
     }
     nodes.insert(
@@ -91,11 +91,7 @@ pub(crate) fn initialize(input: InitializeMap) -> Result<Commit, Rejection> {
     );
     for (id, goal) in input.work_nodes {
         if nodes.contains_key(&id) {
-            return Err(Rejection::one(
-                0,
-                ViolationCode::TransitionInvalid,
-                id.to_string(),
-            ));
+            return Err(Rejection::one(0, ViolationCode::TransitionInvalid, id));
         }
         nodes.insert(id, MapNode::work(goal));
     }
@@ -132,7 +128,7 @@ pub(crate) fn mutate_graph(
             return Err(Rejection::one(
                 current.revision,
                 ViolationCode::TransitionInvalid,
-                id.to_string(),
+                id,
             ));
         }
         added_nodes.insert(id, MapNode::work(goal));
@@ -165,7 +161,7 @@ pub(crate) fn transition_node(
         return Err(Rejection::one(
             current.revision,
             ViolationCode::TransitionInvalid,
-            node_id.to_string(),
+            node_id,
         ));
     };
     transition_target(node.role, node.status, transition)
@@ -175,6 +171,7 @@ pub(crate) fn transition_node(
         NodeTransition::Complete => MapEvent::NodeCompleted { node_id },
         NodeTransition::Block => MapEvent::NodeBlocked { node_id },
         NodeTransition::Unblock => MapEvent::NodeUnblocked { node_id },
+        NodeTransition::ReleaseLease => MapEvent::NodeLeaseReleased { node_id },
     };
     let revision = next_revision(current)?;
     let provisional = EventBatch::new(current.id.clone(), revision, vec![event.clone()]);

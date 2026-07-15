@@ -4,8 +4,8 @@
 import type { ActionMapSnapshotEdge } from "./ActionMapSnapshotEdge";
 import type { ActionMapSnapshotLease } from "./ActionMapSnapshotLease";
 import type { ActionMapSnapshotNode } from "./ActionMapSnapshotNode";
+import type { ActionMapSnapshotNodeEvent } from "./ActionMapSnapshotNodeEvent";
 import type { ActionMapSnapshotResult } from "./ActionMapSnapshotResult";
-import type { ActionMapSnapshotSubagentPlan } from "./ActionMapSnapshotSubagentPlan";
 import type { ThreadId } from "./ThreadId";
 
-export type ActionMapSnapshotMap = { id: string, taskId: string | null, title: string, status: string, ownerSessionId: ThreadId | null, baseMapVersion: string, createdFrom: string | null, readyNodeCount: number, runningNodeCount: number, completedNodeCount: number, nodes: Array<ActionMapSnapshotNode>, edges: Array<ActionMapSnapshotEdge>, leases: Array<ActionMapSnapshotLease>, results: Array<ActionMapSnapshotResult>, subagentPlans: Array<ActionMapSnapshotSubagentPlan>, };
+export type ActionMapSnapshotMap = { id: string, taskId: string | null, ownerSessionId: ThreadId | null, rootNodeId: string, finishNodeId: string, revision: bigint, currentNodeId: string | null, terminalSummaryRef: string | null, complete: boolean, readyNodeCount: number, runningNodeCount: number, completedNodeCount: number, nodes: Array<ActionMapSnapshotNode>, edges: Array<ActionMapSnapshotEdge>, leases: Array<ActionMapSnapshotLease>, results: Array<ActionMapSnapshotResult>, nodeEvents: Array<ActionMapSnapshotNodeEvent>, };

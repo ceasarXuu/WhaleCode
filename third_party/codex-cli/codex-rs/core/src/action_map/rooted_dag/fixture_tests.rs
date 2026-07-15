@@ -1,8 +1,6 @@
 use super::invariants::validate;
 use super::model::MapEdge;
-use super::model::MapId;
 use super::model::MapNode;
-use super::model::NodeId;
 use super::model::NodeRole;
 use super::model::NodeStatus;
 use super::model::TaskSpaceMap;
@@ -245,20 +243,24 @@ fn fixture_map(case: &FixtureCase) -> TaskSpaceMap {
         .iter()
         .map(|(id, role, status)| {
             (
-                NodeId::new(*id),
+                (*id).to_string(),
                 MapNode {
                     role: *role,
                     goal: (*id).to_string(),
                     source_refs: Vec::new(),
                     status: *status,
+                    active_lease: None,
+                    result_context: Vec::new(),
+                    node_events: Vec::new(),
+                    origin_node_id: None,
                 },
             )
         })
         .collect::<BTreeMap<_, _>>();
     TaskSpaceMap {
-        id: MapId::new(case.id),
-        root_node_id: NodeId::new(case.root_node_id),
-        finish_node_id: NodeId::new(case.finish_node_id),
+        id: (case.id).to_string(),
+        root_node_id: (case.root_node_id).to_string(),
+        finish_node_id: (case.finish_node_id).to_string(),
         nodes,
         edges: case
             .edges
@@ -305,16 +307,16 @@ fn phase_a_graph_fixtures_match_the_rust_validator() {
 #[test]
 fn canonical_state_hash_is_independent_of_edge_order() {
     let mut left = TaskSpaceMap {
-        id: MapId::new("map"),
-        root_node_id: NodeId::new("root"),
-        finish_node_id: NodeId::new("finish"),
+        id: ("map").to_string(),
+        root_node_id: ("root").to_string(),
+        finish_node_id: ("finish").to_string(),
         nodes: BTreeMap::from([
             (
-                NodeId::new("root"),
+                ("root").to_string(),
                 MapNode::task_root("goal", vec!["source-b".into(), "source-a".into()]),
             ),
-            (NodeId::new("work"), MapNode::work("work")),
-            (NodeId::new("finish"), MapNode::finish("finish")),
+            (("work").to_string(), MapNode::work("work")),
+            (("finish").to_string(), MapNode::finish("finish")),
         ]),
         edges: vec![MapEdge::new("work", "finish"), MapEdge::new("root", "work")],
         revision: 1,
@@ -332,13 +334,13 @@ fn canonical_state_hash_is_independent_of_edge_order() {
 #[test]
 fn canonicalization_preserves_source_ref_order_and_duplicates() {
     let mut map = fixture_map(&fixtures()[1]);
-    let root = map.nodes.get_mut(&NodeId::new("root")).unwrap();
+    let root = map.nodes.get_mut(&("root").to_string()).unwrap();
     root.source_refs = vec!["source-b".into(), "source-a".into(), "source-b".into()];
 
     map.canonicalize();
 
     assert_eq!(
-        map.nodes.get(&NodeId::new("root")).unwrap().source_refs,
+        map.nodes.get(&("root").to_string()).unwrap().source_refs,
         vec!["source-b", "source-a", "source-b"]
     );
 }
@@ -362,6 +364,10 @@ fn role_status_matrix_accepts_only_contract_combinations() {
                 goal: "goal".into(),
                 source_refs: vec![],
                 status,
+                active_lease: None,
+                result_context: Vec::new(),
+                node_events: Vec::new(),
+                origin_node_id: None,
             };
             let expected = matches!(
                 (role, status),

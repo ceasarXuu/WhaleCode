@@ -214,7 +214,7 @@ async fn run_compact_task_inner(
     result
 }
 
-fn compact_strategy_model_label<'a>(strategy: CompactStrategy, source_model: &'a str) -> &'a str {
+fn compact_strategy_model_label(strategy: CompactStrategy, source_model: &str) -> &str {
     match strategy {
         CompactStrategy::DeepSeekPro => DEEPSEEK_COMPACT_MODEL,
         CompactStrategy::OpenAiRemote | CompactStrategy::LocalFallback => source_model,

@@ -409,19 +409,18 @@ pub fn build_tool_registry_plan(
         }
     }
 
-    if client_web_search_enabled {
-        if config
+    if client_web_search_enabled
+        && config
             .web_search_config
             .as_ref()
             .is_none_or(|web_config| web_config.fetch.enabled)
-        {
-            plan.push_spec(
-                create_web_fetch_tool(),
-                /*supports_parallel_tool_calls*/ true,
-                config.code_mode_enabled,
-            );
-            plan.register_handler("web_fetch", ToolHandlerKind::WebFetch);
-        }
+    {
+        plan.push_spec(
+            create_web_fetch_tool(),
+            /*supports_parallel_tool_calls*/ true,
+            config.code_mode_enabled,
+        );
+        plan.register_handler("web_fetch", ToolHandlerKind::WebFetch);
     }
 
     if config.image_gen_tool {

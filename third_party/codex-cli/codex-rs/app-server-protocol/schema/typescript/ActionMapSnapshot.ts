@@ -5,9 +5,8 @@ import type { ActionMapSnapshotMaintenanceBarrier } from "./ActionMapSnapshotMai
 import type { ActionMapSnapshotMap } from "./ActionMapSnapshotMap";
 import type { ActionMapSnapshotSentinelSummary } from "./ActionMapSnapshotSentinelSummary";
 import type { ActionMapSnapshotSentinelWarningRef } from "./ActionMapSnapshotSentinelWarningRef";
-import type { ActionMapSnapshotTask } from "./ActionMapSnapshotTask";
 import type { ActionMapSnapshotTraceEventRef } from "./ActionMapSnapshotTraceEventRef";
 import type { ActionMapSnapshotTraceSummary } from "./ActionMapSnapshotTraceSummary";
 import type { MapRuntimeMode } from "./MapRuntimeMode";
 
-export type ActionMapSnapshot = { mode: MapRuntimeMode, cognitiveSchemaVersion: string | null, routingRequired: boolean, bootstrapRequired: boolean, rebornRequested: boolean, activeTaskId: string | null, activeMapId: string | null, tasks: Array<ActionMapSnapshotTask>, maps: Array<ActionMapSnapshotMap>, maintenanceBarriers: Array<ActionMapSnapshotMaintenanceBarrier>, traceSummary: ActionMapSnapshotTraceSummary, traceEvents: Array<ActionMapSnapshotTraceEventRef>, sentinelSummary: ActionMapSnapshotSentinelSummary, sentinelWarnings: Array<ActionMapSnapshotSentinelWarningRef>, };
+export type ActionMapSnapshot = { schemaVersion: string, mode: MapRuntimeMode, routingRequired: boolean, bootstrapRequired: boolean, rebornRequested: boolean, map: ActionMapSnapshotMap | null, maintenanceBarriers: Array<ActionMapSnapshotMaintenanceBarrier>, traceSummary: ActionMapSnapshotTraceSummary, traceEvents: Array<ActionMapSnapshotTraceEventRef>, sentinelSummary: ActionMapSnapshotSentinelSummary, sentinelWarnings: Array<ActionMapSnapshotSentinelWarningRef>, };

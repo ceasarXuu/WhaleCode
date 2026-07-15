@@ -5,6 +5,7 @@ use std::collections::VecDeque;
 use super::map::ActionMapInstance;
 use super::map::MapNodeId;
 use super::map::NodeStatus;
+use super::rooted_dag::NodeRole;
 
 pub(super) const MINIMUM_FRONTIER_DISTANCE: usize = 3;
 pub(super) const NODE_DETAIL_EXPANDED_EVENT_KIND: &str = "node_detail_expanded";
@@ -74,9 +75,9 @@ pub(super) fn node_detail_plan(
 fn active_frontier(map: &ActionMapInstance, current_node_id: Option<&str>) -> HashSet<MapNodeId> {
     let mut frontier = map
         .nodes
-        .values()
-        .filter(|node| node.status != NodeStatus::Completed)
-        .map(|node| node.id.clone())
+        .iter()
+        .filter(|(_, node)| node.role == NodeRole::Work && node.status != NodeStatus::Completed)
+        .map(|(node_id, _)| node_id.clone())
         .collect::<HashSet<_>>();
     if let Some(current_node_id) = current_node_id.filter(|id| map.nodes.contains_key(*id)) {
         frontier.insert(current_node_id.to_string());
@@ -85,13 +86,7 @@ fn active_frontier(map: &ActionMapInstance, current_node_id: Option<&str>) -> Ha
 }
 
 fn graph_roots(map: &ActionMapInstance) -> HashSet<MapNodeId> {
-    let mut roots = map.nodes.keys().cloned().collect::<HashSet<_>>();
-    for edge in &map.edges {
-        if map.nodes.contains_key(&edge.from) && map.nodes.contains_key(&edge.to) {
-            roots.remove(&edge.to);
-        }
-    }
-    roots
+    HashSet::from([map.root_node_id.clone()])
 }
 
 fn graph_distances(
@@ -128,41 +123,46 @@ mod tests {
     use super::*;
     use crate::action_map::map::MapEdge;
     use crate::action_map::map::MapNode;
-    use crate::action_map::map::NodeContext;
     use crate::action_map::map::NodeEvent;
     use crate::action_map::map::NodeEventRef;
-    use crate::action_map::map::NodeKind;
+    use crate::action_map::rooted_dag::TaskSpaceMap;
     use codex_protocol::ThreadId;
+    use std::collections::BTreeMap;
 
     fn chain(statuses: &[NodeStatus]) -> ActionMapInstance {
-        let mut map = ActionMapInstance::new("map-1".into(), "Map".into(), None, "v1");
-        for (index, status) in statuses.iter().enumerate() {
+        let mut nodes = BTreeMap::new();
+        nodes.insert("node-0".into(), MapNode::task_root("Goal", Vec::new()));
+        for (index, status) in statuses.iter().enumerate().skip(1) {
             let id = format!("node-{index}");
-            map.nodes.insert(
-                id.clone(),
-                MapNode {
-                    id,
-                    title: "Node".into(),
-                    kind: NodeKind::InspectCodeContext,
-                    status: *status,
-                    context: NodeContext {
-                        summary: "Goal".into(),
-                        source_refs: Vec::new(),
-                    },
-                    active_lease: None,
-                    result_context: Vec::new(),
-                    node_events: Vec::new(),
-                    origin_node_id: None,
-                },
-            );
+            let mut node = MapNode::work("Goal");
+            node.status = *status;
+            nodes.insert(id, node);
         }
-        map.edges = (1..statuses.len())
+        nodes.insert("finish".into(), MapNode::finish("Finish"));
+        let mut edges = (1..statuses.len())
             .map(|index| MapEdge {
                 from: format!("node-{}", index - 1),
                 to: format!("node-{index}"),
             })
-            .collect();
-        map
+            .collect::<Vec<_>>();
+        edges.push(MapEdge {
+            from: format!("node-{}", statuses.len() - 1),
+            to: "finish".into(),
+        });
+        ActionMapInstance::from_graph(
+            TaskSpaceMap {
+                id: "map-1".into(),
+                root_node_id: "node-0".into(),
+                finish_node_id: "finish".into(),
+                nodes,
+                edges,
+                revision: 1,
+                current_binding: None,
+                terminal_summary_ref: None,
+            },
+            Vec::new(),
+            None,
+        )
     }
 
     #[test]

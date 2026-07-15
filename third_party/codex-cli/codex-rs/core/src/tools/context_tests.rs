@@ -5,12 +5,12 @@ use pretty_assertions::assert_eq;
 use serde_json::json;
 
 #[test]
-fn terminal_candidate_is_redacted_only_from_tool_logs() {
+fn final_summary_is_redacted_only_from_tool_logs() {
     let payload = ToolPayload::Function {
         arguments: serde_json::json!({
-            "action": "finish_then_end",
-            "finish_node_ids": ["final"],
-            "final_candidate": "private final text"
+            "action": "finish_end",
+            "expected_revision": 7,
+            "final_summary": "private final text"
         })
         .to_string(),
     };

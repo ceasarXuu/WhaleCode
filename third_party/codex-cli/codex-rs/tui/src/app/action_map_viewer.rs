@@ -212,13 +212,6 @@ h2{font-size:15px;margin:24px 0 8px;border-bottom:1px solid #777;padding-bottom:
 h3{font-size:13px;margin:16px 0 6px}
 .meta{color:#777;margin-bottom:16px}
 .pill{display:inline-block;border:1px solid #777;padding:1px 6px;margin-right:6px}
-.map-layout{display:grid;grid-template-columns:minmax(0,1fr) minmax(280px,380px);gap:12px;align-items:start}
-.panel{border:1px solid #777;padding:8px;margin:8px 0 14px;background:rgba(127,127,127,.03)}
-.panel h3{margin-top:0}
-.kv{margin:4px 0}
-.muted{color:#777}
-.badge{display:inline-block;border:1px solid #777;padding:1px 5px;margin:2px 4px 2px 0}
-.validity-accepted{border-color:#2d8a4d}.validity-questioned{border-color:#b7791f}.validity-invalid{border-color:#b00020}.validity-unreviewed{border-color:#777}
 table{width:100%;border-collapse:collapse;margin:8px 0 16px}
 th,td{border:1px solid #777;padding:5px 7px;text-align:left;vertical-align:top}
 th{font-weight:700}
@@ -233,7 +226,7 @@ summary{cursor:pointer}
 .graph-controls button{font:12px/1 Consolas,Menlo,monospace;border:1px solid #777;background:Canvas;color:CanvasText;padding:4px 7px}
 .graph-help{position:absolute;left:8px;bottom:8px;color:#777;background:Canvas;padding:2px 5px;border:1px solid #777}
 .graph-node{position:absolute;box-sizing:border-box;width:220px;min-height:76px;border:1px solid #777;background:Canvas;padding:7px}
-.graph-node.running{border-color:#0a84ff}.graph-node.ready{border-color:#6a8f00}.graph-node.completed{border-color:#2d8a4d}.graph-node.blocked{border-color:#b00020}
+.graph-node.running{border-color:#0a84ff}.graph-node.ready{border-color:#6a8f00}.graph-node.completed,.graph-node.closed{border-color:#2d8a4d}.graph-node.blocked{border-color:#b00020}
 .node-title{font-weight:700;margin-bottom:5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .node-meta{color:#777;margin-top:5px}
 .edge{fill:none;stroke:#777;stroke-width:1.2}
@@ -253,16 +246,6 @@ function el(tag, text, cls){const n=document.createElement(tag);if(cls)n.classNa
 function row(values){const tr=el('tr');values.forEach(v=>tr.appendChild(el('td',v??'')));return tr}
 function table(headers, rows){const t=el('table');const h=el('tr');headers.forEach(x=>h.appendChild(el('th',x)));t.appendChild(h);rows.forEach(r=>t.appendChild(row(r)));return t}
 function list(value){return Array.isArray(value)&&value.length?value.join(', '):''}
-function arr(value){return Array.isArray(value)?value:[]}
-function evidenceText(ref){
-  const parts=[];
-  if(!ref)return '';
-  [['result','resultId'],['claim','claimId'],['source','factSourceId'],['trace','traceEventId'],['artifact','artifactRef'],['validator','validatorRef']]
-    .forEach(([label,key])=>{if(ref[key])parts.push(label+':'+ref[key])});
-  return parts.join(' ');
-}
-function evidenceList(refs){return arr(refs).map(evidenceText).filter(Boolean).join(' | ')}
-function badge(text, cls){const b=el('span',text,'badge '+(cls||''));return b}
 function saveUi(){document.querySelectorAll('details[data-key]').forEach(d=>d.open?ui.open.add(d.dataset.key):ui.open.delete(d.dataset.key));ui.scrollY=window.scrollY}
 function restoreUi(){document.querySelectorAll('details[data-key]').forEach(d=>{d.open=ui.open.has(d.dataset.key)});requestAnimationFrame(()=>window.scrollTo(0,ui.scrollY))}
 document.addEventListener('toggle',e=>{const k=e.target&&e.target.dataset&&e.target.dataset.key;if(k){e.target.open?ui.open.add(k):ui.open.delete(k)}},true);
@@ -309,7 +292,7 @@ function renderGraph(m){
   const head=document.createElementNS(svg.namespaceURI,'path');head.setAttribute('d','M0,0 L7,3 L0,6 Z');head.setAttribute('fill','#777');marker.appendChild(head);defs.appendChild(marker);svg.appendChild(defs);
   m.edges.forEach(e=>{const a=layout.pos.get(e.from),b=layout.pos.get(e.to);if(!a||!b)return;const p=document.createElementNS(svg.namespaceURI,'path');const x1=a.x+a.w,y1=a.y+a.h/2,x2=b.x,y2=b.y+b.h/2,mid=(x1+x2)/2;p.setAttribute('class','edge');p.setAttribute('marker-end','url(#arrow)');p.setAttribute('d',`M ${x1} ${y1} C ${mid} ${y1}, ${mid} ${y2}, ${x2} ${y2}`);svg.appendChild(p)});
   inner.appendChild(svg);
-  m.nodes.forEach(n=>{const p=layout.pos.get(n.id);const card=el('div');card.className='graph-node '+(n.status||'');card.style.left=p.x+'px';card.style.top=p.y+'px';card.appendChild(el('div',short(n.title||n.id,32),'node-title'));card.appendChild(el('div',n.id+' | '+(n.status||'')+' | '+(n.canonicalKind||n.kind||''),'node-meta'));card.appendChild(el('div',short(n.contextSummary||'',72)));card.appendChild(el('div','results '+((n.resultIds||[]).length)+' | '+(n.activeLease?'leased':'free'),'node-meta'));inner.appendChild(card)});
+  m.nodes.forEach(n=>{const p=layout.pos.get(n.id);const card=el('div');card.className='graph-node '+(n.status||'');card.style.left=p.x+'px';card.style.top=p.y+'px';card.appendChild(el('div',short(n.goal||n.id,32),'node-title'));card.appendChild(el('div',n.id+' | '+(n.role||'')+' | '+(n.status||''),'node-meta'));card.appendChild(el('div','results '+((n.resultIds||[]).length)+' | '+(n.activeLease?'leased':'free'),'node-meta'));inner.appendChild(card)});
   g.appendChild(inner);g.appendChild(el('div','drag to pan | wheel to zoom','graph-help'));
   function zoomAt(factor, cx, cy){
     const rect=g.getBoundingClientRect(), px=cx-rect.left, py=cy-rect.top;
@@ -328,169 +311,17 @@ function renderGraph(m){
   g.addEventListener('pointerup',endDrag);g.addEventListener('pointercancel',endDrag);
   return g;
 }
-function renderCognitivePanel(task, m, s){
-  const p=el('div');p.className='panel cognitive-panel';
-  p.appendChild(el('h3','cognitive state'));
-  if(!task){
-    p.appendChild(el('div','No task record is linked to this map.','muted'));
-    return p;
-  }
-  const c=task.cognitiveState||{};
-  const ledger=task.problemLedger||{};
-  p.appendChild(el('div',`${task.id} | ${task.status||''}`,'kv'));
-  p.appendChild(el('div',task.objective||task.title||'','kv'));
-  p.appendChild(el('h3','problem ledger'));
-  if(ledger.schemaIncomplete)p.appendChild(el('div','schema incomplete / legacy task','muted'));
-  if(ledger.objective)p.appendChild(el('div','objective: '+ledger.objective,'kv'));
-  const ledgerCounts=el('div');
-  ledgerCounts.appendChild(badge('criteria '+arr(ledger.successCriteria).length));
-  ledgerCounts.appendChild(badge('facts '+arr(ledger.knownFacts).length));
-  ledgerCounts.appendChild(badge('questions '+arr(ledger.openQuestions).length));
-  ledgerCounts.appendChild(badge('decisions '+arr(ledger.decisions).length));
-  p.appendChild(ledgerCounts);
-  if(arr(ledger.successCriteria).length){
-    p.appendChild(detail('ledger-criteria:'+task.id,'success criteria',table(['id','kind','status','description','evidence'],arr(ledger.successCriteria).map(x=>[x.id,x.kind,x.status,x.description,evidenceList(x.evidenceRefs)]))));
-  }
-  if(arr(ledger.openQuestions).length){
-    p.appendChild(detail('ledger-questions:'+task.id,'open questions',table(['id','status','blocking','question','reason','resolution','evidence'],arr(ledger.openQuestions).map(x=>[x.id,x.status,x.blocking?'true':'false',x.question,x.reason,x.resolution||'',evidenceList(x.evidenceRefs)]))));
-  }
-  if(arr(ledger.decisions).length){
-    p.appendChild(detail('ledger-decisions:'+task.id,'decisions',table(['id','kind','decision','rationale','results','facts','questions','criteria'],arr(ledger.decisions).map(x=>[x.id,x.decisionKind,x.decision,x.rationale,list(x.dependsOnResults),list(x.dependsOnFacts),list(x.resolvesQuestions),list(x.supportsCriteria)]))));
-  }
-  if(ledger.nextBestAction){
-    const a=ledger.nextBestAction;
-    p.appendChild(detail('ledger-next:'+task.id,'next best action',table(['node','action','reason','artifact','blocked by'],[[a.nodeId||'',a.actionSummary||'',a.reason||'',a.expectedArtifact||'',list(a.blockedBy)]])));
-  }
-  const counts=el('div');
-  counts.appendChild(badge('contracts '+arr(c.outputContracts).length));
-  counts.appendChild(badge('sources '+arr(c.factSources).length));
-  counts.appendChild(badge('facts '+arr(c.facts).length));
-  counts.appendChild(badge('assumptions '+arr(c.assumptions).length));
-  p.appendChild(counts);
-  if(arr(c.successCriteria).length){
-    p.appendChild(detail('criteria:'+task.id,'success criteria',table(['criterion'],arr(c.successCriteria).map(x=>[x]))));
-  }
-  if(arr(c.outputContracts).length){
-    p.appendChild(detail('contracts:'+task.id,'output contracts',table(['id','kind','description','evidence'],arr(c.outputContracts).map(x=>[x.id,x.kind,x.description,evidenceList(x.evidenceRefs)]))));
-  }
-  if(arr(c.factSources).length){
-    p.appendChild(detail('sources:'+task.id,'fact sources',table(['id','provenance','description','evidence'],arr(c.factSources).map(x=>[x.id,x.provenance,x.description,evidenceList(x.evidenceRefs)]))));
-  }
-  if(arr(c.facts).length){
-    p.appendChild(detail('facts:'+task.id,'active facts',table(['id','statement','evidence'],arr(c.facts).map(x=>[x.id,x.statement,evidenceList(x.evidenceRefs)]))));
-  }
-  if(arr(c.assumptions).length){
-    p.appendChild(detail('assumptions:'+task.id,'assumptions',table(['id','statement','evidence'],arr(c.assumptions).map(x=>[x.id,x.statement,evidenceList(x.evidenceRefs)]))));
-  }
-  if(arr(c.riskNotes).length){
-    p.appendChild(detail('risk:'+task.id,'risk notes',table(['note'],arr(c.riskNotes).map(x=>[x]))));
-  }
-  const resultRows=arr(m.results).map(r=>{
-    const ep=r.evidencePackage||{};
-    const adoption=ep.adoption||{};
-    return [r.id,r.nodeId,ep.validity||'unreviewed',adoption.adoptionState||'none',arr(ep.claims).length,arr(ep.evidenceRefs).length,list(ep.validatorRefs),ep.validityReason||''];
-  });
-  if(resultRows.length){
-    p.appendChild(detail('result-validity:'+m.id,'result validity',table(['result','node','validity','adoption','claims','evidence','validators','reason'],resultRows)));
-  }
-  const warnings=arr(s.sentinelWarnings).filter(w=>w.mapId===m.id||w.taskId===task.id);
-  if(warnings.length){
-    p.appendChild(detail('sentinel:'+m.id,'sentinel warnings',table(['id','type','severity','status','node','result','trace events','reason','clear action','clearance guidance'],warnings.map(w=>[w.id||w.sentinelId,w.sentinelType,w.severity,w.status,w.nodeId,w.resultId,list(w.traceEventIds),w.reason,w.clearAction,w.clearanceAction]))));
-  }
-  if(!arr(c.outputContracts).length&&!arr(c.factSources).length&&!arr(c.facts).length&&!resultRows.length&&!warnings.length){
-    p.appendChild(el('div','No cognitive records yet.','muted'));
-  }
-  return p;
-}
-function resultAdoptionRefs(r){
-  const ep=r.evidencePackage||{};
-  const adoption=ep.adoption||{};
-  return {
-    facts:arr(adoption.adoptedByFacts),
-    hypotheses:arr(adoption.adoptedByHypotheses),
-    decisions:arr(adoption.adoptedByDecisions),
-    criteria:arr(adoption.adoptedByCriteria),
-    nodes:arr(adoption.adoptedByNodes)
-  };
-}
-function resultSupportsDecision(r, decisions){
-  const id=r.id||r.resultId||r.result_id;
-  const refs=resultAdoptionRefs(r);
-  if(!id)return false;
-  if(refs.decisions.length||refs.facts.length||refs.hypotheses.length){
-    return decisions.some(d=>arr(d.dependsOnResults).includes(id)&&(refs.decisions.length===0||refs.decisions.includes(d.id)));
-  }
-  return decisions.some(d=>arr(d.dependsOnResults).includes(id));
-}
-function subagentRoi(task,m){
-  const plans=arr(m.subagentPlans);
-  const planIds=new Set(plans.map(p=>p.id));
-  const subagentResults=arr(m.results).filter(r=>r.subagentPlanId||planIds.has(r.subagentPlanId));
-  const accepted=subagentResults.filter(r=>(r.evidencePackage||{}).validity==='accepted');
-  const adopted=accepted.filter(r=>{
-    const refs=resultAdoptionRefs(r);
-    return refs.facts.length||refs.hypotheses.length||refs.decisions.length||refs.criteria.length||refs.nodes.length;
-  });
-  const decisions=arr((task&&task.problemLedger&&task.problemLedger.decisions)||[]);
-  const decisionResults=accepted.filter(r=>resultSupportsDecision(r,decisions));
-  const warnings=[];
-  accepted.forEach(r=>{if(!adopted.includes(r))warnings.push({code:'subagent_no_adoption',reason:'accepted subagent result has no recorded adoption',evidence:r.id||r.resultId||r.result_id})});
-  if(plans.length>0&&decisionResults.length===0)warnings.push({code:'subagent_no_decision_yield',reason:'subagent activity produced no accepted result supporting a current decision',evidence:'spawn count '+plans.length});
-  return {plans,subagentResults,accepted,adopted,decisionResults,warnings,yield:plans.length?decisionResults.length/plans.length:0};
-}
-function renderSubagentPanel(task,m){
-  const roi=subagentRoi(task,m);
-  const p=el('div');p.className='panel subagent-roi-panel';
-  p.appendChild(el('h3','subagent roi'));
-  const line=el('div');
-  line.appendChild(badge('plans '+roi.plans.length));
-  line.appendChild(badge('results '+roi.subagentResults.length));
-  line.appendChild(badge('accepted '+roi.accepted.length));
-  line.appendChild(badge('adopted '+roi.adopted.length));
-  line.appendChild(badge('decision yield '+roi.decisionResults.length+'/'+(roi.plans.length||0)));
-  p.appendChild(line);
-  if(roi.plans.length){
-    p.appendChild(detail('subagent-plans:'+m.id,'subagent plans',table(['id','node','status','lease','child','results','expected artifact','acceptance','max scope'],roi.plans.map(x=>[x.id,x.parentNodeId,x.status,x.leaseId||'',x.childThreadId||'',list(x.resultIds),x.expectedArtifact||'',x.acceptanceCheck||'',x.maxScope||'']))));
-  }
-  if(roi.subagentResults.length){
-    p.appendChild(detail('subagent-results:'+m.id,'subagent result adoption',table(['result','plan','node','validity','adoption','decision support','facts','hypotheses','decisions','nodes'],roi.subagentResults.map(r=>{
-      const refs=resultAdoptionRefs(r);
-      return [r.id||r.resultId||r.result_id,r.subagentPlanId||'',r.nodeId,(r.evidencePackage||{}).validity||'unreviewed',((r.evidencePackage||{}).adoption||{}).adoptionState||'none',resultSupportsDecision(r,arr((task&&task.problemLedger&&task.problemLedger.decisions)||[]))?'yes':'no',list(refs.facts),list(refs.hypotheses),list(refs.decisions),list(refs.nodes)];
-    }))));
-  }
-  if(roi.warnings.length){
-    p.appendChild(detail('subagent-warnings:'+m.id,'subagent warnings',table(['code','reason','evidence'],roi.warnings.map(w=>[w.code,w.reason,w.evidence]))));
-  }
-  if(!roi.plans.length)p.appendChild(el('div','No subagent plans recorded.','muted'));
-  return p;
-}
 function renderResultDetail(r){
   const box=el('div');
-  const ep=r.evidencePackage||{};
-  const status=ep.validity||'unreviewed';
-  const line=el('div');
-  line.appendChild(badge('validity '+status,'validity-'+status));
-  line.appendChild(badge('claims '+arr(ep.claims).length));
-  line.appendChild(badge('evidence '+arr(ep.evidenceRefs).length));
-  line.appendChild(badge('validators '+arr(ep.validatorRefs).length));
-  const adoption=ep.adoption||{};
-  line.appendChild(badge('adoption '+(adoption.adoptionState||'none')));
-  box.appendChild(line);
-  if(ep.validityReason)box.appendChild(el('div','reason: '+ep.validityReason,'kv'));
-  const adoptionRows=[
-    ['facts',list(adoption.adoptedByFacts)],
-    ['hypotheses',list(adoption.adoptedByHypotheses)],
-    ['decisions',list(adoption.adoptedByDecisions)],
-    ['criteria',list(adoption.adoptedByCriteria)],
-    ['nodes',list(adoption.adoptedByNodes)],
-  ].filter(row=>row[1]);
-  if(adoptionRows.length)box.appendChild(table(['adopted by','refs'],adoptionRows));
-  if(arr(ep.claims).length)box.appendChild(table(['claim','statement','evidence'],arr(ep.claims).map(c=>[c.id,c.statement,evidenceList(c.evidenceRefs)])));
-  if(arr(ep.evidenceRefs).length)box.appendChild(table(['evidence refs'],arr(ep.evidenceRefs).map(e=>[evidenceText(e)])));
-  if(arr(ep.changedArtifacts).length)box.appendChild(table(['changed artifacts'],arr(ep.changedArtifacts).map(x=>[x])));
-  if(arr(ep.validatorRefs).length)box.appendChild(table(['validators'],arr(ep.validatorRefs).map(x=>[x])));
-  if(arr(ep.remainingUncertainty).length)box.appendChild(table(['remaining uncertainty'],arr(ep.remainingUncertainty).map(x=>[x])));
-  if(r.body)box.appendChild(el('pre',r.body));
+  box.appendChild(table(['field','value'],[
+    ['assignment',r.assignmentId],
+    ['kind',r.kind],
+    ['action class',r.actionClass||''],
+    ['tool success',r.toolSuccess===null?'':String(r.toolSuccess)],
+    ['source event',r.sourceEventRef],
+    ['source thread',r.sourceThreadId],
+    ['artifacts',list(r.artifactRefs)],
+  ]));
   return box;
 }
 function renderIfChanged(data, force){
@@ -504,36 +335,29 @@ function render(data){
   const next=el('div');
   if(!data.ok){next.appendChild(el('div',data.error||'failed to load snapshot','error'));root.replaceChildren(next);restoreUi();return}
   const s=data.snapshot;
-  meta.textContent=`thread ${data.threadId} | mode ${s.mode} | route ${s.routingRequired?'required':'ok'} | bootstrap ${s.bootstrapRequired?'required':'ok'} | reborn ${s.rebornRequested?'requested':'none'} | active ${s.activeMapId||'none'} | refreshed ${new Date(data.fetchedAtMs).toLocaleTimeString()}`;
-  if(!s.maps.length){next.appendChild(el('p','No task path has been created in this thread.'));root.replaceChildren(next);restoreUi();return}
-  const tasksById=new Map(arr(s.tasks).map(t=>[t.id,t]));
-  const activeGraphKeys=new Set(s.maps.map(m=>'graph:'+m.id));
+  const m=s.map;
+  meta.textContent=`thread ${data.threadId} | schema ${s.schemaVersion} | mode ${s.mode} | bootstrap ${s.bootstrapRequired?'required':'ok'} | map ${m?m.id:'none'} | refreshed ${new Date(data.fetchedAtMs).toLocaleTimeString()}`;
+  if(!m){next.appendChild(el('p','Map: none'));root.replaceChildren(next);restoreUi();return}
+  const activeGraphKeys=new Set(['graph:'+m.id]);
   Array.from(ui.graph.keys()).forEach(k=>{if(!activeGraphKeys.has(k))ui.graph.delete(k)});
-  s.maps.forEach(m=>{
-    next.appendChild(el('h2',`${m.title} (${m.id})`));
+  {
+    const rootNode=m.nodes.find(n=>n.id===m.rootNodeId);
+    next.appendChild(el('h2',`${rootNode?rootNode.goal:'TaskSpace'} (${m.id})`));
     const line=el('div');
-    ['status '+m.status,'ready '+m.readyNodeCount,'running '+m.runningNodeCount,'completed '+m.completedNodeCount,'owner '+(m.ownerSessionId||'none'),'base '+m.baseMapVersion].forEach(x=>line.appendChild(el('span',x,'pill')));
+    ['revision '+m.revision,'complete '+m.complete,'root '+m.rootNodeId,'finish '+m.finishNodeId,'current '+(m.currentNodeId||'none'),'ready '+m.readyNodeCount,'running '+m.runningNodeCount,'completed '+m.completedNodeCount].forEach(x=>line.appendChild(el('span',x,'pill')));
     next.appendChild(line);
-    const layout=el('div');layout.className='map-layout';
-    const graphPane=el('div');graphPane.appendChild(el('h3','graph'));graphPane.appendChild(renderGraph(m));layout.appendChild(graphPane);
-    const task=m.taskId?tasksById.get(m.taskId):null;
-    const side=el('div');
-    side.appendChild(renderCognitivePanel(task,m,s));
-    side.appendChild(renderSubagentPanel(task,m));
-    layout.appendChild(side);
-    next.appendChild(layout);
-    next.appendChild(detail('nodes:'+m.id,'nodes',table(['id','status','kind','canonical','title','context','source refs','lease','results'],m.nodes.map(n=>[n.id,n.status,n.kind||'',n.canonicalKind||'',n.title,n.contextSummary,list(n.sourceRefs),n.activeLease||'',list(n.resultIds)]))));
+    next.appendChild(renderGraph(m));
+    next.appendChild(detail('nodes:'+m.id,'nodes',table(['id','role','status','goal','source refs','lease','results','events'],m.nodes.map(n=>[n.id,n.role,n.status,n.goal,list(n.sourceRefs),n.activeLease||'',list(n.resultIds),list(n.nodeEventIds)]))));
     if(m.edges.length){next.appendChild(detail('edges:'+m.id,'edges',table(['from','to'],m.edges.map(e=>[e.from,e.to]))))}
     if(m.leases.length){next.appendChild(detail('leases:'+m.id,'leases',table(['id','node','agent thread','agent path'],m.leases.map(l=>[l.id,l.nodeId,l.agentThreadId||'',l.agentPath||'']))))}
     if(m.results.length){
       next.appendChild(el('h3','results'));
       m.results.forEach(r=>{
-        const ep=r.evidencePackage||{};
-        const validity=ep.validity||'unreviewed';
-        next.appendChild(detail('result:'+r.id,`${r.id} | node ${r.nodeId} | ${validity} | ${r.kind} | ${new Date(r.createdAtMs).toLocaleTimeString()}`,renderResultDetail(r)));
+        next.appendChild(detail('result:'+r.id,`${r.id} | node ${r.nodeId} | ${r.kind} | ${new Date(Number(r.createdAtMs)).toLocaleTimeString()}`,renderResultDetail(r)));
       });
     }
-  });
+    if(m.nodeEvents.length){next.appendChild(detail('events:'+m.id,'node events',table(['id','node','kind','source','action','success','source event','raw ref','artifacts'],m.nodeEvents.map(e=>[e.id,e.nodeId,e.eventKind,e.source,e.actionClass||'',e.toolSuccess===null?'':String(e.toolSuccess),e.sourceEventId||'',e.rawRef||'',list(e.artifactRefs)]))))}
+  }
   root.replaceChildren(next);
   restoreUi();
 }
@@ -576,27 +400,17 @@ mod tests {
         );
         assert!(ACTION_MAP_VIEWER_HTML.contains("details[data-key]"));
         assert!(ACTION_MAP_VIEWER_HTML.contains("restoreUi()"));
-        assert!(ACTION_MAP_VIEWER_HTML.contains("cognitive state"));
-        assert!(ACTION_MAP_VIEWER_HTML.contains("problem ledger"));
-        assert!(ACTION_MAP_VIEWER_HTML.contains("success criteria"));
-        assert!(ACTION_MAP_VIEWER_HTML.contains("open questions"));
-        assert!(ACTION_MAP_VIEWER_HTML.contains("next best action"));
-        assert!(ACTION_MAP_VIEWER_HTML.contains("output contracts"));
-        assert!(ACTION_MAP_VIEWER_HTML.contains("fact sources"));
-        assert!(ACTION_MAP_VIEWER_HTML.contains("result validity"));
-        assert!(ACTION_MAP_VIEWER_HTML.contains("evidencePackage"));
-        assert!(ACTION_MAP_VIEWER_HTML.contains("canonicalKind"));
-        assert!(ACTION_MAP_VIEWER_HTML.contains("adoptionState"));
-        assert!(ACTION_MAP_VIEWER_HTML.contains("sentinel warnings"));
-        assert!(ACTION_MAP_VIEWER_HTML.contains("subagent roi"));
-        assert!(ACTION_MAP_VIEWER_HTML.contains("subagent plans"));
-        assert!(ACTION_MAP_VIEWER_HTML.contains("subagent result adoption"));
-        assert!(ACTION_MAP_VIEWER_HTML.contains("decision yield"));
-        assert!(ACTION_MAP_VIEWER_HTML.contains("subagent warnings"));
-        assert!(ACTION_MAP_VIEWER_HTML.contains("r.id||r.resultId||r.result_id"));
-        assert!(
-            ACTION_MAP_VIEWER_HTML
-                .contains("refs.decisions.length===0||refs.decisions.includes(d.id)")
-        );
+        assert!(ACTION_MAP_VIEWER_HTML.contains("s.schemaVersion"));
+        assert!(ACTION_MAP_VIEWER_HTML.contains("s.map"));
+        assert!(ACTION_MAP_VIEWER_HTML.contains("m.rootNodeId"));
+        assert!(ACTION_MAP_VIEWER_HTML.contains("m.finishNodeId"));
+        assert!(ACTION_MAP_VIEWER_HTML.contains("m.revision"));
+        assert!(ACTION_MAP_VIEWER_HTML.contains("n.role"));
+        assert!(ACTION_MAP_VIEWER_HTML.contains("n.goal"));
+        assert!(ACTION_MAP_VIEWER_HTML.contains("m.nodeEvents"));
+        assert!(!ACTION_MAP_VIEWER_HTML.contains("canonicalKind"));
+        assert!(!ACTION_MAP_VIEWER_HTML.contains("activeMapId"));
+        assert!(!ACTION_MAP_VIEWER_HTML.contains("s.maps"));
+        assert!(!ACTION_MAP_VIEWER_HTML.contains("cognitive state"));
     }
 }

@@ -161,15 +161,29 @@ async fn reconstruct_history_restores_latest_map_runtime_snapshot() {
         .initialize_map_for_main(
             session.conversation_id,
             crate::action_map::ActionMapInitializeInput {
-                task_title: "Architecture review".to_string(),
+                root: crate::action_map::ActionMapInitializeNodeInput {
+                    id: "root".into(),
+                    goal: "Architecture review".into(),
+                },
+                finish: crate::action_map::ActionMapInitializeNodeInput {
+                    id: "finish".into(),
+                    goal: "Finish architecture review".into(),
+                },
                 source_event_ids: vec!["task-event-1".to_string()],
-                nodes: vec![crate::action_map::ActionMapInitializeNodeInput {
+                work_nodes: vec![crate::action_map::ActionMapInitializeNodeInput {
                     id: "scope".to_string(),
-                    kind: crate::action_map::NodeKind::InspectCodeContext,
-                    title: "Scope review".to_string(),
-                    context_summary: "Collect architecture scope.".to_string(),
-                    dependency_node_ids: Vec::new(),
+                    goal: "Collect architecture scope.".to_string(),
                 }],
+                edges: vec![
+                    crate::action_map::ActionMapEdgeInput {
+                        from: "root".into(),
+                        to: "scope".into(),
+                    },
+                    crate::action_map::ActionMapEdgeInput {
+                        from: "scope".into(),
+                        to: "finish".into(),
+                    },
+                ],
                 current_node_id: "scope".to_string(),
             },
         )
@@ -235,15 +249,29 @@ async fn resumed_compacted_map_rebuilds_one_projection_from_checkpoint_and_delta
         .initialize_map_for_main(
             session.conversation_id,
             crate::action_map::ActionMapInitializeInput {
-                task_title: "Resume canonical map".to_string(),
+                root: crate::action_map::ActionMapInitializeNodeInput {
+                    id: "root".into(),
+                    goal: "Resume canonical map".into(),
+                },
+                finish: crate::action_map::ActionMapInitializeNodeInput {
+                    id: "finish".into(),
+                    goal: "Finish resumed map".into(),
+                },
                 source_event_ids: vec!["task-event-root".to_string()],
-                nodes: vec![crate::action_map::ActionMapInitializeNodeInput {
+                work_nodes: vec![crate::action_map::ActionMapInitializeNodeInput {
                     id: "resume-node".to_string(),
-                    kind: crate::action_map::NodeKind::InspectCodeContext,
-                    title: "Resume node".to_string(),
-                    context_summary: "Restore this goal from the canonical map.".to_string(),
-                    dependency_node_ids: Vec::new(),
+                    goal: "Restore this goal from the canonical map.".to_string(),
                 }],
+                edges: vec![
+                    crate::action_map::ActionMapEdgeInput {
+                        from: "root".into(),
+                        to: "resume-node".into(),
+                    },
+                    crate::action_map::ActionMapEdgeInput {
+                        from: "resume-node".into(),
+                        to: "finish".into(),
+                    },
+                ],
                 current_node_id: "resume-node".to_string(),
             },
         )
@@ -294,17 +322,18 @@ async fn resumed_compacted_map_rebuilds_one_projection_from_checkpoint_and_delta
         .expect("restore initial history");
     let restored = session.action_map_snapshot().await;
     assert_eq!(restored.mode, MapRuntimeMode::Experiment);
-    assert_eq!(restored.active_task_id.as_deref(), Some("task-1"));
-    assert_eq!(restored.active_map_id.as_deref(), Some("map-1"));
     assert!(restored.reborn_requested);
-    assert_eq!(restored.tasks.len(), 1);
-    assert_eq!(restored.tasks[0].title, "Resume canonical map");
-    assert_eq!(restored.tasks[0].source_event_ids, vec!["task-event-root"]);
-    assert_eq!(restored.maps.len(), 1);
-    assert_eq!(restored.maps[0].nodes.len(), 1);
-    assert_eq!(restored.maps[0].nodes[0].id, "resume-node");
+    let map = restored.map.as_ref().expect("restored rooted map");
+    assert_eq!(map.id, "map-1");
+    assert_eq!(map.root_node_id, "root");
+    assert_eq!(map.finish_node_id, "finish");
+    assert_eq!(map.nodes.len(), 3);
     assert_eq!(
-        restored.maps[0].nodes[0].context_summary,
+        map.nodes
+            .iter()
+            .find(|node| node.id == "resume-node")
+            .unwrap()
+            .goal,
         "Restore this goal from the canonical map."
     );
 

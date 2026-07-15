@@ -107,7 +107,7 @@ mod tests {
         let bootstrap = call(
             "taskspace_control",
             "bootstrap",
-            r#"{"action":"initialize_then_actions","initial_nodes":[{"node_id":"edit","kind":"implement_solution","goal":"Edit"}],"current_node_id":"edit","continuation":{"kind":"patch_then_actions","patch":{"tool_name":"apply_patch","input":"patch"},"actions":[{"tool_name":"exec_command","arguments":{"cmd":"test"}}]}}"#,
+            r#"{"action":"initialize_map","root":{"node_id":"root","goal":"Solve"},"work_nodes":[{"node_id":"edit","goal":"Edit"}],"finish":{"node_id":"finish","goal":"Summarize"},"edges":[{"from":"root","to":"edit"},{"from":"edit","to":"finish"}],"current_node_id":"edit","continuation":{"kind":"patch_then_actions","patch":{"tool_name":"apply_patch","input":"patch"},"actions":[{"tool_name":"exec_command","arguments":{"cmd":"test"}}]}}"#,
         );
         let manifest =
             ToolSequenceManifest::from_calls(&[bootstrap, call("apply_patch", "top-patch", "{}")])
@@ -128,7 +128,7 @@ mod tests {
         let error = ToolSequenceManifest::from_calls(&[call(
             "taskspace_control",
             "bad-control",
-            r#"{"action":"initialize_then_actions"}"#,
+            r#"{"action":"initialize_map"}"#,
         )])
         .expect_err("invalid control args");
         assert!(error.contains("bad-control"));

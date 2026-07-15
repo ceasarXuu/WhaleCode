@@ -92,7 +92,7 @@ fn extracts_bootstrap_nested_actions() {
     let call = function_call_with_arguments(
         "taskspace_control",
         "outer",
-        r#"{"action":"initialize_then_actions","initial_nodes":[{"node_id":"node-1","kind":"inspect_code_context","goal":"Read"}],"current_node_id":"node-1","continuation":{"kind":"actions","actions":[{"tool_name":"exec_command","arguments":{"cmd":"pwd"}}]}}"#,
+        r#"{"action":"initialize_map","root":{"node_id":"root","goal":"Solve"},"work_nodes":[{"node_id":"node-1","goal":"Read"}],"finish":{"node_id":"finish","goal":"Summarize"},"edges":[{"from":"root","to":"node-1"},{"from":"node-1","to":"finish"}],"current_node_id":"node-1","continuation":{"kind":"actions","actions":[{"tool_name":"exec_command","arguments":{"cmd":"pwd"}}]}}"#,
     );
 
     let actions = taskspace_nested_actions(&call);
@@ -132,7 +132,7 @@ fn taskspace_patch_slot_and_top_level_patch_share_the_same_preflight_count() {
     let bootstrap = function_call_with_arguments(
         "taskspace_control",
         "bootstrap",
-        r#"{"action":"initialize_then_actions","initial_nodes":[{"node_id":"edit","kind":"implement_solution","goal":"Edit"}],"current_node_id":"edit","continuation":{"kind":"patch_then_actions","patch":{"tool_name":"apply_patch","input":"patch"}}}"#,
+        r#"{"action":"initialize_map","root":{"node_id":"root","goal":"Solve"},"work_nodes":[{"node_id":"edit","goal":"Edit"}],"finish":{"node_id":"finish","goal":"Summarize"},"edges":[{"from":"root","to":"edit"},{"from":"edit","to":"finish"}],"current_node_id":"edit","continuation":{"kind":"patch_then_actions","patch":{"tool_name":"apply_patch","input":"patch"}}}"#,
     );
     let calls = vec![bootstrap, function_call("apply_patch", "top-patch")];
     let manifest = ToolSequenceManifest::from_calls(&calls).expect("manifest");
@@ -156,8 +156,19 @@ fn aggregate_references_canonical_nested_events_without_copying_output() {
         call_id: "outer".into(),
         output: FunctionCallOutputPayload::from_text(
             serde_json::json!({
-                "schema_version": "TaskSpaceControlResultV3",
+                "schema_version": "TaskSpaceControlResultR6V1",
+                "status": "committed",
                 "success": true,
+                "state_commit": true,
+                "map_state": {
+                    "task_id": "task-1",
+                    "map_id": "map-1",
+                    "revision": 1,
+                    "root_node_id": "root",
+                    "finish_node_id": "finish",
+                    "complete": false,
+                    "current_node_id": "inspect"
+                },
                 "steps": [{
                     "kind": "map_initialized",
                     "task_id": "task-1",
@@ -180,7 +191,8 @@ fn aggregate_references_canonical_nested_events_without_copying_output() {
             "task-event-8".into(),
         )],
         true,
-    );
+    )
+    .expect("R6 batch response");
     let ResponseInputItem::FunctionCallOutput { call_id, output } = aggregated else {
         panic!("expected outer function output");
     };
@@ -188,9 +200,36 @@ fn aggregate_references_canonical_nested_events_without_copying_output() {
     assert_eq!(output.success, Some(true));
     let value: serde_json::Value =
         serde_json::from_str(&output.body.to_text().expect("text")).expect("batch json");
+    assert_eq!(value["schema_version"], "TaskSpaceControlResultR6V1");
+    assert_eq!(value["status"], "committed");
+    assert_eq!(value["state_commit"], true);
     assert_eq!(value["steps"].as_array().expect("steps").len(), 2);
     assert_eq!(value["steps"][0]["current_node_id"], "inspect");
     assert_eq!(value["steps"][1]["call_event_ref"], "task-event-7");
     assert_eq!(value["steps"][1]["output_event_ref"], "task-event-8");
     assert!(value["steps"][1].get("response").is_none());
+}
+
+#[test]
+fn aggregate_rejects_non_r6_state_feedback_instead_of_rewriting_it() {
+    let state = ResponseInputItem::FunctionCallOutput {
+        call_id: "outer".into(),
+        output: FunctionCallOutputPayload::from_text(
+            serde_json::json!({
+                "schema_version": "TaskSpaceControlResultV3",
+                "success": true,
+                "steps": [],
+            })
+            .to_string(),
+        ),
+    };
+
+    let error = aggregate_taskspace_batch_response("outer", state, Vec::new(), true)
+        .expect_err("legacy feedback must be fatal");
+
+    assert!(
+        error
+            .to_string()
+            .contains("unsupported state response schema")
+    );
 }

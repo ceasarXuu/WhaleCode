@@ -14,7 +14,6 @@ mod request_user_input;
 mod shell;
 pub(crate) mod taskspace_control;
 pub(crate) mod taskspace_control_args;
-mod taskspace_control_lifecycle;
 mod taskspace_control_output;
 mod test_sync;
 mod tool_search;

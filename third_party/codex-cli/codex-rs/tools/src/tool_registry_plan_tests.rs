@@ -245,12 +245,14 @@ fn taskspace_map_lifecycle_schema_is_the_only_taskspace_control_schema() {
                 .expect("action string")
         })
         .collect::<Vec<_>>();
-    assert_eq!(actions, vec!["initialize_then_actions"]);
+    assert_eq!(actions, vec!["initialize_map"]);
     let serialized = serde_json::to_string(parameters).expect("serialize parameters");
-    assert!(!serialized.contains("initialize_map"));
-    assert!(!serialized.contains("finish_node"));
+    assert!(serialized.contains("root"));
+    assert!(serialized.contains("work_nodes"));
+    assert!(serialized.contains("finish"));
+    assert!(serialized.contains("edges"));
+    assert!(!serialized.contains("initialize_then_actions"));
     assert!(!serialized.contains("output_contracts"));
-    assert!(!serialized.contains("state_commit"));
     assert!(!serialized.contains("output_contract_id"));
 }
 

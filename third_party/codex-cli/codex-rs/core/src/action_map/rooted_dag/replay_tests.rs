@@ -5,8 +5,6 @@ use super::events::replay_batches;
 use super::invariants::ViolationCode;
 use super::invariants::validate;
 use super::model::MapEdge;
-use super::model::MapId;
-use super::model::NodeId;
 use super::model::NodeStatus;
 use super::transactions::GraphMutation;
 use super::transactions::InitializeMap;
@@ -22,10 +20,7 @@ use std::collections::BTreeMap;
 fn chain_input(work_count: usize) -> InitializeMap {
     let mut work_nodes = BTreeMap::new();
     for index in 1..=work_count {
-        work_nodes.insert(
-            NodeId::new(format!("work-{index:02}")),
-            format!("work {index}"),
-        );
+        work_nodes.insert(format!("work-{index:02}"), format!("work {index}"));
     }
     let mut ids = vec!["root".to_string()];
     ids.extend((1..=work_count).map(|index| format!("work-{index:02}")));
@@ -35,11 +30,11 @@ fn chain_input(work_count: usize) -> InitializeMap {
         .map(|pair| MapEdge::new(&pair[0], &pair[1]))
         .collect();
     InitializeMap {
-        map_id: MapId::new("map-test"),
-        root_node_id: NodeId::new("root"),
+        map_id: ("map-test").to_string(),
+        root_node_id: ("root").to_string(),
         root_goal: "solve task".into(),
         source_refs: vec!["source-b".into(), "source-a".into(), "source-b".into()],
-        finish_node_id: NodeId::new("finish"),
+        finish_node_id: ("finish").to_string(),
         finish_goal: "summarize result".into(),
         work_nodes,
         edges,
@@ -58,7 +53,7 @@ fn complete_work(map: &mut super::model::TaskSpaceMap, node_id: &str) {
     let bound = transition_node(
         map,
         map.revision,
-        NodeId::new(node_id),
+        (node_id).to_string(),
         NodeTransition::Bind,
     )
     .unwrap();
@@ -66,7 +61,7 @@ fn complete_work(map: &mut super::model::TaskSpaceMap, node_id: &str) {
     let completed = transition_node(
         map,
         map.revision,
-        NodeId::new(node_id),
+        (node_id).to_string(),
         NodeTransition::Complete,
     )
     .unwrap();
@@ -79,31 +74,31 @@ fn initialization_derives_only_the_first_frontier_and_preserves_sources() {
 
     assert_eq!(commit.map.revision, 1);
     assert_eq!(
-        commit.map.node(&NodeId::new("root")).unwrap().goal,
+        commit.map.node(&("root").to_string()).unwrap().goal,
         "solve task"
     );
     assert_eq!(
-        commit.map.node(&NodeId::new("work-01")).unwrap().goal,
+        commit.map.node(&("work-01").to_string()).unwrap().goal,
         "work 1"
     );
     assert_eq!(
-        commit.map.node(&NodeId::new("finish")).unwrap().goal,
+        commit.map.node(&("finish").to_string()).unwrap().goal,
         "summarize result"
     );
     assert_eq!(
-        commit.map.node(&NodeId::new("work-01")).unwrap().status,
+        commit.map.node(&("work-01").to_string()).unwrap().status,
         NodeStatus::Ready
     );
     assert_eq!(
-        commit.map.node(&NodeId::new("work-02")).unwrap().status,
+        commit.map.node(&("work-02").to_string()).unwrap().status,
         NodeStatus::Pending
     );
     assert_eq!(
-        commit.map.node(&NodeId::new("finish")).unwrap().status,
+        commit.map.node(&("finish").to_string()).unwrap().status,
         NodeStatus::Pending
     );
     assert_eq!(
-        commit.map.node(&NodeId::new("root")).unwrap().source_refs,
+        commit.map.node(&("root").to_string()).unwrap().source_refs,
         vec!["source-b", "source-a", "source-b"]
     );
     assert_eq!(commit.events.records.len(), 2);
@@ -113,16 +108,16 @@ fn initialization_derives_only_the_first_frontier_and_preserves_sources() {
 #[test]
 fn fork_join_waits_for_every_predecessor() {
     let input = InitializeMap {
-        map_id: MapId::new("fork-join"),
-        root_node_id: NodeId::new("root"),
+        map_id: ("fork-join").to_string(),
+        root_node_id: ("root").to_string(),
         root_goal: "solve".into(),
         source_refs: vec!["source".into()],
-        finish_node_id: NodeId::new("finish"),
+        finish_node_id: ("finish").to_string(),
         finish_goal: "finish".into(),
         work_nodes: BTreeMap::from([
-            (NodeId::new("left"), "left".into()),
-            (NodeId::new("right"), "right".into()),
-            (NodeId::new("join"), "join".into()),
+            (("left").to_string(), "left".into()),
+            (("right").to_string(), "right".into()),
+            (("join").to_string(), "join".into()),
         ]),
         edges: vec![
             MapEdge::new("root", "left"),
@@ -134,22 +129,22 @@ fn fork_join_waits_for_every_predecessor() {
     };
     let mut map = initialize(input).unwrap().map;
     assert_eq!(
-        map.node(&NodeId::new("left")).unwrap().status,
+        map.node(&("left").to_string()).unwrap().status,
         NodeStatus::Ready
     );
     assert_eq!(
-        map.node(&NodeId::new("right")).unwrap().status,
+        map.node(&("right").to_string()).unwrap().status,
         NodeStatus::Ready
     );
 
     complete_work(&mut map, "left");
     assert_eq!(
-        map.node(&NodeId::new("join")).unwrap().status,
+        map.node(&("join").to_string()).unwrap().status,
         NodeStatus::Pending
     );
     complete_work(&mut map, "right");
     assert_eq!(
-        map.node(&NodeId::new("join")).unwrap().status,
+        map.node(&("join").to_string()).unwrap().status,
         NodeStatus::Ready
     );
 }
@@ -159,7 +154,7 @@ fn graph_mutation_rewires_atomically() {
     let original = initialize(chain_input(1)).unwrap().map;
     let mutation = GraphMutation {
         expected_revision: original.revision,
-        add_nodes: BTreeMap::from([(NodeId::new("work-02"), "second".into())]),
+        add_nodes: BTreeMap::from([(("work-02").to_string(), "second".into())]),
         add_edges: vec![
             MapEdge::new("work-01", "work-02"),
             MapEdge::new("work-02", "finish"),
@@ -174,7 +169,7 @@ fn graph_mutation_rewires_atomically() {
     assert_eq!(committed.map.nodes.len(), 4);
     assert_eq!(committed.map.edges.len(), 3);
     assert_eq!(
-        committed.map.node(&NodeId::new("work-02")).unwrap().goal,
+        committed.map.node(&("work-02").to_string()).unwrap().goal,
         "second"
     );
     assert_eq!(validate(&committed.map), vec![]);
@@ -186,7 +181,7 @@ fn rejected_mutation_keeps_hash_and_revision_unchanged() {
     let before_hash = original.state_sha256().unwrap();
     let mutation = GraphMutation {
         expected_revision: original.revision,
-        add_nodes: BTreeMap::from([(NodeId::new("orphan-sink"), "orphan".into())]),
+        add_nodes: BTreeMap::from([(("orphan-sink").to_string(), "orphan".into())]),
         add_edges: vec![MapEdge::new("root", "orphan-sink")],
         remove_edges: vec![],
     };
@@ -208,14 +203,14 @@ fn invalid_transition_and_stale_revision_are_mechanical_rejections() {
     let invalid = transition_node(
         &original,
         original.revision,
-        NodeId::new("work-01"),
+        ("work-01").to_string(),
         NodeTransition::Complete,
     )
     .unwrap_err();
     let stale = transition_node(
         &original,
         original.revision + 1,
-        NodeId::new("work-01"),
+        ("work-01").to_string(),
         NodeTransition::Bind,
     )
     .unwrap_err();
@@ -234,7 +229,7 @@ fn block_and_unblock_are_agent_requested_transitions() {
     map = transition_node(
         &map,
         map.revision,
-        NodeId::new("work-01"),
+        ("work-01").to_string(),
         NodeTransition::Bind,
     )
     .unwrap()
@@ -242,13 +237,13 @@ fn block_and_unblock_are_agent_requested_transitions() {
     map = transition_node(
         &map,
         map.revision,
-        NodeId::new("work-01"),
+        ("work-01").to_string(),
         NodeTransition::Block,
     )
     .unwrap()
     .map;
     assert_eq!(
-        map.node(&NodeId::new("work-01")).unwrap().status,
+        map.node(&("work-01").to_string()).unwrap().status,
         NodeStatus::Blocked
     );
     assert_eq!(map.current_binding, None);
@@ -256,14 +251,49 @@ fn block_and_unblock_are_agent_requested_transitions() {
     map = transition_node(
         &map,
         map.revision,
-        NodeId::new("work-01"),
+        ("work-01").to_string(),
         NodeTransition::Unblock,
     )
     .unwrap()
     .map;
     assert_eq!(
-        map.node(&NodeId::new("work-01")).unwrap().status,
+        map.node(&("work-01").to_string()).unwrap().status,
         NodeStatus::Ready
+    );
+}
+
+#[test]
+fn released_lease_replays_to_an_unbound_ready_node() {
+    let initialized = initialize(chain_input(1)).unwrap();
+    let bound = transition_node(
+        &initialized.map,
+        initialized.map.revision,
+        "work-01".to_string(),
+        NodeTransition::Bind,
+    )
+    .unwrap();
+    let released = transition_node(
+        &bound.map,
+        bound.map.revision,
+        "work-01".to_string(),
+        NodeTransition::ReleaseLease,
+    )
+    .unwrap();
+
+    assert_eq!(released.map.current_binding, None);
+    assert_eq!(
+        released.map.node(&"work-01".to_string()).unwrap().status,
+        NodeStatus::Ready
+    );
+    assert_eq!(
+        released.events.records[0].event,
+        MapEvent::NodeLeaseReleased {
+            node_id: "work-01".to_string()
+        }
+    );
+    assert_eq!(
+        replay_batches(&[initialized.events, bound.events, released.events]).unwrap(),
+        released.map
     );
 }
 
@@ -272,7 +302,7 @@ fn finish_remains_manual_and_empty_summary_does_not_commit() {
     let mut map = initialize(chain_input(1)).unwrap().map;
     complete_work(&mut map, "work-01");
     assert_eq!(
-        map.node(&NodeId::new("finish")).unwrap().status,
+        map.node(&("finish").to_string()).unwrap().status,
         NodeStatus::Ready
     );
     assert_eq!(map.is_complete(), false);
@@ -302,7 +332,7 @@ fn twenty_work_cycles_replay_to_identical_state_and_hash() {
     let mut map = initialized.map;
     let mut journal = vec![initialized.events];
     for index in 1..=20 {
-        let id = NodeId::new(format!("work-{index:02}"));
+        let id = format!("work-{index:02}");
         let bound = transition_node(&map, map.revision, id.clone(), NodeTransition::Bind).unwrap();
         map = bound.map;
         journal.push(bound.events);

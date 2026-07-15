@@ -7,8 +7,11 @@ fn bootstrap_call(call_id: &str) -> ResponseItem {
         name: "taskspace_control".into(),
         namespace: None,
         arguments: serde_json::json!({
-            "action": "initialize_then_actions",
-            "initial_nodes": [{"node_id": "node-1", "kind": "inspect_code_context", "goal": "inspect"}],
+            "action": "initialize_map",
+            "root": {"node_id": "root", "goal": "solve"},
+            "work_nodes": [{"node_id": "node-1", "goal": "inspect"}],
+            "finish": {"node_id": "finish", "goal": "summarize"},
+            "edges": [{"from": "root", "to": "node-1"}, {"from": "node-1", "to": "finish"}],
             "current_node_id": "node-1",
             "continuation": {
                 "kind": "actions",
@@ -25,9 +28,19 @@ fn committed_control_output(call_id: &str) -> ResponseItem {
         call_id: call_id.into(),
         output: FunctionCallOutputPayload::from_text(
             serde_json::json!({
-                "schema_version": "TaskSpaceControlResultV3",
+                "schema_version": "TaskSpaceControlResultR6V1",
                 "status": "committed",
                 "success": true,
+                "state_commit": true,
+                "map_state": {
+                    "task_id": "task-1",
+                    "map_id": "map-1",
+                    "revision": 1,
+                    "root_node_id": "root",
+                    "finish_node_id": "finish",
+                    "complete": false,
+                    "current_node_id": "node-1"
+                },
                 "steps": [{
                     "kind": "map_initialized",
                     "task_id": "task-1",
@@ -71,7 +84,7 @@ fn nested_call_and_output_are_independent_events_linked_to_outer_control() {
                 id: None,
                 name: "taskspace_control".into(),
                 namespace: None,
-                arguments: r#"{"action":"initialize_then_actions"}"#.into(),
+                arguments: r#"{"action":"initialize_map"}"#.into(),
                 call_id: outer_id.into(),
             },
             None,

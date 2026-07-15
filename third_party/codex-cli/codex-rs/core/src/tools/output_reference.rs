@@ -194,7 +194,7 @@ pub(crate) fn read_output_bytes_slice(
             ),
         ));
     }
-    let text = String::from_utf8_lossy(&raw_output);
+    let text = String::from_utf8_lossy(raw_output);
     let max_bytes = request.max_bytes.clamp(1, OUTPUT_SLICE_MAX_BYTES);
     let slice = match request.mode {
         OutputSliceMode::Head => take_bytes_at_char_boundary(&text, max_bytes).to_string(),
