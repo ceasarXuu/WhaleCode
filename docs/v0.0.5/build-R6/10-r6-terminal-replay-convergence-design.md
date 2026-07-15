@@ -5,7 +5,7 @@
 - Version: v1
 - Status: Reviewing
 - Owner / Responsible: WhaleCode R6
-- Related Systems: TaskSpace control、provider turn loop、hooks、ActionMap replay、benchmark observer
+- Related Systems: TaskSpace control、provider turn loop、ActionMap replay、benchmark observer
 - Related Links: `01-r6-phased-implementation-plan.md`、`09-r6-phase-e-finish-boundary-result.md`
 - Risk Level: High
 - Plan Type: Full
@@ -21,7 +21,7 @@ R6-E-TERM-01 与 R6-E-OBS-01 不分别增加补丁。两者统一按“一个写
    协议错误，不自动闭合、不生成无界 recovery request。
 4. production resume 与 offline observer 必须调用同一套 Rust checkpoint + delta replay；PowerShell 只
    构造报告，不再拥有第二套 Map 状态解释器。
-5. hook 是生命周期扩展点和观测点，不是 TaskSpace 正确性的权威，也不能自动推进 Map。
+5. 现有通用 Hook 沿用既有行为且不在本专项修改；终结和 replay 方案均不依赖 Hook。
 
 目标结构：
 
@@ -36,7 +36,7 @@ Agent intent
             -> observer/report
 ```
 
-禁止形成 `prompt state`、`hook state`、`observer state` 与 `ActionMap state` 四套平行状态。
+禁止形成 `prompt state`、`observer state` 与 `ActionMap state` 多套平行状态。
 
 ## 2. 已证实事实
 
@@ -48,7 +48,7 @@ Agent intent
 - 空 Map 时，provider 使用 named `taskspace_control`，并隐藏 ordinary tools；
 - Active Map 时，tool choice 无条件回到 `auto`；
 - Finish READY 时没有 current Work lease，ordinary tools 本就不合法，但仍被暴露；
-- Agent 因而可以返回无 tool call 的 assistant final，turn loop 随即进入 Stop/TurnComplete，而 Map 保持
+- Agent 因而可以返回无 tool call 的 assistant final，turn loop 随即进入通用 completion，而 Map 保持
   Root OPEN、Finish READY。
 
 这不是 `finish_end` 事务缺失，也不是 Agent 最终文本需要语义识别。直接根因是机械 hard state 没有贯通到
@@ -71,7 +71,7 @@ terminal full checkpoint 时可能停留在旧状态或形成混合状态。这�
 |---|---|---|
 | 显式终结闭环 | 成功 TaskSpace run 的最终回答只来自成功 `finish_end` | Map、用户终结和 replay 状态一致 |
 | 保留 Agent 决策权 | Finish READY 时 Runtime 只要求进入 control tool，不选择具体 action | 不把智能迁入 Runtime |
-| 无惩罚式循环 | plain final 不产生无限 Stop hook/recovery request | 避免请求、token 和缓存成本放大 |
+| 无惩罚式循环 | plain final 不产生 recovery request | 避免请求、token 和缓存成本放大 |
 | 单一 replay | resume 与 observer 对同一 rollout 生成相同 snapshot hash | 消除 checkpoint-only 假状态 |
 | 可诊断 | 每个 hard-state selection、terminal commit 和 replay failure 有稳定事件 | trace 可直接定位责任层 |
 
@@ -93,11 +93,10 @@ terminal full checkpoint 时可能停留在旧状态或形成混合状态。这�
 | T2 | terminal summary 字节级来自 Agent tool argument，Runtime 不总结、不润色 |
 | T3 | Finish READY 只表示 terminal control frontier，不表示 Runtime 判断任务语义完成 |
 | T4 | 非 complete Map 不得产生成功 TaskSpace TurnComplete |
-| T5 | provider/hook 异常不得自动提交 Map mutation |
+| T5 | provider 异常不得自动提交 Map mutation |
 | R1 | rollout 是 replay 权威；observer 是可重建 read model |
 | R2 | checkpoint/delta 任一 hash、sequence 或 patch 失败都明确 fatal，不降级到旧 checkpoint |
 | R3 | observer final snapshot hash 必须来自 canonical Rust replay proof |
-| H1 | hook 可以观察、记录或执行用户策略，但不能替代 TaskSpace terminal/replay 权威 |
 
 ## 5. 终结链路设计
 
@@ -154,7 +153,7 @@ provider request 构造时，把 control mode 作为不可变的 turn-local resp
 `TerminalControlRequired` 时，stream adapter 不得把普通 assistant text 发布成 final-answer item 或写入
 `last_agent_message`；文本仍原样记录到 history/rollout，并可作为 nonterminal/commentary item 发布。
 
-在 provider tool sequence 完成后、generic Stop hook 和 TurnComplete 之前再执行机械 completion check；不引入
+在 provider tool sequence 完成后、TurnComplete 之前再执行机械 completion check；不引入
 新的状态机或 rule engine。成功 `finish_end` 后 active map id 已清空，因此本 turn 的完成凭证不是
 `action_map_control_state(None)`，而是 tool sequence 返回的 terminal carrier。carrier 只能由已经提交
 `finish_end` 的 handler 产生，并携带 map id、revision 和 Agent 原样 summary；它不是第二份持久状态。
@@ -172,26 +171,14 @@ provider request 构造时，把 control mode 作为不可变的 turn-local resp
 
 只有成功 `finish_end` carrier 的 summary 能发布 final-answer item。异常 fixture 必须同时覆盖 delta、completed
 item 和 turn result，证明 provider 即使返回 plain text，也没有 `AgentMessageDelta`、
-`ItemCompleted(FinalAnswer)` 或 `last_agent_message` 泄漏到 UI/Stop hook。
+`ItemCompleted(FinalAnswer)` 或 `last_agent_message` 泄漏到 UI/turn result。
 
-### 5.5 Hook 的有限角色
+### 5.5 Hook 不在本专项范围
 
-现有 Stop hook 支持阻止停止并把 reason 注入下一请求；`stop_hook_active` 只是提供给 hook 的循环标记，不是
-Runtime 次数上限。该能力适合用户策略，不适合作为 TaskSpace terminal 主路径：它发生在 assistant message
-生成之后，依赖文本反馈，并可能放大请求。
-
-R6 采用统一的 hook phase contract，不为 TaskSpace 增加专用 hook 分支：
-
-1. TaskSpace hard-state selection 和 completion gate 不实现为外部 shell/prompt hook。
-2. 所有“是否允许执行工具”的用户策略只在 `PreToolUse` 生效；为 `taskspace_control` 接入既有
-   `PreToolUse` payload，使 `finish_end` 能在 ActionMap 事务提交前被拒绝，hook 本身不提交 Map。
-3. 已执行工具之后的 `PostToolUse` 和 legacy `AfterToolUse` 统一为 post-commit 观测/附注阶段，不得把已提交
-   mutation 改判失败、要求回滚或阻止 terminal carrier；这条规则对所有工具成立，不做 TaskSpace 特判。
-4. Hook 不读取 transcript 推断 Map 是否完成，不自动调用 `finish_end`，不覆盖 canonical gate。
-5. `finish_end` terminal commit 后不再执行可 block/continue 同一 turn 的 Stop/AfterAgent 阶段；terminal
-   transaction event 与 runtime trace 承担审计，任何后续工作只能来自新的用户 turn/Map。
-6. 本专项不新增 TaskSpace 专用 hook 状态或新 hook event；control mode、terminal commit 和 protocol violation
-   通过既有 runtime/rollout observability 消费，不伪装成可配置 hook 事件。
+当前失败没有证据指向 Hook，核心修复也不需要 Hook。R6 不修改通用 Hook 的配置、payload、dispatch 顺序、
+失败语义或 Stop/AfterAgent 行为，不让 `taskspace_control` 新接入 Hook，也不新增 TaskSpace 专用 hook event/state。
+如果未来出现可复现的 Hook 与已提交事务冲突，应作为独立问题采集 trace、确认根因后再设计，不能在本专项中
+预防性修改。
 
 ## 6. Replay 与 observer 设计
 
@@ -287,7 +274,6 @@ observer 仍必须展示最新 OPEN/READY 状态，而不是初始化 checkpoint
 | 只加强 prompt/tool description | 概率性，不能保证 hard terminal contract |
 | 新增独立 `taskspace_finish` tool | 与 `taskspace_control` 平行，扩大工具与 handler 分叉 |
 | Runtime 用 plain final 自动调用 `finish_end` | 把 Agent 行为改写成 Runtime mutation，违反手动终结 |
-| Stop hook 无限 block/retry | 惩罚式后置设计，放大 request/token，并可能死循环 |
 | 解析最终文本判断任务完成 | Runtime 越界进入语义和推理层 |
 | Finish READY 时强制具体 `finish_end` variant | 剥夺 Agent rework、扩图和读取证据的选择 |
 | 每次 turn 额外写 full checkpoint | 掩盖 delta 链缺陷，不能证明 crash/resume replay |
@@ -341,7 +327,7 @@ corruption 返回稳定 typed code 且无 partial snapshot。
 
 **Exit**：Finish READY 请求的 `tool_choice=taskspace_control`，ordinary tools 不暴露；Agent 仍能选择 finish、rework 或扩图。
 
-### E5：Completion gate 与 hook 边界
+### E5：Completion gate
 
 **Entry**：E4 deterministic tests 全绿。
 
@@ -352,12 +338,9 @@ corruption 返回稳定 typed code 且无 partial snapshot。
 3. named-control assistant text 保留原文但降为 nonterminal；provider 违反 named choice 时发出稳定 protocol
    violation，不 recovery loop。
 4. 证明 plain final 不会提交 terminal mutation，也不会泄漏 final-answer UI event。
-5. 为 `taskspace_control` 接入 PreToolUse，并把通用 post-commit hook 合同收敛为不可改判已提交结果。
-6. 验证 PreToolUse 可在 commit 前拒绝；成功 finish 后 PostToolUse/AfterToolUse/Stop/AfterAgent 均不能阻止
-   carrier、继续同一 turn 或复活旧 Map。
 
 **Exit**：无 `finish_end` carrier 时无成功 TaskSpace TurnComplete 和 final-answer UI item；异常额外 provider
-request=0；Root/Finish/revision 不变；post-commit hook continuation=0。
+request=0；Root/Finish/revision 不变。
 
 ### E6：原子性与 live 收益门禁
 
@@ -367,7 +350,7 @@ request=0；Root/Finish/revision 不变；post-commit hook continuation=0。
 
 1. 完成 snapshot/delta/resume/fork/crash/corruption 矩阵。
 2. simple 与 complex 各跑 Standard、R5 baseline、R6 各3次，允许不同样本/arm 并行。
-3. 检查 request、token、wall、cache、tool path、Map、hook 和 replay proof。
+3. 检查 request、token、wall、cache、tool path、Map 和 replay proof。
 
 **Exit**：6个 R6 runs 的 `finish_end` adoption=100%，plain-final-open-map=0，observer/runtime final hash 一致，
 无 terminal recovery request；三臂 public/hidden oracle pass rate 均为100%。单次只作为 smoke，不用于稳定性或
@@ -379,8 +362,8 @@ request=0；Root/Finish/revision 不变；post-commit hook continuation=0。
 |---|---|---|---|---|
 | E2 | Rust unit/property + replay matrix | 不依赖 observer 改造 | loader/reducer/validator 双入口同 verdict/hash | 完成后进入 E3 |
 | E3 | 旧失败 rollout full/large 离线重放 | 不依赖 terminal 修复 | proof/final collections 对账 | 完成后进入 E4 |
-| E4 | provider payload/tool visibility fixture | 不依赖 Stop hook | named choice + same tool schema | 完成后进入 E5 |
-| E5 | turn-loop/hook integration fixture | 不依赖 live sample | 无假 TurnComplete/无 retry loop | 完成后进入 E6 |
+| E4 | provider payload/tool visibility fixture | 不修改通用 Hook | named choice + same tool schema | 完成后进入 E5 |
+| E5 | turn-loop integration fixture | 不依赖 live sample | 无假 TurnComplete/无 retry loop | 完成后进入 E6 |
 | E6 | crash matrix + 三臂 live trace | 无后续阶段补证 | 完整机器结果 | 通过后关闭 Phase E |
 
 任何阶段未达到 100% 时暂停，不以后一阶段样本倒推当前阶段正确。
@@ -392,7 +375,7 @@ request=0；Root/Finish/revision 不变；post-commit hook continuation=0。
 | shared replay | `action_map` + session reconstruction | resume/offline debug | hash/corruption matrix | replay proof | planned |
 | observer switch | observability exporter | benchmark metrics extractor | R6-E-OBS-01 fixture | observer revision/hash | planned |
 | provider control mode | action map state + session prompt build | provider request | tool choice/visibility tests | control mode event | planned |
-| completion gate | stream/sequence/turn completion | provider no-tool end | turn/hook integration | protocol violation event | planned |
+| completion gate | stream/sequence/turn completion | provider no-tool end | turn integration | protocol violation event | planned |
 | live gate | Docker benchmark | Standard/R5/R6 | business/public/hidden tests | trace + cost report | planned |
 
 ## 11. 日志设计
@@ -402,7 +385,7 @@ request=0；Root/Finish/revision 不变；post-commit hook continuation=0。
 | control mode derive | bootstrap/work/terminal/complete | selected mode + revision | state unavailable | `reason_code` | turn/map/revision | info/error | benchmark/debug |
 | provider request | named/auto | expected tool choice | named choice violated | `provider_contract_code` | request/turn/map | info/error | runtime |
 | finish transaction | preflight/committed/carrier | Root+Finish same revision | rejection | violation code | call/map/revision | info/warn | Agent/observer |
-| turn completion | pending/allowed/rejected | complete=true | open Map stop attempt | `taskspace_terminal_protocol_violation` | turn/map/revision | info/error | CLI/hooks |
+| turn completion | pending/allowed/rejected | complete=true | open Map stop attempt | `taskspace_terminal_protocol_violation` | turn/map/revision | info/error | CLI/observer |
 | replay | checkpoint/delta/final | final hash | sequence/hash/patch failure | `replay_error_code` | rollout/checkpoint/sequence | info/error | observer |
 | observer | proof consumed | revision/hash match | proof unavailable | `availability_reason` | run/side/rollout | info/error | report gate |
 
@@ -416,17 +399,15 @@ request=0；Root/Finish/revision 不变；post-commit hook continuation=0。
 | Agent 想继续工作但 ordinary tools 被隐藏 | 需要先 rework/扩图，多一步 control | 这是无 lease 状态的合法恢复路径；不强制 `finish_end` variant |
 | provider 不遵守 named tool choice | Map 开放但响应试图结束 | completion gate 明确报机制错误，不重试、不自动提交 |
 | named choice 关闭 DeepSeek thinking | final summary 或 rework 判断质量下降 | live trace 单独比较 summary 完整性、action 选择和 output token |
-| post-commit hook 尝试改判或继续 | 已提交事实与用户结果分裂 | 所有工具统一执行 pre-commit veto/post-commit observe；terminal 后不进入 blocking Stop/AfterAgent |
 | offline binary 与 run binary 不一致 | replay 结论不可信 | benchmark 固定调用 attested run binary 并记录 SHA256 |
 | observer 失去 fallback 后报告不可用 | 暂时减少可见指标 | 明确失败优于输出错误 Map；成本指标可单独保留并标注范围 |
 
 ## 13. 外部参考与取舍
 
-1. [Claude Code Hooks reference](https://code.claude.com/docs/en/hooks)：Stop hook 是 turn lifecycle
-   扩展点，并显式提供 active/连续阻断保护。R6 借鉴生命周期位置和审计能力，但不把 TaskSpace 正确性建立在
-   prompt hook 的连续 block 上。
-2. [OpenCode Plugins](https://opencode.ai/docs/plugins/)：plugin hooks 适合监听 session/tool lifecycle。
-   R6 同样把 hook 保持为扩展接口，不让 plugin 成为 Map 状态权威。
+1. [DeepSeek Chat Completion API](https://api-docs.deepseek.com/api/create-chat-completion/)：指定具体
+   `tool_choice` 会强制模型调用该工具，支持 Finish READY 复用现有 named `taskspace_control`。
+2. [OpenAI Responses API](https://platform.openai.com/docs/api-reference/responses)：`auto`、`required` 和指定
+   tool 是 provider 原生 action-surface 约束，R6 沿用协议能力而不增加 Runtime 语义判断。
 3. [Azure Event Sourcing pattern](https://learn.microsoft.com/en-us/azure/architecture/patterns/event-sourcing)：
    event store 是 system of record，projection/read model 应由同一事件流重建。R6 因此删除 observer 的
    checkpoint-only 平行状态解释。
@@ -438,6 +419,6 @@ request=0；Root/Finish/revision 不变；post-commit hook continuation=0。
 | Date | Decision | Reason |
 |---|---|---|
 | 2026-07-16 | Finish READY 复用 named `taskspace_control` | 利用既有 hard-state 能力，不新增 tool/handler 分叉 |
-| 2026-07-16 | Stop hook 不作为 terminal 主路径 | 避免后置 prompt、重复请求和 Runtime 语义干预 |
+| 2026-07-16 | Hook 完全移出本专项实施范围 | 无已证实 Hook 缺陷，核心修复不依赖 Hook，避免预防性扩散 |
 | 2026-07-16 | observer 调用 canonical Rust replay | 单一 hash/sequence/patch 权威 |
 | 2026-07-16 | replay 失败无 fallback | 防止已知错误状态进入性能与进度结论 |

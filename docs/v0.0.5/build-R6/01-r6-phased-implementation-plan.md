@@ -285,8 +285,9 @@ Finish READY 后直接最终回答而未调用 `finish_end`，以及 observer �
     checkpoint-only final state 和 silent fallback。
 11. provider control mode 作为 turn-local response contract 贯通 stream、tool sequence 和 completion，避免
     plain text 在最终门控前先被发布为 final-answer。
-12. Hook 统一遵循 pre-commit veto、post-commit observe；为 `taskspace_control` 接入既有 PreToolUse，提交后
-    hook 不得改判、回滚或阻止 terminal carrier。
+
+本 Phase 不修改通用 Hook，不让 `taskspace_control` 新接入 Hook；当前缺口没有 Hook 根因证据，终结主链路也
+不依赖 Hook。
 
 退出门禁：
 

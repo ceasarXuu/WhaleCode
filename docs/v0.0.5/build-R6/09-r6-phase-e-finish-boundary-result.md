@@ -114,4 +114,5 @@ observer 没有反映后续 delta。报告的成本、请求和 control 数可�
 
 两项缺口的系统修复设计已写入 `10-r6-terminal-replay-convergence-design.md`。方案不新增 terminal tool 或
 平行 Map 状态：Finish READY 复用现有 named `taskspace_control` hard-state selection；observer 通过
-canonical Rust replay 获取最终 snapshot；hook 只承担生命周期扩展和异常观测，不自动推进 Map。
+canonical Rust replay 获取最终 snapshot。当前失败没有 Hook 根因证据，本专项不修改通用 Hook，也不让
+`taskspace_control` 新接入 Hook。
