@@ -286,10 +286,7 @@ fn validate_initialize_map(
     if finish.node_id.trim().is_empty() {
         return invalid("initialize_map nodes requires non-empty finish node_id");
     }
-    if all_nodes
-        .iter()
-        .any(|node| node.node_id == finish.node_id)
-    {
+    if all_nodes.iter().any(|node| node.node_id == finish.node_id) {
         return invalid("initialize_map nodes requires unique node_id values");
     }
     validate_edges(edges, "initialize_map.edges")?;

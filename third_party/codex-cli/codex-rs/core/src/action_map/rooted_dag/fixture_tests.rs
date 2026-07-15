@@ -352,10 +352,7 @@ fn canonicalization_preserves_source_ref_order_and_duplicates() {
 #[test]
 fn finish_goal_is_structurally_forbidden() {
     let mut map = fixture_map(&fixtures()[1]);
-    map.nodes
-        .get_mut(&map.finish_node_id)
-        .unwrap()
-        .goal = "verify and summarize".into();
+    map.nodes.get_mut(&map.finish_node_id).unwrap().goal = "verify and summarize".into();
 
     let violations = validate(&map);
 

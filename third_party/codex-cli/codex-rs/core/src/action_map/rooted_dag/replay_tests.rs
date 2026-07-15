@@ -80,10 +80,7 @@ fn initialization_derives_only_the_first_frontier_and_preserves_sources() {
         commit.map.node(&("work-01").to_string()).unwrap().goal,
         "work 1"
     );
-    assert_eq!(
-        commit.map.node(&("finish").to_string()).unwrap().goal,
-        ""
-    );
+    assert_eq!(commit.map.node(&("finish").to_string()).unwrap().goal, "");
     assert_eq!(
         commit.map.node(&("work-01").to_string()).unwrap().status,
         NodeStatus::Ready
