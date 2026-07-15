@@ -27,10 +27,13 @@ try {
     New-TestFile (Join-Path $repo "src\main.py") "print('base')"
     git add . | Out-Null
     git commit -m "base" | Out-Null
+    git update-ref refs/taskspace-benchmark/baseline HEAD | Out-Null
     New-TestFile (Join-Path $repo "src\main.py") "print('changed')"
     New-TestFile (Join-Path $repo ".tbench-testing\lib\python3.11\site-packages\pyarrow\ignored.py") "ignored"
     New-TestFile (Join-Path $repo ".tbench-testing\external-validator-source\probe.txt") "ignored"
     New-TestFile (Join-Path $repo "notes.txt") "real untracked"
+    git add src/main.py | Out-Null
+    git commit -m "agent committed change" | Out-Null
 } finally {
     Pop-Location
 }
@@ -41,6 +44,10 @@ $inventory = @(Get-TaskspaceChangedFileInventory $repo $diffText)
 $paths = @($inventory | ForEach-Object { [string]$_.path })
 Assert-True ($paths -contains "src/main.py") "tracked source change was not reported"
 Assert-True ($paths -contains "notes.txt") "real untracked file was not reported"
+Assert-True ($diffText -match "print\('changed'\)") "committed source change was absent from baseline diff"
+$baselineEvidence = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $runDir "workspace-change-baseline.json") | ConvertFrom-Json
+Assert-True ([bool]$baselineEvidence.head_advanced) "committed Agent change did not advance the recorded HEAD"
+Assert-True ([bool]$baselineEvidence.worktree_dirty) "uncommitted Agent change was not recorded"
 Assert-True (@($paths | Where-Object { $_ -like ".tbench-testing/*" }).Count -eq 0) "runtime .tbench-testing files leaked into changed inventory"
 Assert-True (@($paths | Where-Object { $_ -like "*external-validator-source*" }).Count -eq 0) "ignored runtime validator-looking files leaked into changed inventory"
 $vanishedRows = @{}

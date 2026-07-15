@@ -29,6 +29,7 @@ function Initialize-TaskspaceRepoBaseline {
         Invoke-TaskspaceWorkspaceGit @("config", "user.name", "TaskSpace Benchmark")
         Invoke-TaskspaceWorkspaceGit @("add", ".")
         Invoke-TaskspaceWorkspaceGit @("commit", "-m", "baseline fixture")
+        Invoke-TaskspaceWorkspaceGit @("update-ref", "refs/taskspace-benchmark/baseline", "HEAD")
         Invoke-TaskspaceWorkspaceGit @("fsck", "--no-progress")
         $status = Invoke-TaskspaceWorkspaceGit @("status", "--porcelain") -PassThru
         if ($status) { throw "workspace_baseline_dirty: $status" }

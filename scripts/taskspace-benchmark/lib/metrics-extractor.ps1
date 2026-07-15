@@ -15,8 +15,31 @@ function Get-TaskspaceDiffText {
     )
     Push-Location $RepoDir
     try {
-        $diff = git diff -- .
+        $baselineRef = "refs/taskspace-benchmark/baseline"
+        $baselineCommit = [string](& git rev-parse --verify $baselineRef 2>$null)
+        if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($baselineCommit)) {
+            throw "workspace_diff_baseline_missing: $baselineRef"
+        }
+        $headCommit = [string](& git rev-parse --verify HEAD 2>$null)
+        if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($headCommit)) {
+            throw "workspace_diff_head_missing"
+        }
+        $status = @(& git status --porcelain=v1 --untracked-files=all -- .)
+        if ($LASTEXITCODE -ne 0) { throw "workspace_diff_status_failed" }
+        $diff = git diff $baselineCommit -- .
+        if ($LASTEXITCODE -ne 0) { throw "workspace_diff_capture_failed" }
         Set-Content -LiteralPath $DiffPath -Encoding UTF8 -Value $diff
+        $evidencePath = Join-Path (Split-Path -Parent $DiffPath) "workspace-change-baseline.json"
+        [pscustomobject]@{
+            schema_version = "taskspace-workspace-change-baseline-v1"
+            baseline_ref = $baselineRef
+            baseline_commit = $baselineCommit.Trim()
+            final_head_commit = $headCommit.Trim()
+            head_advanced = ($baselineCommit.Trim() -ne $headCommit.Trim())
+            worktree_dirty = ($status.Count -gt 0)
+            status_entry_count = $status.Count
+            diff_bytes = [System.Text.Encoding]::UTF8.GetByteCount(($diff -join "`n"))
+        } | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $evidencePath -Encoding UTF8
         return ($diff -join "`n")
     } finally {
         Pop-Location
