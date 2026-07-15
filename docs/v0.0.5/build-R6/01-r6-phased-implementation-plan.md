@@ -8,7 +8,7 @@
 
 ```text
 Created: 2026-07-15
-Updated: 2026-07-15
+Updated: 2026-07-16
 Version: v0.0.5 build-R6
 Status: Phase E In Progress / Finish Boundary Complete
 Owner / Responsible: WhaleCode core runtime / TaskSpace
@@ -269,7 +269,9 @@ Finish READY 后直接最终回答而未调用 `finish_end`，以及 observer �
 `10-r6-terminal-replay-convergence-design.md` 的单终结权威、单 replay 权威方案收敛。E2 canonical Rust
 replay 已完成并通过独立门禁，详见 `11-r6-phase-e2-canonical-replay-result.md`。E3 也已完成，full/large
 observer 已统一消费 canonical proof，结果见
-`12-r6-phase-e3-observer-convergence-result.md`；当前进入 E4 terminal hard-state affordance。
+`12-r6-phase-e3-observer-convergence-result.md`。E4 terminal hard-state affordance 也已完成：Finish READY
+请求使用 named `taskspace_control` 且只暴露 active control schema，Agent 仍自主选择 finish、rework、改图或
+读取；结果见 `13-r6-phase-e4-terminal-hard-state-result.md`。当前进入 E5 completion gate。
 
 实施项：
 

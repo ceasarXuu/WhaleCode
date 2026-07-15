@@ -3,11 +3,12 @@
 - Created: 2026-07-16
 - Updated: 2026-07-16
 - Version: v1
-- Status: Implementing (E2-E3 completed, E4 in progress)
+- Status: Implementing (E2-E4 completed, E5 in progress)
 - Owner / Responsible: WhaleCode R6
 - Related Systems: TaskSpace control、provider turn loop、ActionMap replay、benchmark observer
 - Related Links: `01-r6-phased-implementation-plan.md`、`09-r6-phase-e-finish-boundary-result.md`、
-  `11-r6-phase-e2-canonical-replay-result.md`、`12-r6-phase-e3-observer-convergence-result.md`
+  `11-r6-phase-e2-canonical-replay-result.md`、`12-r6-phase-e3-observer-convergence-result.md`、
+  `13-r6-phase-e4-terminal-hard-state-result.md`
 - Risk Level: High
 - Plan Type: Full
 
@@ -322,7 +323,8 @@ corruption 返回稳定 typed code 且无 partial snapshot。
 
 1. 从 `ActionMapControlState` 派生 provider control mode。
 2. Bootstrap 和 Terminal frontier 复用 named `taskspace_control` 与 only-control visibility。
-3. tool schema 保持单工具；补一条唯一基础协议说明，不写入 projection。
+3. tool schema 保持单工具，并作为终局协议的唯一 provider-visible owner；不向基础 prompt 或 projection
+   重复注入同一协议。
 4. 记录 control mode 选择及其 canonical revision。
 5. 单独验证 named choice 关闭 provider thinking 后的 `final_summary` 质量与 rework 选择能力。
 
@@ -375,7 +377,7 @@ request=0；Root/Finish/revision 不变。
 |---|---|---|---|---|---|
 | shared replay | `action_map` + session reconstruction | resume/offline debug | 15 replay + 31 reconstruction tests 等 targeted regression | revision 7 replay proof | completed |
 | observer switch | observability exporter | benchmark metrics extractor | full/large + corruption + observer regression | revision 7 / same collections | completed |
-| provider control mode | action map state + session prompt build | provider request | tool choice/visibility tests | control mode event | in progress |
+| provider control mode | action map state + session prompt build | provider request | tool choice/visibility tests | control mode event | completed |
 | completion gate | stream/sequence/turn completion | provider no-tool end | turn integration | protocol violation event | planned |
 | live gate | Docker benchmark | Standard/R5/R6 | business/public/hidden tests | trace + cost report | planned |
 

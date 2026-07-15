@@ -231,6 +231,18 @@ pub(crate) struct ActionMapControlState {
     pub(crate) total_node_count: usize,
 }
 
+impl ActionMapControlState {
+    pub(crate) fn requires_named_taskspace_control(&self) -> bool {
+        !self.complete
+            && self.finish_ready
+            && self.current_node_id.is_none()
+            && self.pending_work_node_ids.is_empty()
+            && self.ready_work_node_ids.is_empty()
+            && self.running_work_node_ids.is_empty()
+            && self.blocked_work_node_ids.is_empty()
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ActionMapInitializeNodeInput {
     pub(crate) id: String,
