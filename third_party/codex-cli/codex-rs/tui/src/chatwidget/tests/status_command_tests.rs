@@ -28,7 +28,7 @@ async fn status_command_renders_immediately_and_refreshes_rate_limits_for_chatgp
 }
 
 #[tokio::test]
-async fn status_command_refresh_updates_cached_limits_for_future_status_outputs() {
+async fn status_command_refresh_does_not_inject_chatgpt_limits_into_deepseek_status() {
     let (mut chat, mut rx, _op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
     set_chatgpt_auth(&mut chat);
 
@@ -57,8 +57,8 @@ async fn status_command_refresh_updates_cached_limits_for_future_status_outputs(
         other => panic!("expected refreshed status output, got {other:?}"),
     };
     assert!(
-        refreshed.contains("8% left"),
-        "expected a future /status output to use refreshed cached limits, got: {refreshed}"
+        !refreshed.contains("8% left"),
+        "DeepSeek /status must not render ChatGPT limit rows, got: {refreshed}"
     );
 }
 

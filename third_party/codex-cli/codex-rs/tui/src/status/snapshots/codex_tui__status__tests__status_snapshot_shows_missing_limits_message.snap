@@ -1,12 +1,11 @@
 ---
 source: tui/src/status/tests.rs
-assertion_line: 712
 expression: sanitized
 ---
 /status
 
 ╭────────────────────────────────────────────────────────╮
-│  >_ Whale (v0.1.0 build 3)                             │
+│  >_ Whale (v0.1.0 build 18)                            │
 │                                                        │
 │  Model:            gpt-5.1-codex-max                   │
 │  Model provider:   DeepSeek - https://api.deepseek.com │
