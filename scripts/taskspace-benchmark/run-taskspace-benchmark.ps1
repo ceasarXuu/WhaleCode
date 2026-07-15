@@ -261,6 +261,7 @@ if ([string]$providerCredentialHealth.status -eq "fail") {
     exit 3
 }
 if (-not (Test-Path -LiteralPath $WhaleBin)) { throw "Whale binary not found: $WhaleBin" }
+$WhaleBin = (Resolve-Path -LiteralPath $WhaleBin).Path
 $helpText = & $WhaleBin exec --help 2>&1
 if (($helpText -join [Environment]::NewLine) -notmatch "--taskspace") {
     throw "Whale exec does not expose --taskspace."
