@@ -124,3 +124,19 @@ fn legacy_actions_are_rejected_by_parser() {
         assert!(parse_taskspace_control_args(&args).is_err());
     }
 }
+
+#[test]
+fn terminal_output_preserves_committed_map_revision_and_summary() {
+    let carrier = TaskSpaceTerminalCarrier {
+        map_id: "map-1".into(),
+        revision: 5,
+        summary: "Agent-authored final summary".into(),
+    };
+    let output = TaskSpaceControlOutput {
+        message: "committed".into(),
+        success: true,
+        terminal_carrier: Some(carrier.clone()),
+    };
+
+    assert_eq!(output.taskspace_terminal_carrier(), Some(&carrier));
+}

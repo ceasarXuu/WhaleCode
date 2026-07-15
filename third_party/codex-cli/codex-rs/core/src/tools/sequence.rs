@@ -7,6 +7,7 @@ use codex_protocol::models::ResponseItem;
 use futures::future::join_all;
 use tokio_util::sync::CancellationToken;
 
+use crate::tools::context::TaskSpaceTerminalCarrier;
 use crate::tools::context::ToolPayload;
 use crate::tools::handlers::taskspace_control_args::TASKSPACE_CONTROL_RESULT_SCHEMA_VERSION;
 use crate::tools::handlers::taskspace_control_args::TaskSpaceNestedAction;
@@ -17,14 +18,14 @@ use crate::tools::router::ToolCall;
 use crate::tools::sequence_preflight::REQUEST_MULTIPLE_PATCHES_CODE;
 use crate::tools::sequence_preflight::validate_tool_sequence;
 
-pub(crate) struct TerminalAgentMessage {
+pub(crate) struct TaskSpaceTerminalCompletion {
     pub(crate) call_id: String,
-    pub(crate) message: String,
+    pub(crate) carrier: TaskSpaceTerminalCarrier,
 }
 
 pub(crate) struct ToolSequenceOutcome {
     pub(crate) outputs: Vec<ResponseInputItem>,
-    pub(crate) terminal_agent_message: Option<TerminalAgentMessage>,
+    pub(crate) terminal_completion: Option<TaskSpaceTerminalCompletion>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -41,7 +42,7 @@ pub(crate) async fn execute_response_tool_sequence(
     if calls.is_empty() {
         return Ok(ToolSequenceOutcome {
             outputs: Vec::new(),
-            terminal_agent_message: None,
+            terminal_completion: None,
         });
     }
 
@@ -58,7 +59,7 @@ pub(crate) async fn execute_response_tool_sequence(
             );
             return Ok(ToolSequenceOutcome {
                 outputs: failure.outputs(&calls),
-                terminal_agent_message: None,
+                terminal_completion: None,
             });
         }
     };
@@ -78,9 +79,9 @@ pub(crate) async fn execute_response_tool_sequence(
 
     let mut outputs = Vec::with_capacity(calls.len());
     let mut prior_failure: Option<String> = None;
-    let mut terminal_agent_message: Option<TerminalAgentMessage> = None;
+    let mut terminal_completion: Option<TaskSpaceTerminalCompletion> = None;
     for (segment_index, segment) in segments.into_iter().enumerate() {
-        if let Some(terminal) = terminal_agent_message.as_ref() {
+        if let Some(terminal) = terminal_completion.as_ref() {
             for call in calls_for_segment(&calls, &segment) {
                 tracing::warn!(
                     target: "codex_core::taskspace",
@@ -158,16 +159,18 @@ pub(crate) async fn execute_response_tool_sequence(
             if !response_input_succeeded(output) && prior_failure.is_none() {
                 prior_failure = Some(response_input_call_id(output).to_string());
             }
-            if let Some(message) = execution.terminal_agent_message.as_ref() {
+            if let Some(carrier) = execution.taskspace_terminal_carrier.as_ref() {
                 let call_id = response_input_call_id(output).to_string();
-                terminal_agent_message = Some(TerminalAgentMessage {
+                terminal_completion = Some(TaskSpaceTerminalCompletion {
                     call_id: call_id.clone(),
-                    message: message.clone(),
+                    carrier: carrier.clone(),
                 });
                 tracing::info!(
                     target: "codex_core::taskspace",
                     call_id,
-                    candidate_bytes = message.len(),
+                    map_id = carrier.map_id,
+                    revision = carrier.revision,
+                    candidate_bytes = carrier.summary.len(),
                     "taskspace_agent_final_staged"
                 );
             }
@@ -211,7 +214,7 @@ pub(crate) async fn execute_response_tool_sequence(
     );
     Ok(ToolSequenceOutcome {
         outputs,
-        terminal_agent_message,
+        terminal_completion,
     })
 }
 
@@ -244,7 +247,7 @@ async fn execute_taskspace_barrier(
             );
             return Ok(ToolCallExecution {
                 response: ToolCallRuntime::invalid_call_response(&call, message),
-                terminal_agent_message: None,
+                taskspace_terminal_carrier: None,
             });
         }
         let call_id = format!("{}:nested:{index}", call.call_id);
@@ -257,13 +260,13 @@ async fn execute_taskspace_barrier(
                 );
                 return Ok(ToolCallExecution {
                     response: ToolCallRuntime::invalid_call_response(&call, message),
-                    terminal_agent_message: None,
+                    taskspace_terminal_carrier: None,
                 });
             }
             Err(error) => {
                 return Ok(ToolCallExecution {
                     response: ToolCallRuntime::invalid_call_response(&call, error.to_string()),
-                    terminal_agent_message: None,
+                    taskspace_terminal_carrier: None,
                 });
             }
         };
@@ -281,7 +284,7 @@ async fn execute_taskspace_barrier(
         .handle_tool_call_for_sequence(call.clone(), cancellation_token.child_token())
         .await?;
     if !response_input_succeeded(&state_execution.response)
-        || state_execution.terminal_agent_message.is_some()
+        || state_execution.taskspace_terminal_carrier.is_some()
     {
         return Ok(state_execution);
     }
@@ -336,7 +339,7 @@ async fn execute_taskspace_barrier(
             nested_outputs,
             success,
         )?,
-        terminal_agent_message: None,
+        taskspace_terminal_carrier: None,
     })
 }
 

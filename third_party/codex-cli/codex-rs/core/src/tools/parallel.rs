@@ -16,6 +16,7 @@ use crate::session::session::Session;
 use crate::session::turn_context::TurnContext;
 use crate::tools::context::AbortedToolOutput;
 use crate::tools::context::SharedTurnDiffTracker;
+use crate::tools::context::TaskSpaceTerminalCarrier;
 use crate::tools::context::ToolPayload;
 use crate::tools::context::response_input_model_visible_preview;
 use crate::tools::context::tool_output_model_visible_preview;
@@ -44,7 +45,7 @@ pub(crate) struct ToolCallRuntime {
 
 pub(crate) struct ToolCallExecution {
     pub(crate) response: ResponseInputItem,
-    pub(crate) terminal_agent_message: Option<String>,
+    pub(crate) taskspace_terminal_carrier: Option<TaskSpaceTerminalCarrier>,
 }
 
 impl ToolCallRuntime {
@@ -125,17 +126,16 @@ impl ToolCallRuntime {
         async move {
             match future.await {
                 Ok(response) => {
-                    let terminal_agent_message =
-                        response.terminal_agent_message().map(str::to_string);
+                    let taskspace_terminal_carrier = response.taskspace_terminal_carrier().cloned();
                     Ok(ToolCallExecution {
                         response: response.into_response(),
-                        terminal_agent_message,
+                        taskspace_terminal_carrier,
                     })
                 }
                 Err(FunctionCallError::Fatal(message)) => Err(CodexErr::Fatal(message)),
                 Err(other) => Ok(ToolCallExecution {
                     response: Self::failure_response(error_call, other),
-                    terminal_agent_message: None,
+                    taskspace_terminal_carrier: None,
                 }),
             }
         }

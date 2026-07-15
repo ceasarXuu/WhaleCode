@@ -36,6 +36,13 @@ const TASKSPACE_COMPLETE_READ_PREVIEW_MAX_BYTES: usize = 64 * 1024;
 const TASKSPACE_COMPLETE_READ_PREVIEW_MAX_LINES: usize = 320;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct TaskSpaceTerminalCarrier {
+    pub(crate) map_id: String,
+    pub(crate) revision: u64,
+    pub(crate) summary: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ToolCallSource {
     Direct,
     CodeMode {
@@ -118,7 +125,7 @@ pub trait ToolOutput: Send {
 
     fn to_response_item(&self, call_id: &str, payload: &ToolPayload) -> ResponseInputItem;
 
-    fn terminal_agent_message(&self) -> Option<&str> {
+    fn taskspace_terminal_carrier(&self) -> Option<&TaskSpaceTerminalCarrier> {
         None
     }
 

@@ -9,6 +9,7 @@ use crate::action_map::ActionMapInitializeInput;
 use crate::action_map::ActionMapInitializeNodeInput;
 use crate::action_map::NodeTransition;
 use crate::function_tool::FunctionCallError;
+use crate::tools::context::TaskSpaceTerminalCarrier;
 use crate::tools::context::ToolInvocation;
 use crate::tools::context::ToolOutput;
 use crate::tools::context::ToolPayload;
@@ -39,7 +40,7 @@ pub struct TaskSpaceControlHandler;
 pub struct TaskSpaceControlOutput {
     message: String,
     success: bool,
-    terminal_agent_message: Option<String>,
+    terminal_carrier: Option<TaskSpaceTerminalCarrier>,
 }
 
 impl ToolOutput for TaskSpaceControlOutput {
@@ -60,8 +61,8 @@ impl ToolOutput for TaskSpaceControlOutput {
         }
     }
 
-    fn terminal_agent_message(&self) -> Option<&str> {
-        self.terminal_agent_message.as_deref()
+    fn taskspace_terminal_carrier(&self) -> Option<&TaskSpaceTerminalCarrier> {
+        self.terminal_carrier.as_ref()
     }
 
     fn code_mode_result(&self, _payload: &ToolPayload) -> JsonValue {
@@ -109,7 +110,7 @@ impl ToolHandler for TaskSpaceControlHandler {
             }
         };
 
-        let (message, success, terminal_agent_message) = match args {
+        let (message, success, terminal_carrier) = match args {
             TaskSpaceControlArgs::InitializeMap {
                 root,
                 initial_work_node,
@@ -294,7 +295,11 @@ impl ToolHandler for TaskSpaceControlHandler {
                                 map_state.as_ref(),
                             ),
                             true,
-                            Some(outcome.final_summary),
+                            Some(TaskSpaceTerminalCarrier {
+                                map_id: outcome.map_id,
+                                revision: outcome.revision,
+                                summary: outcome.final_summary,
+                            }),
                         )
                     }
                     Err(error) => {
@@ -446,7 +451,7 @@ impl ToolHandler for TaskSpaceControlHandler {
         Ok(TaskSpaceControlOutput {
             message,
             success,
-            terminal_agent_message,
+            terminal_carrier,
         })
     }
 }

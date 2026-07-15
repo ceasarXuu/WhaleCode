@@ -112,8 +112,10 @@ pub(crate) struct AnyToolResult {
 }
 
 impl AnyToolResult {
-    pub(crate) fn terminal_agent_message(&self) -> Option<&str> {
-        self.result.terminal_agent_message()
+    pub(crate) fn taskspace_terminal_carrier(
+        &self,
+    ) -> Option<&crate::tools::context::TaskSpaceTerminalCarrier> {
+        self.result.taskspace_terminal_carrier()
     }
 
     pub(crate) fn into_response(self) -> ResponseInputItem {

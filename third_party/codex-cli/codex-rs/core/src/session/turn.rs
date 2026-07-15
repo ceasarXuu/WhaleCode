@@ -2404,13 +2404,13 @@ async fn publish_taskspace_terminal_agent_message(
     sess: &Session,
     turn_context: &TurnContext,
     call_id: &str,
-    message: &str,
+    carrier: &crate::tools::context::TaskSpaceTerminalCarrier,
 ) {
     let item = ResponseItem::Message {
         id: None,
         role: "assistant".to_string(),
         content: vec![ContentItem::OutputText {
-            text: message.to_string(),
+            text: carrier.summary.clone(),
         }],
         end_turn: Some(true),
         phase: Some(MessagePhase::FinalAnswer),
@@ -2427,7 +2427,9 @@ async fn publish_taskspace_terminal_agent_message(
     tracing::info!(
         target: "codex_core::taskspace",
         call_id,
-        candidate_bytes = message.len(),
+        map_id = carrier.map_id,
+        revision = carrier.revision,
+        candidate_bytes = carrier.summary.len(),
         "taskspace_agent_final_released"
     );
 }
@@ -2816,15 +2818,15 @@ async fn try_run_sampling_request(
                     record_response_input_item(sess.as_ref(), turn_context.as_ref(), output).await;
                 }
                 let terminal_candidate_released =
-                    if let Some(terminal) = tool_outcome.terminal_agent_message {
+                    if let Some(terminal) = tool_outcome.terminal_completion {
                         publish_taskspace_terminal_agent_message(
                             sess.as_ref(),
                             turn_context.as_ref(),
                             &terminal.call_id,
-                            &terminal.message,
+                            &terminal.carrier,
                         )
                         .await;
-                        last_agent_message = Some(terminal.message);
+                        last_agent_message = Some(terminal.carrier.summary);
                         needs_follow_up = false;
                         true
                     } else {
@@ -2994,17 +2996,17 @@ async fn try_run_sampling_request(
         for output in tool_outcome.outputs {
             record_response_input_item(sess.as_ref(), turn_context.as_ref(), output).await;
         }
-        if let Some(terminal) = tool_outcome.terminal_agent_message {
+        if let Some(terminal) = tool_outcome.terminal_completion {
             publish_taskspace_terminal_agent_message(
                 sess.as_ref(),
                 turn_context.as_ref(),
                 &terminal.call_id,
-                &terminal.message,
+                &terminal.carrier,
             )
             .await;
             if let Ok(result) = &mut outcome {
                 result.needs_follow_up = false;
-                result.last_agent_message = Some(terminal.message);
+                result.last_agent_message = Some(terminal.carrier.summary);
             }
         }
     }
