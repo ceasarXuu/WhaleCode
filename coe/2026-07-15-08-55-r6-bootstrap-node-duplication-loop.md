@@ -1,7 +1,7 @@
 # Problem P-001: R6 初始化节点重复导致无状态请求循环
-- Status: open
+- Status: fixed
 - Created: 2026-07-15 08:55
-- Updated: 2026-07-15 09:04
+- Updated: 2026-07-15 09:50
 - Objective: 消除 `initialize_map` 工具合同诱发的节点重复声明，并确保参数错误以原始 typed 结果进入 Agent 上下文。
 - Symptoms:
   - `single-file-fast-fix` 的 R6 侧连续 73 次调用 `taskspace_control.initialize_map`，均返回 `initialize_map nodes requires unique node_id values`。
@@ -30,15 +30,16 @@
   - 无效 TaskSpace 参数绕过 manifest 语义解析并由原工具 handler 返回单层 typed JSON。
   - 定向测试覆盖重复形态、单层反馈和 patch 数量硬约束不回归。
   - 原始简单 Docker 样本完成外部验证且不再发生初始化循环。
-- Current conclusion: H-001 是根因，H-002 是反馈放大因素；两者均通过 trace 与代码路径确认，允许进入修复。
+- Current conclusion: 重叠集合 schema 是初始化重复的根因，preflight 二次包装是反馈放大因素；互斥字段合同与 handler-owned typed feedback 已通过真实 Docker 复验。
 - Related hypotheses:
   - H-001
   - H-002
   - H-003
 - Resolution basis:
-  - not satisfied
+  - simple 的 Map 首次初始化成功，随后完成 5 节点/4 边 Root -> Finish 路径和外部验证。
+  - branch-join 独立样本同样首次建立 4 节点/3 边 Map，没有重复节点或无状态请求循环。
 - Close reason:
-  - not closed
+  - schema、反馈所有权、定向测试和原始 live 样本四项门禁全部满足。
 
 ## Hypothesis H-001: schema 把初始 Work 与 Work 列表表达成重叠集合
 - Status: confirmed
@@ -76,11 +77,11 @@
   - E-002
 - Conclusion: 模型可见字段结构和 parser 实际集合语义不一致，稳定诱发重复节点声明。
 - Repair design readiness: satisfied
-- Next step: 用互斥字段结构替换现有 bootstrap 输入，不保留旧字段兼容。
+- Next step: none
 - Blocker:
   - none
 - Close reason:
-  - not closed
+  - implemented and validated by E-004/E-005
 
 ## Hypothesis H-002: sequence preflight 扭曲了 TaskSpace 参数错误
 - Status: confirmed
@@ -117,11 +118,11 @@
   - E-003
 - Conclusion: 消息条目未丢失，但 typed 错误被 preflight 二次包装和转义，属于反馈语义扭曲。
 - Repair design readiness: satisfied
-- Next step: manifest 只统计可成功解析的 nested patch；无效参数由原工具 handler 负责反馈。
+- Next step: none
 - Blocker:
   - none
 - Close reason:
-  - not closed
+  - implemented and validated by E-004/E-005
 
 ## Hypothesis H-003: close_agent(root) 是循环的独立根因
 - Status: refuted
@@ -256,3 +257,27 @@
   ~~~
 - Interpretation: 本地合同和反馈链修复成立；是否消除 provider 循环仍等待原始 Docker 样本验证。
 - Time: 2026-07-15 09:04
+
+## Evidence E-005: 互斥初始化合同通过两个 Docker 样本
+- Related hypotheses:
+  - H-001
+  - H-002
+  - H-003
+- Direction: supports H-001/H-002 repair; refutes H-003
+- Type: fix-validation
+- Source: `target/r6-phase-c-epoch/simple/single-file-fast-fix/20260715-094309-889`; `target/r6-phase-c-epoch/branch-join/multi-file-order-pipeline/20260715-094519-735`
+- Prediction or plan link:
+  - P-001 live fix criteria
+- Matched signal:
+  - 两个 R6 arm 的 `initialize_map` 都提交成功，后续进入 ordinary tools 并最终显式终结
+- Correlation keys:
+  - simple run `20260715-094309-889`
+  - branch-join run `20260715-094519-735`
+- Raw content:
+  ~~~text
+  simple: initialize_map=1, task=completed, external=passed
+  branch-join: initialize_map=1, task=completed, external=passed
+  duplicate bootstrap rejects: 0
+  ~~~
+- Interpretation: Agent 不再被 schema 引导为重复声明 initial Work；成功来自合同表达修正，不是 Runtime 自动修复节点集合。
+- Time: 2026-07-15 09:50

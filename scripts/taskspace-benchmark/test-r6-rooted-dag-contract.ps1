@@ -7,12 +7,14 @@ $inventoryPath = Join-Path $repoRoot "benchmarks/taskspace/r6/phase-a-ownership-
 $baselinePath = Join-Path $repoRoot "benchmarks/taskspace/r6/phase-a-baseline-contract.json"
 $baselineResultPath = Join-Path $repoRoot "benchmarks/taskspace/r6/phase-a-baseline-result.json"
 $phaseBResultPath = Join-Path $repoRoot "benchmarks/taskspace/r6/phase-b-result.json"
+$phaseCResultPath = Join-Path $repoRoot "benchmarks/taskspace/r6/phase-c-result.json"
 $contract = Get-Content -Raw -Encoding UTF8 -LiteralPath $contractPath | ConvertFrom-Json -Depth 30
 $fixtures = Get-Content -Raw -Encoding UTF8 -LiteralPath $fixturesPath | ConvertFrom-Json -Depth 30
 $inventory = Get-Content -Raw -Encoding UTF8 -LiteralPath $inventoryPath | ConvertFrom-Json -Depth 30
 $baseline = Get-Content -Raw -Encoding UTF8 -LiteralPath $baselinePath | ConvertFrom-Json -Depth 30
 $baselineResult = Get-Content -Raw -Encoding UTF8 -LiteralPath $baselineResultPath | ConvertFrom-Json -Depth 30
 $phaseBResult = Get-Content -Raw -Encoding UTF8 -LiteralPath $phaseBResultPath | ConvertFrom-Json -Depth 30
+$phaseCResult = Get-Content -Raw -Encoding UTF8 -LiteralPath $phaseCResultPath | ConvertFrom-Json -Depth 30
 
 function Assert-Equal {
     param($Actual, $Expected, [string]$Message)
@@ -312,4 +314,42 @@ Assert-Equal $standardRow[0].result.external_validation_status "passed" "Phase B
 Assert-Equal $taskspaceRow[0].result.external_validation_status "passed" "Phase B TaskSpace validation failed"
 Assert-Equal $taskspaceRow[0].actions.control_failures 0 "Phase B identity arm control failure detected"
 
-Write-Host "R6 rooted DAG contract tests passed: $(@($fixtures.cases).Count) fixtures, $(@($inventory.items).Count) ownership items, Phase A baseline + Phase B result"
+Assert-Equal $phaseCResult.status "complete" "Phase C result is incomplete"
+Assert-Equal $phaseCResult.production_cutover.rooted_dag_authoritative $true "Rooted DAG is not authoritative"
+Assert-Equal $phaseCResult.production_cutover.single_root $true "Phase C single Root gate failed"
+Assert-Equal $phaseCResult.production_cutover.single_finish $true "Phase C single Finish gate failed"
+Assert-Equal $phaseCResult.production_cutover.all_nodes_on_root_finish_path $true "Phase C path coverage failed"
+Assert-Equal $phaseCResult.production_cutover.compatibility_layer_added $false "Phase C added compatibility"
+Assert-Equal $phaseCResult.projection_contract.runtime_semantic_delta $false "Projection gained semantic delta"
+Assert-Equal $phaseCResult.projection_contract.stale_projection_accumulation $false "Stale projection accumulation enabled"
+
+foreach ($gate in $phaseCResult.exit_gates.PSObject.Properties) {
+    Assert-Equal ([string]$gate.Value) "pass" "Phase C exit gate failed: $($gate.Name)"
+}
+foreach ($run in @($phaseCResult.live_runs.simple, $phaseCResult.live_runs.branch_join)) {
+    Assert-Equal $run.standard.result "passed" "Phase C Standard arm failed"
+    Assert-Equal $run.r6.result "passed" "Phase C R6 arm failed"
+    Assert-Equal $run.r6.map_count 1 "Phase C R6 arm did not produce one Map"
+    if ([int]$run.r6.edge_count -lt ([int]$run.r6.node_count - 1)) {
+        throw "Phase C live Map cannot be connected. nodes=$($run.r6.node_count) edges=$($run.r6.edge_count)"
+    }
+    Assert-Equal $run.r6.open_node_count 0 "Phase C live Map retained open nodes"
+    Assert-Equal $run.r6.exact_scan_failures 0 "Phase C exact payload scan failed"
+    Assert-Equal @($run.r6.active_projection_counts).Count 1 "Phase C active projection cardinality drifted"
+    Assert-Equal $run.r6.active_projection_counts[0] 1 "Phase C active projection is not unique"
+    Assert-Equal $run.r6.same_shape_zero_hit_count 0 "Phase C same-shape cache zero hit detected"
+
+    $runRoot = Join-Path $repoRoot ([string]$run.run_root)
+    $observationPath = Join-Path $runRoot "performance-observation.json"
+    $actualObservationSha = (Get-FileHash -Algorithm SHA256 -LiteralPath $observationPath).Hash.ToLowerInvariant()
+    Assert-Equal $run.report_sha256 $actualObservationSha "Phase C performance evidence hash mismatch"
+}
+
+$phaseCAttestationPath = Join-Path $repoRoot ([string]$phaseCResult.build_attestation.path)
+$actualPhaseCAttestationSha = (Get-FileHash -Algorithm SHA256 -LiteralPath $phaseCAttestationPath).Hash.ToLowerInvariant()
+Assert-Equal $phaseCResult.build_attestation.sha256 $actualPhaseCAttestationSha "Phase C attestation hash mismatch"
+$phaseCAttestation = Get-Content -Raw -Encoding UTF8 -LiteralPath $phaseCAttestationPath | ConvertFrom-Json
+Assert-Equal $phaseCAttestation.status "pass" "Phase C binary attestation failed"
+Assert-Equal $phaseCAttestation.current_git_head $phaseCResult.candidate_commit "Phase C candidate does not match attestation"
+
+Write-Host "R6 rooted DAG contract tests passed: $(@($fixtures.cases).Count) fixtures, $(@($inventory.items).Count) ownership items, Phase A-C results"

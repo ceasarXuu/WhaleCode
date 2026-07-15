@@ -1,13 +1,13 @@
 # Problem P-001: R6 最新投影破坏 provider 前缀缓存
-- Status: diagnosed
+- Status: fixed
 - Created: 2026-07-15 09:29
-- Updated: 2026-07-15 09:42
-- Objective: 在只向 Agent 暴露一份最新全局 map projection、且不保留旧投影的前提下，恢复 DeepSeek provider 可复用的稳定请求前缀。
+- Updated: 2026-07-15 09:50
+- Objective: 在每个上下文 epoch 只保留一份全图基线 projection、并用原始 control journal 忠实表达后续变更的前提下，恢复 DeepSeek provider 可复用的稳定请求前缀。
 - Symptoms:
   - Phase C 最新简单样本中，Standard 第 2 次后缓存命中率为 95.64%，R6 为 0.32%。
   - R6 的 9 个后续请求全部未保持上一请求的完整 message prefix。
 - Expected behavior:
-  - R6 每次 provider 请求只能看见一份最新 projection；自然历史语义完整；动态 map 状态不应无界破坏稳定前缀缓存。
+  - R6 每次 provider 请求只能看见一份当前 epoch 基线 projection；自然历史和原始 control journal 语义完整；动态 map 状态不应破坏稳定前缀缓存。
 - Actual behavior:
   - provider 视图先删除上一请求末尾的 projection，再在新增自然历史之后追加新版 projection；相邻请求的首个差异稳定发生在旧 projection 的 message index。
 - Impact:
@@ -25,10 +25,10 @@
   - 后续请求持续变更 tool schema。
   - Standard 与 R6 cached token 统计口径不同。
 - Fix criteria:
-  - 每个 active R6 provider 请求仍只有一份最新 projection，canonical history 不积累旧 projection。
+  - 每个 active R6 provider 请求只有一份当前 epoch 基线 projection，canonical history 不在每轮替换或积累投影。
   - 相邻请求 wire trace 能证明稳定前缀得到保留，且 live R6 cache hit 显著恢复。
   - 简单样本业务结果和外部验证通过；focused tests 覆盖同轮 map 变更、projection 唯一性和 canonical history 无投影。
-- Current conclusion: latest-only projection 的“删除旧末尾项再追加新版项”布局是当前 cache collapse 的直接结构性根因；修复不能通过积累 stale projection 规避。
+- Current conclusion: latest-tail replacement 是 cache collapse 的直接根因；改为每个 context epoch 一份基线 projection，并原样追加 control call/output 后，简单与复杂样本均恢复严格消息前缀和高缓存命中。
 - Related hypotheses:
   - H-001
   - H-002
@@ -37,8 +37,10 @@
   - H-001 已由同一次 live run 的 wire LCP 和 provider cache usage 形成直接因果证据。
   - H-002 已由 DeepSeek 官方兼容矩阵和当前 ChatCompletions schema 排除。
   - H-003 已由 R5 G1 三次受控实跑、复杂样本和 R6 control call/output 可回放字段共同满足诊断门禁。
+  - R6 live simple/branch-join 的 26 个逻辑请求、78 条精确扫描事件全部通过，active projection 恒为 1。
+  - simple/branch-join request 2+ cache 分别为 91.28%/92.47%，同 shape zero-hit 均为 0。
 - Close reason:
-  - not closed
+  - epoch 基线加原始 journal 的实现与两个 Docker 样本修复门禁全部通过。
 
 ## Hypothesis H-001: 末尾动态投影使下一请求不再包含上一完整前缀
 - Status: confirmed
@@ -78,11 +80,11 @@
   - E-002
 - Conclusion: confirmed
 - Repair design readiness: ready；用户已明确授权继续 Phase C 修复
-- Next step: 评估 provider 官方缓存边界与不积累旧 projection 的稳定布局。
+- Next step: none
 - Blocker:
   - none
 - Close reason:
-  - not closed
+  - root cause repaired and validated by E-006/E-007
 
 ## Hypothesis H-002: provider 存在可直接承载动态投影的显式缓存边界
 - Status: refuted
@@ -123,7 +125,7 @@
 - Blocker:
   - none
 - Close reason:
-  - not closed
+  - provider capability claim refuted
 
 ## Hypothesis H-003: epoch 基线投影加原始 control journal 可同时保持语义与前缀
 - Status: confirmed
@@ -166,11 +168,11 @@
   - E-005
 - Conclusion: confirmed
 - Repair design readiness: ready；用户已授权 Phase C 继续修复
-- Next step: 将 R6 projection 明确收敛为 epoch 基线，删除逐 provider request 动态替换路径并实跑验证。
+- Next step: none
 - Blocker:
   - none
 - Close reason:
-  - not closed
+  - implemented and validated
 
 ## Evidence E-001: 最新三臂简单样本显示 R6 缓存坍缩
 - Related hypotheses:
@@ -280,3 +282,52 @@
   ```
 - Interpretation: R6 不需要 Runtime 生成摘要或推断性 delta；原始 Agent call/output 本身就是忠实状态变更日志。
 - Time: 2026-07-15 09:42
+
+## Evidence E-006: simple 样本恢复稳定消息前缀和缓存
+- Related hypotheses:
+  - H-001
+  - H-003
+- Direction: supports
+- Type: fix-validation
+- Source: `target/r6-phase-c-epoch/simple/single-file-fast-fix/20260715-094309-889`
+- Prediction or plan link:
+  - P-001 wire prefix 与 cache fix criteria
+- Matched signal:
+  - 13 个逻辑请求的 39 条精确扫描全部通过，active projection 恒为 1；全部 12 个后续请求保持 message prefix
+- Correlation keys:
+  - run `20260715-094309-889`
+- Raw content:
+  ```text
+  request2+ cache: 91.28%
+  message prefix: 12/12
+  same-shape zero-hit: 0
+  projection_count: 1
+  exact scan failures: 0
+  ```
+- Interpretation: 修复前同样本 0/9 前缀与 0.32% 后续命中已消失，且没有通过积累旧 projection 规避问题。
+- Time: 2026-07-15 09:50
+
+## Evidence E-007: branch-join 样本独立复验 epoch 布局
+- Related hypotheses:
+  - H-001
+  - H-003
+- Direction: supports
+- Type: fix-validation
+- Source: `target/r6-phase-c-epoch/branch-join/multi-file-order-pipeline/20260715-094519-735`
+- Prediction or plan link:
+  - P-001 复杂样本修复泛化
+- Matched signal:
+  - 13 个逻辑请求的 39 条精确扫描全部通过，active projection 恒为 1；唯一前缀差异是一次 bootstrap tool shape 转换
+- Correlation keys:
+  - run `20260715-094519-735`
+- Raw content:
+  ```text
+  request2+ cache: 92.47%
+  message prefix: 12/12
+  full-shape prefix: 11/12
+  same-shape zero-hit: 0
+  projection_count: 1
+  exact scan failures: 0
+  ```
+- Interpretation: epoch 基线与原始 control journal 在多文件任务上仍保持 append-only message 历史；shape 转换被单独观测，没有伪装为 projection 失败。
+- Time: 2026-07-15 09:50

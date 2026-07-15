@@ -1,7 +1,7 @@
 # Problem P-001: R6 live sample enters transition rejection loop
-- Status: open
+- Status: fixed
 - Created: 2026-07-15 08:26
-- Updated: 2026-07-15 08:43
+- Updated: 2026-07-15 09:50
 - Objective: 找出并修复 R6 生产纵向切换后两个 Docker 样本共同进入状态转换拒绝循环的根因。
 - Symptoms:
   - single-file-fast-fix 的 R6 侧达到约 79 次 provider request，profile hint 为 8。
@@ -35,15 +35,16 @@
   - 根因通过 trace、代码路径与定向失败测试中的至少两类证据确认。
   - 修复后原始两个 Docker 样本 R6 侧均完成外部验证，无 transition reject loop。
   - 拒绝反馈保持忠实，不增加 Runtime 语义决策或兼容分支。
-- Current conclusion: 根因与放大因素已通过双 trace、代码路径和定向测试确认；修复已通过本地回归，等待重建后的原始 Docker 样本验证。
+- Current conclusion: Root 被旧合同错误暴露为可绑定 current 节点、拒绝回执又报告候选 revision，是循环的根因与反馈放大因素；新合同和单层真实回执已通过两个原始 Docker 样本复验。
 - Related hypotheses:
   - H-001
   - H-002
   - H-003
 - Resolution basis:
-  - not satisfied
+  - simple 与 branch-join 的 R6 侧均完成业务执行、显式终结和外部验证，control/state/protocol failure 为 0。
+  - 两个样本分别形成 5/4 节点、4/3 边的完整 Root -> Finish 路径，没有 transition reject loop。
 - Close reason:
-  - not closed
+  - 原始失败路径已不可表达，机械反馈真实性与 live 修复门禁均满足。
 
 ## Hypothesis H-001: initialization accepts a non-actionable current root
 - Status: confirmed
@@ -80,11 +81,11 @@
   - E-001
 - Conclusion: 旧 schema 把 `current_node_id` 暴露为无角色裸引用，解析层还明确接受 Root；Runtime 却无条件按 `Work/Ready -> Running` 执行 Bind。两条 trace 的每次调用均选择 Root 并在候选 revision 1 失败，外层原子事务随后回滚。
 - Repair design readiness: satisfied
-- Next step: 用 `current_work_node` 新 schema 重跑原始样本
+- Next step: none
 - Blocker:
   - none
 - Close reason:
-  - not closed
+  - implemented and validated by E-005/E-006
 
 ## Hypothesis H-002: control feedback hides or distorts the committed graph state
 - Status: confirmed
@@ -123,11 +124,11 @@
   - E-002
 - Conclusion: 消息条目没有丢失，但拒绝语义发生两处失真：候选 revision 1 被表述为实际 current revision；完整 R6 rejection 又被字符串化到另一层 `error.message`。真实生产状态始终是空 map/revision 0。
 - Repair design readiness: satisfied
-- Next step: 验证新输出只含一层 typed rejection，且回滚后 revision 为 0
+- Next step: none
 - Blocker:
   - none
 - Close reason:
-  - not closed
+  - implemented and validated by E-005/E-006
 
 ## Hypothesis H-003: exposed transitions do not cover the canonical state path
 - Status: refuted
@@ -169,7 +170,7 @@
 - Blocker:
   - none
 - Close reason:
-  - not closed
+  - transition-table root-cause claim refuted
 
 ## Evidence E-001: two independent TaskSpace samples reproduce the same loop
 - Related hypotheses:
@@ -284,3 +285,27 @@
   ~~~
 - Interpretation: 修复收紧的是机械输入角色和反馈真实性，没有让 Runtime 选择 Work 或注入纠错策略。
 - Time: 2026-07-15 08:43
+
+## Evidence E-006: 两个原始 Docker 样本均无 transition reject loop
+- Related hypotheses:
+  - H-001
+  - H-002
+  - H-003
+- Direction: supports H-001/H-002 repair; refutes H-003
+- Type: fix-validation
+- Source: `target/r6-phase-c-epoch/simple/single-file-fast-fix/20260715-094309-889`; `target/r6-phase-c-epoch/branch-join/multi-file-order-pipeline/20260715-094519-735`
+- Prediction or plan link:
+  - P-001 Docker fix criteria
+- Matched signal:
+  - 两个 R6 arm 均 solved、external validation passed、Task completed；control/state/protocol failure 为 0
+- Correlation keys:
+  - simple run `20260715-094309-889`
+  - branch-join run `20260715-094519-735`
+- Raw content:
+  ~~~text
+  simple: requests=13, map=1, nodes=5, edges=4, open=0
+  branch-join: requests=13, map=1, nodes=4, edges=3, open=0
+  exact payload scan failures: 0
+  ~~~
+- Interpretation: 修复后 Agent 能初始化并推进合法 Work，Root 仅在显式 finish_end 事务中与 Finish 一同闭合；旧 transition 拒绝循环未复现。
+- Time: 2026-07-15 09:50

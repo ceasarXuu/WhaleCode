@@ -10,7 +10,7 @@
 Created: 2026-07-15
 Updated: 2026-07-15
 Version: v0.0.5 build-R6
-Status: Phase B Complete / Phase C Ready
+Status: Phase C Complete / Phase D Ready
 Owner / Responsible: WhaleCode core runtime / TaskSpace
 Risk Level: Critical
 Plan Type: Full
@@ -191,6 +191,11 @@ Standard/R5/R6 simple 快速臂中 R6 production 行为仍与 R5 相同。
 
 **目标**：把 model、tool schema、runtime、event、snapshot 和 projection 一次切到新 Map，删除旧权威。
 
+**执行结果**：已完成。生产链路在 `fa6b6ff1885994d994fda616a3cb7a3a1b27b499` 上统一使用
+Rooted DAG；旧 schema 只保留为拒绝测试输入，不再可由生产工具表达。simple 与 branch-join 的
+Standard/R6 Docker 臂均通过，冻结 R5 对照沿用 Phase A 的 commit-pinned 结果。完整证据见
+`05-r6-phase-c-result.md` 和 `benchmarks/taskspace/r6/phase-c-result.json`。
+
 阶段内小提交顺序：
 
 1. Protocol 增加 `root_node_id`、`finish_node_id`、role/status 和 revision 的新 snapshot/event 定义。
@@ -349,15 +354,15 @@ docs、schema、tests、logs、viewer 对 role/status/error code 定义一致。
 
 | Plan Item | Production Path | Test Evidence | Runtime Evidence | Phase | Status |
 |---|---|---|---|---|---|
-| Root/Finish 一等模型 | `action_map/model` | role/status matrix | init digest | B/C | B core complete / C production pending |
+| Root/Finish 一等模型 | `action_map/model` | role/status matrix | init digest | B/C | production complete |
 | 单入口单出口 validator | `action_map/invariants` | graph/property tests | violation codes | B | complete |
-| Agent 原子图事务 | control handler + mutation | atomicity/revision tests | mutation trace | C/D | planned |
-| Root-open readiness | transitions/runtime | chain/fork/join tests | frontier changes | B/C/D | B pure complete / C production pending |
-| Agent 手动 Finish | control/runtime | terminal negative matrix | terminal trace | B/C/E | B pure complete / C production pending |
+| Agent 原子图事务 | control handler + mutation | atomicity/revision tests | mutation trace | C/D | C production baseline complete / D mutation breadth pending |
+| Root-open readiness | transitions/runtime | chain/fork/join tests | frontier changes | B/C/D | C production complete / D concurrency pending |
+| Agent 手动 Finish | control/runtime | terminal negative matrix | terminal trace | B/C/E | C production complete / E fault matrix pending |
 | Event reducer/replay | events/snapshot | 20-cycle/fork/crash | hash/revision | B/E | B reducer complete / E persistence pending |
-| 纯 projection | projection/context | coverage/dedup/hash | wire LCP | C/F | planned |
-| Viewer DAG | Web Viewer | fixture/screenshot smoke | render digest | D/H | planned |
-| Docker 三臂观察 | benchmark harness | 1x/3x matrices | request/cache/map logs | A-G | A baseline + B identity smoke complete |
+| 纯 projection | projection/context | coverage/dedup/hash | wire LCP | C/F | C epoch baseline complete / F ownership cleanup pending |
+| Viewer DAG | Web Viewer | fixture/screenshot smoke | render digest | D/H | C snapshot cutover complete / D/H visual gate pending |
+| Docker 三臂观察 | benchmark harness | 1x/3x matrices | request/cache/map logs | A-G | C simple + branch-join 1x complete |
 | 压缩重基线 | projection/observer | B0/strategy matrix | activation/bytes | G | planned |
 
 ## 1.16 日志建设矩阵

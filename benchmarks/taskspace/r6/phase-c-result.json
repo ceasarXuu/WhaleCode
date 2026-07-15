@@ -1,0 +1,154 @@
+{
+  "schema_version": 1,
+  "result_id": "r6-phase-c",
+  "status": "complete",
+  "completed_at": "2026-07-15T09:50:00+08:00",
+  "candidate_commit": "fa6b6ff1885994d994fda616a3cb7a3a1b27b499",
+  "frozen_r5_commit": "d12818f055494e510c6bd1d34f5b7b5154536471",
+  "production_cutover": {
+    "rooted_dag_authoritative": true,
+    "single_root": true,
+    "single_finish": true,
+    "all_nodes_on_root_finish_path": true,
+    "task_status_authority_removed": true,
+    "map_status_authority_removed": true,
+    "legacy_create_node_exposed": false,
+    "legacy_terminal_list_exposed": false,
+    "zero_edge_multi_node_schema_exposed": false,
+    "legacy_session_policy": "fatal_unsupported",
+    "compatibility_layer_added": false
+  },
+  "projection_contract": {
+    "marker": "TaskSpaceMapEpochSnapshotR6V1",
+    "snapshot_policy": "one_baseline_per_context_epoch",
+    "change_journal": "exact_taskspace_control_call_and_output",
+    "runtime_semantic_delta": false,
+    "stale_projection_accumulation": false
+  },
+  "live_runs": {
+    "simple": {
+      "run_root": "target/r6-phase-c-epoch/simple/single-file-fast-fix/20260715-094309-889",
+      "report_sha256": "f24816500e7f75dc9d538c77326cecedce38a4c742a6c47be5d4fc1810d6f79e",
+      "standard": {
+        "result": "passed",
+        "requests": 6,
+        "wall_ms": 19544,
+        "input_tokens": 41993,
+        "cached_input_tokens": 40448,
+        "uncached_input_tokens": 1545,
+        "output_tokens": 1897,
+        "request_2_plus_cache_hit_rate": 0.9604
+      },
+      "r6": {
+        "result": "passed",
+        "requests": 13,
+        "wall_ms": 30427,
+        "input_tokens": 111170,
+        "cached_input_tokens": 97408,
+        "uncached_input_tokens": 13762,
+        "output_tokens": 2569,
+        "request_2_plus_cache_hit_rate": 0.9128,
+        "map_count": 1,
+        "node_count": 5,
+        "edge_count": 4,
+        "result_count": 3,
+        "open_node_count": 0,
+        "control_count": 10,
+        "exact_scan_events": 39,
+        "exact_scan_failures": 0,
+        "active_projection_counts": [1],
+        "message_prefix_preserved": "12/12",
+        "same_shape_zero_hit_count": 0
+      }
+    },
+    "branch_join": {
+      "run_root": "target/r6-phase-c-epoch/branch-join/multi-file-order-pipeline/20260715-094519-735",
+      "report_sha256": "bb7f8f67a55c6f218e3c46e6a03f7e0c8b1d689c1dff4f2d0ee318779bdb9aec",
+      "standard": {
+        "result": "passed",
+        "requests": 14,
+        "wall_ms": 76212,
+        "input_tokens": 184211,
+        "cached_input_tokens": 174848,
+        "uncached_input_tokens": 9363,
+        "output_tokens": 8349,
+        "request_2_plus_cache_hit_rate": 0.9477
+      },
+      "r6": {
+        "result": "passed",
+        "requests": 13,
+        "wall_ms": 55775,
+        "input_tokens": 162854,
+        "cached_input_tokens": 150784,
+        "uncached_input_tokens": 12070,
+        "output_tokens": 5737,
+        "request_2_plus_cache_hit_rate": 0.9247,
+        "map_count": 1,
+        "node_count": 4,
+        "edge_count": 3,
+        "result_count": 2,
+        "open_node_count": 0,
+        "control_count": 7,
+        "exact_scan_events": 39,
+        "exact_scan_failures": 0,
+        "active_projection_counts": [1],
+        "message_prefix_preserved": "12/12",
+        "same_shape_zero_hit_count": 0
+      }
+    }
+  },
+  "frozen_r5_reference": {
+    "source": "benchmarks/taskspace/r6/phase-a-baseline-result.json",
+    "simple": {
+      "result": "passed",
+      "requests": 7,
+      "wall_ms": 20464,
+      "input_tokens": 50746,
+      "cached_input_tokens": 48256,
+      "uncached_input_tokens": 2490,
+      "output_tokens": 1746,
+      "request_2_plus_cache_hit_rate": 0.9467,
+      "nodes": 3,
+      "edges": 0,
+      "results": 3
+    },
+    "branch_join": {
+      "result": "passed",
+      "requests": 9,
+      "wall_ms": 50140,
+      "input_tokens": 100110,
+      "cached_input_tokens": 93440,
+      "uncached_input_tokens": 6670,
+      "output_tokens": 6028,
+      "request_2_plus_cache_hit_rate": 0.9323,
+      "nodes": 4,
+      "edges": 0,
+      "results": 4
+    }
+  },
+  "build_attestation": {
+    "path": "third_party/codex-cli/codex-rs/target/debug/whale.build-attestation.json",
+    "sha256": "fcd1eb9bedb1fe3625a950e6a90cf3c10cafc3587b5b7e76f1e5816ef0a62ec1",
+    "binary_sha256": "1e539ecc2188705781b56b2c26bcdb64e7160ea8dcba45f75ec75cfb17326b3d",
+    "status": "pass"
+  },
+  "exit_gates": {
+    "root_finish_uniqueness": "pass",
+    "root_finish_path_coverage": "pass",
+    "single_completion_authority": "pass",
+    "legacy_schema_unrepresentable": "pass",
+    "legacy_session_fatal": "pass",
+    "simple_three_arm_reference": "pass",
+    "branch_join_three_arm_reference": "pass",
+    "external_validation": "pass",
+    "projection_exact_scan": "pass",
+    "cache_prefix_repair": "pass"
+  },
+  "deferred": [
+    "phase_d_dynamic_fork_join_and_concurrent_frontier",
+    "phase_e_crash_resume_fork_fault_matrix",
+    "phase_f_context_ownership_cleanup",
+    "phase_g_three_repeat_cost_rebaseline",
+    "phase_h_full_workspace_and_release_suite"
+  ]
+}
