@@ -1,0 +1,161 @@
+# Problem P-001: R6 Agent final bypasses explicit Finish transaction
+- Status: open
+- Created: 2026-07-16 05:00
+- Updated: 2026-07-16 05:00
+- Objective: Ensure a TaskSpace turn can publish a successful final answer only through an Agent-authored `finish_end` transaction.
+- Symptoms:
+  - Agent completes all Work, makes Finish READY, then emits plain final text without calling `finish_end`.
+- Expected behavior:
+  - Finish READY exposes the existing control tool; Agent chooses finish, rework, graph mutation or Map reads, and only committed `finish_end` publishes the final answer.
+- Actual behavior:
+  - Provider tool choice returns to auto after initialization, ordinary assistant final is accepted, and Map remains Root OPEN / Finish READY.
+- Impact:
+  - Business work can succeed while the canonical task state remains incomplete.
+- Reproduction:
+  - Run Phase E `subscription-billing-repair`; inspect the final control state and final assistant response.
+- Environment:
+  - Linux, branch `whalecode-alpha`, runtime candidate `fa505477d`, current investigation HEAD `f700f3556`.
+- Known facts:
+  - Final control revision is 7 with no pending/ready/running Work and `finish_ready=true`.
+  - `finish_end_count=0` and `complete=false`.
+  - `finish_end` schema, transaction and terminal summary carrier already exist.
+- Ruled out:
+  - Finish was not mechanically ready.
+  - Runtime needs to infer completion from final text.
+  - Hook is involved in the observed failure.
+- Fix criteria:
+  - Finish READY provider request names the existing `taskspace_control` while preserving Agent variant choice.
+  - Plain assistant text cannot become a TaskSpace final item or trigger a recovery request.
+  - A successful terminal carrier contains committed map id/revision and the Agent summary unchanged.
+  - Standard mode behavior remains unchanged.
+- Current conclusion: Canonical Finish READY is not projected into provider tool choice or turn response completion semantics.
+- Related hypotheses:
+  - H-001
+  - H-002
+- Resolution basis:
+  - not satisfied
+- Close reason:
+  - not closed
+
+## Hypothesis H-001: Terminal hard state is absent from the provider response contract
+- Status: confirmed
+- Parent: P-001
+- Claim: Provider hard-state selection only forces `taskspace_control` for bootstrap; Finish READY returns to auto and the stream/turn path accepts assistant text as final without a terminal carrier.
+- Layer: root-cause
+- Factor relation: all_of
+- Depends on:
+  - none
+- Rationale:
+  - The failed run reaches the correct mechanical frontier but still exposes a no-tool completion path.
+- Falsifiable predictions:
+  - If true: the provider selector has no TerminalControlRequired branch and the non-tool stream path writes `last_agent_message` before terminal validation.
+  - If false: Finish READY already forces the control tool and plain assistant final is classified nonterminal.
+- Diagnostic evidence plan:
+  - Prediction or clause under test: Trace control-state derivation, tool choice, stream item publication and turn completion.
+  - Signal: request tool choice, visible tools, emitted final item and terminal carrier presence.
+  - Capture method: Code trace plus the frozen Phase E rollout.
+  - Event name or marker:
+    - `taskspace_terminal_protocol_violation`
+  - Correlation keys:
+    - final committed revision 7
+  - Differentiates from:
+    - H-002
+  - Supports if:
+    - Finish READY exists but provider uses auto and accepts a no-tool final.
+  - Refutes if:
+    - A named tool contract and pre-publication response classification already exist.
+  - Instrumentation status: permanent-observability-candidate
+  - Instrumentation lifecycle:
+    - Retain mechanical control-mode and protocol-violation events.
+- Evidence gate: satisfied
+- Related evidence:
+  - E-001
+  - E-002
+- Conclusion: confirmed
+- Repair design readiness: ready; user authorized Phase E implementation
+- Next step: Implement terminal provider mode, response contract and completion gate without semantic inference.
+- Blocker:
+  - none
+- Close reason:
+  - not closed
+
+## Hypothesis H-002: ActionMap did not reach Finish READY
+- Status: refuted
+- Parent: P-001
+- Claim: The Agent skipped `finish_end` because the state machine still had unfinished Work and did not expose a terminal frontier.
+- Layer: root-cause
+- Factor relation: any_of
+- Depends on:
+  - none
+- Rationale:
+  - An unfinished frontier would make `finish_end` invalid and could explain continued behavior.
+- Falsifiable predictions:
+  - If true: final control state contains unfinished Work or `finish_ready=false`.
+  - If false: no unfinished Work remains and `finish_ready=true`.
+- Diagnostic evidence plan:
+  - Prediction or clause under test: Inspect final raw control state.
+  - Signal: pending/ready/running lists and finish_ready.
+  - Capture method: Frozen benchmark result and raw control outputs.
+  - Event name or marker:
+    - `graph_revision_committed`
+  - Correlation keys:
+    - revision 7
+  - Differentiates from:
+    - H-001
+  - Supports if:
+    - Unfinished Work exists.
+  - Refutes if:
+    - All Work lists are empty and Finish is READY.
+  - Instrumentation status: none
+  - Instrumentation lifecycle:
+    - none
+- Evidence gate: satisfied
+- Related evidence:
+  - E-001
+- Conclusion: refuted
+- Repair design readiness: not applicable
+- Next step: closed as alternative.
+- Blocker:
+  - none
+- Close reason:
+  - contradicted by final control state
+
+## Evidence E-001: Raw trace reaches terminal frontier without terminal call
+- Related hypotheses:
+  - H-001
+  - H-002
+- Direction: supports
+- Type: reproduction
+- Source: `benchmarks/taskspace/r6/phase-e-finish-boundary-result.json`
+- Prediction or plan link:
+  - H-001 and H-002 terminal-frontier prediction.
+- Matched signal:
+  - revision 7, no unfinished Work, `finish_ready=true`, `complete=false`, `finish_end_count=0`.
+- Correlation keys:
+  - runtime candidate `fa505477d`
+- Raw content:
+  ```text
+  pending=[] ready=[] running=[] finish_ready=true complete=false finish_end_count=0
+  ```
+- Interpretation: The state machine reached the correct frontier; the bypass is in provider/response completion integration.
+- Time: 2026-07-16 05:00
+
+## Evidence E-002: Provider and stream paths omit terminal response semantics
+- Related hypotheses:
+  - H-001
+- Direction: supports
+- Type: code-location
+- Source: `core/src/session/turn.rs`, `core/src/stream_events_utils.rs`
+- Prediction or plan link:
+  - H-001 provider and pre-publication classification prediction.
+- Matched signal:
+  - Named `taskspace_control` is selected only for bootstrap; ordinary non-tool messages are emitted and assigned to `last_agent_message` before terminal carrier validation.
+- Correlation keys:
+  - none
+- Raw content:
+  ```text
+  map_requires_initialization -> named taskspace_control; otherwise auto
+  non-tool response -> emit completed item and set last_agent_message
+  ```
+- Interpretation: The mechanical terminal frontier does not constrain the provider action surface or final-item publication.
+- Time: 2026-07-16 05:00
