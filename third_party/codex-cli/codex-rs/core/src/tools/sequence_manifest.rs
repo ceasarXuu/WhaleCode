@@ -18,20 +18,19 @@ pub(crate) struct ToolSequenceManifest {
 }
 
 impl ToolSequenceManifest {
-    pub(crate) fn from_calls(calls: &[ToolCall]) -> Result<Self, String> {
+    pub(crate) fn from_calls(calls: &[ToolCall]) -> Self {
         let mut entries = Vec::new();
         for call in calls {
             entries.push(top_level_entry(call));
             if !is_taskspace_control(call) {
                 continue;
             }
-            let arguments = taskspace_control_arguments(call)?;
-            let args = parse_taskspace_control_args(arguments).map_err(|error| {
-                format!(
-                    "taskspace_control call `{}` is invalid: {error}",
-                    call.call_id
-                )
-            })?;
+            let Some(arguments) = taskspace_control_arguments(call) else {
+                continue;
+            };
+            let Ok(args) = parse_taskspace_control_args(arguments) else {
+                continue;
+            };
             entries.extend(
                 args.nested_actions()
                     .into_iter()
@@ -40,10 +39,10 @@ impl ToolSequenceManifest {
             );
         }
         let request_patch_count = entries.iter().filter(|entry| entry.is_apply_patch).count();
-        Ok(Self {
+        Self {
             entries,
             request_patch_count,
-        })
+        }
     }
 }
 
@@ -77,14 +76,11 @@ fn is_taskspace_control(call: &ToolCall) -> bool {
     call.tool_name.namespace.is_none() && call.tool_name.name == "taskspace_control"
 }
 
-fn taskspace_control_arguments(call: &ToolCall) -> Result<&str, String> {
+fn taskspace_control_arguments(call: &ToolCall) -> Option<&str> {
     let ToolPayload::Function { arguments } = &call.payload else {
-        return Err(format!(
-            "taskspace_control call `{}` requires function arguments",
-            call.call_id
-        ));
+        return None;
     };
-    Ok(arguments)
+    Some(arguments)
 }
 
 #[cfg(test)]
@@ -107,11 +103,10 @@ mod tests {
         let bootstrap = call(
             "taskspace_control",
             "bootstrap",
-            r#"{"action":"initialize_map","root":{"node_id":"root","goal":"Solve"},"current_work_node":{"node_id":"edit","goal":"Edit"},"work_nodes":[],"finish":{"node_id":"finish","goal":"Summarize"},"edges":[{"from":"root","to":"edit"},{"from":"edit","to":"finish"}],"continuation":{"kind":"patch_then_actions","patch":{"tool_name":"apply_patch","input":"patch"},"actions":[{"tool_name":"exec_command","arguments":{"cmd":"test"}}]}}"#,
+            r#"{"action":"initialize_map","root":{"node_id":"root","goal":"Solve"},"initial_work_node":{"node_id":"edit","goal":"Edit"},"additional_work_nodes":[],"finish":{"node_id":"finish","goal":"Summarize"},"edges":[{"from":"root","to":"edit"},{"from":"edit","to":"finish"}],"continuation":{"kind":"patch_then_actions","patch":{"tool_name":"apply_patch","input":"patch"},"actions":[{"tool_name":"exec_command","arguments":{"cmd":"test"}}]}}"#,
         );
         let manifest =
-            ToolSequenceManifest::from_calls(&[bootstrap, call("apply_patch", "top-patch", "{}")])
-                .expect("manifest");
+            ToolSequenceManifest::from_calls(&[bootstrap, call("apply_patch", "top-patch", "{}")]);
 
         assert_eq!(manifest.request_patch_count, 2);
         assert_eq!(manifest.entries.len(), 4);
@@ -124,14 +119,13 @@ mod tests {
     }
 
     #[test]
-    fn rejects_an_unparseable_taskspace_manifest() {
-        let error = ToolSequenceManifest::from_calls(&[call(
+    fn leaves_unparseable_taskspace_arguments_to_the_tool_handler() {
+        let manifest = ToolSequenceManifest::from_calls(&[call(
             "taskspace_control",
             "bad-control",
             r#"{"action":"initialize_map"}"#,
-        )])
-        .expect_err("invalid control args");
-        assert!(error.contains("bad-control"));
-        assert!(error.contains("invalid taskspace_control arguments"));
+        )]);
+        assert_eq!(manifest.entries.len(), 1);
+        assert_eq!(manifest.request_patch_count, 0);
     }
 }

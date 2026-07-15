@@ -95,14 +95,24 @@ impl ToolHandler for TaskSpaceControlHandler {
                 ));
             }
         };
-        let args = parse_taskspace_control_args(&arguments)?;
+        let args = match parse_taskspace_control_args(&arguments) {
+            Ok(args) => args,
+            Err(error) => {
+                tracing::warn!(
+                    target: "codex_core::taskspace",
+                    call_id,
+                    "taskspace.control_arguments_rejected"
+                );
+                return Err(error);
+            }
+        };
 
         let (message, success, terminal_agent_message) = match args {
             TaskSpaceControlArgs::InitializeMap {
                 root,
-                current_work_node,
+                initial_work_node,
                 finish,
-                work_nodes,
+                additional_work_nodes,
                 edges,
                 continuation: _,
             } => {
@@ -115,9 +125,12 @@ impl ToolHandler for TaskSpaceControlHandler {
                         &turn,
                         ActionMapInitializeInput {
                             root: map_node_input(root),
-                            current_work_node: map_node_input(current_work_node),
+                            current_work_node: map_node_input(initial_work_node),
                             finish: map_node_input(finish),
-                            work_nodes: work_nodes.into_iter().map(map_node_input).collect(),
+                            work_nodes: additional_work_nodes
+                                .into_iter()
+                                .map(map_node_input)
+                                .collect(),
                             edges: edges.into_iter().map(map_edge_input).collect(),
                             source_event_ids,
                         },

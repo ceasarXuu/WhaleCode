@@ -248,7 +248,10 @@ fn taskspace_map_lifecycle_schema_is_the_only_taskspace_control_schema() {
     assert_eq!(actions, vec!["initialize_map"]);
     let serialized = serde_json::to_string(parameters).expect("serialize parameters");
     assert!(serialized.contains("root"));
-    assert!(serialized.contains("work_nodes"));
+    assert!(serialized.contains("initial_work_node"));
+    assert!(serialized.contains("additional_work_nodes"));
+    assert!(!serialized.contains("\"current_work_node\""));
+    assert!(!serialized.contains("\"work_nodes\""));
     assert!(serialized.contains("finish"));
     assert!(serialized.contains("edges"));
     assert!(!serialized.contains("initialize_then_actions"));

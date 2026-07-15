@@ -12,9 +12,9 @@ pub(crate) const TASKSPACE_CONTROL_RESULT_SCHEMA_VERSION: &str = "TaskSpaceContr
 pub(crate) enum TaskSpaceControlArgs {
     InitializeMap {
         root: TaskSpaceGraphNodeArgs,
-        current_work_node: TaskSpaceGraphNodeArgs,
+        initial_work_node: TaskSpaceGraphNodeArgs,
         finish: TaskSpaceGraphNodeArgs,
-        work_nodes: Vec<TaskSpaceGraphNodeArgs>,
+        additional_work_nodes: Vec<TaskSpaceGraphNodeArgs>,
         edges: Vec<TaskSpaceGraphEdgeArgs>,
         continuation: TaskSpaceContinuation,
     },
@@ -164,13 +164,19 @@ impl TaskSpaceControlArgs {
         match self {
             Self::InitializeMap {
                 root,
-                current_work_node,
+                initial_work_node,
                 finish,
-                work_nodes,
+                additional_work_nodes,
                 edges,
                 continuation,
             } => {
-                validate_initialize_map(root, current_work_node, finish, work_nodes, edges)?;
+                validate_initialize_map(
+                    root,
+                    initial_work_node,
+                    finish,
+                    additional_work_nodes,
+                    edges,
+                )?;
                 continuation.validate()?;
                 Ok(())
             }
@@ -260,16 +266,16 @@ pub(crate) fn parse_taskspace_control_args(
 
 fn validate_initialize_map(
     root: &TaskSpaceGraphNodeArgs,
-    current_work_node: &TaskSpaceGraphNodeArgs,
+    initial_work_node: &TaskSpaceGraphNodeArgs,
     finish: &TaskSpaceGraphNodeArgs,
-    work_nodes: &[TaskSpaceGraphNodeArgs],
+    additional_work_nodes: &[TaskSpaceGraphNodeArgs],
     edges: &[TaskSpaceGraphEdgeArgs],
 ) -> Result<(), FunctionCallError> {
-    let mut all_nodes = Vec::with_capacity(work_nodes.len() + 3);
+    let mut all_nodes = Vec::with_capacity(additional_work_nodes.len() + 3);
     all_nodes.push(root);
-    all_nodes.push(current_work_node);
+    all_nodes.push(initial_work_node);
     all_nodes.push(finish);
-    all_nodes.extend(work_nodes);
+    all_nodes.extend(additional_work_nodes);
     validate_unique_nodes(&all_nodes, "initialize_map nodes")?;
     validate_edges(edges, "initialize_map.edges")?;
     validate_unique_edges(edges, "initialize_map.edges")?;

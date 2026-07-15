@@ -92,12 +92,25 @@ fn extracts_bootstrap_nested_actions() {
     let call = function_call_with_arguments(
         "taskspace_control",
         "outer",
-        r#"{"action":"initialize_map","root":{"node_id":"root","goal":"Solve"},"current_work_node":{"node_id":"node-1","goal":"Read"},"work_nodes":[],"finish":{"node_id":"finish","goal":"Summarize"},"edges":[{"from":"root","to":"node-1"},{"from":"node-1","to":"finish"}],"continuation":{"kind":"actions","actions":[{"tool_name":"exec_command","arguments":{"cmd":"pwd"}}]}}"#,
+        r#"{"action":"initialize_map","root":{"node_id":"root","goal":"Solve"},"initial_work_node":{"node_id":"node-1","goal":"Read"},"additional_work_nodes":[],"finish":{"node_id":"finish","goal":"Summarize"},"edges":[{"from":"root","to":"node-1"},{"from":"node-1","to":"finish"}],"continuation":{"kind":"actions","actions":[{"tool_name":"exec_command","arguments":{"cmd":"pwd"}}]}}"#,
     );
 
     let actions = taskspace_nested_actions(&call);
     assert_eq!(actions.len(), 1);
     assert_eq!(actions[0].tool_name(), "exec_command");
+}
+
+#[test]
+fn invalid_taskspace_arguments_are_owned_by_the_tool_handler() {
+    let call = function_call_with_arguments(
+        "taskspace_control",
+        "invalid-bootstrap",
+        r#"{"action":"initialize_map"}"#,
+    );
+
+    let manifest = validate_tool_sequence(&[call]).expect("preflight must not own tool arguments");
+    assert_eq!(manifest.entries.len(), 1);
+    assert_eq!(manifest.request_patch_count, 0);
 }
 
 #[test]
@@ -132,10 +145,10 @@ fn taskspace_patch_slot_and_top_level_patch_share_the_same_preflight_count() {
     let bootstrap = function_call_with_arguments(
         "taskspace_control",
         "bootstrap",
-        r#"{"action":"initialize_map","root":{"node_id":"root","goal":"Solve"},"current_work_node":{"node_id":"edit","goal":"Edit"},"work_nodes":[],"finish":{"node_id":"finish","goal":"Summarize"},"edges":[{"from":"root","to":"edit"},{"from":"edit","to":"finish"}],"continuation":{"kind":"patch_then_actions","patch":{"tool_name":"apply_patch","input":"patch"}}}"#,
+        r#"{"action":"initialize_map","root":{"node_id":"root","goal":"Solve"},"initial_work_node":{"node_id":"edit","goal":"Edit"},"additional_work_nodes":[],"finish":{"node_id":"finish","goal":"Summarize"},"edges":[{"from":"root","to":"edit"},{"from":"edit","to":"finish"}],"continuation":{"kind":"patch_then_actions","patch":{"tool_name":"apply_patch","input":"patch"}}}"#,
     );
     let calls = vec![bootstrap, function_call("apply_patch", "top-patch")];
-    let manifest = ToolSequenceManifest::from_calls(&calls).expect("manifest");
+    let manifest = ToolSequenceManifest::from_calls(&calls);
     assert_eq!(manifest.request_patch_count, 2);
     assert!(validate_tool_sequence(&calls).is_err());
 }

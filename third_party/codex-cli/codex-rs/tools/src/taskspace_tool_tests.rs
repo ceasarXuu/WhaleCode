@@ -20,18 +20,24 @@ fn bootstrap_schema_requires_initialization_with_continuation() {
         json!([
             "action",
             "root",
-            "current_work_node",
+            "initial_work_node",
             "finish",
-            "work_nodes",
+            "additional_work_nodes",
             "edges",
             "continuation"
         ])
     );
     assert!(variants[0]["properties"].get("current_node_id").is_none());
     assert_eq!(
-        variants[0]["properties"]["current_work_node"]["description"],
-        "Agent-selected initial Work node. Declared edges must make it Ready at initialization; Runtime binds it before continuation actions execute."
+        variants[0]["properties"]["initial_work_node"]["description"],
+        "Agent-selected initial Work node. Define it only here, not in additional_work_nodes. Declared edges must make it Ready at initialization; Runtime binds it before continuation actions execute."
     );
+    assert_eq!(
+        variants[0]["properties"]["additional_work_nodes"]["description"],
+        "Zero or more Work nodes other than initial_work_node. Node IDs must be distinct across the entire graph."
+    );
+    assert!(variants[0]["properties"].get("current_work_node").is_none());
+    assert!(variants[0]["properties"].get("work_nodes").is_none());
     let text = value.to_string();
     assert!(!text.contains("initialize_then_actions"));
     assert!(!text.contains("initial_nodes"));

@@ -48,22 +48,14 @@ pub(crate) async fn execute_response_tool_sequence(
     let manifest = match validate_tool_sequence(&calls) {
         Ok(manifest) => manifest,
         Err(failure) => {
-            if failure.reason_code == REQUEST_MULTIPLE_PATCHES_CODE {
-                tracing::warn!(
-                    target: "codex_core::taskspace",
-                    reason_code = failure.reason_code,
-                    request_patch_count = failure.request_patch_count,
-                    declared_tool_count = failure.declared_tool_count,
-                    "tool.request_multi_patch_rejected"
-                );
-            } else {
-                tracing::warn!(
-                    target: "codex_core::taskspace",
-                    reason_code = failure.reason_code,
-                    error = failure.message,
-                    "tool.request_manifest_rejected"
-                );
-            }
+            debug_assert_eq!(failure.reason_code, REQUEST_MULTIPLE_PATCHES_CODE);
+            tracing::warn!(
+                target: "codex_core::taskspace",
+                reason_code = failure.reason_code,
+                request_patch_count = failure.request_patch_count,
+                declared_tool_count = failure.declared_tool_count,
+                "tool.request_multi_patch_rejected"
+            );
             return Ok(ToolSequenceOutcome {
                 outputs: failure.outputs(&calls),
                 terminal_agent_message: None,

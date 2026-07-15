@@ -6,7 +6,6 @@ use crate::tools::sequence_manifest::ToolSequenceManifest;
 
 pub(crate) const REQUEST_MULTIPLE_PATCHES_CODE: &str =
     "request_multiple_apply_patch_calls_not_allowed";
-pub(crate) const REQUEST_MANIFEST_INVALID_CODE: &str = "request_tool_manifest_invalid";
 
 #[derive(Debug)]
 pub(crate) struct ToolSequencePreflightFailure {
@@ -44,14 +43,7 @@ impl ToolSequencePreflightFailure {
 pub(crate) fn validate_tool_sequence(
     calls: &[ToolCall],
 ) -> Result<ToolSequenceManifest, ToolSequencePreflightFailure> {
-    let manifest = ToolSequenceManifest::from_calls(calls).map_err(|message| {
-        ToolSequencePreflightFailure {
-            reason_code: REQUEST_MANIFEST_INVALID_CODE,
-            message,
-            request_patch_count: None,
-            declared_tool_count: None,
-        }
-    })?;
+    let manifest = ToolSequenceManifest::from_calls(calls);
     if manifest.request_patch_count > 1 {
         return Err(ToolSequencePreflightFailure {
             reason_code: REQUEST_MULTIPLE_PATCHES_CODE,
