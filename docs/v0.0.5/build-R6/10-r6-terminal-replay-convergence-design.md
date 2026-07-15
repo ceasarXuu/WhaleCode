@@ -3,11 +3,11 @@
 - Created: 2026-07-16
 - Updated: 2026-07-16
 - Version: v1
-- Status: Implementing (E2 completed, E3 in progress)
+- Status: Implementing (E2-E3 completed, E4 in progress)
 - Owner / Responsible: WhaleCode R6
 - Related Systems: TaskSpace control、provider turn loop、ActionMap replay、benchmark observer
 - Related Links: `01-r6-phased-implementation-plan.md`、`09-r6-phase-e-finish-boundary-result.md`、
-  `11-r6-phase-e2-canonical-replay-result.md`
+  `11-r6-phase-e2-canonical-replay-result.md`、`12-r6-phase-e3-observer-convergence-result.md`
 - Risk Level: High
 - Plan Type: Full
 
@@ -374,8 +374,8 @@ request=0；Root/Finish/revision 不变。
 | Plan Item | Production Code Path | Integration Entry | Test Evidence | Runtime / Log Evidence | Status |
 |---|---|---|---|---|---|
 | shared replay | `action_map` + session reconstruction | resume/offline debug | 15 replay + 31 reconstruction tests 等 targeted regression | revision 7 replay proof | completed |
-| observer switch | observability exporter | benchmark metrics extractor | R6-E-OBS-01 fixture | observer revision/hash | in progress |
-| provider control mode | action map state + session prompt build | provider request | tool choice/visibility tests | control mode event | planned |
+| observer switch | observability exporter | benchmark metrics extractor | full/large + corruption + observer regression | revision 7 / same collections | completed |
+| provider control mode | action map state + session prompt build | provider request | tool choice/visibility tests | control mode event | in progress |
 | completion gate | stream/sequence/turn completion | provider no-tool end | turn integration | protocol violation event | planned |
 | live gate | Docker benchmark | Standard/R5/R6 | business/public/hidden tests | trace + cost report | planned |
 

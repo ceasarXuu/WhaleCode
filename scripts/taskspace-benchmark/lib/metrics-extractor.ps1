@@ -478,6 +478,7 @@ function Export-TaskspaceObservabilityIfAvailable {
         [Parameter(Mandatory = $true)][string]$ArtifactDir,
         [Parameter(Mandatory = $true)][string]$JsonlPath,
         [Parameter(Mandatory = $true)][datetime]$StartedAt,
+        [Parameter(Mandatory = $true)][string]$WhalePath,
         [AllowEmptyString()][string]$ThreadId = ""
     )
     $rollout = Resolve-TaskspaceRolloutSource $ArtifactDir $StartedAt $ThreadId
@@ -493,10 +494,12 @@ function Export-TaskspaceObservabilityIfAvailable {
     $stdoutPath = Join-Path $ArtifactDir "observability.stdout.log"
     $stderrPath = Join-Path $ArtifactDir "observability.stderr.log"
     $exportScript = Join-Path $RepoRoot "scripts\export-action-map-observability.ps1"
-    $exitCode = Invoke-RealProcess "powershell" @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $exportScript, "-RolloutPath", $rolloutCopy, "-JsonlPath", $JsonlPath, "-OutputDir", $obsDir, "-ArtifactRoot", $RepoDir) $RepoDir $stdoutPath $stderrPath 180
+    $exitCode = Invoke-RealProcess "powershell" @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $exportScript, "-RolloutPath", $rolloutCopy, "-JsonlPath", $JsonlPath, "-OutputDir", $obsDir, "-WhalePath", $WhalePath, "-ArtifactRoot", $RepoDir) $RepoDir $stdoutPath $stderrPath 180
     $jsonPath = Join-Path $obsDir "action-map-observability.json"
     $obs = if (Test-Path -LiteralPath $jsonPath) { Get-Content -Raw -Encoding UTF8 -LiteralPath $jsonPath | ConvertFrom-Json } else { $null }
-    [pscustomobject]@{ exit_code = $exitCode; rollout_path = $rolloutCopy; observability_json = $jsonPath; observability = $obs }
+    $availability = if ($obs -and $obs.source -and $obs.source.replay) { [string]$obs.source.replay.availability } elseif ($exitCode -eq 0) { "replay_proof_missing" } else { "replay_failed" }
+    $errorCode = if ($obs -and $obs.source -and $obs.source.replay) { [string]$obs.source.replay.error_code } else { "" }
+    [pscustomobject]@{ exit_code = $exitCode; rollout_path = $rolloutCopy; observability_json = $jsonPath; observability = $obs; availability = $availability; replay_error_code = $errorCode }
 }
 
 function Get-TaskspaceBenchmarkMetrics {
@@ -519,8 +522,13 @@ function Get-TaskspaceBenchmarkMetrics {
             [bool]$_.critical_artifact -and [string]$_.hash_status -notin @("hashed", "missing")
         } | ForEach-Object {
             "metrics_critical_artifact_unhashed:$($_.path)"
-        })
+    })
     $obs = if ($ObservabilityResult) { $ObservabilityResult.observability } else { $null }
+    $observabilityAvailability = if ($ObservabilityResult -and $ObservabilityResult.PSObject.Properties.Name -contains "availability") { [string]$ObservabilityResult.availability } elseif ($Side.LogicalMode -eq "taskspace") { "missing" } else { "not_applicable" }
+    $observabilityReplayFailed = $Side.LogicalMode -eq "taskspace" -and $observabilityAvailability -eq "replay_failed"
+    if ($observabilityReplayFailed) {
+        $metricsTaints += "observability_replay_failed:$([string]$ObservabilityResult.replay_error_code)"
+    }
     $activeSentinelWarnings = @()
     if ($obs -and $obs.PSObject.Properties.Name -contains "sentinelWarnings") {
         $activeSentinelWarnings = @($obs.sentinelWarnings | Where-Object { [string]$_.status -eq "active" })
@@ -678,6 +686,8 @@ function Get-TaskspaceBenchmarkMetrics {
         changed_paths = @($changedInventory | ForEach-Object { $_.path })
         metrics_warnings = @($metricsWarnings)
         metrics_taints = @($metricsTaints)
+        observability_availability = $observabilityAvailability
+        observability_replay_error_code = if ($ObservabilityResult) { [string]$ObservabilityResult.replay_error_code } else { "" }
         docker_build_result_path = $dockerResult.path
         docker_cache_enabled = ($dockerResult.json -and $dockerResult.json.PSObject.Properties.Name -contains "cache_enabled" -and [bool]$dockerResult.json.cache_enabled)
         docker_cache_eligible = ($dockerResult.json -and $dockerResult.json.PSObject.Properties.Name -contains "cache_eligible" -and [bool]$dockerResult.json.cache_eligible)
@@ -702,10 +712,10 @@ function Get-TaskspaceBenchmarkMetrics {
         public_validation_reached_tests = [bool]$lifecycle.tests_started_seen
         pretest_failure = [bool]$pretestFailure
         infra_signature = $infraSignature
-        business_success = ($Exec.exit_code -eq 0 -and $Validation.exit_code -eq 0 -and $Oracle.exit_code -eq 0)
+        business_success = ($Exec.exit_code -eq 0 -and $Validation.exit_code -eq 0 -and $Oracle.exit_code -eq 0 -and -not $observabilityReplayFailed)
         invalid_prompt = $false
         invalid_pair = $false
-        harness_failure = $false
+        harness_failure = $observabilityReplayFailed
         diff_path = $diffPath
         jsonl_path = $Exec.jsonl_path
         last_message_path = $Exec.last_message_path

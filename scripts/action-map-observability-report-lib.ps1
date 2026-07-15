@@ -74,6 +74,12 @@ function Write-ActionMapObservabilityReport {
     $md.Add("- artifact root: " + $Reduced.source.artifactRoot)
     $md.Add("- rollout parse errors: $($Reduced.source.rolloutReadStats.parseErrorCount)")
     $md.Add("- jsonl parse errors: $($Reduced.source.jsonlReadStats.parseErrorCount)")
+    if ($Reduced.source.PSObject.Properties.Name -contains "replay") {
+        $md.Add("- canonical replay: $($Reduced.source.replay.availability)")
+        $md.Add("- replay error code: $($Reduced.source.replay.error_code)")
+        $md.Add("- final snapshot SHA256: $($Reduced.source.replay.final_snapshot_sha256)")
+        $md.Add("- active checkpoint/delta: $($Reduced.source.replay.active_checkpoint_id) / $($Reduced.source.replay.active_chain_last_delta_sequence)")
+    }
     $md.Add("")
     $md.Add("## Summary")
     $md.Add("")

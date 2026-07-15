@@ -5,11 +5,13 @@ param(
 $ErrorActionPreference = "Stop"
 
 . (Join-Path $PSScriptRoot "action-map-observability-lib.ps1")
+. (Join-Path $PSScriptRoot "test-action-map-replay-fixture-lib.ps1")
 
 if (-not $OutputDir) {
     $OutputDir = Join-Path $PSScriptRoot "..\target\test-reports\action-map-observability-lib"
 }
 [void](New-Item -ItemType Directory -Force -Path $OutputDir)
+$testWhale = New-TestActionMapReplayWhale (Join-Path $OutputDir "fake-replay")
 
 function Assert-Equal($Actual, $Expected, [string]$Message) {
     if ($Actual -ne $Expected) {
@@ -460,7 +462,7 @@ try {
         ($validityEvent | ConvertTo-Json -Depth 30 -Compress)
     ) | Set-Content -LiteralPath $rolloutPath -Encoding UTF8
     "" | Set-Content -LiteralPath $jsonlPath -Encoding UTF8
-    & (Join-Path $PSScriptRoot "export-action-map-observability.ps1") -RolloutPath $rolloutPath -JsonlPath $jsonlPath -OutputDir $exportDir -ArtifactRoot $fixtureDir | Out-Null
+    & (Join-Path $PSScriptRoot "export-action-map-observability.ps1") -RolloutPath $rolloutPath -JsonlPath $jsonlPath -OutputDir $exportDir -WhalePath $testWhale -ArtifactRoot $fixtureDir | Out-Null
     $exportJson = Get-Content -LiteralPath (Join-Path $exportDir "action-map-observability.json") -Raw -Encoding UTF8 | ConvertFrom-Json
     Assert-Equal ([bool]$exportJson.cognitiveAudit.structuralGatePassed) $false "canonical Map result should not synthesize the retired cognitive evidence package"
     Assert-Equal ([int]$exportJson.summary.inputParseErrors) 0 "black-box fixture should have no parse errors"

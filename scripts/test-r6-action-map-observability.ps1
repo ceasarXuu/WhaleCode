@@ -1,10 +1,12 @@
 param([string]$RunRoot = "")
 
 $ErrorActionPreference = "Stop"
+. (Join-Path $PSScriptRoot "test-action-map-replay-fixture-lib.ps1")
 if ([string]::IsNullOrWhiteSpace($RunRoot)) {
     $RunRoot = Join-Path $PSScriptRoot "../target/r6-action-map-observability-test"
 }
 [void](New-Item -ItemType Directory -Force -Path $RunRoot)
+$testWhale = New-TestActionMapReplayWhale (Join-Path $RunRoot "fake-replay")
 
 function Assert-Equal($Actual, $Expected, [string]$Message) {
     if ($Actual -ne $Expected) { throw "$Message expected=$Expected actual=$Actual" }
@@ -65,7 +67,7 @@ $snapshot = [ordered]@{
 }
 ($snapshot | ConvertTo-Json -Compress -Depth 30) | Set-Content -LiteralPath $rolloutPath -Encoding UTF8
 "" | Set-Content -LiteralPath $execPath -Encoding UTF8
-& (Join-Path $PSScriptRoot "export-action-map-observability.ps1") -RolloutPath $rolloutPath -JsonlPath $execPath -OutputDir $exportDir | Out-Null
+& (Join-Path $PSScriptRoot "export-action-map-observability.ps1") -RolloutPath $rolloutPath -JsonlPath $execPath -OutputDir $exportDir -WhalePath $testWhale | Out-Null
 
 $obsPath = Join-Path $exportDir "action-map-observability.json"
 $obs = Get-Content -Raw -Encoding UTF8 -LiteralPath $obsPath | ConvertFrom-Json

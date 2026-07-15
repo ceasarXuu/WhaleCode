@@ -499,7 +499,7 @@ for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
             $threadId = if (Test-Path -LiteralPath $jsonlPath) { Get-ThreadId (Get-Content -Raw -Encoding UTF8 -LiteralPath $jsonlPath) } else { "" }
             $obs = $null
             if ($side.LogicalMode -eq "taskspace") {
-                $obs = Export-TaskspaceObservabilityIfAvailable $repoRoot $side.RepoDir $side.ArtifactDir $jsonlPath $started $threadId
+                $obs = Export-TaskspaceObservabilityIfAvailable $repoRoot $side.RepoDir $side.ArtifactDir $jsonlPath $started $WhaleBin $threadId
             }
             $execBySide[$side.Name] = [pscustomobject]@{
                 exit_code = $exitCode
