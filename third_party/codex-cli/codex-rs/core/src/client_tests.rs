@@ -381,6 +381,17 @@ fn provider_request_budget_records_started_and_terminal_status() {
 
 #[test]
 fn provider_payload_scan_validates_canonical_projection_shape() {
+    let standard = provider_payload_digest(&json!({
+        "input": "standard request",
+        "tools": [{
+            "type": "function",
+            "function": { "name": "shell_command" }
+        }]
+    }))
+    .expect("standard payload digest");
+    assert!(!standard.scan.projection_required);
+    assert!(standard.scan.passed);
+
     let blank_bootstrap = provider_payload_digest(&json!({
         "input": "user task",
         "tools": [{
@@ -407,42 +418,45 @@ fn provider_payload_scan_validates_canonical_projection_shape() {
         fresh_active_without_projection.scan.active_projection_count,
         0
     );
-    assert!(fresh_active_without_projection.scan.passed);
-    assert!(fresh_active_without_projection.scan.replacement_confirmed);
+    assert!(!fresh_active_without_projection.scan.passed);
+    assert!(!fresh_active_without_projection.scan.replacement_confirmed);
+    assert!(
+        fresh_active_without_projection
+            .scan
+            .failure_reasons
+            .contains(&"active_projection_missing".to_string())
+    );
 
     let active_projection = concat!(
-        "ContextProjectionV1 epoch snapshot:\n",
-        "- task_id: task-1\n",
+        "TaskSpaceMapProjectionR6V1:\n",
         "- map_id: map-1\n",
+        "- revision: 2\n",
+        "- root_node_id: root\n",
+        "- finish_node_id: finish\n",
+        "- complete: false\n",
         "- root_source_event_ids:\n",
         "  - task-event-1\n",
-        "- sections:\n",
-        "  success_criteria:\n",
-        "    - criterion\n",
-        "  current_node: node-1\n",
+        "- current_node: node-1\n",
         "  active_frontier:\n",
         "    - node-1\n",
         "  map_nodes:\n",
-        "    - node-1 kind=inspect_code_context status=running\n",
+        "    - root role=task_root status=open\n",
+        "    - node-1 role=work status=running\n",
+        "    - finish role=finish status=pending\n",
         "  map_edges:\n",
-        "    - none\n",
-        "  blockers:\n",
-        "    - none\n",
-        "  decisions:\n",
-        "    - none\n",
-        "  facts:\n",
-        "    - fact\n",
-        "  relevant_results:\n",
-        "    - none\n",
-        "  verified_input_evidence:\n",
-        "    - none\n",
-        "  fact_source_coverage:\n",
-        "    - none\n",
+        "    - root->node-1\n",
+        "    - node-1->finish\n",
         "  node_details:\n",
         "    - none\n",
+        "TaskSpaceMapProjectionR6V1 end.\n",
     );
+    let active_tools = json!([
+        { "type": "function", "function": { "name": "taskspace_control" } },
+        { "type": "function", "function": { "name": "shell_command" } }
+    ]);
     let active = provider_payload_digest(&json!({
-        "input": active_projection
+        "input": active_projection,
+        "tools": active_tools
     }))
     .expect("active payload digest");
     assert!(
@@ -455,7 +469,8 @@ fn provider_payload_scan_validates_canonical_projection_shape() {
     assert!(active.scan.replacement_confirmed);
 
     let duplicate_active = provider_payload_digest(&json!({
-        "input": format!("{active_projection}\n{active_projection}")
+        "input": format!("{active_projection}\n{active_projection}"),
+        "tools": active_tools
     }))
     .expect("duplicate active payload digest");
     assert_eq!(duplicate_active.scan.active_projection_count, 2);
@@ -475,13 +490,15 @@ fn provider_payload_scan_validates_canonical_projection_shape() {
              execution_contract: runtime executes Agent-declared provider calls in order.\n\
              strategy_owner: Agent.\n\
              {active_projection}"
-        )
+        ),
+        "tools": active_tools
     }))
     .expect("active payload with transition notice");
     assert!(active_with_transition_notice.scan.passed);
 
     let bundled_active_with_forbidden_strategy = provider_payload_digest(&json!({
-        "input": format!("{active_projection}\nTaskSpaceAgentContextBundleV1\nnext_valid_actions")
+        "input": format!("{active_projection}\nTaskSpaceAgentContextBundleV1\nnext_valid_actions"),
+        "tools": active_tools
     }))
     .expect("bundled active payload digest");
     assert!(!bundled_active_with_forbidden_strategy.scan.passed);
@@ -507,7 +524,8 @@ fn provider_payload_scan_validates_canonical_projection_shape() {
     );
 
     let missing_protected = provider_payload_digest(&json!({
-        "input": "ContextProjectionV1 epoch snapshot:\n- summary only"
+        "input": "TaskSpaceMapProjectionR6V1:\n- map_id: map-1\n- summary: incomplete\nTaskSpaceMapProjectionR6V1 end.",
+        "tools": active_tools
     }))
     .expect("missing protected payload digest");
     assert!(missing_protected.scan.active_projection_present);
@@ -520,7 +538,8 @@ fn provider_payload_scan_validates_canonical_projection_shape() {
 
     let large_instruction_text = "x".repeat(60 * 1024);
     let large_active_instructions = provider_payload_digest(&json!({
-        "input": format!("{active_projection}\n{large_instruction_text}")
+        "input": format!("{active_projection}\n{large_instruction_text}"),
+        "tools": active_tools
     }))
     .expect("large active instruction payload digest");
     assert_eq!(large_active_instructions.scan.large_raw_output_tokens, 0);
@@ -539,7 +558,8 @@ fn provider_payload_scan_validates_canonical_projection_shape() {
                 "call_id": "call-1",
                 "output": raw_output
             }
-        ]
+        ],
+        "tools": active_tools
     }))
     .expect("large raw payload digest");
     assert!(large_raw.scan.large_raw_output_tokens > 0);
@@ -550,14 +570,15 @@ fn provider_payload_scan_validates_canonical_projection_shape() {
             {
                 "type": "message",
                 "role": "developer",
-                "content": "ContextProjectionV1 epoch snapshot:\n- protected"
+                "content": active_projection
             },
             {
                 "type": "function_call_output",
                 "call_id": "call-1",
                 "output": format!("OutputReferenceV1:\nraw_output_elided: true\n{raw_output}")
             }
-        ]
+        ],
+        "tools": active_tools
     }))
     .expect("output ref payload digest");
     assert_eq!(output_ref.scan.large_raw_output_tokens, 0);

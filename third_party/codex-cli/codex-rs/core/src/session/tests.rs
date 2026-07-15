@@ -1312,6 +1312,7 @@ async fn build_initial_context_does_not_inject_blank_map_or_transition_context()
         for stale in [
             "TaskSpace mode is now active",
             "ContextProjectionV1 epoch snapshot",
+            "TaskSpaceMapProjectionR6V1:",
             "TaskSpace v0.0.5 thin bootstrap",
             "active_task_path_without_nodes",
         ] {
@@ -1364,11 +1365,12 @@ async fn build_initial_context_keeps_skills_without_blank_taskspace_context() {
     assert!(developer_texts.iter().all(|text| {
         !text.contains("TaskSpace mode is now active")
             && !text.contains("ContextProjectionV1 epoch snapshot")
+            && !text.contains("TaskSpaceMapProjectionR6V1:")
     }));
 }
 
 #[tokio::test]
-async fn fresh_map_uses_canonical_control_context_without_parallel_projection() {
+async fn provider_history_replaces_projection_from_same_turn_map_state() {
     let (session, turn_context) = make_session_and_context().await;
     {
         let mut state = session.state.lock().await;
@@ -1448,6 +1450,14 @@ async fn fresh_map_uses_canonical_control_context_without_parallel_projection() 
         .filter(|item| is_action_map_projection_developer_item(item))
         .count();
     assert_eq!(projection_count, 0);
+    let provider_history = session.clone_history_for_provider().await;
+    let provider_text = developer_input_texts(provider_history.raw_items()).join("\n");
+    assert_eq!(
+        provider_text.matches("TaskSpaceMapProjectionR6V1:").count(),
+        1
+    );
+    assert!(provider_text.contains("revision: 2"));
+    assert!(provider_text.contains("current_node: inspect"));
 
     {
         let mut state = session.state.lock().await;
@@ -1497,10 +1507,19 @@ async fn fresh_map_uses_canonical_control_context_without_parallel_projection() 
     assert!(history.raw_items().iter().any(
         |item| matches!(item, ResponseItem::FunctionCallOutput { call_id, .. } if call_id == "init-control")
     ));
+    let provider_history = session.clone_history_for_provider().await;
+    let provider_text = developer_input_texts(provider_history.raw_items()).join("\n");
+    assert_eq!(
+        provider_text.matches("TaskSpaceMapProjectionR6V1:").count(),
+        1
+    );
+    assert!(provider_text.contains("revision: 4"));
+    assert!(provider_text.contains("current_node: implement"));
+    assert!(!provider_text.contains("current_node: inspect"));
 }
 
 #[tokio::test]
-async fn record_context_updates_persists_one_epoch_taskspace_projection() {
+async fn provider_projection_is_transient_and_canonical_map_derived() {
     let (session, turn_context) = make_session_and_context().await;
     {
         let mut state = session.state.lock().await;
@@ -1546,11 +1565,15 @@ async fn record_context_updates_persists_one_epoch_taskspace_projection() {
         .record_context_updates_and_set_reference_context_item(&turn_context)
         .await;
 
-    let history = session.clone_history().await;
+    let canonical_history = session.clone_history().await;
+    let canonical_developer_text = developer_input_texts(canonical_history.raw_items()).join("\n");
+    assert!(!canonical_developer_text.contains("TaskSpaceMapProjectionR6V1:"));
+
+    let history = session.clone_history_for_provider().await;
     let developer_text = developer_input_texts(history.raw_items()).join("\n");
     assert!(
         developer_text.contains("TaskSpaceMapProjectionR6V1:"),
-        "expected R6 map projection in steady-state context: {developer_text}"
+        "expected R6 map projection in provider context: {developer_text}"
     );
     assert!(
         developer_text.contains("map_id: map-1")
@@ -1576,24 +1599,20 @@ async fn record_context_updates_persists_one_epoch_taskspace_projection() {
         "steady-state active profile should not inject shadow projection: {developer_text}"
     );
 
-    session
-        .record_context_updates_and_set_reference_context_item(&turn_context)
-        .await;
-
-    let history_after_second_update = session.clone_history().await;
+    let history_after_second_update = session.clone_history_for_provider().await;
     let developer_text = developer_input_texts(history_after_second_update.raw_items()).join("\n");
     assert!(
         developer_text.contains("map_id: map-1")
             && developer_text.contains("root->scope")
             && developer_text.contains("scope->finish"),
-        "provider history should expose the epoch map projection: {developer_text}"
+        "provider history should expose the current map projection: {developer_text}"
     );
     assert_eq!(
         developer_text
             .matches("TaskSpaceMapProjectionR6V1:")
             .count(),
         1,
-        "provider history must contain exactly one epoch map projection: {developer_text}"
+        "provider history must contain exactly one current map projection: {developer_text}"
     );
 
     let canonical_developer_text = {
@@ -1601,8 +1620,8 @@ async fn record_context_updates_persists_one_epoch_taskspace_projection() {
         developer_input_texts(state.clone_history().raw_items()).join("\n")
     };
     assert!(
-        canonical_developer_text.contains("TaskSpaceMapProjectionR6V1:"),
-        "epoch map projection must be persisted once so later messages extend the provider prefix: {canonical_developer_text}"
+        !canonical_developer_text.contains("TaskSpaceMapProjectionR6V1:"),
+        "runtime projection must not become a stale canonical history item: {canonical_developer_text}"
     );
     assert!(!canonical_developer_text.contains("task_status:"));
     assert!(!canonical_developer_text.contains("map_status:"));

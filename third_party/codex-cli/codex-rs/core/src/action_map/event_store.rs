@@ -449,7 +449,7 @@ pub(super) fn is_call_item(item: &ResponseItem) -> bool {
     )
 }
 
-pub(super) fn is_taskspace_runtime_context_item(item: &ResponseItem) -> bool {
+pub(crate) fn is_taskspace_map_projection_item(item: &ResponseItem) -> bool {
     let ResponseItem::Message { role, content, .. } = item else {
         return false;
     };
@@ -462,8 +462,27 @@ pub(super) fn is_taskspace_runtime_context_item(item: &ResponseItem) -> bool {
             | codex_protocol::models::ContentItem::OutputText { text } => text,
             codex_protocol::models::ContentItem::InputImage { .. } => return false,
         };
-        text.contains("ContextProjectionV1 epoch snapshot")
-            || text.contains("TaskSpace mode is now active.")
+        text.contains("TaskSpaceMapProjectionR6V1:")
+    })
+}
+
+pub(super) fn is_taskspace_runtime_context_item(item: &ResponseItem) -> bool {
+    if is_taskspace_map_projection_item(item) {
+        return true;
+    }
+    let ResponseItem::Message { role, content, .. } = item else {
+        return false;
+    };
+    if role != "developer" && role != "system" {
+        return false;
+    }
+    content.iter().any(|content| {
+        let text = match content {
+            codex_protocol::models::ContentItem::InputText { text }
+            | codex_protocol::models::ContentItem::OutputText { text } => text,
+            codex_protocol::models::ContentItem::InputImage { .. } => return false,
+        };
+        text.contains("TaskSpace mode is now active.")
     })
 }
 

@@ -428,7 +428,7 @@ fn compaction_checkpoint_drops_stale_taskspace_runtime_context() {
         id: None,
         role: "developer".into(),
         content: vec![ContentItem::InputText {
-            text: "ContextProjectionV1 epoch snapshot".into(),
+            text: "TaskSpaceMapProjectionR6V1:\n- map: none".into(),
         }],
         end_turn: None,
         phase: None,
@@ -438,7 +438,7 @@ fn compaction_checkpoint_drops_stale_taskspace_runtime_context() {
         .unwrap();
 
     let visible = serde_json::to_string(&store.linearize()).unwrap();
-    assert!(!visible.contains("ContextProjectionV1"));
+    assert!(!visible.contains("TaskSpaceMapProjectionR6V1"));
     assert!(visible.contains("TaskSpaceCompactionCheckpointV1"));
 }
 

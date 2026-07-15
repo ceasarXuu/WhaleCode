@@ -474,7 +474,7 @@ pub(crate) async fn run_turn(
 
         // Construct the input that we will send to the model.
         let sampling_request_input: Vec<ResponseItem> = prepare_provider_visible_prompt_items(
-            sess.clone_history()
+            sess.clone_history_for_provider()
                 .await
                 .for_prompt(&turn_context.model_info.input_modalities),
         );
@@ -1232,7 +1232,7 @@ async fn run_sampling_request(
         let prompt_source = if let Some(input) = initial_input.take() {
             input
         } else {
-            sess.clone_history()
+            sess.clone_history_for_provider()
                 .await
                 .for_prompt(&turn_context.model_info.input_modalities)
         };

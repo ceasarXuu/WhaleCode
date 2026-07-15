@@ -3927,6 +3927,9 @@ impl ActionMapRuntimeState {
         if self.mode != MapRuntimeMode::Experiment {
             return None;
         }
+        if self.bootstrap_required {
+            return Some(self.build_bootstrap_compact_developer_context());
+        }
         if let Some(context) = self.build_active_projection_developer_context() {
             return Some(context);
         }

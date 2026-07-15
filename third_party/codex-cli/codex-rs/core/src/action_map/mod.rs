@@ -11,6 +11,7 @@ mod snapshot_delta;
 
 pub(crate) use event_store::TaskSpaceEvent;
 pub(crate) use event_store::TaskSpaceEventStore;
+pub(crate) use event_store::is_taskspace_map_projection_item;
 pub(crate) use map::ActionClass;
 pub(crate) use map::ToolActionDescriptor;
 pub(crate) use rooted_dag::NodeTransition;
