@@ -284,7 +284,11 @@ fn provider_request_budget_records_started_and_terminal_status() {
         .before_dispatch("responses_websocket")
         .expect("first request should be within budget");
     let payload = provider_payload_digest(&json!({
-        "input": "ContextProjectionV1 epoch snapshot:\n- protected"
+        "input": "TaskSpaceMapEpochSnapshotR6V1:\n- map: none\n- bootstrap_required: true\nTaskSpaceMapEpochSnapshotR6V1 end.",
+        "tools": [{
+            "type": "function",
+            "function": { "name": "taskspace_control" }
+        }]
     }))
     .expect("payload digest");
     let payload_sha256 = payload.sha256.clone();
