@@ -76,7 +76,7 @@ impl ToolCallRuntime {
     }
 
     pub(crate) fn nested_action_is_visible(&self, action: &TaskSpaceNestedAction) -> bool {
-        self.router.is_model_visible_nested_tool(
+        self.router.is_taskspace_nested_tool_visible(
             action.namespace(),
             action.tool_name(),
             action.is_custom(),

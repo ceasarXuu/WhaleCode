@@ -136,13 +136,16 @@ impl ToolRouter {
         })
     }
 
-    pub(crate) fn is_model_visible_nested_tool(
+    pub(crate) fn is_taskspace_nested_tool_visible(
         &self,
         namespace: Option<&str>,
         name: &str,
         custom: bool,
     ) -> bool {
-        self.model_visible_specs.iter().any(|spec| match spec {
+        if matches!(name, "taskspace_control" | "update_plan") {
+            return false;
+        }
+        self.specs.iter().any(|configured| match &configured.spec {
             ToolSpec::Function(tool) => !custom && namespace.is_none() && tool.name == name,
             ToolSpec::Freeform(tool) => custom && namespace.is_none() && tool.name == name,
             ToolSpec::Namespace(tool_namespace) => {
