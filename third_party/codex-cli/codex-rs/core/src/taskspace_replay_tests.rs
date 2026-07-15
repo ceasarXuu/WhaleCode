@@ -5,6 +5,7 @@ use crate::action_map::ActionMapInitializeFinishInput;
 use crate::action_map::ActionMapInitializeInput;
 use crate::action_map::ActionMapInitializeNodeInput;
 use crate::action_map::ActionMapRuntimeState;
+use crate::action_map::NodeTransition;
 use crate::action_map::build_snapshot_delta;
 use crate::action_map::snapshot_sha256;
 use codex_protocol::ThreadId;
@@ -90,6 +91,65 @@ fn delta_item(delta: codex_protocol::protocol::MapRuntimeSnapshotDeltaEvent) -> 
     RolloutItem::EventMsg(EventMsg::MapRuntime(MapRuntimeEvent::SnapshotDelta(delta)))
 }
 
+fn terminal_crash_window() -> (ActionMapSnapshot, ActionMapSnapshot, RolloutItem) {
+    let owner = ThreadId::new();
+    let mut runtime = ActionMapRuntimeState::default();
+    runtime.set_mode_for_session(MapRuntimeMode::Experiment, owner);
+    runtime
+        .initialize_map_for_main(
+            owner,
+            ActionMapInitializeInput {
+                root: ActionMapInitializeNodeInput {
+                    id: "root".into(),
+                    goal: "root".into(),
+                },
+                current_work_node: ActionMapInitializeNodeInput {
+                    id: "work".into(),
+                    goal: "work".into(),
+                },
+                finish: ActionMapInitializeFinishInput {
+                    id: "finish".into(),
+                },
+                work_nodes: Vec::new(),
+                edges: vec![
+                    ActionMapEdgeInput {
+                        from: "root".into(),
+                        to: "work".into(),
+                    },
+                    ActionMapEdgeInput {
+                        from: "work".into(),
+                        to: "finish".into(),
+                    },
+                ],
+                source_event_ids: Vec::new(),
+            },
+        )
+        .unwrap();
+    runtime
+        .transition_node_for_main(
+            owner,
+            2,
+            "work".into(),
+            NodeTransition::Complete,
+            "complete-event".into(),
+        )
+        .unwrap();
+    let pre_terminal = runtime.snapshot();
+    let (_, events) = runtime
+        .finish_end_for_main(owner, 3, "terminal summary".into())
+        .unwrap();
+    let terminal = runtime.snapshot();
+    let graph_event = events
+        .into_iter()
+        .find(|event| matches!(event, MapRuntimeEvent::GraphRevisionCommitted(_)))
+        .expect("finish emits a graph revision event");
+    (
+        pre_terminal,
+        terminal,
+        RolloutItem::EventMsg(EventMsg::MapRuntime(graph_event)),
+    )
+}
+
 #[test]
 fn replay_applies_checkpoint_and_chained_deltas() {
     let (base, middle, expected) = delta_chain_snapshots();
@@ -117,6 +177,22 @@ fn replay_applies_checkpoint_and_chained_deltas() {
     assert_eq!(replayed.state.surviving_checkpoint_count, 1);
     assert_eq!(replayed.state.active_chain_applied_delta_count, 2);
     assert_eq!(replayed.state.active_chain_last_delta_sequence, 2);
+}
+
+#[test]
+fn replay_currently_ignores_terminal_graph_commit_without_delta() {
+    let (pre_terminal, terminal, graph_event) = terminal_crash_window();
+    let replayed = replay_rollout_items(
+        "terminal-crash-window".into(),
+        0,
+        &[checkpoint("pre-terminal", pre_terminal.clone()), graph_event],
+    )
+    .unwrap();
+
+    assert!(!pre_terminal.map.as_ref().unwrap().complete);
+    assert!(terminal.map.as_ref().unwrap().complete);
+    assert_eq!(replayed.state.snapshot, pre_terminal);
+    assert_ne!(replayed.state.snapshot, terminal);
 }
 
 #[test]
