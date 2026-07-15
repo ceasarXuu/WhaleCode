@@ -2,6 +2,7 @@ use codex_protocol::protocol::ActionMapSnapshot;
 use codex_protocol::protocol::MapRuntimeSnapshotDeltaEvent;
 use sha2::Digest;
 use sha2::Sha256;
+use std::fmt;
 
 #[derive(Debug, Clone, Default)]
 pub(crate) struct ActionMapCheckpointState {
@@ -73,37 +74,125 @@ pub(crate) fn build_snapshot_delta(
     }))
 }
 
-pub(crate) fn apply_snapshot_delta(
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SnapshotDeltaErrorCode {
+    BaseCheckpointMismatch,
+    BaseHashMismatch,
+    PreviousHashMismatch,
+    InvalidPatch,
+    ResultHashMismatch,
+}
+
+impl SnapshotDeltaErrorCode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::BaseCheckpointMismatch => "base_checkpoint_mismatch",
+            Self::BaseHashMismatch => "base_hash_mismatch",
+            Self::PreviousHashMismatch => "previous_hash_mismatch",
+            Self::InvalidPatch => "invalid_patch",
+            Self::ResultHashMismatch => "result_hash_mismatch",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SnapshotDeltaError {
+    pub code: SnapshotDeltaErrorCode,
+    pub message: String,
+}
+
+impl SnapshotDeltaError {
+    fn new(code: SnapshotDeltaErrorCode, message: impl Into<String>) -> Self {
+        Self {
+            code,
+            message: message.into(),
+        }
+    }
+}
+
+impl fmt::Display for SnapshotDeltaError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(&self.message)
+    }
+}
+
+impl std::error::Error for SnapshotDeltaError {}
+
+pub fn apply_snapshot_delta_typed(
+    checkpoint_id: &str,
+    checkpoint_snapshot_sha256: &str,
+    previous_snapshot: &ActionMapSnapshot,
+    delta: &MapRuntimeSnapshotDeltaEvent,
+) -> Result<ActionMapSnapshot, SnapshotDeltaError> {
+    if delta.base_checkpoint_id != checkpoint_id {
+        return Err(SnapshotDeltaError::new(
+            SnapshotDeltaErrorCode::BaseCheckpointMismatch,
+            format!(
+                "snapshot delta base checkpoint mismatch: expected {checkpoint_id}, got {}",
+                delta.base_checkpoint_id
+            ),
+        ));
+    }
+    if delta.base_snapshot_sha256 != checkpoint_snapshot_sha256 {
+        return Err(SnapshotDeltaError::new(
+            SnapshotDeltaErrorCode::BaseHashMismatch,
+            "snapshot delta base hash mismatch",
+        ));
+    }
+    let actual_previous_hash = snapshot_sha256(previous_snapshot).map_err(|error| {
+        SnapshotDeltaError::new(
+            SnapshotDeltaErrorCode::PreviousHashMismatch,
+            error.to_string(),
+        )
+    })?;
+    if delta.previous_snapshot_sha256 != actual_previous_hash {
+        return Err(SnapshotDeltaError::new(
+            SnapshotDeltaErrorCode::PreviousHashMismatch,
+            "snapshot delta previous hash mismatch",
+        ));
+    }
+    let patch: json_patch::Patch =
+        serde_json::from_value(delta.patch.clone()).map_err(|error| {
+            SnapshotDeltaError::new(SnapshotDeltaErrorCode::InvalidPatch, error.to_string())
+        })?;
+    let mut value = serde_json::to_value(previous_snapshot).map_err(|error| {
+        SnapshotDeltaError::new(SnapshotDeltaErrorCode::InvalidPatch, error.to_string())
+    })?;
+    json_patch::patch(&mut value, &patch).map_err(|error| {
+        SnapshotDeltaError::new(SnapshotDeltaErrorCode::InvalidPatch, error.to_string())
+    })?;
+    let snapshot: ActionMapSnapshot = serde_json::from_value(value).map_err(|error| {
+        SnapshotDeltaError::new(SnapshotDeltaErrorCode::InvalidPatch, error.to_string())
+    })?;
+    let actual_hash = snapshot_sha256(&snapshot).map_err(|error| {
+        SnapshotDeltaError::new(
+            SnapshotDeltaErrorCode::ResultHashMismatch,
+            error.to_string(),
+        )
+    })?;
+    if actual_hash != delta.snapshot_sha256 {
+        return Err(SnapshotDeltaError::new(
+            SnapshotDeltaErrorCode::ResultHashMismatch,
+            "snapshot delta result hash mismatch",
+        ));
+    }
+    Ok(snapshot)
+}
+
+#[cfg(test)]
+fn apply_snapshot_delta(
     checkpoint_id: &str,
     checkpoint_snapshot_sha256: &str,
     previous_snapshot: &ActionMapSnapshot,
     delta: &MapRuntimeSnapshotDeltaEvent,
 ) -> Result<ActionMapSnapshot, String> {
-    if delta.base_checkpoint_id != checkpoint_id {
-        return Err(format!(
-            "snapshot delta base checkpoint mismatch: expected {checkpoint_id}, got {}",
-            delta.base_checkpoint_id
-        ));
-    }
-    if delta.base_snapshot_sha256 != checkpoint_snapshot_sha256 {
-        return Err("snapshot delta base hash mismatch".to_string());
-    }
-    let actual_previous_hash =
-        snapshot_sha256(previous_snapshot).map_err(|error| error.to_string())?;
-    if delta.previous_snapshot_sha256 != actual_previous_hash {
-        return Err("snapshot delta previous hash mismatch".to_string());
-    }
-    let patch: json_patch::Patch =
-        serde_json::from_value(delta.patch.clone()).map_err(|error| error.to_string())?;
-    let mut value = serde_json::to_value(previous_snapshot).map_err(|error| error.to_string())?;
-    json_patch::patch(&mut value, &patch).map_err(|error| error.to_string())?;
-    let snapshot: ActionMapSnapshot =
-        serde_json::from_value(value).map_err(|error| error.to_string())?;
-    let actual_hash = snapshot_sha256(&snapshot).map_err(|error| error.to_string())?;
-    if actual_hash != delta.snapshot_sha256 {
-        return Err("snapshot delta result hash mismatch".to_string());
-    }
-    Ok(snapshot)
+    apply_snapshot_delta_typed(
+        checkpoint_id,
+        checkpoint_snapshot_sha256,
+        previous_snapshot,
+        delta,
+    )
+    .map_err(|error| error.to_string())
 }
 
 #[cfg(test)]

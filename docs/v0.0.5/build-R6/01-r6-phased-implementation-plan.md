@@ -266,7 +266,8 @@ Agent 自主规划的 Work；Runtime 不按关键词识别验证语义，也不�
 **当前结果**：Finish 无工作语义的纵向切换与单样本门禁已完成；live trace 同时暴露出 Agent 可在
 Finish READY 后直接最终回答而未调用 `finish_end`，以及 observer 未反映后续 snapshot delta 的
 状态重放缺口。Phase E 仍在进行，结果见 `09-r6-phase-e-finish-boundary-result.md`；两项缺口统一按
-`10-r6-terminal-replay-convergence-design.md` 的单终结权威、单 replay 权威方案收敛。
+`10-r6-terminal-replay-convergence-design.md` 的单终结权威、单 replay 权威方案收敛。E2 canonical Rust
+replay 已完成并通过独立门禁，详见 `11-r6-phase-e2-canonical-replay-result.md`；当前进入 E3 observer 纵向切换。
 
 实施项：
 

@@ -109,6 +109,9 @@ pub(crate) use skills::resolve_skill_dependencies_for_turn;
 pub(crate) use skills::skills_load_input_from_config;
 mod skills_watcher;
 mod stream_events_utils;
+pub mod taskspace_replay;
+#[cfg(test)]
+mod taskspace_replay_tests;
 pub mod test_support;
 mod unified_exec;
 pub mod windows_sandbox;

@@ -32,6 +32,7 @@ use codex_utils_cli::CliConfigOverrides;
 use owo_colors::OwoColorize;
 use std::ffi::OsString;
 use std::io::IsTerminal;
+use std::path::Path;
 use std::path::PathBuf;
 use supports_color::Stream;
 
@@ -215,6 +216,9 @@ enum DebugSubcommand {
     #[clap(hide = true)]
     TraceReduce(DebugTraceReduceCommand),
 
+    /// Replay TaskSpace checkpoints/deltas and write proof JSON.
+    TaskspaceReplay(DebugTaskspaceReplayCommand),
+
     /// Internal: reset local memory state for a fresh start.
     #[clap(hide = true)]
     ClearMemories,
@@ -272,6 +276,17 @@ struct DebugTraceReduceCommand {
     /// Output path for reduced RolloutTrace JSON. Defaults to TRACE_BUNDLE/state.json.
     #[arg(long = "output", short = 'o', value_name = "FILE")]
     output: Option<PathBuf>,
+}
+
+#[derive(Debug, Parser)]
+struct DebugTaskspaceReplayCommand {
+    /// Rollout JSONL file to replay.
+    #[arg(long = "rollout", value_name = "JSONL")]
+    rollout: PathBuf,
+
+    /// JSON proof output path.
+    #[arg(long = "output", value_name = "JSON")]
+    output: PathBuf,
 }
 
 #[derive(Debug, Parser)]
@@ -992,6 +1007,14 @@ async fn cli_main(arg0_paths: Arg0DispatchPaths) -> anyhow::Result<()> {
                 )?;
                 run_debug_trace_reduce_command(cmd).await?;
             }
+            DebugSubcommand::TaskspaceReplay(cmd) => {
+                reject_remote_mode_for_subcommand(
+                    root_remote.as_deref(),
+                    root_remote_auth_token_env.as_deref(),
+                    "debug taskspace-replay",
+                )?;
+                run_debug_taskspace_replay_command(cmd).await?;
+            }
             DebugSubcommand::ClearMemories => {
                 reject_remote_mode_for_subcommand(
                     root_remote.as_deref(),
@@ -1185,6 +1208,56 @@ async fn run_debug_trace_reduce_command(cmd: DebugTraceReduceCommand) -> anyhow:
     tokio::fs::write(&output, reduced_json).await?;
     println!("{}", output.display());
 
+    Ok(())
+}
+
+async fn run_debug_taskspace_replay_command(
+    cmd: DebugTaskspaceReplayCommand,
+) -> anyhow::Result<()> {
+    let loaded = match codex_core::taskspace_replay::load_rollout(&cmd.rollout).await {
+        Ok(loaded) => loaded,
+        Err(error) => {
+            write_taskspace_replay_error(&cmd.output, &error)?;
+            anyhow::bail!("taskspace replay failed: {}", error.code.as_str());
+        }
+    };
+    match codex_core::taskspace_replay::replay_loaded_rollout(&loaded) {
+        Ok(proof) => {
+            let snapshot = proof.snapshot.clone();
+            let envelope = serde_json::json!({
+                "schema_version": "TaskSpaceReplayProofR6V1",
+                "status": "ok",
+                "proof": proof,
+                "snapshot": snapshot,
+            });
+            write_json_atomic(&cmd.output, &envelope)?;
+            Ok(())
+        }
+        Err(error) => {
+            write_taskspace_replay_error(&cmd.output, &error)?;
+            anyhow::bail!("taskspace replay failed: {}", error.code.as_str());
+        }
+    }
+}
+
+fn write_taskspace_replay_error(
+    output: &Path,
+    error: &codex_core::taskspace_replay::TaskSpaceReplayError,
+) -> anyhow::Result<()> {
+    let envelope = serde_json::json!({
+        "schema_version": "TaskSpaceReplayProofR6V1",
+        "status": "error",
+        "error": {
+            "code": error.code.as_str(),
+            "message": error.message.as_str(),
+        },
+    });
+    write_json_atomic(output, &envelope)
+}
+
+fn write_json_atomic(output: &Path, value: &serde_json::Value) -> anyhow::Result<()> {
+    let contents = serde_json::to_string_pretty(value)?;
+    codex_utils_path::write_atomically(output, &contents)?;
     Ok(())
 }
 
@@ -1782,6 +1855,48 @@ mod tests {
         };
 
         assert!(cmd.bundled);
+    }
+
+    #[test]
+    fn debug_taskspace_replay_parses_rollout_and_output() {
+        let cli = MultitoolCli::try_parse_from([
+            "whale",
+            "debug",
+            "taskspace-replay",
+            "--rollout",
+            "rollout.jsonl",
+            "--output",
+            "proof.json",
+        ])
+        .expect("parse");
+
+        let Some(Subcommand::Debug(DebugCommand {
+            subcommand: DebugSubcommand::TaskspaceReplay(cmd),
+        })) = cli.subcommand
+        else {
+            panic!("expected debug taskspace-replay subcommand");
+        };
+        assert_eq!(cmd.rollout, PathBuf::from("rollout.jsonl"));
+        assert_eq!(cmd.output, PathBuf::from("proof.json"));
+    }
+
+    #[test]
+    fn debug_taskspace_replay_error_envelope_overwrites_without_snapshot() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let output = dir.path().join("proof.json");
+        std::fs::write(&output, "{\"snapshot\":{\"stale\":true}}").expect("stale proof");
+        let error = codex_core::taskspace_replay::TaskSpaceReplayError {
+            code: codex_core::taskspace_replay::TaskSpaceReplayErrorCode::Parse,
+            message: "bad rollout".into(),
+        };
+
+        write_taskspace_replay_error(&output, &error).expect("write error envelope");
+
+        let value: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&output).expect("read output")).expect("json");
+        assert_eq!(value["status"], "error");
+        assert_eq!(value["error"]["code"], "parse");
+        assert!(value.get("snapshot").is_none());
     }
 
     #[test]

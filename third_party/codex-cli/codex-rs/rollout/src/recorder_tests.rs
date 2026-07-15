@@ -63,6 +63,21 @@ fn write_session_file(root: &Path, ts: &str, uuid: Uuid) -> std::io::Result<Path
 }
 
 #[tokio::test]
+async fn get_rollout_history_rejects_tail_parse_errors() -> std::io::Result<()> {
+    let home = TempDir::new().expect("temp dir");
+    let path = write_session_file(home.path(), "2025-01-03T12:00:00Z", Uuid::new_v4())?;
+    let mut file = fs::OpenOptions::new().append(true).open(&path)?;
+    writeln!(file, "{{broken")?;
+
+    let error = RolloutRecorder::get_rollout_history(&path)
+        .await
+        .expect_err("parse errors must be fatal for resume");
+
+    assert!(error.to_string().contains("parse errors"));
+    Ok(())
+}
+
+#[tokio::test]
 async fn recorder_materializes_on_flush_with_pending_items() -> std::io::Result<()> {
     let home = TempDir::new().expect("temp dir");
     let config = test_config(home.path());

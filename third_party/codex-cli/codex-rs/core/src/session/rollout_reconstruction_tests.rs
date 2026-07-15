@@ -17,6 +17,9 @@ use codex_protocol::protocol::MapRuntimeModeChangedEvent;
 use codex_protocol::protocol::MapRuntimeSnapshotUpdatedEvent;
 use codex_protocol::protocol::MapRuntimeTaskContextOwnershipChangedEvent;
 use codex_protocol::protocol::ResumedHistory;
+use codex_protocol::protocol::ThreadRolledBackEvent;
+use codex_protocol::protocol::TurnStartedEvent;
+use codex_protocol::protocol::UserMessageEvent;
 use pretty_assertions::assert_eq;
 use std::path::PathBuf;
 
@@ -98,6 +101,46 @@ async fn reconstruct_history_restores_latest_map_runtime_mode() {
         .await;
 
     assert_eq!(reconstructed.map_runtime_mode, MapRuntimeMode::Standard);
+}
+
+#[tokio::test]
+async fn reconstruct_history_uses_surviving_map_runtime_mode_after_rollback() {
+    let (session, turn_context) = make_session_and_context().await;
+    let rollout_items = vec![
+        RolloutItem::EventMsg(EventMsg::MapRuntime(MapRuntimeEvent::ModeChanged(
+            MapRuntimeModeChangedEvent {
+                previous_mode: MapRuntimeMode::Standard,
+                current_mode: MapRuntimeMode::Experiment,
+            },
+        ))),
+        RolloutItem::EventMsg(EventMsg::TurnStarted(TurnStartedEvent {
+            turn_id: "rolled-back".into(),
+            started_at: None,
+            model_context_window: None,
+            collaboration_mode_kind: Default::default(),
+        })),
+        RolloutItem::EventMsg(EventMsg::UserMessage(UserMessageEvent {
+            message: "new".into(),
+            images: None,
+            local_images: Vec::new(),
+            text_elements: Vec::new(),
+        })),
+        RolloutItem::EventMsg(EventMsg::MapRuntime(MapRuntimeEvent::ModeChanged(
+            MapRuntimeModeChangedEvent {
+                previous_mode: MapRuntimeMode::Experiment,
+                current_mode: MapRuntimeMode::Standard,
+            },
+        ))),
+        RolloutItem::EventMsg(EventMsg::ThreadRolledBack(ThreadRolledBackEvent {
+            num_turns: 1,
+        })),
+    ];
+
+    let reconstructed = session
+        .reconstruct_history_from_rollout(&turn_context, &rollout_items)
+        .await;
+
+    assert_eq!(reconstructed.map_runtime_mode, MapRuntimeMode::Experiment);
 }
 
 #[tokio::test]
@@ -205,7 +248,39 @@ async fn reconstruct_history_restores_latest_map_runtime_snapshot() {
 #[tokio::test]
 async fn reconstruct_history_applies_chained_snapshot_deltas_to_checkpoint() {
     let (session, turn_context) = make_session_and_context().await;
-    let base = ActionMapRuntimeState::default().snapshot();
+    let mut runtime = ActionMapRuntimeState::default();
+    runtime.set_mode_for_session(MapRuntimeMode::Experiment, session.conversation_id);
+    runtime
+        .initialize_map_for_main(
+            session.conversation_id,
+            crate::action_map::ActionMapInitializeInput {
+                root: crate::action_map::ActionMapInitializeNodeInput {
+                    id: "root".into(),
+                    goal: "Replay root".into(),
+                },
+                current_work_node: crate::action_map::ActionMapInitializeNodeInput {
+                    id: "work".into(),
+                    goal: "Replay work".into(),
+                },
+                finish: crate::action_map::ActionMapInitializeFinishInput {
+                    id: "finish".into(),
+                },
+                source_event_ids: Vec::new(),
+                work_nodes: Vec::new(),
+                edges: vec![
+                    crate::action_map::ActionMapEdgeInput {
+                        from: "root".into(),
+                        to: "work".into(),
+                    },
+                    crate::action_map::ActionMapEdgeInput {
+                        from: "work".into(),
+                        to: "finish".into(),
+                    },
+                ],
+            },
+        )
+        .expect("map initializes");
+    let base = runtime.snapshot();
     let mut middle = base.clone();
     middle.routing_required = !base.routing_required;
     let mut expected = middle.clone();
@@ -428,11 +503,7 @@ async fn resumed_history_rejects_missing_middle_snapshot_delta() {
         .expect_err("missing middle delta must fail");
 
     assert_eq!(error.phase, "map_checkpoint_delta_chain");
-    assert!(
-        error
-            .message
-            .contains("snapshot delta previous hash mismatch")
-    );
+    assert!(error.message.contains("sequence_gap_or_order"));
     assert_eq!(session.action_map_snapshot().await, state_before);
     assert_eq!(session.clone_history().await.raw_items(), history_before);
 }
@@ -457,7 +528,7 @@ async fn resumed_history_rejects_corrupt_checkpoint_hash_without_partial_restore
         .expect_err("corrupt checkpoint hash must fail");
 
     assert_eq!(error.phase, "map_checkpoint_delta_chain");
-    assert!(error.message.contains("map checkpoint hash mismatch"));
+    assert!(error.message.contains("checkpoint hash mismatch"));
     assert_eq!(session.action_map_snapshot().await, state_before);
     assert_eq!(session.clone_history().await.raw_items(), history_before);
 }

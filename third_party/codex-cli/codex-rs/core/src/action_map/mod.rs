@@ -36,6 +36,6 @@ pub(crate) use runtime::ActionMapTransitionOutcome;
 pub(crate) use runtime::TaskSpaceHardGateClass;
 pub(crate) use runtime::format_action_map_snapshot;
 pub(crate) use snapshot_delta::ActionMapCheckpointState;
-pub(crate) use snapshot_delta::apply_snapshot_delta;
+pub(crate) use snapshot_delta::apply_snapshot_delta_typed;
 pub(crate) use snapshot_delta::build_snapshot_delta;
 pub(crate) use snapshot_delta::snapshot_sha256;

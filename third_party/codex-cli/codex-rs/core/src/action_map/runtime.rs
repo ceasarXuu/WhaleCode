@@ -1220,6 +1220,20 @@ impl ActionMapRuntimeState {
             })
             .to_string());
         }
+        let restored_blank_task_path = if snapshot.mode == MapRuntimeMode::Experiment
+            && snapshot.map.is_none()
+            && snapshot.bootstrap_required
+            && !snapshot.routing_required
+        {
+            snapshot.trace_events.iter().rev().find_map(|event| {
+                if event.kind != "mechanical_blank_map_initialized" {
+                    return None;
+                }
+                Some((event.task_id.clone()?, event.map_id.clone()))
+            })
+        } else {
+            None
+        };
         let maintenance_barriers = snapshot.maintenance_barriers;
         self.mode = snapshot.mode;
         self.pending_transition_notice = None;
@@ -1249,7 +1263,7 @@ impl ActionMapRuntimeState {
                     .as_deref()
                     .and_then(ActionClass::from_str),
                 tool_success: event.tool_success,
-                tags: sanitize_trace_tags(event.tags),
+                tags: event.tags,
                 artifact_refs: event.artifact_refs,
                 created_at_ms: event.created_at_ms,
             })
@@ -1279,6 +1293,16 @@ impl ActionMapRuntimeState {
 
         self.tasks.clear();
         self.maps.clear();
+        if let Some((task_id, map_id)) = restored_blank_task_path.as_ref() {
+            self.tasks.insert(
+                task_id.clone(),
+                TaskRecord {
+                    owner_session_id: None,
+                },
+            );
+            self.active_task_id = Some(task_id.clone());
+            self.active_map_id = Some(map_id.clone());
+        }
         if let Some(map) = snapshot.map {
             let map_id = map.id.clone();
             let task_id = map
@@ -1486,7 +1510,14 @@ impl ActionMapRuntimeState {
             })
             .collect();
 
-        if self.mode == MapRuntimeMode::Experiment && !self.restored_active_binding_is_coherent() {
+        let blank_task_path_is_coherent = restored_blank_task_path.is_some()
+            && self.active_task_id.is_some()
+            && self.active_map_id.is_some()
+            && self.maps.is_empty();
+        if self.mode == MapRuntimeMode::Experiment
+            && !blank_task_path_is_coherent
+            && !self.restored_active_binding_is_coherent()
+        {
             self.active_task_id = None;
             self.active_map_id = None;
             self.current_main_node_id = None;
@@ -1532,6 +1563,8 @@ impl ActionMapRuntimeState {
             self.routing_required = false;
             self.bootstrap_required = false;
             self.reborn_requested = false;
+        } else if blank_task_path_is_coherent {
+            self.bootstrap_required = true;
         } else {
             self.bootstrap_required = self.bootstrap_required || self.maps.is_empty();
             self.routing_required =
@@ -5485,12 +5518,6 @@ fn trace_tags_for(action_class: Option<ActionClass>, success: bool, _body: &str)
     tags
 }
 
-fn sanitize_trace_tags(tags: Vec<String>) -> Vec<String> {
-    tags.into_iter()
-        .filter(|tag| is_known_trace_tag(tag))
-        .collect()
-}
-
 fn trace_tag_value<'a>(tags: &'a [String], key: &str) -> Option<&'a str> {
     let prefix = format!("{key}:");
     tags.iter()
@@ -5605,122 +5632,6 @@ fn sanitize_provider_response_trace_tag_value(value: &str) -> String {
         })
         .take(160)
         .collect::<String>()
-}
-
-fn is_known_trace_tag(tag: &str) -> bool {
-    matches!(
-        tag,
-        "tool_success"
-            | "tool_failure"
-            | "validator_success"
-            | "validator_failure"
-            | "validator_infra_failure"
-            | "validator_unconfirmed"
-            | "unclassified_tool_action"
-    ) || tag.starts_with("schema:")
-        || tag.starts_with("producer:")
-        || tag.starts_with("active_budget_source:")
-        || tag.starts_with("profile_name:")
-        || tag.starts_with("route_mode:")
-        || tag.starts_with("status:")
-        || tag.starts_with("request_count_")
-        || tag.starts_with("max_rollout_model_requests:")
-        || tag.starts_with("max_requests:")
-        || tag.starts_with("node_request_count:")
-        || tag.starts_with("max_model_requests_per_node:")
-        || tag.starts_with("request_phase:")
-        || tag.starts_with("request_phase_missing_reason:")
-        || tag.starts_with("provider_request_context_missing_reason:")
-        || tag.starts_with("node_role:")
-        || tag.starts_with("feedback_kind:")
-        || tag.starts_with("trigger_kind:")
-        || tag.starts_with("response_actionability_previous:")
-        || tag.starts_with("previous_response_recovery_action:")
-        || tag.starts_with("previous_response_trace_event_id:")
-        || tag.starts_with("adoption_actor:")
-        || tag.starts_with("latest_tool_result_refs:")
-        || tag.starts_with("model_visible_feedback_refs:")
-        || tag.starts_with("adoption_blockers:")
-        || tag.starts_with("projection_bundle_hash:")
-        || tag.starts_with("request_reason_delta:")
-        || tag.starts_with("repeated_same_reason_count:")
-        || tag.starts_with("reason_confidence:")
-        || tag.starts_with("provider_request_budget_trace_event_id:")
-        || tag.starts_with("logical_request_id:")
-        || tag.starts_with("attempt_seq:")
-        || tag.starts_with("transport:")
-        || tag.starts_with("runtime_budget_state:")
-        || tag.starts_with("budget_state_before:")
-        || tag.starts_with("budget_state_after:")
-        || tag.starts_with("budget_transition_reason:")
-        || tag.starts_with("started_at_ms:")
-        || tag.starts_with("completed_at_ms:")
-        || tag.starts_with("latency_ms:")
-        || tag.starts_with("model_request_duration_ms:")
-        || tag.starts_with("input_tokens:")
-        || tag.starts_with("cached_input_tokens:")
-        || tag.starts_with("output_tokens:")
-        || tag.starts_with("reasoning_output_tokens:")
-        || tag.starts_with("total_tokens:")
-        || tag.starts_with("provider_payload_sha256:")
-        || tag.starts_with("provider_payload_bytes:")
-        || tag.starts_with("provider_wire_api:")
-        || tag.starts_with("tools_count:")
-        || tag.starts_with("tools_present:")
-        || tag.starts_with("request_shape_classifier:")
-        || tag.starts_with("messages_hash:")
-        || tag.starts_with("stable_prefix_hash:")
-        || tag.starts_with("dynamic_suffix_hash:")
-        || tag.starts_with("exact_payload_scan_passed:")
-        || tag.starts_with("active_projection_present:")
-        || tag.starts_with("active_projection_count:")
-        || tag.starts_with("large_raw_output_tokens:")
-        || tag.starts_with("protected_items_present:")
-        || tag.starts_with("replacement_confirmed:")
-        || tag.starts_with("exact_payload_scan_event_id:")
-        || tag.starts_with("scan_event_id:")
-        || tag.starts_with("scanner_version:")
-        || tag.starts_with("matcher_version:")
-        || tag.starts_with("checked_byte_ranges:")
-        || tag.starts_with("negative_checks_performed:")
-        || tag.starts_with("passed:")
-        || tag.starts_with("failure_reasons:")
-        || tag.starts_with("spawn_agent_call_count_")
-        || tag.starts_with("max_spawn_agent_calls:")
-        || tag.starts_with("max_subagent_results:")
-        || tag.starts_with("node_count")
-        || tag.starts_with("max_nodes:")
-        || tag.starts_with("max_open_leaf_nodes:")
-        || tag.starts_with("budget_kind:")
-        || tag.starts_with("action:")
-        || tag.starts_with("budget_state:")
-        || tag.starts_with("budget_gate_reason:")
-        || tag.starts_with("reason:")
-        || tag.starts_with("projection_tokens")
-        || tag.starts_with("projection_bytes:")
-        || tag.starts_with("projection_header_bytes:")
-        || tag.starts_with("projection_root_source_bytes:")
-        || tag.starts_with("projection_frontier_bytes:")
-        || tag.starts_with("projection_node_bytes:")
-        || tag.starts_with("projection_edge_bytes:")
-        || tag.starts_with("projection_detail_bytes:")
-        || tag.starts_with("projection_footer_bytes:")
-        || tag.starts_with("skeleton_projection_bytes:")
-        || tag.starts_with("max_projection_tokens:")
-        || tag.starts_with("strategy_id:")
-        || tag.starts_with("strategy_activation_count:")
-        || tag.starts_with("fold_eligible_node_count:")
-        || tag.starts_with("folded_node_count:")
-        || tag.starts_with("expanded_node_count:")
-        || tag.starts_with("recoverable_hidden_event_count:")
-        || tag.starts_with("folded_hidden_event_count:")
-        || tag.starts_with("b0_projection_bytes:")
-        || tag.starts_with("projection_bytes_before_strategy:")
-        || tag.starts_with("projection_bytes_after_strategy:")
-        || tag.starts_with("node_detail_bytes_before_strategy:")
-        || tag.starts_with("node_detail_bytes_after_strategy:")
-        || tag.starts_with("skeleton_bytes_before_strategy:")
-        || tag.starts_with("skeleton_bytes_after_strategy:")
 }
 
 fn snapshot_map(map: &ActionMapInstance) -> ActionMapSnapshotMap {
