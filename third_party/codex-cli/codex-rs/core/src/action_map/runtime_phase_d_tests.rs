@@ -16,9 +16,8 @@ fn initialized_chain() -> (ActionMapRuntimeState, ThreadId) {
                     id: "first".into(),
                     goal: "First work".into(),
                 },
-                finish: ActionMapInitializeNodeInput {
+                finish: ActionMapInitializeFinishInput {
                     id: "finish".into(),
-                    goal: "Finish".into(),
                 },
                 work_nodes: vec![ActionMapInitializeNodeInput {
                     id: "second".into(),

@@ -238,6 +238,11 @@ pub(crate) struct ActionMapInitializeNodeInput {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ActionMapInitializeFinishInput {
+    pub(crate) id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ActionMapEdgeInput {
     pub(crate) from: String,
     pub(crate) to: String,
@@ -247,7 +252,7 @@ pub(crate) struct ActionMapEdgeInput {
 pub(crate) struct ActionMapInitializeInput {
     pub(crate) root: ActionMapInitializeNodeInput,
     pub(crate) current_work_node: ActionMapInitializeNodeInput,
-    pub(crate) finish: ActionMapInitializeNodeInput,
+    pub(crate) finish: ActionMapInitializeFinishInput,
     pub(crate) work_nodes: Vec<ActionMapInitializeNodeInput>,
     pub(crate) edges: Vec<ActionMapEdgeInput>,
     pub(crate) source_event_ids: Vec<String>,
@@ -2976,7 +2981,6 @@ impl ActionMapRuntimeState {
         let root_id = require_nonempty_owned("root.node_id", input.root.id)?;
         let root_goal = require_nonempty_owned("root.goal", input.root.goal)?;
         let finish_id = require_nonempty_owned("finish.node_id", input.finish.id)?;
-        let finish_goal = require_nonempty_owned("finish.goal", input.finish.goal)?;
         let current_node_id =
             require_nonempty_owned("current_work_node.node_id", input.current_work_node.id)?;
         let current_node_goal =
@@ -3011,7 +3015,6 @@ impl ActionMapRuntimeState {
             root_goal,
             source_refs: input.source_event_ids,
             finish_node_id: finish_id,
-            finish_goal,
             work_nodes,
             edges,
         })

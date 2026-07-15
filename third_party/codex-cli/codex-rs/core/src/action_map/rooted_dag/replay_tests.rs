@@ -35,7 +35,6 @@ fn chain_input(work_count: usize) -> InitializeMap {
         root_goal: "solve task".into(),
         source_refs: vec!["source-b".into(), "source-a".into(), "source-b".into()],
         finish_node_id: ("finish").to_string(),
-        finish_goal: "summarize result".into(),
         work_nodes,
         edges,
     }
@@ -83,7 +82,7 @@ fn initialization_derives_only_the_first_frontier_and_preserves_sources() {
     );
     assert_eq!(
         commit.map.node(&("finish").to_string()).unwrap().goal,
-        "summarize result"
+        ""
     );
     assert_eq!(
         commit.map.node(&("work-01").to_string()).unwrap().status,
@@ -113,7 +112,6 @@ fn fork_join_waits_for_every_predecessor() {
         root_goal: "solve".into(),
         source_refs: vec!["source".into()],
         finish_node_id: ("finish").to_string(),
-        finish_goal: "finish".into(),
         work_nodes: BTreeMap::from([
             (("left").to_string(), "left".into()),
             (("right").to_string(), "right".into()),

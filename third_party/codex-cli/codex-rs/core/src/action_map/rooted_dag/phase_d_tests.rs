@@ -19,7 +19,6 @@ fn map(work_nodes: &[&str], edges: &[(&str, &str)]) -> TaskSpaceMap {
         root_goal: "solve".into(),
         source_refs: vec!["task-event".into()],
         finish_node_id: "finish".into(),
-        finish_goal: "finish".into(),
         work_nodes: work_nodes
             .iter()
             .map(|id| ((*id).to_string(), format!("work {id}")))

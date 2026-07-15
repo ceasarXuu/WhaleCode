@@ -25,7 +25,6 @@ pub(crate) struct InitializeMap {
     pub(crate) root_goal: String,
     pub(crate) source_refs: Vec<String>,
     pub(crate) finish_node_id: NodeId,
-    pub(crate) finish_goal: String,
     pub(crate) work_nodes: BTreeMap<NodeId, String>,
     pub(crate) edges: Vec<MapEdge>,
 }
@@ -85,10 +84,7 @@ pub(crate) fn initialize(input: InitializeMap) -> Result<Commit, Rejection> {
             input.finish_node_id,
         ));
     }
-    nodes.insert(
-        input.finish_node_id.clone(),
-        MapNode::finish(input.finish_goal),
-    );
+    nodes.insert(input.finish_node_id.clone(), MapNode::finish());
     for (id, goal) in input.work_nodes {
         if nodes.contains_key(&id) {
             return Err(Rejection::one(0, ViolationCode::TransitionInvalid, id));

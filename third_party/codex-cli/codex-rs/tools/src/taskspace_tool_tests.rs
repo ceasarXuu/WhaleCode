@@ -36,6 +36,23 @@ fn bootstrap_schema_requires_initialization_with_continuation() {
         variants[0]["properties"]["additional_work_nodes"]["description"],
         "Zero or more Work nodes other than initial_work_node. Node IDs must be distinct across the entire graph."
     );
+    assert_eq!(
+        variants[0]["properties"]["finish"]["required"],
+        json!(["node_id"])
+    );
+    assert_eq!(
+        variants[0]["properties"]["finish"]["additionalProperties"],
+        false
+    );
+    assert!(
+        variants[0]["properties"]["finish"]["properties"]
+            .get("goal")
+            .is_none()
+    );
+    assert_eq!(
+        variants[0]["properties"]["finish"]["description"],
+        "Terminal identity only. All executable work, including validation, belongs to Work nodes."
+    );
     assert!(variants[0]["properties"].get("current_work_node").is_none());
     assert!(variants[0]["properties"].get("work_nodes").is_none());
     let text = value.to_string();

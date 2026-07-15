@@ -53,7 +53,8 @@
       "finish": {
         "statuses": ["pending", "ready", "closed"],
         "initial_statuses": ["pending", "ready"],
-        "terminal_status": "closed"
+        "terminal_status": "closed",
+        "accepts_goal": false
       }
     },
     "edge_semantics": "to_depends_on_from",
@@ -97,6 +98,10 @@
     {
       "code": "role_status_coherent",
       "condition": "every_node_status_is_allowed_for_its_role"
+    },
+    {
+      "code": "finish_has_no_work_goal",
+      "condition": "finish_goal_is_always_empty"
     },
     {
       "code": "terminal_is_manual",
@@ -177,7 +182,7 @@
       "initialize_map": {
         "required": ["action", "root", "finish", "work_nodes", "edges"],
         "root_required": ["node_id", "goal", "source_refs"],
-        "finish_required": ["node_id", "goal"],
+        "finish_required": ["node_id"],
         "work_node_required": ["node_id", "goal"],
         "edge_required": ["from", "to"]
       },
@@ -244,6 +249,7 @@
     "multiple_finishes",
     "root_id_mismatch",
     "finish_id_mismatch",
+    "finish_goal_not_empty",
     "edge_endpoint_missing",
     "duplicate_edge",
     "self_loop",

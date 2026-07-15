@@ -20,6 +20,7 @@ pub(crate) enum ViolationCode {
     MultipleFinishes,
     RootIdMismatch,
     FinishIdMismatch,
+    FinishGoalNotEmpty,
     EdgeEndpointMissing,
     DuplicateEdge,
     SelfLoop,
@@ -47,6 +48,7 @@ impl ViolationCode {
             Self::MultipleFinishes => "multiple_finishes",
             Self::RootIdMismatch => "root_id_mismatch",
             Self::FinishIdMismatch => "finish_id_mismatch",
+            Self::FinishGoalNotEmpty => "finish_goal_not_empty",
             Self::EdgeEndpointMissing => "edge_endpoint_missing",
             Self::DuplicateEdge => "duplicate_edge",
             Self::SelfLoop => "self_loop",
@@ -135,6 +137,9 @@ fn validate_roles(map: &TaskSpaceMap, found: &mut Violations) {
         _ => {}
     }
     for (id, node) in &map.nodes {
+        if node.role == NodeRole::Finish && !node.goal.is_empty() {
+            add(found, ViolationCode::FinishGoalNotEmpty, id.to_string());
+        }
         if !node.status_allowed() {
             add(found, ViolationCode::RoleStatusInvalid, id.to_string());
         }

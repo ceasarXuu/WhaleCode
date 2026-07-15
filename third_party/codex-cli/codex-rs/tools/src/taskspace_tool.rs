@@ -148,6 +148,22 @@ fn graph_node_schema(description: &str) -> JsonSchema {
     schema
 }
 
+fn finish_node_schema() -> JsonSchema {
+    let mut schema = JsonSchema::object(
+        BTreeMap::from([(
+            "node_id".into(),
+            JsonSchema::string(Some("Stable Agent-authored Finish identifier.".into())),
+        )]),
+        Some(vec!["node_id".into()]),
+        Some(false.into()),
+    );
+    schema.description = Some(
+        "Terminal identity only. All executable work, including validation, belongs to Work nodes."
+            .into(),
+    );
+    schema
+}
+
 fn edge_schema(description: &str) -> JsonSchema {
     let mut schema = JsonSchema::object(
         BTreeMap::from([
@@ -227,7 +243,7 @@ fn initialize_map_schema(has_patch: bool) -> JsonSchema {
                     "Agent-selected initial Work node. Define it only here, not in additional_work_nodes. Declared edges must make it Ready at initialization; Runtime binds it before continuation actions execute.",
                 ),
             ),
-            ("finish".into(), graph_node_schema("Finish node.")),
+            ("finish".into(), finish_node_schema()),
             (
                 "additional_work_nodes".into(),
                 JsonSchema::array(
@@ -403,7 +419,7 @@ pub fn create_taskspace_control_tool(visible_tools: &[ToolSpec]) -> ToolSpec {
 
     ToolSpec::Function(ResponsesApiTool {
         name: "taskspace_control".into(),
-        description: "Mandatory mechanical TaskSpace bootstrap tool. initialize_map declares root, one initial_work_node, zero or more additional_work_nodes, finish, required edges, and continuation. Define the selected initial Work only in initial_work_node; additional_work_nodes excludes it. Declared edges must make initial_work_node Ready so Runtime can bind it before execution. Root and Finish cannot be selected. continuation.actions contains non-patch tools. continuation.patch_then_actions contains exactly one apply_patch slot followed by optional non-patch tools. Runtime executes only the declared sequence and stops after the first failure.".into(),
+        description: "Mandatory mechanical TaskSpace bootstrap tool. initialize_map declares root, one initial_work_node, zero or more additional_work_nodes, a node_id-only Finish identity, required edges, and continuation. All executable work, including validation, belongs to Work nodes. Define the selected initial Work only in initial_work_node; additional_work_nodes excludes it. Declared edges must make initial_work_node Ready so Runtime can bind it before execution. Root and Finish cannot be selected. continuation.actions contains non-patch tools. continuation.patch_then_actions contains exactly one apply_patch slot followed by optional non-patch tools. Runtime executes only the declared sequence and stops after the first failure.".into(),
         strict: false,
         defer_loading: None,
         parameters,

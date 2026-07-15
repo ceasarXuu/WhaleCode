@@ -36,7 +36,7 @@ fn map_with_external_edges(
     for id in ids.iter().skip(1).take(work_node_count) {
         nodes.insert((id).to_string(), MapNode::work(id));
     }
-    nodes.insert((FINISH_ID).to_string(), MapNode::finish("generated finish"));
+    nodes.insert((FINISH_ID).to_string(), MapNode::finish());
 
     TaskSpaceMap {
         id: ("generated-map").to_string(),

@@ -138,7 +138,7 @@ mod tests {
             node.status = *status;
             nodes.insert(id, node);
         }
-        nodes.insert("finish".into(), MapNode::finish("Finish"));
+        nodes.insert("finish".into(), MapNode::finish());
         let mut edges = (1..statuses.len())
             .map(|index| MapEdge {
                 from: format!("node-{}", index - 1),

@@ -24,9 +24,8 @@ fn initialized_state(
                     id: (*current_node_id).into(),
                     goal: (*current_node_goal).into(),
                 },
-                finish: ActionMapInitializeNodeInput {
+                finish: ActionMapInitializeFinishInput {
                     id: "finish".into(),
-                    goal: "Close the task with the final summary".into(),
                 },
                 work_nodes: work_nodes
                     .iter()
@@ -78,6 +77,14 @@ fn initialization_exposes_one_root_one_finish_and_revision_events() {
             .count(),
         1
     );
+    assert_eq!(
+        map.nodes
+            .iter()
+            .find(|node| node.role == "finish")
+            .unwrap()
+            .goal,
+        ""
+    );
     assert_eq!(outcome.node_ids, ["root", "inspect", "finish"]);
 }
 
@@ -99,9 +106,8 @@ fn non_ready_current_work_rejection_is_atomic_and_reports_prestate_revision() {
                     id: "implement".into(),
                     goal: "Implement after inspection".into(),
                 },
-                finish: ActionMapInitializeNodeInput {
+                finish: ActionMapInitializeFinishInput {
                     id: "finish".into(),
-                    goal: "Finish".into(),
                 },
                 work_nodes: vec![ActionMapInitializeNodeInput {
                     id: "inspect".into(),

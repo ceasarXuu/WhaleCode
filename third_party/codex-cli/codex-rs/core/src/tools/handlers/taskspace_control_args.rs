@@ -13,7 +13,7 @@ pub(crate) enum TaskSpaceControlArgs {
     InitializeMap {
         root: TaskSpaceGraphNodeArgs,
         initial_work_node: TaskSpaceGraphNodeArgs,
-        finish: TaskSpaceGraphNodeArgs,
+        finish: TaskSpaceFinishNodeArgs,
         additional_work_nodes: Vec<TaskSpaceGraphNodeArgs>,
         edges: Vec<TaskSpaceGraphEdgeArgs>,
         continuation: TaskSpaceContinuation,
@@ -55,6 +55,12 @@ pub(crate) enum TaskSpaceControlArgs {
 pub(crate) struct TaskSpaceGraphNodeArgs {
     pub(crate) node_id: String,
     pub(crate) goal: String,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct TaskSpaceFinishNodeArgs {
+    pub(crate) node_id: String,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -268,16 +274,24 @@ pub(crate) fn parse_taskspace_control_args(
 fn validate_initialize_map(
     root: &TaskSpaceGraphNodeArgs,
     initial_work_node: &TaskSpaceGraphNodeArgs,
-    finish: &TaskSpaceGraphNodeArgs,
+    finish: &TaskSpaceFinishNodeArgs,
     additional_work_nodes: &[TaskSpaceGraphNodeArgs],
     edges: &[TaskSpaceGraphEdgeArgs],
 ) -> Result<(), FunctionCallError> {
-    let mut all_nodes = Vec::with_capacity(additional_work_nodes.len() + 3);
+    let mut all_nodes = Vec::with_capacity(additional_work_nodes.len() + 2);
     all_nodes.push(root);
     all_nodes.push(initial_work_node);
-    all_nodes.push(finish);
     all_nodes.extend(additional_work_nodes);
     validate_unique_nodes(&all_nodes, "initialize_map nodes")?;
+    if finish.node_id.trim().is_empty() {
+        return invalid("initialize_map nodes requires non-empty finish node_id");
+    }
+    if all_nodes
+        .iter()
+        .any(|node| node.node_id == finish.node_id)
+    {
+        return invalid("initialize_map nodes requires unique node_id values");
+    }
     validate_edges(edges, "initialize_map.edges")?;
     validate_unique_edges(edges, "initialize_map.edges")?;
     Ok(())

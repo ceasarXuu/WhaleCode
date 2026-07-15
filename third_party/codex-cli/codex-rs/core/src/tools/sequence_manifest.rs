@@ -103,7 +103,7 @@ mod tests {
         let bootstrap = call(
             "taskspace_control",
             "bootstrap",
-            r#"{"action":"initialize_map","root":{"node_id":"root","goal":"Solve"},"initial_work_node":{"node_id":"edit","goal":"Edit"},"additional_work_nodes":[],"finish":{"node_id":"finish","goal":"Summarize"},"edges":[{"from":"root","to":"edit"},{"from":"edit","to":"finish"}],"continuation":{"kind":"patch_then_actions","patch":{"tool_name":"apply_patch","input":"patch"},"actions":[{"tool_name":"exec_command","arguments":{"cmd":"test"}}]}}"#,
+            r#"{"action":"initialize_map","root":{"node_id":"root","goal":"Solve"},"initial_work_node":{"node_id":"edit","goal":"Edit"},"additional_work_nodes":[],"finish":{"node_id":"finish"},"edges":[{"from":"root","to":"edit"},{"from":"edit","to":"finish"}],"continuation":{"kind":"patch_then_actions","patch":{"tool_name":"apply_patch","input":"patch"},"actions":[{"tool_name":"exec_command","arguments":{"cmd":"test"}}]}}"#,
         );
         let manifest =
             ToolSequenceManifest::from_calls(&[bootstrap, call("apply_patch", "top-patch", "{}")]);

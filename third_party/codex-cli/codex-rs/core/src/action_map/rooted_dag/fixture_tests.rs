@@ -246,7 +246,11 @@ fn fixture_map(case: &FixtureCase) -> TaskSpaceMap {
                 (*id).to_string(),
                 MapNode {
                     role: *role,
-                    goal: (*id).to_string(),
+                    goal: if *role == NodeRole::Finish {
+                        String::new()
+                    } else {
+                        (*id).to_string()
+                    },
                     source_refs: Vec::new(),
                     status: *status,
                     active_lease: None,
@@ -316,7 +320,7 @@ fn canonical_state_hash_is_independent_of_edge_order() {
                 MapNode::task_root("goal", vec!["source-b".into(), "source-a".into()]),
             ),
             (("work").to_string(), MapNode::work("work")),
-            (("finish").to_string(), MapNode::finish("finish")),
+            (("finish").to_string(), MapNode::finish()),
         ]),
         edges: vec![MapEdge::new("work", "finish"), MapEdge::new("root", "work")],
         revision: 1,
@@ -343,6 +347,22 @@ fn canonicalization_preserves_source_ref_order_and_duplicates() {
         map.nodes.get(&("root").to_string()).unwrap().source_refs,
         vec!["source-b", "source-a", "source-b"]
     );
+}
+
+#[test]
+fn finish_goal_is_structurally_forbidden() {
+    let mut map = fixture_map(&fixtures()[1]);
+    map.nodes
+        .get_mut(&map.finish_node_id)
+        .unwrap()
+        .goal = "verify and summarize".into();
+
+    let violations = validate(&map);
+
+    assert!(violations.iter().any(|violation| {
+        violation.code == super::invariants::ViolationCode::FinishGoalNotEmpty
+            && violation.subjects == ["finish"]
+    }));
 }
 
 #[test]

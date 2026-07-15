@@ -169,9 +169,8 @@ async fn reconstruct_history_restores_latest_map_runtime_snapshot() {
                     id: "scope".to_string(),
                     goal: "Collect architecture scope.".to_string(),
                 },
-                finish: crate::action_map::ActionMapInitializeNodeInput {
+                finish: crate::action_map::ActionMapInitializeFinishInput {
                     id: "finish".into(),
-                    goal: "Finish architecture review".into(),
                 },
                 source_event_ids: vec!["task-event-1".to_string()],
                 work_nodes: Vec::new(),
@@ -257,9 +256,8 @@ async fn resumed_compacted_map_rebuilds_one_projection_from_checkpoint_and_delta
                     id: "resume-node".to_string(),
                     goal: "Restore this goal from the canonical map.".to_string(),
                 },
-                finish: crate::action_map::ActionMapInitializeNodeInput {
+                finish: crate::action_map::ActionMapInitializeFinishInput {
                     id: "finish".into(),
-                    goal: "Finish resumed map".into(),
                 },
                 source_event_ids: vec!["task-event-root".to_string()],
                 work_nodes: Vec::new(),

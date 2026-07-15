@@ -127,10 +127,10 @@ impl MapNode {
         }
     }
 
-    pub(crate) fn finish(goal: impl Into<String>) -> Self {
+    pub(crate) fn finish() -> Self {
         Self {
             role: NodeRole::Finish,
-            goal: goal.into(),
+            goal: String::new(),
             source_refs: Vec::new(),
             status: NodeStatus::Pending,
             active_lease: None,

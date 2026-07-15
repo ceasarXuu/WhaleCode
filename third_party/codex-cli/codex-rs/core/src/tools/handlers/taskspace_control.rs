@@ -5,6 +5,7 @@ use serde_json::Value as JsonValue;
 use crate::action_map::ActionMapEdgeInput;
 use crate::action_map::ActionMapGraphMutationInput;
 use crate::action_map::ActionMapInitializeInput;
+use crate::action_map::ActionMapInitializeFinishInput;
 use crate::action_map::ActionMapInitializeNodeInput;
 use crate::action_map::NodeTransition;
 use crate::function_tool::FunctionCallError;
@@ -13,6 +14,7 @@ use crate::tools::context::ToolOutput;
 use crate::tools::context::ToolPayload;
 use crate::tools::handlers::taskspace_control_args::TaskSpaceControlArgs;
 use crate::tools::handlers::taskspace_control_args::TaskSpaceGraphEdgeArgs;
+use crate::tools::handlers::taskspace_control_args::TaskSpaceFinishNodeArgs;
 use crate::tools::handlers::taskspace_control_args::TaskSpaceGraphNodeArgs;
 use crate::tools::handlers::taskspace_control_args::TaskSpaceNodeTransition;
 use crate::tools::handlers::taskspace_control_args::parse_taskspace_control_args;
@@ -126,7 +128,7 @@ impl ToolHandler for TaskSpaceControlHandler {
                         ActionMapInitializeInput {
                             root: map_node_input(root),
                             current_work_node: map_node_input(initial_work_node),
-                            finish: map_node_input(finish),
+                            finish: map_finish_input(finish),
                             work_nodes: additional_work_nodes
                                 .into_iter()
                                 .map(map_node_input)
@@ -454,6 +456,9 @@ fn map_node_input(node: TaskSpaceGraphNodeArgs) -> ActionMapInitializeNodeInput 
         id: node.node_id,
         goal: node.goal,
     }
+}
+fn map_finish_input(node: TaskSpaceFinishNodeArgs) -> ActionMapInitializeFinishInput {
+    ActionMapInitializeFinishInput { id: node.node_id }
 }
 fn map_edge_input(edge: TaskSpaceGraphEdgeArgs) -> ActionMapEdgeInput {
     ActionMapEdgeInput {

@@ -1410,9 +1410,8 @@ async fn map_epoch_snapshot_history_stays_append_only_after_same_turn_changes() 
                         id: "inspect".to_string(),
                         goal: "Inspect current code.".to_string(),
                     },
-                    finish: crate::action_map::ActionMapInitializeNodeInput {
+                    finish: crate::action_map::ActionMapInitializeFinishInput {
                         id: "finish".into(),
-                        goal: "Finish the task".into(),
                     },
                     source_event_ids: vec!["task-event-1".to_string()],
                     work_nodes: vec![crate::action_map::ActionMapInitializeNodeInput {
@@ -1541,9 +1540,8 @@ async fn map_epoch_snapshot_is_canonical_map_derived_and_written_once() {
                         id: "scope".to_string(),
                         goal: "Collect current architecture scope.".to_string(),
                     },
-                    finish: crate::action_map::ActionMapInitializeNodeInput {
+                    finish: crate::action_map::ActionMapInitializeFinishInput {
                         id: "finish".into(),
-                        goal: "Finish architecture review".into(),
                     },
                     source_event_ids: vec!["task-event-1".to_string()],
                     work_nodes: Vec::new(),
@@ -1653,9 +1651,8 @@ async fn session_main_tool_result_is_checkpointed_at_explicit_boundary() {
                         id: "validate".to_string(),
                         goal: "Run a validation command.".to_string(),
                     },
-                    finish: crate::action_map::ActionMapInitializeNodeInput {
+                    finish: crate::action_map::ActionMapInitializeFinishInput {
                         id: "finish".into(),
-                        goal: "Finish trace".into(),
                     },
                     source_event_ids: vec!["task-event-1".to_string()],
                     work_nodes: Vec::new(),

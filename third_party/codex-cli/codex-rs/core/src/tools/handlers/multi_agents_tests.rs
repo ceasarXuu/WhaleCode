@@ -159,9 +159,8 @@ async fn start_action_map_task_node(
                     goal: title.to_string(),
                 },
                 current_work_node,
-                finish: crate::action_map::ActionMapInitializeNodeInput {
+                finish: crate::action_map::ActionMapInitializeFinishInput {
                     id: "finish".into(),
-                    goal: "Finish the delegated task".into(),
                 },
                 source_event_ids: vec!["task-event-test".to_string()],
                 work_nodes,
