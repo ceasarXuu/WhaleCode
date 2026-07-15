@@ -10,7 +10,7 @@
 Created: 2026-07-15
 Updated: 2026-07-15
 Version: v0.0.5 build-R6
-Status: Phase C Complete / Phase D Ready
+Status: Phase D Complete / Phase E Ready
 Owner / Responsible: WhaleCode core runtime / TaskSpace
 Risk Level: Critical
 Plan Type: Full
@@ -226,6 +226,12 @@ simple + branch-join 的 Standard/R5/R6 各1次均完成外部验证。
 ## 1.10 Phase D：动态图、并发前沿与 Agent 控制
 
 **目标**：证明新模型不只适用于静态 chain，还能忠实承载 Agent 的 fork、join、rework 和并发工作。
+
+**执行结果**：已完成。`mutate_graph`、执行因果保护、多前驱 readiness、显式 rework、stale revision、
+合法 active frontier、snapshot lease 校验和 Viewer/observer 已统一接入生产 Rooted DAG。确定性
+fork/join/diamond/rework 门禁通过；branch-join 与 rework opportunity 的 Standard/冻结 R5/R6
+单次 Docker 参考均通过外部验证。live Agent 两次自然形成 chain，Runtime 未自动补图。完整证据见
+`07-r6-phase-d-result.md` 和 `benchmarks/taskspace/r6/phase-d-result.json`。
 
 实施项：
 
