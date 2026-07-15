@@ -37,7 +37,11 @@ function New-TaskspaceManagedItem {
         $salience = 0.80
         $protectedReason = "problem_ledger_active"
     } elseif ($ItemType -eq "node") {
-        if ($Status -in @("ready", "running", "blocked")) {
+        if ($Kind -in @("task_root", "finish")) {
+            $retention = "retained"
+            $salience = 0.85
+            $protectedReason = "rooted_graph_skeleton"
+        } elseif ($Status -in @("ready", "running", "blocked")) {
             $retention = "active"
             $salience = 0.75
             $protectedReason = "open_or_blocked_node"
@@ -118,7 +122,7 @@ function Get-TaskspaceMapManagedItems {
         }
     }
     foreach ($node in @($Observability.nodes)) {
-        $items.Add((New-TaskspaceManagedItem "node" ([string]$node.id) "" "" ([string]$node.status) "" ([string]$node.kind) 0 0 0 $false $false))
+        $items.Add((New-TaskspaceManagedItem "node" ([string]$node.id) ([string]$node.mapId) ([string]$node.taskId) ([string]$node.status) "" ([string]$node.kind) 0 0 0 $false $false))
         foreach ($result in @($node.results)) {
             $pkg = $result.evidencePackage
             $validatorCount = if ($pkg -and $pkg.PSObject.Properties.Name -contains "validatorRefs") { @($pkg.validatorRefs).Count } else { 0 }

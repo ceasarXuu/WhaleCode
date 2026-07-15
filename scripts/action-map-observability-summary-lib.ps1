@@ -1,4 +1,5 @@
 . (Join-Path $PSScriptRoot "action-map-object-lib.ps1")
+. (Join-Path $PSScriptRoot "action-map-snapshot-normalizer.ps1")
 
 function Get-ActionMapObservabilityInt64Env {
     param(
@@ -221,9 +222,10 @@ function New-ActionMapLargeRolloutSummary {
                 "lease_attached" { $node = Ensure-Node $nodes ([string]$payload.nodeId); if ($node -and $payload.agentThreadId) { $agentId = [string]$payload.agentThreadId; Add-Or-Update-Lease $node $at ([string]$payload.leaseId) "attached" "" $agentId; if (-not $node.agentThreads.Contains($agentId)) { $node.agentThreads.Add($agentId) }; $agents[$agentId] = [ordered]@{ threadId = $agentId; path = [string]$payload.agentPath; nodeId = [string]$payload.nodeId; leaseId = [string]$payload.leaseId } } }
                 "node_result_recorded" { $node = Ensure-Node $nodes ([string]$payload.nodeId); Add-Or-Update-NodeResult $node $at ([string]$payload.resultId) ([string]$payload.leaseId) ([string]$payload.sourceThreadId) ([string]$payload.kind) ([string]$payload.actionClass) "" $null ([string]$payload.mapId) "" }
                 "snapshot_updated" {
-                    foreach ($snapshotTask in @($payload.snapshot.tasks)) { $task = Ensure-Task $tasks $taskById ([string]$snapshotTask.id) ([string]$snapshotTask.title) ([string]$snapshotTask.objective) ([string]$snapshotTask.status) ([string]$snapshotTask.ownerSessionId) ([string]$snapshotTask.activeMapId) $snapshotTask.mapIds $null; if ($task) { $task.activeMapId = [string]$snapshotTask.activeMapId } }
-                    foreach ($snapshotMap in @($payload.snapshot.maps)) {
+                    foreach ($snapshotTask in @(Get-ActionMapSnapshotTasks $payload.snapshot)) { $task = Ensure-Task $tasks $taskById ([string]$snapshotTask.id) ([string]$snapshotTask.title) ([string]$snapshotTask.objective) ([string]$snapshotTask.status) ([string]$snapshotTask.ownerSessionId) ([string]$snapshotTask.activeMapId) $snapshotTask.mapIds $null; if ($task) { $task.activeMapId = [string]$snapshotTask.activeMapId } }
+                    foreach ($snapshotMap in @(Get-ActionMapSnapshotMaps $payload.snapshot)) {
                         $map = Ensure-Map $maps $mapById ([string]$snapshotMap.id) ([string]$snapshotMap.title) ([string]$snapshotMap.ownerSessionId) $snapshotMap.createdFrom ([string]$snapshotMap.taskId)
+                        foreach ($field in @("rootNodeId", "finishNodeId", "revision", "currentNodeId", "complete", "terminalSummaryRef")) { if ($snapshotMap.PSObject.Properties.Name -contains $field) { $map[$field] = $snapshotMap.$field } }
                         foreach ($snapshotPlan in @($snapshotMap.subagentPlans)) { Add-Or-Update-SubagentPlan $map $snapshotPlan }
                         foreach ($snapshotEdge in @($snapshotMap.edges)) {
                             $from = [string]$snapshotEdge.from
@@ -235,7 +237,8 @@ function New-ActionMapLargeRolloutSummary {
                                 $edges.Add([ordered]@{ mapId = $mapId; from = $from; to = $to })
                             }
                         }
-                        foreach ($snapshotNode in @($snapshotMap.nodes)) { $node = Ensure-Node $nodes ([string]$snapshotNode.id) ([string]$snapshotNode.title) ([string]$snapshotNode.kind); if ($node -and $snapshotNode.status) { $node.status = [string]$snapshotNode.status } }
+                        foreach ($snapshotNode in @($snapshotMap.nodes)) { $node = Ensure-Node $nodes ([string]$snapshotNode.id) ([string]$snapshotNode.title) ([string]$snapshotNode.kind); if ($node) { if ($snapshotNode.status) { $node.status = [string]$snapshotNode.status }; $node.mapId = [string]$snapshotMap.id; $node.taskId = [string]$snapshotMap.taskId; if ($snapshotNode.goal) { $node.goal = [string]$snapshotNode.goal }; if ($snapshotNode.role) { $node.role = [string]$snapshotNode.role } } }
+                        foreach ($snapshotLease in @($snapshotMap.leases)) { $node = Ensure-Node $nodes ([string]$snapshotLease.nodeId); Add-Or-Update-Lease $node $at ([string]$snapshotLease.id) "attached" "" ([string]$snapshotLease.agentThreadId) }
                         foreach ($snapshotResult in @($snapshotMap.results)) { $node = Ensure-Node $nodes ([string]$snapshotResult.nodeId); Add-Or-Update-NodeResult $node $at ([string]$snapshotResult.id) ([string]$snapshotResult.assignmentId) ([string]$snapshotResult.sourceThreadId) ([string]$snapshotResult.kind) ([string]$snapshotResult.actionClass) ([string]$snapshotResult.sourceEventRef) $null ([string]$snapshotMap.id) ([string]$snapshotMap.taskId) "" $snapshotResult.artifactRefs $snapshotResult.toolSuccess }
                     }
                 }

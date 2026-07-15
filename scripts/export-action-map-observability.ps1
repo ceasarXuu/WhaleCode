@@ -255,13 +255,16 @@ foreach ($item in $rolloutItems) {
         "snapshot_updated" {
             $snapshotMapCount = 0
             $snapshotNodeCount = 0
-            foreach ($snapshotTask in @($payload.snapshot.tasks)) {
+            foreach ($snapshotTask in @(Get-ActionMapSnapshotTasks $payload.snapshot)) {
                 $task = Ensure-Task $tasks $taskById ([string]$snapshotTask.id) ([string]$snapshotTask.title) ([string]$snapshotTask.objective) ([string]$snapshotTask.status) ([string]$snapshotTask.ownerSessionId) ([string]$snapshotTask.activeMapId) $snapshotTask.mapIds $snapshotTask.cognitiveState
                 if ($task) { $task.activeMapId = [string]$snapshotTask.activeMapId }
             }
-            foreach ($snapshotMap in @($payload.snapshot.maps)) {
+            foreach ($snapshotMap in @(Get-ActionMapSnapshotMaps $payload.snapshot)) {
                 $snapshotMapCount++
                 $map = Ensure-Map $maps $mapById ([string]$snapshotMap.id) ([string]$snapshotMap.title) ([string]$snapshotMap.ownerSessionId) $snapshotMap.createdFrom ([string]$snapshotMap.taskId)
+                foreach ($field in @("rootNodeId", "finishNodeId", "revision", "currentNodeId", "complete", "terminalSummaryRef")) {
+                    if ($snapshotMap.PSObject.Properties.Name -contains $field) { $map[$field] = $snapshotMap.$field }
+                }
                 foreach ($snapshotPlan in @($snapshotMap.subagentPlans)) {
                     Add-Or-Update-SubagentPlan $map $snapshotPlan
                 }
@@ -284,7 +287,15 @@ foreach ($item in $rolloutItems) {
                     $node = Ensure-Node $nodes ([string]$snapshotNode.id) ([string]$snapshotNode.title) ([string]$snapshotNode.kind)
                     if ($node) {
                         if ($snapshotNode.status) { $node.status = [string]$snapshotNode.status }
+                        $node.mapId = [string]$snapshotMap.id
+                        $node.taskId = [string]$snapshotMap.taskId
+                        if ($snapshotNode.goal) { $node.goal = [string]$snapshotNode.goal }
+                        if ($snapshotNode.role) { $node.role = [string]$snapshotNode.role }
                     }
+                }
+                foreach ($snapshotLease in @($snapshotMap.leases)) {
+                    $node = Ensure-Node $nodes ([string]$snapshotLease.nodeId)
+                    Add-Or-Update-Lease $node $at ([string]$snapshotLease.id) "attached" "" ([string]$snapshotLease.agentThreadId)
                 }
                 foreach ($snapshotResult in @($snapshotMap.results)) {
                     $node = Ensure-Node $nodes ([string]$snapshotResult.nodeId)

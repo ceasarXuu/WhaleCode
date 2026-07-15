@@ -35,8 +35,12 @@ function Ensure-Node {
         $Nodes[$NodeId] = [ordered]@{
             id = $NodeId
             title = $Title
+            goal = $Title
             kind = if ($Kind) { $Kind } else { "unknown" }
+            role = if ($Kind) { $Kind } else { "unknown" }
             status = "unknown"
+            mapId = ""
+            taskId = ""
             leases = New-Object System.Collections.Generic.List[object]
             results = New-Object System.Collections.Generic.List[object]
             blockedActions = New-Object System.Collections.Generic.List[object]
@@ -50,6 +54,7 @@ function Ensure-Node {
     }
     if ($Kind -and $Kind -ne "unknown") {
         $Nodes[$NodeId].kind = $Kind
+        $Nodes[$NodeId].role = $Kind
     }
     return $Nodes[$NodeId]
 }
@@ -75,6 +80,12 @@ function Ensure-Map {
             title = $Title
             ownerSessionId = $OwnerSessionId
             createdFrom = $CreatedFrom
+            rootNodeId = ""
+            finishNodeId = ""
+            revision = 0
+            currentNodeId = ""
+            complete = $false
+            terminalSummaryRef = ""
             subagentPlans = New-Object System.Collections.Generic.List[object]
         }
         $MapById[$MapId] = $map
