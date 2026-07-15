@@ -1,0 +1,130 @@
+{
+  "schema_version": "r6-phase-e-finish-boundary-result-v1",
+  "status": "finish_boundary_complete_phase_e_remaining",
+  "runtime_candidate_commit": "fa505477dd32e69a57480ea7fb6d31bbd64bfdf0",
+  "implementation_commits": [
+    "865ed1b85",
+    "ba010552c",
+    "512e5e5cf",
+    "fa505477d"
+  ],
+  "contract": {
+    "finish_input_required": ["node_id"],
+    "finish_input_accepts_goal": false,
+    "finish_additional_properties": false,
+    "work_owns_validation": true,
+    "runtime_semantic_keyword_detection": false,
+    "legacy_finish_goal_compatibility": false,
+    "domain_violation_code": "finish_goal_not_empty"
+  },
+  "deterministic_evidence": {
+    "codex_tools_full": {"passed": 141, "failed": 0, "ignored": 1},
+    "taskspace_control": {"passed": 17, "failed": 0},
+    "action_map": {"passed": 67, "failed": 0},
+    "rooted_dag": {"passed": 26, "failed": 0},
+    "sequence": {"passed": 13, "failed": 0},
+    "guardian_with_env": {"passed": 79, "failed": 0},
+    "focused_session_and_replay": "passed",
+    "codex_core_full": {
+      "passed": 1847,
+      "failed": 12,
+      "ignored": 3,
+      "taskspace_related_failures": 0,
+      "environmental_guardian_failures_resolved_with_env": 8,
+      "stale_projection_fixture_resolved": 1,
+      "remaining_unrelated_isolated_failures": [
+        "file_watcher::tests::recursive_registration_downgrades_to_non_recursive_after_drop",
+        "file_watcher::tests::unregister_holds_state_lock_until_unwatch_finishes",
+        "thread_manager::tests::new_uses_active_provider_for_model_refresh"
+      ]
+    },
+    "scoped_clippy": "completed_with_pre_existing_warnings",
+    "rustfmt": "passed",
+    "whale_build_locked": "passed"
+  },
+  "live_sample": {
+    "scenario": "subscription-billing-repair",
+    "run_root": "target/r6-phase-e/finish-boundary/subscription-billing-repair/20260715-232923-210",
+    "valid_pair": true,
+    "repeats": 1,
+    "aggregate_eligible": false,
+    "evidence_gate_failures": ["repeats_lt_3", "aggregate_not_enabled"],
+    "binary_sha256": "546305d32c4a1f824360849d6022401df45d98da2543f81144656d989b2798df",
+    "performance_observation_sha256": "2c8fd9136a041c17bd059a679202913b2a6104c2ec717f28dcea7b0fe30fc840",
+    "pair_report_sha256": "11ddb72d226c7f5a963c8a41415985609917136d076b656e88e7e436f7b2c3db",
+    "taskspace_rollout_sha256": "fe4aba73fd99632c2c96b35aca7f7bd0858e144cbbf532c38626b5c8266daddd",
+    "standard": {
+      "business_success": true,
+      "external_validation": "passed",
+      "requests": 17,
+      "runtime_tools": 25,
+      "wall_time_ms": 58903,
+      "input_tokens": 225391,
+      "cached_input_tokens": 218880,
+      "uncached_input_tokens": 6511,
+      "output_tokens": 6371,
+      "request_2_plus_cache_hit_rate": 0.970561
+    },
+    "taskspace": {
+      "business_success": true,
+      "external_validation": "passed",
+      "requests": 15,
+      "runtime_tools": 23,
+      "control_calls": 6,
+      "control_failures": 0,
+      "wall_time_ms": 63586,
+      "input_tokens": 201939,
+      "cached_input_tokens": 190080,
+      "uncached_input_tokens": 11859,
+      "output_tokens": 7357,
+      "request_2_plus_cache_hit_rate": 0.962889
+    }
+  },
+  "raw_trace_facts": {
+    "initialize_finish": {"node_id": "finish"},
+    "finish_goal_present": false,
+    "work_nodes": [
+      {"node_id": "explore_project", "goal": "Explore project structure, README rules, and failing tests"},
+      {"node_id": "fix_regressions", "goal": "Fix regression bugs and align tests with README rules"},
+      {"node_id": "verify", "goal": "Run tests and verify all fixes"}
+    ],
+    "edges": [
+      "root->explore_project",
+      "explore_project->fix_regressions",
+      "fix_regressions->verify",
+      "verify->finish"
+    ],
+    "committed_revisions": [2, 3, 4, 5, 6, 7],
+    "final_control_state": {
+      "revision": 7,
+      "current_node_id": null,
+      "pending_work_node_ids": [],
+      "ready_work_node_ids": [],
+      "running_work_node_ids": [],
+      "finish_ready": true,
+      "complete": false
+    },
+    "finish_end_count": 0
+  },
+  "slice_gate": {
+    "finish_cannot_carry_work_goal": "pass",
+    "validation_naturally_moved_to_work": "pass",
+    "no_control_rejection": "pass",
+    "business_correctness": "pass",
+    "phase_e_terminal_closure": "not_yet_passed"
+  },
+  "new_findings": [
+    {
+      "id": "R6-E-TERM-01",
+      "status": "open",
+      "fact": "Agent completed every Work node and made Finish ready, then returned a final answer without finish_end.",
+      "scope": "Phase E explicit terminal path"
+    },
+    {
+      "id": "R6-E-OBS-01",
+      "status": "open",
+      "fact": "The generated observer report showed the initialization state although raw control results committed revisions through 7.",
+      "scope": "benchmark snapshot-delta replay and map observation"
+    }
+  ]
+}

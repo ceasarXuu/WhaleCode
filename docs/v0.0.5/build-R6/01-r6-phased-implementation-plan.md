@@ -10,7 +10,7 @@
 Created: 2026-07-15
 Updated: 2026-07-15
 Version: v0.0.5 build-R6
-Status: Phase D Complete / Phase E Ready
+Status: Phase E In Progress / Finish Boundary Complete
 Owner / Responsible: WhaleCode core runtime / TaskSpace
 Risk Level: Critical
 Plan Type: Full
@@ -262,6 +262,10 @@ Agent 未建立理想图时只记录能力现象，不由 Runtime 自动补图�
 **终结边界增补**：Finish 只保留终点身份，不接受 `goal` 或任何工作描述。读取、修改、验证均属于
 Agent 自主规划的 Work；Runtime 不按关键词识别验证语义，也不强制 Work 拆分粒度。详细合同见
 `08-r6-phase-e-finish-boundary-design.md`。
+
+**当前结果**：Finish 无工作语义的纵向切换与单样本门禁已完成；live trace 同时暴露出 Agent 可在
+Finish READY 后直接最终回答而未调用 `finish_end`，以及 observer 未反映后续 snapshot delta 的
+状态重放缺口。Phase E 仍在进行，详见 `09-r6-phase-e-finish-boundary-result.md`。
 
 实施项：
 
