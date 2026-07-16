@@ -32,21 +32,17 @@ fn committed_control_output(call_id: &str) -> ResponseItem {
                 "status": "committed",
                 "success": true,
                 "state_commit": true,
-                "map_state": {
-                    "task_id": "task-1",
+                "committed_revision": 1,
+                "delta": {
                     "map_id": "map-1",
-                    "revision": 1,
-                    "root_node_id": "root",
-                    "finish_node_id": "finish",
-                    "complete": false,
-                    "current_node_id": "node-1"
+                    "committed_revision": 1,
+                    "graph_event_refs": [],
+                    "node_detail_event_refs": []
                 },
                 "steps": [{
                     "kind": "map_initialized",
-                    "task_id": "task-1",
                     "map_id": "map-1",
-                    "created_node_ids": ["node-1"],
-                    "current_node_id": "node-1"
+                    "revision": 1
                 }]
             })
             .to_string(),

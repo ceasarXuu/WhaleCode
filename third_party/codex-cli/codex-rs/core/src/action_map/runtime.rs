@@ -284,12 +284,14 @@ pub(crate) struct ActionMapInitializeOutcome {
     pub(crate) map_id: ActionMapId,
     pub(crate) node_ids: Vec<MapNodeId>,
     pub(crate) current_node_id: MapNodeId,
+    pub(crate) delta: ActionMapControlDelta,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ActionMapGraphMutationOutcome {
     pub(crate) map_id: ActionMapId,
     pub(crate) revision: u64,
+    pub(crate) delta: ActionMapControlDelta,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -298,6 +300,7 @@ pub(crate) struct ActionMapTransitionOutcome {
     pub(crate) node_id: MapNodeId,
     pub(crate) revision: u64,
     pub(crate) status: String,
+    pub(crate) delta: ActionMapControlDelta,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -305,6 +308,7 @@ pub(crate) struct ActionMapFinishEndOutcome {
     pub(crate) map_id: ActionMapId,
     pub(crate) revision: u64,
     pub(crate) final_summary: String,
+    pub(crate) delta: ActionMapControlDelta,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -313,6 +317,15 @@ pub(crate) struct ActionMapNodeDetailExpansionOutcome {
     pub(crate) expansion_event_id: NodeEventId,
     pub(crate) detail_ref: String,
     pub(crate) restored_details: Vec<ActionMapExpandedDetailRef>,
+    pub(crate) delta: ActionMapControlDelta,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ActionMapControlDelta {
+    pub(crate) map_id: ActionMapId,
+    pub(crate) committed_revision: u64,
+    pub(crate) graph_revision_batches: Vec<MapRuntimeGraphRevisionCommittedEvent>,
+    pub(crate) node_detail_events: Vec<MapRuntimeNodeDetailExpandedEvent>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -426,6 +439,15 @@ pub(crate) struct ActionMapExactPayloadScanEventInput {
     pub(crate) large_raw_output_tokens: usize,
     pub(crate) runtime_boundary_forbidden_markers: Vec<String>,
     pub(crate) protected_items_present: bool,
+    pub(crate) projection_kind: Option<String>,
+    pub(crate) projection_map_id_sha256: Option<String>,
+    pub(crate) projection_revision: Option<u64>,
+    pub(crate) projection_sha256: Option<String>,
+    pub(crate) expected_projection_kind: Option<String>,
+    pub(crate) expected_projection_map_id_sha256: Option<String>,
+    pub(crate) expected_projection_revision: Option<u64>,
+    pub(crate) expected_projection_sha256: Option<String>,
+    pub(crate) projection_freshness_confirmed: Option<bool>,
     pub(crate) replacement_confirmed: bool,
     pub(crate) passed: bool,
     pub(crate) failure_reasons: Vec<String>,
@@ -2483,6 +2505,47 @@ impl ActionMapRuntimeState {
                         "runtime_boundary_forbidden_markers:{runtime_boundary_forbidden_markers}"
                     ),
                     format!("protected_items_present:{}", scan.protected_items_present),
+                    format!(
+                        "projection_kind:{}",
+                        scan.projection_kind.as_deref().unwrap_or("none")
+                    ),
+                    format!(
+                        "projection_map_id_sha256:{}",
+                        scan.projection_map_id_sha256.as_deref().unwrap_or("none")
+                    ),
+                    format!(
+                        "projection_revision:{}",
+                        scan.projection_revision
+                            .map_or_else(|| "none".to_string(), |value| value.to_string())
+                    ),
+                    format!(
+                        "projection_sha256:{}",
+                        scan.projection_sha256.as_deref().unwrap_or("none")
+                    ),
+                    format!(
+                        "expected_projection_kind:{}",
+                        scan.expected_projection_kind.as_deref().unwrap_or("none")
+                    ),
+                    format!(
+                        "expected_projection_map_id_sha256:{}",
+                        scan.expected_projection_map_id_sha256
+                            .as_deref()
+                            .unwrap_or("none")
+                    ),
+                    format!(
+                        "expected_projection_revision:{}",
+                        scan.expected_projection_revision
+                            .map_or_else(|| "none".to_string(), |value| value.to_string())
+                    ),
+                    format!(
+                        "expected_projection_sha256:{}",
+                        scan.expected_projection_sha256.as_deref().unwrap_or("none")
+                    ),
+                    format!(
+                        "projection_freshness_confirmed:{}",
+                        scan.projection_freshness_confirmed
+                            .map_or("unavailable", |value| if value { "true" } else { "false" })
+                    ),
                     format!("replacement_confirmed:{}", scan.replacement_confirmed),
                     format!("passed:{}", scan.passed),
                     format!("failure_reasons:{failure_reasons}"),
@@ -3110,9 +3173,17 @@ impl ActionMapRuntimeState {
         self.current_main_lease_id = Some(lease_id.clone());
         self.mark_routing_complete();
 
-        let mut events = graph_events
+        let graph_revision_batches = graph_events
             .iter()
-            .map(|batch| graph_revision_committed_event(batch, "initialize_map"))
+            .map(|batch| graph_revision_committed_record(batch, "initialize_map"))
+            .collect::<Vec<_>>();
+        let committed_revision = graph_revision_batches
+            .last()
+            .map_or(0, |batch| batch.revision);
+        let mut events = graph_revision_batches
+            .iter()
+            .cloned()
+            .map(MapRuntimeEvent::GraphRevisionCommitted)
             .collect::<Vec<_>>();
         events.push(MapRuntimeEvent::LeaseCreated(MapRuntimeLeaseCreatedEvent {
             map_id: map_id.clone(),
@@ -3140,9 +3211,15 @@ impl ActionMapRuntimeState {
         Ok((
             ActionMapInitializeOutcome {
                 task_id,
-                map_id,
+                map_id: map_id.clone(),
                 node_ids: input_order,
                 current_node_id,
+                delta: ActionMapControlDelta {
+                    map_id,
+                    committed_revision,
+                    graph_revision_batches,
+                    node_detail_events: Vec::new(),
+                },
             },
             events,
         ))
@@ -3206,7 +3283,8 @@ impl ActionMapRuntimeState {
         )
         .map_err(rooted_rejection_message)?;
         let revision = committed.map.revision;
-        let graph_event = graph_revision_committed_event(&committed.events, "mutate_graph");
+        let graph_batch = graph_revision_committed_record(&committed.events, "mutate_graph");
+        let graph_event = MapRuntimeEvent::GraphRevisionCommitted(graph_batch.clone());
         self.maps
             .get_mut(&map_id)
             .expect("validated rooted map remains present")
@@ -3229,7 +3307,16 @@ impl ActionMapRuntimeState {
             ],
         );
         Ok((
-            ActionMapGraphMutationOutcome { map_id, revision },
+            ActionMapGraphMutationOutcome {
+                map_id: map_id.clone(),
+                revision,
+                delta: ActionMapControlDelta {
+                    map_id,
+                    committed_revision: revision,
+                    graph_revision_batches: vec![graph_batch],
+                    node_detail_events: Vec::new(),
+                },
+            },
             vec![graph_event, event],
         ))
     }
@@ -3303,10 +3390,8 @@ impl ActionMapRuntimeState {
             .get(&node_id)
             .expect("transition target remains present")
             .status;
-        let mut events = vec![graph_revision_committed_event(
-            &committed.events,
-            "transition_node",
-        )];
+        let graph_batch = graph_revision_committed_record(&committed.events, "transition_node");
+        let mut events = vec![MapRuntimeEvent::GraphRevisionCommitted(graph_batch.clone())];
         let lease_id = match transition {
             NodeTransition::Bind => Some(self.next_lease_id()),
             NodeTransition::Complete | NodeTransition::Block => Some(
@@ -3412,10 +3497,16 @@ impl ActionMapRuntimeState {
         }
         Ok((
             ActionMapTransitionOutcome {
-                map_id,
+                map_id: map_id.clone(),
                 node_id,
                 revision,
                 status: status.as_str().to_string(),
+                delta: ActionMapControlDelta {
+                    map_id,
+                    committed_revision: revision,
+                    graph_revision_batches: vec![graph_batch],
+                    node_detail_events: Vec::new(),
+                },
             },
             events,
         ))
@@ -3460,7 +3551,8 @@ impl ActionMapRuntimeState {
                 .map_err(rooted_rejection_message)?
         };
         let revision = committed.map.revision;
-        let graph_event = graph_revision_committed_event(&committed.events, "finish_end");
+        let graph_batch = graph_revision_committed_record(&committed.events, "finish_end");
+        let graph_event = MapRuntimeEvent::GraphRevisionCommitted(graph_batch.clone());
         self.maps
             .get_mut(&map_id)
             .expect("validated rooted map remains present")
@@ -3488,9 +3580,15 @@ impl ActionMapRuntimeState {
         );
         Ok((
             ActionMapFinishEndOutcome {
-                map_id,
+                map_id: map_id.clone(),
                 revision,
                 final_summary,
+                delta: ActionMapControlDelta {
+                    map_id,
+                    committed_revision: revision,
+                    graph_revision_batches: vec![graph_batch],
+                    node_detail_events: Vec::new(),
+                },
             },
             vec![graph_event, event],
         ))
@@ -3558,6 +3656,7 @@ impl ActionMapRuntimeState {
                     .to_string(),
             );
         }
+        let committed_revision = map.revision;
         let mut unique_node_ids = HashSet::with_capacity(node_ids.len());
         let detail_plan = node_detail_plan(map, self.current_main_node_id.as_deref());
         let baseline_details =
@@ -3636,22 +3735,27 @@ impl ActionMapRuntimeState {
                     id: expansion_event_id.clone(),
                     kind: NODE_DETAIL_EXPANDED_EVENT_KIND.to_string(),
                 });
+            let committed_event = MapRuntimeNodeDetailExpandedEvent {
+                map_id: map_id.clone(),
+                node_id: node_id.clone(),
+                expansion_event_id: expansion_event_id.clone(),
+                call_id: call_id.clone(),
+                source_event_id: source_event_id.clone(),
+                source_thread_id: owner_session_id,
+            };
             outcomes.push(ActionMapNodeDetailExpansionOutcome {
                 node_id: node_id.clone(),
                 expansion_event_id: expansion_event_id.clone(),
                 detail_ref: detail_identity.detail_ref,
                 restored_details: hidden_details.iter().map(expanded_detail_ref).collect(),
-            });
-            events.push(MapRuntimeEvent::NodeDetailExpanded(
-                MapRuntimeNodeDetailExpandedEvent {
+                delta: ActionMapControlDelta {
                     map_id: map_id.clone(),
-                    node_id,
-                    expansion_event_id,
-                    call_id: call_id.clone(),
-                    source_event_id: source_event_id.clone(),
-                    source_thread_id: owner_session_id,
+                    committed_revision,
+                    graph_revision_batches: Vec::new(),
+                    node_detail_events: vec![committed_event.clone()],
                 },
-            ));
+            });
+            events.push(MapRuntimeEvent::NodeDetailExpanded(committed_event));
         }
         Ok((outcomes, events))
     }
@@ -6053,7 +6157,14 @@ fn normalize_artifact_ref(path: &str) -> String {
 }
 
 fn graph_revision_committed_event(batch: &EventBatch, operation: &str) -> MapRuntimeEvent {
-    MapRuntimeEvent::GraphRevisionCommitted(MapRuntimeGraphRevisionCommittedEvent {
+    MapRuntimeEvent::GraphRevisionCommitted(graph_revision_committed_record(batch, operation))
+}
+
+fn graph_revision_committed_record(
+    batch: &EventBatch,
+    operation: &str,
+) -> MapRuntimeGraphRevisionCommittedEvent {
+    MapRuntimeGraphRevisionCommittedEvent {
         map_id: batch.map_id.clone(),
         revision: batch.revision,
         operation: operation.to_string(),
@@ -6070,7 +6181,7 @@ fn graph_revision_committed_event(batch: &EventBatch, operation: &str) -> MapRun
                     .expect("rooted DAG domain event is serializable")
             })
             .collect(),
-    })
+    }
 }
 
 fn result_body_taskspace_marker_artifact_refs(body: &str) -> Vec<String> {

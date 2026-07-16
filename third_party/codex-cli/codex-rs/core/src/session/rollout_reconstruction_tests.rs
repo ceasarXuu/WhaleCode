@@ -522,24 +522,42 @@ async fn resumed_compacted_map_rebuilds_one_projection_from_checkpoint_and_delta
         .record_context_updates_and_set_reference_context_item(&turn_context)
         .await;
     let first_history = serde_json::to_string(session.clone_history().await.raw_items()).unwrap();
+    assert!(!first_history.contains("TaskSpaceMapEpochSnapshotR6V1:"));
+    let first_provider = session
+        .prepare_provider_visible_prompt_items(
+            &turn_context,
+            session.clone_history().await.raw_items().to_vec(),
+        )
+        .await;
+    let first_provider = serde_json::to_string(&first_provider.items).unwrap();
     assert_eq!(
-        first_history
+        first_provider
             .matches("TaskSpaceMapEpochSnapshotR6V1:")
             .count(),
         1
     );
-    assert!(first_history.contains("map_id: map-1"));
-    assert!(first_history.contains("root_node_id: root"));
-    assert!(first_history.contains("finish_node_id: finish"));
-    assert!(!first_history.contains("task_id:"));
-    assert!(first_history.contains("resume-node"));
-    assert!(first_history.contains("Restore this goal from the canonical map."));
+    assert!(first_provider.contains("map_id: map-1"));
+    assert!(first_provider.contains("root_node_id: root"));
+    assert!(first_provider.contains("finish_node_id: finish"));
+    assert!(!first_provider.contains("task_id:"));
+    assert!(first_provider.contains("resume-node"));
+    assert!(first_provider.contains("Restore this goal from the canonical map."));
 
     session
         .record_context_updates_and_set_reference_context_item(&turn_context)
         .await;
     let second_history = serde_json::to_string(session.clone_history().await.raw_items()).unwrap();
     assert_eq!(second_history, first_history);
+    let second_provider = session
+        .prepare_provider_visible_prompt_items(
+            &turn_context,
+            session.clone_history().await.raw_items().to_vec(),
+        )
+        .await;
+    assert_eq!(
+        serde_json::to_string(&second_provider.items).unwrap(),
+        first_provider
+    );
 }
 
 #[tokio::test]

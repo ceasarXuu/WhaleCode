@@ -20,7 +20,7 @@ use crate::tools::handlers::taskspace_control_args::TaskSpaceGraphEdgeArgs;
 use crate::tools::handlers::taskspace_control_args::TaskSpaceGraphNodeArgs;
 use crate::tools::handlers::taskspace_control_args::TaskSpaceNodeTransition;
 use crate::tools::handlers::taskspace_control_args::parse_taskspace_control_args;
-use crate::tools::handlers::taskspace_control_output::control_state_observation;
+use crate::tools::handlers::taskspace_control_output::control_commit_observation;
 use crate::tools::handlers::taskspace_control_output::format_initialize_step;
 use crate::tools::handlers::taskspace_control_output::format_node_detail_expansion_step;
 use crate::tools::handlers::taskspace_control_output::format_state_batch;
@@ -141,33 +141,23 @@ impl ToolHandler for TaskSpaceControlHandler {
                     )
                     .await;
                 match outcome {
-                    Ok(outcome) => {
-                        let map_state = session
-                            .action_map_control_state(Some(&outcome.map_id))
-                            .await;
-                        (
-                            format_state_batch(
-                                vec![format_initialize_step(&outcome)],
-                                true,
-                                true,
-                                map_state.as_ref(),
-                            ),
+                    Ok(outcome) => (
+                        format_state_batch(
+                            vec![format_initialize_step(&outcome)],
                             true,
-                            None,
-                        )
-                    }
+                            true,
+                            &[&outcome.delta],
+                        ),
+                        true,
+                        None,
+                    ),
                     Err(error) => {
                         tracing::warn!(
                             target: "codex_core::taskspace",
                             call_id,
                             "taskspace.map_initialization_rejected"
                         );
-                        let map_state = session.action_map_control_state(None).await;
-                        (
-                            rejected_control_result(&error, map_state.as_ref()),
-                            false,
-                            None,
-                        )
+                        (rejected_control_result(&error), false, None)
                     }
                 }
             }
@@ -188,33 +178,21 @@ impl ToolHandler for TaskSpaceControlHandler {
                 )
                 .await
             {
-                Ok(outcome) => {
-                    let map_state = session
-                        .action_map_control_state(Some(&outcome.map_id))
-                        .await;
-                    (
-                        format_state_batch(
-                            vec![serde_json::json!({
-                                "kind": "graph_mutation",
-                                "map_id": outcome.map_id,
-                                "revision": outcome.revision,
-                            })],
-                            true,
-                            true,
-                            map_state.as_ref(),
-                        ),
+                Ok(outcome) => (
+                    format_state_batch(
+                        vec![serde_json::json!({
+                            "kind": "graph_mutation",
+                            "map_id": outcome.map_id,
+                            "revision": outcome.revision,
+                        })],
                         true,
-                        None,
-                    )
-                }
-                Err(error) => {
-                    let map_state = session.action_map_control_state(None).await;
-                    (
-                        rejected_control_result(&error, map_state.as_ref()),
-                        false,
-                        None,
-                    )
-                }
+                        true,
+                        &[&outcome.delta],
+                    ),
+                    true,
+                    None,
+                ),
+                Err(error) => (rejected_control_result(&error), false, None),
             },
             TaskSpaceControlArgs::TransitionNode {
                 expected_revision,
@@ -235,83 +213,55 @@ impl ToolHandler for TaskSpaceControlHandler {
                     )
                     .await
                 {
-                    Ok(outcome) => {
-                        let map_state = session
-                            .action_map_control_state(Some(&outcome.map_id))
-                            .await;
-                        (
-                            format_state_batch(
-                                vec![serde_json::json!({
-                                    "kind": "node_transition",
-                                    "map_id": outcome.map_id,
-                                    "node_id": outcome.node_id,
-                                    "revision": outcome.revision,
-                                    "status": outcome.status,
-                                })],
-                                true,
-                                true,
-                                map_state.as_ref(),
-                            ),
+                    Ok(outcome) => (
+                        format_state_batch(
+                            vec![serde_json::json!({
+                                "kind": "node_transition",
+                                "map_id": outcome.map_id,
+                                "node_id": outcome.node_id,
+                                "revision": outcome.revision,
+                                "status": outcome.status,
+                            })],
                             true,
-                            None,
-                        )
-                    }
-                    Err(error) => {
-                        let map_state = session.action_map_control_state(None).await;
-                        (
-                            rejected_control_result(&error, map_state.as_ref()),
-                            false,
-                            None,
-                        )
-                    }
+                            true,
+                            &[&outcome.delta],
+                        ),
+                        true,
+                        None,
+                    ),
+                    Err(error) => (rejected_control_result(&error), false, None),
                 }
             }
             TaskSpaceControlArgs::FinishEnd {
                 expected_revision,
                 final_summary,
             } => {
-                let map_id_hint = session
-                    .action_map_control_state(None)
-                    .await
-                    .map(|state| state.map_id);
                 match session
                     .finish_action_map(&turn, expected_revision, final_summary.clone())
                     .await
                 {
-                    Ok(outcome) => {
-                        let map_state = session
-                            .action_map_control_state(map_id_hint.as_deref())
-                            .await;
-                        (
-                            format_state_batch(
-                                vec![serde_json::json!({
-                                    "kind": "terminal_transition",
-                                    "map_id": outcome.map_id,
-                                    "revision": outcome.revision,
-                                    "finish_closed": true,
-                                    "root_closed": true,
-                                })],
-                                true,
-                                true,
-                                map_state.as_ref(),
-                            ),
+                    Ok(outcome) => (
+                        format_state_batch(
+                            vec![serde_json::json!({
+                                "kind": "terminal_transition",
+                                "map_id": outcome.map_id,
+                                "revision": outcome.revision,
+                                "finish_closed": true,
+                                "root_closed": true,
+                            })],
                             true,
-                            Some(TaskSpaceTerminalCarrier {
-                                map_id: outcome.map_id,
-                                revision: outcome.revision,
-                                summary: outcome.final_summary,
-                            }),
-                        )
-                    }
+                            true,
+                            &[&outcome.delta],
+                        ),
+                        true,
+                        Some(TaskSpaceTerminalCarrier {
+                            map_id: outcome.map_id,
+                            revision: outcome.revision,
+                            summary: outcome.final_summary,
+                        }),
+                    ),
                     Err(FinishActionMapError::Rejected(error)) => {
-                        let map_state = session
-                            .action_map_control_state(map_id_hint.as_deref())
-                            .await;
-                        (
-                            rejected_control_result(&error, map_state.as_ref()),
-                            false,
-                            None,
-                        )
+                        (rejected_control_result(&error), false, None)
                     }
                     Err(FinishActionMapError::Persistence(error)) => {
                         return Err(resource_error(error, "terminal_persistence_failed"));
@@ -326,10 +276,6 @@ impl ToolHandler for TaskSpaceControlHandler {
                     .taskspace_event_id_for_call(&call_id)
                     .await
                     .map_err(state_machine_error)?;
-                let map_id_hint = session
-                    .action_map_control_state(None)
-                    .await
-                    .map(|state| state.map_id);
                 let requested_node_count = node_ids.len();
                 match session
                     .expand_action_map_node_details(
@@ -360,14 +306,11 @@ impl ToolHandler for TaskSpaceControlHandler {
                                 format_node_detail_expansion_step(index, outcome)
                             })
                             .collect();
-                        let map_state = session
-                            .action_map_control_state(map_id_hint.as_deref())
-                            .await;
-                        (
-                            format_state_batch(steps, true, true, map_state.as_ref()),
-                            true,
-                            None,
-                        )
+                        let deltas = outcomes
+                            .iter()
+                            .map(|outcome| &outcome.delta)
+                            .collect::<Vec<_>>();
+                        (format_state_batch(steps, true, true, &deltas), true, None)
                     }
                     Err(error_message) => {
                         tracing::warn!(
@@ -376,14 +319,7 @@ impl ToolHandler for TaskSpaceControlHandler {
                             requested_node_count,
                             "taskspace.node_details_expansion_rejected"
                         );
-                        let map_state = session
-                            .action_map_control_state(map_id_hint.as_deref())
-                            .await;
-                        (
-                            rejected_control_result(&error_message, map_state.as_ref()),
-                            false,
-                            None,
-                        )
+                        (rejected_control_result(&error_message), false, None)
                     }
                 }
             }
@@ -442,17 +378,21 @@ impl ToolHandler for TaskSpaceControlHandler {
                 );
             }
         }
-        if let Some((state_commit, open_node_count, blocked_node_count, has_current_node)) =
-            control_state_observation(&message)
+        if let Some((
+            state_commit,
+            committed_revision,
+            graph_event_ref_count,
+            node_detail_event_ref_count,
+        )) = control_commit_observation(&message)
         {
             tracing::info!(
                 target: "codex_core::taskspace",
                 call_id,
                 state_commit,
-                open_node_count,
-                blocked_node_count,
-                has_current_node,
-                "taskspace.control_map_state_exposed"
+                committed_revision,
+                graph_event_ref_count,
+                node_detail_event_ref_count,
+                "taskspace.control_delta_exposed"
             );
         }
         Ok(TaskSpaceControlOutput {

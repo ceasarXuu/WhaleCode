@@ -145,6 +145,25 @@ SHA-256、message role/count 和相邻请求 LCP。
 - failure exit/stderr/ref 与 Event Store 逐字一致；
 - deterministic control feedback bytes 相对 E6 fixture 降低至少 30%。
 
+### 7.5 完成证据（2026-07-16）
+
+- projection 改为 provider request 前从 canonical DAG 机械构造的 ephemeral view；canonical history、resume 和
+  compaction continuation 均不再长期持有旧 projection。
+- exact payload scanner 逐请求对账 projection kind、Map revision/hash 和 projection hash；simple 15/15、
+  complex 13/13 freshness 通过，active projection section 始终为 1。
+- success/failure control result 已删除 `map_state`，成功结果只返回 committed revision、canonical event refs
+  和必要 step identity；失败结果保持原始错误与 `state_commit=false`、`partial_commit=0`。
+- nested ordinary call/output 继续逐字独立可见并由 Event Store 的 parent linkage 关联；outer control result 不再
+  二次复制其 tool name、call id、success 和 event refs。
+- 初始化 control result 从 E6 的 1,018 bytes 降至 539 bytes，下降 47.1%；确定性 fixture 强制至少下降
+  30%。
+- Docker smoke：simple Standard/R6 均 solved（7/15 requests，14.51s/35.35s）；complex Standard/R6
+  均 solved（15/13 requests，52.42s/48.96s），两个 R6 Map 均完整闭合。
+- simple 首次 smoke 出现 Agent 未闭合 Map，被 terminal protocol 中断；同构复跑成功。该随机性及成功复跑中的
+  3 次可恢复状态错误保留为 F2/F3 输入，不计为 F1 ownership 回归。
+- 验证：action map 67/67、session 182/182、control 21/21、sequence 11/11、nested Event Store 4/4；
+  cost/performance/harness self-test 与 skill validator 通过。
+
 ## 8. Phase F2：稳定 Tool Contract 与缓存形态
 
 ### 8.1 设计
@@ -240,7 +259,7 @@ partial commit = 0
 | Plan Item | Expected Behavior | Production Code Path | Integration Entry | Test Evidence | Runtime / Log Evidence | Mock / Stub Exposure | Status |
 |---|---|---|---|---|---|---|---|
 | F0 section trace | 请求组成可归因 | `provider_wire_trace.rs`, `client.rs` | provider request | 11 Rust tests + 3 PowerShell suites | section hash/bytes/revision | none | completed |
-| F1 result delta | 当前 Map 单 owner | `taskspace_control_output.rs` | tool result | handler/output tests | control result trace | none | planned |
+| F1 result delta | 当前 Map 单 owner | `taskspace_control_output.rs` | tool result | 285 Rust tests + 3 PowerShell suites | control result + projection freshness trace | none | completed |
 | F2 stable contract | schema/choice 全 turn 稳定 | `session/turn.rs`, `taskspace_tool.rs` | Prompt | provider contract tests | tools/choice hash | provider live probe | planned |
 | F3 continuation | Agent 声明序列机械执行 | args/schema/sequence | tool router | sequence tests | step/skipped refs | none | planned |
 | F4 live gate | 成本与正确性可比较 | benchmark scripts | Docker harness | harness tests | performance report | none | planned |
@@ -273,7 +292,7 @@ fallback。实验项目不迁移旧数据。
 | Phase | Independent Verification | Forbidden Future Dependency | Exit Evidence | Completion Required Before Next Phase | Proceed Decision |
 |---|---|---|---|---|---|
 | F0 | fixture + Phase E artifact reprocess | 不依赖 F1 | section report | 100% | completed |
-| F1 | control fixture + simple/complex smoke | 不依赖 F2 | ownership/bytes report | 100% | pending |
+| F1 | control fixture + simple/complex smoke | 不依赖 F2 | ownership/bytes report | 100% | completed |
 | F2 | provider probe + schema/cache trace | 不依赖 F3 | one-shape report | 100% | pending |
 | F3 | sequence regression + live adoption | 不依赖 F4 | request path report | 100% | pending |
 | F4 | full deterministic + Docker matrix | none | Phase F result doc | 100% | pending |
@@ -290,3 +309,4 @@ fallback。实验项目不迁移旧数据。
 | 2026-07-16 | freshness 先于 `map_state` 删除 | marker 唯一不能证明 projection 是当前状态 |
 | 2026-07-16 | `required` 增加 thinking/质量门禁 | 当前 strict choice 会关闭 thinking，不能以成本换智能能力 |
 | 2026-07-16 | continuation 只进入 bind 和有效绑定下的 mutation | complete/block 会清除 lease，rework/unblock 不建立 binding |
+| 2026-07-16 | nested ordinary feedback 不复制进 outer control result | 原始 call/output 已独立可见，outer 复制只增加成本和事实载体 |

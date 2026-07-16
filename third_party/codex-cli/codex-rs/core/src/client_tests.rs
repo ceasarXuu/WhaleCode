@@ -1,6 +1,7 @@
 use super::AuthRequestTelemetryContext;
 use super::ModelClient;
 use super::PendingUnauthorizedRetry;
+use super::ProviderProjectionIdentityExpectation;
 use super::ProviderRequestAttribution;
 use super::ProviderRequestBudgetContext;
 use super::ProviderRequestBudgetLimits;
@@ -10,6 +11,7 @@ use super::X_CODEX_PARENT_THREAD_ID_HEADER;
 use super::X_CODEX_TURN_METADATA_HEADER;
 use super::X_CODEX_WINDOW_ID_HEADER;
 use super::X_OPENAI_SUBAGENT_HEADER;
+use super::apply_projection_identity_expectation;
 use super::provider_payload_digest;
 use codex_app_server_protocol::AuthMode;
 use codex_model_provider::BearerAuthProvider;
@@ -152,6 +154,7 @@ fn provider_request_budget_preserves_final_synthesis_phase_at_profile_hint() {
             request_phase: Some("final_synthesis".to_string()),
             ..ProviderRequestAttribution::default()
         },
+        None,
     );
 
     let _dispatch = budget
@@ -195,6 +198,7 @@ fn provider_request_budget_node_profile_hint_does_not_force_recovery_phase() {
             request_phase: Some("model_sampling".to_string()),
             ..ProviderRequestAttribution::default()
         },
+        None,
     );
 
     let _dispatch = budget
@@ -232,6 +236,7 @@ fn provider_request_budget_explicit_budget_recovery_phase_remains_advisory() {
             request_phase: Some("budget_recovery".to_string()),
             ..ProviderRequestAttribution::default()
         },
+        None,
     );
 
     let _dispatch = budget
@@ -268,6 +273,7 @@ fn provider_request_budget_allows_rebuilt_context_after_recovery_grace_spent() {
             request_phase: Some("budget_recovery".to_string()),
             ..ProviderRequestAttribution::default()
         },
+        None,
     );
 
     let dispatch = budget
@@ -384,6 +390,51 @@ fn provider_request_budget_records_started_and_terminal_status() {
 }
 
 #[test]
+fn provider_request_budget_confirms_projection_identity_on_final_payload() {
+    let projection = "TaskSpaceMapEpochSnapshotR6V1:\n- map: none\n- bootstrap_required: true\nTaskSpaceMapEpochSnapshotR6V1 end.";
+    let expectation = ProviderProjectionIdentityExpectation::from_projection_context(projection)
+        .expect("bootstrap projection identity");
+    let budget = ProviderRequestBudgetContext::enabled_with_attribution(
+        ProviderRequestBudgetLimits {
+            request_count: 0,
+            max_requests: 2,
+            node_request_count: 0,
+            max_model_requests_per_node: usize::MAX,
+            budget_state: "normal".to_string(),
+        },
+        ProviderRequestAttribution::default(),
+        Some(expectation),
+    );
+    let dispatch = budget
+        .before_dispatch("responses_http")
+        .expect("request dispatch");
+    let payload = provider_payload_digest(&json!({
+        "input": projection,
+        "tools": [{
+            "type": "function",
+            "function": { "name": "taskspace_control" }
+        }]
+    }))
+    .expect("payload digest");
+    dispatch.record_provider_payload(payload);
+
+    let event = budget
+        .drain_events()
+        .into_iter()
+        .find(|event| event.status == "payload_captured")
+        .expect("payload captured event");
+    let scan = event.exact_payload_scan.expect("exact payload scan");
+    assert_eq!(scan.projection_freshness_confirmed, Some(true));
+    assert_eq!(scan.projection_kind.as_deref(), Some("bootstrap"));
+    assert_eq!(
+        scan.projection_sha256.as_deref(),
+        scan.expected_projection_sha256.as_deref()
+    );
+    assert!(scan.passed);
+    assert!(scan.replacement_confirmed);
+}
+
+#[test]
 fn provider_payload_scan_validates_canonical_projection_shape() {
     let standard = provider_payload_digest(&json!({
         "input": "standard request",
@@ -471,6 +522,41 @@ fn provider_payload_scan_validates_canonical_projection_shape() {
     assert!(active.scan.projection_required);
     assert_eq!(active.scan.active_projection_count, 1);
     assert!(active.scan.replacement_confirmed);
+
+    let matching_expectation =
+        ProviderProjectionIdentityExpectation::from_projection_context(active_projection)
+            .expect("matching projection identity");
+    let mut matching_scan = active.scan.clone();
+    apply_projection_identity_expectation(&mut matching_scan, Some(&matching_expectation));
+    assert_eq!(matching_scan.projection_freshness_confirmed, Some(true));
+    assert!(matching_scan.passed);
+    assert!(matching_scan.replacement_confirmed);
+
+    let revision_3_projection = active_projection.replace("- revision: 2", "- revision: 3");
+    let revision_3_expectation =
+        ProviderProjectionIdentityExpectation::from_projection_context(&revision_3_projection)
+            .expect("revision 3 projection identity");
+    let mut stale_scan = active.scan;
+    apply_projection_identity_expectation(&mut stale_scan, Some(&revision_3_expectation));
+    assert_eq!(stale_scan.projection_freshness_confirmed, Some(false));
+    assert!(!stale_scan.passed);
+    assert!(!stale_scan.replacement_confirmed);
+    assert!(
+        stale_scan
+            .failure_reasons
+            .contains(&"epoch_snapshot_identity_mismatch".to_string())
+    );
+
+    let tool_output_marker = provider_payload_digest(&json!({
+        "messages": [
+            { "role": "developer", "content": active_projection },
+            { "role": "tool", "content": active_projection }
+        ],
+        "tools": active_tools
+    }))
+    .expect("tool output marker payload digest");
+    assert_eq!(tool_output_marker.scan.active_projection_count, 1);
+    assert!(tool_output_marker.scan.passed);
 
     let duplicate_active = provider_payload_digest(&json!({
         "input": format!("{active_projection}\n{active_projection}"),

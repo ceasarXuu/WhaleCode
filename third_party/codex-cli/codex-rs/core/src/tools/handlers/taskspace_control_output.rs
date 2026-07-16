@@ -1,6 +1,6 @@
 use serde_json::Value as JsonValue;
 
-use crate::action_map::ActionMapControlState;
+use crate::action_map::ActionMapControlDelta;
 #[cfg(test)]
 use crate::action_map::ActionMapExpandedDetailRef;
 use crate::action_map::ActionMapInitializeOutcome;
@@ -12,10 +12,8 @@ use crate::tools::handlers::taskspace_control_args::TASKSPACE_CONTROL_RESULT_SCH
 pub(super) fn format_initialize_step(outcome: &ActionMapInitializeOutcome) -> JsonValue {
     serde_json::json!({
         "kind": "map_initialized",
-        "task_id": outcome.task_id,
         "map_id": outcome.map_id,
-        "created_node_ids": outcome.node_ids,
-        "current_node_id": outcome.current_node_id,
+        "revision": outcome.delta.committed_revision,
     })
 }
 
@@ -56,24 +54,28 @@ pub(super) fn format_state_batch(
     steps: Vec<JsonValue>,
     success: bool,
     state_commit: bool,
-    map_state: Option<&ActionMapControlState>,
+    deltas: &[&ActionMapControlDelta],
 ) -> String {
+    let delta = format_committed_delta(deltas);
+    let committed_revision = delta
+        .as_ref()
+        .and_then(|value| value.get("committed_revision"))
+        .cloned()
+        .unwrap_or(JsonValue::Null);
     serde_json::json!({
         "schema_version": TASKSPACE_CONTROL_RESULT_SCHEMA_VERSION,
         "status": if success { "committed" } else { "state_machine_failed" },
         "success": success,
         "state_commit": state_commit,
         "partial_commit": 0,
-        "map_state": map_state.map(format_map_state),
+        "committed_revision": committed_revision,
+        "delta": delta,
         "steps": steps,
     })
     .to_string()
 }
 
-pub(super) fn rejected_control_result(
-    error: &str,
-    map_state: Option<&ActionMapControlState>,
-) -> String {
+pub(super) fn rejected_control_result(error: &str) -> String {
     let Ok(mut exact_error) = serde_json::from_str::<JsonValue>(error) else {
         return format_state_batch(
             vec![serde_json::json!({
@@ -82,7 +84,7 @@ pub(super) fn rejected_control_result(
             })],
             false,
             false,
-            map_state,
+            &[],
         );
     };
     let is_rooted_rejection = exact_error
@@ -99,25 +101,75 @@ pub(super) fn rejected_control_result(
             })],
             false,
             false,
-            map_state,
+            &[],
         );
     }
     exact_error["partial_commit"] = JsonValue::from(0);
-    exact_error["map_state"] = map_state.map(format_map_state).unwrap_or(JsonValue::Null);
+    exact_error["committed_revision"] = JsonValue::Null;
+    exact_error["delta"] = JsonValue::Null;
     exact_error.to_string()
 }
 
-pub(super) fn control_state_observation(message: &str) -> Option<(bool, usize, usize, bool)> {
+pub(super) fn control_commit_observation(
+    message: &str,
+) -> Option<(bool, Option<u64>, usize, usize)> {
     let value = serde_json::from_str::<JsonValue>(message).ok()?;
     let state_commit = value.get("state_commit")?.as_bool()?;
-    let map_state = value.get("map_state")?.as_object()?;
+    let committed_revision = value.get("committed_revision").and_then(JsonValue::as_u64);
+    let delta = value.get("delta").and_then(JsonValue::as_object);
     Some((
         state_commit,
-        map_state.get("ready_work_node_ids")?.as_array()?.len()
-            + map_state.get("running_work_node_ids")?.as_array()?.len(),
-        map_state.get("blocked_work_node_ids")?.as_array()?.len(),
-        !map_state.get("current_node_id")?.is_null(),
+        committed_revision,
+        delta
+            .and_then(|delta| delta.get("graph_event_refs"))
+            .and_then(JsonValue::as_array)
+            .map_or(0, Vec::len),
+        delta
+            .and_then(|delta| delta.get("node_detail_event_refs"))
+            .and_then(JsonValue::as_array)
+            .map_or(0, Vec::len),
     ))
+}
+
+fn format_committed_delta(deltas: &[&ActionMapControlDelta]) -> Option<JsonValue> {
+    let first = deltas.first()?;
+    let graph_event_refs = deltas
+        .iter()
+        .flat_map(|delta| delta.graph_revision_batches.iter())
+        .flat_map(|batch| {
+            batch
+                .event_ids
+                .iter()
+                .zip(batch.events.iter())
+                .map(|(event_id, event)| {
+                    serde_json::json!({
+                        "revision": batch.revision,
+                        "event_id": event_id,
+                        "event_type": event.get("type").and_then(JsonValue::as_str),
+                    })
+                })
+        })
+        .collect::<Vec<_>>();
+    let node_detail_event_refs = deltas
+        .iter()
+        .flat_map(|delta| delta.node_detail_events.iter())
+        .map(|event| {
+            serde_json::json!({
+                "node_id": &event.node_id,
+                "expansion_event_id": &event.expansion_event_id,
+            })
+        })
+        .collect::<Vec<_>>();
+    Some(serde_json::json!({
+        "map_id": &first.map_id,
+        "committed_revision": deltas
+            .iter()
+            .map(|delta| delta.committed_revision)
+            .max()
+            .unwrap_or(first.committed_revision),
+        "graph_event_refs": graph_event_refs,
+        "node_detail_event_refs": node_detail_event_refs,
+    }))
 }
 
 pub(super) fn state_identity_coverage(message: &str) -> Option<(usize, bool)> {
@@ -159,6 +211,10 @@ fn gate_error(message: String, class: TaskSpaceHardGateClass, reason: &str) -> F
         "schema_version": TASKSPACE_CONTROL_RESULT_SCHEMA_VERSION,
         "status": format!("{}_failed", class.as_str()),
         "success": false,
+        "state_commit": false,
+        "partial_commit": 0,
+        "committed_revision": JsonValue::Null,
+        "delta": JsonValue::Null,
         "error": {
             "class": class.as_str(),
             "code": reason,
@@ -168,36 +224,9 @@ fn gate_error(message: String, class: TaskSpaceHardGateClass, reason: &str) -> F
     FunctionCallError::RespondToModel(result.to_string())
 }
 
-fn format_map_state(state: &ActionMapControlState) -> JsonValue {
-    serde_json::json!({
-        "task_id": state.task_id,
-        "map_id": state.map_id,
-        "revision": state.revision,
-        "root_node_id": state.root_node_id,
-        "finish_node_id": state.finish_node_id,
-        "complete": state.complete,
-        "current_node_id": state.current_node_id,
-        "pending_work_node_ids": state.pending_work_node_ids,
-        "ready_work_node_ids": state.ready_work_node_ids,
-        "running_work_node_ids": state.running_work_node_ids,
-        "blocked_work_node_ids": state.blocked_work_node_ids,
-        "finish_ready": state.finish_ready,
-        "completed_work_node_count": state.completed_work_node_count,
-        "total_node_count": state.total_node_count,
-    })
-}
-
 pub(super) fn step_has_required_identity(step: &JsonValue) -> bool {
     match step.get("kind").and_then(JsonValue::as_str) {
-        Some("map_initialized") => {
-            has_text(step, "task_id")
-                && has_text(step, "map_id")
-                && step
-                    .get("created_node_ids")
-                    .and_then(JsonValue::as_array)
-                    .is_some_and(|ids| !ids.is_empty())
-                && has_text(step, "current_node_id")
-        }
+        Some("map_initialized") => has_text(step, "map_id") && step.get("revision").is_some(),
         Some("graph_mutation") => has_text(step, "map_id") && step.get("revision").is_some(),
         Some("node_transition") => {
             has_text(step, "map_id")
@@ -220,7 +249,6 @@ pub(super) fn step_has_required_identity(step: &JsonValue) -> bool {
                     .and_then(JsonValue::as_array)
                     .is_some_and(|details| !details.is_empty())
         }
-        Some("ordinary_tool") => has_text(step, "call_id") && has_text(step, "output_event_ref"),
         _ => false,
     }
 }
@@ -254,6 +282,12 @@ mod tests {
                 raw_ref: Some("output-ref-1".into()),
                 artifact_refs: vec!["src/lib.rs".into()],
             }],
+            delta: ActionMapControlDelta {
+                map_id: "map-1".into(),
+                committed_revision: 3,
+                graph_revision_batches: Vec::new(),
+                node_detail_events: Vec::new(),
+            },
         };
 
         let step = format_node_detail_expansion_step(0, &outcome);

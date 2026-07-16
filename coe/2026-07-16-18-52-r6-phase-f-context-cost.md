@@ -1,7 +1,7 @@
 # Problem P-001: R6 TaskSpace 上下文与缓存成本高于 Standard
 - Status: open
 - Created: 2026-07-16 18:52
-- Updated: 2026-07-16 19:15
+- Updated: 2026-07-16 21:05
 - Objective: 定位并消除不必要的请求重复、Map 状态重复和 provider cache shape 变化，同时保持语义透传与 R6 correctness。
 - Symptoms:
   - simple R6/Standard request=1.40x、input=1.52x、uncached=3.33x。
@@ -24,7 +24,7 @@
   - active projection 在 provider payload 中无限累加。
 - Fix criteria:
   - payload section 可独立计量；当前完整 Map provider-visible owner=1；schema/choice transition=0；correctness/terminal/replay=100%；每项修复有独立成本对比。
-- Current conclusion: H-001/H-002/H-003/H-004 均已确认；F1 必须先修复每请求 projection freshness，再删除 control `map_state`。
+- Current conclusion: H-001/H-002/H-003/H-004 均已确认；F1 已完成 projection freshness 与当前 Map 单 owner，F2 处理稳定 tool contract/cache shape，F3 处理 Agent 声明动作合并。
 - Related hypotheses:
   - H-001
   - H-002
@@ -112,7 +112,7 @@
   - E-002
 - Conclusion: confirmed；六个 run projection marker count 恒为 1，但 31 个 control output 中 30 个携带较新完整 `map_state`，并保留在自然历史；两者可能冲突而非只是等价重复。
 - Repair design readiness: ready
-- Next step: F1 将当前完整 Map 收敛到 projection，result 保留 revision/delta/error/ref。
+- Next step: repaired and verified in F1；继续用 F4 多次矩阵观察随机生命周期失败。
 - Blocker:
   - none
 - Close reason:
@@ -327,3 +327,27 @@
   ```
 - Interpretation: F0 已提供验证 F1 ownership/freshness 改造所需的无原文机械观测基线。
 - Time: 2026-07-16 19:35
+
+## Evidence E-006: F1 projection freshness 与当前 Map 单 owner 闭环
+- Related hypotheses:
+  - H-001
+  - H-002
+- Direction: supports
+- Type: diagnostic-log
+- Source: F1 deterministic tests、simple/complex Docker pair、provider wire trace v3
+- Prediction or plan link:
+  - Phase F1 exit gate
+- Matched signal:
+  - simple 15/15、complex 13/13 provider requests 的 projection freshness 全部确认，active section 恒为 1。
+  - control success/failure 不再包含 `map_state`；success delta 只引用 canonical domain events。
+  - nested ordinary tool call/output 保持原始独立载体，outer control result 不再复制其身份和 event refs。
+  - 初始化 feedback 由 E6 1,018 bytes 降到 539 bytes，下降 47.1%。
+  - simple/complex Standard 与 R6 均通过 public/hidden validator，R6 Map 全部闭合。
+- Raw content:
+  ```text
+  simple: target/r6-phase-f1-compact-v2/single-file-fast-fix/20260716-205728-404
+  complex: target/r6-phase-f1-compact-v2/subscription-billing-repair/20260716-205911-381
+  action_map: 67 passed; session: 182 passed; control: 21 passed; sequence: 11 passed
+  ```
+- Interpretation: H-002 的双 owner 根因已修复；缓存命中差异和状态动作错误仍存在，分别进入 F2/F3，不由 projection 增加语义引导补救。
+- Time: 2026-07-16 21:05

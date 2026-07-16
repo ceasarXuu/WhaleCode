@@ -320,6 +320,15 @@ function New-TaskspaceBudgetArtifacts {
             large_raw_output_tokens = Convert-TaskspaceTraceInt $tags.large_raw_output_tokens
             runtime_boundary_forbidden_markers = [string]$tags.runtime_boundary_forbidden_markers
             protected_items_present = Convert-TaskspaceTraceBool $tags.protected_items_present $false
+            projection_kind = [string]$tags.projection_kind
+            projection_map_id_sha256 = [string]$tags.projection_map_id_sha256
+            projection_revision = Convert-TaskspaceTraceNullableInt $tags.projection_revision
+            projection_sha256 = [string]$tags.projection_sha256
+            expected_projection_kind = [string]$tags.expected_projection_kind
+            expected_projection_map_id_sha256 = [string]$tags.expected_projection_map_id_sha256
+            expected_projection_revision = Convert-TaskspaceTraceNullableInt $tags.expected_projection_revision
+            expected_projection_sha256 = [string]$tags.expected_projection_sha256
+            projection_freshness_confirmed = Convert-TaskspaceTraceBool $tags.projection_freshness_confirmed $false
             replacement_confirmed = Convert-TaskspaceTraceBool $tags.replacement_confirmed $false
         })
     }
@@ -416,6 +425,15 @@ function New-TaskspaceExactPayloadScanEvents {
             large_raw_output_tokens = Convert-TaskspaceTraceInt $tags.large_raw_output_tokens
             runtime_boundary_forbidden_markers = [string]$tags.runtime_boundary_forbidden_markers
             protected_items_present = Convert-TaskspaceTraceBool $tags.protected_items_present $false
+            projection_kind = [string]$tags.projection_kind
+            projection_map_id_sha256 = [string]$tags.projection_map_id_sha256
+            projection_revision = Convert-TaskspaceTraceNullableInt $tags.projection_revision
+            projection_sha256 = [string]$tags.projection_sha256
+            expected_projection_kind = [string]$tags.expected_projection_kind
+            expected_projection_map_id_sha256 = [string]$tags.expected_projection_map_id_sha256
+            expected_projection_revision = Convert-TaskspaceTraceNullableInt $tags.expected_projection_revision
+            expected_projection_sha256 = [string]$tags.expected_projection_sha256
+            projection_freshness_confirmed = Convert-TaskspaceTraceBool $tags.projection_freshness_confirmed $false
             replacement_confirmed = Convert-TaskspaceTraceBool $tags.replacement_confirmed $false
             passed = Convert-TaskspaceTraceBool $tags.passed $false
             failure_reasons = [string]$tags.failure_reasons
@@ -455,12 +473,13 @@ function New-TaskspaceActiveReplacementArtifacts {
     $failedMatchingScanEvents = @($matchingScanEvents | Where-Object { -not [bool]$_.passed })
     $projectionScanEvents = @($matchingScanEvents | Where-Object { [bool]$_.projection_required })
     $unconfirmedMatchingScanEvents = @($projectionScanEvents | Where-Object { -not [bool]$_.replacement_confirmed })
+    $freshnessUnconfirmedScanEvents = @($projectionScanEvents | Where-Object { -not [bool]$_.projection_freshness_confirmed })
     $projectionUniquenessViolations = @($projectionScanEvents | Where-Object { [int]$_.active_projection_count -gt 1 })
     $projectionCountMaximum = if ($projectionScanEvents.Count -gt 0) {
         [int](($projectionScanEvents | Measure-Object -Property active_projection_count -Maximum).Maximum)
     } else { 0 }
     $allMatchingPayloadScansPassed = ($matchingScanEvents.Count -gt 0 -and $failedMatchingScanEvents.Count -eq 0)
-    $replacementConfirmed = ($allMatchingPayloadScansPassed -and $unconfirmedMatchingScanEvents.Count -eq 0 -and $projectionUniquenessViolations.Count -eq 0)
+    $replacementConfirmed = ($allMatchingPayloadScansPassed -and $unconfirmedMatchingScanEvents.Count -eq 0 -and $freshnessUnconfirmedScanEvents.Count -eq 0 -and $projectionUniquenessViolations.Count -eq 0)
     $report = [pscustomobject]@{
         schema_version = "taskspace-active-context-replacement-report-v1"
         provider_payload_available = ($null -ne $first -and -not [string]::IsNullOrWhiteSpace([string]$first.provider_payload_sha256))
@@ -473,12 +492,20 @@ function New-TaskspaceActiveReplacementArtifacts {
         active_projection_count = if ($null -ne $first) { [int]$first.active_projection_count } else { 0 }
         active_projection_count_max = $projectionCountMaximum
         active_projection_uniqueness_violation_count = $projectionUniquenessViolations.Count
+        projection_freshness_unconfirmed_count = $freshnessUnconfirmedScanEvents.Count
         matching_payload_scan_count = $matchingScanEvents.Count
         failed_matching_payload_scan_count = $failedMatchingScanEvents.Count
         replacement_confirmed = [bool]$replacementConfirmed
         large_raw_output_tokens = if ($null -ne $first) { [int]$first.large_raw_output_tokens } else { 0 }
         runtime_boundary_forbidden_markers = if ($null -ne $first) { [string]$first.runtime_boundary_forbidden_markers } else { "" }
         protected_items_present = if ($null -ne $first) { [bool]$first.protected_items_present } else { $false }
+        projection_kind = if ($null -ne $first) { [string]$first.projection_kind } else { "" }
+        projection_revision = if ($null -ne $first) { $first.projection_revision } else { $null }
+        projection_sha256 = if ($null -ne $first) { [string]$first.projection_sha256 } else { "" }
+        expected_projection_kind = if ($null -ne $first) { [string]$first.expected_projection_kind } else { "" }
+        expected_projection_revision = if ($null -ne $first) { $first.expected_projection_revision } else { $null }
+        expected_projection_sha256 = if ($null -ne $first) { [string]$first.expected_projection_sha256 } else { "" }
+        projection_freshness_confirmed = if ($null -ne $first) { [bool]$first.projection_freshness_confirmed } else { $false }
     }
     [pscustomobject]@{
         exact_payload_scan_events = @($scanEvents)

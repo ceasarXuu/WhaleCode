@@ -86,6 +86,11 @@ fn initialization_exposes_one_root_one_finish_and_revision_events() {
         ""
     );
     assert_eq!(outcome.node_ids, ["root", "inspect", "finish"]);
+    assert_eq!(outcome.delta.map_id, "map-1");
+    assert_eq!(outcome.delta.committed_revision, 2);
+    assert_eq!(outcome.delta.graph_revision_batches.len(), 2);
+    assert_eq!(outcome.delta.graph_revision_batches[0].revision, 1);
+    assert_eq!(outcome.delta.graph_revision_batches[1].revision, 2);
 }
 
 #[test]
@@ -173,7 +178,7 @@ fn finish_end_is_agent_explicit_and_closes_root_and_finish_together() {
         &[("root", "work"), ("work", "finish")],
         "work",
     );
-    let (_, transition_events) = state
+    let (transition_outcome, transition_events) = state
         .transition_node_for_main(
             owner,
             2,
@@ -186,6 +191,15 @@ fn finish_end_is_agent_explicit_and_closes_root_and_finish_together() {
         transition_events.first(),
         Some(MapRuntimeEvent::GraphRevisionCommitted(event)) if event.revision == 3
     ));
+    assert_eq!(transition_outcome.delta.committed_revision, 3);
+    assert_eq!(transition_outcome.delta.graph_revision_batches.len(), 1);
+    assert_eq!(
+        transition_outcome.delta.graph_revision_batches[0].events,
+        match &transition_events[0] {
+            MapRuntimeEvent::GraphRevisionCommitted(event) => event.events.clone(),
+            _ => panic!("expected canonical graph revision event"),
+        }
+    );
     let before_finish = state.snapshot().map.expect("active map remains visible");
     assert!(!before_finish.complete);
     assert_eq!(
@@ -203,6 +217,8 @@ fn finish_end_is_agent_explicit_and_closes_root_and_finish_together() {
         .finish_end_for_main(owner, 3, summary.clone())
         .expect("ready finish closes explicitly");
     assert_eq!(outcome.final_summary, summary);
+    assert_eq!(outcome.delta.committed_revision, 4);
+    assert_eq!(outcome.delta.graph_revision_batches.len(), 1);
     assert!(matches!(
         events.first(),
         Some(MapRuntimeEvent::GraphRevisionCommitted(event))

@@ -355,7 +355,7 @@ fn taskspace_nested_actions(call: &ToolCall) -> Vec<TaskSpaceNestedAction> {
 fn aggregate_taskspace_batch_response(
     outer_call_id: &str,
     state_response: ResponseInputItem,
-    nested_outputs: Vec<(String, String, bool, String, String)>,
+    _nested_outputs: Vec<(String, String, bool, String, String)>,
     success: bool,
 ) -> Result<ResponseInputItem> {
     let state_text = state_response_text(&state_response).ok_or_else(|| {
@@ -375,23 +375,13 @@ fn aggregate_taskspace_batch_response(
             "taskspace control batch received an unsupported state response schema".into(),
         ));
     }
-    let steps = batch
-        .as_object_mut()
-        .and_then(|object| object.get_mut("steps"))
-        .and_then(serde_json::Value::as_array_mut)
+    batch
+        .as_object()
+        .and_then(|object| object.get("steps"))
+        .and_then(serde_json::Value::as_array)
         .ok_or_else(|| {
             CodexErr::Fatal("taskspace control batch state response has no steps array".into())
         })?;
-    for (tool_name, call_id, success, call_event_ref, output_event_ref) in nested_outputs {
-        steps.push(serde_json::json!({
-            "kind": "ordinary_tool",
-            "tool_name": tool_name,
-            "call_id": call_id,
-            "success": success,
-            "call_event_ref": call_event_ref,
-            "output_event_ref": output_event_ref,
-        }));
-    }
     if let Some(object) = batch.as_object_mut() {
         object.insert("success".into(), serde_json::json!(success));
     }

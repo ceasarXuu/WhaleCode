@@ -477,11 +477,10 @@ pub(crate) async fn run_turn(
         }
 
         // Construct the input that we will send to the model.
-        let sampling_request_input: Vec<ResponseItem> = prepare_provider_visible_prompt_items(
-            sess.clone_history()
-                .await
-                .for_prompt(&turn_context.model_info.input_modalities),
-        );
+        let sampling_request_input: Vec<ResponseItem> = sess
+            .clone_history()
+            .await
+            .for_prompt(&turn_context.model_info.input_modalities);
 
         let sampling_request_input_messages = sampling_request_input
             .iter()
@@ -1016,6 +1015,7 @@ struct TaskspaceProviderResponseContract {
     control_mode: TaskspaceProviderControlMode,
     map_id: Option<String>,
     revision: Option<u64>,
+    projection_identity: Option<crate::client::ProviderProjectionIdentityExpectation>,
 }
 
 impl TaskspaceProviderControlMode {
@@ -1313,7 +1313,10 @@ async fn run_sampling_request(
                 .for_prompt(&turn_context.model_info.input_modalities)
         };
         let taskspace_context_visible = sess.taskspace_mode_active().await;
-        let prompt_input = prepare_provider_visible_prompt_items(prompt_source);
+        let prepared_prompt = sess
+            .prepare_provider_visible_prompt_items(&turn_context, prompt_source)
+            .await;
+        let prompt_input = prepared_prompt.items;
         let tool_visibility = if taskspace_context_visible {
             TaskspaceProviderToolVisibility::TaskspaceNative
         } else {
@@ -1344,6 +1347,7 @@ async fn run_sampling_request(
                 revision: action_map_control_state
                     .as_ref()
                     .map(|state| state.revision),
+                projection_identity: prepared_prompt.projection_identity,
             }
         });
         let taskspace_control_mode = taskspace_response_contract
@@ -1595,10 +1599,6 @@ pub(crate) async fn built_tools(
     )))
 }
 
-fn prepare_provider_visible_prompt_items(items: Vec<ResponseItem>) -> Vec<ResponseItem> {
-    items
-}
-
 #[cfg(test)]
 mod active_context_replacement_tests {
     use super::*;
@@ -1656,6 +1656,7 @@ mod active_context_replacement_tests {
             control_mode: TaskspaceProviderControlMode::TerminalControlRequired,
             map_id: Some("map-1".into()),
             revision: Some(7),
+            projection_identity: None,
         }
     }
 
@@ -1957,7 +1958,7 @@ mod active_context_replacement_tests {
             tool_output_with_call_id("output-ref-call", &output_reference),
         ];
 
-        let prepared = prepare_provider_visible_prompt_items(items.clone());
+        let prepared = crate::session::compose_provider_visible_prompt_items(items.clone(), None);
 
         assert_eq!(prepared, items);
     }
@@ -2616,6 +2617,8 @@ async fn try_run_sampling_request(
                     budget_state: snapshot.budget_state.clone(),
                 },
                 ProviderRequestAttribution::from_snapshot(snapshot, turn_context.sub_id.as_str()),
+                taskspace_response_contract
+                    .and_then(|contract| contract.projection_identity.clone()),
             )
         })
         .unwrap_or_else(ProviderRequestBudgetContext::disabled);

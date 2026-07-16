@@ -28,6 +28,7 @@ use crate::agent::MailboxReceiver;
 use crate::agent::agent_status_from_event;
 use crate::agent::status::is_final;
 use crate::build_available_skills;
+use crate::client::ProviderProjectionIdentityExpectation;
 use crate::client::ProviderRequestBudgetEvent;
 use crate::commit_attribution::commit_message_trailer_instruction;
 use crate::compact;
@@ -880,6 +881,11 @@ async fn thread_title_from_state_db(
         .flatten()
 }
 
+pub(crate) struct PreparedProviderPromptItems {
+    pub(crate) items: Vec<ResponseItem>,
+    pub(crate) projection_identity: Option<ProviderProjectionIdentityExpectation>,
+}
+
 impl Session {
     pub(crate) async fn app_server_client_metadata(&self) -> AppServerClientMetadata {
         let state = self.state.lock().await;
@@ -1154,6 +1160,15 @@ impl Session {
                         large_raw_output_tokens: scan.large_raw_output_tokens,
                         runtime_boundary_forbidden_markers: scan.runtime_boundary_forbidden_markers,
                         protected_items_present: scan.protected_items_present,
+                        projection_kind: scan.projection_kind,
+                        projection_map_id_sha256: scan.projection_map_id_sha256,
+                        projection_revision: scan.projection_revision,
+                        projection_sha256: scan.projection_sha256,
+                        expected_projection_kind: scan.expected_projection_kind,
+                        expected_projection_map_id_sha256: scan.expected_projection_map_id_sha256,
+                        expected_projection_revision: scan.expected_projection_revision,
+                        expected_projection_sha256: scan.expected_projection_sha256,
+                        projection_freshness_confirmed: scan.projection_freshness_confirmed,
                         replacement_confirmed: scan.replacement_confirmed,
                         passed: scan.passed,
                         failure_reasons: scan.failure_reasons,
@@ -3430,7 +3445,7 @@ impl Session {
         turn_context: &TurnContext,
     ) -> Vec<ResponseItem> {
         let mut developer_sections = Vec::<String>::with_capacity(8);
-        let mut taskspace_developer_sections = Vec::<String>::with_capacity(2);
+        let mut taskspace_developer_sections = Vec::<String>::with_capacity(1);
         let mut contextual_user_sections = Vec::<String>::with_capacity(2);
         let shell = self.user_shell();
         let (
@@ -3503,18 +3518,6 @@ impl Session {
             let mut state = self.state.lock().await;
             state.action_map_runtime.take_pending_transition_notice()
         };
-        let (action_map_epoch_snapshot, projection_trace_events) = {
-            let mut state = self.state.lock().await;
-            let context = state.action_map_runtime.build_developer_context();
-            let events = state
-                .action_map_runtime
-                .take_pending_projection_trace_events();
-            (context, events)
-        };
-        if !projection_trace_events.is_empty() {
-            self.emit_action_map_events_for_turn(turn_context, projection_trace_events)
-                .await;
-        }
         if let Some(realtime_update) = crate::context_manager::updates::build_initial_realtime_item(
             reference_context_item.as_ref(),
             previous_turn_settings.as_ref(),
@@ -3597,9 +3600,6 @@ impl Session {
         // item so legacy TaskSpace filtering cannot drop stable developer text.
         if let Some(action_map_transition_notice) = action_map_transition_notice {
             taskspace_developer_sections.push(action_map_transition_notice);
-        }
-        if let Some(action_map_epoch_snapshot) = action_map_epoch_snapshot {
-            taskspace_developer_sections.push(action_map_epoch_snapshot);
         }
         if let Some(user_instructions) = turn_context.user_instructions.as_deref() {
             contextual_user_sections.push(
@@ -3842,6 +3842,35 @@ impl Session {
         }
     }
 
+    pub(crate) async fn prepare_provider_visible_prompt_items(
+        &self,
+        turn_context: &TurnContext,
+        items: Vec<ResponseItem>,
+    ) -> PreparedProviderPromptItems {
+        let (projection_context, projection_trace_events) = {
+            let mut state = self.state.lock().await;
+            let context = state.action_map_runtime.build_developer_context();
+            let events = state
+                .action_map_runtime
+                .take_pending_projection_trace_events();
+            (context, events)
+        };
+        if !projection_trace_events.is_empty() {
+            self.emit_action_map_events_for_turn(turn_context, projection_trace_events)
+                .await;
+        }
+        let projection_identity = projection_context
+            .as_deref()
+            .and_then(ProviderProjectionIdentityExpectation::from_projection_context);
+        let projection_item = projection_context.and_then(|projection| {
+            crate::context_manager::updates::build_developer_update_item(vec![projection])
+        });
+        PreparedProviderPromptItems {
+            items: compose_provider_visible_prompt_items(items, projection_item),
+            projection_identity,
+        }
+    }
+
     /// Persist the latest turn context snapshot for the first real user turn and for
     /// steady-state turns that emit model-visible context updates.
     ///
@@ -3871,34 +3900,6 @@ impl Session {
             self.build_settings_update_items(reference_context_item.as_ref(), turn_context)
                 .await
         };
-        let action_map_epoch_snapshot_present = {
-            let state = self.state.lock().await;
-            state
-                .clone_history()
-                .raw_items()
-                .iter()
-                .any(is_action_map_epoch_snapshot_developer_item)
-        };
-        let mut context_items = context_items;
-        if !should_inject_full_context && !action_map_epoch_snapshot_present {
-            let (action_map_epoch_snapshot, projection_trace_events) = {
-                let mut state = self.state.lock().await;
-                let context = state.action_map_runtime.build_developer_context();
-                let events = state
-                    .action_map_runtime
-                    .take_pending_projection_trace_events();
-                (context, events)
-            };
-            if !projection_trace_events.is_empty() {
-                self.emit_action_map_events_for_turn(turn_context, projection_trace_events)
-                    .await;
-            }
-            if let Some(item) = action_map_epoch_snapshot.and_then(|snapshot| {
-                crate::context_manager::updates::build_developer_update_item(vec![snapshot])
-            }) {
-                context_items.push(item);
-            }
-        }
         let turn_context_item = turn_context.to_turn_context_item();
         if !context_items.is_empty() {
             self.record_conversation_items(turn_context, &context_items)
@@ -4504,6 +4505,20 @@ fn is_action_map_epoch_snapshot_developer_item(item: &ResponseItem) -> bool {
                 if text.contains("TaskSpaceMapEpochSnapshotR6V1:")
         )
     })
+}
+
+fn compose_provider_visible_prompt_items(
+    items: Vec<ResponseItem>,
+    projection_item: Option<ResponseItem>,
+) -> Vec<ResponseItem> {
+    let mut prepared = items
+        .into_iter()
+        .filter(|item| !is_action_map_epoch_snapshot_developer_item(item))
+        .collect::<Vec<_>>();
+    if let Some(projection_item) = projection_item {
+        prepared.push(projection_item);
+    }
+    prepared
 }
 
 use crate::memories::prompts::build_memory_tool_developer_instructions;

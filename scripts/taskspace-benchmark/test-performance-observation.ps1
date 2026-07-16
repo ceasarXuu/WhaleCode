@@ -159,10 +159,10 @@ function New-SideFixture {
             [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{
                     type = "function_call_output"; call_id = "init-control"
                     output = (@{
-                            schema_version = "TaskSpaceControlResultV2"; status = "committed"; success = $true
-                            state_commit = "full"
-                            map_state = @{ current_node_id = "node-1"; pending_node_ids = @(); open_node_ids = @("node-1"); blocked_node_ids = @(); completed_node_count = 0; total_node_count = 1 }
-                            steps = @(@{ kind = "map_initialized"; task_id = "task-1"; map_id = "map-1"; created_node_ids = @("node-1"); current_node_id = "node-1" })
+                            schema_version = "TaskSpaceControlResultR6V1"; status = "committed"; success = $true
+                            state_commit = $true; committed_revision = 2
+                            delta = @{ map_id = "map-1"; committed_revision = 2; graph_event_refs = @(@{ revision = 1 }, @{ revision = 1 }, @{ revision = 2 }); node_detail_event_refs = @() }
+                            steps = @(@{ kind = "map_initialized"; map_id = "map-1"; revision = 2 })
                         } | ConvertTo-Json -Compress -Depth 10)
                 } },
             [pscustomobject]@{ type = "event_msg"; payload = [pscustomobject]@{
@@ -186,10 +186,10 @@ function New-SideFixture {
             [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{
                     type = "function_call_output"; call_id = "finish-nodes-control"
                     output = (@{
-                            schema_version = "TaskSpaceControlResultV2"; status = "committed"; success = $true
-                            state_commit = "full"
-                            map_state = @{ current_node_id = "node-2"; pending_node_ids = @(); open_node_ids = @("node-2"); blocked_node_ids = @(); completed_node_count = 1; total_node_count = 2 }
-                            steps = @(@{ kind = "state_transition"; index = 0; finished_node_id = "node-1"; result_id = "result-1"; next = @{ kind = "existing"; node_id = "node-2" }; current_node_id = "node-2" })
+                            schema_version = "TaskSpaceControlResultR6V1"; status = "committed"; success = $true
+                            state_commit = $true; committed_revision = 3
+                            delta = @{ map_id = "map-1"; committed_revision = 3; graph_event_refs = @(@{ revision = 3 }); node_detail_event_refs = @() }
+                            steps = @(@{ kind = "node_transition"; map_id = "map-1"; node_id = "node-1"; revision = 3; status = "completed" })
                         } | ConvertTo-Json -Compress -Depth 10)
                 } },
             [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{
@@ -199,10 +199,9 @@ function New-SideFixture {
             [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{
                     type = "function_call_output"; call_id = "terminal-failure-control"
                     output = (@{
-                            schema_version = "TaskSpaceControlResultV2"; status = "state_machine_failed"; success = $false
-                            state_commit = "partial"
-                            map_state = @{ current_node_id = "node-2"; pending_node_ids = @(); open_node_ids = @("node-2"); blocked_node_ids = @(); completed_node_count = 1; total_node_count = 2 }
-                            steps = @(@{ kind = "state_transition"; index = 0; success = $false; error = @{ code = "fixture_reject" } })
+                            schema_version = "TaskSpaceControlResultR6V1"; status = "state_machine_failed"; success = $false
+                            state_commit = $false; committed_revision = $null; delta = $null
+                            steps = @(@{ kind = "state_rejection"; success = $false; error = @{ code = "fixture_reject" } })
                         } | ConvertTo-Json -Compress -Depth 10)
                 } },
             [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "function_call"; name = "apply_patch"; arguments = '{"input":"patch"}' } },
@@ -315,19 +314,20 @@ Assert-True (@($report.rows | Where-Object { $_.logical_mode -eq "taskspace" -an
 Assert-True (@($report.rows | Where-Object { $_.logical_mode -eq "taskspace" -and $_.duplication.cross_carrier_lineage.expanded_nested_call_exact_json_match_count -eq 1 }).Count -eq 2) "expanded nested exact JSON lineage was not measured"
 Assert-True (@($report.rows | Where-Object {
             $_.logical_mode -eq "taskspace" -and
-            $_.duplication.cross_carrier_lineage.control_success_v2_count -eq 2 -and
+            $_.duplication.cross_carrier_lineage.control_success_count -eq 2 -and
             $_.duplication.cross_carrier_lineage.control_identity_step_count -eq 2 -and
             $_.duplication.cross_carrier_lineage.control_identity_missing_count -eq 0 -and
             $_.duplication.cross_carrier_lineage.committed_repeat_finish_count -eq 0 -and
             $_.duplication.cross_carrier_lineage.terminal_finish_chain_duplicate_count -eq 0 -and
-            $_.duplication.cross_carrier_lineage.control_map_state_present_count -eq 3 -and
-            $_.duplication.cross_carrier_lineage.control_map_state_missing_count -eq 0 -and
-            $_.duplication.cross_carrier_lineage.control_open_node_visibility_count -eq 3 -and
-            $_.duplication.cross_carrier_lineage.terminal_failure_nonzero_commit_count -eq 1 -and
-            $_.duplication.cross_carrier_lineage.control_output_init_node_id_echo_count -eq 1 -and
-            $_.duplication.cross_carrier_lineage.control_output_finished_node_id_echo_count -eq 1 -and
-            $_.duplication.cross_carrier_lineage.control_output_next_node_echo_count -eq 1 -and
-            $_.duplication.cross_carrier_lineage.control_output_current_node_echo_count -eq 2
+            $_.duplication.cross_carrier_lineage.control_delta_present_count -eq 2 -and
+            $_.duplication.cross_carrier_lineage.control_delta_missing_count -eq 1 -and
+            $_.duplication.cross_carrier_lineage.control_graph_event_ref_count -eq 4 -and
+            $_.duplication.cross_carrier_lineage.control_node_detail_event_ref_count -eq 0 -and
+            $_.duplication.cross_carrier_lineage.terminal_failure_nonzero_commit_count -eq 0 -and
+            $_.duplication.cross_carrier_lineage.control_output_init_node_id_echo_count -eq 0 -and
+            $_.duplication.cross_carrier_lineage.control_output_finished_node_id_echo_count -eq 0 -and
+            $_.duplication.cross_carrier_lineage.control_output_next_node_echo_count -eq 0 -and
+            $_.duplication.cross_carrier_lineage.control_output_current_node_echo_count -eq 0
         }).Count -eq 2) "control V2 identity coverage was not measured"
 Assert-True (@($report.rows | Where-Object { $_.logical_mode -eq "taskspace" -and $_.duplication.cross_carrier_lineage.stale_blank_developer_marker_count -eq 1 -and $_.duplication.cross_carrier_lineage.stale_mode_developer_marker_count -eq 1 }).Count -eq 2) "stale developer marker counts were not measured"
 Assert-True (@($report.rows | Where-Object { $_.logical_mode -eq "taskspace" -and $_.duplication.rollout_storage.snapshot_updated_line_count -eq 1 -and $_.duplication.rollout_storage.snapshot_updated_payload_bytes -gt 0 -and $_.duplication.rollout_storage.snapshot_updated_payload_ratio -gt 0 }).Count -eq 2) "rollout storage snapshot byte ratio was not measured"

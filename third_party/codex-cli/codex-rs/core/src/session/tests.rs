@@ -1294,7 +1294,7 @@ async fn record_initial_history_new_defers_initial_context_until_first_turn() {
 }
 
 #[tokio::test]
-async fn build_initial_context_injects_one_blank_map_epoch_snapshot() {
+async fn provider_composer_injects_one_blank_map_epoch_snapshot() {
     let (session, turn_context) = make_session_and_context().await;
     {
         let mut state = session.state.lock().await;
@@ -1304,10 +1304,17 @@ async fn build_initial_context_injects_one_blank_map_epoch_snapshot() {
         );
     }
 
-    for context in [
-        session.build_initial_context(&turn_context).await,
-        session.build_initial_context(&turn_context).await,
-    ] {
+    let initial_context = session.build_initial_context(&turn_context).await;
+    assert!(
+        !developer_input_texts(&initial_context)
+            .join("\n")
+            .contains("TaskSpaceMapEpochSnapshotR6V1:")
+    );
+    for _ in 0..2 {
+        let context = session
+            .prepare_provider_visible_prompt_items(&turn_context, initial_context.clone())
+            .await
+            .items;
         let developer_text = developer_input_texts(&context).join("\n");
         assert!(!developer_text.contains("TaskSpace mode is now active"));
         assert_eq!(
@@ -1323,7 +1330,7 @@ async fn build_initial_context_injects_one_blank_map_epoch_snapshot() {
 }
 
 #[tokio::test]
-async fn build_initial_context_keeps_epoch_snapshot_separate_from_skills() {
+async fn provider_composer_keeps_epoch_snapshot_separate_from_skills() {
     let (session, mut turn_context) = make_session_and_context().await;
     let mut outcome = SkillLoadOutcome::default();
     outcome.skills = vec![SkillMetadata {
@@ -1361,17 +1368,34 @@ async fn build_initial_context_keeps_epoch_snapshot_separate_from_skills() {
         "stable developer item must not contain legacy TaskSpace markers that provider filtering omits: {stable_developer_text}"
     );
     assert!(!stable_developer_text.contains("TaskSpaceMapEpochSnapshotR6V1:"));
+    assert!(
+        !developer_texts
+            .iter()
+            .any(|text| text.contains("TaskSpaceMapEpochSnapshotR6V1:"))
+    );
+    let provider_context = session
+        .prepare_provider_visible_prompt_items(&turn_context, initial_context)
+        .await
+        .items;
+    let provider_developer_texts = developer_input_texts(&provider_context);
     assert_eq!(
-        developer_texts
+        provider_developer_texts
             .iter()
             .filter(|text| text.contains("TaskSpaceMapEpochSnapshotR6V1:"))
             .count(),
         1
     );
+    assert!(
+        !provider_developer_texts
+            .iter()
+            .find(|text| text.contains("<skills_instructions>"))
+            .expect("stable skills developer item")
+            .contains("TaskSpaceMapEpochSnapshotR6V1:")
+    );
 }
 
 #[tokio::test]
-async fn map_epoch_snapshot_history_stays_append_only_after_same_turn_changes() {
+async fn provider_projection_refreshes_without_mutating_canonical_history() {
     let (session, turn_context) = make_session_and_context().await;
     {
         let mut state = session.state.lock().await;
@@ -1447,21 +1471,26 @@ async fn map_epoch_snapshot_history_stays_append_only_after_same_turn_changes() 
         .await;
 
     let history = session.clone_history().await;
-    let projection_count = history
-        .raw_items()
-        .iter()
-        .filter(|item| is_action_map_epoch_snapshot_developer_item(item))
-        .count();
-    assert_eq!(projection_count, 1);
-    let provider_text = developer_input_texts(history.raw_items()).join("\n");
+    assert!(
+        !history
+            .raw_items()
+            .iter()
+            .any(is_action_map_epoch_snapshot_developer_item)
+    );
+    let first_provider = session
+        .prepare_provider_visible_prompt_items(&turn_context, history.raw_items().to_vec())
+        .await;
+    let provider_text = developer_input_texts(&first_provider.items).join("\n");
     assert_eq!(
         provider_text
             .matches("TaskSpaceMapEpochSnapshotR6V1:")
             .count(),
         1
     );
-    assert!(provider_text.contains("- map: none"));
-    assert!(!provider_text.contains("revision: 2"));
+    assert!(provider_text.contains("map_id: map-1"));
+    assert!(provider_text.contains("revision: 2"));
+    assert!(!provider_text.contains("- map: none"));
+    assert!(first_provider.projection_identity.is_some());
     let history_before_transitions = history.raw_items().to_vec();
 
     {
@@ -1501,13 +1530,11 @@ async fn map_epoch_snapshot_history_stays_append_only_after_same_turn_changes() 
         )
         .await;
     let history = session.clone_history().await;
-    assert_eq!(
-        history
+    assert!(
+        !history
             .raw_items()
             .iter()
-            .filter(|item| is_action_map_epoch_snapshot_developer_item(item))
-            .count(),
-        1
+            .any(is_action_map_epoch_snapshot_developer_item)
     );
     assert!(history.raw_items().iter().any(
         |item| matches!(item, ResponseItem::FunctionCallOutput { call_id, .. } if call_id == "init-control")
@@ -1516,10 +1543,30 @@ async fn map_epoch_snapshot_history_stays_append_only_after_same_turn_changes() 
         history.raw_items().get(..history_before_transitions.len()),
         Some(history_before_transitions.as_slice())
     );
+    let stale_projection = first_provider
+        .items
+        .into_iter()
+        .find(is_action_map_epoch_snapshot_developer_item)
+        .expect("first provider projection");
+    let mut source_with_stale_projection = history.raw_items().to_vec();
+    source_with_stale_projection.push(stale_projection);
+    let refreshed = session
+        .prepare_provider_visible_prompt_items(&turn_context, source_with_stale_projection)
+        .await;
+    let refreshed_text = developer_input_texts(&refreshed.items).join("\n");
+    assert_eq!(
+        refreshed_text
+            .matches("TaskSpaceMapEpochSnapshotR6V1:")
+            .count(),
+        1
+    );
+    assert!(refreshed_text.contains("revision: 4"));
+    assert!(refreshed_text.contains("current_node: implement"));
+    assert!(!refreshed_text.contains("revision: 2"));
 }
 
 #[tokio::test]
-async fn map_epoch_snapshot_is_canonical_map_derived_and_written_once() {
+async fn map_epoch_snapshot_is_canonical_map_derived_and_provider_only() {
     let (session, turn_context) = make_session_and_context().await;
     {
         let mut state = session.state.lock().await;
@@ -1566,10 +1613,15 @@ async fn map_epoch_snapshot_is_canonical_map_derived_and_written_once() {
 
     let canonical_history = session.clone_history().await;
     let canonical_developer_text = developer_input_texts(canonical_history.raw_items()).join("\n");
-    assert!(canonical_developer_text.contains("TaskSpaceMapEpochSnapshotR6V1:"));
+    assert!(!canonical_developer_text.contains("TaskSpaceMapEpochSnapshotR6V1:"));
 
-    let history = session.clone_history().await;
-    let developer_text = developer_input_texts(history.raw_items()).join("\n");
+    let provider = session
+        .prepare_provider_visible_prompt_items(
+            &turn_context,
+            canonical_history.raw_items().to_vec(),
+        )
+        .await;
+    let developer_text = developer_input_texts(&provider.items).join("\n");
     assert!(
         developer_text.contains("TaskSpaceMapEpochSnapshotR6V1:"),
         "expected R6 map epoch snapshot in canonical context: {developer_text}"
@@ -1602,7 +1654,19 @@ async fn map_epoch_snapshot_is_canonical_map_derived_and_written_once() {
         .record_context_updates_and_set_reference_context_item(&turn_context)
         .await;
     let history_after_second_update = session.clone_history().await;
-    let developer_text = developer_input_texts(history_after_second_update.raw_items()).join("\n");
+    assert!(
+        !history_after_second_update
+            .raw_items()
+            .iter()
+            .any(is_action_map_epoch_snapshot_developer_item)
+    );
+    let second_provider = session
+        .prepare_provider_visible_prompt_items(
+            &turn_context,
+            history_after_second_update.raw_items().to_vec(),
+        )
+        .await;
+    let developer_text = developer_input_texts(&second_provider.items).join("\n");
     assert!(
         developer_text.contains("map_id: map-1")
             && developer_text.contains("root->scope")
@@ -1614,17 +1678,14 @@ async fn map_epoch_snapshot_is_canonical_map_derived_and_written_once() {
             .matches("TaskSpaceMapEpochSnapshotR6V1:")
             .count(),
         1,
-        "history must contain exactly one map epoch snapshot: {developer_text}"
+        "provider request must contain exactly one map epoch snapshot: {developer_text}"
     );
 
     let canonical_developer_text = {
         let state = session.state.lock().await;
         developer_input_texts(state.clone_history().raw_items()).join("\n")
     };
-    assert!(
-        canonical_developer_text.contains("TaskSpaceMapEpochSnapshotR6V1:"),
-        "epoch snapshot must remain in append-only canonical history: {canonical_developer_text}"
-    );
+    assert!(!canonical_developer_text.contains("TaskSpaceMapEpochSnapshotR6V1:"));
     assert!(!canonical_developer_text.contains("task_status:"));
     assert!(!canonical_developer_text.contains("map_status:"));
 }

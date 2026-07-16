@@ -185,9 +185,54 @@ pub(crate) struct ExactPayloadScanEventV1 {
     pub(crate) large_raw_output_tokens: usize,
     pub(crate) runtime_boundary_forbidden_markers: Vec<String>,
     pub(crate) protected_items_present: bool,
+    pub(crate) projection_kind: Option<String>,
+    pub(crate) projection_map_id_sha256: Option<String>,
+    pub(crate) projection_revision: Option<u64>,
+    pub(crate) projection_sha256: Option<String>,
+    pub(crate) expected_projection_kind: Option<String>,
+    pub(crate) expected_projection_map_id_sha256: Option<String>,
+    pub(crate) expected_projection_revision: Option<u64>,
+    pub(crate) expected_projection_sha256: Option<String>,
+    pub(crate) projection_freshness_confirmed: Option<bool>,
     pub(crate) replacement_confirmed: bool,
     pub(crate) passed: bool,
     pub(crate) failure_reasons: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ProviderProjectionIdentityExpectation {
+    kind: String,
+    map_id_sha256: Option<String>,
+    revision: Option<u64>,
+    projection_sha256: String,
+}
+
+impl ProviderProjectionIdentityExpectation {
+    pub(crate) fn from_projection_context(context: &str) -> Option<Self> {
+        let projection = projection_blocks_from_text(context).into_iter().next()?;
+        let projection_sha256 = sha256_hex(projection.as_bytes());
+        let bootstrap = projection.lines().any(|line| line == "- map: none")
+            && projection
+                .lines()
+                .any(|line| line == "- bootstrap_required: true");
+        if bootstrap {
+            return Some(Self {
+                kind: "bootstrap".to_string(),
+                map_id_sha256: None,
+                revision: None,
+                projection_sha256,
+            });
+        }
+        let map_id = projection_mechanical_field(projection, "map_id")?;
+        let revision = projection_mechanical_field(projection, "revision")
+            .and_then(|value| value.parse::<u64>().ok())?;
+        Some(Self {
+            kind: "active".to_string(),
+            map_id_sha256: Some(sha256_hex(map_id.as_bytes())),
+            revision: Some(revision),
+            projection_sha256,
+        })
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -286,6 +331,7 @@ struct ProviderRequestBudgetState {
     node_count: AtomicUsize,
     budget_state: String,
     attribution: ProviderRequestAttribution,
+    expected_projection_identity: Option<ProviderProjectionIdentityExpectation>,
     events: StdMutex<Vec<ProviderRequestBudgetEvent>>,
     active_request: StdMutex<Option<ProviderRequestBudgetActiveRequest>>,
 }
@@ -376,6 +422,7 @@ impl ProviderRequestBudgetContext {
                 node_count: AtomicUsize::new(0),
                 budget_state: "disabled".to_string(),
                 attribution: ProviderRequestAttribution::default(),
+                expected_projection_identity: None,
                 events: StdMutex::new(Vec::new()),
                 active_request: StdMutex::new(None),
             }),
@@ -394,12 +441,14 @@ impl ProviderRequestBudgetContext {
                     .to_string(),
             },
             ProviderRequestAttribution::default(),
+            None,
         )
     }
 
     pub(crate) fn enabled_with_attribution(
         limits: ProviderRequestBudgetLimits,
         attribution: ProviderRequestAttribution,
+        expected_projection_identity: Option<ProviderProjectionIdentityExpectation>,
     ) -> Self {
         Self {
             state: Arc::new(ProviderRequestBudgetState {
@@ -409,6 +458,7 @@ impl ProviderRequestBudgetContext {
                 node_count: AtomicUsize::new(limits.node_request_count),
                 budget_state: limits.budget_state,
                 attribution,
+                expected_projection_identity,
                 events: StdMutex::new(Vec::new()),
                 active_request: StdMutex::new(None),
             }),
@@ -538,6 +588,10 @@ impl ProviderRequestBudgetContext {
         if !self.state.enabled {
             return;
         }
+        apply_projection_identity_expectation(
+            &mut payload.scan,
+            self.state.expected_projection_identity.as_ref(),
+        );
         let active_request = {
             let mut active_request = self
                 .state
@@ -964,12 +1018,15 @@ fn scan_provider_payload_text(
     value: &serde_json::Value,
 ) -> ExactPayloadScanEventV1 {
     let projection_required = provider_payload_has_tool(value, "taskspace_control");
-    let projection_blocks = taskspace_projection_blocks(text);
+    let projection_blocks = provider_projection_blocks(value);
     let active_projection_count = projection_blocks.len();
     let active_projection_present = active_projection_count > 0;
     let protected_items_present = projection_blocks
         .first()
         .is_some_and(|block| epoch_snapshot_block_is_valid(block));
+    let projection_identity = projection_blocks
+        .first()
+        .map(|projection| projection_identity(projection));
     let large_raw_output_tokens = estimate_large_raw_output_tokens(value);
     let runtime_boundary_forbidden_markers = [
         "TaskSpaceProviderBudgetHardStopV1",
@@ -1033,21 +1090,160 @@ fn scan_provider_payload_text(
         large_raw_output_tokens,
         runtime_boundary_forbidden_markers,
         protected_items_present,
+        projection_kind: projection_identity
+            .as_ref()
+            .map(|identity| identity.kind.clone()),
+        projection_map_id_sha256: projection_identity
+            .as_ref()
+            .and_then(|identity| identity.map_id_sha256.clone()),
+        projection_revision: projection_identity
+            .as_ref()
+            .and_then(|identity| identity.revision),
+        projection_sha256: projection_identity.map(|identity| identity.projection_sha256),
+        expected_projection_kind: None,
+        expected_projection_map_id_sha256: None,
+        expected_projection_revision: None,
+        expected_projection_sha256: None,
+        projection_freshness_confirmed: None,
         replacement_confirmed,
         passed: failure_reasons.is_empty(),
         failure_reasons,
     }
 }
 
-fn taskspace_projection_blocks(text: &str) -> Vec<&str> {
-    text.split(TASKSPACE_PROJECTION_MARKER)
-        .skip(1)
-        .map(|suffix| {
-            suffix
-                .split_once(TASKSPACE_PROJECTION_END_MARKER)
-                .map_or(suffix, |(block, _)| block)
-        })
-        .collect()
+#[derive(Debug)]
+struct ProviderProjectionIdentity {
+    kind: String,
+    map_id_sha256: Option<String>,
+    revision: Option<u64>,
+    projection_sha256: String,
+}
+
+fn provider_projection_blocks(value: &serde_json::Value) -> Vec<&str> {
+    let Some(messages) = value.get("messages").or_else(|| value.get("input")) else {
+        return Vec::new();
+    };
+    if let Some(text) = messages.as_str() {
+        return projection_blocks_from_text(text);
+    }
+    let Some(messages) = messages.as_array() else {
+        return Vec::new();
+    };
+    let mut blocks = Vec::new();
+    for message in messages {
+        let role = message.get("role").and_then(serde_json::Value::as_str);
+        if !matches!(role, Some("developer" | "system")) {
+            continue;
+        }
+        let Some(content) = message.get("content") else {
+            continue;
+        };
+        let mut strings = Vec::new();
+        collect_provider_strings(content, &mut strings);
+        for text in strings {
+            blocks.extend(projection_blocks_from_text(text));
+        }
+    }
+    blocks
+}
+
+fn projection_blocks_from_text(text: &str) -> Vec<&str> {
+    let mut blocks = Vec::new();
+    let mut remainder = text;
+    while let Some(start) = remainder.find(TASKSPACE_PROJECTION_MARKER) {
+        let candidate = &remainder[start..];
+        let Some(end) = candidate.find(TASKSPACE_PROJECTION_END_MARKER) else {
+            blocks.push(candidate);
+            break;
+        };
+        let end = end + TASKSPACE_PROJECTION_END_MARKER.len();
+        blocks.push(&candidate[..end]);
+        remainder = &candidate[end..];
+    }
+    blocks
+}
+
+fn collect_provider_strings<'a>(value: &'a serde_json::Value, strings: &mut Vec<&'a str>) {
+    match value {
+        serde_json::Value::String(text) => strings.push(text),
+        serde_json::Value::Array(values) => {
+            for value in values {
+                collect_provider_strings(value, strings);
+            }
+        }
+        serde_json::Value::Object(values) => {
+            for value in values.values() {
+                collect_provider_strings(value, strings);
+            }
+        }
+        serde_json::Value::Null | serde_json::Value::Bool(_) | serde_json::Value::Number(_) => {}
+    }
+}
+
+fn projection_identity(projection: &str) -> ProviderProjectionIdentity {
+    let projection_sha256 = sha256_hex(projection.as_bytes());
+    let bootstrap = projection.lines().any(|line| line == "- map: none")
+        && projection
+            .lines()
+            .any(|line| line == "- bootstrap_required: true");
+    if bootstrap {
+        return ProviderProjectionIdentity {
+            kind: "bootstrap".to_string(),
+            map_id_sha256: None,
+            revision: None,
+            projection_sha256,
+        };
+    }
+    let map_id_sha256 = projection_mechanical_field(projection, "map_id")
+        .map(|map_id| sha256_hex(map_id.as_bytes()));
+    let revision = projection_mechanical_field(projection, "revision")
+        .and_then(|value| value.parse::<u64>().ok());
+    ProviderProjectionIdentity {
+        kind: if map_id_sha256.is_some() && revision.is_some() {
+            "active"
+        } else {
+            "unavailable"
+        }
+        .to_string(),
+        map_id_sha256,
+        revision,
+        projection_sha256,
+    }
+}
+
+fn projection_mechanical_field<'a>(projection: &'a str, field: &str) -> Option<&'a str> {
+    let prefix = format!("- {field}: ");
+    projection
+        .lines()
+        .find_map(|line| line.strip_prefix(&prefix))
+        .filter(|value| !value.is_empty())
+}
+
+fn apply_projection_identity_expectation(
+    scan: &mut ExactPayloadScanEventV1,
+    expected: Option<&ProviderProjectionIdentityExpectation>,
+) {
+    let Some(expected) = expected else {
+        return;
+    };
+    scan.expected_projection_kind = Some(expected.kind.clone());
+    scan.expected_projection_map_id_sha256 = expected.map_id_sha256.clone();
+    scan.expected_projection_revision = expected.revision;
+    scan.expected_projection_sha256 = Some(expected.projection_sha256.clone());
+    let confirmed = scan.projection_kind.as_ref() == Some(&expected.kind)
+        && scan.projection_map_id_sha256 == expected.map_id_sha256
+        && scan.projection_revision == expected.revision
+        && scan.projection_sha256.as_ref() == Some(&expected.projection_sha256);
+    scan.projection_freshness_confirmed = Some(confirmed);
+    scan.negative_checks_performed
+        .push("projection_freshness".to_string());
+    scan.matcher_version = "r6-epoch-snapshot-checks-2".to_string();
+    if !confirmed {
+        scan.failure_reasons
+            .push("epoch_snapshot_identity_mismatch".to_string());
+        scan.passed = false;
+        scan.replacement_confirmed = false;
+    }
 }
 
 fn epoch_snapshot_block_is_valid(block: &str) -> bool {

@@ -373,6 +373,10 @@ fn invalid_error(message: String) -> FunctionCallError {
             "schema_version": TASKSPACE_CONTROL_RESULT_SCHEMA_VERSION,
             "status": "protocol_failed",
             "success": false,
+            "state_commit": false,
+            "partial_commit": 0,
+            "committed_revision": serde_json::Value::Null,
+            "delta": serde_json::Value::Null,
             "error": {
                 "class": "protocol",
                 "code": "invalid_arguments",

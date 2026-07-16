@@ -164,7 +164,7 @@ fn one_patch_with_follow_up_tools_passes_manifest_preflight() {
 }
 
 #[test]
-fn aggregate_references_canonical_nested_events_without_copying_output() {
+fn aggregate_does_not_duplicate_independently_visible_nested_tool_feedback() {
     let state = ResponseInputItem::FunctionCallOutput {
         call_id: "outer".into(),
         output: FunctionCallOutputPayload::from_text(
@@ -173,21 +173,21 @@ fn aggregate_references_canonical_nested_events_without_copying_output() {
                 "status": "committed",
                 "success": true,
                 "state_commit": true,
-                "map_state": {
-                    "task_id": "task-1",
+                "committed_revision": 1,
+                "delta": {
                     "map_id": "map-1",
-                    "revision": 1,
-                    "root_node_id": "root",
-                    "finish_node_id": "finish",
-                    "complete": false,
-                    "current_node_id": "inspect"
+                    "committed_revision": 1,
+                    "graph_event_refs": [
+                        {"revision": 1, "event_id": "event:5:map-1:1:0", "event_type": "map_initialized"},
+                        {"revision": 1, "event_id": "event:5:map-1:1:1", "event_type": "readiness_changed"},
+                        {"revision": 2, "event_id": "event:5:map-1:2:0", "event_type": "node_bound"}
+                    ],
+                    "node_detail_event_refs": []
                 },
                 "steps": [{
                     "kind": "map_initialized",
-                    "task_id": "task-1",
                     "map_id": "map-1",
-                    "created_node_ids": ["inspect"],
-                    "current_node_id": "inspect"
+                    "revision": 1
                 }],
             })
             .to_string(),
@@ -211,16 +211,20 @@ fn aggregate_references_canonical_nested_events_without_copying_output() {
     };
     assert_eq!(call_id, "outer");
     assert_eq!(output.success, Some(true));
-    let value: serde_json::Value =
-        serde_json::from_str(&output.body.to_text().expect("text")).expect("batch json");
+    let output_text = output.body.to_text().expect("text");
+    let value: serde_json::Value = serde_json::from_str(&output_text).expect("batch json");
     assert_eq!(value["schema_version"], "TaskSpaceControlResultR6V1");
     assert_eq!(value["status"], "committed");
     assert_eq!(value["state_commit"], true);
-    assert_eq!(value["steps"].as_array().expect("steps").len(), 2);
-    assert_eq!(value["steps"][0]["current_node_id"], "inspect");
-    assert_eq!(value["steps"][1]["call_event_ref"], "task-event-7");
-    assert_eq!(value["steps"][1]["output_event_ref"], "task-event-8");
-    assert!(value["steps"][1].get("response").is_none());
+    assert_eq!(value["steps"].as_array().expect("steps").len(), 1);
+    assert_eq!(value["steps"][0]["map_id"], "map-1");
+    assert!(!output_text.contains("task-event-7"));
+    assert!(!output_text.contains("task-event-8"));
+    assert!(
+        output_text.len() <= 712,
+        "initialization feedback with nested actions must stay at least 30% below the 1,018-byte E6 fixture, got {} bytes",
+        output_text.len()
+    );
 }
 
 #[test]
