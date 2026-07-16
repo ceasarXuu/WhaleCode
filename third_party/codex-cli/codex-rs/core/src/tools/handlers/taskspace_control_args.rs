@@ -5,10 +5,12 @@ use codex_protocol::models::ResponseItem;
 use serde::Deserialize;
 use serde_json::Value as JsonValue;
 
+#[path = "taskspace_control_args_wire.rs"]
+mod wire;
+
 pub(crate) const TASKSPACE_CONTROL_RESULT_SCHEMA_VERSION: &str = "TaskSpaceControlResultR6V1";
 
-#[derive(Clone, Debug, Deserialize)]
-#[serde(tag = "action", rename_all = "snake_case", deny_unknown_fields)]
+#[derive(Clone, Debug)]
 pub(crate) enum TaskSpaceControlArgs {
     InitializeMap {
         root: TaskSpaceGraphNodeArgs,
@@ -39,13 +41,9 @@ pub(crate) enum TaskSpaceControlArgs {
     ReadOutputRef {
         output_ref: String,
         mode: String,
-        #[serde(default)]
         start_line: Option<usize>,
-        #[serde(default)]
         end_line: Option<usize>,
-        #[serde(default)]
         pattern: Option<String>,
-        #[serde(default)]
         max_bytes: Option<usize>,
     },
 }
@@ -265,8 +263,7 @@ impl TaskSpaceContinuation {
 pub(crate) fn parse_taskspace_control_args(
     arguments: &str,
 ) -> Result<TaskSpaceControlArgs, FunctionCallError> {
-    let args = serde_json::from_str::<TaskSpaceControlArgs>(arguments)
-        .map_err(|error| invalid_error(format!("invalid taskspace_control arguments: {error}")))?;
+    let args = wire::parse(arguments)?;
     args.validate()?;
     Ok(args)
 }

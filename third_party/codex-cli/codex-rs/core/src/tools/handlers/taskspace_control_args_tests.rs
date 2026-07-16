@@ -56,12 +56,32 @@ fn rejects_removed_active_actions() {
 
 #[test]
 fn rejects_finish_work_goal_instead_of_ignoring_it() {
-    assert!(
-        parse_taskspace_control_args(
-            r#"{"action":"initialize_map","root":{"node_id":"root","goal":"Start"},"initial_work_node":{"node_id":"work","goal":"Do and verify work"},"additional_work_nodes":[],"finish":{"node_id":"finish","goal":"Verify and summarize"},"edges":[{"from":"root","to":"work"},{"from":"work","to":"finish"}],"continuation":{"kind":"actions","actions":[{"tool_name":"exec_command","arguments":{"cmd":"pwd"}}]}}"#
-        )
-        .is_err()
+    let payload = invalid_payload(
+        r#"{"action":"initialize_map","root":{"node_id":"root","goal":"Start"},"initial_work_node":{"node_id":"work","goal":"Do and verify work"},"additional_work_nodes":[],"finish":{"node_id":"finish","goal":"Verify and summarize"},"edges":[{"from":"root","to":"work"},{"from":"work","to":"finish"}],"continuation":{"kind":"actions","actions":[{"tool_name":"exec_command","arguments":{"cmd":"pwd"}}]}}"#,
     );
+    let message = payload["error"]["message"].as_str().expect("message");
+    assert!(message.contains("finish"), "{message}");
+    assert!(message.contains("unknown field `goal`"), "{message}");
+}
+
+#[test]
+fn reports_root_path_when_required_goal_is_missing() {
+    let payload = invalid_payload(
+        r#"{"action":"initialize_map","root":{"node_id":"root"},"initial_work_node":{"node_id":"work","goal":"Do work"},"additional_work_nodes":[],"finish":{"node_id":"finish"},"edges":[],"continuation":{"kind":"actions","actions":[{"tool_name":"exec_command","arguments":{"cmd":"pwd"}}]}}"#,
+    );
+    let message = payload["error"]["message"].as_str().expect("message");
+    assert!(message.contains("root"), "{message}");
+    assert!(message.contains("missing field `goal`"), "{message}");
+}
+
+#[test]
+fn reports_array_index_when_additional_work_goal_is_missing() {
+    let payload = invalid_payload(
+        r#"{"action":"initialize_map","root":{"node_id":"root","goal":"Start"},"initial_work_node":{"node_id":"work","goal":"Do work"},"additional_work_nodes":[{"node_id":"later"}],"finish":{"node_id":"finish"},"edges":[],"continuation":{"kind":"actions","actions":[{"tool_name":"exec_command","arguments":{"cmd":"pwd"}}]}}"#,
+    );
+    let message = payload["error"]["message"].as_str().expect("message");
+    assert!(message.contains("additional_work_nodes[0]"), "{message}");
+    assert!(message.contains("missing field `goal`"), "{message}");
 }
 
 #[test]
@@ -142,24 +162,23 @@ fn expand_nodes_requires_non_empty_unique_node_ids() {
 #[test]
 fn invalid_arguments_return_one_typed_json_payload() {
     let arguments = r#"{"action":"unknown"}"#;
-    let source_error = serde_json::from_str::<TaskSpaceControlArgs>(arguments)
-        .expect_err("unknown action should fail");
-    let error = parse_taskspace_control_args(arguments).expect_err("unknown action should fail");
+    let value = invalid_payload(arguments);
+    assert_eq!(value["schema_version"], "TaskSpaceControlResultR6V1");
+    assert_eq!(value["status"], "protocol_failed");
+    assert_eq!(value["success"], false);
+    assert_eq!(value["error"]["class"], "protocol");
+    assert_eq!(value["error"]["code"], "invalid_arguments");
+    let message = value["error"]["message"].as_str().expect("message");
+    assert!(
+        message.starts_with("invalid taskspace_control arguments at action:"),
+        "{message}"
+    );
+}
+
+fn invalid_payload(arguments: &str) -> JsonValue {
+    let error = parse_taskspace_control_args(arguments).expect_err("arguments should fail");
     let FunctionCallError::RespondToModel(payload) = error else {
         panic!("expected model-facing error");
     };
-    let value: JsonValue = serde_json::from_str(&payload).expect("single JSON payload");
-    assert_eq!(
-        value,
-        serde_json::json!({
-            "schema_version": "TaskSpaceControlResultR6V1",
-            "status": "protocol_failed",
-            "success": false,
-            "error": {
-                "class": "protocol",
-                "code": "invalid_arguments",
-                "message": format!("invalid taskspace_control arguments: {source_error}"),
-            },
-        })
-    );
+    serde_json::from_str(&payload).expect("single JSON payload")
 }
