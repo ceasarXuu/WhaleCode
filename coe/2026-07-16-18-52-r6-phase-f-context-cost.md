@@ -1,7 +1,7 @@
 # Problem P-001: R6 TaskSpace 上下文与缓存成本高于 Standard
 - Status: open
 - Created: 2026-07-16 18:52
-- Updated: 2026-07-16 19:01
+- Updated: 2026-07-16 19:15
 - Objective: 定位并消除不必要的请求重复、Map 状态重复和 provider cache shape 变化，同时保持语义透传与 R6 correctness。
 - Symptoms:
   - simple R6/Standard request=1.40x、input=1.52x、uncached=3.33x。
@@ -24,11 +24,12 @@
   - active projection 在 provider payload 中无限累加。
 - Fix criteria:
   - payload section 可独立计量；当前完整 Map provider-visible owner=1；schema/choice transition=0；correctness/terminal/replay=100%；每项修复有独立成本对比。
-- Current conclusion: H-001/H-002/H-003 均通过 Phase E artifacts 的独立机械探针确认；可以按 F0-F4 进入修复。
+- Current conclusion: H-001/H-002/H-003/H-004 均已确认；F1 必须先修复每请求 projection freshness，再删除 control `map_state`。
 - Related hypotheses:
   - H-001
   - H-002
   - H-003
+  - H-004
 - Resolution basis:
   - not satisfied
 - Close reason:
@@ -109,7 +110,7 @@
 - Evidence gate: satisfied
 - Related evidence:
   - E-002
-- Conclusion: confirmed；六个 run projection count 恒为 1，但 31 个 control output 中 30 个携带完整 `map_state`，并保留在自然历史。
+- Conclusion: confirmed；六个 run projection marker count 恒为 1，但 31 个 control output 中 30 个携带较新完整 `map_state`，并保留在自然历史；两者可能冲突而非只是等价重复。
 - Repair design readiness: ready
 - Next step: F1 将当前完整 Map 收敛到 projection，result 保留 revision/delta/error/ref。
 - Blocker:
@@ -153,6 +154,48 @@
 - Conclusion: confirmed；每个 run 两次 prefix break，terminal first diff 均为 `tools`，最终 named requests 的 uncached 总量为 simple 11,262、complex 26,398。
 - Repair design readiness: ready
 - Next step: F2 验证 immutable schema 与稳定 `required` choice。
+- Blocker:
+  - none
+- Close reason:
+  - not closed
+
+## Hypothesis H-004: 唯一 projection marker 仍可能是旧快照
+- Status: confirmed
+- Parent: P-001
+- Claim: steady-state provider composer 只保留首次 projection，没有按 canonical DAG 当前 revision/hash 刷新，因此唯一 projection 可能落后于 control result 和真实 Map。
+- Layer: root-cause
+- Factor relation: part_of
+- Depends on:
+  - none
+- Rationale:
+  - provider composition 检查历史是否存在 marker，而 exact scanner 只验证 marker 数量和区块形状。
+- Falsifiable predictions:
+  - If true: 后续请求中的 projection message hash 与 bootstrap 完全相同，而 control result revision 已持续增加。
+  - If false: 每次状态提交后 projection identity/revision/hash 随 canonical DAG 更新。
+- Diagnostic evidence plan:
+  - Prediction or clause under test: projection 唯一性是否同时满足 freshness。
+  - Signal: provider message hash/bytes、bootstrap projection 内容、control committed revision、steady-state composer code path。
+  - Capture method: 对 Phase E provider trace 与 canonical task context 做 revision/hash 对账，并检查 provider composer。
+  - Event name or marker:
+    - `TaskSpaceMapEpochSnapshotR6V1`
+    - `TaskSpaceControlResultR6V1`
+  - Correlation keys:
+    - request index、map id、revision、projection hash
+  - Differentiates from:
+    - H-002 的等价状态重复
+  - Supports if:
+    - projection message 保持 bootstrap identity，同时 control committed revision 大于 bootstrap。
+  - Refutes if:
+    - projection revision/hash 与每次 canonical state 一致。
+  - Instrumentation status: permanent-observability-candidate
+  - Instrumentation lifecycle:
+    - promote after repair
+- Evidence gate: satisfied
+- Related evidence:
+  - E-004
+- Conclusion: confirmed；六个 run 的每个请求都保留同一个 139-byte bootstrap projection hash，而 control revision 已推进到 4/6。
+- Repair design readiness: ready
+- Next step: F0 增加 projection identity，F1 改为 ephemeral current projection composer。
 - Blocker:
   - none
 - Close reason:
@@ -224,3 +267,36 @@
   ```
 - Interpretation: terminal shape switch 是最明确的 uncached 放大器；最终 request 仍有自然动态尾部，因此该数值不是纯因果反事实。
 - Time: 2026-07-16 19:00
+
+## Evidence E-004: Projection freshness 与 control revision 对账
+- Related hypotheses:
+  - H-004
+- Direction: supports
+- Type: diagnostic-log
+- Source: Phase E provider cache trace、canonical task context、provider composer
+- Prediction or plan link:
+  - H-004 diagnostic evidence plan
+- Matched signal:
+  - 所有后续请求的 projection message 与首次 bootstrap hash 相同，而 control revision 持续增加。
+- Correlation keys:
+  - request index/map id/revision/projection hash
+- Raw content:
+  ```text
+  bootstrap projection:
+    TaskSpaceMapEpochSnapshotR6V1:
+    - map: none
+    - bootstrap_required: true
+
+  six runs:
+    projection message count = provider request count
+    unique projection message hash count = 1
+    projection message sha256 = 2536ee26eed4e3dffe372a3b8b5a4c4a6c2e6a8177890a01836e1a6116d97a75
+    control revision ranges = 2..6, 2..6, 2..4, 2..6, 2..6, 2..6
+
+  steady-state code:
+    clone_history().raw_items().any(is_action_map_epoch_snapshot_developer_item)
+    if !should_inject_full_context && !action_map_epoch_snapshot_present { build_developer_context() }
+    prepare_provider_visible_prompt_items(items) { items }
+  ```
+- Interpretation: scanner 的 uniqueness/replacement_confirmed 是 false positive；Agent 实际依赖较新的 control `map_state` 弥补 stale projection。
+- Time: 2026-07-16 19:15

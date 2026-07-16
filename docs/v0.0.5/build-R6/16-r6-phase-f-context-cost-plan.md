@@ -52,12 +52,13 @@ Phase G 独立实验。
 
 | 类型 | 内容 | 证据 |
 |---|---|---|
-| 事实 | 每个 R6 provider payload 只有一个 active projection | exact payload scan `active_projection_count=1` |
+| 事实 | 每个 R6 provider payload 只有一个 projection marker，但现有 scanner 不验证 freshness | exact payload scan `active_projection_count=1` |
+| 事实 | steady-state 仅检查历史是否已有 projection，可能继续暴露首次 bootstrap snapshot | `session/mod.rs` provider context path |
 | 事实 | simple/complex 每次运行各有两次 tool choice/shape 切换 | Phase E performance observation |
 | 事实 | 最终 named request 分别贡献 11,262/26,398 uncached input | provider cache trace 聚合 |
 | 事实 | control call+result 原始文本每 run 约 3-6.3KB，后续请求继续携带 | canonical task context event |
 | 事实 | Rust API 与 ChatCompletions serializer 已支持 `ToolChoice::Required` | `codex-api` code/test |
-| 未验证 | DeepSeek V4 live 是否稳定遵守 `required` | F2 provider probe |
+| 未验证 | DeepSeek V4 live 是否稳定遵守 `required` 且保留 thinking 质量 | F2 provider probe；当前 generic strict choice 会关闭 thinking |
 | 约束 | Runtime 只能执行硬状态和 Agent 声明顺序 | R6 charter |
 
 ## 5. 方案总览
@@ -96,9 +97,19 @@ SHA-256、message role/count 和相邻请求 LCP。
 - Phase E 原始 artifacts 可离线重算，缺失值标记为 unavailable；
 - 不记录 API key、Authorization header 或未经 hash 的完整 payload。
 
-## 7. Phase F1：Map 当前状态唯一所有权
+## 7. Phase F1：Projection Freshness 与 Map 当前状态唯一所有权
 
-### 7.1 所有权规则
+### 7.1 Freshness 前置修复
+
+当前“projection count=1”只证明 marker 唯一，不证明它与 canonical DAG 同 revision/hash。F1 必须先完成：
+
+1. projection 不再作为普通历史项长期持有；provider composer 从 canonical natural history 中过滤旧 projection；
+2. 每个初始请求、后续请求、retry、resume 和 compaction continuation 都重新读取同一 canonical DAG；
+3. 在全部自然历史之后追加一份 ephemeral current projection，使历史 LCP 保持到动态 suffix 之前；
+4. scanner 同时校验 projection map id、revision、projection hash 与本次 canonical snapshot identity；
+5. freshness fixture 和 simple/complex smoke 通过后，才允许删除 control result 的 `map_state`。
+
+### 7.2 所有权规则
 
 | 信息 | 唯一 provider-visible owner | 其他载体允许内容 |
 |---|---|---|
@@ -108,15 +119,16 @@ SHA-256、message role/count 和相邻请求 LCP。
 | control 失败 | control result | class/code/message、expected/actual、state_commit |
 | ordinary tool 结果 | 原始 tool feedback/Event Store | projection 只保存忠实 ref |
 
-### 7.2 实施
+### 7.3 实施
 
-1. 从成功 control result 删除完整 `map_state`。
-2. 增加稳定的 `committed_revision` 和 typed delta；delta 只描述实际提交的节点、边、状态和 terminal 变化。
+1. 从成功和失败 control result 删除完整 `map_state`。
+2. 增加稳定的 `committed_revision` 和 typed delta；delta 必须来自 canonical domain event batch，不能从简化 handler outcome 推断。
 3. 失败结果保持原始错误语义和零提交证明，不由 projection 生成纠错说明。
 4. observer 同步读取新结果，不保留旧生产 schema 兼容路径；历史 benchmark 使用冻结版本 observer。
 
-### 7.3 退出门禁
+### 7.4 退出门禁
 
+- 每个 provider request 的 projection identity 与本次 canonical map revision/hash 一致；
 - success/failure fixture 可从原始 call、result delta 和下一轮 projection 对账；
 - provider payload 中完整 active Map section 计数为 1；
 - control result 不含 `map_state`；
@@ -129,7 +141,8 @@ SHA-256、message role/count 和相邻请求 LCP。
 
 1. 合并 bootstrap/active control schema，为整个 TaskSpace turn 构造一套 immutable lifecycle schema。
 2. `update_plan` 始终隐藏，其他工具列表不因 Map 阶段变化。
-3. Map 开放期间优先验证 `ToolChoice::Required`：它只要求 Agent 选择某个工具，不选择具体工具。
+3. 单独验证 `ToolChoice::Required`：它只要求 Agent 选择某个工具，不选择具体工具，但当前 generic strict
+   choice 会关闭 thinking，不能仅因缓存收益直接采用。
 4. Runtime 对当前阶段不合法的 action 返回现有硬状态错误，不隐藏工具、不自动改写为其他 action。
 5. `finish_end` 成功后 terminal carrier 直接发布 Agent summary，不再发 provider request。
 
@@ -137,16 +150,17 @@ SHA-256、message role/count 和相邻请求 LCP。
 
 | 结果 | 决策 |
 |---|---|
-| DeepSeek 接受 `required`，返回合法 tool call，simple/complex terminal 6/6 | 使用稳定 `required` |
-| API 拒绝或模型在 `required` 下返回无工具响应 | F2 暂停；不得本地伪造 tool call 或自动重试 |
-| correctness 通过但错误工具调用显著增加 | 保留证据并暂停；不得用 Runtime 语义筛选补救 |
+| DeepSeek 接受 `required`，thinking 保持或质量无回退，terminal 6/6 | 使用稳定 `required` |
+| `required` 必须关闭 thinking 或质量回退 | 记录为 HOLD；不以缓存收益换取 Agent 智能能力 |
+| API 拒绝或模型返回无工具响应 | 记录为 HOLD；不得本地伪造 tool call 或自动重试 |
+| correctness 通过但错误工具调用显著增加 | 记录为 HOLD；不得用 Runtime 语义筛选补救 |
 
 ### 8.3 退出门禁
 
 - 每个 R6 run 的 `tools_hash` 唯一值为 1；
-- `tool_choice_kind` 唯一值为 1；
-- tool choice/shape transition count 为 0；
-- terminal 前一请求到 terminal request 的完整 cache prefix 保持；
+- immutable schema 下每个 R6 run 的 `tools_hash` 唯一值为 1；
+- 若 `required` 通过质量门禁，`tool_choice_kind` 唯一值为 1、shape transition=0；否则明确记录 HOLD；
+- terminal 前一请求到 terminal request 的 messages LCP 和 tools prefix 保持；
 - terminal adoption、Root/Finish closure、replay hash 均为 100%。
 
 ## 9. Phase F3：Agent 声明的机械动作合并
@@ -156,9 +170,10 @@ SHA-256、message role/count 和相邻请求 LCP。
 在现有 `TaskSpaceContinuation` 和 sequence executor 上扩展，不增加第二个 carrier：
 
 - `initialize_map + continuation` 保持；
-- `mutate_graph + continuation`：图事务成功后执行 Agent 声明的普通动作；
-- `transition_node(bind/rework) + continuation`：状态提交成功后执行普通动作；
-- `transition_node(complete/block)` 只有后续存在已绑定可执行节点时才可携带动作，否则按硬状态拒绝；
+- `mutate_graph + continuation`：仅当已有 main binding 在图事务后仍有效时，执行 Agent 声明的普通动作；
+- `transition_node(bind) + continuation`：bind 成功建立 current node/lease 后执行普通动作；
+- `complete`、`block`、`unblock`、`rework` 不允许 continuation；Agent 可在同一 provider response 中显式声明
+  `complete -> bind -> ordinary actions` 等多个 sibling calls，现有 sequence barrier 按顺序执行；
 - `finish_end` 不允许 continuation，它本身就是唯一终点；
 - 每个 request 最多一个 patch，patch 必须位于唯一 patch slot；
 - sequence 首个失败后停止，未执行动作返回 typed skipped result。
@@ -171,6 +186,7 @@ Runtime 不补动作、不重排依赖、不判断动作是否“有意义”。
 - control call/result 的 call id、parent id、event ref 完整；
 - 单 request 多 patch 在执行前拒绝且无部分提交；
 - simple/complex request 不高于 F2 同样本中位数；若 Agent 未自然采用，只确认机制，不宣称 live 收益。
+- ChatCompletions `parallel_tool_calls` wire 暴露单独做 provider probe；未验证前不把它当作 DeepSeek 行为前提。
 
 ## 10. Phase F4：正式验证
 
@@ -201,7 +217,8 @@ Map closed = 100%
 terminal raw hash = replay hash = 100%
 active projection authoritative section = 1/request
 semantic rewrite count = 0
-tool schema/choice shape transition = 0
+tool schema transition = 0
+tool choice transition = 0 or evidence-backed HOLD when thinking/quality gate fails
 plain-final-open-map = 0
 partial commit = 0
 ```
@@ -260,3 +277,6 @@ fallback。实验项目不迁移旧数据。
 | 2026-07-16 | 不接受“schema 稳定但 named/auto 继续切换” | `tool_choice` 已被实跑证明属于 provider cache shape |
 | 2026-07-16 | `required` 必须先 live probe | transport 支持不等于 provider/model 行为已验证 |
 | 2026-07-16 | 每种策略独立验证与提交 | 防止收益和回归无法归因 |
+| 2026-07-16 | freshness 先于 `map_state` 删除 | marker 唯一不能证明 projection 是当前状态 |
+| 2026-07-16 | `required` 增加 thinking/质量门禁 | 当前 strict choice 会关闭 thinking，不能以成本换智能能力 |
+| 2026-07-16 | continuation 只进入 bind 和有效绑定下的 mutation | complete/block 会清除 lease，rework/unblock 不建立 binding |
