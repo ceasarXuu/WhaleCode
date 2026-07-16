@@ -189,6 +189,23 @@ fn invalid_arguments_return_one_typed_json_payload() {
     );
 }
 
+#[test]
+fn rejects_trailing_json_instead_of_executing_the_first_value() {
+    let valid = r#"{"action":"finish_end","expected_revision":3,"final_summary":"Done"}"#;
+    for arguments in [
+        format!("{valid}}}"),
+        format!(r#"{valid} {{"action":"finish_end"}}"#),
+    ] {
+        let value = invalid_payload(&arguments);
+        assert_eq!(value["status"], "protocol_failed");
+        assert_eq!(value["success"], false);
+        assert_eq!(value["state_commit"], false);
+        assert_eq!(value["partial_commit"], 0);
+        let message = value["error"]["message"].as_str().expect("message");
+        assert!(message.contains("trailing characters"), "{message}");
+    }
+}
+
 fn invalid_payload(arguments: &str) -> JsonValue {
     let error = parse_taskspace_control_args(arguments).expect_err("arguments should fail");
     let FunctionCallError::RespondToModel(payload) = error else {

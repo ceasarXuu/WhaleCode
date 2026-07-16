@@ -158,11 +158,15 @@ pub(super) fn parse(arguments: &str) -> Result<TaskSpaceControlArgs, FunctionCal
 
 fn deserialize_arguments<T: DeserializeOwned>(arguments: &str) -> Result<T, FunctionCallError> {
     let mut deserializer = serde_json::Deserializer::from_str(arguments);
-    serde_path_to_error::deserialize(&mut deserializer).map_err(|error| {
+    let parsed = serde_path_to_error::deserialize(&mut deserializer).map_err(|error| {
         invalid_error(format!(
             "invalid taskspace_control arguments at {}: {}",
             error.path(),
             error.inner()
         ))
-    })
+    })?;
+    deserializer.end().map_err(|error| {
+        invalid_error(format!("invalid taskspace_control arguments at .: {error}"))
+    })?;
+    Ok(parsed)
 }

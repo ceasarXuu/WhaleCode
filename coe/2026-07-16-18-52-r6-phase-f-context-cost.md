@@ -1,7 +1,7 @@
 # Problem P-001: R6 TaskSpace 上下文与缓存成本高于 Standard
 - Status: open
 - Created: 2026-07-16 18:52
-- Updated: 2026-07-16 22:25
+- Updated: 2026-07-16 23:30
 - Objective: 定位并消除不必要的请求重复、Map 状态重复和 provider cache shape 变化，同时保持语义透传与 R6 correctness。
 - Symptoms:
   - simple R6/Standard request=1.40x、input=1.52x、uncached=3.33x。
@@ -24,15 +24,16 @@
   - active projection 在 provider payload 中无限累加。
 - Fix criteria:
   - payload section 可独立计量；当前完整 Map provider-visible owner=1；schema/choice transition=0；correctness/terminal/replay=100%；每项修复有独立成本对比。
-- Current conclusion: H-001/H-002/H-003/H-004/H-005 均已确认；F1/F2/F3 已完成状态去重、稳定 schema
-  和 Agent 声明动作合并，F3.5 正在把错误的逐请求 current projection 替换为固定 epoch baseline + canonical
-  delta journal，以恢复 provider 严格前缀。
+- Current conclusion: H-001/H-002/H-003/H-004/H-005/H-006 均已确认；F1/F2/F3 已完成状态去重、稳定 schema
+  和 Agent 声明动作合并，F3.5 已用固定 epoch baseline + canonical delta journal 恢复 provider 严格前缀。
+  F4 发现 TaskSpace 参数解析没有验证 JSON 尾部，导致原始 malformed call 被静默执行，进入 H-006 修复。
 - Related hypotheses:
   - H-001
   - H-002
   - H-003
   - H-004
   - H-005
+  - H-006
 - Resolution basis:
   - not satisfied
 - Close reason:
@@ -242,6 +243,46 @@
   13.22%/13.27%，而 Standard 为 94.85%/92.34%。
 - Repair design readiness: ready
 - Next step: F3.5 固定 epoch baseline 锚点，后续只追加原始 canonical delta journal。
+- Blocker:
+  - none
+- Close reason:
+  - not closed
+
+## Hypothesis H-006: TaskSpace 参数解析未消费完整 JSON 文档
+- Status: confirmed
+- Parent: P-001
+- Claim: `taskspace_control` 的路径感知反序列化只读取第一个 JSON 值，没有检查 deserializer 尾部，因而会静默接受
+  多余字符；Event Store、sequence manifest、observer 与实际执行对同一原始 call 得出不同结论。
+- Layer: root-cause
+- Factor relation: part_of
+- Depends on:
+  - none
+- Rationale:
+  - F4 complex 第 3 轮同一 `call_id` 的原始参数严格解析报 unmatched `}`，但 control result 提交成功。
+- Falsifiable predictions:
+  - If true: `serde_path_to_error::deserialize` 可返回合法首值，而后续 `Deserializer::end()` 对同一字符串失败。
+  - If false: handler 实际收到经过变换的参数，或当前 parser 已验证完整输入。
+- Diagnostic evidence plan:
+  - Prediction or clause under test: 原始参数、handler parser 和严格 parser 的消费边界差异。
+  - Signal: 同一 call id 的 raw arguments、typed result、严格 parse 结果和 parser source。
+  - Capture method: F4 rollout call/result 对账、`jq fromjson` 探针、源码检查。
+  - Event name or marker:
+    - `taskspace.control_arguments_rejected`
+    - `TaskSpaceControlResultR6V1`
+  - Correlation keys:
+    - `call_00_9bv3ewDTFxfe08o33OV27518`
+  - Differentiates from:
+    - provider 流拼接修复、observer 合法参数误报、call/output 配对错误
+  - Supports if:
+    - raw arguments 严格解析失败，result 却成功，且 parser 未调用 `Deserializer::end()`。
+  - Refutes if:
+    - handler payload 与 Event Store raw arguments 不同，或 result 属于其他 call id。
+- Evidence gate: satisfied
+- Related evidence:
+  - E-010
+- Conclusion: confirmed；TaskSpace 路径感知 parser 未检查尾部，Standard 的普通 `from_str` 路径不受影响。
+- Repair design readiness: ready
+- Next step: repaired and verified；继续由 F4 报告保留 malformed control 计数，不做参数修复或重试。
 - Blocker:
   - none
 - Close reason:
@@ -466,3 +507,53 @@
   ```
 - Interpretation: 低缓存是 projection 位置造成的结构性前缀破坏，不应通过裁剪 projection 或增加 Agent 约束解决。
 - Time: 2026-07-16 22:25
+
+## Evidence E-010: F4 malformed control 被静默执行的 call/result 对账
+- Related hypotheses:
+  - H-006
+- Direction: supports
+- Type: runtime-trace
+- Source: F4 complex pair-003 TaskSpace rollout、严格 JSON 探针、control parser source
+- Prediction or plan link:
+  - H-006 diagnostic evidence plan
+- Matched signal:
+  - 原始 bind+patch 参数末尾多一个 `}`，严格解析失败；相同 call id 的 result 却为 committed revision 4。
+  - `deserialize_arguments` 调用 `serde_path_to_error::deserialize` 后直接返回，没有调用 `deserializer.end()`。
+- Correlation keys:
+  - run `target/r6-phase-f4/subscription-billing-repair/20260716-231537-674`
+  - call `call_00_9bv3ewDTFxfe08o33OV27518`
+- Raw content:
+  ```text
+  jq fromjson: Unmatched '}' at line 1, column 1726
+  call output: status=committed success=true committed_revision=4
+  source: taskspace_control_args_wire.rs deserialize_arguments() does not call Deserializer::end()
+  sequence/observer: strict parse -> unparseable/unknown
+  ```
+- Interpretation: Runtime 没有重写字段语义，但静默忽略了 malformed 尾部；这违反原始动作保真和确定性 replay，必须在 F4 收口。
+- Time: 2026-07-16 23:30
+
+## Evidence E-011: 完整 JSON 消费修复与复杂样本回归
+- Related hypotheses:
+  - H-006
+- Direction: supports
+- Type: fix-validation
+- Source: control args fixture、control/sequence 回归、复杂 TaskSpace-only Docker sample
+- Prediction or plan link:
+  - H-006 repair validation
+- Matched signal:
+  - 合法首值后追加 `}` 或第二个 JSON 值均返回 typed `protocol_failed`、`state_commit=false`、`partial_commit=0`。
+  - control 25/25、sequence 13/13、call identity 1/1 通过。
+  - 复杂 live 样本 solved，Map 闭合，无 orphan/parse error；该轮没有自然产生 malformed 参数，因此只作为无回归证据。
+- Correlation keys:
+  - run `target/r6-phase-f4-strict-parser/subscription-billing-repair/20260716-233221-635`
+- Raw content:
+  ```text
+  rejects_trailing_json_instead_of_executing_the_first_value: passed
+  taskspace_control: 25 passed
+  tools::sequence::tests: 13 passed
+  malformed_tool_arguments_preserve_call_identity_in_feedback: passed
+  live: solved, requests=14, nodes=5, edges=5, open=0, orphan=0, parse_errors=0
+  cache request2+=85.23%, prefix=11/13
+  ```
+- Interpretation: TaskSpace 与 Standard 都只接受一个完整 JSON 文档；Runtime 不再静默修复 Agent 尾部错误，反馈身份和零提交语义保持一致。
+- Time: 2026-07-16 23:35
