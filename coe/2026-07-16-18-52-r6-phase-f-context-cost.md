@@ -1,11 +1,13 @@
 # Problem P-001: R6 TaskSpace 上下文与缓存成本高于 Standard
 - Status: open
 - Created: 2026-07-16 18:52
-- Updated: 2026-07-16 23:30
+- Updated: 2026-07-17 16:30
 - Objective: 定位并消除不必要的请求重复、Map 状态重复和 provider cache shape 变化，同时保持语义透传与 R6 correctness。
 - Symptoms:
   - simple R6/Standard request=1.40x、input=1.52x、uncached=3.33x。
   - complex R6/Standard request=1.16x、input=1.35x、uncached=2.33x。
+  - Phase F final 相对 Phase E R6 baseline 继续回归：simple request/input/uncached 分别增加
+    53.6%/100.6%/218.1%，complex 增加 34.9%/61.1%/111.5%。
 - Expected behavior:
   - TaskSpace 只增加 canonical DAG 所必需的上下文，当前 Map 状态只有一个权威载体，机械协议不破坏稳定缓存前缀。
 - Actual behavior:
@@ -24,9 +26,11 @@
   - active projection 在 provider payload 中无限累加。
 - Fix criteria:
   - payload section 可独立计量；当前完整 Map provider-visible owner=1；schema/choice transition=0；correctness/terminal/replay=100%；每项修复有独立成本对比。
-- Current conclusion: H-001/H-002/H-003/H-004/H-005/H-006 均已确认并完成对应 Phase F 修复。F4 最终
-  complex 矩阵自然验证 malformed control 返回原 call id 的 typed protocol failure、零提交，Agent 后续恢复。
-  缓存结构性故障已收口；仍高于 Standard 的 request/input 成本进入 Phase G，不在 F 内语义裁剪。
+- Current conclusion: H-001/H-002/H-003/H-004/H-005/H-006 的局部机制已处理，但 Phase F 端到端成本目标
+  未达成，不能直接进入 Phase G。E-013 至 E-017 证明 F final 同时增加 provider request 和每 request 固定负载；
+  immutable lifecycle schema 在仍保留 named/auto/named choice break 时放大 terminal uncached input，完整 schema
+  还伴随 6/6 首次初始化生成非法 `finish.goal`。F3 的 bind continuation 被使用，但 complete -> bind 没有自然合并，
+  更细 Map 的生命周期继续逐请求推进。F3.5 只修复 F1 自引入的前缀断裂，不是 E 到 F 的净成本收益。
 - Related hypotheses:
   - H-001
   - H-002
@@ -34,6 +38,10 @@
   - H-004
   - H-005
   - H-006
+  - H-007
+  - H-008
+  - H-009
+  - H-010
 - Resolution basis:
   - not satisfied
 - Close reason:
@@ -581,3 +589,248 @@
   ```
 - Interpretation: 执行、Event Store、observer 和 Agent feedback 对 malformed action 的语义现已完全一致。
 - Time: 2026-07-16 23:45
+
+## Hypothesis H-007: Immutable lifecycle schema 在残留 choice break 下同时放大固定 input 与 terminal uncached input
+- Status: confirmed
+- Parent: P-001
+- Claim: F2/F3 将 bootstrap/work/terminal 的阶段化工具面替换为每 request 固定的完整 13-tool lifecycle schema；
+  但 DeepSeek thinking 模式不接受 generic `required` choice，named/auto/named 仍然存在。因此 schema 没有消除
+  cache break，反而让每个普通请求和最终 named request 都携带完整工具合同。
+- Layer: root-cause
+- Factor relation: part_of
+- Depends on:
+  - H-003
+- Falsifiable predictions:
+  - If true: F final tools section 每 request 大于 Phase E/F1 阶段化 tools 平均值；terminal choice break 的
+    uncached input 显著高于 Phase E。
+  - If false: 完整 schema 不增加 tools bytes，或 terminal 请求保持上一请求 cache prefix。
+- Diagnostic evidence plan:
+  - Signal: 各阶段 tools bytes/request、terminal tool choice、terminal uncached input。
+  - Capture method: F1/F4 section trace、E/F terminal provider cache trace、tool visibility diff。
+  - Differentiates from: natural history 增长和 projection 体积。
+- Evidence gate: satisfied
+- Related evidence:
+  - E-013
+  - E-014
+- Conclusion: confirmed；完整 schema 为 26,628 B/request，阶段化 bootstrap/work/terminal 分别为
+  15,999/20,513/3,541 B。terminal 仍发生 choice break，F simple/complex terminal uncached 总量分别比 E
+  增加 144.5%/68.1%。
+- Repair design readiness: ready
+- Next step: 在不恢复 Runtime 语义决策的前提下，对工具合同形态做受控消融。
+- Blocker:
+  - none
+- Close reason:
+  - not closed
+
+## Hypothesis H-008: 合并后的完整 control schema 降低 bootstrap 合同显著性并制造稳定初始化重试
+- Status: investigating
+- Parent: P-001
+- Claim: F2 将 bootstrap-only control 描述与 schema 合并进七类 lifecycle `anyOf`，同时把顶层描述从明确的
+  `node_id-only Finish identity` 改为通用 lifecycle 描述；DeepSeek 在 `strict=false` 下稳定给 Finish 添加 goal，
+  每次失败都产生下一次 provider request。
+- Layer: root-cause
+- Factor relation: part_of
+- Depends on:
+  - none
+- Falsifiable predictions:
+  - If true: E 阶段化 bootstrap 的首次初始化非法 `finish.goal` 接近 0，而 F final 在相同两个 sample 中稳定发生；
+    只恢复 bootstrap schema 显著性后该错误应下降。
+  - If false: E 同样稳定生成 `finish.goal`，或 F 错误来自 projection/history 中的旧错误示例。
+- Diagnostic evidence plan:
+  - Signal: 首次 initialize 参数、错误路径、bootstrap tool description/schema shape。
+  - Capture method: E/F 各六次 rollout 对账与提交 diff；最终因果门需要同版本 schema A/B probe。
+  - Differentiates from: Agent 对 Root/Finish 产品概念本身不理解。
+- Evidence gate: partial
+- Related evidence:
+  - E-015
+- Conclusion: 强支持但尚缺同版本 A/B。Phase E 6/6 首次初始化合法；F final 6/6 首次初始化均携带非法
+  `finish.goal`，simple 总计 5 次多余初始化、complex 3 次。提交窗口同时发生 bootstrap schema 合并和描述弱化。
+- Repair design readiness: not_ready
+- Next step: 先做只切换 bootstrap/full schema 的同版本 Docker A/B，不改 Runtime 行为。
+- Blocker:
+  - none
+- Close reason:
+  - not closed
+
+## Hypothesis H-009: F3 没有承载 complete -> bind 边界，细粒度 Map 继续逐请求推进
+- Status: confirmed
+- Parent: P-001
+- Claim: F3 只允许 initialize/bind/mutate 携带 continuation，明确禁止 complete continuation，并把
+  `complete -> bind -> action` 寄托于同一 provider response 的 sibling calls；正式运行中 Agent 没有生成任何
+  multi-control response，因此每个 Work 边界仍需要额外 provider request。
+- Layer: root-cause
+- Factor relation: part_of
+- Depends on:
+  - none
+- Falsifiable predictions:
+  - If true: bind continuation 被采用，但 multi-control carrier 为 0，且每 run 存在多个无 follow-up 的
+    nonterminal transition。
+  - If false: complete 与下一 bind 在同一 response 中稳定出现，或 transition 不形成独立请求。
+- Diagnostic evidence plan:
+  - Signal: bind continuation、multi-control carrier、nonterminal transition without follow-up、Map Work 数。
+  - Capture method: F4 performance observation 与原始 rollout cadence。
+  - Differentiates from: control reject 产生的重试。
+- Evidence gate: satisfied
+- Related evidence:
+  - E-016
+- Conclusion: confirmed；6 个 F4 run 均使用 bind continuation，但 multi-control carrier 全为 0，每 run 仍有
+  3-4 个 nonterminal transition 没有 sibling follow-up。F final 每张 Map 固定 3 个 Work，E 为 1-2 个 Work；
+  额外 Work 本身未证明不合理，但现有 carrier 让它的机械状态迁移直接转化为 request 成本。
+- Repair design readiness: ready
+- Next step: 后续设计必须聚焦 control tool carrier，不通过 Runtime 合并或删减 Agent 规划的节点。
+- Blocker:
+  - none
+- Close reason:
+  - not closed
+
+## Hypothesis H-010: Phase F 验收合同允许局部机制完成但端到端成本回归
+- Status: confirmed
+- Parent: P-001
+- Claim: F0-F4 的退出门分别验证 section 观测、反馈去重、schema hash、continuation 能力和 prefix 恢复，
+  但没有要求 final request/input/weighted input 不劣于 Phase E；F3 还允许“Agent 未采用时只确认机制”，F4 明确
+  性能只报告不设收益门。因此局部结果可以全部 PASS，同时总体成本翻倍。
+- Layer: process-root-cause
+- Factor relation: enables
+- Depends on:
+  - none
+- Falsifiable predictions:
+  - If true: 计划门禁不存在 E->F 端到端成本阈值，最终报告仍能在成本显著回归时写成 6/6 complete。
+  - If false: 任一正式 gate 会因 F final 成本高于 E 而阻止 Phase F 完成。
+- Diagnostic evidence plan:
+  - Signal: Phase F 计划与结果的总退出门和状态。
+  - Capture method: 文档合同审计。
+- Evidence gate: satisfied
+- Related evidence:
+  - E-017
+- Conclusion: confirmed；这是回归被接受的流程根因，不是 provider token 增长的运行时机制。
+- Repair design readiness: ready
+- Next step: 重开 Phase F 时增加 E baseline 的 end-to-end outcome gate。
+- Blocker:
+  - none
+- Close reason:
+  - not closed
+
+## Evidence E-013: E 到 F 的 request 数与平均 request 负载双重分解
+- Related hypotheses:
+  - H-007
+  - H-009
+- Direction: supports
+- Type: diagnostic-log
+- Source: Phase E E6 与 Phase F4 performance observation
+- Prediction or plan link:
+  - E->F regression attribution
+- Matched signal:
+  - simple/complex 都同时增加 request count 和平均 input/request，不是单一 outlier 或单一 cache 指标。
+- Raw content:
+  ```text
+  simple E: req=28 input=213502 avg=7625.1
+  simple F: req=43 input=428351 avg=9961.7
+  delta=214849; request-count effect=114376 (53.2%); per-request effect=100473 (46.8%)
+
+  complex E: req=43 input=536250 avg=12470.9
+  complex F: req=58 input=863940 avg=14895.5
+  delta=327690; request-count effect=187064 (57.1%); per-request effect=140626 (42.9%)
+  ```
+- Interpretation: 根因必须同时解释约 55% 的请求数量效应和约 45% 的单请求负载效应。
+- Time: 2026-07-17 16:10
+
+## Evidence E-014: 阶段化工具面与完整 lifecycle schema 的 wire 体积和 terminal break
+- Related hypotheses:
+  - H-007
+- Direction: supports
+- Type: runtime-trace
+- Source: F1/F3/F4 provider section trace 与 E/F terminal provider cache trace
+- Prediction or plan link:
+  - H-007 diagnostic evidence plan
+- Matched signal:
+  - F1 阶段化工具面按状态缩小；F3 后完整 schema 固定为 26,628 B，tool choice 仍在 terminal 变回 named。
+- Raw content:
+  ```text
+  phase-scoped tools: bootstrap=15999 B, work=20513 B, terminal=3541 B
+  F2 deduplicated lifecycle schema=24449 B/request
+  F3/F4 lifecycle + continuation schema=26628 B/request
+  Standard tools=21669 B/request
+
+  terminal uncached simple E=11262, F=27532 (+144.5%)
+  terminal uncached complex E=26398, F=44368 (+68.1%)
+  F terminal tools section=26628 B and cached_input=0 in all six runs
+  ```
+- Interpretation: immutable schema 只稳定了 tools hash，没有稳定 tool choice；在 terminal break 上携带完整 schema
+  明确放大未缓存输入。F3 continuation 又在 F2 去重后增加 2,179 B/request。
+- Time: 2026-07-17 16:15
+
+## Evidence E-015: E/F 首次初始化参数与重试对账
+- Related hypotheses:
+  - H-008
+- Direction: supports
+- Type: runtime-trace
+- Source: Phase E E6 与 Phase F4 simple/complex 各三次 rollout
+- Prediction or plan link:
+  - H-008 diagnostic evidence plan
+- Matched signal:
+  - E 六次首次 initialize 均合法；F 六次第一次都生成禁止的 `finish.goal`。
+- Raw content:
+  ```text
+  Phase E initialize_map attempts: 1/1/1 simple, 1/1/1 complex
+  Phase F initialize_map attempts: 2/2/4 simple, 2/2/2 complex
+  F first-attempt finish.goal violations: 6/6
+  additional F initialization requests: simple=5, complex=3
+  one simple run additionally over-corrected by deleting required root.goal
+  ```
+- Interpretation: 初始化重试是稳定回归，不是 F4 pair-002 单一 outlier。当前证据将回归窗口收敛到完整 schema/描述
+  切换，但在 repair 前仍需同版本 A/B 隔离模型随机性。
+- Time: 2026-07-17 16:20
+
+## Evidence E-016: Map 粒度、control cadence 与未发生的 sibling batching
+- Related hypotheses:
+  - H-009
+- Direction: supports
+- Type: runtime-trace
+- Source: Phase E/F performance observation 与 F4 rollout cadence
+- Prediction or plan link:
+  - H-009 diagnostic evidence plan
+- Matched signal:
+  - F final Map 的 Work 数和 control 数稳定高于 E；F3 continuation 只合并 bind 与 ordinary action，未合并节点边界。
+- Raw content:
+  ```text
+  Phase E nodes simple=4/4/3, complex=4/4/4
+  Phase F nodes simple=5/5/5, complex=5/5/5
+  Phase E control total simple=14, complex=17
+  Phase F control total simple=30, complex=26
+  F bind continuation: naturally adopted in every run
+  F multi_control_carrier_responses=0/6 runs
+  F nonterminal_transitions_without_follow_up=3/4/4 simple, 3/4/3 complex
+  ```
+- Interpretation: 三 Work 的 Map 对用户任务并非明显错误，不能通过 Runtime 强迫合并；问题是现有 tool carrier 没有
+  把相邻机械状态迁移承载在同一 Agent 声明中。
+- Time: 2026-07-17 16:25
+
+## Evidence E-017: 最终 section 构成与排除项
+- Related hypotheses:
+  - H-007
+  - H-009
+  - H-010
+- Direction: supports
+- Type: diagnostic-log
+- Source: F4 section report、projection identity trace、Phase F plan/result
+- Prediction or plan link:
+  - final payload attribution and gate audit
+- Matched signal:
+  - tools 是最大固定段；自然历史和普通工具反馈随新增请求增长。active projection 只占 2-3%，epoch hash/expected
+    identity 属于诊断日志，不进入 provider prompt。
+- Raw content:
+  ```text
+  F simple estimated section tokens:
+    tools=286251, natural_history=82920, ordinary_feedback=49792,
+    control_feedback=23921, projection=10855, system=7740
+  F complex:
+    tools=386106, natural_history=226748, ordinary_feedback=196203,
+    control_feedback=33869, projection=19660, system=10440
+
+  projection count=1/request; semantic replacement=0
+  F3.5 fixed F1 prefix 0% to final 85.00%/89.09%
+  Phase F final gate: performance only reports observed values
+  ```
+- Interpretation: F1 的 map_state 去重是净收益，F3.5 epoch 是必要的自回归修复；二者不是 final 成本主因。
+  不能把诊断 identity 字段误算为 provider-visible input，也没有证据支持通过语义裁剪解决当前回归。
+- Time: 2026-07-17 16:30
