@@ -2,12 +2,8 @@ use codex_protocol::models::FunctionCallOutputPayload;
 use codex_protocol::models::ResponseInputItem;
 use serde_json::Value as JsonValue;
 
-use crate::action_map::ActionMapEdgeInput;
 use crate::action_map::ActionMapGraphMutationInput;
-use crate::action_map::ActionMapInitializeFinishInput;
 use crate::action_map::ActionMapInitializeInput;
-use crate::action_map::ActionMapInitializeNodeInput;
-use crate::action_map::NodeTransition;
 use crate::function_tool::FunctionCallError;
 use crate::session::FinishActionMapError;
 use crate::tools::context::TaskSpaceTerminalCarrier;
@@ -15,10 +11,6 @@ use crate::tools::context::ToolInvocation;
 use crate::tools::context::ToolOutput;
 use crate::tools::context::ToolPayload;
 use crate::tools::handlers::taskspace_control_args::TaskSpaceControlArgs;
-use crate::tools::handlers::taskspace_control_args::TaskSpaceFinishNodeArgs;
-use crate::tools::handlers::taskspace_control_args::TaskSpaceGraphEdgeArgs;
-use crate::tools::handlers::taskspace_control_args::TaskSpaceGraphNodeArgs;
-use crate::tools::handlers::taskspace_control_args::TaskSpaceNodeTransition;
 use crate::tools::handlers::taskspace_control_args::parse_taskspace_control_args;
 use crate::tools::handlers::taskspace_control_output::control_commit_observation;
 use crate::tools::handlers::taskspace_control_output::format_initialize_step;
@@ -35,6 +27,14 @@ use crate::tools::output_reference::OutputSliceRequest;
 use crate::tools::output_reference::read_output_artifact_slice;
 use crate::tools::registry::ToolHandler;
 use crate::tools::registry::ToolKind;
+
+#[path = "taskspace_control_mapping.rs"]
+mod mapping;
+use mapping::control_state_has_active_binding;
+use mapping::map_edge_input;
+use mapping::map_finish_input;
+use mapping::map_node_input;
+use mapping::map_transition;
 
 pub struct TaskSpaceControlHandler;
 
@@ -166,38 +166,68 @@ impl ToolHandler for TaskSpaceControlHandler {
                 add_nodes,
                 add_edges,
                 remove_edges,
-            } => match session
-                .mutate_action_map_graph(
-                    &turn,
-                    ActionMapGraphMutationInput {
+                continuation,
+            } => {
+                let continuation_binding_valid = if continuation.is_some() {
+                    control_state_has_active_binding(
+                        session.action_map_control_state(None).await.as_ref(),
+                    )
+                } else {
+                    true
+                };
+                if !continuation_binding_valid {
+                    tracing::warn!(
+                        target: "codex_core::taskspace",
+                        call_id,
                         expected_revision,
-                        add_nodes: add_nodes.into_iter().map(map_node_input).collect(),
-                        add_edges: add_edges.into_iter().map(map_edge_input).collect(),
-                        remove_edges: remove_edges.into_iter().map(map_edge_input).collect(),
-                    },
-                )
-                .await
-            {
-                Ok(outcome) => (
-                    format_state_batch(
-                        vec![serde_json::json!({
-                            "kind": "graph_mutation",
-                            "map_id": outcome.map_id,
-                            "revision": outcome.revision,
-                        })],
-                        true,
-                        true,
-                        &[&outcome.delta],
-                    ),
-                    true,
-                    None,
-                ),
-                Err(error) => (rejected_control_result(&error), false, None),
-            },
+                        "taskspace.graph_mutation_continuation_rejected_without_binding"
+                    );
+                    (
+                        rejected_control_result(
+                            "TaskSpace mutate_graph continuation requires an existing current node binding and lease. hard_state: no_current_node_binding.",
+                        ),
+                        false,
+                        None,
+                    )
+                } else {
+                    match session
+                        .mutate_action_map_graph(
+                            &turn,
+                            ActionMapGraphMutationInput {
+                                expected_revision,
+                                add_nodes: add_nodes.into_iter().map(map_node_input).collect(),
+                                add_edges: add_edges.into_iter().map(map_edge_input).collect(),
+                                remove_edges: remove_edges
+                                    .into_iter()
+                                    .map(map_edge_input)
+                                    .collect(),
+                            },
+                        )
+                        .await
+                    {
+                        Ok(outcome) => (
+                            format_state_batch(
+                                vec![serde_json::json!({
+                                    "kind": "graph_mutation",
+                                    "map_id": outcome.map_id,
+                                    "revision": outcome.revision,
+                                })],
+                                true,
+                                true,
+                                &[&outcome.delta],
+                            ),
+                            true,
+                            None,
+                        ),
+                        Err(error) => (rejected_control_result(&error), false, None),
+                    }
+                }
+            }
             TaskSpaceControlArgs::TransitionNode {
                 expected_revision,
                 node_id,
                 transition,
+                continuation: _,
             } => {
                 let source_event_ref = session
                     .taskspace_event_id_for_call(&call_id)
@@ -400,31 +430,6 @@ impl ToolHandler for TaskSpaceControlHandler {
             success,
             terminal_carrier,
         })
-    }
-}
-
-fn map_node_input(node: TaskSpaceGraphNodeArgs) -> ActionMapInitializeNodeInput {
-    ActionMapInitializeNodeInput {
-        id: node.node_id,
-        goal: node.goal,
-    }
-}
-fn map_finish_input(node: TaskSpaceFinishNodeArgs) -> ActionMapInitializeFinishInput {
-    ActionMapInitializeFinishInput { id: node.node_id }
-}
-fn map_edge_input(edge: TaskSpaceGraphEdgeArgs) -> ActionMapEdgeInput {
-    ActionMapEdgeInput {
-        from: edge.from,
-        to: edge.to,
-    }
-}
-fn map_transition(transition: TaskSpaceNodeTransition) -> NodeTransition {
-    match transition {
-        TaskSpaceNodeTransition::Bind => NodeTransition::Bind,
-        TaskSpaceNodeTransition::Complete => NodeTransition::Complete,
-        TaskSpaceNodeTransition::Block => NodeTransition::Block,
-        TaskSpaceNodeTransition::Unblock => NodeTransition::Unblock,
-        TaskSpaceNodeTransition::Rework => NodeTransition::Rework,
     }
 }
 

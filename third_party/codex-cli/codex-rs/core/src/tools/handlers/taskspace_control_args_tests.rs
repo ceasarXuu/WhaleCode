@@ -86,14 +86,16 @@ fn reports_array_index_when_additional_work_goal_is_missing() {
 
 #[test]
 fn accepts_r6_active_actions() {
-    parse_taskspace_control_args(
-        r#"{"action":"mutate_graph","expected_revision":1,"add_nodes":[{"node_id":"new","goal":"New"}],"add_edges":[],"remove_edges":[]}"#,
+    let mutation = parse_taskspace_control_args(
+        r#"{"action":"mutate_graph","expected_revision":1,"add_nodes":[{"node_id":"new","goal":"New"}],"add_edges":[],"remove_edges":[],"continuation":{"kind":"actions","actions":[{"tool_name":"exec_command","arguments":{"cmd":"pwd"}}]}}"#,
     )
     .expect("valid graph mutation");
-    parse_taskspace_control_args(
-        r#"{"action":"transition_node","expected_revision":2,"node_id":"new","transition":"bind"}"#,
+    assert_eq!(mutation.nested_actions().len(), 1);
+    let bind = parse_taskspace_control_args(
+        r#"{"action":"transition_node","expected_revision":2,"node_id":"new","transition":"bind","continuation":{"kind":"actions","actions":[{"tool_name":"exec_command","arguments":{"cmd":"pwd"}}]}}"#,
     )
     .expect("valid transition");
+    assert_eq!(bind.nested_actions().len(), 1);
     parse_taskspace_control_args(
         r#"{"action":"transition_node","expected_revision":3,"node_id":"new","transition":"rework"}"#,
     )
@@ -102,6 +104,18 @@ fn accepts_r6_active_actions() {
         r#"{"action":"finish_end","expected_revision":4,"final_summary":"Done"}"#,
     )
     .expect("valid finish");
+}
+
+#[test]
+fn continuation_is_required_for_bind_and_forbidden_for_other_transitions() {
+    assert!(parse_taskspace_control_args(
+        r#"{"action":"transition_node","expected_revision":2,"node_id":"new","transition":"bind"}"#,
+    )
+    .is_err());
+    assert!(parse_taskspace_control_args(
+        r#"{"action":"transition_node","expected_revision":2,"node_id":"new","transition":"complete","continuation":{"kind":"actions","actions":[{"tool_name":"exec_command","arguments":{"cmd":"pwd"}}]}}"#,
+    )
+    .is_err());
 }
 
 #[test]
@@ -136,7 +150,7 @@ fn validates_non_empty_and_duplicate_ids_and_edges() {
     .is_err());
     assert!(
         parse_taskspace_control_args(
-            r#"{"action":"transition_node","expected_revision":2,"node_id":"","transition":"bind"}"#
+            r#"{"action":"transition_node","expected_revision":2,"node_id":"","transition":"bind","continuation":{"kind":"actions","actions":[{"tool_name":"exec_command","arguments":{"cmd":"pwd"}}]}}"#
         )
         .is_err()
     );

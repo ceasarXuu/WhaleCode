@@ -47,6 +47,8 @@ struct MutateGraphArgs {
     add_nodes: Vec<TaskSpaceGraphNodeArgs>,
     add_edges: Vec<TaskSpaceGraphEdgeArgs>,
     remove_edges: Vec<TaskSpaceGraphEdgeArgs>,
+    #[serde(default)]
+    continuation: Option<TaskSpaceContinuation>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -57,6 +59,8 @@ struct TransitionNodeArgs {
     expected_revision: u64,
     node_id: String,
     transition: TaskSpaceNodeTransition,
+    #[serde(default)]
+    continuation: Option<TaskSpaceContinuation>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -113,6 +117,7 @@ pub(super) fn parse(arguments: &str) -> Result<TaskSpaceControlArgs, FunctionCal
                 add_nodes: parsed.add_nodes,
                 add_edges: parsed.add_edges,
                 remove_edges: parsed.remove_edges,
+                continuation: parsed.continuation,
             })
         }
         Action::TransitionNode => {
@@ -121,6 +126,7 @@ pub(super) fn parse(arguments: &str) -> Result<TaskSpaceControlArgs, FunctionCal
                 expected_revision: parsed.expected_revision,
                 node_id: parsed.node_id,
                 transition: parsed.transition,
+                continuation: parsed.continuation,
             })
         }
         Action::FinishEnd => {

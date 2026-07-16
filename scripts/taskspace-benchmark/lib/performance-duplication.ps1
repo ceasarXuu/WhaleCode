@@ -108,11 +108,10 @@ function Get-PerformanceCrossCarrierLineage {
         return [pscustomobject]@{
             availability = "unavailable"; unknown_count = $null
             final_candidate_count = $null; final_candidate_assistant_exact_equal_count = $null; final_candidate_assistant_exact_equal_bytes = $null
-            initialize_outer_action_count = $null; expanded_nested_call_count = $null; expanded_nested_call_exact_json_match_count = $null
+            control_continuation_action_count = $null; expanded_nested_call_count = $null; expanded_nested_call_exact_json_match_count = $null
             control_output_step_count = $null; control_output_init_node_id_echo_count = $null; control_output_init_current_node_id_echo_count = $null
             control_output_finished_node_id_echo_count = $null; control_output_next_node_echo_count = $null; control_output_current_node_echo_count = $null
             control_success_count = $null; control_identity_step_count = $null; control_identity_missing_count = $null
-            committed_repeat_finish_count = $null; terminal_finish_chain_duplicate_count = $null
             control_delta_present_count = $null; control_delta_missing_count = $null; control_graph_event_ref_count = $null; control_node_detail_event_ref_count = $null
             terminal_failure_nonzero_commit_count = $null
             stale_blank_developer_marker_count = $null; stale_mode_developer_marker_count = $null
@@ -126,9 +125,8 @@ function Get-PerformanceCrossCarrierLineage {
     $controlCalls = @{}
     $stepCount = 0; $initNodeEcho = 0; $initCurrentEcho = 0
     $finishedNodeEcho = 0; $nextNodeEcho = 0; $currentNodeEcho = 0
-    $controlSuccess = 0; $identitySteps = 0; $identityMissing = 0; $repeatFinish = 0; $terminalChainDuplicates = 0
+    $controlSuccess = 0; $identitySteps = 0; $identityMissing = 0
     $deltaPresent = 0; $deltaMissing = 0; $graphEventRefCount = 0; $nodeDetailEventRefCount = 0; $terminalFailureNonzeroCommit = 0
-    $committedFinishedNodeIds = [System.Collections.Generic.HashSet[string]]::new()
     $blankDeveloper = 0; $modeDeveloper = 0
     $index = 0
     foreach ($line in [System.IO.File]::ReadLines($Path)) {
@@ -170,25 +168,11 @@ function Get-PerformanceCrossCarrierLineage {
                 if ($name -eq "taskspace_control" -and $null -ne $args) {
                     $controlCalls[$callId] = $args
                     $action = [string](Get-PerformanceProperty $args "action")
-                    if ($action -in @("finish_nodes", "finish_then_end")) {
-                        foreach ($finish in @((Get-PerformanceProperty $args "finishes" @()))) {
-                            $target = [string](Get-PerformanceProperty $finish "node_id")
-                            if (-not [string]::IsNullOrWhiteSpace($target) -and $committedFinishedNodeIds.Contains($target)) { $repeatFinish++ }
-                        }
-                        $chainIds = @((Get-PerformanceProperty $args "finish_node_ids" @()))
-                        $seenChainIds = [System.Collections.Generic.HashSet[string]]::new()
-                        foreach ($chainNodeId in $chainIds) {
-                            $target = [string]$chainNodeId
-                            if ([string]::IsNullOrWhiteSpace($target)) { continue }
-                            if (-not $seenChainIds.Add($target)) { $terminalChainDuplicates++ }
-                            if ($committedFinishedNodeIds.Contains($target)) { $repeatFinish++ }
-                        }
-                    }
-                    if ($action -eq "finish_then_end") {
-                        $candidate = Get-PerformanceProperty $args "final_candidate"
+                    if ($action -eq "finish_end") {
+                        $candidate = Get-PerformanceProperty $args "final_summary"
                         if ($null -ne $candidate) { $finalCandidates.Add([pscustomobject]@{ index = $index; text = [string]$candidate }) }
                     }
-                    if ($action -eq "initialize_then_actions" -and -not [string]::IsNullOrWhiteSpace($callId)) {
+                    if ($null -ne (Get-PerformanceProperty $args "continuation") -and -not [string]::IsNullOrWhiteSpace($callId)) {
                         $outerActionsByCall[$callId] = @(Get-PerformanceDeclaredNestedActions $args)
                     }
                 } elseif (-not [string]::IsNullOrWhiteSpace($parentCallId) -and $outerActionsByCall.ContainsKey($parentCallId)) {
@@ -216,7 +200,7 @@ function Get-PerformanceCrossCarrierLineage {
                     $action = [string](Get-PerformanceProperty $controlCalls[$callId] "action")
                     $success = [bool](Get-PerformanceProperty $outputObject "success" $false)
                     $stateCommit = [bool](Get-PerformanceProperty $outputObject "state_commit" $false)
-                    if ($action -eq "finish_then_end" -and -not $success -and $stateCommit) {
+                    if ($action -eq "finish_end" -and -not $success -and $stateCommit) {
                         $terminalFailureNonzeroCommit++
                     }
                 }
@@ -252,9 +236,6 @@ function Get-PerformanceCrossCarrierLineage {
                         }
                         if (-not $complete) { $identityMissing++ }
                     }
-                    if (-not [string]::IsNullOrWhiteSpace($finishedNodeId) -and -not ([bool](Get-PerformanceProperty $step "success" $true) -eq $false)) {
-                        [void]$committedFinishedNodeIds.Add($finishedNodeId)
-                    }
                 }
             } catch {
                 if ($output -is [string] -and -not ([string]$output).TrimStart().StartsWith("{") -and -not ([string]$output).TrimStart().StartsWith("[")) { continue }
@@ -281,7 +262,7 @@ function Get-PerformanceCrossCarrierLineage {
         final_candidate_count = $finalCandidates.Count
         final_candidate_assistant_exact_equal_count = $finalMatches
         final_candidate_assistant_exact_equal_bytes = $finalBytes
-        initialize_outer_action_count = [int](@($outerActionsByCall.Values | ForEach-Object { @($_).Count } | Measure-Object -Sum).Sum)
+        control_continuation_action_count = [int](@($outerActionsByCall.Values | ForEach-Object { @($_).Count } | Measure-Object -Sum).Sum)
         expanded_nested_call_count = $expandedNested
         expanded_nested_call_exact_json_match_count = $expandedMatches
         control_output_step_count = $stepCount
@@ -293,8 +274,6 @@ function Get-PerformanceCrossCarrierLineage {
         control_success_count = $controlSuccess
         control_identity_step_count = $identitySteps
         control_identity_missing_count = $identityMissing
-        committed_repeat_finish_count = $repeatFinish
-        terminal_finish_chain_duplicate_count = $terminalChainDuplicates
         control_delta_present_count = $deltaPresent
         control_delta_missing_count = $deltaMissing
         control_graph_event_ref_count = $graphEventRefCount
@@ -457,11 +436,11 @@ function Add-PerformanceDuplicationMarkdown {
     $Lines.Add("")
     $Lines.Add("## Cross carrier lineage")
     $Lines.Add("")
-    $Lines.Add("| Repeat | Mode | Availability | Unknown | Final candidates | Final exact | Init actions | Nested exact | Control success | Identity steps | Identity missing | Repeat finish | Chain duplicate | Delta | Delta missing | Graph event refs | Detail event refs | Terminal bad commit | Init IDs | Finished IDs | Next IDs | Current IDs |")
-    $Lines.Add("|---:|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
+    $Lines.Add("| Repeat | Mode | Availability | Unknown | Final candidates | Final exact | Continuation actions | Nested exact | Control success | Identity steps | Identity missing | Delta | Delta missing | Graph event refs | Detail event refs | Terminal bad commit | Init IDs | Finished IDs | Next IDs | Current IDs |")
+    $Lines.Add("|---:|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
     foreach ($row in $Rows) {
         $lineage = $row.duplication.cross_carrier_lineage
-        $Lines.Add("| $(Format-PerformanceValue $row.repeat) | $($row.logical_mode) | $(Format-PerformanceValue $lineage.availability) | $(Format-PerformanceValue $lineage.unknown_count) | $(Format-PerformanceValue $lineage.final_candidate_count) | $(Format-PerformanceValue $lineage.final_candidate_assistant_exact_equal_count) | $(Format-PerformanceValue $lineage.initialize_outer_action_count) | $(Format-PerformanceValue $lineage.expanded_nested_call_exact_json_match_count) | $(Format-PerformanceValue $lineage.control_success_count) | $(Format-PerformanceValue $lineage.control_identity_step_count) | $(Format-PerformanceValue $lineage.control_identity_missing_count) | $(Format-PerformanceValue $lineage.committed_repeat_finish_count) | $(Format-PerformanceValue $lineage.terminal_finish_chain_duplicate_count) | $(Format-PerformanceValue $lineage.control_delta_present_count) | $(Format-PerformanceValue $lineage.control_delta_missing_count) | $(Format-PerformanceValue $lineage.control_graph_event_ref_count) | $(Format-PerformanceValue $lineage.control_node_detail_event_ref_count) | $(Format-PerformanceValue $lineage.terminal_failure_nonzero_commit_count) | $(Format-PerformanceValue $lineage.control_output_init_node_id_echo_count) | $(Format-PerformanceValue $lineage.control_output_finished_node_id_echo_count) | $(Format-PerformanceValue $lineage.control_output_next_node_echo_count) | $(Format-PerformanceValue $lineage.control_output_current_node_echo_count) |")
+        $Lines.Add("| $(Format-PerformanceValue $row.repeat) | $($row.logical_mode) | $(Format-PerformanceValue $lineage.availability) | $(Format-PerformanceValue $lineage.unknown_count) | $(Format-PerformanceValue $lineage.final_candidate_count) | $(Format-PerformanceValue $lineage.final_candidate_assistant_exact_equal_count) | $(Format-PerformanceValue $lineage.control_continuation_action_count) | $(Format-PerformanceValue $lineage.expanded_nested_call_exact_json_match_count) | $(Format-PerformanceValue $lineage.control_success_count) | $(Format-PerformanceValue $lineage.control_identity_step_count) | $(Format-PerformanceValue $lineage.control_identity_missing_count) | $(Format-PerformanceValue $lineage.control_delta_present_count) | $(Format-PerformanceValue $lineage.control_delta_missing_count) | $(Format-PerformanceValue $lineage.control_graph_event_ref_count) | $(Format-PerformanceValue $lineage.control_node_detail_event_ref_count) | $(Format-PerformanceValue $lineage.terminal_failure_nonzero_commit_count) | $(Format-PerformanceValue $lineage.control_output_init_node_id_echo_count) | $(Format-PerformanceValue $lineage.control_output_finished_node_id_echo_count) | $(Format-PerformanceValue $lineage.control_output_next_node_echo_count) | $(Format-PerformanceValue $lineage.control_output_current_node_echo_count) |")
     }
     $Lines.Add("")
     $Lines.Add("## Rollout storage")

@@ -1,5 +1,6 @@
 use super::*;
 use crate::action_map::ActionMapControlDelta;
+use crate::action_map::ActionMapControlState;
 use crate::action_map::ActionMapInitializeOutcome;
 use crate::tools::handlers::taskspace_control_args::TASKSPACE_CONTROL_RESULT_SCHEMA_VERSION;
 use crate::tools::handlers::taskspace_control_output::*;
@@ -12,6 +13,48 @@ fn control_delta() -> ActionMapControlDelta {
         graph_revision_batches: Vec::new(),
         node_detail_events: Vec::new(),
     }
+}
+
+fn control_state(
+    current_node_id: Option<&str>,
+    running_work_node_ids: &[&str],
+) -> ActionMapControlState {
+    ActionMapControlState {
+        task_id: "task-1".into(),
+        map_id: "map-1".into(),
+        revision: 3,
+        root_node_id: "root".into(),
+        finish_node_id: "finish".into(),
+        complete: false,
+        current_node_id: current_node_id.map(str::to_string),
+        pending_work_node_ids: Vec::new(),
+        ready_work_node_ids: Vec::new(),
+        running_work_node_ids: running_work_node_ids
+            .iter()
+            .map(|node_id| (*node_id).to_string())
+            .collect(),
+        blocked_work_node_ids: Vec::new(),
+        finish_ready: false,
+        completed_work_node_count: 0,
+        total_node_count: 3,
+    }
+}
+
+#[test]
+fn mutation_continuation_requires_the_current_running_binding() {
+    assert!(!control_state_has_active_binding(None));
+    assert!(!control_state_has_active_binding(Some(&control_state(
+        None,
+        &["work"]
+    ))));
+    assert!(!control_state_has_active_binding(Some(&control_state(
+        Some("work"),
+        &["other"]
+    ))));
+    assert!(control_state_has_active_binding(Some(&control_state(
+        Some("work"),
+        &["work"]
+    ))));
 }
 
 #[test]

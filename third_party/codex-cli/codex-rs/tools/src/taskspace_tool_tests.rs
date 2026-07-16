@@ -20,6 +20,7 @@ fn lifecycle_schema_includes_initialization_with_required_continuation() {
             "initialize_map",
             "mutate_graph",
             "transition_node",
+            "transition_node",
             "finish_end",
             "expand_nodes",
             "read_output_ref"
@@ -142,24 +143,45 @@ fn lifecycle_schema_exposes_active_actions_without_continuation_fields() {
     assert!(!actions.contains(&"create_node"));
     assert!(!actions.contains(&"finish_nodes"));
     assert!(!actions.contains(&"finish_then_end"));
+    let bind = value["parameters"]["anyOf"]
+        .as_array()
+        .expect("variants")
+        .iter()
+        .find(|variant| {
+            variant["properties"]["action"]["enum"][0] == json!("transition_node")
+                && variant["properties"]["transition"]["enum"] == json!(["bind"])
+        })
+        .expect("bind variant");
+    assert_eq!(
+        bind["required"],
+        json!([
+            "action",
+            "expected_revision",
+            "node_id",
+            "transition",
+            "continuation"
+        ])
+    );
+    assert!(bind["properties"].get("continuation").is_some());
+
     let transition = value["parameters"]["anyOf"]
         .as_array()
         .expect("variants")
         .iter()
-        .find(|variant| variant["properties"]["action"]["enum"][0] == json!("transition_node"))
-        .expect("transition variant");
-    let active_variant_text = transition.to_string();
-    assert!(!active_variant_text.contains("continuation"));
-    assert!(!active_variant_text.contains("ordinaryAction"));
-    assert!(!active_variant_text.contains("tool_name"));
-    assert!(!active_variant_text.contains("arguments"));
+        .find(|variant| {
+            variant["properties"]["action"]["enum"][0] == json!("transition_node")
+                && variant["properties"]["transition"]["enum"]
+                    == json!(["complete", "block", "unblock", "rework"])
+        })
+        .expect("non-bind transition variant");
     assert_eq!(
         transition["required"],
         json!(["action", "expected_revision", "node_id", "transition"])
     );
+    assert!(transition["properties"].get("continuation").is_none());
     assert_eq!(
         transition["properties"]["transition"]["enum"],
-        json!(["bind", "complete", "block", "unblock", "rework"])
+        json!(["complete", "block", "unblock", "rework"])
     );
     let mutation = value["parameters"]["anyOf"]
         .as_array()
@@ -176,6 +198,13 @@ fn lifecycle_schema_exposes_active_actions_without_continuation_fields() {
             "add_edges",
             "remove_edges"
         ])
+    );
+    assert!(mutation["properties"].get("continuation").is_some());
+    assert!(
+        !mutation["required"]
+            .as_array()
+            .expect("mutation required")
+            .contains(&json!("continuation"))
     );
     let terminal = value["parameters"]["anyOf"]
         .as_array()

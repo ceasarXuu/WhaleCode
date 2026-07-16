@@ -251,6 +251,7 @@ fn taskspace_map_lifecycle_schema_is_the_only_taskspace_control_schema() {
             "initialize_map",
             "mutate_graph",
             "transition_node",
+            "transition_node",
             "finish_end",
             "expand_nodes",
             "read_output_ref"

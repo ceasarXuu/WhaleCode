@@ -6,6 +6,10 @@ use crate::ResponsesApiTool;
 use crate::ToolSpec;
 use serde_json::json;
 
+#[path = "taskspace_tool_simple_actions.rs"]
+mod simple_actions;
+use simple_actions::simple_action_schemas;
+
 fn action_tag(action: &str) -> JsonSchema {
     JsonSchema::string_enum(
         vec![json!(action)],
@@ -313,7 +317,7 @@ fn initialize_map_schema(has_patch: bool) -> JsonSchema {
     )
 }
 
-fn mutate_graph_schema() -> JsonSchema {
+fn mutate_graph_schema(has_patch: bool) -> JsonSchema {
     object_variant(
         "mutate_graph",
         BTreeMap::from([
@@ -339,12 +343,43 @@ fn mutate_graph_schema() -> JsonSchema {
                     Some("Edges to remove.".into()),
                 ),
             ),
+            ("continuation".into(), continuation_schema(has_patch)),
         ]),
         vec![
             "expected_revision".into(),
             "add_nodes".into(),
             "add_edges".into(),
             "remove_edges".into(),
+        ],
+    )
+}
+
+fn bind_node_schema(has_patch: bool) -> JsonSchema {
+    object_variant(
+        "transition_node",
+        BTreeMap::from([
+            (
+                "expected_revision".into(),
+                JsonSchema::integer(Some("Expected graph revision.".into())),
+            ),
+            (
+                "node_id".into(),
+                JsonSchema::string(Some("Target node.".into())),
+            ),
+            (
+                "transition".into(),
+                JsonSchema::string_enum(
+                    vec![json!("bind")],
+                    Some("Mechanical node transition.".into()),
+                ),
+            ),
+            ("continuation".into(), continuation_schema(has_patch)),
+        ]),
+        vec![
+            "expected_revision".into(),
+            "node_id".into(),
+            "transition".into(),
+            "continuation".into(),
         ],
     )
 }
@@ -365,7 +400,6 @@ fn transition_node_schema() -> JsonSchema {
                 "transition".into(),
                 JsonSchema::string_enum(
                     vec![
-                        json!("bind"),
                         json!("complete"),
                         json!("block"),
                         json!("unblock"),
@@ -400,49 +434,6 @@ fn finish_end_schema() -> JsonSchema {
     )
 }
 
-fn simple_action_schemas() -> Vec<JsonSchema> {
-    vec![
-        object_variant(
-            "expand_nodes",
-            BTreeMap::from([(
-                "node_ids".into(),
-                JsonSchema::array(
-                    JsonSchema::string(None),
-                    Some(
-                        "Currently folded node identifiers whose hidden event refs must be restored atomically."
-                            .into(),
-                    ),
-                )
-                .with_min_items(1),
-            )]),
-            vec!["node_ids".into()],
-        ),
-        object_variant(
-            "read_output_ref",
-            BTreeMap::from([
-                ("output_ref".into(), JsonSchema::string(None)),
-                (
-                    "mode".into(),
-                    JsonSchema::string_enum(
-                        vec![
-                            json!("head"),
-                            json!("tail"),
-                            json!("line_range"),
-                            json!("grep"),
-                        ],
-                        None,
-                    ),
-                ),
-                ("start_line".into(), JsonSchema::integer(None)),
-                ("end_line".into(), JsonSchema::integer(None)),
-                ("pattern".into(), JsonSchema::string(None)),
-                ("max_bytes".into(), JsonSchema::integer(None)),
-            ]),
-            vec!["output_ref".into(), "mode".into()],
-        ),
-    ]
-}
-
 pub fn create_taskspace_control_tool(visible_tools: &[ToolSpec]) -> ToolSpec {
     let actions = nested_action_schemas(visible_tools);
     let has_patch = actions.patch.is_some();
@@ -452,7 +443,8 @@ pub fn create_taskspace_control_tool(visible_tools: &[ToolSpec]) -> ToolSpec {
     }
     let mut variants = vec![
         initialize_map_schema(has_patch),
-        mutate_graph_schema(),
+        mutate_graph_schema(has_patch),
+        bind_node_schema(has_patch),
         transition_node_schema(),
         finish_end_schema(),
     ];
@@ -462,7 +454,7 @@ pub fn create_taskspace_control_tool(visible_tools: &[ToolSpec]) -> ToolSpec {
 
     ToolSpec::Function(ResponsesApiTool {
         name: "taskspace_control".into(),
-        description: "Mandatory mechanical TaskSpace lifecycle tool. initialize_map declares and binds the initial rooted DAG before its continuation; mutate_graph changes graph topology under expected_revision; transition_node applies an Agent-selected state transition; finish_end commits the Agent-authored final summary; expand_nodes and read_output_ref expose mechanically retained details. Runtime validates hard state rules and executes only the declared operation order. It does not choose, infer, or rewrite actions.".into(),
+        description: "Mandatory mechanical TaskSpace lifecycle tool. initialize_map declares and binds the initial rooted DAG before its continuation. mutate_graph may continue only from an existing binding that remains valid. transition_node bind requires a continuation; complete, block, unblock, and rework do not accept one. finish_end commits the Agent-authored final summary and cannot continue. expand_nodes and read_output_ref expose mechanically retained details. Runtime validates hard state rules and executes only the declared operation order. It does not choose, infer, or rewrite actions.".into(),
         strict: false,
         defer_loading: None,
         parameters,

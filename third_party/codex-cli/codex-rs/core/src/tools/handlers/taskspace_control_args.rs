@@ -25,11 +25,13 @@ pub(crate) enum TaskSpaceControlArgs {
         add_nodes: Vec<TaskSpaceGraphNodeArgs>,
         add_edges: Vec<TaskSpaceGraphEdgeArgs>,
         remove_edges: Vec<TaskSpaceGraphEdgeArgs>,
+        continuation: Option<TaskSpaceContinuation>,
     },
     TransitionNode {
         expected_revision: u64,
         node_id: String,
         transition: TaskSpaceNodeTransition,
+        continuation: Option<TaskSpaceContinuation>,
     },
     FinishEnd {
         expected_revision: u64,
@@ -48,7 +50,7 @@ pub(crate) enum TaskSpaceControlArgs {
     },
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct TaskSpaceGraphNodeArgs {
     pub(crate) node_id: String,
@@ -157,8 +159,20 @@ impl TaskSpaceControlArgs {
     pub(crate) fn nested_actions(&self) -> Vec<TaskSpaceNestedAction> {
         match self {
             Self::InitializeMap { continuation, .. } => continuation.actions(),
-            Self::MutateGraph { .. }
-            | Self::TransitionNode { .. }
+            Self::MutateGraph {
+                continuation: Some(continuation),
+                ..
+            }
+            | Self::TransitionNode {
+                continuation: Some(continuation),
+                ..
+            } => continuation.actions(),
+            Self::MutateGraph {
+                continuation: None, ..
+            }
+            | Self::TransitionNode {
+                continuation: None, ..
+            }
             | Self::FinishEnd { .. }
             | Self::ExpandNodes { .. }
             | Self::ReadOutputRef { .. } => Vec::new(),
@@ -189,6 +203,7 @@ impl TaskSpaceControlArgs {
                 add_nodes,
                 add_edges,
                 remove_edges,
+                continuation,
                 ..
             } => {
                 if add_nodes.is_empty() && add_edges.is_empty() && remove_edges.is_empty() {
@@ -201,13 +216,30 @@ impl TaskSpaceControlArgs {
                 validate_edges(remove_edges, "mutate_graph.remove_edges")?;
                 validate_unique_edges(add_edges, "mutate_graph.add_edges")?;
                 validate_unique_edges(remove_edges, "mutate_graph.remove_edges")?;
+                if let Some(continuation) = continuation {
+                    continuation.validate()?;
+                }
                 Ok(())
             }
-            Self::TransitionNode { node_id, .. } => {
+            Self::TransitionNode {
+                node_id,
+                transition,
+                continuation,
+                ..
+            } => {
                 if node_id.trim().is_empty() {
                     return invalid("transition_node requires a non-empty node_id");
                 }
-                Ok(())
+                match (transition, continuation) {
+                    (TaskSpaceNodeTransition::Bind, Some(continuation)) => continuation.validate(),
+                    (TaskSpaceNodeTransition::Bind, None) => {
+                        invalid("transition_node bind requires continuation")
+                    }
+                    (_, Some(_)) => invalid(
+                        "transition_node continuation is only valid with the bind transition",
+                    ),
+                    (_, None) => Ok(()),
+                }
             }
             Self::FinishEnd { final_summary, .. } if final_summary.trim().is_empty() => {
                 invalid("finish_end requires a non-empty final_summary")

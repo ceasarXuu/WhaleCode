@@ -250,13 +250,15 @@ function Get-PerformanceSideObservation {
             control_carrier_responses = $cadence.control_carrier_response_count
             direct_tool_mixed_responses = $cadence.direct_tool_mixed_response_count
             multi_control_carrier_responses = $cadence.multi_control_carrier_response_count
-            multi_finish_carriers = $cadence.multi_finish_carrier_count
-            finish_without_sibling_actions = $cadence.finish_without_sibling_action_count
-            initialize_then_actions = $cadence.initialize_then_actions_count
-            finish_nodes = $cadence.finish_nodes_count
-            finish_then_end = $cadence.finish_then_end_count
+            initialize_continuations = $cadence.initialize_continuation_count
+            mutation_continuations = $cadence.mutation_continuation_count
+            bind_continuations = $cadence.bind_continuation_count
+            state_only_controls = $cadence.state_only_control_count
+            finish_end = $cadence.finish_end_count
+            nonterminal_transitions_without_follow_up = $cadence.nonterminal_transition_without_follow_up_count
             terminal_candidates = $cadence.terminal_candidate_count
             terminal_extra_requests = $cadence.terminal_extra_request_count
+            cadence_parse_errors = $cadence.control_argument_parse_error_count
             cadence_source = $cadence.availability
             action_trace_source = $actions.source
         }
@@ -296,7 +298,7 @@ function Get-PerformanceModeAggregate {
     $selected = @($observed | Where-Object { $_.comparison_eligible })
     if ($selected.Count -eq 0) { return $null }
     $sum = [ordered]@{}
-    foreach ($field in @("provider_requests", "ordinary_tools", "failed_tools", "provider_outer_tool_calls", "nested_actions", "taskspace_control", "control_failures", "control_protocol_failures", "control_state_failures", "nested_action_failures", "provider_tool_responses", "control_carrier_responses", "direct_tool_mixed_responses", "multi_control_carrier_responses", "multi_finish_carriers", "finish_without_sibling_actions", "initialize_then_actions", "finish_nodes", "finish_then_end", "terminal_candidates", "terminal_extra_requests")) {
+    foreach ($field in @("provider_requests", "ordinary_tools", "failed_tools", "provider_outer_tool_calls", "nested_actions", "taskspace_control", "control_failures", "control_protocol_failures", "control_state_failures", "nested_action_failures", "provider_tool_responses", "control_carrier_responses", "direct_tool_mixed_responses", "multi_control_carrier_responses", "initialize_continuations", "mutation_continuations", "bind_continuations", "state_only_controls", "finish_end", "nonterminal_transitions_without_follow_up", "terminal_candidates", "terminal_extra_requests", "cadence_parse_errors")) {
         $values = @($selected | ForEach-Object { Get-PerformanceNumber $_.actions.$field } | Where-Object { $null -ne $_ })
         $sum[$field] = if ($values.Count) { [double](($values | Measure-Object -Sum).Sum) } else { $null }
     }
@@ -405,13 +407,13 @@ function Write-TaskspacePerformanceObservation {
     $lines.Add("")
     $lines.Add("## Schema carrier")
     $lines.Add("")
-    $lines.Add("| Repeat | Mode | Tool responses | Control responses | Nested init actions | Init+actions | Finish barriers | Finish+end | Multi-finish | Direct mixed | Multi-control | Finish without sibling | Protocol failures | State failures | Nested failures | Terminal candidates | Extra final requests | Source |")
-    $lines.Add("|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|")
+    $lines.Add("| Repeat | Mode | Tool responses | Control responses | Nested actions | Init continuation | Mutation continuation | Bind continuation | State-only controls | Finish end | Direct mixed | Multi-control | Nonterminal without follow-up | Protocol failures | State failures | Nested failures | Terminal candidates | Extra final requests | Parse errors | Source |")
+    $lines.Add("|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|")
     foreach ($row in $rows) {
         if ($row.observation_status -eq "skipped") {
-            $lines.Add("| $(Format-PerformanceValue $row.repeat) | $($row.logical_mode) | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A |")
+            $lines.Add("| $(Format-PerformanceValue $row.repeat) | $($row.logical_mode) | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A |")
         } else {
-            $lines.Add("| $(Format-PerformanceValue $row.repeat) | $($row.logical_mode) | $(Format-PerformanceValue $row.actions.provider_tool_responses) | $(Format-PerformanceValue $row.actions.control_carrier_responses) | $(Format-PerformanceValue $row.actions.nested_actions) | $(Format-PerformanceValue $row.actions.initialize_then_actions) | $(Format-PerformanceValue $row.actions.finish_nodes) | $(Format-PerformanceValue $row.actions.finish_then_end) | $(Format-PerformanceValue $row.actions.multi_finish_carriers) | $(Format-PerformanceValue $row.actions.direct_tool_mixed_responses) | $(Format-PerformanceValue $row.actions.multi_control_carrier_responses) | $(Format-PerformanceValue $row.actions.finish_without_sibling_actions) | $(Format-PerformanceValue $row.actions.control_protocol_failures) | $(Format-PerformanceValue $row.actions.control_state_failures) | $(Format-PerformanceValue $row.actions.nested_action_failures) | $(Format-PerformanceValue $row.actions.terminal_candidates) | $(Format-PerformanceValue $row.actions.terminal_extra_requests) | $(Format-PerformanceValue $row.actions.cadence_source) |")
+            $lines.Add("| $(Format-PerformanceValue $row.repeat) | $($row.logical_mode) | $(Format-PerformanceValue $row.actions.provider_tool_responses) | $(Format-PerformanceValue $row.actions.control_carrier_responses) | $(Format-PerformanceValue $row.actions.nested_actions) | $(Format-PerformanceValue $row.actions.initialize_continuations) | $(Format-PerformanceValue $row.actions.mutation_continuations) | $(Format-PerformanceValue $row.actions.bind_continuations) | $(Format-PerformanceValue $row.actions.state_only_controls) | $(Format-PerformanceValue $row.actions.finish_end) | $(Format-PerformanceValue $row.actions.direct_tool_mixed_responses) | $(Format-PerformanceValue $row.actions.multi_control_carrier_responses) | $(Format-PerformanceValue $row.actions.nonterminal_transitions_without_follow_up) | $(Format-PerformanceValue $row.actions.control_protocol_failures) | $(Format-PerformanceValue $row.actions.control_state_failures) | $(Format-PerformanceValue $row.actions.nested_action_failures) | $(Format-PerformanceValue $row.actions.terminal_candidates) | $(Format-PerformanceValue $row.actions.terminal_extra_requests) | $(Format-PerformanceValue $row.actions.cadence_parse_errors) | $(Format-PerformanceValue $row.actions.cadence_source) |")
         }
     }
     $lines.Add("")

@@ -101,6 +101,28 @@ fn extracts_bootstrap_nested_actions() {
 }
 
 #[test]
+fn extracts_bind_and_mutation_continuations_without_reordering_actions() {
+    let bind = function_call_with_arguments(
+        "taskspace_control",
+        "bind",
+        r#"{"action":"transition_node","expected_revision":3,"node_id":"edit","transition":"bind","continuation":{"kind":"actions","actions":[{"tool_name":"exec_command","arguments":{"cmd":"pwd"}},{"tool_name":"read_file","arguments":{"path":"src/lib.rs"}}]}}"#,
+    );
+    let mutation = function_call_with_arguments(
+        "taskspace_control",
+        "mutate",
+        r#"{"action":"mutate_graph","expected_revision":4,"add_nodes":[{"node_id":"verify","goal":"Verify"}],"add_edges":[{"from":"edit","to":"verify"}],"remove_edges":[],"continuation":{"kind":"actions","actions":[{"tool_name":"exec_command","arguments":{"cmd":"cargo test"}}]}}"#,
+    );
+
+    let bind_actions = taskspace_nested_actions(&bind);
+    assert_eq!(bind_actions.len(), 2);
+    assert_eq!(bind_actions[0].tool_name(), "exec_command");
+    assert_eq!(bind_actions[1].tool_name(), "read_file");
+    let mutation_actions = taskspace_nested_actions(&mutation);
+    assert_eq!(mutation_actions.len(), 1);
+    assert_eq!(mutation_actions[0].tool_name(), "exec_command");
+}
+
+#[test]
 fn invalid_taskspace_arguments_are_owned_by_the_tool_handler() {
     let call = function_call_with_arguments(
         "taskspace_control",
@@ -151,6 +173,21 @@ fn taskspace_patch_slot_and_top_level_patch_share_the_same_preflight_count() {
     let manifest = ToolSequenceManifest::from_calls(&calls);
     assert_eq!(manifest.request_patch_count, 2);
     assert!(validate_tool_sequence(&calls).is_err());
+}
+
+#[test]
+fn bind_patch_slot_and_top_level_patch_are_rejected_before_execution() {
+    let bind = function_call_with_arguments(
+        "taskspace_control",
+        "bind",
+        r#"{"action":"transition_node","expected_revision":3,"node_id":"edit","transition":"bind","continuation":{"kind":"patch_then_actions","patch":{"tool_name":"apply_patch","input":"patch"},"actions":[]}}"#,
+    );
+    let calls = vec![bind, function_call("apply_patch", "top-patch")];
+
+    let failure = validate_tool_sequence(&calls).expect_err("two patches must fail preflight");
+    assert_eq!(failure.reason_code, REQUEST_MULTIPLE_PATCHES_CODE);
+    assert_eq!(failure.request_patch_count, Some(2));
+    assert_eq!(failure.outputs(&calls).len(), 2);
 }
 
 #[test]
