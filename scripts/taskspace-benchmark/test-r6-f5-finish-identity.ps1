@@ -126,7 +126,7 @@ $none = Invoke-Scenario 'none' 'none' $marker
 $noneF = @($none.result.summaries | Where-Object arm -eq 'F')[0]
 $noneError = @($none.result.events | Where-Object { $_.arm -eq 'F' -and $_.sample -eq 'simple' -and $_.repeat -eq 1 })[0]
 Assert-True ([string]$none.result.diagnostic.attribution -eq 'no_candidate_reduced_identity_errors') 'no-candidate attribution was unexpected'
-Assert-True ([string]$none.result.diagnostic.h011_evidence_gate -eq 'not_satisfied') 'no-candidate case incorrectly passed H-011'
+Assert-True ([string]$none.result.diagnostic.finish_identity_evidence_gate -eq 'not_satisfied') 'no-candidate case incorrectly passed the identity gate'
 Assert-True ($noneF.common_field_error_count -eq 1) 'common regression was not counted'
 Assert-True (@($noneError.response.arguments.common_field_errors) -contains 'unexpected:edges[0].goal') 'common regression path was not preserved'
 

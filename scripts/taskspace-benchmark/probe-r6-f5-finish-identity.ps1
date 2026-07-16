@@ -374,7 +374,7 @@ $result = [ordered]@{
         infrastructure_valid = $infrastructureValid
         attribution = $attribution
         winning_arm = $winningArm
-        h011_evidence_gate = if ($infrastructureValid -and -not [string]::IsNullOrWhiteSpace($winningArm)) { 'satisfied' } else { 'not_satisfied' }
+        finish_identity_evidence_gate = if ($infrastructureValid -and -not [string]::IsNullOrWhiteSpace($winningArm)) { 'satisfied' } else { 'not_satisfied' }
     }
     events = @($events)
 }
