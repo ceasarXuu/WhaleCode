@@ -46,10 +46,15 @@ function Invoke-ProviderProbe {
         Authorization = "Bearer $apiKey"
     } -ContentType 'application/json' -Body ($Body | ConvertTo-Json -Depth 30 -Compress) `
         -SkipHttpErrorCheck -TimeoutSec 90
-    $payload = if ([string]::IsNullOrWhiteSpace([string]$response.Content)) {
+    $responseText = if ($response.Content -is [byte[]]) {
+        [System.Text.Encoding]::UTF8.GetString($response.Content)
+    } else {
+        [string]$response.Content
+    }
+    $payload = if ([string]::IsNullOrWhiteSpace($responseText)) {
         $null
     } else {
-        $response.Content | ConvertFrom-Json
+        $responseText | ConvertFrom-Json
     }
     $hasChoice = $null -ne $payload -and $null -ne $payload.choices -and @($payload.choices).Count -gt 0
     $message = if ($hasChoice) {
@@ -58,6 +63,9 @@ function Invoke-ProviderProbe {
         $null
     }
     $content = if ($message) { [string]$message.content } else { '' }
+    $reasoningContent = if ($message -and $message.PSObject.Properties.Name -contains 'reasoning_content') {
+        [string]$message.reasoning_content
+    } else { '' }
     $toolNames = if ($message) {
         @($message.tool_calls | ForEach-Object { [string]$_.function.name })
     } else {
@@ -98,7 +106,10 @@ function Invoke-ProviderProbe {
         content_present = -not [string]::IsNullOrEmpty($content)
         content_bytes = [System.Text.Encoding]::UTF8.GetByteCount($content)
         content_sha256 = Get-TextSha256 $content
-        error_class = if ($errorMessage -match 'Thinking mode does not support this tool_choice') {
+        reasoning_content_present = -not [string]::IsNullOrEmpty($reasoningContent)
+        reasoning_content_bytes = [System.Text.Encoding]::UTF8.GetByteCount($reasoningContent)
+        reasoning_content_sha256 = Get-TextSha256 $reasoningContent
+        error_class = if ($errorMessage -match '(?i)(thinking.*tool_choice|tool_choice.*thinking)') {
             'thinking_tool_choice_incompatible'
         } elseif (-not [string]::IsNullOrWhiteSpace($errorMessage)) {
             'provider_rejected'
@@ -129,6 +140,10 @@ $namedBody = @{
 }
 $namedThinkingBody = $namedBody.Clone()
 $namedThinkingBody.thinking = @{ type = 'enabled' }
+$requiredBody = $namedBody.Clone()
+$requiredBody.tool_choice = 'required'
+$requiredThinkingBody = $requiredBody.Clone()
+$requiredThinkingBody.thinking = @{ type = 'enabled' }
 $orderedBody = @{
     model = $Model
     messages = @(
@@ -171,17 +186,21 @@ $terminalBody = @{
 $probes = @(
     Invoke-ProviderProbe 'named_tool_choice_thinking_disabled' $namedBody
     Invoke-ProviderProbe 'named_tool_choice_thinking_enabled' $namedThinkingBody
+    Invoke-ProviderProbe 'required_tool_choice_thinking_disabled' $requiredBody
+    Invoke-ProviderProbe 'required_tool_choice_thinking_enabled' $requiredThinkingBody
     Invoke-ProviderProbe 'ordered_multi_tool_calls' $orderedBody
     Invoke-ProviderProbe 'ordered_repeated_control_calls' $repeatedControlBody
     Invoke-ProviderProbe 'assistant_content_with_tool_call' $terminalBody
 )
 $named = @($probes | Where-Object { $_.name -eq 'named_tool_choice_thinking_disabled' })[0]
 $namedThinking = @($probes | Where-Object { $_.name -eq 'named_tool_choice_thinking_enabled' })[0]
+$required = @($probes | Where-Object { $_.name -eq 'required_tool_choice_thinking_disabled' })[0]
+$requiredThinking = @($probes | Where-Object { $_.name -eq 'required_tool_choice_thinking_enabled' })[0]
 $ordered = @($probes | Where-Object { $_.name -eq 'ordered_multi_tool_calls' })[0]
 $repeatedControl = @($probes | Where-Object { $_.name -eq 'ordered_repeated_control_calls' })[0]
 $terminal = @($probes | Where-Object { $_.name -eq 'assistant_content_with_tool_call' })[0]
 $result = [pscustomobject]@{
-    schema_version = 'r5-j0-provider-capability-v2'
+    schema_version = 'r6-f2-provider-capability-v1'
     generated_at = (Get-Date).ToUniversalTime().ToString('o')
     endpoint = $Endpoint
     model = $Model
@@ -189,6 +208,9 @@ $result = [pscustomobject]@{
     capabilities = [ordered]@{
         named_tool_choice_with_thinking_disabled = ($named.http_status -eq 200 -and (@($named.tool_names) -join ',') -eq 'taskspace_control')
         named_tool_choice_with_thinking_enabled = ($namedThinking.http_status -eq 200)
+        required_tool_choice_with_thinking_disabled = ($required.http_status -eq 200 -and (@($required.tool_names) -join ',') -eq 'taskspace_control')
+        required_tool_choice_with_thinking_enabled = ($requiredThinking.http_status -eq 200 -and (@($requiredThinking.tool_names) -join ',') -eq 'taskspace_control')
+        required_tool_choice_with_reasoning_content = ($requiredThinking.http_status -eq 200 -and $requiredThinking.reasoning_content_present)
         ordered_multi_tool_calls = ($ordered.http_status -eq 200 -and (@($ordered.tool_names) -join ',') -eq 'first_step,second_step')
         ordered_repeated_control_calls = ($repeatedControl.http_status -eq 200 -and
             (@($repeatedControl.tool_names) -join ',') -eq 'taskspace_control,taskspace_control' -and
@@ -197,6 +219,20 @@ $result = [pscustomobject]@{
     }
     decision = [ordered]@{
         hard_state_selection = 'named_tool_choice_with_thinking_disabled'
+        required_tool_choice = if ($requiredThinking.http_status -eq 200 -and
+            (@($requiredThinking.tool_names) -join ',') -eq 'taskspace_control' -and
+            $requiredThinking.reasoning_content_present) { 'candidate' } else { 'hold' }
+        required_tool_choice_reason = if ($requiredThinking.http_status -eq 200 -and
+            (@($requiredThinking.tool_names) -join ',') -eq 'taskspace_control' -and
+            $requiredThinking.reasoning_content_present) {
+            'thinking_and_required_tool_call_observed'
+        } elseif ($requiredThinking.error_class -eq 'thinking_tool_choice_incompatible') {
+            'provider_rejects_required_with_thinking'
+        } elseif ($requiredThinking.http_status -ne 200) {
+            'provider_rejected_required_with_thinking'
+        } else {
+            'reasoning_content_or_expected_tool_call_missing'
+        }
         ordered_barrier_source = 'provider_response_item_order'
         terminal_carrier = 'finish_node.final_candidate_tool_argument'
     }
@@ -212,6 +248,7 @@ Write-Host "ProviderCapability: $OutputPath"
 
 $passed = [bool]$result.capabilities.named_tool_choice_with_thinking_disabled -and
     -not [bool]$result.capabilities.named_tool_choice_with_thinking_enabled -and
+    [bool]$result.capabilities.required_tool_choice_with_thinking_disabled -and
     [bool]$result.capabilities.ordered_multi_tool_calls -and
     [bool]$result.capabilities.ordered_repeated_control_calls -and
     -not [bool]$result.capabilities.assistant_content_with_required_tool_call_observed
