@@ -25,6 +25,26 @@ function Get-Utf8Bytes {
     [System.Text.Encoding]::UTF8.GetByteCount($Text)
 }
 
+function Get-NumberStats {
+    param([double[]]$Values)
+    if ($Values.Count -eq 0) {
+        return [ordered]@{ total = 0; mean = 0; median = 0 }
+    }
+    $sorted = @($Values | Sort-Object)
+    $total = [double](($sorted | Measure-Object -Sum).Sum)
+    $middle = [int][Math]::Floor($sorted.Count / 2)
+    $median = if ($sorted.Count % 2 -eq 1) {
+        [double]$sorted[$middle]
+    } else {
+        ([double]$sorted[$middle - 1] + [double]$sorted[$middle]) / 2
+    }
+    [ordered]@{
+        total = $total
+        mean = $total / $sorted.Count
+        median = $median
+    }
+}
+
 function Get-PropertyNames {
     param($Value)
     if ($null -eq $Value) { return @() }
@@ -325,6 +345,13 @@ foreach ($armName in @('A', 'B', 'C')) {
     $armEvents = @($events | Where-Object { $_.arm -eq $armName })
     $finishGoal = @($armEvents | Where-Object { $_.response.arguments.finish.has_goal }).Count
     $fieldErrors = @($armEvents | Where-Object { $_.response.arguments.verdict -eq 'field_error' }).Count
+    $inputStats = Get-NumberStats -Values @($armEvents | ForEach-Object { [double]$_.response.usage.input_tokens })
+    $cachedStats = Get-NumberStats -Values @($armEvents | ForEach-Object { [double]$_.response.usage.cached_input_tokens })
+    $uncachedStats = Get-NumberStats -Values @($armEvents | ForEach-Object { [double]$_.response.usage.uncached_input_tokens })
+    $durationStats = Get-NumberStats -Values @($armEvents | ForEach-Object { [double]$_.duration_ms })
+    $request2Plus = @($armEvents | Where-Object { $_.repeat -gt 1 })
+    $request2PlusInput = [double](($request2Plus | ForEach-Object { $_.response.usage.input_tokens } | Measure-Object -Sum).Sum)
+    $request2PlusCached = [double](($request2Plus | ForEach-Object { $_.response.usage.cached_input_tokens } | Measure-Object -Sum).Sum)
     $summaries += [ordered]@{
         arm = $armName
         request_count = $armEvents.Count
@@ -333,21 +360,30 @@ foreach ($armName in @('A', 'B', 'C')) {
         valid_initialize_shape_count = @($armEvents | Where-Object { $_.response.arguments.verdict -eq 'valid_initialize_shape' }).Count
         field_error_count = $fieldErrors
         finish_goal_count = $finishGoal
-        input_tokens_total = [int64](($armEvents | Measure-Object -Property { $_.response.usage.input_tokens } -Sum).Sum)
-        cached_input_tokens_total = [int64](($armEvents | Measure-Object -Property { $_.response.usage.cached_input_tokens } -Sum).Sum)
-        uncached_input_tokens_total = [int64](($armEvents | Measure-Object -Property { $_.response.usage.uncached_input_tokens } -Sum).Sum)
-        duration_ms_total = [int64](($armEvents | Measure-Object -Property duration_ms -Sum).Sum)
+        input_tokens = $inputStats
+        cached_input_tokens = $cachedStats
+        uncached_input_tokens = $uncachedStats
+        duration_ms = $durationStats
+        request2plus_cache = [ordered]@{
+            request_count = $request2Plus.Count
+            input_tokens = $request2PlusInput
+            cached_input_tokens = $request2PlusCached
+            hit_rate = if ($request2PlusInput -eq 0) { 0 } else { $request2PlusCached / $request2PlusInput }
+        }
     }
 }
 $a = @($summaries | Where-Object arm -eq 'A')[0]
 $b = @($summaries | Where-Object arm -eq 'B')[0]
 $c = @($summaries | Where-Object arm -eq 'C')[0]
+$highReproductionThreshold = [Math]::Max(1, (2 * $Repeat) - 1)
 $attribution = if ($a.finish_goal_count -le 1) {
     'inconclusive_prior_behavior_not_reproduced'
 } elseif ($b.finish_goal_count -le 1) {
     'schema_breadth_supported'
 } elseif ($c.finish_goal_count -le 1) {
     'description_salience_supported'
+} elseif ($b.finish_goal_count -ge $highReproductionThreshold -and $c.finish_goal_count -ge $highReproductionThreshold) {
+    'refuted_schema_breadth_and_description_salience'
 } else {
     'inconclusive_no_arm_reduced_finish_goal'
 }

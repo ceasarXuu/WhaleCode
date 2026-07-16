@@ -88,6 +88,8 @@ $b = @($result.summaries | Where-Object arm -eq 'B')[0]
 $c = @($result.summaries | Where-Object arm -eq 'C')[0]
 Assert-True ($a.finish_goal_count -eq 6 -and $b.finish_goal_count -eq 0 -and $c.finish_goal_count -eq 0) 'finish.goal counts were not classified'
 Assert-True ($a.field_error_count -eq 6 -and $b.field_error_count -eq 0 -and $c.field_error_count -eq 0) 'field errors were not classified'
+Assert-True ($a.duration_ms.total -eq 6 -and $a.duration_ms.mean -eq 1 -and $a.duration_ms.median -eq 1) 'duration statistics were not aggregated'
+Assert-True ($a.request2plus_cache.request_count -eq 4 -and $a.request2plus_cache.hit_rate -eq 0.8) 'request2+ cache statistics were not aggregated'
 Assert-True ($resultText -notmatch [regex]::Escape($marker)) 'redacted node goal leaked into result artifact'
 Assert-True ($resultText -notmatch 'private-reasoning') 'reasoning text leaked into result artifact'
 Assert-True (@($result.source_builder.full_action_variants).Count -ge 7) 'production builder did not export the full lifecycle schema'
@@ -98,5 +100,23 @@ Assert-True ($armB.schema_bytes -lt $armA.schema_bytes) 'bootstrap projection di
 Assert-True ($armB.description_sha256 -eq $armA.description_sha256) 'arm B changed the generic description'
 Assert-True ($armC.description_sha256 -ne $armB.description_sha256) 'arm C did not isolate description salience'
 Assert-True ((Get-Content -LiteralPath (Join-Path $OutputRoot 'probe-events.jsonl')).Count -eq 18) 'event log did not contain 18 lines'
+
+$refutationResponses = @($responses | ForEach-Object {
+        [ordered]@{
+            arm = $_.arm
+            sample = $_.sample
+            repeat = $_.repeat
+            http_status = 200
+            payload = New-Payload 'A' $marker
+        }
+    })
+$refutationFixturePath = Join-Path $OutputRoot 'refutation-fixture.json'
+$refutationResultPath = Join-Path $OutputRoot 'refutation-result.json'
+[System.IO.File]::WriteAllText($refutationFixturePath, ([ordered]@{ responses = $refutationResponses } | ConvertTo-Json -Depth 50), [System.Text.UTF8Encoding]::new($false))
+& (Join-Path $PSScriptRoot 'probe-r6-f5-bootstrap-contract.ps1') -FixturePath $refutationFixturePath -OutputPath $refutationResultPath -Repeat 3
+if ($LASTEXITCODE -ne 0) { throw "refutation probe self-test exited with $LASTEXITCODE" }
+$refutationResult = Get-Content -Raw -LiteralPath $refutationResultPath | ConvertFrom-Json -Depth 80
+Assert-True ([string]$refutationResult.diagnostic.attribution -eq 'refuted_schema_breadth_and_description_salience') 'probe did not classify the refutation branch'
+Assert-True ([string]$refutationResult.diagnostic.h008_evidence_gate -eq 'satisfied') 'refutation did not satisfy the H-008 evidence gate'
 
 Write-Host 'R6 F5 bootstrap contract probe self-test passed.'
