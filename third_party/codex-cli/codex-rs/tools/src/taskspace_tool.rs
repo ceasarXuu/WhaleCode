@@ -30,16 +30,24 @@ fn object_any_of(variants: Vec<JsonSchema>, description: &str) -> JsonSchema {
     schema
 }
 
-fn function_action_schema(tool: &ResponsesApiTool, namespace: Option<&str>) -> JsonSchema {
+fn referenced_function_action_schema(
+    tool_names: Vec<String>,
+    namespace: Option<&str>,
+) -> JsonSchema {
+    let mut arguments = JsonSchema::object(BTreeMap::new(), None, None);
+    arguments.description = Some("Exact arguments for the separately exposed tool schema.".into());
     let mut properties = BTreeMap::from([
         (
             "tool_name".into(),
             JsonSchema::string_enum(
-                vec![json!(tool.name)],
-                Some("Visible ordinary tool name.".into()),
+                tool_names
+                    .into_iter()
+                    .map(serde_json::Value::from)
+                    .collect(),
+                Some("Name of a separately exposed ordinary tool.".into()),
             ),
         ),
-        ("arguments".into(), tool.parameters.clone()),
+        ("arguments".into(), arguments),
     ]);
     let mut required = vec!["tool_name".into(), "arguments".into()];
     if let Some(namespace) = namespace {
@@ -55,14 +63,32 @@ fn function_action_schema(tool: &ResponsesApiTool, namespace: Option<&str>) -> J
     JsonSchema::object(properties, Some(required), Some(false.into()))
 }
 
-fn custom_action_schema(name: &str) -> JsonSchema {
+fn exact_function_action_schema(tool: &ResponsesApiTool) -> JsonSchema {
+    let properties = BTreeMap::from([
+        (
+            "tool_name".into(),
+            JsonSchema::string_enum(
+                vec![json!(tool.name)],
+                Some("Visible ordinary tool name.".into()),
+            ),
+        ),
+        ("arguments".into(), tool.parameters.clone()),
+    ]);
+    JsonSchema::object(
+        properties,
+        Some(vec!["tool_name".into(), "arguments".into()]),
+        Some(false.into()),
+    )
+}
+
+fn custom_action_schema(names: Vec<String>) -> JsonSchema {
     JsonSchema::object(
         BTreeMap::from([
             (
                 "tool_name".into(),
                 JsonSchema::string_enum(
-                    vec![json!(name)],
-                    Some("Visible ordinary custom tool name.".into()),
+                    names.into_iter().map(serde_json::Value::from).collect(),
+                    Some("Name of a separately exposed ordinary custom tool.".into()),
                 ),
             ),
             (
@@ -81,35 +107,35 @@ struct NestedActionSchemas {
 }
 
 fn nested_action_schemas(visible_tools: &[ToolSpec]) -> NestedActionSchemas {
-    let mut ordinary_variants = Vec::new();
+    let mut function_names = Vec::new();
+    let mut namespaced_functions = BTreeMap::<String, Vec<String>>::new();
+    let mut custom_names = Vec::new();
     let mut patch_variant = None;
     for spec in visible_tools {
         match spec {
             ToolSpec::Function(tool)
                 if !matches!(tool.name.as_str(), "taskspace_control" | "update_plan") =>
             {
-                let schema = function_action_schema(tool, None);
                 if tool.name == "apply_patch" {
-                    patch_variant = Some(schema);
+                    patch_variant = Some(exact_function_action_schema(tool));
                 } else {
-                    ordinary_variants.push((tool.name.clone(), schema));
+                    function_names.push(tool.name.clone());
                 }
             }
             ToolSpec::Namespace(namespace) => {
                 for tool in &namespace.tools {
                     let ResponsesApiNamespaceTool::Function(tool) = tool;
-                    ordinary_variants.push((
-                        format!("{}.{}", namespace.name, tool.name),
-                        function_action_schema(tool, Some(&namespace.name)),
-                    ));
+                    namespaced_functions
+                        .entry(namespace.name.clone())
+                        .or_default()
+                        .push(tool.name.clone());
                 }
             }
             ToolSpec::Freeform(tool) => {
-                let schema = custom_action_schema(&tool.name);
                 if tool.name == "apply_patch" {
-                    patch_variant = Some(schema);
+                    patch_variant = Some(custom_action_schema(vec![tool.name.clone()]));
                 } else {
-                    ordinary_variants.push((tool.name.clone(), schema));
+                    custom_names.push(tool.name.clone());
                 }
             }
             ToolSpec::Function(_)
@@ -119,13 +145,26 @@ fn nested_action_schemas(visible_tools: &[ToolSpec]) -> NestedActionSchemas {
             | ToolSpec::WebSearch { .. } => {}
         }
     }
-    ordinary_variants.sort_by(|left, right| left.0.cmp(&right.0));
+    function_names.sort();
+    custom_names.sort();
+    for names in namespaced_functions.values_mut() {
+        names.sort();
+    }
+    let mut ordinary_variants = Vec::new();
+    if !function_names.is_empty() {
+        ordinary_variants.push(referenced_function_action_schema(function_names, None));
+    }
+    ordinary_variants.extend(
+        namespaced_functions
+            .into_iter()
+            .map(|(namespace, names)| referenced_function_action_schema(names, Some(&namespace))),
+    );
+    if !custom_names.is_empty() {
+        ordinary_variants.push(custom_action_schema(custom_names));
+    }
     NestedActionSchemas {
         ordinary: object_any_of(
-            ordinary_variants
-                .into_iter()
-                .map(|(_, schema)| schema)
-                .collect(),
+            ordinary_variants,
             "One ordinary non-patch tool call visible in this request.",
         ),
         patch: patch_variant,

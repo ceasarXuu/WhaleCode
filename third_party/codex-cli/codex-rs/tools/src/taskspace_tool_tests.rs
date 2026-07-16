@@ -73,8 +73,15 @@ fn lifecycle_schema_includes_initialization_with_required_continuation() {
     assert!(!text.contains("task_title"));
     assert!(!text.contains("task_objective"));
     assert!(!text.contains("context_summary"));
+    let ordinary = &value["parameters"]["$defs"]["ordinaryAction"]["anyOf"][0];
     assert_eq!(
-        value["parameters"]["$defs"]["ordinaryAction"]["anyOf"][0]["properties"]["arguments"],
+        ordinary["properties"]["tool_name"]["enum"],
+        json!(["list_dir"])
+    );
+    assert_eq!(ordinary["properties"]["arguments"]["type"], "object");
+    assert_eq!(ordinary["properties"]["arguments"]["properties"], json!({}));
+    assert_ne!(
+        ordinary["properties"]["arguments"],
         list_dir_value["parameters"]
     );
     let continuation = variants[0]["properties"]["continuation"]["anyOf"]
