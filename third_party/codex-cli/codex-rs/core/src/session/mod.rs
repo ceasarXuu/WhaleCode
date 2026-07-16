@@ -306,6 +306,9 @@ use crate::state::MailboxDeliveryPhase;
 use crate::state::PendingRequestPermissions;
 use crate::state::SessionServices;
 use crate::state::SessionState;
+use crate::state::TaskSpaceProjectionEpochDecision;
+use crate::state::TaskSpaceProviderProjectionEpoch;
+use crate::state::decide_taskspace_projection_epoch;
 #[cfg(test)]
 use crate::stream_events_utils::HandleOutputCtx;
 #[cfg(test)]
@@ -1168,7 +1171,8 @@ impl Session {
                         expected_projection_map_id_sha256: scan.expected_projection_map_id_sha256,
                         expected_projection_revision: scan.expected_projection_revision,
                         expected_projection_sha256: scan.expected_projection_sha256,
-                        projection_freshness_confirmed: scan.projection_freshness_confirmed,
+                        projection_epoch_identity_confirmed: scan
+                            .projection_epoch_identity_confirmed,
                         replacement_confirmed: scan.replacement_confirmed,
                         passed: scan.passed,
                         failure_reasons: scan.failure_reasons,
@@ -3847,13 +3851,85 @@ impl Session {
         turn_context: &TurnContext,
         items: Vec<ResponseItem>,
     ) -> PreparedProviderPromptItems {
-        let (projection_context, projection_trace_events) = {
+        let prepared_items = remove_taskspace_projection_items(items);
+        let (projection_context, projection_anchor, projection_trace_events) = {
             let mut state = self.state.lock().await;
-            let context = state.action_map_runtime.build_developer_context();
+            let Some(scope) = state.action_map_runtime.provider_projection_epoch_scope() else {
+                state.taskspace_projection_epoch = None;
+                return PreparedProviderPromptItems {
+                    items: prepared_items,
+                    projection_identity: None,
+                };
+            };
+            let decision = decide_taskspace_projection_epoch(
+                state.taskspace_projection_epoch.as_ref(),
+                &scope,
+                &prepared_items,
+            );
+            let (context, anchor) = match decision {
+                Ok(TaskSpaceProjectionEpochDecision::Reuse { context, anchor }) => {
+                    tracing::debug!(
+                        target: "codex_core::taskspace",
+                        event_name = "taskspace.projection_epoch_reused",
+                        scope,
+                        anchor,
+                        "reused TaskSpace provider projection epoch"
+                    );
+                    (Some(context), Some(anchor))
+                }
+                Ok(TaskSpaceProjectionEpochDecision::Refresh { anchor, reason }) => {
+                    let context = state.action_map_runtime.build_developer_context();
+                    if let Some(context) = context.as_ref() {
+                        match TaskSpaceProviderProjectionEpoch::new(
+                            scope.clone(),
+                            context.clone(),
+                            anchor,
+                            &prepared_items,
+                        ) {
+                            Ok(epoch) => state.taskspace_projection_epoch = Some(epoch),
+                            Err(error) => {
+                                state.taskspace_projection_epoch = None;
+                                tracing::warn!(
+                                    target: "codex_core::taskspace",
+                                    event_name = "taskspace.projection_epoch_cache_failed",
+                                    scope,
+                                    anchor,
+                                    reason,
+                                    error,
+                                    "failed to cache TaskSpace provider projection epoch"
+                                );
+                            }
+                        }
+                    }
+                    tracing::info!(
+                        target: "codex_core::taskspace",
+                        event_name = "taskspace.projection_epoch_started",
+                        scope,
+                        anchor,
+                        reason,
+                        "started TaskSpace provider projection epoch"
+                    );
+                    (context, Some(anchor))
+                }
+                Err(error) => {
+                    state.taskspace_projection_epoch = None;
+                    tracing::warn!(
+                        target: "codex_core::taskspace",
+                        event_name = "taskspace.projection_epoch_lookup_failed",
+                        scope,
+                        error,
+                        "failed to compare TaskSpace provider projection epoch"
+                    );
+                    (
+                        state.action_map_runtime.build_developer_context(),
+                        Some(prepared_items.len()),
+                    )
+                }
+            };
             let events = state
                 .action_map_runtime
                 .take_pending_projection_trace_events();
-            (context, events)
+            (context, anchor, events)
         };
         if !projection_trace_events.is_empty() {
             self.emit_action_map_events_for_turn(turn_context, projection_trace_events)
@@ -3866,7 +3942,11 @@ impl Session {
             crate::context_manager::updates::build_developer_update_item(vec![projection])
         });
         PreparedProviderPromptItems {
-            items: compose_provider_visible_prompt_items(items, projection_item),
+            items: compose_provider_visible_prompt_items(
+                prepared_items,
+                projection_item,
+                projection_anchor,
+            ),
             projection_identity,
         }
     }
@@ -4507,18 +4587,23 @@ fn is_action_map_epoch_snapshot_developer_item(item: &ResponseItem) -> bool {
     })
 }
 
-fn compose_provider_visible_prompt_items(
-    items: Vec<ResponseItem>,
-    projection_item: Option<ResponseItem>,
-) -> Vec<ResponseItem> {
-    let mut prepared = items
+fn remove_taskspace_projection_items(items: Vec<ResponseItem>) -> Vec<ResponseItem> {
+    items
         .into_iter()
         .filter(|item| !is_action_map_epoch_snapshot_developer_item(item))
-        .collect::<Vec<_>>();
+        .collect()
+}
+
+fn compose_provider_visible_prompt_items(
+    mut items: Vec<ResponseItem>,
+    projection_item: Option<ResponseItem>,
+    projection_anchor: Option<usize>,
+) -> Vec<ResponseItem> {
     if let Some(projection_item) = projection_item {
-        prepared.push(projection_item);
+        let anchor = projection_anchor.unwrap_or(items.len()).min(items.len());
+        items.insert(anchor, projection_item);
     }
-    prepared
+    items
 }
 
 use crate::memories::prompts::build_memory_tool_developer_instructions;

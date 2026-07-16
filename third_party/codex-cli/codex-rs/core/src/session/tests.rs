@@ -1310,6 +1310,7 @@ async fn provider_composer_injects_one_blank_map_epoch_snapshot() {
             .join("\n")
             .contains("TaskSpaceMapEpochSnapshotR6V1:")
     );
+    let mut previous_context = None;
     for _ in 0..2 {
         let context = session
             .prepare_provider_visible_prompt_items(&turn_context, initial_context.clone())
@@ -1326,6 +1327,13 @@ async fn provider_composer_injects_one_blank_map_epoch_snapshot() {
         assert!(developer_text.contains("- map: none"));
         assert!(developer_text.contains("- bootstrap_required: true"));
         assert!(!developer_text.contains("active_task_path_without_nodes"));
+        if let Some(previous_context) = previous_context.as_ref() {
+            assert_eq!(
+                &context, previous_context,
+                "retry with unchanged history must reuse the exact projection epoch"
+            );
+        }
+        previous_context = Some(context);
     }
 }
 
@@ -1395,7 +1403,7 @@ async fn provider_composer_keeps_epoch_snapshot_separate_from_skills() {
 }
 
 #[tokio::test]
-async fn provider_projection_refreshes_without_mutating_canonical_history() {
+async fn provider_projection_epoch_preserves_prefix_with_canonical_deltas() {
     let (session, turn_context) = make_session_and_context().await;
     {
         let mut state = session.state.lock().await;
@@ -1489,9 +1497,11 @@ async fn provider_projection_refreshes_without_mutating_canonical_history() {
     );
     assert!(provider_text.contains("map_id: map-1"));
     assert!(provider_text.contains("revision: 2"));
+    assert!(provider_text.contains("projection_role: epoch_baseline"));
     assert!(!provider_text.contains("- map: none"));
     assert!(first_provider.projection_identity.is_some());
     let history_before_transitions = history.raw_items().to_vec();
+    let first_provider_items = first_provider.items.clone();
 
     {
         let mut state = session.state.lock().await;
@@ -1520,13 +1530,30 @@ async fn provider_projection_refreshes_without_mutating_canonical_history() {
     session
         .record_conversation_items(
             &turn_context,
-            &[ResponseItem::FunctionCall {
-                id: None,
-                name: "shell_command".to_string(),
-                namespace: None,
-                arguments: "{}".to_string(),
-                call_id: "ordinary-call".to_string(),
-            }],
+            &[
+                ResponseItem::FunctionCall {
+                    id: None,
+                    name: "taskspace_control".to_string(),
+                    namespace: None,
+                    arguments:
+                        r#"{"action":"transition_node","transition":"bind","node_id":"implement"}"#
+                            .to_string(),
+                    call_id: "transition-control".to_string(),
+                },
+                ResponseItem::FunctionCallOutput {
+                    call_id: "transition-control".to_string(),
+                    output: FunctionCallOutputPayload::from_text(
+                        r#"{"status":"committed","committed_revision":4}"#.to_string(),
+                    ),
+                },
+                ResponseItem::FunctionCall {
+                    id: None,
+                    name: "shell_command".to_string(),
+                    namespace: None,
+                    arguments: "{}".to_string(),
+                    call_id: "ordinary-call".to_string(),
+                },
+            ],
         )
         .await;
     let history = session.clone_history().await;
@@ -1543,8 +1570,9 @@ async fn provider_projection_refreshes_without_mutating_canonical_history() {
         history.raw_items().get(..history_before_transitions.len()),
         Some(history_before_transitions.as_slice())
     );
-    let stale_projection = first_provider
-        .items
+    let stale_projection = first_provider_items
+        .iter()
+        .cloned()
         .into_iter()
         .find(is_action_map_epoch_snapshot_developer_item)
         .expect("first provider projection");
@@ -1560,9 +1588,16 @@ async fn provider_projection_refreshes_without_mutating_canonical_history() {
             .count(),
         1
     );
-    assert!(refreshed_text.contains("revision: 4"));
-    assert!(refreshed_text.contains("current_node: implement"));
-    assert!(!refreshed_text.contains("revision: 2"));
+    assert!(refreshed_text.contains("revision: 2"));
+    assert!(refreshed_text.contains("current_node: inspect"));
+    assert_eq!(
+        refreshed.items.get(..first_provider_items.len()),
+        Some(first_provider_items.as_slice()),
+        "same epoch must retain the previous provider messages as an exact prefix"
+    );
+    let refreshed_json = serde_json::to_string(&refreshed.items).unwrap();
+    assert!(refreshed_json.contains("transition-control"));
+    assert!(refreshed_json.contains("committed_revision\\\":4"));
 }
 
 #[tokio::test]
@@ -7789,6 +7824,58 @@ async fn tool_calls_reopen_mailbox_delivery_for_current_turn() {
         sess.get_pending_input().await,
         vec![communication.to_response_input_item()],
     );
+}
+
+#[tokio::test]
+async fn malformed_tool_arguments_preserve_call_identity_in_feedback() {
+    let (sess, tc, _rx) = make_session_and_context_with_rx().await;
+    {
+        let mut state = sess.state.lock().await;
+        state
+            .action_map_runtime
+            .set_mode_for_session(MapRuntimeMode::Experiment, sess.conversation_id);
+        state.activate_taskspace_context();
+    }
+    let item = ResponseItem::FunctionCall {
+        id: None,
+        name: "exec_command".to_string(),
+        namespace: None,
+        arguments: r#"{"arguments":{"command":"pwd"}}"#.to_string(),
+        call_id: "malformed-exec".to_string(),
+    };
+    let mut ctx = HandleOutputCtx {
+        sess: Arc::clone(&sess),
+        turn_context: Arc::clone(&tc),
+    };
+
+    let output = handle_output_item_done(&mut ctx, item, None)
+        .await
+        .expect("malformed arguments should return typed feedback");
+
+    assert!(output.needs_follow_up);
+    assert!(output.tool_call.is_none());
+    let history = sess.clone_history().await;
+    assert!(history.raw_items().iter().any(|item| {
+        matches!(item, ResponseItem::FunctionCall { call_id, .. } if call_id == "malformed-exec")
+    }));
+    let feedback = history
+        .raw_items()
+        .iter()
+        .find_map(|item| match item {
+            ResponseItem::FunctionCallOutput { call_id, output } if call_id == "malformed-exec" => {
+                Some(output)
+            }
+            _ => None,
+        })
+        .expect("matching failure output");
+    assert_eq!(feedback.success, Some(false));
+    assert!(matches!(
+        &feedback.body,
+        FunctionCallOutputBody::Text(text) if text.contains("missing `cmd` or `command`")
+    ));
+    assert!(!history.raw_items().iter().any(|item| {
+        matches!(item, ResponseItem::FunctionCallOutput { call_id, .. } if call_id.is_empty())
+    }));
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

@@ -109,7 +109,7 @@ $obs = [pscustomobject]@{
                 "expected_projection_map_id_sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
                 "expected_projection_revision:4",
                 "expected_projection_sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-                "projection_freshness_confirmed:true",
+                "projection_epoch_identity_confirmed:true",
                 "replacement_confirmed:true"
             )
         },
@@ -145,7 +145,7 @@ $obs = [pscustomobject]@{
                 "expected_projection_map_id_sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
                 "expected_projection_revision:4",
                 "expected_projection_sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-                "projection_freshness_confirmed:true",
+                "projection_epoch_identity_confirmed:true",
                 "replacement_confirmed:true",
                 "passed:true",
                 "failure_reasons:none"
@@ -515,7 +515,7 @@ Assert-True ([bool]$scanEvents[0].protected_items_present) "exact payload scan s
 Assert-True ([string]$scanEvents[0].runtime_boundary_forbidden_markers -eq "none") "exact payload scan should preserve boundary marker proof"
 Assert-True ([int]$scanEvents[0].active_projection_count -eq 1) "exact payload scan should preserve active projection count"
 Assert-True ([bool]$scanEvents[0].projection_required) "exact payload scan should preserve projection requirement"
-Assert-True ([bool]$scanEvents[0].projection_freshness_confirmed -and [int64]$scanEvents[0].projection_revision -eq 4 -and [int64]$scanEvents[0].expected_projection_revision -eq 4) "exact payload scan should preserve canonical projection freshness proof"
+Assert-True ([bool]$scanEvents[0].projection_epoch_identity_confirmed -and [int64]$scanEvents[0].projection_revision -eq 4 -and [int64]$scanEvents[0].expected_projection_revision -eq 4) "exact payload scan should preserve projection epoch identity proof"
 Assert-True ($providerEvents.Count -eq 3 -and [string]$providerEvents[0].schema_version -eq "taskspace-provider-request-budget-event-v1") "provider request events were not derived from runtime budget trace"
 Assert-True (@($providerEvents | Where-Object { [string]$_.producer -eq "provider_lifecycle" }).Count -eq 3) "provider request events did not preserve provider_lifecycle producer"
 Assert-True ([string]$providerEvents[0].provider_wire_api -eq "ChatCompletions" -and [int]$providerEvents[0].tools_count -eq 24 -and [string]$providerEvents[0].request_shape_classifier -eq "native_tools_schema_hot_path") "provider request events did not preserve cache request shape fields"
@@ -529,7 +529,7 @@ Assert-True ([bool]$replacement.exact_payload_scan_passed -and [bool]$replacemen
 Assert-True ([int]$replacement.active_projection_count_max -eq 1 -and [int]$replacement.active_projection_uniqueness_violation_count -eq 0) "active replacement report did not enforce projection uniqueness"
 Assert-True ([string]$replacement.runtime_boundary_forbidden_markers -eq "none") "active replacement report did not preserve boundary marker proof"
 Assert-True ([bool]$replacement.protected_items_present -and [bool]$replacement.exact_payload_scan_matching_provider_event) "active replacement report did not preserve exact scan join evidence"
-Assert-True ([bool]$replacement.projection_freshness_confirmed -and [int]$replacement.projection_freshness_unconfirmed_count -eq 0 -and [int64]$replacement.projection_revision -eq 4) "active replacement report did not require projection freshness"
+Assert-True ([bool]$replacement.projection_epoch_identity_confirmed -and [int]$replacement.projection_epoch_identity_unconfirmed_count -eq 0 -and [int64]$replacement.projection_revision -eq 4) "active replacement report did not require projection epoch identity"
 $repeatedLifecycleReplacement = New-TaskspaceActiveReplacementArtifacts $budgetEvents @($scanEvents[0], $scanEvents[0])
 Assert-True ([int]$repeatedLifecycleReplacement.active_context_replacement_report.matching_payload_scan_count -eq 1) "repeated lifecycle scans should be deduplicated by scan event id"
 $budgetOnlyReplacement = New-TaskspaceActiveReplacementArtifacts $budgetEvents @()

@@ -328,7 +328,7 @@ function New-TaskspaceBudgetArtifacts {
             expected_projection_map_id_sha256 = [string]$tags.expected_projection_map_id_sha256
             expected_projection_revision = Convert-TaskspaceTraceNullableInt $tags.expected_projection_revision
             expected_projection_sha256 = [string]$tags.expected_projection_sha256
-            projection_freshness_confirmed = Convert-TaskspaceTraceBool $tags.projection_freshness_confirmed $false
+            projection_epoch_identity_confirmed = Convert-TaskspaceTraceBool $tags.projection_epoch_identity_confirmed $false
             replacement_confirmed = Convert-TaskspaceTraceBool $tags.replacement_confirmed $false
         })
     }
@@ -433,7 +433,7 @@ function New-TaskspaceExactPayloadScanEvents {
             expected_projection_map_id_sha256 = [string]$tags.expected_projection_map_id_sha256
             expected_projection_revision = Convert-TaskspaceTraceNullableInt $tags.expected_projection_revision
             expected_projection_sha256 = [string]$tags.expected_projection_sha256
-            projection_freshness_confirmed = Convert-TaskspaceTraceBool $tags.projection_freshness_confirmed $false
+            projection_epoch_identity_confirmed = Convert-TaskspaceTraceBool $tags.projection_epoch_identity_confirmed $false
             replacement_confirmed = Convert-TaskspaceTraceBool $tags.replacement_confirmed $false
             passed = Convert-TaskspaceTraceBool $tags.passed $false
             failure_reasons = [string]$tags.failure_reasons
@@ -473,13 +473,13 @@ function New-TaskspaceActiveReplacementArtifacts {
     $failedMatchingScanEvents = @($matchingScanEvents | Where-Object { -not [bool]$_.passed })
     $projectionScanEvents = @($matchingScanEvents | Where-Object { [bool]$_.projection_required })
     $unconfirmedMatchingScanEvents = @($projectionScanEvents | Where-Object { -not [bool]$_.replacement_confirmed })
-    $freshnessUnconfirmedScanEvents = @($projectionScanEvents | Where-Object { -not [bool]$_.projection_freshness_confirmed })
+    $identityUnconfirmedScanEvents = @($projectionScanEvents | Where-Object { -not [bool]$_.projection_epoch_identity_confirmed })
     $projectionUniquenessViolations = @($projectionScanEvents | Where-Object { [int]$_.active_projection_count -gt 1 })
     $projectionCountMaximum = if ($projectionScanEvents.Count -gt 0) {
         [int](($projectionScanEvents | Measure-Object -Property active_projection_count -Maximum).Maximum)
     } else { 0 }
     $allMatchingPayloadScansPassed = ($matchingScanEvents.Count -gt 0 -and $failedMatchingScanEvents.Count -eq 0)
-    $replacementConfirmed = ($allMatchingPayloadScansPassed -and $unconfirmedMatchingScanEvents.Count -eq 0 -and $freshnessUnconfirmedScanEvents.Count -eq 0 -and $projectionUniquenessViolations.Count -eq 0)
+    $replacementConfirmed = ($allMatchingPayloadScansPassed -and $unconfirmedMatchingScanEvents.Count -eq 0 -and $identityUnconfirmedScanEvents.Count -eq 0 -and $projectionUniquenessViolations.Count -eq 0)
     $report = [pscustomobject]@{
         schema_version = "taskspace-active-context-replacement-report-v1"
         provider_payload_available = ($null -ne $first -and -not [string]::IsNullOrWhiteSpace([string]$first.provider_payload_sha256))
@@ -492,7 +492,7 @@ function New-TaskspaceActiveReplacementArtifacts {
         active_projection_count = if ($null -ne $first) { [int]$first.active_projection_count } else { 0 }
         active_projection_count_max = $projectionCountMaximum
         active_projection_uniqueness_violation_count = $projectionUniquenessViolations.Count
-        projection_freshness_unconfirmed_count = $freshnessUnconfirmedScanEvents.Count
+        projection_epoch_identity_unconfirmed_count = $identityUnconfirmedScanEvents.Count
         matching_payload_scan_count = $matchingScanEvents.Count
         failed_matching_payload_scan_count = $failedMatchingScanEvents.Count
         replacement_confirmed = [bool]$replacementConfirmed
@@ -505,7 +505,7 @@ function New-TaskspaceActiveReplacementArtifacts {
         expected_projection_kind = if ($null -ne $first) { [string]$first.expected_projection_kind } else { "" }
         expected_projection_revision = if ($null -ne $first) { $first.expected_projection_revision } else { $null }
         expected_projection_sha256 = if ($null -ne $first) { [string]$first.expected_projection_sha256 } else { "" }
-        projection_freshness_confirmed = if ($null -ne $first) { [bool]$first.projection_freshness_confirmed } else { $false }
+        projection_epoch_identity_confirmed = if ($null -ne $first) { [bool]$first.projection_epoch_identity_confirmed } else { $false }
     }
     [pscustomobject]@{
         exact_payload_scan_events = @($scanEvents)

@@ -20,7 +20,6 @@ use codex_protocol::error::Result;
 use codex_protocol::models::FunctionCallOutputBody;
 use codex_protocol::models::FunctionCallOutputPayload;
 use codex_protocol::models::MessagePhase;
-use codex_protocol::models::ResponseInputItem;
 use codex_protocol::models::ResponseItem;
 use codex_rollout::state_db;
 use codex_utils_absolute_path::AbsolutePathBuf;
@@ -280,46 +279,23 @@ pub(crate) async fn handle_output_item_done(
                 .session_telemetry
                 .log_tool_failed("local_shell", msg);
             tracing::error!(msg);
-
-            let response = ResponseInputItem::FunctionCallOutput {
-                call_id: String::new(),
-                output: FunctionCallOutputPayload {
-                    body: FunctionCallOutputBody::Text(msg.to_string()),
-                    ..Default::default()
-                },
-            };
-            record_completed_response_item(ctx.sess.as_ref(), ctx.turn_context.as_ref(), &item)
-                .await;
-            if let Some(response_item) = response_input_to_response_item(&response) {
-                ctx.sess
-                    .record_conversation_items(
-                        &ctx.turn_context,
-                        std::slice::from_ref(&response_item),
-                    )
-                    .await;
-            }
-
-            output.needs_follow_up = true;
+            return Err(CodexErr::Fatal(msg.to_string()));
         }
         // The tool request should be answered directly (or was denied); push that response into the transcript.
         Err(FunctionCallError::RespondToModel(message)) => {
-            let response = ResponseInputItem::FunctionCallOutput {
-                call_id: String::new(),
-                output: FunctionCallOutputPayload {
-                    body: FunctionCallOutputBody::Text(message),
-                    ..Default::default()
-                },
-            };
+            let feedback_items = tool_build_failure_feedback(&item, &message)?;
             record_completed_response_item(ctx.sess.as_ref(), ctx.turn_context.as_ref(), &item)
                 .await;
-            if let Some(response_item) = response_input_to_response_item(&response) {
-                ctx.sess
-                    .record_conversation_items(
-                        &ctx.turn_context,
-                        std::slice::from_ref(&response_item),
-                    )
-                    .await;
-            }
+            ctx.sess
+                .record_conversation_items(&ctx.turn_context, &feedback_items)
+                .await;
+            tracing::warn!(
+                target: "codex_core::tools",
+                event_name = "tool.call_build_failed_feedback_recorded",
+                feedback_item_count = feedback_items.len(),
+                error = message,
+                "recorded identity-preserving tool build failure feedback"
+            );
 
             output.needs_follow_up = true;
         }
@@ -330,6 +306,61 @@ pub(crate) async fn handle_output_item_done(
     }
 
     Ok(output)
+}
+
+fn tool_build_failure_feedback(item: &ResponseItem, message: &str) -> Result<Vec<ResponseItem>> {
+    let failed_output = || FunctionCallOutputPayload {
+        body: FunctionCallOutputBody::Text(message.to_string()),
+        success: Some(false),
+    };
+    let feedback = match item {
+        ResponseItem::FunctionCall { call_id, .. } => vec![ResponseItem::FunctionCallOutput {
+            call_id: call_id.clone(),
+            output: failed_output(),
+        }],
+        ResponseItem::CustomToolCall { call_id, .. } => {
+            vec![ResponseItem::CustomToolCallOutput {
+                call_id: call_id.clone(),
+                name: None,
+                output: failed_output(),
+            }]
+        }
+        ResponseItem::LocalShellCall { call_id, id, .. } => {
+            let call_id = call_id.as_ref().or(id.as_ref()).ok_or_else(|| {
+                CodexErr::Fatal("LocalShellCall without call_id or id".to_string())
+            })?;
+            vec![ResponseItem::FunctionCallOutput {
+                call_id: call_id.clone(),
+                output: failed_output(),
+            }]
+        }
+        ResponseItem::ToolSearchCall {
+            call_id: Some(call_id),
+            ..
+        } => vec![
+            ResponseItem::ToolSearchOutput {
+                call_id: Some(call_id.clone()),
+                status: "completed".to_string(),
+                execution: "client".to_string(),
+                tools: Vec::new(),
+            },
+            ResponseItem::Message {
+                id: None,
+                role: "developer".to_string(),
+                content: vec![codex_protocol::models::ContentItem::InputText {
+                    text: message.to_string(),
+                }],
+                end_turn: None,
+                phase: None,
+            },
+        ],
+        _ => {
+            return Err(CodexErr::Fatal(
+                "tool build failure cannot be paired to a provider call identity".to_string(),
+            ));
+        }
+    };
+    Ok(feedback)
 }
 
 pub(crate) async fn handle_non_tool_response_item(
@@ -449,45 +480,6 @@ fn completed_item_defers_mailbox_delivery_to_next_turn(
         }
         ResponseItem::ImageGenerationCall { .. } => true,
         _ => false,
-    }
-}
-
-pub(crate) fn response_input_to_response_item(input: &ResponseInputItem) -> Option<ResponseItem> {
-    match input {
-        ResponseInputItem::FunctionCallOutput { call_id, output } => {
-            Some(ResponseItem::FunctionCallOutput {
-                call_id: call_id.clone(),
-                output: output.clone(),
-            })
-        }
-        ResponseInputItem::CustomToolCallOutput {
-            call_id,
-            name,
-            output,
-        } => Some(ResponseItem::CustomToolCallOutput {
-            call_id: call_id.clone(),
-            name: name.clone(),
-            output: output.clone(),
-        }),
-        ResponseInputItem::McpToolCallOutput { call_id, output } => {
-            let output = output.as_function_call_output_payload();
-            Some(ResponseItem::FunctionCallOutput {
-                call_id: call_id.clone(),
-                output,
-            })
-        }
-        ResponseInputItem::ToolSearchOutput {
-            call_id,
-            status,
-            execution,
-            tools,
-        } => Some(ResponseItem::ToolSearchOutput {
-            call_id: Some(call_id.clone()),
-            status: status.clone(),
-            execution: execution.clone(),
-            tools: tools.clone(),
-        }),
-        _ => None,
     }
 }
 

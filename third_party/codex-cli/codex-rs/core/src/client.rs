@@ -193,7 +193,7 @@ pub(crate) struct ExactPayloadScanEventV1 {
     pub(crate) expected_projection_map_id_sha256: Option<String>,
     pub(crate) expected_projection_revision: Option<u64>,
     pub(crate) expected_projection_sha256: Option<String>,
-    pub(crate) projection_freshness_confirmed: Option<bool>,
+    pub(crate) projection_epoch_identity_confirmed: Option<bool>,
     pub(crate) replacement_confirmed: bool,
     pub(crate) passed: bool,
     pub(crate) failure_reasons: Vec<String>,
@@ -1104,7 +1104,7 @@ fn scan_provider_payload_text(
         expected_projection_map_id_sha256: None,
         expected_projection_revision: None,
         expected_projection_sha256: None,
-        projection_freshness_confirmed: None,
+        projection_epoch_identity_confirmed: None,
         replacement_confirmed,
         passed: failure_reasons.is_empty(),
         failure_reasons,
@@ -1234,10 +1234,10 @@ fn apply_projection_identity_expectation(
         && scan.projection_map_id_sha256 == expected.map_id_sha256
         && scan.projection_revision == expected.revision
         && scan.projection_sha256.as_ref() == Some(&expected.projection_sha256);
-    scan.projection_freshness_confirmed = Some(confirmed);
+    scan.projection_epoch_identity_confirmed = Some(confirmed);
     scan.negative_checks_performed
-        .push("projection_freshness".to_string());
-    scan.matcher_version = "r6-epoch-snapshot-checks-2".to_string();
+        .push("projection_epoch_identity".to_string());
+    scan.matcher_version = "r6-epoch-snapshot-checks-3".to_string();
     if !confirmed {
         scan.failure_reasons
             .push("epoch_snapshot_identity_mismatch".to_string());
@@ -1248,6 +1248,12 @@ fn apply_projection_identity_expectation(
 
 fn epoch_snapshot_block_is_valid(block: &str) -> bool {
     let normalized = block.replace("\\r\\n", "\n").replace("\\n", "\n");
+    if !normalized
+        .lines()
+        .any(|line| line.trim() == "- projection_role: epoch_baseline")
+    {
+        return false;
+    }
     if normalized.lines().any(|line| {
         line.trim().starts_with("- integrity_status: invalid")
             || line.trim().starts_with("integrity_status: invalid")

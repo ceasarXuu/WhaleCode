@@ -290,7 +290,7 @@ fn provider_request_budget_records_started_and_terminal_status() {
         .before_dispatch("responses_websocket")
         .expect("first request should be within budget");
     let payload = provider_payload_digest(&json!({
-        "input": "TaskSpaceMapEpochSnapshotR6V1:\n- map: none\n- bootstrap_required: true\nTaskSpaceMapEpochSnapshotR6V1 end.",
+        "input": "TaskSpaceMapEpochSnapshotR6V1:\n- projection_role: epoch_baseline\n- map: none\n- bootstrap_required: true\nTaskSpaceMapEpochSnapshotR6V1 end.",
         "tools": [{
             "type": "function",
             "function": { "name": "taskspace_control" }
@@ -391,7 +391,7 @@ fn provider_request_budget_records_started_and_terminal_status() {
 
 #[test]
 fn provider_request_budget_confirms_projection_identity_on_final_payload() {
-    let projection = "TaskSpaceMapEpochSnapshotR6V1:\n- map: none\n- bootstrap_required: true\nTaskSpaceMapEpochSnapshotR6V1 end.";
+    let projection = "TaskSpaceMapEpochSnapshotR6V1:\n- projection_role: epoch_baseline\n- map: none\n- bootstrap_required: true\nTaskSpaceMapEpochSnapshotR6V1 end.";
     let expectation = ProviderProjectionIdentityExpectation::from_projection_context(projection)
         .expect("bootstrap projection identity");
     let budget = ProviderRequestBudgetContext::enabled_with_attribution(
@@ -424,7 +424,7 @@ fn provider_request_budget_confirms_projection_identity_on_final_payload() {
         .find(|event| event.status == "payload_captured")
         .expect("payload captured event");
     let scan = event.exact_payload_scan.expect("exact payload scan");
-    assert_eq!(scan.projection_freshness_confirmed, Some(true));
+    assert_eq!(scan.projection_epoch_identity_confirmed, Some(true));
     assert_eq!(scan.projection_kind.as_deref(), Some("bootstrap"));
     assert_eq!(
         scan.projection_sha256.as_deref(),
@@ -448,7 +448,7 @@ fn provider_payload_scan_validates_canonical_projection_shape() {
     assert!(standard.scan.passed);
 
     let blank_bootstrap = provider_payload_digest(&json!({
-        "input": "TaskSpaceMapEpochSnapshotR6V1:\n- map: none\n- bootstrap_required: true\nTaskSpaceMapEpochSnapshotR6V1 end.",
+        "input": "TaskSpaceMapEpochSnapshotR6V1:\n- projection_role: epoch_baseline\n- map: none\n- bootstrap_required: true\nTaskSpaceMapEpochSnapshotR6V1 end.",
         "tools": [{
             "type": "function",
             "function": { "name": "taskspace_control" }
@@ -484,6 +484,7 @@ fn provider_payload_scan_validates_canonical_projection_shape() {
 
     let active_projection = concat!(
         "TaskSpaceMapEpochSnapshotR6V1:\n",
+        "- projection_role: epoch_baseline\n",
         "- map_id: map-1\n",
         "- revision: 2\n",
         "- root_node_id: root\n",
@@ -528,7 +529,10 @@ fn provider_payload_scan_validates_canonical_projection_shape() {
             .expect("matching projection identity");
     let mut matching_scan = active.scan.clone();
     apply_projection_identity_expectation(&mut matching_scan, Some(&matching_expectation));
-    assert_eq!(matching_scan.projection_freshness_confirmed, Some(true));
+    assert_eq!(
+        matching_scan.projection_epoch_identity_confirmed,
+        Some(true)
+    );
     assert!(matching_scan.passed);
     assert!(matching_scan.replacement_confirmed);
 
@@ -538,7 +542,7 @@ fn provider_payload_scan_validates_canonical_projection_shape() {
             .expect("revision 3 projection identity");
     let mut stale_scan = active.scan;
     apply_projection_identity_expectation(&mut stale_scan, Some(&revision_3_expectation));
-    assert_eq!(stale_scan.projection_freshness_confirmed, Some(false));
+    assert_eq!(stale_scan.projection_epoch_identity_confirmed, Some(false));
     assert!(!stale_scan.passed);
     assert!(!stale_scan.replacement_confirmed);
     assert!(

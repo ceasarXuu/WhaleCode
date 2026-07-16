@@ -447,7 +447,7 @@ pub(crate) struct ActionMapExactPayloadScanEventInput {
     pub(crate) expected_projection_map_id_sha256: Option<String>,
     pub(crate) expected_projection_revision: Option<u64>,
     pub(crate) expected_projection_sha256: Option<String>,
-    pub(crate) projection_freshness_confirmed: Option<bool>,
+    pub(crate) projection_epoch_identity_confirmed: Option<bool>,
     pub(crate) replacement_confirmed: bool,
     pub(crate) passed: bool,
     pub(crate) failure_reasons: Vec<String>,
@@ -2542,8 +2542,8 @@ impl ActionMapRuntimeState {
                         scan.expected_projection_sha256.as_deref().unwrap_or("none")
                     ),
                     format!(
-                        "projection_freshness_confirmed:{}",
-                        scan.projection_freshness_confirmed
+                        "projection_epoch_identity_confirmed:{}",
+                        scan.projection_epoch_identity_confirmed
                             .map_or("unavailable", |value| if value { "true" } else { "false" })
                     ),
                     format!("replacement_confirmed:{}", scan.replacement_confirmed),
@@ -4092,8 +4092,21 @@ impl ActionMapRuntimeState {
         Some(self.build_bootstrap_compact_developer_context())
     }
 
+    pub(crate) fn provider_projection_epoch_scope(&self) -> Option<String> {
+        if self.mode != MapRuntimeMode::Experiment {
+            return None;
+        }
+        if self.bootstrap_required {
+            return Some("bootstrap".to_string());
+        }
+        Some(format!(
+            "active:{}",
+            self.active_map_id.as_deref().unwrap_or("missing")
+        ))
+    }
+
     fn build_bootstrap_compact_developer_context(&self) -> String {
-        "TaskSpaceMapEpochSnapshotR6V1:\n- map: none\n- bootstrap_required: true\nTaskSpaceMapEpochSnapshotR6V1 end.\n"
+        "TaskSpaceMapEpochSnapshotR6V1:\n- projection_role: epoch_baseline\n- map: none\n- bootstrap_required: true\nTaskSpaceMapEpochSnapshotR6V1 end.\n"
             .to_string()
     }
 
@@ -4910,6 +4923,7 @@ pub(crate) fn format_action_map_snapshot(snapshot: &ActionMapSnapshot) -> String
 fn taskspace_projection_integrity_context(map_id: &str, reason: &str) -> String {
     format!(
         "TaskSpaceMapEpochSnapshotR6V1:\n\
+- projection_role: epoch_baseline\n\
 - map_id: {map_id}\n\
 - integrity_status: invalid\n\
 - integrity_reason: {reason}\n\

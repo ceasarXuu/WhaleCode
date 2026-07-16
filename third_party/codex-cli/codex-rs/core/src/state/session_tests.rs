@@ -81,6 +81,16 @@ async fn taskspace_compaction_keeps_raw_events_behind_verified_checkpoint() {
         .action_map_runtime
         .set_mode_for_session(MapRuntimeMode::Experiment, owner);
     state.activate_taskspace_context();
+    let epoch_items = state.clone_history().raw_items().to_vec();
+    state.taskspace_projection_epoch = Some(
+        TaskSpaceProviderProjectionEpoch::new(
+            "bootstrap".into(),
+            "projection".into(),
+            epoch_items.len(),
+            &epoch_items,
+        )
+        .unwrap(),
+    );
     let summary = ResponseItem::Message {
         id: None,
         role: "assistant".to_string(),
@@ -94,6 +104,7 @@ async fn taskspace_compaction_keeps_raw_events_behind_verified_checkpoint() {
     let checkpoint_events = state.replace_compacted_history(vec![summary.clone()], None);
 
     assert_eq!(checkpoint_events.len(), 1);
+    assert!(state.taskspace_projection_epoch.is_none());
     assert_eq!(state.taskspace_events.events().len(), 2);
     let visible = state.clone_history().raw_items().to_vec();
     assert_eq!(visible.len(), 2);

@@ -13,7 +13,7 @@ fn every_message_is_classified_exactly_once() {
             {"role": "system", "content": "stable"},
             {
                 "role": "developer",
-                "content": "TaskSpaceMapEpochSnapshotR6V1:\n- map: none\n- bootstrap_required: true\nTaskSpaceMapEpochSnapshotR6V1 end."
+                "content": "TaskSpaceMapEpochSnapshotR6V1:\n- projection_role: epoch_baseline\n- map: none\n- bootstrap_required: true\nTaskSpaceMapEpochSnapshotR6V1 end."
             },
             {"role": "user", "content": "request"},
             {"role": "assistant", "content": "response"},
@@ -152,7 +152,7 @@ fn projection_revision_changes_identity_hash_without_changing_count() {
             "messages": [{
                 "role": "developer",
                 "content": format!(
-                    "TaskSpaceMapEpochSnapshotR6V1:\n- map_id: map-1\n- revision: {revision}\nTaskSpaceMapEpochSnapshotR6V1 end."
+                    "TaskSpaceMapEpochSnapshotR6V1:\n- projection_role: epoch_baseline\n- map_id: map-1\n- revision: {revision}\nTaskSpaceMapEpochSnapshotR6V1 end."
                 )
             }]
         })
@@ -192,7 +192,7 @@ fn serialized_section_cost_never_contains_raw_payload_content() {
             {
                 "role": "developer",
                 "content": format!(
-                    "TaskSpaceMapEpochSnapshotR6V1:\n- map_id: {}\n- revision: 9\nTaskSpaceMapEpochSnapshotR6V1 end.",
+                    "TaskSpaceMapEpochSnapshotR6V1:\n- projection_role: epoch_baseline\n- map_id: {}\n- revision: 9\nTaskSpaceMapEpochSnapshotR6V1 end.",
                     secrets[5]
                 )
             },
