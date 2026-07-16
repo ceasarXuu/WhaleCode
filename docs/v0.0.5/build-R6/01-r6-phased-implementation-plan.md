@@ -10,7 +10,7 @@
 Created: 2026-07-15
 Updated: 2026-07-16
 Version: v0.0.5 build-R6
-Status: Phase F In Progress
+Status: Phase F Complete / Phase G Pending
 Owner / Responsible: WhaleCode core runtime / TaskSpace
 Risk Level: Critical
 Plan Type: Full
@@ -321,10 +321,10 @@ simple 与 complex 的 Standard/R5/R6 各3次完成；R6 finish_end adoption=100
 “schema 保持不变但 named/auto 继续切换”视为缓存修复，因为 `tool_choice` 已由 Phase E trace 证明属于
 provider cache shape。
 
-当前进度：F0-F2 已完成。provider payload 分区观测、projection 每请求 freshness 对账、当前 Map 单一
-provider-visible owner、紧凑 control delta 和 immutable lifecycle tool schema 已通过确定性测试与
-simple/complex Docker smoke。DeepSeek `required + thinking` 被 provider 明确拒绝，决策为 HOLD；F3 进入
-Agent 声明的状态/普通动作机械序列。
+**执行结果**：已完成。F0-F4 已收敛 payload 分区观测、当前 Map 单 owner、immutable tool schema、Agent
+声明 continuation、固定 projection epoch baseline 和严格 control JSON/feedback 身份。simple 与 final complex
+各 3 对 Docker formal 全部通过；缓存前缀恢复，但成本仍高于 Standard，进入 Phase G 重基线。DeepSeek
+`required + thinking` 被 provider 明确拒绝，维持 HOLD。完整证据见 `17-r6-phase-f-result.md`。
 
 **目标**：让 Agent 看到的是同一 canonical DAG 的忠实视图，不因新模型再次引入重复或语义注入。
 
@@ -411,9 +411,9 @@ docs、schema、tests、logs、viewer 对 role/status/error code 定义一致。
 | Root-open readiness | transitions/runtime | chain/fork/join tests | frontier changes | B/C/D | C production complete / D concurrency pending |
 | Agent 手动 Finish | control/runtime | terminal negative matrix | terminal trace | B/C/E | complete；6/6 live finish_end |
 | Event reducer/replay | events/snapshot | 20-cycle/fork/crash | hash/revision | B/E | complete；terminal durable envelope + resume/fork/corruption |
-| 纯 projection | projection/context | coverage/dedup/hash | wire LCP | C/F | C epoch baseline complete / F ownership cleanup pending |
+| 纯 projection | projection/context | coverage/dedup/hash | wire LCP | C/F | complete；epoch baseline + canonical delta journal |
 | Viewer DAG | Web Viewer | fixture/screenshot smoke | render digest | D/H | C snapshot cutover complete / D/H visual gate pending |
-| Docker 三臂观察 | benchmark harness | 1x/3x matrices | request/cache/map logs | A-G | E simple + complex Standard/R5/R6 各3次完成；G 成本重基线待执行 |
+| Docker 三臂观察 | benchmark harness | 1x/3x matrices | request/cache/map logs | A-G | F Standard/R6 simple + complex 各3次完成；G Standard/R5/R6-B0 待执行 |
 | 压缩重基线 | projection/observer | B0/strategy matrix | activation/bytes | G | planned |
 
 ## 1.16 日志建设矩阵

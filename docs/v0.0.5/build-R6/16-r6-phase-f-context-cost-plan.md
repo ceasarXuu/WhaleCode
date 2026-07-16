@@ -3,7 +3,7 @@
 - Created: 2026-07-16
 - Updated: 2026-07-16
 - Version: 1.0
-- Status: In Progress
+- Status: Complete
 - Owner / Responsible: WhaleCode Runtime
 - Related Systems: TaskSpace projection、tool schema、provider request、Event Store、benchmark observer
 - Related Links: `01-r6-phased-implementation-plan.md`、`15-r6-phase-e6-atomicity-live-result.md`
@@ -292,6 +292,16 @@ projection 内容完全没变也会破坏 provider 严格前缀缓存。F3 simpl
 - simple/complex 各 1 次：correctness、Map、terminal、replay 100%；TaskSpace request 2+ cache hit 不低于 80%，
   prefix preservation 不低于 80%。未达到则停留 F3.5，不进入 F4。
 
+### 10.5 完成证据（2026-07-16）
+
+- projection 固定为上下文 epoch 的机械基线；bootstrap -> active 只在同一锚点替换一次，普通状态提交不再移动
+  projection。
+- compaction、resume、fork、history replacement 和锚点前缀变化会显式开启新 epoch；不保留 stale projection。
+- simple smoke：request 2+ cache 84.27%、prefix 84.62%；complex smoke：83.02%、83.33%，均达到门禁。
+- active epoch 的 projection revision/hash 固定，后续原始 call/result/tool feedback 构成 canonical delta journal，
+  semantic replacement=0。
+- 实现提交：`36a02b1eb`。
+
 ## 11. Phase F4：正式验证
 
 ### 11.1 Deterministic
@@ -329,6 +339,17 @@ partial commit = 0
 
 性能只报告观测值，不以牺牲 correctness 或语义忠实度换取门禁通过。
 
+### 11.4 完成证据（2026-07-16）
+
+- deterministic：tools 141、protocol 197、action map 67、control 25、sequence 13、session 183、replay 18、
+  reconstruction 33；observer/harness/build/attestation 全部通过。
+- Docker formal：simple 和 final complex 各 3 对，12/12 side solved，6/6 R6 Map/Root/Finish 完整闭合。
+- F4 发现并修复 H-006：TaskSpace 路径感知 parser 未验证 JSON 尾部，可能静默执行 malformed 首值。最终 complex
+  矩阵自然验证 malformed call 返回同 call id 的 typed protocol failure、零提交，Agent 后续正确恢复。
+- simple R6 cache/prefix=84.19%/85.00%；complex=88.56%/89.09%。
+- 成本未反转：simple requests/input=2.15x/3.10x，complex=1.41x/1.94x，明确进入 Phase G。
+- 完整报告见 `17-r6-phase-f-result.md`；最终代码提交 `726d3298b`。
+
 ## 12. 实现完整性矩阵
 
 | Plan Item | Expected Behavior | Production Code Path | Integration Entry | Test Evidence | Runtime / Log Evidence | Mock / Stub Exposure | Status |
@@ -337,8 +358,8 @@ partial commit = 0
 | F1 result delta | 当前 Map 单 owner | `taskspace_control_output.rs` | tool result | 285 Rust tests + 3 PowerShell suites | control result + projection freshness trace | none | completed |
 | F2 stable contract | schema 全 turn 稳定；choice 有证据 HOLD | `session/turn.rs`, `taskspace_tool.rs` | Prompt | 155 Rust tests | tools/choice hash | provider live probe | completed |
 | F3 continuation | Agent 声明序列机械执行 | args/schema/sequence | tool router | 53 Rust tests + live | step/skipped refs | none | completed |
-| F3.5 epoch baseline | projection 固定锚点，delta 自然追加 | session/state/client | provider composer | prefix/epoch tests | identity/prefix trace | none | in progress |
-| F4 live gate | 成本与正确性可比较 | benchmark scripts | Docker harness | harness tests | performance report | none | planned |
+| F3.5 epoch baseline | projection 固定锚点，delta 自然追加 | session/state/client | provider composer | prefix/epoch tests | identity/prefix trace | none | completed |
+| F4 live gate | 成本与正确性可比较 | benchmark scripts | Docker harness | harness tests | performance report | none | completed |
 
 ## 13. 变更链日志
 
@@ -374,8 +395,8 @@ fallback。实验项目不迁移旧数据。
 | F1 | control fixture + simple/complex smoke | 不依赖 F2 | ownership/bytes report | 100% | completed |
 | F2 | provider probe + schema/cache trace | 不依赖 F3 | one-schema + required HOLD report | 100% | completed |
 | F3 | sequence regression + live adoption | 不依赖 F3.5 | request path report | 100% | completed |
-| F3.5 | prefix fixture + simple/complex smoke | 不依赖 F4 | epoch/prefix/cache report | 100% | in progress |
-| F4 | full deterministic + Docker matrix | none | Phase F result doc | 100% | pending |
+| F3.5 | prefix fixture + simple/complex smoke | 不依赖 F4 | epoch/prefix/cache report | 100% | completed |
+| F4 | full deterministic + Docker matrix | none | Phase F result doc | 100% | completed |
 
 ## 16. 决策记录
 
@@ -394,3 +415,4 @@ fallback。实验项目不迁移旧数据。
 | 2026-07-16 | continuation 不复制完整普通工具 schema | 顶层工具是参数契约 owner，continuation 只引用同一调用信封 |
 | 2026-07-16 | current ephemeral projection 改为 epoch baseline + canonical delta journal | 每轮尾部替换会结构性破坏消息前缀；原始 delta 已足以忠实推进当前状态 |
 | 2026-07-16 | 不通过压缩修复缓存 | projection 大小不是前缀 0% 的根因，F3.5 不引入语义裁剪 |
+| 2026-07-16 | control parser 必须消费完整 JSON 文档 | Runtime 不截断或静默修复 Agent 的 malformed 参数；执行、Event Store 与 replay 必须一致 |

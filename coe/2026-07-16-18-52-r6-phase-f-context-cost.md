@@ -24,9 +24,9 @@
   - active projection 在 provider payload 中无限累加。
 - Fix criteria:
   - payload section 可独立计量；当前完整 Map provider-visible owner=1；schema/choice transition=0；correctness/terminal/replay=100%；每项修复有独立成本对比。
-- Current conclusion: H-001/H-002/H-003/H-004/H-005/H-006 均已确认；F1/F2/F3 已完成状态去重、稳定 schema
-  和 Agent 声明动作合并，F3.5 已用固定 epoch baseline + canonical delta journal 恢复 provider 严格前缀。
-  F4 发现 TaskSpace 参数解析没有验证 JSON 尾部，导致原始 malformed call 被静默执行，进入 H-006 修复。
+- Current conclusion: H-001/H-002/H-003/H-004/H-005/H-006 均已确认并完成对应 Phase F 修复。F4 最终
+  complex 矩阵自然验证 malformed control 返回原 call id 的 typed protocol failure、零提交，Agent 后续恢复。
+  缓存结构性故障已收口；仍高于 Standard 的 request/input 成本进入 Phase G，不在 F 内语义裁剪。
 - Related hypotheses:
   - H-001
   - H-002
@@ -557,3 +557,27 @@
   ```
 - Interpretation: TaskSpace 与 Standard 都只接受一个完整 JSON 文档；Runtime 不再静默修复 Agent 尾部错误，反馈身份和零提交语义保持一致。
 - Time: 2026-07-16 23:35
+
+## Evidence E-012: 最终 complex 三次矩阵自然验证 malformed 零提交
+- Related hypotheses:
+  - H-006
+- Direction: supports
+- Type: fix-validation
+- Source: final complex pair-002 TaskSpace rollout
+- Prediction or plan link:
+  - H-006 live fix validation
+- Matched signal:
+  - continuation 以错误 `]` 闭合，strict parser 和 observer 均判定 parse error。
+  - 同 call id 返回 `protocol_failed`、`state_commit=false`、`partial_commit=0`，没有执行嵌套 patch。
+  - Agent 随后以新 bind call 推进，最终 revision 8 terminal commit；public/hidden validator 通过。
+- Correlation keys:
+  - run `target/r6-phase-f4-final/subscription-billing-repair/20260716-233621-580`
+  - call `call_00_j0v0tmnubWUADxcvKbk77016`
+- Raw content:
+  ```text
+  strict parse: Unmatched ']' at line 1, column 1854
+  output: status=protocol_failed success=false state_commit=false partial_commit=0
+  final matrix: Standard 3/3 solved; R6 3/3 solved; R6 open nodes=0
+  ```
+- Interpretation: 执行、Event Store、observer 和 Agent feedback 对 malformed action 的语义现已完全一致。
+- Time: 2026-07-16 23:45
