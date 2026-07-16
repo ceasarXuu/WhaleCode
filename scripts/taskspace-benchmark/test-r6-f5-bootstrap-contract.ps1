@@ -82,6 +82,7 @@ $result = $resultText | ConvertFrom-Json -Depth 80
 Assert-True ($result.diagnostic.infrastructure_valid -eq $true) 'probe infrastructure was not valid'
 Assert-True ([string]$result.diagnostic.attribution -eq 'schema_breadth_supported') 'probe attribution was unexpected'
 Assert-True (@($result.events).Count -eq 18) 'probe did not emit 18 observations'
+Assert-True (@($result.events | Where-Object { $_.request.tool_choice_kind -ne 'named_function' -or $_.request.thinking_type -ne 'disabled' }).Count -eq 0) 'probe request shape diverged from production named control behavior'
 $a = @($result.summaries | Where-Object arm -eq 'A')[0]
 $b = @($result.summaries | Where-Object arm -eq 'B')[0]
 $c = @($result.summaries | Where-Object arm -eq 'C')[0]

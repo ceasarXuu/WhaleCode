@@ -288,7 +288,8 @@ for ($repeatIndex = 1; $repeatIndex -le $Repeat; $repeatIndex++) {
                 )
                 tools = @($tool)
                 tool_choice = [ordered]@{ type = 'function'; function = [ordered]@{ name = 'taskspace_control' } }
-                thinking = [ordered]@{ type = 'enabled' }
+                # Production disables thinking when DeepSeek receives named tool_choice.
+                thinking = [ordered]@{ type = 'disabled' }
                 stream = $false
                 temperature = 0
             }
@@ -309,6 +310,8 @@ for ($repeatIndex = 1; $repeatIndex -le $Repeat; $repeatIndex++) {
                         prompt_sha256 = Get-Sha256 ([string]$samples[$sampleName])
                         schema_bytes = Get-Utf8Bytes $toolJson
                         schema_sha256 = Get-Sha256 $toolJson
+                        tool_choice_kind = 'named_function'
+                        thinking_type = 'disabled'
                     }
                     duration_ms = $invocation.duration_ms
                     response = $observation
