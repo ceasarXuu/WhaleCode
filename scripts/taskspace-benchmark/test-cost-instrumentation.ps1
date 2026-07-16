@@ -744,6 +744,64 @@ Assert-True ([int]$wireTraceSummary.prefix_preserved_count -eq 0 -and [double]$w
 Assert-True ([int]$wireTraceSummary.zero_cache_hit_count -eq 1 -and [int]$wireTraceSummary.cache_warmup_candidate_count -eq 1 -and [int]$wireTraceSummary.same_shape_zero_hit_count -eq 0) "cache warmup classification was not aggregated"
 Assert-True ([int]$wireTraceSummary.tool_choice_transition_count -eq 1 -and [int]$wireTraceSummary.cache_shape_transition_count -eq 1) "cache-shape transition was not aggregated"
 Assert-True ($wireTraceEvents.Count -eq 2 -and [string]$wireTraceEvents[1].first_diff_path -eq "tool_choice" -and [bool]$wireTraceEvents[1].message_prefix_preserved -and -not [bool]$wireTraceEvents[1].prefix_preserved) "provider final-wire request shape fields were not preserved"
+Assert-True ([string]$wireTraceSummary.section_cost_summary.availability -eq "unavailable" -and [int]$wireTraceSummary.section_cost_summary.unavailable_request_count -eq 2) "historical v2 section cost should be explicitly unavailable"
+Assert-True ([int]$wireTraceSummary.section_cost_summary.unavailable_reason_counts.historical_provider_wire_trace_v2 -eq 2 -and $null -eq $wireTraceSummary.section_cost_summary.section_bytes_total) "historical v2 section cost was reported as zero"
+Assert-True (@($wireTraceEvents | Where-Object { $_.section_cost.availability -eq "unavailable" -and $_.section_cost.unavailable_reason -eq "historical_provider_wire_trace_v2" }).Count -eq 2) "historical v2 cache events omitted section-cost provenance"
+Assert-True ([int]$wireTraceSummary.section_cost_summary.active_projection_identity_summary.unavailable_count -eq 2 -and [int]$wireTraceSummary.section_cost_summary.active_projection_identity_summary.unique_projection_sha256_count -eq 0) "historical v2 projection identity should be explicitly unavailable"
+
+$v3WireTraceDir = Join-Path $RunRoot "provider-wire-trace-v3-artifacts"
+New-Item -ItemType Directory -Path $v3WireTraceDir -Force | Out-Null
+$v3WireTraceJsonl = Join-Path $RunRoot "provider-wire-trace-v3-whale-exec.jsonl"
+'{"type":"turn.completed","usage":{"input_tokens":500,"cached_input_tokens":0,"output_tokens":20}}' | Set-Content -LiteralPath $v3WireTraceJsonl -Encoding UTF8
+$v3Sections = @(
+    [pscustomobject]@{ kind = "system_messages"; count = 1; bytes = 100; estimated_tokens = 25; sha256 = "system-hash" },
+    [pscustomobject]@{ kind = "natural_history"; count = 3; bytes = 200; estimated_tokens = 50; sha256 = "history-hash" },
+    [pscustomobject]@{ kind = "active_projection"; count = 1; bytes = 30; estimated_tokens = 8; sha256 = "projection-hash" },
+    [pscustomobject]@{ kind = "taskspace_control_feedback"; count = 1; bytes = 20; estimated_tokens = 5; sha256 = "control-hash" },
+    [pscustomobject]@{ kind = "ordinary_tool_feedback"; count = 2; bytes = 40; estimated_tokens = 10; sha256 = "feedback-hash" },
+    [pscustomobject]@{ kind = "tools"; count = 2; bytes = 50; estimated_tokens = 13; sha256 = "tools-hash" },
+    [pscustomobject]@{ kind = "tool_choice"; count = 1; bytes = 10; estimated_tokens = 3; sha256 = "choice-hash" },
+    [pscustomobject]@{ kind = "other_payload"; count = 2; bytes = 50; estimated_tokens = 12; sha256 = "other-hash" }
+)
+$v3Shape = [pscustomobject]@{
+    schema_version = "provider-chat-wire-trace-v3"; event_name = "provider.chat_wire_shape_recorded"
+    request_id = "wire-v3-1"; request_index = 1; provider_wire_api = "ChatCompletions"; status = "payload_captured"
+    provider_payload_sha256 = "wire-v3-hash"; provider_payload_bytes = 500; cache_shape_hash = "wire-v3-shape"
+    messages_hash = "wire-v3-messages"; tools_hash = "wire-v3-tools"; tools_count = 2; message_count = 4
+    section_cost = [pscustomobject]@{
+        schema_version = "provider-wire-section-cost-v1"; availability = "measured"; unavailable_reason = $null
+        section_bytes_total = 500
+        active_projection_identity = [pscustomobject]@{
+            count = 1; kind = "active"
+            map_id_sha256 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            revision = 7
+            projection_sha256 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            unavailable_reason = $null
+        }
+        sections = $v3Sections
+    }
+}
+@(
+    $v3Shape,
+    [pscustomobject]@{ schema_version = "provider-chat-wire-trace-v3"; event_name = "provider.chat_wire_request_terminal"; request_id = "wire-v3-1"; status = "response_completed"; input_tokens = 500; cached_input_tokens = 0; output_tokens = 20 }
+) | ForEach-Object { $_ | ConvertTo-Json -Compress -Depth 12 } | Set-Content -LiteralPath (Join-Path $v3WireTraceDir "provider-wire-trace.jsonl") -Encoding UTF8
+$v3Instrumentation = Write-TaskspaceCostInstrumentationArtifacts -ArtifactDir $v3WireTraceDir -JsonlPath $v3WireTraceJsonl -ObservabilityJsonPath ""
+$v3Summary = $v3Instrumentation.provider_cache_trace_summary.section_cost_summary
+$v3Event = @($v3Instrumentation.provider_cache_trace_events)[0]
+$v3SectionBytes = [int64](@($v3Summary.sections | Measure-Object -Property bytes -Sum).Sum)
+Assert-True ([string]$v3Event.section_cost.availability -eq "measured" -and @($v3Event.section_cost.sections).Count -eq 8) "measured v3 cache event omitted section cost"
+Assert-True ([int]$v3Summary.measured_request_count -eq 1 -and [int]$v3Summary.unavailable_request_count -eq 0 -and [int64]$v3Summary.section_bytes_total -eq 500) "measured v3 section summary coverage is incorrect"
+Assert-True ($v3SectionBytes -eq [int64]$v3Summary.section_bytes_total -and $v3SectionBytes -eq [int64]$v3Event.provider_payload_bytes -and [int64]$v3Summary.estimated_tokens_total -eq 126) "v3 section summary did not reconcile exact payload/section/token totals"
+Assert-True ([string]$v3Event.section_cost.active_projection_identity.kind -eq "active" -and [int64]$v3Event.section_cost.active_projection_identity.revision -eq 7) "v3 cache event lost active projection identity"
+Assert-True ([int]$v3Summary.active_projection_identity_summary.active_count -eq 1 -and [int]$v3Summary.active_projection_identity_summary.unique_revision_count -eq 1 -and [int]$v3Summary.active_projection_identity_summary.unique_projection_sha256_count -eq 1) "v3 section summary lost projection freshness evidence"
+$mismatchShape = $v3Shape | ConvertTo-Json -Depth 12 | ConvertFrom-Json
+$mismatchShape.section_cost.section_bytes_total = 499
+$mismatchCost = ConvertTo-TaskspaceProviderSectionCost $mismatchShape
+Assert-True ([string]$mismatchCost.availability -eq "unavailable" -and [string]$mismatchCost.unavailable_reason -eq "section_bytes_total_mismatch" -and $null -eq $mismatchCost.section_bytes_total) "section byte mismatch should not emit a measured zero or partial value"
+$payloadMismatchShape = $v3Shape | ConvertTo-Json -Depth 12 | ConvertFrom-Json
+$payloadMismatchShape.provider_payload_bytes = 501
+$payloadMismatchCost = ConvertTo-TaskspaceProviderSectionCost $payloadMismatchShape
+Assert-True ([string]$payloadMismatchCost.availability -eq "unavailable" -and [string]$payloadMismatchCost.unavailable_reason -eq "section_bytes_payload_mismatch") "section total must reconcile to exact provider payload bytes"
 
 $aggregateCacheRoot = Join-Path $RunRoot "aggregate-cache-root"
 $leftArtifacts = Join-Path $aggregateCacheRoot "pair-001\left\artifacts"
@@ -783,6 +841,32 @@ New-Item -ItemType Directory -Path $leftArtifacts, $rightArtifacts -Force | Out-
     same_shape_zero_hit_count = 0
     tool_choice_transition_count = 1
     cache_shape_transition_count = 1
+    section_cost_summary = [pscustomobject]@{
+        schema_version = "provider-wire-section-cost-summary-v1"
+        availability = "measured"; request_count = 2; measured_request_count = 2; unavailable_request_count = 0
+        unavailable_reason_counts = [pscustomobject]@{}; section_bytes_total = 300; estimated_tokens_total = 75
+        active_projection_identity_summary = [pscustomobject]@{
+            schema_version = "provider-wire-active-projection-identity-summary-v1"
+            bootstrap_count = 1; active_count = 1; unavailable_count = 0
+            unavailable_reason_counts = [pscustomobject]@{}
+            projection_sha256_counts = [pscustomobject]@{
+                'cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc' = 1
+                'dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd' = 1
+            }
+            revision_counts = [pscustomobject]@{ '1' = 1 }
+            unique_projection_sha256_count = 2; unique_revision_count = 1
+        }
+        sections = @(
+            [pscustomobject]@{ kind = "system_messages"; count = 2; bytes = 100; estimated_tokens = 25 },
+            [pscustomobject]@{ kind = "natural_history"; count = 2; bytes = 50; estimated_tokens = 12 },
+            [pscustomobject]@{ kind = "active_projection"; count = 2; bytes = 40; estimated_tokens = 10 },
+            [pscustomobject]@{ kind = "taskspace_control_feedback"; count = 2; bytes = 30; estimated_tokens = 8 },
+            [pscustomobject]@{ kind = "ordinary_tool_feedback"; count = 2; bytes = 20; estimated_tokens = 5 },
+            [pscustomobject]@{ kind = "tools"; count = 2; bytes = 30; estimated_tokens = 8 },
+            [pscustomobject]@{ kind = "tool_choice"; count = 2; bytes = 10; estimated_tokens = 2 },
+            [pscustomobject]@{ kind = "other_payload"; count = 2; bytes = 20; estimated_tokens = 5 }
+        )
+    }
 }) | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath (Join-Path $rightArtifacts "provider-cache-trace-summary.json") -Encoding UTF8
 ([pscustomobject]@{ schema_version = "TaskSpaceProviderCacheTraceV1"; request_id = "left-1"; request_shape_classifier = "native_tools_schema_hot_path" } | ConvertTo-Json -Compress -Depth 8) | Set-Content -LiteralPath (Join-Path $leftArtifacts "provider-cache-trace.jsonl") -Encoding UTF8
 ([pscustomobject]@{ schema_version = "TaskSpaceProviderCacheTraceV1"; request_id = "right-1"; request_shape_classifier = "tool_free_action_contract" } | ConvertTo-Json -Compress -Depth 8) | Set-Content -LiteralPath (Join-Path $rightArtifacts "provider-cache-trace.jsonl") -Encoding UTF8
@@ -795,6 +879,11 @@ Assert-True ([int]$aggregateCacheSummary.tool_free_action_contract_count -eq 2 -
 Assert-True ([string]$aggregateCacheSummary.schema_version -eq "TaskSpaceProviderCacheTraceSummaryV3" -and [int]$aggregateCacheSummary.cache_warmup_candidate_count -eq 1 -and [int]$aggregateCacheSummary.tool_choice_transition_count -eq 1) "aggregate provider cache trace omitted cache-shape diagnostics"
 Assert-True ($aggregateCacheEvents.Count -eq 1 -and [string]$aggregateCacheEvents[0].request_id -eq "right-1") "aggregate provider cache trace events did not filter to taskspace/right artifacts"
 Assert-True ([string]$aggregateCache.provider_cache_trace_summary_path -eq (Join-Path $aggregateCacheRoot "provider-cache-trace-summary.json")) "aggregate return object omitted provider cache trace summary path"
+Assert-True ([string]$aggregateCacheSummary.section_cost_summary.availability -eq "measured" -and [int]$aggregateCacheSummary.section_cost_summary.measured_request_count -eq 2) "aggregate provider cache trace omitted measured section coverage"
+$aggregateActiveProjection = @($aggregateCacheSummary.section_cost_summary.sections | Where-Object { $_.kind -eq "active_projection" })[0]
+Assert-True ([int64]$aggregateCacheSummary.section_cost_summary.section_bytes_total -eq 300 -and [int64]$aggregateActiveProjection.bytes -eq 40) "aggregate provider section totals are incorrect"
+Assert-True ([int]$aggregateCacheSummary.section_cost_summary.active_projection_identity_summary.bootstrap_count -eq 1 -and [int]$aggregateCacheSummary.section_cost_summary.active_projection_identity_summary.active_count -eq 1) "aggregate provider projection identity counts are incorrect"
+Assert-True ([int]$aggregateCacheSummary.section_cost_summary.active_projection_identity_summary.unique_projection_sha256_count -eq 2 -and [int]$aggregateCacheSummary.section_cost_summary.active_projection_identity_summary.unique_revision_count -eq 1) "aggregate provider projection freshness evidence is incorrect"
 
 if ($failures.Count -gt 0) {
     $failures | ForEach-Object { Write-Error $_ }

@@ -2,6 +2,7 @@ Set-StrictMode -Version Latest
 . (Join-Path $PSScriptRoot "native-cadence.ps1")
 . (Join-Path $PSScriptRoot "patch-observability.ps1")
 . (Join-Path $PSScriptRoot "performance-duplication.ps1")
+. (Join-Path $PSScriptRoot "performance-section-cost.ps1")
 function Get-PerformanceProperty {
     param($Object, [Parameter(Mandatory = $true)][string]$Name, $Default = $null)
     if ($null -ne $Object) {
@@ -282,6 +283,7 @@ function Get-PerformanceSideObservation {
             cache_shape_transition_count = Get-PerformanceNumber (Get-PerformanceProperty $cache "cache_shape_transition_count")
             trace_coverage = Get-PerformanceNumber (Get-PerformanceProperty $cache "trace_coverage")
         }
+        section_cost = Get-PerformanceSectionCostFacts $cache
         map = $map
         patch = $patchObservation
         duplication = $duplication
@@ -321,6 +323,7 @@ function Get-PerformanceModeAggregate {
         request_2_plus_hit_rate = Get-PerformanceRatio $cache2 ($cache2 + $uncached2)
         prefix_preserved_rate = Get-PerformanceRatio $prefixKept $prefixCount
         prefix_preserved_count = $prefixKept; prefix_comparison_count = $prefixCount
+        section_cost = Get-PerformanceModeSectionCostAggregate $selected
     }
 }
 function Format-PerformanceValue {
@@ -332,13 +335,6 @@ function Format-PerformanceValue {
     if ($Value -is [bool]) { return ([string]$Value).ToLowerInvariant() }
     if ($Value -is [ValueType]) { return ("{0:N0}" -f ([double]$Value)) }
     ([string]$Value).Replace("|", "\|").Replace("`r", " ").Replace("`n", " ")
-}
-function Format-PerformanceControlActions {
-    param($Actions)
-    if ($null -eq $Actions) { return "N/A" }
-    $parts = @($Actions.PSObject.Properties | Sort-Object Name | ForEach-Object { "$($_.Name)=$($_.Value)" })
-    if ($parts.Count -eq 0) { return "N/A" }
-    ($parts -join ", ").Replace("|", "\|")
 }
 function Write-TaskspacePerformanceObservation {
     param(
@@ -432,6 +428,7 @@ function Write-TaskspacePerformanceObservation {
             $lines.Add("| $(Format-PerformanceValue $row.repeat) | $($row.logical_mode) | $(Format-PerformanceValue $row.cost.input_tokens) | $(Format-PerformanceValue $row.cost.cached_input_tokens) | $(Format-PerformanceValue $row.cost.uncached_input_tokens) | $(Format-PerformanceValue $row.cost.output_tokens) | $(Format-PerformanceValue $row.cost.full_cache_hit_rate percent) | $(Format-PerformanceValue $row.cache.request_2_plus_hit_rate percent) | $prefix | $(Format-PerformanceValue $row.cache.zero_cache_hit_count) | $(Format-PerformanceValue $row.cache.cache_warmup_candidate_count) | $(Format-PerformanceValue $row.cache.same_shape_zero_hit_count) | $(Format-PerformanceValue $row.cache.tool_choice_transition_count) | $(Format-PerformanceValue $row.cache.cache_shape_transition_count) | $(Format-PerformanceValue $row.cache.trace_coverage percent) |")
         }
     }
+    Add-PerformanceSectionCostMarkdown $lines $rows $aggregates
     Add-PerformanceDuplicationMarkdown $lines $rows
     $lines.Add("")
     $lines.Add("## Map")

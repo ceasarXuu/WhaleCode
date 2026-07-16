@@ -13,6 +13,11 @@ use std::sync::Mutex;
 use tracing::info;
 use tracing::warn;
 
+#[path = "provider_wire_sections.rs"]
+mod provider_wire_sections;
+
+use provider_wire_sections::ProviderWireSectionCost;
+
 const TRACE_PATH_ENV: &str = "WHALE_PROVIDER_WIRE_TRACE_PATH";
 
 #[derive(Debug)]
@@ -58,6 +63,7 @@ struct WireShapeEvent<'a> {
     pre_wire_payload_sha256: String,
     provider_payload_sha256: String,
     provider_payload_bytes: usize,
+    section_cost: &'a ProviderWireSectionCost,
     messages_hash: String,
     tools_hash: String,
     cache_shape_hash: String,
@@ -137,6 +143,11 @@ impl ProviderWireTrace {
         let provider_payload_bytes = json_bytes(&wire).len();
         let provider_payload_sha256 = json_hash(&wire);
         let pre_wire_payload_sha256 = json_hash(&pre_wire);
+        let section_cost = ProviderWireSectionCost::measure(&wire, messages_field);
+        debug_assert_eq!(
+            section_cost.section_bytes_total, provider_payload_bytes,
+            "provider wire section bytes must reconcile with payload bytes"
+        );
 
         let mut state = self
             .state
@@ -169,7 +180,7 @@ impl ProviderWireTrace {
             None => "provider.chat_wire_shape_recorded",
         };
         let event = WireShapeEvent {
-            schema_version: "provider-chat-wire-trace-v2",
+            schema_version: "provider-chat-wire-trace-v3",
             event_name,
             request_id: &request_id,
             epoch_id,
@@ -178,6 +189,7 @@ impl ProviderWireTrace {
             pre_wire_payload_sha256,
             provider_payload_sha256,
             provider_payload_bytes,
+            section_cost: &section_cost,
             messages_hash,
             tools_hash: tools_hash.clone(),
             cache_shape_hash,

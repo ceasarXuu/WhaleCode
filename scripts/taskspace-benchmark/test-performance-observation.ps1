@@ -21,7 +21,8 @@ function Write-JsonLines([object[]]$Rows, [string]$Path) {
 function New-SideFixture {
     param(
         [string]$PairDir, [string]$Side, [string]$Mode, [int]$Requests, [int]$Tools,
-        [int]$InputTokens, [int]$CachedTokens, [int]$OutputTokens
+        [int]$InputTokens, [int]$CachedTokens, [int]$OutputTokens,
+        [ValidateSet("measured", "historical_v2")][string]$SectionAvailability = "measured"
     )
     $artifactDir = Join-Path (Join-Path $PairDir $Side) "artifacts"
     New-Item -ItemType Directory -Path $artifactDir -Force | Out-Null
@@ -35,6 +36,61 @@ function New-SideFixture {
             maps = $(if ($isTaskspace) { 1 } else { 0 }); nodes = $(if ($isTaskspace) { 3 } else { 0 })
             edges = $(if ($isTaskspace) { 2 } else { 0 }); open_leaf_nodes = 0; changed_paths = @("src/fix.py")
         }) (Join-Path $artifactDir "metrics.json")
+    $sectionRows = @(
+        [pscustomobject]@{ kind = "system_messages"; count = $Requests; bytes = 40 * $Requests; estimated_tokens = 10 * $Requests },
+        [pscustomobject]@{ kind = "natural_history"; count = $Requests; bytes = 30 * $Requests; estimated_tokens = 8 * $Requests },
+        [pscustomobject]@{ kind = "active_projection"; count = $(if ($isTaskspace) { $Requests } else { 0 }); bytes = $(if ($isTaskspace) { 20 * $Requests } else { 0 }); estimated_tokens = $(if ($isTaskspace) { 5 * $Requests } else { 0 }) },
+        [pscustomobject]@{ kind = "taskspace_control_feedback"; count = $(if ($isTaskspace) { $Requests } else { 0 }); bytes = $(if ($isTaskspace) { 10 * $Requests } else { 0 }); estimated_tokens = $(if ($isTaskspace) { 3 * $Requests } else { 0 }) },
+        [pscustomobject]@{ kind = "ordinary_tool_feedback"; count = $Requests; bytes = 15 * $Requests; estimated_tokens = 4 * $Requests },
+        [pscustomobject]@{ kind = "tools"; count = $Requests; bytes = 10 * $Requests; estimated_tokens = 3 * $Requests },
+        [pscustomobject]@{ kind = "tool_choice"; count = $Requests; bytes = 5 * $Requests; estimated_tokens = $Requests },
+        [pscustomobject]@{ kind = "other_payload"; count = $Requests; bytes = 10 * $Requests; estimated_tokens = 3 * $Requests }
+    )
+    $sectionBytes = [int64](($sectionRows | Measure-Object -Property bytes -Sum).Sum)
+    $sectionTokens = [int64](($sectionRows | Measure-Object -Property estimated_tokens -Sum).Sum)
+    $projectionIdentity = if ($SectionAvailability -eq "historical_v2") {
+        [pscustomobject]@{
+            schema_version = "provider-wire-active-projection-identity-summary-v1"
+            bootstrap_count = 0; active_count = 0; unavailable_count = $Requests
+            unavailable_reason_counts = [pscustomobject]@{ historical_provider_wire_trace_v2 = $Requests }
+            projection_sha256_counts = [pscustomobject]@{}; revision_counts = [pscustomobject]@{}
+            unique_projection_sha256_count = 0; unique_revision_count = 0
+        }
+    } elseif ($isTaskspace) {
+        [pscustomobject]@{
+            schema_version = "provider-wire-active-projection-identity-summary-v1"
+            bootstrap_count = 1; active_count = $Requests - 1; unavailable_count = 0
+            unavailable_reason_counts = [pscustomobject]@{}
+            projection_sha256_counts = [pscustomobject]@{ 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' = $Requests }
+            revision_counts = [pscustomobject]@{ '1' = $Requests - 1 }
+            unique_projection_sha256_count = 1; unique_revision_count = 1
+        }
+    } else {
+        [pscustomobject]@{
+            schema_version = "provider-wire-active-projection-identity-summary-v1"
+            bootstrap_count = 0; active_count = 0; unavailable_count = $Requests
+            unavailable_reason_counts = [pscustomobject]@{ active_projection_missing = $Requests }
+            projection_sha256_counts = [pscustomobject]@{}; revision_counts = [pscustomobject]@{}
+            unique_projection_sha256_count = 0; unique_revision_count = 0
+        }
+    }
+    $sectionCostSummary = if ($SectionAvailability -eq "measured") {
+        [pscustomobject]@{
+            schema_version = "provider-wire-section-cost-summary-v1"; availability = "measured"
+            request_count = $Requests; measured_request_count = $Requests; unavailable_request_count = 0
+            unavailable_reason_counts = [pscustomobject]@{}; section_bytes_total = $sectionBytes
+            estimated_tokens_total = $sectionTokens; sections = $sectionRows
+            active_projection_identity_summary = $projectionIdentity
+        }
+    } else {
+        [pscustomobject]@{
+            schema_version = "provider-wire-section-cost-summary-v1"; availability = "unavailable"
+            request_count = $Requests; measured_request_count = 0; unavailable_request_count = $Requests
+            unavailable_reason_counts = [pscustomobject]@{ historical_provider_wire_trace_v2 = $Requests }
+            section_bytes_total = $null; estimated_tokens_total = $null; sections = @()
+            active_projection_identity_summary = $projectionIdentity
+        }
+    }
     Write-Json ([pscustomobject]@{
             provider_request_count = $Requests; trace_coverage = 1.0; request_2_plus_count = $Requests - 1
             request_2_plus_cached_input_tokens = $CachedTokens - 100; request_2_plus_uncached_input_tokens = 100
@@ -43,6 +99,7 @@ function New-SideFixture {
             zero_cache_hit_count = 0; cache_warmup_candidate_count = 0; same_shape_zero_hit_count = 0
             tool_choice_transition_count = $(if ($isTaskspace) { 1 } else { 0 })
             cache_shape_transition_count = $(if ($isTaskspace) { 1 } else { 0 })
+            section_cost_summary = $sectionCostSummary
         }) (Join-Path $artifactDir "provider-cache-trace-summary.json")
     Write-JsonLines @(
         [pscustomobject]@{ event_name = "provider.chat_wire_shape_recorded"; request_index = 1; message_shapes = @(
@@ -202,7 +259,7 @@ Write-Json ([pscustomobject]@{ repeat = 2; left = "taskspace"; right = "standard
 New-SideFixture $pair1 "left" "standard" 6 8 6000 5000 500
 New-SideFixture $pair1 "right" "taskspace" 10 12 12000 10800 800
 New-SideFixture $pair2 "left" "taskspace" 8 10 10000 9000 700
-New-SideFixture $pair2 "right" "standard" 4 6 4000 3200 400
+New-SideFixture $pair2 "right" "standard" 4 6 4000 3200 400 -SectionAvailability "historical_v2"
 $pair3 = Join-Path $RunRoot "pair-003"
 Write-Json ([pscustomobject]@{ repeat = 3; left = "standard"; right = "taskspace" }) (Join-Path $pair3 "logical-mode-map.json")
 Write-Json ([pscustomobject]@{
@@ -224,6 +281,18 @@ Assert-True ($taskspace.totals.control_failures -eq 2) "control failures are mis
 Assert-True ($taskspace.totals.nested_actions -eq 2) "nested continuation actions were not aggregated"
 Assert-True ($taskspace.totals.request_patch_count -eq 2) "patch declarations are missing from aggregate"
 Assert-True ($report.ratios.provider_requests -eq 1.8) "request ratio is incorrect"
+Assert-True ([string]$taskspace.section_cost.availability -eq "measured" -and [int]$taskspace.section_cost.measured_request_count -eq 18 -and [int64]$taskspace.section_cost.section_bytes_total -eq 2520) "taskspace mode section totals are incorrect"
+Assert-True ([string]$standard.section_cost.availability -eq "partial" -and [int]$standard.section_cost.measured_request_count -eq 6 -and [int]$standard.section_cost.unavailable_request_count -eq 4) "standard mode did not preserve mixed v3/v2 section availability"
+Assert-True ([int]$taskspace.section_cost.active_projection_identity_summary.bootstrap_count -eq 2 -and [int]$taskspace.section_cost.active_projection_identity_summary.active_count -eq 16) "taskspace projection identity lifecycle was not aggregated"
+Assert-True ([int]$taskspace.section_cost.active_projection_identity_summary.unique_projection_sha256_count -eq 1 -and [int]$taskspace.section_cost.active_projection_identity_summary.unique_revision_count -eq 1) "taskspace projection identity hashes or revisions were lost"
+Assert-True ([int]$standard.section_cost.active_projection_identity_summary.unavailable_count -eq 10) "standard projection unavailability was not explicit"
+$standardMeasuredRow = @($report.rows | Where-Object { $_.repeat -eq 1 -and $_.logical_mode -eq "standard" })[0]
+$standardHistoricalRow = @($report.rows | Where-Object { $_.repeat -eq 2 -and $_.logical_mode -eq "standard" })[0]
+$standardActiveProjection = @($standardMeasuredRow.section_cost.sections | Where-Object { $_.kind -eq "active_projection" })[0]
+$standardControlFeedback = @($standardMeasuredRow.section_cost.sections | Where-Object { $_.kind -eq "taskspace_control_feedback" })[0]
+Assert-True ([int64]$standardActiveProjection.bytes -eq 0 -and [int64]$standardControlFeedback.bytes -eq 0) "measured Standard side should report zero TaskSpace-only sections"
+Assert-True ($null -eq $standardHistoricalRow.section_cost.section_bytes_total -and [int]$standardHistoricalRow.section_cost.unavailable_reason_counts.historical_provider_wire_trace_v2 -eq 4) "historical v2 side fabricated section totals"
+Assert-True ([int64](($standardMeasuredRow.section_cost.sections | Measure-Object -Property bytes -Sum).Sum) -eq [int64]$standardMeasuredRow.section_cost.section_bytes_total) "side section bytes did not reconcile exactly"
 Assert-True (@($report.rows | Where-Object { $_.observation_status -eq "skipped" }).Count -eq 1) "right-only placeholder side was not classified as skipped"
 Assert-True ($standard.observed_side_count -eq 3 -and $standard.excluded_side_count -eq 1) "skipped side contaminated the aggregate"
 Assert-True (@($report.rows | Where-Object { $_.logical_mode -eq "taskspace" -and $_.map.nodes.Count -eq 3 }).Count -eq 2) "map node details are missing"
@@ -260,6 +329,9 @@ Assert-True ($markdown -match "## Cross carrier lineage") "markdown omitted cros
 Assert-True ($markdown -match "## Rollout storage") "markdown omitted rollout storage details"
 Assert-True ($markdown -match "Finish without sibling") "markdown omitted finish barrier validation counts"
 Assert-True ($markdown -match "## Patch lifecycle") "markdown omitted patch lifecycle metrics"
+Assert-True ($markdown -match "## Provider wire section cost" -and $markdown -match "active_projection") "markdown omitted provider section totals"
+Assert-True ($markdown -match "### Active projection identity" -and $markdown -match "active_projection_missing=6") "markdown omitted projection identity freshness evidence"
+Assert-True ($markdown -match "historical_provider_wire_trace_v2=4") "markdown omitted historical section-cost unavailability"
 Assert-True ($markdown -match "root_task_active_after_nodes_closed") "mechanical map warning was not rendered"
 
 if ($failures.Count -gt 0) {

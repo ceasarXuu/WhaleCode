@@ -652,174 +652,8 @@ function New-TaskspaceProviderRequestArtifacts {
     }
 }
 
-function New-TaskspaceProviderWireCacheTraceArtifacts {
-    param([Parameter(Mandatory = $true)][string]$TracePath)
-    $shapes = @{}
-    $terminals = @{}
-    foreach ($line in @(Get-Content -Encoding UTF8 -LiteralPath $TracePath -ErrorAction SilentlyContinue)) {
-        if ([string]::IsNullOrWhiteSpace([string]$line)) { continue }
-        try { $event = $line | ConvertFrom-Json } catch { continue }
-        if ([string]$event.schema_version -ne "provider-chat-wire-trace-v2") { continue }
-        $requestId = [string]$event.request_id
-        if ([string]::IsNullOrWhiteSpace($requestId)) { continue }
-        if ([string]$event.status -eq "payload_captured") {
-            $shapes[$requestId] = $event
-        } elseif ([string]$event.event_name -eq "provider.chat_wire_request_terminal") {
-            $terminals[$requestId] = $event
-        }
-    }
-    $events = New-Object System.Collections.Generic.List[object]
-    $shapeCounts = @{}
-    $firstDiffPathCounts = @{}
-    $missingUsage = 0
-    $request2PlusHit = [int64]0
-    $request2PlusMiss = [int64]0
-    $request2PlusCount = 0
-    $prefixComparisonCount = 0
-    $prefixPreservedCount = 0
-    $zeroCacheHitCount = 0
-    $cacheWarmupCandidateCount = 0
-    $sameShapeZeroHitCount = 0
-    $toolChoiceTransitionCount = 0
-    $cacheShapeTransitionCount = 0
-    $seenCacheShapes = @{}
-    $previousCacheShapeHash = ""
-    foreach ($shape in @($shapes.Values | Sort-Object -Property request_index)) {
-        $requestId = [string]$shape.request_id
-        $terminal = if ($terminals.ContainsKey($requestId)) { $terminals[$requestId] } else { $null }
-        $inputTokens = if ($null -ne $terminal) { Get-TaskspaceCostProperty $terminal @("input_tokens") } else { $null }
-        $cachedTokens = if ($null -ne $terminal) { Get-TaskspaceCostProperty $terminal @("cached_input_tokens") } else { $null }
-        $uncachedTokens = $null
-        if ($null -ne $inputTokens -and $null -ne $cachedTokens) {
-            $uncachedTokens = [Math]::Max(0, [int64]$inputTokens - [int64]$cachedTokens)
-        } else {
-            $missingUsage++
-        }
-        $hitRate = if ($null -ne $cachedTokens -and $null -ne $uncachedTokens -and ([double]$cachedTokens + [double]$uncachedTokens) -gt 0) {
-            [Math]::Round([double]$cachedTokens / ([double]$cachedTokens + [double]$uncachedTokens), 6)
-        } else { $null }
-        $toolsCount = Convert-TaskspaceTraceInt $shape.tools_count
-        $classifier = if ($toolsCount -gt 0) { "native_tools_schema_hot_path" } else { "tool_free_action_contract" }
-        Add-TaskspaceCostCount $shapeCounts $classifier
-        $requestIndex = Convert-TaskspaceTraceInt $shape.request_index
-        $cacheShapeHash = [string]$shape.cache_shape_hash
-        $sameCacheShapeSeenBefore = -not [string]::IsNullOrWhiteSpace($cacheShapeHash) -and $seenCacheShapes.ContainsKey($cacheShapeHash)
-        $cacheHitClass = if ($null -eq $cachedTokens -or $null -eq $uncachedTokens) {
-            "unavailable"
-        } elseif ([int64]$cachedTokens -eq 0) {
-            "zero"
-        } elseif ([int64]$uncachedTokens -eq 0) {
-            "full"
-        } else {
-            "partial"
-        }
-        $cacheWarmupCandidate = $cacheHitClass -eq "zero" -and -not $sameCacheShapeSeenBefore
-        $sameShapeZeroHit = $cacheHitClass -eq "zero" -and $sameCacheShapeSeenBefore
-        if ($cacheHitClass -eq "zero") { $zeroCacheHitCount++ }
-        if ($cacheWarmupCandidate) { $cacheWarmupCandidateCount++ }
-        if ($sameShapeZeroHit) { $sameShapeZeroHitCount++ }
-        if ([bool]$shape.tool_choice_changed) { $toolChoiceTransitionCount++ }
-        if ($requestIndex -ge 2 -and $cacheShapeHash -ne $previousCacheShapeHash) {
-            $cacheShapeTransitionCount++
-        }
-        if ($requestIndex -ge 2 -and $null -ne $cachedTokens -and $null -ne $uncachedTokens) {
-            $request2PlusHit += [int64]$cachedTokens
-            $request2PlusMiss += [int64]$uncachedTokens
-            $request2PlusCount++
-        }
-        if ($requestIndex -ge 2) {
-            $prefixComparisonCount++
-            if ([bool]$shape.prefix_preserved) { $prefixPreservedCount++ }
-            $firstDiffPath = [string]$shape.first_diff_path
-            if (-not [string]::IsNullOrWhiteSpace($firstDiffPath)) {
-                Add-TaskspaceCostCount $firstDiffPathCounts $firstDiffPath
-            }
-        }
-        $events.Add([pscustomobject]@{
-            schema_version = "TaskSpaceProviderCacheTraceV3"
-            request_id = $requestId
-            logical_request_id = $requestId
-            model_request_index = $requestIndex
-            attempt_seq = 1
-            request_phase = "transport_observed"
-            task_id = ""
-            map_id = ""
-            node_id = ""
-            provider_wire_api = [string]$shape.provider_wire_api
-            transport = "responses_http"
-            tools_count = $toolsCount
-            tools_present = ($toolsCount -gt 0)
-            request_shape_classifier = $classifier
-            stable_prefix_hash = $cacheShapeHash
-            dynamic_suffix_hash = ""
-            messages_hash = [string]$shape.messages_hash
-            tools_hash = [string]$shape.tools_hash
-            cache_shape_hash = $cacheShapeHash
-            tool_choice_kind = [string]$shape.tool_choice_kind
-            tool_choice_name = [string]$shape.tool_choice_name
-            provider_payload_sha256 = [string]$shape.provider_payload_sha256
-            pre_wire_payload_sha256 = [string]$shape.pre_wire_payload_sha256
-            provider_payload_bytes = Convert-TaskspaceTraceInt $shape.provider_payload_bytes
-            epoch_id = [string]$shape.epoch_id
-            previous_request_id = [string]$shape.previous_request_id
-            message_count = Convert-TaskspaceTraceInt $shape.message_count
-            message_shapes = @($shape.message_shapes)
-            lcp_message_count = Convert-TaskspaceTraceInt $shape.lcp_message_count
-            lcp_message_bytes = Convert-TaskspaceTraceInt $shape.lcp_message_bytes
-            message_prefix_preserved = if ($requestIndex -ge 2) { [bool]$shape.message_prefix_preserved } else { $null }
-            tool_choice_preserved = if ($requestIndex -ge 2) { [bool]$shape.tool_choice_preserved } else { $null }
-            tool_choice_changed = if ($requestIndex -ge 2) { [bool]$shape.tool_choice_changed } else { $null }
-            prefix_preserved = if ($requestIndex -ge 2) { [bool]$shape.prefix_preserved } else { $null }
-            first_diff_index = Get-TaskspaceCostProperty $shape @("first_diff_index")
-            first_diff_path = [string]$shape.first_diff_path
-            input_tokens = $inputTokens
-            cached_input_tokens = $cachedTokens
-            uncached_input_tokens = $uncachedTokens
-            hit_rate = $hitRate
-            cache_hit_class = $cacheHitClass
-            same_cache_shape_seen_before = [bool]$sameCacheShapeSeenBefore
-            cache_warmup_candidate = [bool]$cacheWarmupCandidate
-            same_shape_zero_hit = [bool]$sameShapeZeroHit
-            status = if ($null -ne $terminal) { [string]$terminal.status } else { "terminal_missing" }
-        })
-        if (-not [string]::IsNullOrWhiteSpace($cacheShapeHash)) {
-            $seenCacheShapes[$cacheShapeHash] = $true
-        }
-        $previousCacheShapeHash = $cacheShapeHash
-    }
-    $count = [int]$events.Count
-    $covered = @($events.ToArray() | Where-Object {
-        -not [string]::IsNullOrWhiteSpace([string]$_.provider_payload_sha256) -and
-        [string]$_.status -ne "terminal_missing"
-    }).Count
-    $request2PlusDenominator = [double]$request2PlusHit + [double]$request2PlusMiss
-    [pscustomobject]@{
-        provider_cache_trace_events = @($events.ToArray())
-        provider_cache_trace_summary = [pscustomobject]@{
-            schema_version = "TaskSpaceProviderCacheTraceSummaryV3"
-            source = "provider_final_wire_trace"
-            provider_request_count = $count
-            trace_coverage = if ($count -gt 0) { [Math]::Round([double]$covered / [double]$count, 6) } else { 0.0 }
-            cache_usage_missing_count = [int]$missingUsage
-            request_shape_counts = Convert-TaskspaceCostTable $shapeCounts
-            native_tools_schema_hot_path_count = if ($shapeCounts.ContainsKey("native_tools_schema_hot_path")) { [int]$shapeCounts["native_tools_schema_hot_path"] } else { 0 }
-            tool_free_action_contract_count = if ($shapeCounts.ContainsKey("tool_free_action_contract")) { [int]$shapeCounts["tool_free_action_contract"] } else { 0 }
-            unknown_or_unclassified_count = 0
-            request_2_plus_count = [int]$request2PlusCount
-            request_2_plus_cached_input_tokens = [int64]$request2PlusHit
-            request_2_plus_uncached_input_tokens = [int64]$request2PlusMiss
-            request_2_plus_hit_rate = if ($request2PlusDenominator -gt 0) { [Math]::Round([double]$request2PlusHit / $request2PlusDenominator, 6) } else { $null }
-            prefix_comparison_count = [int]$prefixComparisonCount
-            prefix_preserved_count = [int]$prefixPreservedCount
-            prefix_preserved_rate = if ($prefixComparisonCount -gt 0) { [Math]::Round([double]$prefixPreservedCount / [double]$prefixComparisonCount, 6) } else { $null }
-            first_diff_path_counts = Convert-TaskspaceCostTable $firstDiffPathCounts
-            zero_cache_hit_count = [int]$zeroCacheHitCount
-            cache_warmup_candidate_count = [int]$cacheWarmupCandidateCount
-            same_shape_zero_hit_count = [int]$sameShapeZeroHitCount
-            tool_choice_transition_count = [int]$toolChoiceTransitionCount
-            cache_shape_transition_count = [int]$cacheShapeTransitionCount
-        }
-    }
+if (-not (Get-Command New-TaskspaceProviderWireCacheTraceArtifacts -ErrorAction SilentlyContinue)) {
+    . (Join-Path $PSScriptRoot "provider-section-cost.ps1")
 }
 
 function New-TaskspaceProviderCacheTraceArtifacts {
@@ -966,8 +800,10 @@ function New-TaskspaceProviderCacheTraceAggregateArtifacts {
     $toolChoiceTransitionCount = 0
     $cacheShapeTransitionCount = 0
     $eventLines = New-Object System.Collections.Generic.List[string]
+    $cacheSummaries = New-Object System.Collections.Generic.List[object]
     foreach ($file in $summaryFiles) {
         try { $summary = Get-Content -Raw -Encoding UTF8 -LiteralPath $file.FullName | ConvertFrom-Json } catch { continue }
+        $cacheSummaries.Add($summary)
         $count = if ($summary.PSObject.Properties.Name -contains "provider_request_count") { [int]$summary.provider_request_count } else { 0 }
         $providerRequestCount += $count
         $coverage = if ($summary.PSObject.Properties.Name -contains "trace_coverage") { [double]$summary.trace_coverage } else { 0.0 }
@@ -1015,6 +851,7 @@ function New-TaskspaceProviderCacheTraceAggregateArtifacts {
             same_shape_zero_hit_count = [int]$sameShapeZeroHitCount
             tool_choice_transition_count = [int]$toolChoiceTransitionCount
             cache_shape_transition_count = [int]$cacheShapeTransitionCount
+            section_cost_summary = Merge-TaskspaceProviderSectionCostSummaries @($cacheSummaries.ToArray())
         }
     }
 }
