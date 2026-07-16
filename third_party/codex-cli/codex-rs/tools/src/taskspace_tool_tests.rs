@@ -3,7 +3,7 @@ use crate::create_apply_patch_freeform_tool;
 use crate::create_list_dir_tool;
 
 #[test]
-fn bootstrap_schema_requires_initialization_with_continuation() {
+fn lifecycle_schema_includes_initialization_with_required_continuation() {
     let list_dir = create_list_dir_tool();
     let list_dir_value = serde_json::to_value(&list_dir).expect("serialize list_dir");
     let value =
@@ -14,7 +14,17 @@ fn bootstrap_schema_requires_initialization_with_continuation() {
         .iter()
         .filter_map(|variant| variant["properties"]["action"]["enum"][0].as_str())
         .collect::<Vec<_>>();
-    assert_eq!(action_names, vec!["initialize_map"]);
+    assert_eq!(
+        action_names,
+        vec![
+            "initialize_map",
+            "mutate_graph",
+            "transition_node",
+            "finish_end",
+            "expand_nodes",
+            "read_output_ref"
+        ]
+    );
     assert_eq!(
         variants[0]["required"],
         json!([
@@ -108,9 +118,9 @@ fn bootstrap_schema_exposes_one_patch_slot_outside_ordinary_actions() {
 }
 
 #[test]
-fn active_schema_contains_no_ordinary_tool_expression() {
-    let value = serde_json::to_value(create_taskspace_active_control_tool()).expect("serialize");
-    let text = value.to_string();
+fn lifecycle_schema_exposes_active_actions_without_continuation_fields() {
+    let value = serde_json::to_value(create_taskspace_control_tool(&[create_list_dir_tool()]))
+        .expect("serialize");
     let actions = value["parameters"]["anyOf"]
         .as_array()
         .expect("variants")
@@ -125,29 +135,17 @@ fn active_schema_contains_no_ordinary_tool_expression() {
     assert!(!actions.contains(&"create_node"));
     assert!(!actions.contains(&"finish_nodes"));
     assert!(!actions.contains(&"finish_then_end"));
-    assert!(!text.contains("ordinaryAction"));
-    assert!(!text.contains("tool_name"));
-    assert!(!text.contains("arguments"));
-    assert!(!text.contains("\"next\""));
-    assert!(!text.contains("\"existing\""));
-    assert!(!text.contains("\"create\""));
-    assert!(!text.contains("finish_node_ids"));
-    assert!(!text.contains("NodeKind"));
-    assert!(!text.contains("dependency_node_ids"));
-    assert!(!text.contains("terminal_node_id"));
-    assert!(!text.contains("preceding_finishes"));
-    assert!(!text.contains("next_node_goal"));
-    assert!(!text.contains("terminal_finish"));
-    assert!(!text.contains("result_summary"));
-    assert!(!text.contains("blocker_summary"));
-    assert!(!text.contains("task_title"));
-    assert!(!text.contains("context_summary"));
     let transition = value["parameters"]["anyOf"]
         .as_array()
         .expect("variants")
         .iter()
         .find(|variant| variant["properties"]["action"]["enum"][0] == json!("transition_node"))
         .expect("transition variant");
+    let active_variant_text = transition.to_string();
+    assert!(!active_variant_text.contains("continuation"));
+    assert!(!active_variant_text.contains("ordinaryAction"));
+    assert!(!active_variant_text.contains("tool_name"));
+    assert!(!active_variant_text.contains("arguments"));
     assert_eq!(
         transition["required"],
         json!(["action", "expected_revision", "node_id", "transition"])

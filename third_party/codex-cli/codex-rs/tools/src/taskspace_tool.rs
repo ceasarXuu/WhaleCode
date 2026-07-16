@@ -411,35 +411,22 @@ pub fn create_taskspace_control_tool(visible_tools: &[ToolSpec]) -> ToolSpec {
     if let Some(patch) = actions.patch {
         definitions.insert("patchAction".into(), patch);
     }
-    let parameters = object_any_of(
-        vec![initialize_map_schema(has_patch)],
-        "Initialize the TaskSpace map and execute immediate ordinary actions.",
-    )
-    .with_definitions(definitions);
-
-    ToolSpec::Function(ResponsesApiTool {
-        name: "taskspace_control".into(),
-        description: "Mandatory mechanical TaskSpace bootstrap tool. initialize_map declares root, one initial_work_node, zero or more additional_work_nodes, a node_id-only Finish identity, required edges, and continuation. All executable work, including validation, belongs to Work nodes. Define the selected initial Work only in initial_work_node; additional_work_nodes excludes it. Declared edges must make initial_work_node Ready so Runtime can bind it before execution. Root and Finish cannot be selected. continuation.actions contains non-patch tools. continuation.patch_then_actions contains exactly one apply_patch slot followed by optional non-patch tools. Runtime executes only the declared sequence and stops after the first failure.".into(),
-        strict: false,
-        defer_loading: None,
-        parameters,
-        output_schema: None,
-    })
-}
-
-pub fn create_taskspace_active_control_tool() -> ToolSpec {
     let mut variants = vec![
+        initialize_map_schema(has_patch),
         mutate_graph_schema(),
         transition_node_schema(),
         finish_end_schema(),
     ];
     variants.extend(simple_action_schemas());
+    let parameters = object_any_of(variants, "One mechanical TaskSpace lifecycle operation.")
+        .with_definitions(definitions);
+
     ToolSpec::Function(ResponsesApiTool {
         name: "taskspace_control".into(),
-        description: "Mandatory mechanical TaskSpace map tool. mutate_graph applies required graph transaction arrays under expected_revision. transition_node applies bind, complete, block, unblock, or rework under expected_revision. finish_end releases final_summary unchanged under expected_revision. expand_nodes and read_output_ref are mechanical observation operations. Runtime follows the declared order and does not choose or infer actions.".into(),
+        description: "Mandatory mechanical TaskSpace lifecycle tool. initialize_map declares and binds the initial rooted DAG before its continuation; mutate_graph changes graph topology under expected_revision; transition_node applies an Agent-selected state transition; finish_end commits the Agent-authored final summary; expand_nodes and read_output_ref expose mechanically retained details. Runtime validates hard state rules and executes only the declared operation order. It does not choose, infer, or rewrite actions.".into(),
         strict: false,
         defer_loading: None,
-        parameters: object_any_of(variants, "Active TaskSpace lifecycle operation."),
+        parameters,
         output_schema: None,
     })
 }

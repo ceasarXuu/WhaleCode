@@ -1096,39 +1096,6 @@ fn apply_provider_tool_visibility(
     }
 }
 
-fn apply_hard_state_tool_visibility(
-    tools: Vec<ToolSpec>,
-    tool_visibility: TaskspaceProviderToolVisibility,
-    control_mode: Option<TaskspaceProviderControlMode>,
-) -> Vec<ToolSpec> {
-    if tool_visibility != TaskspaceProviderToolVisibility::TaskspaceNative {
-        return tools;
-    }
-    match control_mode.unwrap_or(TaskspaceProviderControlMode::WorkActive) {
-        TaskspaceProviderControlMode::BootstrapRequired => tools
-            .into_iter()
-            .filter(|spec| spec.name() == "taskspace_control")
-            .collect(),
-        TaskspaceProviderControlMode::TerminalControlRequired => tools
-            .into_iter()
-            .filter_map(|spec| {
-                (spec.name() == "taskspace_control")
-                    .then(codex_tools::create_taskspace_active_control_tool)
-            })
-            .collect(),
-        TaskspaceProviderControlMode::WorkActive => tools
-            .into_iter()
-            .map(|spec| {
-                if spec.name() == "taskspace_control" {
-                    codex_tools::create_taskspace_active_control_tool()
-                } else {
-                    spec
-                }
-            })
-            .collect(),
-    }
-}
-
 fn build_prompt_with_tool_visibility(
     input: Vec<ResponseItem>,
     router: &ToolRouter,
@@ -1153,7 +1120,6 @@ fn build_prompt_with_tool_visibility(
             .collect()
     };
     let tools = apply_provider_tool_visibility(tools, tool_visibility);
-    let tools = apply_hard_state_tool_visibility(tools, tool_visibility, control_mode);
     let tool_choice = control_mode
         .map(TaskspaceProviderControlMode::tool_choice)
         .unwrap_or(ToolChoice::Auto);
@@ -1661,30 +1627,30 @@ mod active_context_replacement_tests {
     }
 
     #[test]
-    fn taskspace_control_modes_align_named_choice_visibility_and_schema() {
+    fn taskspace_control_modes_change_choice_without_changing_tool_contract() {
         let visible = vec![
             codex_tools::create_list_dir_tool(),
             codex_tools::create_taskspace_control_tool(&[codex_tools::create_list_dir_tool()]),
         ];
+        let tool_contract = serde_json::to_string(&visible).expect("serialize lifecycle tools");
+        assert_eq!(
+            visible.iter().map(ToolSpec::name).collect::<Vec<_>>(),
+            vec!["list_dir", "taskspace_control"]
+        );
+        assert!(tool_contract.contains("initialize_map"));
+        assert!(tool_contract.contains("mutate_graph"));
+        assert!(tool_contract.contains("transition_node"));
+        assert!(tool_contract.contains("finish_end"));
+
         let bootstrap_mode = taskspace_provider_control_mode(true, None);
-        let selected = bootstrap_mode.tool_choice();
         assert_eq!(
             bootstrap_mode,
             TaskspaceProviderControlMode::BootstrapRequired
         );
-        assert_eq!(selected.function_name(), Some("taskspace_control"));
-        let blank = apply_hard_state_tool_visibility(
-            visible.clone(),
-            TaskspaceProviderToolVisibility::TaskspaceNative,
-            Some(bootstrap_mode),
-        );
         assert_eq!(
-            blank.iter().map(ToolSpec::name).collect::<Vec<_>>(),
-            vec!["taskspace_control"]
+            bootstrap_mode.tool_choice().function_name(),
+            Some("taskspace_control")
         );
-        let bootstrap_json = serde_json::to_string(&blank[0]).expect("serialize bootstrap control");
-        assert!(bootstrap_json.contains("initialize_map"));
-        assert!(!bootstrap_json.contains("finish_end"));
 
         let mut work_state = terminal_control_state();
         work_state.finish_ready = false;
@@ -1693,23 +1659,6 @@ mod active_context_replacement_tests {
         let work_mode = taskspace_provider_control_mode(false, Some(&work_state));
         assert_eq!(work_mode, TaskspaceProviderControlMode::WorkActive);
         assert_eq!(work_mode.tool_choice(), ToolChoice::Auto);
-        let active = apply_hard_state_tool_visibility(
-            visible.clone(),
-            TaskspaceProviderToolVisibility::TaskspaceNative,
-            Some(work_mode),
-        );
-        assert_eq!(
-            active.iter().map(ToolSpec::name).collect::<Vec<_>>(),
-            vec!["list_dir", "taskspace_control"]
-        );
-        let active_control = active
-            .iter()
-            .find(|spec| spec.name() == "taskspace_control")
-            .expect("active control");
-        let active_json = serde_json::to_string(active_control).expect("serialize active control");
-        assert!(active_json.contains("finish_end"));
-        assert!(!active_json.contains("list_dir"));
-        assert!(!active_json.contains("ordinaryAction"));
 
         let terminal_state = terminal_control_state();
         let terminal_mode = taskspace_provider_control_mode(false, Some(&terminal_state));
@@ -1721,22 +1670,10 @@ mod active_context_replacement_tests {
             terminal_mode.tool_choice().function_name(),
             Some("taskspace_control")
         );
-        let terminal = apply_hard_state_tool_visibility(
-            visible,
-            TaskspaceProviderToolVisibility::TaskspaceNative,
-            Some(terminal_mode),
-        );
         assert_eq!(
-            terminal.iter().map(ToolSpec::name).collect::<Vec<_>>(),
-            vec!["taskspace_control"]
+            serde_json::to_string(&visible).expect("serialize lifecycle tools"),
+            tool_contract
         );
-        let terminal_json =
-            serde_json::to_string(&terminal[0]).expect("serialize terminal control");
-        assert!(terminal_json.contains("finish_end"));
-        assert!(terminal_json.contains("transition_node"));
-        assert!(terminal_json.contains("mutate_graph"));
-        assert!(!terminal_json.contains("initialize_map"));
-        assert!(!terminal_json.contains("ordinaryAction"));
     }
 
     fn message(role: &str, text: &str) -> ResponseItem {
