@@ -13,7 +13,7 @@ function Assert-True {
 }
 
 function New-Payload {
-    param([string]$Arm, [string]$Marker)
+    param([string]$Arm, [string]$Marker, [bool]$InvalidEdge = $false)
     $finish = [ordered]@{ node_id = 'finish' }
     if ($Arm -eq 'A') { $finish.goal = $Marker }
     $arguments = [ordered]@{
@@ -31,6 +31,7 @@ function New-Payload {
             actions = @([ordered]@{ tool_name = 'exec_command'; arguments = [ordered]@{ cmd = 'pwd' } })
         }
     }
+    if ($InvalidEdge) { $arguments.edges[0].goal = $Marker }
     [ordered]@{
         choices = @([ordered]@{
                 message = [ordered]@{
@@ -118,5 +119,28 @@ if ($LASTEXITCODE -ne 0) { throw "refutation probe self-test exited with $LASTEX
 $refutationResult = Get-Content -Raw -LiteralPath $refutationResultPath | ConvertFrom-Json -Depth 80
 Assert-True ([string]$refutationResult.diagnostic.attribution -eq 'refuted_schema_breadth_and_description_salience') 'probe did not classify the refutation branch'
 Assert-True ([string]$refutationResult.diagnostic.h008_evidence_gate -eq 'satisfied') 'refutation did not satisfy the H-008 evidence gate'
+
+$deepValidationResponses = @()
+foreach ($arm in @('A', 'B', 'C')) {
+    foreach ($sample in @('simple', 'complex')) {
+        $deepValidationResponses += [ordered]@{
+            arm = $arm
+            sample = $sample
+            repeat = 1
+            http_status = 200
+            payload = New-Payload $arm $marker ($arm -eq 'B' -and $sample -eq 'simple')
+        }
+    }
+}
+$deepFixturePath = Join-Path $OutputRoot 'deep-validation-fixture.json'
+$deepResultPath = Join-Path $OutputRoot 'deep-validation-result.json'
+[System.IO.File]::WriteAllText($deepFixturePath, ([ordered]@{ responses = $deepValidationResponses } | ConvertTo-Json -Depth 50), [System.Text.UTF8Encoding]::new($false))
+& (Join-Path $PSScriptRoot 'probe-r6-f5-bootstrap-contract.ps1') -FixturePath $deepFixturePath -OutputPath $deepResultPath -Repeat 1
+if ($LASTEXITCODE -ne 0) { throw "deep validation self-test exited with $LASTEXITCODE" }
+$deepResult = Get-Content -Raw -LiteralPath $deepResultPath | ConvertFrom-Json -Depth 80
+$deepB = @($deepResult.summaries | Where-Object arm -eq 'B')[0]
+$deepError = @($deepResult.events | Where-Object { $_.arm -eq 'B' -and $_.sample -eq 'simple' })[0]
+Assert-True ($deepB.field_error_count -eq 1) 'deep validator did not count the invalid edge'
+Assert-True (@($deepError.response.arguments.field_errors) -contains 'unexpected:edges[0].goal') 'deep validator did not preserve the invalid edge path'
 
 Write-Host 'R6 F5 bootstrap contract probe self-test passed.'

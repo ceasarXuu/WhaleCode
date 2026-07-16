@@ -189,6 +189,28 @@ function Get-ArgumentShape {
             }
         }
     }
+    $additionalNodes = @($arguments.additional_work_nodes)
+    for ($index = 0; $index -lt $additionalNodes.Count; $index++) {
+        $keys = @(Get-PropertyNames $additionalNodes[$index])
+        foreach ($required in @('node_id', 'goal')) {
+            if ($keys -notcontains $required) { $errors.Add("missing:additional_work_nodes[$index].$required") }
+        }
+        foreach ($key in $keys) {
+            if (@('node_id', 'goal') -notcontains $key) {
+                $errors.Add("unexpected:additional_work_nodes[$index].$key")
+            }
+        }
+    }
+    $edges = @($arguments.edges)
+    for ($index = 0; $index -lt $edges.Count; $index++) {
+        $keys = @(Get-PropertyNames $edges[$index])
+        foreach ($required in @('from', 'to')) {
+            if ($keys -notcontains $required) { $errors.Add("missing:edges[$index].$required") }
+        }
+        foreach ($key in $keys) {
+            if (@('from', 'to') -notcontains $key) { $errors.Add("unexpected:edges[$index].$key") }
+        }
+    }
     $continuationKeys = @(Get-PropertyNames $arguments.continuation)
     $continuationKind = [string]$arguments.continuation.kind
     if ($continuationKeys -notcontains 'kind') { $errors.Add('missing:continuation.kind') }
@@ -196,6 +218,20 @@ function Get-ArgumentShape {
         $errors.Add('continuation:invalid_kind')
     }
     $actionItems = @($arguments.continuation.actions)
+    if ($continuationKind -eq 'actions' -and $actionItems.Count -eq 0) {
+        $errors.Add('missing:continuation.actions')
+    }
+    for ($index = 0; $index -lt $actionItems.Count; $index++) {
+        $keys = @(Get-PropertyNames $actionItems[$index])
+        foreach ($required in @('tool_name', 'arguments')) {
+            if ($keys -notcontains $required) { $errors.Add("missing:continuation.actions[$index].$required") }
+        }
+        foreach ($key in $keys) {
+            if (@('tool_name', 'arguments') -notcontains $key) {
+                $errors.Add("unexpected:continuation.actions[$index].$key")
+            }
+        }
+    }
     $toolNames = @($actionItems | ForEach-Object { [string]$_.tool_name })
     [ordered]@{
         raw = $raw
@@ -207,8 +243,8 @@ function Get-ArgumentShape {
         root = Get-NodeShape $arguments.root
         initial_work_node = Get-NodeShape $arguments.initial_work_node
         finish = Get-NodeShape $arguments.finish
-        additional_work_node_count = @($arguments.additional_work_nodes).Count
-        edge_count = @($arguments.edges).Count
+        additional_work_node_count = $additionalNodes.Count
+        edge_count = $edges.Count
         continuation_kind = $continuationKind
         continuation_action_count = $actionItems.Count
         continuation_tool_names = $toolNames
