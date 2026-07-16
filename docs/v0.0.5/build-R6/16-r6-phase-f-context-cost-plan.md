@@ -68,6 +68,7 @@ F0 payload section observability
   -> F1 current Map single owner
   -> F2 immutable tool contract + required probe
   -> F3 declared state/action sequence
+  -> F3.5 epoch baseline projection + canonical delta journal
   -> F4 deterministic + Docker live gate
 ```
 
@@ -234,9 +235,66 @@ Runtime 不补动作、不重排依赖、不判断动作是否“有意义”。
 - simple/complex request 不高于 F2 同样本中位数；若 Agent 未自然采用，只确认机制，不宣称 live 收益。
 - ChatCompletions `parallel_tool_calls` wire 暴露单独做 provider probe；未验证前不把它当作 DeepSeek 行为前提。
 
-## 10. Phase F4：正式验证
+### 9.3 完成证据（2026-07-16）
 
-### 10.1 Deterministic
+- schema 要求 `transition_node(bind)` 必须声明 continuation；`mutate_graph` 仅在已有有效 main binding 时允许
+  continuation；其他 transition 和 `finish_end` 不接受 continuation。
+- sequence 保持 Agent 声明顺序、首错停止和单 patch 预检；Runtime 不补动作、不推断下一节点。
+- deterministic：schema 3/3、args 14/14、sequence 13/13、control 23/23，成本/原生 control/性能观察/
+  harness 自测通过。
+- simple live：Standard/R6 均 solved；R6 13 requests，等于 F2 基线；自然采用 init continuation 1 次、
+  bind continuation 3 次，Map 完整闭合。
+- complex live：Standard/R6 均 solved；R6 自然采用 bind continuation 2 次并闭合 Map，但 3 次初始化参数纠错和
+  1 次未 bind complete 使 request 达 19，高于 F2 单次基线 14。F3 只确认机制成立，不宣称复杂样本成本收益。
+- 两个 live run 的 TaskSpace request 2+ cache hit 仅 13.22%/13.27%，且 message prefix 0/12、0/18；
+  该结构性失败进入 F3.5，F4 在修复前不得开始。
+
+## 10. Phase F3.5：Epoch Baseline Projection 与前缀恢复
+
+### 10.1 根因
+
+F1 的 ephemeral current projection 每个请求都先从自然历史过滤，再追加到末尾。下一请求新增的 assistant/tool
+history 会出现在旧 projection 原位置，因此上一请求的 projection 不再是下一请求的前缀，哪怕 Map revision 和
+projection 内容完全没变也会破坏 provider 严格前缀缓存。F3 simple/complex 的 0% message prefix preservation 已
+证实这是结构性问题，不是缓存冷启动或 projection 体积问题。
+
+### 10.2 设计
+
+1. projection 改为当前上下文 epoch 的 canonical Map 基线，固定在首次 provider request 的机械锚点；同一 epoch
+   后续请求在该锚点之后追加原始 assistant、control call/result 和 ordinary tool call/result。
+2. bootstrap 到 active Map 可替换同一锚点并开启 active epoch；此处允许一次可解释的 prefix break。
+3. active epoch 内不因普通状态 transition 重写基线。基线 revision 之后的当前状态由 Agent 原始 control call、
+   typed result delta 和 ordinary feedback 顺序表达；不得摘要、重排或语义改写。
+4. compaction、resume、fork、历史替换或锚点前缀不一致时机械开启新 epoch，从当前 canonical Map 生成新基线。
+5. projection 明确标记 `projection_role: epoch_baseline`。观测层区分“基线 identity 一致”与“当前 revision 相同”，
+   不再把基线 hash 对账表述成 current freshness。
+6. 该方案不是 Map 压缩策略；projection 全局拓扑、Root/Finish 和节点骨架仍完整，长期超限留给后续专项。
+
+### 10.3 所有权
+
+| 事实 | Provider-visible owner |
+|---|---|
+| epoch 起点完整 Map | 唯一 baseline projection |
+| epoch 内 Agent 动作 | 原始 function/custom call |
+| epoch 内状态变化 | 原始 typed control result delta |
+| ordinary 工具反馈 | 原始 tool result / output ref |
+| 当前状态 | baseline + 其后 canonical delta journal 的确定性回放结果 |
+
+这不是平行维护第二套上下文：baseline 是 Event Store 当前 epoch 的起点，delta journal 是原自然上下文按状态机归属
+后的原始顺序记录。
+
+### 10.4 退出门禁
+
+- 同一 epoch 第二个及后续请求必须以前一请求 messages 为精确前缀；fixture 覆盖 bootstrap、active、retry、
+  compaction、resume 和 stale projection 输入。
+- 每个请求 projection marker 仍恰好为 1，baseline identity 与 epoch 缓存一致；不存在 current freshness 假声明。
+- baseline 后的 control call/result 与 Event Store 逐字一致，delta 缺失、重排、语义 rewrite 均为 0。
+- simple/complex 各 1 次：correctness、Map、terminal、replay 100%；TaskSpace request 2+ cache hit 不低于 80%，
+  prefix preservation 不低于 80%。未达到则停留 F3.5，不进入 F4。
+
+## 11. Phase F4：正式验证
+
+### 11.1 Deterministic
 
 - `codex-tools` schema 与 registry plan；
 - `codex-core` control args/handler/output/sequence/provider contract；
@@ -245,7 +303,7 @@ Runtime 不补动作、不重排依赖、不判断动作是否“有意义”。
 - benchmark cost/performance observer 与 Docker harness；
 - `cargo build -p codex-cli --bin whale --locked`。
 
-### 10.2 Docker Live
+### 11.2 Docker Live
 
 每个策略完成后先各跑 simple/complex 1 次；F4 再执行：
 
@@ -254,7 +312,7 @@ Runtime 不补动作、不重排依赖、不判断动作是否“有意义”。
 - 固定 model、prompt、validator、hidden oracle、Docker hard boundary；
 - 报告结果、动作、request、wall、input/cached/uncached/output、section cost、Map 和 terminal proof。
 
-### 10.3 总退出门禁
+### 11.3 总退出门禁
 
 ```text
 public/hidden correctness = 100%
@@ -271,27 +329,29 @@ partial commit = 0
 
 性能只报告观测值，不以牺牲 correctness 或语义忠实度换取门禁通过。
 
-## 11. 实现完整性矩阵
+## 12. 实现完整性矩阵
 
 | Plan Item | Expected Behavior | Production Code Path | Integration Entry | Test Evidence | Runtime / Log Evidence | Mock / Stub Exposure | Status |
 |---|---|---|---|---|---|---|---|
 | F0 section trace | 请求组成可归因 | `provider_wire_trace.rs`, `client.rs` | provider request | 11 Rust tests + 3 PowerShell suites | section hash/bytes/revision | none | completed |
 | F1 result delta | 当前 Map 单 owner | `taskspace_control_output.rs` | tool result | 285 Rust tests + 3 PowerShell suites | control result + projection freshness trace | none | completed |
 | F2 stable contract | schema 全 turn 稳定；choice 有证据 HOLD | `session/turn.rs`, `taskspace_tool.rs` | Prompt | 155 Rust tests | tools/choice hash | provider live probe | completed |
-| F3 continuation | Agent 声明序列机械执行 | args/schema/sequence | tool router | sequence tests | step/skipped refs | none | planned |
+| F3 continuation | Agent 声明序列机械执行 | args/schema/sequence | tool router | 53 Rust tests + live | step/skipped refs | none | completed |
+| F3.5 epoch baseline | projection 固定锚点，delta 自然追加 | session/state/client | provider composer | prefix/epoch tests | identity/prefix trace | none | in progress |
 | F4 live gate | 成本与正确性可比较 | benchmark scripts | Docker harness | harness tests | performance report | none | planned |
 
-## 12. 变更链日志
+## 13. 变更链日志
 
 | Change Link | Key State | Success Signal | Failure Signal | Failure Reason Field | Correlation / Trace Field | Log Level | Consumer |
 |---|---|---|---|---|---|---|---|
 | payload build | section measured | section hashes/bytes complete | section unavailable | `unavailable_reason` | request/epoch id | info | observer |
 | control execute | validated/committed | revision+delta | protocol/state/resource failure | class/code | call/map/revision | info/warn | Agent/observer |
 | sequence | started/executed/stopped | ordered step refs | nested failure/skipped tail | failure code | parent/nested call id | info | Agent/observer |
+| projection epoch | baseline anchored/delta appended | exact message prefix | prefix/identity mismatch | reset reason | epoch/prefix hash | info/warn | observer |
 | provider choice | required sent | tool call returned | no-tool/API rejection | provider error code | request id | info/error | Runtime/observer |
 | terminal | committed/published | carrier+hash | open Map response | terminal protocol code | turn/map/revision | info/error | CLI/observer |
 
-## 13. 风险、回滚与恢复
+## 14. 风险、回滚与恢复
 
 | 风险 | 影响 | 缓解/回滚 |
 |---|---|---|
@@ -299,22 +359,25 @@ partial commit = 0
 | 统一 schema 增加 Agent 误选 | hard-state failure 增加 | 记录错误率；回滚 F2 独立提交 |
 | result 去重造成反馈缺失 | Agent 重试或状态误判 | call+delta+projection 对账 fixture；失败即回滚 F1 |
 | continuation 扩大 blast radius | 部分执行或顺序错误 | candidate/preflight、首错停止、独立 F3 提交 |
+| baseline 被误解为当前快照 | Agent 使用过期状态 | 明确 role/revision；其后只保留原始 typed delta，不注入解释 |
+| epoch 锚点在 compaction 后失效 | history 错位或 marker 重复 | prefix hash 不一致即机械重建 epoch；marker count 强校验 |
 | benchmark 随机性误判收益 | 错误接受优化 | 三次轮换，报告总和/均值/中位数和 trace outlier |
 
 每阶段均为独立 commit，可通过普通 `git revert <commit>` 回滚；不保留并行旧 schema 或运行时 feature
 fallback。实验项目不迁移旧数据。
 
-## 14. Phase Gate
+## 15. Phase Gate
 
 | Phase | Independent Verification | Forbidden Future Dependency | Exit Evidence | Completion Required Before Next Phase | Proceed Decision |
 |---|---|---|---|---|---|
 | F0 | fixture + Phase E artifact reprocess | 不依赖 F1 | section report | 100% | completed |
 | F1 | control fixture + simple/complex smoke | 不依赖 F2 | ownership/bytes report | 100% | completed |
 | F2 | provider probe + schema/cache trace | 不依赖 F3 | one-schema + required HOLD report | 100% | completed |
-| F3 | sequence regression + live adoption | 不依赖 F4 | request path report | 100% | pending |
+| F3 | sequence regression + live adoption | 不依赖 F3.5 | request path report | 100% | completed |
+| F3.5 | prefix fixture + simple/complex smoke | 不依赖 F4 | epoch/prefix/cache report | 100% | in progress |
 | F4 | full deterministic + Docker matrix | none | Phase F result doc | 100% | pending |
 
-## 15. 决策记录
+## 16. 决策记录
 
 | Date | Decision | Reason |
 |---|---|---|
@@ -329,3 +392,5 @@ fallback。实验项目不迁移旧数据。
 | 2026-07-16 | nested ordinary feedback 不复制进 outer control result | 原始 call/output 已独立可见，outer 复制只增加成本和事实载体 |
 | 2026-07-16 | `required` 维持 HOLD | provider 在 thinking enabled 下明确拒绝，不能用缓存收益换思考能力 |
 | 2026-07-16 | continuation 不复制完整普通工具 schema | 顶层工具是参数契约 owner，continuation 只引用同一调用信封 |
+| 2026-07-16 | current ephemeral projection 改为 epoch baseline + canonical delta journal | 每轮尾部替换会结构性破坏消息前缀；原始 delta 已足以忠实推进当前状态 |
+| 2026-07-16 | 不通过压缩修复缓存 | projection 大小不是前缀 0% 的根因，F3.5 不引入语义裁剪 |

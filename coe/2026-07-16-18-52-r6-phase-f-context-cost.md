@@ -1,7 +1,7 @@
 # Problem P-001: R6 TaskSpace 上下文与缓存成本高于 Standard
 - Status: open
 - Created: 2026-07-16 18:52
-- Updated: 2026-07-16 21:35
+- Updated: 2026-07-16 22:25
 - Objective: 定位并消除不必要的请求重复、Map 状态重复和 provider cache shape 变化，同时保持语义透传与 R6 correctness。
 - Symptoms:
   - simple R6/Standard request=1.40x、input=1.52x、uncached=3.33x。
@@ -24,12 +24,15 @@
   - active projection 在 provider payload 中无限累加。
 - Fix criteria:
   - payload section 可独立计量；当前完整 Map provider-visible owner=1；schema/choice transition=0；correctness/terminal/replay=100%；每项修复有独立成本对比。
-- Current conclusion: H-001/H-002/H-003/H-004 均已确认；F1 完成当前 Map 单 owner，F2 完成 immutable schema 并对 `required` 作出证据化 HOLD，F3 处理 Agent 声明动作合并。
+- Current conclusion: H-001/H-002/H-003/H-004/H-005 均已确认；F1/F2/F3 已完成状态去重、稳定 schema
+  和 Agent 声明动作合并，F3.5 正在把错误的逐请求 current projection 替换为固定 epoch baseline + canonical
+  delta journal，以恢复 provider 严格前缀。
 - Related hypotheses:
   - H-001
   - H-002
   - H-003
   - H-004
+  - H-005
 - Resolution basis:
   - not satisfied
 - Close reason:
@@ -196,6 +199,49 @@
 - Conclusion: confirmed；六个 run 的每个请求都保留同一个 139-byte bootstrap projection hash，而 control revision 已推进到 4/6。
 - Repair design readiness: ready
 - Next step: F0 增加 projection identity，F1 改为 ephemeral current projection composer。
+- Blocker:
+  - none
+- Close reason:
+  - not closed
+
+## Hypothesis H-005: 逐请求尾部替换 projection 结构性破坏 provider 前缀
+- Status: confirmed
+- Parent: P-001
+- Claim: F1 的 ephemeral current projection 每轮从历史过滤并重新追加到尾部，使下一轮新增自然历史插入到上一轮
+  projection 的位置，导致同一 tool schema 下也无法保持消息前缀。
+- Layer: root-cause
+- Factor relation: part_of
+- Depends on:
+  - H-004
+- Rationale:
+  - 当前 composer 固定执行 `filter(old projection) -> push(current projection)`；严格前缀缓存要求上一请求完整消息序列是
+    下一请求的前缀，两者在第一个动态 response 后即不可能同时成立。
+- Falsifiable predictions:
+  - If true: TaskSpace 后续请求的 first diff 位于上一轮 projection 所在 message index，message prefix
+    preservation 接近 0%，即使 tools hash 唯一且 projection revision 未变化。
+  - If false: 同一 revision 的连续请求保持上一请求完整 message prefix，request 2+ cache hit 接近 Standard。
+- Diagnostic evidence plan:
+  - Prediction or clause under test: projection 尾部替换与 prefix/cache 的结构性关系。
+  - Signal: message shapes/LCP、projection index/hash/revision、tools hash、request 2+ cache hit。
+  - Capture method: 对 F3 simple/complex provider wire trace 逐 request 对账，并检查 composer 顺序。
+  - Event name or marker:
+    - `TaskSpaceProviderCacheTraceV3`
+    - `TaskSpaceMapEpochSnapshotR6V1`
+  - Correlation keys:
+    - epoch_id、request_id、previous_request_id、projection_sha256
+  - Differentiates from:
+    - provider 冷启动、tool schema 变化和 projection 体积过大
+  - Supports if:
+    - 两个不同复杂度 sample 的 TaskSpace prefix preservation 均接近 0%，且 tools hash 恒定。
+  - Refutes if:
+    - projection 尾部替换下仍保持高消息前缀，或低命中只发生在首请求。
+- Evidence gate: satisfied
+- Related evidence:
+  - E-009
+- Conclusion: confirmed；simple/complex 分别为 0/12、0/18 message prefix，request 2+ cache hit
+  13.22%/13.27%，而 Standard 为 94.85%/92.34%。
+- Repair design readiness: ready
+- Next step: F3.5 固定 epoch baseline 锚点，后续只追加原始 canonical delta journal。
 - Blocker:
   - none
 - Close reason:
@@ -374,3 +420,49 @@
   ```
 - Interpretation: schema/list 变化根因已消除；provider 不允许 required 保留 thinking，因此 choice 统一不得实施，明确 HOLD。动态 projection/history 仍造成低缓存命中，留待 F4 汇总，不用 Runtime 语义约束补救。
 - Time: 2026-07-16 21:35
+
+## Evidence E-008: F3 声明式 continuation 机制与 live adoption
+- Related hypotheses:
+  - H-001
+- Direction: supports
+- Type: experiment
+- Source: deterministic sequence tests、F3 simple/complex Docker pair、canonical rollout
+- Prediction or plan link:
+  - Phase F3 exit gate
+- Matched signal:
+  - bind continuation 在 simple/complex 中分别自然出现 3/2 次；sequence 按声明顺序执行并保持 parent/call identity。
+  - 两个 sample 双侧 correctness 通过，R6 Map、Root、Finish 均闭合，无 partial commit。
+  - simple R6 request=13，与 F2 基线相同；complex R6 request=19，高于 F2 基线 14，不宣称复杂样本成本收益。
+- Raw content:
+  ```text
+  implementation: 6c7de4cbe
+  schema 3/3; args 14/14; sequence 13/13; control 23/23
+  simple: target/r6-phase-f3-sequence/single-file-fast-fix/20260716-220547-738
+  complex: target/r6-phase-f3-sequence/subscription-billing-repair/20260716-220809-394
+  ```
+- Interpretation: F3 的工具能力与机械执行正确且被 Agent 使用；复杂样本增加主要来自 Agent 参数/状态纠错，不能由 Runtime
+  增加语义约束修补。
+- Time: 2026-07-16 22:20
+
+## Evidence E-009: F3 projection 锚点与缓存前缀对账
+- Related hypotheses:
+  - H-005
+- Direction: supports
+- Type: diagnostic-log
+- Source: F3 provider cache trace v3、performance observation、provider composer source
+- Prediction or plan link:
+  - Phase F3.5 root-cause gate
+- Matched signal:
+  - tools hash 在每个 R6 run 内唯一，但 TaskSpace message prefix preservation 为 0；两个复杂度不同的 sample 命中率
+    都稳定在约 13%。
+  - composer 每轮删除历史 projection 后把 current projection 追加在全部自然历史之后；下一轮增长历史必然占据旧
+    projection 的 message index。
+- Raw content:
+  ```text
+  simple: prefix=0/12, request2+ hit=13.22%, cached/total=16,896/127,994
+  complex: prefix=0/18, request2+ hit=13.27%, cached/total=34,304/258,860
+  standard simple/complex request2+ hit=94.85%/92.34%
+  composer: filter(is_projection) -> prepared.push(projection_item)
+  ```
+- Interpretation: 低缓存是 projection 位置造成的结构性前缀破坏，不应通过裁剪 projection 或增加 Agent 约束解决。
+- Time: 2026-07-16 22:25
