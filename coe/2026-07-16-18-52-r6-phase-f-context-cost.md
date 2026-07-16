@@ -1,7 +1,7 @@
 # Problem P-001: R6 TaskSpace 上下文与缓存成本高于 Standard
 - Status: open
 - Created: 2026-07-16 18:52
-- Updated: 2026-07-17 17:10
+- Updated: 2026-07-17 19:20
 - Objective: 定位并消除不必要的请求重复、Map 状态重复和 provider cache shape 变化，同时保持语义透传与 R6 correctness。
 - Symptoms:
   - simple R6/Standard request=1.40x、input=1.52x、uncached=3.33x。
@@ -28,8 +28,10 @@
   - payload section 可独立计量；当前完整 Map provider-visible owner=1；schema/choice transition=0；correctness/terminal/replay=100%；每项修复有独立成本对比。
 - Current conclusion: H-001/H-002/H-003/H-004/H-005/H-006 的局部机制已处理，但 Phase F 端到端成本目标
   未达成，不能直接进入 Phase G。E-013 至 E-017 证明 F final 同时增加 provider request 和每 request 固定负载；
-  immutable lifecycle schema 在仍保留 named/auto/named choice break 时放大 terminal uncached input，完整 schema
-  还伴随 6/6 首次初始化生成非法 `finish.goal`。F3 的 bind continuation 被使用，但 complete -> bind 没有自然合并，
+  immutable lifecycle schema 在仍保留 named/auto/named choice break 时放大 terminal uncached input。F5.0 同版本
+  A/B/C 分别 6/6、5/6、6/6 生成非法 `finish.goal`，已反证 schema breadth/description 显著性归因；
+  实际线形态原因进入 H-011。
+  F3 的 bind continuation 被使用，但 complete -> bind 没有自然合并，
   更细 Map 的生命周期继续逐请求推进。F3.5 只修复 F1 自引入的前缀断裂，不是 E 到 F 的净成本收益。
   修复计划已插入 `docs/v0.0.5/build-R6/18-r6-phase-f5-cost-regression-repair-plan.md`；Phase G 在 F5.3
   通过前 blocked。
@@ -44,6 +46,7 @@
   - H-008
   - H-009
   - H-010
+  - H-011
 - Resolution basis:
   - not satisfied
 - Close reason:
@@ -625,7 +628,7 @@
   - not closed
 
 ## Hypothesis H-008: 合并后的完整 control schema 降低 bootstrap 合同显著性并制造稳定初始化重试
-- Status: investigating
+- Status: refuted
 - Parent: P-001
 - Claim: F2 将 bootstrap-only control 描述与 schema 合并进七类 lifecycle `anyOf`，同时把顶层描述从明确的
   `node_id-only Finish identity` 改为通用 lifecycle 描述；DeepSeek 在 `strict=false` 下稳定给 Finish 添加 goal，
@@ -637,18 +640,46 @@
 - Falsifiable predictions:
   - If true: E 阶段化 bootstrap 的首次初始化非法 `finish.goal` 接近 0，而 F final 在相同两个 sample 中稳定发生；
     只恢复 bootstrap schema 显著性后该错误应下降。
-  - If false: E 同样稳定生成 `finish.goal`，或 F 错误来自 projection/history 中的旧错误示例。
+  - If false: 同版本 bootstrap-only 或显式 Finish 描述不能降低 `finish.goal`。
 - Diagnostic evidence plan:
   - Signal: 首次 initialize 参数、错误路径、bootstrap tool description/schema shape。
   - Capture method: E/F 各六次 rollout 对账与提交 diff；最终因果门需要同版本 schema A/B probe。
   - Differentiates from: Agent 对 Root/Finish 产品概念本身不理解。
-- Evidence gate: partial
+- Evidence gate: satisfied
 - Related evidence:
   - E-015
-- Conclusion: 强支持但尚缺同版本 A/B。Phase E 6/6 首次初始化合法；F final 6/6 首次初始化均携带非法
-  `finish.goal`，simple 总计 5 次多余初始化、complex 3 次。提交窗口同时发生 bootstrap schema 合并和描述弱化。
+  - E-018
+- Conclusion: refuted。A full、B bootstrap-only generic、C bootstrap-only explicit 的正式结果为
+  `finish.goal=6/6、5/6、6/6`，且唯一字段错误路径相同。schema breadth 与 description salience 都不是
+  初始化回归的原因；前一轮有效重复观察为 6/6、6/6、6/6。
+- Repair design readiness: not_applicable
+- Next step: 不实施 H-008 修复；由 H-011 继续隔离 Finish identity wire shape。
+- Blocker:
+  - none
+- Close reason: falsified by same-version provider A/B/C
+
+## Hypothesis H-011: Finish identity 的对象线形态诱发 `goal` 泛化
+- Status: investigating
+- Parent: P-001
+- Claim: `initialize_map.finish` 以对象形式与 Root/Work 节点并列，虽然 schema 只允许 `node_id` 且已有明确描述，
+  DeepSeek 在 `strict=false` 下仍按普通节点形态补齐 `goal`。
+- Layer: root-cause
+- Factor relation: alternative_to
+- Depends on:
+  - none
+- Falsifiable predictions:
+  - If true: 当前 Finish 对象高复现错误；仅改变 identity wire shape 后错误降到 <=1/6，且其他字段不回归。
+  - If false: 对象命名或标量 identity 仍产生非法字段/类型错误，或错误来自实验 prompt/history。
+- Diagnostic evidence plan:
+  - Signal: Finish 字段类型、键集合、parse verdict、其他 initialize 字段错误路径。
+  - Capture method: F5.0b current object / distinct object / scalar identity 三臂 provider probe。
+  - Differentiates from: schema breadth、顶层 description、Runtime reject、projection/history。
+- Evidence gate: not_satisfied
+- Related evidence:
+  - E-018
+- Conclusion: F5.0 仅支持该方向作为下一可证伪假设，尚未确认。
 - Repair design readiness: not_ready
-- Next step: 按 Phase F5.0 执行 full/minimal/explicit 三臂 provider A/B，不改 production 默认行为。
+- Next step: 执行 F5.0b；无 wire-shape verdict 不修改 production parser/runtime。
 - Blocker:
   - none
 - Close reason:
@@ -836,3 +867,30 @@
 - Interpretation: F1 的 map_state 去重是净收益，F3.5 epoch 是必要的自回归修复；二者不是 final 成本主因。
   不能把诊断 identity 字段误算为 provider-visible input，也没有证据支持通过语义裁剪解决当前回归。
 - Time: 2026-07-17 16:30
+
+## Evidence E-018: F5.0 同版本 bootstrap 三臂因果实验
+- Related hypotheses:
+  - H-008
+  - H-011
+- Direction: refutes H-008; motivates H-011
+- Type: provider-experiment
+- Source: 生产 schema builder 导出器、三臂 DeepSeek probe、脱敏参数结构日志
+- Prediction or plan link:
+  - Phase F5.0 H-008 evidence gate
+- Matched signal:
+  - A full lifecycle、B bootstrap-only generic、C bootstrap-only explicit 各执行 simple/complex 3 次。
+  - 18/18 HTTP 200、18/18 单 `taskspace_control`、18/18 参数可解析。
+  - A/B/C 为 `finish.goal=6/6、5/6、6/6`；17 次失败的唯一字段错误均为 `unexpected:finish.goal`。
+  - B/C schema input 明显低于 A，但正确性没有改善。
+- Raw content:
+  ```text
+  artifact: target/r6-f5-bootstrap-ab/20260717-live-03/provider-capability.json
+  events: target/r6-f5-bootstrap-ab/20260717-live-03/probe-events.jsonl
+  schema bytes A/B/C: 9427 / 4406 / 4041
+  input total A/B/C: 17208 / 8622 / 8226
+  finish.goal A/B/C: 6/6 / 5/6 / 6/6
+  request2+ cache A/B/C: 98.19% / 97.98% / 93.36%
+  ```
+- Interpretation: H-008 的两个候选因子都被同版本实验反证。不能因为 bootstrap-only 更省 token 就把它当作
+  初始化修复。Finish 对象线形态是下一假设，但在 F5.0b 前不得实现 Runtime 纠错、projection 提示或生产字段改动。
+- Time: 2026-07-17 19:20

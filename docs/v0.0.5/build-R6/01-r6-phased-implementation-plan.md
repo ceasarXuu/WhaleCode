@@ -10,7 +10,7 @@
 Created: 2026-07-15
 Updated: 2026-07-17
 Version: v0.0.5 build-R6
-Status: Phase F Reopened / Phase F5 Pending / Phase G Blocked
+Status: Phase F Reopened / F5.0 Complete / F5.0b Pending / Phase G Blocked
 Owner / Responsible: WhaleCode core runtime / TaskSpace
 Risk Level: Critical
 Plan Type: Full
@@ -358,10 +358,11 @@ simple + branch-join 三臂各1次无 correctness 回退。
 
 执行顺序：
 
-1. F5.0：冻结 Phase E/F4 基线，对 bootstrap full/minimal/explicit 三臂做同版本 A/B；
-2. F5.1：删除负收益 immutable full-lifecycle 暴露，恢复 hard-state 对齐工具面；
-3. F5.2：在 R6 Rooted DAG 上恢复 schema-first `complete -> next/end/wait` carrier；
-4. F5.3：simple/complex/branch-join 正式矩阵，不劣于 Phase E 才重新关闭 Phase F。
+1. F5.0：已冻结 Phase E/F4 基线；full/minimal/explicit 三臂反证 H-008；
+2. F5.0b：隔离 Finish identity wire shape；证据成立后由 F5.0c 单独切换生产合同；
+3. F5.1：删除负收益 immutable full-lifecycle 暴露，恢复 hard-state 对齐工具面；
+4. F5.2：在 R6 Rooted DAG 上恢复 schema-first `complete -> next/end/wait` carrier；
+5. F5.3：simple/complex/branch-join 正式矩阵，不劣于 Phase E 才重新关闭 Phase F。
 
 F5 不恢复 R5 数据模型，不增加兼容分支，不通过 Runtime 自动选 next、减少 Map 节点或 projection 语义裁剪获益。
 详细工程门、日志、回退和成本公式见 `18-r6-phase-f5-cost-regression-repair-plan.md`。

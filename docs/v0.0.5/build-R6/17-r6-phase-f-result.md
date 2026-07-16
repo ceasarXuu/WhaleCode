@@ -1,7 +1,7 @@
 # R6 Phase F 上下文唯一性与成本收敛结果
 
 - 日期：2026-07-16
-- 状态：F0-F4 机制完成 / 端到端成本门失败 / Phase F5 待执行
+- 状态：F0-F4 机制完成 / 端到端成本门失败 / F5.0 已完成、F5.0b 待执行
 - 范围：F0、F1、F2、F3、F3.5、F4
 - 最终代码提交：`726d3298b`
 - 计划：`16-r6-phase-f-context-cost-plan.md`
@@ -109,7 +109,7 @@ continuation 错误闭合的 call，Runtime 返回同 call id 的 `protocol_fail
 |---|---|---|---|
 | request 放大 | 未解决 | F final 相对 E simple/complex +53.6%/+34.9% | Phase F5.1/F5.2 |
 | uncached input 放大 | 未解决 | F final 相对 E simple/complex +218.1%/+111.5% | Phase F5.1/F5.3 |
-| bootstrap 首次参数失败 | 未解决 | F4 6/6 首次生成非法 `finish.goal` | Phase F5.0/F5.1 |
+| bootstrap 首次参数失败 | 未解决 | F5.0 A/B/C=6/5/6；H-008 已反证 | Phase F5.0b/F5.0c |
 | standalone complete | 未解决 | F3 依赖 sibling calls，正式运行 multi-control adoption=0/6 | Phase F5.2 |
 | `required+thinking` | HOLD | provider 返回 `thinking_tool_choice_incompatible`；不能用缓存换思考能力 | provider 能力变化后重测 |
 | 长 Map 详情压缩 | 未开始 | Phase F 禁止语义裁剪；长期上下文上限尚未解决 | Phase G 单策略实验 |

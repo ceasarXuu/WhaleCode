@@ -2,8 +2,8 @@
 
 - Created: 2026-07-17
 - Updated: 2026-07-17
-- Version: 1.0
-- Status: Draft
+- Version: 1.1
+- Status: F5.0 Complete / F5.0b Pending / F5.1-F5.3 Blocked
 - Owner / Responsible: WhaleCode core runtime / TaskSpace
 - Related Systems: `taskspace_control` schema、ToolRouter、Rooted DAG runtime、provider request composer、Docker benchmark
 - Related Links: `01-r6-phased-implementation-plan.md`、`16-r6-phase-f-context-cost-plan.md`、
@@ -34,9 +34,10 @@ Phase E 到 Phase F final 的 R6 绝对回归为：
 | ID | 根因 | 状态 | F5 处理 |
 |---|---|---|---|
 | H-007 | 完整 lifecycle schema 固定为 26,628 B/request，但 named/auto/named choice break 仍存在 | confirmed | F5.1 |
-| H-008 | bootstrap 合并进完整 schema 后，6/6 首次初始化生成非法 `finish.goal` | strong support，需同版本 A/B | F5.0 先证实，F5.1 再落地 |
+| H-008 | bootstrap 合并进完整 schema 后降低合同显著性并生成非法 `finish.goal` | refuted；正式 A/B/C=6/5/6 | 不再作为 F5.1 修复依据 |
 | H-009 | R6 丢失 R5 的非终态完成交接 carrier；F3 依赖 sibling calls，实际采用 0/6 | confirmed | F5.2 |
 | H-010 | F0-F4 没有 Phase E 端到端成本收益门 | confirmed | F5.0/F5.3 |
+| H-011 | Finish 对象与 Root/Work 节点的 wire shape 相似，`strict=false` 下诱发模型补齐 `goal` | investigating | F5.0b 先诊断，F5.0c 条件修复 |
 
 F5 不重新调查已排除方向：projection count 始终为 1、semantic rewrite 为 0、F1 `map_state` 去重是净收益、
 F3.5 epoch identity 不构成主要 provider-visible input。
@@ -89,7 +90,7 @@ F3.5 epoch identity 不构成主要 provider-visible input。
 1. provider-visible tools 与 hard state 一致，不再暴露当前必然被 Runtime 拒绝的顶层能力。
 2. 恢复 R5 已验证的不变量：standalone nonterminal complete 在 model-visible schema 中不可表达。
 3. complete 后的 next binding/end/wait 与后续动作由 Agent 在同一 control call 中声明。
-4. 首次 bootstrap 参数错误从 F4 的 6/6 降为正式矩阵 0/6。
+4. 以证据支持的工具合同消除首次 bootstrap 参数错误；不得把 bootstrap-only 或描述强化直接计为修复。
 5. simple/complex correctness、Map closure、terminal/replay、反馈保真保持 100%。
 6. F5 final 的 requests、input、uncached input 和 1/5 cached-weighted input 均不劣于 Phase E R6 基线。
 
@@ -105,7 +106,7 @@ F3.5 epoch identity 不构成主要 provider-visible input。
 
 | Dependency | Type | Current Status | Blocking Risk | Handling Plan |
 |---|---|---|---|---|
-| DeepSeek production function schema 行为 | third-party | 部分已知 | H-008 可能来自 schema 结构或描述显著性 | F5.0 三臂 provider A/B |
+| DeepSeek production function schema 行为 | third-party | H-008 已反证、H-011 未确认 | Finish identity wire shape 可能诱发字段泛化 | F5.0b 三臂 provider A/B |
 | Phase E/F4 frozen artifacts | data | Ready | provider 时间漂移影响历史绝对值 | 正式矩阵同时运行 current Standard，并轮换顺序 |
 | Rooted DAG candidate/replay | system | Ready | composite handoff 可能产生部分状态 | F5.2 candidate preflight + fault injection |
 | ToolRouter/permissions/sandbox | system | Ready | nested continuation 绕过原生能力链 | 强制复用现有 router/runtime |
@@ -164,6 +165,12 @@ state plan 失败时 revision、lease、node status、event store 均不变化�
 
 ### Phase F5.0：重开门禁与 Bootstrap 因果 A/B
 
+#### Result
+
+Complete。正式 A/B/C 的 `finish.goal` 为 6/6、5/6、6/6，且唯一字段错误路径相同；H-008 被反证。结果见
+`19-r6-phase-f5-0-bootstrap-ab-result.md`。bootstrap-only schema 只保留 H-007 的 hard-state/cost 价值，不能再用于
+解释初始化正确性。
+
 #### Objective
 
 冻结 Phase E/F4 基线和 F5 outcome gate，完成 H-008 的同版本因果隔离；本阶段不修改 production 默认行为。
@@ -189,7 +196,8 @@ state plan 失败时 revision、lease、node status、event store 均不变化�
 | Type | Passing Standard |
 |---|---|
 | Diagnostic | B/C 至少一臂把首次 `finish.goal` 从 A 的高复现率降到 <=1/6，且无新字段错误 |
-| Attribution | 能区分 schema breadth 与 description salience；不能归因时保持 H-008 investigating |
+| Attribution | 明确区分 support、refutation 与 inconclusive，不以单次随机合法计为收益 |
+| Refutation | A 高复现且 B/C 均 >=5/6 时，反证 schema breadth 与 description salience |
 | Safety | probe 不改 production 默认 schema，不记录 secret/完整业务正文 |
 | Baseline | Phase E/F4 指标与原 artifact 对账 100% |
 
@@ -207,7 +215,42 @@ state plan 失败时 revision、lease、node status、event store 均不变化�
 
 #### Gate To Next Phase
 
-F5.0 证据 100% 完成后暂停汇报；H-008 未过证据门时不得设计其具体修复。
+F5.0 已暂停汇报。下一步进入 F5.0b；不得把 B/C 的成本下降解释成初始化正确性收益。
+
+### Phase F5.0b：Finish Identity Wire Shape 因果隔离
+
+#### Objective
+
+只验证 Finish identity 的 JSON wire shape 是否导致 `goal` 泛化；不修改 production，不增加提示词或 Runtime 纠错。
+
+#### Experiment
+
+1. 从 F5.0 的 bootstrap-only schema 机械派生三臂，除 Finish identity 线形态外保持 description、prompt、模型、
+   `temperature` 和 named tool choice 相同：
+   - D：当前 `finish: { node_id }`；
+   - E：`finish_identity: { finish_id }`，保留对象但同时改变外层与内层 identity 命名；
+   - F：`finish_node_id: string`，直接使用标量 Finish ID，不暴露可被补齐 `goal` 的对象槽位。
+2. simple/complex 每臂各 3 次，沿用 F5.0 轮换、脱敏、hash、cache 与 parse 观测。
+3. 不把“标量天然无法容纳 goal”直接算成功；同时检查 action、Root、initial Work、edges、continuation 是否新增错误。
+
+#### Exit Criteria
+
+- D 必须高复现当前错误；E/F 至少一臂将非法字段或类型错误降到 <=1/6，且无其他字段回归，才能确认 H-011。
+- 三臂都失败则 H-011 保持 investigating，暂停并重新建假设，不进入生产修复。
+- 完成后暂停汇报。
+
+### Phase F5.0c：Finish Identity 合同切换
+
+#### Objective
+
+仅在 F5.0b 证据门通过后，将获胜 wire shape 一次性切换到生产 schema、typed parser、mapping、event/replay 和
+observer；不保留旧字段兼容分支。
+
+#### Validation
+
+- schema/parser 正反 fixture、terminal/replay、malformed feedback 全部通过；
+- simple/complex 各 1 次，首次初始化错误为 0/2，Map/Root/Finish/continuation 100%；
+- 只验证初始化正确性与该项 schema 成本，完成后暂停，不与 F5.1 工具面收益合并报告。
 
 ### Phase F5.1：Hard-state 对齐 Tool Surface
 
@@ -217,7 +260,8 @@ F5.0 证据 100% 完成后暂停汇报；H-008 未过证据门时不得设计其
 
 #### Entry Criteria
 
-- F5.0 完成；bootstrap schema 采用 A/B 证据支持的最小形态。
+- F5.0b 完成；H-011 证据成立时 F5.0c 也必须完成，refuted 时按重新冻结的诊断路径处理。
+- bootstrap-only 只作为 hard-state 对齐，不承担 H-008 已反证的正确性归因。
 - F4 commit 和回滚点已记录。
 
 #### Implementation Tasks
@@ -363,7 +407,7 @@ simple and complex F5:
 #### Review And Closeout
 
 1. 更新 `17-r6-phase-f-result.md`，区分 F0-F4 机制结果和 F5 outcome 结果。
-2. 更新 COE H-007/H-008/H-009/H-010，只有 fix-validation evidence 完整才关闭。
+2. 更新 COE H-007/H-008/H-009/H-010/H-011，只有 fix-validation evidence 完整才关闭。
 3. 运行 forbidden symbol、dead branch、兼容 alias、provider-visible strategy text 扫描。
 4. 经用户单独授权后才执行对抗性审查；审查发现问题回到对应 F5 phase。
 5. F5 全门通过后才能冻结 R6-B0 并进入 Phase G。
@@ -373,6 +417,8 @@ simple and complex F5:
 | Phase | Independent Verification | Forbidden Future Dependency | Exit Evidence | Required | Decision |
 |---|---|---|---|---:|---|
 | F5.0 | provider A/B + artifact replay | 不依赖 production repair | H-008 verdict + frozen baseline | 100% | pause/report |
+| F5.0b | Finish wire-shape provider A/B | 不依赖 production repair | H-011 verdict | 100% | pause/report |
+| F5.0c | Finish identity production switch | F5.0b | typed contract + live init | 100% | pause/report |
 | F5.1 | state visibility fixtures + 2 live | 不依赖 handoff | hard-state alignment + tools/input report | 100% | pause/report |
 | F5.2 | schema/router/fault + 2 live | 不依赖 formal matrix | handoff adoption + atomicity report | 100% | pause/report |
 | F5.3 | 3-sample formal matrix | 不依赖 Phase G | correctness + Phase E cost gate | 100% | close F / enter G |
@@ -381,7 +427,9 @@ simple and complex F5:
 
 | Plan Item | Expected Behavior | Production Code Path | Integration Entry | Test Evidence | Runtime Evidence | Mock / Stub | Status |
 |---|---|---|---|---|---|---|---|
-| bootstrap A/B | 归因 schema/description | benchmark probe only | provider probe | 3-arm fixtures | raw args/verdict | diagnostic-only | planned |
+| bootstrap A/B | 反证 schema/description | benchmark probe only | provider probe | 3-arm fixtures | raw args/verdict | diagnostic-only | completed |
+| Finish identity A/B | 归因 wire shape | benchmark probe only | provider probe | 3-arm fixtures | raw args/verdict | diagnostic-only | planned |
+| Finish identity contract | 使用证据支持的最小线形态 | tool/args/mapping/replay | control handler | schema/parser/replay | init trace | none | blocked |
 | state tool surface | 只暴露 hard-state 合法能力 | session/tool registry | provider prompt | mode matrix | tools hash/bytes | none | planned |
 | handoff schema | standalone complete 不可表达 | taskspace tool/args | tool call | schema/parser | adoption trace | none | planned |
 | handoff domain | complete+next 原子 | rooted DAG runtime | control handler | property/fault | revision/hash | none | planned |
@@ -408,7 +456,8 @@ simple and complex F5:
 
 | Question | Resolution Phase | Blocking Rule |
 |---|---|---|
-| bootstrap 错误主要由 schema breadth 还是 description salience 引起 | F5.0 | 无 A/B verdict 不冻结 bootstrap 修复 |
+| bootstrap 错误是否由 schema breadth 或 description salience 引起 | F5.0 | 已反证，不进入生产修复 |
+| Finish identity 的对象线形态是否诱发 `goal` 泛化 | F5.0b | 无 wire-shape verdict 不实施 F5.0c |
 | handoff variant 的最小字段名和 provider 可生成形态 | F5.2 probe | probe/typed parser 不一致不得实现 Runtime |
 | branch/join 是否自然需要 `complete_then_wait` | F5.2 fixture | 无必要性证据不增加变体 |
 | state handoff 是否能复用现有 candidate transaction 而不扩展平行 reducer | F5.2 design | 不能复用则暂停并重新评审架构 |
@@ -418,6 +467,8 @@ simple and complex F5:
 | Decision | Status | Reason |
 |---|---|---|
 | 重开 Phase F，新增 F5 | Accepted | F0-F4 机制完成但 outcome gate 失败 |
+| H-008 schema breadth/description 归因 | Rejected | A/B/C=6/5/6，未达到任一支持门 |
+| Finish identity wire shape 单独建证据门 | Accepted | 不把未确认结构假设并入 F5.1 |
 | 删除 immutable full lifecycle 暴露 | Planned | 残留 choice break 下为明确负收益且工具面与 hard state 矛盾 |
 | 恢复 schema-first complete handoff | Planned | R5 已验证能力在 R6 迁移中丢失 |
 | 不恢复 R5 旧数据模型或字段 | Accepted | 只迁移行为不变量，R6 Rooted DAG 保持唯一领域模型 |
@@ -427,7 +478,7 @@ simple and complex F5:
 
 ## 15. 计划质量检查
 
-- [x] 根因、修复项和未确认 H-008 已分开。
+- [x] 已反证 H-008 与未确认 H-011、已确认修复项分开。
 - [x] 每次只改一个策略，并要求阶段内独立收益证据。
 - [x] 保留 Agent 决策权与 Runtime 硬状态边界。
 - [x] 没有兼容分支、自动推进、语义裁剪或提示词补洞。
