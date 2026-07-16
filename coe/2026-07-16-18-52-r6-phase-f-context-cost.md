@@ -1,7 +1,7 @@
 # Problem P-001: R6 TaskSpace 上下文与缓存成本高于 Standard
 - Status: open
 - Created: 2026-07-16 18:52
-- Updated: 2026-07-17 19:20
+- Updated: 2026-07-17
 - Objective: 定位并消除不必要的请求重复、Map 状态重复和 provider cache shape 变化，同时保持语义透传与 R6 correctness。
 - Symptoms:
   - simple R6/Standard request=1.40x、input=1.52x、uncached=3.33x。
@@ -29,8 +29,8 @@
 - Current conclusion: H-001/H-002/H-003/H-004/H-005/H-006 的局部机制已处理，但 Phase F 端到端成本目标
   未达成，不能直接进入 Phase G。E-013 至 E-017 证明 F final 同时增加 provider request 和每 request 固定负载；
   immutable lifecycle schema 在仍保留 named/auto/named choice break 时放大 terminal uncached input。F5.0 同版本
-  A/B/C 分别 6/6、5/6、6/6 生成非法 `finish.goal`，已反证 schema breadth/description 显著性归因；
-  实际线形态原因进入 H-011。
+  A/B/C 分别 6/6、5/6、6/6 生成非法 `finish.goal`，已反证 schema breadth/description 显著性归因。
+  F5.0b 又证明对象类型不是原因；E 对象命名束 6/6 合法，确认 H-012 identity 命名相似性根因。
   F3 的 bind continuation 被使用，但 complete -> bind 没有自然合并，
   更细 Map 的生命周期继续逐请求推进。F3.5 只修复 F1 自引入的前缀断裂，不是 E 到 F 的净成本收益。
   修复计划已插入 `docs/v0.0.5/build-R6/18-r6-phase-f5-cost-regression-repair-plan.md`；Phase G 在 F5.3
@@ -47,6 +47,7 @@
   - H-009
   - H-010
   - H-011
+  - H-012
 - Resolution basis:
   - not satisfied
 - Close reason:
@@ -659,7 +660,7 @@
 - Close reason: falsified by same-version provider A/B/C
 
 ## Hypothesis H-011: Finish identity 的对象线形态诱发 `goal` 泛化
-- Status: investigating
+- Status: refuted
 - Parent: P-001
 - Claim: `initialize_map.finish` 以对象形式与 Root/Work 节点并列，虽然 schema 只允许 `node_id` 且已有明确描述，
   DeepSeek 在 `strict=false` 下仍按普通节点形态补齐 `goal`。
@@ -674,12 +675,39 @@
   - Signal: Finish 字段类型、键集合、parse verdict、其他 initialize 字段错误路径。
   - Capture method: F5.0b current object / distinct object / scalar identity 三臂 provider probe。
   - Differentiates from: schema breadth、顶层 description、Runtime reject、projection/history。
-- Evidence gate: not_satisfied
+- Evidence gate: satisfied
 - Related evidence:
   - E-018
-- Conclusion: F5.0 仅支持该方向作为下一可证伪假设，尚未确认。
-- Repair design readiness: not_ready
-- Next step: 执行 F5.0b；无 wire-shape verdict 不修改 production parser/runtime。
+  - E-019
+- Conclusion: refuted。E 仍使用对象，但 6/6 严格合法；F 标量反而有 1/6 生成空对象。对象类型不是必要根因。
+- Repair design readiness: not_applicable
+- Next step: 不实施标量化；由 H-012 承接获胜的命名束归因。
+- Blocker:
+  - none
+- Close reason: named object arm eliminated the error without scalar conversion
+
+## Hypothesis H-012: Finish identity 与普通节点共享命名束诱发字段泛化
+- Status: confirmed
+- Parent: P-001
+- Claim: 当前 `finish: { node_id }` 同时复用普通节点的外层语义词和内部 `node_id` 词形，DeepSeek 在
+  `strict=false` 下按普通节点补齐 `goal`；使用独立 identity 命名束可保持对象语义并消除泛化。
+- Layer: root-cause
+- Factor relation: alternative_to
+- Depends on:
+  - none
+- Falsifiable predictions:
+  - If true: D 当前命名高复现 `finish.goal`，E=`finish_identity: { id }` 降到 <=1/6，公共字段不回归。
+  - If false: E 仍高复现 identity 错误，或只有标量 F 能通过。
+- Diagnostic evidence plan:
+  - Signal: identity error、common graph error、actual schema shape、request input/cache。
+  - Capture method: F5.0b D/E/F provider probe。
+  - Differentiates from: 对象类型、schema breadth、description、Runtime reject、projection/history。
+- Evidence gate: satisfied
+- Related evidence:
+  - E-019
+- Conclusion: confirmed。D identity error=5/6，E=0/6，F=1/6；E 公共字段错误=0，且 schema 只比 D 增加 8 bytes。
+- Repair design readiness: ready
+- Next step: F5.0c 一次性切换 E wire contract，不保留旧字段兼容。
 - Blocker:
   - none
 - Close reason:
@@ -894,3 +922,32 @@
 - Interpretation: H-008 的两个候选因子都被同版本实验反证。不能因为 bootstrap-only 更省 token 就把它当作
   初始化修复。Finish 对象线形态是下一假设，但在 F5.0b 前不得实现 Runtime 纠错、projection 提示或生产字段改动。
 - Time: 2026-07-17 19:20
+
+## Evidence E-019: F5.0b Finish identity 命名束与类型三臂实验
+- Related hypotheses:
+  - H-011
+  - H-012
+- Direction: refutes H-011; supports H-012
+- Type: provider-experiment
+- Source: 生产 bootstrap schema 派生器、D/E/F DeepSeek probe、严格公共字段校验
+- Prediction or plan link:
+  - Phase F5.0b Finish identity evidence gate
+- Matched signal:
+  - D 当前对象、E 独立命名对象、F 独立命名标量各执行 simple/complex 3 次。
+  - 18/18 HTTP 200、18/18 单 control call、18/18 参数可解析，公共图字段错误为 0。
+  - D identity error=5/6，均为 `unexpected:finish.goal`；E=0/6；F=1/6，错误为标量位置生成空对象。
+  - E 与 D 都是对象，证明对象类型不是根因；E 只比 D 增加 8 schema bytes。
+- Raw content:
+  ```text
+  artifact: target/r6-f5-finish-identity-ab/20260717-live-01/provider-capability.json
+  analysis: target/r6-f5-finish-identity-ab/20260717-live-01/analysis.json
+  schema bytes D/E/F: 4406 / 4414 / 4247
+  valid D/E/F: 1/6 / 6/6 / 5/6
+  identity errors D/E/F: 5/6 / 0/6 / 1/6
+  common errors D/E/F: 0/6 / 0/6 / 0/6
+  input total D/E/F: 8622 / 8634 / 8388
+  request2+ cache D/E/F: 97.98% / 97.85% / 91.56%
+  ```
+- Interpretation: 生产候选冻结为 E=`finish_identity: { id }`。不能选择更小但有类型错误的 F，也不需要增加
+  Runtime 修复、projection 提示或 reasoning 解析。
+- Time: 2026-07-17

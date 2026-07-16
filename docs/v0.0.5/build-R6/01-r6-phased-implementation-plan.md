@@ -10,7 +10,7 @@
 Created: 2026-07-15
 Updated: 2026-07-17
 Version: v0.0.5 build-R6
-Status: Phase F Reopened / F5.0 Complete / F5.0b Pending / Phase G Blocked
+Status: Phase F Reopened / F5.0-F5.0b Complete / F5.0c Pending / Phase G Blocked
 Owner / Responsible: WhaleCode core runtime / TaskSpace
 Risk Level: Critical
 Plan Type: Full
@@ -359,7 +359,7 @@ simple + branch-join 三臂各1次无 correctness 回退。
 执行顺序：
 
 1. F5.0：已冻结 Phase E/F4 基线；full/minimal/explicit 三臂反证 H-008；
-2. F5.0b：隔离 Finish identity wire shape；证据成立后由 F5.0c 单独切换生产合同；
+2. F5.0b：已确认 identity 命名束根因，冻结 E=`finish_identity: { id }`；F5.0c 单独切换生产合同；
 3. F5.1：删除负收益 immutable full-lifecycle 暴露，恢复 hard-state 对齐工具面；
 4. F5.2：在 R6 Rooted DAG 上恢复 schema-first `complete -> next/end/wait` carrier；
 5. F5.3：simple/complex/branch-join 正式矩阵，不劣于 Phase E 才重新关闭 Phase F。
