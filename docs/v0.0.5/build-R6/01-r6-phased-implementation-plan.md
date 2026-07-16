@@ -321,9 +321,10 @@ simple 与 complex 的 Standard/R5/R6 各3次完成；R6 finish_end adoption=100
 “schema 保持不变但 named/auto 继续切换”视为缓存修复，因为 `tool_choice` 已由 Phase E trace 证明属于
 provider cache shape。
 
-当前进度：F0、F1 已完成。provider payload 分区观测、projection 每请求 freshness 对账、当前 Map 单一
-provider-visible owner 和紧凑 control delta 已通过确定性测试与 simple/complex Docker smoke；F2 进入稳定
-tool contract 与 DeepSeek `required` provider probe。
+当前进度：F0-F2 已完成。provider payload 分区观测、projection 每请求 freshness 对账、当前 Map 单一
+provider-visible owner、紧凑 control delta 和 immutable lifecycle tool schema 已通过确定性测试与
+simple/complex Docker smoke。DeepSeek `required + thinking` 被 provider 明确拒绝，决策为 HOLD；F3 进入
+Agent 声明的状态/普通动作机械序列。
 
 **目标**：让 Agent 看到的是同一 canonical DAG 的忠实视图，不因新模型再次引入重复或语义注入。
 

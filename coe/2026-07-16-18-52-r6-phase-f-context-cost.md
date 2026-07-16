@@ -1,7 +1,7 @@
 # Problem P-001: R6 TaskSpace 上下文与缓存成本高于 Standard
 - Status: open
 - Created: 2026-07-16 18:52
-- Updated: 2026-07-16 21:05
+- Updated: 2026-07-16 21:35
 - Objective: 定位并消除不必要的请求重复、Map 状态重复和 provider cache shape 变化，同时保持语义透传与 R6 correctness。
 - Symptoms:
   - simple R6/Standard request=1.40x、input=1.52x、uncached=3.33x。
@@ -24,7 +24,7 @@
   - active projection 在 provider payload 中无限累加。
 - Fix criteria:
   - payload section 可独立计量；当前完整 Map provider-visible owner=1；schema/choice transition=0；correctness/terminal/replay=100%；每项修复有独立成本对比。
-- Current conclusion: H-001/H-002/H-003/H-004 均已确认；F1 已完成 projection freshness 与当前 Map 单 owner，F2 处理稳定 tool contract/cache shape，F3 处理 Agent 声明动作合并。
+- Current conclusion: H-001/H-002/H-003/H-004 均已确认；F1 完成当前 Map 单 owner，F2 完成 immutable schema 并对 `required` 作出证据化 HOLD，F3 处理 Agent 声明动作合并。
 - Related hypotheses:
   - H-001
   - H-002
@@ -351,3 +351,26 @@
   ```
 - Interpretation: H-002 的双 owner 根因已修复；缓存命中差异和状态动作错误仍存在，分别进入 F2/F3，不由 projection 增加语义引导补救。
 - Time: 2026-07-16 21:05
+
+## Evidence E-007: F2 immutable tool schema 与 required HOLD
+- Related hypotheses:
+  - H-003
+- Direction: supports
+- Type: experiment
+- Source: provider capability probe、simple/complex Docker pair、provider cache trace v3
+- Prediction or plan link:
+  - Phase F2 exit gate
+- Matched signal:
+  - simple/complex TaskSpace 每个 run 的 tools count 恒为 13，`tools_hash` 唯一值均为 1。
+  - 去除 nested/top-level 参数 schema 重复后，tools section 从 35,648 降至 24,449 bytes/request。
+  - `required + thinking disabled` 返回预期 tool call；`required + thinking enabled` 返回 HTTP 400，错误为
+    `thinking_tool_choice_incompatible`，无 reasoning content。
+  - simple/complex 双侧 correctness 通过，R6 Map 均闭合。
+- Raw content:
+  ```text
+  probe: target/r6-phase-f2-provider/probe-required-thinking.json
+  simple: target/r6-phase-f2-dedup/single-file-fast-fix/20260716-212621-464
+  complex: target/r6-phase-f2-dedup/subscription-billing-repair/20260716-212759-568
+  ```
+- Interpretation: schema/list 变化根因已消除；provider 不允许 required 保留 thinking，因此 choice 统一不得实施，明确 HOLD。动态 projection/history 仍造成低缓存命中，留待 F4 汇总，不用 Runtime 语义约束补救。
+- Time: 2026-07-16 21:35

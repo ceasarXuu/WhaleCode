@@ -192,6 +192,23 @@ SHA-256、message role/count 和相邻请求 LCP。
 - terminal 前一请求到 terminal request 的 messages LCP 和 tools prefix 保持；
 - terminal adoption、Root/Finish closure、replay hash 均为 100%。
 
+### 8.4 完成证据（2026-07-16）
+
+- `taskspace_control` 已收敛为一套 immutable lifecycle schema，固定包含 initialize、graph mutation、node
+  transition、finish、expand 和 output-ref read；bootstrap/work/terminal 不再替换 schema 或工具列表。
+- TaskSpace 始终隐藏线性 `update_plan`，其他 13 个工具全生命周期保持可见；simple/complex 每个 run 的
+  `tools_hash` 唯一值均为 1，tools count 恒为 13。
+- 初版 immutable schema 复制了顶层普通工具参数，tools section 达 35,648 bytes/request；按单一所有权修正后，
+  顶层工具保留完整 schema，continuation 只引用工具名与原始参数信封，降至 24,449 bytes/request（-31.4%）。
+- 同为 13 requests 的 simple TaskSpace input 从未去重版本 156,655 降至 112,079（-28.5%）；该对比可
+  归因于 schema 去重。复杂样本请求随机从 20 降到 14，不把全部 input 降幅归因于 schema。
+- DeepSeek provider probe：`required` 在 thinking disabled 下可用且支持有序多工具；thinking enabled 时返回
+  HTTP 400 `thinking_tool_choice_incompatible`，无 reasoning content。决策为 HOLD，不进入生产路径。
+- 因 HOLD，named/auto choice 仍有两个 shape；这是明确保留 Agent thinking 的 provider 能力边界，不增加本地
+  伪造、自动重试或 Runtime 语义筛选。
+- Docker smoke：simple、complex 的 Standard/R6 均 solved，R6 Map 均闭合；Rust `codex-tools` 141/141、
+  Core tool-contract 14/14 通过。
+
 ## 9. Phase F3：Agent 声明的机械动作合并
 
 ### 9.1 设计
@@ -260,7 +277,7 @@ partial commit = 0
 |---|---|---|---|---|---|---|---|
 | F0 section trace | 请求组成可归因 | `provider_wire_trace.rs`, `client.rs` | provider request | 11 Rust tests + 3 PowerShell suites | section hash/bytes/revision | none | completed |
 | F1 result delta | 当前 Map 单 owner | `taskspace_control_output.rs` | tool result | 285 Rust tests + 3 PowerShell suites | control result + projection freshness trace | none | completed |
-| F2 stable contract | schema/choice 全 turn 稳定 | `session/turn.rs`, `taskspace_tool.rs` | Prompt | provider contract tests | tools/choice hash | provider live probe | planned |
+| F2 stable contract | schema 全 turn 稳定；choice 有证据 HOLD | `session/turn.rs`, `taskspace_tool.rs` | Prompt | 155 Rust tests | tools/choice hash | provider live probe | completed |
 | F3 continuation | Agent 声明序列机械执行 | args/schema/sequence | tool router | sequence tests | step/skipped refs | none | planned |
 | F4 live gate | 成本与正确性可比较 | benchmark scripts | Docker harness | harness tests | performance report | none | planned |
 
@@ -293,7 +310,7 @@ fallback。实验项目不迁移旧数据。
 |---|---|---|---|---|---|
 | F0 | fixture + Phase E artifact reprocess | 不依赖 F1 | section report | 100% | completed |
 | F1 | control fixture + simple/complex smoke | 不依赖 F2 | ownership/bytes report | 100% | completed |
-| F2 | provider probe + schema/cache trace | 不依赖 F3 | one-shape report | 100% | pending |
+| F2 | provider probe + schema/cache trace | 不依赖 F3 | one-schema + required HOLD report | 100% | completed |
 | F3 | sequence regression + live adoption | 不依赖 F4 | request path report | 100% | pending |
 | F4 | full deterministic + Docker matrix | none | Phase F result doc | 100% | pending |
 
@@ -310,3 +327,5 @@ fallback。实验项目不迁移旧数据。
 | 2026-07-16 | `required` 增加 thinking/质量门禁 | 当前 strict choice 会关闭 thinking，不能以成本换智能能力 |
 | 2026-07-16 | continuation 只进入 bind 和有效绑定下的 mutation | complete/block 会清除 lease，rework/unblock 不建立 binding |
 | 2026-07-16 | nested ordinary feedback 不复制进 outer control result | 原始 call/output 已独立可见，outer 复制只增加成本和事实载体 |
+| 2026-07-16 | `required` 维持 HOLD | provider 在 thinking enabled 下明确拒绝，不能用缓存收益换思考能力 |
+| 2026-07-16 | continuation 不复制完整普通工具 schema | 顶层工具是参数契约 owner，continuation 只引用同一调用信封 |
