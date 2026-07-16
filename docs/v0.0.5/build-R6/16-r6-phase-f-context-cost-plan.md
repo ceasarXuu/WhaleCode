@@ -97,6 +97,16 @@ SHA-256、message role/count 和相邻请求 LCP。
 - Phase E 原始 artifacts 可离线重算，缺失值标记为 unavailable；
 - 不记录 API key、Authorization header 或未经 hash 的完整 payload。
 
+### 6.4 完成证据（2026-07-16）
+
+- provider final-wire trace 已升级为 `provider-chat-wire-trace-v3`，八类 section bytes 与最终 payload bytes
+  逐请求精确对账；只记录 count、bytes、估算 token 和 SHA-256。
+- projection identity 区分 `bootstrap`、`active(map hash/revision/projection hash)` 与 `unavailable(reason)`；
+  历史 v2 artifact 明确 unavailable，不以零冒充观测值。
+- 性能报告已输出逐 request 数值、section 总和/均值/中位数及 projection identity 聚合。
+- 验证：Rust 定向测试 11/11，成本观测自测、性能报告自测、benchmark harness 全部通过。
+- 实现提交：`12b479171`；均值/中位数闭环提交见本阶段后续提交记录。
+
 ## 7. Phase F1：Projection Freshness 与 Map 当前状态唯一所有权
 
 ### 7.1 Freshness 前置修复
@@ -229,7 +239,7 @@ partial commit = 0
 
 | Plan Item | Expected Behavior | Production Code Path | Integration Entry | Test Evidence | Runtime / Log Evidence | Mock / Stub Exposure | Status |
 |---|---|---|---|---|---|---|---|
-| F0 section trace | 请求组成可归因 | `provider_wire_trace.rs`, `client.rs` | provider request | cache trace tests | section hash/bytes | none | planned |
+| F0 section trace | 请求组成可归因 | `provider_wire_trace.rs`, `client.rs` | provider request | 11 Rust tests + 3 PowerShell suites | section hash/bytes/revision | none | completed |
 | F1 result delta | 当前 Map 单 owner | `taskspace_control_output.rs` | tool result | handler/output tests | control result trace | none | planned |
 | F2 stable contract | schema/choice 全 turn 稳定 | `session/turn.rs`, `taskspace_tool.rs` | Prompt | provider contract tests | tools/choice hash | provider live probe | planned |
 | F3 continuation | Agent 声明序列机械执行 | args/schema/sequence | tool router | sequence tests | step/skipped refs | none | planned |
@@ -262,7 +272,7 @@ fallback。实验项目不迁移旧数据。
 
 | Phase | Independent Verification | Forbidden Future Dependency | Exit Evidence | Completion Required Before Next Phase | Proceed Decision |
 |---|---|---|---|---|---|
-| F0 | fixture + Phase E artifact reprocess | 不依赖 F1 | section report | 100% | pending |
+| F0 | fixture + Phase E artifact reprocess | 不依赖 F1 | section report | 100% | completed |
 | F1 | control fixture + simple/complex smoke | 不依赖 F2 | ownership/bytes report | 100% | pending |
 | F2 | provider probe + schema/cache trace | 不依赖 F3 | one-shape report | 100% | pending |
 | F3 | sequence regression + live adoption | 不依赖 F4 | request path report | 100% | pending |

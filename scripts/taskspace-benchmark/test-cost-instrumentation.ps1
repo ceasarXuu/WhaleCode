@@ -789,11 +789,13 @@ $v3Instrumentation = Write-TaskspaceCostInstrumentationArtifacts -ArtifactDir $v
 $v3Summary = $v3Instrumentation.provider_cache_trace_summary.section_cost_summary
 $v3Event = @($v3Instrumentation.provider_cache_trace_events)[0]
 $v3SectionBytes = [int64](@($v3Summary.sections | Measure-Object -Property bytes -Sum).Sum)
+$v3ProjectionSection = @($v3Summary.sections | Where-Object { $_.kind -eq "active_projection" })[0]
 Assert-True ([string]$v3Event.section_cost.availability -eq "measured" -and @($v3Event.section_cost.sections).Count -eq 8) "measured v3 cache event omitted section cost"
 Assert-True ([int]$v3Summary.measured_request_count -eq 1 -and [int]$v3Summary.unavailable_request_count -eq 0 -and [int64]$v3Summary.section_bytes_total -eq 500) "measured v3 section summary coverage is incorrect"
 Assert-True ($v3SectionBytes -eq [int64]$v3Summary.section_bytes_total -and $v3SectionBytes -eq [int64]$v3Event.provider_payload_bytes -and [int64]$v3Summary.estimated_tokens_total -eq 126) "v3 section summary did not reconcile exact payload/section/token totals"
 Assert-True ([string]$v3Event.section_cost.active_projection_identity.kind -eq "active" -and [int64]$v3Event.section_cost.active_projection_identity.revision -eq 7) "v3 cache event lost active projection identity"
 Assert-True ([int]$v3Summary.active_projection_identity_summary.active_count -eq 1 -and [int]$v3Summary.active_projection_identity_summary.unique_revision_count -eq 1 -and [int]$v3Summary.active_projection_identity_summary.unique_projection_sha256_count -eq 1) "v3 section summary lost projection freshness evidence"
+Assert-True ([int]$v3ProjectionSection.request_sample_count -eq 1 -and [double]$v3ProjectionSection.bytes_per_request_mean -eq 30 -and [double]$v3ProjectionSection.bytes_per_request_median -eq 30) "v3 section summary omitted per-request distribution statistics"
 $mismatchShape = $v3Shape | ConvertTo-Json -Depth 12 | ConvertFrom-Json
 $mismatchShape.section_cost.section_bytes_total = 499
 $mismatchCost = ConvertTo-TaskspaceProviderSectionCost $mismatchShape
@@ -857,14 +859,14 @@ New-Item -ItemType Directory -Path $leftArtifacts, $rightArtifacts -Force | Out-
             unique_projection_sha256_count = 2; unique_revision_count = 1
         }
         sections = @(
-            [pscustomobject]@{ kind = "system_messages"; count = 2; bytes = 100; estimated_tokens = 25 },
-            [pscustomobject]@{ kind = "natural_history"; count = 2; bytes = 50; estimated_tokens = 12 },
-            [pscustomobject]@{ kind = "active_projection"; count = 2; bytes = 40; estimated_tokens = 10 },
-            [pscustomobject]@{ kind = "taskspace_control_feedback"; count = 2; bytes = 30; estimated_tokens = 8 },
-            [pscustomobject]@{ kind = "ordinary_tool_feedback"; count = 2; bytes = 20; estimated_tokens = 5 },
-            [pscustomobject]@{ kind = "tools"; count = 2; bytes = 30; estimated_tokens = 8 },
-            [pscustomobject]@{ kind = "tool_choice"; count = 2; bytes = 10; estimated_tokens = 2 },
-            [pscustomobject]@{ kind = "other_payload"; count = 2; bytes = 20; estimated_tokens = 5 }
+            [pscustomobject]@{ kind = "system_messages"; count = 2; bytes = 100; estimated_tokens = 25; request_bytes = @(50, 50); request_estimated_tokens = @(12, 13) },
+            [pscustomobject]@{ kind = "natural_history"; count = 2; bytes = 50; estimated_tokens = 12; request_bytes = @(25, 25); request_estimated_tokens = @(6, 6) },
+            [pscustomobject]@{ kind = "active_projection"; count = 2; bytes = 40; estimated_tokens = 10; request_bytes = @(20, 20); request_estimated_tokens = @(5, 5) },
+            [pscustomobject]@{ kind = "taskspace_control_feedback"; count = 2; bytes = 30; estimated_tokens = 8; request_bytes = @(15, 15); request_estimated_tokens = @(4, 4) },
+            [pscustomobject]@{ kind = "ordinary_tool_feedback"; count = 2; bytes = 20; estimated_tokens = 5; request_bytes = @(10, 10); request_estimated_tokens = @(2, 3) },
+            [pscustomobject]@{ kind = "tools"; count = 2; bytes = 30; estimated_tokens = 8; request_bytes = @(15, 15); request_estimated_tokens = @(4, 4) },
+            [pscustomobject]@{ kind = "tool_choice"; count = 2; bytes = 10; estimated_tokens = 2; request_bytes = @(5, 5); request_estimated_tokens = @(1, 1) },
+            [pscustomobject]@{ kind = "other_payload"; count = 2; bytes = 20; estimated_tokens = 5; request_bytes = @(10, 10); request_estimated_tokens = @(2, 3) }
         )
     }
 }) | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath (Join-Path $rightArtifacts "provider-cache-trace-summary.json") -Encoding UTF8
@@ -882,6 +884,7 @@ Assert-True ([string]$aggregateCache.provider_cache_trace_summary_path -eq (Join
 Assert-True ([string]$aggregateCacheSummary.section_cost_summary.availability -eq "measured" -and [int]$aggregateCacheSummary.section_cost_summary.measured_request_count -eq 2) "aggregate provider cache trace omitted measured section coverage"
 $aggregateActiveProjection = @($aggregateCacheSummary.section_cost_summary.sections | Where-Object { $_.kind -eq "active_projection" })[0]
 Assert-True ([int64]$aggregateCacheSummary.section_cost_summary.section_bytes_total -eq 300 -and [int64]$aggregateActiveProjection.bytes -eq 40) "aggregate provider section totals are incorrect"
+Assert-True ([int]$aggregateActiveProjection.request_sample_count -eq 2 -and [double]$aggregateActiveProjection.bytes_per_request_mean -eq 20 -and [double]$aggregateActiveProjection.bytes_per_request_median -eq 20) "aggregate provider section request statistics are incorrect"
 Assert-True ([int]$aggregateCacheSummary.section_cost_summary.active_projection_identity_summary.bootstrap_count -eq 1 -and [int]$aggregateCacheSummary.section_cost_summary.active_projection_identity_summary.active_count -eq 1) "aggregate provider projection identity counts are incorrect"
 Assert-True ([int]$aggregateCacheSummary.section_cost_summary.active_projection_identity_summary.unique_projection_sha256_count -eq 2 -and [int]$aggregateCacheSummary.section_cost_summary.active_projection_identity_summary.unique_revision_count -eq 1) "aggregate provider projection freshness evidence is incorrect"
 

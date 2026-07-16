@@ -46,6 +46,17 @@ function New-SideFixture {
         [pscustomobject]@{ kind = "tool_choice"; count = $Requests; bytes = 5 * $Requests; estimated_tokens = $Requests },
         [pscustomobject]@{ kind = "other_payload"; count = $Requests; bytes = 10 * $Requests; estimated_tokens = 3 * $Requests }
     )
+    foreach ($section in $sectionRows) {
+        $bytesPerRequest = [int64]$section.bytes / $Requests
+        $tokensPerRequest = [int64]$section.estimated_tokens / $Requests
+        $section | Add-Member -NotePropertyName request_bytes -NotePropertyValue @(1..$Requests | ForEach-Object { $bytesPerRequest })
+        $section | Add-Member -NotePropertyName request_estimated_tokens -NotePropertyValue @(1..$Requests | ForEach-Object { $tokensPerRequest })
+        $section | Add-Member -NotePropertyName request_sample_count -NotePropertyValue $Requests
+        $section | Add-Member -NotePropertyName bytes_per_request_mean -NotePropertyValue $bytesPerRequest
+        $section | Add-Member -NotePropertyName bytes_per_request_median -NotePropertyValue $bytesPerRequest
+        $section | Add-Member -NotePropertyName estimated_tokens_per_request_mean -NotePropertyValue $tokensPerRequest
+        $section | Add-Member -NotePropertyName estimated_tokens_per_request_median -NotePropertyValue $tokensPerRequest
+    }
     $sectionBytes = [int64](($sectionRows | Measure-Object -Property bytes -Sum).Sum)
     $sectionTokens = [int64](($sectionRows | Measure-Object -Property estimated_tokens -Sum).Sum)
     $projectionIdentity = if ($SectionAvailability -eq "historical_v2") {
@@ -286,6 +297,8 @@ Assert-True ([string]$standard.section_cost.availability -eq "partial" -and [int
 Assert-True ([int]$taskspace.section_cost.active_projection_identity_summary.bootstrap_count -eq 2 -and [int]$taskspace.section_cost.active_projection_identity_summary.active_count -eq 16) "taskspace projection identity lifecycle was not aggregated"
 Assert-True ([int]$taskspace.section_cost.active_projection_identity_summary.unique_projection_sha256_count -eq 1 -and [int]$taskspace.section_cost.active_projection_identity_summary.unique_revision_count -eq 1) "taskspace projection identity hashes or revisions were lost"
 Assert-True ([int]$standard.section_cost.active_projection_identity_summary.unavailable_count -eq 10) "standard projection unavailability was not explicit"
+$taskspaceSystemSection = @($taskspace.section_cost.sections | Where-Object { $_.kind -eq "system_messages" })[0]
+Assert-True ([double]$taskspaceSystemSection.bytes_per_request_mean -eq 40 -and [double]$taskspaceSystemSection.bytes_per_request_median -eq 40 -and [int]$taskspaceSystemSection.request_sample_count -eq 18) "taskspace section request statistics are incorrect"
 $standardMeasuredRow = @($report.rows | Where-Object { $_.repeat -eq 1 -and $_.logical_mode -eq "standard" })[0]
 $standardHistoricalRow = @($report.rows | Where-Object { $_.repeat -eq 2 -and $_.logical_mode -eq "standard" })[0]
 $standardActiveProjection = @($standardMeasuredRow.section_cost.sections | Where-Object { $_.kind -eq "active_projection" })[0]
@@ -331,6 +344,7 @@ Assert-True ($markdown -match "Finish without sibling") "markdown omitted finish
 Assert-True ($markdown -match "## Patch lifecycle") "markdown omitted patch lifecycle metrics"
 Assert-True ($markdown -match "## Provider wire section cost" -and $markdown -match "active_projection") "markdown omitted provider section totals"
 Assert-True ($markdown -match "### Active projection identity" -and $markdown -match "active_projection_missing=6") "markdown omitted projection identity freshness evidence"
+Assert-True ($markdown -match "Bytes/request mean" -and $markdown -match "Bytes/request median") "markdown omitted section request distribution statistics"
 Assert-True ($markdown -match "historical_provider_wire_trace_v2=4") "markdown omitted historical section-cost unavailability"
 Assert-True ($markdown -match "root_task_active_after_nodes_closed") "mechanical map warning was not rendered"
 

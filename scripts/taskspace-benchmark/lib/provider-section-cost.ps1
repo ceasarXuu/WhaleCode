@@ -39,6 +39,15 @@ function ConvertTo-TaskspaceProviderSectionInt64 {
     }
 }
 
+function Get-TaskspaceProviderSectionMedian {
+    param([object[]]$Values)
+    $ordered = @($Values | ForEach-Object { [double]$_ } | Sort-Object)
+    if ($ordered.Count -eq 0) { return $null }
+    $middle = [Math]::Floor($ordered.Count / 2)
+    if ($ordered.Count % 2 -eq 1) { return $ordered[$middle] }
+    [Math]::Round(($ordered[$middle - 1] + $ordered[$middle]) / 2.0, 6)
+}
+
 function ConvertTo-TaskspaceProviderSectionCost {
     param([Parameter(Mandatory = $true)]$Shape)
     $traceSchema = [string](Get-TaskspaceCostProperty $Shape @("schema_version"))
@@ -126,7 +135,11 @@ function ConvertTo-TaskspaceProviderSectionCost {
 function New-TaskspaceProviderSectionAccumulator {
     $sections = [ordered]@{}
     foreach ($kind in @(Get-TaskspaceProviderSectionKinds)) {
-        $sections[$kind] = [ordered]@{ count = [int64]0; bytes = [int64]0; estimated_tokens = [int64]0 }
+        $sections[$kind] = [ordered]@{
+            count = [int64]0; bytes = [int64]0; estimated_tokens = [int64]0
+            request_bytes = New-Object System.Collections.Generic.List[object]
+            request_estimated_tokens = New-Object System.Collections.Generic.List[object]
+        }
     }
     [ordered]@{
         measured_request_count = 0
@@ -169,6 +182,14 @@ function Add-TaskspaceProviderMeasuredSections {
         $Accumulator.sections[$kind].bytes = [int64]$Accumulator.sections[$kind].bytes + $bytes
         $Accumulator.sections[$kind].estimated_tokens = [int64]$Accumulator.sections[$kind].estimated_tokens + $tokens
         $Accumulator.estimated_tokens_total = [int64]$Accumulator.estimated_tokens_total + $tokens
+        $rawRequestBytes = Get-TaskspaceCostProperty $section @("request_bytes")
+        $rawRequestTokens = Get-TaskspaceCostProperty $section @("request_estimated_tokens")
+        $requestBytes = if ($null -eq $rawRequestBytes) { @() } else { @($rawRequestBytes) }
+        $requestTokens = if ($null -eq $rawRequestTokens) { @() } else { @($rawRequestTokens) }
+        if ($RequestCount -eq 1 -and $requestBytes.Count -eq 0) { $requestBytes = @($bytes) }
+        if ($RequestCount -eq 1 -and $requestTokens.Count -eq 0) { $requestTokens = @($tokens) }
+        foreach ($value in $requestBytes) { $Accumulator.sections[$kind].request_bytes.Add([int64]$value) }
+        foreach ($value in $requestTokens) { $Accumulator.sections[$kind].request_estimated_tokens.Add([int64]$value) }
     }
 }
 
@@ -187,11 +208,20 @@ function ConvertFrom-TaskspaceProviderSectionAccumulator {
     if ($measured -gt 0) {
         $sections = @(Get-TaskspaceProviderSectionKinds | ForEach-Object {
             $value = $Accumulator.sections[$_]
+            $requestBytes = @($value.request_bytes.ToArray())
+            $requestTokens = @($value.request_estimated_tokens.ToArray())
             [pscustomobject]@{
                 kind = $_
                 count = [int64]$value.count
                 bytes = [int64]$value.bytes
                 estimated_tokens = [int64]$value.estimated_tokens
+                request_sample_count = $requestBytes.Count
+                bytes_per_request_mean = [Math]::Round([double]$value.bytes / [double]$measured, 6)
+                bytes_per_request_median = if ($requestBytes.Count -eq $measured) { Get-TaskspaceProviderSectionMedian $requestBytes } else { $null }
+                estimated_tokens_per_request_mean = [Math]::Round([double]$value.estimated_tokens / [double]$measured, 6)
+                estimated_tokens_per_request_median = if ($requestTokens.Count -eq $measured) { Get-TaskspaceProviderSectionMedian $requestTokens } else { $null }
+                request_bytes = $requestBytes
+                request_estimated_tokens = $requestTokens
             }
         })
     }

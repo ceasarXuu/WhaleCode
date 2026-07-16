@@ -45,6 +45,15 @@ function Add-PerformanceProjectionCount {
     $Table[$Key] += $number
 }
 
+function Get-PerformanceSectionMedian {
+    param([object[]]$Values)
+    $ordered = @($Values | ForEach-Object { [double]$_ } | Sort-Object)
+    if ($ordered.Count -eq 0) { return $null }
+    $middle = [Math]::Floor($ordered.Count / 2)
+    if ($ordered.Count % 2 -eq 1) { return $ordered[$middle] }
+    [Math]::Round(($ordered[$middle - 1] + $ordered[$middle]) / 2.0, 6)
+}
+
 function ConvertFrom-PerformanceProjectionAccumulator {
     param($Accumulator)
     $orderedReasons = [ordered]@{}
@@ -96,8 +105,11 @@ function Get-PerformanceSectionCostFacts {
         $count = Get-PerformanceNumber (Get-PerformanceProperty $section "count")
         $bytes = Get-PerformanceNumber (Get-PerformanceProperty $section "bytes")
         $tokens = Get-PerformanceNumber (Get-PerformanceProperty $section "estimated_tokens")
+        $requestBytes = @((Get-PerformanceProperty $section "request_bytes" @()))
+        $requestTokens = @((Get-PerformanceProperty $section "request_estimated_tokens" @()))
         if ($kind -notin @(Get-PerformanceProviderSectionKinds) -or $seenKinds.ContainsKey($kind) -or
-            $null -eq $count -or $null -eq $bytes -or $null -eq $tokens) {
+            $null -eq $count -or $null -eq $bytes -or $null -eq $tokens -or
+            ($null -ne $measured -and ($requestBytes.Count -ne $measured -or $requestTokens.Count -ne $measured))) {
             $validSections = $false
             break
         }
@@ -174,12 +186,18 @@ function Get-PerformanceModeSectionCostAggregate {
             $kind = [string](Get-PerformanceProperty $section "kind")
             if ([string]::IsNullOrWhiteSpace($kind)) { continue }
             if (-not $sectionTotals.ContainsKey($kind)) {
-                $sectionTotals[$kind] = [ordered]@{ count = [double]0; bytes = [double]0; estimated_tokens = [double]0 }
+                $sectionTotals[$kind] = [ordered]@{
+                    count = [double]0; bytes = [double]0; estimated_tokens = [double]0
+                    request_bytes = New-Object System.Collections.Generic.List[object]
+                    request_estimated_tokens = New-Object System.Collections.Generic.List[object]
+                }
             }
             foreach ($field in @("count", "bytes", "estimated_tokens")) {
                 $value = Get-PerformanceNumber (Get-PerformanceProperty $section $field)
                 if ($null -ne $value) { $sectionTotals[$kind][$field] += $value }
             }
+            foreach ($value in @((Get-PerformanceProperty $section "request_bytes" @()))) { $sectionTotals[$kind].request_bytes.Add([double]$value) }
+            foreach ($value in @((Get-PerformanceProperty $section "request_estimated_tokens" @()))) { $sectionTotals[$kind].request_estimated_tokens.Add([double]$value) }
         }
         $identity = Get-PerformanceProperty $facts "active_projection_identity_summary" (New-PerformanceProjectionIdentitySummary "active_projection_identity_summary_missing" $requestCount)
         foreach ($kind in @("bootstrap", "active", "unavailable")) {
@@ -203,11 +221,20 @@ function Get-PerformanceModeSectionCostAggregate {
     $sections = @()
     if ($measured -gt 0) {
         $sections = @(Get-PerformanceProviderSectionKinds | Where-Object { $sectionTotals.ContainsKey($_) } | ForEach-Object {
+            $requestBytes = @($sectionTotals[$_].request_bytes.ToArray())
+            $requestTokens = @($sectionTotals[$_].request_estimated_tokens.ToArray())
             [pscustomobject]@{
                 kind = $_
                 count = $sectionTotals[$_].count
                 bytes = $sectionTotals[$_].bytes
                 estimated_tokens = $sectionTotals[$_].estimated_tokens
+                request_sample_count = $requestBytes.Count
+                bytes_per_request_mean = [Math]::Round($sectionTotals[$_].bytes / [double]$measured, 6)
+                bytes_per_request_median = Get-PerformanceSectionMedian $requestBytes
+                estimated_tokens_per_request_mean = [Math]::Round($sectionTotals[$_].estimated_tokens / [double]$measured, 6)
+                estimated_tokens_per_request_median = Get-PerformanceSectionMedian $requestTokens
+                request_bytes = $requestBytes
+                request_estimated_tokens = $requestTokens
             }
         })
     }
@@ -260,26 +287,26 @@ function Add-PerformanceSectionCostMarkdown {
         $Lines.Add("| mode | N/A | $($aggregate.logical_mode) | $(Format-PerformanceValue $facts.availability) | $(Format-PerformanceValue $facts.measured_request_count) | $(Format-PerformanceValue $facts.unavailable_request_count) | $(Format-PerformanceValue $facts.section_bytes_total) | $(Format-PerformanceValue $facts.estimated_tokens_total) | $(Format-PerformanceSectionReasons $facts.unavailable_reason_counts) |")
     }
     $Lines.Add("")
-    $Lines.Add("| Scope | Repeat | Mode | Kind | Count | Bytes | Estimated tokens |")
-    $Lines.Add("|---|---:|---|---|---:|---:|---:|")
+    $Lines.Add("| Scope | Repeat | Mode | Kind | Count | Bytes | Bytes/request mean | Bytes/request median | Estimated tokens | Tokens/request mean | Tokens/request median |")
+    $Lines.Add("|---|---:|---|---|---:|---:|---:|---:|---:|---:|---:|")
     foreach ($row in $Rows) {
         $sections = @($row.section_cost.sections)
         if ($sections.Count -eq 0) {
-            $Lines.Add("| side | $(Format-PerformanceValue $row.repeat) | $($row.logical_mode) | all sections | N/A | N/A | N/A |")
+            $Lines.Add("| side | $(Format-PerformanceValue $row.repeat) | $($row.logical_mode) | all sections | N/A | N/A | N/A | N/A | N/A | N/A | N/A |")
             continue
         }
         foreach ($section in $sections) {
-            $Lines.Add("| side | $(Format-PerformanceValue $row.repeat) | $($row.logical_mode) | $($section.kind) | $(Format-PerformanceValue $section.count) | $(Format-PerformanceValue $section.bytes) | $(Format-PerformanceValue $section.estimated_tokens) |")
+            $Lines.Add("| side | $(Format-PerformanceValue $row.repeat) | $($row.logical_mode) | $($section.kind) | $(Format-PerformanceValue $section.count) | $(Format-PerformanceValue $section.bytes) | $(Format-PerformanceValue $section.bytes_per_request_mean) | $(Format-PerformanceValue $section.bytes_per_request_median) | $(Format-PerformanceValue $section.estimated_tokens) | $(Format-PerformanceValue $section.estimated_tokens_per_request_mean) | $(Format-PerformanceValue $section.estimated_tokens_per_request_median) |")
         }
     }
     foreach ($aggregate in $Aggregates) {
         $sections = @($aggregate.section_cost.sections)
         if ($sections.Count -eq 0) {
-            $Lines.Add("| mode | N/A | $($aggregate.logical_mode) | all sections | N/A | N/A | N/A |")
+            $Lines.Add("| mode | N/A | $($aggregate.logical_mode) | all sections | N/A | N/A | N/A | N/A | N/A | N/A | N/A |")
             continue
         }
         foreach ($section in $sections) {
-            $Lines.Add("| mode | N/A | $($aggregate.logical_mode) | $($section.kind) | $(Format-PerformanceValue $section.count) | $(Format-PerformanceValue $section.bytes) | $(Format-PerformanceValue $section.estimated_tokens) |")
+            $Lines.Add("| mode | N/A | $($aggregate.logical_mode) | $($section.kind) | $(Format-PerformanceValue $section.count) | $(Format-PerformanceValue $section.bytes) | $(Format-PerformanceValue $section.bytes_per_request_mean) | $(Format-PerformanceValue $section.bytes_per_request_median) | $(Format-PerformanceValue $section.estimated_tokens) | $(Format-PerformanceValue $section.estimated_tokens_per_request_mean) | $(Format-PerformanceValue $section.estimated_tokens_per_request_median) |")
         }
     }
     $Lines.Add("")

@@ -300,3 +300,30 @@
   ```
 - Interpretation: scanner 的 uniqueness/replacement_confirmed 是 false positive；Agent 实际依赖较新的 control `map_state` 弥补 stale projection。
 - Time: 2026-07-16 19:15
+
+## Evidence E-005: F0 provider section 与 projection identity 观测闭环
+- Related hypotheses:
+  - H-001
+  - H-002
+  - H-003
+  - H-004
+- Direction: supports
+- Type: diagnostic-log
+- Source: `provider_wire_trace.rs`、provider section fixtures、benchmark observer self-tests
+- Prediction or plan link:
+  - Phase F0 exit gate
+- Matched signal:
+  - 八类 section bytes 之和与最终 provider payload bytes 精确相等。
+  - Standard 的 TaskSpace-only section 为零；缺失 projection identity 显式标记 unavailable。
+  - TaskSpace active projection 暴露 map hash、revision 和 projection hash，不保存原始内容。
+  - 聚合报告保留逐 request 样本，并输出总和、均值和中位数。
+- Raw content:
+  ```text
+  cargo test -p codex-core provider_wire_trace --lib -- --nocapture: 11 passed
+  test-cost-instrumentation.ps1: passed
+  test-performance-observation.ps1: passed
+  test-harness.ps1: passed
+  implementation commit: 12b479171
+  ```
+- Interpretation: F0 已提供验证 F1 ownership/freshness 改造所需的无原文机械观测基线。
+- Time: 2026-07-16 19:35
