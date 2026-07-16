@@ -10,7 +10,7 @@
 Created: 2026-07-15
 Updated: 2026-07-16
 Version: v0.0.5 build-R6
-Status: Phase E Complete / Phase F Ready
+Status: Phase F In Progress
 Owner / Responsible: WhaleCode core runtime / TaskSpace
 Risk Level: Critical
 Plan Type: Full
@@ -315,6 +315,11 @@ simple 与 complex 的 Standard/R5/R6 各3次完成；R6 finish_end adoption=100
 主要收益：任务结束从外置约定变为图内、显式、可回放的唯一终点。
 
 ## 1.12 Phase F：Projection、工具反馈与上下文唯一性
+
+详细实施、独立门禁、成本基线和 provider 决策见
+`16-r6-phase-f-context-cost-plan.md`。Phase F 按 F0-F4 逐项执行，每项独立测试和提交；不再把
+“schema 保持不变但 named/auto 继续切换”视为缓存修复，因为 `tool_choice` 已由 Phase E trace 证明属于
+provider cache shape。
 
 **目标**：让 Agent 看到的是同一 canonical DAG 的忠实视图，不因新模型再次引入重复或语义注入。
 
