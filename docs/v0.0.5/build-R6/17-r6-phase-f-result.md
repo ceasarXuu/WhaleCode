@@ -1,7 +1,7 @@
 # R6 Phase F 上下文唯一性与成本收敛结果
 
 - 日期：2026-07-16
-- 状态：完成
+- 状态：F0-F4 机制完成 / 端到端成本门失败 / Phase F5 待执行
 - 范围：F0、F1、F2、F3、F3.5、F4
 - 最终代码提交：`726d3298b`
 - 计划：`16-r6-phase-f-context-cost-plan.md`
@@ -9,17 +9,18 @@
 
 ## 1. 结论
 
-Phase F 的 6 个阶段均已实现、接入生产路径并通过独立门禁，完成度为 `6/6 = 100%`。本阶段完成的是
-上下文所有权、反馈保真、工具合同、动作载体和 provider 前缀结构收敛，不是“TaskSpace 已低于 Standard 成本”。
+Phase F 的 F0-F4 六个机制阶段均已实现并通过各自的局部门禁，但整体 outcome 不能计为完成。后续审计证明
+Phase F final 相对 Phase E 的 simple request/input 增加 53.6%/100.6%，complex 增加 34.9%/61.1%；因此
+“6/6 = 100%”只适用于原局部实施项，不适用于 Phase F 的端到端成本目标。
 
 正式 Docker 结果为：simple 与最终 complex 各 3 对 Standard/R6，12/12 side 全部通过 public/hidden
 validator；6/6 R6 Map 均由 Agent 调用 `finish_end` 闭合，节点/边骨架完整，语义替换为 0。缓存结构性故障
 已修复：F3 的约 13% request-2+ 命中与 0% message prefix，提高到 F4 simple 84.19%/85.00%、
 complex 88.56%/89.09%。
 
-成本仍高于 Standard：simple requests/input 为 2.15x/3.10x，complex 为 1.41x/1.94x。该差异由额外
-TaskSpace 生命周期请求、固定 tool schema、自然历史和 control feedback 共同构成，进入 Phase G 重基线；
-不得通过 projection 语义裁剪或 Runtime 替 Agent 决策来压低指标。
+成本仍高于 Standard，且显著劣于 Phase E。根因已收敛到负收益 immutable lifecycle schema、R6 迁移丢失的
+complete handoff carrier、稳定 bootstrap 参数回归和验收门缺失。Phase F 已重开，先执行
+`18-r6-phase-f5-cost-regression-repair-plan.md`；不得通过 projection 语义裁剪或 Runtime 替 Agent 决策压低指标。
 
 ## 2. 阶段完成度
 
@@ -106,14 +107,16 @@ continuation 错误闭合的 call，Runtime 返回同 call id 的 `protocol_fail
 
 | Item | 状态 | 原因与影响 | 后续归属 |
 |---|---|---|---|
-| request 放大 | 未解决 | simple 2.15x、complex 1.41x；继续放大自然历史和 wall time | Phase G B0/request 路径 |
-| uncached input 放大 | 未解决 | simple 10.87x、complex 5.17x；两个 choice break 与额外 request 仍存在 | Phase G section attribution |
+| request 放大 | 未解决 | F final 相对 E simple/complex +53.6%/+34.9% | Phase F5.1/F5.2 |
+| uncached input 放大 | 未解决 | F final 相对 E simple/complex +218.1%/+111.5% | Phase F5.1/F5.3 |
+| bootstrap 首次参数失败 | 未解决 | F4 6/6 首次生成非法 `finish.goal` | Phase F5.0/F5.1 |
+| standalone complete | 未解决 | F3 依赖 sibling calls，正式运行 multi-control adoption=0/6 | Phase F5.2 |
 | `required+thinking` | HOLD | provider 返回 `thinking_tool_choice_incompatible`；不能用缓存换思考能力 | provider 能力变化后重测 |
 | 长 Map 详情压缩 | 未开始 | Phase F 禁止语义裁剪；长期上下文上限尚未解决 | Phase G 单策略实验 |
 | 骨架本身超限 | 未开始 | 全局 skeleton 不能分页后假装仍有全局视野 | 后续独立专项 |
 
 ## 9. 下一步
 
-进入 Phase G 前先冻结当前提交为 R6-B0，不修改 projection 语义。按 simple、branch-join、long-map 重建
-Standard/R5/R6-B0 成本基线，先解释 request 和 section 差异，再一次只启用一个详情策略；每个策略测试后暂停汇报。
-
+当前提交不能冻结为健康 R6-B0。先按 `18-r6-phase-f5-cost-regression-repair-plan.md` 完成 F5.0-F5.3；只有
+correctness、handoff、bootstrap、request、input、uncached 和 weighted input 全部通过 Phase E 门，才冻结新的 R6-B0
+并进入 Phase G。

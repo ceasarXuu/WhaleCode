@@ -1,7 +1,7 @@
 # Problem P-001: R6 TaskSpace 上下文与缓存成本高于 Standard
 - Status: open
 - Created: 2026-07-16 18:52
-- Updated: 2026-07-17 16:30
+- Updated: 2026-07-17 17:10
 - Objective: 定位并消除不必要的请求重复、Map 状态重复和 provider cache shape 变化，同时保持语义透传与 R6 correctness。
 - Symptoms:
   - simple R6/Standard request=1.40x、input=1.52x、uncached=3.33x。
@@ -31,6 +31,8 @@
   immutable lifecycle schema 在仍保留 named/auto/named choice break 时放大 terminal uncached input，完整 schema
   还伴随 6/6 首次初始化生成非法 `finish.goal`。F3 的 bind continuation 被使用，但 complete -> bind 没有自然合并，
   更细 Map 的生命周期继续逐请求推进。F3.5 只修复 F1 自引入的前缀断裂，不是 E 到 F 的净成本收益。
+  修复计划已插入 `docs/v0.0.5/build-R6/18-r6-phase-f5-cost-regression-repair-plan.md`；Phase G 在 F5.3
+  通过前 blocked。
 - Related hypotheses:
   - H-001
   - H-002
@@ -616,7 +618,7 @@
   15,999/20,513/3,541 B。terminal 仍发生 choice break，F simple/complex terminal uncached 总量分别比 E
   增加 144.5%/68.1%。
 - Repair design readiness: ready
-- Next step: 在不恢复 Runtime 语义决策的前提下，对工具合同形态做受控消融。
+- Next step: 按 Phase F5.1 恢复 hard-state 对齐工具面并执行独立收益门。
 - Blocker:
   - none
 - Close reason:
@@ -646,7 +648,7 @@
 - Conclusion: 强支持但尚缺同版本 A/B。Phase E 6/6 首次初始化合法；F final 6/6 首次初始化均携带非法
   `finish.goal`，simple 总计 5 次多余初始化、complex 3 次。提交窗口同时发生 bootstrap schema 合并和描述弱化。
 - Repair design readiness: not_ready
-- Next step: 先做只切换 bootstrap/full schema 的同版本 Docker A/B，不改 Runtime 行为。
+- Next step: 按 Phase F5.0 执行 full/minimal/explicit 三臂 provider A/B，不改 production 默认行为。
 - Blocker:
   - none
 - Close reason:
@@ -677,7 +679,7 @@
   3-4 个 nonterminal transition 没有 sibling follow-up。F final 每张 Map 固定 3 个 Work，E 为 1-2 个 Work；
   额外 Work 本身未证明不合理，但现有 carrier 让它的机械状态迁移直接转化为 request 成本。
 - Repair design readiness: ready
-- Next step: 后续设计必须聚焦 control tool carrier，不通过 Runtime 合并或删减 Agent 规划的节点。
+- Next step: 按 Phase F5.2 在现有 control tool 内恢复 Agent 声明的 complete handoff carrier。
 - Blocker:
   - none
 - Close reason:
@@ -704,7 +706,7 @@
   - E-017
 - Conclusion: confirmed；这是回归被接受的流程根因，不是 provider token 增长的运行时机制。
 - Repair design readiness: ready
-- Next step: 重开 Phase F 时增加 E baseline 的 end-to-end outcome gate。
+- Next step: Phase F 已重开；F5.3 以 Phase E requests/input/uncached/weighted input 为硬 outcome gate。
 - Blocker:
   - none
 - Close reason:

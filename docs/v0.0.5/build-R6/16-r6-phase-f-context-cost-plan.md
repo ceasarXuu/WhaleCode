@@ -1,9 +1,9 @@
 # R6 Phase F 上下文唯一性与成本收敛实施计划
 
 - Created: 2026-07-16
-- Updated: 2026-07-16
+- Updated: 2026-07-17
 - Version: 1.0
-- Status: Complete
+- Status: F0-F4 Mechanisms Complete / Outcome Gate Failed / Superseded by Phase F5
 - Owner / Responsible: WhaleCode Runtime
 - Related Systems: TaskSpace projection、tool schema、provider request、Event Store、benchmark observer
 - Related Links: `01-r6-phased-implementation-plan.md`、`15-r6-phase-e6-atomicity-live-result.md`
@@ -25,6 +25,10 @@ Phase E 已证明 R6 Rooted DAG、显式 `finish_end`、terminal 原子事务和
 1. TaskSpace 增加 provider request，后续请求反复携带已经增长的自然历史；
 2. `taskspace_control` call/result、当前 Map projection 和历史 `map_state` 存在状态事实重复；
 3. bootstrap/work/terminal 使用 named/auto/named，工具列表和 schema 也切换，破坏 DeepSeek 严格前缀缓存。
+
+> 2026-07-17 状态修正：F0-F4 局部机制已实现，但 final 相对 Phase E 的 request/input 继续回归，不能进入
+> Phase G。本计划保留为历史实施记录，修复与新 outcome gate 以
+> `18-r6-phase-f5-cost-regression-repair-plan.md` 为准。
 
 Phase F 是 ownership 与 request contract 收敛，不是压缩阶段。任何基于“可能不重要”的语义裁剪都留到
 Phase G 独立实验。
@@ -347,7 +351,8 @@ partial commit = 0
 - F4 发现并修复 H-006：TaskSpace 路径感知 parser 未验证 JSON 尾部，可能静默执行 malformed 首值。最终 complex
   矩阵自然验证 malformed call 返回同 call id 的 typed protocol failure、零提交，Agent 后续正确恢复。
 - simple R6 cache/prefix=84.19%/85.00%；complex=88.56%/89.09%。
-- 成本未反转：simple requests/input=2.15x/3.10x，complex=1.41x/1.94x，明确进入 Phase G。
+- 成本未反转：simple requests/input=2.15x/3.10x，complex=1.41x/1.94x；后续审计证明相对 Phase E 也发生
+  明确回归，因此 Phase F 重开并进入 F5，Phase G blocked。
 - 完整报告见 `17-r6-phase-f-result.md`；最终代码提交 `726d3298b`。
 
 ## 12. 实现完整性矩阵

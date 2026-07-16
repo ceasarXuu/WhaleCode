@@ -8,13 +8,13 @@
 
 ```text
 Created: 2026-07-15
-Updated: 2026-07-16
+Updated: 2026-07-17
 Version: v0.0.5 build-R6
-Status: Phase F Complete / Phase G Pending
+Status: Phase F Reopened / Phase F5 Pending / Phase G Blocked
 Owner / Responsible: WhaleCode core runtime / TaskSpace
 Risk Level: Critical
 Plan Type: Full
-Execution Order: A -> B -> C -> D -> E -> F -> G -> H
+Execution Order: A -> B -> C -> D -> E -> F0-F4 -> F5 -> G -> H
 R5 Frozen Baseline: d12818f (S4.2 HOLD)
 Compatibility Policy: none
 ```
@@ -30,6 +30,7 @@ C. 一次纵向切换生产链路，并删除旧 Task/Map 双重状态
 D. 完善 Agent 声明的原子图变更、并发前沿与多前置依赖
 E. 完成显式终结、事件溯源、恢复/分叉和故障原子性
 F. 收敛 projection、tool schema、反馈与上下文唯一所有权
+F5. 修复工具能力面、节点完成交接和 Phase F 成本回归
 G. 重建成本基线，再逐项评估压缩；不继承 R5 的无效收益结论
 H. 全量回归、经授权的对抗性审查和 R6 收口
 ```
@@ -321,10 +322,10 @@ simple 与 complex 的 Standard/R5/R6 各3次完成；R6 finish_end adoption=100
 “schema 保持不变但 named/auto 继续切换”视为缓存修复，因为 `tool_choice` 已由 Phase E trace 证明属于
 provider cache shape。
 
-**执行结果**：已完成。F0-F4 已收敛 payload 分区观测、当前 Map 单 owner、immutable tool schema、Agent
-声明 continuation、固定 projection epoch baseline 和严格 control JSON/feedback 身份。simple 与 final complex
-各 3 对 Docker formal 全部通过；缓存前缀恢复，但成本仍高于 Standard，进入 Phase G 重基线。DeepSeek
-`required + thinking` 被 provider 明确拒绝，维持 HOLD。完整证据见 `17-r6-phase-f-result.md`。
+**执行结果修正**：F0-F4 的机制实现和 correctness 门已完成，但 Phase F 的端到端成本目标失败，不能进入 Phase G。
+Phase F final 相对 Phase E 的 simple request/input 增加 53.6%/100.6%，complex 增加 34.9%/61.1%。根因审计确认
+immutable lifecycle schema、complete handoff carrier 回归和验收门缺失；bootstrap schema 回归进入同版本 A/B。
+Phase F 已重开，新增 F5 修复计划，详见 `18-r6-phase-f5-cost-regression-repair-plan.md`。
 
 **目标**：让 Agent 看到的是同一 canonical DAG 的忠实视图，不因新模型再次引入重复或语义注入。
 
@@ -350,9 +351,27 @@ simple + branch-join 三臂各1次无 correctness 回退。
 
 主要收益：新状态机不以额外上下文副本为代价，反馈层继续遵守语义透传原则。
 
+### Phase F5：工具合同与成本回归修复
+
+**目标**：恢复 hard-state 对齐的工具能力面和 Agent 声明的 complete handoff carrier，消除 F0-F4 相对 Phase E
+新增的 request 与固定 schema 成本，并增加不可由后续 Phase 补证的端到端收益门。
+
+执行顺序：
+
+1. F5.0：冻结 Phase E/F4 基线，对 bootstrap full/minimal/explicit 三臂做同版本 A/B；
+2. F5.1：删除负收益 immutable full-lifecycle 暴露，恢复 hard-state 对齐工具面；
+3. F5.2：在 R6 Rooted DAG 上恢复 schema-first `complete -> next/end/wait` carrier；
+4. F5.3：simple/complex/branch-join 正式矩阵，不劣于 Phase E 才重新关闭 Phase F。
+
+F5 不恢复 R5 数据模型，不增加兼容分支，不通过 Runtime 自动选 next、减少 Map 节点或 projection 语义裁剪获益。
+详细工程门、日志、回退和成本公式见 `18-r6-phase-f5-cost-regression-repair-plan.md`。
+
 ## 1.13 Phase G：成本重基线与压缩策略重新进入
 
 **目标**：在图模型稳定后重新测量 request、token、cache、时间和 Map 增长，再决定压缩是否值得。
+
+**Entry Gate**：Phase F5.3 必须 100% 通过并冻结新的 R6-B0。F5 未完成时 Phase G 保持 blocked，禁止用压缩策略
+掩盖工具合同或请求路径回归。
 
 实施顺序：
 
@@ -413,7 +432,8 @@ docs、schema、tests、logs、viewer 对 role/status/error code 定义一致。
 | Event reducer/replay | events/snapshot | 20-cycle/fork/crash | hash/revision | B/E | complete；terminal durable envelope + resume/fork/corruption |
 | 纯 projection | projection/context | coverage/dedup/hash | wire LCP | C/F | complete；epoch baseline + canonical delta journal |
 | Viewer DAG | Web Viewer | fixture/screenshot smoke | render digest | D/H | C snapshot cutover complete / D/H visual gate pending |
-| Docker 三臂观察 | benchmark harness | 1x/3x matrices | request/cache/map logs | A-G | F Standard/R6 simple + complex 各3次完成；G Standard/R5/R6-B0 待执行 |
+| Docker 多臂观察 | benchmark harness | 1x/3x matrices | request/cache/map logs | A-F5/G | F0-F4 矩阵完成但成本门失败；F5 修复矩阵待执行；G blocked |
+| Complete handoff carrier | tool schema + rooted DAG runtime | schema/atomicity/router tests | handoff/request trace | F5 | planned |
 | 压缩重基线 | projection/observer | B0/strategy matrix | activation/bytes | G | planned |
 
 ## 1.16 日志建设矩阵
