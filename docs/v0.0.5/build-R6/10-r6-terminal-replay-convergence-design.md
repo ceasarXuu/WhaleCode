@@ -3,12 +3,13 @@
 - Created: 2026-07-16
 - Updated: 2026-07-16
 - Version: v1
-- Status: Implementing (E2-E5 completed, E6 pending)
+- Status: Completed (E2-E6)
 - Owner / Responsible: WhaleCode R6
 - Related Systems: TaskSpace control、provider turn loop、ActionMap replay、benchmark observer
 - Related Links: `01-r6-phased-implementation-plan.md`、`09-r6-phase-e-finish-boundary-result.md`、
   `11-r6-phase-e2-canonical-replay-result.md`、`12-r6-phase-e3-observer-convergence-result.md`、
-  `13-r6-phase-e4-terminal-hard-state-result.md`、`14-r6-phase-e5-completion-gate-result.md`
+  `13-r6-phase-e4-terminal-hard-state-result.md`、`14-r6-phase-e5-completion-gate-result.md`、
+  `15-r6-phase-e6-atomicity-live-result.md`
 - Risk Level: High
 - Plan Type: Full
 
@@ -379,7 +380,7 @@ request=0；Root/Finish/revision 不变。
 | observer switch | observability exporter | benchmark metrics extractor | full/large + corruption + observer regression | revision 7 / same collections | completed |
 | provider control mode | action map state + session prompt build | provider request | tool choice/visibility tests | control mode event | completed |
 | completion gate | stream/sequence/turn completion | provider no-tool end | turn integration | protocol violation event | completed |
-| live gate | Docker benchmark | Standard/R5/R6 | business/public/hidden tests | trace + cost report | planned |
+| live gate | Docker benchmark | Standard/R5/R6 | business/public/hidden tests | trace + cost report | completed |
 
 ## 11. 日志设计
 

@@ -10,7 +10,7 @@
 Created: 2026-07-15
 Updated: 2026-07-16
 Version: v0.0.5 build-R6
-Status: Phase E In Progress / Finish Boundary Complete
+Status: Phase E Complete / Phase F Ready
 Owner / Responsible: WhaleCode core runtime / TaskSpace
 Risk Level: Critical
 Plan Type: Full
@@ -273,7 +273,9 @@ observer 已统一消费 canonical proof，结果见
 请求使用 named `taskspace_control` 且只暴露 active control schema，Agent 仍自主选择 finish、rework、改图或
 读取；结果见 `13-r6-phase-e4-terminal-hard-state-result.md`。E5 completion gate 也已完成：只有 committed
 `finish_end` carrier 可发布 TaskSpace final，plain provider final 被原样保留为 Commentary 并以稳定协议错误结束，
-不生成 recovery request；结果见 `14-r6-phase-e5-completion-gate-result.md`。当前进入 E6 原子性与 live 收益门禁。
+不生成 recovery request；结果见 `14-r6-phase-e5-completion-gate-result.md`。E6 已完成 terminal durable envelope、
+resume/fork/crash/corruption 矩阵和 simple/complex 三臂各 3 次 live 门禁；R6 `finish_end` 采用率 6/6，结果见
+`15-r6-phase-e6-atomicity-live-result.md`。Phase E 完成，下一步进入 Phase F。
 
 实施项：
 
@@ -397,11 +399,11 @@ docs、schema、tests、logs、viewer 对 role/status/error code 定义一致。
 | 单入口单出口 validator | `action_map/invariants` | graph/property tests | violation codes | B | complete |
 | Agent 原子图事务 | control handler + mutation | atomicity/revision tests | mutation trace | C/D | C production baseline complete / D mutation breadth pending |
 | Root-open readiness | transitions/runtime | chain/fork/join tests | frontier changes | B/C/D | C production complete / D concurrency pending |
-| Agent 手动 Finish | control/runtime | terminal negative matrix | terminal trace | B/C/E | C production complete / E fault matrix pending |
-| Event reducer/replay | events/snapshot | 20-cycle/fork/crash | hash/revision | B/E | B reducer complete / E persistence pending |
+| Agent 手动 Finish | control/runtime | terminal negative matrix | terminal trace | B/C/E | complete；6/6 live finish_end |
+| Event reducer/replay | events/snapshot | 20-cycle/fork/crash | hash/revision | B/E | complete；terminal durable envelope + resume/fork/corruption |
 | 纯 projection | projection/context | coverage/dedup/hash | wire LCP | C/F | C epoch baseline complete / F ownership cleanup pending |
 | Viewer DAG | Web Viewer | fixture/screenshot smoke | render digest | D/H | C snapshot cutover complete / D/H visual gate pending |
-| Docker 三臂观察 | benchmark harness | 1x/3x matrices | request/cache/map logs | A-G | C simple + branch-join 1x complete |
+| Docker 三臂观察 | benchmark harness | 1x/3x matrices | request/cache/map logs | A-G | E simple + complex Standard/R5/R6 各3次完成；G 成本重基线待执行 |
 | 压缩重基线 | projection/observer | B0/strategy matrix | activation/bytes | G | planned |
 
 ## 1.16 日志建设矩阵
