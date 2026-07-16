@@ -228,8 +228,8 @@ F5.0 已暂停汇报。下一步进入 F5.0b；不得把 B/C 的成本下降解�
 1. 从 F5.0 的 bootstrap-only schema 机械派生三臂，除 Finish identity 线形态外保持 description、prompt、模型、
    `temperature` 和 named tool choice 相同：
    - D：当前 `finish: { node_id }`；
-   - E：`finish_identity: { finish_id }`，保留对象但同时改变外层与内层 identity 命名；
-   - F：`finish_node_id: string`，直接使用标量 Finish ID，不暴露可被补齐 `goal` 的对象槽位。
+   - E：`finish_identity: { id }`，保留对象但改变 identity 命名束；
+   - F：`finish_identity: string`，保持 E 的外层字段，只把对象改为标量 Finish ID。
 2. simple/complex 每臂各 3 次，沿用 F5.0 轮换、脱敏、hash、cache 与 parse 观测。
 3. 不把“标量天然无法容纳 goal”直接算成功；同时检查 action、Root、initial Work、edges、continuation 是否新增错误。
 

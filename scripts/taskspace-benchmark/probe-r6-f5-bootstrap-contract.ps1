@@ -3,12 +3,13 @@ param(
     [string]$Endpoint = 'https://api.deepseek.com/chat/completions',
     [string]$OutputPath = '',
     [ValidateRange(1, 20)][int]$Repeat = 3,
-    [string]$FixturePath = ''
+    [string]$FixturePath = '',
+    [switch]$LibraryOnly
 )
 
 $ErrorActionPreference = 'Stop'
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '../..')).Path
-if ([string]::IsNullOrWhiteSpace($OutputPath)) {
+if (-not $LibraryOnly -and [string]::IsNullOrWhiteSpace($OutputPath)) {
     $runId = (Get-Date).ToUniversalTime().ToString('yyyyMMdd-HHmmss-fff')
     $OutputPath = Join-Path $repoRoot "target/r6-f5-bootstrap-ab/$runId/provider-capability.json"
 }
@@ -311,6 +312,19 @@ function Invoke-ProbeRequest {
     }
 }
 
+function Get-F5ProbeSamples {
+    [ordered]@{
+        simple = 'A small project has one failing tax calculation test. Inspect the README and relevant tests, fix the implementation, and run the tests.'
+        complex = 'A subscription billing project has regressions in usage parsing, plan pricing, annual discounts, tax, and invoice totals. One test may conflict with the README. Understand the rules, repair code or the incorrect test, and verify the suite.'
+    }
+}
+
+function Get-F5ProbeSystemPrompt {
+    'You are a coding agent using mandatory TaskSpace. Start by declaring the rooted task map and its immediate first executable action through taskspace_control. Do not solve or explain the task yet.'
+}
+
+if ($LibraryOnly) { return }
+
 $responsesTool = Get-ProductionControlTool
 $sourceJson = $responsesTool | ConvertTo-Json -Depth 80 -Compress
 $arms = New-ProbeArms $responsesTool
@@ -324,10 +338,7 @@ if ($null -eq $fixture) {
     }
 }
 
-$samples = [ordered]@{
-    simple = 'A small project has one failing tax calculation test. Inspect the README and relevant tests, fix the implementation, and run the tests.'
-    complex = 'A subscription billing project has regressions in usage parsing, plan pricing, annual discounts, tax, and invoice totals. One test may conflict with the README. Understand the rules, repair code or the incorrect test, and verify the suite.'
-}
+$samples = Get-F5ProbeSamples
 $armOrders = @(@('A', 'B', 'C'), @('B', 'C', 'A'), @('C', 'A', 'B'))
 $events = [System.Collections.Generic.List[object]]::new()
 for ($repeatIndex = 1; $repeatIndex -le $Repeat; $repeatIndex++) {
@@ -339,7 +350,7 @@ for ($repeatIndex = 1; $repeatIndex -le $Repeat; $repeatIndex++) {
             $body = [ordered]@{
                 model = $Model
                 messages = @(
-                    [ordered]@{ role = 'system'; content = 'You are a coding agent using mandatory TaskSpace. Start by declaring the rooted task map and its immediate first executable action through taskspace_control. Do not solve or explain the task yet.' },
+                    [ordered]@{ role = 'system'; content = Get-F5ProbeSystemPrompt },
                     [ordered]@{ role = 'user'; content = [string]$samples[$sampleName] }
                 )
                 tools = @($tool)
