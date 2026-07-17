@@ -8,9 +8,9 @@
 
 ```text
 Created: 2026-07-17
-Updated: 2026-07-17
+Updated: 2026-07-18
 Version: v0.0.5 build-R7
-Status: Charter Frozen / Phase A Ready
+Status: Charter Frozen / Phase A Complete / Phase B Ready
 Owner / Responsible: WhaleCode core runtime / TaskSpace
 Related Systems: canonical ActionMap, taskspace_control, Event Store, provider context,
   projection renderer, compaction, replay/resume, Docker benchmark, Web Viewer

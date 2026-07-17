@@ -8,9 +8,9 @@
 
 ```text
 Created: 2026-07-17
-Updated: 2026-07-17
+Updated: 2026-07-18
 Version: v0.0.5 build-R7
-Status: Charter Frozen / Phase A Ready
+Status: Phase A Complete / Phase B Ready
 Owner / Responsible: WhaleCode core runtime / TaskSpace
 Risk Level: Critical
 Plan Type: Shared architecture with three projection policies
@@ -198,6 +198,14 @@ Standard/R6 baseline correctness 与 artifact 完整性通过。
 ```
 
 收益：防止把 R6 epoch 逻辑遗留为隐藏第四模式，并把后续每项代码改动绑定到可删除的耦合点。
+
+完成证据：
+
+- ownership inventory 覆盖 32 个现存 R6 marker 文件，所有项均有明确 owner 和目标阶段；
+- 三策略 trigger、emission、session lifecycle 与共享架构合同已通过机器校验；
+- Standard/R6 的 simple、complex Docker 基线均完成并通过 public/hidden validator；
+- 四个 arm 的 provider wire 均可离线精确重算 cache、section cost 与 projection identity；
+- 结果见 `03-r7-phase-a-result.md`，本阶段没有生产行为变化。
 
 ## 1.9 Phase B：共享核心与 `map-always` 纵向切换
 
