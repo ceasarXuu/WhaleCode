@@ -81,10 +81,7 @@
   },
   "triggers": [
     "provider_request",
-    "revision_commit",
-    "explicit_read",
-    "compaction_epoch_start",
-    "resume"
+    "explicit_read"
   ],
   "policies": {
     "map-always": {
@@ -94,10 +91,7 @@
       "context_position": "dynamic_region_after_stable_natural_history",
       "trigger_matrix": {
         "provider_request": "replace_latest",
-        "revision_commit": "no_direct_emission",
-        "explicit_read": "return_as_shared_tool_result",
-        "compaction_epoch_start": "replace_latest",
-        "resume": "replace_latest"
+        "explicit_read": "return_as_shared_tool_result"
       },
       "invariants": [
         "active_map_provider_request_has_exactly_one_current_projection",
@@ -118,27 +112,25 @@
       ]
     },
     "map-append": {
-      "emission": "append_revision_snapshot",
-      "persistence": "immutable_context_history_item_per_committed_revision",
-      "freshness": "highest_revision_only_is_current_and_matches_canonical_revision",
-      "context_position": "natural_context_append_ordered_by_committed_revision",
+      "emission": "append_request_snapshot",
+      "persistence": "immutable_context_history_item_per_provider_request",
+      "freshness": "last_projection_is_current_and_matches_canonical_state_at_request_time",
+      "context_position": "provider_request_tail_after_natural_history",
       "trigger_matrix": {
-        "provider_request": "no_direct_emission",
-        "revision_commit": "append_final_committed_revision_once",
-        "explicit_read": "return_as_shared_tool_result",
-        "compaction_epoch_start": "append_current_revision_as_epoch_start",
-        "resume": "append_current_revision_only_if_missing_from_restored_history"
+        "provider_request": "append_latest_if_not_current_tail",
+        "explicit_read": "return_as_shared_tool_result"
       },
       "envelope": {
-        "projection_kind": "revision_snapshot",
-        "supersedes_through_revision": "n-1",
-        "current_state_rule": "highest_revision_only"
+        "projection_kind": "request_snapshot",
+        "supersedes_all_prior_projections": true,
+        "current_state_rule": "last_projection_only"
       },
       "invariants": [
-        "same_map_same_revision_appended_at_most_once",
-        "projection_order_strictly_increases_by_committed_revision",
-        "lower_revisions_are_history_not_current_authority",
-        "old_projection_has_no_permanent_authoritative_current_true",
+        "provider_request_ends_with_latest_projection",
+        "same_revision_may_repeat_when_map_is_unchanged_between_requests",
+        "projection_revision_never_decreases_within_a_map",
+        "last_projection_is_the_only_current_authority",
+        "exact_retry_does_not_duplicate_an_identical_current_tail",
         "stale_revision_tool_call_returns_mechanical_stale_revision"
       ],
       "known_characteristics": [
@@ -147,11 +139,11 @@
         "stale_history_can_distract_agent"
       ],
       "bugs": [
-        "missing_supersession_marker",
-        "duplicate_revision_append",
+        "missing_request_tail_projection",
+        "projection_not_at_message_tail",
         "revision_order_violation",
         "latest_projection_map_mismatch",
-        "old_revision_used_as_current"
+        "old_projection_used_as_current"
       ]
     },
     "map-request": {
@@ -161,10 +153,7 @@
       "context_position": "ordinary_tool_result_history",
       "trigger_matrix": {
         "provider_request": "no_direct_emission",
-        "revision_commit": "no_automatic_projection",
-        "explicit_read": "return_as_shared_tool_result",
-        "compaction_epoch_start": "mechanical_map_handle_only",
-        "resume": "mechanical_map_handle_only"
+        "explicit_read": "return_as_shared_tool_result"
       },
       "map_handle_fields": [
         "map_id",

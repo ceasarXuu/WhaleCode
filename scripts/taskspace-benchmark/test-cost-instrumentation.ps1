@@ -98,6 +98,7 @@ $obs = [pscustomobject]@{
                 "exact_payload_scan_event_id:scan-provider-request-1",
                 "active_projection_present:true",
                 "active_projection_count:1",
+                "projection_is_message_tail:true",
                 "large_raw_output_tokens:0",
                 "runtime_boundary_forbidden_markers:none",
                 "protected_items_present:true",
@@ -137,6 +138,7 @@ $obs = [pscustomobject]@{
                 "projection_required:true",
                 "active_projection_present:true",
                 "active_projection_count:1",
+                "projection_is_message_tail:true",
                 "large_raw_output_tokens:0",
                 "runtime_boundary_forbidden_markers:none",
                 "protected_items_present:true",
@@ -566,6 +568,7 @@ $duplicateProjectionScan = [pscustomobject]@{
     passed = $false
     replacement_confirmed = $false
     active_projection_count = 2
+    projection_is_message_tail = $true
     large_raw_output_tokens = 0
     runtime_boundary_forbidden_markers = "none"
     protected_items_present = $true
@@ -575,7 +578,7 @@ Assert-True (-not [bool]$duplicateProjectionReplacement.active_context_replaceme
 Assert-True ([int]$duplicateProjectionReplacement.active_context_replacement_report.active_projection_uniqueness_violation_count -eq 1) "duplicate active projection violation was not reported"
 $appendIdentity = ConvertTo-TaskspaceProjectionIdentity ([pscustomobject]@{
     count = 3
-    kind = "revision_snapshot"
+    kind = "request_snapshot"
     map_id_sha256 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
     revision = 4
     canonical_sha256 = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
@@ -595,6 +598,7 @@ $appendProjectionScan = [pscustomobject]@{
     projection_identity_confirmed = $true
     projection_policy = "map-append"
     active_projection_count = 3
+    projection_is_message_tail = $true
     large_raw_output_tokens = 0
     runtime_boundary_forbidden_markers = "none"
     protected_items_present = $true
@@ -602,10 +606,20 @@ $appendProjectionScan = [pscustomobject]@{
 $appendProjectionReplacement = New-TaskspaceActiveReplacementArtifacts $budgetEvents @($appendProjectionScan)
 Assert-True ([bool]$appendProjectionReplacement.active_context_replacement_report.replacement_confirmed) "valid map-append history should confirm latest projection"
 Assert-True ([int]$appendProjectionReplacement.active_context_replacement_report.active_projection_count_max -eq 3 -and [int]$appendProjectionReplacement.active_context_replacement_report.active_projection_uniqueness_violation_count -eq 0) "map-append history should not be treated as a projection uniqueness violation"
+Assert-True ([bool]$appendProjectionReplacement.active_context_replacement_report.projection_is_message_tail -and [int]$appendProjectionReplacement.active_context_replacement_report.projection_message_tail_violation_count -eq 0) "map-append history did not preserve request-tail projection evidence"
+$tailViolationScan = $appendProjectionScan.PSObject.Copy()
+$tailViolationScan.scan_event_id = "scan-provider-request-tail-violation"
+$tailViolationScan.passed = $false
+$tailViolationScan.replacement_confirmed = $false
+$tailViolationScan.projection_is_message_tail = $false
+$tailViolationReplacement = New-TaskspaceActiveReplacementArtifacts $budgetEvents @($tailViolationScan)
+Assert-True (-not [bool]$tailViolationReplacement.active_context_replacement_report.replacement_confirmed -and [int]$tailViolationReplacement.active_context_replacement_report.projection_message_tail_violation_count -eq 1) "request-tail projection violation was not reported"
 $appendProjectionEvent = New-TaskspaceContextProjectionEvent @"
 TaskSpaceMapProjectionR7V1:
 - schema_version: taskspace-map-projection-r7-v1
-- projection_kind: revision_snapshot
+- projection_kind: request_snapshot
+- supersedes_all_prior_projections: true
+- current_state_rule: last_projection_only
 - map_id: map-1
 - revision: 4
 - canonical_sha256: cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
@@ -620,7 +634,7 @@ TaskSpaceMapProjectionR7V1:
 - node_details: none
 TaskSpaceMapProjectionR7V1 end.
 "@
-Assert-True ([string]$appendProjectionEvent.projection_kind -eq "revision_snapshot" -and [int]$appendProjectionEvent.protected_miss_count -eq 0) "model-visible map-append projection envelope was not preserved"
+Assert-True ([string]$appendProjectionEvent.projection_kind -eq "request_snapshot" -and [int]$appendProjectionEvent.protected_miss_count -eq 0) "model-visible map-append projection envelope was not preserved"
 Assert-True ([int]$phaseSummary.provider_request_hook_coverage -eq 100 -and [int]$phaseSummary.request_phase_attribution_coverage -eq 100) "request phase summary did not reflect provider events"
 Assert-True ([int]$phaseSummary.provider_request_terminal_coverage -eq 100 -and [int]$phaseSummary.expected_model_request_count -eq 3 -and [int]$phaseSummary.provider_request_distinct_count -eq 3) "request phase summary did not use expected provider request denominator"
 Assert-True ([int]$phaseSummary.phase_counts.model_sampling -eq 1 -and [int]$phaseSummary.phase_counts.validation_recovery -eq 1 -and [int]$phaseSummary.phase_counts.state_commit -eq 1) "request phase summary did not expose phase counts"

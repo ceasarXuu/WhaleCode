@@ -660,6 +660,7 @@ function Get-TaskspaceBenchmarkMetrics {
         exact_payload_scan_event_count = @($costInstrumentation.exact_payload_scan_events).Count
         active_projection_count_max = if ($activeReplacementReport) { [int]$activeReplacementReport.active_projection_count_max } else { 0 }
         active_projection_uniqueness_violation_count = if ($activeReplacementReport) { [int]$activeReplacementReport.active_projection_uniqueness_violation_count } else { 0 }
+        projection_message_tail_violation_count = if ($activeReplacementReport) { [int]$activeReplacementReport.projection_message_tail_violation_count } else { 0 }
         taskspace_control_count_source = [string]$costInstrumentation.taskspace_control_usage.taskspace_control_count_source
         taskspace_control_count_source_mismatch = [bool]$costInstrumentation.taskspace_control_usage.taskspace_control_count_source_mismatch
         whale_exec_taskspace_control_count = [int]$costInstrumentation.taskspace_control_usage.whale_exec_taskspace_control_count

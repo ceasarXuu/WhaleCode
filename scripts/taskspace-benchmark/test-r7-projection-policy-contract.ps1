@@ -84,30 +84,21 @@ Assert-Equal $contract.rendered_projection_contract.policy_dependent_content_all
 Assert-Equal $contract.rendered_projection_contract.next_action_suggestions_allowed $false "Projection must not suggest next actions"
 Assert-SetEqual $contract.rendered_projection_contract.required_fields $requiredProjectionFields "RenderedProjection fields"
 
-$triggers = @("provider_request", "revision_commit", "explicit_read", "compaction_epoch_start", "resume")
+$triggers = @("provider_request", "explicit_read")
 Assert-SetEqual $contract.triggers $triggers "Trigger list"
 
 $expectedMatrix = @{
     "map-always" = @{
         provider_request = "replace_latest"
-        revision_commit = "no_direct_emission"
         explicit_read = "return_as_shared_tool_result"
-        compaction_epoch_start = "replace_latest"
-        resume = "replace_latest"
     }
     "map-append" = @{
-        provider_request = "no_direct_emission"
-        revision_commit = "append_final_committed_revision_once"
+        provider_request = "append_latest_if_not_current_tail"
         explicit_read = "return_as_shared_tool_result"
-        compaction_epoch_start = "append_current_revision_as_epoch_start"
-        resume = "append_current_revision_only_if_missing_from_restored_history"
     }
     "map-request" = @{
         provider_request = "no_direct_emission"
-        revision_commit = "no_automatic_projection"
         explicit_read = "return_as_shared_tool_result"
-        compaction_epoch_start = "mechanical_map_handle_only"
-        resume = "mechanical_map_handle_only"
     }
 }
 

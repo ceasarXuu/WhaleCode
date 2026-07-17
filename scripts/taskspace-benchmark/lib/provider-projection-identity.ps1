@@ -16,10 +16,10 @@ function ConvertTo-TaskspaceProjectionIdentity {
     $projectionHash = [string](Get-TaskspaceCostProperty $Raw @("projection_sha256"))
     $revisionRaw = Get-TaskspaceCostProperty $Raw @("revision")
     $reason = [string](Get-TaskspaceCostProperty $Raw @("unavailable_reason"))
-    if ($null -eq $count -or $kind -notin @("bootstrap", "bootstrap_required", "active", "current_projection", "revision_snapshot", "unavailable")) {
+    if ($null -eq $count -or $kind -notin @("bootstrap", "bootstrap_required", "active", "current_projection", "request_snapshot", "unavailable")) {
         return New-TaskspaceUnavailableProjectionIdentity "active_projection_identity_shape_invalid"
     }
-    $normalizedKind = if ($kind -eq "bootstrap_required") { "bootstrap" } elseif ($kind -in @("current_projection", "revision_snapshot")) { "active" } else { $kind }
+    $normalizedKind = if ($kind -eq "bootstrap_required") { "bootstrap" } elseif ($kind -in @("current_projection", "request_snapshot")) { "active" } else { $kind }
     $hashPattern = '^[0-9a-f]{64}$'
     if ($normalizedKind -eq "bootstrap" -and ($count -ne 1 -or $projectionHash -notmatch $hashPattern -or
         -not [string]::IsNullOrWhiteSpace($mapHash) -or -not [string]::IsNullOrWhiteSpace($canonicalHash) -or
@@ -32,7 +32,7 @@ function ConvertTo-TaskspaceProjectionIdentity {
             $null -eq $revision -or -not [string]::IsNullOrWhiteSpace($reason)) {
             return New-TaskspaceUnavailableProjectionIdentity "active_projection_identity_invalid"
         }
-        if ($kind -in @("current_projection", "revision_snapshot") -and $canonicalHash -notmatch $hashPattern) {
+        if ($kind -in @("current_projection", "request_snapshot") -and $canonicalHash -notmatch $hashPattern) {
             return New-TaskspaceUnavailableProjectionIdentity "current_projection_canonical_identity_invalid"
         }
     } elseif ($normalizedKind -eq "unavailable" -and (-not [string]::IsNullOrWhiteSpace($mapHash) -or
