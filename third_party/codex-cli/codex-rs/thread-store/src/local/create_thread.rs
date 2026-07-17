@@ -20,6 +20,7 @@ pub(super) async fn create_thread(
             params.source,
             params.base_instructions,
             params.dynamic_tools,
+            params.taskspace_projection_policy,
             event_persistence_mode(params.event_persistence_mode),
         ),
         state_db_ctx,

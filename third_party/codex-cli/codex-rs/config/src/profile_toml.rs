@@ -16,6 +16,7 @@ use codex_protocol::config_types::Verbosity;
 use codex_protocol::config_types::WebSearchMode;
 use codex_protocol::openai_models::ReasoningEffort;
 use codex_protocol::protocol::AskForApproval;
+use codex_protocol::protocol::TaskSpaceProjectionPolicy;
 
 /// Collection of common configuration options that a user can define as a unit
 /// in `config.toml`.
@@ -23,6 +24,7 @@ use codex_protocol::protocol::AskForApproval;
 #[schemars(deny_unknown_fields)]
 pub struct ConfigProfile {
     pub model: Option<String>,
+    pub taskspace_projection_policy: Option<TaskSpaceProjectionPolicy>,
     /// Optional explicit service tier preference for new turns (`fast` or `flex`).
     pub service_tier: Option<ServiceTier>,
     /// The key in the `model_providers` map identifying the

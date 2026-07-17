@@ -13,7 +13,7 @@ fn every_message_is_classified_exactly_once() {
             {"role": "system", "content": "stable"},
             {
                 "role": "developer",
-                "content": "TaskSpaceMapEpochSnapshotR6V1:\n- projection_role: epoch_baseline\n- map: none\n- bootstrap_required: true\nTaskSpaceMapEpochSnapshotR6V1 end."
+                "content": "TaskSpaceMapProjectionR7V1:\n- schema_version: taskspace-map-projection-r7-v1\n- projection_kind: bootstrap_required\n- map: none\n- bootstrap_required: true\nTaskSpaceMapProjectionR7V1 end."
             },
             {"role": "user", "content": "request"},
             {"role": "assistant", "content": "response"},
@@ -67,7 +67,7 @@ fn tool_output_containing_projection_block_remains_ordinary_feedback() {
     let wire = json!({
         "messages": [{
             "role": "tool",
-            "content": "source text:\nTaskSpaceMapEpochSnapshotR6V1:\n- map_id: copied-map\n- revision: 41\nTaskSpaceMapEpochSnapshotR6V1 end."
+            "content": "source text:\nTaskSpaceMapProjectionR7V1:\n- map_id: copied-map\n- revision: 41\nTaskSpaceMapProjectionR7V1 end."
         }]
     });
 
@@ -103,7 +103,7 @@ fn section_bytes_reconcile_with_provider_payload_bytes() {
         "stream": true,
         "messages": [
             {"role": "developer", "content": "stable"},
-            {"role": "developer", "content": "TaskSpaceMapEpochSnapshotR6V1"},
+            {"role": "developer", "content": "TaskSpaceMapProjectionR7V1"},
             {"role": "tool", "content": "TaskSpaceControlResultR6V1"}
         ],
         "tools": [{"type": "function", "function": {"name": "taskspace_control"}}],
@@ -152,7 +152,7 @@ fn projection_revision_changes_identity_hash_without_changing_count() {
             "messages": [{
                 "role": "developer",
                 "content": format!(
-                    "TaskSpaceMapEpochSnapshotR6V1:\n- projection_role: epoch_baseline\n- map_id: map-1\n- revision: {revision}\nTaskSpaceMapEpochSnapshotR6V1 end."
+                    "TaskSpaceMapProjectionR7V1:\n- schema_version: taskspace-map-projection-r7-v1\n- projection_kind: current_projection\n- map_id: map-1\n- revision: {revision}\n- canonical_sha256: canonical-{revision}\nTaskSpaceMapProjectionR7V1 end."
                 )
             }]
         })
@@ -165,11 +165,11 @@ fn projection_revision_changes_identity_hash_without_changing_count() {
 
     assert_eq!(
         (left.count, left.kind, left.revision),
-        (1, "active", Some(7))
+        (1, "current_projection", Some(7))
     );
     assert_eq!(
         (right.count, right.kind, right.revision),
-        (1, "active", Some(8))
+        (1, "current_projection", Some(8))
     );
     assert_eq!(left.map_id_sha256, right.map_id_sha256);
     assert_ne!(left.projection_sha256, right.projection_sha256);
@@ -192,7 +192,7 @@ fn serialized_section_cost_never_contains_raw_payload_content() {
             {
                 "role": "developer",
                 "content": format!(
-                    "TaskSpaceMapEpochSnapshotR6V1:\n- projection_role: epoch_baseline\n- map_id: {}\n- revision: 9\nTaskSpaceMapEpochSnapshotR6V1 end.",
+                    "TaskSpaceMapProjectionR7V1:\n- schema_version: taskspace-map-projection-r7-v1\n- projection_kind: current_projection\n- map_id: {}\n- revision: 9\n- canonical_sha256: canonical-9\nTaskSpaceMapProjectionR7V1 end.",
                     secrets[5]
                 )
             },

@@ -81,6 +81,7 @@ use codex_protocol::openai_models::ModelInfo;
 use codex_protocol::openai_models::ReasoningEffort as ReasoningEffortConfig;
 use codex_protocol::protocol::SessionSource;
 use codex_protocol::protocol::SubAgentSource;
+use codex_protocol::protocol::TaskSpaceProjectionPolicy;
 use codex_protocol::protocol::TokenUsage;
 use codex_protocol::protocol::W3cTraceContext;
 use codex_rollout_trace::CompactionTraceContext;
@@ -146,11 +147,14 @@ pub const X_RESPONSESAPI_INCLUDE_TIMING_METRICS_HEADER: &str =
 const RESPONSES_WEBSOCKETS_V2_BETA_HEADER_VALUE: &str = "responses_websockets=2026-02-06";
 const RESPONSES_ENDPOINT: &str = "/responses";
 const RESPONSES_COMPACT_ENDPOINT: &str = "/responses/compact";
-const TASKSPACE_PROJECTION_MARKER: &str = "TaskSpaceMapEpochSnapshotR6V1:";
-const TASKSPACE_PROJECTION_END_MARKER: &str = "TaskSpaceMapEpochSnapshotR6V1 end.";
+const TASKSPACE_PROJECTION_MARKER: &str = "TaskSpaceMapProjectionR7V1:";
+const TASKSPACE_PROJECTION_END_MARKER: &str = "TaskSpaceMapProjectionR7V1 end.";
 const TASKSPACE_PROJECTION_REQUIRED_SECTIONS: &[&str] = &[
+    "schema_version",
+    "projection_kind",
     "map_id",
     "revision",
+    "canonical_sha256",
     "root_node_id",
     "finish_node_id",
     "complete",
@@ -188,12 +192,15 @@ pub(crate) struct ExactPayloadScanEventV1 {
     pub(crate) projection_kind: Option<String>,
     pub(crate) projection_map_id_sha256: Option<String>,
     pub(crate) projection_revision: Option<u64>,
+    pub(crate) projection_canonical_sha256: Option<String>,
     pub(crate) projection_sha256: Option<String>,
+    pub(crate) projection_policy: Option<String>,
     pub(crate) expected_projection_kind: Option<String>,
     pub(crate) expected_projection_map_id_sha256: Option<String>,
     pub(crate) expected_projection_revision: Option<u64>,
+    pub(crate) expected_projection_canonical_sha256: Option<String>,
     pub(crate) expected_projection_sha256: Option<String>,
-    pub(crate) projection_epoch_identity_confirmed: Option<bool>,
+    pub(crate) projection_identity_confirmed: Option<bool>,
     pub(crate) replacement_confirmed: bool,
     pub(crate) passed: bool,
     pub(crate) failure_reasons: Vec<String>,
@@ -201,14 +208,19 @@ pub(crate) struct ExactPayloadScanEventV1 {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ProviderProjectionIdentityExpectation {
+    policy: TaskSpaceProjectionPolicy,
     kind: String,
     map_id_sha256: Option<String>,
     revision: Option<u64>,
+    canonical_sha256: Option<String>,
     projection_sha256: String,
 }
 
 impl ProviderProjectionIdentityExpectation {
-    pub(crate) fn from_projection_context(context: &str) -> Option<Self> {
+    pub(crate) fn from_projection_context(
+        policy: TaskSpaceProjectionPolicy,
+        context: &str,
+    ) -> Option<Self> {
         let projection = projection_blocks_from_text(context).into_iter().next()?;
         let projection_sha256 = sha256_hex(projection.as_bytes());
         let bootstrap = projection.lines().any(|line| line == "- map: none")
@@ -217,19 +229,24 @@ impl ProviderProjectionIdentityExpectation {
                 .any(|line| line == "- bootstrap_required: true");
         if bootstrap {
             return Some(Self {
-                kind: "bootstrap".to_string(),
+                policy,
+                kind: "bootstrap_required".to_string(),
                 map_id_sha256: None,
                 revision: None,
+                canonical_sha256: None,
                 projection_sha256,
             });
         }
         let map_id = projection_mechanical_field(projection, "map_id")?;
         let revision = projection_mechanical_field(projection, "revision")
             .and_then(|value| value.parse::<u64>().ok())?;
+        let canonical_sha256 = projection_mechanical_field(projection, "canonical_sha256")?;
         Some(Self {
-            kind: "active".to_string(),
+            policy,
+            kind: "current_projection".to_string(),
             map_id_sha256: Some(sha256_hex(map_id.as_bytes())),
             revision: Some(revision),
+            canonical_sha256: Some(canonical_sha256.to_string()),
             projection_sha256,
         })
     }
@@ -1023,7 +1040,7 @@ fn scan_provider_payload_text(
     let active_projection_present = active_projection_count > 0;
     let protected_items_present = projection_blocks
         .first()
-        .is_some_and(|block| epoch_snapshot_block_is_valid(block));
+        .is_some_and(|block| projection_block_is_valid(block));
     let projection_identity = projection_blocks
         .first()
         .map(|projection| projection_identity(projection));
@@ -1054,13 +1071,13 @@ fn scan_provider_payload_text(
     };
     let mut failure_reasons = Vec::new();
     if projection_required && active_projection_count == 0 {
-        failure_reasons.push("epoch_snapshot_missing".to_string());
+        failure_reasons.push("current_projection_missing".to_string());
     }
     if projection_required && active_projection_count > 1 {
-        failure_reasons.push("epoch_snapshot_not_unique".to_string());
+        failure_reasons.push("current_projection_not_unique".to_string());
     }
     if !projection_required && active_projection_count != 0 {
-        failure_reasons.push("unexpected_epoch_snapshot".to_string());
+        failure_reasons.push("unexpected_current_projection".to_string());
     }
     if large_raw_output_tokens > 0 {
         failure_reasons.push("large_raw_output_present".to_string());
@@ -1069,18 +1086,18 @@ fn scan_provider_payload_text(
         failure_reasons.push("runtime_boundary_forbidden_marker_present".to_string());
     }
     if projection_required && active_projection_count == 1 && !protected_items_present {
-        failure_reasons.push("epoch_snapshot_required_sections_missing".to_string());
+        failure_reasons.push("current_projection_required_sections_missing".to_string());
     }
     ExactPayloadScanEventV1 {
         schema_version: "taskspace-exact-payload-scan-event-v1",
         scan_event_id: format!("scan:{request_id}:{sha256}"),
         request_id: request_id.to_string(),
         provider_payload_sha256: sha256.to_string(),
-        scanner_version: "r6-exact-scan-2".to_string(),
-        matcher_version: "r6-epoch-snapshot-checks-1".to_string(),
+        scanner_version: "r7-exact-scan-1".to_string(),
+        matcher_version: "r7-projection-checks-1".to_string(),
         checked_byte_ranges: vec![(0, text.len())],
         negative_checks_performed: vec![
-            "epoch_snapshot_uniqueness".to_string(),
+            "current_projection_uniqueness".to_string(),
             "large_raw_output".to_string(),
             "runtime_boundary_forbidden_markers".to_string(),
         ],
@@ -1099,12 +1116,17 @@ fn scan_provider_payload_text(
         projection_revision: projection_identity
             .as_ref()
             .and_then(|identity| identity.revision),
+        projection_canonical_sha256: projection_identity
+            .as_ref()
+            .and_then(|identity| identity.canonical_sha256.clone()),
         projection_sha256: projection_identity.map(|identity| identity.projection_sha256),
+        projection_policy: None,
         expected_projection_kind: None,
         expected_projection_map_id_sha256: None,
         expected_projection_revision: None,
+        expected_projection_canonical_sha256: None,
         expected_projection_sha256: None,
-        projection_epoch_identity_confirmed: None,
+        projection_identity_confirmed: None,
         replacement_confirmed,
         passed: failure_reasons.is_empty(),
         failure_reasons,
@@ -1116,6 +1138,7 @@ struct ProviderProjectionIdentity {
     kind: String,
     map_id_sha256: Option<String>,
     revision: Option<u64>,
+    canonical_sha256: Option<String>,
     projection_sha256: String,
 }
 
@@ -1188,9 +1211,10 @@ fn projection_identity(projection: &str) -> ProviderProjectionIdentity {
             .any(|line| line == "- bootstrap_required: true");
     if bootstrap {
         return ProviderProjectionIdentity {
-            kind: "bootstrap".to_string(),
+            kind: "bootstrap_required".to_string(),
             map_id_sha256: None,
             revision: None,
+            canonical_sha256: None,
             projection_sha256,
         };
     }
@@ -1198,15 +1222,18 @@ fn projection_identity(projection: &str) -> ProviderProjectionIdentity {
         .map(|map_id| sha256_hex(map_id.as_bytes()));
     let revision = projection_mechanical_field(projection, "revision")
         .and_then(|value| value.parse::<u64>().ok());
+    let canonical_sha256 =
+        projection_mechanical_field(projection, "canonical_sha256").map(str::to_string);
     ProviderProjectionIdentity {
-        kind: if map_id_sha256.is_some() && revision.is_some() {
-            "active"
+        kind: if map_id_sha256.is_some() && revision.is_some() && canonical_sha256.is_some() {
+            "current_projection"
         } else {
             "unavailable"
         }
         .to_string(),
         map_id_sha256,
         revision,
+        canonical_sha256,
         projection_sha256,
     }
 }
@@ -1227,30 +1254,33 @@ fn apply_projection_identity_expectation(
         return;
     };
     scan.expected_projection_kind = Some(expected.kind.clone());
+    scan.projection_policy = Some(expected.policy.to_string());
     scan.expected_projection_map_id_sha256 = expected.map_id_sha256.clone();
     scan.expected_projection_revision = expected.revision;
+    scan.expected_projection_canonical_sha256 = expected.canonical_sha256.clone();
     scan.expected_projection_sha256 = Some(expected.projection_sha256.clone());
     let confirmed = scan.projection_kind.as_ref() == Some(&expected.kind)
         && scan.projection_map_id_sha256 == expected.map_id_sha256
         && scan.projection_revision == expected.revision
+        && scan.projection_canonical_sha256 == expected.canonical_sha256
         && scan.projection_sha256.as_ref() == Some(&expected.projection_sha256);
-    scan.projection_epoch_identity_confirmed = Some(confirmed);
+    scan.projection_identity_confirmed = Some(confirmed);
     scan.negative_checks_performed
-        .push("projection_epoch_identity".to_string());
-    scan.matcher_version = "r6-epoch-snapshot-checks-3".to_string();
+        .push("projection_identity".to_string());
+    scan.matcher_version = "r7-projection-checks-2".to_string();
     if !confirmed {
         scan.failure_reasons
-            .push("epoch_snapshot_identity_mismatch".to_string());
+            .push("projection_identity_mismatch".to_string());
         scan.passed = false;
         scan.replacement_confirmed = false;
     }
 }
 
-fn epoch_snapshot_block_is_valid(block: &str) -> bool {
+fn projection_block_is_valid(block: &str) -> bool {
     let normalized = block.replace("\\r\\n", "\n").replace("\\n", "\n");
     if !normalized
         .lines()
-        .any(|line| line.trim() == "- projection_role: epoch_baseline")
+        .any(|line| line.trim() == "- schema_version: taskspace-map-projection-r7-v1")
     {
         return false;
     }

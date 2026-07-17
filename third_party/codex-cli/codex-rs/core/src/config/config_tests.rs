@@ -65,6 +65,7 @@ use codex_protocol::permissions::FileSystemSpecialPath;
 use codex_protocol::permissions::NetworkSandboxPolicy;
 use codex_protocol::protocol::RealtimeVoice;
 use codex_protocol::protocol::SandboxPolicy;
+use codex_protocol::protocol::TaskSpaceProjectionPolicy;
 use serde::Deserialize;
 use tempfile::tempdir;
 
@@ -5361,6 +5362,7 @@ async fn test_precedence_fixture_with_o3_profile() -> std::io::Result<()> {
     assert_eq!(
         Config {
             model: Some("o3".to_string()),
+            taskspace_projection_policy: None,
             review_model: None,
             model_context_window: None,
             model_auto_compact_token_limit: None,
@@ -5555,6 +5557,7 @@ async fn test_precedence_fixture_with_gpt3_profile() -> std::io::Result<()> {
     .await?;
     let expected_gpt3_profile_config = Config {
         model: Some("gpt-3.5-turbo".to_string()),
+        taskspace_projection_policy: None,
         review_model: None,
         model_context_window: None,
         model_auto_compact_token_limit: None,
@@ -5703,6 +5706,7 @@ async fn test_precedence_fixture_with_zdr_profile() -> std::io::Result<()> {
     .await?;
     let expected_zdr_profile_config = Config {
         model: Some("o3".to_string()),
+        taskspace_projection_policy: None,
         review_model: None,
         model_context_window: None,
         model_auto_compact_token_limit: None,
@@ -5836,6 +5840,7 @@ async fn test_precedence_fixture_with_gpt5_profile() -> std::io::Result<()> {
     .await?;
     let expected_gpt5_profile_config = Config {
         model: Some("gpt-5.4".to_string()),
+        taskspace_projection_policy: None,
         review_model: None,
         model_context_window: None,
         model_auto_compact_token_limit: None,
@@ -7828,4 +7833,56 @@ fn test_tui_notification_condition_rejects_unknown_value() {
             && err.contains("always"),
         "unexpected error: {err}"
     );
+}
+
+#[tokio::test]
+async fn phase_b_accepts_explicit_map_always_projection_policy() -> std::io::Result<()> {
+    let fixture = create_test_fixture()?;
+    let mut cfg = fixture.cfg.clone();
+    cfg.taskspace_projection_policy = Some(TaskSpaceProjectionPolicy::MapAlways);
+
+    let loaded = Config::load_from_base_config_with_overrides(
+        cfg,
+        ConfigOverrides {
+            cwd: Some(fixture.cwd_path()),
+            ..Default::default()
+        },
+        fixture.codex_home(),
+    )
+    .await?;
+
+    assert_eq!(
+        loaded.taskspace_projection_policy,
+        Some(TaskSpaceProjectionPolicy::MapAlways)
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn phase_b_rejects_projection_policies_not_yet_enabled() -> std::io::Result<()> {
+    for policy in [
+        TaskSpaceProjectionPolicy::MapAppend,
+        TaskSpaceProjectionPolicy::MapRequest,
+    ] {
+        let fixture = create_test_fixture()?;
+        let mut cfg = fixture.cfg.clone();
+        cfg.taskspace_projection_policy = Some(policy);
+        let error = Config::load_from_base_config_with_overrides(
+            cfg,
+            ConfigOverrides {
+                cwd: Some(fixture.cwd_path()),
+                ..Default::default()
+            },
+            fixture.codex_home(),
+        )
+        .await
+        .expect_err("later R7 projection policy must be rejected in Phase B");
+        assert_eq!(error.kind(), std::io::ErrorKind::InvalidInput);
+        assert!(
+            error
+                .to_string()
+                .contains("Phase B only enables map-always")
+        );
+    }
+    Ok(())
 }

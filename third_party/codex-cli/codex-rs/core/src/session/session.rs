@@ -39,6 +39,7 @@ pub(crate) struct SessionConfiguration {
     pub(super) collaboration_mode: CollaborationMode,
     pub(super) model_reasoning_summary: Option<ReasoningSummaryConfig>,
     pub(super) service_tier: Option<ServiceTier>,
+    pub(super) taskspace_projection_policy: Option<TaskSpaceProjectionPolicy>,
 
     /// Developer instructions that supplement the base instructions.
     pub(super) developer_instructions: Option<String>,
@@ -276,6 +277,14 @@ impl Session {
             session_configuration.collaboration_mode.model(),
             session_configuration.provider
         );
+        if session_configuration
+            .taskspace_projection_policy
+            .is_some_and(|policy| policy != TaskSpaceProjectionPolicy::MapAlways)
+        {
+            anyhow::bail!(
+                "persisted taskspace projection policy is not enabled in R7 Phase B; only map-always is available"
+            );
+        }
         let forked_from_id = initial_history.forked_from_id();
 
         let event_persistence_mode = if session_configuration.persist_extended_history {
@@ -321,6 +330,8 @@ impl Session {
                                     text: session_configuration.base_instructions.clone(),
                                 },
                                 dynamic_tools: session_configuration.dynamic_tools.clone(),
+                                taskspace_projection_policy: session_configuration
+                                    .taskspace_projection_policy,
                                 event_persistence_mode,
                             },
                         )

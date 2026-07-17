@@ -1294,7 +1294,7 @@ async fn record_initial_history_new_defers_initial_context_until_first_turn() {
 }
 
 #[tokio::test]
-async fn provider_composer_injects_one_blank_map_epoch_snapshot() {
+async fn provider_composer_injects_one_blank_map_projection() {
     let (session, turn_context) = make_session_and_context().await;
     {
         let mut state = session.state.lock().await;
@@ -1308,7 +1308,7 @@ async fn provider_composer_injects_one_blank_map_epoch_snapshot() {
     assert!(
         !developer_input_texts(&initial_context)
             .join("\n")
-            .contains("TaskSpaceMapEpochSnapshotR6V1:")
+            .contains("TaskSpaceMapProjectionR7V1:")
     );
     let mut previous_context = None;
     for _ in 0..2 {
@@ -1320,7 +1320,7 @@ async fn provider_composer_injects_one_blank_map_epoch_snapshot() {
         assert!(!developer_text.contains("TaskSpace mode is now active"));
         assert_eq!(
             developer_text
-                .matches("TaskSpaceMapEpochSnapshotR6V1:")
+                .matches("TaskSpaceMapProjectionR7V1:")
                 .count(),
             1
         );
@@ -1330,7 +1330,7 @@ async fn provider_composer_injects_one_blank_map_epoch_snapshot() {
         if let Some(previous_context) = previous_context.as_ref() {
             assert_eq!(
                 &context, previous_context,
-                "retry with unchanged history must reuse the exact projection epoch"
+                "same canonical state must render byte-identical projection content"
             );
         }
         previous_context = Some(context);
@@ -1338,7 +1338,7 @@ async fn provider_composer_injects_one_blank_map_epoch_snapshot() {
 }
 
 #[tokio::test]
-async fn provider_composer_keeps_epoch_snapshot_separate_from_skills() {
+async fn provider_composer_keeps_projection_separate_from_skills() {
     let (session, mut turn_context) = make_session_and_context().await;
     let mut outcome = SkillLoadOutcome::default();
     outcome.skills = vec![SkillMetadata {
@@ -1375,11 +1375,11 @@ async fn provider_composer_keeps_epoch_snapshot_separate_from_skills() {
         !stable_developer_text.contains("TaskSpace mode is now active"),
         "stable developer item must not contain legacy TaskSpace markers that provider filtering omits: {stable_developer_text}"
     );
-    assert!(!stable_developer_text.contains("TaskSpaceMapEpochSnapshotR6V1:"));
+    assert!(!stable_developer_text.contains("TaskSpaceMapProjectionR7V1:"));
     assert!(
         !developer_texts
             .iter()
-            .any(|text| text.contains("TaskSpaceMapEpochSnapshotR6V1:"))
+            .any(|text| text.contains("TaskSpaceMapProjectionR7V1:"))
     );
     let provider_context = session
         .prepare_provider_visible_prompt_items(&turn_context, initial_context)
@@ -1389,7 +1389,7 @@ async fn provider_composer_keeps_epoch_snapshot_separate_from_skills() {
     assert_eq!(
         provider_developer_texts
             .iter()
-            .filter(|text| text.contains("TaskSpaceMapEpochSnapshotR6V1:"))
+            .filter(|text| text.contains("TaskSpaceMapProjectionR7V1:"))
             .count(),
         1
     );
@@ -1398,12 +1398,12 @@ async fn provider_composer_keeps_epoch_snapshot_separate_from_skills() {
             .iter()
             .find(|text| text.contains("<skills_instructions>"))
             .expect("stable skills developer item")
-            .contains("TaskSpaceMapEpochSnapshotR6V1:")
+            .contains("TaskSpaceMapProjectionR7V1:")
     );
 }
 
 #[tokio::test]
-async fn provider_projection_epoch_preserves_prefix_with_canonical_deltas() {
+async fn provider_map_always_replaces_stale_projection_with_latest_revision() {
     let (session, turn_context) = make_session_and_context().await;
     {
         let mut state = session.state.lock().await;
@@ -1483,21 +1483,20 @@ async fn provider_projection_epoch_preserves_prefix_with_canonical_deltas() {
         !history
             .raw_items()
             .iter()
-            .any(is_action_map_epoch_snapshot_developer_item)
+            .any(is_action_map_projection_developer_item)
     );
     let first_provider = session
         .prepare_provider_visible_prompt_items(&turn_context, history.raw_items().to_vec())
         .await;
     let provider_text = developer_input_texts(&first_provider.items).join("\n");
     assert_eq!(
-        provider_text
-            .matches("TaskSpaceMapEpochSnapshotR6V1:")
-            .count(),
+        provider_text.matches("TaskSpaceMapProjectionR7V1:").count(),
         1
     );
     assert!(provider_text.contains("map_id: map-1"));
     assert!(provider_text.contains("revision: 2"));
-    assert!(provider_text.contains("projection_role: epoch_baseline"));
+    assert!(provider_text.contains("projection_kind: current_projection"));
+    assert!(provider_text.contains("canonical_sha256:"));
     assert!(!provider_text.contains("- map: none"));
     assert!(first_provider.projection_identity.is_some());
     let history_before_transitions = history.raw_items().to_vec();
@@ -1561,7 +1560,7 @@ async fn provider_projection_epoch_preserves_prefix_with_canonical_deltas() {
         !history
             .raw_items()
             .iter()
-            .any(is_action_map_epoch_snapshot_developer_item)
+            .any(is_action_map_projection_developer_item)
     );
     assert!(history.raw_items().iter().any(
         |item| matches!(item, ResponseItem::FunctionCallOutput { call_id, .. } if call_id == "init-control")
@@ -1574,7 +1573,7 @@ async fn provider_projection_epoch_preserves_prefix_with_canonical_deltas() {
         .iter()
         .cloned()
         .into_iter()
-        .find(is_action_map_epoch_snapshot_developer_item)
+        .find(is_action_map_projection_developer_item)
         .expect("first provider projection");
     let mut source_with_stale_projection = history.raw_items().to_vec();
     source_with_stale_projection.push(stale_projection);
@@ -1584,24 +1583,28 @@ async fn provider_projection_epoch_preserves_prefix_with_canonical_deltas() {
     let refreshed_text = developer_input_texts(&refreshed.items).join("\n");
     assert_eq!(
         refreshed_text
-            .matches("TaskSpaceMapEpochSnapshotR6V1:")
+            .matches("TaskSpaceMapProjectionR7V1:")
             .count(),
         1
     );
-    assert!(refreshed_text.contains("revision: 2"));
-    assert!(refreshed_text.contains("current_node: inspect"));
+    assert!(refreshed_text.contains("revision: 4"));
+    assert!(refreshed_text.contains("current_node: implement"));
     assert_eq!(
-        refreshed.items.get(..first_provider_items.len()),
-        Some(first_provider_items.as_slice()),
-        "same epoch must retain the previous provider messages as an exact prefix"
+        refreshed.items.get(..history.raw_items().len()),
+        Some(history.raw_items()),
+        "map-always must preserve natural history and replace only the automatic projection"
     );
+    assert_eq!(refreshed.items.len(), history.raw_items().len() + 1);
+    assert!(is_action_map_projection_developer_item(
+        refreshed.items.last().expect("latest projection item")
+    ));
     let refreshed_json = serde_json::to_string(&refreshed.items).unwrap();
     assert!(refreshed_json.contains("transition-control"));
     assert!(refreshed_json.contains("committed_revision\\\":4"));
 }
 
 #[tokio::test]
-async fn map_epoch_snapshot_is_canonical_map_derived_and_provider_only() {
+async fn map_projection_is_canonical_map_derived_and_provider_only() {
     let (session, turn_context) = make_session_and_context().await;
     {
         let mut state = session.state.lock().await;
@@ -1648,7 +1651,7 @@ async fn map_epoch_snapshot_is_canonical_map_derived_and_provider_only() {
 
     let canonical_history = session.clone_history().await;
     let canonical_developer_text = developer_input_texts(canonical_history.raw_items()).join("\n");
-    assert!(!canonical_developer_text.contains("TaskSpaceMapEpochSnapshotR6V1:"));
+    assert!(!canonical_developer_text.contains("TaskSpaceMapProjectionR7V1:"));
 
     let provider = session
         .prepare_provider_visible_prompt_items(
@@ -1658,12 +1661,13 @@ async fn map_epoch_snapshot_is_canonical_map_derived_and_provider_only() {
         .await;
     let developer_text = developer_input_texts(&provider.items).join("\n");
     assert!(
-        developer_text.contains("TaskSpaceMapEpochSnapshotR6V1:"),
-        "expected R6 map epoch snapshot in canonical context: {developer_text}"
+        developer_text.contains("TaskSpaceMapProjectionR7V1:"),
+        "expected R7 map projection in provider context: {developer_text}"
     );
     assert!(
         developer_text.contains("map_id: map-1")
             && developer_text.contains("revision: 2")
+            && developer_text.contains("canonical_sha256:")
             && developer_text.contains("root_node_id: root")
             && developer_text.contains("finish_node_id: finish"),
         "expected rooted revision identity in steady-state context: {developer_text}"
@@ -1693,7 +1697,7 @@ async fn map_epoch_snapshot_is_canonical_map_derived_and_provider_only() {
         !history_after_second_update
             .raw_items()
             .iter()
-            .any(is_action_map_epoch_snapshot_developer_item)
+            .any(is_action_map_projection_developer_item)
     );
     let second_provider = session
         .prepare_provider_visible_prompt_items(
@@ -1710,17 +1714,17 @@ async fn map_epoch_snapshot_is_canonical_map_derived_and_provider_only() {
     );
     assert_eq!(
         developer_text
-            .matches("TaskSpaceMapEpochSnapshotR6V1:")
+            .matches("TaskSpaceMapProjectionR7V1:")
             .count(),
         1,
-        "provider request must contain exactly one map epoch snapshot: {developer_text}"
+        "provider request must contain exactly one current map projection: {developer_text}"
     );
 
     let canonical_developer_text = {
         let state = session.state.lock().await;
         developer_input_texts(state.clone_history().raw_items()).join("\n")
     };
-    assert!(!canonical_developer_text.contains("TaskSpaceMapEpochSnapshotR6V1:"));
+    assert!(!canonical_developer_text.contains("TaskSpaceMapProjectionR7V1:"));
     assert!(!canonical_developer_text.contains("task_status:"));
     assert!(!canonical_developer_text.contains("map_status:"));
 }
@@ -2934,6 +2938,7 @@ async fn set_rate_limits_retains_previous_credits() {
         developer_instructions: config.developer_instructions.clone(),
         user_instructions: config.user_instructions.clone(),
         service_tier: None,
+        taskspace_projection_policy: Some(TaskSpaceProjectionPolicy::MapAlways),
         personality: config.personality,
         base_instructions: config
             .base_instructions
@@ -3038,6 +3043,7 @@ async fn set_rate_limits_updates_plan_type_when_present() {
         developer_instructions: config.developer_instructions.clone(),
         user_instructions: config.user_instructions.clone(),
         service_tier: None,
+        taskspace_projection_policy: Some(TaskSpaceProjectionPolicy::MapAlways),
         personality: config.personality,
         base_instructions: config
             .base_instructions
@@ -3314,6 +3320,7 @@ async fn attach_thread_persistence(session: &mut Session) -> PathBuf {
             source: SessionSource::Exec,
             base_instructions: BaseInstructions::default(),
             dynamic_tools: Vec::new(),
+            taskspace_projection_policy: None,
             event_persistence_mode: ThreadEventPersistenceMode::Limited,
         },
     )
@@ -3489,6 +3496,7 @@ pub(crate) async fn make_session_configuration_for_tests() -> SessionConfigurati
         developer_instructions: config.developer_instructions.clone(),
         user_instructions: config.user_instructions.clone(),
         service_tier: None,
+        taskspace_projection_policy: Some(TaskSpaceProjectionPolicy::MapAlways),
         personality: config.personality,
         base_instructions: config
             .base_instructions
@@ -3804,6 +3812,7 @@ async fn session_new_fails_when_zsh_fork_enabled_without_zsh_path() {
         developer_instructions: config.developer_instructions.clone(),
         user_instructions: config.user_instructions.clone(),
         service_tier: None,
+        taskspace_projection_policy: None,
         personality: config.personality,
         base_instructions: config
             .base_instructions
@@ -3910,6 +3919,7 @@ pub(crate) async fn make_session_and_context() -> (Session, TurnContext) {
         developer_instructions: config.developer_instructions.clone(),
         user_instructions: config.user_instructions.clone(),
         service_tier: None,
+        taskspace_projection_policy: Some(TaskSpaceProjectionPolicy::MapAlways),
         personality: config.personality,
         base_instructions: config
             .base_instructions
@@ -4125,6 +4135,7 @@ async fn make_session_with_config_and_rx(
         developer_instructions: config.developer_instructions.clone(),
         user_instructions: config.user_instructions.clone(),
         service_tier: None,
+        taskspace_projection_policy: None,
         personality: config.personality,
         base_instructions: config
             .base_instructions
@@ -5274,6 +5285,7 @@ where
         developer_instructions: config.developer_instructions.clone(),
         user_instructions: config.user_instructions.clone(),
         service_tier: None,
+        taskspace_projection_policy: None,
         personality: config.personality,
         base_instructions: config
             .base_instructions

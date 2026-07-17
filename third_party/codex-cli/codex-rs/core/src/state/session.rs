@@ -15,7 +15,6 @@ use crate::context_manager::ContextManager;
 use crate::session::PreviousTurnSettings;
 use crate::session::session::SessionConfiguration;
 use crate::session_startup_prewarm::SessionStartupPrewarmHandle;
-use crate::state::TaskSpaceProviderProjectionEpoch;
 use codex_protocol::protocol::MapRuntimeMode;
 use codex_protocol::protocol::RateLimitSnapshot;
 use codex_protocol::protocol::TokenUsage;
@@ -42,7 +41,6 @@ pub(crate) struct SessionState {
     pub(crate) action_map_runtime: ActionMapRuntimeState,
     pub(crate) action_map_checkpoint: ActionMapCheckpointState,
     pub(crate) taskspace_events: TaskSpaceEventStore,
-    pub(crate) taskspace_projection_epoch: Option<TaskSpaceProviderProjectionEpoch>,
     granted_permissions: Option<AdditionalPermissionProfile>,
     next_turn_is_first: bool,
 }
@@ -65,7 +63,6 @@ impl SessionState {
             action_map_runtime: ActionMapRuntimeState::default(),
             action_map_checkpoint: ActionMapCheckpointState::default(),
             taskspace_events: TaskSpaceEventStore::new(),
-            taskspace_projection_epoch: None,
             granted_permissions: None,
             next_turn_is_first: true,
         }
@@ -160,7 +157,6 @@ impl SessionState {
         reference_context_item: Option<TurnContextItem>,
     ) {
         if self.action_map_runtime.mode() == MapRuntimeMode::Experiment {
-            self.taskspace_projection_epoch = None;
             let mut store = TaskSpaceEventStore::new();
             let current_node_id = self.action_map_runtime.context_owner_node_id();
             for item in &items {
@@ -197,7 +193,6 @@ impl SessionState {
             .taskspace_events
             .install_compaction_checkpoint(items, chrono::Utc::now().timestamp_millis())
             .expect("TaskSpace compaction checkpoint must be valid");
-        self.taskspace_projection_epoch = None;
         self.history.replace(Vec::new());
         self.history
             .set_reference_context_item(reference_context_item);
@@ -205,7 +200,6 @@ impl SessionState {
     }
 
     pub(crate) fn activate_taskspace_context(&mut self) -> Vec<TaskSpaceEvent> {
-        self.taskspace_projection_epoch = None;
         if !self.taskspace_events.is_empty() {
             return self.taskspace_events.events().to_vec();
         }
@@ -229,7 +223,6 @@ impl SessionState {
     }
 
     pub(crate) fn deactivate_taskspace_context(&mut self) -> Vec<ResponseItem> {
-        self.taskspace_projection_epoch = None;
         let items = self.taskspace_events.take_linearized();
         self.history.replace(items.clone());
         items
@@ -241,7 +234,6 @@ impl SessionState {
         taskspace_events: Vec<TaskSpaceEvent>,
         reference_context_item: Option<TurnContextItem>,
     ) {
-        self.taskspace_projection_epoch = None;
         self.history.replace(history_items);
         self.history
             .set_reference_context_item(reference_context_item);
@@ -255,7 +247,6 @@ impl SessionState {
         taskspace_events: Vec<TaskSpaceEvent>,
         reference_context_item: Option<TurnContextItem>,
     ) {
-        self.taskspace_projection_epoch = None;
         let mut store = TaskSpaceEventStore::restore(taskspace_events)
             .expect("forked TaskSpace events must be valid");
         let mut items = history_items;

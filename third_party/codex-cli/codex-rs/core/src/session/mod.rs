@@ -287,6 +287,10 @@ use crate::SkillError;
 use crate::SkillLoadOutcome;
 use crate::SkillMetadata;
 use crate::SkillsManager;
+use crate::action_map::ProjectionCursor;
+use crate::action_map::ProjectionEmission;
+use crate::action_map::ProjectionTrigger;
+use crate::action_map::decide_projection_emission;
 use crate::agents_md::AgentsMdManager;
 use crate::context::UserInstructions;
 use crate::exec_policy::ExecPolicyUpdateError;
@@ -306,9 +310,6 @@ use crate::state::MailboxDeliveryPhase;
 use crate::state::PendingRequestPermissions;
 use crate::state::SessionServices;
 use crate::state::SessionState;
-use crate::state::TaskSpaceProjectionEpochDecision;
-use crate::state::TaskSpaceProviderProjectionEpoch;
-use crate::state::decide_taskspace_projection_epoch;
 #[cfg(test)]
 use crate::stream_events_utils::HandleOutputCtx;
 #[cfg(test)]
@@ -379,6 +380,7 @@ use codex_protocol::protocol::SkillMetadata as ProtocolSkillMetadata;
 use codex_protocol::protocol::SkillToolDependency as ProtocolSkillToolDependency;
 use codex_protocol::protocol::StreamErrorEvent;
 use codex_protocol::protocol::Submission;
+use codex_protocol::protocol::TaskSpaceProjectionPolicy;
 use codex_protocol::protocol::TokenCountEvent;
 use codex_protocol::protocol::TokenUsage;
 use codex_protocol::protocol::TokenUsageInfo;
@@ -604,6 +606,12 @@ impl Codex {
         } else {
             dynamic_tools
         };
+        let taskspace_projection_policy = match &conversation_history {
+            InitialHistory::New | InitialHistory::Cleared => config.taskspace_projection_policy,
+            InitialHistory::Resumed(_) | InitialHistory::Forked(_) => {
+                conversation_history.taskspace_projection_policy()
+            }
+        };
         // TODO (aibrahim): Consolidate config.model and config.model_reasoning_effort into config.collaboration_mode
         // to avoid extracting these fields separately and constructing CollaborationMode here.
         let supported_reasoning_levels = model_info
@@ -646,6 +654,7 @@ impl Codex {
             collaboration_mode,
             model_reasoning_summary: config.model_reasoning_summary,
             service_tier,
+            taskspace_projection_policy,
             developer_instructions: config.developer_instructions.clone(),
             user_instructions,
             personality: config.personality,
@@ -1166,13 +1175,16 @@ impl Session {
                         projection_kind: scan.projection_kind,
                         projection_map_id_sha256: scan.projection_map_id_sha256,
                         projection_revision: scan.projection_revision,
+                        projection_canonical_sha256: scan.projection_canonical_sha256,
                         projection_sha256: scan.projection_sha256,
+                        projection_policy: scan.projection_policy,
                         expected_projection_kind: scan.expected_projection_kind,
                         expected_projection_map_id_sha256: scan.expected_projection_map_id_sha256,
                         expected_projection_revision: scan.expected_projection_revision,
+                        expected_projection_canonical_sha256: scan
+                            .expected_projection_canonical_sha256,
                         expected_projection_sha256: scan.expected_projection_sha256,
-                        projection_epoch_identity_confirmed: scan
-                            .projection_epoch_identity_confirmed,
+                        projection_identity_confirmed: scan.projection_identity_confirmed,
                         replacement_confirmed: scan.replacement_confirmed,
                         passed: scan.passed,
                         failure_reasons: scan.failure_reasons,
@@ -2062,6 +2074,21 @@ impl Session {
         let reconstructed_rollout = self
             .try_reconstruct_history_from_rollout(turn_context, rollout_items)
             .await?;
+        if !linearize_taskspace_for_subagent
+            && reconstructed_rollout.map_runtime_mode == MapRuntimeMode::Experiment
+        {
+            let policy = {
+                let state = self.state.lock().await;
+                state.session_configuration.taskspace_projection_policy
+            };
+            if policy.is_none() {
+                return Err(rollout_reconstruction::RolloutReconstructionError {
+                    phase: "taskspace_projection_policy_restore",
+                    message: "TaskSpace rollout has no persisted projection policy; R7 does not migrate R6 sessions"
+                        .to_string(),
+                });
+            }
+        }
         let previous_turn_settings = reconstructed_rollout.previous_turn_settings.clone();
         {
             let mut state = self.state.lock().await;
@@ -3852,101 +3879,58 @@ impl Session {
         items: Vec<ResponseItem>,
     ) -> PreparedProviderPromptItems {
         let prepared_items = remove_taskspace_projection_items(items);
-        let (projection_context, projection_anchor, projection_trace_events) = {
+        let (policy, projection_context, projection_trace_events) = {
             let mut state = self.state.lock().await;
-            let Some(scope) = state.action_map_runtime.provider_projection_epoch_scope() else {
-                state.taskspace_projection_epoch = None;
+            if state.action_map_runtime.mode() != MapRuntimeMode::Experiment {
                 return PreparedProviderPromptItems {
                     items: prepared_items,
                     projection_identity: None,
                 };
+            }
+            let policy = state
+                .session_configuration
+                .taskspace_projection_policy
+                .expect("TaskSpace mode requires an immutable projection policy");
+            let decision = decide_projection_emission(
+                policy,
+                ProjectionTrigger::ProviderRequest,
+                &ProjectionCursor::default(),
+            )
+            .expect("configured TaskSpace projection policy must be enabled");
+            let context = match decision.emission {
+                ProjectionEmission::ReplaceLatest => {
+                    state.action_map_runtime.build_developer_context()
+                }
+                ProjectionEmission::None => None,
+                ProjectionEmission::AppendRevision | ProjectionEmission::ReturnAsToolResult => {
+                    unreachable!("provider request cannot select a non-provider emission")
+                }
             };
-            let decision = decide_taskspace_projection_epoch(
-                state.taskspace_projection_epoch.as_ref(),
-                &scope,
-                &prepared_items,
+            tracing::debug!(
+                target: "codex_core::taskspace",
+                event_name = "taskspace.projection_emission_decided",
+                policy = %policy,
+                trigger = "provider_request",
+                emission = ?decision.emission,
+                "decided TaskSpace provider projection emission"
             );
-            let (context, anchor) = match decision {
-                Ok(TaskSpaceProjectionEpochDecision::Reuse { context, anchor }) => {
-                    tracing::debug!(
-                        target: "codex_core::taskspace",
-                        event_name = "taskspace.projection_epoch_reused",
-                        scope,
-                        anchor,
-                        "reused TaskSpace provider projection epoch"
-                    );
-                    (Some(context), Some(anchor))
-                }
-                Ok(TaskSpaceProjectionEpochDecision::Refresh { anchor, reason }) => {
-                    let context = state.action_map_runtime.build_developer_context();
-                    if let Some(context) = context.as_ref() {
-                        match TaskSpaceProviderProjectionEpoch::new(
-                            scope.clone(),
-                            context.clone(),
-                            anchor,
-                            &prepared_items,
-                        ) {
-                            Ok(epoch) => state.taskspace_projection_epoch = Some(epoch),
-                            Err(error) => {
-                                state.taskspace_projection_epoch = None;
-                                tracing::warn!(
-                                    target: "codex_core::taskspace",
-                                    event_name = "taskspace.projection_epoch_cache_failed",
-                                    scope,
-                                    anchor,
-                                    reason,
-                                    error,
-                                    "failed to cache TaskSpace provider projection epoch"
-                                );
-                            }
-                        }
-                    }
-                    tracing::info!(
-                        target: "codex_core::taskspace",
-                        event_name = "taskspace.projection_epoch_started",
-                        scope,
-                        anchor,
-                        reason,
-                        "started TaskSpace provider projection epoch"
-                    );
-                    (context, Some(anchor))
-                }
-                Err(error) => {
-                    state.taskspace_projection_epoch = None;
-                    tracing::warn!(
-                        target: "codex_core::taskspace",
-                        event_name = "taskspace.projection_epoch_lookup_failed",
-                        scope,
-                        error,
-                        "failed to compare TaskSpace provider projection epoch"
-                    );
-                    (
-                        state.action_map_runtime.build_developer_context(),
-                        Some(prepared_items.len()),
-                    )
-                }
-            };
             let events = state
                 .action_map_runtime
                 .take_pending_projection_trace_events();
-            (context, anchor, events)
+            (policy, context, events)
         };
         if !projection_trace_events.is_empty() {
             self.emit_action_map_events_for_turn(turn_context, projection_trace_events)
                 .await;
         }
-        let projection_identity = projection_context
-            .as_deref()
-            .and_then(ProviderProjectionIdentityExpectation::from_projection_context);
+        let projection_identity = projection_context.as_deref().and_then(|context| {
+            ProviderProjectionIdentityExpectation::from_projection_context(policy, context)
+        });
         let projection_item = projection_context.and_then(|projection| {
             crate::context_manager::updates::build_developer_update_item(vec![projection])
         });
         PreparedProviderPromptItems {
-            items: compose_provider_visible_prompt_items(
-                prepared_items,
-                projection_item,
-                projection_anchor,
-            ),
+            items: compose_provider_visible_prompt_items(prepared_items, projection_item),
             projection_identity,
         }
     }
@@ -4571,7 +4555,7 @@ fn errors_to_info(errors: &[SkillError]) -> Vec<SkillErrorInfo> {
         .collect()
 }
 
-fn is_action_map_epoch_snapshot_developer_item(item: &ResponseItem) -> bool {
+fn is_action_map_projection_developer_item(item: &ResponseItem) -> bool {
     let ResponseItem::Message { role, content, .. } = item else {
         return false;
     };
@@ -4582,7 +4566,7 @@ fn is_action_map_epoch_snapshot_developer_item(item: &ResponseItem) -> bool {
         matches!(
             entry,
             ContentItem::InputText { text }
-                if text.contains("TaskSpaceMapEpochSnapshotR6V1:")
+                if text.contains("TaskSpaceMapProjectionR7V1:")
         )
     })
 }
@@ -4590,18 +4574,16 @@ fn is_action_map_epoch_snapshot_developer_item(item: &ResponseItem) -> bool {
 fn remove_taskspace_projection_items(items: Vec<ResponseItem>) -> Vec<ResponseItem> {
     items
         .into_iter()
-        .filter(|item| !is_action_map_epoch_snapshot_developer_item(item))
+        .filter(|item| !is_action_map_projection_developer_item(item))
         .collect()
 }
 
 fn compose_provider_visible_prompt_items(
     mut items: Vec<ResponseItem>,
     projection_item: Option<ResponseItem>,
-    projection_anchor: Option<usize>,
 ) -> Vec<ResponseItem> {
     if let Some(projection_item) = projection_item {
-        let anchor = projection_anchor.unwrap_or(items.len()).min(items.len());
-        items.insert(anchor, projection_item);
+        items.push(projection_item);
     }
     items
 }

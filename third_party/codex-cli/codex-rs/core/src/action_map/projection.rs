@@ -2,9 +2,10 @@ use sha2::Digest;
 use sha2::Sha256;
 
 #[derive(Clone)]
-pub(super) struct ActiveProjectionInput {
+pub(super) struct ProjectionInput {
     pub(super) map_id: String,
     pub(super) revision: u64,
+    pub(super) canonical_sha256: String,
     pub(super) root_node_id: String,
     pub(super) finish_node_id: String,
     pub(super) complete: bool,
@@ -66,6 +67,7 @@ pub(super) struct ProjectionNodeDetailIdentity {
 
 pub(super) struct RenderedProjection {
     pub(super) body: String,
+    pub(super) projection_sha256: String,
     pub(super) estimated_tokens: usize,
     pub(super) skeleton_estimated_tokens: usize,
     pub(super) size_breakdown: ProjectionSizeBreakdown,
@@ -84,14 +86,20 @@ pub(super) struct ProjectionSizeBreakdown {
     pub(super) projection_bytes: usize,
 }
 
-pub(super) fn render_active_projection(input: ActiveProjectionInput) -> RenderedProjection {
+pub(super) fn render_projection(input: ProjectionInput) -> RenderedProjection {
     let mut body = String::new();
     let mut size_breakdown = ProjectionSizeBreakdown::default();
     let section_start = body.len();
-    body.push_str("TaskSpaceMapEpochSnapshotR6V1:\n");
-    push_field(&mut body, "projection_role", "epoch_baseline");
+    body.push_str("TaskSpaceMapProjectionR7V1:\n");
+    push_field(
+        &mut body,
+        "schema_version",
+        "taskspace-map-projection-r7-v1",
+    );
+    push_field(&mut body, "projection_kind", "current_projection");
     push_field(&mut body, "map_id", &input.map_id);
     push_field(&mut body, "revision", &input.revision.to_string());
+    push_field(&mut body, "canonical_sha256", &input.canonical_sha256);
     push_field(&mut body, "root_node_id", &input.root_node_id);
     push_field(&mut body, "finish_node_id", &input.finish_node_id);
     push_field(
@@ -133,12 +141,17 @@ pub(super) fn render_active_projection(input: ActiveProjectionInput) -> Rendered
     );
     size_breakdown.node_detail_bytes = body.len() - section_start;
     let section_start = body.len();
-    body.push_str("TaskSpaceMapEpochSnapshotR6V1 end.\n");
+    body.push_str("TaskSpaceMapProjectionR7V1 end.\n");
     size_breakdown.footer_bytes = body.len() - section_start;
     size_breakdown.projection_bytes = body.len();
     let estimated_tokens = body.len().div_ceil(4);
+    let projection_sha256 = format!(
+        "{:x}",
+        Sha256::digest(body.trim_end_matches('\n').as_bytes())
+    );
     RenderedProjection {
         body,
+        projection_sha256,
         estimated_tokens,
         skeleton_estimated_tokens,
         size_breakdown,
@@ -276,9 +289,10 @@ mod tests {
 
     #[test]
     fn projection_keeps_complete_skeleton_and_typed_details() {
-        let rendered = render_active_projection(ActiveProjectionInput {
+        let input = ProjectionInput {
             map_id: "map-1".into(),
             revision: 2,
+            canonical_sha256: "canonical-2".into(),
             root_node_id: "root".into(),
             finish_node_id: "finish".into(),
             complete: false,
@@ -308,11 +322,14 @@ mod tests {
                 raw_ref: Some("output-ref-1".into()),
                 artifact_refs: vec!["src/lib.rs".into()],
             }],
-        });
+        };
+        let rendered = render_projection(input.clone());
+        let rerendered = render_projection(input);
 
         for field in [
             "map_id: map-1",
             "revision: 2",
+            "canonical_sha256: canonical-2",
             "root_node_id: root",
             "finish_node_id: finish",
             "root_source_event_ids:",
@@ -327,6 +344,8 @@ mod tests {
             assert!(rendered.body.contains(field), "missing {field}");
         }
         assert!(!rendered.body.contains("projection_id"));
+        assert_eq!(rendered.body, rerendered.body);
+        assert_eq!(rendered.projection_sha256, rerendered.projection_sha256);
         assert!(rendered.skeleton_estimated_tokens < rendered.estimated_tokens);
         assert_eq!(
             rendered.size_breakdown.projection_bytes,
@@ -351,9 +370,10 @@ mod tests {
     #[test]
     fn projection_does_not_page_large_skeletons() {
         let node_count = 1_000;
-        let rendered = render_active_projection(ActiveProjectionInput {
+        let rendered = render_projection(ProjectionInput {
             map_id: "map-large".into(),
             revision: 1,
+            canonical_sha256: "canonical-large".into(),
             root_node_id: "node-0".into(),
             finish_node_id: "node-999".into(),
             complete: false,

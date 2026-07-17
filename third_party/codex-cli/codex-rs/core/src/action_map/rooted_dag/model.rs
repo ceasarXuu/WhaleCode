@@ -1,8 +1,6 @@
 use serde::Deserialize;
 use serde::Serialize;
-#[cfg(test)]
 use sha2::Digest;
-#[cfg(test)]
 use sha2::Sha256;
 use std::collections::BTreeMap;
 
@@ -188,7 +186,6 @@ pub(crate) struct TaskSpaceMap {
 }
 
 impl TaskSpaceMap {
-    #[cfg(test)]
     pub(crate) fn state_sha256(&self) -> Result<String, serde_json::Error> {
         let bytes = serde_json::to_vec(self)?;
         Ok(format!("{:x}", Sha256::digest(bytes)))

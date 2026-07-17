@@ -1152,6 +1152,7 @@ async fn test_updated_at_uses_file_mtime() -> Result<()> {
                 base_instructions: None,
                 dynamic_tools: None,
                 memory_mode: None,
+                taskspace_projection_policy: None,
             },
             git: None,
         }),

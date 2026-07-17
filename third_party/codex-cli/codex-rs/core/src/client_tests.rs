@@ -22,6 +22,7 @@ use codex_protocol::ThreadId;
 use codex_protocol::openai_models::ModelInfo;
 use codex_protocol::protocol::SessionSource;
 use codex_protocol::protocol::SubAgentSource;
+use codex_protocol::protocol::TaskSpaceProjectionPolicy;
 use codex_protocol::protocol::TokenUsage;
 use pretty_assertions::assert_eq;
 use serde_json::json;
@@ -290,7 +291,7 @@ fn provider_request_budget_records_started_and_terminal_status() {
         .before_dispatch("responses_websocket")
         .expect("first request should be within budget");
     let payload = provider_payload_digest(&json!({
-        "input": "TaskSpaceMapEpochSnapshotR6V1:\n- projection_role: epoch_baseline\n- map: none\n- bootstrap_required: true\nTaskSpaceMapEpochSnapshotR6V1 end.",
+        "input": "TaskSpaceMapProjectionR7V1:\n- schema_version: taskspace-map-projection-r7-v1\n- projection_kind: bootstrap_required\n- map: none\n- bootstrap_required: true\nTaskSpaceMapProjectionR7V1 end.",
         "tools": [{
             "type": "function",
             "function": { "name": "taskspace_control" }
@@ -391,9 +392,12 @@ fn provider_request_budget_records_started_and_terminal_status() {
 
 #[test]
 fn provider_request_budget_confirms_projection_identity_on_final_payload() {
-    let projection = "TaskSpaceMapEpochSnapshotR6V1:\n- projection_role: epoch_baseline\n- map: none\n- bootstrap_required: true\nTaskSpaceMapEpochSnapshotR6V1 end.";
-    let expectation = ProviderProjectionIdentityExpectation::from_projection_context(projection)
-        .expect("bootstrap projection identity");
+    let projection = "TaskSpaceMapProjectionR7V1:\n- schema_version: taskspace-map-projection-r7-v1\n- projection_kind: bootstrap_required\n- map: none\n- bootstrap_required: true\nTaskSpaceMapProjectionR7V1 end.";
+    let expectation = ProviderProjectionIdentityExpectation::from_projection_context(
+        TaskSpaceProjectionPolicy::MapAlways,
+        projection,
+    )
+    .expect("bootstrap projection identity");
     let budget = ProviderRequestBudgetContext::enabled_with_attribution(
         ProviderRequestBudgetLimits {
             request_count: 0,
@@ -424,8 +428,9 @@ fn provider_request_budget_confirms_projection_identity_on_final_payload() {
         .find(|event| event.status == "payload_captured")
         .expect("payload captured event");
     let scan = event.exact_payload_scan.expect("exact payload scan");
-    assert_eq!(scan.projection_epoch_identity_confirmed, Some(true));
-    assert_eq!(scan.projection_kind.as_deref(), Some("bootstrap"));
+    assert_eq!(scan.projection_identity_confirmed, Some(true));
+    assert_eq!(scan.projection_kind.as_deref(), Some("bootstrap_required"));
+    assert_eq!(scan.projection_policy.as_deref(), Some("map-always"));
     assert_eq!(
         scan.projection_sha256.as_deref(),
         scan.expected_projection_sha256.as_deref()
@@ -448,7 +453,7 @@ fn provider_payload_scan_validates_canonical_projection_shape() {
     assert!(standard.scan.passed);
 
     let blank_bootstrap = provider_payload_digest(&json!({
-        "input": "TaskSpaceMapEpochSnapshotR6V1:\n- projection_role: epoch_baseline\n- map: none\n- bootstrap_required: true\nTaskSpaceMapEpochSnapshotR6V1 end.",
+        "input": "TaskSpaceMapProjectionR7V1:\n- schema_version: taskspace-map-projection-r7-v1\n- projection_kind: bootstrap_required\n- map: none\n- bootstrap_required: true\nTaskSpaceMapProjectionR7V1 end.",
         "tools": [{
             "type": "function",
             "function": { "name": "taskspace_control" }
@@ -479,14 +484,16 @@ fn provider_payload_scan_validates_canonical_projection_shape() {
         fresh_active_without_projection
             .scan
             .failure_reasons
-            .contains(&"epoch_snapshot_missing".to_string())
+            .contains(&"current_projection_missing".to_string())
     );
 
     let active_projection = concat!(
-        "TaskSpaceMapEpochSnapshotR6V1:\n",
-        "- projection_role: epoch_baseline\n",
+        "TaskSpaceMapProjectionR7V1:\n",
+        "- schema_version: taskspace-map-projection-r7-v1\n",
+        "- projection_kind: current_projection\n",
         "- map_id: map-1\n",
         "- revision: 2\n",
+        "- canonical_sha256: canonical-map-2\n",
         "- root_node_id: root\n",
         "- finish_node_id: finish\n",
         "- complete: false\n",
@@ -504,7 +511,7 @@ fn provider_payload_scan_validates_canonical_projection_shape() {
         "    - node-1->finish\n",
         "  node_details:\n",
         "    - none\n",
-        "TaskSpaceMapEpochSnapshotR6V1 end.\n",
+        "TaskSpaceMapProjectionR7V1 end.\n",
     );
     let active_tools = json!([
         { "type": "function", "function": { "name": "taskspace_control" } },
@@ -524,31 +531,32 @@ fn provider_payload_scan_validates_canonical_projection_shape() {
     assert_eq!(active.scan.active_projection_count, 1);
     assert!(active.scan.replacement_confirmed);
 
-    let matching_expectation =
-        ProviderProjectionIdentityExpectation::from_projection_context(active_projection)
-            .expect("matching projection identity");
+    let matching_expectation = ProviderProjectionIdentityExpectation::from_projection_context(
+        TaskSpaceProjectionPolicy::MapAlways,
+        active_projection,
+    )
+    .expect("matching projection identity");
     let mut matching_scan = active.scan.clone();
     apply_projection_identity_expectation(&mut matching_scan, Some(&matching_expectation));
-    assert_eq!(
-        matching_scan.projection_epoch_identity_confirmed,
-        Some(true)
-    );
+    assert_eq!(matching_scan.projection_identity_confirmed, Some(true));
     assert!(matching_scan.passed);
     assert!(matching_scan.replacement_confirmed);
 
     let revision_3_projection = active_projection.replace("- revision: 2", "- revision: 3");
-    let revision_3_expectation =
-        ProviderProjectionIdentityExpectation::from_projection_context(&revision_3_projection)
-            .expect("revision 3 projection identity");
+    let revision_3_expectation = ProviderProjectionIdentityExpectation::from_projection_context(
+        TaskSpaceProjectionPolicy::MapAlways,
+        &revision_3_projection,
+    )
+    .expect("revision 3 projection identity");
     let mut stale_scan = active.scan;
     apply_projection_identity_expectation(&mut stale_scan, Some(&revision_3_expectation));
-    assert_eq!(stale_scan.projection_epoch_identity_confirmed, Some(false));
+    assert_eq!(stale_scan.projection_identity_confirmed, Some(false));
     assert!(!stale_scan.passed);
     assert!(!stale_scan.replacement_confirmed);
     assert!(
         stale_scan
             .failure_reasons
-            .contains(&"epoch_snapshot_identity_mismatch".to_string())
+            .contains(&"projection_identity_mismatch".to_string())
     );
 
     let tool_output_marker = provider_payload_digest(&json!({
@@ -574,7 +582,7 @@ fn provider_payload_scan_validates_canonical_projection_shape() {
         duplicate_active
             .scan
             .failure_reasons
-            .contains(&"epoch_snapshot_not_unique".to_string())
+            .contains(&"current_projection_not_unique".to_string())
     );
 
     let active_with_transition_notice = provider_payload_digest(&json!({
@@ -618,7 +626,7 @@ fn provider_payload_scan_validates_canonical_projection_shape() {
     );
 
     let missing_protected = provider_payload_digest(&json!({
-        "input": "TaskSpaceMapEpochSnapshotR6V1:\n- map_id: map-1\n- summary: incomplete\nTaskSpaceMapEpochSnapshotR6V1 end.",
+        "input": "TaskSpaceMapProjectionR7V1:\n- map_id: map-1\n- summary: incomplete\nTaskSpaceMapProjectionR7V1 end.",
         "tools": active_tools
     }))
     .expect("missing protected payload digest");
@@ -627,7 +635,7 @@ fn provider_payload_scan_validates_canonical_projection_shape() {
     assert!(!missing_protected.scan.passed);
     assert_eq!(
         missing_protected.scan.failure_reasons,
-        vec!["epoch_snapshot_required_sections_missing".to_string()]
+        vec!["current_projection_required_sections_missing".to_string()]
     );
 
     let large_instruction_text = "x".repeat(60 * 1024);

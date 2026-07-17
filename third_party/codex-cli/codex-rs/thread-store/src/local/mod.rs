@@ -574,6 +574,7 @@ mod tests {
             source: SessionSource::Exec,
             base_instructions: BaseInstructions::default(),
             dynamic_tools: Vec::new(),
+            taskspace_projection_policy: None,
             event_persistence_mode: ThreadEventPersistenceMode::Limited,
         }
     }

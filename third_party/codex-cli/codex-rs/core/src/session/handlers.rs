@@ -959,6 +959,28 @@ pub async fn set_thread_memory_mode(sess: &Arc<Session>, sub_id: String, mode: T
 
 pub async fn set_map_runtime_mode(sess: &Arc<Session>, sub_id: String, mode: MapRuntimeMode) {
     let turn_context = sess.new_default_turn_with_sub_id(sub_id).await;
+    if mode == MapRuntimeMode::Experiment {
+        let policy = {
+            let state = sess.state.lock().await;
+            state.session_configuration.taskspace_projection_policy
+        };
+        if policy.is_none() {
+            tracing::warn!(
+                target: "codex_core::taskspace",
+                event_name = "taskspace.projection_policy_missing",
+                "rejected TaskSpace activation without an explicit projection policy"
+            );
+            sess.send_event(
+                &turn_context,
+                EventMsg::Error(ErrorEvent {
+                    message: "TaskSpace activation requires taskspace_projection_policy; R7 Phase B enables map-always.".to_string(),
+                    codex_error_info: Some(CodexErrorInfo::Other),
+                }),
+            )
+            .await;
+            return;
+        }
+    }
     let (outcome, bootstrap_events, ownership_event) = {
         let mut state = sess.state.lock().await;
         let (outcome, bootstrap_events) = state

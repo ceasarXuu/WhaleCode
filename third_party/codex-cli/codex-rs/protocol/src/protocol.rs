@@ -1789,6 +1789,18 @@ pub enum MapRuntimeMode {
     Experiment,
 }
 
+#[derive(
+    Debug, Clone, Copy, Deserialize, Serialize, Display, PartialEq, Eq, Hash, JsonSchema, TS,
+)]
+#[serde(rename_all = "kebab-case")]
+#[ts(rename_all = "kebab-case")]
+#[strum(serialize_all = "kebab-case")]
+pub enum TaskSpaceProjectionPolicy {
+    MapAlways,
+    MapAppend,
+    MapRequest,
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(rename_all = "camelCase")]
@@ -3132,6 +3144,24 @@ impl InitialHistory {
             }),
         }
     }
+
+    pub fn taskspace_projection_policy(&self) -> Option<TaskSpaceProjectionPolicy> {
+        match self {
+            InitialHistory::New | InitialHistory::Cleared => None,
+            InitialHistory::Resumed(resumed) => {
+                resumed.history.iter().find_map(|item| match item {
+                    RolloutItem::SessionMeta(meta_line) => {
+                        meta_line.meta.taskspace_projection_policy
+                    }
+                    _ => None,
+                })
+            }
+            InitialHistory::Forked(items) => items.iter().find_map(|item| match item {
+                RolloutItem::SessionMeta(meta_line) => meta_line.meta.taskspace_projection_policy,
+                _ => None,
+            }),
+        }
+    }
 }
 
 fn session_cwd_from_items(items: &[RolloutItem]) -> Option<PathBuf> {
@@ -3325,6 +3355,8 @@ pub struct SessionMeta {
     pub dynamic_tools: Option<Vec<DynamicToolSpec>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub memory_mode: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub taskspace_projection_policy: Option<TaskSpaceProjectionPolicy>,
 }
 
 impl Default for SessionMeta {
@@ -3344,6 +3376,7 @@ impl Default for SessionMeta {
             base_instructions: None,
             dynamic_tools: None,
             memory_mode: None,
+            taskspace_projection_policy: None,
         }
     }
 }
@@ -6033,5 +6066,21 @@ mod tests {
                 .expect("new_or_append should return info");
 
         assert_eq!(info.model_context_window, Some(258_400));
+    }
+
+    #[test]
+    fn initial_history_restores_taskspace_projection_policy_from_session_metadata() {
+        let history = InitialHistory::Forked(vec![RolloutItem::SessionMeta(SessionMetaLine {
+            meta: SessionMeta {
+                taskspace_projection_policy: Some(TaskSpaceProjectionPolicy::MapAlways),
+                ..SessionMeta::default()
+            },
+            git: None,
+        })]);
+
+        assert_eq!(
+            history.taskspace_projection_policy(),
+            Some(TaskSpaceProjectionPolicy::MapAlways)
+        );
     }
 }

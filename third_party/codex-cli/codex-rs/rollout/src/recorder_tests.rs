@@ -8,6 +8,7 @@ use codex_protocol::protocol::AgentMessageEvent;
 use codex_protocol::protocol::AskForApproval;
 use codex_protocol::protocol::EventMsg;
 use codex_protocol::protocol::SandboxPolicy;
+use codex_protocol::protocol::TaskSpaceProjectionPolicy;
 use codex_protocol::protocol::TurnContextItem;
 use codex_protocol::protocol::UserMessageEvent;
 use pretty_assertions::assert_eq;
@@ -90,6 +91,7 @@ async fn recorder_materializes_on_flush_with_pending_items() -> std::io::Result<
             SessionSource::Exec,
             BaseInstructions::default(),
             Vec::new(),
+            Some(TaskSpaceProjectionPolicy::MapAlways),
             EventPersistenceMode::Limited,
         ),
         /*state_db_ctx*/ None,
@@ -140,6 +142,10 @@ async fn recorder_materializes_on_flush_with_pending_items() -> std::io::Result<
         text.contains("\"type\":\"session_meta\""),
         "expected session metadata in rollout"
     );
+    assert!(
+        text.contains("\"taskspace_projection_policy\":\"map-always\""),
+        "expected immutable TaskSpace projection policy in session metadata"
+    );
     let buffered_idx = text
         .find("buffered-event")
         .expect("buffered event in rollout");
@@ -170,6 +176,7 @@ async fn persist_reports_filesystem_error_and_retries_buffered_items() -> std::i
             SessionSource::Exec,
             BaseInstructions::default(),
             Vec::new(),
+            None,
             EventPersistenceMode::Limited,
         ),
         /*state_db_ctx*/ None,
@@ -269,6 +276,7 @@ async fn metadata_irrelevant_events_touch_state_db_updated_at() -> std::io::Resu
             SessionSource::Cli,
             BaseInstructions::default(),
             Vec::new(),
+            None,
             EventPersistenceMode::Limited,
         ),
         Some(state_db.clone()),

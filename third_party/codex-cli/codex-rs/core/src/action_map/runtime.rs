@@ -61,16 +61,16 @@ use super::map::TaskId;
 use super::map::TaskRecord;
 use super::map::TaskSpaceTraceEvent;
 use super::map::ToolActionDescriptor;
-use super::projection::ActiveProjectionInput;
 use super::projection::ProjectionEdge;
 use super::projection::ProjectionEventRef;
+use super::projection::ProjectionInput;
 use super::projection::ProjectionNode;
 use super::projection::ProjectionNodeDetailIdentity;
 use super::projection::ProjectionNodeDetailState;
 use super::projection::ProjectionSizeBreakdown;
 use super::projection::node_detail_fold_saves_bytes;
 use super::projection::node_detail_identity;
-use super::projection::render_active_projection;
+use super::projection::render_projection;
 use super::rooted_dag::EventBatch;
 use super::rooted_dag::GraphMutation;
 use super::rooted_dag::InitializeMap;
@@ -442,12 +442,15 @@ pub(crate) struct ActionMapExactPayloadScanEventInput {
     pub(crate) projection_kind: Option<String>,
     pub(crate) projection_map_id_sha256: Option<String>,
     pub(crate) projection_revision: Option<u64>,
+    pub(crate) projection_canonical_sha256: Option<String>,
     pub(crate) projection_sha256: Option<String>,
+    pub(crate) projection_policy: Option<String>,
     pub(crate) expected_projection_kind: Option<String>,
     pub(crate) expected_projection_map_id_sha256: Option<String>,
     pub(crate) expected_projection_revision: Option<u64>,
+    pub(crate) expected_projection_canonical_sha256: Option<String>,
     pub(crate) expected_projection_sha256: Option<String>,
-    pub(crate) projection_epoch_identity_confirmed: Option<bool>,
+    pub(crate) projection_identity_confirmed: Option<bool>,
     pub(crate) replacement_confirmed: bool,
     pub(crate) passed: bool,
     pub(crate) failure_reasons: Vec<String>,
@@ -2519,8 +2522,18 @@ impl ActionMapRuntimeState {
                             .map_or_else(|| "none".to_string(), |value| value.to_string())
                     ),
                     format!(
+                        "projection_canonical_sha256:{}",
+                        scan.projection_canonical_sha256
+                            .as_deref()
+                            .unwrap_or("none")
+                    ),
+                    format!(
                         "projection_sha256:{}",
                         scan.projection_sha256.as_deref().unwrap_or("none")
+                    ),
+                    format!(
+                        "projection_policy:{}",
+                        scan.projection_policy.as_deref().unwrap_or("none")
                     ),
                     format!(
                         "expected_projection_kind:{}",
@@ -2538,12 +2551,18 @@ impl ActionMapRuntimeState {
                             .map_or_else(|| "none".to_string(), |value| value.to_string())
                     ),
                     format!(
+                        "expected_projection_canonical_sha256:{}",
+                        scan.expected_projection_canonical_sha256
+                            .as_deref()
+                            .unwrap_or("none")
+                    ),
+                    format!(
                         "expected_projection_sha256:{}",
                         scan.expected_projection_sha256.as_deref().unwrap_or("none")
                     ),
                     format!(
-                        "projection_epoch_identity_confirmed:{}",
-                        scan.projection_epoch_identity_confirmed
+                        "projection_identity_confirmed:{}",
+                        scan.projection_identity_confirmed
                             .map_or("unavailable", |value| if value { "true" } else { "false" })
                     ),
                     format!("replacement_confirmed:{}", scan.replacement_confirmed),
@@ -4092,21 +4111,8 @@ impl ActionMapRuntimeState {
         Some(self.build_bootstrap_compact_developer_context())
     }
 
-    pub(crate) fn provider_projection_epoch_scope(&self) -> Option<String> {
-        if self.mode != MapRuntimeMode::Experiment {
-            return None;
-        }
-        if self.bootstrap_required {
-            return Some("bootstrap".to_string());
-        }
-        Some(format!(
-            "active:{}",
-            self.active_map_id.as_deref().unwrap_or("missing")
-        ))
-    }
-
     fn build_bootstrap_compact_developer_context(&self) -> String {
-        "TaskSpaceMapEpochSnapshotR6V1:\n- projection_role: epoch_baseline\n- map: none\n- bootstrap_required: true\nTaskSpaceMapEpochSnapshotR6V1 end.\n"
+        "TaskSpaceMapProjectionR7V1:\n- schema_version: taskspace-map-projection-r7-v1\n- projection_kind: bootstrap_required\n- map: none\n- bootstrap_required: true\nTaskSpaceMapProjectionR7V1 end.\n"
             .to_string()
     }
 
@@ -4922,8 +4928,9 @@ pub(crate) fn format_action_map_snapshot(snapshot: &ActionMapSnapshot) -> String
 
 fn taskspace_projection_integrity_context(map_id: &str, reason: &str) -> String {
     format!(
-        "TaskSpaceMapEpochSnapshotR6V1:\n\
-- projection_role: epoch_baseline\n\
+        "TaskSpaceMapProjectionR7V1:\n\
+- schema_version: taskspace-map-projection-r7-v1\n\
+- projection_kind: integrity_error\n\
 - map_id: {map_id}\n\
 - integrity_status: invalid\n\
 - integrity_reason: {reason}\n\
@@ -4932,7 +4939,7 @@ fn taskspace_projection_integrity_context(map_id: &str, reason: &str) -> String 
 - map_nodes:\n  - none\n\
 - map_edges:\n  - none\n\
 - node_details:\n  - none\n\
-TaskSpaceMapEpochSnapshotR6V1 end."
+TaskSpaceMapProjectionR7V1 end."
     )
 }
 
@@ -5085,9 +5092,13 @@ fn append_context_projection_active(
         .filter(|event| full_recoverable_detail_ids.contains(&event.id))
         .cloned()
         .collect::<Vec<_>>();
-    let baseline_input = ActiveProjectionInput {
+    let canonical_sha256 = map
+        .state_sha256()
+        .map_err(|error| format!("canonical_map_hash_failed:{error}"))?;
+    let baseline_input = ProjectionInput {
         map_id: map.id.clone(),
         revision: map.revision,
+        canonical_sha256: canonical_sha256.clone(),
         root_node_id: map.root_node_id.clone(),
         finish_node_id: map.finish_node_id.clone(),
         complete: map.is_complete(),
@@ -5102,14 +5113,15 @@ fn append_context_projection_active(
         map_edges: map_edges.clone(),
         node_details: baseline_node_details,
     };
-    let b0_projection = render_active_projection(baseline_input.clone());
-    let before_strategy = render_active_projection(ActiveProjectionInput {
+    let b0_projection = render_projection(baseline_input.clone());
+    let before_strategy = render_projection(ProjectionInput {
         node_details: full_recoverable_node_details,
         ..baseline_input
     });
-    let rendered = render_active_projection(ActiveProjectionInput {
+    let rendered = render_projection(ProjectionInput {
         map_id: map.id.clone(),
         revision: map.revision,
+        canonical_sha256: canonical_sha256.clone(),
         root_node_id: map.root_node_id.clone(),
         finish_node_id: map.finish_node_id.clone(),
         complete: map.is_complete(),
@@ -5124,6 +5136,16 @@ fn append_context_projection_active(
         map_edges,
         node_details,
     });
+    tracing::debug!(
+        target: "codex_core::taskspace",
+        event_name = "taskspace.projection_rendered",
+        map_id = %map.id,
+        revision = map.revision,
+        canonical_sha256 = %canonical_sha256,
+        projection_sha256 = %rendered.projection_sha256,
+        projection_bytes = rendered.size_breakdown.projection_bytes,
+        "rendered canonical TaskSpace projection"
+    );
     let max_projection_tokens = active_budget
         .map(|budget| budget.max_projection_tokens)
         .unwrap_or(usize::MAX);

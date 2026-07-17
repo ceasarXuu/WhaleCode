@@ -1201,6 +1201,7 @@ stream_max_retries = 0
         base_instructions: None,
         dynamic_tools: None,
         memory_mode: None,
+        taskspace_projection_policy: None,
     };
     std::fs::write(
         &rollout_path,

@@ -4,8 +4,8 @@ use serde_json::Value;
 use sha2::Digest;
 use sha2::Sha256;
 
-const ACTIVE_PROJECTION_START: &str = "TaskSpaceMapEpochSnapshotR6V1:";
-const ACTIVE_PROJECTION_END: &str = "TaskSpaceMapEpochSnapshotR6V1 end.";
+const ACTIVE_PROJECTION_START: &str = "TaskSpaceMapProjectionR7V1:";
+const ACTIVE_PROJECTION_END: &str = "TaskSpaceMapProjectionR7V1 end.";
 const TASKSPACE_CONTROL_RESULT_MARKER: &str = "TaskSpaceControlResultR6V1";
 
 #[derive(Debug, Serialize)]
@@ -24,6 +24,7 @@ struct ActiveProjectionIdentity {
     kind: &'static str,
     map_id_sha256: Option<String>,
     revision: Option<u64>,
+    canonical_sha256: Option<String>,
     projection_sha256: Option<String>,
     unavailable_reason: Option<&'static str>,
 }
@@ -278,9 +279,10 @@ fn active_projection_identity(messages: &[Value]) -> ActiveProjectionIdentity {
     if is_bootstrap {
         return ActiveProjectionIdentity {
             count: 1,
-            kind: "bootstrap",
+            kind: "bootstrap_required",
             map_id_sha256: None,
             revision: None,
+            canonical_sha256: None,
             projection_sha256,
             unavailable_reason: None,
         };
@@ -307,12 +309,20 @@ fn active_projection_identity(messages: &[Value]) -> ActiveProjectionIdentity {
             projection_sha256,
         );
     };
+    let Some(canonical_sha256) = mechanical_field(projection, "canonical_sha256") else {
+        return ActiveProjectionIdentity::unavailable(
+            1,
+            "projection_canonical_sha256_missing",
+            projection_sha256,
+        );
+    };
 
     ActiveProjectionIdentity {
         count: 1,
-        kind: "active",
+        kind: "current_projection",
         map_id_sha256: Some(byte_hash(map_id.as_bytes())),
         revision: Some(revision),
+        canonical_sha256: Some(canonical_sha256.to_string()),
         projection_sha256,
         unavailable_reason: None,
     }
@@ -329,6 +339,7 @@ impl ActiveProjectionIdentity {
             kind: "unavailable",
             map_id_sha256: None,
             revision: None,
+            canonical_sha256: None,
             projection_sha256,
             unavailable_reason: Some(unavailable_reason),
         }

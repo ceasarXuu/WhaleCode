@@ -1895,8 +1895,7 @@ mod active_context_replacement_tests {
             tool_output_with_call_id("output-ref-call", &output_reference),
         ];
 
-        let prepared =
-            crate::session::compose_provider_visible_prompt_items(items.clone(), None, None);
+        let prepared = crate::session::compose_provider_visible_prompt_items(items.clone(), None);
 
         assert_eq!(prepared, items);
     }

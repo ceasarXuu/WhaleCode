@@ -641,6 +641,9 @@
           ],
           "description": "Optional explicit service tier preference for new turns (`fast` or `flex`)."
         },
+        "taskspace_projection_policy": {
+          "$ref": "#/definitions/TaskSpaceProjectionPolicy"
+        },
         "tools": {
           "$ref": "#/definitions/ToolsToml"
         },
@@ -2099,6 +2102,14 @@
       },
       "type": "object"
     },
+    "TaskSpaceProjectionPolicy": {
+      "enum": [
+        "map-always",
+        "map-append",
+        "map-request"
+      ],
+      "type": "string"
+    },
     "ThreadStoreToml": {
       "oneOf": [
         {
@@ -3282,6 +3293,14 @@
     "suppress_unstable_features_warning": {
       "description": "Suppress warnings about unstable (under development) features.",
       "type": "boolean"
+    },
+    "taskspace_projection_policy": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/TaskSpaceProjectionPolicy"
+        }
+      ],
+      "description": "Projection delivery policy for TaskSpace sessions."
     },
     "tool_output_token_limit": {
       "description": "Token budget applied when storing tool/function outputs in the context manager.",
