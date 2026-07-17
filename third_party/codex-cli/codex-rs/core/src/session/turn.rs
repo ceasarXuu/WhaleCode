@@ -1270,11 +1270,8 @@ async fn run_sampling_request(
     let mut retries = 0;
     let mut initial_input = Some(input);
     loop {
-        let appended_projection_items =
-            sess.flush_taskspace_projection_appends(&turn_context).await;
         let provider_budget_snapshot = sess.action_map_provider_request_budget_snapshot().await;
-        let prompt_source = if let Some(mut input) = initial_input.take() {
-            input.extend(appended_projection_items);
+        let prompt_source = if let Some(input) = initial_input.take() {
             input
         } else {
             sess.clone_history()
@@ -1571,7 +1568,6 @@ pub(crate) async fn built_tools(
 #[cfg(test)]
 mod active_context_replacement_tests {
     use super::*;
-    use codex_protocol::models::FunctionCallOutputPayload;
 
     #[test]
     fn taskspace_native_tools_hide_linear_plan_but_keep_map_control() {
@@ -1677,35 +1673,6 @@ mod active_context_replacement_tests {
             serde_json::to_string(&visible).expect("serialize lifecycle tools"),
             tool_contract
         );
-    }
-
-    fn message(role: &str, text: &str) -> ResponseItem {
-        ResponseItem::Message {
-            id: None,
-            role: role.to_string(),
-            content: vec![ContentItem::InputText {
-                text: text.to_string(),
-            }],
-            end_turn: None,
-            phase: None,
-        }
-    }
-
-    fn tool_call(name: &str, call_id: &str) -> ResponseItem {
-        ResponseItem::FunctionCall {
-            id: None,
-            name: name.to_string(),
-            namespace: None,
-            arguments: "{}".to_string(),
-            call_id: call_id.to_string(),
-        }
-    }
-
-    fn tool_output_with_call_id(call_id: &str, text: &str) -> ResponseItem {
-        ResponseItem::FunctionCallOutput {
-            call_id: call_id.to_string(),
-            output: FunctionCallOutputPayload::from_text(text.to_string()),
-        }
     }
 
     #[test]
@@ -1884,23 +1851,6 @@ mod active_context_replacement_tests {
         );
         assert!(classification.needs_recovery());
         assert_eq!(classification.as_str(), "tool_feedback_recovery");
-    }
-
-    #[test]
-    fn provider_visible_prompt_items_preserve_canonical_items_exactly() {
-        let large_raw_output = "x".repeat(12_001);
-        let output_reference = format!("OutputReferenceV1 output-ref://sha256/{}", "a".repeat(64));
-        let items = vec![
-            message("user", "Preserve this user requirement."),
-            tool_call("taskspace_control", "control-call"),
-            tool_output_with_call_id("control-call", r#"{"status":"ok"}"#),
-            tool_output_with_call_id("unreferenced-call", &large_raw_output),
-            tool_output_with_call_id("output-ref-call", &output_reference),
-        ];
-
-        let prepared = crate::session::compose_provider_visible_prompt_items(items.clone(), None);
-
-        assert_eq!(prepared, items);
     }
 }
 
@@ -2919,9 +2869,6 @@ async fn try_run_sampling_request(
                 for output in tool_outcome.outputs {
                     record_response_input_item(sess.as_ref(), turn_context.as_ref(), output).await;
                 }
-                let _ = sess
-                    .flush_taskspace_projection_appends(turn_context.as_ref())
-                    .await;
                 let terminal_candidate_released =
                     if let Some(terminal) = tool_outcome.terminal_completion {
                         publish_taskspace_terminal_agent_message(
@@ -3153,9 +3100,6 @@ async fn try_run_sampling_request(
         for output in tool_outcome.outputs {
             record_response_input_item(sess.as_ref(), turn_context.as_ref(), output).await;
         }
-        let _ = sess
-            .flush_taskspace_projection_appends(turn_context.as_ref())
-            .await;
         if let Some(terminal) = tool_outcome.terminal_completion {
             publish_taskspace_terminal_agent_message(
                 sess.as_ref(),

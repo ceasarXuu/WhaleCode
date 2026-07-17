@@ -1356,7 +1356,7 @@ async fn provider_composer_injects_one_blank_map_projection() {
 }
 
 #[tokio::test]
-async fn provider_map_append_does_not_emit_before_first_committed_revision() {
+async fn provider_map_append_persists_bootstrap_at_request_tail() {
     let (session, turn_context) = make_session_and_context().await;
     {
         let mut state = session.state.lock().await;
@@ -1372,8 +1372,20 @@ async fn provider_map_append_does_not_emit_before_first_committed_revision() {
     let provider = session
         .prepare_provider_visible_prompt_items(&turn_context, initial_context)
         .await;
-    let developer_text = developer_input_texts(&provider.items).join("\n");
-    assert!(!developer_text.contains("TaskSpaceMapProjectionR7V1:"));
+    let last = provider.items.last().expect("provider request tail");
+    assert_eq!(taskspace_projection_context(Some(last)).is_some(), true);
+    assert!(matches!(last, ResponseItem::Message { role, .. } if role == "user"));
+    let user_text = user_input_texts(&provider.items).join("\n");
+    assert!(user_text.contains("TaskSpaceMapProjectionR7V1:"));
+    assert!(user_text.contains("- map: none"));
+    assert!(user_text.contains("- current_state_rule: last_projection_only"));
+    let history = session.clone_history().await;
+    assert!(
+        history
+            .raw_items()
+            .last()
+            .is_some_and(is_action_map_projection_developer_item)
+    );
     assert!(provider.projection_identity.is_some());
 }
 
@@ -1644,7 +1656,7 @@ async fn provider_map_always_replaces_stale_projection_with_latest_revision() {
 }
 
 #[tokio::test]
-async fn provider_map_append_persists_each_committed_revision_after_control_output() {
+async fn provider_map_append_persists_latest_projection_at_each_request_tail() {
     let (session, turn_context) = make_session_and_context().await;
     {
         let mut state = session.state.lock().await;
@@ -1671,7 +1683,7 @@ async fn provider_map_append_persists_each_committed_revision_after_control_outp
             crate::action_map::ActionMapInitializeInput {
                 root: crate::action_map::ActionMapInitializeNodeInput {
                     id: "root".into(),
-                    goal: "Append projection revisions".into(),
+                    goal: "Append projection request snapshots".into(),
                 },
                 current_work_node: crate::action_map::ActionMapInitializeNodeInput {
                     id: "work".into(),
@@ -1703,188 +1715,82 @@ async fn provider_map_append_persists_each_committed_revision_after_control_outp
     session
         .record_conversation_items(&turn_context, std::slice::from_ref(&control_output))
         .await;
-    let appended = session
-        .flush_taskspace_projection_appends(&turn_context)
-        .await;
-    assert_eq!(appended.len(), 1);
-
-    let history = session.clone_history().await;
-    let output_index = history
-        .raw_items()
-        .iter()
-        .position(|item| item == &control_output)
-        .expect("control output in history");
-    let projection_index = history
-        .raw_items()
-        .iter()
-        .position(is_action_map_projection_developer_item)
-        .expect("revision projection in history");
-    assert!(output_index < projection_index);
-    let projection_text = developer_input_texts(history.raw_items()).join("\n");
-    assert!(projection_text.contains("projection_kind: revision_snapshot"));
-    assert!(projection_text.contains("revision: 2"));
-    assert!(projection_text.contains("supersedes_through_revision: 1"));
-    assert!(projection_text.contains("current_state_rule: highest_revision_only"));
-
+    let history_before_request = session.clone_history().await;
     assert!(
-        session
-            .flush_taskspace_projection_appends(&turn_context)
-            .await
-            .is_empty()
+        !history_before_request
+            .raw_items()
+            .iter()
+            .any(is_action_map_projection_developer_item),
+        "map mutation must not append a projection outside request construction"
     );
 
-    session
-        .transition_action_map_node(
+    let first = session
+        .prepare_provider_visible_prompt_items(
             &turn_context,
-            2,
-            "work".into(),
-            crate::action_map::NodeTransition::Complete,
-            "task-event-work-result".into(),
+            history_before_request.raw_items().to_vec(),
         )
-        .await
-        .expect("work completes");
-    let _ = session
-        .flush_taskspace_projection_appends(&turn_context)
         .await;
+    assert!(matches!(
+        first.items.last(),
+        Some(ResponseItem::Message { role, .. }) if role == "user"
+    ));
+    let first_context = taskspace_projection_context(first.items.last())
+        .expect("first provider request must end in a projection");
+    let first_identity =
+        projection_identity_from_context(first_context).expect("first projection identity");
 
-    let history = session.clone_history().await;
-    let provider = session
-        .prepare_provider_visible_prompt_items(&turn_context, history.raw_items().to_vec())
-        .await;
-    let provider_text = developer_input_texts(&provider.items).join("\n");
-    assert_eq!(
-        provider_text.matches("TaskSpaceMapProjectionR7V1:").count(),
-        2
-    );
-    assert_eq!(
-        provider_text
-            .matches("projection_kind: revision_snapshot")
-            .count(),
-        2
-    );
-    assert!(provider_text.contains("revision: 2"));
-    assert!(provider_text.contains("revision: 3"));
-    assert!(provider.projection_identity.is_some());
-
-    let compacted_summary = ResponseItem::Message {
+    let natural_history = ResponseItem::Message {
         id: None,
         role: "assistant".into(),
         content: vec![ContentItem::OutputText {
-            text: "Compacted natural history".into(),
+            text: "Continue with the same map revision".into(),
         }],
         end_turn: None,
         phase: None,
     };
     session
-        .replace_compacted_history(
+        .record_conversation_items(&turn_context, &[natural_history])
+        .await;
+    let second_history = session.clone_history().await;
+    let second = session
+        .prepare_provider_visible_prompt_items(&turn_context, second_history.raw_items().to_vec())
+        .await;
+    let second_context = taskspace_projection_context(second.items.last())
+        .expect("second provider request must end in a projection");
+    let second_identity =
+        projection_identity_from_context(second_context).expect("second projection identity");
+    assert_eq!(first_identity, second_identity);
+    assert!(second_context.contains("projection_kind: request_snapshot"));
+    assert!(second_context.contains("current_state_rule: last_projection_only"));
+    assert!(second.items.iter().all(|item| {
+        taskspace_projection_context(Some(item)).is_none()
+            || matches!(item, ResponseItem::Message { role, .. } if role == "user")
+    }));
+
+    let history_after_second = session.clone_history().await;
+    let projection_count = history_after_second
+        .raw_items()
+        .iter()
+        .filter(|item| is_action_map_projection_developer_item(item))
+        .count();
+    assert_eq!(projection_count, 2);
+    let retry = session
+        .prepare_provider_visible_prompt_items(
             &turn_context,
-            vec![compacted_summary.clone()],
-            None,
-            CompactedItem {
-                message: "Compacted natural history".into(),
-                replacement_history: Some(vec![compacted_summary]),
-            },
+            history_after_second.raw_items().to_vec(),
         )
         .await;
-    let compacted_history = session.clone_history().await;
-    let compacted_text = developer_input_texts(compacted_history.raw_items()).join("\n");
+    assert!(taskspace_projection_context(retry.items.last()).is_some());
+    let history_after_retry = session.clone_history().await;
     assert_eq!(
-        compacted_text
-            .matches("TaskSpaceMapProjectionR7V1:")
+        history_after_retry
+            .raw_items()
+            .iter()
+            .filter(|item| is_action_map_projection_developer_item(item))
             .count(),
-        1
+        projection_count,
+        "an exact request retry must not persist the same tail twice"
     );
-    assert!(
-        compacted_text
-            .lines()
-            .any(|line| line.trim() == "- revision: 3")
-    );
-    assert!(
-        !compacted_text
-            .lines()
-            .any(|line| line.trim() == "- revision: 2")
-    );
-
-    {
-        let mut state = session.state.lock().await;
-        state
-            .capture_current_projection_for_epoch(ProjectionTrigger::Resume)
-            .expect("same restored revision is a no-op");
-        assert!(state.pending_taskspace_projection_appends.is_empty());
-    }
-
-    match session
-        .finish_action_map(&turn_context, 3, "Append policy verified".into())
-        .await
-    {
-        Ok(_) => {}
-        Err(_) => panic!("terminal map commit succeeds"),
-    }
-    let terminal_append = session
-        .flush_taskspace_projection_appends(&turn_context)
-        .await;
-    assert_eq!(terminal_append.len(), 1);
-    let terminal_history = session.clone_history().await;
-    let terminal_text = developer_input_texts(terminal_history.raw_items()).join("\n");
-    assert!(
-        terminal_text
-            .lines()
-            .any(|line| line.trim() == "- revision: 4")
-    );
-}
-
-#[tokio::test]
-async fn map_append_projection_failure_does_not_install_candidate_map() {
-    let (session, _turn_context) = make_session_and_context().await;
-    let mut state = session.state.lock().await;
-    state.session_configuration.taskspace_projection_policy =
-        Some(TaskSpaceProjectionPolicy::MapAppend);
-    state.action_map_runtime.set_mode_for_session(
-        codex_protocol::protocol::MapRuntimeMode::Experiment,
-        session.conversation_id,
-    );
-
-    let result = state.mutate_action_map_with_projection(|runtime| {
-        let (outcome, mut events) = runtime.initialize_map_for_main(
-            session.conversation_id,
-            crate::action_map::ActionMapInitializeInput {
-                root: crate::action_map::ActionMapInitializeNodeInput {
-                    id: "root".into(),
-                    goal: "Keep commits atomic".into(),
-                },
-                current_work_node: crate::action_map::ActionMapInitializeNodeInput {
-                    id: "work".into(),
-                    goal: "Render the committed revision".into(),
-                },
-                finish: crate::action_map::ActionMapInitializeFinishInput {
-                    id: "finish".into(),
-                },
-                source_event_ids: vec!["task-event-1".into()],
-                work_nodes: Vec::new(),
-                edges: vec![
-                    crate::action_map::ActionMapEdgeInput {
-                        from: "root".into(),
-                        to: "work".into(),
-                    },
-                    crate::action_map::ActionMapEdgeInput {
-                        from: "work".into(),
-                        to: "finish".into(),
-                    },
-                ],
-            },
-        )?;
-        for event in &mut events {
-            if let MapRuntimeEvent::GraphRevisionCommitted(commit) = event {
-                commit.map_id = "missing-map".into();
-            }
-        }
-        Ok((outcome, events))
-    });
-
-    assert!(result.is_err());
-    assert!(state.action_map_runtime.snapshot().map.is_none());
-    assert!(state.pending_taskspace_projection_appends.is_empty());
-    assert!(state.taskspace_projection_cursor.last_emitted.is_none());
 }
 
 #[tokio::test]

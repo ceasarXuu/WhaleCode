@@ -176,65 +176,62 @@ fn projection_revision_changes_identity_hash_without_changing_count() {
 }
 
 #[test]
-fn append_projection_identity_uses_highest_strictly_increasing_revision() {
+fn append_projection_identity_uses_last_nondecreasing_request_snapshot() {
     let projection = |revision: u64| {
         format!(
-            "TaskSpaceMapProjectionR7V1:\n- schema_version: taskspace-map-projection-r7-v1\n- projection_kind: revision_snapshot\n- map_id: map-1\n- revision: {revision}\n- supersedes_through_revision: {}\n- current_state_rule: highest_revision_only\n- canonical_sha256: canonical-{revision}\nTaskSpaceMapProjectionR7V1 end.",
-            revision.saturating_sub(1)
+            "TaskSpaceMapProjectionR7V1:\n- schema_version: taskspace-map-projection-r7-v1\n- projection_kind: request_snapshot\n- map_id: map-1\n- revision: {revision}\n- supersedes_all_prior_projections: true\n- current_state_rule: last_projection_only\n- canonical_sha256: canonical-{revision}\nTaskSpaceMapProjectionR7V1 end."
         )
     };
     let wire = json!({
         "messages": [
-            {"role": "developer", "content": projection(2)},
-            {"role": "developer", "content": projection(3)}
+            {"role": "user", "content": projection(2)},
+            {"role": "user", "content": projection(3)}
         ]
     });
 
     let cost = ProviderWireSectionCost::measure(&wire, "messages");
     let identity = &cost.active_projection_identity;
     assert_eq!(identity.count, 2);
-    assert_eq!(identity.kind, "revision_snapshot");
+    assert_eq!(identity.kind, "request_snapshot");
     assert_eq!(identity.revision, Some(3));
     assert_eq!(identity.canonical_sha256.as_deref(), Some("canonical-3"));
     assert_eq!(identity.unavailable_reason, None);
 }
 
 #[test]
-fn append_projection_identity_rejects_duplicate_revision() {
-    let projection = "TaskSpaceMapProjectionR7V1:\n- schema_version: taskspace-map-projection-r7-v1\n- projection_kind: revision_snapshot\n- map_id: map-1\n- revision: 2\n- supersedes_through_revision: 1\n- current_state_rule: highest_revision_only\n- canonical_sha256: canonical-2\nTaskSpaceMapProjectionR7V1 end.";
+fn append_projection_identity_allows_duplicate_revision_across_requests() {
+    let projection = "TaskSpaceMapProjectionR7V1:\n- schema_version: taskspace-map-projection-r7-v1\n- projection_kind: request_snapshot\n- map_id: map-1\n- revision: 2\n- supersedes_all_prior_projections: true\n- current_state_rule: last_projection_only\n- canonical_sha256: canonical-2\nTaskSpaceMapProjectionR7V1 end.";
     let wire = json!({
         "messages": [
-            {"role": "developer", "content": projection},
-            {"role": "developer", "content": projection}
+            {"role": "user", "content": projection},
+            {"role": "user", "content": projection}
         ]
     });
 
     let identity = ProviderWireSectionCost::measure(&wire, "messages").active_projection_identity;
-    assert_eq!(identity.kind, "unavailable");
-    assert_eq!(
-        identity.unavailable_reason,
-        Some("projection_revision_order_invalid")
-    );
+    assert_eq!(identity.kind, "request_snapshot");
+    assert_eq!(identity.count, 2);
+    assert_eq!(identity.revision, Some(2));
+    assert_eq!(identity.unavailable_reason, None);
 }
 
 #[test]
 fn append_projection_identity_allows_revision_reset_for_a_new_map() {
     let projection = |map_id: &str, revision: u64| {
         format!(
-            "TaskSpaceMapProjectionR7V1:\n- schema_version: taskspace-map-projection-r7-v1\n- projection_kind: revision_snapshot\n- map_id: {map_id}\n- revision: {revision}\n- supersedes_through_revision: {}\n- current_state_rule: highest_revision_only\n- canonical_sha256: canonical-{map_id}-{revision}\nTaskSpaceMapProjectionR7V1 end.",
-            revision.saturating_sub(1)
+            "TaskSpaceMapProjectionR7V1:\n- schema_version: taskspace-map-projection-r7-v1\n- projection_kind: request_snapshot\n- map_id: {map_id}\n- revision: {revision}\n- supersedes_all_prior_projections: true\n- current_state_rule: last_projection_only\n- canonical_sha256: canonical-{map_id}-{revision}\nTaskSpaceMapProjectionR7V1 end."
         )
     };
     let wire = json!({
         "messages": [
-            {"role": "developer", "content": projection("map-1", 5)},
-            {"role": "developer", "content": projection("map-2", 2)}
+            {"role": "user", "content": projection("map-1", 5)},
+            {"role": "user", "content": projection("map-2", 2)}
         ]
     });
 
     let identity = ProviderWireSectionCost::measure(&wire, "messages").active_projection_identity;
     assert_eq!(identity.count, 2);
-    assert_eq!(identity.kind, "revision_snapshot");
+    assert_eq!(identity.kind, "request_snapshot");
     assert_eq!(identity.revision, Some(2));
     assert_eq!(identity.unavailable_reason, None);
 }

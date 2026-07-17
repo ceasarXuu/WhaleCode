@@ -4,14 +4,14 @@ use sha2::Sha256;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ProjectionEnvelope {
     CurrentProjection,
-    RevisionSnapshot { supersedes_through_revision: u64 },
+    RequestSnapshot,
 }
 
 impl ProjectionEnvelope {
     pub(crate) fn kind(self) -> &'static str {
         match self {
             Self::CurrentProjection => "current_projection",
-            Self::RevisionSnapshot { .. } => "revision_snapshot",
+            Self::RequestSnapshot => "request_snapshot",
         }
     }
 }
@@ -117,16 +117,9 @@ pub(super) fn render_projection(
     push_field(&mut body, "projection_kind", envelope.kind());
     push_field(&mut body, "map_id", &input.map_id);
     push_field(&mut body, "revision", &input.revision.to_string());
-    if let ProjectionEnvelope::RevisionSnapshot {
-        supersedes_through_revision,
-    } = envelope
-    {
-        push_field(
-            &mut body,
-            "supersedes_through_revision",
-            &supersedes_through_revision.to_string(),
-        );
-        push_field(&mut body, "current_state_rule", "highest_revision_only");
+    if envelope == ProjectionEnvelope::RequestSnapshot {
+        push_field(&mut body, "supersedes_all_prior_projections", "true");
+        push_field(&mut body, "current_state_rule", "last_projection_only");
     }
     push_field(&mut body, "canonical_sha256", &input.canonical_sha256);
     push_field(&mut body, "root_node_id", &input.root_node_id);
@@ -453,7 +446,7 @@ mod tests {
     }
 
     #[test]
-    fn revision_snapshot_envelope_marks_supersession_without_current_claim() {
+    fn request_snapshot_envelope_marks_all_prior_projections_superseded() {
         let rendered = render_projection(
             ProjectionInput {
                 map_id: "map-1".into(),
@@ -469,21 +462,23 @@ mod tests {
                 map_edges: vec![],
                 node_details: vec![],
             },
-            ProjectionEnvelope::RevisionSnapshot {
-                supersedes_through_revision: 6,
-            },
+            ProjectionEnvelope::RequestSnapshot,
         );
 
         assert!(
             rendered
                 .body
-                .contains("- projection_kind: revision_snapshot")
+                .contains("- projection_kind: request_snapshot")
         );
-        assert!(rendered.body.contains("- supersedes_through_revision: 6"));
         assert!(
             rendered
                 .body
-                .contains("- current_state_rule: highest_revision_only")
+                .contains("- supersedes_all_prior_projections: true")
+        );
+        assert!(
+            rendered
+                .body
+                .contains("- current_state_rule: last_projection_only")
         );
         assert!(!rendered.body.contains("authoritative_current"));
     }

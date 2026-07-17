@@ -454,7 +454,7 @@ pub fn create_taskspace_control_tool(visible_tools: &[ToolSpec]) -> ToolSpec {
 
     ToolSpec::Function(ResponsesApiTool {
         name: "taskspace_control".into(),
-        description: "Mandatory mechanical TaskSpace lifecycle tool. initialize_map declares and binds the initial rooted DAG before its continuation. mutate_graph may continue only from an existing binding that remains valid. transition_node bind requires a continuation; complete, block, unblock, and rework do not accept one. finish_end commits the Agent-authored final summary and cannot continue. expand_nodes and read_output_ref expose mechanically retained details. For a given map_id, only its highest revision snapshot is current; lower revisions are historical. Runtime validates hard state rules and executes only the declared operation order. It does not choose, infer, or rewrite actions.".into(),
+        description: "Mandatory mechanical TaskSpace lifecycle tool. initialize_map declares and binds the initial rooted DAG before its continuation. mutate_graph may continue only from an existing binding that remains valid. transition_node bind requires a continuation; complete, block, unblock, and rework do not accept one. finish_end commits the Agent-authored final summary and cannot continue. expand_nodes and read_output_ref expose mechanically retained details. For a given map_id, the last visible projection is current and all earlier projections are historical; repeated revision values mean the map did not change between requests. Runtime validates hard state rules and executes only the declared operation order. It does not choose, infer, or rewrite actions.".into(),
         strict: false,
         defer_loading: None,
         parameters,

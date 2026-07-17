@@ -17,7 +17,6 @@ pub(crate) use map::ToolActionDescriptor;
 pub(crate) use projection::ProjectionEnvelope;
 pub(crate) use projection_policy::ProjectionCursor;
 pub(crate) use projection_policy::ProjectionEmission;
-pub(crate) use projection_policy::ProjectionIdentity;
 pub(crate) use projection_policy::ProjectionTrigger;
 pub(crate) use projection_policy::decide_projection_emission;
 pub(crate) use projection_policy::projection_identity_from_context;

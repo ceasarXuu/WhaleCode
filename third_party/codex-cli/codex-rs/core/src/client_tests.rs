@@ -542,23 +542,22 @@ fn provider_payload_scan_validates_canonical_projection_shape() {
     assert!(matching_scan.passed);
     assert!(matching_scan.replacement_confirmed);
 
-    let revision_snapshot = |revision: u64| {
+    let request_snapshot = |revision: u64| {
         active_projection
             .replace(
                 "- projection_kind: current_projection",
-                "- projection_kind: revision_snapshot",
+                "- projection_kind: request_snapshot",
             )
             .replace("- revision: 2", &format!("- revision: {revision}"))
             .replace(
                 "- canonical_sha256: canonical-map-2",
                 &format!(
-                    "- supersedes_through_revision: {}\n- current_state_rule: highest_revision_only\n- canonical_sha256: canonical-map-{revision}",
-                    revision.saturating_sub(1)
+                    "- supersedes_all_prior_projections: true\n- current_state_rule: last_projection_only\n- canonical_sha256: canonical-map-{revision}"
                 ),
             )
     };
-    let append_revision_2 = revision_snapshot(2);
-    let append_revision_3 = revision_snapshot(3);
+    let append_revision_2 = request_snapshot(2);
+    let append_revision_3 = request_snapshot(3);
     let append_payload = provider_payload_digest(&json!({
         "input": format!("{append_revision_2}\n{append_revision_3}"),
         "tools": active_tools
@@ -574,22 +573,12 @@ fn provider_payload_scan_validates_canonical_projection_shape() {
     assert_eq!(append_scan.active_projection_count, 2);
     assert_eq!(
         append_scan.projection_kind.as_deref(),
-        Some("revision_snapshot")
+        Some("request_snapshot")
     );
     assert_eq!(append_scan.projection_revision, Some(3));
     assert_eq!(append_scan.projection_identity_confirmed, Some(true));
     assert!(append_scan.passed, "{:?}", append_scan.failure_reasons);
     assert!(append_scan.replacement_confirmed);
-
-    let mut absent_append_scan = fresh_active_without_projection.scan.clone();
-    apply_projection_identity_expectation(
-        &mut absent_append_scan,
-        Some(&ProviderProjectionIdentityExpectation::absent(
-            TaskSpaceProjectionPolicy::MapAppend,
-        )),
-    );
-    assert_eq!(absent_append_scan.projection_identity_confirmed, Some(true));
-    assert!(absent_append_scan.passed);
 
     let duplicate_append = provider_payload_digest(&json!({
         "input": format!("{append_revision_2}\n{append_revision_2}"),
@@ -607,11 +596,10 @@ fn provider_payload_scan_validates_canonical_projection_shape() {
             .expect("duplicate expectation"),
         ),
     );
-    assert!(!duplicate_append_scan.passed);
     assert!(
-        duplicate_append_scan
-            .failure_reasons
-            .contains(&"projection_revision_order_invalid".to_string())
+        duplicate_append_scan.passed,
+        "same revision is valid when the map did not change between requests: {:?}",
+        duplicate_append_scan.failure_reasons
     );
 
     let revision_3_projection = active_projection.replace("- revision: 2", "- revision: 3");
@@ -633,14 +621,30 @@ fn provider_payload_scan_validates_canonical_projection_shape() {
 
     let tool_output_marker = provider_payload_digest(&json!({
         "messages": [
-            { "role": "developer", "content": active_projection },
-            { "role": "tool", "content": active_projection }
+            { "role": "tool", "content": active_projection },
+            { "role": "developer", "content": active_projection }
         ],
         "tools": active_tools
     }))
     .expect("tool output marker payload digest");
     assert_eq!(tool_output_marker.scan.active_projection_count, 1);
     assert!(tool_output_marker.scan.passed);
+
+    let projection_not_at_tail = provider_payload_digest(&json!({
+        "messages": [
+            { "role": "user", "content": append_revision_2 },
+            { "role": "assistant", "content": "later history" }
+        ],
+        "tools": active_tools
+    }))
+    .expect("non-tail projection payload digest");
+    assert!(!projection_not_at_tail.scan.passed);
+    assert!(
+        projection_not_at_tail
+            .scan
+            .failure_reasons
+            .contains(&"current_projection_not_message_tail".to_string())
+    );
 
     let duplicate_active = provider_payload_digest(&json!({
         "input": format!("{active_projection}\n{active_projection}"),
@@ -712,7 +716,7 @@ fn provider_payload_scan_validates_canonical_projection_shape() {
 
     let large_instruction_text = "x".repeat(60 * 1024);
     let large_active_instructions = provider_payload_digest(&json!({
-        "input": format!("{active_projection}\n{large_instruction_text}"),
+        "input": format!("{large_instruction_text}\n{active_projection}"),
         "tools": active_tools
     }))
     .expect("large active instruction payload digest");
@@ -723,14 +727,14 @@ fn provider_payload_scan_validates_canonical_projection_shape() {
     let large_raw = provider_payload_digest(&json!({
         "input": [
             {
-                "type": "message",
-                "role": "developer",
-                "content": active_projection
-            },
-            {
                 "type": "function_call_output",
                 "call_id": "call-1",
                 "output": raw_output
+            },
+            {
+                "type": "message",
+                "role": "developer",
+                "content": active_projection
             }
         ],
         "tools": active_tools
@@ -742,14 +746,14 @@ fn provider_payload_scan_validates_canonical_projection_shape() {
     let output_ref = provider_payload_digest(&json!({
         "input": [
             {
-                "type": "message",
-                "role": "developer",
-                "content": active_projection
-            },
-            {
                 "type": "function_call_output",
                 "call_id": "call-1",
                 "output": format!("OutputReferenceV1:\nraw_output_elided: true\n{raw_output}")
+            },
+            {
+                "type": "message",
+                "role": "developer",
+                "content": active_projection
             }
         ],
         "tools": active_tools

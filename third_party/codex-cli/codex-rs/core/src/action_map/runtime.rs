@@ -437,6 +437,7 @@ pub(crate) struct ActionMapExactPayloadScanEventInput {
     pub(crate) projection_required: bool,
     pub(crate) active_projection_present: bool,
     pub(crate) active_projection_count: usize,
+    pub(crate) projection_is_message_tail: bool,
     pub(crate) large_raw_output_tokens: usize,
     pub(crate) runtime_boundary_forbidden_markers: Vec<String>,
     pub(crate) protected_items_present: bool,
@@ -2504,6 +2505,10 @@ impl ActionMapRuntimeState {
                         scan.active_projection_present
                     ),
                     format!("active_projection_count:{}", scan.active_projection_count),
+                    format!(
+                        "projection_is_message_tail:{}",
+                        scan.projection_is_message_tail
+                    ),
                     format!("large_raw_output_tokens:{}", scan.large_raw_output_tokens),
                     format!(
                         "runtime_boundary_forbidden_markers:{runtime_boundary_forbidden_markers}"
@@ -4107,14 +4112,15 @@ impl ActionMapRuntimeState {
             return None;
         }
         if self.bootstrap_required {
-            return Some(self.build_bootstrap_compact_developer_context());
+            return Some(self.build_bootstrap_compact_developer_context(envelope));
         }
         if let Some(context) = self.build_active_projection_developer_context(envelope) {
             return Some(context);
         }
-        Some(self.build_bootstrap_compact_developer_context())
+        Some(self.build_bootstrap_compact_developer_context(envelope))
     }
 
+    #[allow(dead_code)]
     pub(crate) fn build_developer_context_for_map(
         &mut self,
         map_id: &str,
@@ -4126,9 +4132,15 @@ impl ActionMapRuntimeState {
         self.build_projection_developer_context(map_id.to_string(), envelope, false)
     }
 
-    fn build_bootstrap_compact_developer_context(&self) -> String {
-        "TaskSpaceMapProjectionR7V1:\n- schema_version: taskspace-map-projection-r7-v1\n- projection_kind: bootstrap_required\n- map: none\n- bootstrap_required: true\nTaskSpaceMapProjectionR7V1 end.\n"
-            .to_string()
+    fn build_bootstrap_compact_developer_context(&self, envelope: ProjectionEnvelope) -> String {
+        let request_snapshot_fields = if envelope == ProjectionEnvelope::RequestSnapshot {
+            "- supersedes_all_prior_projections: true\n- current_state_rule: last_projection_only\n"
+        } else {
+            ""
+        };
+        format!(
+            "TaskSpaceMapProjectionR7V1:\n- schema_version: taskspace-map-projection-r7-v1\n- projection_kind: bootstrap_required\n- map: none\n- bootstrap_required: true\n{request_snapshot_fields}TaskSpaceMapProjectionR7V1 end.\n"
+        )
     }
 
     fn build_active_projection_developer_context(

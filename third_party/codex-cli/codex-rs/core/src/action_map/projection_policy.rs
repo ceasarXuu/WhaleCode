@@ -8,16 +8,12 @@ const PROJECTION_START: &str = "TaskSpaceMapProjectionR7V1:";
 const PROJECTION_END: &str = "TaskSpaceMapProjectionR7V1 end.";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[allow(
-    dead_code,
-    reason = "later R7 phases activate the frozen trigger matrix"
-)]
 pub(crate) enum ProjectionTrigger {
-    ProviderRequest,
-    RevisionCommit,
+    ProviderRequest {
+        projection_is_current_tail: bool,
+    },
+    #[allow(dead_code)]
     ExplicitRead,
-    CompactionEpochStart,
-    Resume,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -39,7 +35,7 @@ impl ProjectionCursor {
             let ResponseItem::Message { role, content, .. } = item else {
                 return None;
             };
-            if role != "developer" && role != "system" {
+            if role != "developer" && role != "system" && role != "user" {
                 return None;
             }
             content.iter().rev().find_map(|entry| match entry {
@@ -78,11 +74,10 @@ fn projection_field<'a>(projection: &'a str, field: &str) -> Option<&'a str> {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[allow(dead_code, reason = "Phase C activates append_revision")]
 pub(crate) enum ProjectionEmission {
     None,
     ReplaceLatest,
-    AppendRevision,
+    AppendSnapshot,
     ReturnAsToolResult,
 }
 
@@ -100,52 +95,50 @@ pub(crate) fn decide_projection_emission(
 ) -> Result<ProjectionDecision, String> {
     let (emission, next_cursor) = match policy {
         TaskSpaceProjectionPolicy::MapAlways => match trigger {
-            ProjectionTrigger::ProviderRequest
-            | ProjectionTrigger::CompactionEpochStart
-            | ProjectionTrigger::Resume => (ProjectionEmission::ReplaceLatest, cursor.clone()),
-            ProjectionTrigger::RevisionCommit => (ProjectionEmission::None, cursor.clone()),
+            ProjectionTrigger::ProviderRequest { .. } => {
+                (ProjectionEmission::ReplaceLatest, cursor.clone())
+            }
             ProjectionTrigger::ExplicitRead => {
                 (ProjectionEmission::ReturnAsToolResult, cursor.clone())
             }
         },
         TaskSpaceProjectionPolicy::MapAppend => match trigger {
-            ProjectionTrigger::ProviderRequest => (ProjectionEmission::None, cursor.clone()),
             ProjectionTrigger::ExplicitRead => {
                 (ProjectionEmission::ReturnAsToolResult, cursor.clone())
             }
-            ProjectionTrigger::RevisionCommit
-            | ProjectionTrigger::CompactionEpochStart
-            | ProjectionTrigger::Resume => {
+            ProjectionTrigger::ProviderRequest {
+                projection_is_current_tail,
+            } => {
                 let candidate = candidate.ok_or_else(|| {
                     format!("projection trigger `{trigger:?}` requires a rendered candidate")
                 })?;
-                let candidate_map = candidate
-                    .map_id
-                    .as_deref()
-                    .ok_or_else(|| "append projection candidate has no map id".to_string())?;
-                let candidate_revision = candidate.revision.ok_or_else(|| {
-                    "append projection candidate has no committed revision".to_string()
-                })?;
-                let duplicate = cursor.last_emitted.as_ref().is_some_and(|last| {
-                    last.map_id.as_deref() == Some(candidate_map)
-                        && last.revision == Some(candidate_revision)
-                });
-                if duplicate {
+                if projection_is_current_tail {
                     (ProjectionEmission::None, cursor.clone())
                 } else {
-                    if let Some(last) = cursor.last_emitted.as_ref()
-                        && last.map_id.as_deref() == Some(candidate_map)
-                        && last
-                            .revision
-                            .is_some_and(|revision| revision > candidate_revision)
-                    {
-                        return Err(format!(
-                            "append projection revision {candidate_revision} is older than emitted revision {}",
-                            last.revision.expect("checked as some")
-                        ));
+                    if let Some(last) = cursor.last_emitted.as_ref() {
+                        match (
+                            last.map_id.as_deref(),
+                            last.revision,
+                            candidate.map_id.as_deref(),
+                            candidate.revision,
+                        ) {
+                            (Some(last_map), Some(last_revision), Some(map), Some(revision))
+                                if last_map == map && last_revision > revision =>
+                            {
+                                return Err(format!(
+                                    "append projection revision {revision} is older than emitted revision {last_revision}"
+                                ));
+                            }
+                            (Some(last_map), _, None, None) => {
+                                return Err(format!(
+                                    "append projection cannot return to bootstrap after map `{last_map}`"
+                                ));
+                            }
+                            _ => {}
+                        }
                     }
                     (
-                        ProjectionEmission::AppendRevision,
+                        ProjectionEmission::AppendSnapshot,
                         ProjectionCursor {
                             last_emitted: Some(candidate.clone()),
                         },
@@ -172,39 +165,23 @@ mod tests {
     use codex_protocol::models::ResponseItem;
 
     #[test]
-    fn map_always_replaces_on_every_provider_visible_epoch() {
+    fn map_always_replaces_on_every_provider_request() {
         let cursor = ProjectionCursor::default();
-        for trigger in [
-            ProjectionTrigger::ProviderRequest,
-            ProjectionTrigger::CompactionEpochStart,
-            ProjectionTrigger::Resume,
-        ] {
-            let decision = decide_projection_emission(
-                TaskSpaceProjectionPolicy::MapAlways,
-                trigger,
-                &cursor,
-                None,
-            )
-            .expect("map-always must be enabled");
-            assert_eq!(decision.emission, ProjectionEmission::ReplaceLatest);
-            assert_eq!(decision.next_cursor, cursor);
-        }
-    }
-
-    #[test]
-    fn map_always_does_not_emit_directly_on_revision_commit() {
         let decision = decide_projection_emission(
             TaskSpaceProjectionPolicy::MapAlways,
-            ProjectionTrigger::RevisionCommit,
-            &ProjectionCursor::default(),
+            ProjectionTrigger::ProviderRequest {
+                projection_is_current_tail: false,
+            },
+            &cursor,
             None,
         )
         .expect("map-always must be enabled");
-        assert_eq!(decision.emission, ProjectionEmission::None);
+        assert_eq!(decision.emission, ProjectionEmission::ReplaceLatest);
+        assert_eq!(decision.next_cursor, cursor);
     }
 
     #[test]
-    fn map_append_emits_each_revision_once_and_rejects_regression() {
+    fn map_append_emits_on_each_request_after_new_history_and_rejects_regression() {
         let revision_3 = ProjectionIdentity {
             map_id: Some("map-1".into()),
             revision: Some(3),
@@ -213,21 +190,39 @@ mod tests {
         };
         let first = decide_projection_emission(
             TaskSpaceProjectionPolicy::MapAppend,
-            ProjectionTrigger::RevisionCommit,
+            ProjectionTrigger::ProviderRequest {
+                projection_is_current_tail: false,
+            },
             &ProjectionCursor::default(),
             Some(&revision_3),
         )
-        .expect("first committed revision should append");
-        assert_eq!(first.emission, ProjectionEmission::AppendRevision);
+        .expect("first provider request should append");
+        assert_eq!(first.emission, ProjectionEmission::AppendSnapshot);
 
-        let duplicate = decide_projection_emission(
+        let same_revision_after_new_history = decide_projection_emission(
             TaskSpaceProjectionPolicy::MapAppend,
-            ProjectionTrigger::RevisionCommit,
+            ProjectionTrigger::ProviderRequest {
+                projection_is_current_tail: false,
+            },
             &first.next_cursor,
             Some(&revision_3),
         )
-        .expect("same revision retry should be suppressed");
-        assert_eq!(duplicate.emission, ProjectionEmission::None);
+        .expect("same revision should append after new history");
+        assert_eq!(
+            same_revision_after_new_history.emission,
+            ProjectionEmission::AppendSnapshot
+        );
+
+        let retry = decide_projection_emission(
+            TaskSpaceProjectionPolicy::MapAppend,
+            ProjectionTrigger::ProviderRequest {
+                projection_is_current_tail: true,
+            },
+            &same_revision_after_new_history.next_cursor,
+            Some(&revision_3),
+        )
+        .expect("provider retry should recognize the current tail");
+        assert_eq!(retry.emission, ProjectionEmission::None);
 
         let revision_2 = ProjectionIdentity {
             revision: Some(2),
@@ -236,7 +231,9 @@ mod tests {
         assert!(
             decide_projection_emission(
                 TaskSpaceProjectionPolicy::MapAppend,
-                ProjectionTrigger::RevisionCommit,
+                ProjectionTrigger::ProviderRequest {
+                    projection_is_current_tail: false,
+                },
                 &first.next_cursor,
                 Some(&revision_2),
             )
@@ -245,15 +242,16 @@ mod tests {
     }
 
     #[test]
-    fn map_append_provider_request_never_emits_directly() {
+    fn map_append_provider_request_requires_a_rendered_candidate() {
         let decision = decide_projection_emission(
             TaskSpaceProjectionPolicy::MapAppend,
-            ProjectionTrigger::ProviderRequest,
+            ProjectionTrigger::ProviderRequest {
+                projection_is_current_tail: false,
+            },
             &ProjectionCursor::default(),
             None,
-        )
-        .expect("map-append provider request is enabled");
-        assert_eq!(decision.emission, ProjectionEmission::None);
+        );
+        assert!(decision.is_err());
     }
 
     #[test]
@@ -261,7 +259,9 @@ mod tests {
         assert!(
             decide_projection_emission(
                 TaskSpaceProjectionPolicy::MapRequest,
-                ProjectionTrigger::ProviderRequest,
+                ProjectionTrigger::ProviderRequest {
+                    projection_is_current_tail: false,
+                },
                 &ProjectionCursor::default(),
                 None,
             )
@@ -275,7 +275,7 @@ mod tests {
             id: None,
             role: "developer".into(),
             content: vec![ContentItem::InputText {
-                text: "TaskSpaceMapProjectionR7V1:\n- projection_kind: revision_snapshot\n- map_id: map-1\n- revision: 4\n- canonical_sha256: canonical-4\nTaskSpaceMapProjectionR7V1 end.\n".into(),
+                text: "TaskSpaceMapProjectionR7V1:\n- projection_kind: request_snapshot\n- map_id: map-1\n- revision: 4\n- canonical_sha256: canonical-4\nTaskSpaceMapProjectionR7V1 end.\n".into(),
             }],
             end_turn: None,
             phase: None,

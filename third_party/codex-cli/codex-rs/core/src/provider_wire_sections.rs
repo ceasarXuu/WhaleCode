@@ -224,7 +224,7 @@ fn measure_messages(
 
 fn classify_message(message: &Value) -> SectionKind {
     match message.get("role").and_then(Value::as_str) {
-        Some("system" | "developer")
+        Some("system" | "developer" | "user")
             if projection_blocks(message).is_ok_and(|blocks| !blocks.is_empty()) =>
         {
             SectionKind::ActiveProjection
@@ -326,7 +326,7 @@ fn active_projection_identity(messages: &[Value]) -> ActiveProjectionIdentity {
     ActiveProjectionIdentity {
         count: projections.len(),
         kind: match mechanical_field(projection, "projection_kind") {
-            Some("revision_snapshot") => "revision_snapshot",
+            Some("request_snapshot") => "request_snapshot",
             Some("current_projection") => "current_projection",
             _ => "unavailable",
         },
@@ -346,6 +346,12 @@ fn projection_revision_sequence_valid(projections: &[&str]) -> bool {
     let mut previous_revision = None;
     let mut closed_map_ids = HashSet::new();
     for projection in projections {
+        if projection_is_bootstrap(projection) {
+            if current_map_id.is_some() || !closed_map_ids.is_empty() {
+                return false;
+            }
+            continue;
+        }
         let Some(map_id) = mechanical_field(projection, "map_id") else {
             return false;
         };
@@ -361,13 +367,20 @@ fn projection_revision_sequence_valid(projections: &[&str]) -> bool {
             if closed_map_ids.contains(map_id) {
                 return false;
             }
-        } else if previous_revision.is_some_and(|previous| previous >= revision) {
+        } else if previous_revision.is_some_and(|previous| previous > revision) {
             return false;
         }
         current_map_id = Some(map_id);
         previous_revision = Some(revision);
     }
     true
+}
+
+fn projection_is_bootstrap(projection: &str) -> bool {
+    projection.lines().any(|line| line == "- map: none")
+        && projection
+            .lines()
+            .any(|line| line == "- bootstrap_required: true")
 }
 
 impl ActiveProjectionIdentity {

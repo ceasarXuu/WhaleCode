@@ -291,6 +291,7 @@ use crate::action_map::ProjectionEmission;
 use crate::action_map::ProjectionEnvelope;
 use crate::action_map::ProjectionTrigger;
 use crate::action_map::decide_projection_emission;
+use crate::action_map::projection_identity_from_context;
 use crate::agents_md::AgentsMdManager;
 use crate::context::UserInstructions;
 use crate::exec_policy::ExecPolicyUpdateError;
@@ -918,7 +919,7 @@ impl Session {
     ) -> Result<Option<ActionMapAssignment>, String> {
         let (assignment, events) = {
             let mut state = self.state.lock().await;
-            state.mutate_action_map_with_projection(|runtime| {
+            state.mutate_action_map(|runtime| {
                 runtime.prepare_spawn_assignment(self.conversation_id, task_name, node_id)
             })
         }
@@ -1167,6 +1168,7 @@ impl Session {
                         projection_required: scan.projection_required,
                         active_projection_present: scan.active_projection_present,
                         active_projection_count: scan.active_projection_count,
+                        projection_is_message_tail: scan.projection_is_message_tail,
                         large_raw_output_tokens: scan.large_raw_output_tokens,
                         runtime_boundary_forbidden_markers: scan.runtime_boundary_forbidden_markers,
                         protected_items_present: scan.protected_items_present,
@@ -1295,7 +1297,7 @@ impl Session {
     ) -> Result<crate::action_map::ActionMapInitializeOutcome, String> {
         let (outcome, events) = {
             let mut state = self.state.lock().await;
-            state.mutate_action_map_with_projection(|runtime| {
+            state.mutate_action_map(|runtime| {
                 runtime.initialize_map_for_main(self.conversation_id, input)
             })
         }?;
@@ -1319,7 +1321,7 @@ impl Session {
     ) -> Result<crate::action_map::ActionMapGraphMutationOutcome, String> {
         let (outcome, events) = {
             let mut state = self.state.lock().await;
-            state.mutate_action_map_with_projection(|runtime| {
+            state.mutate_action_map(|runtime| {
                 runtime.mutate_graph_for_main(self.conversation_id, input)
             })
         }?;
@@ -1338,7 +1340,7 @@ impl Session {
     ) -> Result<crate::action_map::ActionMapTransitionOutcome, String> {
         let (outcome, events) = {
             let mut state = self.state.lock().await;
-            state.mutate_action_map_with_projection(|runtime| {
+            state.mutate_action_map(|runtime| {
                 runtime.transition_node_for_main(
                     self.conversation_id,
                     expected_revision,
@@ -1410,9 +1412,9 @@ impl Session {
     ) {
         let events = {
             let mut state = self.state.lock().await;
-            match state.mutate_action_map_with_projection(|runtime| {
-                Ok(((), runtime.release_lease(lease_id, reason)))
-            }) {
+            match state
+                .mutate_action_map(|runtime| Ok(((), runtime.release_lease(lease_id, reason))))
+            {
                 Ok(((), events)) => events,
                 Err(error) => {
                     tracing::error!(
@@ -1437,7 +1439,7 @@ impl Session {
     ) {
         let events = {
             let mut state = self.state.lock().await;
-            match state.mutate_action_map_with_projection(|runtime| {
+            match state.mutate_action_map(|runtime| {
                 Ok((
                     (),
                     runtime
@@ -1469,7 +1471,7 @@ impl Session {
     ) -> Option<String> {
         let result = {
             let mut state = self.state.lock().await;
-            match state.mutate_action_map_with_projection(|runtime| {
+            match state.mutate_action_map(|runtime| {
                 Ok(match runtime.record_child_result(child_thread_id, status) {
                     Some((result_id, events)) => (Some(result_id), events),
                     None => (None, Vec::new()),
@@ -1611,61 +1613,6 @@ impl Session {
         } else {
             self.emit_action_map_delta().await;
         }
-    }
-
-    pub(crate) async fn flush_taskspace_projection_appends(
-        &self,
-        turn_context: &TurnContext,
-    ) -> Vec<ResponseItem> {
-        let appends = {
-            let mut state = self.state.lock().await;
-            std::mem::take(&mut state.pending_taskspace_projection_appends)
-        };
-        if appends.is_empty() {
-            return Vec::new();
-        }
-        let items = appends
-            .iter()
-            .filter_map(|append| {
-                crate::context_manager::updates::build_developer_update_item(vec![
-                    append.context.clone(),
-                ])
-            })
-            .collect::<Vec<_>>();
-        self.record_conversation_items(turn_context, &items).await;
-        for append in appends {
-            tracing::info!(
-                target: "codex_core::taskspace",
-                event_name = "taskspace.projection_revision_appended",
-                trigger = ?append.trigger,
-                map_id = append.identity.map_id,
-                revision = append.identity.revision,
-                canonical_sha256 = append.identity.canonical_sha256,
-                projection_sha256 = append.identity.projection_sha256,
-                "persisted immutable TaskSpace revision snapshot"
-            );
-        }
-        items
-    }
-
-    async fn append_current_taskspace_projection_for_epoch(
-        &self,
-        turn_context: &TurnContext,
-        trigger: ProjectionTrigger,
-    ) -> Result<(), String> {
-        let trace_events = {
-            let mut state = self.state.lock().await;
-            state.capture_current_projection_for_epoch(trigger)?;
-            state
-                .action_map_runtime
-                .take_pending_projection_trace_events()
-        };
-        if !trace_events.is_empty() {
-            self.emit_action_map_events_for_turn(turn_context, trace_events)
-                .await;
-        }
-        let _ = self.flush_taskspace_projection_appends(turn_context).await;
-        Ok(())
     }
 
     fn should_emit_provider_budget_warning(event: &ProviderRequestBudgetEvent) -> bool {
@@ -2112,18 +2059,6 @@ impl Session {
                     let mut state = self.state.lock().await;
                     state.set_token_info(Some(info));
                 }
-                self.append_current_taskspace_projection_for_epoch(
-                    &turn_context,
-                    ProjectionTrigger::Resume,
-                )
-                .await
-                .map_err(|message| {
-                    rollout_reconstruction::RolloutReconstructionError {
-                        phase: "taskspace_projection_resume",
-                        message,
-                    }
-                })?;
-
                 // Defer seeding the session's initial context until the first turn starts so
                 // turn/start overrides can be merged before we write to the rollout.
                 if !is_subagent {
@@ -2153,17 +2088,6 @@ impl Session {
                 if !is_subagent {
                     self.emit_action_map_checkpoint_for_turn(&turn_context, "resume")
                         .await;
-                    self.append_current_taskspace_projection_for_epoch(
-                        &turn_context,
-                        ProjectionTrigger::Resume,
-                    )
-                    .await
-                    .map_err(|message| {
-                        rollout_reconstruction::RolloutReconstructionError {
-                            phase: "taskspace_projection_fork_resume",
-                            message,
-                        }
-                    })?;
                 }
 
                 // Forked threads should remain file-backed immediately after startup.
@@ -3520,7 +3444,7 @@ impl Session {
 
     pub(crate) async fn replace_compacted_history(
         &self,
-        turn_context: &TurnContext,
+        _turn_context: &TurnContext,
         items: Vec<ResponseItem>,
         reference_context_item: Option<TurnContextItem>,
         compacted_item: CompactedItem,
@@ -3553,16 +3477,6 @@ impl Session {
                 .await;
         }
         self.services.model_client.advance_window_generation();
-        if taskspace_compacted
-            && let Err(error) = self
-                .append_current_taskspace_projection_for_epoch(
-                    turn_context,
-                    ProjectionTrigger::CompactionEpochStart,
-                )
-                .await
-        {
-            panic!("TaskSpace compaction projection epoch failed: {error}");
-        }
     }
 
     async fn persist_rollout_response_items(&self, items: &[ResponseItem]) {
@@ -4006,9 +3920,9 @@ impl Session {
     pub(crate) async fn prepare_provider_visible_prompt_items(
         &self,
         turn_context: &TurnContext,
-        items: Vec<ResponseItem>,
+        mut items: Vec<ResponseItem>,
     ) -> PreparedProviderPromptItems {
-        let (policy, projection_context, projection_trace_events) = {
+        let (policy, projection_item, projection_trace_events) = {
             let mut state = self.state.lock().await;
             if state.action_map_runtime.mode() != MapRuntimeMode::Experiment {
                 return PreparedProviderPromptItems {
@@ -4020,19 +3934,41 @@ impl Session {
                 .session_configuration
                 .taskspace_projection_policy
                 .expect("TaskSpace mode requires an immutable projection policy");
+            let envelope = match policy {
+                TaskSpaceProjectionPolicy::MapAlways => ProjectionEnvelope::CurrentProjection,
+                TaskSpaceProjectionPolicy::MapAppend => ProjectionEnvelope::RequestSnapshot,
+                TaskSpaceProjectionPolicy::MapRequest => {
+                    unreachable!("map-request remains disabled before Phase D")
+                }
+            };
+            let context = state.action_map_runtime.build_developer_context(envelope);
+            let candidate = context
+                .as_deref()
+                .and_then(projection_identity_from_context);
+            let projection_is_current_tail = candidate.as_ref().is_some_and(|candidate| {
+                taskspace_projection_context(items.last()).is_some_and(|context| {
+                    projection_identity_from_context(context).as_ref() == Some(candidate)
+                })
+            });
             let decision = decide_projection_emission(
                 policy,
-                ProjectionTrigger::ProviderRequest,
+                ProjectionTrigger::ProviderRequest {
+                    projection_is_current_tail,
+                },
                 &state.taskspace_projection_cursor,
-                None,
+                candidate.as_ref(),
             )
             .expect("configured TaskSpace projection policy must be enabled");
-            let context = match decision.emission {
-                ProjectionEmission::ReplaceLatest => state
-                    .action_map_runtime
-                    .build_developer_context(ProjectionEnvelope::CurrentProjection),
+            state.taskspace_projection_cursor = decision.next_cursor;
+            let projection_item = match decision.emission {
+                ProjectionEmission::ReplaceLatest | ProjectionEmission::AppendSnapshot => context
+                    .and_then(|projection| {
+                        crate::context_manager::updates::build_developer_update_item(vec![
+                            projection,
+                        ])
+                    }),
                 ProjectionEmission::None => None,
-                ProjectionEmission::AppendRevision | ProjectionEmission::ReturnAsToolResult => {
+                ProjectionEmission::ReturnAsToolResult => {
                     unreachable!("provider request cannot select a non-provider emission")
                 }
             };
@@ -4042,38 +3978,65 @@ impl Session {
                 policy = %policy,
                 trigger = "provider_request",
                 emission = ?decision.emission,
+                projection_is_current_tail,
                 "decided TaskSpace provider projection emission"
             );
             let events = state
                 .action_map_runtime
                 .take_pending_projection_trace_events();
-            (policy, context, events)
+            (policy, projection_item, events)
         };
         if !projection_trace_events.is_empty() {
             self.emit_action_map_events_for_turn(turn_context, projection_trace_events)
                 .await;
         }
-        let prepared_items = match policy {
-            TaskSpaceProjectionPolicy::MapAlways => remove_taskspace_projection_items(items),
-            TaskSpaceProjectionPolicy::MapAppend => items,
+        match policy {
+            TaskSpaceProjectionPolicy::MapAlways => {
+                items = remove_taskspace_projection_items(items);
+                if let Some(projection_item) = projection_item {
+                    items.push(projection_item);
+                }
+            }
+            TaskSpaceProjectionPolicy::MapAppend => {
+                if let Some(projection_item) = projection_item {
+                    self.record_conversation_items(
+                        turn_context,
+                        std::slice::from_ref(&projection_item),
+                    )
+                    .await;
+                    let projection_context = taskspace_projection_context(Some(&projection_item))
+                        .expect("appended TaskSpace item must contain a projection");
+                    let identity = projection_identity_from_context(projection_context)
+                        .expect("appended TaskSpace projection must have an identity");
+                    tracing::info!(
+                        target: "codex_core::taskspace",
+                        event_name = "taskspace.projection_request_tail_appended",
+                        map_id = ?identity.map_id,
+                        revision = ?identity.revision,
+                        canonical_sha256 = ?identity.canonical_sha256,
+                        projection_sha256 = identity.projection_sha256,
+                        carrier_role = "user",
+                        persistent = true,
+                        request_tail = true,
+                        "persisted latest TaskSpace projection at provider request tail"
+                    );
+                    items.push(projection_item);
+                }
+                rewrite_taskspace_projection_items_for_append(&mut items);
+                debug_assert!(
+                    taskspace_projection_context(items.last()).is_some(),
+                    "map-append provider request must end with the latest projection"
+                );
+            }
             TaskSpaceProjectionPolicy::MapRequest => {
                 unreachable!("map-request remains disabled before Phase D")
             }
-        };
-        let projection_item = projection_context.and_then(|projection| {
-            crate::context_manager::updates::build_developer_update_item(vec![projection])
+        }
+        let projection_identity = latest_taskspace_projection_context(&items).and_then(|context| {
+            ProviderProjectionIdentityExpectation::from_projection_context(policy, context)
         });
-        let composed_items = compose_provider_visible_prompt_items(prepared_items, projection_item);
-        let projection_identity = latest_taskspace_projection_context(&composed_items)
-            .and_then(|context| {
-                ProviderProjectionIdentityExpectation::from_projection_context(policy, context)
-            })
-            .or_else(|| {
-                (policy == TaskSpaceProjectionPolicy::MapAppend)
-                    .then(|| ProviderProjectionIdentityExpectation::absent(policy))
-            });
         PreparedProviderPromptItems {
-            items: composed_items,
+            items,
             projection_identity,
         }
     }
@@ -4722,32 +4685,41 @@ fn remove_taskspace_projection_items(items: Vec<ResponseItem>) -> Vec<ResponseIt
 }
 
 fn latest_taskspace_projection_context(items: &[ResponseItem]) -> Option<&str> {
-    items.iter().rev().find_map(|item| {
-        let ResponseItem::Message { role, content, .. } = item else {
-            return None;
-        };
-        if role != "developer" && role != "system" {
-            return None;
+    items
+        .iter()
+        .rev()
+        .find_map(|item| taskspace_projection_context(Some(item)))
+}
+
+fn taskspace_projection_context(item: Option<&ResponseItem>) -> Option<&str> {
+    let ResponseItem::Message { role, content, .. } = item? else {
+        return None;
+    };
+    if !matches!(role.as_str(), "developer" | "system" | "user") {
+        return None;
+    }
+    content.iter().rev().find_map(|entry| match entry {
+        ContentItem::InputText { text } | ContentItem::OutputText { text }
+            if text.contains("TaskSpaceMapProjectionR7V1:") =>
+        {
+            Some(text.as_str())
         }
-        content.iter().rev().find_map(|entry| match entry {
-            ContentItem::InputText { text } | ContentItem::OutputText { text }
-                if text.contains("TaskSpaceMapProjectionR7V1:") =>
-            {
-                Some(text.as_str())
-            }
-            _ => None,
-        })
+        _ => None,
     })
 }
 
-fn compose_provider_visible_prompt_items(
-    mut items: Vec<ResponseItem>,
-    projection_item: Option<ResponseItem>,
-) -> Vec<ResponseItem> {
-    if let Some(projection_item) = projection_item {
-        items.push(projection_item);
+fn rewrite_taskspace_projection_items_for_append(items: &mut [ResponseItem]) {
+    for item in items {
+        if taskspace_projection_context(Some(item)).is_none() {
+            continue;
+        }
+        let ResponseItem::Message { role, .. } = item else {
+            continue;
+        };
+        if matches!(role.as_str(), "developer" | "system") {
+            *role = "user".to_string();
+        }
     }
-    items
 }
 
 use crate::memories::prompts::build_memory_tool_developer_instructions;

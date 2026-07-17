@@ -187,6 +187,7 @@ pub(crate) struct ExactPayloadScanEventV1 {
     pub(crate) projection_required: bool,
     pub(crate) active_projection_present: bool,
     pub(crate) active_projection_count: usize,
+    pub(crate) projection_is_message_tail: bool,
     pub(crate) large_raw_output_tokens: usize,
     pub(crate) runtime_boundary_forbidden_markers: Vec<String>,
     pub(crate) protected_items_present: bool,
@@ -218,17 +219,6 @@ pub(crate) struct ProviderProjectionIdentityExpectation {
 }
 
 impl ProviderProjectionIdentityExpectation {
-    pub(crate) fn absent(policy: TaskSpaceProjectionPolicy) -> Self {
-        Self {
-            policy,
-            kind: "absent".to_string(),
-            map_id_sha256: None,
-            revision: None,
-            canonical_sha256: None,
-            projection_sha256: String::new(),
-        }
-    }
-
     pub(crate) fn from_projection_context(
         policy: TaskSpaceProjectionPolicy,
         context: &str,
@@ -1051,6 +1041,7 @@ fn scan_provider_payload_text(
     let projection_blocks = provider_projection_blocks(value);
     let active_projection_count = projection_blocks.len();
     let active_projection_present = active_projection_count > 0;
+    let projection_is_message_tail = provider_projection_is_message_tail(value);
     let protected_items_present = !projection_blocks.is_empty()
         && projection_blocks
             .iter()
@@ -1088,6 +1079,9 @@ fn scan_provider_payload_text(
     if projection_required && active_projection_count == 0 {
         failure_reasons.push("current_projection_missing".to_string());
     }
+    if projection_required && active_projection_count > 0 && !projection_is_message_tail {
+        failure_reasons.push("current_projection_not_message_tail".to_string());
+    }
     if projection_required && active_projection_count > 1 {
         failure_reasons.push("current_projection_not_unique".to_string());
     }
@@ -1116,12 +1110,14 @@ fn scan_provider_payload_text(
         checked_byte_ranges: vec![(0, text.len())],
         negative_checks_performed: vec![
             "current_projection_uniqueness".to_string(),
+            "current_projection_message_tail".to_string(),
             "large_raw_output".to_string(),
             "runtime_boundary_forbidden_markers".to_string(),
         ],
         projection_required,
         active_projection_present,
         active_projection_count,
+        projection_is_message_tail,
         large_raw_output_tokens,
         runtime_boundary_forbidden_markers,
         protected_items_present,
@@ -1173,7 +1169,7 @@ fn provider_projection_blocks(value: &serde_json::Value) -> Vec<&str> {
     let mut blocks = Vec::new();
     for message in messages {
         let role = message.get("role").and_then(serde_json::Value::as_str);
-        if !matches!(role, Some("developer" | "system")) {
+        if !matches!(role, Some("developer" | "system" | "user")) {
             continue;
         }
         let Some(content) = message.get("content") else {
@@ -1186,6 +1182,31 @@ fn provider_projection_blocks(value: &serde_json::Value) -> Vec<&str> {
         }
     }
     blocks
+}
+
+fn provider_projection_is_message_tail(value: &serde_json::Value) -> bool {
+    let Some(messages) = value.get("messages").or_else(|| value.get("input")) else {
+        return false;
+    };
+    if let Some(text) = messages.as_str() {
+        return !projection_blocks_from_text(text).is_empty()
+            && text.trim_end().ends_with(TASKSPACE_PROJECTION_END_MARKER);
+    }
+    let Some(last_message) = messages.as_array().and_then(|messages| messages.last()) else {
+        return false;
+    };
+    let role = last_message.get("role").and_then(serde_json::Value::as_str);
+    if !matches!(role, Some("developer" | "system" | "user")) {
+        return false;
+    }
+    let Some(content) = last_message.get("content") else {
+        return false;
+    };
+    let mut strings = Vec::new();
+    collect_provider_strings(content, &mut strings);
+    strings
+        .into_iter()
+        .any(|text| !projection_blocks_from_text(text).is_empty())
 }
 
 fn projection_blocks_from_text(text: &str) -> Vec<&str> {
@@ -1288,15 +1309,11 @@ fn apply_projection_identity_expectation(
         scan.protected_items_present =
             scan.active_projection_count == 0 || scan.protected_items_present;
     }
-    let confirmed = if expected.kind == "absent" {
-        scan.active_projection_count == 0
-    } else {
-        scan.projection_kind.as_ref() == Some(&expected.kind)
-            && scan.projection_map_id_sha256 == expected.map_id_sha256
-            && scan.projection_revision == expected.revision
-            && scan.projection_canonical_sha256 == expected.canonical_sha256
-            && scan.projection_sha256.as_ref() == Some(&expected.projection_sha256)
-    };
+    let confirmed = scan.projection_kind.as_ref() == Some(&expected.kind)
+        && scan.projection_map_id_sha256 == expected.map_id_sha256
+        && scan.projection_revision == expected.revision
+        && scan.projection_canonical_sha256 == expected.canonical_sha256
+        && scan.projection_sha256.as_ref() == Some(&expected.projection_sha256);
     scan.projection_identity_confirmed = Some(confirmed);
     scan.negative_checks_performed
         .push("projection_identity".to_string());
@@ -1321,6 +1338,12 @@ fn projection_revision_sequence_valid(blocks: &[&str]) -> bool {
     let mut previous_revision = None;
     let mut closed_map_ids = HashSet::new();
     for block in blocks {
+        if projection_is_bootstrap(block) {
+            if current_map_id.is_some() || !closed_map_ids.is_empty() {
+                return false;
+            }
+            continue;
+        }
         let Some(map_id) = projection_mechanical_field(block, "map_id") else {
             return false;
         };
@@ -1336,13 +1359,20 @@ fn projection_revision_sequence_valid(blocks: &[&str]) -> bool {
             if closed_map_ids.contains(map_id) {
                 return false;
             }
-        } else if previous_revision.is_some_and(|previous| previous >= revision) {
+        } else if previous_revision.is_some_and(|previous| previous > revision) {
             return false;
         }
         current_map_id = Some(map_id);
         previous_revision = Some(revision);
     }
     true
+}
+
+fn projection_is_bootstrap(projection: &str) -> bool {
+    projection.lines().any(|line| line == "- map: none")
+        && projection
+            .lines()
+            .any(|line| line == "- bootstrap_required: true")
 }
 
 fn projection_block_is_valid(block: &str) -> bool {
@@ -1371,17 +1401,11 @@ fn projection_block_is_valid(block: &str) -> bool {
     if !projection_block_contains_required_sections(&normalized) {
         return false;
     }
-    if projection_mechanical_field(&normalized, "projection_kind") == Some("revision_snapshot") {
-        let Some(revision) = projection_mechanical_field(&normalized, "revision")
-            .and_then(|value| value.parse::<u64>().ok())
-        else {
-            return false;
-        };
-        return projection_mechanical_field(&normalized, "supersedes_through_revision")
-            .and_then(|value| value.parse::<u64>().ok())
-            == Some(revision.saturating_sub(1))
+    if projection_mechanical_field(&normalized, "projection_kind") == Some("request_snapshot") {
+        return projection_mechanical_field(&normalized, "supersedes_all_prior_projections")
+            == Some("true")
             && projection_mechanical_field(&normalized, "current_state_rule")
-                == Some("highest_revision_only");
+                == Some("last_projection_only");
     }
     true
 }
