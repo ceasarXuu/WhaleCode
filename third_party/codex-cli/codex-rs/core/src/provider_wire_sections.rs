@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use serde::Serialize;
 use serde_json::Map;
 use serde_json::Value;
@@ -255,22 +257,26 @@ fn active_projection_identity(messages: &[Value]) -> ActiveProjectionIdentity {
     if messages.is_empty() {
         return ActiveProjectionIdentity::unavailable(0, "active_projection_missing", None);
     }
-    if messages.len() != 1 {
+    let mut projections = Vec::new();
+    for message in messages {
+        match projection_blocks(message) {
+            Ok(blocks) => projections.extend(blocks),
+            Err(reason) => {
+                return ActiveProjectionIdentity::unavailable(messages.len(), reason, None);
+            }
+        }
+    }
+    if projections.is_empty() {
+        return ActiveProjectionIdentity::unavailable(0, "active_projection_missing", None);
+    }
+    if !projection_revision_sequence_valid(&projections) {
         return ActiveProjectionIdentity::unavailable(
-            messages.len(),
-            "active_projection_not_unique",
+            projections.len(),
+            "projection_revision_order_invalid",
             None,
         );
     }
-
-    let projections = match projection_blocks(&messages[0]) {
-        Ok(projections) => projections,
-        Err(reason) => return ActiveProjectionIdentity::unavailable(1, reason, None),
-    };
-    if projections.len() != 1 {
-        return ActiveProjectionIdentity::unavailable(1, "projection_block_not_unique", None);
-    }
-    let projection = projections[0];
+    let projection = projections[projections.len() - 1];
     let projection_sha256 = Some(byte_hash(projection.as_bytes()));
     let is_bootstrap = projection.lines().any(|line| line == "- map: none")
         && projection
@@ -278,7 +284,7 @@ fn active_projection_identity(messages: &[Value]) -> ActiveProjectionIdentity {
             .any(|line| line == "- bootstrap_required: true");
     if is_bootstrap {
         return ActiveProjectionIdentity {
-            count: 1,
+            count: projections.len(),
             kind: "bootstrap_required",
             map_id_sha256: None,
             revision: None,
@@ -290,42 +296,78 @@ fn active_projection_identity(messages: &[Value]) -> ActiveProjectionIdentity {
 
     let Some(map_id) = mechanical_field(projection, "map_id") else {
         return ActiveProjectionIdentity::unavailable(
-            1,
+            projections.len(),
             "projection_map_id_missing",
             projection_sha256,
         );
     };
     let Some(revision) = mechanical_field(projection, "revision") else {
         return ActiveProjectionIdentity::unavailable(
-            1,
+            projections.len(),
             "projection_revision_missing",
             projection_sha256,
         );
     };
     let Ok(revision) = revision.parse::<u64>() else {
         return ActiveProjectionIdentity::unavailable(
-            1,
+            projections.len(),
             "projection_revision_invalid",
             projection_sha256,
         );
     };
     let Some(canonical_sha256) = mechanical_field(projection, "canonical_sha256") else {
         return ActiveProjectionIdentity::unavailable(
-            1,
+            projections.len(),
             "projection_canonical_sha256_missing",
             projection_sha256,
         );
     };
 
     ActiveProjectionIdentity {
-        count: 1,
-        kind: "current_projection",
+        count: projections.len(),
+        kind: match mechanical_field(projection, "projection_kind") {
+            Some("revision_snapshot") => "revision_snapshot",
+            Some("current_projection") => "current_projection",
+            _ => "unavailable",
+        },
         map_id_sha256: Some(byte_hash(map_id.as_bytes())),
         revision: Some(revision),
         canonical_sha256: Some(canonical_sha256.to_string()),
         projection_sha256,
         unavailable_reason: None,
     }
+}
+
+fn projection_revision_sequence_valid(projections: &[&str]) -> bool {
+    if projections.len() < 2 {
+        return true;
+    }
+    let mut current_map_id = None;
+    let mut previous_revision = None;
+    let mut closed_map_ids = HashSet::new();
+    for projection in projections {
+        let Some(map_id) = mechanical_field(projection, "map_id") else {
+            return false;
+        };
+        let Some(revision) =
+            mechanical_field(projection, "revision").and_then(|value| value.parse::<u64>().ok())
+        else {
+            return false;
+        };
+        if current_map_id.is_some_and(|current| current != map_id) {
+            if let Some(current) = current_map_id {
+                closed_map_ids.insert(current);
+            }
+            if closed_map_ids.contains(map_id) {
+                return false;
+            }
+        } else if previous_revision.is_some_and(|previous| previous >= revision) {
+            return false;
+        }
+        current_map_id = Some(map_id);
+        previous_revision = Some(revision);
+    }
+    true
 }
 
 impl ActiveProjectionIdentity {

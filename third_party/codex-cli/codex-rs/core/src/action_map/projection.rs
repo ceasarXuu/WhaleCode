@@ -1,6 +1,21 @@
 use sha2::Digest;
 use sha2::Sha256;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ProjectionEnvelope {
+    CurrentProjection,
+    RevisionSnapshot { supersedes_through_revision: u64 },
+}
+
+impl ProjectionEnvelope {
+    pub(crate) fn kind(self) -> &'static str {
+        match self {
+            Self::CurrentProjection => "current_projection",
+            Self::RevisionSnapshot { .. } => "revision_snapshot",
+        }
+    }
+}
+
 #[derive(Clone)]
 pub(super) struct ProjectionInput {
     pub(super) map_id: String,
@@ -86,7 +101,10 @@ pub(super) struct ProjectionSizeBreakdown {
     pub(super) projection_bytes: usize,
 }
 
-pub(super) fn render_projection(input: ProjectionInput) -> RenderedProjection {
+pub(super) fn render_projection(
+    input: ProjectionInput,
+    envelope: ProjectionEnvelope,
+) -> RenderedProjection {
     let mut body = String::new();
     let mut size_breakdown = ProjectionSizeBreakdown::default();
     let section_start = body.len();
@@ -96,9 +114,20 @@ pub(super) fn render_projection(input: ProjectionInput) -> RenderedProjection {
         "schema_version",
         "taskspace-map-projection-r7-v1",
     );
-    push_field(&mut body, "projection_kind", "current_projection");
+    push_field(&mut body, "projection_kind", envelope.kind());
     push_field(&mut body, "map_id", &input.map_id);
     push_field(&mut body, "revision", &input.revision.to_string());
+    if let ProjectionEnvelope::RevisionSnapshot {
+        supersedes_through_revision,
+    } = envelope
+    {
+        push_field(
+            &mut body,
+            "supersedes_through_revision",
+            &supersedes_through_revision.to_string(),
+        );
+        push_field(&mut body, "current_state_rule", "highest_revision_only");
+    }
     push_field(&mut body, "canonical_sha256", &input.canonical_sha256);
     push_field(&mut body, "root_node_id", &input.root_node_id);
     push_field(&mut body, "finish_node_id", &input.finish_node_id);
@@ -323,8 +352,8 @@ mod tests {
                 artifact_refs: vec!["src/lib.rs".into()],
             }],
         };
-        let rendered = render_projection(input.clone());
-        let rerendered = render_projection(input);
+        let rendered = render_projection(input.clone(), ProjectionEnvelope::CurrentProjection);
+        let rerendered = render_projection(input, ProjectionEnvelope::CurrentProjection);
 
         for field in [
             "map_id: map-1",
@@ -370,35 +399,38 @@ mod tests {
     #[test]
     fn projection_does_not_page_large_skeletons() {
         let node_count = 1_000;
-        let rendered = render_projection(ProjectionInput {
-            map_id: "map-large".into(),
-            revision: 1,
-            canonical_sha256: "canonical-large".into(),
-            root_node_id: "node-0".into(),
-            finish_node_id: "node-999".into(),
-            complete: false,
-            root_source_event_ids: vec!["task-event-root".into()],
-            current_node_id: Some("node-999".into()),
-            active_frontier: vec!["node-999".into()],
-            map_nodes: (0..node_count)
-                .map(|index| ProjectionNode {
-                    id: format!("node-{index}"),
-                    role: "work".into(),
-                    status: "completed".into(),
-                    goal: format!("goal-{index}"),
-                    result_ids: vec![format!("result-{index}")],
-                    event_count: 1,
-                    detail_state: None,
-                })
-                .collect(),
-            map_edges: (1..node_count)
-                .map(|index| ProjectionEdge {
-                    from: format!("node-{}", index - 1),
-                    to: format!("node-{index}"),
-                })
-                .collect(),
-            node_details: Vec::new(),
-        });
+        let rendered = render_projection(
+            ProjectionInput {
+                map_id: "map-large".into(),
+                revision: 1,
+                canonical_sha256: "canonical-large".into(),
+                root_node_id: "node-0".into(),
+                finish_node_id: "node-999".into(),
+                complete: false,
+                root_source_event_ids: vec!["task-event-root".into()],
+                current_node_id: Some("node-999".into()),
+                active_frontier: vec!["node-999".into()],
+                map_nodes: (0..node_count)
+                    .map(|index| ProjectionNode {
+                        id: format!("node-{index}"),
+                        role: "work".into(),
+                        status: "completed".into(),
+                        goal: format!("goal-{index}"),
+                        result_ids: vec![format!("result-{index}")],
+                        event_count: 1,
+                        detail_state: None,
+                    })
+                    .collect(),
+                map_edges: (1..node_count)
+                    .map(|index| ProjectionEdge {
+                        from: format!("node-{}", index - 1),
+                        to: format!("node-{index}"),
+                    })
+                    .collect(),
+                node_details: Vec::new(),
+            },
+            ProjectionEnvelope::CurrentProjection,
+        );
 
         assert_eq!(
             rendered
@@ -418,6 +450,42 @@ mod tests {
         );
         assert!(!rendered.body.contains("omitted"));
         assert!(!rendered.body.contains("cursor"));
+    }
+
+    #[test]
+    fn revision_snapshot_envelope_marks_supersession_without_current_claim() {
+        let rendered = render_projection(
+            ProjectionInput {
+                map_id: "map-1".into(),
+                revision: 7,
+                canonical_sha256: "canonical-7".into(),
+                root_node_id: "root".into(),
+                finish_node_id: "finish".into(),
+                complete: false,
+                root_source_event_ids: vec![],
+                current_node_id: Some("work".into()),
+                active_frontier: vec!["work".into()],
+                map_nodes: vec![],
+                map_edges: vec![],
+                node_details: vec![],
+            },
+            ProjectionEnvelope::RevisionSnapshot {
+                supersedes_through_revision: 6,
+            },
+        );
+
+        assert!(
+            rendered
+                .body
+                .contains("- projection_kind: revision_snapshot")
+        );
+        assert!(rendered.body.contains("- supersedes_through_revision: 6"));
+        assert!(
+            rendered
+                .body
+                .contains("- current_state_rule: highest_revision_only")
+        );
+        assert!(!rendered.body.contains("authoritative_current"));
     }
 
     #[test]

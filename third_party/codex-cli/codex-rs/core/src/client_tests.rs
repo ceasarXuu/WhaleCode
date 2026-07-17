@@ -542,6 +542,78 @@ fn provider_payload_scan_validates_canonical_projection_shape() {
     assert!(matching_scan.passed);
     assert!(matching_scan.replacement_confirmed);
 
+    let revision_snapshot = |revision: u64| {
+        active_projection
+            .replace(
+                "- projection_kind: current_projection",
+                "- projection_kind: revision_snapshot",
+            )
+            .replace("- revision: 2", &format!("- revision: {revision}"))
+            .replace(
+                "- canonical_sha256: canonical-map-2",
+                &format!(
+                    "- supersedes_through_revision: {}\n- current_state_rule: highest_revision_only\n- canonical_sha256: canonical-map-{revision}",
+                    revision.saturating_sub(1)
+                ),
+            )
+    };
+    let append_revision_2 = revision_snapshot(2);
+    let append_revision_3 = revision_snapshot(3);
+    let append_payload = provider_payload_digest(&json!({
+        "input": format!("{append_revision_2}\n{append_revision_3}"),
+        "tools": active_tools
+    }))
+    .expect("append payload digest");
+    let append_expectation = ProviderProjectionIdentityExpectation::from_projection_context(
+        TaskSpaceProjectionPolicy::MapAppend,
+        &append_revision_3,
+    )
+    .expect("latest append projection identity");
+    let mut append_scan = append_payload.scan;
+    apply_projection_identity_expectation(&mut append_scan, Some(&append_expectation));
+    assert_eq!(append_scan.active_projection_count, 2);
+    assert_eq!(
+        append_scan.projection_kind.as_deref(),
+        Some("revision_snapshot")
+    );
+    assert_eq!(append_scan.projection_revision, Some(3));
+    assert_eq!(append_scan.projection_identity_confirmed, Some(true));
+    assert!(append_scan.passed, "{:?}", append_scan.failure_reasons);
+    assert!(append_scan.replacement_confirmed);
+
+    let mut absent_append_scan = fresh_active_without_projection.scan.clone();
+    apply_projection_identity_expectation(
+        &mut absent_append_scan,
+        Some(&ProviderProjectionIdentityExpectation::absent(
+            TaskSpaceProjectionPolicy::MapAppend,
+        )),
+    );
+    assert_eq!(absent_append_scan.projection_identity_confirmed, Some(true));
+    assert!(absent_append_scan.passed);
+
+    let duplicate_append = provider_payload_digest(&json!({
+        "input": format!("{append_revision_2}\n{append_revision_2}"),
+        "tools": active_tools
+    }))
+    .expect("duplicate append payload digest");
+    let mut duplicate_append_scan = duplicate_append.scan;
+    apply_projection_identity_expectation(
+        &mut duplicate_append_scan,
+        Some(
+            &ProviderProjectionIdentityExpectation::from_projection_context(
+                TaskSpaceProjectionPolicy::MapAppend,
+                &append_revision_2,
+            )
+            .expect("duplicate expectation"),
+        ),
+    );
+    assert!(!duplicate_append_scan.passed);
+    assert!(
+        duplicate_append_scan
+            .failure_reasons
+            .contains(&"projection_revision_order_invalid".to_string())
+    );
+
     let revision_3_projection = active_projection.replace("- revision: 2", "- revision: 3");
     let revision_3_expectation = ProviderProjectionIdentityExpectation::from_projection_context(
         TaskSpaceProjectionPolicy::MapAlways,

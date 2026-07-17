@@ -1766,12 +1766,10 @@ impl Config {
         let taskspace_projection_policy = config_profile
             .taskspace_projection_policy
             .or(cfg.taskspace_projection_policy);
-        if taskspace_projection_policy.is_some_and(|policy| {
-            policy != TaskSpaceProjectionPolicy::MapAlways
-        }) {
+        if taskspace_projection_policy == Some(TaskSpaceProjectionPolicy::MapRequest) {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
-                "taskspace_projection_policy is not enabled before its R7 implementation phase; Phase B only enables map-always",
+                "taskspace_projection_policy map-request is not enabled before R7 Phase D",
             ));
         }
         let tool_suggest = resolve_tool_suggest_config(&cfg);

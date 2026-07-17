@@ -26,7 +26,7 @@ impl Session {
         expected_revision: u64,
         final_summary: String,
     ) -> Result<ActionMapFinishEndOutcome, FinishActionMapError> {
-        let (outcome, terminal_event, candidate) = {
+        let (outcome, terminal_event, candidate, prepared_projection) = {
             let state = self.state.lock().await;
             let mut candidate = state.action_map_runtime.clone();
             let (outcome, events) = candidate
@@ -34,7 +34,15 @@ impl Session {
                 .map_err(FinishActionMapError::Rejected)?;
             let terminal_event = Self::terminal_commit_event(events, candidate.snapshot())
                 .map_err(FinishActionMapError::Internal)?;
-            (outcome, terminal_event, candidate)
+            let prepared_projection = state
+                .prepare_projection_for_candidate(
+                    &mut candidate,
+                    &[MapRuntimeEvent::GraphRevisionCommitted(
+                        terminal_event.graph_revision.clone(),
+                    )],
+                )
+                .map_err(FinishActionMapError::Internal)?;
+            (outcome, terminal_event, candidate, prepared_projection)
         };
         let terminal_map = terminal_event.snapshot.map.as_ref().ok_or_else(|| {
             FinishActionMapError::Internal(
@@ -47,7 +55,7 @@ impl Session {
         self.persist_terminal_commit(&terminal_event)
             .await
             .map_err(FinishActionMapError::Persistence)?;
-        {
+        let projection_trace_events = {
             let mut state = self.state.lock().await;
             let live_snapshot = state.action_map_runtime.snapshot();
             let live_state_is_precommit = live_snapshot.map.as_ref().is_some_and(|map| {
@@ -70,12 +78,17 @@ impl Session {
                 terminal_event.snapshot_sha256.clone(),
                 terminal_event.snapshot.clone(),
             );
-        }
+            state.apply_prepared_projection_capture(prepared_projection)
+        };
         self.send_persisted_event(
             turn_context,
             EventMsg::MapRuntime(MapRuntimeEvent::TerminalCommitted(Box::new(terminal_event))),
         )
         .await;
+        if !projection_trace_events.is_empty() {
+            self.emit_action_map_events_for_turn(turn_context, projection_trace_events)
+                .await;
+        }
         Ok(outcome)
     }
 

@@ -24,6 +24,7 @@
 //! fails, normal stream retry/fallback logic handles recovery on the same turn.
 
 use std::collections::HashMap;
+use std::collections::HashSet;
 use std::sync::Arc;
 use std::sync::Mutex as StdMutex;
 use std::sync::OnceLock;
@@ -217,6 +218,17 @@ pub(crate) struct ProviderProjectionIdentityExpectation {
 }
 
 impl ProviderProjectionIdentityExpectation {
+    pub(crate) fn absent(policy: TaskSpaceProjectionPolicy) -> Self {
+        Self {
+            policy,
+            kind: "absent".to_string(),
+            map_id_sha256: None,
+            revision: None,
+            canonical_sha256: None,
+            projection_sha256: String::new(),
+        }
+    }
+
     pub(crate) fn from_projection_context(
         policy: TaskSpaceProjectionPolicy,
         context: &str,
@@ -241,9 +253,10 @@ impl ProviderProjectionIdentityExpectation {
         let revision = projection_mechanical_field(projection, "revision")
             .and_then(|value| value.parse::<u64>().ok())?;
         let canonical_sha256 = projection_mechanical_field(projection, "canonical_sha256")?;
+        let kind = projection_mechanical_field(projection, "projection_kind")?;
         Some(Self {
             policy,
-            kind: "current_projection".to_string(),
+            kind: kind.to_string(),
             map_id_sha256: Some(sha256_hex(map_id.as_bytes())),
             revision: Some(revision),
             canonical_sha256: Some(canonical_sha256.to_string()),
@@ -1038,12 +1051,14 @@ fn scan_provider_payload_text(
     let projection_blocks = provider_projection_blocks(value);
     let active_projection_count = projection_blocks.len();
     let active_projection_present = active_projection_count > 0;
-    let protected_items_present = projection_blocks
-        .first()
-        .is_some_and(|block| projection_block_is_valid(block));
+    let protected_items_present = !projection_blocks.is_empty()
+        && projection_blocks
+            .iter()
+            .all(|block| projection_block_is_valid(block));
     let projection_identity = projection_blocks
-        .first()
+        .last()
         .map(|projection| projection_identity(projection));
+    let revision_sequence_valid = projection_revision_sequence_valid(&projection_blocks);
     let large_raw_output_tokens = estimate_large_raw_output_tokens(value);
     let runtime_boundary_forbidden_markers = [
         "TaskSpaceProviderBudgetHardStopV1",
@@ -1075,6 +1090,9 @@ fn scan_provider_payload_text(
     }
     if projection_required && active_projection_count > 1 {
         failure_reasons.push("current_projection_not_unique".to_string());
+    }
+    if active_projection_count > 1 && !revision_sequence_valid {
+        failure_reasons.push("projection_revision_order_invalid".to_string());
     }
     if !projection_required && active_projection_count != 0 {
         failure_reasons.push("unexpected_current_projection".to_string());
@@ -1224,13 +1242,12 @@ fn projection_identity(projection: &str) -> ProviderProjectionIdentity {
         .and_then(|value| value.parse::<u64>().ok());
     let canonical_sha256 =
         projection_mechanical_field(projection, "canonical_sha256").map(str::to_string);
+    let kind = projection_mechanical_field(projection, "projection_kind")
+        .filter(|_| map_id_sha256.is_some() && revision.is_some() && canonical_sha256.is_some())
+        .unwrap_or("unavailable")
+        .to_string();
     ProviderProjectionIdentity {
-        kind: if map_id_sha256.is_some() && revision.is_some() && canonical_sha256.is_some() {
-            "current_projection"
-        } else {
-            "unavailable"
-        }
-        .to_string(),
+        kind,
         map_id_sha256,
         revision,
         canonical_sha256,
@@ -1259,11 +1276,27 @@ fn apply_projection_identity_expectation(
     scan.expected_projection_revision = expected.revision;
     scan.expected_projection_canonical_sha256 = expected.canonical_sha256.clone();
     scan.expected_projection_sha256 = Some(expected.projection_sha256.clone());
-    let confirmed = scan.projection_kind.as_ref() == Some(&expected.kind)
-        && scan.projection_map_id_sha256 == expected.map_id_sha256
-        && scan.projection_revision == expected.revision
-        && scan.projection_canonical_sha256 == expected.canonical_sha256
-        && scan.projection_sha256.as_ref() == Some(&expected.projection_sha256);
+    if expected.policy == TaskSpaceProjectionPolicy::MapAppend {
+        scan.failure_reasons.retain(|reason| {
+            !matches!(
+                reason.as_str(),
+                "current_projection_missing"
+                    | "current_projection_not_unique"
+                    | "current_projection_required_sections_missing"
+            )
+        });
+        scan.protected_items_present =
+            scan.active_projection_count == 0 || scan.protected_items_present;
+    }
+    let confirmed = if expected.kind == "absent" {
+        scan.active_projection_count == 0
+    } else {
+        scan.projection_kind.as_ref() == Some(&expected.kind)
+            && scan.projection_map_id_sha256 == expected.map_id_sha256
+            && scan.projection_revision == expected.revision
+            && scan.projection_canonical_sha256 == expected.canonical_sha256
+            && scan.projection_sha256.as_ref() == Some(&expected.projection_sha256)
+    };
     scan.projection_identity_confirmed = Some(confirmed);
     scan.negative_checks_performed
         .push("projection_identity".to_string());
@@ -1274,6 +1307,42 @@ fn apply_projection_identity_expectation(
         scan.passed = false;
         scan.replacement_confirmed = false;
     }
+    if expected.policy == TaskSpaceProjectionPolicy::MapAppend {
+        scan.passed = scan.failure_reasons.is_empty();
+        scan.replacement_confirmed = scan.passed && confirmed;
+    }
+}
+
+fn projection_revision_sequence_valid(blocks: &[&str]) -> bool {
+    if blocks.len() < 2 {
+        return true;
+    }
+    let mut current_map_id = None;
+    let mut previous_revision = None;
+    let mut closed_map_ids = HashSet::new();
+    for block in blocks {
+        let Some(map_id) = projection_mechanical_field(block, "map_id") else {
+            return false;
+        };
+        let Some(revision) = projection_mechanical_field(block, "revision")
+            .and_then(|value| value.parse::<u64>().ok())
+        else {
+            return false;
+        };
+        if current_map_id.is_some_and(|current| current != map_id) {
+            if let Some(current) = current_map_id {
+                closed_map_ids.insert(current);
+            }
+            if closed_map_ids.contains(map_id) {
+                return false;
+            }
+        } else if previous_revision.is_some_and(|previous| previous >= revision) {
+            return false;
+        }
+        current_map_id = Some(map_id);
+        previous_revision = Some(revision);
+    }
+    true
 }
 
 fn projection_block_is_valid(block: &str) -> bool {
@@ -1299,7 +1368,22 @@ fn projection_block_is_valid(block: &str) -> bool {
                 || line.trim().starts_with("bootstrap_required: true")
         });
     }
-    projection_block_contains_required_sections(&normalized)
+    if !projection_block_contains_required_sections(&normalized) {
+        return false;
+    }
+    if projection_mechanical_field(&normalized, "projection_kind") == Some("revision_snapshot") {
+        let Some(revision) = projection_mechanical_field(&normalized, "revision")
+            .and_then(|value| value.parse::<u64>().ok())
+        else {
+            return false;
+        };
+        return projection_mechanical_field(&normalized, "supersedes_through_revision")
+            .and_then(|value| value.parse::<u64>().ok())
+            == Some(revision.saturating_sub(1))
+            && projection_mechanical_field(&normalized, "current_state_rule")
+                == Some("highest_revision_only");
+    }
+    true
 }
 
 fn provider_payload_has_tool(value: &serde_json::Value, expected: &str) -> bool {

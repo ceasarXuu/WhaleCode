@@ -96,6 +96,10 @@ impl SessionConfiguration {
         &self.codex_home
     }
 
+    pub(crate) fn taskspace_projection_policy(&self) -> Option<TaskSpaceProjectionPolicy> {
+        self.taskspace_projection_policy
+    }
+
     pub(super) fn permission_profile(&self) -> PermissionProfile {
         PermissionProfile::from_runtime_permissions_with_enforcement(
             SandboxEnforcement::from_legacy_sandbox_policy(self.sandbox_policy.get()),

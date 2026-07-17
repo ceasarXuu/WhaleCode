@@ -287,8 +287,8 @@ use crate::SkillError;
 use crate::SkillLoadOutcome;
 use crate::SkillMetadata;
 use crate::SkillsManager;
-use crate::action_map::ProjectionCursor;
 use crate::action_map::ProjectionEmission;
+use crate::action_map::ProjectionEnvelope;
 use crate::action_map::ProjectionTrigger;
 use crate::action_map::decide_projection_emission;
 use crate::agents_md::AgentsMdManager;
@@ -918,11 +918,9 @@ impl Session {
     ) -> Result<Option<ActionMapAssignment>, String> {
         let (assignment, events) = {
             let mut state = self.state.lock().await;
-            state.action_map_runtime.prepare_spawn_assignment(
-                self.conversation_id,
-                task_name,
-                node_id,
-            )
+            state.mutate_action_map_with_projection(|runtime| {
+                runtime.prepare_spawn_assignment(self.conversation_id, task_name, node_id)
+            })
         }
         .map_err(|err| {
             debug!(
@@ -1297,9 +1295,9 @@ impl Session {
     ) -> Result<crate::action_map::ActionMapInitializeOutcome, String> {
         let (outcome, events) = {
             let mut state = self.state.lock().await;
-            state
-                .action_map_runtime
-                .initialize_map_for_main(self.conversation_id, input)
+            state.mutate_action_map_with_projection(|runtime| {
+                runtime.initialize_map_for_main(self.conversation_id, input)
+            })
         }?;
         self.emit_action_map_events_for_turn(turn_context, events)
             .await;
@@ -1321,9 +1319,9 @@ impl Session {
     ) -> Result<crate::action_map::ActionMapGraphMutationOutcome, String> {
         let (outcome, events) = {
             let mut state = self.state.lock().await;
-            state
-                .action_map_runtime
-                .mutate_graph_for_main(self.conversation_id, input)
+            state.mutate_action_map_with_projection(|runtime| {
+                runtime.mutate_graph_for_main(self.conversation_id, input)
+            })
         }?;
         self.emit_action_map_events_for_turn(turn_context, events)
             .await;
@@ -1340,13 +1338,15 @@ impl Session {
     ) -> Result<crate::action_map::ActionMapTransitionOutcome, String> {
         let (outcome, events) = {
             let mut state = self.state.lock().await;
-            state.action_map_runtime.transition_node_for_main(
-                self.conversation_id,
-                expected_revision,
-                node_id,
-                transition,
-                source_event_ref,
-            )
+            state.mutate_action_map_with_projection(|runtime| {
+                runtime.transition_node_for_main(
+                    self.conversation_id,
+                    expected_revision,
+                    node_id,
+                    transition,
+                    source_event_ref,
+                )
+            })
         }?;
         self.emit_action_map_events_for_turn(turn_context, events)
             .await;
@@ -1410,7 +1410,20 @@ impl Session {
     ) {
         let events = {
             let mut state = self.state.lock().await;
-            state.action_map_runtime.release_lease(lease_id, reason)
+            match state.mutate_action_map_with_projection(|runtime| {
+                Ok(((), runtime.release_lease(lease_id, reason)))
+            }) {
+                Ok(((), events)) => events,
+                Err(error) => {
+                    tracing::error!(
+                        target: "codex_core::taskspace",
+                        lease_id,
+                        %error,
+                        "rolled back TaskSpace lease release after projection capture failure"
+                    );
+                    Vec::new()
+                }
+            }
         };
         self.emit_action_map_events_for_turn(turn_context, events)
             .await;
@@ -1424,11 +1437,26 @@ impl Session {
     ) {
         let events = {
             let mut state = self.state.lock().await;
-            state
-                .action_map_runtime
-                .release_lease_for_thread(thread_id, reason)
-                .map(|(_, events)| events)
-                .unwrap_or_default()
+            match state.mutate_action_map_with_projection(|runtime| {
+                Ok((
+                    (),
+                    runtime
+                        .release_lease_for_thread(thread_id, reason)
+                        .map(|(_, events)| events)
+                        .unwrap_or_default(),
+                ))
+            }) {
+                Ok(((), events)) => events,
+                Err(error) => {
+                    tracing::error!(
+                        target: "codex_core::taskspace",
+                        %thread_id,
+                        %error,
+                        "rolled back TaskSpace thread lease release after projection capture failure"
+                    );
+                    Vec::new()
+                }
+            }
         };
         self.emit_action_map_events_for_turn(turn_context, events)
             .await;
@@ -1441,9 +1469,23 @@ impl Session {
     ) -> Option<String> {
         let result = {
             let mut state = self.state.lock().await;
-            state
-                .action_map_runtime
-                .record_child_result(child_thread_id, status)
+            match state.mutate_action_map_with_projection(|runtime| {
+                Ok(match runtime.record_child_result(child_thread_id, status) {
+                    Some((result_id, events)) => (Some(result_id), events),
+                    None => (None, Vec::new()),
+                })
+            }) {
+                Ok((result_id, events)) => result_id.map(|result_id| (result_id, events)),
+                Err(error) => {
+                    tracing::error!(
+                        target: "codex_core::taskspace",
+                        %child_thread_id,
+                        %error,
+                        "rolled back TaskSpace child result after projection capture failure"
+                    );
+                    None
+                }
+            }
         };
         let (result_id, events) = result?;
         self.emit_action_map_events_raw(events).await;
@@ -1569,6 +1611,61 @@ impl Session {
         } else {
             self.emit_action_map_delta().await;
         }
+    }
+
+    pub(crate) async fn flush_taskspace_projection_appends(
+        &self,
+        turn_context: &TurnContext,
+    ) -> Vec<ResponseItem> {
+        let appends = {
+            let mut state = self.state.lock().await;
+            std::mem::take(&mut state.pending_taskspace_projection_appends)
+        };
+        if appends.is_empty() {
+            return Vec::new();
+        }
+        let items = appends
+            .iter()
+            .filter_map(|append| {
+                crate::context_manager::updates::build_developer_update_item(vec![
+                    append.context.clone(),
+                ])
+            })
+            .collect::<Vec<_>>();
+        self.record_conversation_items(turn_context, &items).await;
+        for append in appends {
+            tracing::info!(
+                target: "codex_core::taskspace",
+                event_name = "taskspace.projection_revision_appended",
+                trigger = ?append.trigger,
+                map_id = append.identity.map_id,
+                revision = append.identity.revision,
+                canonical_sha256 = append.identity.canonical_sha256,
+                projection_sha256 = append.identity.projection_sha256,
+                "persisted immutable TaskSpace revision snapshot"
+            );
+        }
+        items
+    }
+
+    async fn append_current_taskspace_projection_for_epoch(
+        &self,
+        turn_context: &TurnContext,
+        trigger: ProjectionTrigger,
+    ) -> Result<(), String> {
+        let trace_events = {
+            let mut state = self.state.lock().await;
+            state.capture_current_projection_for_epoch(trigger)?;
+            state
+                .action_map_runtime
+                .take_pending_projection_trace_events()
+        };
+        if !trace_events.is_empty() {
+            self.emit_action_map_events_for_turn(turn_context, trace_events)
+                .await;
+        }
+        let _ = self.flush_taskspace_projection_appends(turn_context).await;
+        Ok(())
     }
 
     fn should_emit_provider_budget_warning(event: &ProviderRequestBudgetEvent) -> bool {
@@ -2015,6 +2112,17 @@ impl Session {
                     let mut state = self.state.lock().await;
                     state.set_token_info(Some(info));
                 }
+                self.append_current_taskspace_projection_for_epoch(
+                    &turn_context,
+                    ProjectionTrigger::Resume,
+                )
+                .await
+                .map_err(|message| {
+                    rollout_reconstruction::RolloutReconstructionError {
+                        phase: "taskspace_projection_resume",
+                        message,
+                    }
+                })?;
 
                 // Defer seeding the session's initial context until the first turn starts so
                 // turn/start overrides can be merged before we write to the rollout.
@@ -2045,6 +2153,17 @@ impl Session {
                 if !is_subagent {
                     self.emit_action_map_checkpoint_for_turn(&turn_context, "resume")
                         .await;
+                    self.append_current_taskspace_projection_for_epoch(
+                        &turn_context,
+                        ProjectionTrigger::Resume,
+                    )
+                    .await
+                    .map_err(|message| {
+                        rollout_reconstruction::RolloutReconstructionError {
+                            phase: "taskspace_projection_fork_resume",
+                            message,
+                        }
+                    })?;
                 }
 
                 // Forked threads should remain file-backed immediately after startup.
@@ -3401,6 +3520,7 @@ impl Session {
 
     pub(crate) async fn replace_compacted_history(
         &self,
+        turn_context: &TurnContext,
         items: Vec<ResponseItem>,
         reference_context_item: Option<TurnContextItem>,
         compacted_item: CompactedItem,
@@ -3433,6 +3553,16 @@ impl Session {
                 .await;
         }
         self.services.model_client.advance_window_generation();
+        if taskspace_compacted
+            && let Err(error) = self
+                .append_current_taskspace_projection_for_epoch(
+                    turn_context,
+                    ProjectionTrigger::CompactionEpochStart,
+                )
+                .await
+        {
+            panic!("TaskSpace compaction projection epoch failed: {error}");
+        }
     }
 
     async fn persist_rollout_response_items(&self, items: &[ResponseItem]) {
@@ -3878,12 +4008,11 @@ impl Session {
         turn_context: &TurnContext,
         items: Vec<ResponseItem>,
     ) -> PreparedProviderPromptItems {
-        let prepared_items = remove_taskspace_projection_items(items);
         let (policy, projection_context, projection_trace_events) = {
             let mut state = self.state.lock().await;
             if state.action_map_runtime.mode() != MapRuntimeMode::Experiment {
                 return PreparedProviderPromptItems {
-                    items: prepared_items,
+                    items,
                     projection_identity: None,
                 };
             }
@@ -3894,13 +4023,14 @@ impl Session {
             let decision = decide_projection_emission(
                 policy,
                 ProjectionTrigger::ProviderRequest,
-                &ProjectionCursor::default(),
+                &state.taskspace_projection_cursor,
+                None,
             )
             .expect("configured TaskSpace projection policy must be enabled");
             let context = match decision.emission {
-                ProjectionEmission::ReplaceLatest => {
-                    state.action_map_runtime.build_developer_context()
-                }
+                ProjectionEmission::ReplaceLatest => state
+                    .action_map_runtime
+                    .build_developer_context(ProjectionEnvelope::CurrentProjection),
                 ProjectionEmission::None => None,
                 ProjectionEmission::AppendRevision | ProjectionEmission::ReturnAsToolResult => {
                     unreachable!("provider request cannot select a non-provider emission")
@@ -3923,14 +4053,27 @@ impl Session {
             self.emit_action_map_events_for_turn(turn_context, projection_trace_events)
                 .await;
         }
-        let projection_identity = projection_context.as_deref().and_then(|context| {
-            ProviderProjectionIdentityExpectation::from_projection_context(policy, context)
-        });
+        let prepared_items = match policy {
+            TaskSpaceProjectionPolicy::MapAlways => remove_taskspace_projection_items(items),
+            TaskSpaceProjectionPolicy::MapAppend => items,
+            TaskSpaceProjectionPolicy::MapRequest => {
+                unreachable!("map-request remains disabled before Phase D")
+            }
+        };
         let projection_item = projection_context.and_then(|projection| {
             crate::context_manager::updates::build_developer_update_item(vec![projection])
         });
+        let composed_items = compose_provider_visible_prompt_items(prepared_items, projection_item);
+        let projection_identity = latest_taskspace_projection_context(&composed_items)
+            .and_then(|context| {
+                ProviderProjectionIdentityExpectation::from_projection_context(policy, context)
+            })
+            .or_else(|| {
+                (policy == TaskSpaceProjectionPolicy::MapAppend)
+                    .then(|| ProviderProjectionIdentityExpectation::absent(policy))
+            });
         PreparedProviderPromptItems {
-            items: compose_provider_visible_prompt_items(prepared_items, projection_item),
+            items: composed_items,
             projection_identity,
         }
     }
@@ -4576,6 +4719,25 @@ fn remove_taskspace_projection_items(items: Vec<ResponseItem>) -> Vec<ResponseIt
         .into_iter()
         .filter(|item| !is_action_map_projection_developer_item(item))
         .collect()
+}
+
+fn latest_taskspace_projection_context(items: &[ResponseItem]) -> Option<&str> {
+    items.iter().rev().find_map(|item| {
+        let ResponseItem::Message { role, content, .. } = item else {
+            return None;
+        };
+        if role != "developer" && role != "system" {
+            return None;
+        }
+        content.iter().rev().find_map(|entry| match entry {
+            ContentItem::InputText { text } | ContentItem::OutputText { text }
+                if text.contains("TaskSpaceMapProjectionR7V1:") =>
+            {
+                Some(text.as_str())
+            }
+            _ => None,
+        })
+    })
 }
 
 fn compose_provider_visible_prompt_items(

@@ -62,6 +62,7 @@ use super::map::TaskRecord;
 use super::map::TaskSpaceTraceEvent;
 use super::map::ToolActionDescriptor;
 use super::projection::ProjectionEdge;
+use super::projection::ProjectionEnvelope;
 use super::projection::ProjectionEventRef;
 use super::projection::ProjectionInput;
 use super::projection::ProjectionNode;
@@ -4098,17 +4099,31 @@ impl ActionMapRuntimeState {
             .unwrap_or_default()
     }
 
-    pub(crate) fn build_developer_context(&mut self) -> Option<String> {
+    pub(crate) fn build_developer_context(
+        &mut self,
+        envelope: ProjectionEnvelope,
+    ) -> Option<String> {
         if self.mode != MapRuntimeMode::Experiment {
             return None;
         }
         if self.bootstrap_required {
             return Some(self.build_bootstrap_compact_developer_context());
         }
-        if let Some(context) = self.build_active_projection_developer_context() {
+        if let Some(context) = self.build_active_projection_developer_context(envelope) {
             return Some(context);
         }
         Some(self.build_bootstrap_compact_developer_context())
+    }
+
+    pub(crate) fn build_developer_context_for_map(
+        &mut self,
+        map_id: &str,
+        envelope: ProjectionEnvelope,
+    ) -> Option<String> {
+        if self.mode != MapRuntimeMode::Experiment || !self.maps.contains_key(map_id) {
+            return None;
+        }
+        self.build_projection_developer_context(map_id.to_string(), envelope, false)
     }
 
     fn build_bootstrap_compact_developer_context(&self) -> String {
@@ -4116,9 +4131,21 @@ impl ActionMapRuntimeState {
             .to_string()
     }
 
-    fn build_active_projection_developer_context(&mut self) -> Option<String> {
+    fn build_active_projection_developer_context(
+        &mut self,
+        envelope: ProjectionEnvelope,
+    ) -> Option<String> {
         let map_id = self.active_map_id.clone()?;
-        let (task_id, current_node_id, context, projection, max_projection_tokens) = {
+        self.build_projection_developer_context(map_id, envelope, true)
+    }
+
+    fn build_projection_developer_context(
+        &mut self,
+        map_id: String,
+        envelope: ProjectionEnvelope,
+        include_runtime_status: bool,
+    ) -> Option<String> {
+        let (task_id, current_node_id, revision, context, projection, max_projection_tokens) = {
             let Some(map) = self.maps.get(&map_id) else {
                 return Some(taskspace_projection_integrity_context(
                     &map_id,
@@ -4126,16 +4153,16 @@ impl ActionMapRuntimeState {
                 ));
             };
             let mut context = String::new();
-            if self.bootstrap_required {
+            if include_runtime_status && self.bootstrap_required {
                 context.push_str(
                     "Bootstrap status: required before ordinary tools or subagent spawn.\n",
                 );
-            } else if self.routing_required {
+            } else if include_runtime_status && self.routing_required {
                 context.push_str(
                     "Task routing status: required before ordinary tools or subagent spawn.\n",
                 );
             }
-            if let Some(barrier) = self.active_maintenance_barrier() {
+            if include_runtime_status && let Some(barrier) = self.active_maintenance_barrier() {
                 context.push_str("Maintenance barrier:\n- map: ");
                 context.push_str(&barrier.map_id);
                 context.push_str("\n- node: ");
@@ -4147,8 +4174,11 @@ impl ActionMapRuntimeState {
             let projection = match append_context_projection_active(
                 &mut context,
                 map,
-                self.current_main_node_id.as_deref(),
+                (self.active_map_id.as_deref() == Some(map_id.as_str()))
+                    .then_some(self.current_main_node_id.as_deref())
+                    .flatten(),
                 self.active_budget.as_ref(),
+                envelope,
             ) {
                 Ok(projection) => projection,
                 Err(error) => {
@@ -4160,6 +4190,7 @@ impl ActionMapRuntimeState {
                 self.current_main_node_id
                     .clone()
                     .unwrap_or_else(|| "projection".to_string()),
+                map.revision,
                 context,
                 projection,
                 self.active_budget
@@ -4199,6 +4230,8 @@ impl ActionMapRuntimeState {
             event_name = "taskspace.map_budget_measured",
             task_id,
             map_id,
+            revision,
+            projection_kind = envelope.kind(),
             projection_bytes = projection.size_breakdown.projection_bytes,
             skeleton_bytes = projection.size_breakdown.skeleton_bytes,
             projection_tokens = estimated_tokens,
@@ -4240,6 +4273,8 @@ impl ActionMapRuntimeState {
             vec![
                 "schema:taskspace-projection-budget-v1".to_string(),
                 "producer:runtime".to_string(),
+                format!("projection_kind:{}", envelope.kind()),
+                format!("revision:{revision}"),
                 "active_budget_source:runtime".to_string(),
                 format!("route_mode:{route_mode}"),
                 format!("profile_name:{profile_name}"),
@@ -5002,6 +5037,7 @@ fn append_context_projection_active(
     map: &ActionMapInstance,
     current_node_id: Option<&str>,
     active_budget: Option<&TaskSpaceActiveBudgetV1>,
+    envelope: ProjectionEnvelope,
 ) -> Result<ProjectionRenderOutcome, String> {
     let current_node_id = current_node_id
         .filter(|node_id| map.nodes.contains_key(*node_id))
@@ -5113,29 +5149,35 @@ fn append_context_projection_active(
         map_edges: map_edges.clone(),
         node_details: baseline_node_details,
     };
-    let b0_projection = render_projection(baseline_input.clone());
-    let before_strategy = render_projection(ProjectionInput {
-        node_details: full_recoverable_node_details,
-        ..baseline_input
-    });
-    let rendered = render_projection(ProjectionInput {
-        map_id: map.id.clone(),
-        revision: map.revision,
-        canonical_sha256: canonical_sha256.clone(),
-        root_node_id: map.root_node_id.clone(),
-        finish_node_id: map.finish_node_id.clone(),
-        complete: map.is_complete(),
-        root_source_event_ids: map
-            .nodes
-            .get(&map.root_node_id)
-            .map(|node| node.source_refs.clone())
-            .unwrap_or_default(),
-        current_node_id,
-        active_frontier,
-        map_nodes: node_skeleton,
-        map_edges,
-        node_details,
-    });
+    let b0_projection = render_projection(baseline_input.clone(), envelope);
+    let before_strategy = render_projection(
+        ProjectionInput {
+            node_details: full_recoverable_node_details,
+            ..baseline_input
+        },
+        envelope,
+    );
+    let rendered = render_projection(
+        ProjectionInput {
+            map_id: map.id.clone(),
+            revision: map.revision,
+            canonical_sha256: canonical_sha256.clone(),
+            root_node_id: map.root_node_id.clone(),
+            finish_node_id: map.finish_node_id.clone(),
+            complete: map.is_complete(),
+            root_source_event_ids: map
+                .nodes
+                .get(&map.root_node_id)
+                .map(|node| node.source_refs.clone())
+                .unwrap_or_default(),
+            current_node_id,
+            active_frontier,
+            map_nodes: node_skeleton,
+            map_edges,
+            node_details,
+        },
+        envelope,
+    );
     tracing::debug!(
         target: "codex_core::taskspace",
         event_name = "taskspace.projection_rendered",

@@ -1270,8 +1270,11 @@ async fn run_sampling_request(
     let mut retries = 0;
     let mut initial_input = Some(input);
     loop {
+        let appended_projection_items =
+            sess.flush_taskspace_projection_appends(&turn_context).await;
         let provider_budget_snapshot = sess.action_map_provider_request_budget_snapshot().await;
-        let prompt_source = if let Some(input) = initial_input.take() {
+        let prompt_source = if let Some(mut input) = initial_input.take() {
+            input.extend(appended_projection_items);
             input
         } else {
             sess.clone_history()
@@ -2916,6 +2919,9 @@ async fn try_run_sampling_request(
                 for output in tool_outcome.outputs {
                     record_response_input_item(sess.as_ref(), turn_context.as_ref(), output).await;
                 }
+                let _ = sess
+                    .flush_taskspace_projection_appends(turn_context.as_ref())
+                    .await;
                 let terminal_candidate_released =
                     if let Some(terminal) = tool_outcome.terminal_completion {
                         publish_taskspace_terminal_agent_message(
@@ -3147,6 +3153,9 @@ async fn try_run_sampling_request(
         for output in tool_outcome.outputs {
             record_response_input_item(sess.as_ref(), turn_context.as_ref(), output).await;
         }
+        let _ = sess
+            .flush_taskspace_projection_appends(turn_context.as_ref())
+            .await;
         if let Some(terminal) = tool_outcome.terminal_completion {
             publish_taskspace_terminal_agent_message(
                 sess.as_ref(),

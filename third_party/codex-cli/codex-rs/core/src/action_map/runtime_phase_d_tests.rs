@@ -201,7 +201,9 @@ fn runtime_rework_rejects_consumed_results_atomically() {
 #[test]
 fn control_state_exposes_only_work_nodes_as_the_active_frontier() {
     let (mut state, owner) = initialized_chain();
-    let projection = state.build_developer_context().unwrap();
+    let projection = state
+        .build_developer_context(ProjectionEnvelope::CurrentProjection)
+        .unwrap();
     assert!(projection.contains("  active_frontier:\n    - first\n"));
     assert!(!projection.contains("  active_frontier:\n    - root\n"));
     assert!(!projection.contains("  active_frontier:\n    - finish\n"));

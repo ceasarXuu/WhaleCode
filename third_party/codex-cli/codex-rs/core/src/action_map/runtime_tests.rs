@@ -251,7 +251,9 @@ fn projection_reads_canonical_graph_without_task_or_map_status() {
         &[("root", "inspect"), ("inspect", "finish")],
         "inspect",
     );
-    let projection = state.build_developer_context().expect("projection");
+    let projection = state
+        .build_developer_context(ProjectionEnvelope::CurrentProjection)
+        .expect("projection");
 
     assert!(projection.contains("TaskSpaceMapProjectionR7V1"));
     assert!(projection.contains("projection_kind: current_projection"));

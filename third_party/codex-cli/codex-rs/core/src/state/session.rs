@@ -9,14 +9,23 @@ use std::ops::Deref;
 
 use crate::action_map::ActionMapCheckpointState;
 use crate::action_map::ActionMapRuntimeState;
+use crate::action_map::ProjectionCursor;
+use crate::action_map::ProjectionEmission;
+use crate::action_map::ProjectionEnvelope;
+use crate::action_map::ProjectionIdentity;
+use crate::action_map::ProjectionTrigger;
 use crate::action_map::TaskSpaceEvent;
 use crate::action_map::TaskSpaceEventStore;
+use crate::action_map::decide_projection_emission;
+use crate::action_map::projection_identity_from_context;
 use crate::context_manager::ContextManager;
 use crate::session::PreviousTurnSettings;
 use crate::session::session::SessionConfiguration;
 use crate::session_startup_prewarm::SessionStartupPrewarmHandle;
+use codex_protocol::protocol::MapRuntimeEvent;
 use codex_protocol::protocol::MapRuntimeMode;
 use codex_protocol::protocol::RateLimitSnapshot;
+use codex_protocol::protocol::TaskSpaceProjectionPolicy;
 use codex_protocol::protocol::TokenUsage;
 use codex_protocol::protocol::TokenUsageInfo;
 use codex_protocol::protocol::TurnContextItem;
@@ -41,8 +50,24 @@ pub(crate) struct SessionState {
     pub(crate) action_map_runtime: ActionMapRuntimeState,
     pub(crate) action_map_checkpoint: ActionMapCheckpointState,
     pub(crate) taskspace_events: TaskSpaceEventStore,
+    pub(crate) taskspace_projection_cursor: ProjectionCursor,
+    pub(crate) pending_taskspace_projection_appends: Vec<PendingProjectionAppend>,
     granted_permissions: Option<AdditionalPermissionProfile>,
     next_turn_is_first: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct PendingProjectionAppend {
+    pub(crate) context: String,
+    pub(crate) identity: ProjectionIdentity,
+    pub(crate) trigger: ProjectionTrigger,
+}
+
+#[derive(Debug)]
+pub(crate) struct PreparedProjectionCapture {
+    pending_appends: Vec<PendingProjectionAppend>,
+    next_cursor: ProjectionCursor,
+    trace_events: Vec<MapRuntimeEvent>,
 }
 
 impl SessionState {
@@ -63,6 +88,8 @@ impl SessionState {
             action_map_runtime: ActionMapRuntimeState::default(),
             action_map_checkpoint: ActionMapCheckpointState::default(),
             taskspace_events: TaskSpaceEventStore::new(),
+            taskspace_projection_cursor: ProjectionCursor::default(),
+            pending_taskspace_projection_appends: Vec::new(),
             granted_permissions: None,
             next_turn_is_first: true,
         }
@@ -101,6 +128,9 @@ impl SessionState {
                 Ok(event) => recorded.push(event),
                 Err(error) => panic!("TaskSpace canonical event record failed: {error}"),
             }
+        }
+        if let Some(identity) = ProjectionCursor::from_items(&items).last_emitted {
+            self.taskspace_projection_cursor.last_emitted = Some(identity);
         }
         recorded
     }
@@ -170,6 +200,9 @@ impl SessionState {
                     .expect("compacted TaskSpace history must be encodable");
             }
             self.taskspace_events = store;
+            self.taskspace_projection_cursor =
+                ProjectionCursor::from_items(&self.taskspace_events.linearize());
+            self.pending_taskspace_projection_appends.clear();
             self.history.replace(Vec::new());
         } else {
             self.history.replace(items);
@@ -193,6 +226,8 @@ impl SessionState {
             .taskspace_events
             .install_compaction_checkpoint(items, chrono::Utc::now().timestamp_millis())
             .expect("TaskSpace compaction checkpoint must be valid");
+        self.taskspace_projection_cursor = ProjectionCursor::default();
+        self.pending_taskspace_projection_appends.clear();
         self.history.replace(Vec::new());
         self.history
             .set_reference_context_item(reference_context_item);
@@ -219,12 +254,16 @@ impl SessionState {
                 )
                 .expect("existing history must be encodable as TaskSpace events");
         }
+        self.taskspace_projection_cursor =
+            ProjectionCursor::from_items(&self.taskspace_events.linearize());
         self.taskspace_events.events().to_vec()
     }
 
     pub(crate) fn deactivate_taskspace_context(&mut self) -> Vec<ResponseItem> {
         let items = self.taskspace_events.take_linearized();
         self.history.replace(items.clone());
+        self.taskspace_projection_cursor = ProjectionCursor::default();
+        self.pending_taskspace_projection_appends.clear();
         items
     }
 
@@ -239,6 +278,9 @@ impl SessionState {
             .set_reference_context_item(reference_context_item);
         self.taskspace_events = TaskSpaceEventStore::restore(taskspace_events)
             .expect("reconstructed TaskSpace events must be valid");
+        self.taskspace_projection_cursor =
+            ProjectionCursor::from_items(&self.taskspace_events.linearize());
+        self.pending_taskspace_projection_appends.clear();
     }
 
     pub(crate) fn restore_subagent_fork_context(
@@ -256,6 +298,194 @@ impl SessionState {
             .set_reference_context_item(reference_context_item);
         self.taskspace_events = TaskSpaceEventStore::new();
         self.action_map_runtime = ActionMapRuntimeState::default();
+        self.taskspace_projection_cursor = ProjectionCursor::default();
+        self.pending_taskspace_projection_appends.clear();
+    }
+
+    pub(crate) fn mutate_action_map_with_projection<T>(
+        &mut self,
+        operation: impl FnOnce(&mut ActionMapRuntimeState) -> Result<(T, Vec<MapRuntimeEvent>), String>,
+    ) -> Result<(T, Vec<MapRuntimeEvent>), String> {
+        if self.session_configuration.taskspace_projection_policy()
+            != Some(TaskSpaceProjectionPolicy::MapAppend)
+        {
+            return operation(&mut self.action_map_runtime);
+        }
+
+        let mut candidate = self.action_map_runtime.clone();
+        let (outcome, mut events) = operation(&mut candidate)?;
+        let prepared = self.prepare_projection_for_candidate(&mut candidate, &events)?;
+        self.action_map_runtime = candidate;
+        events.extend(self.apply_prepared_projection_capture(prepared));
+        Ok((outcome, events))
+    }
+
+    pub(crate) fn prepare_projection_for_candidate(
+        &self,
+        candidate: &mut ActionMapRuntimeState,
+        events: &[MapRuntimeEvent],
+    ) -> Result<PreparedProjectionCapture, String> {
+        let unchanged = || PreparedProjectionCapture {
+            pending_appends: Vec::new(),
+            next_cursor: self.taskspace_projection_cursor.clone(),
+            trace_events: Vec::new(),
+        };
+        if self.session_configuration.taskspace_projection_policy()
+            != Some(TaskSpaceProjectionPolicy::MapAppend)
+        {
+            return Ok(unchanged());
+        }
+        let Some(commit) = events
+            .iter()
+            .filter_map(|event| match event {
+                MapRuntimeEvent::GraphRevisionCommitted(event) => Some(event),
+                _ => None,
+            })
+            .max_by_key(|event| event.revision)
+        else {
+            return Ok(unchanged());
+        };
+        let map_id = commit.map_id.clone();
+        let context = candidate
+            .build_developer_context_for_map(
+                &map_id,
+                ProjectionEnvelope::RevisionSnapshot {
+                    supersedes_through_revision: commit.revision.saturating_sub(1),
+                },
+            )
+            .ok_or_else(|| {
+                format!(
+                    "committed TaskSpace map `{map_id}` revision {} cannot be rendered",
+                    commit.revision
+                )
+            })?;
+        let identity = projection_identity_from_context(&context).ok_or_else(|| {
+            format!(
+                "committed TaskSpace map `{map_id}` revision {} produced no projection identity",
+                commit.revision
+            )
+        })?;
+        if identity.map_id.as_deref() != Some(map_id.as_str())
+            || identity.revision != Some(commit.revision)
+        {
+            return Err(format!(
+                "committed TaskSpace projection identity mismatch: expected {map_id}@{}, rendered {:?}@{:?}",
+                commit.revision, identity.map_id, identity.revision
+            ));
+        }
+        let decision = decide_projection_emission(
+            TaskSpaceProjectionPolicy::MapAppend,
+            ProjectionTrigger::RevisionCommit,
+            &self.taskspace_projection_cursor,
+            Some(&identity),
+        )?;
+        tracing::info!(
+            target: "codex_core::taskspace",
+            event_name = "taskspace.projection_emission_decided",
+            policy = "map-append",
+            trigger = ?ProjectionTrigger::RevisionCommit,
+            emission = ?decision.emission,
+            map_id,
+            revision = commit.revision,
+            projection_sha256 = identity.projection_sha256,
+            "decided TaskSpace append projection emission"
+        );
+        let pending_appends = if decision.emission == ProjectionEmission::AppendRevision {
+            vec![PendingProjectionAppend {
+                context,
+                identity,
+                trigger: ProjectionTrigger::RevisionCommit,
+            }]
+        } else {
+            Vec::new()
+        };
+        Ok(PreparedProjectionCapture {
+            pending_appends,
+            next_cursor: decision.next_cursor,
+            trace_events: candidate.take_pending_projection_trace_events(),
+        })
+    }
+
+    pub(crate) fn apply_prepared_projection_capture(
+        &mut self,
+        prepared: PreparedProjectionCapture,
+    ) -> Vec<MapRuntimeEvent> {
+        self.pending_taskspace_projection_appends
+            .extend(prepared.pending_appends);
+        self.taskspace_projection_cursor = prepared.next_cursor;
+        prepared.trace_events
+    }
+
+    pub(crate) fn capture_current_projection_for_epoch(
+        &mut self,
+        trigger: ProjectionTrigger,
+    ) -> Result<(), String> {
+        let Some(control) = self.action_map_runtime.control_state(None) else {
+            return Ok(());
+        };
+        self.capture_projection(&control.map_id, control.revision, trigger)
+    }
+
+    fn capture_projection(
+        &mut self,
+        map_id: &str,
+        revision: u64,
+        trigger: ProjectionTrigger,
+    ) -> Result<(), String> {
+        if self.session_configuration.taskspace_projection_policy()
+            != Some(TaskSpaceProjectionPolicy::MapAppend)
+        {
+            return Ok(());
+        }
+        let context = self
+            .action_map_runtime
+            .build_developer_context_for_map(
+                map_id,
+                ProjectionEnvelope::RevisionSnapshot {
+                    supersedes_through_revision: revision.saturating_sub(1),
+                },
+            )
+            .ok_or_else(|| {
+                format!("committed TaskSpace map `{map_id}` revision {revision} cannot be rendered")
+            })?;
+        let identity = projection_identity_from_context(&context).ok_or_else(|| {
+            format!(
+                "committed TaskSpace map `{map_id}` revision {revision} produced no projection identity"
+            )
+        })?;
+        if identity.map_id.as_deref() != Some(map_id) || identity.revision != Some(revision) {
+            return Err(format!(
+                "committed TaskSpace projection identity mismatch: expected {map_id}@{revision}, rendered {:?}@{:?}",
+                identity.map_id, identity.revision
+            ));
+        }
+        let decision = decide_projection_emission(
+            TaskSpaceProjectionPolicy::MapAppend,
+            trigger,
+            &self.taskspace_projection_cursor,
+            Some(&identity),
+        )?;
+        tracing::info!(
+            target: "codex_core::taskspace",
+            event_name = "taskspace.projection_emission_decided",
+            policy = "map-append",
+            trigger = ?trigger,
+            emission = ?decision.emission,
+            map_id,
+            revision,
+            projection_sha256 = identity.projection_sha256,
+            "decided TaskSpace append projection emission"
+        );
+        if decision.emission == ProjectionEmission::AppendRevision {
+            self.pending_taskspace_projection_appends
+                .push(PendingProjectionAppend {
+                    context,
+                    identity,
+                    trigger,
+                });
+        }
+        self.taskspace_projection_cursor = decision.next_cursor;
+        Ok(())
     }
 
     pub(crate) fn set_token_info(&mut self, info: Option<TokenUsageInfo>) {
