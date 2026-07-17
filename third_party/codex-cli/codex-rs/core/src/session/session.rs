@@ -249,6 +249,17 @@ pub(crate) struct AppServerClientMetadata {
     pub(crate) client_version: Option<String>,
 }
 
+pub(crate) fn validate_taskspace_projection_policy_for_session(
+    policy: Option<TaskSpaceProjectionPolicy>,
+) -> anyhow::Result<()> {
+    if policy == Some(TaskSpaceProjectionPolicy::MapRequest) {
+        anyhow::bail!(
+            "persisted taskspace projection policy map-request is not enabled before R7 Phase D"
+        );
+    }
+    Ok(())
+}
+
 impl Session {
     #[instrument(name = "session_init", level = "info", skip_all)]
     #[allow(clippy::too_many_arguments)]
@@ -281,14 +292,9 @@ impl Session {
             session_configuration.collaboration_mode.model(),
             session_configuration.provider
         );
-        if session_configuration
-            .taskspace_projection_policy
-            .is_some_and(|policy| policy != TaskSpaceProjectionPolicy::MapAlways)
-        {
-            anyhow::bail!(
-                "persisted taskspace projection policy is not enabled in R7 Phase B; only map-always is available"
-            );
-        }
+        validate_taskspace_projection_policy_for_session(
+            session_configuration.taskspace_projection_policy,
+        )?;
         let forked_from_id = initial_history.forked_from_id();
 
         let event_persistence_mode = if session_configuration.persist_extended_history {

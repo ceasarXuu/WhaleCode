@@ -248,6 +248,23 @@ fn skill_message(text: &str) -> ResponseItem {
     }
 }
 
+#[test]
+fn phase_c_session_policy_gate_accepts_always_and_append_only() {
+    for policy in [
+        None,
+        Some(TaskSpaceProjectionPolicy::MapAlways),
+        Some(TaskSpaceProjectionPolicy::MapAppend),
+    ] {
+        assert!(super::session::validate_taskspace_projection_policy_for_session(policy).is_ok());
+    }
+    assert!(
+        super::session::validate_taskspace_projection_policy_for_session(Some(
+            TaskSpaceProjectionPolicy::MapRequest
+        ))
+        .is_err()
+    );
+}
+
 #[tokio::test]
 async fn regular_turn_emits_turn_started_without_waiting_for_startup_prewarm() {
     let (sess, tc, rx) = make_session_and_context_with_rx().await;

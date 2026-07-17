@@ -973,7 +973,7 @@ pub async fn set_map_runtime_mode(sess: &Arc<Session>, sub_id: String, mode: Map
             sess.send_event(
                 &turn_context,
                 EventMsg::Error(ErrorEvent {
-                    message: "TaskSpace activation requires taskspace_projection_policy; R7 Phase B enables map-always.".to_string(),
+                    message: "TaskSpace activation requires taskspace_projection_policy; R7 Phase C enables map-always and map-append.".to_string(),
                     codex_error_info: Some(CodexErrorInfo::Other),
                 }),
             )
