@@ -158,8 +158,8 @@ Assert-Equal $contract.readiness.join_policy "all_predecessors_satisfied" "Join 
 Assert-Equal $contract.transactions.finish_end.automatic_trigger_allowed $false "Automatic finish was enabled"
 Assert-Equal $contract.transactions.mutate_graph.partial_commit_allowed $false "Partial graph commit was enabled"
 Assert-Equal $contract.tool_contract_draft.semantic_prompt_allowed $false "Semantic prompt was enabled"
-Assert-Equal @($contract.tool_contract_draft.actions.initialize_map.finish_required).Count 1 "Finish input shape drifted"
-Assert-Equal $contract.tool_contract_draft.actions.initialize_map.finish_required[0] "node_id" "Finish must only accept node_id"
+Assert-Equal @($contract.tool_contract_draft.actions.initialize_map.finish_identity_required).Count 1 "Finish identity input shape drifted"
+Assert-Equal $contract.tool_contract_draft.actions.initialize_map.finish_identity_required[0] "id" "Finish identity must only accept id"
 Assert-Equal $contract.projection.topology_pagination_allowed $false "Topology pagination was enabled"
 
 $requiredInvariants = @(

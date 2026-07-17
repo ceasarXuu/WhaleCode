@@ -15,7 +15,7 @@ pub(crate) enum TaskSpaceControlArgs {
     InitializeMap {
         root: TaskSpaceGraphNodeArgs,
         initial_work_node: TaskSpaceGraphNodeArgs,
-        finish: TaskSpaceFinishNodeArgs,
+        finish_identity: TaskSpaceFinishIdentityArgs,
         additional_work_nodes: Vec<TaskSpaceGraphNodeArgs>,
         edges: Vec<TaskSpaceGraphEdgeArgs>,
         continuation: TaskSpaceContinuation,
@@ -59,8 +59,8 @@ pub(crate) struct TaskSpaceGraphNodeArgs {
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(crate) struct TaskSpaceFinishNodeArgs {
-    pub(crate) node_id: String,
+pub(crate) struct TaskSpaceFinishIdentityArgs {
+    pub(crate) id: String,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -184,7 +184,7 @@ impl TaskSpaceControlArgs {
             Self::InitializeMap {
                 root,
                 initial_work_node,
-                finish,
+                finish_identity,
                 additional_work_nodes,
                 edges,
                 continuation,
@@ -192,7 +192,7 @@ impl TaskSpaceControlArgs {
                 validate_initialize_map(
                     root,
                     initial_work_node,
-                    finish,
+                    finish_identity,
                     additional_work_nodes,
                     edges,
                 )?;
@@ -303,7 +303,7 @@ pub(crate) fn parse_taskspace_control_args(
 fn validate_initialize_map(
     root: &TaskSpaceGraphNodeArgs,
     initial_work_node: &TaskSpaceGraphNodeArgs,
-    finish: &TaskSpaceFinishNodeArgs,
+    finish_identity: &TaskSpaceFinishIdentityArgs,
     additional_work_nodes: &[TaskSpaceGraphNodeArgs],
     edges: &[TaskSpaceGraphEdgeArgs],
 ) -> Result<(), FunctionCallError> {
@@ -312,10 +312,13 @@ fn validate_initialize_map(
     all_nodes.push(initial_work_node);
     all_nodes.extend(additional_work_nodes);
     validate_unique_nodes(&all_nodes, "initialize_map nodes")?;
-    if finish.node_id.trim().is_empty() {
-        return invalid("initialize_map nodes requires non-empty finish node_id");
+    if finish_identity.id.trim().is_empty() {
+        return invalid("initialize_map requires non-empty finish_identity.id");
     }
-    if all_nodes.iter().any(|node| node.node_id == finish.node_id) {
+    if all_nodes
+        .iter()
+        .any(|node| node.node_id == finish_identity.id)
+    {
         return invalid("initialize_map nodes requires unique node_id values");
     }
     validate_edges(edges, "initialize_map.edges")?;

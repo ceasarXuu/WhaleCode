@@ -92,7 +92,7 @@ fn extracts_bootstrap_nested_actions() {
     let call = function_call_with_arguments(
         "taskspace_control",
         "outer",
-        r#"{"action":"initialize_map","root":{"node_id":"root","goal":"Solve"},"initial_work_node":{"node_id":"node-1","goal":"Read"},"additional_work_nodes":[],"finish":{"node_id":"finish"},"edges":[{"from":"root","to":"node-1"},{"from":"node-1","to":"finish"}],"continuation":{"kind":"actions","actions":[{"tool_name":"exec_command","arguments":{"cmd":"pwd"}}]}}"#,
+        r#"{"action":"initialize_map","root":{"node_id":"root","goal":"Solve"},"initial_work_node":{"node_id":"node-1","goal":"Read"},"additional_work_nodes":[],"finish_identity":{"id":"finish"},"edges":[{"from":"root","to":"node-1"},{"from":"node-1","to":"finish"}],"continuation":{"kind":"actions","actions":[{"tool_name":"exec_command","arguments":{"cmd":"pwd"}}]}}"#,
     );
 
     let actions = taskspace_nested_actions(&call);
@@ -167,7 +167,7 @@ fn taskspace_patch_slot_and_top_level_patch_share_the_same_preflight_count() {
     let bootstrap = function_call_with_arguments(
         "taskspace_control",
         "bootstrap",
-        r#"{"action":"initialize_map","root":{"node_id":"root","goal":"Solve"},"initial_work_node":{"node_id":"edit","goal":"Edit"},"additional_work_nodes":[],"finish":{"node_id":"finish"},"edges":[{"from":"root","to":"edit"},{"from":"edit","to":"finish"}],"continuation":{"kind":"patch_then_actions","patch":{"tool_name":"apply_patch","input":"patch"}}}"#,
+        r#"{"action":"initialize_map","root":{"node_id":"root","goal":"Solve"},"initial_work_node":{"node_id":"edit","goal":"Edit"},"additional_work_nodes":[],"finish_identity":{"id":"finish"},"edges":[{"from":"root","to":"edit"},{"from":"edit","to":"finish"}],"continuation":{"kind":"patch_then_actions","patch":{"tool_name":"apply_patch","input":"patch"}}}"#,
     );
     let calls = vec![bootstrap, function_call("apply_patch", "top-patch")];
     let manifest = ToolSequenceManifest::from_calls(&calls);

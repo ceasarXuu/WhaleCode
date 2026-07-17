@@ -1,6 +1,6 @@
 use super::TaskSpaceContinuation;
 use super::TaskSpaceControlArgs;
-use super::TaskSpaceFinishNodeArgs;
+use super::TaskSpaceFinishIdentityArgs;
 use super::TaskSpaceGraphEdgeArgs;
 use super::TaskSpaceGraphNodeArgs;
 use super::TaskSpaceNodeTransition;
@@ -32,7 +32,7 @@ struct InitializeMapArgs {
     _action: Action,
     root: TaskSpaceGraphNodeArgs,
     initial_work_node: TaskSpaceGraphNodeArgs,
-    finish: TaskSpaceFinishNodeArgs,
+    finish_identity: TaskSpaceFinishIdentityArgs,
     additional_work_nodes: Vec<TaskSpaceGraphNodeArgs>,
     edges: Vec<TaskSpaceGraphEdgeArgs>,
     continuation: TaskSpaceContinuation,
@@ -104,7 +104,7 @@ pub(super) fn parse(arguments: &str) -> Result<TaskSpaceControlArgs, FunctionCal
             Ok(TaskSpaceControlArgs::InitializeMap {
                 root: parsed.root,
                 initial_work_node: parsed.initial_work_node,
-                finish: parsed.finish,
+                finish_identity: parsed.finish_identity,
                 additional_work_nodes: parsed.additional_work_nodes,
                 edges: parsed.edges,
                 continuation: parsed.continuation,

@@ -191,13 +191,13 @@ fn graph_node_schema(description: &str) -> JsonSchema {
     schema
 }
 
-fn finish_node_schema() -> JsonSchema {
+fn finish_identity_schema() -> JsonSchema {
     let mut schema = JsonSchema::object(
         BTreeMap::from([(
-            "node_id".into(),
+            "id".into(),
             JsonSchema::string(Some("Stable Agent-authored Finish identifier.".into())),
         )]),
-        Some(vec!["node_id".into()]),
+        Some(vec!["id".into()]),
         Some(false.into()),
     );
     schema.description = Some(
@@ -286,7 +286,7 @@ fn initialize_map_schema(has_patch: bool) -> JsonSchema {
                     "Agent-selected initial Work node. Define it only here, not in additional_work_nodes. Declared edges must make it Ready at initialization; Runtime binds it before continuation actions execute.",
                 ),
             ),
-            ("finish".into(), finish_node_schema()),
+            ("finish_identity".into(), finish_identity_schema()),
             (
                 "additional_work_nodes".into(),
                 JsonSchema::array(
@@ -309,7 +309,7 @@ fn initialize_map_schema(has_patch: bool) -> JsonSchema {
         vec![
             "root".into(),
             "initial_work_node".into(),
-            "finish".into(),
+            "finish_identity".into(),
             "additional_work_nodes".into(),
             "edges".into(),
             "continuation".into(),

@@ -263,7 +263,8 @@ fn taskspace_map_lifecycle_schema_is_the_only_taskspace_control_schema() {
     assert!(serialized.contains("additional_work_nodes"));
     assert!(!serialized.contains("\"current_work_node\""));
     assert!(!serialized.contains("\"work_nodes\""));
-    assert!(serialized.contains("finish"));
+    assert!(serialized.contains("finish_identity"));
+    assert!(!serialized.contains("\"finish\":"));
     assert!(serialized.contains("edges"));
     assert!(!serialized.contains("initialize_then_actions"));
     assert!(!serialized.contains("output_contracts"));

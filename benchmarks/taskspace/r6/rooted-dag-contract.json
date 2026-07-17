@@ -180,9 +180,9 @@
     "tool_name": "taskspace_control",
     "actions": {
       "initialize_map": {
-        "required": ["action", "root", "finish", "work_nodes", "edges"],
+        "required": ["action", "root", "finish_identity", "work_nodes", "edges"],
         "root_required": ["node_id", "goal", "source_refs"],
-        "finish_required": ["node_id"],
+        "finish_identity_required": ["id"],
         "work_node_required": ["node_id", "goal"],
         "edge_required": ["from", "to"]
       },

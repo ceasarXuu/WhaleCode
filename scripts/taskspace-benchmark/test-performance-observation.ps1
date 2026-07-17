@@ -227,7 +227,7 @@ $initializeArgs = @{
     root = @{ node_id = "root"; goal = "Solve" }
     initial_work_node = @{ node_id = "inspect"; goal = "Inspect" }
     additional_work_nodes = @(@{ node_id = "plan"; goal = "Plan" })
-    finish = @{ node_id = "finish" }
+    finish_identity = @{ id = "finish" }
     edges = @(@{ from = "root"; to = "inspect" }, @{ from = "inspect"; to = "plan" }, @{ from = "plan"; to = "finish" })
     continuation = @{ kind = "actions"; actions = @(@{ tool_name = "exec_command"; arguments = @{ cmd = "pwd" } }) }
 } | ConvertTo-Json -Compress -Depth 10

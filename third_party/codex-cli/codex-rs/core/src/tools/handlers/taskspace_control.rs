@@ -32,7 +32,7 @@ use crate::tools::registry::ToolKind;
 mod mapping;
 use mapping::control_state_has_active_binding;
 use mapping::map_edge_input;
-use mapping::map_finish_input;
+use mapping::map_finish_identity_input;
 use mapping::map_node_input;
 use mapping::map_transition;
 
@@ -115,7 +115,7 @@ impl ToolHandler for TaskSpaceControlHandler {
             TaskSpaceControlArgs::InitializeMap {
                 root,
                 initial_work_node,
-                finish,
+                finish_identity,
                 additional_work_nodes,
                 edges,
                 continuation: _,
@@ -130,7 +130,7 @@ impl ToolHandler for TaskSpaceControlHandler {
                         ActionMapInitializeInput {
                             root: map_node_input(root),
                             current_work_node: map_node_input(initial_work_node),
-                            finish: map_finish_input(finish),
+                            finish: map_finish_identity_input(finish_identity),
                             work_nodes: additional_work_nodes
                                 .into_iter()
                                 .map(map_node_input)

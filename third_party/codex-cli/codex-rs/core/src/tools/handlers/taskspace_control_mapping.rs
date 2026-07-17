@@ -3,7 +3,7 @@ use crate::action_map::ActionMapEdgeInput;
 use crate::action_map::ActionMapInitializeFinishInput;
 use crate::action_map::ActionMapInitializeNodeInput;
 use crate::action_map::NodeTransition;
-use crate::tools::handlers::taskspace_control_args::TaskSpaceFinishNodeArgs;
+use crate::tools::handlers::taskspace_control_args::TaskSpaceFinishIdentityArgs;
 use crate::tools::handlers::taskspace_control_args::TaskSpaceGraphEdgeArgs;
 use crate::tools::handlers::taskspace_control_args::TaskSpaceGraphNodeArgs;
 use crate::tools::handlers::taskspace_control_args::TaskSpaceNodeTransition;
@@ -24,8 +24,10 @@ pub(super) fn map_node_input(node: TaskSpaceGraphNodeArgs) -> ActionMapInitializ
     }
 }
 
-pub(super) fn map_finish_input(node: TaskSpaceFinishNodeArgs) -> ActionMapInitializeFinishInput {
-    ActionMapInitializeFinishInput { id: node.node_id }
+pub(super) fn map_finish_identity_input(
+    identity: TaskSpaceFinishIdentityArgs,
+) -> ActionMapInitializeFinishInput {
+    ActionMapInitializeFinishInput { id: identity.id }
 }
 
 pub(super) fn map_edge_input(edge: TaskSpaceGraphEdgeArgs) -> ActionMapEdgeInput {

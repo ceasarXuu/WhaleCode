@@ -43,6 +43,21 @@ function New-ObjectIdentitySchema {
     }
 }
 
+function New-LegacyObjectIdentitySchema {
+    [pscustomobject][ordered]@{
+        type = 'object'
+        description = 'Terminal identity only. All executable work, including validation, belongs to Work nodes.'
+        properties = [pscustomobject][ordered]@{
+            node_id = [pscustomobject][ordered]@{
+                type = 'string'
+                description = 'Stable Agent-authored Finish identifier.'
+            }
+        }
+        required = @('node_id')
+        additionalProperties = $false
+    }
+}
+
 function New-ScalarIdentitySchema {
     [pscustomobject][ordered]@{
         type = 'string'
@@ -55,7 +70,7 @@ function Replace-FinishProperty {
     $variant = @($Tool.function.parameters.anyOf)[0]
     $properties = [ordered]@{}
     foreach ($property in $variant.properties.PSObject.Properties) {
-        if ($property.Name -eq 'finish') {
+        if ($property.Name -in @('finish', 'finish_identity')) {
             $properties[$PropertyName] = $PropertySchema
         } else {
             $properties[$property.Name] = $property.Value
@@ -63,19 +78,21 @@ function Replace-FinishProperty {
     }
     $variant.properties = [pscustomobject]$properties
     $variant.required = @($variant.required | ForEach-Object {
-            if ([string]$_ -eq 'finish') { $PropertyName } else { [string]$_ }
+            if ([string]$_ -in @('finish', 'finish_identity')) { $PropertyName } else { [string]$_ }
         })
 }
 
 function New-FinishIdentityArms {
     param($ResponsesTool)
-    $baseline = Get-BootstrapChatTool $ResponsesTool
-    $namedObject = Copy-JsonValue $baseline
+    $source = Get-BootstrapChatTool $ResponsesTool
+    $legacyObject = Copy-JsonValue $source
+    Replace-FinishProperty $legacyObject 'finish' (New-LegacyObjectIdentitySchema)
+    $namedObject = Copy-JsonValue $source
     Replace-FinishProperty $namedObject 'finish_identity' (New-ObjectIdentitySchema)
-    $scalar = Copy-JsonValue $baseline
+    $scalar = Copy-JsonValue $source
     Replace-FinishProperty $scalar 'finish_identity' (New-ScalarIdentitySchema)
     [ordered]@{
-        D = $baseline
+        D = $legacyObject
         E = $namedObject
         F = $scalar
     }

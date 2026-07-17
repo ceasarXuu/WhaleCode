@@ -3,7 +3,7 @@ use super::*;
 #[test]
 fn accepts_complete_root_work_finish_initialization() {
     let args = parse_taskspace_control_args(
-        r#"{"action":"initialize_map","root":{"node_id":"root","goal":"Start"},"initial_work_node":{"node_id":"work","goal":"Do work"},"additional_work_nodes":[],"finish":{"node_id":"finish"},"edges":[{"from":"root","to":"work"},{"from":"work","to":"finish"}],"continuation":{"kind":"actions","actions":[{"tool_name":"exec_command","arguments":{"cmd":"pwd"}}]}}"#,
+        r#"{"action":"initialize_map","root":{"node_id":"root","goal":"Start"},"initial_work_node":{"node_id":"work","goal":"Do work"},"additional_work_nodes":[],"finish_identity":{"id":"finish"},"edges":[{"from":"root","to":"work"},{"from":"work","to":"finish"}],"continuation":{"kind":"actions","actions":[{"tool_name":"exec_command","arguments":{"cmd":"pwd"}}]}}"#,
     )
     .expect("valid args");
     assert!(matches!(args, TaskSpaceControlArgs::InitializeMap { .. }));
@@ -13,7 +13,7 @@ fn accepts_complete_root_work_finish_initialization() {
 #[test]
 fn accepts_zero_edge_three_node_initialization_for_runtime_validator() {
     parse_taskspace_control_args(
-        r#"{"action":"initialize_map","root":{"node_id":"root","goal":"Start"},"initial_work_node":{"node_id":"work","goal":"Do work"},"additional_work_nodes":[],"finish":{"node_id":"finish"},"edges":[],"continuation":{"kind":"actions","actions":[{"tool_name":"exec_command","arguments":{"cmd":"pwd"}}]}}"#,
+        r#"{"action":"initialize_map","root":{"node_id":"root","goal":"Start"},"initial_work_node":{"node_id":"work","goal":"Do work"},"additional_work_nodes":[],"finish_identity":{"id":"finish"},"edges":[],"continuation":{"kind":"actions","actions":[{"tool_name":"exec_command","arguments":{"cmd":"pwd"}}]}}"#,
     )
     .expect("schema-level zero-edge two-node graph is parseable");
 }
@@ -21,7 +21,7 @@ fn accepts_zero_edge_three_node_initialization_for_runtime_validator() {
 #[test]
 fn accepts_one_patch_followed_by_non_patch_actions() {
     let args = parse_taskspace_control_args(
-        r#"{"action":"initialize_map","root":{"node_id":"root","goal":"Start"},"initial_work_node":{"node_id":"work","goal":"Do work"},"additional_work_nodes":[],"finish":{"node_id":"finish"},"edges":[],"continuation":{"kind":"patch_then_actions","patch":{"tool_name":"apply_patch","input":"*** Begin Patch\n*** End Patch"},"actions":[{"tool_name":"exec_command","arguments":{"cmd":"cargo test"}}]}}"#,
+        r#"{"action":"initialize_map","root":{"node_id":"root","goal":"Start"},"initial_work_node":{"node_id":"work","goal":"Do work"},"additional_work_nodes":[],"finish_identity":{"id":"finish"},"edges":[],"continuation":{"kind":"patch_then_actions","patch":{"tool_name":"apply_patch","input":"*** Begin Patch\n*** End Patch"},"actions":[{"tool_name":"exec_command","arguments":{"cmd":"cargo test"}}]}}"#,
     )
     .expect("valid patch continuation");
     let actions = args.nested_actions();
@@ -34,13 +34,13 @@ fn accepts_one_patch_followed_by_non_patch_actions() {
 fn rejects_legacy_actions_old_fields_and_patch_in_ordinary_actions() {
     let legacy = r#"{"action":"initialize_then_actions","initial_nodes":[{"node_id":"node-1","kind":"implement_solution","goal":"Edit"}],"current_node_id":"node-1","actions":[{"tool_name":"apply_patch","input":"patch"}]}"#;
     assert!(parse_taskspace_control_args(legacy).is_err());
-    let old_field = r#"{"action":"initialize_map","root":{"node_id":"root","goal":"Start","kind":"inspect_code_context"},"initial_work_node":{"node_id":"work","goal":"Do work"},"additional_work_nodes":[],"finish":{"node_id":"finish"},"edges":[],"continuation":{"kind":"actions","actions":[{"tool_name":"exec_command","arguments":{"cmd":"pwd"}}]}}"#;
+    let old_field = r#"{"action":"initialize_map","root":{"node_id":"root","goal":"Start","kind":"inspect_code_context"},"initial_work_node":{"node_id":"work","goal":"Do work"},"additional_work_nodes":[],"finish_identity":{"id":"finish"},"edges":[],"continuation":{"kind":"actions","actions":[{"tool_name":"exec_command","arguments":{"cmd":"pwd"}}]}}"#;
     assert!(parse_taskspace_control_args(old_field).is_err());
-    let misplaced = r#"{"action":"initialize_map","root":{"node_id":"root","goal":"Start"},"initial_work_node":{"node_id":"work","goal":"Do work"},"additional_work_nodes":[],"finish":{"node_id":"finish"},"edges":[],"continuation":{"kind":"actions","actions":[{"tool_name":"apply_patch","input":"patch"}]}}"#;
+    let misplaced = r#"{"action":"initialize_map","root":{"node_id":"root","goal":"Start"},"initial_work_node":{"node_id":"work","goal":"Do work"},"additional_work_nodes":[],"finish_identity":{"id":"finish"},"edges":[],"continuation":{"kind":"actions","actions":[{"tool_name":"apply_patch","input":"patch"}]}}"#;
     assert!(parse_taskspace_control_args(misplaced).is_err());
-    let repeated = r#"{"action":"initialize_map","root":{"node_id":"root","goal":"Start"},"initial_work_node":{"node_id":"work","goal":"Do work"},"additional_work_nodes":[],"finish":{"node_id":"finish"},"edges":[],"continuation":{"kind":"patch_then_actions","patch":{"tool_name":"apply_patch","input":"patch-1"},"actions":[{"tool_name":"apply_patch","input":"patch-2"}]}}"#;
+    let repeated = r#"{"action":"initialize_map","root":{"node_id":"root","goal":"Start"},"initial_work_node":{"node_id":"work","goal":"Do work"},"additional_work_nodes":[],"finish_identity":{"id":"finish"},"edges":[],"continuation":{"kind":"patch_then_actions","patch":{"tool_name":"apply_patch","input":"patch-1"},"actions":[{"tool_name":"apply_patch","input":"patch-2"}]}}"#;
     assert!(parse_taskspace_control_args(repeated).is_err());
-    let old_current_id = r#"{"action":"initialize_map","root":{"node_id":"root","goal":"Start"},"work_nodes":[{"node_id":"work","goal":"Do work"}],"finish":{"node_id":"finish"},"edges":[{"from":"root","to":"work"},{"from":"work","to":"finish"}],"current_node_id":"work","continuation":{"kind":"actions","actions":[{"tool_name":"exec_command","arguments":{"cmd":"pwd"}}]}}"#;
+    let old_current_id = r#"{"action":"initialize_map","root":{"node_id":"root","goal":"Start"},"work_nodes":[{"node_id":"work","goal":"Do work"}],"finish_identity":{"id":"finish"},"edges":[{"from":"root","to":"work"},{"from":"work","to":"finish"}],"current_node_id":"work","continuation":{"kind":"actions","actions":[{"tool_name":"exec_command","arguments":{"cmd":"pwd"}}]}}"#;
     assert!(parse_taskspace_control_args(old_current_id).is_err());
 }
 
@@ -55,19 +55,31 @@ fn rejects_removed_active_actions() {
 }
 
 #[test]
-fn rejects_finish_work_goal_instead_of_ignoring_it() {
+fn rejects_finish_identity_work_goal_instead_of_ignoring_it() {
     let payload = invalid_payload(
-        r#"{"action":"initialize_map","root":{"node_id":"root","goal":"Start"},"initial_work_node":{"node_id":"work","goal":"Do and verify work"},"additional_work_nodes":[],"finish":{"node_id":"finish","goal":"Verify and summarize"},"edges":[{"from":"root","to":"work"},{"from":"work","to":"finish"}],"continuation":{"kind":"actions","actions":[{"tool_name":"exec_command","arguments":{"cmd":"pwd"}}]}}"#,
+        r#"{"action":"initialize_map","root":{"node_id":"root","goal":"Start"},"initial_work_node":{"node_id":"work","goal":"Do and verify work"},"additional_work_nodes":[],"finish_identity":{"id":"finish","goal":"Verify and summarize"},"edges":[{"from":"root","to":"work"},{"from":"work","to":"finish"}],"continuation":{"kind":"actions","actions":[{"tool_name":"exec_command","arguments":{"cmd":"pwd"}}]}}"#,
     );
     let message = payload["error"]["message"].as_str().expect("message");
-    assert!(message.contains("finish"), "{message}");
+    assert!(message.contains("finish_identity"), "{message}");
     assert!(message.contains("unknown field `goal`"), "{message}");
+}
+
+#[test]
+fn rejects_legacy_finish_wire_shapes() {
+    for arguments in [
+        r#"{"action":"initialize_map","root":{"node_id":"root","goal":"Start"},"initial_work_node":{"node_id":"work","goal":"Do work"},"additional_work_nodes":[],"finish":{"node_id":"finish"},"edges":[],"continuation":{"kind":"actions","actions":[{"tool_name":"exec_command","arguments":{"cmd":"pwd"}}]}}"#,
+        r#"{"action":"initialize_map","root":{"node_id":"root","goal":"Start"},"initial_work_node":{"node_id":"work","goal":"Do work"},"additional_work_nodes":[],"finish_identity":{"node_id":"finish"},"edges":[],"continuation":{"kind":"actions","actions":[{"tool_name":"exec_command","arguments":{"cmd":"pwd"}}]}}"#,
+    ] {
+        let payload = invalid_payload(arguments);
+        let message = payload["error"]["message"].as_str().expect("message");
+        assert!(message.contains("finish"), "{message}");
+    }
 }
 
 #[test]
 fn reports_root_path_when_required_goal_is_missing() {
     let payload = invalid_payload(
-        r#"{"action":"initialize_map","root":{"node_id":"root"},"initial_work_node":{"node_id":"work","goal":"Do work"},"additional_work_nodes":[],"finish":{"node_id":"finish"},"edges":[],"continuation":{"kind":"actions","actions":[{"tool_name":"exec_command","arguments":{"cmd":"pwd"}}]}}"#,
+        r#"{"action":"initialize_map","root":{"node_id":"root"},"initial_work_node":{"node_id":"work","goal":"Do work"},"additional_work_nodes":[],"finish_identity":{"id":"finish"},"edges":[],"continuation":{"kind":"actions","actions":[{"tool_name":"exec_command","arguments":{"cmd":"pwd"}}]}}"#,
     );
     let message = payload["error"]["message"].as_str().expect("message");
     assert!(message.contains("root"), "{message}");
@@ -77,7 +89,7 @@ fn reports_root_path_when_required_goal_is_missing() {
 #[test]
 fn reports_array_index_when_additional_work_goal_is_missing() {
     let payload = invalid_payload(
-        r#"{"action":"initialize_map","root":{"node_id":"root","goal":"Start"},"initial_work_node":{"node_id":"work","goal":"Do work"},"additional_work_nodes":[{"node_id":"later"}],"finish":{"node_id":"finish"},"edges":[],"continuation":{"kind":"actions","actions":[{"tool_name":"exec_command","arguments":{"cmd":"pwd"}}]}}"#,
+        r#"{"action":"initialize_map","root":{"node_id":"root","goal":"Start"},"initial_work_node":{"node_id":"work","goal":"Do work"},"additional_work_nodes":[{"node_id":"later"}],"finish_identity":{"id":"finish"},"edges":[],"continuation":{"kind":"actions","actions":[{"tool_name":"exec_command","arguments":{"cmd":"pwd"}}]}}"#,
     );
     let message = payload["error"]["message"].as_str().expect("message");
     assert!(message.contains("additional_work_nodes[0]"), "{message}");
@@ -133,15 +145,15 @@ fn mutation_arrays_are_required_and_not_all_empty() {
 #[test]
 fn validates_non_empty_and_duplicate_ids_and_edges() {
     assert!(parse_taskspace_control_args(
-        r#"{"action":"initialize_map","root":{"node_id":"same","goal":"Start"},"initial_work_node":{"node_id":"work","goal":"Do work"},"additional_work_nodes":[],"finish":{"node_id":"same"},"edges":[],"continuation":{"kind":"actions","actions":[{"tool_name":"exec_command","arguments":{"cmd":"pwd"}}]}}"#
+        r#"{"action":"initialize_map","root":{"node_id":"same","goal":"Start"},"initial_work_node":{"node_id":"work","goal":"Do work"},"additional_work_nodes":[],"finish_identity":{"id":"same"},"edges":[],"continuation":{"kind":"actions","actions":[{"tool_name":"exec_command","arguments":{"cmd":"pwd"}}]}}"#
     )
     .is_err());
     assert!(parse_taskspace_control_args(
-        r#"{"action":"initialize_map","root":{"node_id":"root","goal":"Start"},"initial_work_node":{"node_id":"root","goal":"Do work"},"additional_work_nodes":[],"finish":{"node_id":"finish"},"edges":[],"continuation":{"kind":"actions","actions":[{"tool_name":"exec_command","arguments":{"cmd":"pwd"}}]}}"#
+        r#"{"action":"initialize_map","root":{"node_id":"root","goal":"Start"},"initial_work_node":{"node_id":"root","goal":"Do work"},"additional_work_nodes":[],"finish_identity":{"id":"finish"},"edges":[],"continuation":{"kind":"actions","actions":[{"tool_name":"exec_command","arguments":{"cmd":"pwd"}}]}}"#
     )
     .is_err());
     assert!(parse_taskspace_control_args(
-        r#"{"action":"initialize_map","root":{"node_id":"root","goal":"Start"},"initial_work_node":{"node_id":"work","goal":"Do work"},"additional_work_nodes":[{"node_id":"work","goal":"Do work"}],"finish":{"node_id":"finish"},"edges":[],"continuation":{"kind":"actions","actions":[{"tool_name":"exec_command","arguments":{"cmd":"pwd"}}]}}"#
+        r#"{"action":"initialize_map","root":{"node_id":"root","goal":"Start"},"initial_work_node":{"node_id":"work","goal":"Do work"},"additional_work_nodes":[{"node_id":"work","goal":"Do work"}],"finish_identity":{"id":"finish"},"edges":[],"continuation":{"kind":"actions","actions":[{"tool_name":"exec_command","arguments":{"cmd":"pwd"}}]}}"#
     )
     .is_err());
     assert!(parse_taskspace_control_args(

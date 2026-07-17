@@ -35,7 +35,7 @@ fn initialize_arguments(dir_path: &str) -> String {
         "action": "initialize_map",
         "root": {"node_id": "root", "goal": "Complete the test task"},
         "initial_work_node": {"node_id": "work", "goal": "Inspect the workspace"},
-        "finish": {"node_id": "finish"},
+        "finish_identity": {"id": "finish"},
         "additional_work_nodes": [],
         "edges": [
             {"from": "root", "to": "work"},
@@ -151,7 +151,11 @@ fn assert_terminal_request_shape(responses: &ResponseMock) {
         terminal["tool_choice"]["name"], "taskspace_control",
         "unexpected terminal request shape: tool_choice={tool_choice}, tools={tool_names:?}"
     );
-    assert_eq!(terminal["tools"].as_array().map(Vec::len), Some(1));
+    assert_eq!(
+        terminal["tools"].as_array().map(Vec::len),
+        Some(13),
+        "F5.0c must preserve the F4 immutable tool surface"
+    );
 }
 
 fn error_messages(events: &[EventMsg]) -> Vec<&str> {

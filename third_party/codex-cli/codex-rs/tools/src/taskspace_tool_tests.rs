@@ -32,7 +32,7 @@ fn lifecycle_schema_includes_initialization_with_required_continuation() {
             "action",
             "root",
             "initial_work_node",
-            "finish",
+            "finish_identity",
             "additional_work_nodes",
             "edges",
             "continuation"
@@ -48,22 +48,23 @@ fn lifecycle_schema_includes_initialization_with_required_continuation() {
         "Zero or more Work nodes other than initial_work_node. Node IDs must be distinct across the entire graph."
     );
     assert_eq!(
-        variants[0]["properties"]["finish"]["required"],
-        json!(["node_id"])
+        variants[0]["properties"]["finish_identity"]["required"],
+        json!(["id"])
     );
     assert_eq!(
-        variants[0]["properties"]["finish"]["additionalProperties"],
+        variants[0]["properties"]["finish_identity"]["additionalProperties"],
         false
     );
     assert!(
-        variants[0]["properties"]["finish"]["properties"]
+        variants[0]["properties"]["finish_identity"]["properties"]
             .get("goal")
             .is_none()
     );
     assert_eq!(
-        variants[0]["properties"]["finish"]["description"],
+        variants[0]["properties"]["finish_identity"]["description"],
         "Terminal identity only. All executable work, including validation, belongs to Work nodes."
     );
+    assert!(variants[0]["properties"].get("finish").is_none());
     assert!(variants[0]["properties"].get("current_work_node").is_none());
     assert!(variants[0]["properties"].get("work_nodes").is_none());
     let text = value.to_string();
