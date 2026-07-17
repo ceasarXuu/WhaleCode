@@ -10,7 +10,7 @@
 Created: 2026-07-17
 Updated: 2026-07-18
 Version: v0.0.5 build-R7
-Status: Phase A Complete / Phase B Ready
+Status: Phase B Complete / Phase C Ready
 Owner / Responsible: WhaleCode core runtime / TaskSpace
 Risk Level: Critical
 Plan Type: Shared architecture with three projection policies
@@ -239,6 +239,17 @@ map-always 所有 request 的 emitted_revision == canonical_revision。
 correctness、Root/Finish closure、event replay 和反馈保真 100%。
 缓存下降如实归类为策略特征，不能用语义裁剪掩盖。
 ```
+
+完成证据：
+
+- `TaskSpaceProjectionPolicy`、共享 trigger/cursor/emission decision 已接入生产；
+- `map-always` 完成纵向切换，`map-append`、`map-request` 在对应 phase 前机械拒绝；
+- R6 epoch state、anchor、scope 与 production marker 已删除，没有兼容或迁移路径；
+- simple/complex 共 36 个 TaskSpace provider request 均只有一份 projection，四元 identity 全部匹配；
+- 两组 Standard/R7 Docker 样本均通过，冻结 R6 作为历史第三臂进入诊断对照；
+- cache 下降已定位为动态 projection 位置破坏精确前缀的 `map-always` 策略特征；
+- 结果见 `04-r7-phase-b-result.md`，机器结果见
+  `benchmarks/taskspace/r7/phase-b-result.json`。
 
 ## 1.10 Phase C：接入 `map-append`
 

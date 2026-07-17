@@ -1,0 +1,244 @@
+{
+  "schema_version": 1,
+  "result_id": "r7-phase-b-map-always-result",
+  "status": "phase_b_complete",
+  "generated_at": "2026-07-18T03:15:15+08:00",
+  "phase_c_ready": true,
+  "production_behavior_changed": true,
+  "implementation": {
+    "production_commit": "e9fa52d1264b6ecf87bf41b928ed345c1946806f",
+    "observer_commit": "8b25806989514a2ac336977318edaeb61b84c489",
+    "enabled_policy": "map-always",
+    "disabled_until_later_phase": [
+      "map-append",
+      "map-request"
+    ],
+    "r6_epoch_production_symbols_remaining": 0,
+    "compatibility_or_migration_paths": 0
+  },
+  "current_runtime": {
+    "binary_sha256": "e8ffd8456cb6c2a910ec6c9c5f8f7dde8e4854265c237ccee8d44f15897de565",
+    "attestation_sha256": "f54be9086fb0613b4e65272a0c8bb164a0c045403368d416c0459a2fa37a3399",
+    "codex_source_commit": "e9fa52d1264b6ecf87bf41b928ed345c1946806f",
+    "build_command": "cargo build -p codex-cli --bin whale --locked"
+  },
+  "frozen_r6_baseline": {
+    "source": "benchmarks/taskspace/r7/phase-a-baseline-result.json",
+    "freeze_commit": "e2981015872d53464060ba88e1dac4483ea81a9b",
+    "binary_sha256": "07043e7d79823b1f04a5d8d36f6d67b5f9c75d576a4e448d53abc738af6563c1",
+    "comparison_status": "historical_same_day_baseline"
+  },
+  "execution": {
+    "model": "deepseek-v4-flash",
+    "reasoning_effort": "max",
+    "execution_substrate": "docker_hard_boundary",
+    "repeats_per_arm": 1,
+    "aggregate_utility_allowed": false
+  },
+  "verification": {
+    "workspace_check": "passed",
+    "format_check": "passed",
+    "projection_tests": {
+      "passed": 18,
+      "failed": 0
+    },
+    "contract_script": "passed",
+    "cost_instrumentation_script": "passed",
+    "performance_observation_script": "passed",
+    "benchmark_harness_script": "passed",
+    "core_library": {
+      "passed": 1883,
+      "failed": 25,
+      "ignored": 3,
+      "phase_b_projection_or_config_failures": 0,
+      "baseline_reproduced_taskspace_failures": 2,
+      "environment_or_unrelated_failures": 23
+    }
+  },
+  "freshness_gate": {
+    "taskspace_provider_requests": 36,
+    "policy_values": [
+      "map-always"
+    ],
+    "maximum_projection_count_per_request": 1,
+    "scan_failures": 0,
+    "identity_unconfirmed": 0,
+    "replacement_unconfirmed": 0,
+    "matched_identity_fields": [
+      "map_id",
+      "revision",
+      "canonical_sha256",
+      "projection_sha256"
+    ]
+  },
+  "scenarios": [
+    {
+      "slot": "simple",
+      "scenario_id": "single-file-fast-fix",
+      "current_run_root": "target/r7-phase-b/current/single-file-fast-fix/20260718-025934-640",
+      "arms": {
+        "standard": {
+          "source": "current_pair",
+          "outcome": "solved",
+          "provider_requests": 6,
+          "provider_outer_tool_calls": 9,
+          "control_calls": 0,
+          "input_tokens": 40686,
+          "cached_input_tokens": 38912,
+          "uncached_input_tokens": 1774,
+          "output_tokens": 1576,
+          "wall_time_ms": 15776,
+          "request_2_plus_cache_hit_rate": 0.952403,
+          "message_prefix_preserved_rate": 1.0,
+          "map_nodes": 0,
+          "map_edges": 0,
+          "open_leaf_nodes": 0
+        },
+        "frozen_r6": {
+          "source": "phase_a_historical_baseline",
+          "outcome": "solved",
+          "provider_requests": 19,
+          "provider_outer_tool_calls": 18,
+          "control_calls": 9,
+          "input_tokens": 231221,
+          "cached_input_tokens": 207744,
+          "uncached_input_tokens": 23477,
+          "output_tokens": 4499,
+          "wall_time_ms": 46554,
+          "request_2_plus_cache_hit_rate": 0.89735,
+          "message_prefix_preserved_rate": 0.888889,
+          "map_nodes": 5,
+          "map_edges": 4,
+          "open_leaf_nodes": 0
+        },
+        "r7_map_always": {
+          "source": "current_pair",
+          "outcome": "solved",
+          "provider_requests": 18,
+          "provider_outer_tool_calls": 25,
+          "runtime_ordinary_tool_calls": 18,
+          "control_calls": 7,
+          "nested_actions": 4,
+          "input_tokens": 207247,
+          "cached_input_tokens": 3584,
+          "uncached_input_tokens": 203663,
+          "output_tokens": 3147,
+          "wall_time_ms": 42718,
+          "request_2_plus_cache_hit_rate": 0.01756,
+          "message_prefix_preserved_rate": 0.0,
+          "map_nodes": 5,
+          "map_edges": 4,
+          "open_leaf_nodes": 0
+        }
+      },
+      "r7_over_current_standard": {
+        "provider_requests": 3.0,
+        "wall_time_ms": 2.707784,
+        "input_tokens": 5.093816,
+        "uncached_input_tokens": 114.804397
+      },
+      "r7_over_frozen_r6": {
+        "provider_requests": 0.947368,
+        "wall_time_ms": 0.917601,
+        "input_tokens": 0.896316,
+        "uncached_input_tokens": 8.675001
+      }
+    },
+    {
+      "slot": "complex",
+      "scenario_id": "subscription-billing-repair",
+      "current_run_root": "target/r7-phase-b/current/subscription-billing-repair/20260718-030126-221",
+      "arms": {
+        "standard": {
+          "source": "current_pair",
+          "outcome": "solved",
+          "provider_requests": 11,
+          "provider_outer_tool_calls": 21,
+          "control_calls": 0,
+          "input_tokens": 129168,
+          "cached_input_tokens": 120192,
+          "uncached_input_tokens": 8976,
+          "output_tokens": 6778,
+          "wall_time_ms": 58136,
+          "request_2_plus_cache_hit_rate": 0.9277,
+          "message_prefix_preserved_rate": 1.0,
+          "map_nodes": 0,
+          "map_edges": 0,
+          "open_leaf_nodes": 0
+        },
+        "frozen_r6": {
+          "source": "phase_a_historical_baseline",
+          "outcome": "solved",
+          "provider_requests": 16,
+          "provider_outer_tool_calls": 22,
+          "control_calls": 7,
+          "input_tokens": 209772,
+          "cached_input_tokens": 184704,
+          "uncached_input_tokens": 25068,
+          "output_tokens": 5767,
+          "wall_time_ms": 58927,
+          "request_2_plus_cache_hit_rate": 0.878669,
+          "message_prefix_preserved_rate": 0.866667,
+          "map_nodes": 4,
+          "map_edges": 3,
+          "open_leaf_nodes": 0
+        },
+        "r7_map_always": {
+          "source": "current_pair",
+          "outcome": "solved",
+          "provider_requests": 18,
+          "provider_outer_tool_calls": 36,
+          "runtime_ordinary_tool_calls": 25,
+          "control_calls": 11,
+          "nested_actions": 6,
+          "input_tokens": 279004,
+          "cached_input_tokens": 81920,
+          "uncached_input_tokens": 197084,
+          "output_tokens": 9384,
+          "wall_time_ms": 77778,
+          "request_2_plus_cache_hit_rate": 0.2859,
+          "message_prefix_preserved_rate": 0.0,
+          "map_nodes": 5,
+          "map_edges": 4,
+          "open_leaf_nodes": 0
+        }
+      },
+      "r7_over_current_standard": {
+        "provider_requests": 1.636364,
+        "wall_time_ms": 1.337863,
+        "input_tokens": 2.160009,
+        "uncached_input_tokens": 21.956774
+      },
+      "r7_over_frozen_r6": {
+        "provider_requests": 1.125,
+        "wall_time_ms": 1.319904,
+        "input_tokens": 1.330035,
+        "uncached_input_tokens": 7.861975
+      }
+    }
+  ],
+  "phase_b_gates": {
+    "shared_policy_core": true,
+    "map_always_vertical_cutover": true,
+    "r6_epoch_state_deleted": true,
+    "session_policy_immutable_and_persisted": true,
+    "resume_and_compaction_rebuild_latest_projection": true,
+    "projection_semantics_are_mechanical": true,
+    "projection_freshness_exact": true,
+    "standard_unchanged": true,
+    "simple_and_complex_correctness": true,
+    "cache_loss_classified_as_policy_characteristic": true
+  },
+  "known_debt": [
+    {
+      "id": "r7-subagent-map-restore",
+      "status": "pre_existing_not_phase_b_regression",
+      "evidence": "coe/2026-07-18-03-15-r7-subagent-map-restore.md"
+    },
+    {
+      "id": "taskspace-control-large-patch-argument-instability",
+      "status": "observed_not_attributed_to_projection_policy",
+      "evidence": "complex sample returned explicit protocol errors for malformed large patch carriers before eventual success"
+    }
+  ]
+}
