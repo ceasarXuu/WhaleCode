@@ -10,7 +10,7 @@
 Created: 2026-07-15
 Updated: 2026-07-17
 Version: v0.0.5 build-R6
-Status: Phase F Reopened / F5.0-F5.0b Complete / F5.0c Pending / Phase G Blocked
+Status: Phase F Reopened / F5.0-F5.0c Complete / F5.1 Pending / Phase G Blocked
 Owner / Responsible: WhaleCode core runtime / TaskSpace
 Risk Level: Critical
 Plan Type: Full
@@ -359,13 +359,15 @@ simple + branch-join 三臂各1次无 correctness 回退。
 执行顺序：
 
 1. F5.0：已冻结 Phase E/F4 基线；full/minimal/explicit 三臂反证 H-008；
-2. F5.0b：已确认 identity 命名束根因，冻结 E=`finish_identity: { id }`；F5.0c 单独切换生产合同；
+2. F5.0b：已确认 identity 命名束根因，冻结 E=`finish_identity: { id }`；F5.0c 已完成生产合同切换，
+   并补全该 identity 作为 `edges` 唯一汇点的机械拓扑合同；
 3. F5.1：删除负收益 immutable full-lifecycle 暴露，恢复 hard-state 对齐工具面；
 4. F5.2：在 R6 Rooted DAG 上恢复 schema-first `complete -> next/end/wait` carrier；
 5. F5.3：simple/complex/branch-join 正式矩阵，不劣于 Phase E 才重新关闭 Phase F。
 
 F5 不恢复 R5 数据模型，不增加兼容分支，不通过 Runtime 自动选 next、减少 Map 节点或 projection 语义裁剪获益。
 详细工程门、日志、回退和成本公式见 `18-r6-phase-f5-cost-regression-repair-plan.md`。
+F5.0c 实施和 Docker 结果见 `21-r6-phase-f5-0c-finish-identity-contract-result.md`；当前按阶段门暂停，尚未进入 F5.1。
 
 ## 1.13 Phase G：成本重基线与压缩策略重新进入
 

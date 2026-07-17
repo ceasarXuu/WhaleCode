@@ -30,7 +30,9 @@
   未达成，不能直接进入 Phase G。E-013 至 E-017 证明 F final 同时增加 provider request 和每 request 固定负载；
   immutable lifecycle schema 在仍保留 named/auto/named choice break 时放大 terminal uncached input。F5.0 同版本
   A/B/C 分别 6/6、5/6、6/6 生成非法 `finish.goal`，已反证 schema breadth/description 显著性归因。
-  F5.0b 又证明对象类型不是原因；E 对象命名束 6/6 合法，确认 H-012 identity 命名相似性根因。
+  F5.0b 又证明对象类型不是原因；E 对象命名束 6/6 合法，确认 H-012 identity 命名相似性根因。F5.0c 已将
+  E 合同切入生产，并修复 H-013 暴露的 identity 与 edges 拓扑合同缺口；最终 simple/complex 第一次初始化
+  2/2 提交，业务与外部验证 2/2 通过。
   F3 的 bind continuation 被使用，但 complete -> bind 没有自然合并，
   更细 Map 的生命周期继续逐请求推进。F3.5 只修复 F1 自引入的前缀断裂，不是 E 到 F 的净成本收益。
   修复计划已插入 `docs/v0.0.5/build-R6/18-r6-phase-f5-cost-regression-repair-plan.md`；Phase G 在 F5.3
@@ -48,6 +50,7 @@
   - H-010
   - H-011
   - H-012
+  - H-013
 - Resolution basis:
   - not satisfied
 - Close reason:
@@ -705,13 +708,15 @@
 - Evidence gate: satisfied
 - Related evidence:
   - E-019
-- Conclusion: confirmed。D identity error=5/6，E=0/6，F=1/6；E 公共字段错误=0，且 schema 只比 D 增加 8 bytes。
-- Repair design readiness: ready
-- Next step: F5.0c 一次性切换 E wire contract，不保留旧字段兼容。
+  - E-021
+- Conclusion: confirmed and fixed。D identity error=5/6，E=0/6，F=1/6；E 公共字段错误=0。生产已无兼容
+  分支地切换 E wire contract，最终 simple/complex 均无 identity 错误或旧字段。
+- Repair design readiness: implemented
+- Next step: F5.1 继续观察，不再修改 identity wire contract。
 - Blocker:
   - none
 - Close reason:
-  - not closed
+  - fixed and validated by E-021
 
 ## Hypothesis H-009: F3 没有承载 complete -> bind 边界，细粒度 Map 继续逐请求推进
 - Status: confirmed
@@ -972,15 +977,17 @@
 - Evidence gate: satisfied
 - Related evidence:
   - E-020
-- Conclusion: confirmed。F5.0c complex 前四次均为合法 `finish_identity: { id: "finish" }`，但没有边指向
-  Finish；第五次补齐 Finish 入边后立即提交。F4 D 合同的十次可解析初始化均包含 Finish 入边。
-- Repair design readiness: ready
-- Next step: 只在同一 tool schema 中补全 Finish identity 与 edges 的机械拓扑合同；不增加 Runtime 修复、
-  prompt、projection 注入或兼容字段。
+  - E-021
+- Conclusion: confirmed and fixed。F5.0c complex 前四次均为合法 `finish_identity: { id: "finish" }`，但没有边指向
+  Finish；第五次补齐 Finish 入边后立即提交。F4 D 合同的十次可解析初始化均包含 Finish 入边。修复只在同一
+  tool schema 中声明该 ID 是 `edges` 的唯一汇点且所有节点必须可达；未增加 Runtime 修复、prompt、projection
+  注入或兼容字段。修复后的 simple/complex 均在第一次初始化提交。
+- Repair design readiness: implemented
+- Next step: F5.1 继续观察初始化合同，不再在 F5.0c 增加约束。
 - Blocker:
   - none
 - Close reason:
-  - not closed
+  - fixed and validated by E-021
 
 ## Evidence E-020: F5.0c Finish identity 生效但拓扑关联缺失
 - Related hypotheses:
@@ -1008,4 +1015,38 @@
   ```
 - Interpretation: identity 命名修复有效，但 tool schema 丢失了旧字段名隐含承载的拓扑操作语义。正确修复点是
   schema 合同本身，不是让 Runtime 猜测、补边或解释 Agent 意图。
+- Time: 2026-07-17
+
+## Evidence E-021: F5.0c 拓扑合同修复后的正式 Docker 验证
+- Related hypotheses:
+  - H-012
+  - H-013
+- Direction: validates H-012 repair and closes H-013
+- Type: runtime-trace
+- Source: F5.0c final simple/complex right-only Docker rollout、性能观察、外部 validator
+- Prediction or plan link:
+  - F5.0c 首次初始化、Map topology、continuation、terminal 和 replay exit gate
+- Matched signal:
+  - 两个样本的第一次 initialize 均使用 `finish_identity: { id }`，无 legacy `finish`，且 Finish 在第一次调用
+    就有入边；两张图所有节点都位于 Root 到 Finish 的路径上。
+  - 两个样本均完成业务任务和外部验证，Root/Finish 由 Agent 显式 `finish_end` 闭合，未出现初始化参数重试。
+  - complex 初始化 continuation 内的 `send_message` 参数错误被普通工具链忠实返回；状态提交保持原子，Agent 后续
+    自行纠正，未由 Runtime 推断或改写动作。
+- Raw content:
+  ```text
+  simple artifact: target/r6-phase-f5-0c-final/single-file-fast-fix/20260717-160531-941
+  complex artifact: target/r6-phase-f5-0c-final/subscription-billing-repair/20260717-160531-953
+  first initialize committed: 2/2
+  finish_identity valid: 2/2; legacy finish: 0/2; identity errors: 0/2
+  first-attempt Finish incoming edge: 2/2
+  rooted Root -> Finish graph: 2/2; cycles: 0/2
+  continuation executed: 2/2
+  business solved + external validation: 2/2
+  Root closed + Finish closed: 2/2
+  simple requests/input/cache/wall: 13 / 118282 / 83.11% / 27.87s
+  complex requests/input/cache/wall: 16 / 229372 / 87.45% / 65.89s
+  schema bytes old D / field-only E / topology E: 9427 / 9436 / 9527
+  ```
+- Interpretation: `finish_identity` 的独立命名消除了旧命名束的字段泛化；补全 identity 与 edges 的机械关系后，
+  初始化正确性门关闭。新增 91 B 是拓扑合同本身的固定成本，不应与 F5.1 工具面裁减收益混算。
 - Time: 2026-07-17

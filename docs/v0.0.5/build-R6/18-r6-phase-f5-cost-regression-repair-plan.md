@@ -2,8 +2,8 @@
 
 - Created: 2026-07-17
 - Updated: 2026-07-17
-- Version: 1.2
-- Status: F5.0-F5.0b Complete / F5.0c Pending / F5.1-F5.3 Blocked
+- Version: 1.3
+- Status: F5.0-F5.0c Complete / F5.1 Pending / F5.2-F5.3 Blocked
 - Owner / Responsible: WhaleCode core runtime / TaskSpace
 - Related Systems: `taskspace_control` schema、ToolRouter、Rooted DAG runtime、provider request composer、Docker benchmark
 - Related Links: `01-r6-phased-implementation-plan.md`、`16-r6-phase-f-context-cost-plan.md`、
@@ -248,6 +248,14 @@ H-012 confirmed。结果见 `20-r6-phase-f5-0b-finish-identity-result.md`。
 
 ### Phase F5.0c：Finish Identity 合同切换
 
+#### Result
+
+Complete。生产合同已无兼容分支地切换为 `finish_identity: { id }`，schema、typed parser、mapping、terminal、
+replay 和 malformed feedback 均通过回归。第一次 field-only complex rollout 暴露 H-013：identity 合法但 schema
+未说明该 ID 必须作为 `edges` 的唯一汇点，Agent 前四次把 Finish 留在图外。修复仅补全同一工具 schema 的机械
+拓扑合同，未修改 Runtime、projection 或系统提示词。修复后 simple/complex 首次初始化 2/2 提交，业务、外部
+验证、Root/Finish 闭合和 replay 均通过。完整证据见 `21-r6-phase-f5-0c-finish-identity-contract-result.md`。
+
 #### Objective
 
 将 E 臂 `finish_identity: { id }` 一次性切换到生产 schema、typed parser、mapping、event/replay 和 observer；
@@ -264,6 +272,14 @@ H-012 confirmed。结果见 `20-r6-phase-f5-0b-finish-identity-result.md`。
 - schema/parser 正反 fixture、terminal/replay、malformed feedback 全部通过；
 - simple/complex 各 1 次，首次初始化错误为 0/2，Map/Root/Finish/continuation 100%；
 - 只验证初始化正确性与该项 schema 成本，完成后暂停，不与 F5.1 工具面收益合并报告。
+
+#### Gate Result
+
+- schema/parser、terminal/replay、malformed feedback：通过；
+- 首次初始化错误：0/2；legacy `finish`：0/2；合法 `finish_identity`：2/2；
+- 首次 Map rooted path、Finish 入边、continuation、Root/Finish 闭合：2/2；
+- full-lifecycle schema：旧 D 9,427 B，field-only E 9,436 B，拓扑合同完成后的 E 9,527 B；
+- F5.0c 已暂停，F5.1 尚未执行。
 
 ### Phase F5.1：Hard-state 对齐 Tool Surface
 
