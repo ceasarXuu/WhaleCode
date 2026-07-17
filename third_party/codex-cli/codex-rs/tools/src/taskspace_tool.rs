@@ -201,7 +201,7 @@ fn finish_identity_schema() -> JsonSchema {
         Some(false.into()),
     );
     schema.description = Some(
-        "Terminal identity only. All executable work, including validation, belongs to Work nodes."
+        "The unique terminal graph node identity. Reference id as the graph's only sink in edges; every node must reach it. All executable work, including validation, belongs to Work nodes."
             .into(),
     );
     schema

@@ -62,7 +62,7 @@ fn lifecycle_schema_includes_initialization_with_required_continuation() {
     );
     assert_eq!(
         variants[0]["properties"]["finish_identity"]["description"],
-        "Terminal identity only. All executable work, including validation, belongs to Work nodes."
+        "The unique terminal graph node identity. Reference id as the graph's only sink in edges; every node must reach it. All executable work, including validation, belongs to Work nodes."
     );
     assert!(variants[0]["properties"].get("finish").is_none());
     assert!(variants[0]["properties"].get("current_work_node").is_none());
