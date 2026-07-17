@@ -951,3 +951,61 @@
 - Interpretation: 生产候选冻结为 E=`finish_identity: { id }`。不能选择更小但有类型错误的 F，也不需要增加
   Runtime 修复、projection 提示或 reasoning 解析。
 - Time: 2026-07-17
+
+## Hypothesis H-013: 独立 Finish identity 合同缺失与 edges 的拓扑关联
+- Status: confirmed
+- Parent: P-001
+- Claim: `finish_identity: { id }` 消除了旧字段名 `finish` 自带的图终点关联，但 schema 只声明 terminal
+  identity，没有声明该 ID 是必须被 `edges` 引用的唯一图终点；Agent 因而能生成严格合法的 identity 字段，却把
+  Finish 留在图外。
+- Layer: root-cause
+- Factor relation: side_effect_of
+- Depends on:
+  - H-012
+- Falsifiable predictions:
+  - If true: F5.0c 失败参数中的 identity 形态正确，但 edges 不引用 Finish；冻结 D 合同更稳定地产生 Finish 入边。
+  - If false: 失败来自旧字段、identity 类型、parser/mapping，或 D 合同同样稳定遗漏 Finish 入边。
+- Diagnostic evidence plan:
+  - Signal: 首次 initialize 的 identity 字段、edge 端点、图不变量反馈和历史 D 初始化参数。
+  - Capture method: F5.0c simple/complex Docker rollout 与 F4 simple/complex 冻结 rollout 逐调用对账。
+  - Differentiates from: H-012 的 `goal` 泛化、Runtime 状态干预、projection/history 丢失和 provider parse。
+- Evidence gate: satisfied
+- Related evidence:
+  - E-020
+- Conclusion: confirmed。F5.0c complex 前四次均为合法 `finish_identity: { id: "finish" }`，但没有边指向
+  Finish；第五次补齐 Finish 入边后立即提交。F4 D 合同的十次可解析初始化均包含 Finish 入边。
+- Repair design readiness: ready
+- Next step: 只在同一 tool schema 中补全 Finish identity 与 edges 的机械拓扑合同；不增加 Runtime 修复、
+  prompt、projection 注入或兼容字段。
+- Blocker:
+  - none
+- Close reason:
+  - not closed
+
+## Evidence E-020: F5.0c Finish identity 生效但拓扑关联缺失
+- Related hypotheses:
+  - H-012
+  - H-013
+- Direction: supports H-013; validates H-012 wire repair
+- Type: runtime-trace
+- Source: F5.0c simple/complex Docker rollout 与 F4 冻结 rollout
+- Prediction or plan link:
+  - F5.0c 首次初始化正确性门；H-013 diagnostic evidence plan
+- Matched signal:
+  - simple 首次初始化提交；complex 五次 identity 均严格合法且无旧 `finish`，前四次缺少 Finish 入边。
+  - Runtime 忠实返回 `non_root_zero_indegree: finish`、`node_unreachable_from_root: finish` 和
+    `finish_unreachable_from_node`；第五次增加 `root -> finish`、`verify -> finish` 后提交。
+  - F4 simple/complex 可解析的十次 D 参数全部包含 Work 到 Finish 的边。
+- Raw content:
+  ```text
+  F5.0c simple: first initialize committed, finish_identity valid
+  F5.0c complex attempts 1/3/4: no edge to finish
+  F5.0c complex attempt 2: verify -> root cycle, no edge to finish
+  F5.0c complex attempt 5: root -> finish + verify -> finish, committed revision=2
+  F5.0c identity errors: 0/6; legacy finish fields: 0/6
+  F4 D parseable initialize calls with finish incoming edge: 10/10
+  F5.0b common validator: validates edge keys/count only, not endpoint reachability
+  ```
+- Interpretation: identity 命名修复有效，但 tool schema 丢失了旧字段名隐含承载的拓扑操作语义。正确修复点是
+  schema 合同本身，不是让 Runtime 猜测、补边或解释 Agent 意图。
+- Time: 2026-07-17
