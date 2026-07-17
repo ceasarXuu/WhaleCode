@@ -2,7 +2,7 @@ function New-TaskspaceUnavailableProjectionIdentity {
     param([Parameter(Mandatory = $true)][string]$Reason)
     [pscustomobject]@{
         count = $null; kind = "unavailable"; map_id_sha256 = $null; revision = $null
-        projection_sha256 = $null; unavailable_reason = $Reason
+        canonical_sha256 = $null; projection_sha256 = $null; unavailable_reason = $Reason
     }
 }
 
@@ -12,31 +12,39 @@ function ConvertTo-TaskspaceProjectionIdentity {
     $count = ConvertTo-TaskspaceProviderSectionInt64 (Get-TaskspaceCostProperty $Raw @("count"))
     $kind = [string](Get-TaskspaceCostProperty $Raw @("kind"))
     $mapHash = [string](Get-TaskspaceCostProperty $Raw @("map_id_sha256"))
+    $canonicalHash = [string](Get-TaskspaceCostProperty $Raw @("canonical_sha256"))
     $projectionHash = [string](Get-TaskspaceCostProperty $Raw @("projection_sha256"))
     $revisionRaw = Get-TaskspaceCostProperty $Raw @("revision")
     $reason = [string](Get-TaskspaceCostProperty $Raw @("unavailable_reason"))
-    if ($null -eq $count -or $kind -notin @("bootstrap", "active", "unavailable")) {
+    if ($null -eq $count -or $kind -notin @("bootstrap", "bootstrap_required", "active", "current_projection", "unavailable")) {
         return New-TaskspaceUnavailableProjectionIdentity "active_projection_identity_shape_invalid"
     }
+    $normalizedKind = if ($kind -eq "bootstrap_required") { "bootstrap" } elseif ($kind -eq "current_projection") { "active" } else { $kind }
     $hashPattern = '^[0-9a-f]{64}$'
-    if ($kind -eq "bootstrap" -and ($count -ne 1 -or $projectionHash -notmatch $hashPattern -or
-        -not [string]::IsNullOrWhiteSpace($mapHash) -or $null -ne $revisionRaw -or -not [string]::IsNullOrWhiteSpace($reason))) {
+    if ($normalizedKind -eq "bootstrap" -and ($count -ne 1 -or $projectionHash -notmatch $hashPattern -or
+        -not [string]::IsNullOrWhiteSpace($mapHash) -or -not [string]::IsNullOrWhiteSpace($canonicalHash) -or
+        $null -ne $revisionRaw -or -not [string]::IsNullOrWhiteSpace($reason))) {
         return New-TaskspaceUnavailableProjectionIdentity "bootstrap_projection_identity_invalid"
     }
-    if ($kind -eq "active") {
+    if ($normalizedKind -eq "active") {
         $revision = ConvertTo-TaskspaceProviderSectionInt64 $revisionRaw
         if ($count -ne 1 -or $mapHash -notmatch $hashPattern -or $projectionHash -notmatch $hashPattern -or
             $null -eq $revision -or -not [string]::IsNullOrWhiteSpace($reason)) {
             return New-TaskspaceUnavailableProjectionIdentity "active_projection_identity_invalid"
         }
-    } elseif ($kind -eq "unavailable" -and (-not [string]::IsNullOrWhiteSpace($mapHash) -or $null -ne $revisionRaw -or
+        if ($kind -eq "current_projection" -and $canonicalHash -notmatch $hashPattern) {
+            return New-TaskspaceUnavailableProjectionIdentity "current_projection_canonical_identity_invalid"
+        }
+    } elseif ($normalizedKind -eq "unavailable" -and (-not [string]::IsNullOrWhiteSpace($mapHash) -or
+        -not [string]::IsNullOrWhiteSpace($canonicalHash) -or $null -ne $revisionRaw -or
         [string]::IsNullOrWhiteSpace($reason) -or (-not [string]::IsNullOrWhiteSpace($projectionHash) -and $projectionHash -notmatch $hashPattern))) {
         return New-TaskspaceUnavailableProjectionIdentity "unavailable_projection_identity_invalid"
     }
     [pscustomobject]@{
-        count = [int64]$count; kind = $kind
+        count = [int64]$count; kind = $normalizedKind
         map_id_sha256 = if ([string]::IsNullOrWhiteSpace($mapHash)) { $null } else { $mapHash }
-        revision = if ($kind -eq "active") { [int64]$revision } else { $null }
+        revision = if ($normalizedKind -eq "active") { [int64]$revision } else { $null }
+        canonical_sha256 = if ([string]::IsNullOrWhiteSpace($canonicalHash)) { $null } else { $canonicalHash }
         projection_sha256 = if ([string]::IsNullOrWhiteSpace($projectionHash)) { $null } else { $projectionHash }
         unavailable_reason = if ([string]::IsNullOrWhiteSpace($reason)) { $null } else { $reason }
     }

@@ -798,9 +798,10 @@ $v3Shape = [pscustomobject]@{
         schema_version = "provider-wire-section-cost-v1"; availability = "measured"; unavailable_reason = $null
         section_bytes_total = 500
         active_projection_identity = [pscustomobject]@{
-            count = 1; kind = "active"
+            count = 1; kind = "current_projection"
             map_id_sha256 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
             revision = 7
+            canonical_sha256 = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
             projection_sha256 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
             unavailable_reason = $null
         }
@@ -819,7 +820,7 @@ $v3ProjectionSection = @($v3Summary.sections | Where-Object { $_.kind -eq "activ
 Assert-True ([string]$v3Event.section_cost.availability -eq "measured" -and @($v3Event.section_cost.sections).Count -eq 8) "measured v3 cache event omitted section cost"
 Assert-True ([int]$v3Summary.measured_request_count -eq 1 -and [int]$v3Summary.unavailable_request_count -eq 0 -and [int64]$v3Summary.section_bytes_total -eq 500) "measured v3 section summary coverage is incorrect"
 Assert-True ($v3SectionBytes -eq [int64]$v3Summary.section_bytes_total -and $v3SectionBytes -eq [int64]$v3Event.provider_payload_bytes -and [int64]$v3Summary.estimated_tokens_total -eq 126) "v3 section summary did not reconcile exact payload/section/token totals"
-Assert-True ([string]$v3Event.section_cost.active_projection_identity.kind -eq "active" -and [int64]$v3Event.section_cost.active_projection_identity.revision -eq 7) "v3 cache event lost active projection identity"
+Assert-True ([string]$v3Event.section_cost.active_projection_identity.kind -eq "active" -and [int64]$v3Event.section_cost.active_projection_identity.revision -eq 7 -and [string]$v3Event.section_cost.active_projection_identity.canonical_sha256 -eq "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc") "v3 cache event lost current R7 projection identity"
 Assert-True ([int]$v3Summary.active_projection_identity_summary.active_count -eq 1 -and [int]$v3Summary.active_projection_identity_summary.unique_revision_count -eq 1 -and [int]$v3Summary.active_projection_identity_summary.unique_projection_sha256_count -eq 1) "v3 section summary lost projection freshness evidence"
 Assert-True ([int]$v3ProjectionSection.request_sample_count -eq 1 -and [double]$v3ProjectionSection.bytes_per_request_mean -eq 30 -and [double]$v3ProjectionSection.bytes_per_request_median -eq 30) "v3 section summary omitted per-request distribution statistics"
 $mismatchShape = $v3Shape | ConvertTo-Json -Depth 12 | ConvertFrom-Json
