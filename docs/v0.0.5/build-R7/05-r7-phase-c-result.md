@@ -2,7 +2,7 @@
 
 - Created: 2026-07-18
 - Updated: 2026-07-18
-- Status: Complete / Phase D Ready
+- Status: Reopened / Phase D Blocked
 - Production Commit: `5f25aad60`
 - Observer Commit: `9e3debba1`
 - Startup Fix Commit: `e753ea864`
@@ -10,7 +10,8 @@
 
 ## 1. 阶段结论
 
-Phase C 已完成。`map-append` 已接入 Phase B 建立的同一 policy、renderer 和 provider composer，
+Phase C 的 freshness、correctness 与反馈门禁已完成，但缓存合同复核失败，阶段重新打开。
+`map-append` 已接入 Phase B 建立的同一 policy、renderer 和 provider composer，
 没有复制第二条 context 构造路径。每次 canonical revision 提交后，只追加一份不可变 snapshot；同一
 revision 的重试不重复追加，旧 revision 明确标记为历史，最高 revision 是唯一当前状态。
 
@@ -18,9 +19,10 @@ revision 的重试不重复追加，旧 revision 明确标记为历史，最高 
 identity 或 supersession 违规。Simple 最终持久历史为 revision `2..8`，Complex 为 `2..10`；两组
 canonical Map 均闭合，Standard 与 R7 两臂均通过 public/hidden validator。
 
-`map-append` 的缓存表现明显高于 Phase B 的 `map-always`，但仍低于当轮 Standard；同时旧 snapshot
-会持续增加输入。该结果符合策略定义，不作为默认策略结论。本阶段每臂只有 1 次运行，冻结 R6 也是
-同日历史样本，因此只用于机制验收和诊断，不用于效用排序。
+此前把低缓存归类为 append 的已知策略成本并不正确。逐 request trace 与受控官方 API 探针证明，
+snapshot 的 `developer` role 在 DeepSeek ChatCompletions wire 被转换成 interleaved `system`；它在
+首次扩展时不能像自然 user/tool 历史一样复用 cache prefix unit。该问题属于 carrier 实现缺陷，不是
+`map-append` 产品定义。本阶段每臂只有 1 次运行，仍不用于效用排序。
 
 ## 2. 工程改造
 
@@ -112,11 +114,14 @@ R7 相对当前 Standard：request `1.75x`、wall `1.60x`、input `2.73x`；相�
 | 累计 tool schema | 321,912 B / 80,484 est. tokens | 751,128 B / 187,796 est. tokens |
 | 最终持久 projection | 13,529 B / 3,385 est. tokens | 24,137 B / 6,038 est. tokens |
 
-`map-append` 保持线性消息前缀，Phase B `map-always` 的 request 2+ cache hit 分别为 1.76% 和
-28.59%，本阶段为 46.51% 和 69.36%。但 DeepSeek 缓存不是“message prefix 相同就保证全部命中”：
-新 revision 后的首次请求仍可能低命中，tool choice 形态切换也会改变可缓存前缀。旧 snapshot 持续
-可见造成的 input 增长是 `map-append` 的已知产品特征，不应伪装为实现缺陷，也不能据单次样本推断
-稳定收益。
+内部 ResponseItem 历史保持线性消息前缀，但它不是 DeepSeek cache-unit 意义上的自然追加。每次
+active projection bytes 增长时，Simple 的命中分别降至 0%、4.12%、6.62%、11.50%；同 revision
+后续请求恢复至 94.59%-99.16%。代码路径把每个尾部 `developer` snapshot 转为 `system`。
+
+等待 5 秒的官方 API 两臂探针进一步排除了缓存落盘延迟：普通 user 追加首次扩展命中 99.22%，唯一
+改成 interleaved system 后为 0%，完全重放该 system 请求后恢复到 99.17%。因此 46.51%/69.36%
+不是 `map-append` 应接受的自然结果。旧 snapshot 累积造成的 input 增长仍是策略特征，但 revision
+首次 cache miss 是实现缺陷。证据见 `coe/2026-07-18-06-36-r7-map-append-cache-gap.md`。
 
 ## 6. 测试结果
 
@@ -150,14 +155,16 @@ preflight 在发出模型请求前失败；`051530` 暴露了 `Session::new` 遗
 
 ## 8. Phase D 准入
 
-Phase C 的 6 项退出门禁全部满足，可以进入 Phase D，但当前暂停：
+Phase C 的 correctness/freshness 项满足，但 cache 退出门禁失败，当前不得进入 Phase D：
 
 1. same revision duplicate 为 0；
 2. revision order violation 为 0；
 3. 最高 emitted revision 与 terminal canonical revision 一致；
 4. 40/40 provider request 的最新 identity 可精确复核；
 5. 输入增长和旧 snapshot 数量已完整量化；
-6. shared renderer/composer 未产生策略架构分叉。
+6. shared renderer/composer 未产生策略架构分叉；
+7. **未通过**：新增 revision 后的下一请求没有保持自然追加的 cache-unit 复用。
 
-Phase D 只能在共享 `taskspace_control` 上增加 `read_map`，并令 `map-request` 改变 emission decision；
-不得修改 Map 状态机、ordinary tool 权限或复制 renderer/provider context 路径。
+必须先修复 append carrier，证明新增 revision 后缓存接近同条件自然聊天，并重跑 simple/complex。
+之后 Phase D 才能在共享 `taskspace_control` 上增加 `read_map`；不得修改 Map 状态机、ordinary tool
+权限或复制 renderer/provider context 路径。

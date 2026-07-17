@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "result_id": "r7-phase-c-map-append-result",
-  "status": "phase_c_complete",
+  "status": "phase_c_reopened_cache_contract_failed",
   "generated_at": "2026-07-18T05:30:00+08:00",
-  "phase_d_ready": true,
+  "phase_d_ready": false,
   "production_behavior_changed": true,
   "implementation": {
     "production_commit": "5f25aad60d2b52cbf528c3d2042d3b8bd260b970",
@@ -80,6 +80,16 @@
       "canonical_sha256",
       "projection_sha256"
     ]
+  },
+  "cache_contract_diagnosis": {
+    "status": "failed_confirmed_carrier_defect",
+    "root_cause": "revision snapshots are appended as developer messages and converted to interleaved system messages on DeepSeek ChatCompletions wire",
+    "controlled_probe": "target/r7-phase-c-cache-probe/r7-cache-1784327903288/result.json",
+    "persistence_delay_ms": 5000,
+    "natural_user_append_first_extension_hit_rate": 0.992248,
+    "interleaved_system_append_first_extension_hit_rate": 0.0,
+    "interleaved_system_identical_replay_hit_rate": 0.991707,
+    "coe": "coe/2026-07-18-06-36-r7-map-append-cache-gap.md"
   },
   "scenarios": [
     {
@@ -269,7 +279,8 @@
     "resume_and_compaction_unit_contract_verified": true,
     "standard_unchanged": true,
     "simple_and_complex_correctness": true,
-    "input_growth_fully_observed": true
+    "input_growth_fully_observed": true,
+    "natural_append_cache_equivalence": false
   },
   "known_limits": [
     {

@@ -10,7 +10,7 @@
 Created: 2026-07-17
 Updated: 2026-07-18
 Version: v0.0.5 build-R7
-Status: Phase C Complete / Phase D Ready
+Status: Phase C Reopened / Phase D Blocked
 Owner / Responsible: WhaleCode core runtime / TaskSpace
 Risk Level: Critical
 Plan Type: Shared architecture with three projection policies
@@ -291,6 +291,12 @@ latest emitted revision 与 canonical revision 一致。
 - 两组 Docker Standard/R7 均 solved，输入增长、缓存与旧 snapshot 数量已量化；
 - 结果见 `05-r7-phase-c-result.md`，机器结果见
   `benchmarks/taskspace/r7/phase-c-result.json`。
+
+复核更正（2026-07-18）：上述 freshness、correctness 与反馈门禁仍成立，但 cache 退出门禁未满足。
+snapshot 在内部是尾部 `developer` message，DeepSeek adapter 将其转换为 interleaved `system`；受控
+API 探针中，自然 user 追加首次扩展命中 99.22%，system 追加为 0%。因此 Phase C 重新打开，Phase D
+在 carrier 修复并完成 Docker 回归前不得开始。根因见
+`coe/2026-07-18-06-36-r7-map-append-cache-gap.md`。
 
 ## 1.11 Phase D：接入 `map-request`
 
