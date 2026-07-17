@@ -323,12 +323,15 @@ function New-TaskspaceBudgetArtifacts {
             projection_kind = [string]$tags.projection_kind
             projection_map_id_sha256 = [string]$tags.projection_map_id_sha256
             projection_revision = Convert-TaskspaceTraceNullableInt $tags.projection_revision
+            projection_canonical_sha256 = [string]$tags.projection_canonical_sha256
             projection_sha256 = [string]$tags.projection_sha256
+            projection_policy = [string]$tags.projection_policy
             expected_projection_kind = [string]$tags.expected_projection_kind
             expected_projection_map_id_sha256 = [string]$tags.expected_projection_map_id_sha256
             expected_projection_revision = Convert-TaskspaceTraceNullableInt $tags.expected_projection_revision
+            expected_projection_canonical_sha256 = [string]$tags.expected_projection_canonical_sha256
             expected_projection_sha256 = [string]$tags.expected_projection_sha256
-            projection_epoch_identity_confirmed = Convert-TaskspaceTraceBool $tags.projection_epoch_identity_confirmed $false
+            projection_identity_confirmed = Convert-TaskspaceTraceBool (Get-TaskspaceCostProperty $tags @("projection_identity_confirmed", "projection_epoch_identity_confirmed")) $false
             replacement_confirmed = Convert-TaskspaceTraceBool $tags.replacement_confirmed $false
         })
     }
@@ -428,12 +431,15 @@ function New-TaskspaceExactPayloadScanEvents {
             projection_kind = [string]$tags.projection_kind
             projection_map_id_sha256 = [string]$tags.projection_map_id_sha256
             projection_revision = Convert-TaskspaceTraceNullableInt $tags.projection_revision
+            projection_canonical_sha256 = [string]$tags.projection_canonical_sha256
             projection_sha256 = [string]$tags.projection_sha256
+            projection_policy = [string]$tags.projection_policy
             expected_projection_kind = [string]$tags.expected_projection_kind
             expected_projection_map_id_sha256 = [string]$tags.expected_projection_map_id_sha256
             expected_projection_revision = Convert-TaskspaceTraceNullableInt $tags.expected_projection_revision
+            expected_projection_canonical_sha256 = [string]$tags.expected_projection_canonical_sha256
             expected_projection_sha256 = [string]$tags.expected_projection_sha256
-            projection_epoch_identity_confirmed = Convert-TaskspaceTraceBool $tags.projection_epoch_identity_confirmed $false
+            projection_identity_confirmed = Convert-TaskspaceTraceBool (Get-TaskspaceCostProperty $tags @("projection_identity_confirmed", "projection_epoch_identity_confirmed")) $false
             replacement_confirmed = Convert-TaskspaceTraceBool $tags.replacement_confirmed $false
             passed = Convert-TaskspaceTraceBool $tags.passed $false
             failure_reasons = [string]$tags.failure_reasons
@@ -473,7 +479,7 @@ function New-TaskspaceActiveReplacementArtifacts {
     $failedMatchingScanEvents = @($matchingScanEvents | Where-Object { -not [bool]$_.passed })
     $projectionScanEvents = @($matchingScanEvents | Where-Object { [bool]$_.projection_required })
     $unconfirmedMatchingScanEvents = @($projectionScanEvents | Where-Object { -not [bool]$_.replacement_confirmed })
-    $identityUnconfirmedScanEvents = @($projectionScanEvents | Where-Object { -not [bool]$_.projection_epoch_identity_confirmed })
+    $identityUnconfirmedScanEvents = @($projectionScanEvents | Where-Object { -not [bool]$_.projection_identity_confirmed })
     $projectionUniquenessViolations = @($projectionScanEvents | Where-Object { [int]$_.active_projection_count -gt 1 })
     $projectionCountMaximum = if ($projectionScanEvents.Count -gt 0) {
         [int](($projectionScanEvents | Measure-Object -Property active_projection_count -Maximum).Maximum)
@@ -492,7 +498,7 @@ function New-TaskspaceActiveReplacementArtifacts {
         active_projection_count = if ($null -ne $first) { [int]$first.active_projection_count } else { 0 }
         active_projection_count_max = $projectionCountMaximum
         active_projection_uniqueness_violation_count = $projectionUniquenessViolations.Count
-        projection_epoch_identity_unconfirmed_count = $identityUnconfirmedScanEvents.Count
+        projection_identity_unconfirmed_count = $identityUnconfirmedScanEvents.Count
         matching_payload_scan_count = $matchingScanEvents.Count
         failed_matching_payload_scan_count = $failedMatchingScanEvents.Count
         replacement_confirmed = [bool]$replacementConfirmed
@@ -500,12 +506,15 @@ function New-TaskspaceActiveReplacementArtifacts {
         runtime_boundary_forbidden_markers = if ($null -ne $first) { [string]$first.runtime_boundary_forbidden_markers } else { "" }
         protected_items_present = if ($null -ne $first) { [bool]$first.protected_items_present } else { $false }
         projection_kind = if ($null -ne $first) { [string]$first.projection_kind } else { "" }
+        projection_policy = if ($null -ne $first) { [string]$first.projection_policy } else { "" }
         projection_revision = if ($null -ne $first) { $first.projection_revision } else { $null }
+        projection_canonical_sha256 = if ($null -ne $first) { [string]$first.projection_canonical_sha256 } else { "" }
         projection_sha256 = if ($null -ne $first) { [string]$first.projection_sha256 } else { "" }
         expected_projection_kind = if ($null -ne $first) { [string]$first.expected_projection_kind } else { "" }
         expected_projection_revision = if ($null -ne $first) { $first.expected_projection_revision } else { $null }
+        expected_projection_canonical_sha256 = if ($null -ne $first) { [string]$first.expected_projection_canonical_sha256 } else { "" }
         expected_projection_sha256 = if ($null -ne $first) { [string]$first.expected_projection_sha256 } else { "" }
-        projection_epoch_identity_confirmed = if ($null -ne $first) { [bool]$first.projection_epoch_identity_confirmed } else { $false }
+        projection_identity_confirmed = if ($null -ne $first) { [bool]$first.projection_identity_confirmed } else { $false }
     }
     [pscustomobject]@{
         exact_payload_scan_events = @($scanEvents)
@@ -1707,7 +1716,7 @@ function Get-TaskspaceContextProjectionBlocks {
     }
     if (-not [string]::IsNullOrWhiteSpace($RolloutJsonlPath) -and (Test-Path -LiteralPath $RolloutJsonlPath -PathType Leaf)) {
         foreach ($line in [System.IO.File]::ReadLines($RolloutJsonlPath)) {
-            if ($line -notmatch 'ContextProjectionV1|TaskSpaceMapEpochSnapshotR6V1') { continue }
+            if ($line -notmatch 'ContextProjectionV1|TaskSpaceMapProjectionR7V1|TaskSpaceMapEpochSnapshotR6V1') { continue }
             $texts.Add(($line -replace "\\r\\n", "`n" -replace "\\n", "`n"))
         }
     }
@@ -1721,14 +1730,20 @@ function Get-TaskspaceContextProjectionBlocks {
             $block = [string]$match.Value
             if (-not [string]::IsNullOrWhiteSpace($block)) { $blocks.Add($block) }
         }
+        foreach ($match in [regex]::Matches($text, "(?s)TaskSpaceMapProjectionR7V1:.*?TaskSpaceMapProjectionR7V1 end\.")) {
+            $block = [string]$match.Value
+            if (-not [string]::IsNullOrWhiteSpace($block)) { $blocks.Add($block) }
+        }
     }
     @($blocks.ToArray() | Select-Object -Unique)
 }
 
 function New-TaskspaceContextProjectionEvent {
     param([Parameter(Mandatory = $true)][string]$Block)
-    $projectionKind = if ($Block -match "TaskSpaceMapEpochSnapshotR6V1:" -and $Block -match "(?m)^- map:\s*none\s*$") { "bootstrap" } elseif ($Block -match "TaskSpaceMapEpochSnapshotR6V1:" -and $Block -match "(?m)^- integrity_status:\s*invalid\s*$") { "invalid" } elseif ($Block -match "TaskSpaceMapEpochSnapshotR6V1:") { "rooted_map_epoch" } elseif ($Block -match "ContextProjectionV1 active replacement:") { "active_replacement" } elseif ($Block -match "ContextProjectionV1 shadow \(not active replacement\):") { "shadow" } else { "unknown" }
-    $requiredSections = if ($projectionKind -eq "rooted_map_epoch") {
+    $projectionKind = if ($Block -match "TaskSpaceMapProjectionR7V1:" -and $Block -match "(?m)^- map:\s*none\s*$") { "bootstrap_required" } elseif ($Block -match "TaskSpaceMapProjectionR7V1:" -and $Block -match "(?m)^- integrity_status:\s*invalid\s*$") { "integrity_error" } elseif ($Block -match "TaskSpaceMapProjectionR7V1:") { "current_projection" } elseif ($Block -match "TaskSpaceMapEpochSnapshotR6V1:" -and $Block -match "(?m)^- map:\s*none\s*$") { "r6_bootstrap" } elseif ($Block -match "TaskSpaceMapEpochSnapshotR6V1:" -and $Block -match "(?m)^- integrity_status:\s*invalid\s*$") { "r6_integrity_error" } elseif ($Block -match "TaskSpaceMapEpochSnapshotR6V1:") { "r6_rooted_map_epoch" } elseif ($Block -match "ContextProjectionV1 active replacement:") { "active_replacement" } elseif ($Block -match "ContextProjectionV1 shadow \(not active replacement\):") { "shadow" } else { "unknown" }
+    $requiredSections = if ($projectionKind -eq "current_projection") {
+        @("schema_version", "projection_kind", "map_id", "revision", "canonical_sha256", "root_node_id", "finish_node_id", "complete", "root_source_event_ids", "current_node", "active_frontier", "map_nodes", "map_edges", "node_details")
+    } elseif ($projectionKind -eq "r6_rooted_map_epoch") {
         @("map_id", "revision", "root_node_id", "finish_node_id", "complete", "root_source_event_ids", "current_node", "active_frontier", "map_nodes", "map_edges", "node_details")
     } elseif ($projectionKind -eq "active_replacement") {
         @("task_id", "map_id", "current_node", "map_nodes", "current_node_recent_events", "result_refs_available")
@@ -1748,6 +1763,10 @@ function New-TaskspaceContextProjectionEvent {
     if ($taskMatch.Success) { $taskId = $taskMatch.Groups[1].Value.Trim() }
     $mapMatch = [regex]::Match($Block, "(?m)^-\s*map_id:\s*(.+?)\s*$")
     $mapId = if ($mapMatch.Success) { $mapMatch.Groups[1].Value.Trim() } else { "" }
+    $revisionMatch = [regex]::Match($Block, "(?m)^-\s*revision:\s*(\d+)\s*$")
+    $revision = if ($revisionMatch.Success) { [int64]$revisionMatch.Groups[1].Value } else { $null }
+    $canonicalHashMatch = [regex]::Match($Block, "(?m)^-\s*canonical_sha256:\s*(.+?)\s*$")
+    $canonicalSha256 = if ($canonicalHashMatch.Success) { $canonicalHashMatch.Groups[1].Value.Trim() } else { "" }
     $modeMatch = [regex]::Match($Block, "(?m)^-\s*mode:\s*(.+?)\s*$")
     if ($modeMatch.Success) { $mode = $modeMatch.Groups[1].Value.Trim() }
     $tokenMatch = [regex]::Match($Block, "(?m)^-\s*estimated_tokens:\s*(\d+)\s*$")
@@ -1757,6 +1776,8 @@ function New-TaskspaceContextProjectionEvent {
         projection_id = $projectionId
         task_id = $taskId
         map_id = $mapId
+        revision = $revision
+        canonical_sha256 = $canonicalSha256
         mode = if ([string]::IsNullOrWhiteSpace($mode)) { "unknown" } else { $mode }
         projection_kind = $projectionKind
         estimated_tokens = $estimatedTokens
@@ -1783,7 +1804,7 @@ function New-TaskspaceContextProjectionTraceEvents {
             task_id = $taskId
             map_id = $mapId
             mode = "taskspace"
-            projection_kind = "epoch_snapshot"
+            projection_kind = "current_projection"
             estimated_tokens = Convert-TaskspaceTraceNullableInt $tags.projection_tokens
             protected_miss_count = 0
             protected_missing_sections = @()
@@ -1813,7 +1834,7 @@ function New-TaskspaceContextProjectionSummary {
     foreach ($value in $tokenValues) { $tokenTotal += [int64]$value }
     $protectedMiss = 0
     foreach ($event in $events) { $protectedMiss += [int]$event.protected_miss_count }
-    $activeProjectionCount = @($events | Where-Object { [string]$_.projection_kind -in @("active_replacement", "rooted_map_epoch", "bootstrap", "epoch_snapshot") }).Count
+    $activeProjectionCount = @($events | Where-Object { [string]$_.projection_kind -in @("active_replacement", "current_projection", "bootstrap_required", "r6_rooted_map_epoch", "r6_bootstrap") }).Count
     $shadowProjectionCount = @($events | Where-Object { [string]$_.projection_kind -eq "shadow" }).Count
     [pscustomobject]@{
         schema_version = "taskspace-context-projection-summary-v1"

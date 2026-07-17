@@ -164,7 +164,13 @@ foreach ($item in @($inventory.items)) {
     Assert-True ($allowedClassifications -contains [string]$item.classification) "Invalid classification for $($item.id): $($item.classification)"
     Assert-True ([string]$item.classification -ne "unknown") "Unknown classification is forbidden for $($item.id)"
     Assert-True (-not [string]::IsNullOrWhiteSpace([string]$item.path)) "Inventory path missing for $($item.id)"
-    Assert-True (Test-Path -LiteralPath (Join-Path $repoRoot ([string]$item.path)) -PathType Leaf) "Inventory path does not exist: $($item.path)"
+    $itemPathExists = Test-Path -LiteralPath (Join-Path $repoRoot ([string]$item.path)) -PathType Leaf
+    if ([string]$item.classification -eq "delete_b") {
+        Assert-True (-not $itemPathExists) "Phase B deleted path still exists: $($item.path)"
+    }
+    else {
+        Assert-True $itemPathExists "Inventory path does not exist: $($item.path)"
+    }
     Assert-True (-not [string]::IsNullOrWhiteSpace([string]$item.r7_owner)) "R7 owner missing for $($item.id)"
     Assert-True (-not [string]::IsNullOrWhiteSpace([string]$item.reason)) "Reason missing for $($item.id)"
     [void]$seenDomains.Add([string]$item.domain)

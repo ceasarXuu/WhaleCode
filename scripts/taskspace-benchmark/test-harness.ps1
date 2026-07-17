@@ -595,6 +595,41 @@ Assert-True ([int]$shadowProjectionArtifacts.context_projection_summary.shadow_p
 $shadowProjectionEventLine = Get-Content -LiteralPath $shadowProjectionArtifacts.projection_events_path -Encoding UTF8 | Select-Object -First 1
 $shadowProjectionEvent = $shadowProjectionEventLine | ConvertFrom-Json
 Assert-True ([string]$shadowProjectionEvent.projection_kind -eq "shadow") "legacy shadow projection kind was not parsed"
+$r7ProjectionJsonl = Join-Path $costDir "projection-r7-current.jsonl"
+[pscustomobject]@{
+    message = @'
+TaskSpaceMapProjectionR7V1:
+- schema_version: taskspace-map-projection-r7-v1
+- projection_kind: current_projection
+- map_id: map-1
+- revision: 4
+- canonical_sha256: canonical-4
+- root_node_id: root
+- finish_node_id: finish
+- complete: false
+  root_source_event_ids:
+    - event-1
+- current_node: work
+  active_frontier:
+    - work
+  map_nodes:
+    - root role=task_root status=open
+    - work role=work status=running
+    - finish role=finish status=pending
+  map_edges:
+    - root->work
+    - work->finish
+  node_details:
+    - none
+TaskSpaceMapProjectionR7V1 end.
+'@
+} | ConvertTo-Json -Compress | Set-Content -LiteralPath $r7ProjectionJsonl -Encoding UTF8
+$r7ProjectionSummary = New-TaskspaceContextProjectionSummary $r7ProjectionJsonl "" ""
+Assert-True ([int]$r7ProjectionSummary.projection_count -eq 1) "R7 current projection block was not counted"
+Assert-True ([string]$r7ProjectionSummary.events[0].projection_kind -eq "current_projection") "R7 projection kind was not parsed"
+Assert-True ([int64]$r7ProjectionSummary.events[0].revision -eq 4) "R7 projection revision was not parsed"
+Assert-True ([string]$r7ProjectionSummary.events[0].canonical_sha256 -eq "canonical-4") "R7 canonical hash was not parsed"
+Assert-True ([int]$r7ProjectionSummary.events[0].protected_miss_count -eq 0) "R7 projection required sections were not preserved"
 $epochProjectionRollout = Join-Path $costDir "projection-epoch-rollout.jsonl"
 @(
     ([pscustomobject]@{
@@ -627,7 +662,7 @@ Assert-True ([string]$epochProjectionSummary.availability -eq "measured") "epoch
 Assert-True ([int]$epochProjectionSummary.projection_count -eq 1) "epoch projection trace was not counted"
 Assert-True ([int]$epochProjectionSummary.projection_tokens_total -eq 189) "epoch projection tokens were not extracted"
 Assert-True ([int]$epochProjectionSummary.active_projection_count -eq 1) "epoch projection was not active"
-Assert-True ([string]$epochProjectionSummary.events[0].projection_kind -eq "epoch_snapshot") "epoch projection kind was not preserved"
+Assert-True ([string]$epochProjectionSummary.events[0].projection_kind -eq "current_projection") "current projection kind was not preserved"
 $costObsFallback = Join-Path $costDir "observability-output-ref-fallback.json"
 [pscustomobject]@{
     timeline = @(
