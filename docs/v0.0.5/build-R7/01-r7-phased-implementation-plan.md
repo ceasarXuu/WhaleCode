@@ -10,7 +10,7 @@
 Created: 2026-07-17
 Updated: 2026-07-18
 Version: v0.0.5 build-R7
-Status: Phase B Complete / Phase C Ready
+Status: Phase C Complete / Phase D Ready
 Owner / Responsible: WhaleCode core runtime / TaskSpace
 Risk Level: Critical
 Plan Type: Shared architecture with three projection policies
@@ -280,6 +280,17 @@ latest emitted revision 与 canonical revision 一致。
 消息前缀和 provider cache hit 可由 trace 复核。
 输入增长与旧版本数量完整量化，不误报成语义丢失。
 ```
+
+完成证据：
+
+- `map-append` 已在共享 policy/renderer/composer 上纵向接入，没有新增第二条 context 路径；
+- revision snapshot、supersession、cursor、事务最终 revision 捕获及 tool output 后刷新均已接入；
+- simple/complex 共 40 个 TaskSpace provider request，duplicate、order violation、scan failure、
+  identity unconfirmed 均为零；
+- 最终持久 revision 分别为 `2..8` 与 `2..10`，全部对齐 terminal canonical revision；
+- 两组 Docker Standard/R7 均 solved，输入增长、缓存与旧 snapshot 数量已量化；
+- 结果见 `05-r7-phase-c-result.md`，机器结果见
+  `benchmarks/taskspace/r7/phase-c-result.json`。
 
 ## 1.11 Phase D：接入 `map-request`
 
