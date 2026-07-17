@@ -121,7 +121,7 @@ R7-B 的替换结果必须是：
 
 ```text
 canonical identity + trigger + session policy + policy cursor
-  -> None | ReplaceLatest | AppendRevision | ReturnAsToolResult
+  -> None | ReplaceLatest | AppendSnapshot | ReturnAsToolResult
 ```
 
 旧 `TaskSpaceProviderProjectionEpoch`、`TaskSpaceProjectionEpochDecision`、prefix hash、anchor、scope 和

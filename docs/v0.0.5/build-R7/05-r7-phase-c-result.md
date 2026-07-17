@@ -2,64 +2,62 @@
 
 - Created: 2026-07-18
 - Updated: 2026-07-18
-- Status: Reopened / Phase D Blocked
-- Production Commit: `5f25aad60`
-- Observer Commit: `9e3debba1`
-- Startup Fix Commit: `e753ea864`
+- Status: Complete / Phase D Ready
+- Production Commit: `4366b95ec`
+- Observer Commit: `f04b5573d`
+- Diagnosis Commit: `49b185a0b`
 - Machine Result: `benchmarks/taskspace/r7/phase-c-result.json`
 
 ## 1. 阶段结论
 
-Phase C 的 freshness、correctness 与反馈门禁已完成，但缓存合同复核失败，阶段重新打开。
-`map-append` 已接入 Phase B 建立的同一 policy、renderer 和 provider composer，
-没有复制第二条 context 构造路径。每次 canonical revision 提交后，只追加一份不可变 snapshot；同一
-revision 的重试不重复追加，旧 revision 明确标记为历史，最高 revision 是唯一当前状态。
+Phase C 已按用户澄清后的产品合同完成：`map-append` 不依赖 revision commit 或 tool result，而是在
+**每轮 provider request 构造时，把当时最新完整 projection 机械、持久地追加为最后一条 message**。
+因此上下文按 `A+P1 -> A+P1+B+P2` 线性增长；Map 未变化时，下一轮仍可再次追加同一 revision，最后
+一份 projection 是唯一当前状态。
 
-两个 Docker 样本共 40 次 TaskSpace provider request，exact scanner 未发现 revision 顺序、重复、
-identity 或 supersession 违规。Simple 最终持久历史为 revision `2..8`，Complex 为 `2..10`；两组
-canonical Map 均闭合，Standard 与 R7 两臂均通过 public/hidden validator。
+旧实现同时存在触发点和 carrier 缺陷：它只在 revision commit 后追加 `developer` snapshot，DeepSeek
+adapter 又把该消息转换为会话中部 `system`。修复后 emission 由 `ProviderRequest` 触发，projection 在
+provider-visible copy 中使用自然历史兼容的 `user` role。两个 Docker 样本共 31 次 TaskSpace request，
+31/31 均以 projection 收尾，identity 对齐且 revision 非递减。
 
-此前把低缓存归类为 append 的已知策略成本并不正确。逐 request trace 与受控官方 API 探针证明，
-snapshot 的 `developer` role 在 DeepSeek ChatCompletions wire 被转换成 interleaved `system`；它在
-首次扩展时不能像自然 user/tool 历史一样复用 cache prefix unit。该问题属于 carrier 实现缺陷，不是
-`map-append` 产品定义。本阶段每臂只有 1 次运行，仍不用于效用排序。
+两组 Standard/R7 均通过 public/hidden validator，Map 均闭合。R7 request 2+ cache hit 从旧实现的
+46.51%/69.36% 提升至 78.95%/87.35%，相同 request shape 的零命中为 0。旧 projection 累积、额外
+request 和总 input 增长仍是 `map-append` 的已知产品成本。本阶段每臂只有 1 次，不用于效用排序。
 
 ## 2. 工程改造
 
 | 区域 | 结果 |
 |---|---|
-| Envelope | 共享 envelope 增加 `revision_snapshot`、`supersedes_through_revision`、`highest_revision_only` |
-| Policy | committed revision 触发 `AppendRevision`；同 revision 抑制，旧 revision 机械拒绝 |
-| Transaction | 同一 control carrier 的多个 event 只捕获最终 revision；状态与 projection 原子安装 |
-| Ordering | snapshot 在顶层 tool output 后刷新，保持 tool call/output 相邻关系 |
-| Composer | `map-append` 保留不可变历史，provider request 不再额外注入动态 projection |
-| Resume/compaction | 从可见历史机械恢复 cursor；新 context epoch 只补当前 revision 一次 |
-| Scanner | 校验严格递增、最新 identity、Map 生命周期分段；不再套用 always 的唯一数量规则 |
-| Schema | 明确同一 `map_id` 下只有最高 revision 是当前状态，不增加 Agent 工作建议 |
-| Logs | 增加 emission decision、revision append、projection kind/revision 成本字段 |
+| Envelope | 共享 envelope 使用 `request_snapshot`、`supersedes_all_prior_projections`、`last_projection_only` |
+| Policy | `ProviderRequest` 触发 `AppendSnapshot`；revision 允许重复但不允许回退 |
+| Ordering | 每轮最终 message 必须是当时最新 projection；不依赖 control/tool output carrier |
+| Composer | projection 持久写入 canonical history，并在 provider-visible copy 中序列化为 `user` |
+| Retry | 当前历史末项已是同一 projection 时不重复持久写入 |
+| Resume/compaction | 从可见末项机械恢复 cursor，后续 request 继续执行同一末项合同 |
+| Scanner | 校验 projection 末项、revision 非递减及 Map/revision/hash 四元 identity |
+| Schema | 最后 projection 唯一权威，不增加 Agent 工作建议或 Runtime 语义判断 |
+| Logs | 增加 `projection_is_message_tail`、request snapshot identity 与 request 级缓存字段 |
 | Session | Phase C 开放 `map-always` 与 `map-append`；`map-request` 继续机械拒绝 |
 
 Renderer 仍只忠实构造 canonical Map；policy 只决定 projection 如何进入 context。Runtime 没有增加
 节点优先级、下一步动作、任务摘要或纠错建议。
 
-## 3. Revision 与反馈门禁
+## 3. Request-tail 与反馈门禁
 
 | 指标 | Simple | Complex | 合计 |
 |---|---:|---:|---:|
-| TaskSpace provider request | 12 | 28 | 40 |
-| provider request 内最大 snapshot 数 | 6 | 8 | 8 |
-| 最终持久 snapshot revision | `2..8` | `2..10` | 严格递增 |
-| 最终持久 snapshot 数 | 7 | 9 | 16 |
-| terminal canonical revision | 8 | 10 | 全部对齐 |
+| TaskSpace provider request | 11 | 20 | 31 |
+| bootstrap / request snapshot | 1 / 10 | 1 / 19 | 2 / 29 |
+| 末项 projection | 11 / 11 | 20 / 20 | 31 / 31 |
+| identity confirmed | 11 / 11 | 20 / 20 | 31 / 31 |
+| 可见 revision | `2..9`，2/7 重复 | `2..9`，2/3/5/6 重复 | 非递减 |
 | exact scan failure | 0 | 0 | 0 |
-| identity unconfirmed | 0 | 0 | 0 |
-| duplicate / order violation | 0 / 0 | 0 / 0 | 0 / 0 |
-| Map nodes / edges / open | 5 / 4 / 0 | 6 / 5 / 0 | 全部闭合 |
+| tail / identity / regression violation | 0 / 0 / 0 | 0 / 0 / 0 | 0 / 0 / 0 |
+| Map nodes / edges / open | 6 / 5 / 0 | 6 / 5 / 0 | 全部闭合 |
 
-Simple 的一次无 binding ordinary action 和一次空 continuation 被硬规则正确拒绝。Complex 中，格式
-损坏的 init、保留 target、失败 patch 以及无 binding complete 均返回明确原始错误；nested tool
-output 紧邻对应 control output，Agent 随后能够重试。未观察到 projection 导致的反馈丢失、扭曲或
-错误提交。
+两组运行分别出现 2/5 次 control failure，均以明确失败反馈进入历史，Agent 随后纠正并完成任务；
+Complex observer 另记录 4 处生成参数的诊断解析失败，但不影响 Runtime 原始 tool result、scanner 或
+最终验证。未观察到 projection 导致的反馈丢失、扭曲或错误提交。
 
 ## 4. 三臂快速对照
 
@@ -71,66 +69,68 @@ Frozen R6 来自 Phase A 冻结基线；Standard 和 R7 是本阶段新成对运
 | 指标 | Current Standard | Frozen R6 | R7 map-append |
 |---|---:|---:|---:|
 | 结果 | solved | solved | solved |
-| provider request | 10 | 19 | 12 |
-| runtime tool / control | 12 / 0 | 18 / 9 | 9 / 11 |
-| wall time | 24.21s | 46.55s | 29.58s |
-| input token | 77,664 | 231,221 | 136,043 |
-| cached input | 74,752 | 207,744 | 61,824 |
-| uncached input | 2,912 | 23,477 | 74,219 |
-| output token | 2,041 | 4,499 | 2,711 |
-| request 2+ cache hit | 96.10% | 89.74% | 46.51% |
-| message prefix preserved | 100.00% | 88.89% | 81.82% |
-| Map nodes / edges / open | 0 / 0 / 0 | 5 / 4 / 0 | 5 / 4 / 0 |
+| provider request | 7 | 19 | 11 |
+| runtime tool / control | 9 / 0 | 18 / 9 | 10 / 10 |
+| wall time | 13.76s | 46.55s | 25.34s |
+| input token | 48,627 | 231,221 | 148,311 |
+| cached input | 46,592 | 207,744 | 114,816 |
+| uncached input | 2,035 | 23,477 | 33,495 |
+| output token | 1,394 | 4,499 | 2,584 |
+| request 2+ cache hit | 95.51% | 89.74% | 78.95% |
+| message prefix preserved | 100.00% | 88.89% | 80.00% |
+| Map nodes / edges / open | 0 / 0 / 0 | 5 / 4 / 0 | 6 / 5 / 0 |
 
-R7 相对当前 Standard：request `1.20x`、wall `1.22x`、input `1.75x`；相对冻结 R6：request
-`0.63x`、wall `0.64x`、input `0.59x`，但 uncached input 为 `3.16x`。
+R7 相对当前 Standard：request `1.57x`、wall `1.84x`、input `3.05x`、cached input `2.46x`、
+uncached input `16.46x`。其中 request 2 是唯一零命中，trace 将其归类为初始化后的
+`named_function -> auto` tool-choice 形状切换，不是 same-shape miss。
 
 ### 4.2 Complex：subscription-billing-repair
 
 | 指标 | Current Standard | Frozen R6 | R7 map-append |
 |---|---:|---:|---:|
 | 结果 | solved | solved | solved |
-| provider request | 16 | 16 | 28 |
-| runtime tool / control | 23 / 0 | 22 / 7 | 35 / 11 |
-| wall time | 57.76s | 58.93s | 92.42s |
-| input token | 193,007 | 209,772 | 526,926 |
-| cached input | 184,832 | 184,704 | 366,336 |
-| uncached input | 8,175 | 25,068 | 160,590 |
-| output token | 6,145 | 5,767 | 10,077 |
-| request 2+ cache hit | 95.66% | 87.87% | 69.36% |
-| message prefix preserved | 100.00% | 86.67% | 92.59% |
+| provider request | 12 | 16 | 20 |
+| runtime tool / control | 20 / 0 | 22 / 7 | 24 / 13 |
+| wall time | 47.22s | 58.93s | 91.68s |
+| input token | 126,172 | 209,772 | 453,446 |
+| cached input | 119,424 | 184,704 | 393,600 |
+| uncached input | 6,748 | 25,068 | 59,846 |
+| output token | 5,223 | 5,767 | 10,527 |
+| request 2+ cache hit | 94.44% | 87.87% | 87.35% |
+| message prefix preserved | 100.00% | 86.67% | 89.47% |
 | Map nodes / edges / open | 0 / 0 / 0 | 4 / 3 / 0 | 6 / 5 / 0 |
 
-R7 相对当前 Standard：request `1.75x`、wall `1.60x`、input `2.73x`；相对冻结 R6：request
-`1.75x`、wall `1.57x`、input `2.51x`，uncached input 为 `6.41x`。本次放大主要来自 Agent 路径
-增加，而不是 snapshot 重复：28 次 request 的 revision/identity 扫描均通过。
+R7 相对当前 Standard：request `1.67x`、wall `1.94x`、input `3.59x`、cached input `3.30x`、
+uncached input `8.87x`。20 个 request 没有零命中，主 `auto` loop 为 84%-97%；低点主要位于初始化与
+最终收口的 tool-choice 形状切换。R7 只执行 2 个 patch，Standard 执行 5 个，双方每 request 均不超过
+1 个 patch。
 
 ## 5. 输入与缓存解释
 
 | 指标 | Simple | Complex |
 |---|---:|---:|
-| provider request 累计可见 projection | 62,326 B / 15,586 est. tokens | 235,412 B / 58,860 est. tokens |
-| 累计自然历史 | 70,374 B / 17,598 est. tokens | 604,232 B / 151,068 est. tokens |
-| 累计 tool schema | 321,912 B / 80,484 est. tokens | 751,128 B / 187,796 est. tokens |
-| 最终持久 projection | 13,529 B / 3,385 est. tokens | 24,137 B / 6,038 est. tokens |
+| provider request 累计可见 projection 历史 | 129,691 B / 32,428 est. tokens | 512,115 B / 128,036 est. tokens |
+| 累计自然历史 | 62,106 B / 15,530 est. tokens | 425,768 B / 106,452 est. tokens |
+| 累计 tool schema | 295,911 B / 73,986 est. tokens | 538,020 B / 134,520 est. tokens |
+| 累计 TaskSpace control feedback | 28,629 B / 7,160 est. tokens | 64,100 B / 16,031 est. tokens |
 
-内部 ResponseItem 历史保持线性消息前缀，但它不是 DeepSeek cache-unit 意义上的自然追加。每次
-active projection bytes 增长时，Simple 的命中分别降至 0%、4.12%、6.62%、11.50%；同 revision
-后续请求恢复至 94.59%-99.16%。代码路径把每个尾部 `developer` snapshot 转为 `system`。
+缓存修复是明确收益：旧 `developer -> system` carrier 被移除后，两个样本分别提升 32.44/17.99 个
+百分点，且 same-shape zero hit 均为 0。message-level prefix 指标仍低于 100%，因为 scanner 会看到
+每轮新增自然历史和尾部 projection；它不能替代 provider 返回的 cache token 事实。
 
-等待 5 秒的官方 API 两臂探针进一步排除了缓存落盘延迟：普通 user 追加首次扩展命中 99.22%，唯一
-改成 interleaved system 后为 0%，完全重放该 system 请求后恢复到 99.17%。因此 46.51%/69.36%
-不是 `map-append` 应接受的自然结果。旧 snapshot 累积造成的 input 增长仍是策略特征，但 revision
-首次 cache miss 是实现缺陷。证据见 `coe/2026-07-18-06-36-r7-map-append-cache-gap.md`。
+input 并未随缓存修复消失。每轮都追加完整 projection 意味着旧版本在后续每个请求中继续计费；上表
+`active_projection` 原始分类名在 append 模式下实际汇总的是“当前加历史 projection 消息”，不是只有
+最后一份当前状态。再叠加 R7 的额外 request/control，形成 Simple `3.05x`、Complex `3.59x` 的总
+input。这是当前 `map-append` 的设计成本，不再误判为 carrier bug。
 
 ## 6. 测试结果
 
 ```text
 cargo check -p codex-core --tests                           PASS
 cargo fmt --all -- --check                                  PASS
-cargo test -p codex-core projection -- --nocapture          25 passed
+cargo test -p codex-core projection --lib                    24 passed
 provider map-append / rollback / session policy tests        PASS
-codex-tools taskspace control tests                          3 passed
+codex-tools taskspace control tests                          4 passed
 R7 projection policy contract                               PASS
 cost instrumentation selftest                               PASS
 performance observation selftest                            PASS
@@ -138,33 +138,35 @@ TaskSpace benchmark harness self-test                        PASS
 Docker simple/complex Standard + R7                          all solved
 ```
 
-完整 `codex-core --lib`：`1894 passed / 25 failed / 3 ignored`。失败项与 Phase B 的 25 项集合一致；
+完整 `codex-core --lib`：`1891 passed / 25 failed / 3 ignored`。失败项与 Phase C 修复前的 25 项集合一致；
 新增 Phase C 测试全部进入通过项。两个既有 TaskSpace 子代理 spawn/replay 失败继续记录在
 `coe/2026-07-18-03-15-r7-subagent-map-restore.md`，其余为共享 `/tmp`、file watcher、guardian key
 注入、临时 diff 路径等非本阶段失败。
 
 ## 7. 无效运行与运行经验
 
-两次预运行不进入效果证据：`051502` 因 benchmark 子进程不会自动加载仓库 `.env.local`，provider
-preflight 在发出模型请求前失败；`051530` 暴露了 `Session::new` 遗留的 Phase B policy gate，导致
-`map-append` 启动即被拒绝。后者已在 `e753ea864` 修复并增加 startup regression test。
+旧 `052006` 运行保留为修复前诊断证据，不能与新实现混算。新有效运行根目录为：
+
+```text
+target/r7-phase-c/request-tail/single-file-fast-fix/20260718-072520-561
+target/r7-phase-c/request-tail/subscription-billing-repair/20260718-072634-693
+```
 
 以后从 shell 启动 benchmark 时，应使用 `set -a; source .env.local; set +a` 将环境显式导出，且不得
-打印 secret。`run_score_valid=true` 的 `052006` 两组 run 才是本阶段有效样本。runner 因
-`repeats=1` 且未启用 aggregate 返回非零，只表示不允许生成统计效用结论，不表示 pair 失败。
+打印 secret。当前每臂 `repeats=1`，只验证工程合同和定向成本变化，不生成统计效用结论。
 
 ## 8. Phase D 准入
 
-Phase C 的 correctness/freshness 项满足，但 cache 退出门禁失败，当前不得进入 Phase D：
+Phase C 的 request-tail、correctness、feedback 与 cache 缺陷门禁均满足，可以进入 Phase D：
 
-1. same revision duplicate 为 0；
-2. revision order violation 为 0；
-3. 最高 emitted revision 与 terminal canonical revision 一致；
-4. 40/40 provider request 的最新 identity 可精确复核；
-5. 输入增长和旧 snapshot 数量已完整量化；
+1. 31/31 provider request 的末项 projection 与 identity 可精确复核；
+2. 同 revision 跨 request 重复符合合同，revision regression 为 0；
+3. projection 不再依赖 revision/tool carrier，DeepSeek wire 不再插入 system；
+4. request 2+ cache 明显恢复，same-shape zero hit 为 0；
+5. 输入增长和旧 snapshot 累积已完整量化；
 6. shared renderer/composer 未产生策略架构分叉；
-7. **未通过**：新增 revision 后的下一请求没有保持自然追加的 cache-unit 复用。
+7. Standard/R7 simple 与 complex 均 solved，完整回归无新增失败。
 
-必须先修复 append carrier，证明新增 revision 后缓存接近同条件自然聊天，并重跑 simple/complex。
-之后 Phase D 才能在共享 `taskspace_control` 上增加 `read_map`；不得修改 Map 状态机、ordinary tool
-权限或复制 renderer/provider context 路径。
+Phase D 只能在共享 `taskspace_control` 上增加 `read_map`；不得修改 Map 状态机、ordinary tool 权限
+或复制 renderer/provider context 路径。Phase C 单次样本不支持三策略效用排序，正式结论仍需后续重复
+实验。

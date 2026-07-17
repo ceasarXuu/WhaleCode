@@ -10,7 +10,7 @@
 Created: 2026-07-17
 Updated: 2026-07-18
 Version: v0.0.5 build-R7
-Status: Phase C Reopened / Phase D Blocked
+Status: Phase C Complete / Phase D Ready
 Owner / Responsible: WhaleCode core runtime / TaskSpace
 Risk Level: Critical
 Plan Type: Shared architecture with three projection policies
@@ -93,7 +93,7 @@ tools/handlers/taskspace_control.rs
 ```text
 None
 ReplaceLatest(RenderedProjection)
-AppendRevision(RenderedProjection)
+AppendSnapshot(RenderedProjection)
 ReturnAsToolResult(RenderedProjection)
 ```
 
@@ -253,30 +253,30 @@ correctness、Root/Finish closure、event replay 和反馈保真 100%。
 
 ## 1.10 Phase C：接入 `map-append`
 
-**目标**：复用同一 renderer/composer，只新增“按 committed revision 追加不可变 snapshot”的 emission
-规则。
+**目标**：复用同一 renderer/composer，只新增“每轮 request 持久追加最新 projection 到 context
+末尾”的 emission 规则。
 
 实施项：
 
-1. `RevisionCommitted` trigger 生成一次 `AppendRevision`；无 revision 变化不生成。
-2. 同一 control carrier 的多个 canonical events 合并到最终 committed revision，只追加一次。
-3. projection envelope 增加 `projection_kind`、`supersedes_through_revision` 和 `current_state_rule`。
-4. cursor 记录当前 context epoch 内最后追加 revision/hash，拒绝同 revision 重复 emission。
-5. provider scanner 校验 revision 严格递增、最高 revision 对齐 canonical Map。
+1. `ProviderRequest` trigger 机械保证请求末项是当时最新完整 projection，并将新末项持久写入 context。
+2. projection 不依赖 control carrier 或 revision commit；Map 未变化时也可在下一轮新历史后再次追加。
+3. projection envelope 增加 `projection_kind`、`supersedes_all_prior_projections` 和 `current_state_rule`。
+4. cursor 记录末项 projection identity；provider retry 在末项未变化时不重复 emission。
+5. provider scanner 校验最后 projection 对齐 canonical Map，历史 revision 非递减。
 6. tool schema 和系统提示词使用共享版本规则；不为 append 增加专属 Agent 工作建议。
 
 测试：
 
-- `r -> r` 不追加，`r -> r+1` 追加一次，事务内多 event 仍只追加最终 revision；
-- retry 不重复、并发提交顺序稳定、stale revision 返回机械错误；
-- 旧 projection 没有永久 current 标记，最高 revision 唯一权威；
+- 两轮 request 的 `r -> r` 会在各自末项携带 projection，单次 provider retry 不重复；
+- 请求间自然历史和 projection 均只追加，stale revision 返回机械错误；
+- 旧 projection 没有永久 current 标记，最后 projection 唯一权威；
 - Standard/R6/R7-append 对 simple、long-map 各 1 次。
 
 退出门禁：
 
 ```text
-same_revision_duplicate == 0，revision_order_violation == 0。
-latest emitted revision 与 canonical revision 一致。
+request_tail_projection_missing == 0，revision_regression == 0。
+last projection identity 与 canonical Map 一致。
 消息前缀和 provider cache hit 可由 trace 复核。
 输入增长与旧版本数量完整量化，不误报成语义丢失。
 ```
@@ -284,19 +284,16 @@ latest emitted revision 与 canonical revision 一致。
 完成证据：
 
 - `map-append` 已在共享 policy/renderer/composer 上纵向接入，没有新增第二条 context 路径；
-- revision snapshot、supersession、cursor、事务最终 revision 捕获及 tool output 后刷新均已接入；
-- simple/complex 共 40 个 TaskSpace provider request，duplicate、order violation、scan failure、
-  identity unconfirmed 均为零；
-- 最终持久 revision 分别为 `2..8` 与 `2..10`，全部对齐 terminal canonical revision；
-- 两组 Docker Standard/R7 均 solved，输入增长、缓存与旧 snapshot 数量已量化；
+- emission 触发点已从 revision/tool result 收敛到 `ProviderRequest`，每轮持久追加 request-tail snapshot；
+- projection 使用自然历史兼容的 `user` carrier，DeepSeek wire 不再产生 interleaved `system`；
+- simple/complex 共 31 个 TaskSpace provider request，末项、identity、revision 非递减与 scanner 均
+  31/31 通过；同 revision 跨 request 重复被正确保留；
+- 两组 Docker Standard/R7 均 solved；R7 request 2+ cache hit 从旧实现的 46.51%/69.36% 提升到
+  78.95%/87.35%，same-shape zero hit 均为零；
+- 旧 projection 累积造成的 input 增长继续作为 `map-append` 已知产品成本记录，不包装为缓存 bug；
 - 结果见 `05-r7-phase-c-result.md`，机器结果见
-  `benchmarks/taskspace/r7/phase-c-result.json`。
-
-复核更正（2026-07-18）：上述 freshness、correctness 与反馈门禁仍成立，但 cache 退出门禁未满足。
-snapshot 在内部是尾部 `developer` message，DeepSeek adapter 将其转换为 interleaved `system`；受控
-API 探针中，自然 user 追加首次扩展命中 99.22%，system 追加为 0%。因此 Phase C 重新打开，Phase D
-在 carrier 修复并完成 Docker 回归前不得开始。根因见
-`coe/2026-07-18-06-36-r7-map-append-cache-gap.md`。
+  `benchmarks/taskspace/r7/phase-c-result.json`，根因闭环见
+  `coe/2026-07-18-06-36-r7-map-append-cache-gap.md`。
 
 ## 1.11 Phase D：接入 `map-request`
 
@@ -424,7 +421,7 @@ observer 对缺失数据明确 unavailable，不产生误判。
 | 风险 | 早期信号 | 控制 |
 |---|---|---|
 | policy 泄漏到 Runtime 语义 | 不同策略产生不同 Map/event hash | Phase E differential hard gate |
-| append 重复或乱序 | 同 revision 多 projection、最高 revision 不匹配 | cursor + wire scanner + fault tests |
+| append 缺失或倒退 | request 末项不是 projection、revision 回退、末项 identity 不匹配 | cursor + wire scanner + fault tests |
 | request 退化成可选账本 | ordinary tool 可在空 Map/无 lease 执行 | 共享 hard gate 回归矩阵 |
 | always 缓存被误判为 bug | correctness 正常但 uncached 偏高 | known-feature 分类 + raw cache trace |
 | mode-specific prompt 污染实验 | 三策略 system/tool hash 不同 | Phase F hash equality gate |

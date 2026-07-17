@@ -10,7 +10,7 @@
 Created: 2026-07-17
 Updated: 2026-07-18
 Version: v0.0.5 build-R7
-Status: Charter Frozen / Phase C Reopened / Phase D Blocked
+Status: Charter Frozen / Phase C Complete / Phase D Ready
 Owner / Responsible: WhaleCode core runtime / TaskSpace
 Related Systems: canonical ActionMap, taskspace_control, Event Store, provider context,
   projection renderer, compaction, replay/resume, Docker benchmark, Web Viewer
@@ -78,8 +78,8 @@ Agent taskspace_control / ordinary tools
                  v
          ProjectionPolicy::emit()
         /             |             \
- map-always      map-append      map-request
- replace latest   append revision  explicit read result
+ map-always      map-append       map-request
+ replace latest   append request   explicit read result
         \             |             /
                  v
        shared Provider Context Composer
@@ -163,32 +163,32 @@ bug。
 
 ### 0.6.2 `map-append`
 
-定义：每次 canonical Map 成功提交新 revision 时，把该 revision 的完整 projection 作为不可变消息
-追加到自然 context；没有 revision 变化的 provider request 不追加。同一 control carrier 中若提交多个
-状态事件，只追加最终 committed revision 的一份 snapshot。
+定义：每次 provider request 构造时，把当时最新的完整 projection 作为不可变消息持久追加到自然
+context 的末尾。下一轮保留旧 projection 和新增自然历史，再在末尾追加最新 projection。该行为不依赖
+control carrier 或 revision commit；provider retry 若末项已经是同一 projection，则不重复追加。
 
 每个追加项必须带有机械版本标记：
 
 ```text
-projection_kind: revision_snapshot
+projection_kind: request_snapshot
 map_id: <id>
 revision: <n>
-supersedes_through_revision: <n-1>
-current_state_rule: highest_revision_only
+supersedes_all_prior_projections: true
+current_state_rule: last_projection_only
 ```
 
 不变量：
 
-- 同一 Map、同一 revision 最多追加一次；
-- projection 顺序与 committed revision 严格递增；
-- 最高 revision 是当前状态的唯一权威；
-- 更低 revision 只作为历史证据，不能用于 current/frontier/status 或后续 tool 参数；
+- 每轮有效 provider request 的最后一条 message 是最新 projection；
+- 同一 revision 可因连续 request 重复，Map revision 必须非递减；
+- 最后一份 projection 是当前状态的唯一权威；
+- 更早 projection 只作为历史证据，不能用于 current/frontier/status 或后续 tool 参数；
 - 不得在不可变旧消息中写入永久性的 `authoritative_current=true`；
 - 使用旧 revision 发起状态调用时返回机械 `stale_revision`，Runtime 不自动改写参数。
 
-系统提示词和 tool description 只声明上述版本选择规则，不添加策略建议。旧 projection 累积、输入
-增长和陈旧历史干扰是该策略换取线性追加与缓存的已知代价；缺少 supersession 标记、重复追加同一
-revision、revision 乱序或最新 projection 与 Map 不一致才是 bug。
+系统提示词和 tool description 只声明上述末项选择规则，不添加策略建议。旧 projection 累积、输入
+增长和陈旧历史干扰是该策略换取线性追加与缓存的已知代价；缺少 supersession 标记、request 末项
+不是 projection、revision 回退或最新 projection 与 Map 不一致才是 bug。
 
 ### 0.6.3 `map-request`
 
@@ -281,7 +281,7 @@ taskspace_projection_policy = "map-always" | "map-append" | "map-request"
 ```text
 taskspace.projection_emitted
   policy
-  trigger: request | revision_commit | explicit_read | compaction | resume
+  trigger: provider_request | explicit_read
   map_id_hash
   canonical_revision
   emitted_revision
@@ -289,8 +289,9 @@ taskspace.projection_emitted
   bytes / estimated_tokens
   context_position
   persisted_in_history
-  supersedes_through_revision
-  duplicate_same_revision
+  projection_is_message_tail
+  same_revision_as_previous
+  supersedes_all_prior_projections
   freshness_verdict
 
 taskspace.projection_read_requested
@@ -307,7 +308,7 @@ projection token 占比和策略字段。
 | 策略 | 已知产品特征，不作为 bug | 实现 bug |
 |---|---|---|
 | map-always | 自动缓存偏低、uncached 成本偏高 | projection 缺失、重复、陈旧、hash/revision 不一致 |
-| map-append | 旧 projection 累积、总 input 增长、可能干扰注意力 | 同 revision 重复、乱序、无 supersession、最新状态错误 |
+| map-append | 每个 request 的旧 projection 累积、总 input 增长、可能干扰注意力；map 未变化时 revision 会重复 | request 末尾缺 projection、revision 倒退、无 supersession、末项 identity 错误 |
 | map-request | 无持续全景、读取次数可能低、Map 影响力可能下降 | Map 可绕过、read 返回错误状态、binding/terminal 失效 |
 
 “已知特征”仍必须持续量化；它只意味着不能用修 bug 的名义改变策略定义，不意味着产品一定接受该
@@ -320,7 +321,8 @@ R7 完成必须同时满足：
 1. 只有一个 canonical Map、一个 renderer、一个 provider composer 和一个工具/反馈链。
 2. 三种策略由同一 enum/参数切换，除 projection emission 外行为逐事件一致。
 3. `map-always` 每轮只暴露最新 projection，并明确量化缓存代价。
-4. `map-append` 仅按 committed revision 追加，旧版本明确失效且最新 revision 唯一权威。
+4. `map-append` 在每轮 provider request 末尾持久追加当时最新完整 projection，旧版本明确失效且
+   最后版本唯一权威。
 5. `map-request` 不自动注入完整 Map，但初始化、binding、归属和显式终结均不可绕过。
 6. resume、fork、retry 和 compaction 对每种策略都有确定、可回放的结果。
 7. R6 epoch baseline 生产路径和专属状态被删除，不保留兼容分支。

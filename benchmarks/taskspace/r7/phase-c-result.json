@@ -1,14 +1,14 @@
 {
-  "schema_version": 1,
-  "result_id": "r7-phase-c-map-append-result",
-  "status": "phase_c_reopened_cache_contract_failed",
-  "generated_at": "2026-07-18T05:30:00+08:00",
-  "phase_d_ready": false,
+  "schema_version": 2,
+  "result_id": "r7-phase-c-map-append-request-tail-result",
+  "status": "phase_c_complete_request_tail_validated",
+  "generated_at": "2026-07-18T07:45:00+08:00",
+  "phase_d_ready": true,
   "production_behavior_changed": true,
   "implementation": {
-    "production_commit": "5f25aad60d2b52cbf528c3d2042d3b8bd260b970",
-    "observer_commit": "9e3debba1119c37d0c78bd8858ccda2671ce4869",
-    "startup_fix_commit": "e753ea8647ca944e7dc0e47fc2a8697b5f2c4637",
+    "diagnosis_commit": "49b185a0b",
+    "production_commit": "4366b95ec",
+    "observer_commit": "f04b5573d",
     "enabled_policies": [
       "map-always",
       "map-append"
@@ -16,13 +16,20 @@
     "disabled_until_later_phase": [
       "map-request"
     ],
+    "emission_trigger": "provider_request",
+    "emission": "append_snapshot",
+    "projection_kind": "request_snapshot",
+    "provider_carrier_role": "user",
+    "current_state_rule": "last_projection_only",
     "shared_renderer_and_composer": true,
     "compatibility_or_migration_paths": 0
   },
   "current_runtime": {
-    "binary_sha256": "b0715eac1d57b301d59dd1bde3e4e42611ab1cd7acc4f8bd7836a2265a05f94f",
-    "attestation_sha256": "3472b7a82f99292cbf2999b8e503a3e57a20483e2ed6cbcdcd6b918e33eea01e",
-    "codex_source_commit": "e753ea8647ca944e7dc0e47fc2a8697b5f2c4637",
+    "binary_sha256": "8a4e91d58ca780aadf4071df63a319fdd957737e48e59747a859f5fb4689d4cf",
+    "codex_source_commit": "4366b95ecc0ef364f7be49f545aa987e767f3a40",
+    "observer_commit": "f04b5573df49be526c3f918b0aefb14dd3aa1cc1",
+    "binary_preflight_status": "pass",
+    "stale_for_codex_source": false,
     "build_command": "cargo build -p codex-cli --bin whale --locked"
   },
   "frozen_r6_baseline": {
@@ -41,14 +48,11 @@
     "core_tests_check": "passed",
     "format_check": "passed",
     "projection_tests": {
-      "passed": 25,
+      "passed": 24,
       "failed": 0
     },
-    "map_append_provider_tests": "passed",
-    "transaction_rollback_test": "passed",
-    "session_policy_startup_test": "passed",
     "codex_tools_taskspace_tests": {
-      "passed": 3,
+      "passed": 4,
       "failed": 0
     },
     "contract_script": "passed",
@@ -56,24 +60,25 @@
     "performance_observation_script": "passed",
     "benchmark_harness_script": "passed",
     "core_library": {
-      "passed": 1894,
+      "passed": 1891,
       "failed": 25,
       "ignored": 3,
-      "phase_c_projection_or_config_failures": 0,
+      "new_failures": 0,
       "baseline_reproduced_taskspace_failures": 2,
       "environment_or_unrelated_failures": 23
     }
   },
-  "freshness_gate": {
-    "taskspace_provider_requests": 40,
-    "policy_values": [
-      "map-append"
-    ],
-    "maximum_projection_count_per_request": 8,
-    "scan_failures": 0,
+  "request_tail_gate": {
+    "taskspace_provider_requests": 31,
+    "unique_exact_scans": 31,
+    "bootstrap_count": 2,
+    "request_snapshot_count": 29,
+    "projection_message_tail_passed": 31,
+    "projection_message_tail_violations": 0,
     "identity_unconfirmed": 0,
-    "same_revision_duplicates": 0,
-    "revision_order_violations": 0,
+    "scan_failures": 0,
+    "revision_regressions": 0,
+    "same_revision_across_requests_expected": true,
     "matched_identity_fields": [
       "map_id",
       "revision",
@@ -81,44 +86,47 @@
       "projection_sha256"
     ]
   },
-  "cache_contract_diagnosis": {
-    "status": "failed_confirmed_carrier_defect",
-    "root_cause": "revision snapshots are appended as developer messages and converted to interleaved system messages on DeepSeek ChatCompletions wire",
+  "cache_contract_repair": {
+    "status": "fixed_and_validated",
+    "root_cause": "revision-triggered developer snapshots became interleaved system messages instead of request-tail natural history",
     "controlled_probe": "target/r7-phase-c-cache-probe/r7-cache-1784327903288/result.json",
-    "persistence_delay_ms": 5000,
     "natural_user_append_first_extension_hit_rate": 0.992248,
     "interleaved_system_append_first_extension_hit_rate": 0.0,
     "interleaved_system_identical_replay_hit_rate": 0.991707,
+    "old_simple_request_2_plus_hit_rate": 0.4651,
+    "new_simple_request_2_plus_hit_rate": 0.78947,
+    "simple_improvement_percentage_points": 32.44,
+    "old_complex_request_2_plus_hit_rate": 0.6936,
+    "new_complex_request_2_plus_hit_rate": 0.873472,
+    "complex_improvement_percentage_points": 17.99,
+    "same_shape_zero_hit_count": 0,
     "coe": "coe/2026-07-18-06-36-r7-map-append-cache-gap.md"
   },
   "scenarios": [
     {
       "slot": "simple",
       "scenario_id": "single-file-fast-fix",
-      "current_run_root": "target/r7-phase-c/current/single-file-fast-fix/20260718-052006-254",
+      "run_root": "target/r7-phase-c/request-tail/single-file-fast-fix/20260718-072520-561",
       "arms": {
         "standard": {
-          "source": "current_pair",
           "outcome": "solved",
-          "provider_requests": 10,
-          "runtime_ordinary_tool_calls": 12,
+          "provider_requests": 7,
+          "runtime_ordinary_tool_calls": 9,
           "control_calls": 0,
-          "input_tokens": 77664,
-          "cached_input_tokens": 74752,
-          "uncached_input_tokens": 2912,
-          "output_tokens": 2041,
-          "wall_time_ms": 24212,
-          "request_2_plus_cache_hit_rate": 0.961,
+          "input_tokens": 48627,
+          "cached_input_tokens": 46592,
+          "uncached_input_tokens": 2035,
+          "output_tokens": 1394,
+          "wall_time_ms": 13757,
+          "request_2_plus_cache_hit_rate": 0.955113,
           "message_prefix_preserved_rate": 1.0,
-          "map_nodes": 0,
-          "map_edges": 0,
-          "open_leaf_nodes": 0
+          "patch_calls": 1,
+          "max_patch_calls_per_request": 1
         },
         "frozen_r6": {
-          "source": "phase_a_historical_baseline",
           "outcome": "solved",
           "provider_requests": 19,
-          "provider_outer_tool_calls": 18,
+          "runtime_ordinary_tool_calls": 18,
           "control_calls": 9,
           "input_tokens": 231221,
           "cached_input_tokens": 207744,
@@ -126,80 +134,81 @@
           "output_tokens": 4499,
           "wall_time_ms": 46554,
           "request_2_plus_cache_hit_rate": 0.89735,
-          "message_prefix_preserved_rate": 0.888889,
           "map_nodes": 5,
           "map_edges": 4,
           "open_leaf_nodes": 0
         },
         "r7_map_append": {
-          "source": "current_pair",
           "outcome": "solved",
-          "provider_requests": 12,
-          "provider_outer_tool_calls": 20,
-          "runtime_ordinary_tool_calls": 9,
-          "control_calls": 11,
-          "nested_actions": 4,
-          "input_tokens": 136043,
-          "cached_input_tokens": 61824,
-          "uncached_input_tokens": 74219,
-          "output_tokens": 2711,
-          "wall_time_ms": 29584,
-          "request_2_plus_cache_hit_rate": 0.4651,
-          "message_prefix_preserved_rate": 0.8182,
-          "map_nodes": 5,
-          "map_edges": 4,
+          "provider_requests": 11,
+          "runtime_ordinary_tool_calls": 10,
+          "control_calls": 10,
+          "control_failures": 2,
+          "nested_actions": 6,
+          "input_tokens": 148311,
+          "cached_input_tokens": 114816,
+          "uncached_input_tokens": 33495,
+          "output_tokens": 2584,
+          "wall_time_ms": 25336,
+          "request_2_plus_cache_hit_rate": 0.78947,
+          "message_prefix_preserved_rate": 0.8,
+          "same_shape_zero_hit_count": 0,
+          "tool_choice_transition_count": 2,
+          "map_nodes": 6,
+          "map_edges": 5,
           "open_leaf_nodes": 0,
-          "terminal_canonical_revision": 8,
-          "persisted_snapshot_revisions": [2, 3, 4, 5, 6, 7, 8],
-          "persisted_snapshot_count": 7,
-          "maximum_provider_snapshot_count": 6,
-          "provider_projection_bytes": 62326,
-          "provider_projection_estimated_tokens": 15586,
-          "final_persisted_projection_bytes": 13529,
-          "final_persisted_projection_estimated_tokens": 3385,
-          "exact_scan_failures": 0
+          "patch_calls": 1,
+          "max_patch_calls_per_request": 1,
+          "projection_history_bytes": 129691,
+          "projection_history_estimated_tokens": 32428,
+          "visible_revisions": [
+            2,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            7,
+            8,
+            9
+          ],
+          "exact_scan_failures": 0,
+          "projection_tail_violations": 0
         }
       },
-      "r7_over_current_standard": {
-        "provider_requests": 1.2,
-        "wall_time_ms": 1.221873,
-        "input_tokens": 1.751641,
-        "uncached_input_tokens": 25.487294
-      },
-      "r7_over_frozen_r6": {
-        "provider_requests": 0.631579,
-        "wall_time_ms": 0.635477,
-        "input_tokens": 0.588372,
-        "uncached_input_tokens": 3.161349
+      "r7_over_standard": {
+        "provider_requests": 1.571429,
+        "wall_time": 1.841681,
+        "input_tokens": 3.049972,
+        "cached_input_tokens": 2.464286,
+        "uncached_input_tokens": 16.459459
       }
     },
     {
       "slot": "complex",
       "scenario_id": "subscription-billing-repair",
-      "current_run_root": "target/r7-phase-c/current/subscription-billing-repair/20260718-052006-254",
+      "run_root": "target/r7-phase-c/request-tail/subscription-billing-repair/20260718-072634-693",
       "arms": {
         "standard": {
-          "source": "current_pair",
           "outcome": "solved",
-          "provider_requests": 16,
-          "runtime_ordinary_tool_calls": 23,
+          "provider_requests": 12,
+          "runtime_ordinary_tool_calls": 20,
           "control_calls": 0,
-          "input_tokens": 193007,
-          "cached_input_tokens": 184832,
-          "uncached_input_tokens": 8175,
-          "output_tokens": 6145,
-          "wall_time_ms": 57760,
-          "request_2_plus_cache_hit_rate": 0.9566,
+          "input_tokens": 126172,
+          "cached_input_tokens": 119424,
+          "uncached_input_tokens": 6748,
+          "output_tokens": 5223,
+          "wall_time_ms": 47215,
+          "request_2_plus_cache_hit_rate": 0.944383,
           "message_prefix_preserved_rate": 1.0,
-          "map_nodes": 0,
-          "map_edges": 0,
-          "open_leaf_nodes": 0
+          "patch_calls": 5,
+          "max_patch_calls_per_request": 1
         },
         "frozen_r6": {
-          "source": "phase_a_historical_baseline",
           "outcome": "solved",
           "provider_requests": 16,
-          "provider_outer_tool_calls": 22,
+          "runtime_ordinary_tool_calls": 22,
           "control_calls": 7,
           "input_tokens": 209772,
           "cached_input_tokens": 184704,
@@ -207,80 +216,70 @@
           "output_tokens": 5767,
           "wall_time_ms": 58927,
           "request_2_plus_cache_hit_rate": 0.878669,
-          "message_prefix_preserved_rate": 0.866667,
           "map_nodes": 4,
           "map_edges": 3,
           "open_leaf_nodes": 0
         },
         "r7_map_append": {
-          "source": "current_pair",
           "outcome": "solved",
-          "provider_requests": 28,
-          "provider_outer_tool_calls": 46,
-          "runtime_ordinary_tool_calls": 35,
-          "control_calls": 11,
+          "provider_requests": 20,
+          "runtime_ordinary_tool_calls": 24,
+          "control_calls": 13,
+          "control_failures": 5,
           "nested_actions": 5,
-          "input_tokens": 526926,
-          "cached_input_tokens": 366336,
-          "uncached_input_tokens": 160590,
-          "output_tokens": 10077,
-          "wall_time_ms": 92420,
-          "request_2_plus_cache_hit_rate": 0.6936,
-          "message_prefix_preserved_rate": 0.9259,
+          "input_tokens": 453446,
+          "cached_input_tokens": 393600,
+          "uncached_input_tokens": 59846,
+          "output_tokens": 10527,
+          "wall_time_ms": 91679,
+          "request_2_plus_cache_hit_rate": 0.873472,
+          "message_prefix_preserved_rate": 0.894737,
+          "same_shape_zero_hit_count": 0,
+          "tool_choice_transition_count": 2,
           "map_nodes": 6,
           "map_edges": 5,
           "open_leaf_nodes": 0,
-          "terminal_canonical_revision": 10,
-          "persisted_snapshot_revisions": [2, 3, 4, 5, 6, 7, 8, 9, 10],
-          "persisted_snapshot_count": 9,
-          "maximum_provider_snapshot_count": 8,
-          "provider_projection_bytes": 235412,
-          "provider_projection_estimated_tokens": 58860,
-          "final_persisted_projection_bytes": 24137,
-          "final_persisted_projection_estimated_tokens": 6038,
-          "exact_scan_failures": 0
+          "patch_calls": 2,
+          "max_patch_calls_per_request": 1,
+          "projection_history_bytes": 512115,
+          "projection_history_estimated_tokens": 128036,
+          "visible_revision_counts": {
+            "2": 4,
+            "3": 2,
+            "4": 1,
+            "5": 5,
+            "6": 4,
+            "7": 1,
+            "8": 1,
+            "9": 1
+          },
+          "exact_scan_failures": 0,
+          "projection_tail_violations": 0
         }
       },
-      "r7_over_current_standard": {
-        "provider_requests": 1.75,
-        "wall_time_ms": 1.600042,
-        "input_tokens": 2.730088,
-        "uncached_input_tokens": 19.643119
-      },
-      "r7_over_frozen_r6": {
-        "provider_requests": 1.75,
-        "wall_time_ms": 1.568381,
-        "input_tokens": 2.511899,
-        "uncached_input_tokens": 6.406415
+      "r7_over_standard": {
+        "provider_requests": 1.666667,
+        "wall_time": 1.941735,
+        "input_tokens": 3.593872,
+        "cached_input_tokens": 3.29582,
+        "uncached_input_tokens": 8.868702
       }
-    }
-  ],
-  "invalid_runs_excluded": [
-    {
-      "run_suffix": "051502",
-      "reason": "benchmark subprocess did not inherit DEEPSEEK_API_KEY because .env.local was not exported",
-      "provider_requests_sent": 0
-    },
-    {
-      "run_suffix": "051530",
-      "reason": "stale Phase B Session::new gate rejected map-append; fixed by startup_fix_commit",
-      "provider_requests_sent": 0
     }
   ],
   "phase_c_gates": {
     "shared_policy_renderer_and_composer": true,
-    "append_only_on_committed_revision": true,
-    "multi_event_transaction_appends_final_revision_once": true,
-    "same_revision_duplicate_zero": true,
-    "revision_order_violation_zero": true,
-    "latest_revision_matches_canonical": true,
+    "provider_request_is_only_automatic_append_trigger": true,
+    "projection_is_request_message_tail": true,
+    "same_revision_across_requests_is_valid": true,
+    "revision_regression_zero": true,
+    "latest_projection_matches_canonical": true,
     "supersession_contract_visible": true,
     "feedback_order_and_fidelity_verified": true,
     "resume_and_compaction_unit_contract_verified": true,
     "standard_unchanged": true,
     "simple_and_complex_correctness": true,
-    "input_growth_fully_observed": true,
-    "natural_append_cache_equivalence": false
+    "same_shape_zero_hit_zero": true,
+    "input_growth_fully_observed": true
   },
   "known_limits": [
     {
@@ -290,6 +289,10 @@
     {
       "id": "append-history-input-growth",
       "status": "known_policy_characteristic"
+    },
+    {
+      "id": "active-projection-section-name",
+      "status": "observer_label_aggregates_current_and_superseded_projection_messages_under_map_append"
     },
     {
       "id": "live-compaction-not-triggered",

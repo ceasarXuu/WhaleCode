@@ -139,5 +139,5 @@ Phase B 退出门禁已满足，可以进入 Phase C，但当前先暂停：
 4. session policy 创建、持久化、resume/fork 恢复合同已接通；
 5. 缓存下降按 `map-always` 产品特征记录，没有通过 Runtime 语义干预修饰结果。
 
-Phase C 只能在同一 policy/renderer/composer 上增加 `AppendRevision`，不得恢复 epoch baseline 或复制
+Phase C 只能在同一 policy/renderer/composer 上增加 `AppendSnapshot`，不得恢复 epoch baseline 或复制
 第二套 provider context 路径。

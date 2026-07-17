@@ -1,7 +1,7 @@
 # Problem P-001: R7 map-append 缓存命中显著低于自然聊天
-- Status: open
+- Status: fixed
 - Created: 2026-07-18 06:36
-- Updated: 2026-07-18 06:39
+- Updated: 2026-07-18 07:45
 - Objective: 解释并证明 R7 `map-append` 在消息前缀保持时仍只有 46.51%/69.36% 缓存命中的直接原因。
 - Symptoms:
   - Simple 的 request 2+ cache hit 为 46.51%，Complex 为 69.36%，显著低于同轮 Standard 的 96.10%/95.66%。
@@ -21,19 +21,23 @@
   - R7 snapshot 在 canonical history 中是尾部 `developer` message，DeepSeek ChatCompletions adapter 将 `developer` 转为 `system`。
   - DeepSeek 当前缓存以完整 cache prefix unit 匹配，缓存构建需要数秒且属于 best effort。
   - 等待 5 秒的官方 API 受控探针中，普通 user 追加首次扩展命中 99.22%，interleaved system 追加首次扩展命中 0%，相同 system 扩展重放恢复到 99.17%。
+  - 用户确认产品合同不是“revision commit 后附带 snapshot”，而是“每轮 provider request 构造时，机械地把当时最新完整 projection 持久追加为上下文末项”。
 - Ruled out:
   - 不是同 revision snapshot 重复追加：exact scanner 的 duplicate 与 order violation 均为零。
 - Fix criteria:
-  - 通过最终 provider wire 或受控 API probe 证明首个差异机制；修复后新增 snapshot 的下一请求命中应接近同条件自然追加，且 projection 语义与 revision 门禁不回退。
-- Current conclusion: 根因已确认。R7 只在内部 ResponseItem 层实现追加；snapshot 的 `developer` role 在 DeepSeek ChatCompletions wire 上转换为 interleaved `system`，首次新 system 扩展不能复用自然会话 cache prefix unit。当前 prefix observer 证明的是 JSON message 追加，不是 DeepSeek cache-unit 等价。
+  - 最终 provider wire 证明每轮 request 以最新 projection 收尾；相同 request shape 不再出现由 projection carrier 引发的零命中；projection identity、revision 与反馈门禁不回退。
+- Current conclusion: 根因已确认并修复。`map-append` 现在在每轮 provider request 构造时持久追加最新完整 projection，使用自然历史兼容的 `user` carrier，形成 `A+P1 -> A+P1+B+P2`。31/31 个 Docker request 的 projection 均为消息末项且 identity 对齐，same-shape zero hit 为零；缓存从旧实现的 46.51%/69.36% 提升至 78.95%/87.35%。
 - Related hypotheses:
   - H-001
   - H-002
   - H-003
 - Resolution basis:
-  - not satisfied
+  - H-001 confirmed
+  - E-006 request-tail 回归
+  - E-007 31/31 Docker exact scans
+  - E-008 cache fix validation
 - Close reason:
-  - not closed
+  - 原始缓存症状和错误触发合同均已在修复后复现路径中消失
 
 ## Hypothesis H-001: 追加 developer snapshot 在 DeepSeek wire 中成为 system 消息并破坏缓存前缀单元
 - Status: confirmed
@@ -68,18 +72,22 @@
   - Instrumentation status: diagnostic-only
   - Instrumentation lifecycle:
     - 保留为 provider contract probe
-- Evidence gate: pending
+- Evidence gate: satisfied
 - Related evidence:
   - E-001
   - E-002
   - E-004
+  - E-005
+  - E-006
+  - E-007
+  - E-008
 - Conclusion: confirmed；角色是区分首次扩展 cache hit 的实验变量。
 - Repair design readiness: ready
-- Next step: 经用户确认后设计不产生 interleaved system 的 append carrier。
+- Next step: closed
 - Blocker:
   - none
 - Close reason:
-  - not closed
+  - request-tail 与 cache carrier 缺陷均已通过定向测试、完整回归和 Docker trace 验证修复
 
 ## Hypothesis H-002: Cache prefix unit 尚未落盘导致紧邻请求低命中
 - Status: refuted
@@ -112,7 +120,7 @@
   - Instrumentation status: diagnostic-only
   - Instrumentation lifecycle:
     - 保留为 provider contract probe
-- Evidence gate: pending
+- Evidence gate: satisfied
 - Related evidence:
   - E-003
   - E-004
@@ -122,7 +130,7 @@
 - Blocker:
   - none
 - Close reason:
-  - not closed
+  - 落盘延迟已被受控 5 秒探针排除为主根因
 
 ## Hypothesis H-003: 本地 prefix observer 比较的不是最终 ChatCompletions token 序列
 - Status: confirmed
@@ -154,18 +162,18 @@
   - Instrumentation status: permanent-observability-candidate
   - Instrumentation lifecycle:
     - 根据诊断结果修正指标命名或增加 role/cache-unit 风险字段
-- Evidence gate: pending
+- Evidence gate: satisfied
 - Related evidence:
   - E-001
   - E-002
   - E-004
 - Conclusion: confirmed；`message_prefix_preserved` 是本地 message-level 结构事实，不能命名或解释成 DeepSeek cache-unit 等价。
 - Repair design readiness: ready
-- Next step: 修复时同步收窄指标命名和报告解释。
+- Next step: closed
 - Blocker:
   - none
 - Close reason:
-  - not closed
+  - 报告已明确 message-level prefix 不等于 provider cache-unit 命中
 
 ## Evidence E-001: 低命中只发生在 projection 增长请求
 - Related hypotheses:
@@ -265,3 +273,89 @@
   ```
 - Interpretation: `map-append` 当前使用的 interleaved system carrier 不是 DeepSeek 缓存意义上的自然线性追加；Phase C 的低命中不能归为 append 固有成本。
 - Time: 2026-07-18 06:39
+
+## Evidence E-005: 用户确认 map-append 是每轮 request 的持久尾部全景
+- Related hypotheses:
+  - H-001
+- Direction: supports
+- Type: user-feedback
+- Source: 用户在 2026-07-18 说明目标行为。
+- Prediction or plan link:
+  - H-001 修复方向必须保持 provider 请求之间的自然前缀追加，不能改成 tool result carrier。
+- Matched signal:
+  - 每轮 request 最后都携带当时最新 Map projection；构造 context 时机械追加到末尾。
+- Correlation keys:
+  - R7 Phase C map-append
+- Raw content:
+  ```text
+  一轮request 最后都带上最新的map projection，不是要依赖tool返回，只要构造context的时候机械追加到最后。
+  ```
+- Interpretation: Phase C 的 `RevisionCommit -> AppendRevision` 触发模型与产品目标不一致；同 revision 可跨 request 重复，末项而非最高唯一 revision 决定当前状态。
+- Time: 2026-07-18 06:46
+
+## Evidence E-006: request-tail 合同进入生产与回归测试
+- Related hypotheses:
+  - H-001
+  - H-003
+- Direction: supports
+- Type: test-result
+- Source: commits `4366b95ec`、`f04b5573d` 及本地回归输出。
+- Prediction or plan link:
+  - H-001 修复后，emission 只能由 provider request 触发，projection 必须是最终 message。
+- Matched signal:
+  - projection 定向测试 24/24、codex-tools TaskSpace 测试 4/4、policy contract、cost instrumentation、performance observer 与 benchmark harness 全部通过。
+- Correlation keys:
+  - production_commit=4366b95ec
+  - observer_commit=f04b5573d
+- Raw content:
+  ```text
+  cargo test -p codex-core projection --lib: 24 passed
+  cargo test -p codex-tools taskspace --lib: 4 passed
+  cargo test -p codex-core --lib: 1891 passed / 25 baseline failures / 3 ignored
+  ```
+- Interpretation: 新增路径没有引入 projection 或工具合同回归；完整 suite 的 25 项失败与冻结基线一致。
+- Time: 2026-07-18 07:33
+
+## Evidence E-007: 每个 Docker provider request 都以最新 projection 收尾
+- Related hypotheses:
+  - H-001
+- Direction: supports
+- Type: experiment
+- Source: `target/r7-phase-c/request-tail/` 下 simple 与 complex 两组有效运行。
+- Prediction or plan link:
+  - 用户确认的 `A+P1 -> A+P1+B+P2` 产品合同。
+- Matched signal:
+  - Simple 11/11、Complex 20/20 个唯一 request scan 全部通过；`projection_is_message_tail=true`、identity confirmed，revision 无回退。
+- Correlation keys:
+  - simple_run=20260718-072520-561
+  - complex_run=20260718-072634-693
+- Raw content:
+  ```text
+  simple revisions: bootstrap, 2,2,3,4,5,6,7,7,8,9
+  complex revisions: bootstrap, 2x4,3x2,4,5x5,6x4,7,8,9
+  failed scans=0; tail violations=0; identity failures=0
+  ```
+- Interpretation: Map 未变化时同 revision 仍随下一轮新历史再次追加，证明实现不依赖 revision commit 或 tool result。
+- Time: 2026-07-18 07:29
+
+## Evidence E-008: 自然 append 缓存恢复且剩余低点可归因到 request shape
+- Related hypotheses:
+  - H-001
+  - H-003
+- Direction: supports
+- Type: diagnostic-log
+- Source: 两组有效运行的 `provider-cache-trace.jsonl` 与 summary。
+- Prediction or plan link:
+  - 修复 interleaved system 后，相同 request shape 的连续追加不应再出现零命中。
+- Matched signal:
+  - Simple request 2+ 从 46.51% 提升至 78.95%，Complex 从 69.36% 提升至 87.35%；两组 same-shape zero hit 均为 0。
+- Correlation keys:
+  - tool_choice_transition_count=2 per TaskSpace run
+- Raw content:
+  ```text
+  simple: 114,560 cached / 30,550 uncached after request 1
+  complex: 393,216 cached / 56,960 uncached after request 1
+  main auto loop request hit rates: 84%-97%
+  ```
+- Interpretation: 旧 carrier 缺陷已消失。Simple 的一次零命中属于初始化后 `named_function -> auto` 形状切换；两组最终收口也切回 named function。低于 Standard 的剩余差异不能再归因于 projection 中部替换，但旧 projection 累积和额外 request 仍造成总 input 成本。
+- Time: 2026-07-18 07:29
