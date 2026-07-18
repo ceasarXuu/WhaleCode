@@ -794,21 +794,37 @@ $rolloutControlJsonl = Join-Path $RunRoot "rollout-control-whale-exec.jsonl"
     '{"type":"response_item","payload":{"type":"function_call","name":"taskspace_control","arguments":"{\"action\":\"finish_nodes\"}","call_id":"native-control-1"}}',
     '{"type":"response_item","payload":{"type":"function_call","name":"taskspace_control","arguments":"{\"action\":\"finish_nodes\"}","call_id":"native-control-2"}}',
     '{"type":"response_item","payload":{"type":"function_call","name":"taskspace_control","arguments":"{\"action\":\"transition_node\"}","call_id":"native-control-3"}}',
+    '{"type":"response_item","payload":{"type":"function_call","name":"taskspace_control","arguments":"{\"action\":\"initialize_map\"}","call_id":"native-control-4"}}',
+    '{"type":"response_item","payload":{"type":"function_call","name":"taskspace_control","arguments":"{\"action\":\"read_map\"}","call_id":"native-read-map-1"}}',
+    '{"type":"response_item","payload":{"type":"function_call","name":"taskspace_control","arguments":"{\"action\":\"read_map\"}","call_id":"native-read-map-2"}}',
     '{"type":"response_item","payload":{"type":"function_call","name":"taskspace_control","arguments":"{\"action\":\"bind_node\"}","call_id":"taskspace-action-contract-3-taskspace_control"}}',
     '{"type":"response_item","payload":{"type":"function_call_output","call_id":"native-control-1","output":"{\"schema_version\":\"TaskSpaceControlResultV1\",\"success\":false,\"status\":\"partial\"}"}}',
     '{"type":"response_item","payload":{"type":"function_call_output","call_id":"native-control-2","output":"{\"schema_version\":\"TaskSpaceControlResultV2\",\"success\":false,\"status\":\"protocol_failed\",\"error\":{\"class\":\"protocol\",\"code\":\"invalid_arguments\",\"message\":\"invalid\"}}"}}',
-    '{"type":"response_item","payload":{"type":"function_call_output","call_id":"native-control-3","output":"{\"schema_version\":\"TaskSpaceControlResultR6V1\",\"success\":false,\"status\":\"state_machine_failed\",\"state_commit\":false,\"partial_commit\":0}"}}'
+    '{"type":"response_item","payload":{"type":"function_call_output","call_id":"native-control-3","output":"{\"schema_version\":\"TaskSpaceControlResultR6V1\",\"success\":false,\"status\":\"state_machine_failed\",\"state_commit\":false,\"partial_commit\":0}"}}',
+    '{"type":"response_item","payload":{"type":"function_call_output","call_id":"native-control-4","output":"{\"schema_version\":\"TaskSpaceControlResultR6V1\",\"success\":true,\"status\":\"committed\",\"state_commit\":true,\"committed_revision\":5}"}}',
+    '{"type":"response_item","payload":{"type":"function_call_output","call_id":"native-read-map-1","output":"TaskSpaceMapProjectionR7V1:\n- schema_version: taskspace-map-projection-r7-v1\n- map_id: map-1\n- revision: 5\nTaskSpaceMapProjectionR7V1 end.\n"}}',
+    '{"type":"response_item","payload":{"type":"function_call_output","call_id":"native-read-map-2","output":"TaskSpaceMapProjectionR7V1:\n- schema_version: taskspace-map-projection-r7-v1\n- map_id: map-1\n- revision: 5\nTaskSpaceMapProjectionR7V1 end.\n"}}'
 ) | Set-Content -LiteralPath (Join-Path $rolloutControlDir "rollout.jsonl") -Encoding UTF8
 $rolloutControlInstrumentation = Write-TaskspaceCostInstrumentationArtifacts -ArtifactDir $rolloutControlDir -JsonlPath $rolloutControlJsonl -ObservabilityJsonPath ""
-Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.taskspace_control_count -eq 4) "rollout taskspace_control calls were not counted"
-Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.native_taskspace_control_count -eq 3) "rollout native taskspace_control calls were not counted"
+Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.taskspace_control_count -eq 7) "rollout taskspace_control calls were not counted"
+Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.native_taskspace_control_count -eq 6) "rollout native taskspace_control calls were not counted"
 Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.action_contract_taskspace_control_count -eq 1) "rollout action-contract taskspace_control calls were not counted"
 Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.action_counts.finish_nodes -eq 2) "rollout control actions were not deduplicated by call id"
 Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.action_counts.transition_node -eq 1) "R6 control action was not counted"
+Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.action_counts.initialize_map -eq 1) "map initialization was not counted"
+Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.action_counts.read_map -eq 2) "explicit map reads were not counted"
 Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.control_failure_count -eq 3) "rollout control failures were not counted"
 Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.control_protocol_failure_count -eq 1) "protocol control failures were not classified"
 Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.control_state_failure_count -eq 1) "R6 state control failure was not classified"
 Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.nested_action_failure_count -eq 1) "nested action failures were not classified"
+Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.read_map_request_count -eq 2) "map read requests were not measured"
+Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.read_map_completion_count -eq 2) "map read completions were not measured"
+Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.read_map_failure_count -eq 0) "successful map reads were classified as failures"
+Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.read_map_repeated_revision_count -eq 1) "repeated map revision was not measured"
+Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.read_map_revision_lag_sample_count -eq 2) "map read revision lag coverage was not measured"
+Assert-True ([double]$rolloutControlInstrumentation.taskspace_control_usage.read_map_revision_lag_mean -eq 0.0) "current map reads reported revision lag"
+Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.read_map_revision_lag_max -eq 0) "current map reads reported maximum revision lag"
+Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.read_map_stale_revision_error_count -eq 0) "read_map should not require an expected revision"
 Assert-True ([string]$rolloutControlInstrumentation.taskspace_control_usage.taskspace_control_count_source -eq "rollout_trace") "rollout trace should be the authoritative control-count source"
 Assert-True (-not [bool]$rolloutControlInstrumentation.taskspace_control_usage.taskspace_control_count_source_mismatch) "an exec file without response-item telemetry should not be treated as a conflicting control count"
 

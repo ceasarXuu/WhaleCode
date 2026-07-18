@@ -141,6 +141,9 @@ function New-SideFixture {
                 action_counts = [pscustomobject]@{ initialize_map = 1; transition_node = 1; finish_end = 1 }
                 control_failure_count = 1
                 control_protocol_failure_count = 0; control_state_failure_count = 0; nested_action_failure_count = 1
+                read_map_request_count = 2; read_map_completion_count = 2; read_map_failure_count = 0
+                read_map_repeated_revision_count = 1; read_map_revision_lag_sample_count = 2
+                read_map_revision_lag_mean = 0.0; read_map_revision_lag_max = 0; read_map_stale_revision_error_count = 0
                 taskspace_runtime_event_count = 120; runtime_event_counts = [pscustomobject]@{ snapshot_updated = 30 }
             }) (Join-Path $artifactDir "taskspace-control-usage.json")
         $rollout = @(
@@ -324,6 +327,17 @@ Assert-True ([int64](($standardMeasuredRow.section_cost.sections | Measure-Objec
 Assert-True (@($report.rows | Where-Object { $_.observation_status -eq "skipped" }).Count -eq 1) "right-only placeholder side was not classified as skipped"
 Assert-True ($standard.observed_side_count -eq 3 -and $standard.excluded_side_count -eq 1) "skipped side contaminated the aggregate"
 Assert-True (@($report.rows | Where-Object { $_.logical_mode -eq "taskspace" -and $_.map.nodes.Count -eq 3 }).Count -eq 2) "map node details are missing"
+Assert-True (@($report.rows | Where-Object {
+            $_.logical_mode -eq "taskspace" -and
+            $_.map.read_map_request_count -eq 2 -and
+            $_.map.read_map_completion_count -eq 2 -and
+            $_.map.read_map_failure_count -eq 0 -and
+            $_.map.read_map_repeated_revision_count -eq 1 -and
+            $_.map.read_map_revision_lag_sample_count -eq 2 -and
+            $_.map.read_map_revision_lag_mean -eq 0.0 -and
+            $_.map.read_map_revision_lag_max -eq 0 -and
+            $_.map.read_map_stale_revision_error_count -eq 0
+        }).Count -eq 2) "map read lifecycle metrics are missing"
 Assert-True (@($report.rows | Where-Object { $_.logical_mode -eq "taskspace" -and $_.duplication.rollout.duplicate_output_bodies -eq 1 }).Count -eq 2) "exact duplicate output bodies were not measured"
 Assert-True (@($report.rows | Where-Object { $_.logical_mode -eq "taskspace" -and $_.duplication.provider_wire.final_content_duplicates -eq 1 }).Count -eq 2) "wire content duplicates were not measured"
 Assert-True (@($report.rows | Where-Object { $_.logical_mode -eq "taskspace" -and $_.duplication.cross_carrier_lineage.final_candidate_assistant_exact_equal_count -eq 1 }).Count -eq 2) "final candidate exact assistant equality was not measured"
@@ -352,6 +366,7 @@ Assert-True (Test-Path -LiteralPath $result.event_log_path) "event log was not w
 $markdown = Get-Content -Raw -Encoding UTF8 -LiteralPath $result.markdown_path
 Assert-True ($markdown -match "## Map 节点") "markdown omitted map node details"
 Assert-True ($markdown -match "## Map 语义保存") "markdown omitted map semantic preservation details"
+Assert-True ($markdown -match "## Map 显式读取") "markdown omitted explicit map read metrics"
 Assert-True ($markdown -match "## 精确重复载体") "markdown omitted exact carrier duplication details"
 Assert-True ($markdown -match "## Cross carrier lineage") "markdown omitted cross carrier lineage details"
 Assert-True ($markdown -match "## Rollout storage") "markdown omitted rollout storage details"

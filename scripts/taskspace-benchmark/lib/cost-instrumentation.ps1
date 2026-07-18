@@ -1369,6 +1369,15 @@ function New-TaskspaceControlUsageSummary {
     $rolloutControlProtocolFailureCallIds = [System.Collections.Generic.HashSet[string]]::new()
     $rolloutControlStateFailureCallIds = [System.Collections.Generic.HashSet[string]]::new()
     $rolloutNestedActionFailureCallIds = [System.Collections.Generic.HashSet[string]]::new()
+    $rolloutReadMapCallIds = [System.Collections.Generic.HashSet[string]]::new()
+    $readMapCompletionCount = 0
+    $readMapRepeatedRevisionCount = 0
+    $readMapRevisionLagSampleCount = 0
+    [int64]$readMapRevisionLagTotal = 0
+    $readMapRevisionLagMax = $null
+    $readMapStaleRevisionErrorCount = 0
+    $latestCommittedRevision = $null
+    $previousReadRevision = $null
     $rolloutResponseItemCount = 0
     if ($rolloutSourceStatus -eq "read") {
         foreach ($line in [System.IO.File]::ReadLines($RolloutJsonlPath)) {
@@ -1385,6 +1394,7 @@ function New-TaskspaceControlUsageSummary {
                     $output = [string](Get-TaskspaceCostProperty $payload @("output"))
                     $controlFailed = $false
                     $failureClass = ""
+                    $batch = $null
                     if (-not [string]::IsNullOrWhiteSpace($output)) {
                         try {
                             $batch = $output | ConvertFrom-Json
@@ -1405,6 +1415,39 @@ function New-TaskspaceControlUsageSummary {
                                 }
                             }
                         } catch {}
+                    }
+                    if ($null -ne $batch -and
+                        $batch.PSObject.Properties.Name -contains "success" -and
+                        [bool](Get-TaskspaceCostProperty $batch @("success"))) {
+                        $committedRevision = Get-TaskspaceCostProperty $batch @("committed_revision")
+                        if ($null -ne $committedRevision) {
+                            $latestCommittedRevision = [int64]$committedRevision
+                        }
+                    }
+                    if ($rolloutReadMapCallIds.Contains($callId)) {
+                        $projectionComplete = $output.Contains("TaskSpaceMapProjectionR7V1:") -and
+                            $output.Contains("TaskSpaceMapProjectionR7V1 end.")
+                        $revisionMatch = [regex]::Match($output, "(?m)^- revision:\s*(\d+)\s*$")
+                        if ($projectionComplete) {
+                            $readMapCompletionCount++
+                            if ($revisionMatch.Success) {
+                                $readRevision = [int64]$revisionMatch.Groups[1].Value
+                                if ($null -ne $previousReadRevision -and $previousReadRevision -eq $readRevision) {
+                                    $readMapRepeatedRevisionCount++
+                                }
+                                $previousReadRevision = $readRevision
+                                if ($null -ne $latestCommittedRevision) {
+                                    $lag = [Math]::Max([int64]0, $latestCommittedRevision - $readRevision)
+                                    $readMapRevisionLagSampleCount++
+                                    $readMapRevisionLagTotal += $lag
+                                    if ($null -eq $readMapRevisionLagMax -or $lag -gt $readMapRevisionLagMax) {
+                                        $readMapRevisionLagMax = $lag
+                                    }
+                                }
+                            }
+                        } elseif ($output -match "stale_revision") {
+                            $readMapStaleRevisionErrorCount++
+                        }
                     }
                     if ($controlFailed) {
                         [void]$rolloutControlFailureCallIds.Add($callId)
@@ -1441,6 +1484,9 @@ function New-TaskspaceControlUsageSummary {
                 $action = [string](Get-TaskspaceCostProperty $arguments @("action"))
             }
             Add-TaskspaceCostCount $rolloutActions $action
+            if ($action -eq "read_map") {
+                [void]$rolloutReadMapCallIds.Add($callId)
+            }
         }
     }
     $rolloutNativeTotal = [int]$rolloutNativeCallIds.Count
@@ -1458,6 +1504,13 @@ function New-TaskspaceControlUsageSummary {
         $controlCountSource = "whale_exec_jsonl"
     }
     $stateCommit = if ($actions.ContainsKey("state_commit")) { [int]$actions["state_commit"] } else { 0 }
+    $readMapRequestCount = [int]$rolloutReadMapCallIds.Count
+    $readMapFailureCount = [Math]::Max(0, $readMapRequestCount - $readMapCompletionCount)
+    $readMapRevisionLagMean = if ($readMapRevisionLagSampleCount -gt 0) {
+        [Math]::Round(([double]$readMapRevisionLagTotal / [double]$readMapRevisionLagSampleCount), 6)
+    } else {
+        $null
+    }
     $controlCountSourceMismatch = (
         $rolloutControlTelemetryMeasured -and
         $parsed.source_status -eq "read" -and
@@ -1527,7 +1580,7 @@ function New-TaskspaceControlUsageSummary {
         }
     }
     [pscustomobject]@{
-        schema_version = "taskspace-control-usage-v2"
+        schema_version = "taskspace-control-usage-v3"
         source_path = $JsonlPath
         observability_source_path = $ObservabilityJsonPath
         rollout_source_path = $RolloutJsonlPath
@@ -1553,6 +1606,14 @@ function New-TaskspaceControlUsageSummary {
         control_protocol_failure_count = [int]$rolloutControlProtocolFailureCallIds.Count
         control_state_failure_count = [int]$rolloutControlStateFailureCallIds.Count
         nested_action_failure_count = [int]$rolloutNestedActionFailureCallIds.Count
+        read_map_request_count = $readMapRequestCount
+        read_map_completion_count = [int]$readMapCompletionCount
+        read_map_failure_count = [int]$readMapFailureCount
+        read_map_repeated_revision_count = [int]$readMapRepeatedRevisionCount
+        read_map_revision_lag_sample_count = [int]$readMapRevisionLagSampleCount
+        read_map_revision_lag_mean = $readMapRevisionLagMean
+        read_map_revision_lag_max = $readMapRevisionLagMax
+        read_map_stale_revision_error_count = [int]$readMapStaleRevisionErrorCount
         state_commit_count = [int]$stateCommit
         runtime_state_commit_count = [int]$runtimeStateCommit
         runtime_output_ref_created_count = [int]$runtimeOutputRefCreated

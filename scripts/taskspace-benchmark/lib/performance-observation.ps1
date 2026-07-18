@@ -180,6 +180,14 @@ function Get-PerformanceMapFacts {
         control_protocol_failure_count = Get-PerformanceNumber (Get-PerformanceProperty $control "control_protocol_failure_count")
         control_state_failure_count = Get-PerformanceNumber (Get-PerformanceProperty $control "control_state_failure_count")
         nested_action_failure_count = Get-PerformanceNumber (Get-PerformanceProperty $control "nested_action_failure_count")
+        read_map_request_count = Get-PerformanceNumber (Get-PerformanceProperty $control "read_map_request_count")
+        read_map_completion_count = Get-PerformanceNumber (Get-PerformanceProperty $control "read_map_completion_count")
+        read_map_failure_count = Get-PerformanceNumber (Get-PerformanceProperty $control "read_map_failure_count")
+        read_map_repeated_revision_count = Get-PerformanceNumber (Get-PerformanceProperty $control "read_map_repeated_revision_count")
+        read_map_revision_lag_sample_count = Get-PerformanceNumber (Get-PerformanceProperty $control "read_map_revision_lag_sample_count")
+        read_map_revision_lag_mean = Get-PerformanceNumber (Get-PerformanceProperty $control "read_map_revision_lag_mean")
+        read_map_revision_lag_max = Get-PerformanceNumber (Get-PerformanceProperty $control "read_map_revision_lag_max")
+        read_map_stale_revision_error_count = Get-PerformanceNumber (Get-PerformanceProperty $control "read_map_stale_revision_error_count")
         control_actions = Get-PerformanceProperty $control "action_counts" ([pscustomobject]@{})
         runtime_event_count = Get-PerformanceNumber (Get-PerformanceProperty $control "taskspace_runtime_event_count")
         snapshot_update_count = Get-PerformanceNumber (Get-PerformanceProperty (Get-PerformanceProperty $control "runtime_event_counts") "snapshot_updated")
@@ -444,6 +452,18 @@ function Write-TaskspacePerformanceObservation {
             $reqPerNode = Get-PerformanceRatio $row.actions.provider_requests $row.map.node_count
             $toolsPerNode = Get-PerformanceRatio $row.actions.ordinary_tools $row.map.node_count
             $lines.Add("| $(Format-PerformanceValue $row.repeat) | $($row.logical_mode) | $(Format-PerformanceValue $row.map.map_count) | $(Format-PerformanceValue $row.map.node_count) | $(Format-PerformanceValue $row.map.edge_count) | $(Format-PerformanceValue $row.map.result_count) | $(Format-PerformanceValue $row.map.open_leaf_nodes) | $(Format-PerformanceValue $row.map.root_task_status) | $(Format-PerformanceValue $row.map.accepted_result_count) | $(Format-PerformanceValue $row.map.unreviewed_result_count) | $(Format-PerformanceValue $reqPerNode) | $(Format-PerformanceValue $toolsPerNode) | $(Format-PerformanceValue $row.map.control_count) | $(Format-PerformanceControlActions $row.map.control_actions) |")
+        }
+    }
+    $lines.Add("")
+    $lines.Add("## Map 显式读取")
+    $lines.Add("")
+    $lines.Add("| Repeat | Mode | Requests | Completed | Failed | Repeated revision | Lag samples | Lag mean | Lag max | Stale errors |")
+    $lines.Add("|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|")
+    foreach ($row in $rows) {
+        if ($row.observation_status -eq "skipped") {
+            $lines.Add("| $(Format-PerformanceValue $row.repeat) | $($row.logical_mode) | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A |")
+        } else {
+            $lines.Add("| $(Format-PerformanceValue $row.repeat) | $($row.logical_mode) | $(Format-PerformanceValue $row.map.read_map_request_count) | $(Format-PerformanceValue $row.map.read_map_completion_count) | $(Format-PerformanceValue $row.map.read_map_failure_count) | $(Format-PerformanceValue $row.map.read_map_repeated_revision_count) | $(Format-PerformanceValue $row.map.read_map_revision_lag_sample_count) | $(Format-PerformanceValue $row.map.read_map_revision_lag_mean) | $(Format-PerformanceValue $row.map.read_map_revision_lag_max) | $(Format-PerformanceValue $row.map.read_map_stale_revision_error_count) |")
         }
     }
     $lines.Add("")
