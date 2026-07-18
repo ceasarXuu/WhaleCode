@@ -10,7 +10,7 @@
 Created: 2026-07-17
 Updated: 2026-07-19
 Version: v0.0.5 build-R7
-Status: Phase C Follow-up Complete / Phase D Ready
+Status: Phase D Engineering Complete / Product Finding Open / Phase E Not Started
 Owner / Responsible: WhaleCode core runtime / TaskSpace
 Risk Level: Critical
 Plan Type: Shared architecture with three projection policies
@@ -337,6 +337,19 @@ Agent 发起的 read_map 结果 100% 对齐 canonical revision/hash。
 TaskSpace bypass fixture 100% rejected，合法动作无新增 policy rejection。
 不出现 Runtime 自动 read、自动提醒或自动纠正事件。
 ```
+
+完成证据：
+
+- 共享 `taskspace_control.read_map`、renderer、policy decision 和 map handle 已接入，无策略专属工具 schema；
+- simple/complex 共 30 个 R7-request provider payload，automatic projection count 均为 0；
+- simple 由 Agent 显式读取 1 次，revision/hash 对齐 canonical，随后正常闭合；
+- complex 在完全未读取 Map 的情况下，初始化后执行 32 次合法 ordinary tool，无新增 policy rejection；
+- simple Standard/R7 均 solved，R7 相对 Frozen R6 request/input/uncached input 明显下降；
+- complex 修复和 8/8 validator 通过，但 Agent 未闭合 Map 就输出 plain final，既有 R6 no-retry terminal
+  gate 产生 protocol violation；该负向产品证据不归因成 Phase D emission bug；
+- Phase E 不自动启动。结果见 `08-r7-phase-d-result.md`，机器结果见
+  `benchmarks/taskspace/r7/phase-d-result.json`，失败链见
+  `coe/2026-07-19-04-58-r7-map-request-complex-interruption.md`。
 
 ## 1.12 Phase E：生命周期与跨策略等价
 
