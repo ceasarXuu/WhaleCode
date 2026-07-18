@@ -30,7 +30,8 @@ fn lifecycle_schema_includes_initialization_with_required_continuation() {
             "transition_node",
             "finish_end",
             "expand_nodes",
-            "read_output_ref"
+            "read_output_ref",
+            "read_map"
         ]
     );
     assert_eq!(
@@ -148,6 +149,7 @@ fn lifecycle_schema_exposes_active_actions_without_continuation_fields() {
     assert!(actions.contains(&"finish_end"));
     assert!(actions.contains(&"expand_nodes"));
     assert!(actions.contains(&"read_output_ref"));
+    assert!(actions.contains(&"read_map"));
     assert!(!actions.contains(&"create_node"));
     assert!(!actions.contains(&"finish_nodes"));
     assert!(!actions.contains(&"finish_then_end"));
@@ -233,4 +235,12 @@ fn lifecycle_schema_exposes_active_actions_without_continuation_fields() {
     assert_eq!(expand["required"], json!(["action", "node_ids"]));
     assert_eq!(expand["properties"]["node_ids"]["minItems"], 1);
     assert_eq!(expand["additionalProperties"], false);
+    let read_map = value["parameters"]["anyOf"]
+        .as_array()
+        .expect("variants")
+        .iter()
+        .find(|variant| variant["properties"]["action"]["enum"][0] == json!("read_map"))
+        .expect("shared read_map variant");
+    assert_eq!(read_map["required"], json!(["action"]));
+    assert_eq!(read_map["additionalProperties"], false);
 }

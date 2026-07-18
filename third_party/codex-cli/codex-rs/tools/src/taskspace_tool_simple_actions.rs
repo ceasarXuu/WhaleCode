@@ -45,5 +45,6 @@ pub(super) fn simple_action_schemas() -> Vec<JsonSchema> {
             ]),
             vec!["output_ref".into(), "mode".into()],
         ),
+        object_variant("read_map", BTreeMap::new(), Vec::new()),
     ]
 }

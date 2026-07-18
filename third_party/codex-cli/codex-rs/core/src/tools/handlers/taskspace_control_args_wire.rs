@@ -18,6 +18,7 @@ enum Action {
     FinishEnd,
     ExpandNodes,
     ReadOutputRef,
+    ReadMap,
 }
 
 #[derive(Debug, Deserialize)]
@@ -97,6 +98,13 @@ struct ReadOutputRefArgs {
     max_bytes: Option<usize>,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ReadMapArgs {
+    #[serde(rename = "action")]
+    _action: Action,
+}
+
 pub(super) fn parse(arguments: &str) -> Result<TaskSpaceControlArgs, FunctionCallError> {
     match deserialize_arguments::<Envelope>(arguments)?.action {
         Action::InitializeMap => {
@@ -152,6 +160,10 @@ pub(super) fn parse(arguments: &str) -> Result<TaskSpaceControlArgs, FunctionCal
                 pattern: parsed.pattern,
                 max_bytes: parsed.max_bytes,
             })
+        }
+        Action::ReadMap => {
+            let _ = deserialize_arguments::<ReadMapArgs>(arguments)?;
+            Ok(TaskSpaceControlArgs::ReadMap)
         }
     }
 }

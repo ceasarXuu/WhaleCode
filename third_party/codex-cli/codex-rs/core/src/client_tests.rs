@@ -489,6 +489,30 @@ fn provider_request_budget_confirms_projection_identity_on_final_payload() {
 }
 
 #[test]
+fn provider_request_budget_accepts_map_request_without_automatic_projection() {
+    let payload = provider_payload_digest(&json!({
+        "input": "TaskSpaceMapHandleR7V1:\n- taskspace_active: true\n- available_read_action: taskspace_control.read_map\nTaskSpaceMapHandleR7V1 end.",
+        "tools": [{
+            "type": "function",
+            "function": { "name": "taskspace_control" }
+        }]
+    }))
+    .expect("map-request payload digest");
+    let mut scan = payload.scan;
+    let expectation = ProviderProjectionIdentityExpectation::without_automatic_projection(
+        TaskSpaceProjectionPolicy::MapRequest,
+    );
+    apply_projection_identity_expectation(&mut scan, Some(&expectation));
+
+    assert!(!scan.projection_required);
+    assert_eq!(scan.active_projection_count, 0);
+    assert_eq!(scan.projection_policy.as_deref(), Some("map-request"));
+    assert_eq!(scan.projection_identity_confirmed, Some(true));
+    assert!(scan.passed, "{:?}", scan.failure_reasons);
+    assert!(scan.replacement_confirmed);
+}
+
+#[test]
 fn provider_payload_scan_validates_canonical_projection_shape() {
     let standard = provider_payload_digest(&json!({
         "input": "standard request",

@@ -186,6 +186,17 @@ fn expand_nodes_requires_non_empty_unique_node_ids() {
 }
 
 #[test]
+fn read_map_accepts_only_the_action_tag() {
+    assert!(matches!(
+        parse_taskspace_control_args(r#"{"action":"read_map"}"#).expect("valid map read"),
+        TaskSpaceControlArgs::ReadMap
+    ));
+    assert!(
+        parse_taskspace_control_args(r#"{"action":"read_map","expected_revision":2}"#).is_err()
+    );
+}
+
+#[test]
 fn invalid_arguments_return_one_typed_json_payload() {
     let arguments = r#"{"action":"unknown"}"#;
     let value = invalid_payload(arguments);

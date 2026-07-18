@@ -211,6 +211,7 @@ pub(crate) struct ExactPayloadScanEventV1 {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ProviderProjectionIdentityExpectation {
     policy: TaskSpaceProjectionPolicy,
+    automatic_projection_required: bool,
     kind: String,
     map_id_sha256: Option<String>,
     revision: Option<u64>,
@@ -232,6 +233,7 @@ impl ProviderProjectionIdentityExpectation {
         if bootstrap {
             return Some(Self {
                 policy,
+                automatic_projection_required: true,
                 kind: "bootstrap_required".to_string(),
                 map_id_sha256: None,
                 revision: None,
@@ -246,12 +248,25 @@ impl ProviderProjectionIdentityExpectation {
         let kind = projection_mechanical_field(projection, "projection_kind")?;
         Some(Self {
             policy,
+            automatic_projection_required: true,
             kind: kind.to_string(),
             map_id_sha256: Some(sha256_hex(map_id.as_bytes())),
             revision: Some(revision),
             canonical_sha256: Some(canonical_sha256.to_string()),
             projection_sha256,
         })
+    }
+
+    pub(crate) fn without_automatic_projection(policy: TaskSpaceProjectionPolicy) -> Self {
+        Self {
+            policy,
+            automatic_projection_required: false,
+            kind: "none".to_string(),
+            map_id_sha256: None,
+            revision: None,
+            canonical_sha256: None,
+            projection_sha256: String::new(),
+        }
     }
 }
 
@@ -1291,8 +1306,34 @@ fn apply_projection_identity_expectation(
     let Some(expected) = expected else {
         return;
     };
-    scan.expected_projection_kind = Some(expected.kind.clone());
     scan.projection_policy = Some(expected.policy.to_string());
+    if !expected.automatic_projection_required {
+        scan.projection_required = false;
+        scan.expected_projection_kind = Some("none".to_string());
+        scan.failure_reasons.retain(|reason| {
+            !matches!(
+                reason.as_str(),
+                "current_projection_missing"
+                    | "current_projection_not_message_tail"
+                    | "current_projection_not_unique"
+                    | "current_projection_required_sections_missing"
+            )
+        });
+        let confirmed = scan.active_projection_count == 0;
+        scan.projection_identity_confirmed = Some(confirmed);
+        scan.protected_items_present = confirmed;
+        scan.negative_checks_performed
+            .push("automatic_projection_absence".to_string());
+        scan.matcher_version = "r7-projection-checks-3".to_string();
+        if !confirmed {
+            scan.failure_reasons
+                .push("unexpected_automatic_projection".to_string());
+        }
+        scan.passed = scan.failure_reasons.is_empty();
+        scan.replacement_confirmed = scan.passed && confirmed;
+        return;
+    }
+    scan.expected_projection_kind = Some(expected.kind.clone());
     scan.expected_projection_map_id_sha256 = expected.map_id_sha256.clone();
     scan.expected_projection_revision = expected.revision;
     scan.expected_projection_canonical_sha256 = expected.canonical_sha256.clone();

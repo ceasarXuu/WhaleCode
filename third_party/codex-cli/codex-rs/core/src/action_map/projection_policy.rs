@@ -146,11 +146,12 @@ pub(crate) fn decide_projection_emission(
                 }
             }
         },
-        TaskSpaceProjectionPolicy::MapRequest => {
-            return Err(format!(
-                "projection policy `{policy}` is not enabled before R7 Phase D"
-            ));
-        }
+        TaskSpaceProjectionPolicy::MapRequest => match trigger {
+            ProjectionTrigger::ProviderRequest { .. } => (ProjectionEmission::None, cursor.clone()),
+            ProjectionTrigger::ExplicitRead => {
+                (ProjectionEmission::ReturnAsToolResult, cursor.clone())
+            }
+        },
     };
     Ok(ProjectionDecision {
         emission,
@@ -255,17 +256,30 @@ mod tests {
     }
 
     #[test]
-    fn map_request_remains_rejected_until_phase_d() {
-        assert!(
-            decide_projection_emission(
-                TaskSpaceProjectionPolicy::MapRequest,
-                ProjectionTrigger::ProviderRequest {
-                    projection_is_current_tail: false,
-                },
-                &ProjectionCursor::default(),
-                None,
-            )
-            .is_err()
+    fn map_request_emits_only_for_explicit_read() {
+        let cursor = ProjectionCursor::default();
+        let provider = decide_projection_emission(
+            TaskSpaceProjectionPolicy::MapRequest,
+            ProjectionTrigger::ProviderRequest {
+                projection_is_current_tail: false,
+            },
+            &cursor,
+            None,
+        );
+        assert_eq!(
+            provider.expect("provider decision").emission,
+            ProjectionEmission::None
+        );
+
+        let read = decide_projection_emission(
+            TaskSpaceProjectionPolicy::MapRequest,
+            ProjectionTrigger::ExplicitRead,
+            &cursor,
+            None,
+        );
+        assert_eq!(
+            read.expect("explicit read decision").emission,
+            ProjectionEmission::ReturnAsToolResult
         );
     }
 

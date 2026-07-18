@@ -48,6 +48,7 @@ pub(crate) enum TaskSpaceControlArgs {
         pattern: Option<String>,
         max_bytes: Option<usize>,
     },
+    ReadMap,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
@@ -175,7 +176,8 @@ impl TaskSpaceControlArgs {
             }
             | Self::FinishEnd { .. }
             | Self::ExpandNodes { .. }
-            | Self::ReadOutputRef { .. } => Vec::new(),
+            | Self::ReadOutputRef { .. }
+            | Self::ReadMap => Vec::new(),
         }
     }
 
@@ -258,7 +260,7 @@ impl TaskSpaceControlArgs {
                 }
                 Ok(())
             }
-            Self::ReadOutputRef { .. } => Ok(()),
+            Self::ReadOutputRef { .. } | Self::ReadMap => Ok(()),
         }
     }
 }

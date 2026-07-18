@@ -2049,6 +2049,98 @@ impl ActionMapRuntimeState {
         )])
     }
 
+    pub(crate) fn record_map_read_trace_event(
+        &mut self,
+        call_id: String,
+        policy: &str,
+        map_id: Option<String>,
+        revision: Option<u64>,
+        canonical_sha256: Option<String>,
+        projection_sha256: String,
+    ) -> Option<Vec<MapRuntimeEvent>> {
+        if self.mode != MapRuntimeMode::Experiment {
+            return None;
+        }
+        let map_id = map_id.unwrap_or_else(|| "map-uninitialized".to_string());
+        let previous_revision = self
+            .taskspace_trace_events
+            .iter()
+            .rev()
+            .find(|event| event.kind == "map.read_completed" && event.map_id == map_id)
+            .and_then(|event| {
+                event
+                    .tags
+                    .iter()
+                    .find_map(|tag| tag.strip_prefix("revision:"))
+                    .and_then(|value| value.parse::<u64>().ok())
+            });
+        let revision_advance_since_previous_read = previous_revision
+            .zip(revision)
+            .map(|(previous, current)| current.saturating_sub(previous));
+        let repeated_revision = previous_revision.is_some() && previous_revision == revision;
+        let task_id = self.maps.get(&map_id).and_then(|map| map.task_id.clone());
+        let node_id = self
+            .current_main_node_id
+            .clone()
+            .unwrap_or_else(|| "map-read".to_string());
+        let id = self.next_trace_event_id();
+        let event = TaskSpaceTraceEvent {
+            id: id.clone(),
+            kind: "map.read_completed".to_string(),
+            task_id,
+            map_id,
+            node_id,
+            result_id: None,
+            call_id: Some(call_id),
+            action_class: None,
+            tool_success: Some(true),
+            tags: vec![
+                "schema:taskspace-map-read-event-v1".to_string(),
+                "status:completed".to_string(),
+                format!("policy:{policy}"),
+                format!(
+                    "revision:{}",
+                    revision.map_or_else(|| "none".to_string(), |value| value.to_string())
+                ),
+                format!(
+                    "previous_read_revision:{}",
+                    previous_revision.map_or_else(|| "none".to_string(), |value| value.to_string())
+                ),
+                format!(
+                    "revision_advance_since_previous_read:{}",
+                    revision_advance_since_previous_read
+                        .map_or_else(|| "none".to_string(), |value| value.to_string())
+                ),
+                "canonical_revision_lag:0".to_string(),
+                format!("repeated_revision:{repeated_revision}"),
+                format!(
+                    "canonical_sha256:{}",
+                    canonical_sha256.unwrap_or_else(|| "none".to_string())
+                ),
+                format!("projection_sha256:{projection_sha256}"),
+            ],
+            artifact_refs: Vec::new(),
+            created_at_ms: now_ms(),
+        };
+        self.taskspace_trace_events.push(event.clone());
+        Some(vec![MapRuntimeEvent::TaskspaceTraceEventRecorded(
+            MapRuntimeTraceEventRecordedEvent {
+                trace_event_id: id,
+                kind: event.kind.clone(),
+                task_id: event.task_id.clone(),
+                map_id: event.map_id.clone(),
+                node_id: event.node_id.clone(),
+                result_id: None,
+                call_id: event.call_id.clone(),
+                action_class: None,
+                tool_success: Some(true),
+                tags: event.tags.clone(),
+                artifact_refs: Vec::new(),
+                created_at_ms: event.created_at_ms,
+            },
+        )])
+    }
+
     fn record_runtime_budget_trace_event(
         &mut self,
         kind: &str,
@@ -4118,6 +4210,30 @@ impl ActionMapRuntimeState {
             return Some(context);
         }
         Some(self.build_bootstrap_compact_developer_context(envelope))
+    }
+
+    pub(crate) fn build_map_handle_context(&self) -> Option<String> {
+        if self.mode != MapRuntimeMode::Experiment {
+            return None;
+        }
+        let active_map = self
+            .active_map_id
+            .as_deref()
+            .and_then(|map_id| self.maps.get(map_id));
+        let map_id = active_map.map_or("none", |map| map.id.as_str());
+        let revision =
+            active_map.map_or_else(|| "none".to_string(), |map| map.revision.to_string());
+        let bootstrap_required = self.bootstrap_required || active_map.is_none();
+        let mut context = format!(
+            "TaskSpaceMapHandleR7V1:\n- schema_version: taskspace-map-handle-r7-v1\n- taskspace_active: true\n- map_id: {map_id}\n- revision: {revision}\n- bootstrap_required: {bootstrap_required}\n- available_read_action: taskspace_control.read_map\n"
+        );
+        if bootstrap_required {
+            context.push_str(
+                "- bootstrap_control_action: taskspace_control.initialize_map\n- ordinary_tools_allowed: false\n- ordinary_tool_failure: no_task_path\n",
+            );
+        }
+        context.push_str("TaskSpaceMapHandleR7V1 end.\n");
+        Some(context)
     }
 
     #[allow(dead_code)]

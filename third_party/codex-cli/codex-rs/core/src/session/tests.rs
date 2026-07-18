@@ -248,23 +248,6 @@ fn skill_message(text: &str) -> ResponseItem {
     }
 }
 
-#[test]
-fn phase_c_session_policy_gate_accepts_always_and_append_only() {
-    for policy in [
-        None,
-        Some(TaskSpaceProjectionPolicy::MapAlways),
-        Some(TaskSpaceProjectionPolicy::MapAppend),
-    ] {
-        assert!(super::session::validate_taskspace_projection_policy_for_session(policy).is_ok());
-    }
-    assert!(
-        super::session::validate_taskspace_projection_policy_for_session(Some(
-            TaskSpaceProjectionPolicy::MapRequest
-        ))
-        .is_err()
-    );
-}
-
 #[tokio::test]
 async fn regular_turn_emits_turn_started_without_waiting_for_startup_prewarm() {
     let (sess, tc, rx) = make_session_and_context_with_rx().await;
@@ -1390,6 +1373,159 @@ async fn provider_map_append_persists_bootstrap_at_request_tail() {
             .raw_items()
             .last()
             .is_some_and(is_action_map_projection_developer_item)
+    );
+    assert!(provider.projection_identity.is_some());
+}
+
+#[tokio::test]
+async fn provider_map_request_exposes_only_initial_handle_until_explicit_read() {
+    let (session, turn_context) = make_session_and_context().await;
+    {
+        let mut state = session.state.lock().await;
+        state.session_configuration.taskspace_projection_policy =
+            Some(TaskSpaceProjectionPolicy::MapRequest);
+        state.action_map_runtime.set_mode_for_session(
+            codex_protocol::protocol::MapRuntimeMode::Experiment,
+            session.conversation_id,
+        );
+    }
+
+    let initial_context = session.build_initial_context(&turn_context).await;
+    let initial_text = developer_input_texts(&initial_context).join("\n");
+    assert!(initial_text.contains("TaskSpaceMapHandleR7V1:"));
+    assert!(initial_text.contains("- taskspace_active: true"));
+    assert!(initial_text.contains("- map_id: none"));
+    assert!(initial_text.contains("- revision: none"));
+    assert!(initial_text.contains("- bootstrap_required: true"));
+    assert!(initial_text.contains("- available_read_action: taskspace_control.read_map"));
+    assert!(!initial_text.contains("TaskSpaceMapProjectionR7V1:"));
+    assert!(!initial_text.contains("map_nodes"));
+    assert!(!initial_text.contains("map_edges"));
+    assert!(!initial_text.contains("active_frontier"));
+
+    let provider = session
+        .prepare_provider_visible_prompt_items(&turn_context, initial_context)
+        .await;
+    assert!(
+        provider
+            .items
+            .iter()
+            .all(|item| taskspace_projection_context(Some(item)).is_none())
+    );
+    assert!(provider.projection_identity.is_some());
+}
+
+#[tokio::test]
+async fn map_request_read_returns_shared_current_projection_without_auto_injection() {
+    let (session, turn_context) = make_session_and_context().await;
+    {
+        let mut state = session.state.lock().await;
+        state.session_configuration.taskspace_projection_policy =
+            Some(TaskSpaceProjectionPolicy::MapRequest);
+        state.action_map_runtime.set_mode_for_session(
+            codex_protocol::protocol::MapRuntimeMode::Experiment,
+            session.conversation_id,
+        );
+        state
+            .action_map_runtime
+            .initialize_map_for_main(
+                session.conversation_id,
+                crate::action_map::ActionMapInitializeInput {
+                    root: crate::action_map::ActionMapInitializeNodeInput {
+                        id: "root".into(),
+                        goal: "Solve".into(),
+                    },
+                    current_work_node: crate::action_map::ActionMapInitializeNodeInput {
+                        id: "work".into(),
+                        goal: "Work".into(),
+                    },
+                    finish: crate::action_map::ActionMapInitializeFinishInput {
+                        id: "finish".into(),
+                    },
+                    work_nodes: Vec::new(),
+                    edges: vec![
+                        crate::action_map::ActionMapEdgeInput {
+                            from: "root".into(),
+                            to: "work".into(),
+                        },
+                        crate::action_map::ActionMapEdgeInput {
+                            from: "work".into(),
+                            to: "finish".into(),
+                        },
+                    ],
+                    source_event_ids: vec!["task-event".into()],
+                },
+            )
+            .expect("initialize map");
+    }
+
+    let initial_context = session.build_initial_context(&turn_context).await;
+    let handle = developer_input_texts(&initial_context).join("\n");
+    assert!(handle.contains("TaskSpaceMapHandleR7V1:"));
+    assert!(handle.contains("- map_id: map-1"));
+    assert!(handle.contains("- revision: 2"));
+    assert!(handle.contains("- bootstrap_required: false"));
+    assert!(!handle.contains("map_nodes"));
+    assert!(!handle.contains("map_edges"));
+
+    let projection = session
+        .read_action_map_projection(&turn_context, "read-map-1")
+        .await
+        .expect("explicit map read");
+    assert!(projection.starts_with("TaskSpaceMapProjectionR7V1:\n"));
+    assert!(projection.contains("- projection_kind: current_projection"));
+    assert!(projection.contains("- map_id: map-1"));
+    assert!(projection.contains("- revision: 2"));
+    assert!(projection.contains("  map_nodes:\n"));
+    assert!(projection.contains("  map_edges:\n"));
+    assert!(projection.ends_with("TaskSpaceMapProjectionR7V1 end.\n"));
+
+    let repeated_projection = session
+        .read_action_map_projection(&turn_context, "read-map-2")
+        .await
+        .expect("repeated explicit map read");
+    assert_eq!(repeated_projection, projection);
+    let snapshot = session.action_map_snapshot().await;
+    let read_events = snapshot
+        .trace_events
+        .iter()
+        .filter(|event| event.kind == "map.read_completed")
+        .collect::<Vec<_>>();
+    assert_eq!(read_events.len(), 2);
+    assert!(
+        read_events[1]
+            .tags
+            .iter()
+            .any(|tag| tag == "revision_advance_since_previous_read:0")
+    );
+    assert!(
+        read_events[1]
+            .tags
+            .iter()
+            .any(|tag| tag == "canonical_revision_lag:0")
+    );
+    assert!(
+        read_events[1]
+            .tags
+            .iter()
+            .any(|tag| tag == "repeated_revision:true")
+    );
+
+    let explicit_result = ResponseItem::FunctionCallOutput {
+        call_id: "read-map-1".into(),
+        output: FunctionCallOutputPayload::from_text(projection),
+    };
+    let mut history = initial_context;
+    history.push(explicit_result);
+    let provider = session
+        .prepare_provider_visible_prompt_items(&turn_context, history)
+        .await;
+    assert!(
+        provider
+            .items
+            .iter()
+            .all(|item| taskspace_projection_context(Some(item)).is_none()),
+        "an explicit tool result must not be reclassified as automatic projection injection"
     );
     assert!(provider.projection_identity.is_some());
 }

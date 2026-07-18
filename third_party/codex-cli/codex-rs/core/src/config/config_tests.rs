@@ -7836,10 +7836,11 @@ fn test_tui_notification_condition_rejects_unknown_value() {
 }
 
 #[tokio::test]
-async fn phase_c_accepts_enabled_projection_policies() -> std::io::Result<()> {
+async fn phase_d_accepts_all_projection_policies() -> std::io::Result<()> {
     for policy in [
         TaskSpaceProjectionPolicy::MapAlways,
         TaskSpaceProjectionPolicy::MapAppend,
+        TaskSpaceProjectionPolicy::MapRequest,
     ] {
         let fixture = create_test_fixture()?;
         let mut cfg = fixture.cfg.clone();
@@ -7857,25 +7858,5 @@ async fn phase_c_accepts_enabled_projection_policies() -> std::io::Result<()> {
 
         assert_eq!(loaded.taskspace_projection_policy, Some(policy));
     }
-    Ok(())
-}
-
-#[tokio::test]
-async fn phase_c_rejects_map_request_until_phase_d() -> std::io::Result<()> {
-    let fixture = create_test_fixture()?;
-    let mut cfg = fixture.cfg.clone();
-    cfg.taskspace_projection_policy = Some(TaskSpaceProjectionPolicy::MapRequest);
-    let error = Config::load_from_base_config_with_overrides(
-        cfg,
-        ConfigOverrides {
-            cwd: Some(fixture.cwd_path()),
-            ..Default::default()
-        },
-        fixture.codex_home(),
-    )
-    .await
-    .expect_err("map-request must remain rejected before Phase D");
-    assert_eq!(error.kind(), std::io::ErrorKind::InvalidInput);
-    assert!(error.to_string().contains("before R7 Phase D"));
     Ok(())
 }

@@ -259,7 +259,8 @@ fn taskspace_map_lifecycle_schema_is_the_only_taskspace_control_schema() {
             "transition_node",
             "finish_end",
             "expand_nodes",
-            "read_output_ref"
+            "read_output_ref",
+            "read_map"
         ]
     );
     let serialized = serde_json::to_string(parameters).expect("serialize parameters");

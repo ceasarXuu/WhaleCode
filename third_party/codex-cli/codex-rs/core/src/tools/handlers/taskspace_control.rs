@@ -389,6 +389,25 @@ impl ToolHandler for TaskSpaceControlHandler {
                     .await;
                 (slice, true, None)
             }
+            TaskSpaceControlArgs::ReadMap => {
+                tracing::info!(
+                    target: "codex_core::taskspace",
+                    call_id,
+                    "taskspace.map_read_requested"
+                );
+                match session.read_action_map_projection(&turn, &call_id).await {
+                    Ok(projection) => (projection, true, None),
+                    Err(error) => {
+                        tracing::warn!(
+                            target: "codex_core::taskspace",
+                            call_id,
+                            error,
+                            "taskspace.map_read_rejected"
+                        );
+                        (rejected_control_result(&error), false, None)
+                    }
+                }
+            }
         };
         if let Some((step_count, identity_complete)) = state_identity_coverage(&message) {
             if success {

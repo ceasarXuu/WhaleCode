@@ -3529,14 +3529,22 @@ impl Session {
             collaboration_mode,
             base_instructions,
             session_source,
+            taskspace_map_handle,
         ) = {
             let state = self.state.lock().await;
+            let taskspace_map_handle = (state.action_map_runtime.mode()
+                == MapRuntimeMode::Experiment
+                && state.session_configuration.taskspace_projection_policy
+                    == Some(TaskSpaceProjectionPolicy::MapRequest))
+            .then(|| state.action_map_runtime.build_map_handle_context())
+            .flatten();
             (
                 state.reference_context_item(),
                 state.previous_turn_settings(),
                 state.session_configuration.collaboration_mode.clone(),
                 state.session_configuration.base_instructions.clone(),
                 state.session_configuration.session_source.clone(),
+                taskspace_map_handle,
             )
         };
         if let Some(model_switch_message) =
@@ -3673,6 +3681,9 @@ impl Session {
         }
         // TaskSpace context changes frequently. Keep it in a separate developer
         // item so legacy TaskSpace filtering cannot drop stable developer text.
+        if let Some(taskspace_map_handle) = taskspace_map_handle {
+            taskspace_developer_sections.push(taskspace_map_handle);
+        }
         if let Some(action_map_transition_notice) = action_map_transition_notice {
             taskspace_developer_sections.push(action_map_transition_notice);
         }
@@ -3884,6 +3895,70 @@ impl Session {
         state.action_map_runtime.snapshot()
     }
 
+    pub(crate) async fn read_action_map_projection(
+        &self,
+        turn_context: &TurnContext,
+        call_id: &str,
+    ) -> Result<String, String> {
+        let (projection, projection_events) = {
+            let mut state = self.state.lock().await;
+            if state.action_map_runtime.mode() != MapRuntimeMode::Experiment {
+                return Err("TaskSpace map read requires TaskSpace mode.".to_string());
+            }
+            let policy = state
+                .session_configuration
+                .taskspace_projection_policy
+                .ok_or_else(|| "TaskSpace projection policy is missing.".to_string())?;
+            let projection = state
+                .action_map_runtime
+                .build_developer_context(ProjectionEnvelope::CurrentProjection)
+                .ok_or_else(|| "TaskSpace current Map projection is unavailable.".to_string())?;
+            let identity = projection_identity_from_context(&projection).ok_or_else(|| {
+                "TaskSpace current Map projection identity is invalid.".to_string()
+            })?;
+            let decision = decide_projection_emission(
+                policy,
+                ProjectionTrigger::ExplicitRead,
+                &state.taskspace_projection_cursor,
+                Some(&identity),
+            )?;
+            if decision.emission != ProjectionEmission::ReturnAsToolResult {
+                return Err("TaskSpace explicit Map read did not select a tool result.".to_string());
+            }
+            state.taskspace_projection_cursor = decision.next_cursor;
+            let mut events = state
+                .action_map_runtime
+                .take_pending_projection_trace_events();
+            if let Some(read_events) = state.action_map_runtime.record_map_read_trace_event(
+                call_id.to_string(),
+                &policy.to_string(),
+                identity.map_id.clone(),
+                identity.revision,
+                identity.canonical_sha256.clone(),
+                identity.projection_sha256.clone(),
+            ) {
+                events.extend(read_events);
+            }
+            tracing::info!(
+                target: "codex_core::taskspace",
+                event_name = "taskspace.map_read_completed",
+                call_id,
+                policy = %policy,
+                map_id = ?identity.map_id,
+                revision = ?identity.revision,
+                canonical_sha256 = ?identity.canonical_sha256,
+                projection_sha256 = identity.projection_sha256,
+                "returned exact current TaskSpace Map projection"
+            );
+            (projection, events)
+        };
+        if !projection_events.is_empty() {
+            self.emit_action_map_events_for_turn(turn_context, projection_events)
+                .await;
+        }
+        Ok(projection)
+    }
+
     pub(crate) async fn taskspace_mode_active(&self) -> bool {
         let state = self.state.lock().await;
         state.action_map_runtime.mode() == MapRuntimeMode::Experiment
@@ -3934,14 +4009,15 @@ impl Session {
                 .session_configuration
                 .taskspace_projection_policy
                 .expect("TaskSpace mode requires an immutable projection policy");
-            let envelope = match policy {
-                TaskSpaceProjectionPolicy::MapAlways => ProjectionEnvelope::CurrentProjection,
-                TaskSpaceProjectionPolicy::MapAppend => ProjectionEnvelope::RequestSnapshot,
-                TaskSpaceProjectionPolicy::MapRequest => {
-                    unreachable!("map-request remains disabled before Phase D")
-                }
+            let context = match policy {
+                TaskSpaceProjectionPolicy::MapAlways => state
+                    .action_map_runtime
+                    .build_developer_context(ProjectionEnvelope::CurrentProjection),
+                TaskSpaceProjectionPolicy::MapAppend => state
+                    .action_map_runtime
+                    .build_developer_context(ProjectionEnvelope::RequestSnapshot),
+                TaskSpaceProjectionPolicy::MapRequest => None,
             };
-            let context = state.action_map_runtime.build_developer_context(envelope);
             let candidate = context
                 .as_deref()
                 .and_then(projection_identity_from_context);
@@ -4029,12 +4105,19 @@ impl Session {
                 );
             }
             TaskSpaceProjectionPolicy::MapRequest => {
-                unreachable!("map-request remains disabled before Phase D")
+                debug_assert!(projection_item.is_none());
             }
         }
-        let projection_identity = latest_taskspace_projection_context(&items).and_then(|context| {
-            ProviderProjectionIdentityExpectation::from_projection_context(policy, context)
-        });
+        let projection_identity = match policy {
+            TaskSpaceProjectionPolicy::MapRequest => {
+                Some(ProviderProjectionIdentityExpectation::without_automatic_projection(policy))
+            }
+            TaskSpaceProjectionPolicy::MapAlways | TaskSpaceProjectionPolicy::MapAppend => {
+                latest_taskspace_projection_context(&items).and_then(|context| {
+                    ProviderProjectionIdentityExpectation::from_projection_context(policy, context)
+                })
+            }
+        };
         PreparedProviderPromptItems {
             items,
             projection_identity,
