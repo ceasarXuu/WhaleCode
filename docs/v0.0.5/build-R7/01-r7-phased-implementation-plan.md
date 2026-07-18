@@ -10,7 +10,7 @@
 Created: 2026-07-17
 Updated: 2026-07-19
 Version: v0.0.5 build-R7
-Status: Phase C Follow-up Complete / Phase D Awaiting Bootstrap Decision
+Status: Phase C Follow-up Complete / Phase D Ready
 Owner / Responsible: WhaleCode core runtime / TaskSpace
 Risk Level: Critical
 Plan Type: Shared architecture with three projection policies
@@ -301,6 +301,12 @@ Phase C 后续消融移除了 bootstrap/terminal 命名 `tool_choice` 和命名�
 在明确接受“稳定晚一轮”还是要求“首轮初始化”之前，Phase D 暂不把该行为视为已收口。结果见
 `06-r7-tool-choice-ablation-result.md` 和
 `benchmarks/taskspace/r7/phase-c-tool-choice-ablation-result.json`。
+
+后续静态 bootstrap 合同实验没有恢复动态 `tool_choice`：`taskspace_control` 永久置顶，固定 schema
+明确首动作合同，bootstrap projection 只暴露机械硬状态。简单、复杂各 3 次均在首请求初始化，合计
+从 0/6 提升为 6/6；64 个 TaskSpace payload 全部保持 `auto`、同一 13-tool hash、零 shape transition，
+两组均 solved。Phase D 准入恢复，结果见 `07-r7-static-bootstrap-contract-result.md` 和
+`benchmarks/taskspace/r7/phase-c-static-bootstrap-contract-result.json`。
 
 ## 1.11 Phase D：接入 `map-request`
 

@@ -107,3 +107,9 @@ cargo build -p codex-cli --bin whale --locked                            PASS
 Docker simple TaskSpace                                                  3/3 solved
 Docker complex Standard / TaskSpace                                      3/3 / 3/3 solved
 ```
+
+## 7. 后续解决状态
+
+静态 bootstrap 合同已在不恢复动态 `tool_choice` 的前提下把首请求初始化从 `0/6` 提升为 `6/6`，
+provider tool hash 和 request shape 全程稳定。该决策点已经解决，完整结果见
+`07-r7-static-bootstrap-contract-result.md`。
