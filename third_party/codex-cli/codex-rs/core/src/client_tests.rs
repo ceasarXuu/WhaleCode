@@ -1,6 +1,7 @@
 use super::AuthRequestTelemetryContext;
 use super::ModelClient;
 use super::PendingUnauthorizedRetry;
+use super::Prompt;
 use super::ProviderProjectionIdentityExpectation;
 use super::ProviderRequestAttribution;
 use super::ProviderRequestBudgetContext;
@@ -13,13 +14,16 @@ use super::X_CODEX_WINDOW_ID_HEADER;
 use super::X_OPENAI_SUBAGENT_HEADER;
 use super::apply_projection_identity_expectation;
 use super::provider_payload_digest;
+use codex_api::ToolChoice;
 use codex_app_server_protocol::AuthMode;
 use codex_model_provider::BearerAuthProvider;
 use codex_model_provider_info::WireApi;
 use codex_model_provider_info::create_oss_provider_with_base_url;
 use codex_otel::SessionTelemetry;
 use codex_protocol::ThreadId;
+use codex_protocol::config_types::ReasoningSummary;
 use codex_protocol::openai_models::ModelInfo;
+use codex_protocol::openai_models::ReasoningEffort;
 use codex_protocol::protocol::SessionSource;
 use codex_protocol::protocol::SubAgentSource;
 use codex_protocol::protocol::TaskSpaceProjectionPolicy;
@@ -85,6 +89,51 @@ fn test_session_telemetry() -> SessionTelemetry {
         "test-terminal".to_string(),
         SessionSource::Cli,
     )
+}
+
+#[test]
+fn named_tool_choice_preserves_requested_chat_reasoning() {
+    let provider_info =
+        create_oss_provider_with_base_url("https://example.com/v1", WireApi::ChatCompletions);
+    let api_provider = provider_info
+        .to_api_provider(/*auth_mode*/ None)
+        .expect("create chat completions provider");
+    let client = ModelClient::new(
+        /*auth_manager*/ None,
+        ThreadId::new(),
+        /*installation_id*/ "11111111-1111-4111-8111-111111111111".to_string(),
+        provider_info,
+        SessionSource::Cli,
+        /*model_verbosity*/ None,
+        /*enable_request_compression*/ false,
+        /*include_timing_metrics*/ false,
+        /*beta_features_header*/ None,
+    );
+    let session = client.new_session();
+    let prompt = Prompt {
+        tool_choice: ToolChoice::function("taskspace_control"),
+        ..Prompt::default()
+    };
+
+    let request = session
+        .build_responses_request(
+            &api_provider,
+            &prompt,
+            &test_model_info(),
+            Some(ReasoningEffort::Max),
+            ReasoningSummary::None,
+            /*service_tier*/ None,
+        )
+        .expect("build named-tool request");
+
+    assert_eq!(
+        request.reasoning.and_then(|reasoning| reasoning.effort),
+        Some(ReasoningEffort::Max)
+    );
+    assert_eq!(
+        request.tool_choice,
+        ToolChoice::function("taskspace_control")
+    );
 }
 
 #[test]

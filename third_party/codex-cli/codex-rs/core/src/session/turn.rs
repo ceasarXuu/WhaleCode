@@ -999,7 +999,6 @@ pub(crate) fn build_prompt(
         turn_context,
         base_instructions,
         TaskspaceProviderToolVisibility::Standard,
-        None,
     )
 }
 
@@ -1024,15 +1023,6 @@ impl TaskspaceProviderControlMode {
             Self::BootstrapRequired => "bootstrap_required",
             Self::WorkActive => "work_active",
             Self::TerminalControlRequired => "terminal_control_required",
-        }
-    }
-
-    fn tool_choice(self) -> ToolChoice {
-        match self {
-            Self::BootstrapRequired | Self::TerminalControlRequired => {
-                ToolChoice::function("taskspace_control")
-            }
-            Self::WorkActive => ToolChoice::Auto,
         }
     }
 }
@@ -1102,7 +1092,6 @@ fn build_prompt_with_tool_visibility(
     turn_context: &TurnContext,
     base_instructions: BaseInstructions,
     tool_visibility: TaskspaceProviderToolVisibility,
-    control_mode: Option<TaskspaceProviderControlMode>,
 ) -> Prompt {
     let deferred_dynamic_tools = turn_context
         .dynamic_tools
@@ -1120,15 +1109,12 @@ fn build_prompt_with_tool_visibility(
             .collect()
     };
     let tools = apply_provider_tool_visibility(tools, tool_visibility);
-    let tool_choice = control_mode
-        .map(TaskspaceProviderControlMode::tool_choice)
-        .unwrap_or(ToolChoice::Auto);
 
     Prompt {
         input,
         tools,
         parallel_tool_calls: turn_context.model_info.supports_parallel_tool_calls,
-        tool_choice,
+        tool_choice: ToolChoice::Auto,
         base_instructions,
         personality: turn_context.personality,
         output_schema: turn_context.final_output_json_schema.clone(),
@@ -1316,9 +1302,6 @@ async fn run_sampling_request(
                 projection_identity: prepared_prompt.projection_identity,
             }
         });
-        let taskspace_control_mode = taskspace_response_contract
-            .as_ref()
-            .map(|contract| contract.control_mode);
         if let Some(contract) = taskspace_response_contract.as_ref() {
             info!(
                 target = "codex_core::taskspace",
@@ -1334,7 +1317,6 @@ async fn run_sampling_request(
             turn_context.as_ref(),
             base_instructions.clone(),
             tool_visibility,
-            taskspace_control_mode,
         );
         let err = match try_run_sampling_request(
             tool_runtime.clone(),
@@ -1626,7 +1608,7 @@ mod active_context_replacement_tests {
     }
 
     #[test]
-    fn taskspace_control_modes_change_choice_without_changing_tool_contract() {
+    fn taskspace_control_modes_preserve_state_without_changing_tool_contract() {
         let visible = vec![
             codex_tools::create_list_dir_tool(),
             codex_tools::create_taskspace_control_tool(&[codex_tools::create_list_dir_tool()]),
@@ -1646,10 +1628,6 @@ mod active_context_replacement_tests {
             bootstrap_mode,
             TaskspaceProviderControlMode::BootstrapRequired
         );
-        assert_eq!(
-            bootstrap_mode.tool_choice().function_name(),
-            Some("taskspace_control")
-        );
 
         let mut work_state = terminal_control_state();
         work_state.finish_ready = false;
@@ -1657,17 +1635,12 @@ mod active_context_replacement_tests {
         work_state.running_work_node_ids = vec!["work".into()];
         let work_mode = taskspace_provider_control_mode(false, Some(&work_state));
         assert_eq!(work_mode, TaskspaceProviderControlMode::WorkActive);
-        assert_eq!(work_mode.tool_choice(), ToolChoice::Auto);
 
         let terminal_state = terminal_control_state();
         let terminal_mode = taskspace_provider_control_mode(false, Some(&terminal_state));
         assert_eq!(
             terminal_mode,
             TaskspaceProviderControlMode::TerminalControlRequired
-        );
-        assert_eq!(
-            terminal_mode.tool_choice().function_name(),
-            Some("taskspace_control")
         );
         assert_eq!(
             serde_json::to_string(&visible).expect("serialize lifecycle tools"),

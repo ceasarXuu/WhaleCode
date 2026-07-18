@@ -199,10 +199,6 @@ impl ToolChoice {
             self.mode().unwrap_or("unknown")
         }
     }
-
-    pub fn requires_disabled_thinking(&self) -> bool {
-        matches!(self, Self::Required | Self::Function { .. })
-    }
 }
 
 impl Default for ToolChoice {

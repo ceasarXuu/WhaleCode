@@ -9,6 +9,7 @@ use codex_protocol::protocol::ItemCompletedEvent;
 use codex_protocol::protocol::MapRuntimeEvent;
 use codex_protocol::protocol::MapRuntimeMode;
 use codex_protocol::protocol::Op;
+use codex_protocol::protocol::TaskSpaceProjectionPolicy;
 use codex_protocol::user_input::UserInput;
 use core_test_support::responses::ResponseMock;
 use core_test_support::responses::ev_assistant_message;
@@ -132,30 +133,33 @@ fn common_responses(test: &TestCodex) -> Vec<String> {
     ]
 }
 
-fn assert_terminal_request_shape(responses: &ResponseMock) {
+fn assert_taskspace_request_shapes(responses: &ResponseMock) {
     let requests = responses.requests();
     assert_eq!(
         requests.len(),
         3,
         "terminal handling must not add a request"
     );
-    let terminal = requests[2].body_json();
-    let tool_choice = terminal["tool_choice"].clone();
-    let tool_names = terminal["tools"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter_map(|tool| tool["name"].as_str())
-        .collect::<Vec<_>>();
-    assert_eq!(
-        terminal["tool_choice"]["name"], "taskspace_control",
-        "unexpected terminal request shape: tool_choice={tool_choice}, tools={tool_names:?}"
-    );
-    assert_eq!(
-        terminal["tools"].as_array().map(Vec::len),
-        Some(13),
-        "F5.0c must preserve the F4 immutable tool surface"
-    );
+    for request in requests {
+        let body = request.body_json();
+        let tool_choice = body["tool_choice"].clone();
+        let tool_names = body["tools"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|tool| tool["name"].as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            tool_choice,
+            json!("auto"),
+            "TaskSpace request changed tool choice: tools={tool_names:?}"
+        );
+        assert_eq!(
+            body["tools"].as_array().map(Vec::len),
+            Some(13),
+            "TaskSpace must preserve the immutable tool surface"
+        );
+    }
 }
 
 fn error_messages(events: &[EventMsg]) -> Vec<&str> {
@@ -197,7 +201,12 @@ fn agent_text(item: &TurnItem) -> Option<(String, Option<MessagePhase>)> {
 async fn committed_finish_carrier_is_the_only_taskspace_final() -> anyhow::Result<()> {
     skip_if_no_network!(Ok(()));
     let server = start_mock_server().await;
-    let test = test_codex().build(&server).await?;
+    let test = test_codex()
+        .with_config(|config| {
+            config.taskspace_projection_policy = Some(TaskSpaceProjectionPolicy::MapAppend);
+        })
+        .build(&server)
+        .await?;
     enable_taskspace(&test).await;
 
     let mut bodies = common_responses(&test);
@@ -278,7 +287,7 @@ async fn committed_finish_carrier_is_the_only_taskspace_final() -> anyhow::Resul
         Some(4)
     );
     assert!(replayed.active_checkpoint_id.starts_with("map-terminal-"));
-    assert_terminal_request_shape(&responses);
+    assert_taskspace_request_shapes(&responses);
     Ok(())
 }
 
@@ -286,7 +295,12 @@ async fn committed_finish_carrier_is_the_only_taskspace_final() -> anyhow::Resul
 async fn plain_provider_final_is_nonterminal_and_does_not_retry() -> anyhow::Result<()> {
     skip_if_no_network!(Ok(()));
     let server = start_mock_server().await;
-    let test = test_codex().build(&server).await?;
+    let test = test_codex()
+        .with_config(|config| {
+            config.taskspace_projection_policy = Some(TaskSpaceProjectionPolicy::MapAppend);
+        })
+        .build(&server)
+        .await?;
     enable_taskspace(&test).await;
 
     let mut bodies = common_responses(&test);
@@ -327,6 +341,6 @@ async fn plain_provider_final_is_nonterminal_and_does_not_retry() -> anyhow::Res
         event,
         EventMsg::TurnComplete(completed) if completed.last_agent_message.is_none()
     )));
-    assert_terminal_request_shape(&responses);
+    assert_taskspace_request_shapes(&responses);
     Ok(())
 }

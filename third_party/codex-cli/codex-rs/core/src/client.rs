@@ -2224,7 +2224,7 @@ impl ModelClientSession {
         let input = prompt.get_formatted_input();
         let tools = create_tools_json_for_responses_api(&prompt.tools)?;
         let default_reasoning_effort = model_info.default_reasoning_level;
-        let mut reasoning = if model_info.supports_reasoning_summaries {
+        let reasoning = if model_info.supports_reasoning_summaries {
             Some(Reasoning {
                 effort: effort.or(default_reasoning_effort),
                 summary: if summary == ReasoningSummaryConfig::None {
@@ -2243,14 +2243,6 @@ impl ModelClientSession {
         } else {
             None
         };
-        if provider.wire_api == codex_api::WireApi::ChatCompletions
-            && prompt.tool_choice.requires_disabled_thinking()
-        {
-            reasoning = Some(Reasoning {
-                effort: Some(ReasoningEffortConfig::None),
-                summary: None,
-            });
-        }
         let include = if model_info.supports_reasoning_summaries && reasoning.is_some() {
             vec!["reasoning.encrypted_content".to_string()]
         } else {
