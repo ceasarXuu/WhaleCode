@@ -453,6 +453,7 @@ pub fn build_tool_registry_plan(
             /*supports_parallel_tool_calls*/ false,
             config.code_mode_enabled,
         );
+        plan.specs.rotate_right(1);
         plan.register_handler("taskspace_control", ToolHandlerKind::TaskSpaceControl);
         if config.multi_agent_v2 {
             let agent_type_description =

@@ -226,6 +226,11 @@ fn taskspace_map_lifecycle_schema_is_the_only_taskspace_control_schema() {
         &[],
     );
 
+    assert_eq!(
+        tools.first().map(ConfiguredToolSpec::name),
+        Some("taskspace_control"),
+        "the mandatory TaskSpace lifecycle tool must keep the first stable tool position"
+    );
     let taskspace = find_tool(&tools, "taskspace_control");
     let ToolSpec::Function(ResponsesApiTool { parameters, .. }) = &taskspace.spec else {
         panic!("taskspace_control should be a function tool");

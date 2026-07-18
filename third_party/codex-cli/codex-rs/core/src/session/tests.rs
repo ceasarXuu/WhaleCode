@@ -1344,6 +1344,11 @@ async fn provider_composer_injects_one_blank_map_projection() {
         );
         assert!(developer_text.contains("- map: none"));
         assert!(developer_text.contains("- bootstrap_required: true"));
+        assert!(
+            developer_text.contains("- bootstrap_control_action: taskspace_control.initialize_map")
+        );
+        assert!(developer_text.contains("- ordinary_tools_allowed: false"));
+        assert!(developer_text.contains("- ordinary_tool_failure: no_task_path"));
         assert!(!developer_text.contains("active_task_path_without_nodes"));
         if let Some(previous_context) = previous_context.as_ref() {
             assert_eq!(

@@ -159,6 +159,11 @@ fn assert_taskspace_request_shapes(responses: &ResponseMock) {
             Some(13),
             "TaskSpace must preserve the immutable tool surface"
         );
+        assert_eq!(
+            tool_names.first().copied(),
+            Some("taskspace_control"),
+            "the immutable TaskSpace tool surface must keep control first"
+        );
     }
 }
 

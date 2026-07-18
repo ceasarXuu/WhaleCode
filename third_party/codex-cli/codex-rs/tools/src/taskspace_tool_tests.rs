@@ -8,6 +8,13 @@ fn lifecycle_schema_includes_initialization_with_required_continuation() {
     let list_dir_value = serde_json::to_value(&list_dir).expect("serialize list_dir");
     let value =
         serde_json::to_value(create_taskspace_control_tool(&[list_dir])).expect("serialize");
+    assert!(
+        value["description"]
+            .as_str()
+            .is_some_and(|description| description.contains(
+                "the first top-level tool call MUST be taskspace_control with action=initialize_map"
+            ))
+    );
     assert_eq!(value["parameters"]["type"], json!("object"));
     let variants = value["parameters"]["anyOf"].as_array().expect("variants");
     let action_names = variants

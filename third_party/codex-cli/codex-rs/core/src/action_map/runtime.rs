@@ -4139,7 +4139,7 @@ impl ActionMapRuntimeState {
             ""
         };
         format!(
-            "TaskSpaceMapProjectionR7V1:\n- schema_version: taskspace-map-projection-r7-v1\n- projection_kind: bootstrap_required\n- map: none\n- bootstrap_required: true\n{request_snapshot_fields}TaskSpaceMapProjectionR7V1 end.\n"
+            "TaskSpaceMapProjectionR7V1:\n- schema_version: taskspace-map-projection-r7-v1\n- projection_kind: bootstrap_required\n- map: none\n- bootstrap_required: true\n- bootstrap_control_action: taskspace_control.initialize_map\n- ordinary_tools_allowed: false\n- ordinary_tool_failure: no_task_path\n{request_snapshot_fields}TaskSpaceMapProjectionR7V1 end.\n"
         )
     }
 
