@@ -170,3 +170,10 @@ Phase C 的 request-tail、correctness、feedback 与 cache 缺陷门禁均满�
 Phase D 只能在共享 `taskspace_control` 上增加 `read_map`；不得修改 Map 状态机、ordinary tool 权限
 或复制 renderer/provider context 路径。Phase C 单次样本不支持三策略效用排序，正式结论仍需后续重复
 实验。
+
+## 9. 2026-07-19 后续消融
+
+后续实验移除了 lifecycle 命名 `tool_choice` 和命名工具自动关闭 thinking 的隐式耦合。请求形态与缓存
+恢复稳定，但 6/6 TaskSpace 运行都在普通工具被空 Map 硬约束拒绝后，第二次请求才调用
+`initialize_map`。因此本文件原有“Phase D Ready”只代表 Phase C request-tail 工程门禁通过；bootstrap
+首动作行为需要单独决策。完整证据见 `06-r7-tool-choice-ablation-result.md`。

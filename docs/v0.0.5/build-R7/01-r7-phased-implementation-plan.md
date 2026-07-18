@@ -8,9 +8,9 @@
 
 ```text
 Created: 2026-07-17
-Updated: 2026-07-18
+Updated: 2026-07-19
 Version: v0.0.5 build-R7
-Status: Phase C Complete / Phase D Ready
+Status: Phase C Follow-up Complete / Phase D Awaiting Bootstrap Decision
 Owner / Responsible: WhaleCode core runtime / TaskSpace
 Risk Level: Critical
 Plan Type: Shared architecture with three projection policies
@@ -294,6 +294,13 @@ last projection identity 与 canonical Map 一致。
 - 结果见 `05-r7-phase-c-result.md`，机器结果见
   `benchmarks/taskspace/r7/phase-c-result.json`，根因闭环见
   `coe/2026-07-18-06-36-r7-map-append-cache-gap.md`。
+
+Phase C 后续消融移除了 bootstrap/terminal 命名 `tool_choice` 和命名工具自动关闭 thinking 的隐式
+耦合。简单、复杂各 3 次 Docker 运行均 solved，92 个 provider payload 均保持 `auto`，首请求 thinking
+均有效；但 6/6 都在普通工具收到 `no_task_path` 后才于第二次请求初始化 Map，首请求初始化为 0/6。
+在明确接受“稳定晚一轮”还是要求“首轮初始化”之前，Phase D 暂不把该行为视为已收口。结果见
+`06-r7-tool-choice-ablation-result.md` 和
+`benchmarks/taskspace/r7/phase-c-tool-choice-ablation-result.json`。
 
 ## 1.11 Phase D：接入 `map-request`
 
