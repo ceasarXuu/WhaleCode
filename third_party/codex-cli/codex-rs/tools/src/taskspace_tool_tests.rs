@@ -28,6 +28,8 @@ fn lifecycle_schema_includes_initialization_with_required_continuation() {
             "mutate_graph",
             "transition_node",
             "transition_node",
+            "complete_then_continue",
+            "complete_then_end",
             "finish_end",
             "expand_nodes",
             "read_output_ref",
@@ -135,7 +137,7 @@ fn bootstrap_schema_exposes_one_patch_slot_outside_ordinary_actions() {
 }
 
 #[test]
-fn lifecycle_schema_exposes_active_actions_without_continuation_fields() {
+fn lifecycle_schema_requires_atomic_completion_handoffs() {
     let value = serde_json::to_value(create_taskspace_control_tool(&[create_list_dir_tool()]))
         .expect("serialize");
     let actions = value["parameters"]["anyOf"]
@@ -146,6 +148,8 @@ fn lifecycle_schema_exposes_active_actions_without_continuation_fields() {
         .collect::<Vec<_>>();
     assert!(actions.contains(&"mutate_graph"));
     assert!(actions.contains(&"transition_node"));
+    assert!(actions.contains(&"complete_then_continue"));
+    assert!(actions.contains(&"complete_then_end"));
     assert!(actions.contains(&"finish_end"));
     assert!(actions.contains(&"expand_nodes"));
     assert!(actions.contains(&"read_output_ref"));
@@ -181,7 +185,7 @@ fn lifecycle_schema_exposes_active_actions_without_continuation_fields() {
         .find(|variant| {
             variant["properties"]["action"]["enum"][0] == json!("transition_node")
                 && variant["properties"]["transition"]["enum"]
-                    == json!(["complete", "block", "unblock", "rework"])
+                    == json!(["block", "unblock", "rework"])
         })
         .expect("non-bind transition variant");
     assert_eq!(
@@ -191,7 +195,42 @@ fn lifecycle_schema_exposes_active_actions_without_continuation_fields() {
     assert!(transition["properties"].get("continuation").is_none());
     assert_eq!(
         transition["properties"]["transition"]["enum"],
-        json!(["complete", "block", "unblock", "rework"])
+        json!(["block", "unblock", "rework"])
+    );
+    assert!(!value.to_string().contains("\"complete\""));
+    let handoff = value["parameters"]["anyOf"]
+        .as_array()
+        .expect("variants")
+        .iter()
+        .find(|variant| {
+            variant["properties"]["action"]["enum"][0] == json!("complete_then_continue")
+        })
+        .expect("atomic handoff variant");
+    assert_eq!(
+        handoff["required"],
+        json!([
+            "action",
+            "expected_revision",
+            "current_node_id",
+            "next_node_id",
+            "continuation"
+        ])
+    );
+    assert!(handoff["properties"].get("continuation").is_some());
+    let complete_end = value["parameters"]["anyOf"]
+        .as_array()
+        .expect("variants")
+        .iter()
+        .find(|variant| variant["properties"]["action"]["enum"][0] == json!("complete_then_end"))
+        .expect("atomic terminal variant");
+    assert_eq!(
+        complete_end["required"],
+        json!([
+            "action",
+            "expected_revision",
+            "current_node_id",
+            "final_summary"
+        ])
     );
     let mutation = value["parameters"]["anyOf"]
         .as_array()

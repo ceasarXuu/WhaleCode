@@ -16,6 +16,8 @@ function Get-TaskspaceNativeCadenceFacts {
             multi_control_carrier_response_count = $null; nested_action_count = $null
             initialize_continuation_count = $null; mutation_continuation_count = $null
             bind_continuation_count = $null; state_only_control_count = $null
+            complete_handoff_count = $null; complete_handoff_continuation_count = $null
+            complete_terminal_count = $null; standalone_complete_count = $null
             finish_end_count = $null; nonterminal_transition_without_follow_up_count = $null
             terminal_candidate_count = $null
             terminal_extra_request_count = $null
@@ -34,6 +36,10 @@ function Get-TaskspaceNativeCadenceFacts {
     $initializeContinuationCount = 0
     $mutationContinuationCount = 0
     $bindContinuationCount = 0
+    $completeHandoffCount = 0
+    $completeHandoffContinuationCount = 0
+    $completeTerminalCount = 0
+    $standaloneCompleteCount = 0
     $finishEndCount = 0
     $controlArgumentParseErrors = 0
     foreach ($line in [System.IO.File]::ReadLines($rolloutPath)) {
@@ -73,9 +79,13 @@ function Get-TaskspaceNativeCadenceFacts {
                         if ($action -eq "initialize_map") { $initializeContinuationCount++ }
                         if ($action -eq "mutate_graph") { $mutationContinuationCount++ }
                         if ($action -eq "transition_node" -and $transition -eq "bind") { $bindContinuationCount++ }
+                        if ($action -eq "complete_then_continue") { $completeHandoffContinuationCount++ }
                     }
-                    if ($action -eq "finish_end") {
-                        $finishEndCount++
+                    if ($action -eq "complete_then_continue") { $completeHandoffCount++ }
+                    if ($action -eq "complete_then_end") { $completeTerminalCount++ }
+                    if ($action -eq "transition_node" -and $transition -eq "complete") { $standaloneCompleteCount++ }
+                    if ($action -eq "finish_end") { $finishEndCount++ }
+                    if ($action -in @("finish_end", "complete_then_end")) {
                         $candidateProperty = $arguments.PSObject.Properties["final_summary"]
                         $hasTerminalCandidate = $null -ne $candidateProperty -and -not [string]::IsNullOrWhiteSpace([string]$candidateProperty.Value)
                     }
@@ -91,7 +101,7 @@ function Get-TaskspaceNativeCadenceFacts {
                 }
                 $nestedActionCount = [int]$nestedActionCount + [int]$nestedCount
                 if ($nestedCount -eq 0) { $stateOnlyControlCount++ }
-                if ($action -eq "finish_end") { $lastFinishIndex = $rowIndex }
+                if ($action -in @("finish_end", "complete_then_end")) { $lastFinishIndex = $rowIndex }
                 if ($hasTerminalCandidate) { $terminalCandidateCount++ }
             }
             $current.Add([pscustomobject]@{
@@ -146,6 +156,10 @@ function Get-TaskspaceNativeCadenceFacts {
         initialize_continuation_count = [int]$initializeContinuationCount
         mutation_continuation_count = [int]$mutationContinuationCount
         bind_continuation_count = [int]$bindContinuationCount
+        complete_handoff_count = [int]$completeHandoffCount
+        complete_handoff_continuation_count = [int]$completeHandoffContinuationCount
+        complete_terminal_count = [int]$completeTerminalCount
+        standalone_complete_count = [int]$standaloneCompleteCount
         state_only_control_count = [int]$stateOnlyControlCount
         finish_end_count = [int]$finishEndCount
         nonterminal_transition_without_follow_up_count = [int]$nonterminalTransitionWithoutFollowUp

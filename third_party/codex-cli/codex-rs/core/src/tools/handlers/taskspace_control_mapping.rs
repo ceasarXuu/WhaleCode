@@ -40,7 +40,6 @@ pub(super) fn map_edge_input(edge: TaskSpaceGraphEdgeArgs) -> ActionMapEdgeInput
 pub(super) fn map_transition(transition: TaskSpaceNodeTransition) -> NodeTransition {
     match transition {
         TaskSpaceNodeTransition::Bind => NodeTransition::Bind,
-        TaskSpaceNodeTransition::Complete => NodeTransition::Complete,
         TaskSpaceNodeTransition::Block => NodeTransition::Block,
         TaskSpaceNodeTransition::Unblock => NodeTransition::Unblock,
         TaskSpaceNodeTransition::Rework => NodeTransition::Rework,

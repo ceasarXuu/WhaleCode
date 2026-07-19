@@ -399,12 +399,7 @@ fn transition_node_schema() -> JsonSchema {
             (
                 "transition".into(),
                 JsonSchema::string_enum(
-                    vec![
-                        json!("complete"),
-                        json!("block"),
-                        json!("unblock"),
-                        json!("rework"),
-                    ],
+                    vec![json!("block"), json!("unblock"), json!("rework")],
                     Some("Mechanical node transition.".into()),
                 ),
             ),
@@ -413,6 +408,64 @@ fn transition_node_schema() -> JsonSchema {
             "expected_revision".into(),
             "node_id".into(),
             "transition".into(),
+        ],
+    )
+}
+
+fn complete_then_continue_schema(has_patch: bool) -> JsonSchema {
+    object_variant(
+        "complete_then_continue",
+        BTreeMap::from([
+            (
+                "expected_revision".into(),
+                JsonSchema::integer(Some("Expected graph revision.".into())),
+            ),
+            (
+                "current_node_id".into(),
+                JsonSchema::string(Some(
+                    "Current bound Work node to complete atomically.".into(),
+                )),
+            ),
+            (
+                "next_node_id".into(),
+                JsonSchema::string(Some(
+                    "Agent-selected successor to bind after completion makes it Ready.".into(),
+                )),
+            ),
+            ("continuation".into(), continuation_schema(has_patch)),
+        ]),
+        vec![
+            "expected_revision".into(),
+            "current_node_id".into(),
+            "next_node_id".into(),
+            "continuation".into(),
+        ],
+    )
+}
+
+fn complete_then_end_schema() -> JsonSchema {
+    object_variant(
+        "complete_then_end",
+        BTreeMap::from([
+            (
+                "expected_revision".into(),
+                JsonSchema::integer(Some("Expected graph revision.".into())),
+            ),
+            (
+                "current_node_id".into(),
+                JsonSchema::string(Some(
+                    "Current bound final Work node to complete atomically.".into(),
+                )),
+            ),
+            (
+                "final_summary".into(),
+                JsonSchema::string(Some("Exact Agent-authored final summary.".into())),
+            ),
+        ]),
+        vec![
+            "expected_revision".into(),
+            "current_node_id".into(),
+            "final_summary".into(),
         ],
     )
 }
@@ -446,6 +499,8 @@ pub fn create_taskspace_control_tool(visible_tools: &[ToolSpec]) -> ToolSpec {
         mutate_graph_schema(has_patch),
         bind_node_schema(has_patch),
         transition_node_schema(),
+        complete_then_continue_schema(has_patch),
+        complete_then_end_schema(),
         finish_end_schema(),
     ];
     variants.extend(simple_action_schemas());
@@ -454,7 +509,7 @@ pub fn create_taskspace_control_tool(visible_tools: &[ToolSpec]) -> ToolSpec {
 
     ToolSpec::Function(ResponsesApiTool {
         name: "taskspace_control".into(),
-        description: "Mandatory mechanical TaskSpace lifecycle tool. When visible TaskSpace bootstrap state has bootstrap_required=true, the first top-level tool call MUST be taskspace_control with action=initialize_map; place any immediate ordinary work in initialize_map.continuation. initialize_map declares and binds the initial rooted DAG before its continuation. mutate_graph may continue only from an existing binding that remains valid. transition_node bind requires a continuation; complete, block, unblock, and rework do not accept one. finish_end commits the Agent-authored final summary and cannot continue. read_map returns the exact current full Map projection through the shared renderer; expand_nodes and read_output_ref expose mechanically retained details. For a given map_id, the last visible projection is current and all earlier projections are historical; repeated revision values mean the map did not change between requests. Runtime validates hard state rules and executes only the declared operation order. It does not choose, infer, or rewrite actions.".into(),
+        description: "Mandatory mechanical TaskSpace lifecycle tool. When visible TaskSpace bootstrap state has bootstrap_required=true, the first top-level tool call MUST be taskspace_control with action=initialize_map; place any immediate ordinary work in initialize_map.continuation. initialize_map declares and binds the initial rooted DAG before its continuation. mutate_graph may continue only from an existing binding that remains valid. A running Work node cannot be completed alone: use complete_then_continue to atomically complete it, bind the Agent-selected next Ready node, and execute the required continuation; use complete_then_end to atomically complete the final Work node and close the Map with the exact Agent-authored summary. transition_node handles bind, block, unblock, and rework only. finish_end is reserved for a Map whose Finish is already Ready and cannot continue. read_map returns the exact current full Map projection through the shared renderer; expand_nodes and read_output_ref expose mechanically retained details. For a given map_id, the last visible projection is current and all earlier projections are historical; repeated revision values mean the map did not change between requests. Runtime validates hard state rules and executes only the declared operation order. It does not choose, infer, or rewrite actions.".into(),
         strict: false,
         defer_loading: None,
         parameters,

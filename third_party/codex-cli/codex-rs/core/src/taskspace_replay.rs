@@ -275,7 +275,7 @@ fn surviving_segments_newest_first(items: &[RolloutItem]) -> Vec<Vec<ReplayItem>
             }
             RolloutItem::EventMsg(EventMsg::MapRuntime(
                 MapRuntimeEvent::GraphRevisionCommitted(event),
-            )) if event.operation == "finish_end" => {
+            )) if matches!(event.operation.as_str(), "finish_end" | "complete_then_end") => {
                 active.items.push(ReplayItem::IncompleteTerminalCommit);
             }
             RolloutItem::EventMsg(EventMsg::MapRuntime(MapRuntimeEvent::ModeChanged(event))) => {
@@ -437,8 +437,10 @@ fn install_terminal_checkpoint(
             "terminal checkpoint has no canonical map",
         )
     })?;
-    if event.graph_revision.operation != "finish_end"
-        || event.trace_event.kind != "terminal_committed"
+    if !matches!(
+        event.graph_revision.operation.as_str(),
+        "finish_end" | "complete_then_end"
+    ) || event.trace_event.kind != "terminal_committed"
         || event.graph_revision.map_id != event.trace_event.map_id
         || event.graph_revision.map_id != map.id
         || event.graph_revision.revision != map.revision

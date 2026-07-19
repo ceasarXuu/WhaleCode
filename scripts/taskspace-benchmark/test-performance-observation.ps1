@@ -242,14 +242,11 @@ $mutationArgs = @{
     continuation = @{ kind = "actions"; actions = @(@{ tool_name = "exec_command"; arguments = @{ cmd = "git status" } }) }
 } | ConvertTo-Json -Compress -Depth 10
 $completeArgs = @{
-    action = "transition_node"; expected_revision = 3; node_id = "inspect"; transition = "complete"
-} | ConvertTo-Json -Compress -Depth 10
-$bindArgs = @{
-    action = "transition_node"; expected_revision = 4; node_id = "plan"; transition = "bind"
+    action = "complete_then_continue"; expected_revision = 3; current_node_id = "inspect"; next_node_id = "plan"
     continuation = @{ kind = "actions"; actions = @(@{ tool_name = "exec_command"; arguments = @{ cmd = "cargo test" } }) }
 } | ConvertTo-Json -Compress -Depth 10
 $terminalArgs = @{
-    action = "finish_end"; expected_revision = 5; final_summary = "Agent final"
+    action = "complete_then_end"; expected_revision = 4; current_node_id = "plan"; final_summary = "Agent final"
 } | ConvertTo-Json -Compress -Depth 10
 Write-JsonLines @(
     [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "function_call"; name = "taskspace_control"; call_id = "init"; arguments = $initializeArgs } },
@@ -257,10 +254,8 @@ Write-JsonLines @(
     [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "function_call"; name = "taskspace_control"; call_id = "mutation"; arguments = $mutationArgs } },
     [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "function_call_output"; call_id = "mutation"; output = "ok" } },
     [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "function_call"; name = "taskspace_control"; call_id = "complete"; arguments = $completeArgs } },
-    [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "function_call"; name = "taskspace_control"; call_id = "bind"; arguments = $bindArgs } },
     [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "function_call"; name = "apply_patch"; call_id = "patch"; arguments = '{"input":"patch"}' } },
     [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "function_call_output"; call_id = "complete"; output = "ok" } },
-    [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "function_call_output"; call_id = "bind"; output = "ok" } },
     [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "function_call_output"; call_id = "patch"; output = "ok" } },
     [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "function_call"; name = "taskspace_control"; call_id = "finish"; arguments = $terminalArgs } },
     [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "function_call_output"; call_id = "finish"; output = "ok" } },
@@ -269,14 +264,16 @@ Write-JsonLines @(
 $cadence = Get-TaskspaceNativeCadenceFacts $cadenceFixture $null
 Assert-True ($cadence.provider_tool_response_count -eq 4) "provider tool response count is incorrect"
 Assert-True ($cadence.control_carrier_response_count -eq 4) "control carrier response count is incorrect"
-Assert-True ($cadence.nested_action_count -eq 3) "continuation nested action count is incorrect: total=$($cadence.nested_action_count), init=$($cadence.initialize_continuation_count), mutation=$($cadence.mutation_continuation_count), bind=$($cadence.bind_continuation_count), state_only=$($cadence.state_only_control_count)"
+Assert-True ($cadence.nested_action_count -eq 3) "continuation nested action count is incorrect: total=$($cadence.nested_action_count), init=$($cadence.initialize_continuation_count), mutation=$($cadence.mutation_continuation_count), handoff=$($cadence.complete_handoff_continuation_count), state_only=$($cadence.state_only_control_count)"
 Assert-True ($cadence.initialize_continuation_count -eq 1) "init continuation was not observed"
 Assert-True ($cadence.mutation_continuation_count -eq 1) "mutation continuation was not observed"
-Assert-True ($cadence.bind_continuation_count -eq 1) "bind continuation was not observed"
-Assert-True ($cadence.state_only_control_count -eq 2) "state-only control count is incorrect"
-Assert-True ($cadence.finish_end_count -eq 1) "terminal carrier was not observed"
+Assert-True ($cadence.bind_continuation_count -eq 0) "unexpected standalone bind continuation was observed"
+Assert-True ($cadence.complete_handoff_count -eq 1 -and $cadence.complete_handoff_continuation_count -eq 1) "atomic handoff was not observed"
+Assert-True ($cadence.complete_terminal_count -eq 1 -and $cadence.standalone_complete_count -eq 0) "atomic terminal or standalone completion count is incorrect"
+Assert-True ($cadence.state_only_control_count -eq 1) "state-only control count is incorrect"
+Assert-True ($cadence.finish_end_count -eq 0) "standalone finish_end should not be counted for complete_then_end"
 Assert-True ($cadence.direct_tool_mixed_response_count -eq 1) "finish barrier and sibling tool were not observed"
-Assert-True ($cadence.multi_control_carrier_response_count -eq 1) "multiple carriers were not observed"
+Assert-True ($cadence.multi_control_carrier_response_count -eq 0) "atomic handoff should not require sibling controls"
 Assert-True ($cadence.nonterminal_transition_without_follow_up_count -eq 0) "nonterminal transition lost its follow-up"
 Assert-True ($cadence.terminal_candidate_count -eq 1 -and $cadence.terminal_extra_request_count -eq 0) "terminal candidate cadence was not measured"
 Assert-True ($cadence.control_argument_parse_error_count -eq 0) "cadence argument parsing was incomplete"

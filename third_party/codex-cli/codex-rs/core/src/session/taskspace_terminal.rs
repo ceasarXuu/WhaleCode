@@ -20,6 +20,35 @@ pub(crate) enum FinishActionMapError {
 }
 
 impl Session {
+    pub(crate) async fn complete_then_end_action_map(
+        &self,
+        turn_context: &TurnContext,
+        expected_revision: u64,
+        current_node_id: String,
+        final_summary: String,
+        source_event_ref: String,
+    ) -> Result<ActionMapFinishEndOutcome, FinishActionMapError> {
+        let (outcome, terminal_event, candidate) = {
+            let state = self.state.lock().await;
+            let mut candidate = state.action_map_runtime.clone();
+            let (outcome, events) = candidate
+                .complete_then_end_for_main(
+                    self.conversation_id,
+                    expected_revision,
+                    current_node_id,
+                    final_summary,
+                    source_event_ref,
+                )
+                .map_err(FinishActionMapError::Rejected)?;
+            let terminal_event = Self::terminal_commit_event(events, candidate.snapshot())
+                .map_err(FinishActionMapError::Internal)?;
+            (outcome, terminal_event, candidate)
+        };
+        self.install_terminal_candidate(turn_context, expected_revision, terminal_event, candidate)
+            .await?;
+        Ok(outcome)
+    }
+
     pub(crate) async fn finish_action_map(
         &self,
         turn_context: &TurnContext,
@@ -36,6 +65,18 @@ impl Session {
                 .map_err(FinishActionMapError::Internal)?;
             (outcome, terminal_event, candidate)
         };
+        self.install_terminal_candidate(turn_context, expected_revision, terminal_event, candidate)
+            .await?;
+        Ok(outcome)
+    }
+
+    async fn install_terminal_candidate(
+        &self,
+        turn_context: &TurnContext,
+        expected_revision: u64,
+        terminal_event: MapRuntimeTerminalCommittedEvent,
+        candidate: crate::action_map::ActionMapRuntimeState,
+    ) -> Result<(), FinishActionMapError> {
         let terminal_map = terminal_event.snapshot.map.as_ref().ok_or_else(|| {
             FinishActionMapError::Internal(
                 "TaskSpace terminal transaction lost its canonical map before persistence. hard_state: terminal_transaction_invalid."
@@ -76,7 +117,7 @@ impl Session {
             EventMsg::MapRuntime(MapRuntimeEvent::TerminalCommitted(Box::new(terminal_event))),
         )
         .await;
-        Ok(outcome)
+        Ok(())
     }
 
     pub(super) fn terminal_commit_event(
@@ -88,7 +129,8 @@ impl Session {
         for event in events {
             match event {
                 MapRuntimeEvent::GraphRevisionCommitted(event)
-                    if event.operation == "finish_end" && graph_revision.is_none() =>
+                    if matches!(event.operation.as_str(), "finish_end" | "complete_then_end")
+                        && graph_revision.is_none() =>
                 {
                     graph_revision = Some(event);
                 }

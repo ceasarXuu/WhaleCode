@@ -17,6 +17,8 @@ pub(crate) use model::TaskSpaceMap;
 pub(crate) use transactions::GraphMutation;
 pub(crate) use transactions::InitializeMap;
 pub(crate) use transactions::Rejection;
+pub(crate) use transactions::complete_then_bind;
+pub(crate) use transactions::complete_then_end;
 pub(crate) use transactions::finish_end;
 pub(crate) use transactions::initialize;
 pub(crate) use transactions::mutate_graph;

@@ -112,20 +112,37 @@ fn accepts_r6_active_actions() {
         r#"{"action":"transition_node","expected_revision":3,"node_id":"new","transition":"rework"}"#,
     )
     .expect("valid rework transition");
+    let handoff = parse_taskspace_control_args(
+        r#"{"action":"complete_then_continue","expected_revision":4,"current_node_id":"new","next_node_id":"verify","continuation":{"kind":"actions","actions":[{"tool_name":"exec_command","arguments":{"cmd":"cargo test"}}]}}"#,
+    )
+    .expect("valid atomic handoff");
+    assert_eq!(handoff.nested_actions().len(), 1);
     parse_taskspace_control_args(
-        r#"{"action":"finish_end","expected_revision":4,"final_summary":"Done"}"#,
+        r#"{"action":"complete_then_end","expected_revision":5,"current_node_id":"verify","final_summary":"Done"}"#,
+    )
+    .expect("valid atomic terminal completion");
+    parse_taskspace_control_args(
+        r#"{"action":"finish_end","expected_revision":6,"final_summary":"Done"}"#,
     )
     .expect("valid finish");
 }
 
 #[test]
-fn continuation_is_required_for_bind_and_forbidden_for_other_transitions() {
+fn standalone_complete_is_unrepresentable_and_handoffs_require_continuation() {
     assert!(parse_taskspace_control_args(
         r#"{"action":"transition_node","expected_revision":2,"node_id":"new","transition":"bind"}"#,
     )
     .is_err());
     assert!(parse_taskspace_control_args(
         r#"{"action":"transition_node","expected_revision":2,"node_id":"new","transition":"complete","continuation":{"kind":"actions","actions":[{"tool_name":"exec_command","arguments":{"cmd":"pwd"}}]}}"#,
+    )
+    .is_err());
+    assert!(parse_taskspace_control_args(
+        r#"{"action":"transition_node","expected_revision":2,"node_id":"new","transition":"complete"}"#,
+    )
+    .is_err());
+    assert!(parse_taskspace_control_args(
+        r#"{"action":"complete_then_continue","expected_revision":2,"current_node_id":"new","next_node_id":"verify"}"#,
     )
     .is_err());
 }
@@ -169,6 +186,12 @@ fn validates_non_empty_and_duplicate_ids_and_edges() {
     assert!(
         parse_taskspace_control_args(
             r#"{"action":"finish_end","expected_revision":3,"final_summary":""}"#
+        )
+        .is_err()
+    );
+    assert!(
+        parse_taskspace_control_args(
+            r#"{"action":"complete_then_end","expected_revision":3,"current_node_id":"work","final_summary":""}"#
         )
         .is_err()
     );

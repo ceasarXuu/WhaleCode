@@ -79,6 +79,8 @@ use super::rooted_dag::NodeRole;
 use super::rooted_dag::NodeTransition;
 use super::rooted_dag::Rejection;
 use super::rooted_dag::TaskSpaceMap;
+use super::rooted_dag::complete_then_bind;
+use super::rooted_dag::complete_then_end;
 use super::rooted_dag::finish_end;
 use super::rooted_dag::initialize;
 use super::rooted_dag::mutate_graph;
@@ -301,6 +303,15 @@ pub(crate) struct ActionMapTransitionOutcome {
     pub(crate) node_id: MapNodeId,
     pub(crate) revision: u64,
     pub(crate) status: String,
+    pub(crate) delta: ActionMapControlDelta,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ActionMapCompleteHandoffOutcome {
+    pub(crate) map_id: ActionMapId,
+    pub(crate) current_node_id: MapNodeId,
+    pub(crate) next_node_id: MapNodeId,
+    pub(crate) revision: u64,
     pub(crate) delta: ActionMapControlDelta,
 }
 
@@ -3626,6 +3637,307 @@ impl ActionMapRuntimeState {
                 },
             },
             events,
+        ))
+    }
+
+    pub(crate) fn complete_then_bind_for_main(
+        &mut self,
+        owner_session_id: ThreadId,
+        expected_revision: u64,
+        current_node_id: String,
+        next_node_id: String,
+        source_event_ref: String,
+    ) -> Result<(ActionMapCompleteHandoffOutcome, Vec<MapRuntimeEvent>), String> {
+        let mut candidate = self.clone();
+        let outcome = candidate.complete_then_bind_for_main_inner(
+            owner_session_id,
+            expected_revision,
+            current_node_id,
+            next_node_id,
+            source_event_ref,
+        )?;
+        *self = candidate;
+        Ok(outcome)
+    }
+
+    fn complete_then_bind_for_main_inner(
+        &mut self,
+        owner_session_id: ThreadId,
+        expected_revision: u64,
+        current_node_id: String,
+        next_node_id: String,
+        source_event_ref: String,
+    ) -> Result<(ActionMapCompleteHandoffOutcome, Vec<MapRuntimeEvent>), String> {
+        self.validate_routing_complete()?;
+        let map_id = self
+            .active_map_id
+            .clone()
+            .ok_or_else(|| "TaskSpace has no active rooted map.".to_string())?;
+        {
+            let map = self
+                .maps
+                .get(&map_id)
+                .ok_or_else(|| format!("TaskSpace rooted map `{map_id}` is missing."))?;
+            if map.owner_session_id != Some(owner_session_id) {
+                return Err("TaskSpace rooted map owner mismatch.".to_string());
+            }
+        }
+        self.validate_main_binding(owner_session_id)?;
+        if self.current_main_node_id.as_deref() != Some(current_node_id.as_str()) {
+            return Err(format!(
+                "TaskSpace node `{current_node_id}` is not the current binding."
+            ));
+        }
+        self.validate_no_main_tool_reservations_for_node(
+            &map_id,
+            &current_node_id,
+            "complete_then_continue",
+        )?;
+        let committed = {
+            let map = self
+                .maps
+                .get(&map_id)
+                .expect("rooted map was validated before complete handoff");
+            complete_then_bind(
+                map,
+                expected_revision,
+                current_node_id.clone(),
+                next_node_id.clone(),
+            )
+            .map_err(rooted_rejection_message)?
+        };
+        let revision = committed.map.revision;
+        let graph_batch =
+            graph_revision_committed_record(&committed.events, "complete_then_continue");
+        let old_lease_id = self
+            .current_main_lease_id
+            .clone()
+            .ok_or_else(|| "TaskSpace current binding has no main lease.".to_string())?;
+        let next_lease_id = self.next_lease_id();
+        let result_id = self.next_result_id();
+        let map = self
+            .maps
+            .get_mut(&map_id)
+            .expect("validated rooted map remains present");
+        map.commit_graph(committed.map, committed.events);
+        map.leases.remove(&old_lease_id);
+        map.results.insert(
+            result_id.clone(),
+            NodeResult {
+                id: result_id.clone(),
+                assignment_id: old_lease_id.clone(),
+                map_id: map_id.clone(),
+                node_id: current_node_id.clone(),
+                kind: NodeResultKind::Result,
+                action_class: None,
+                tool_success: None,
+                source_event_ref,
+                artifact_refs: Vec::new(),
+                source_thread_id: owner_session_id,
+                created_at_ms: now_ms(),
+            },
+        );
+        let completed_node = map
+            .nodes
+            .get_mut(&current_node_id)
+            .expect("completed handoff node exists");
+        completed_node.active_lease = None;
+        completed_node.result_context.push(NodeResultRef {
+            id: result_id,
+            kind: NodeResultKind::Result,
+        });
+        map.nodes
+            .get_mut(&next_node_id)
+            .expect("next handoff node exists")
+            .active_lease = Some(next_lease_id.clone());
+        map.leases.insert(
+            next_lease_id.clone(),
+            AssignmentLease {
+                id: next_lease_id.clone(),
+                map_id: map_id.clone(),
+                node_id: next_node_id.clone(),
+                holder: LeaseHolder::Main,
+                previous_node_status: NodeStatus::Ready,
+                agent_thread_id: Some(owner_session_id),
+                agent_path: None,
+            },
+        );
+        self.current_main_node_id = Some(next_node_id.clone());
+        self.current_main_lease_id = Some(next_lease_id.clone());
+        let events = vec![
+            MapRuntimeEvent::GraphRevisionCommitted(graph_batch.clone()),
+            MapRuntimeEvent::LeaseReleased(MapRuntimeLeaseReleasedEvent {
+                map_id: map_id.clone(),
+                node_id: current_node_id.clone(),
+                lease_id: old_lease_id,
+                holder: LeaseHolder::Main.as_str().to_string(),
+                reason: "complete_then_continue_committed".to_string(),
+            }),
+            MapRuntimeEvent::LeaseCreated(MapRuntimeLeaseCreatedEvent {
+                map_id: map_id.clone(),
+                node_id: next_node_id.clone(),
+                lease_id: next_lease_id,
+                holder: LeaseHolder::Main.as_str().to_string(),
+            }),
+        ];
+        Ok((
+            ActionMapCompleteHandoffOutcome {
+                map_id: map_id.clone(),
+                current_node_id,
+                next_node_id,
+                revision,
+                delta: ActionMapControlDelta {
+                    map_id,
+                    committed_revision: revision,
+                    graph_revision_batches: vec![graph_batch],
+                    node_detail_events: Vec::new(),
+                },
+            },
+            events,
+        ))
+    }
+
+    pub(crate) fn complete_then_end_for_main(
+        &mut self,
+        owner_session_id: ThreadId,
+        expected_revision: u64,
+        current_node_id: String,
+        final_summary: String,
+        source_event_ref: String,
+    ) -> Result<(ActionMapFinishEndOutcome, Vec<MapRuntimeEvent>), String> {
+        let mut candidate = self.clone();
+        let outcome = candidate.complete_then_end_for_main_inner(
+            owner_session_id,
+            expected_revision,
+            current_node_id,
+            final_summary,
+            source_event_ref,
+        )?;
+        *self = candidate;
+        Ok(outcome)
+    }
+
+    fn complete_then_end_for_main_inner(
+        &mut self,
+        owner_session_id: ThreadId,
+        expected_revision: u64,
+        current_node_id: String,
+        final_summary: String,
+        source_event_ref: String,
+    ) -> Result<(ActionMapFinishEndOutcome, Vec<MapRuntimeEvent>), String> {
+        self.validate_routing_complete()?;
+        let map_id = self
+            .active_map_id
+            .clone()
+            .ok_or_else(|| "TaskSpace has no active rooted map.".to_string())?;
+        {
+            let map = self
+                .maps
+                .get(&map_id)
+                .ok_or_else(|| format!("TaskSpace rooted map `{map_id}` is missing."))?;
+            if map.owner_session_id != Some(owner_session_id) {
+                return Err("TaskSpace rooted map owner mismatch.".to_string());
+            }
+        }
+        self.validate_main_binding(owner_session_id)?;
+        if self.current_main_node_id.as_deref() != Some(current_node_id.as_str()) {
+            return Err(format!(
+                "TaskSpace node `{current_node_id}` is not the current binding."
+            ));
+        }
+        self.validate_no_main_tool_reservations_for_node(
+            &map_id,
+            &current_node_id,
+            "complete_then_end",
+        )?;
+        let committed = {
+            let map = self
+                .maps
+                .get(&map_id)
+                .expect("rooted map was validated before terminal completion");
+            complete_then_end(
+                map,
+                expected_revision,
+                current_node_id.clone(),
+                final_summary.clone(),
+            )
+            .map_err(rooted_rejection_message)?
+        };
+        let revision = committed.map.revision;
+        let graph_batch = graph_revision_committed_record(&committed.events, "complete_then_end");
+        let old_lease_id = self
+            .current_main_lease_id
+            .clone()
+            .ok_or_else(|| "TaskSpace current binding has no main lease.".to_string())?;
+        let result_id = self.next_result_id();
+        let map = self
+            .maps
+            .get_mut(&map_id)
+            .expect("validated rooted map remains present");
+        map.commit_graph(committed.map, committed.events);
+        map.leases.remove(&old_lease_id);
+        map.results.insert(
+            result_id.clone(),
+            NodeResult {
+                id: result_id.clone(),
+                assignment_id: old_lease_id.clone(),
+                map_id: map_id.clone(),
+                node_id: current_node_id.clone(),
+                kind: NodeResultKind::Result,
+                action_class: None,
+                tool_success: None,
+                source_event_ref,
+                artifact_refs: Vec::new(),
+                source_thread_id: owner_session_id,
+                created_at_ms: now_ms(),
+            },
+        );
+        let completed_node = map
+            .nodes
+            .get_mut(&current_node_id)
+            .expect("completed terminal node exists");
+        completed_node.active_lease = None;
+        completed_node.result_context.push(NodeResultRef {
+            id: result_id,
+            kind: NodeResultKind::Result,
+        });
+        self.active_map_id = None;
+        self.active_task_id = None;
+        self.current_main_node_id = None;
+        self.current_main_lease_id = None;
+        self.routing_required = true;
+        self.bootstrap_required = false;
+        let graph_event = MapRuntimeEvent::GraphRevisionCommitted(graph_batch.clone());
+        let trace_event = self.record_runtime_budget_trace_event(
+            "terminal_committed",
+            None,
+            map_id.clone(),
+            "finish".to_string(),
+            None,
+            true,
+            vec![
+                "schema:taskspace-rooted-terminal-event-v1".to_string(),
+                "operation:complete_then_end".to_string(),
+                format!("completed_node_id:{current_node_id}"),
+                format!("revision:{revision}"),
+                "state_commit:true".to_string(),
+                "summary_source:agent".to_string(),
+                "runtime_inferred_semantics:false".to_string(),
+            ],
+        );
+        Ok((
+            ActionMapFinishEndOutcome {
+                map_id: map_id.clone(),
+                revision,
+                final_summary,
+                delta: ActionMapControlDelta {
+                    map_id,
+                    committed_revision: revision,
+                    graph_revision_batches: vec![graph_batch],
+                    node_detail_events: Vec::new(),
+                },
+            },
+            vec![graph_event, trace_event],
         ))
     }
 

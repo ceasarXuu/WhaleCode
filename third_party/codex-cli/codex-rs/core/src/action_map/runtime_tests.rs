@@ -172,6 +172,172 @@ fn invalid_graph_mutation_is_atomic() {
 }
 
 #[test]
+fn complete_then_continue_commits_one_revision_and_rebinds_atomically() {
+    let (mut state, owner, _) = initialized_state(
+        &[("inspect", "Inspect"), ("implement", "Implement")],
+        &[
+            ("root", "inspect"),
+            ("inspect", "implement"),
+            ("implement", "finish"),
+        ],
+        "inspect",
+    );
+
+    let (outcome, events) = state
+        .complete_then_bind_for_main(
+            owner,
+            2,
+            "inspect".into(),
+            "implement".into(),
+            "task-event-handoff".into(),
+        )
+        .expect("completion and successor binding commit together");
+
+    assert_eq!(outcome.revision, 3);
+    assert_eq!(outcome.current_node_id, "inspect");
+    assert_eq!(outcome.next_node_id, "implement");
+    assert_eq!(outcome.delta.graph_revision_batches.len(), 1);
+    assert!(matches!(
+        events.as_slice(),
+        [
+            MapRuntimeEvent::GraphRevisionCommitted(graph),
+            MapRuntimeEvent::LeaseReleased(_),
+            MapRuntimeEvent::LeaseCreated(_)
+        ] if graph.operation == "complete_then_continue" && graph.revision == 3
+    ));
+    let map = state.snapshot().map.expect("map remains active");
+    assert_eq!(map.revision, 3);
+    assert_eq!(map.current_node_id.as_deref(), Some("implement"));
+    assert_eq!(
+        map.nodes
+            .iter()
+            .find(|node| node.id == "inspect")
+            .unwrap()
+            .status,
+        "completed"
+    );
+    assert_eq!(
+        map.nodes
+            .iter()
+            .find(|node| node.id == "implement")
+            .unwrap()
+            .status,
+        "running"
+    );
+    assert_eq!(map.results.len(), 1);
+    assert_eq!(map.leases.len(), 1);
+}
+
+#[test]
+fn rejected_complete_handoff_preserves_the_entire_prestate() {
+    let (mut state, owner, _) = initialized_state(
+        &[("inspect", "Inspect"), ("implement", "Implement")],
+        &[
+            ("root", "inspect"),
+            ("inspect", "implement"),
+            ("implement", "finish"),
+        ],
+        "inspect",
+    );
+    let before = state.snapshot();
+
+    state
+        .complete_then_bind_for_main(
+            owner,
+            2,
+            "inspect".into(),
+            "finish".into(),
+            "task-event-invalid-handoff".into(),
+        )
+        .expect_err("Finish cannot be bound as a Work successor");
+
+    assert_eq!(state.snapshot(), before);
+}
+
+#[test]
+fn complete_then_end_closes_last_work_root_and_finish_in_one_revision() {
+    let (mut state, owner, _) = initialized_state(
+        &[("work", "Implement and verify")],
+        &[("root", "work"), ("work", "finish")],
+        "work",
+    );
+    let summary = "Implemented and verified.".to_string();
+
+    let (outcome, events) = state
+        .complete_then_end_for_main(
+            owner,
+            2,
+            "work".into(),
+            summary.clone(),
+            "task-event-terminal".into(),
+        )
+        .expect("final completion and explicit end commit together");
+
+    assert_eq!(outcome.revision, 3);
+    assert_eq!(outcome.final_summary, summary);
+    assert!(matches!(
+        events.first(),
+        Some(MapRuntimeEvent::GraphRevisionCommitted(graph))
+            if graph.operation == "complete_then_end" && graph.revision == 3
+    ));
+    let map = state
+        .snapshot()
+        .map
+        .expect("closed map remains inspectable");
+    assert!(map.complete);
+    assert_eq!(map.revision, 3);
+    assert_eq!(map.current_node_id, None);
+    assert_eq!(map.results.len(), 1);
+    assert!(map.leases.is_empty());
+    assert_eq!(
+        map.nodes
+            .iter()
+            .find(|node| node.id == "root")
+            .unwrap()
+            .status,
+        "closed"
+    );
+    assert_eq!(
+        map.nodes
+            .iter()
+            .find(|node| node.id == "finish")
+            .unwrap()
+            .status,
+        "closed"
+    );
+}
+
+#[test]
+fn rejected_complete_then_end_reports_live_revision_and_preserves_prestate() {
+    let (mut state, owner, _) = initialized_state(
+        &[("first", "First branch"), ("second", "Second branch")],
+        &[
+            ("root", "first"),
+            ("root", "second"),
+            ("first", "finish"),
+            ("second", "finish"),
+        ],
+        "first",
+    );
+    let before = state.snapshot();
+
+    let error = state
+        .complete_then_end_for_main(
+            owner,
+            2,
+            "first".into(),
+            "Too early".into(),
+            "task-event-premature-terminal".into(),
+        )
+        .expect_err("unfinished parallel work prevents terminal completion");
+    let rejection: serde_json::Value = serde_json::from_str(&error).expect("typed rejection");
+
+    assert_eq!(rejection["state_commit"], false);
+    assert_eq!(rejection["current_revision"], 2);
+    assert_eq!(state.snapshot(), before);
+}
+
+#[test]
 fn finish_end_is_agent_explicit_and_closes_root_and_finish_together() {
     let (mut state, owner, _) = initialized_state(
         &[("work", "Implement the change")],

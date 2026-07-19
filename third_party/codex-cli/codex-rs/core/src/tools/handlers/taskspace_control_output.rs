@@ -234,7 +234,13 @@ pub(super) fn step_has_required_identity(step: &JsonValue) -> bool {
                 && has_text(step, "status")
                 && step.get("revision").is_some()
         }
-        Some("terminal_transition") => {
+        Some("complete_then_continue") => {
+            has_text(step, "map_id")
+                && has_text(step, "current_node_id")
+                && has_text(step, "next_node_id")
+                && step.get("revision").is_some()
+        }
+        Some("terminal_transition" | "complete_then_end") => {
             has_text(step, "map_id")
                 && step.get("revision").is_some()
                 && step.get("finish_closed") == Some(&JsonValue::Bool(true))
@@ -297,5 +303,26 @@ mod tests {
         assert_eq!(step["restored_details"][0]["raw_ref"], "output-ref-1");
         assert!(step.get("detail_sha256").is_none());
         assert!(step_has_required_identity(&step));
+    }
+
+    #[test]
+    fn atomic_completion_steps_have_complete_identity() {
+        let handoff = serde_json::json!({
+            "kind": "complete_then_continue",
+            "map_id": "map-1",
+            "current_node_id": "inspect",
+            "next_node_id": "implement",
+            "revision": 3,
+        });
+        let terminal = serde_json::json!({
+            "kind": "complete_then_end",
+            "map_id": "map-1",
+            "revision": 4,
+            "finish_closed": true,
+            "root_closed": true,
+        });
+
+        assert!(step_has_required_identity(&handoff));
+        assert!(step_has_required_identity(&terminal));
     }
 }

@@ -110,6 +110,7 @@ impl ToolHandler for TaskSpaceControlHandler {
                 return Err(error);
             }
         };
+        let nested_action_count = args.nested_actions().len();
 
         let (message, success, terminal_carrier) = match args {
             TaskSpaceControlArgs::InitializeMap {
@@ -260,6 +261,137 @@ impl ToolHandler for TaskSpaceControlHandler {
                         None,
                     ),
                     Err(error) => (rejected_control_result(&error), false, None),
+                }
+            }
+            TaskSpaceControlArgs::CompleteThenContinue {
+                expected_revision,
+                current_node_id,
+                next_node_id,
+                continuation: _,
+            } => {
+                let source_event_ref = session
+                    .taskspace_event_id_for_call(&call_id)
+                    .await
+                    .map_err(state_machine_error)?;
+                match session
+                    .complete_then_bind_action_map_node(
+                        &turn,
+                        expected_revision,
+                        current_node_id.clone(),
+                        next_node_id.clone(),
+                        source_event_ref,
+                    )
+                    .await
+                {
+                    Ok(outcome) => {
+                        tracing::info!(
+                            target: "codex_core::taskspace",
+                            call_id,
+                            map_id = outcome.map_id,
+                            revision = outcome.revision,
+                            current_node_id,
+                            next_node_id,
+                            nested_action_count,
+                            "taskspace.complete_handoff_committed"
+                        );
+                        (
+                            format_state_batch(
+                                vec![serde_json::json!({
+                                    "kind": "complete_then_continue",
+                                    "map_id": outcome.map_id,
+                                    "current_node_id": outcome.current_node_id,
+                                    "next_node_id": outcome.next_node_id,
+                                    "revision": outcome.revision,
+                                })],
+                                true,
+                                true,
+                                &[&outcome.delta],
+                            ),
+                            true,
+                            None,
+                        )
+                    }
+                    Err(error) => {
+                        tracing::warn!(
+                            target: "codex_core::taskspace",
+                            call_id,
+                            expected_revision,
+                            current_node_id,
+                            next_node_id,
+                            nested_action_count,
+                            "taskspace.complete_handoff_rejected"
+                        );
+                        (rejected_control_result(&error), false, None)
+                    }
+                }
+            }
+            TaskSpaceControlArgs::CompleteThenEnd {
+                expected_revision,
+                current_node_id,
+                final_summary,
+            } => {
+                let source_event_ref = session
+                    .taskspace_event_id_for_call(&call_id)
+                    .await
+                    .map_err(state_machine_error)?;
+                match session
+                    .complete_then_end_action_map(
+                        &turn,
+                        expected_revision,
+                        current_node_id.clone(),
+                        final_summary.clone(),
+                        source_event_ref,
+                    )
+                    .await
+                {
+                    Ok(outcome) => {
+                        tracing::info!(
+                            target: "codex_core::taskspace",
+                            call_id,
+                            map_id = outcome.map_id,
+                            revision = outcome.revision,
+                            current_node_id,
+                            summary_bytes = outcome.final_summary.len(),
+                            "taskspace.complete_terminal_committed"
+                        );
+                        (
+                            format_state_batch(
+                                vec![serde_json::json!({
+                                    "kind": "complete_then_end",
+                                    "map_id": outcome.map_id,
+                                    "current_node_id": current_node_id,
+                                    "revision": outcome.revision,
+                                    "finish_closed": true,
+                                    "root_closed": true,
+                                })],
+                                true,
+                                true,
+                                &[&outcome.delta],
+                            ),
+                            true,
+                            Some(TaskSpaceTerminalCarrier {
+                                map_id: outcome.map_id,
+                                revision: outcome.revision,
+                                summary: outcome.final_summary,
+                            }),
+                        )
+                    }
+                    Err(FinishActionMapError::Rejected(error)) => {
+                        tracing::warn!(
+                            target: "codex_core::taskspace",
+                            call_id,
+                            expected_revision,
+                            current_node_id,
+                            "taskspace.complete_terminal_rejected"
+                        );
+                        (rejected_control_result(&error), false, None)
+                    }
+                    Err(FinishActionMapError::Persistence(error)) => {
+                        return Err(resource_error(error, "terminal_persistence_failed"));
+                    }
+                    Err(FinishActionMapError::Internal(error)) => {
+                        return Err(protocol_error(error, "terminal_transaction_invalid"));
+                    }
                 }
             }
             TaskSpaceControlArgs::FinishEnd {

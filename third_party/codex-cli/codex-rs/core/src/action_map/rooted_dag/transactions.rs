@@ -187,12 +187,105 @@ pub(crate) fn transition_node(
     )
 }
 
+pub(crate) fn complete_then_bind(
+    current: &TaskSpaceMap,
+    expected_revision: Revision,
+    current_node_id: NodeId,
+    next_node_id: NodeId,
+) -> Result<Commit, Rejection> {
+    require_revision(current, expected_revision)?;
+    let revision = next_revision(current)?;
+    let mut events = completion_events(current, revision, current_node_id)?;
+    let candidate = apply_batch(
+        Some(current),
+        &EventBatch::new(current.id.clone(), revision, events.clone()),
+    )
+    .map_err(|error| rejection_from_replay(current.revision, error))?;
+    let Some(next_node) = candidate.node(&next_node_id) else {
+        return Err(Rejection::one(
+            current.revision,
+            ViolationCode::TransitionInvalid,
+            next_node_id,
+        ));
+    };
+    transition_target(next_node.role, next_node.status, NodeTransition::Bind)
+        .map_err(|code| Rejection::one(current.revision, code, next_node_id.to_string()))?;
+    events.push(MapEvent::NodeBound {
+        node_id: next_node_id,
+    });
+    commit(
+        Some(current),
+        EventBatch::new(current.id.clone(), revision, events),
+    )
+}
+
+pub(crate) fn complete_then_end(
+    current: &TaskSpaceMap,
+    expected_revision: Revision,
+    current_node_id: NodeId,
+    final_summary: String,
+) -> Result<Commit, Rejection> {
+    require_revision(current, expected_revision)?;
+    let revision = next_revision(current)?;
+    let mut events = completion_events(current, revision, current_node_id)?;
+    let candidate = apply_batch(
+        Some(current),
+        &EventBatch::new(current.id.clone(), revision, events.clone()),
+    )
+    .map_err(|error| rejection_from_replay(current.revision, error))?;
+    validate_terminal_state(&candidate, &final_summary).map_err(|mut rejection| {
+        rejection.current_revision = current.revision;
+        rejection
+    })?;
+    events.push(MapEvent::TerminalCommitted { final_summary });
+    commit(
+        Some(current),
+        EventBatch::new(current.id.clone(), revision, events),
+    )
+}
+
 pub(crate) fn finish_end(
     current: &TaskSpaceMap,
     expected_revision: Revision,
     final_summary: String,
 ) -> Result<Commit, Rejection> {
     require_revision(current, expected_revision)?;
+    validate_terminal_state(current, &final_summary)?;
+    let revision = next_revision(current)?;
+    commit(
+        Some(current),
+        EventBatch::new(
+            current.id.clone(),
+            revision,
+            vec![MapEvent::TerminalCommitted { final_summary }],
+        ),
+    )
+}
+
+fn completion_events(
+    current: &TaskSpaceMap,
+    revision: Revision,
+    node_id: NodeId,
+) -> Result<Vec<MapEvent>, Rejection> {
+    let Some(node) = current.node(&node_id) else {
+        return Err(Rejection::one(
+            current.revision,
+            ViolationCode::TransitionInvalid,
+            node_id,
+        ));
+    };
+    transition_target(node.role, node.status, NodeTransition::Complete)
+        .map_err(|code| Rejection::one(current.revision, code, node_id.to_string()))?;
+    let event = MapEvent::NodeCompleted { node_id };
+    let provisional = EventBatch::new(current.id.clone(), revision, vec![event.clone()]);
+    let candidate = apply_batch(Some(current), &provisional)
+        .map_err(|error| rejection_from_replay(current.revision, error))?;
+    let mut events = vec![event];
+    events.extend(readiness_events(&candidate));
+    Ok(events)
+}
+
+fn validate_terminal_state(current: &TaskSpaceMap, final_summary: &str) -> Result<(), Rejection> {
     if final_summary.trim().is_empty() {
         return Err(Rejection::one(
             current.revision,
@@ -226,15 +319,7 @@ pub(crate) fn finish_end(
             }],
         });
     }
-    let revision = next_revision(current)?;
-    commit(
-        Some(current),
-        EventBatch::new(
-            current.id.clone(),
-            revision,
-            vec![MapEvent::TerminalCommitted { final_summary }],
-        ),
-    )
+    Ok(())
 }
 
 fn readiness_events(map: &TaskSpaceMap) -> Vec<MapEvent> {

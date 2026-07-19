@@ -29,7 +29,7 @@ use pretty_assertions::assert_eq;
 use serde_json::json;
 
 const FINAL_SUMMARY: &str = "Exact Agent terminal summary.";
-const PLAIN_PROVIDER_TEXT: &str = "Provider tried to finish without finish_end.";
+const PLAIN_PROVIDER_TEXT: &str = "Provider tried to finish without complete_then_end.";
 
 fn initialize_arguments(dir_path: &str) -> String {
     json!({
@@ -37,10 +37,13 @@ fn initialize_arguments(dir_path: &str) -> String {
         "root": {"node_id": "root", "goal": "Complete the test task"},
         "initial_work_node": {"node_id": "work", "goal": "Inspect the workspace"},
         "finish_identity": {"id": "finish"},
-        "additional_work_nodes": [],
+        "additional_work_nodes": [
+            {"node_id": "verify", "goal": "Verify the result"}
+        ],
         "edges": [
             {"from": "root", "to": "work"},
-            {"from": "work", "to": "finish"}
+            {"from": "work", "to": "verify"},
+            {"from": "verify", "to": "finish"}
         ],
         "continuation": {
             "kind": "actions",
@@ -53,20 +56,28 @@ fn initialize_arguments(dir_path: &str) -> String {
     .to_string()
 }
 
-fn transition_arguments() -> String {
+fn transition_arguments(dir_path: &str) -> String {
     json!({
-        "action": "transition_node",
+        "action": "complete_then_continue",
         "expected_revision": 2,
-        "node_id": "work",
-        "transition": "complete"
+        "current_node_id": "work",
+        "next_node_id": "verify",
+        "continuation": {
+            "kind": "actions",
+            "actions": [{
+                "tool_name": "exec_command",
+                "arguments": {"cmd": "pwd", "workdir": dir_path}
+            }]
+        }
     })
     .to_string()
 }
 
 fn finish_arguments() -> String {
     json!({
-        "action": "finish_end",
+        "action": "complete_then_end",
         "expected_revision": 3,
+        "current_node_id": "verify",
         "final_summary": FINAL_SUMMARY
     })
     .to_string()
@@ -126,7 +137,7 @@ fn common_responses(test: &TestCodex) -> Vec<String> {
             ev_function_call(
                 "complete-call",
                 "taskspace_control",
-                &transition_arguments(),
+                &transition_arguments(&test.cwd_path().display().to_string()),
             ),
             ev_completed("complete-response"),
         ]),
@@ -273,7 +284,7 @@ async fn committed_finish_carrier_is_the_only_taskspace_final() -> anyhow::Resul
                 item,
                 codex_protocol::protocol::RolloutItem::EventMsg(EventMsg::MapRuntime(
                     MapRuntimeEvent::GraphRevisionCommitted(event)
-                )) if event.operation == "finish_end"
+                )) if event.operation == "complete_then_end"
             )
         })
         .count();
@@ -312,7 +323,7 @@ async fn plain_provider_final_is_nonterminal_and_does_not_retry() -> anyhow::Res
     bodies.push(sse(vec![
         ev_response_created("plain-response"),
         ev_message_item_added("plain-message", "Provider tried "),
-        ev_output_text_delta("to finish without finish_end."),
+        ev_output_text_delta("to finish without complete_then_end."),
         ev_assistant_message("plain-message", PLAIN_PROVIDER_TEXT),
         ev_completed("plain-response"),
     ]));

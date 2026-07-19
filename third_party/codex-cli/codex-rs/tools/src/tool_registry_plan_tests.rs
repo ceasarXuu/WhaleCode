@@ -257,6 +257,8 @@ fn taskspace_map_lifecycle_schema_is_the_only_taskspace_control_schema() {
             "mutate_graph",
             "transition_node",
             "transition_node",
+            "complete_then_continue",
+            "complete_then_end",
             "finish_end",
             "expand_nodes",
             "read_output_ref",
@@ -267,6 +269,8 @@ fn taskspace_map_lifecycle_schema_is_the_only_taskspace_control_schema() {
     assert!(serialized.contains("root"));
     assert!(serialized.contains("initial_work_node"));
     assert!(serialized.contains("additional_work_nodes"));
+    assert!(serialized.contains("complete_then_continue"));
+    assert!(serialized.contains("complete_then_end"));
     assert!(!serialized.contains("\"current_work_node\""));
     assert!(!serialized.contains("\"work_nodes\""));
     assert!(serialized.contains("finish_identity"));

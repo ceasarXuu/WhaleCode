@@ -101,7 +101,7 @@ fn extracts_bootstrap_nested_actions() {
 }
 
 #[test]
-fn extracts_bind_and_mutation_continuations_without_reordering_actions() {
+fn extracts_bind_mutation_and_handoff_continuations_without_reordering_actions() {
     let bind = function_call_with_arguments(
         "taskspace_control",
         "bind",
@@ -112,6 +112,11 @@ fn extracts_bind_and_mutation_continuations_without_reordering_actions() {
         "mutate",
         r#"{"action":"mutate_graph","expected_revision":4,"add_nodes":[{"node_id":"verify","goal":"Verify"}],"add_edges":[{"from":"edit","to":"verify"}],"remove_edges":[],"continuation":{"kind":"actions","actions":[{"tool_name":"exec_command","arguments":{"cmd":"cargo test"}}]}}"#,
     );
+    let handoff = function_call_with_arguments(
+        "taskspace_control",
+        "handoff",
+        r#"{"action":"complete_then_continue","expected_revision":5,"current_node_id":"edit","next_node_id":"verify","continuation":{"kind":"actions","actions":[{"tool_name":"exec_command","arguments":{"cmd":"cargo test"}},{"tool_name":"read_file","arguments":{"path":"src/lib.rs"}}]}}"#,
+    );
 
     let bind_actions = taskspace_nested_actions(&bind);
     assert_eq!(bind_actions.len(), 2);
@@ -120,6 +125,10 @@ fn extracts_bind_and_mutation_continuations_without_reordering_actions() {
     let mutation_actions = taskspace_nested_actions(&mutation);
     assert_eq!(mutation_actions.len(), 1);
     assert_eq!(mutation_actions[0].tool_name(), "exec_command");
+    let handoff_actions = taskspace_nested_actions(&handoff);
+    assert_eq!(handoff_actions.len(), 2);
+    assert_eq!(handoff_actions[0].tool_name(), "exec_command");
+    assert_eq!(handoff_actions[1].tool_name(), "read_file");
 }
 
 #[test]

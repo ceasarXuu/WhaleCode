@@ -22,6 +22,7 @@ pub(crate) use projection_policy::decide_projection_emission;
 pub(crate) use projection_policy::projection_identity_from_context;
 pub(crate) use rooted_dag::NodeTransition;
 pub(crate) use runtime::ActionMapAssignment;
+pub(crate) use runtime::ActionMapCompleteHandoffOutcome;
 pub(crate) use runtime::ActionMapControlDelta;
 pub(crate) use runtime::ActionMapControlState;
 pub(crate) use runtime::ActionMapEdgeInput;

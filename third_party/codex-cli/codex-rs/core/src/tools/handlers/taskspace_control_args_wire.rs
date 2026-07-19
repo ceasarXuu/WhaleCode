@@ -15,6 +15,8 @@ enum Action {
     InitializeMap,
     MutateGraph,
     TransitionNode,
+    CompleteThenContinue,
+    CompleteThenEnd,
     FinishEnd,
     ExpandNodes,
     ReadOutputRef,
@@ -62,6 +64,27 @@ struct TransitionNodeArgs {
     transition: TaskSpaceNodeTransition,
     #[serde(default)]
     continuation: Option<TaskSpaceContinuation>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CompleteThenContinueArgs {
+    #[serde(rename = "action")]
+    _action: Action,
+    expected_revision: u64,
+    current_node_id: String,
+    next_node_id: String,
+    continuation: TaskSpaceContinuation,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CompleteThenEndArgs {
+    #[serde(rename = "action")]
+    _action: Action,
+    expected_revision: u64,
+    current_node_id: String,
+    final_summary: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -135,6 +158,23 @@ pub(super) fn parse(arguments: &str) -> Result<TaskSpaceControlArgs, FunctionCal
                 node_id: parsed.node_id,
                 transition: parsed.transition,
                 continuation: parsed.continuation,
+            })
+        }
+        Action::CompleteThenContinue => {
+            let parsed = deserialize_arguments::<CompleteThenContinueArgs>(arguments)?;
+            Ok(TaskSpaceControlArgs::CompleteThenContinue {
+                expected_revision: parsed.expected_revision,
+                current_node_id: parsed.current_node_id,
+                next_node_id: parsed.next_node_id,
+                continuation: parsed.continuation,
+            })
+        }
+        Action::CompleteThenEnd => {
+            let parsed = deserialize_arguments::<CompleteThenEndArgs>(arguments)?;
+            Ok(TaskSpaceControlArgs::CompleteThenEnd {
+                expected_revision: parsed.expected_revision,
+                current_node_id: parsed.current_node_id,
+                final_summary: parsed.final_summary,
             })
         }
         Action::FinishEnd => {

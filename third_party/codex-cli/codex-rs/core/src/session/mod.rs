@@ -1355,6 +1355,31 @@ impl Session {
         Ok(outcome)
     }
 
+    pub(crate) async fn complete_then_bind_action_map_node(
+        &self,
+        turn_context: &TurnContext,
+        expected_revision: u64,
+        current_node_id: String,
+        next_node_id: String,
+        source_event_ref: String,
+    ) -> Result<crate::action_map::ActionMapCompleteHandoffOutcome, String> {
+        let (outcome, events) = {
+            let mut state = self.state.lock().await;
+            state.mutate_action_map(|runtime| {
+                runtime.complete_then_bind_for_main(
+                    self.conversation_id,
+                    expected_revision,
+                    current_node_id,
+                    next_node_id,
+                    source_event_ref,
+                )
+            })
+        }?;
+        self.emit_action_map_events_for_turn(turn_context, events)
+            .await;
+        Ok(outcome)
+    }
+
     pub(crate) async fn expand_action_map_node_details(
         &self,
         turn_context: &TurnContext,

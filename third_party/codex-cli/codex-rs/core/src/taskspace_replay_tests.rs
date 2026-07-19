@@ -98,6 +98,17 @@ fn terminal_crash_window() -> (
     RolloutItem,
     RolloutItem,
 ) {
+    terminal_crash_window_with_atomic_completion(false)
+}
+
+fn terminal_crash_window_with_atomic_completion(
+    atomic_completion: bool,
+) -> (
+    ActionMapSnapshot,
+    ActionMapSnapshot,
+    RolloutItem,
+    RolloutItem,
+) {
     let owner = ThreadId::new();
     let mut runtime = ActionMapRuntimeState::default();
     runtime.set_mode_for_session(MapRuntimeMode::Experiment, owner);
@@ -131,19 +142,34 @@ fn terminal_crash_window() -> (
             },
         )
         .unwrap();
-    runtime
-        .transition_node_for_main(
-            owner,
-            2,
-            "work".into(),
-            NodeTransition::Complete,
-            "complete-event".into(),
-        )
-        .unwrap();
-    let pre_terminal = runtime.snapshot();
-    let (_, events) = runtime
-        .finish_end_for_main(owner, 3, "terminal summary".into())
-        .unwrap();
+    let (pre_terminal, events) = if atomic_completion {
+        let pre_terminal = runtime.snapshot();
+        let (_, events) = runtime
+            .complete_then_end_for_main(
+                owner,
+                2,
+                "work".into(),
+                "terminal summary".into(),
+                "complete-event".into(),
+            )
+            .unwrap();
+        (pre_terminal, events)
+    } else {
+        runtime
+            .transition_node_for_main(
+                owner,
+                2,
+                "work".into(),
+                NodeTransition::Complete,
+                "complete-event".into(),
+            )
+            .unwrap();
+        let pre_terminal = runtime.snapshot();
+        let (_, events) = runtime
+            .finish_end_for_main(owner, 3, "terminal summary".into())
+            .unwrap();
+        (pre_terminal, events)
+    };
     let terminal = runtime.snapshot();
     let mut graph_revision = None;
     let mut trace_event = None;
@@ -227,6 +253,35 @@ fn terminal_transaction_envelope_replays_as_one_checkpoint() {
     assert_eq!(replayed.state.parsed_checkpoint_count, 2);
     assert_eq!(replayed.state.active_chain_applied_delta_count, 0);
     assert!(replayed.state.snapshot.map.as_ref().unwrap().complete);
+}
+
+#[test]
+fn atomic_completion_terminal_envelope_replays_as_one_checkpoint() {
+    let (pre_terminal, terminal, _, terminal_event) =
+        terminal_crash_window_with_atomic_completion(true);
+    let replayed = replay_rollout_items(
+        "atomic-terminal-transaction".into(),
+        0,
+        &[checkpoint("pre-terminal", pre_terminal), terminal_event],
+    )
+    .unwrap();
+
+    assert_eq!(replayed.state.snapshot, terminal);
+    assert!(replayed.state.snapshot.map.as_ref().unwrap().complete);
+    assert_eq!(replayed.state.snapshot.map.as_ref().unwrap().revision, 3);
+}
+
+#[test]
+fn atomic_completion_graph_commit_without_envelope_is_rejected() {
+    let (pre_terminal, _, graph_event, _) = terminal_crash_window_with_atomic_completion(true);
+    let error = replay_rollout_items(
+        "atomic-terminal-crash-window".into(),
+        0,
+        &[checkpoint("pre-terminal", pre_terminal), graph_event],
+    )
+    .unwrap_err();
+
+    assert_eq!(error.code, TaskSpaceReplayErrorCode::IncompleteTransaction);
 }
 
 #[test]

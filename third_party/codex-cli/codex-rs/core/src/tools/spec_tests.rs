@@ -361,7 +361,15 @@ async fn assert_model_tools(
         .iter()
         .map(ToolSpec::name)
         .collect::<Vec<_>>();
-    assert_eq!(&tool_names, &expected_tools,);
+    let mut expected_tools = expected_tools.to_vec();
+    if let Some(index) = expected_tools
+        .iter()
+        .position(|name| *name == "taskspace_control")
+    {
+        let taskspace = expected_tools.remove(index);
+        expected_tools.insert(0, taskspace);
+    }
+    assert_eq!(tool_names, expected_tools);
 }
 
 async fn assert_default_model_tools(

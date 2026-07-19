@@ -33,6 +33,17 @@ pub(crate) enum TaskSpaceControlArgs {
         transition: TaskSpaceNodeTransition,
         continuation: Option<TaskSpaceContinuation>,
     },
+    CompleteThenContinue {
+        expected_revision: u64,
+        current_node_id: String,
+        next_node_id: String,
+        continuation: TaskSpaceContinuation,
+    },
+    CompleteThenEnd {
+        expected_revision: u64,
+        current_node_id: String,
+        final_summary: String,
+    },
     FinishEnd {
         expected_revision: u64,
         final_summary: String,
@@ -75,7 +86,6 @@ pub(crate) struct TaskSpaceGraphEdgeArgs {
 #[serde(rename_all = "snake_case")]
 pub(crate) enum TaskSpaceNodeTransition {
     Bind,
-    Complete,
     Block,
     Unblock,
     Rework,
@@ -167,13 +177,15 @@ impl TaskSpaceControlArgs {
             | Self::TransitionNode {
                 continuation: Some(continuation),
                 ..
-            } => continuation.actions(),
+            }
+            | Self::CompleteThenContinue { continuation, .. } => continuation.actions(),
             Self::MutateGraph {
                 continuation: None, ..
             }
             | Self::TransitionNode {
                 continuation: None, ..
             }
+            | Self::CompleteThenEnd { .. }
             | Self::FinishEnd { .. }
             | Self::ExpandNodes { .. }
             | Self::ReadOutputRef { .. }
@@ -242,6 +254,32 @@ impl TaskSpaceControlArgs {
                     ),
                     (_, None) => Ok(()),
                 }
+            }
+            Self::CompleteThenContinue {
+                current_node_id,
+                next_node_id,
+                continuation,
+                ..
+            } => {
+                if current_node_id.trim().is_empty() || next_node_id.trim().is_empty() {
+                    return invalid(
+                        "complete_then_continue requires non-empty current_node_id and next_node_id",
+                    );
+                }
+                continuation.validate()
+            }
+            Self::CompleteThenEnd {
+                current_node_id,
+                final_summary,
+                ..
+            } => {
+                if current_node_id.trim().is_empty() {
+                    return invalid("complete_then_end requires a non-empty current_node_id");
+                }
+                if final_summary.trim().is_empty() {
+                    return invalid("complete_then_end requires a non-empty final_summary");
+                }
+                Ok(())
             }
             Self::FinishEnd { final_summary, .. } if final_summary.trim().is_empty() => {
                 invalid("finish_end requires a non-empty final_summary")
