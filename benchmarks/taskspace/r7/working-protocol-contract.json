@@ -1,0 +1,75 @@
+{
+  "schema_version": 1,
+  "contract_id": "r7-taskspace-core-working-protocol",
+  "status": "active_candidate",
+  "protocol": {
+    "schema_version": "taskspace-core-working-protocol-v1",
+    "protocol_version": "1.0.0",
+    "rules_sha256": "d79723097841f2555c981663fb28bdca9099bbf7fd32246d81c609e21bd35efa",
+    "source": "third_party/codex-cli/codex-rs/core/src/context/taskspace_working_protocol.rs"
+  },
+  "scope": {
+    "taskspace_projection_policies": [
+      "map-always",
+      "map-append",
+      "map-request"
+    ],
+    "standard_injection_count": 0,
+    "policy_specific_variants_allowed": false
+  },
+  "delivery": {
+    "role": "developer",
+    "provider_wire_roles": [
+      "developer",
+      "system"
+    ],
+    "provider_input_position": 0,
+    "taskspace_count_per_request": 1,
+    "persistent_in_natural_history": false,
+    "dynamic_fields_allowed": false,
+    "map_state_allowed": false,
+    "projection_policy_details_allowed": false
+  },
+  "responsibility": {
+    "protocol": "agent_working_method",
+    "tool_schema": "available_actions_and_argument_mechanics",
+    "runtime": "hard_graph_and_lifecycle_validation_only",
+    "projection": "faithful_map_facts_only"
+  },
+  "versioning": {
+    "semantic_or_behavioral_rule_change": "bump_protocol_version_and_rules_sha256",
+    "rule_text_byte_change": "bump_protocol_version_and_rules_sha256",
+    "envelope_or_identity_shape_change": "bump_protocol_schema_version",
+    "delivery_mechanism_change": "new_benchmark_candidate_and_contract_revision",
+    "silent_rule_change_allowed": false,
+    "result_join_key": [
+      "protocol.schema_version",
+      "protocol.protocol_version",
+      "protocol.rules_sha256",
+      "git_commit"
+    ]
+  },
+  "observability": {
+    "wire_trace_schema_minimum": "provider-chat-wire-trace-v4",
+    "per_request_fields": [
+      "count",
+      "message_index",
+      "wire_role",
+      "message_bytes",
+      "estimated_tokens",
+      "schema_version",
+      "protocol_version",
+      "rules_sha256",
+      "matches_current_contract"
+    ],
+    "summary_artifact": "provider-cache-trace-summary.json",
+    "summary_field": "taskspace_working_protocol_identity_summary"
+  },
+  "acceptance": {
+    "taskspace_exactly_once_rate": 1.0,
+    "current_contract_match_rate": 1.0,
+    "standard_present_count": 0,
+    "provider_prefix_position_stable": true,
+    "same_protocol_hash_across_projection_policies": true
+  }
+}

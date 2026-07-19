@@ -21,6 +21,7 @@ mod realtime_start_instructions;
 mod realtime_start_with_instructions;
 mod skill_instructions;
 mod subagent_notification;
+mod taskspace_working_protocol;
 mod turn_aborted;
 mod user_instructions;
 mod user_shell_command;
@@ -50,6 +51,17 @@ pub(crate) use realtime_start_instructions::RealtimeStartInstructions;
 pub(crate) use realtime_start_with_instructions::RealtimeStartWithInstructions;
 pub(crate) use skill_instructions::SkillInstructions;
 pub(crate) use subagent_notification::SubagentNotification;
+pub(crate) use taskspace_working_protocol::TASKSPACE_WORKING_PROTOCOL_END;
+pub(crate) use taskspace_working_protocol::TASKSPACE_WORKING_PROTOCOL_RULES_SHA256;
+pub(crate) use taskspace_working_protocol::TASKSPACE_WORKING_PROTOCOL_SCHEMA_VERSION;
+pub(crate) use taskspace_working_protocol::TASKSPACE_WORKING_PROTOCOL_START;
+pub(crate) use taskspace_working_protocol::TASKSPACE_WORKING_PROTOCOL_VERSION;
+#[cfg(test)]
+pub(crate) use taskspace_working_protocol::is_taskspace_working_protocol_message;
+pub(crate) use taskspace_working_protocol::prepend_taskspace_working_protocol;
+#[cfg(test)]
+pub(crate) use taskspace_working_protocol::render_taskspace_working_protocol;
+pub(crate) use taskspace_working_protocol::taskspace_working_protocol_identity;
 pub(crate) use turn_aborted::TurnAborted;
 pub(crate) use user_instructions::UserInstructions;
 pub(crate) use user_shell_command::UserShellCommand;

@@ -1,6 +1,9 @@
 if (-not (Get-Command ConvertTo-TaskspaceProjectionIdentity -ErrorAction SilentlyContinue)) {
     . (Join-Path $PSScriptRoot "provider-projection-identity.ps1")
 }
+if (-not (Get-Command ConvertTo-TaskspaceWorkingProtocolIdentity -ErrorAction SilentlyContinue)) {
+    . (Join-Path $PSScriptRoot "working-protocol-observation.ps1")
+}
 
 function Get-TaskspaceProviderSectionKinds {
     @(
@@ -54,7 +57,7 @@ function ConvertTo-TaskspaceProviderSectionCost {
     if ($traceSchema -eq "provider-chat-wire-trace-v2") {
         return New-TaskspaceUnavailableProviderSectionCost "historical_provider_wire_trace_v2"
     }
-    if ($traceSchema -ne "provider-chat-wire-trace-v3") {
+    if ($traceSchema -notin @("provider-chat-wire-trace-v3", "provider-chat-wire-trace-v4")) {
         return New-TaskspaceUnavailableProviderSectionCost "unsupported_provider_wire_trace_schema"
     }
     $raw = Get-TaskspaceCostProperty $Shape @("section_cost")
@@ -330,7 +333,7 @@ function New-TaskspaceProviderWireCacheTraceArtifacts {
     foreach ($line in @(Get-Content -Encoding UTF8 -LiteralPath $TracePath -ErrorAction SilentlyContinue)) {
         if ([string]::IsNullOrWhiteSpace([string]$line)) { continue }
         try { $event = $line | ConvertFrom-Json } catch { continue }
-        if ([string]$event.schema_version -notin @("provider-chat-wire-trace-v2", "provider-chat-wire-trace-v3")) { continue }
+        if ([string]$event.schema_version -notin @("provider-chat-wire-trace-v2", "provider-chat-wire-trace-v3", "provider-chat-wire-trace-v4")) { continue }
         $requestId = [string]$event.request_id
         if ([string]::IsNullOrWhiteSpace($requestId)) { continue }
         if ([string]$event.status -eq "payload_captured") {
@@ -341,6 +344,7 @@ function New-TaskspaceProviderWireCacheTraceArtifacts {
     }
     $events = New-Object System.Collections.Generic.List[object]
     $sectionCosts = New-Object System.Collections.Generic.List[object]
+    $workingProtocolIdentities = New-Object System.Collections.Generic.List[object]
     $shapeCounts = @{}
     $firstDiffPathCounts = @{}
     $missingUsage = 0
@@ -405,6 +409,10 @@ function New-TaskspaceProviderWireCacheTraceArtifacts {
         }
         $sectionCost = ConvertTo-TaskspaceProviderSectionCost $shape
         $sectionCosts.Add($sectionCost)
+        $workingProtocolIdentity = ConvertTo-TaskspaceWorkingProtocolIdentity `
+            (Get-TaskspaceCostProperty $shape @("taskspace_working_protocol_identity")) `
+            ([string]$shape.schema_version)
+        $workingProtocolIdentities.Add($workingProtocolIdentity)
         $events.Add([pscustomobject]@{
             schema_version = "TaskSpaceProviderCacheTraceV3"
             request_id = $requestId; logical_request_id = $requestId; model_request_index = $requestIndex; attempt_seq = 1
@@ -429,6 +437,7 @@ function New-TaskspaceProviderWireCacheTraceArtifacts {
             same_cache_shape_seen_before = [bool]$sameCacheShapeSeenBefore
             cache_warmup_candidate = [bool]$cacheWarmupCandidate; same_shape_zero_hit = [bool]$sameShapeZeroHit
             section_cost = $sectionCost
+            taskspace_working_protocol_identity = $workingProtocolIdentity
             status = if ($null -ne $terminal) { [string]$terminal.status } else { "terminal_missing" }
         })
         if (-not [string]::IsNullOrWhiteSpace($cacheShapeHash)) { $seenCacheShapes[$cacheShapeHash] = $true }
@@ -464,6 +473,7 @@ function New-TaskspaceProviderWireCacheTraceArtifacts {
             tool_choice_transition_count = [int]$toolChoiceTransitionCount
             cache_shape_transition_count = [int]$cacheShapeTransitionCount
             section_cost_summary = New-TaskspaceProviderSectionCostSummary @($sectionCosts.ToArray())
+            taskspace_working_protocol_identity_summary = New-TaskspaceWorkingProtocolIdentitySummary @($workingProtocolIdentities.ToArray())
         }
     }
 }

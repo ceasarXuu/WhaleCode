@@ -1093,6 +1093,7 @@ fn build_prompt_with_tool_visibility(
     base_instructions: BaseInstructions,
     tool_visibility: TaskspaceProviderToolVisibility,
 ) -> Prompt {
+    let input = apply_taskspace_working_protocol(input, tool_visibility);
     let deferred_dynamic_tools = turn_context
         .dynamic_tools
         .iter()
@@ -1122,6 +1123,29 @@ fn build_prompt_with_tool_visibility(
             &turn_context.session_source,
         ),
     }
+}
+
+fn apply_taskspace_working_protocol(
+    mut input: Vec<ResponseItem>,
+    tool_visibility: TaskspaceProviderToolVisibility,
+) -> Vec<ResponseItem> {
+    if tool_visibility != TaskspaceProviderToolVisibility::TaskspaceNative {
+        return input;
+    }
+    let removed_duplicates = crate::context::prepend_taskspace_working_protocol(&mut input);
+    let identity = crate::context::taskspace_working_protocol_identity();
+    info!(
+        target = "codex_core::taskspace",
+        event_name = "taskspace.working_protocol_injected",
+        schema_version = identity.schema_version,
+        protocol_version = identity.protocol_version,
+        rules_sha256 = identity.rules_sha256,
+        rendered_bytes = identity.rendered_bytes,
+        provider_input_index = 0,
+        removed_duplicates,
+        "injected stable TaskSpace working protocol developer prefix"
+    );
+    input
 }
 
 fn taskspace_message_has_gate_recovery(message: Option<&str>) -> bool {
@@ -1577,6 +1601,48 @@ mod active_context_replacement_tests {
         let names = visible.iter().map(ToolSpec::name).collect::<Vec<_>>();
 
         assert_eq!(names, vec!["update_plan"]);
+    }
+
+    #[test]
+    fn taskspace_protocol_is_stable_prefix_and_standard_has_zero_injection() {
+        let user = ResponseItem::Message {
+            id: None,
+            role: "user".into(),
+            content: vec![ContentItem::InputText {
+                text: "fix the issue".into(),
+            }],
+            end_turn: None,
+            phase: None,
+        };
+        let standard = apply_taskspace_working_protocol(
+            vec![user.clone()],
+            TaskspaceProviderToolVisibility::Standard,
+        );
+        assert_eq!(standard, vec![user.clone()]);
+
+        let taskspace = apply_taskspace_working_protocol(
+            vec![user.clone()],
+            TaskspaceProviderToolVisibility::TaskspaceNative,
+        );
+        assert!(crate::context::is_taskspace_working_protocol_message(
+            &taskspace[0]
+        ));
+        assert_eq!(taskspace[1], user);
+
+        let repeated = apply_taskspace_working_protocol(
+            taskspace,
+            TaskspaceProviderToolVisibility::TaskspaceNative,
+        );
+        assert_eq!(
+            repeated
+                .iter()
+                .filter(|item| crate::context::is_taskspace_working_protocol_message(item))
+                .count(),
+            1
+        );
+        assert!(crate::context::is_taskspace_working_protocol_message(
+            &repeated[0]
+        ));
     }
 
     fn terminal_control_state() -> ActionMapControlState {
