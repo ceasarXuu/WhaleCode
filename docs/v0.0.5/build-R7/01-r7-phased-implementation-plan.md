@@ -8,9 +8,9 @@
 
 ```text
 Created: 2026-07-17
-Updated: 2026-07-19
+Updated: 2026-07-20
 Version: v0.0.5 build-R7
-Status: Phase D.3 Lean Response Sequence Repair In Progress / Phase E Not Started
+Status: Phase D.5 Dual Base Instructions Completed / Phase E Not Started
 Owner / Responsible: WhaleCode core runtime / TaskSpace
 Risk Level: Critical
 Plan Type: Shared architecture with three projection policies
@@ -378,7 +378,7 @@ TaskSpace bypass fixture 100% rejected，合法动作无新增 policy rejection�
 
 - `09-r7-working-protocol-v1-result.md`
 - `10-r7-working-protocol-v1-0-1-result.md`
-- `benchmarks/taskspace/r7/working-protocol-contract.json`
+- `benchmarks/taskspace/r7/working-protocol-contract.json`（历史协议合同，已由 D.5 替代）
 - `benchmarks/taskspace/r7/working-protocol-v1.0.0-result.json`
 - `benchmarks/taskspace/r7/working-protocol-v1.0.1-result.json`
 
@@ -474,6 +474,28 @@ Phase E 仍不得改变三种 projection policy 的状态机、事件或工具�
 - `benchmarks/taskspace/r7/working-protocol-v1.0.4-result.json`
 - implementation commit `12e7f8e3e`
 - observer commit `04ac1ba24`
+
+### 1.11.5 Phase D.5：双基础提示词收敛
+
+**目标**：停止用极简 Whale base 加额外 TaskSpace developer protocol 拼接行为框架，改为按会话工作方式选择
+一份完整、成熟且内部一致的 `base_instructions`。
+
+实施项：
+
+1. Standard 使用继承 Codex 原生框架的 WhaleCode 完整 base，只修改产品品牌暴露。
+2. TaskSpace 使用同一 Codex 写法和章节框架，把 Planning 有机替换为 TaskSpace Map 工作方法。
+3. 删除独立 Working Protocol developer message 及其注入、去重和旧身份观察路径。
+4. 每次 provider request 从同一状态快照同时确定 base profile 与计划工具可见性：Standard 只见
+   `update_plan`，TaskSpace 只见 `taskspace_control`。
+5. 启动预热在 resume 完成后按实际模式构建；空闲态模式切换后取消旧预热并按新 profile 重建。
+6. 两份 base 独立版本化和哈希；provider wire trace v5 逐请求记录 profile、version、hash、位置和成本。
+7. 三种 projection policy 继续共享同一 TaskSpace base，不产生 policy 专属提示词或 Runtime 分叉。
+
+当前状态：实现、合同与单组 Docker 诊断对照均完成。Standard/TaskSpace 都通过公开及隐藏验证，线上
+base identity 分别 6/6、7/7 匹配 v1.0.0 合同。该单次结果只证明接线正确，不估计总体收益。详细设计与
+结果见 `20-r7-dual-base-instructions-design.md`、`21-r7-dual-base-instructions-result.md`，机器证据见
+`benchmarks/taskspace/r7/base-instructions-contract.json` 与
+`benchmarks/taskspace/r7/dual-base-instructions-v1.0.0-result.json`。
 
 ## 1.12 Phase E：生命周期与跨策略等价
 

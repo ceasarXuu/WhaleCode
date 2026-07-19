@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "contract_id": "r7-whalecode-dual-base-instructions",
-  "status": "implemented_pending_benchmark",
+  "status": "diagnostic_validated",
   "selection": {
     "standard_runtime_mode": "standard",
     "taskspace_runtime_mode": "experiment",
@@ -41,5 +41,15 @@
     "prewarm_selection_event": "base_instructions.prewarm_profile_selected",
     "wire_identity_field": "base_instructions_identity",
     "summary_field": "base_instructions_identity_summary"
+  },
+  "diagnostic_validation": {
+    "implementation_commit": "5ecfefbcd67c7b92e7a118555ce3b253b970d0d0",
+    "observer_commit": "de7a8f547",
+    "scenario": "single-file-fast-fix",
+    "repeats": 1,
+    "standard_contract_match": "6/6",
+    "taskspace_contract_match": "7/7",
+    "result": "both_solved",
+    "evidence_limit": "single diagnostic pair; not a population utility estimate"
   }
 }

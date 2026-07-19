@@ -3,7 +3,7 @@
 - Created: 2026-07-20
 - Updated: 2026-07-20
 - Version: 0.2
-- Status: Draft
+- Status: Superseded by dual base instructions design
 - Owner / Responsible: WhaleCode R7
 - Related Systems: TaskSpace context、taskspace_control、provider input、benchmark observer
 - Related Links: 09、14、15 号 R7 文档
@@ -11,6 +11,10 @@
 - Plan Type: Standard
 
 ## 1. 当前判断
+
+> 2026-07-20 决策：本候选不再实施。问题不应通过继续增强独立 developer protocol 解决；TaskSpace 工作方法
+> 已改为完整融合进专用 `base_instructions`。后续以 `20-r7-dual-base-instructions-design.md` 为准，本文只保留
+> 为历史分析依据。
 
 当前生产协议为 v1.0.4。它完整进入了本轮 76/76 个 TaskSpace provider requests，版本、哈希、
 位置均正确，因此问题不是协议丢失或 projection 扭曲。
