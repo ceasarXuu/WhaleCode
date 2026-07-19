@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "contract_id": "r7-taskspace-core-working-protocol",
-  "status": "active_candidate",
+  "status": "evaluated_candidate_not_accepted",
   "protocol": {
     "schema_version": "taskspace-core-working-protocol-v1",
     "protocol_version": "1.0.0",

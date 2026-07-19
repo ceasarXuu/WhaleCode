@@ -1,0 +1,104 @@
+{
+  "schema_version": 1,
+  "result_id": "r7-working-protocol-v1.0.0",
+  "status": "evaluated_not_accepted",
+  "protocol_identity": {
+    "schema_version": "taskspace-core-working-protocol-v1",
+    "protocol_version": "1.0.0",
+    "rules_sha256": "d79723097841f2555c981663fb28bdca9099bbf7fd32246d81c609e21bd35efa",
+    "git_commit": "daf6b4787"
+  },
+  "execution": {
+    "model": "deepseek-v4-flash",
+    "reasoning_effort": "max",
+    "execution_substrate": "docker_hard_boundary",
+    "projection_policy": "map-request",
+    "repeats_per_sample": 1,
+    "contemporaneous_standard": true
+  },
+  "samples": [
+    {
+      "scenario_id": "single-file-fast-fix",
+      "run_root": "target/r7-phase-d1-working-protocol/simple/single-file-fast-fix/20260719-082549-052",
+      "standard": {
+        "outcome": "solved",
+        "provider_requests": 6,
+        "ordinary_tools": 8,
+        "control_tools": 0,
+        "wall_time_ms": 14080,
+        "input_tokens": 39694,
+        "cached_input_tokens": 38272,
+        "uncached_input_tokens": 1422,
+        "output_tokens": 1510,
+        "request_2_plus_cache_hit_rate": 0.961309
+      },
+      "taskspace": {
+        "outcome": "solved",
+        "provider_requests": 24,
+        "ordinary_tools": 25,
+        "control_tools": 7,
+        "control_failures": 1,
+        "wall_time_ms": 47580,
+        "input_tokens": 320269,
+        "cached_input_tokens": 305536,
+        "uncached_input_tokens": 14733,
+        "output_tokens": 4425,
+        "request_2_plus_cache_hit_rate": 0.977484,
+        "message_prefix_preserved_rate": 1.0,
+        "protocol_present_count": 24,
+        "protocol_contract_match_rate": 1.0,
+        "protocol_estimated_tokens_per_request": 396,
+        "map_nodes": 5,
+        "map_edges": 4,
+        "open_leaf_nodes": 0,
+        "state_only_controls": 4,
+        "nonterminal_transitions_without_follow_up": 3
+      }
+    },
+    {
+      "scenario_id": "subscription-billing-repair",
+      "run_root": "target/r7-phase-d1-working-protocol/complex/subscription-billing-repair/20260719-082549-069",
+      "standard": {
+        "outcome": "solved",
+        "provider_requests": 11,
+        "ordinary_tools": 17,
+        "control_tools": 0,
+        "wall_time_ms": 33681,
+        "input_tokens": 108252,
+        "cached_input_tokens": 101120,
+        "uncached_input_tokens": 7132,
+        "output_tokens": 4363,
+        "request_2_plus_cache_hit_rate": 0.932187
+      },
+      "taskspace": {
+        "outcome": "solved",
+        "provider_requests": 21,
+        "ordinary_tools": 33,
+        "control_tools": 7,
+        "control_failures": 1,
+        "wall_time_ms": 65126,
+        "input_tokens": 352779,
+        "cached_input_tokens": 336128,
+        "uncached_input_tokens": 16651,
+        "output_tokens": 7862,
+        "request_2_plus_cache_hit_rate": 0.969048,
+        "message_prefix_preserved_rate": 1.0,
+        "protocol_present_count": 21,
+        "protocol_contract_match_rate": 1.0,
+        "protocol_estimated_tokens_per_request": 396,
+        "map_nodes": 5,
+        "map_edges": 4,
+        "open_leaf_nodes": 0,
+        "state_only_controls": 4,
+        "nonterminal_transitions_without_follow_up": 3
+      }
+    }
+  ],
+  "decision": {
+    "accepted_as_default": false,
+    "positive_signal": "complex map-request changed from the historical unclosed terminal failure to a fully closed solved run",
+    "blocking_finding": "both samples emitted three standalone nonterminal lifecycle transitions although the tool sequence supports same-response ordered sibling controls",
+    "next_candidate": "1.0.1",
+    "next_change": "make same-response lifecycle batching explicit and shorten the static protocol"
+  }
+}
