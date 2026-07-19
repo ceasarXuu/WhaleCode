@@ -155,8 +155,14 @@ function New-SideFixture {
                                 action = "initialize_map"
                                 initial_nodes = @([ordered]@{ node_id = "node-1"; kind = "inspect_code_context"; goal = "Inspect" })
                                 current_node_id = "node-1"
-                                continuation = [ordered]@{ kind = "actions"; actions = @([ordered]@{ tool_name = "exec_command"; arguments = [ordered]@{ z = "last"; cmd = "pwd" } }) }
+                                continuation = "next_tool"
                             } | ConvertTo-Json -Compress -Depth 10)
+                    }
+                } },
+            [pscustomobject]@{ type = "event_msg"; payload = [pscustomobject]@{
+                    type = "task_context_event_recorded"; eventType = "function_call"; callId = "top-1"; parentCallId = $null
+                    rawPayload = [pscustomobject]@{
+                        type = "function_call"; name = "exec_command"; call_id = "top-1"; arguments = ([ordered]@{ cmd = "pwd"; z = "last" } | ConvertTo-Json -Compress -Depth 10)
                     }
                 } },
             [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{
@@ -232,27 +238,31 @@ $initializeArgs = @{
     additional_work_nodes = @(@{ node_id = "plan"; goal = "Plan" })
     finish_identity = @{ id = "finish" }
     edges = @(@{ from = "root"; to = "inspect" }, @{ from = "inspect"; to = "plan" }, @{ from = "plan"; to = "finish" })
-    continuation = @{ kind = "actions"; actions = @(@{ tool_name = "exec_command"; arguments = @{ cmd = "pwd" } }) }
+    continuation = "next_tool"
 } | ConvertTo-Json -Compress -Depth 10
 $mutationArgs = @{
     action = "mutate_graph"; expected_revision = 2
     add_nodes = @(@{ node_id = "verify"; goal = "Verify" })
     add_edges = @(@{ from = "plan"; to = "verify" }, @{ from = "verify"; to = "finish" })
     remove_edges = @(@{ from = "plan"; to = "finish" })
-    continuation = @{ kind = "actions"; actions = @(@{ tool_name = "exec_command"; arguments = @{ cmd = "git status" } }) }
+    continuation = "next_tool"
 } | ConvertTo-Json -Compress -Depth 10
 $completeArgs = @{
     action = "complete_then_continue"; expected_revision = 3; current_node_id = "inspect"; next_node_id = "plan"
-    continuation = @{ kind = "actions"; actions = @(@{ tool_name = "exec_command"; arguments = @{ cmd = "cargo test" } }) }
+    continuation = "next_apply_patch"
 } | ConvertTo-Json -Compress -Depth 10
 $terminalArgs = @{
     action = "complete_then_end"; expected_revision = 4; current_node_id = "plan"; final_summary = "Agent final"
 } | ConvertTo-Json -Compress -Depth 10
 Write-JsonLines @(
     [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "function_call"; name = "taskspace_control"; call_id = "init"; arguments = $initializeArgs } },
+    [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "function_call"; name = "exec_command"; call_id = "init-tool"; arguments = '{"cmd":"pwd"}' } },
     [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "function_call_output"; call_id = "init"; output = "ok" } },
+    [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "function_call_output"; call_id = "init-tool"; output = "ok" } },
     [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "function_call"; name = "taskspace_control"; call_id = "mutation"; arguments = $mutationArgs } },
+    [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "function_call"; name = "exec_command"; call_id = "mutation-tool"; arguments = '{"cmd":"git status"}' } },
     [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "function_call_output"; call_id = "mutation"; output = "ok" } },
+    [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "function_call_output"; call_id = "mutation-tool"; output = "ok" } },
     [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "function_call"; name = "taskspace_control"; call_id = "complete"; arguments = $completeArgs } },
     [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "function_call"; name = "apply_patch"; call_id = "patch"; arguments = '{"input":"patch"}' } },
     [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "function_call_output"; call_id = "complete"; output = "ok" } },
@@ -264,7 +274,7 @@ Write-JsonLines @(
 $cadence = Get-TaskspaceNativeCadenceFacts $cadenceFixture $null
 Assert-True ($cadence.provider_tool_response_count -eq 4) "provider tool response count is incorrect"
 Assert-True ($cadence.control_carrier_response_count -eq 4) "control carrier response count is incorrect"
-Assert-True ($cadence.nested_action_count -eq 3) "continuation nested action count is incorrect: total=$($cadence.nested_action_count), init=$($cadence.initialize_continuation_count), mutation=$($cadence.mutation_continuation_count), handoff=$($cadence.complete_handoff_continuation_count), state_only=$($cadence.state_only_control_count)"
+Assert-True ($cadence.nested_action_count -eq 0) "string continuations should not be counted as nested actions: total=$($cadence.nested_action_count), init=$($cadence.initialize_continuation_count), mutation=$($cadence.mutation_continuation_count), handoff=$($cadence.complete_handoff_continuation_count), state_only=$($cadence.state_only_control_count)"
 Assert-True ($cadence.initialize_continuation_count -eq 1) "init continuation was not observed"
 Assert-True ($cadence.mutation_continuation_count -eq 1) "mutation continuation was not observed"
 Assert-True ($cadence.bind_continuation_count -eq 0) "unexpected standalone bind continuation was observed"
@@ -272,11 +282,23 @@ Assert-True ($cadence.complete_handoff_count -eq 1 -and $cadence.complete_handof
 Assert-True ($cadence.complete_terminal_count -eq 1 -and $cadence.standalone_complete_count -eq 0) "atomic terminal or standalone completion count is incorrect"
 Assert-True ($cadence.state_only_control_count -eq 1) "state-only control count is incorrect"
 Assert-True ($cadence.finish_end_count -eq 0) "standalone finish_end should not be counted for complete_then_end"
-Assert-True ($cadence.direct_tool_mixed_response_count -eq 1) "finish barrier and sibling tool were not observed"
+Assert-True ($cadence.direct_tool_mixed_response_count -eq 3) "control continuation siblings were not observed as top-level calls"
+Assert-True ($cadence.continuation_declaration_count -eq 3) "top-level continuation declarations were not counted"
+Assert-True ($cadence.continuation_satisfied_count -eq 3 -and $cadence.continuation_violation_count -eq 0) "top-level continuation siblings were not paired correctly"
 Assert-True ($cadence.multi_control_carrier_response_count -eq 0) "atomic handoff should not require sibling controls"
 Assert-True ($cadence.nonterminal_transition_without_follow_up_count -eq 0) "nonterminal transition lost its follow-up"
 Assert-True ($cadence.terminal_candidate_count -eq 1 -and $cadence.terminal_extra_request_count -eq 0) "terminal candidate cadence was not measured"
 Assert-True ($cadence.control_argument_parse_error_count -eq 0) "cadence argument parsing was incomplete"
+
+$cadenceViolationFixture = Join-Path $RunRoot "cadence-violation-fixture"
+Write-JsonLines @(
+    [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "function_call"; name = "taskspace_control"; call_id = "bad-handoff"; arguments = $completeArgs } },
+    [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "function_call"; name = "exec_command"; call_id = "wrong-sibling"; arguments = '{"cmd":"pwd"}' } },
+    [pscustomobject]@{ type = "response_item"; payload = [pscustomobject]@{ type = "function_call_output"; call_id = "bad-handoff"; output = "protocol_failed" } }
+) (Join-Path $cadenceViolationFixture "rollout.jsonl")
+$cadenceViolation = Get-TaskspaceNativeCadenceFacts $cadenceViolationFixture $null
+Assert-True ($cadenceViolation.continuation_declaration_count -eq 1) "invalid continuation declaration was not counted"
+Assert-True ($cadenceViolation.continuation_satisfied_count -eq 0 -and $cadenceViolation.continuation_violation_count -eq 1) "invalid continuation sibling was not classified"
 
 if (Test-Path -LiteralPath $RunRoot) { Remove-Item -LiteralPath $RunRoot -Recurse -Force }
 $pair1 = Join-Path $RunRoot "pair-001"; $pair2 = Join-Path $RunRoot "pair-002"
@@ -304,7 +326,9 @@ Assert-True ($taskspace.totals.provider_requests -eq 18) "taskspace request aggr
 Assert-True ($taskspace.totals.node_count -eq 6 -and $taskspace.totals.edge_count -eq 4) "map totals are incorrect"
 Assert-True ($taskspace.totals.unreviewed_result_count -eq 6) "result lifecycle totals are incorrect"
 Assert-True ($taskspace.totals.control_failures -eq 2) "control failures are missing"
-Assert-True ($taskspace.totals.nested_actions -eq 2) "nested continuation actions were not aggregated"
+Assert-True ($taskspace.totals.nested_actions -eq 0) "string continuations should not aggregate nested actions"
+Assert-True ($taskspace.totals.continuation_declarations -eq 2) "continuation declarations were not aggregated"
+Assert-True ($taskspace.totals.continuation_satisfied -eq 2 -and $taskspace.totals.continuation_violations -eq 0) "continuation pairing was not aggregated"
 Assert-True ($taskspace.totals.request_patch_count -eq 2) "patch declarations are missing from aggregate"
 Assert-True ($report.ratios.provider_requests -eq 1.8) "request ratio is incorrect"
 Assert-True ([string]$taskspace.section_cost.availability -eq "measured" -and [int]$taskspace.section_cost.measured_request_count -eq 18 -and [int64]$taskspace.section_cost.section_bytes_total -eq 2520) "taskspace mode section totals are incorrect"
@@ -338,13 +362,13 @@ Assert-True (@($report.rows | Where-Object {
 Assert-True (@($report.rows | Where-Object { $_.logical_mode -eq "taskspace" -and $_.duplication.rollout.duplicate_output_bodies -eq 1 }).Count -eq 2) "exact duplicate output bodies were not measured"
 Assert-True (@($report.rows | Where-Object { $_.logical_mode -eq "taskspace" -and $_.duplication.provider_wire.final_content_duplicates -eq 1 }).Count -eq 2) "wire content duplicates were not measured"
 Assert-True (@($report.rows | Where-Object { $_.logical_mode -eq "taskspace" -and $_.duplication.cross_carrier_lineage.final_candidate_assistant_exact_equal_count -eq 1 }).Count -eq 2) "final candidate exact assistant equality was not measured"
-Assert-True (@($report.rows | Where-Object { $_.logical_mode -eq "taskspace" -and $_.duplication.cross_carrier_lineage.expanded_nested_call_exact_json_match_count -eq 1 }).Count -eq 2) "expanded nested exact JSON lineage was not measured"
+Assert-True (@($report.rows | Where-Object { $_.logical_mode -eq "taskspace" -and $_.duplication.cross_carrier_lineage.expanded_nested_call_exact_json_match_count -eq 0 }).Count -eq 2) "string continuations should not report nested JSON lineage"
 Assert-True (@($report.rows | Where-Object {
             $_.logical_mode -eq "taskspace" -and
             $_.duplication.cross_carrier_lineage.control_success_count -eq 2 -and
             $_.duplication.cross_carrier_lineage.control_identity_step_count -eq 2 -and
             $_.duplication.cross_carrier_lineage.control_identity_missing_count -eq 0 -and
-            $_.duplication.cross_carrier_lineage.control_continuation_action_count -eq 1 -and
+            $_.duplication.cross_carrier_lineage.control_continuation_action_count -eq 0 -and
             $_.duplication.cross_carrier_lineage.control_delta_present_count -eq 2 -and
             $_.duplication.cross_carrier_lineage.control_delta_missing_count -eq 1 -and
             $_.duplication.cross_carrier_lineage.control_graph_event_ref_count -eq 4 -and

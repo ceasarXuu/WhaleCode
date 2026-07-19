@@ -22,6 +22,9 @@ function Get-TaskspaceNativeCadenceFacts {
             terminal_candidate_count = $null
             terminal_extra_request_count = $null
             control_argument_parse_error_count = $null
+            continuation_declaration_count = $null
+            continuation_satisfied_count = $null
+            continuation_violation_count = $null
         }
     }
 
@@ -63,6 +66,8 @@ function Get-TaskspaceNativeCadenceFacts {
             $action = ""
             $transition = ""
             $nestedCount = 0
+            $hasContinuation = $false
+            $continuationKind = ""
             $hasTerminalCandidate = $false
             if ($name -eq "taskspace_control") {
                 try {
@@ -72,10 +77,16 @@ function Get-TaskspaceNativeCadenceFacts {
                     if ($null -ne $transitionProperty) { $transition = [string]$transitionProperty.Value }
                     $continuationProperty = $arguments.PSObject.Properties["continuation"]
                     if ($null -ne $continuationProperty) {
+                        $hasContinuation = $true
                         $continuation = $continuationProperty.Value
-                        $actionsProperty = $continuation.PSObject.Properties["actions"]
-                        if ($null -ne $actionsProperty) { $nestedCount += @($actionsProperty.Value).Count }
-                        if ([string]$continuation.kind -eq "patch_then_actions" -and $null -ne $continuation.PSObject.Properties["patch"]) { $nestedCount++ }
+                        if ($continuation -is [string]) {
+                            $continuationKind = [string]$continuation
+                        } else {
+                            $continuationKind = [string]$continuation.kind
+                            $actionsProperty = $continuation.PSObject.Properties["actions"]
+                            if ($null -ne $actionsProperty) { $nestedCount += @($actionsProperty.Value).Count }
+                            if ($continuationKind -eq "patch_then_actions" -and $null -ne $continuation.PSObject.Properties["patch"]) { $nestedCount++ }
+                        }
                         if ($action -eq "initialize_map") { $initializeContinuationCount++ }
                         if ($action -eq "mutate_graph") { $mutationContinuationCount++ }
                         if ($action -eq "transition_node" -and $transition -eq "bind") { $bindContinuationCount++ }
@@ -100,12 +111,13 @@ function Get-TaskspaceNativeCadenceFacts {
                     }
                 }
                 $nestedActionCount = [int]$nestedActionCount + [int]$nestedCount
-                if ($nestedCount -eq 0) { $stateOnlyControlCount++ }
+                if (-not $hasContinuation) { $stateOnlyControlCount++ }
                 if ($action -in @("finish_end", "complete_then_end")) { $lastFinishIndex = $rowIndex }
                 if ($hasTerminalCandidate) { $terminalCandidateCount++ }
             }
-            $current.Add([pscustomobject]@{
+                $current.Add([pscustomobject]@{
                     name = $name; action = $action; transition = $transition
+                    continuation_kind = $continuationKind
                     nested_action_count = $nestedCount; terminal_candidate = [bool]$hasTerminalCandidate
                 })
             continue
@@ -126,6 +138,9 @@ function Get-TaskspaceNativeCadenceFacts {
     $directToolMixedResponses = 0
     $multiControlCarrierResponses = 0
     $nonterminalTransitionWithoutFollowUp = 0
+    $continuationDeclarations = 0
+    $continuationSatisfied = 0
+    $continuationViolations = 0
     foreach ($batch in $batches) {
         $calls = @($batch)
         $controls = @($calls | Where-Object { $_.name -eq "taskspace_control" })
@@ -133,6 +148,17 @@ function Get-TaskspaceNativeCadenceFacts {
         if ($controls.Count -gt 0 -and $controls.Count -lt $calls.Count) { $directToolMixedResponses++ }
         if ($controls.Count -gt 1) { $multiControlCarrierResponses++ }
         for ($index = 0; $index -lt $calls.Count; $index++) {
+            $continuationKind = [string]$calls[$index].continuation_kind
+            if ($continuationKind -in @("next_tool", "next_apply_patch")) {
+                $continuationDeclarations++
+                $next = if ($index + 1 -lt $calls.Count) { $calls[$index + 1] } else { $null }
+                $satisfied = if ($continuationKind -eq "next_apply_patch") {
+                    $null -ne $next -and $next.name -eq "apply_patch"
+                } else {
+                    $null -ne $next -and $next.name -notin @("taskspace_control", "apply_patch")
+                }
+                if ($satisfied) { $continuationSatisfied++ } else { $continuationViolations++ }
+            }
             if ($calls[$index].action -ne "transition_node" -or $calls[$index].transition -eq "bind") { continue }
             if ($index + 1 -ge $calls.Count) {
                 $nonterminalTransitionWithoutFollowUp++
@@ -166,5 +192,8 @@ function Get-TaskspaceNativeCadenceFacts {
         terminal_candidate_count = [int]$terminalCandidateCount
         terminal_extra_request_count = $terminalExtra
         control_argument_parse_error_count = [int]$controlArgumentParseErrors
+        continuation_declaration_count = [int]$continuationDeclarations
+        continuation_satisfied_count = [int]$continuationSatisfied
+        continuation_violation_count = [int]$continuationViolations
     }
 }

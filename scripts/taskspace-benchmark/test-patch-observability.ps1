@@ -33,18 +33,16 @@ $bootstrap = @{
     action = "initialize_then_actions"
     initial_nodes = @(@{ node_id = "edit"; kind = "implement_solution"; goal = "edit" })
     current_node_id = "edit"
-    continuation = @{
-        kind = "patch_then_actions"
-        patch = @{ tool_name = "apply_patch"; arguments = @{ input = $multiFilePatch } }
-        actions = @(@{ tool_name = "exec_command"; arguments = @{ cmd = "pytest" } })
-    }
+    continuation = "next_apply_patch"
 }
 $preflight = '{"error":{"code":"request_multiple_apply_patch_calls_not_allowed"},"request":{"executed_tool_call_count":0}}'
 $rows = @(
     New-Call "taskspace_control" "bootstrap" $bootstrap
+    New-Call "apply_patch" "bootstrap-patch" @{ input = $multiFilePatch }
+    New-Call "exec_command" "bootstrap-post" @{ cmd = "pytest" }
     New-Output "bootstrap" "completed"
-    New-Output "bootstrap:nested:0" "Success. Updated the following files"
-    New-Output "bootstrap:nested:1" "tests passed"
+    New-Output "bootstrap-patch" "Success. Updated the following files"
+    New-Output "bootstrap-post" "tests passed"
 
     New-Call "apply_patch" "prepare-fail" @{ input = $singlePatch }
     New-Call "exec_command" "post-skip" @{ cmd = "pytest" }
@@ -69,7 +67,7 @@ $rows = @(
 
 $metrics = Get-TaskspacePatchObservability $artifactDir $null
 $expected = [ordered]@{
-    single_patch_carrier_count = 1
+    single_patch_carrier_count = 0
     multi_patch_carrier_attempt_count = 0
     request_patch_count = 5
     max_request_patch_count = 2

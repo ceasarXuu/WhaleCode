@@ -71,30 +71,72 @@ function ConvertTo-ChatTool {
     }
 }
 
+function New-PatchArgumentsSchema {
+    [ordered]@{
+        type = 'object'
+        properties = [ordered]@{
+            input = [ordered]@{ type = 'string'; description = 'Exact apply_patch input.' }
+        }
+        required = @('input')
+        additionalProperties = $false
+    }
+}
+
+function New-SyntheticLegacyControlTool {
+    param($CurrentTool)
+    $tool = Copy-JsonValue $CurrentTool
+    foreach ($actionVariant in @($tool.function.parameters.anyOf)) {
+        if ($null -eq $actionVariant.properties.continuation) { continue }
+        $actionVariant.properties.continuation = [ordered]@{
+            type = 'object'
+            properties = [ordered]@{
+                kind = [ordered]@{ type = 'string'; enum = @('patch_then_actions') }
+                patch = [ordered]@{
+                    type = 'object'
+                    properties = [ordered]@{
+                        tool_name = [ordered]@{ type = 'string'; enum = @('apply_patch') }
+                        arguments = New-PatchArgumentsSchema
+                    }
+                    required = @('tool_name', 'arguments')
+                    additionalProperties = $false
+                }
+                actions = [ordered]@{ type = 'array'; items = [ordered]@{ type = 'object' } }
+            }
+            required = @('kind', 'patch')
+            additionalProperties = $false
+        }
+    }
+    $tool.function.description += ' Synthetic frozen legacy nested-patch carrier used only by this historical diagnostic.'
+    $tool
+}
+
 function New-FlatPatchTool {
     param($CurrentTool)
     $tool = Copy-JsonValue $CurrentTool
-    $tool.function.parameters.'$defs'.patchAction = [ordered]@{
-        type = 'object'
-        properties = [ordered]@{
-            tool_name = [ordered]@{ type = 'string'; enum = @('apply_patch') }
-            input = [ordered]@{ type = 'string'; description = 'Exact apply_patch input.' }
+    foreach ($actionVariant in @($tool.function.parameters.anyOf)) {
+        $continuation = $actionVariant.properties.continuation
+        if ($null -eq $continuation -or $null -eq $continuation.properties.patch) { continue }
+        $continuation.properties.patch = [ordered]@{
+            type = 'object'
+            properties = [ordered]@{
+                tool_name = [ordered]@{ type = 'string'; enum = @('apply_patch') }
+                input = [ordered]@{ type = 'string'; description = 'Exact apply_patch input.' }
+            }
+            required = @('tool_name', 'input')
+            additionalProperties = $false
         }
-        required = @('tool_name', 'input')
-        additionalProperties = $false
     }
     $tool
 }
 
 function New-DirectPatchTool {
-    param($CurrentTool)
     [ordered]@{
         type = 'function'
         function = [ordered]@{
             name = 'apply_patch'
             description = 'Use apply_patch to edit files.'
             strict = $false
-            parameters = Copy-JsonValue $CurrentTool.function.parameters.'$defs'.patchAction.properties.arguments
+            parameters = New-PatchArgumentsSchema
         }
     }
 }
@@ -105,20 +147,15 @@ function New-ContinuationPatchInputTool {
     foreach ($actionVariant in @($tool.function.parameters.anyOf)) {
         $continuation = $actionVariant.properties.continuation
         if ($null -eq $continuation) { continue }
-        $patchVariant = @($continuation.anyOf | Where-Object {
-                $_.properties.kind.enum[0] -eq 'patch_then_actions'
-            })[0]
-        if ($null -eq $patchVariant) { continue }
-        $patchVariant.properties.PSObject.Properties.Remove('patch')
-        $patchVariant.properties | Add-Member -NotePropertyName 'patch_input' -NotePropertyValue ([ordered]@{
+        $continuation.properties.PSObject.Properties.Remove('patch')
+        $continuation.properties | Add-Member -NotePropertyName 'patch_input' -NotePropertyValue ([ordered]@{
                 type = 'string'
                 description = 'Exact apply_patch input; this is the continuation patch slot.'
             })
-        $patchVariant.required = @($patchVariant.required | ForEach-Object {
+        $continuation.required = @($continuation.required | ForEach-Object {
                 if ($_ -eq 'patch') { 'patch_input' } else { $_ }
             })
     }
-    $tool.function.parameters.'$defs'.PSObject.Properties.Remove('patchAction')
     $tool
 }
 
@@ -321,12 +358,12 @@ function Get-Observation {
 }
 
 $responsesTool = Get-ProductionControlTool
-$currentTool = ConvertTo-ChatTool $responsesTool
+$currentTool = New-SyntheticLegacyControlTool (ConvertTo-ChatTool $responsesTool)
 $arms = [ordered]@{
     current_large = [ordered]@{ tool = $currentTool; patch = $largePatch }
     flat_large = [ordered]@{ tool = (New-FlatPatchTool $currentTool); patch = $largePatch }
     current_short = [ordered]@{ tool = $currentTool; patch = $shortPatch }
-    direct_large = [ordered]@{ tool = (New-DirectPatchTool $currentTool); patch = $largePatch }
+    direct_large = [ordered]@{ tool = (New-DirectPatchTool); patch = $largePatch }
     continuation_patch_input_large = [ordered]@{ tool = (New-ContinuationPatchInputTool $currentTool); patch = $largePatch }
     control_top_level_large = [ordered]@{ tool = (New-TopLevelPatchControlTool $currentTool); patch = $largePatch }
 }
@@ -404,7 +441,7 @@ $result = [ordered]@{
     model = $Model
     endpoint = if ($null -eq $fixture) { $Endpoint } else { 'fixture' }
     repeat = $Repeat
-    source_builder = 'codex-tools example r7_nested_patch_control_schema'
+    source_builder = 'synthetic legacy carrier derived from current lifecycle schema'
     privacy = [ordered]@{ api_key_recorded = $false; raw_arguments_recorded = $false; patch_content_recorded = $false }
     summaries = @($summaries)
     events = @($events)

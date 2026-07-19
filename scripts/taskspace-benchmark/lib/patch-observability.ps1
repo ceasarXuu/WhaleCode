@@ -42,6 +42,7 @@ function Get-PatchObservationNestedActions {
     if ($null -eq $arguments) { return @() }
     $continuation = Get-PatchObservationProperty $arguments "continuation"
     if ($null -ne $continuation) {
+        if ($continuation -is [string]) { return @() }
         $kind = [string](Get-PatchObservationProperty $continuation "kind")
         if ($kind -eq "patch_then_actions") {
             $declared = @()

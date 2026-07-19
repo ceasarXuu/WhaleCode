@@ -47,12 +47,12 @@ function Import-LocalCredentialIfNeeded {
     }
 }
 
-function Get-ProductionControlTool {
+function Get-ProductionSequenceTools {
     Push-Location (Join-Path $repoRoot 'third_party/codex-cli/codex-rs')
     try {
-        $json = & cargo run --quiet -p codex-tools --example r7_nested_patch_control_schema 2>$null
+        $json = & cargo run --quiet -p codex-tools --example r7_response_tool_sequence_schema 2>$null
         if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace([string]$json)) {
-            throw 'production taskspace_control schema exporter failed'
+            throw 'production response tool sequence schema exporter failed'
         }
         ([string]$json) | ConvertFrom-Json -Depth 80
     } finally {
@@ -73,44 +73,6 @@ function ConvertTo-ChatTool {
     }
 }
 
-function New-ProposedTools {
-    param($CurrentTool)
-    $control = Copy-JsonValue $CurrentTool
-    $patchArguments = Copy-JsonValue $control.function.parameters.'$defs'.patchAction.properties.arguments
-    foreach ($actionVariant in @($control.function.parameters.anyOf)) {
-        $continuation = $actionVariant.properties.continuation
-        if ($null -eq $continuation) { continue }
-        $kept = @($continuation.anyOf | Where-Object {
-                $_.properties.kind.enum[0] -ne 'patch_then_actions'
-            })
-        $nextPatch = [ordered]@{
-            type = 'object'
-            properties = [ordered]@{
-                kind = [ordered]@{
-                    type = 'string'
-                    enum = @('next_apply_patch')
-                    description = 'The next top-level call in this response must be apply_patch.'
-                }
-            }
-            required = @('kind')
-            additionalProperties = $false
-        }
-        $continuation.anyOf = @($kept) + @($nextPatch)
-    }
-    $control.function.parameters.'$defs'.PSObject.Properties.Remove('patchAction')
-    $control.function.description += ' For next_apply_patch, emit apply_patch as the immediately following top-level tool call in this same response; never nest patch content in taskspace_control.'
-    $patch = [ordered]@{
-        type = 'function'
-        function = [ordered]@{
-            name = 'apply_patch'
-            description = 'Use apply_patch to edit files.'
-            strict = $false
-            parameters = $patchArguments
-        }
-    }
-    @($control, $patch)
-}
-
 function New-MinimalControlTool {
     [ordered]@{
         type = 'function'
@@ -125,14 +87,7 @@ function New-MinimalControlTool {
                     expected_revision = [ordered]@{ type = 'integer' }
                     current_node_id = [ordered]@{ type = 'string' }
                     next_node_id = [ordered]@{ type = 'string' }
-                    continuation = [ordered]@{
-                        type = 'object'
-                        properties = [ordered]@{
-                            kind = [ordered]@{ type = 'string'; enum = @('next_apply_patch') }
-                        }
-                        required = @('kind')
-                        additionalProperties = $false
-                    }
+                    continuation = [ordered]@{ type = 'string'; enum = @('next_apply_patch') }
                 }
                 required = @('action', 'expected_revision', 'current_node_id', 'next_node_id', 'continuation')
                 additionalProperties = $false
@@ -143,19 +98,7 @@ function New-MinimalControlTool {
 
 function New-LeanControlTool {
     param($CurrentTool)
-    $control = Copy-JsonValue $CurrentTool
-    foreach ($actionVariant in @($control.function.parameters.anyOf)) {
-        if ($null -eq $actionVariant.properties.continuation) { continue }
-        $actionVariant.properties.continuation = [ordered]@{
-            type = 'string'
-            enum = @('next_tool', 'next_apply_patch')
-            description = 'Required top-level continuation immediately after this control in the same response.'
-        }
-    }
-    $control.function.parameters.'$defs'.PSObject.Properties.Remove('ordinaryAction')
-    $control.function.parameters.'$defs'.PSObject.Properties.Remove('patchAction')
-    $control.function.description += ' continuation=next_tool requires another top-level tool immediately after this call. continuation=next_apply_patch requires direct apply_patch immediately after this call. Never nest ordinary tool arguments in taskspace_control.'
-    $control
+    Copy-JsonValue $CurrentTool
 }
 
 $largePatch = @'
@@ -281,10 +224,9 @@ function Get-Observation {
     }
 }
 
-$currentTool = ConvertTo-ChatTool (Get-ProductionControlTool)
-$proposedTools = New-ProposedTools $currentTool
-$controlTool = $proposedTools[0]
-$patchTool = $proposedTools[1]
+$productionTools = Get-ProductionSequenceTools
+$controlTool = ConvertTo-ChatTool $productionTools.taskspace_control
+$patchTool = ConvertTo-ChatTool $productionTools.apply_patch
 $fixture = if ([string]::IsNullOrWhiteSpace($FixturePath)) { $null } else {
     (Get-Content -Raw -LiteralPath $FixturePath) | ConvertFrom-Json -Depth 80
 }
@@ -295,7 +237,7 @@ if ($null -eq $fixture) {
     }
 }
 
-$controlInstruction = 'taskspace_control with action complete_then_continue, expected_revision 2, current_node_id explore, next_node_id fix, and continuation kind next_apply_patch'
+$controlInstruction = 'taskspace_control with action complete_then_continue, expected_revision 2, current_node_id explore, next_node_id fix, and continuation next_apply_patch'
 $armConfig = switch ($Arm) {
     'sibling_control_first' {
         [ordered]@{

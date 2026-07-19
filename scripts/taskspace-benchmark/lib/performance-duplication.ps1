@@ -57,6 +57,7 @@ function Get-PerformanceDeclaredNestedActions {
     param($Arguments)
     $continuation = Get-PerformanceProperty $Arguments "continuation"
     if ($null -eq $continuation) { return @() }
+    if ($continuation -is [string]) { return @() }
     $kind = [string](Get-PerformanceProperty $continuation "kind")
     if ($kind -eq "actions") {
         return @((Get-PerformanceProperty $continuation "actions" @()))
