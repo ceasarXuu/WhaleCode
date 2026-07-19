@@ -2,7 +2,7 @@
 
 - Created: 2026-07-20
 - Updated: 2026-07-20
-- Version: 0.1
+- Version: 0.2
 - Status: Draft
 - Owner / Responsible: WhaleCode R7
 - Related Systems: TaskSpace context、taskspace_control、provider input、benchmark observer
@@ -28,7 +28,9 @@ meaningful task-phase boundary 没有定义；“不要每次工具后更新”�
 时序规则。Agent 因此可以在 explore 节点中完成 Patch 和 pytest，最后才补走 fix、verify。
 
 这次改动不是在原七条规则中继续追加提醒，而是参考 Bug Killer 的教学结构，把协议重构为一份简洁但
-完整的工作方法：先说明目的和模型，再定义概念、职责、工作循环、调用形态、失败恢复和反模式。
+完整的工作方法：首先让 Agent 理解 Map 的设计意图和工作价值，再定义概念、职责、工作循环、调用形态、
+失败恢复和反模式。开头不使用“强制、不可绕过”等对抗式表述；TaskSpace 应被理解为当前环境自然提供的
+默认工作方式，硬底线只在后续机械操作规则中准确说明。
 
 ## 2. 版本决策
 
@@ -48,7 +50,7 @@ meaningful task-phase boundary 没有定义；“不要每次工具后更新”�
 | Tool schema | 可用 action、参数、组合调用的机械形状 | 教授完整工作方法、推断节点语义 |
 | Projection / feedback | 忠实提供当前 Map、状态提交和工具结果 | 提示、再解释、替 Agent 选择下一动作 |
 | Runtime | 图结构、revision、Ready、binding、调用顺序等硬规则 | 判断 Patch/pytest 属于哪个节点、识别 filler、自动迁移节点 |
-| Agent | 拆解目标、判断边界、选择节点、决定动作、处理失败、提交总结 | 绕过 Map 或把状态责任推给 Runtime |
+| Agent | 拆解目标、判断边界、选择节点、决定动作、处理失败、提交总结 | 把 Map 当作事后文档或把状态责任推给 Runtime |
 
 ## 4. 候选协议正文
 
@@ -63,18 +65,44 @@ TaskSpaceCoreWorkingProtocolV1:
 - scope: all_taskspace_projection_policies
 - delivery: stable_developer_prefix
 
-Purpose and mental model
+Purpose and design intent
 
-TaskSpace is the mandatory live execution map for this task. It reorganizes the
-same work that would otherwise exist only in linear conversation into a rooted,
-directed lifecycle graph. It is not a second transcript, an end-of-task checklist,
-or a Runtime-authored plan.
+TaskSpace gives you a live task map for understanding, organizing, and advancing
+this task. Treat it as the normal working surface for the task: use the Map to
+hold the global structure and current execution state while natural conversation
+carries the detailed evidence and tool history.
 
-Natural conversation retains detailed reasoning, tool calls, feedback, and
-evidence. The Map retains the task topology, node goals, dependency edges,
-current binding, lifecycle state, and durable results. Keep the Map aligned with
-work while the work happens; never perform the task first and reconcile the Map
-afterward.
+Conversation is naturally linear, but software work is often not. A task may
+contain parallel discoveries, ordered dependencies, blocked branches, revisions,
+implementation work, and verification that must converge on one outcome. In a
+long linear history, the overall goal, current focus, completed work, remaining
+dependencies, and reason for the next action can become difficult to see at once.
+
+The Map reorganizes that same work into a rooted directed graph. It gives you:
+
+- a stable view of the overall goal and the route from Root to Finish;
+- an explicit record of meaningful Work goals and their dependencies;
+- a clear current binding, so the next action stays connected to the goal it
+  serves;
+- visible completion and readiness boundaries, so finished work, available work,
+  and blocked work do not blur together;
+- a place to revise task structure when evidence changes the plan without losing
+  the detailed history that led to the change;
+- a recoverable progress model that helps avoid forgotten work, repeated
+  discovery, premature completion, and loops after failures or long sessions.
+
+Used well, the Map reduces how much task state you must reconstruct from raw
+history before every decision. At any point, it should make these questions easy
+to answer: What outcome am I pursuing? Which Work goal am I advancing now? What
+evidence is already established? Which dependencies or goals remain? Why is the
+next action the right one? What must be true before the task can finish? This
+shared view makes long-running work easier to resume, revise, and complete
+without losing the thread of the task.
+
+TaskSpace does not replace conversation or duplicate it. Conversation preserves
+the full local detail; the Map preserves the compact global organization needed
+to keep decisions coherent over time. The Map should therefore move with the
+work as it happens, not be reconstructed after the work is already complete.
 
 Graph model
 
@@ -91,7 +119,7 @@ Graph model
   action and its feedback execute under that binding and must serve that node's
   goal.
 
-Ownership and hard boundary
+Ownership and support boundary
 
 You own all semantic decisions: task decomposition, node goals, dependencies,
 completion criteria, the selected Ready successor, recovery actions, and the
@@ -100,16 +128,17 @@ binding, terminal, and tool-sequence rules. Runtime never decides what a command
 means, which node a Patch or test belongs to, whether a node is complete, or what
 you should do next.
 
-Non-negotiable operating invariants
+Operating principles
 
-1. TaskSpace is mandatory and cannot be bypassed.
-2. No ordinary tool or subagent work may begin before bootstrap completes.
-3. The current binding and the purpose of the next real action must agree.
-4. Before the first action whose purpose belongs to another Work node, complete
+1. Start by establishing the Map before ordinary tool or subagent work begins.
+2. Keep the current binding and the purpose of the next real action aligned.
+3. Before the first action whose purpose belongs to another Work node, complete
    the current node and bind the selected Ready successor in the same response;
    make that real action the successor's first sibling call.
-5. Update the Map at semantic work boundaries, not after every tool result and
+4. Update the Map at semantic work boundaries, not after every tool result and
    never after successor work has already happened.
+5. Preserve detailed evidence in conversation and compact task organization in
+   the Map instead of duplicating one into the other.
 6. Never invent filler work, repeat completed verification, or use no-op shell
    commands only to satisfy a lifecycle shape.
 
