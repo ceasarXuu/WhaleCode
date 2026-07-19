@@ -110,9 +110,9 @@ impl ToolHandler for TaskSpaceControlHandler {
                 return Err(error);
             }
         };
-        let continuation_kind = args
-            .continuation_requirement()
-            .map_or("none", |continuation| continuation.as_str());
+        let required_next_call = args
+            .required_next_call()
+            .map_or("none", |required| required.as_str());
 
         let (message, success, terminal_carrier) = match args {
             TaskSpaceControlArgs::InitializeMap {
@@ -121,7 +121,7 @@ impl ToolHandler for TaskSpaceControlHandler {
                 finish_identity,
                 additional_work_nodes,
                 edges,
-                continuation: _,
+                required_next_call: _,
             } => {
                 let source_event_ids = session
                     .taskspace_initialization_source_event_ids(&call_id)
@@ -169,25 +169,25 @@ impl ToolHandler for TaskSpaceControlHandler {
                 add_nodes,
                 add_edges,
                 remove_edges,
-                continuation,
+                required_next_call,
             } => {
-                let continuation_binding_valid = if continuation.is_some() {
+                let required_call_binding_valid = if required_next_call.is_some() {
                     control_state_has_active_binding(
                         session.action_map_control_state(None).await.as_ref(),
                     )
                 } else {
                     true
                 };
-                if !continuation_binding_valid {
+                if !required_call_binding_valid {
                     tracing::warn!(
                         target: "codex_core::taskspace",
                         call_id,
                         expected_revision,
-                        "taskspace.graph_mutation_continuation_rejected_without_binding"
+                            "taskspace.graph_mutation_required_call_rejected_without_binding"
                     );
                     (
                         rejected_control_result(
-                            "TaskSpace mutate_graph continuation requires an existing current node binding and lease. hard_state: no_current_node_binding.",
+                            "TaskSpace mutate_graph required_next_call requires an existing current node binding and lease. hard_state: no_current_node_binding.",
                         ),
                         false,
                         None,
@@ -230,7 +230,7 @@ impl ToolHandler for TaskSpaceControlHandler {
                 expected_revision,
                 node_id,
                 transition,
-                continuation: _,
+                required_next_call: _,
             } => {
                 let source_event_ref = session
                     .taskspace_event_id_for_call(&call_id)
@@ -269,7 +269,7 @@ impl ToolHandler for TaskSpaceControlHandler {
                 expected_revision,
                 current_node_id,
                 next_node_id,
-                continuation: _,
+                required_next_call: _,
             } => {
                 let source_event_ref = session
                     .taskspace_event_id_for_call(&call_id)
@@ -293,7 +293,7 @@ impl ToolHandler for TaskSpaceControlHandler {
                             revision = outcome.revision,
                             current_node_id,
                             next_node_id,
-                            continuation_kind,
+                            required_next_call,
                             "taskspace.complete_handoff_committed"
                         );
                         (
@@ -320,7 +320,7 @@ impl ToolHandler for TaskSpaceControlHandler {
                             expected_revision,
                             current_node_id,
                             next_node_id,
-                            continuation_kind,
+                            required_next_call,
                             "taskspace.complete_handoff_rejected"
                         );
                         (rejected_control_result(&error), false, None)

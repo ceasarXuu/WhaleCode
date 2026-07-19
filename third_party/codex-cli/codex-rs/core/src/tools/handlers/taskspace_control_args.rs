@@ -16,26 +16,26 @@ pub(crate) enum TaskSpaceControlArgs {
         finish_identity: TaskSpaceFinishIdentityArgs,
         additional_work_nodes: Vec<TaskSpaceGraphNodeArgs>,
         edges: Vec<TaskSpaceGraphEdgeArgs>,
-        continuation: TaskSpaceContinuation,
+        required_next_call: TaskSpaceRequiredNextCall,
     },
     MutateGraph {
         expected_revision: u64,
         add_nodes: Vec<TaskSpaceGraphNodeArgs>,
         add_edges: Vec<TaskSpaceGraphEdgeArgs>,
         remove_edges: Vec<TaskSpaceGraphEdgeArgs>,
-        continuation: Option<TaskSpaceContinuation>,
+        required_next_call: Option<TaskSpaceRequiredNextCall>,
     },
     TransitionNode {
         expected_revision: u64,
         node_id: String,
         transition: TaskSpaceNodeTransition,
-        continuation: Option<TaskSpaceContinuation>,
+        required_next_call: Option<TaskSpaceRequiredNextCall>,
     },
     CompleteThenContinue {
         expected_revision: u64,
         current_node_id: String,
         next_node_id: String,
-        continuation: TaskSpaceContinuation,
+        required_next_call: TaskSpaceRequiredNextCall,
     },
     CompleteThenEnd {
         expected_revision: u64,
@@ -91,38 +91,44 @@ pub(crate) enum TaskSpaceNodeTransition {
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
 #[serde(rename_all = "snake_case")]
-pub(crate) enum TaskSpaceContinuation {
-    NextTool,
-    NextApplyPatch,
+pub(crate) enum TaskSpaceRequiredNextCall {
+    OrdinaryTool,
+    ApplyPatch,
 }
 
-impl TaskSpaceContinuation {
+impl TaskSpaceRequiredNextCall {
     pub(crate) fn as_str(self) -> &'static str {
         match self {
-            Self::NextTool => "next_tool",
-            Self::NextApplyPatch => "next_apply_patch",
+            Self::OrdinaryTool => "ordinary_tool",
+            Self::ApplyPatch => "apply_patch",
         }
     }
 }
 
 impl TaskSpaceControlArgs {
-    pub(crate) fn continuation_requirement(&self) -> Option<TaskSpaceContinuation> {
+    pub(crate) fn required_next_call(&self) -> Option<TaskSpaceRequiredNextCall> {
         match self {
-            Self::InitializeMap { continuation, .. }
-            | Self::CompleteThenContinue { continuation, .. } => Some(*continuation),
+            Self::InitializeMap {
+                required_next_call, ..
+            }
+            | Self::CompleteThenContinue {
+                required_next_call, ..
+            } => Some(*required_next_call),
             Self::MutateGraph {
-                continuation: Some(continuation),
+                required_next_call: Some(required_next_call),
                 ..
             }
             | Self::TransitionNode {
-                continuation: Some(continuation),
+                required_next_call: Some(required_next_call),
                 ..
-            } => Some(*continuation),
+            } => Some(*required_next_call),
             Self::MutateGraph {
-                continuation: None, ..
+                required_next_call: None,
+                ..
             }
             | Self::TransitionNode {
-                continuation: None, ..
+                required_next_call: None,
+                ..
             }
             | Self::CompleteThenEnd { .. }
             | Self::FinishEnd { .. }
@@ -140,7 +146,7 @@ impl TaskSpaceControlArgs {
                 finish_identity,
                 additional_work_nodes,
                 edges,
-                continuation: _,
+                required_next_call: _,
             } => {
                 validate_initialize_map(
                     root,
@@ -155,7 +161,7 @@ impl TaskSpaceControlArgs {
                 add_nodes,
                 add_edges,
                 remove_edges,
-                continuation: _,
+                required_next_call: _,
                 ..
             } => {
                 if add_nodes.is_empty() && add_edges.is_empty() && remove_edges.is_empty() {
@@ -173,19 +179,19 @@ impl TaskSpaceControlArgs {
             Self::TransitionNode {
                 node_id,
                 transition,
-                continuation,
+                required_next_call,
                 ..
             } => {
                 if node_id.trim().is_empty() {
                     return invalid("transition_node requires a non-empty node_id");
                 }
-                match (transition, continuation) {
+                match (transition, required_next_call) {
                     (TaskSpaceNodeTransition::Bind, Some(_)) => Ok(()),
                     (TaskSpaceNodeTransition::Bind, None) => {
-                        invalid("transition_node bind requires continuation")
+                        invalid("transition_node bind requires required_next_call")
                     }
                     (_, Some(_)) => invalid(
-                        "transition_node continuation is only valid with the bind transition",
+                        "transition_node required_next_call is only valid with the bind transition",
                     ),
                     (_, None) => Ok(()),
                 }
@@ -193,7 +199,7 @@ impl TaskSpaceControlArgs {
             Self::CompleteThenContinue {
                 current_node_id,
                 next_node_id,
-                continuation: _,
+                required_next_call: _,
                 ..
             } => {
                 if current_node_id.trim().is_empty() || next_node_id.trim().is_empty() {

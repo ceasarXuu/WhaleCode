@@ -1,9 +1,9 @@
-use super::TaskSpaceContinuation;
 use super::TaskSpaceControlArgs;
 use super::TaskSpaceFinishIdentityArgs;
 use super::TaskSpaceGraphEdgeArgs;
 use super::TaskSpaceGraphNodeArgs;
 use super::TaskSpaceNodeTransition;
+use super::TaskSpaceRequiredNextCall;
 use super::invalid_error;
 use crate::function_tool::FunctionCallError;
 use serde::Deserialize;
@@ -38,7 +38,7 @@ struct InitializeMapArgs {
     finish_identity: TaskSpaceFinishIdentityArgs,
     additional_work_nodes: Vec<TaskSpaceGraphNodeArgs>,
     edges: Vec<TaskSpaceGraphEdgeArgs>,
-    continuation: TaskSpaceContinuation,
+    required_next_call: TaskSpaceRequiredNextCall,
 }
 
 #[derive(Debug, Deserialize)]
@@ -51,7 +51,7 @@ struct MutateGraphArgs {
     add_edges: Vec<TaskSpaceGraphEdgeArgs>,
     remove_edges: Vec<TaskSpaceGraphEdgeArgs>,
     #[serde(default)]
-    continuation: Option<TaskSpaceContinuation>,
+    required_next_call: Option<TaskSpaceRequiredNextCall>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -63,7 +63,7 @@ struct TransitionNodeArgs {
     node_id: String,
     transition: TaskSpaceNodeTransition,
     #[serde(default)]
-    continuation: Option<TaskSpaceContinuation>,
+    required_next_call: Option<TaskSpaceRequiredNextCall>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -74,7 +74,7 @@ struct CompleteThenContinueArgs {
     expected_revision: u64,
     current_node_id: String,
     next_node_id: String,
-    continuation: TaskSpaceContinuation,
+    required_next_call: TaskSpaceRequiredNextCall,
 }
 
 #[derive(Debug, Deserialize)]
@@ -138,7 +138,7 @@ pub(super) fn parse(arguments: &str) -> Result<TaskSpaceControlArgs, FunctionCal
                 finish_identity: parsed.finish_identity,
                 additional_work_nodes: parsed.additional_work_nodes,
                 edges: parsed.edges,
-                continuation: parsed.continuation,
+                required_next_call: parsed.required_next_call,
             })
         }
         Action::MutateGraph => {
@@ -148,7 +148,7 @@ pub(super) fn parse(arguments: &str) -> Result<TaskSpaceControlArgs, FunctionCal
                 add_nodes: parsed.add_nodes,
                 add_edges: parsed.add_edges,
                 remove_edges: parsed.remove_edges,
-                continuation: parsed.continuation,
+                required_next_call: parsed.required_next_call,
             })
         }
         Action::TransitionNode => {
@@ -157,7 +157,7 @@ pub(super) fn parse(arguments: &str) -> Result<TaskSpaceControlArgs, FunctionCal
                 expected_revision: parsed.expected_revision,
                 node_id: parsed.node_id,
                 transition: parsed.transition,
-                continuation: parsed.continuation,
+                required_next_call: parsed.required_next_call,
             })
         }
         Action::CompleteThenContinue => {
@@ -166,7 +166,7 @@ pub(super) fn parse(arguments: &str) -> Result<TaskSpaceControlArgs, FunctionCal
                 expected_revision: parsed.expected_revision,
                 current_node_id: parsed.current_node_id,
                 next_node_id: parsed.next_node_id,
-                continuation: parsed.continuation,
+                required_next_call: parsed.required_next_call,
             })
         }
         Action::CompleteThenEnd => {

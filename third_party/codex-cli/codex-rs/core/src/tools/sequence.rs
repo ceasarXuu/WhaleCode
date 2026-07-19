@@ -74,13 +74,13 @@ pub(crate) async fn execute_response_tool_sequence(
         "tool.request_patch_count_validated"
     );
     for (index, entry) in manifest.entries.iter().enumerate() {
-        if let Some(requirement) = entry.continuation_requirement {
+        if let Some(requirement) = entry.required_next_call {
             tracing::info!(
                 target: "codex_core::taskspace",
                 call_id = entry.call_id,
-                continuation = requirement.as_str(),
+                required_next_call = requirement.as_str(),
                 next_call_id = manifest.entries[index + 1].call_id,
-                "taskspace.response_continuation_validated"
+                "taskspace.response_required_next_call_validated"
             );
         }
     }

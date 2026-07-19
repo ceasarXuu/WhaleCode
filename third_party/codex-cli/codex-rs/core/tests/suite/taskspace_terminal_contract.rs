@@ -45,7 +45,7 @@ fn initialize_arguments() -> String {
             {"from": "work", "to": "verify"},
             {"from": "verify", "to": "finish"}
         ],
-        "continuation": "next_tool"
+        "required_next_call": "ordinary_tool"
     })
     .to_string()
 }
@@ -56,7 +56,7 @@ fn transition_arguments() -> String {
         "expected_revision": 2,
         "current_node_id": "work",
         "next_node_id": "verify",
-        "continuation": "next_tool"
+        "required_next_call": "ordinary_tool"
     })
     .to_string()
 }

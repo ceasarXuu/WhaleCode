@@ -4,33 +4,33 @@ use serde_json::Value as JsonValue;
 #[test]
 fn accepts_complete_root_work_finish_initialization() {
     let args = parse_taskspace_control_args(
-        r#"{"action":"initialize_map","root":{"node_id":"root","goal":"Start"},"initial_work_node":{"node_id":"work","goal":"Do work"},"additional_work_nodes":[],"finish_identity":{"id":"finish"},"edges":[{"from":"root","to":"work"},{"from":"work","to":"finish"}],"continuation":"next_tool"}"#,
+        r#"{"action":"initialize_map","root":{"node_id":"root","goal":"Start"},"initial_work_node":{"node_id":"work","goal":"Do work"},"additional_work_nodes":[],"finish_identity":{"id":"finish"},"edges":[{"from":"root","to":"work"},{"from":"work","to":"finish"}],"required_next_call":"ordinary_tool"}"#,
     )
     .expect("valid args");
     assert!(matches!(args, TaskSpaceControlArgs::InitializeMap { .. }));
     assert_eq!(
-        args.continuation_requirement(),
-        Some(TaskSpaceContinuation::NextTool)
+        args.required_next_call(),
+        Some(TaskSpaceRequiredNextCall::OrdinaryTool)
     );
 }
 
 #[test]
 fn accepts_zero_edge_three_node_initialization_for_runtime_validator() {
     parse_taskspace_control_args(
-        r#"{"action":"initialize_map","root":{"node_id":"root","goal":"Start"},"initial_work_node":{"node_id":"work","goal":"Do work"},"additional_work_nodes":[],"finish_identity":{"id":"finish"},"edges":[],"continuation":"next_tool"}"#,
+        r#"{"action":"initialize_map","root":{"node_id":"root","goal":"Start"},"initial_work_node":{"node_id":"work","goal":"Do work"},"additional_work_nodes":[],"finish_identity":{"id":"finish"},"edges":[],"required_next_call":"ordinary_tool"}"#,
     )
     .expect("schema-level zero-edge two-node graph is parseable");
 }
 
 #[test]
-fn accepts_declared_top_level_patch_continuation() {
+fn accepts_declared_top_level_patch_requirement() {
     let args = parse_taskspace_control_args(
-        r#"{"action":"initialize_map","root":{"node_id":"root","goal":"Start"},"initial_work_node":{"node_id":"work","goal":"Do work"},"additional_work_nodes":[],"finish_identity":{"id":"finish"},"edges":[],"continuation":"next_apply_patch"}"#,
+        r#"{"action":"initialize_map","root":{"node_id":"root","goal":"Start"},"initial_work_node":{"node_id":"work","goal":"Do work"},"additional_work_nodes":[],"finish_identity":{"id":"finish"},"edges":[],"required_next_call":"apply_patch"}"#,
     )
-    .expect("valid patch continuation");
+    .expect("valid patch requirement");
     assert_eq!(
-        args.continuation_requirement(),
-        Some(TaskSpaceContinuation::NextApplyPatch)
+        args.required_next_call(),
+        Some(TaskSpaceRequiredNextCall::ApplyPatch)
     );
 }
 
@@ -38,13 +38,15 @@ fn accepts_declared_top_level_patch_continuation() {
 fn rejects_legacy_actions_old_fields_and_patch_in_ordinary_actions() {
     let legacy = r#"{"action":"initialize_then_actions","initial_nodes":[{"node_id":"node-1","kind":"implement_solution","goal":"Edit"}],"current_node_id":"node-1","actions":[{"tool_name":"apply_patch","input":"patch"}]}"#;
     assert!(parse_taskspace_control_args(legacy).is_err());
-    let old_field = r#"{"action":"initialize_map","root":{"node_id":"root","goal":"Start","kind":"inspect_code_context"},"initial_work_node":{"node_id":"work","goal":"Do work"},"additional_work_nodes":[],"finish_identity":{"id":"finish"},"edges":[],"continuation":"next_tool"}"#;
+    let old_field = r#"{"action":"initialize_map","root":{"node_id":"root","goal":"Start","kind":"inspect_code_context"},"initial_work_node":{"node_id":"work","goal":"Do work"},"additional_work_nodes":[],"finish_identity":{"id":"finish"},"edges":[],"required_next_call":"ordinary_tool"}"#;
     assert!(parse_taskspace_control_args(old_field).is_err());
     let nested_actions = r#"{"action":"initialize_map","root":{"node_id":"root","goal":"Start"},"initial_work_node":{"node_id":"work","goal":"Do work"},"additional_work_nodes":[],"finish_identity":{"id":"finish"},"edges":[],"continuation":{"kind":"actions","actions":[{"tool_name":"apply_patch","input":"patch"}]}}"#;
     assert!(parse_taskspace_control_args(nested_actions).is_err());
     let nested_patch = r#"{"action":"initialize_map","root":{"node_id":"root","goal":"Start"},"initial_work_node":{"node_id":"work","goal":"Do work"},"additional_work_nodes":[],"finish_identity":{"id":"finish"},"edges":[],"continuation":{"kind":"patch_then_actions","patch":{"tool_name":"apply_patch","input":"patch-1"}}}"#;
     assert!(parse_taskspace_control_args(nested_patch).is_err());
-    let old_current_id = r#"{"action":"initialize_map","root":{"node_id":"root","goal":"Start"},"work_nodes":[{"node_id":"work","goal":"Do work"}],"finish_identity":{"id":"finish"},"edges":[{"from":"root","to":"work"},{"from":"work","to":"finish"}],"current_node_id":"work","continuation":"next_tool"}"#;
+    let legacy_scalar = r#"{"action":"initialize_map","root":{"node_id":"root","goal":"Start"},"initial_work_node":{"node_id":"work","goal":"Do work"},"additional_work_nodes":[],"finish_identity":{"id":"finish"},"edges":[],"continuation":"next_tool"}"#;
+    assert!(parse_taskspace_control_args(legacy_scalar).is_err());
+    let old_current_id = r#"{"action":"initialize_map","root":{"node_id":"root","goal":"Start"},"work_nodes":[{"node_id":"work","goal":"Do work"}],"finish_identity":{"id":"finish"},"edges":[{"from":"root","to":"work"},{"from":"work","to":"finish"}],"current_node_id":"work","required_next_call":"ordinary_tool"}"#;
     assert!(parse_taskspace_control_args(old_current_id).is_err());
 }
 
@@ -61,7 +63,7 @@ fn rejects_removed_active_actions() {
 #[test]
 fn rejects_finish_identity_work_goal_instead_of_ignoring_it() {
     let payload = invalid_payload(
-        r#"{"action":"initialize_map","root":{"node_id":"root","goal":"Start"},"initial_work_node":{"node_id":"work","goal":"Do and verify work"},"additional_work_nodes":[],"finish_identity":{"id":"finish","goal":"Verify and summarize"},"edges":[{"from":"root","to":"work"},{"from":"work","to":"finish"}],"continuation":"next_tool"}"#,
+        r#"{"action":"initialize_map","root":{"node_id":"root","goal":"Start"},"initial_work_node":{"node_id":"work","goal":"Do and verify work"},"additional_work_nodes":[],"finish_identity":{"id":"finish","goal":"Verify and summarize"},"edges":[{"from":"root","to":"work"},{"from":"work","to":"finish"}],"required_next_call":"ordinary_tool"}"#,
     );
     let message = payload["error"]["message"].as_str().expect("message");
     assert!(message.contains("finish_identity"), "{message}");
@@ -71,8 +73,8 @@ fn rejects_finish_identity_work_goal_instead_of_ignoring_it() {
 #[test]
 fn rejects_legacy_finish_wire_shapes() {
     for arguments in [
-        r#"{"action":"initialize_map","root":{"node_id":"root","goal":"Start"},"initial_work_node":{"node_id":"work","goal":"Do work"},"additional_work_nodes":[],"finish":{"node_id":"finish"},"edges":[],"continuation":"next_tool"}"#,
-        r#"{"action":"initialize_map","root":{"node_id":"root","goal":"Start"},"initial_work_node":{"node_id":"work","goal":"Do work"},"additional_work_nodes":[],"finish_identity":{"node_id":"finish"},"edges":[],"continuation":"next_tool"}"#,
+        r#"{"action":"initialize_map","root":{"node_id":"root","goal":"Start"},"initial_work_node":{"node_id":"work","goal":"Do work"},"additional_work_nodes":[],"finish":{"node_id":"finish"},"edges":[],"required_next_call":"ordinary_tool"}"#,
+        r#"{"action":"initialize_map","root":{"node_id":"root","goal":"Start"},"initial_work_node":{"node_id":"work","goal":"Do work"},"additional_work_nodes":[],"finish_identity":{"node_id":"finish"},"edges":[],"required_next_call":"ordinary_tool"}"#,
     ] {
         let payload = invalid_payload(arguments);
         let message = payload["error"]["message"].as_str().expect("message");
@@ -83,7 +85,7 @@ fn rejects_legacy_finish_wire_shapes() {
 #[test]
 fn reports_root_path_when_required_goal_is_missing() {
     let payload = invalid_payload(
-        r#"{"action":"initialize_map","root":{"node_id":"root"},"initial_work_node":{"node_id":"work","goal":"Do work"},"additional_work_nodes":[],"finish_identity":{"id":"finish"},"edges":[],"continuation":"next_tool"}"#,
+        r#"{"action":"initialize_map","root":{"node_id":"root"},"initial_work_node":{"node_id":"work","goal":"Do work"},"additional_work_nodes":[],"finish_identity":{"id":"finish"},"edges":[],"required_next_call":"ordinary_tool"}"#,
     );
     let message = payload["error"]["message"].as_str().expect("message");
     assert!(message.contains("root"), "{message}");
@@ -93,7 +95,7 @@ fn reports_root_path_when_required_goal_is_missing() {
 #[test]
 fn reports_array_index_when_additional_work_goal_is_missing() {
     let payload = invalid_payload(
-        r#"{"action":"initialize_map","root":{"node_id":"root","goal":"Start"},"initial_work_node":{"node_id":"work","goal":"Do work"},"additional_work_nodes":[{"node_id":"later"}],"finish_identity":{"id":"finish"},"edges":[],"continuation":"next_tool"}"#,
+        r#"{"action":"initialize_map","root":{"node_id":"root","goal":"Start"},"initial_work_node":{"node_id":"work","goal":"Do work"},"additional_work_nodes":[{"node_id":"later"}],"finish_identity":{"id":"finish"},"edges":[],"required_next_call":"ordinary_tool"}"#,
     );
     let message = payload["error"]["message"].as_str().expect("message");
     assert!(message.contains("additional_work_nodes[0]"), "{message}");
@@ -103,32 +105,32 @@ fn reports_array_index_when_additional_work_goal_is_missing() {
 #[test]
 fn accepts_r6_active_actions() {
     let mutation = parse_taskspace_control_args(
-        r#"{"action":"mutate_graph","expected_revision":1,"add_nodes":[{"node_id":"new","goal":"New"}],"add_edges":[],"remove_edges":[],"continuation":"next_tool"}"#,
+        r#"{"action":"mutate_graph","expected_revision":1,"add_nodes":[{"node_id":"new","goal":"New"}],"add_edges":[],"remove_edges":[],"required_next_call":"ordinary_tool"}"#,
     )
     .expect("valid graph mutation");
     assert_eq!(
-        mutation.continuation_requirement(),
-        Some(TaskSpaceContinuation::NextTool)
+        mutation.required_next_call(),
+        Some(TaskSpaceRequiredNextCall::OrdinaryTool)
     );
     let bind = parse_taskspace_control_args(
-        r#"{"action":"transition_node","expected_revision":2,"node_id":"new","transition":"bind","continuation":"next_tool"}"#,
+        r#"{"action":"transition_node","expected_revision":2,"node_id":"new","transition":"bind","required_next_call":"ordinary_tool"}"#,
     )
     .expect("valid transition");
     assert_eq!(
-        bind.continuation_requirement(),
-        Some(TaskSpaceContinuation::NextTool)
+        bind.required_next_call(),
+        Some(TaskSpaceRequiredNextCall::OrdinaryTool)
     );
     parse_taskspace_control_args(
         r#"{"action":"transition_node","expected_revision":3,"node_id":"new","transition":"rework"}"#,
     )
     .expect("valid rework transition");
     let handoff = parse_taskspace_control_args(
-        r#"{"action":"complete_then_continue","expected_revision":4,"current_node_id":"new","next_node_id":"verify","continuation":"next_tool"}"#,
+        r#"{"action":"complete_then_continue","expected_revision":4,"current_node_id":"new","next_node_id":"verify","required_next_call":"ordinary_tool"}"#,
     )
     .expect("valid atomic handoff");
     assert_eq!(
-        handoff.continuation_requirement(),
-        Some(TaskSpaceContinuation::NextTool)
+        handoff.required_next_call(),
+        Some(TaskSpaceRequiredNextCall::OrdinaryTool)
     );
     parse_taskspace_control_args(
         r#"{"action":"complete_then_end","expected_revision":5,"current_node_id":"verify","final_summary":"Done"}"#,
@@ -141,13 +143,13 @@ fn accepts_r6_active_actions() {
 }
 
 #[test]
-fn standalone_complete_is_unrepresentable_and_handoffs_require_continuation() {
+fn standalone_complete_is_unrepresentable_and_handoffs_require_next_call() {
     assert!(parse_taskspace_control_args(
         r#"{"action":"transition_node","expected_revision":2,"node_id":"new","transition":"bind"}"#,
     )
     .is_err());
     assert!(parse_taskspace_control_args(
-        r#"{"action":"transition_node","expected_revision":2,"node_id":"new","transition":"complete","continuation":"next_tool"}"#,
+        r#"{"action":"transition_node","expected_revision":2,"node_id":"new","transition":"complete","required_next_call":"ordinary_tool"}"#,
     )
     .is_err());
     assert!(parse_taskspace_control_args(
@@ -175,15 +177,15 @@ fn mutation_arrays_are_required_and_not_all_empty() {
 #[test]
 fn validates_non_empty_and_duplicate_ids_and_edges() {
     assert!(parse_taskspace_control_args(
-        r#"{"action":"initialize_map","root":{"node_id":"same","goal":"Start"},"initial_work_node":{"node_id":"work","goal":"Do work"},"additional_work_nodes":[],"finish_identity":{"id":"same"},"edges":[],"continuation":"next_tool"}"#
+        r#"{"action":"initialize_map","root":{"node_id":"same","goal":"Start"},"initial_work_node":{"node_id":"work","goal":"Do work"},"additional_work_nodes":[],"finish_identity":{"id":"same"},"edges":[],"required_next_call":"ordinary_tool"}"#
     )
     .is_err());
     assert!(parse_taskspace_control_args(
-        r#"{"action":"initialize_map","root":{"node_id":"root","goal":"Start"},"initial_work_node":{"node_id":"root","goal":"Do work"},"additional_work_nodes":[],"finish_identity":{"id":"finish"},"edges":[],"continuation":"next_tool"}"#
+        r#"{"action":"initialize_map","root":{"node_id":"root","goal":"Start"},"initial_work_node":{"node_id":"root","goal":"Do work"},"additional_work_nodes":[],"finish_identity":{"id":"finish"},"edges":[],"required_next_call":"ordinary_tool"}"#
     )
     .is_err());
     assert!(parse_taskspace_control_args(
-        r#"{"action":"initialize_map","root":{"node_id":"root","goal":"Start"},"initial_work_node":{"node_id":"work","goal":"Do work"},"additional_work_nodes":[{"node_id":"work","goal":"Do work"}],"finish_identity":{"id":"finish"},"edges":[],"continuation":"next_tool"}"#
+        r#"{"action":"initialize_map","root":{"node_id":"root","goal":"Start"},"initial_work_node":{"node_id":"work","goal":"Do work"},"additional_work_nodes":[{"node_id":"work","goal":"Do work"}],"finish_identity":{"id":"finish"},"edges":[],"required_next_call":"ordinary_tool"}"#
     )
     .is_err());
     assert!(parse_taskspace_control_args(
@@ -192,7 +194,7 @@ fn validates_non_empty_and_duplicate_ids_and_edges() {
     .is_err());
     assert!(
         parse_taskspace_control_args(
-            r#"{"action":"transition_node","expected_revision":2,"node_id":"","transition":"bind","continuation":"next_tool"}"#
+            r#"{"action":"transition_node","expected_revision":2,"node_id":"","transition":"bind","required_next_call":"ordinary_tool"}"#
         )
         .is_err()
     );

@@ -3,7 +3,7 @@ use crate::create_apply_patch_freeform_tool;
 use crate::create_list_dir_tool;
 
 #[test]
-fn lifecycle_schema_includes_initialization_with_required_continuation() {
+fn lifecycle_schema_includes_initialization_with_required_next_call() {
     let list_dir = create_list_dir_tool();
     let value =
         serde_json::to_value(create_taskspace_control_tool(&[list_dir])).expect("serialize");
@@ -44,13 +44,13 @@ fn lifecycle_schema_includes_initialization_with_required_continuation() {
             "finish_identity",
             "additional_work_nodes",
             "edges",
-            "continuation"
+            "required_next_call"
         ])
     );
     assert!(variants[0]["properties"].get("current_node_id").is_none());
     assert_eq!(
         variants[0]["properties"]["initial_work_node"]["description"],
-        "Agent-selected initial Work node. Define it only here, not in additional_work_nodes. Declared edges must make it Ready at initialization; Runtime binds it before continuation actions execute."
+        "Agent-selected initial Work node. Define it only here, not in additional_work_nodes. Declared edges must make it Ready at initialization; Runtime binds it before the required next top-level call executes."
     );
     assert_eq!(
         variants[0]["properties"]["additional_work_nodes"]["description"],
@@ -86,8 +86,8 @@ fn lifecycle_schema_includes_initialization_with_required_continuation() {
     assert!(!text.contains("context_summary"));
     assert!(value["parameters"].get("$defs").is_none());
     assert_eq!(
-        variants[0]["properties"]["continuation"]["enum"],
-        json!(["next_tool"])
+        variants[0]["properties"]["required_next_call"]["enum"],
+        json!(["ordinary_tool"])
     );
 }
 
@@ -100,8 +100,8 @@ fn bootstrap_schema_declares_top_level_patch_without_nested_tool_payloads() {
     .expect("serialize");
     assert!(value["parameters"].get("$defs").is_none());
     assert_eq!(
-        value["parameters"]["anyOf"][0]["properties"]["continuation"]["enum"],
-        json!(["next_tool", "next_apply_patch"])
+        value["parameters"]["anyOf"][0]["properties"]["required_next_call"]["enum"],
+        json!(["ordinary_tool", "apply_patch"])
     );
     let text = value.to_string();
     assert!(!text.contains("ordinaryAction"));
@@ -147,10 +147,10 @@ fn lifecycle_schema_requires_atomic_completion_handoffs() {
             "expected_revision",
             "node_id",
             "transition",
-            "continuation"
+            "required_next_call"
         ])
     );
-    assert!(bind["properties"].get("continuation").is_some());
+    assert!(bind["properties"].get("required_next_call").is_some());
 
     let transition = value["parameters"]["anyOf"]
         .as_array()
@@ -166,7 +166,7 @@ fn lifecycle_schema_requires_atomic_completion_handoffs() {
         transition["required"],
         json!(["action", "expected_revision", "node_id", "transition"])
     );
-    assert!(transition["properties"].get("continuation").is_none());
+    assert!(transition["properties"].get("required_next_call").is_none());
     assert_eq!(
         transition["properties"]["transition"]["enum"],
         json!(["block", "unblock", "rework"])
@@ -187,10 +187,10 @@ fn lifecycle_schema_requires_atomic_completion_handoffs() {
             "expected_revision",
             "current_node_id",
             "next_node_id",
-            "continuation"
+            "required_next_call"
         ])
     );
-    assert!(handoff["properties"].get("continuation").is_some());
+    assert!(handoff["properties"].get("required_next_call").is_some());
     let complete_end = value["parameters"]["anyOf"]
         .as_array()
         .expect("variants")
@@ -222,12 +222,12 @@ fn lifecycle_schema_requires_atomic_completion_handoffs() {
             "remove_edges"
         ])
     );
-    assert!(mutation["properties"].get("continuation").is_some());
+    assert!(mutation["properties"].get("required_next_call").is_some());
     assert!(
         !mutation["required"]
             .as_array()
             .expect("mutation required")
-            .contains(&json!("continuation"))
+            .contains(&json!("required_next_call"))
     );
     let terminal = value["parameters"]["anyOf"]
         .as_array()

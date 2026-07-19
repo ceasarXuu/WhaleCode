@@ -1,5 +1,5 @@
 use crate::tools::context::ToolPayload;
-use crate::tools::handlers::taskspace_control_args::TaskSpaceContinuation;
+use crate::tools::handlers::taskspace_control_args::TaskSpaceRequiredNextCall;
 use crate::tools::handlers::taskspace_control_args::parse_taskspace_control_args;
 use crate::tools::router::ToolCall;
 use serde::Deserialize;
@@ -11,7 +11,7 @@ pub(crate) struct ToolSequenceManifestEntry {
     pub(crate) is_apply_patch: bool,
     pub(crate) is_taskspace_control: bool,
     pub(crate) apply_patch_arguments_valid: bool,
-    pub(crate) continuation_requirement: Option<TaskSpaceContinuation>,
+    pub(crate) required_next_call: Option<TaskSpaceRequiredNextCall>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -34,18 +34,18 @@ impl ToolSequenceManifest {
 fn top_level_entry(call: &ToolCall) -> ToolSequenceManifestEntry {
     let is_apply_patch = is_plain_tool(call, "apply_patch");
     let is_taskspace_control = is_plain_tool(call, "taskspace_control");
-    let continuation_requirement = is_taskspace_control
+    let required_next_call = is_taskspace_control
         .then(|| taskspace_control_arguments(call))
         .flatten()
         .and_then(|arguments| parse_taskspace_control_args(arguments).ok())
-        .and_then(|arguments| arguments.continuation_requirement());
+        .and_then(|arguments| arguments.required_next_call());
     ToolSequenceManifestEntry {
         call_id: call.call_id.clone(),
         tool_name: call.tool_name.display(),
         is_apply_patch,
         is_taskspace_control,
         apply_patch_arguments_valid: !is_apply_patch || apply_patch_arguments_valid(call),
-        continuation_requirement,
+        required_next_call,
     }
 }
 
@@ -93,11 +93,11 @@ mod tests {
     }
 
     #[test]
-    fn records_top_level_patch_and_control_continuation() {
+    fn records_top_level_patch_and_control_requirement() {
         let bootstrap = call(
             "taskspace_control",
             "bootstrap",
-            r#"{"action":"initialize_map","root":{"node_id":"root","goal":"Solve"},"initial_work_node":{"node_id":"edit","goal":"Edit"},"additional_work_nodes":[],"finish_identity":{"id":"finish"},"edges":[{"from":"root","to":"edit"},{"from":"edit","to":"finish"}],"continuation":"next_apply_patch"}"#,
+            r#"{"action":"initialize_map","root":{"node_id":"root","goal":"Solve"},"initial_work_node":{"node_id":"edit","goal":"Edit"},"additional_work_nodes":[],"finish_identity":{"id":"finish"},"edges":[{"from":"root","to":"edit"},{"from":"edit","to":"finish"}],"required_next_call":"apply_patch"}"#,
         );
         let manifest = ToolSequenceManifest::from_calls(&[
             bootstrap,
@@ -107,8 +107,8 @@ mod tests {
         assert_eq!(manifest.request_patch_count, 1);
         assert_eq!(manifest.entries.len(), 2);
         assert_eq!(
-            manifest.entries[0].continuation_requirement,
-            Some(TaskSpaceContinuation::NextApplyPatch)
+            manifest.entries[0].required_next_call,
+            Some(TaskSpaceRequiredNextCall::ApplyPatch)
         );
         assert_eq!(manifest.entries[1].tool_name, "apply_patch");
         assert!(manifest.entries[1].apply_patch_arguments_valid);
@@ -123,7 +123,7 @@ mod tests {
         )]);
         assert_eq!(manifest.entries.len(), 1);
         assert_eq!(manifest.request_patch_count, 0);
-        assert_eq!(manifest.entries[0].continuation_requirement, None);
+        assert_eq!(manifest.entries[0].required_next_call, None);
     }
 
     #[test]

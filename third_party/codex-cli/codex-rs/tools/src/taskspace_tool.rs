@@ -84,15 +84,15 @@ fn edge_schema(description: &str) -> JsonSchema {
     schema
 }
 
-fn continuation_schema(has_patch: bool) -> JsonSchema {
-    let mut variants = vec![json!("next_tool")];
+fn required_next_call_schema(has_patch: bool) -> JsonSchema {
+    let mut variants = vec![json!("ordinary_tool")];
     if has_patch {
-        variants.push(json!("next_apply_patch"));
+        variants.push(json!("apply_patch"));
     }
     JsonSchema::string_enum(
         variants,
         Some(
-            "Required top-level continuation immediately after this control in the same provider response. next_tool requires an ordinary top-level tool. next_apply_patch requires direct apply_patch."
+            "Declaration only: emit the selected top-level sibling immediately after taskspace_control in this same response. ordinary_tool requires an ordinary non-control tool; apply_patch requires direct apply_patch. This field does not execute or schedule that call."
                 .into(),
         ),
     )
@@ -106,7 +106,7 @@ fn initialize_map_schema(has_patch: bool) -> JsonSchema {
             (
                 "initial_work_node".into(),
                 graph_node_schema(
-                    "Agent-selected initial Work node. Define it only here, not in additional_work_nodes. Declared edges must make it Ready at initialization; Runtime binds it before continuation actions execute.",
+                    "Agent-selected initial Work node. Define it only here, not in additional_work_nodes. Declared edges must make it Ready at initialization; Runtime binds it before the required next top-level call executes.",
                 ),
             ),
             ("finish_identity".into(), finish_identity_schema()),
@@ -127,7 +127,10 @@ fn initialize_map_schema(has_patch: bool) -> JsonSchema {
                     Some("Directed graph edges.".into()),
                 ),
             ),
-            ("continuation".into(), continuation_schema(has_patch)),
+            (
+                "required_next_call".into(),
+                required_next_call_schema(has_patch),
+            ),
         ]),
         vec![
             "root".into(),
@@ -135,7 +138,7 @@ fn initialize_map_schema(has_patch: bool) -> JsonSchema {
             "finish_identity".into(),
             "additional_work_nodes".into(),
             "edges".into(),
-            "continuation".into(),
+            "required_next_call".into(),
         ],
     )
 }
@@ -166,7 +169,10 @@ fn mutate_graph_schema(has_patch: bool) -> JsonSchema {
                     Some("Edges to remove.".into()),
                 ),
             ),
-            ("continuation".into(), continuation_schema(has_patch)),
+            (
+                "required_next_call".into(),
+                required_next_call_schema(has_patch),
+            ),
         ]),
         vec![
             "expected_revision".into(),
@@ -196,13 +202,16 @@ fn bind_node_schema(has_patch: bool) -> JsonSchema {
                     Some("Mechanical node transition.".into()),
                 ),
             ),
-            ("continuation".into(), continuation_schema(has_patch)),
+            (
+                "required_next_call".into(),
+                required_next_call_schema(has_patch),
+            ),
         ]),
         vec![
             "expected_revision".into(),
             "node_id".into(),
             "transition".into(),
-            "continuation".into(),
+            "required_next_call".into(),
         ],
     )
 }
@@ -255,13 +264,16 @@ fn complete_then_continue_schema(has_patch: bool) -> JsonSchema {
                     "Agent-selected successor to bind after completion makes it Ready.".into(),
                 )),
             ),
-            ("continuation".into(), continuation_schema(has_patch)),
+            (
+                "required_next_call".into(),
+                required_next_call_schema(has_patch),
+            ),
         ]),
         vec![
             "expected_revision".into(),
             "current_node_id".into(),
             "next_node_id".into(),
-            "continuation".into(),
+            "required_next_call".into(),
         ],
     )
 }
@@ -330,7 +342,7 @@ pub fn create_taskspace_control_tool(visible_tools: &[ToolSpec]) -> ToolSpec {
 
     ToolSpec::Function(ResponsesApiTool {
         name: "taskspace_control".into(),
-        description: "Mandatory mechanical TaskSpace lifecycle tool. When visible TaskSpace bootstrap state has bootstrap_required=true, the first top-level tool call MUST be taskspace_control with action=initialize_map. initialize_map declares and binds the initial rooted DAG. mutate_graph may continue only from an existing binding that remains valid. A running Work node cannot be completed alone: use complete_then_continue to atomically complete it and bind the Agent-selected next Ready node; use complete_then_end to atomically complete the final Work node and close the Map with the exact Agent-authored summary. initialize_map, bind, and complete_then_continue require a top-level continuation in the same provider response: continuation=next_tool means the immediately following call is an ordinary tool; continuation=next_apply_patch means the immediately following call is direct apply_patch. Never nest tool names, arguments, or patch content in taskspace_control. transition_node handles bind, block, unblock, and rework only. finish_end is reserved for a Map whose Finish is already Ready and cannot continue. read_map returns the exact current full Map projection through the shared renderer; expand_nodes and read_output_ref expose mechanically retained details. For a given map_id, the last visible projection is current and all earlier projections are historical; repeated revision values mean the map did not change between requests. Runtime validates hard state rules and executes only the declared provider order. It does not choose, infer, move, or rewrite actions.".into(),
+        description: "Mandatory mechanical TaskSpace lifecycle tool. When visible TaskSpace bootstrap state has bootstrap_required=true, the first top-level tool call MUST be taskspace_control with action=initialize_map. initialize_map declares and binds the initial rooted DAG. mutate_graph may continue only from an existing binding that remains valid. A running Work node cannot be completed alone: use complete_then_continue to atomically complete it and bind the Agent-selected next Ready node; use complete_then_end to atomically complete the final Work node and close the Map with the exact Agent-authored summary. initialize_map, bind, and complete_then_continue require an immediately following top-level sibling in the same provider response. required_next_call=ordinary_tool declares an ordinary non-control sibling; required_next_call=apply_patch declares direct apply_patch. required_next_call only declares the sibling: it never executes or schedules it, so emit both calls in this response. Never nest tool names, arguments, or patch content in taskspace_control. transition_node handles bind, block, unblock, and rework only. finish_end is reserved for a Map whose Finish is already Ready and cannot continue. read_map returns the exact current full Map projection through the shared renderer; expand_nodes and read_output_ref expose mechanically retained details. For a given map_id, the last visible projection is current and all earlier projections are historical; repeated revision values mean the map did not change between requests. Runtime validates hard state rules and executes only the declared provider order. It does not choose, infer, move, or rewrite actions.".into(),
         strict: false,
         defer_loading: None,
         parameters,

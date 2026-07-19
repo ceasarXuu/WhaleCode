@@ -1,19 +1,20 @@
 use codex_protocol::models::ResponseInputItem;
 
-use crate::tools::handlers::taskspace_control_args::TaskSpaceContinuation;
+use crate::tools::handlers::taskspace_control_args::TaskSpaceRequiredNextCall;
 use crate::tools::parallel::ToolCallRuntime;
 use crate::tools::router::ToolCall;
 use crate::tools::sequence_manifest::ToolSequenceManifest;
 
 pub(crate) const REQUEST_MULTIPLE_PATCHES_CODE: &str =
     "request_multiple_apply_patch_calls_not_allowed";
-pub(crate) const TASKSPACE_CONTINUATION_MISSING_CODE: &str =
-    "taskspace_declared_continuation_missing";
-pub(crate) const TASKSPACE_NEXT_TOOL_INVALID_CODE: &str = "taskspace_next_tool_not_immediate";
-pub(crate) const TASKSPACE_NEXT_PATCH_INVALID_CODE: &str =
-    "taskspace_next_apply_patch_not_immediate";
-pub(crate) const TASKSPACE_NEXT_PATCH_ARGUMENTS_INVALID_CODE: &str =
-    "taskspace_next_apply_patch_arguments_invalid";
+pub(crate) const TASKSPACE_REQUIRED_NEXT_CALL_MISSING_CODE: &str =
+    "taskspace_required_next_call_missing";
+pub(crate) const TASKSPACE_REQUIRED_ORDINARY_TOOL_INVALID_CODE: &str =
+    "taskspace_required_ordinary_tool_not_immediate";
+pub(crate) const TASKSPACE_REQUIRED_PATCH_INVALID_CODE: &str =
+    "taskspace_required_apply_patch_not_immediate";
+pub(crate) const TASKSPACE_REQUIRED_PATCH_ARGUMENTS_INVALID_CODE: &str =
+    "taskspace_required_apply_patch_arguments_invalid";
 
 #[derive(Debug)]
 pub(crate) struct ToolSequencePreflightFailure {
@@ -63,14 +64,14 @@ pub(crate) fn validate_tool_sequence(
         ));
     }
     for (index, entry) in manifest.entries.iter().enumerate() {
-        let Some(requirement) = entry.continuation_requirement else {
+        let Some(requirement) = entry.required_next_call else {
             continue;
         };
         let Some(next) = manifest.entries.get(index + 1) else {
             return Err(failure(
-                TASKSPACE_CONTINUATION_MISSING_CODE,
+                TASKSPACE_REQUIRED_NEXT_CALL_MISSING_CODE,
                 format!(
-                    "taskspace_control call {} declares continuation={} but no immediately following top-level tool call exists; no tool calls were executed",
+                    "taskspace_control call {} declares required_next_call={} but no immediately following top-level tool call exists; the declaration does not execute or schedule that call; no tool calls were executed",
                     entry.call_id,
                     requirement.as_str()
                 ),
@@ -78,37 +79,39 @@ pub(crate) fn validate_tool_sequence(
             ));
         };
         match requirement {
-            TaskSpaceContinuation::NextTool if next.is_taskspace_control || next.is_apply_patch => {
+            TaskSpaceRequiredNextCall::OrdinaryTool
+                if next.is_taskspace_control || next.is_apply_patch =>
+            {
                 return Err(failure(
-                    TASKSPACE_NEXT_TOOL_INVALID_CODE,
+                    TASKSPACE_REQUIRED_ORDINARY_TOOL_INVALID_CODE,
                     format!(
-                        "taskspace_control call {} declares continuation=next_tool but the immediately following call is {}; use continuation=next_apply_patch for apply_patch and an ordinary non-control tool for next_tool; no tool calls were executed",
+                        "taskspace_control call {} declares required_next_call=ordinary_tool but the immediately following call is {}; use required_next_call=apply_patch for apply_patch; no tool calls were executed",
                         entry.call_id, next.tool_name
                     ),
                     &manifest,
                 ));
             }
-            TaskSpaceContinuation::NextApplyPatch if !next.is_apply_patch => {
+            TaskSpaceRequiredNextCall::ApplyPatch if !next.is_apply_patch => {
                 return Err(failure(
-                    TASKSPACE_NEXT_PATCH_INVALID_CODE,
+                    TASKSPACE_REQUIRED_PATCH_INVALID_CODE,
                     format!(
-                        "taskspace_control call {} declares continuation=next_apply_patch but the immediately following call is {}; no tool calls were executed",
+                        "taskspace_control call {} declares required_next_call=apply_patch but the immediately following call is {}; no tool calls were executed",
                         entry.call_id, next.tool_name
                     ),
                     &manifest,
                 ));
             }
-            TaskSpaceContinuation::NextApplyPatch if !next.apply_patch_arguments_valid => {
+            TaskSpaceRequiredNextCall::ApplyPatch if !next.apply_patch_arguments_valid => {
                 return Err(failure(
-                    TASKSPACE_NEXT_PATCH_ARGUMENTS_INVALID_CODE,
+                    TASKSPACE_REQUIRED_PATCH_ARGUMENTS_INVALID_CODE,
                     format!(
-                        "taskspace_control call {} declares continuation=next_apply_patch but the immediately following apply_patch arguments are invalid; no tool calls were executed",
+                        "taskspace_control call {} declares required_next_call=apply_patch but the immediately following apply_patch arguments are invalid; no tool calls were executed",
                         entry.call_id
                     ),
                     &manifest,
                 ));
             }
-            TaskSpaceContinuation::NextTool | TaskSpaceContinuation::NextApplyPatch => {}
+            TaskSpaceRequiredNextCall::OrdinaryTool | TaskSpaceRequiredNextCall::ApplyPatch => {}
         }
     }
     Ok(manifest)
