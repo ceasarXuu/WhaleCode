@@ -10,7 +10,7 @@
 Created: 2026-07-17
 Updated: 2026-07-19
 Version: v0.0.5 build-R7
-Status: Phase D.1 Working Protocol Complete / Tool Cadence Finding Open / Phase E Not Started
+Status: Phase D.2 Atomic Completion Handoff Complete / Phase E Not Started
 Owner / Responsible: WhaleCode core runtime / TaskSpace
 Risk Level: Critical
 Plan Type: Shared architecture with three projection policies
@@ -382,9 +382,41 @@ TaskSpace bypass fixture 100% rejected，合法动作无新增 policy rejection�
 - `benchmarks/taskspace/r7/working-protocol-v1.0.0-result.json`
 - `benchmarks/taskspace/r7/working-protocol-v1.0.1-result.json`
 
-Phase E 前新增一个共享 tool contract 决策点，但不自动实施：是否把 Agent 已声明的
-`complete + next bind/finish` 收敛为一个结构化 lifecycle carrier。该决策不得改变三种 projection policy 的
-状态机、事件或工具集合等价性。
+### 1.11.2 Phase D.2：原子完成交接合同
+
+**目标**：修复 R6/R7 将 Work 完成和下一节点绑定重新拆成独立 control 调用的回归，让工具合同与工作协议一致，
+同时不让 Runtime 推断 Agent 的下一步。
+
+完成项：
+
+1. 从 provider 可见的 `transition_node` schema 移除独立 `complete`；内部状态机仍保留完成原语。
+2. 在共享 `taskspace_control` 增加 `complete_then_continue` 与 `complete_then_end`。
+3. `complete_then_continue` 要求 Agent 显式给出当前节点、下一节点和 continuation；完成、readiness、bind 与
+   后续普通动作在一个 control transaction 中执行。
+4. `complete_then_end` 要求 Agent 显式给出最终总结；完成当前 Work、闭合 Finish 和 Root 在一个 revision 中提交。
+5. candidate graph、lease 和 terminal persistence 均保持全成或全不成；失败结果固定
+   `state_commit=false/partial_commit=0`，Runtime 不修复畸形 JSON、不猜测下一节点。
+6. replay、control feedback、working protocol `v1.0.2`、日志和性能 observer 同步识别两种新 action。
+
+验证结果：
+
+- Rust 相关单测、集成测试、observer 自测、K0 自测和 skill 校验通过；
+- Docker simple/complex 均与同期 Standard 一起 solved，公开与隐藏验证均通过；
+- 两个 TaskSpace run 都采用 `complete_then_continue=1`、`complete_then_end=1`，
+  `standalone complete=0`、`finish_end=0`；
+- simple 请求数 8 vs Standard 7，complex 为 12 vs 10；没有再由节点完成本身产生独立 provider request；
+- complex 首次大型嵌套 patch carrier 发生一次 trailing JSON 和一次空参数调用，Runtime 忠实拒绝且零提交，
+  Agent 随后自行恢复。该生成稳定性观察与 completion handoff 回归分开记录，不通过 Runtime 语义修补处理。
+
+证据：
+
+- `11-r7-atomic-completion-handoff-result.md`
+- `benchmarks/taskspace/r7/working-protocol-v1.0.2-result.json`
+- `coe/2026-07-16-18-52-r6-phase-f-context-cost.md` 的 H-009 / E-022
+- implementation commit `26814f3f4`
+
+Phase D 的共享 tool contract 决策点已经关闭。Phase E 仍不得改变三种 projection policy 的状态机、事件或
+工具集合等价性。
 
 ## 1.12 Phase E：生命周期与跨策略等价
 

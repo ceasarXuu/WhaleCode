@@ -1,7 +1,7 @@
 # Problem P-001: R6 TaskSpace 上下文与缓存成本高于 Standard
 - Status: open
 - Created: 2026-07-16 18:52
-- Updated: 2026-07-17
+- Updated: 2026-07-19
 - Objective: 定位并消除不必要的请求重复、Map 状态重复和 provider cache shape 变化，同时保持语义透传与 R6 correctness。
 - Symptoms:
   - simple R6/Standard request=1.40x、input=1.52x、uncached=3.33x。
@@ -33,8 +33,9 @@
   F5.0b 又证明对象类型不是原因；E 对象命名束 6/6 合法，确认 H-012 identity 命名相似性根因。F5.0c 已将
   E 合同切入生产，并修复 H-013 暴露的 identity 与 edges 拓扑合同缺口；最终 simple/complex 第一次初始化
   2/2 提交，业务与外部验证 2/2 通过。
-  F3 的 bind continuation 被使用，但 complete -> bind 没有自然合并，
-  更细 Map 的生命周期继续逐请求推进。F3.5 只修复 F1 自引入的前缀断裂，不是 E 到 F 的净成本收益。
+  R7 Phase D.2 已关闭 H-009：provider-visible 独立 complete 被移除，Agent 通过
+  `complete_then_continue` / `complete_then_end` 显式声明原子交接；simple/complex 两个 Docker 样本都采用
+  新 action，standalone complete=0。F3.5 只修复 F1 自引入的前缀断裂，不是 E 到 F 的净成本收益。
   修复计划已插入 `docs/v0.0.5/build-R6/18-r6-phase-f5-cost-regression-repair-plan.md`；Phase G 在 F5.3
   通过前 blocked。
 - Related hypotheses:
@@ -719,7 +720,7 @@
   - fixed and validated by E-021
 
 ## Hypothesis H-009: F3 没有承载 complete -> bind 边界，细粒度 Map 继续逐请求推进
-- Status: confirmed
+- Status: confirmed and fixed
 - Parent: P-001
 - Claim: F3 只允许 initialize/bind/mutate 携带 continuation，明确禁止 complete continuation，并把
   `complete -> bind -> action` 寄托于同一 provider response 的 sibling calls；正式运行中 Agent 没有生成任何
@@ -739,15 +740,17 @@
 - Evidence gate: satisfied
 - Related evidence:
   - E-016
-- Conclusion: confirmed；6 个 F4 run 均使用 bind continuation，但 multi-control carrier 全为 0，每 run 仍有
-  3-4 个 nonterminal transition 没有 sibling follow-up。F final 每张 Map 固定 3 个 Work，E 为 1-2 个 Work；
-  额外 Work 本身未证明不合理，但现有 carrier 让它的机械状态迁移直接转化为 request 成本。
-- Repair design readiness: ready
-- Next step: 按 Phase F5.2 在现有 control tool 内恢复 Agent 声明的 complete handoff carrier。
+  - E-022
+- Conclusion: confirmed and fixed；R7 Phase D.2 从 provider schema 移除独立 complete，并在同一 control tool
+  增加 Agent 显式声明的 `complete_then_continue` / `complete_then_end`。simple/complex Docker 样本均 solved，
+  两组都各采用一次 handoff 和一次 terminal，standalone complete=0。失败 control 保持零状态提交，Runtime
+  没有推断下一节点或修补 malformed JSON。
+- Repair design readiness: implemented
+- Next step: 在 Phase E 多样本矩阵继续观察大型嵌套 continuation 参数生成稳定性，不重开 completion 合同。
 - Blocker:
   - none
 - Close reason:
-  - not closed
+  - fixed and validated by E-022
 
 ## Hypothesis H-010: Phase F 验收合同允许局部机制完成但端到端成本回归
 - Status: confirmed
@@ -1050,3 +1053,53 @@
 - Interpretation: `finish_identity` 的独立命名消除了旧命名束的字段泛化；补全 identity 与 edges 的机械关系后，
   初始化正确性门关闭。新增 91 B 是拓扑合同本身的固定成本，不应与 F5.1 工具面裁减收益混算。
 - Time: 2026-07-17
+
+## Evidence E-022: R7 原子完成交接合同与 Docker adoption
+- Related hypotheses:
+  - H-009
+- Direction: validates repair and closes H-009
+- Type: implementation-test-and-runtime-trace
+- Source: R7 Phase D.2 implementation、TaskSpace 定向测试、simple/complex 同期 Docker pair 与性能观察
+- Prediction or plan link:
+  - provider-visible standalone complete 必须消失；Agent 必须显式声明 next Work 或 terminal；状态、lease、
+    persistence、replay 与 feedback 必须同一事务成功或零提交失败。
+- Matched signal:
+  - provider schema 不再暴露 `transition_node.complete`，内部 `NodeTransition::Complete` 保留为状态机原语；
+  - `complete_then_continue` 在一个 revision 提交 NodeCompleted、ReadinessChanged、NodeBound，并执行 Agent
+    声明的 continuation；`complete_then_end` 在一个 revision 提交 completion 和 terminal；
+  - simple/complex 两个 TaskSpace run 均 `complete_then_continue=1`、`complete_then_end=1`、
+    `standalone_complete=0`、`finish_end=0`，两组业务与外部验证均通过；
+  - complex 的 malformed JSON 和空参数 control 均为 `protocol_failed/state_commit=false/partial_commit=0`，
+    Agent 后续自行恢复，没有 Runtime 语义修补。
+- Raw content:
+  ```text
+  implementation commit: 26814f3f4
+  protocol: v1.0.2
+  rules sha256: b9217a385a451a23cf2b27593065709404b63c7723c9a9d749b94d8c33828574
+
+  simple artifact:
+    target/r7-atomic-completion-v102/simple/single-file-fast-fix/20260719-184929-629
+    Standard/TaskSpace solved: true/true
+    requests: 7/8
+    TaskSpace complete handoff/terminal/standalone: 1/1/0
+
+  complex artifact:
+    target/r7-atomic-completion-v102/complex/subscription-billing-repair/20260719-185323-282
+    Standard/TaskSpace solved: true/true
+    requests: 10/12
+    TaskSpace complete handoff/terminal/standalone: 1/1/0
+    rejected malformed controls: 2; failed state commits: 0
+
+  relevant tests:
+    codex-tools 141 passed, 1 ignored
+    taskspace_control 28 passed
+    runtime 10 passed
+    replay 20 passed
+    working protocol 2 passed
+    sequence 15 passed
+    terminal integration 2 passed
+  ```
+- Interpretation: H-009 来自工具合同回归，而不是 Agent 无法理解提示词。正确修复点是恢复结构化原子 action，
+  让 schema、协议和 Runtime 机械事务一致；不应通过 post-hoc reject、reasoning 解析或 Runtime 推断下一步实现。
+  complex 的大型嵌套参数错误是独立的生成稳定性观察，不能据此重开 Runtime 语义控制。
+- Time: 2026-07-19

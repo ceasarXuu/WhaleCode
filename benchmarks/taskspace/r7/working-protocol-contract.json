@@ -4,8 +4,8 @@
   "status": "evaluated_active_candidate",
   "protocol": {
     "schema_version": "taskspace-core-working-protocol-v1",
-    "protocol_version": "1.0.1",
-    "rules_sha256": "8ffae2bc82bcc3b6ce2494f47ab4014aba488994788d484e405dccc1c63484db",
+    "protocol_version": "1.0.2",
+    "rules_sha256": "b9217a385a451a23cf2b27593065709404b63c7723c9a9d749b94d8c33828574",
     "source": "third_party/codex-cli/codex-rs/core/src/context/taskspace_working_protocol.rs"
   },
   "version_history": [
@@ -25,6 +25,16 @@
       "predecessor": "1.0.0",
       "implementation_commit": "deacc3405",
       "result": "benchmarks/taskspace/r7/working-protocol-v1.0.1-result.json"
+    },
+    {
+      "protocol_version": "1.0.2",
+      "rules_sha256": "b9217a385a451a23cf2b27593065709404b63c7723c9a9d749b94d8c33828574",
+      "status": "evaluated_active_candidate",
+      "change": "atomic_complete_then_continue_and_complete_then_end",
+      "secondary_intent": "remove_provider_visible_standalone_complete",
+      "predecessor": "1.0.1",
+      "implementation_commit": "26814f3f4",
+      "result": "benchmarks/taskspace/r7/working-protocol-v1.0.2-result.json"
     }
   ],
   "scope": {

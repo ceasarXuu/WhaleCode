@@ -1,0 +1,101 @@
+{
+  "schema_version": 1,
+  "experiment_id": "r7-working-protocol-v1.0.2-atomic-completion-handoff",
+  "generated_at": "2026-07-19T19:00:00+08:00",
+  "implementation_commit": "26814f3f4",
+  "protocol": {
+    "schema_version": "taskspace-core-working-protocol-v1",
+    "protocol_version": "1.0.2",
+    "rules_sha256": "b9217a385a451a23cf2b27593065709404b63c7723c9a9d749b94d8c33828574"
+  },
+  "projection_policy": "map-request",
+  "evidence_level": "E2-candidate",
+  "evidence_limit": "Each scenario was run once; the harness requires three repeats for aggregate evidence.",
+  "runs": [
+    {
+      "scenario": "single-file-fast-fix",
+      "run_root": "target/r7-atomic-completion-v102/simple/single-file-fast-fix/20260719-184929-629",
+      "standard": {
+        "outcome": "solved",
+        "requests": 7,
+        "runtime_tools": 9,
+        "wall_seconds": 22.84,
+        "input_tokens": 52008,
+        "cached_input_tokens": 50304,
+        "uncached_input_tokens": 1704,
+        "output_tokens": 2279,
+        "request_2_plus_cache_hit_rate": 0.9655
+      },
+      "taskspace": {
+        "outcome": "solved",
+        "requests": 8,
+        "runtime_tools": 11,
+        "wall_seconds": 23.43,
+        "input_tokens": 84096,
+        "cached_input_tokens": 72832,
+        "uncached_input_tokens": 11264,
+        "output_tokens": 2145,
+        "request_2_plus_cache_hit_rate": 0.9607,
+        "map_nodes": 4,
+        "map_edges": 3,
+        "open_nodes": 0,
+        "initialize_map": 1,
+        "complete_then_continue": 1,
+        "complete_then_end": 1,
+        "standalone_complete": 0,
+        "finish_end": 0,
+        "control_failures": 0
+      }
+    },
+    {
+      "scenario": "subscription-billing-repair",
+      "run_root": "target/r7-atomic-completion-v102/complex/subscription-billing-repair/20260719-185323-282",
+      "standard": {
+        "outcome": "solved",
+        "requests": 10,
+        "runtime_tools": 19,
+        "wall_seconds": 61.12,
+        "input_tokens": 112086,
+        "cached_input_tokens": 106752,
+        "uncached_input_tokens": 5334,
+        "output_tokens": 6276,
+        "request_2_plus_cache_hit_rate": 0.9503
+      },
+      "taskspace": {
+        "outcome": "solved",
+        "requests": 12,
+        "runtime_tools": 18,
+        "wall_seconds": 53.16,
+        "input_tokens": 159794,
+        "cached_input_tokens": 153344,
+        "uncached_input_tokens": 6450,
+        "output_tokens": 5155,
+        "request_2_plus_cache_hit_rate": 0.9585,
+        "map_nodes": 4,
+        "map_edges": 3,
+        "open_nodes": 0,
+        "initialize_map": 1,
+        "complete_then_continue": 1,
+        "complete_then_end": 1,
+        "standalone_complete": 0,
+        "finish_end": 0,
+        "control_failures": 2,
+        "control_failure_detail": [
+          "large nested patch continuation contained one trailing closing brace",
+          "one retry called taskspace_control with an empty object"
+        ],
+        "failed_control_state_commits": 0
+      }
+    }
+  ],
+  "acceptance": {
+    "both_scenarios_solved": true,
+    "external_validation_passed": true,
+    "atomic_handoff_adopted": true,
+    "atomic_terminal_adopted": true,
+    "provider_visible_standalone_complete_observed": false,
+    "failed_control_zero_commit": true,
+    "working_protocol_identity_matched": true
+  },
+  "conclusion": "The standalone completion regression is fixed. Agent-declared completion handoff and terminal closure are atomic across graph state, lease state, persistence, replay, feedback, and observability. Complex nested-argument generation remains a separate observation."
+}
