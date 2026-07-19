@@ -14,6 +14,12 @@ fn lifecycle_schema_includes_initialization_with_required_next_call() {
                 "the first top-level tool call MUST be taskspace_control with action=initialize_map"
             ))
     );
+    let description = value["description"].as_str().expect("tool description");
+    assert!(
+        description
+            .contains("current only when its revision matches the latest canonical revision")
+    );
+    assert!(!description.contains("the last visible projection is current"));
     assert_eq!(value["parameters"]["type"], json!("object"));
     let variants = value["parameters"]["anyOf"].as_array().expect("variants");
     let action_names = variants
