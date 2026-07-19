@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "contract_id": "r7-whalecode-dual-base-instructions",
+  "status": "implemented_pending_benchmark",
+  "selection": {
+    "standard_runtime_mode": "standard",
+    "taskspace_runtime_mode": "experiment",
+    "exactly_one_complete_base_per_request": true,
+    "separate_taskspace_developer_protocol_allowed": false,
+    "projection_policy_variants_allowed": false
+  },
+  "profiles": {
+    "standard": {
+      "version": "1.0.0",
+      "sha256": "7c27bcb65c43dcfc9eb38284e6968003f2cb3bbaff3568437740208e39cadf19",
+      "source": "third_party/codex-cli/codex-rs/protocol/src/prompts/base_instructions/whalecode_standard.md",
+      "required_tool": "update_plan",
+      "forbidden_tool": "taskspace_control"
+    },
+    "taskspace": {
+      "version": "1.0.0",
+      "sha256": "95f6cc4eac04af52fd052e23f63e5ba2ccffcca59b041b68ff4269f6b78d8d55",
+      "source": "third_party/codex-cli/codex-rs/protocol/src/prompts/base_instructions/whalecode_taskspace.md",
+      "required_tool": "taskspace_control",
+      "forbidden_tool": "update_plan"
+    }
+  },
+  "shared_runtime": {
+    "request_pipeline": true,
+    "tool_router": true,
+    "projection_policies": [
+      "map-always",
+      "map-append",
+      "map-request"
+    ],
+    "difference_boundary": "base_instructions_and_plan_tool_visibility"
+  },
+  "observability": {
+    "wire_trace_schema": "provider-chat-wire-trace-v5",
+    "selection_event": "base_instructions.profile_selected",
+    "prewarm_selection_event": "base_instructions.prewarm_profile_selected",
+    "wire_identity_field": "base_instructions_identity",
+    "summary_field": "base_instructions_identity_summary"
+  }
+}

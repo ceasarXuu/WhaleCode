@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "contract_id": "r7-taskspace-core-working-protocol",
-  "status": "evaluated_active_candidate",
+  "status": "superseded_historical_evidence",
   "protocol": {
     "schema_version": "taskspace-core-working-protocol-v1",
     "protocol_version": "1.0.4",
@@ -49,7 +49,7 @@
     {
       "protocol_version": "1.0.4",
       "rules_sha256": "6bec1ac8d0b1e2d3f84f2361622933066d0dbe3c25a4b562ab8a6f8c3d26448a",
-      "status": "evaluated_active_candidate",
+      "status": "evaluated_superseded",
       "change": "explicit_required_next_call_declaration",
       "secondary_intent": "preserve_same_response_control_patch_batching",
       "predecessor": "1.0.3",

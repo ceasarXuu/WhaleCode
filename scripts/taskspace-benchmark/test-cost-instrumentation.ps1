@@ -901,26 +901,28 @@ Assert-True ($v3SectionBytes -eq [int64]$v3Summary.section_bytes_total -and $v3S
 Assert-True ([string]$v3Event.section_cost.active_projection_identity.kind -eq "active" -and [int64]$v3Event.section_cost.active_projection_identity.revision -eq 7 -and [string]$v3Event.section_cost.active_projection_identity.canonical_sha256 -eq "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc") "v3 cache event lost current R7 projection identity"
 Assert-True ([int]$v3Summary.active_projection_identity_summary.active_count -eq 1 -and [int]$v3Summary.active_projection_identity_summary.unique_revision_count -eq 1 -and [int]$v3Summary.active_projection_identity_summary.unique_projection_sha256_count -eq 1) "v3 section summary lost projection freshness evidence"
 Assert-True ([int]$v3ProjectionSection.request_sample_count -eq 1 -and [double]$v3ProjectionSection.bytes_per_request_mean -eq 30 -and [double]$v3ProjectionSection.bytes_per_request_median -eq 30) "v3 section summary omitted per-request distribution statistics"
-$v4WireTraceDir = Join-Path $RunRoot "provider-wire-trace-v4-artifacts"
-New-Item -ItemType Directory -Path $v4WireTraceDir -Force | Out-Null
-$v4Shape = $v3Shape | ConvertTo-Json -Depth 12 | ConvertFrom-Json
-$v4Shape.schema_version = "provider-chat-wire-trace-v4"
-$v4Shape.request_id = "wire-v4-1"
-$v4Shape | Add-Member -NotePropertyName taskspace_working_protocol_identity -NotePropertyValue ([pscustomobject]@{
-    count = 1; message_index = 1; wire_role = "system"; message_bytes = 840; estimated_tokens = 210
-    schema_version = "taskspace-core-working-protocol-v1"; protocol_version = "1.0.1"
-    rules_sha256 = "8ffae2bc82bcc3b6ce2494f47ab4014aba488994788d484e405dccc1c63484db"
+$v5WireTraceDir = Join-Path $RunRoot "provider-wire-trace-v5-artifacts"
+New-Item -ItemType Directory -Path $v5WireTraceDir -Force | Out-Null
+$v5Shape = $v3Shape | ConvertTo-Json -Depth 12 | ConvertFrom-Json
+$v5Shape.schema_version = "provider-chat-wire-trace-v5"
+$v5Shape.request_id = "wire-v5-1"
+$v5Shape | Add-Member -NotePropertyName base_instructions_identity -NotePropertyValue ([pscustomobject]@{
+    count = 1; message_index = 0; wire_role = "system"; message_bytes = 21727; estimated_tokens = 5432
+    profile = "taskspace"; version = "1.0.0"
+    sha256 = "95f6cc4eac04af52fd052e23f63e5ba2ccffcca59b041b68ff4269f6b78d8d55"
     matches_current_contract = $true; unavailable_reason = $null
 })
 @(
-    $v4Shape,
-    [pscustomobject]@{ schema_version = "provider-chat-wire-trace-v2"; event_name = "provider.chat_wire_request_terminal"; request_id = "wire-v4-1"; status = "response_completed"; input_tokens = 500; cached_input_tokens = 0; output_tokens = 20 }
-) | ForEach-Object { $_ | ConvertTo-Json -Compress -Depth 12 } | Set-Content -LiteralPath (Join-Path $v4WireTraceDir "provider-wire-trace.jsonl") -Encoding UTF8
-$v4Instrumentation = Write-TaskspaceCostInstrumentationArtifacts -ArtifactDir $v4WireTraceDir -JsonlPath $v3WireTraceJsonl -ObservabilityJsonPath ""
-$v4ProtocolEvent = @($v4Instrumentation.provider_cache_trace_events)[0].taskspace_working_protocol_identity
-$v4ProtocolSummary = $v4Instrumentation.provider_cache_trace_summary.taskspace_working_protocol_identity_summary
-Assert-True ([string]$v4ProtocolEvent.protocol_version -eq "1.0.1" -and [string]$v4ProtocolEvent.wire_role -eq "system" -and [bool]$v4ProtocolEvent.matches_current_contract) "v4 cache event lost working protocol identity"
-Assert-True ([int]$v4ProtocolSummary.present_count -eq 1 -and [int]$v4ProtocolSummary.current_contract_match_count -eq 1 -and [int64]$v4ProtocolSummary.estimated_tokens_total -eq 210) "v4 working protocol summary is incorrect"
+    $v5Shape,
+    [pscustomobject]@{ schema_version = "provider-chat-wire-trace-v2"; event_name = "provider.chat_wire_request_terminal"; request_id = "wire-v5-1"; status = "response_completed"; input_tokens = 6000; cached_input_tokens = 0; output_tokens = 20 }
+) | ForEach-Object { $_ | ConvertTo-Json -Compress -Depth 12 } | Set-Content -LiteralPath (Join-Path $v5WireTraceDir "provider-wire-trace.jsonl") -Encoding UTF8
+$v5Instrumentation = Write-TaskspaceCostInstrumentationArtifacts -ArtifactDir $v5WireTraceDir -JsonlPath $v3WireTraceJsonl -ObservabilityJsonPath ""
+$v5BaseEvent = @($v5Instrumentation.provider_cache_trace_events)[0].base_instructions_identity
+$v5BaseSummary = $v5Instrumentation.provider_cache_trace_summary.base_instructions_identity_summary
+$v5SectionSummary = $v5Instrumentation.provider_cache_trace_summary.section_cost_summary
+Assert-True ([string]$v5BaseEvent.profile -eq "taskspace" -and [string]$v5BaseEvent.version -eq "1.0.0" -and [string]$v5BaseEvent.wire_role -eq "system" -and [bool]$v5BaseEvent.matches_current_contract) "v5 cache event lost base instructions identity"
+Assert-True ([int]$v5BaseSummary.present_count -eq 1 -and [int]$v5BaseSummary.current_contract_match_count -eq 1 -and [int64]$v5BaseSummary.estimated_tokens_total -eq 5432) "v5 base instructions summary is incorrect"
+Assert-True ([string]$v5SectionSummary.availability -eq "measured" -and [int]$v5SectionSummary.measured_request_count -eq 1) "v5 section cost was rejected as an unsupported wire schema"
 $mismatchShape = $v3Shape | ConvertTo-Json -Depth 12 | ConvertFrom-Json
 $mismatchShape.section_cost.section_bytes_total = 499
 $mismatchCost = ConvertTo-TaskspaceProviderSectionCost $mismatchShape
