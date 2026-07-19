@@ -1,9 +1,7 @@
 use std::collections::HashSet;
 
 use crate::function_tool::FunctionCallError;
-use codex_protocol::models::ResponseItem;
 use serde::Deserialize;
-use serde_json::Value as JsonValue;
 
 #[path = "taskspace_control_args_wire.rs"]
 mod wire;
@@ -91,85 +89,27 @@ pub(crate) enum TaskSpaceNodeTransition {
     Rework,
 }
 
-#[derive(Clone, Debug, Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "snake_case")]
 pub(crate) enum TaskSpaceContinuation {
-    Actions {
-        actions: Vec<TaskSpaceNestedAction>,
-    },
-    PatchThenActions {
-        patch: TaskSpaceNestedAction,
-        #[serde(default)]
-        actions: Vec<TaskSpaceNestedAction>,
-    },
+    NextTool,
+    NextApplyPatch,
 }
 
-#[derive(Clone, Debug, Deserialize)]
-#[serde(untagged)]
-pub(crate) enum TaskSpaceNestedAction {
-    Function(TaskSpaceNestedFunctionAction),
-    Custom(TaskSpaceNestedCustomAction),
-}
-
-impl TaskSpaceNestedAction {
-    pub(crate) fn tool_name(&self) -> &str {
+impl TaskSpaceContinuation {
+    pub(crate) fn as_str(self) -> &'static str {
         match self {
-            Self::Function(action) => &action.tool_name,
-            Self::Custom(action) => &action.tool_name,
+            Self::NextTool => "next_tool",
+            Self::NextApplyPatch => "next_apply_patch",
         }
     }
-
-    pub(crate) fn namespace(&self) -> Option<&str> {
-        match self {
-            Self::Function(action) => action.namespace.as_deref(),
-            Self::Custom(_) => None,
-        }
-    }
-
-    pub(crate) fn is_custom(&self) -> bool {
-        matches!(self, Self::Custom(_))
-    }
-
-    pub(crate) fn to_response_item(&self, call_id: String) -> ResponseItem {
-        match self {
-            Self::Function(action) => ResponseItem::FunctionCall {
-                id: None,
-                name: action.tool_name.clone(),
-                namespace: action.namespace.clone(),
-                arguments: action.arguments.to_string(),
-                call_id,
-            },
-            Self::Custom(action) => ResponseItem::CustomToolCall {
-                id: None,
-                status: None,
-                call_id,
-                name: action.tool_name.clone(),
-                input: action.input.clone(),
-            },
-        }
-    }
-}
-
-#[derive(Clone, Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(crate) struct TaskSpaceNestedFunctionAction {
-    #[serde(default)]
-    pub(crate) namespace: Option<String>,
-    pub(crate) tool_name: String,
-    pub(crate) arguments: JsonValue,
-}
-
-#[derive(Clone, Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(crate) struct TaskSpaceNestedCustomAction {
-    pub(crate) tool_name: String,
-    pub(crate) input: String,
 }
 
 impl TaskSpaceControlArgs {
-    pub(crate) fn nested_actions(&self) -> Vec<TaskSpaceNestedAction> {
+    pub(crate) fn continuation_requirement(&self) -> Option<TaskSpaceContinuation> {
         match self {
-            Self::InitializeMap { continuation, .. } => continuation.actions(),
+            Self::InitializeMap { continuation, .. }
+            | Self::CompleteThenContinue { continuation, .. } => Some(*continuation),
             Self::MutateGraph {
                 continuation: Some(continuation),
                 ..
@@ -177,8 +117,7 @@ impl TaskSpaceControlArgs {
             | Self::TransitionNode {
                 continuation: Some(continuation),
                 ..
-            }
-            | Self::CompleteThenContinue { continuation, .. } => continuation.actions(),
+            } => Some(*continuation),
             Self::MutateGraph {
                 continuation: None, ..
             }
@@ -189,7 +128,7 @@ impl TaskSpaceControlArgs {
             | Self::FinishEnd { .. }
             | Self::ExpandNodes { .. }
             | Self::ReadOutputRef { .. }
-            | Self::ReadMap => Vec::new(),
+            | Self::ReadMap => None,
         }
     }
 
@@ -201,7 +140,7 @@ impl TaskSpaceControlArgs {
                 finish_identity,
                 additional_work_nodes,
                 edges,
-                continuation,
+                continuation: _,
             } => {
                 validate_initialize_map(
                     root,
@@ -210,14 +149,13 @@ impl TaskSpaceControlArgs {
                     additional_work_nodes,
                     edges,
                 )?;
-                continuation.validate()?;
                 Ok(())
             }
             Self::MutateGraph {
                 add_nodes,
                 add_edges,
                 remove_edges,
-                continuation,
+                continuation: _,
                 ..
             } => {
                 if add_nodes.is_empty() && add_edges.is_empty() && remove_edges.is_empty() {
@@ -230,9 +168,6 @@ impl TaskSpaceControlArgs {
                 validate_edges(remove_edges, "mutate_graph.remove_edges")?;
                 validate_unique_edges(add_edges, "mutate_graph.add_edges")?;
                 validate_unique_edges(remove_edges, "mutate_graph.remove_edges")?;
-                if let Some(continuation) = continuation {
-                    continuation.validate()?;
-                }
                 Ok(())
             }
             Self::TransitionNode {
@@ -245,7 +180,7 @@ impl TaskSpaceControlArgs {
                     return invalid("transition_node requires a non-empty node_id");
                 }
                 match (transition, continuation) {
-                    (TaskSpaceNodeTransition::Bind, Some(continuation)) => continuation.validate(),
+                    (TaskSpaceNodeTransition::Bind, Some(_)) => Ok(()),
                     (TaskSpaceNodeTransition::Bind, None) => {
                         invalid("transition_node bind requires continuation")
                     }
@@ -258,7 +193,7 @@ impl TaskSpaceControlArgs {
             Self::CompleteThenContinue {
                 current_node_id,
                 next_node_id,
-                continuation,
+                continuation: _,
                 ..
             } => {
                 if current_node_id.trim().is_empty() || next_node_id.trim().is_empty() {
@@ -266,7 +201,7 @@ impl TaskSpaceControlArgs {
                         "complete_then_continue requires non-empty current_node_id and next_node_id",
                     );
                 }
-                continuation.validate()
+                Ok(())
             }
             Self::CompleteThenEnd {
                 current_node_id,
@@ -299,35 +234,6 @@ impl TaskSpaceControlArgs {
                 Ok(())
             }
             Self::ReadOutputRef { .. } | Self::ReadMap => Ok(()),
-        }
-    }
-}
-
-impl TaskSpaceContinuation {
-    fn actions(&self) -> Vec<TaskSpaceNestedAction> {
-        match self {
-            Self::Actions { actions } => actions.clone(),
-            Self::PatchThenActions { patch, actions } => {
-                let mut declared = Vec::with_capacity(actions.len() + 1);
-                declared.push(patch.clone());
-                declared.extend(actions.iter().cloned());
-                declared
-            }
-        }
-    }
-
-    fn validate(&self) -> Result<(), FunctionCallError> {
-        match self {
-            Self::Actions { actions } => {
-                require_non_empty(actions, "continuation.actions")?;
-                validate_nested_actions(actions)
-            }
-            Self::PatchThenActions { patch, actions } => {
-                if !is_plain_apply_patch(patch) {
-                    return invalid("continuation.patch must be the unnamespaced apply_patch tool");
-                }
-                validate_nested_actions(actions)
-            }
         }
     }
 }
@@ -406,26 +312,6 @@ fn validate_unique_edges(
         }
     }
     Ok(())
-}
-
-fn validate_nested_actions(actions: &[TaskSpaceNestedAction]) -> Result<(), FunctionCallError> {
-    for action in actions {
-        let name = action.tool_name();
-        if name.trim().is_empty() {
-            return invalid("nested action tool_name cannot be empty");
-        }
-        if matches!(name, "taskspace_control" | "update_plan") {
-            return invalid("nested actions cannot call taskspace_control or update_plan");
-        }
-        if is_plain_apply_patch(action) {
-            return invalid("apply_patch is only valid in continuation.patch");
-        }
-    }
-    Ok(())
-}
-
-fn is_plain_apply_patch(action: &TaskSpaceNestedAction) -> bool {
-    action.namespace().is_none() && action.tool_name() == "apply_patch"
 }
 
 fn require_non_empty<T>(items: &[T], field: &str) -> Result<(), FunctionCallError> {

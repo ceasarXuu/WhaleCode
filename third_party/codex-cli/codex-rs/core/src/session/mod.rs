@@ -3353,23 +3353,6 @@ impl Session {
         self.send_raw_response_items(turn_context, items).await;
     }
 
-    pub(crate) async fn record_taskspace_child_item(
-        &self,
-        item: &ResponseItem,
-        parent_call_id: &str,
-    ) -> Result<String, String> {
-        let event = {
-            let mut state = self.state.lock().await;
-            state.record_taskspace_child_item(item, parent_call_id.to_string())?
-        };
-        let event_id = event.id.clone();
-        self.persist_rollout_items(&[RolloutItem::EventMsg(EventMsg::MapRuntime(
-            MapRuntimeEvent::TaskContextEventRecorded(event.to_protocol()),
-        ))])
-        .await;
-        Ok(event_id)
-    }
-
     /// Append ResponseItems to the in-memory conversation history only.
     pub(crate) async fn record_into_history(
         &self,

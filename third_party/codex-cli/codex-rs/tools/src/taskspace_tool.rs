@@ -1,7 +1,6 @@
 use std::collections::BTreeMap;
 
 use crate::JsonSchema;
-use crate::ResponsesApiNamespaceTool;
 use crate::ResponsesApiTool;
 use crate::ToolSpec;
 use serde_json::json;
@@ -32,147 +31,6 @@ fn object_any_of(variants: Vec<JsonSchema>, description: &str) -> JsonSchema {
     schema.description = Some(description.into());
     schema.any_of = Some(variants);
     schema
-}
-
-fn referenced_function_action_schema(
-    tool_names: Vec<String>,
-    namespace: Option<&str>,
-) -> JsonSchema {
-    let mut arguments = JsonSchema::object(BTreeMap::new(), None, None);
-    arguments.description = Some("Exact arguments for the separately exposed tool schema.".into());
-    let mut properties = BTreeMap::from([
-        (
-            "tool_name".into(),
-            JsonSchema::string_enum(
-                tool_names
-                    .into_iter()
-                    .map(serde_json::Value::from)
-                    .collect(),
-                Some("Name of a separately exposed ordinary tool.".into()),
-            ),
-        ),
-        ("arguments".into(), arguments),
-    ]);
-    let mut required = vec!["tool_name".into(), "arguments".into()];
-    if let Some(namespace) = namespace {
-        properties.insert(
-            "namespace".into(),
-            JsonSchema::string_enum(
-                vec![json!(namespace)],
-                Some("Visible tool namespace.".into()),
-            ),
-        );
-        required.insert(0, "namespace".into());
-    }
-    JsonSchema::object(properties, Some(required), Some(false.into()))
-}
-
-fn exact_function_action_schema(tool: &ResponsesApiTool) -> JsonSchema {
-    let properties = BTreeMap::from([
-        (
-            "tool_name".into(),
-            JsonSchema::string_enum(
-                vec![json!(tool.name)],
-                Some("Visible ordinary tool name.".into()),
-            ),
-        ),
-        ("arguments".into(), tool.parameters.clone()),
-    ]);
-    JsonSchema::object(
-        properties,
-        Some(vec!["tool_name".into(), "arguments".into()]),
-        Some(false.into()),
-    )
-}
-
-fn custom_action_schema(names: Vec<String>) -> JsonSchema {
-    JsonSchema::object(
-        BTreeMap::from([
-            (
-                "tool_name".into(),
-                JsonSchema::string_enum(
-                    names.into_iter().map(serde_json::Value::from).collect(),
-                    Some("Name of a separately exposed ordinary custom tool.".into()),
-                ),
-            ),
-            (
-                "input".into(),
-                JsonSchema::string(Some("Exact custom tool input.".into())),
-            ),
-        ]),
-        Some(vec!["tool_name".into(), "input".into()]),
-        Some(false.into()),
-    )
-}
-
-struct NestedActionSchemas {
-    ordinary: JsonSchema,
-    patch: Option<JsonSchema>,
-}
-
-fn nested_action_schemas(visible_tools: &[ToolSpec]) -> NestedActionSchemas {
-    let mut function_names = Vec::new();
-    let mut namespaced_functions = BTreeMap::<String, Vec<String>>::new();
-    let mut custom_names = Vec::new();
-    let mut patch_variant = None;
-    for spec in visible_tools {
-        match spec {
-            ToolSpec::Function(tool)
-                if !matches!(tool.name.as_str(), "taskspace_control" | "update_plan") =>
-            {
-                if tool.name == "apply_patch" {
-                    patch_variant = Some(exact_function_action_schema(tool));
-                } else {
-                    function_names.push(tool.name.clone());
-                }
-            }
-            ToolSpec::Namespace(namespace) => {
-                for tool in &namespace.tools {
-                    let ResponsesApiNamespaceTool::Function(tool) = tool;
-                    namespaced_functions
-                        .entry(namespace.name.clone())
-                        .or_default()
-                        .push(tool.name.clone());
-                }
-            }
-            ToolSpec::Freeform(tool) => {
-                if tool.name == "apply_patch" {
-                    patch_variant = Some(custom_action_schema(vec![tool.name.clone()]));
-                } else {
-                    custom_names.push(tool.name.clone());
-                }
-            }
-            ToolSpec::Function(_)
-            | ToolSpec::ToolSearch { .. }
-            | ToolSpec::LocalShell {}
-            | ToolSpec::ImageGeneration { .. }
-            | ToolSpec::WebSearch { .. } => {}
-        }
-    }
-    function_names.sort();
-    custom_names.sort();
-    for names in namespaced_functions.values_mut() {
-        names.sort();
-    }
-    let mut ordinary_variants = Vec::new();
-    if !function_names.is_empty() {
-        ordinary_variants.push(referenced_function_action_schema(function_names, None));
-    }
-    ordinary_variants.extend(
-        namespaced_functions
-            .into_iter()
-            .map(|(namespace, names)| referenced_function_action_schema(names, Some(&namespace))),
-    );
-    if !custom_names.is_empty() {
-        ordinary_variants.push(custom_action_schema(custom_names));
-    }
-    NestedActionSchemas {
-        ordinary: object_any_of(
-            ordinary_variants,
-            "One ordinary non-patch tool call visible in this request.",
-        ),
-        patch: patch_variant,
-    }
 }
 
 fn graph_node_schema(description: &str) -> JsonSchema {
@@ -226,52 +84,17 @@ fn edge_schema(description: &str) -> JsonSchema {
     schema
 }
 
-fn continuation_variant(
-    kind: &str,
-    mut properties: BTreeMap<String, JsonSchema>,
-    mut required: Vec<String>,
-) -> JsonSchema {
-    properties.insert(
-        "kind".into(),
-        JsonSchema::string_enum(vec![json!(kind)], Some("Continuation variant.".into())),
-    );
-    required.insert(0, "kind".into());
-    JsonSchema::object(properties, Some(required), Some(false.into()))
-}
-
 fn continuation_schema(has_patch: bool) -> JsonSchema {
-    let ordinary_action = JsonSchema::reference("#/$defs/ordinaryAction");
-    let mut variants = vec![continuation_variant(
-        "actions",
-        BTreeMap::from([(
-            "actions".into(),
-            JsonSchema::array(
-                ordinary_action.clone(),
-                Some("Immediate ordinary non-patch actions.".into()),
-            )
-            .with_min_items(1),
-        )]),
-        vec!["actions".into()],
-    )];
+    let mut variants = vec![json!("next_tool")];
     if has_patch {
-        variants.push(continuation_variant(
-            "patch_then_actions",
-            BTreeMap::from([
-                ("patch".into(), JsonSchema::reference("#/$defs/patchAction")),
-                (
-                    "actions".into(),
-                    JsonSchema::array(
-                        ordinary_action,
-                        Some("Ordinary non-patch actions after the patch.".into()),
-                    ),
-                ),
-            ]),
-            vec!["patch".into()],
-        ));
+        variants.push(json!("next_apply_patch"));
     }
-    object_any_of(
+    JsonSchema::string_enum(
         variants,
-        "Exactly one declared continuation shape; patch_then_actions contains one patch slot.",
+        Some(
+            "Required top-level continuation immediately after this control in the same provider response. next_tool requires an ordinary top-level tool. next_apply_patch requires direct apply_patch."
+                .into(),
+        ),
     )
 }
 
@@ -488,12 +311,11 @@ fn finish_end_schema() -> JsonSchema {
 }
 
 pub fn create_taskspace_control_tool(visible_tools: &[ToolSpec]) -> ToolSpec {
-    let actions = nested_action_schemas(visible_tools);
-    let has_patch = actions.patch.is_some();
-    let mut definitions = BTreeMap::from([("ordinaryAction".into(), actions.ordinary)]);
-    if let Some(patch) = actions.patch {
-        definitions.insert("patchAction".into(), patch);
-    }
+    let has_patch = visible_tools.iter().any(|spec| match spec {
+        ToolSpec::Function(tool) => tool.name == "apply_patch",
+        ToolSpec::Freeform(tool) => tool.name == "apply_patch",
+        _ => false,
+    });
     let mut variants = vec![
         initialize_map_schema(has_patch),
         mutate_graph_schema(has_patch),
@@ -504,12 +326,11 @@ pub fn create_taskspace_control_tool(visible_tools: &[ToolSpec]) -> ToolSpec {
         finish_end_schema(),
     ];
     variants.extend(simple_action_schemas());
-    let parameters = object_any_of(variants, "One mechanical TaskSpace lifecycle operation.")
-        .with_definitions(definitions);
+    let parameters = object_any_of(variants, "One mechanical TaskSpace lifecycle operation.");
 
     ToolSpec::Function(ResponsesApiTool {
         name: "taskspace_control".into(),
-        description: "Mandatory mechanical TaskSpace lifecycle tool. When visible TaskSpace bootstrap state has bootstrap_required=true, the first top-level tool call MUST be taskspace_control with action=initialize_map; place any immediate ordinary work in initialize_map.continuation. initialize_map declares and binds the initial rooted DAG before its continuation. mutate_graph may continue only from an existing binding that remains valid. A running Work node cannot be completed alone: use complete_then_continue to atomically complete it, bind the Agent-selected next Ready node, and execute the required continuation; use complete_then_end to atomically complete the final Work node and close the Map with the exact Agent-authored summary. transition_node handles bind, block, unblock, and rework only. finish_end is reserved for a Map whose Finish is already Ready and cannot continue. read_map returns the exact current full Map projection through the shared renderer; expand_nodes and read_output_ref expose mechanically retained details. For a given map_id, the last visible projection is current and all earlier projections are historical; repeated revision values mean the map did not change between requests. Runtime validates hard state rules and executes only the declared operation order. It does not choose, infer, or rewrite actions.".into(),
+        description: "Mandatory mechanical TaskSpace lifecycle tool. When visible TaskSpace bootstrap state has bootstrap_required=true, the first top-level tool call MUST be taskspace_control with action=initialize_map. initialize_map declares and binds the initial rooted DAG. mutate_graph may continue only from an existing binding that remains valid. A running Work node cannot be completed alone: use complete_then_continue to atomically complete it and bind the Agent-selected next Ready node; use complete_then_end to atomically complete the final Work node and close the Map with the exact Agent-authored summary. initialize_map, bind, and complete_then_continue require a top-level continuation in the same provider response: continuation=next_tool means the immediately following call is an ordinary tool; continuation=next_apply_patch means the immediately following call is direct apply_patch. Never nest tool names, arguments, or patch content in taskspace_control. transition_node handles bind, block, unblock, and rework only. finish_end is reserved for a Map whose Finish is already Ready and cannot continue. read_map returns the exact current full Map projection through the shared renderer; expand_nodes and read_output_ref expose mechanically retained details. For a given map_id, the last visible projection is current and all earlier projections are historical; repeated revision values mean the map did not change between requests. Runtime validates hard state rules and executes only the declared provider order. It does not choose, infer, move, or rewrite actions.".into(),
         strict: false,
         defer_loading: None,
         parameters,

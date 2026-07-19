@@ -31,7 +31,7 @@ use serde_json::json;
 const FINAL_SUMMARY: &str = "Exact Agent terminal summary.";
 const PLAIN_PROVIDER_TEXT: &str = "Provider tried to finish without complete_then_end.";
 
-fn initialize_arguments(dir_path: &str) -> String {
+fn initialize_arguments() -> String {
     json!({
         "action": "initialize_map",
         "root": {"node_id": "root", "goal": "Complete the test task"},
@@ -45,30 +45,18 @@ fn initialize_arguments(dir_path: &str) -> String {
             {"from": "work", "to": "verify"},
             {"from": "verify", "to": "finish"}
         ],
-        "continuation": {
-            "kind": "actions",
-            "actions": [{
-                "tool_name": "exec_command",
-                "arguments": {"cmd": "pwd", "workdir": dir_path}
-            }]
-        }
+        "continuation": "next_tool"
     })
     .to_string()
 }
 
-fn transition_arguments(dir_path: &str) -> String {
+fn transition_arguments() -> String {
     json!({
         "action": "complete_then_continue",
         "expected_revision": 2,
         "current_node_id": "work",
         "next_node_id": "verify",
-        "continuation": {
-            "kind": "actions",
-            "actions": [{
-                "tool_name": "exec_command",
-                "arguments": {"cmd": "pwd", "workdir": dir_path}
-            }]
-        }
+        "continuation": "next_tool"
     })
     .to_string()
 }
@@ -122,14 +110,16 @@ async fn submit_and_collect(test: &TestCodex) -> Vec<EventMsg> {
 }
 
 fn common_responses(test: &TestCodex) -> Vec<String> {
+    let pwd_arguments = json!({
+        "cmd": "pwd",
+        "workdir": test.cwd_path().display().to_string()
+    })
+    .to_string();
     vec![
         sse(vec![
             ev_response_created("init-response"),
-            ev_function_call(
-                "init-call",
-                "taskspace_control",
-                &initialize_arguments(&test.cwd_path().display().to_string()),
-            ),
+            ev_function_call("init-call", "taskspace_control", &initialize_arguments()),
+            ev_function_call("init-exec", "exec_command", &pwd_arguments),
             ev_completed("init-response"),
         ]),
         sse(vec![
@@ -137,8 +127,9 @@ fn common_responses(test: &TestCodex) -> Vec<String> {
             ev_function_call(
                 "complete-call",
                 "taskspace_control",
-                &transition_arguments(&test.cwd_path().display().to_string()),
+                &transition_arguments(),
             ),
+            ev_function_call("complete-exec", "exec_command", &pwd_arguments),
             ev_completed("complete-response"),
         ]),
     ]

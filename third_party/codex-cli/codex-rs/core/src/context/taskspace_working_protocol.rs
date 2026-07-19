@@ -9,15 +9,15 @@ pub(crate) const TASKSPACE_WORKING_PROTOCOL_START: &str = "TaskSpaceCoreWorkingP
 pub(crate) const TASKSPACE_WORKING_PROTOCOL_END: &str = "TaskSpaceCoreWorkingProtocolV1 end.";
 pub(crate) const TASKSPACE_WORKING_PROTOCOL_SCHEMA_VERSION: &str =
     "taskspace-core-working-protocol-v1";
-pub(crate) const TASKSPACE_WORKING_PROTOCOL_VERSION: &str = "1.0.2";
+pub(crate) const TASKSPACE_WORKING_PROTOCOL_VERSION: &str = "1.0.3";
 pub(crate) const TASKSPACE_WORKING_PROTOCOL_RULES_SHA256: &str =
-    "b9217a385a451a23cf2b27593065709404b63c7723c9a9d749b94d8c33828574";
+    "6d4dd3049120ac78dec8b4bfb6098c8c12416748606aa8be130551343a15aa97";
 
 const TASKSPACE_WORKING_PROTOCOL_RULES: &str = concat!(
     "1. Use the TaskSpace Map as the mandatory ledger for task topology and lifecycle; natural conversation remains the detailed evidence and work history.\n",
-    "2. If bootstrap_required=true, the first top-level tool call must be initialize_map. Do not call an ordinary tool first; put immediate ordinary work in initialize_map.continuation.\n",
+    "2. If bootstrap_required=true, the first top-level tool call must be initialize_map. Declare continuation=next_tool or next_apply_patch and emit the required ordinary top-level tool immediately after taskspace_control in the same response.\n",
     "3. Update the Map at meaningful task-phase boundaries, not after every ordinary tool result. Keep ordinary work under the bound Work node.\n",
-    "4. A running Work node cannot be completed alone. When completion makes another node Ready, use complete_then_continue with the current node, your selected next node, and immediate continuation actions; the state handoff commits as one revision.\n",
+    "4. A running Work node cannot be completed alone. When completion makes another node Ready, use complete_then_continue with the current node, your selected next node, and continuation. Emit the selected next top-level tool immediately after control in the same response; use next_apply_patch only when that call is direct apply_patch.\n",
     "5. At the final Work boundary, use complete_then_end with the current node and your exact final summary. Use finish_end only when Finish is already Ready and no running Work node needs completion.\n",
     "6. Use read_map only when the current revision, binding, or Ready frontier is not established by the latest visible Map or control result, including after rejection or context recovery. Do not read on a fixed cadence.\n",
     "7. You choose task decomposition, completion, Ready nodes, and actions. Runtime only validates hard graph and lifecycle rules and never infers or rewrites those choices.\n",
@@ -105,7 +105,7 @@ mod tests {
         let rendered = render_taskspace_working_protocol();
         assert!(rendered.starts_with(TASKSPACE_WORKING_PROTOCOL_START));
         assert!(rendered.ends_with(&format!("{TASKSPACE_WORKING_PROTOCOL_END}\n")));
-        assert!(rendered.contains("- protocol_version: 1.0.2\n"));
+        assert!(rendered.contains("- protocol_version: 1.0.3\n"));
         assert!(rendered.contains(TASKSPACE_WORKING_PROTOCOL_RULES_SHA256));
     }
 

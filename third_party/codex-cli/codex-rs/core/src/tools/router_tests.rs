@@ -169,27 +169,6 @@ async fn build_tool_call_normalizes_read_file_alias_to_shell_command() -> anyhow
 }
 
 #[tokio::test]
-async fn taskspace_nested_visibility_includes_code_mode_nested_tools() -> anyhow::Result<()> {
-    let (_, turn) = make_session_and_context().await;
-    let router = ToolRouter::from_config(
-        &turn.tools_config,
-        ToolRouterParams {
-            deferred_mcp_tools: None,
-            mcp_tools: None,
-            unavailable_called_tools: Vec::new(),
-            parallel_mcp_server_names: HashSet::new(),
-            discoverable_tools: None,
-            dynamic_tools: turn.dynamic_tools.as_slice(),
-        },
-    );
-
-    assert!(router.is_taskspace_nested_tool_visible(None, "exec_command", false));
-    assert!(!router.is_taskspace_nested_tool_visible(None, "taskspace_control", false));
-    assert!(!router.is_taskspace_nested_tool_visible(None, "update_plan", false));
-    Ok(())
-}
-
-#[tokio::test]
 async fn mcp_parallel_support_uses_exact_payload_server() -> anyhow::Result<()> {
     let (_, turn) = make_session_and_context().await;
     let router = ToolRouter::from_config(

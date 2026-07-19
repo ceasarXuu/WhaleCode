@@ -1,6 +1,10 @@
 use super::*;
-use crate::tools::sequence_manifest::ToolSequenceManifest;
+use crate::tools::context::ToolPayload;
 use crate::tools::sequence_preflight::REQUEST_MULTIPLE_PATCHES_CODE;
+use crate::tools::sequence_preflight::TASKSPACE_CONTINUATION_MISSING_CODE;
+use crate::tools::sequence_preflight::TASKSPACE_NEXT_PATCH_ARGUMENTS_INVALID_CODE;
+use crate::tools::sequence_preflight::TASKSPACE_NEXT_PATCH_INVALID_CODE;
+use crate::tools::sequence_preflight::TASKSPACE_NEXT_TOOL_INVALID_CODE;
 use crate::tools::sequence_preflight::validate_tool_sequence;
 use codex_tools::ToolName;
 
@@ -18,6 +22,26 @@ fn function_call_with_arguments(name: &str, call_id: &str, arguments: &str) -> T
     }
 }
 
+fn custom_call(name: &str, call_id: &str, input: &str) -> ToolCall {
+    ToolCall {
+        tool_name: ToolName::plain(name),
+        call_id: call_id.to_string(),
+        payload: ToolPayload::Custom {
+            input: input.to_string(),
+        },
+    }
+}
+
+fn handoff_call(call_id: &str, continuation: &str) -> ToolCall {
+    function_call_with_arguments(
+        "taskspace_control",
+        call_id,
+        &format!(
+            r#"{{"action":"complete_then_continue","expected_revision":2,"current_node_id":"edit","next_node_id":"verify","continuation":"{continuation}"}}"#,
+        ),
+    )
+}
+
 #[test]
 fn preserves_provider_order_around_state_barriers() {
     let calls = vec![
@@ -33,9 +57,18 @@ fn preserves_provider_order_around_state_barriers() {
         sequence_segments(&calls),
         vec![
             SequenceSegment::Parallel { start: 0, end: 2 },
-            SequenceSegment::Barrier { index: 2 },
-            SequenceSegment::Parallel { start: 3, end: 4 },
-            SequenceSegment::Barrier { index: 4 },
+            SequenceSegment::Barrier {
+                index: 2,
+                kind: BarrierKind::TaskSpaceControl,
+            },
+            SequenceSegment::Barrier {
+                index: 3,
+                kind: BarrierKind::ApplyPatch,
+            },
+            SequenceSegment::Barrier {
+                index: 4,
+                kind: BarrierKind::TaskSpaceControl,
+            },
             SequenceSegment::Parallel { start: 5, end: 6 },
         ]
     );
@@ -63,8 +96,14 @@ fn preserves_adjacent_finish_barriers_before_follow_up_action() {
     assert_eq!(
         sequence_segments(&calls),
         vec![
-            SequenceSegment::Barrier { index: 0 },
-            SequenceSegment::Barrier { index: 1 },
+            SequenceSegment::Barrier {
+                index: 0,
+                kind: BarrierKind::TaskSpaceControl,
+            },
+            SequenceSegment::Barrier {
+                index: 1,
+                kind: BarrierKind::TaskSpaceControl,
+            },
             SequenceSegment::Parallel { start: 2, end: 3 },
         ]
     );
@@ -85,50 +124,6 @@ fn skipped_output_preserves_call_id_and_failure_status() {
             .to_text()
             .is_some_and(|text| text.contains("skipped_due_to_prior_failure"))
     );
-}
-
-#[test]
-fn extracts_bootstrap_nested_actions() {
-    let call = function_call_with_arguments(
-        "taskspace_control",
-        "outer",
-        r#"{"action":"initialize_map","root":{"node_id":"root","goal":"Solve"},"initial_work_node":{"node_id":"node-1","goal":"Read"},"additional_work_nodes":[],"finish_identity":{"id":"finish"},"edges":[{"from":"root","to":"node-1"},{"from":"node-1","to":"finish"}],"continuation":{"kind":"actions","actions":[{"tool_name":"exec_command","arguments":{"cmd":"pwd"}}]}}"#,
-    );
-
-    let actions = taskspace_nested_actions(&call);
-    assert_eq!(actions.len(), 1);
-    assert_eq!(actions[0].tool_name(), "exec_command");
-}
-
-#[test]
-fn extracts_bind_mutation_and_handoff_continuations_without_reordering_actions() {
-    let bind = function_call_with_arguments(
-        "taskspace_control",
-        "bind",
-        r#"{"action":"transition_node","expected_revision":3,"node_id":"edit","transition":"bind","continuation":{"kind":"actions","actions":[{"tool_name":"exec_command","arguments":{"cmd":"pwd"}},{"tool_name":"read_file","arguments":{"path":"src/lib.rs"}}]}}"#,
-    );
-    let mutation = function_call_with_arguments(
-        "taskspace_control",
-        "mutate",
-        r#"{"action":"mutate_graph","expected_revision":4,"add_nodes":[{"node_id":"verify","goal":"Verify"}],"add_edges":[{"from":"edit","to":"verify"}],"remove_edges":[],"continuation":{"kind":"actions","actions":[{"tool_name":"exec_command","arguments":{"cmd":"cargo test"}}]}}"#,
-    );
-    let handoff = function_call_with_arguments(
-        "taskspace_control",
-        "handoff",
-        r#"{"action":"complete_then_continue","expected_revision":5,"current_node_id":"edit","next_node_id":"verify","continuation":{"kind":"actions","actions":[{"tool_name":"exec_command","arguments":{"cmd":"cargo test"}},{"tool_name":"read_file","arguments":{"path":"src/lib.rs"}}]}}"#,
-    );
-
-    let bind_actions = taskspace_nested_actions(&bind);
-    assert_eq!(bind_actions.len(), 2);
-    assert_eq!(bind_actions[0].tool_name(), "exec_command");
-    assert_eq!(bind_actions[1].tool_name(), "read_file");
-    let mutation_actions = taskspace_nested_actions(&mutation);
-    assert_eq!(mutation_actions.len(), 1);
-    assert_eq!(mutation_actions[0].tool_name(), "exec_command");
-    let handoff_actions = taskspace_nested_actions(&handoff);
-    assert_eq!(handoff_actions.len(), 2);
-    assert_eq!(handoff_actions[0].tool_name(), "exec_command");
-    assert_eq!(handoff_actions[1].tool_name(), "read_file");
 }
 
 #[test]
@@ -172,34 +167,6 @@ fn multi_patch_preflight_closes_every_call_without_execution_claims() {
 }
 
 #[test]
-fn taskspace_patch_slot_and_top_level_patch_share_the_same_preflight_count() {
-    let bootstrap = function_call_with_arguments(
-        "taskspace_control",
-        "bootstrap",
-        r#"{"action":"initialize_map","root":{"node_id":"root","goal":"Solve"},"initial_work_node":{"node_id":"edit","goal":"Edit"},"additional_work_nodes":[],"finish_identity":{"id":"finish"},"edges":[{"from":"root","to":"edit"},{"from":"edit","to":"finish"}],"continuation":{"kind":"patch_then_actions","patch":{"tool_name":"apply_patch","input":"patch"}}}"#,
-    );
-    let calls = vec![bootstrap, function_call("apply_patch", "top-patch")];
-    let manifest = ToolSequenceManifest::from_calls(&calls);
-    assert_eq!(manifest.request_patch_count, 2);
-    assert!(validate_tool_sequence(&calls).is_err());
-}
-
-#[test]
-fn bind_patch_slot_and_top_level_patch_are_rejected_before_execution() {
-    let bind = function_call_with_arguments(
-        "taskspace_control",
-        "bind",
-        r#"{"action":"transition_node","expected_revision":3,"node_id":"edit","transition":"bind","continuation":{"kind":"patch_then_actions","patch":{"tool_name":"apply_patch","input":"patch"},"actions":[]}}"#,
-    );
-    let calls = vec![bind, function_call("apply_patch", "top-patch")];
-
-    let failure = validate_tool_sequence(&calls).expect_err("two patches must fail preflight");
-    assert_eq!(failure.reason_code, REQUEST_MULTIPLE_PATCHES_CODE);
-    assert_eq!(failure.request_patch_count, Some(2));
-    assert_eq!(failure.outputs(&calls).len(), 2);
-}
-
-#[test]
 fn one_patch_with_follow_up_tools_passes_manifest_preflight() {
     let calls = vec![
         function_call("apply_patch", "patch"),
@@ -210,89 +177,90 @@ fn one_patch_with_follow_up_tools_passes_manifest_preflight() {
 }
 
 #[test]
-fn aggregate_does_not_duplicate_independently_visible_nested_tool_feedback() {
-    let state = ResponseInputItem::FunctionCallOutput {
-        call_id: "outer".into(),
-        output: FunctionCallOutputPayload::from_text(
-            serde_json::json!({
-                "schema_version": "TaskSpaceControlResultR6V1",
-                "status": "committed",
-                "success": true,
-                "state_commit": true,
-                "committed_revision": 1,
-                "delta": {
-                    "map_id": "map-1",
-                    "committed_revision": 1,
-                    "graph_event_refs": [
-                        {"revision": 1, "event_id": "event:5:map-1:1:0", "event_type": "map_initialized"},
-                        {"revision": 1, "event_id": "event:5:map-1:1:1", "event_type": "readiness_changed"},
-                        {"revision": 2, "event_id": "event:5:map-1:2:0", "event_type": "node_bound"}
-                    ],
-                    "node_detail_event_refs": []
-                },
-                "steps": [{
-                    "kind": "map_initialized",
-                    "map_id": "map-1",
-                    "revision": 1
-                }],
-            })
-            .to_string(),
-        ),
-    };
-    let aggregated = aggregate_taskspace_batch_response(
-        "outer",
-        state,
-        vec![(
-            "apply_patch".into(),
-            "outer:nested:0".into(),
-            true,
-            "task-event-7".into(),
-            "task-event-8".into(),
-        )],
-        true,
-    )
-    .expect("R6 batch response");
-    let ResponseInputItem::FunctionCallOutput { call_id, output } = aggregated else {
-        panic!("expected outer function output");
-    };
-    assert_eq!(call_id, "outer");
-    assert_eq!(output.success, Some(true));
-    let output_text = output.body.to_text().expect("text");
-    let value: serde_json::Value = serde_json::from_str(&output_text).expect("batch json");
-    assert_eq!(value["schema_version"], "TaskSpaceControlResultR6V1");
-    assert_eq!(value["status"], "committed");
-    assert_eq!(value["state_commit"], true);
-    assert_eq!(value["steps"].as_array().expect("steps").len(), 1);
-    assert_eq!(value["steps"][0]["map_id"], "map-1");
-    assert!(!output_text.contains("task-event-7"));
-    assert!(!output_text.contains("task-event-8"));
-    assert!(
-        output_text.len() <= 712,
-        "initialization feedback with nested actions must stay at least 30% below the 1,018-byte E6 fixture, got {} bytes",
-        output_text.len()
+fn declared_patch_and_follow_up_tools_stay_in_one_valid_response() {
+    let calls = vec![
+        handoff_call("handoff", "next_apply_patch"),
+        custom_call("apply_patch", "patch", "*** Begin Patch\n*** End Patch"),
+        function_call("exec_command", "test"),
+        function_call("read_file", "inspect"),
+    ];
+
+    let manifest = validate_tool_sequence(&calls).expect("valid merged response");
+    assert_eq!(manifest.entries.len(), 4);
+    assert_eq!(manifest.request_patch_count, 1);
+    assert_eq!(
+        sequence_segments(&calls),
+        vec![
+            SequenceSegment::Barrier {
+                index: 0,
+                kind: BarrierKind::TaskSpaceControl,
+            },
+            SequenceSegment::Barrier {
+                index: 1,
+                kind: BarrierKind::ApplyPatch,
+            },
+            SequenceSegment::Parallel { start: 2, end: 4 },
+        ]
     );
 }
 
 #[test]
-fn aggregate_rejects_non_r6_state_feedback_instead_of_rewriting_it() {
-    let state = ResponseInputItem::FunctionCallOutput {
-        call_id: "outer".into(),
-        output: FunctionCallOutputPayload::from_text(
-            serde_json::json!({
-                "schema_version": "TaskSpaceControlResultV3",
-                "success": true,
-                "steps": [],
-            })
-            .to_string(),
-        ),
-    };
+fn declared_ordinary_tool_continuation_passes_in_the_same_response() {
+    let calls = vec![
+        handoff_call("handoff", "next_tool"),
+        function_call("exec_command", "test"),
+        function_call("read_file", "inspect"),
+    ];
 
-    let error = aggregate_taskspace_batch_response("outer", state, Vec::new(), true)
-        .expect_err("legacy feedback must be fatal");
+    validate_tool_sequence(&calls).expect("valid ordinary sibling response");
+}
 
-    assert!(
-        error
-            .to_string()
-            .contains("unsupported state response schema")
+#[test]
+fn declared_continuation_requires_an_immediate_sibling() {
+    let failure = validate_tool_sequence(&[handoff_call("handoff", "next_tool")])
+        .expect_err("missing sibling must fail");
+    assert_eq!(failure.reason_code, TASKSPACE_CONTINUATION_MISSING_CODE);
+}
+
+#[test]
+fn declared_patch_rejects_a_non_patch_immediate_sibling() {
+    let calls = vec![
+        handoff_call("handoff", "next_apply_patch"),
+        function_call("exec_command", "test"),
+    ];
+    let failure = validate_tool_sequence(&calls).expect_err("wrong sibling must fail");
+    assert_eq!(failure.reason_code, TASKSPACE_NEXT_PATCH_INVALID_CODE);
+}
+
+#[test]
+fn declared_patch_rejects_malformed_direct_arguments_before_execution() {
+    let calls = vec![
+        handoff_call("handoff", "next_apply_patch"),
+        function_call_with_arguments("apply_patch", "patch", r#"{"input":"patch"}}"#),
+    ];
+    let failure = validate_tool_sequence(&calls).expect_err("malformed patch must fail");
+    assert_eq!(
+        failure.reason_code,
+        TASKSPACE_NEXT_PATCH_ARGUMENTS_INVALID_CODE
     );
+    assert!(failure.outputs(&calls).iter().all(|output| {
+        !response_input_succeeded(output)
+            && matches!(
+                output,
+                ResponseInputItem::FunctionCallOutput { output, .. }
+                    if output.body.to_text().is_some_and(|text| text.contains(
+                        "\"executed_tool_call_count\":0"
+                    ))
+            )
+    }));
+}
+
+#[test]
+fn next_tool_does_not_ambiguously_accept_apply_patch() {
+    let calls = vec![
+        handoff_call("handoff", "next_tool"),
+        custom_call("apply_patch", "patch", "*** Begin Patch\n*** End Patch"),
+    ];
+    let failure = validate_tool_sequence(&calls).expect_err("ambiguous patch sibling must fail");
+    assert_eq!(failure.reason_code, TASKSPACE_NEXT_TOOL_INVALID_CODE);
 }

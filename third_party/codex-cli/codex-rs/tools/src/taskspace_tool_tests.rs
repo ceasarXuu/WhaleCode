@@ -5,7 +5,6 @@ use crate::create_list_dir_tool;
 #[test]
 fn lifecycle_schema_includes_initialization_with_required_continuation() {
     let list_dir = create_list_dir_tool();
-    let list_dir_value = serde_json::to_value(&list_dir).expect("serialize list_dir");
     let value =
         serde_json::to_value(create_taskspace_control_tool(&[list_dir])).expect("serialize");
     assert!(
@@ -85,55 +84,30 @@ fn lifecycle_schema_includes_initialization_with_required_continuation() {
     assert!(!text.contains("task_title"));
     assert!(!text.contains("task_objective"));
     assert!(!text.contains("context_summary"));
-    let ordinary = &value["parameters"]["$defs"]["ordinaryAction"]["anyOf"][0];
+    assert!(value["parameters"].get("$defs").is_none());
     assert_eq!(
-        ordinary["properties"]["tool_name"]["enum"],
-        json!(["list_dir"])
+        variants[0]["properties"]["continuation"]["enum"],
+        json!(["next_tool"])
     );
-    assert_eq!(ordinary["properties"]["arguments"]["type"], "object");
-    assert_eq!(ordinary["properties"]["arguments"]["properties"], json!({}));
-    assert_ne!(
-        ordinary["properties"]["arguments"],
-        list_dir_value["parameters"]
-    );
-    let continuation = variants[0]["properties"]["continuation"]["anyOf"]
-        .as_array()
-        .expect("continuation variants");
-    assert_eq!(continuation.len(), 1);
-    assert_eq!(continuation[0]["properties"]["kind"]["enum"][0], "actions");
-    assert!(value["parameters"]["$defs"].get("patchAction").is_none());
 }
 
 #[test]
-fn bootstrap_schema_exposes_one_patch_slot_outside_ordinary_actions() {
+fn bootstrap_schema_declares_top_level_patch_without_nested_tool_payloads() {
     let value = serde_json::to_value(create_taskspace_control_tool(&[
         create_list_dir_tool(),
         create_apply_patch_freeform_tool(),
     ]))
     .expect("serialize");
-    let definitions = value["parameters"]["$defs"]
-        .as_object()
-        .expect("definitions");
+    assert!(value["parameters"].get("$defs").is_none());
     assert_eq!(
-        definitions["patchAction"]["properties"]["tool_name"]["enum"][0],
-        "apply_patch"
+        value["parameters"]["anyOf"][0]["properties"]["continuation"]["enum"],
+        json!(["next_tool", "next_apply_patch"])
     );
-    assert!(
-        !definitions["ordinaryAction"]
-            .to_string()
-            .contains("apply_patch")
-    );
-
-    let continuation = value["parameters"]["anyOf"][0]["properties"]["continuation"]["anyOf"]
-        .as_array()
-        .expect("continuation variants");
-    assert_eq!(continuation.len(), 2);
-    let patch = continuation
-        .iter()
-        .find(|variant| variant["properties"]["kind"]["enum"][0] == "patch_then_actions")
-        .expect("patch continuation");
-    assert_eq!(patch["required"], json!(["kind", "patch"]));
-    assert_eq!(patch["additionalProperties"], false);
+    let text = value.to_string();
+    assert!(!text.contains("ordinaryAction"));
+    assert!(!text.contains("patchAction"));
+    assert!(!text.contains("patch_then_actions"));
+    assert!(!text.contains("tool_name"));
 }
 
 #[test]

@@ -110,7 +110,9 @@ impl ToolHandler for TaskSpaceControlHandler {
                 return Err(error);
             }
         };
-        let nested_action_count = args.nested_actions().len();
+        let continuation_kind = args
+            .continuation_requirement()
+            .map_or("none", |continuation| continuation.as_str());
 
         let (message, success, terminal_carrier) = match args {
             TaskSpaceControlArgs::InitializeMap {
@@ -291,7 +293,7 @@ impl ToolHandler for TaskSpaceControlHandler {
                             revision = outcome.revision,
                             current_node_id,
                             next_node_id,
-                            nested_action_count,
+                            continuation_kind,
                             "taskspace.complete_handoff_committed"
                         );
                         (
@@ -318,7 +320,7 @@ impl ToolHandler for TaskSpaceControlHandler {
                             expected_revision,
                             current_node_id,
                             next_node_id,
-                            nested_action_count,
+                            continuation_kind,
                             "taskspace.complete_handoff_rejected"
                         );
                         (rejected_control_result(&error), false, None)

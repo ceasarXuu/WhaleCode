@@ -20,7 +20,6 @@ use crate::tools::context::TaskSpaceTerminalCarrier;
 use crate::tools::context::ToolPayload;
 use crate::tools::context::response_input_model_visible_preview;
 use crate::tools::context::tool_output_model_visible_preview;
-use crate::tools::handlers::taskspace_control_args::TaskSpaceNestedAction;
 use crate::tools::registry::AnyToolResult;
 use crate::tools::registry::ToolArgumentDiffConsumer;
 use crate::tools::router::ToolCall;
@@ -29,7 +28,6 @@ use crate::tools::router::ToolRouter;
 use codex_protocol::ThreadId;
 use codex_protocol::error::CodexErr;
 use codex_protocol::models::ResponseInputItem;
-use codex_protocol::models::ResponseItem;
 use codex_protocol::protocol::SessionSource;
 use codex_protocol::protocol::SubAgentSource;
 use codex_tools::ToolSpec;
@@ -73,35 +71,6 @@ impl ToolCallRuntime {
         tool_name: &codex_tools::ToolName,
     ) -> Option<Box<dyn ToolArgumentDiffConsumer>> {
         self.router.create_diff_consumer(tool_name)
-    }
-
-    pub(crate) fn nested_action_is_visible(&self, action: &TaskSpaceNestedAction) -> bool {
-        self.router.is_taskspace_nested_tool_visible(
-            action.namespace(),
-            action.tool_name(),
-            action.is_custom(),
-        )
-    }
-
-    pub(crate) async fn build_nested_tool_call(
-        &self,
-        action: &TaskSpaceNestedAction,
-        call_id: String,
-    ) -> Result<Option<(ToolCall, ResponseItem)>, FunctionCallError> {
-        let item = action.to_response_item(call_id);
-        let call = ToolRouter::build_tool_call(&self.session, item.clone()).await?;
-        Ok(call.map(|call| (call, item)))
-    }
-
-    pub(crate) async fn record_taskspace_child_item(
-        &self,
-        item: &ResponseItem,
-        parent_call_id: &str,
-    ) -> Result<String, CodexErr> {
-        self.session
-            .record_taskspace_child_item(item, parent_call_id)
-            .await
-            .map_err(CodexErr::Fatal)
     }
 
     pub(crate) fn invalid_call_response(
