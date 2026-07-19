@@ -1,11 +1,13 @@
 # R7 TaskSpace 五层具体合同评审稿
 
 - Created: 2026-07-20
-- Document Version: 0.2
-- Status: Draft for user review
+- Document Version: 0.4
+- Status: Frozen product content - production implementation pending
 - Architecture Source: [R7 TaskSpace 五层交互架构设计](23-r7-taskspace-five-layer-architecture-design.md)
 - Scope: Agent 实际可见的提示词、Skill、Tool schema、反馈和 projection 示例
-- Implementation Status: 未实施；所有文字和 schema 都是候选合同
+- Implementation Status: 现行 R7 基线已存在；本文件所示五层目标尚未实施
+- Authority: [R7 五层架构可执行规格](25-r7-five-layer-executable-spec.md) 与
+  [`five-layer-contract-authority-v1.json`](../../../benchmarks/taskspace/r7/five-layer-contract-authority-v1.json)
 
 ## 1. 这份文档解决什么问题
 
@@ -17,8 +19,9 @@
 - 把 Runtime 的机械底线写成了对 Agent 的语义指导；
 - 在正确时机暴露，并符合 DeepSeek 的真实 wire 结构。
 
-本文件把五层展开成可以逐字审阅的候选内容。它不是第二份架构真相：五层职责仍以 `23` 号文档为准；本文件
-负责展示这些职责落实后，Agent 实际会看到什么。若两份文档冲突，必须修正文档，不能在实施时自行选择。
+本文件把五层展开成可以逐字审阅的选定内容。它不是第二份架构真相：五层职责以 `23` 号文档为准，逐字文本、
+完整 schema 和实施验收以 authority manifest 与 `25` 号规格为准。若发生冲突，阶段必须停止并修正文档或
+权威 artifact，不能让实施者自行选择。
 
 ## 2. Agent 实际看到的总体结构
 
@@ -61,7 +64,6 @@ TaskSpace 新增或改写的文字在后续章节逐字给出，不用占位符�
   ],
   "tools": [
     "<taskspace_control definition>",
-    "<taskspace_read definition, 若拆分候选被接受>",
     "<普通编码工具>"
   ]
 }
@@ -72,7 +74,7 @@ TaskSpace 新增或改写的文字在后续章节逐字给出，不用占位符�
 
 ### 2.3 精确装配位置
 
-本候选不重写整份 Codex-derived Base。它的装配边界是可机械检查的：
+本设计不重写整份 Codex-derived Base。它的装配边界是可机械检查的：
 
 1. Standard 继续使用现有 `whalecode_standard.md`，不注入 L1-L5 任何 TaskSpace 内容。
 2. TaskSpace 继续使用完整
@@ -88,9 +90,9 @@ TaskSpace 新增或改写的文字在后续章节逐字给出，不用占位符�
 因此，评审 L1/L2 时可以明确看到：原 Base 的通用编码能力、AGENTS、执行、验证、进度和最终
 回复规则仍在；TaskSpace 宏观模型不再在 Base 内同时承担完整操作教程。
 
-## 3. L1 Base Instructions 逐字候选
+## 3. L1 Base Instructions 逐字选定文本
 
-### 3.1 英文 wire 候选
+### 3.1 英文 wire 权威文本
 
 以下文字计划替换当前 TaskSpace Base 中过细的 Map 操作说明。它只讲工作方式、Map 的作用、核心概念和责任
 边界，不解释线性上下文的缺陷，也不列 action 字段。
@@ -137,12 +139,12 @@ You decide how to decompose the task, which dependencies are meaningful, what ev
 - 完整错误恢复步骤、JSON 示例和 Tool 调用模板。
 - 复杂 DAG、竞争假设、节点折叠等高级方法。
 
-## 4. L2 Core Working Protocol 逐字候选
+## 4. L2 Core Working Protocol 逐字选定文本
 
-### 4.1 英文 wire 候选
+### 4.1 英文 wire 权威文本
 
 ```markdown
-<taskspace_core_protocol version="taskspace-core-v2-draft">
+<taskspace_core_protocol version="taskspace-core-v2">
 ## Working with the Map
 
 Use this loop for ordinary TaskSpace work:
@@ -198,7 +200,7 @@ Use this loop for ordinary TaskSpace work:
 - 根据命令、Patch 或测试内容给出的下一步建议。
 - 当前 Map revision、Ready 节点或 binding 等动态事实。
 
-## 5. L3 Advanced Skill 具体候选
+## 5. L3 Advanced Skill 选定内容
 
 ### 5.1 Catalog 中始终可见的条目
 
@@ -270,49 +272,50 @@ If reproduction and code inspection are tightly coupled in the actual task, comb
 Agent 自主判断需要时，调用现有文件读取工具打开 catalog path，正文作为普通 Tool result 返回。Runtime 不因为
 “任务看起来复杂”而自动加载，也不在 Agent 读取后再次注入 `<skill>`。
 
-## 6. L4 Tool Contract 具体候选
+## 6. L4 Tool Contract 选定主线
 
 ### 6.1 `taskspace_control` 顶层 description
 
 ```text
-Use taskspace_control to initialize and change the canonical TaskSpace Map, bind Work nodes, and commit lifecycle transitions. Each call selects one action schema; successful calls return the committed revision and exact delta, while rejected calls return a structured error and whether any state was committed. Use it only for Map state, not to wrap ordinary tool names, commands, patch content, or reasoning. The Runtime validates mechanical graph and state invariants but never chooses nodes, repairs arguments, or decides the next action.
+Use taskspace_control to initialize and change the canonical TaskSpace Map, bind Work nodes, commit lifecycle transitions, expand folded node details, and read retained TaskSpace facts. Each call selects one action schema. Successful calls return the committed revision and exact delta or an exact read result; rejected calls return a structured error and whether any state was committed. Use it only for Map state and retained TaskSpace data, not to wrap ordinary tool names, commands, patch content, or reasoning. The Runtime validates mechanical graph and state invariants but never chooses nodes, repairs arguments, or decides the next action.
 ```
 
-### 6.2 `taskspace_read` 顶层 description
+### 6.2 禁用实验：拆出 `taskspace_read`
 
 ```text
 Use taskspace_read to retrieve the current rendered Map or exact retained output referenced by TaskSpace. It never changes canonical Map state. Results identify the Map revision, returned range, truncation, and continuation reference when applicable. Read results are factual snapshots: a projection is current only while its revision matches the latest canonical revision reported by TaskSpace.
 ```
 
-读写拆分仍是候选。若 A/B 证明双 Tool 增加选择错误，两个 description 和 action 可以回到同一个 Tool，但以下
-action-local 合同不能消失。
+主线不暴露这个 Tool；`read_map` 和 `read_output_ref` 都属于 `taskspace_control`。只有 FLA-6-E1 独立 A/B
+接受后，才使用上面的逐字 description 拆分读 Tool。实验不得与 action 改名、result V2 或其他 Tool 候选叠加。
 
 ### 6.3 Action-local 描述和字段
 
 下表使用目标 action 名。`bind_node` / `block_node` / `unblock_node` / `rework_node` 是删除现行
-`transition_node + transition` 重复判别后的候选结果，不是又增加一套状态机。读写拆 Tool 仍需要
-单变量 A/B；未通过时，`read_map` 和 `read_output_ref` 仍归回 `taskspace_control`。
+`transition_node + transition` 重复判别后的选定结果，不是又增加一套状态机。所有分支当前属于同一个
+`taskspace_control`。
 
 | Tool | Action | Agent 可见描述 | 核心必填字段 | 成功副作用 |
 |---|---|---|---|---|
 | control | `initialize_map` | Create the initial rooted DAG, its unique Finish, and the first active Work binding. Emit the first real non-control action as the next top-level sibling in the same response. | root、initial_work_node、finish_identity、additional_work_nodes、edges、required_next_call | revision 0→1，初始 Work 进入 running |
 | control | `mutate_graph` | Atomically add Work nodes or dependency edges and remove eligible edges from the current Map. It does not choose or bind a node. | expected_revision、add_nodes、add_edges、remove_edges | revision +1；图结构原子变更 |
 | control | `bind_node` | Bind one Agent-selected Ready Work node before its first ordinary action. Emit that real action as the next top-level sibling. | expected_revision、node_id、required_next_call | 目标节点进入 running 并成为 binding |
-| control | `block_node` | Mark a Work node blocked using the Agent-provided factual reason. It does not select an alternative path. | expected_revision、node_id、reason | 节点进入 blocked |
+| control | `block_node` | Mark a Work node blocked. It does not select an alternative path. | expected_revision、node_id | 节点进入 blocked |
 | control | `unblock_node` | Return a blocked Work node to the mechanically derived lifecycle state after its blocker is cleared. | expected_revision、node_id | 节点回到 pending/ready |
-| control | `rework_node` | Reopen a completed Work node because the Agent has decided more work is required. | expected_revision、node_id、reason | 节点进入 rework/ready |
+| control | `rework_node` | Reopen a completed Work node because the Agent has decided more work is required. | expected_revision、node_id | 节点进入 rework/ready |
 | control | `complete_then_continue` | Atomically complete the active Work node and bind one Agent-selected Ready successor. Emit the successor's first real action as the next top-level sibling. | expected_revision、current_node_id、next_node_id、required_next_call | 当前 completed；后继 running；revision +1 |
 | control | `complete_then_end` | Atomically complete the final active Work node, close the unique Finish and Root, and store the exact Agent-authored final summary. | expected_revision、current_node_id、final_summary | Map 进入 terminal |
 | control | `finish_end` | Close a Map whose Finish is already Ready and no Work remains active. Store the exact Agent-authored final summary. | expected_revision、final_summary | Map 进入 terminal |
 | control | `expand_nodes` | Mark previously folded node details for full inclusion in future projections. It does not change graph lifecycle state. | node_ids | 更新显示状态，不改变任务判断 |
-| read | `read_map` | Return the current full rendered Map and its canonical revision. | action | 无写入 |
-| read | `read_output_ref` | Return an exact retained output range by reference. Select one discriminator branch for byte range, line range, or continuation. | output_ref + 对应 mode 字段 | 无写入 |
+| control | `read_map` | Return the current full rendered Map and its canonical revision. | action | 无写入 |
+| control | `read_output_ref` | Return an exact retained output range by reference. Select one discriminator branch for `head`、`tail`、`line_range` 或 `grep`. | output_ref + mode 对应字段 | 无写入 |
 
-### 6.4 Provider-visible schema 骨架
+### 6.4 Provider-visible schema 摘录与完整权威
 
-以下是 provider 真实可接受的内联形状，不使用 DeepSeek 当前未声明支持的 `$ref`。为了让本节能阅读，
-只展开 `initialize_map` 和 `complete_then_continue` 两个分支；其他分支的逐字 description 和必填字段已在
-第 6.3 节给出，实施 artifact 必须将它们同样展开为独立 `anyOf` 分支：
+完整、可直接生成 provider Tool definition 的权威文件是
+[`five-layer-taskspace-control-v2.schema.json`](../../../benchmarks/taskspace/r7/five-layer-taskspace-control-v2.schema.json)。
+它内联展开全部 action 和 `read_output_ref` 四种 mode，不使用 `$ref`，并冻结 capability profile 的唯一机械
+变换。以下两支只用于文档阅读，不是待实施者补全的“骨架”：
 
 ```json
 {
@@ -396,8 +399,8 @@ action-local 合同不能消失。
 }
 ```
 
-`required_next_call` 是否最终移除仍是独立候选。在移除前，上述 schema 是当前合同；移除后仍由 response preflight
-机械检查真正的后续 top-level sibling，不能只靠提示词鼓励。
+主线保留 `required_next_call`，并由 response preflight 机械检查真正的后续 top-level sibling。移除字段是
+`FLA-6-E2` 禁用实验，不能把此摘录当作移除依据。
 
 ### 6.5 正确的组合调用示例
 
@@ -430,25 +433,43 @@ action-local 合同不能消失。
 }
 ```
 
-## 7. L5 Factual Feedback 具体候选
+## 7. L5 Factual Feedback 选定合同
+
+完整结果权威是
+[`five-layer-taskspace-result-v2.schema.json`](../../../benchmarks/taskspace/r7/five-layer-taskspace-result-v2.schema.json)。
+下面示例必须与它一致；所有未展示分支也由该 schema 和生命周期 oracle 直接判定。
 
 ### 7.1 成功提交
 
 ```json
 {
   "schema_version": "TaskSpaceControlResultV2",
+  "action": "complete_then_continue",
   "status": "committed",
   "success": true,
   "state_commit": true,
   "partial_commit": false,
+  "canonical_revision": 4,
+  "submitted_expected_revision": 3,
   "committed_revision": 4,
   "delta": {
-    "completed_nodes": ["investigate"],
-    "bound_node": "implement"
+    "map_id": "map-42",
+    "committed_revision": 4,
+    "graph_event_refs": [
+      {"revision": 4, "event_id": "event-4", "event_type": "complete_then_continue"}
+    ],
+    "node_detail_event_refs": []
   },
   "steps": [
-    { "index": 0, "action": "complete_then_continue", "status": "committed" }
+    {
+      "kind": "complete_then_continue",
+      "map_id": "map-42",
+      "current_node_id": "investigate",
+      "next_node_id": "implement",
+      "revision": 4
+    }
   ],
+  "read": null,
   "error": null
 }
 ```
@@ -460,20 +481,23 @@ action-local 合同不能消失。
 ```json
 {
   "schema_version": "TaskSpaceControlResultV2",
+  "action": "complete_then_continue",
   "status": "state_machine_failed",
   "success": false,
   "state_commit": false,
   "partial_commit": false,
+  "canonical_revision": 4,
+  "submitted_expected_revision": 3,
   "committed_revision": null,
   "delta": null,
   "steps": [],
+  "read": null,
   "error": {
     "class": "state_machine",
-    "code": "stale_revision",
+    "code": "TASKSPACE_STALE_REVISION",
     "message": "expected_revision does not match the current canonical revision",
-    "action": "complete_then_continue",
     "actual": { "canonical_revision": 4 },
-    "expected": { "canonical_revision": 3 }
+    "expected": { "submitted_expected_revision": 3 }
   }
 }
 ```
@@ -487,20 +511,23 @@ action-local 合同不能消失。
 ```json
 {
   "schema_version": "TaskSpaceControlResultV2",
+  "action": "complete_then_continue",
   "status": "protocol_failed",
   "success": false,
   "state_commit": false,
   "partial_commit": false,
+  "canonical_revision": 3,
+  "submitted_expected_revision": 3,
   "committed_revision": null,
   "delta": null,
   "steps": [],
+  "read": null,
   "error": {
-    "class": "tool_sequence",
-    "code": "required_sibling_missing",
-    "message": "complete_then_continue requires a following top-level non-control tool call in the same response",
-    "action": "complete_then_continue",
-    "actual": "response_end",
-    "expected": "following_top_level_sibling"
+    "class": "protocol",
+    "code": "TASKSPACE_REQUIRED_SIBLING_MISSING",
+    "message": "complete_then_continue requires a following top-level ordinary_tool call in the same response",
+    "actual": {"next_call_kind": "response_end"},
+    "expected": {"next_call_kind": "ordinary_tool"}
   }
 }
 ```
@@ -526,16 +553,34 @@ Agent 能据此知道 binding 已经切到 `implement`，但 Patch 没有发生�
 
 ```json
 {
-  "schema_version": "TaskSpaceReadResultV1",
-  "status": "ok",
+  "schema_version": "TaskSpaceControlResultV2",
+  "action": "read_output_ref",
+  "status": "read_ok",
   "success": true,
-  "map_id": "map-42",
-  "revision": 4,
-  "ref": "output://tool-call-91",
-  "range": { "kind": "lines", "start": 1, "end": 200 },
-  "truncated": true,
-  "continuation": { "kind": "lines", "next_start": 201 },
-  "content": "<原始第 1 到 200 行，未经总结或改写>"
+  "state_commit": false,
+  "partial_commit": false,
+  "canonical_revision": 4,
+  "submitted_expected_revision": null,
+  "committed_revision": null,
+  "delta": null,
+  "steps": [],
+  "read": {
+    "kind": "output_range",
+    "output_ref": "output://tool-call-91",
+    "mode": "line_range",
+    "range": {"start_line": 1, "end_line": 200},
+    "truncated": true,
+    "continuation": {
+      "action": "read_output_ref",
+      "output_ref": "output://tool-call-91",
+      "mode": "line_range",
+      "start_line": 201,
+      "end_line": 400,
+      "max_bytes": 16384
+    },
+    "content": "<原始第 1 到 200 行，未经总结或改写>"
+  },
+  "error": null
 }
 ```
 
@@ -619,7 +664,7 @@ TaskSpaceMapHandleR7V1:
   active: true
   map_id: map-42
   canonical_revision: 4
-  read_action: taskspace_read.read_map
+  read_action: taskspace_control.read_map
 TaskSpaceMapHandleR7V1 end.
 ```
 
@@ -738,14 +783,24 @@ Agent 使用旧 revision 3 调用 `complete_then_continue`，但 canonical revis
 
 ```json
 {
+  "schema_version": "TaskSpaceControlResultV2",
+  "action": "complete_then_continue",
   "status": "state_machine_failed",
   "success": false,
   "state_commit": false,
+  "partial_commit": false,
+  "canonical_revision": 4,
+  "submitted_expected_revision": 3,
+  "committed_revision": null,
+  "delta": null,
+  "steps": [],
+  "read": null,
   "error": {
-    "code": "stale_revision",
-    "action": "complete_then_continue",
+    "class": "state_machine",
+    "code": "TASKSPACE_STALE_REVISION",
+    "message": "expected_revision does not match the current canonical revision",
     "actual": { "canonical_revision": 4 },
-    "expected": { "canonical_revision": 3 }
+    "expected": { "submitted_expected_revision": 3 }
   }
 }
 ```
@@ -799,17 +854,8 @@ Agent 使用旧 revision 3 调用 `complete_then_continue`，但 canonical revis
 - Error 是否存在建议、诱导或语义再解释？
 - 三种 projection 的暴露差异是否足够清楚，且没有改变同一份 Map？
 
-## 13. 审阅后的落地方式
+## 13. 落地方式
 
-本文件在用户确认前保持 `Draft for user review`。审阅结论应逐项记录为：
-
-```text
-L1: accept / revise
-L2: accept / revise
-L3: accept / revise
-L4: accept / revise
-L5: accept / revise
-```
-
-确认后的英文文本和 schema 不是从 Markdown 运行时读取，而是分别进入对应的版本化源码 artifact；本文件记录
-最终版本和哈希用于审计。任何一层发生实质改写，都按五层计划作为独立变量测试，不能一次性整体替换。
+L1-L5 已选内容和哈希记录在 authority manifest，但当前均未接入生产。实施按 `25` 号规格的 FLA-0 至 FLA-8
+逐阶段进行；每层的英文文本和 schema 进入对应版本化生产 artifact，本 Markdown 不作为 Runtime 读取源。
+任何一层发生实质改写，都要先更新权威 artifact 与 hash，再作为独立变量测试，不能一次性整体替换。

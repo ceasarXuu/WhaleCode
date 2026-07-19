@@ -1,13 +1,14 @@
 # R7 TaskSpace 五层交互架构设计
 
 - Created: 2026-07-20
-- Version: 1.4
-- Status: Proposed - concrete contract review required
+- Version: 1.6
+- Status: Frozen implementation baseline - production implementation pending
 - Scope: TaskSpace instructions、working protocol、skills、tools、Runtime、projection 与反馈链
 - Compatibility: 不保留旧协议兼容分支；迁移必须分阶段验证
 - Related: [R7 三种 Projection 策略共享架构宪章](00-r7-three-projection-policy-charter.md)、
   [R7 双基础提示词设计](20-r7-dual-base-instructions-design.md)、
-  [R7 五层具体合同评审稿](24-r7-taskspace-five-layer-concrete-contract-draft.md)
+  [R7 五层具体合同评审稿](24-r7-taskspace-five-layer-concrete-contract-draft.md)、
+  [R7 五层架构可执行规格](25-r7-five-layer-executable-spec.md)
 - Risk Level: High
 
 ## 1. 执行摘要
@@ -30,10 +31,9 @@ Agent 不是第六层。Agent 是五层能力的唯一语义使用者：任务�
 门禁后才替代当前实现。三种策略之间唯一允许的差异仍是同一份 projection 如何进入 provider context；不得
 因五层重构而产生三套提示词、工具、状态机或反馈链。
 
-本文件只定义架构与内容所有权，不能单独作为实施依据。L1/L2 的逐字提示词、L3 Skill 样例、L4 Tool schema、
-L5 result/projection 以及 TaskSpace 相关 provider payload 结构示例统一放在
-`24-r7-taskspace-five-layer-concrete-contract-draft.md`。具体合同未经过用户逐项审阅前，不得把本设计视为产品
-内容已冻结，也不得开始 FLA-2 之后的提示词、Skill 或 Tool 实施。
+本文件只定义架构与内容所有权，不能单独作为实施依据。Agent 可见内容示例见 `24` 号文档；唯一主线、完整
+机器合同、生产入口、删除项、生命周期 oracle、评估门槛和完成证据以 `25` 号可执行规格及其链接的 authority
+manifest 为准。当前只是已选设计目标，尚未接入生产；不得把 schema、提示词或测试脚手架误报为实现完成。
 
 ## 2. 为什么需要重构
 
@@ -255,23 +255,19 @@ Tool 顶层 description 必须用足够但不重复的文字说明工具做什�
 下沉到对应分支。禁止用一段超长顶层文本复述全部 action，也禁止使用“Mechanical action variant”这类无法
 帮助选择的占位描述。结构敏感且文字仍不足以消歧的分支可以给最小输入示例，但示例必须计入固定 token 成本。
 
-目标工具面采用最小的职责拆分：
+当前主线保持一个 Tool，避免在五层重构中同时改变工具选择面：
 
 | Tool | 职责 | Action 范围 |
 |---|---|---|
-| `taskspace_control` | 修改 canonical Map 或节点可见状态 | initialize、mutate、complete/continue、complete/end、finish/end、expand |
-| `taskspace_read` | 只读获取当前 Map 或被引用的原始输出 | read_map、read_output_ref |
+| `taskspace_control` | 修改 canonical Map、节点可见状态，或读取 Map/原始输出 | initialize、mutate、bind/lifecycle、complete、finish、expand、read_map、read_output_ref |
 
-拆分依据不是“每个 action 一个 Tool”，而是读写意图、副作用和输出合同存在本质差异。命名或 MCP annotation
-本身不构成权限边界；只有 ordinary tool router、approval policy 和执行校验真正隔离写权限时，才能对用户声称
-read-only。两个 Tool 继续共享同一 TaskSpace service、Map、validator、result algebra 和日志，不得形成两套
-架构。该拆分必须作为独立候选验证；若实测增加选择错误或成本且不能改善合同清晰度，则保留单 Tool，但仍必须
-在 schema 内清晰区分读写分支。
+读写拆分仅作为 FLA-6 独立实验。命名或 MCP annotation 本身不构成权限边界；只有 ordinary tool router、
+approval policy 和执行校验真正隔离写权限时，才能声称 read-only 权限收益。无论实验结果如何，所有 action
+共享同一 TaskSpace service、Map、validator、result algebra 和日志，不得形成两套架构。
 
-`complete_continue` 本身应表达“提交当前边界并继续”。若产品硬规则要求它不能成为响应末项，response
-preflight 可以在执行任何调用前检查后续 sibling 是否实际存在；不再要求 Agent 同时填写一个与真实 sibling
-重复的 `required_next_call` 声明。JSON Schema 无法单独约束另一个顶层 tool call 必须存在，不能假装该问题
-已经被 schema 解决。是否移除当前字段必须做单变量 A/B，不与 Tool 拆分同时实施。
+`complete_then_continue` 本身表达“提交当前边界并继续”。主线保留 `required_next_call`，response preflight
+同时在执行任何调用前检查真实 sibling 是否存在并匹配。JSON Schema 无法单独约束另一个顶层 tool call 必须
+存在；移除该字段只能作为 FLA-6 单变量实验，不能与 Tool 拆分同时实施。
 
 `read_output_ref` 的不同读取模式应使用带明确 discriminator 的 `anyOf` 分支表达各自必填字段，而不是把所有
 字段设为 optional 后交给 Runtime 猜测。选择 `anyOf` 是因为 DeepSeek strict 当前公开支持集合不包含

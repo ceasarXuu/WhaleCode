@@ -1,0 +1,196 @@
+{
+  "schema_version": 1,
+  "contract_id": "r7-five-layer-contract-authority-v1",
+  "status": "frozen_design_target_not_implemented",
+  "frozen_against_commit": "48922ce9b",
+  "compatibility_policy": "none",
+  "authority_order": [
+    "this_manifest",
+    "selected machine-readable schemas and exact-text artifacts listed here",
+    "docs/v0.0.5/build-R7/25-r7-five-layer-executable-spec.md",
+    "docs/v0.0.5/build-R7/24-r7-taskspace-five-layer-concrete-contract-draft.md",
+    "docs/v0.0.5/build-R7/23-r7-taskspace-five-layer-architecture-design.md"
+  ],
+  "conflict_policy": "Any byte or status conflict blocks the affected FLA phase. Implementers must update the authoritative artifact and its hash; they may not choose one side locally.",
+  "governing_documents": [
+    {
+      "path": "docs/v0.0.5/build-R7/25-r7-five-layer-executable-spec.md",
+      "sha256": "881187b9f5b9d9e787d5601f645e9d994054052b2172b3539fd2588d32765724",
+      "role": "exact production entries, phase gates, commands, logs, rollback and completion evidence"
+    },
+    {
+      "path": "docs/v0.0.5/build-R7/24-r7-taskspace-five-layer-concrete-contract-draft.md",
+      "sha256": "d8d2966c9fda4de6054aef872f9e3e262207988ab6f28206dc74c91ba916795b",
+      "role": "Agent-visible examples and human-reviewable concrete contracts"
+    },
+    {
+      "path": "docs/v0.0.5/build-R7/23-r7-taskspace-five-layer-architecture-design.md",
+      "sha256": "a135bc271191cb1039dd9cfe5560838f4b57af729501d286883130abd56b6b93",
+      "role": "layer responsibilities, ownership and architectural boundaries"
+    }
+  ],
+  "baseline": {
+    "status": "selected_rollback_baseline",
+    "commit": "48922ce9b",
+    "taskspace_base": {
+      "path": "third_party/codex-cli/codex-rs/protocol/src/prompts/base_instructions/whalecode_taskspace.md",
+      "sha256": "0cea4c521de4659b43b29e9ada83f836f84d92f5ae88e301f04860ec301106d2",
+      "version": "1.0.1"
+    },
+    "tool_schema_source": {
+      "path": "third_party/codex-cli/codex-rs/tools/src/taskspace_tool.rs",
+      "sha256": "e7e323a419b7cc95d6ac5ef59e626e197d40241345c8d794de757744e45dca44",
+      "tool_count": 1,
+      "action_discriminator": "transition_node plus transition"
+    },
+    "argument_parser": {
+      "path": "third_party/codex-cli/codex-rs/core/src/tools/handlers/taskspace_control_args.rs",
+      "sha256": "c9b418032d7053de426695c83ef600b0cb2cda688955f16fc3e7182da1a5f39a"
+    },
+    "result_formatter": {
+      "path": "third_party/codex-cli/codex-rs/core/src/tools/handlers/taskspace_control_output.rs",
+      "sha256": "f3d50be2db0728fe529e8ab39a3453e0aa27d980748ba1cb1bbedff4091adf0a",
+      "schema_version": "TaskSpaceControlResultR6V1",
+      "partial_commit_type": "integer"
+    },
+    "projection_contract": {
+      "path": "benchmarks/taskspace/r7/projection-policy-contract.json",
+      "sha256": "ef17861d478fc919439188c7f93b0e942945f99221bb990274d15047f068554e"
+    }
+  },
+  "selected_targets": [
+    {
+      "layer": "L1",
+      "status": "selected",
+      "activation_phase": "FLA-2",
+      "artifact": "benchmarks/taskspace/r7/five-layer-l1-taskspace-base-section-v2.md",
+      "sha256": "0f92283e162a2c4cc2021ac8a89be458a37616b3ff82b3876807918a02cb89fd",
+      "production_target": "replace only the TaskSpace work map section in third_party/codex-cli/codex-rs/protocol/src/prompts/base_instructions/whalecode_taskspace.md"
+    },
+    {
+      "layer": "L2",
+      "status": "selected",
+      "activation_phase": "FLA-2",
+      "artifact": "benchmarks/taskspace/r7/five-layer-l2-core-protocol-v2.md",
+      "sha256": "02d8849e94b8ac15466a33d92ab17813c9cbe9c81fba2c7811fd98ea55ee8f24",
+      "production_target": "new third_party/codex-cli/codex-rs/core/src/context/prompts/taskspace_core_protocol_v2.md assembled first in the existing developer bundle and mapped to DeepSeek system"
+    },
+    {
+      "layer": "L3",
+      "status": "selected",
+      "activation_phase": "FLA-3",
+      "artifact": "benchmarks/taskspace/r7/five-layer-l3-taskspace-advanced-v1.SKILL.md",
+      "sha256": "a6f93fce96f7763ab3c36cb192091a908d744c1ad44ed26f6b4f5adf3422d5b1",
+      "production_target": "new third_party/codex-cli/codex-rs/skills/src/assets/samples/taskspace-advanced/SKILL.md"
+    },
+    {
+      "layer": "L4",
+      "status": "selected",
+      "activation_phase": "FLA-4",
+      "artifact": "benchmarks/taskspace/r7/five-layer-taskspace-control-v2.schema.json",
+      "sha256": "53cad3b85cbf739d755520cffc0e3be9c5fd303900b0a7c8b6de2de19e7800ce",
+      "tool_count": 1,
+      "required_next_call": "retained",
+      "strict": false,
+      "output_schema": null,
+      "production_targets": [
+        "third_party/codex-cli/codex-rs/tools/src/taskspace_tool.rs",
+        "third_party/codex-cli/codex-rs/tools/src/taskspace_tool_simple_actions.rs",
+        "third_party/codex-cli/codex-rs/core/src/tools/handlers/taskspace_control_args.rs",
+        "third_party/codex-cli/codex-rs/core/src/tools/handlers/taskspace_control_args_wire.rs"
+      ]
+    },
+    {
+      "layer": "L5-result",
+      "status": "selected",
+      "activation_phase": "FLA-5",
+      "artifact": "benchmarks/taskspace/r7/five-layer-taskspace-result-v2.schema.json",
+      "sha256": "5c607ba517254d04f2e73d1a2fe88b135fa5d8c599a51cf277992715eb768db7",
+      "schema_version": "TaskSpaceControlResultV2",
+      "partial_commit_type": "boolean_const_false",
+      "production_targets": [
+        "third_party/codex-cli/codex-rs/core/src/tools/handlers/taskspace_control_output.rs",
+        "third_party/codex-cli/codex-rs/core/src/tools/sequence_preflight.rs",
+        "third_party/codex-cli/codex-rs/core/src/tools/sequence.rs"
+      ]
+    },
+    {
+      "layer": "L5-projection",
+      "status": "selected_existing",
+      "activation_phase": "already_active; FLA-7 adds lifecycle conformance only",
+      "artifact": "benchmarks/taskspace/r7/projection-policy-contract.json",
+      "sha256": "ef17861d478fc919439188c7f93b0e942945f99221bb990274d15047f068554e"
+    },
+    {
+      "layer": "L5-lifecycle",
+      "status": "selected",
+      "activation_phase": "FLA-5 and FLA-7",
+      "artifact": "benchmarks/taskspace/r7/five-layer-lifecycle-oracles-v1.json",
+      "sha256": "be217df52b124bc0d1a2f0cdbab9d74a8ad6b1b7b7daf78e48ea8fa5dc4ee6fa",
+      "production_targets": [
+        "third_party/codex-cli/codex-rs/core/src/action_map/runtime.rs",
+        "third_party/codex-cli/codex-rs/core/src/action_map/projection_policy.rs",
+        "third_party/codex-cli/codex-rs/core/src/tools/sequence_preflight.rs",
+        "session resume, fork and compaction paths"
+      ]
+    },
+    {
+      "layer": "evaluation",
+      "status": "selected",
+      "activation_phase": "FLA-0 smoke contract and FLA-8 formal decision",
+      "artifact": "benchmarks/taskspace/r7/five-layer-evaluation-contract-v1.json",
+      "sha256": "91abdac597b3a667eccdc289c0778765d819abfa0901948065c05e416031f430",
+      "production_targets": [
+        "scripts/taskspace-benchmark/test-r7-five-layer-contracts.ps1",
+        "scripts/taskspace-benchmark/run-r7-five-layer-matrix.ps1",
+        "scripts/taskspace-benchmark/report-r7-five-layer-matrix.ps1"
+      ]
+    }
+  ],
+  "experiments": [
+    {
+      "id": "FLA-6-E1-read-write-tool-split",
+      "status": "experimental_disabled",
+      "baseline": "single taskspace_control tool",
+      "acceptance": "independent A/B only; no merge unless correctness, requests, selection errors, cache, and schema cost pass"
+    },
+    {
+      "id": "FLA-6-E2-remove-required-next-call",
+      "status": "experimental_disabled",
+      "baseline": "required_next_call retained and preflight checks actual sibling",
+      "acceptance": "independent A/B only; combined-response rate and protocol rejection rate must not regress"
+    },
+    {
+      "id": "FLA-6-E3-mcp-output-schema",
+      "status": "experimental_disabled",
+      "baseline": "local result schema plus model-visible JSON",
+      "acceptance": "MCP outputSchema and structuredContent must conform to the same selected L5 schema"
+    },
+    {
+      "id": "FLA-6-E4-deepseek-strict",
+      "status": "experimental_disabled",
+      "baseline": "strict false",
+      "acceptance": "adapter forwarding and all-visible-tool provider probe must pass before behavior A/B"
+    }
+  ],
+  "obsolete_after_activation": [
+    {
+      "item": "independent Working Protocol v1 developer-message experiment",
+      "artifact": "benchmarks/taskspace/r7/working-protocol-contract.json",
+      "sha256": "b9f8bc740acddf62ea65a1a2f38067514dace390b3a45da4678588e888a2dd26",
+      "obsolete_after": "FLA-2",
+      "replacement": "L2 taskspace-core-v2 as the first section of the existing developer bundle"
+    },
+    {
+      "item": "transition_node plus transition discriminator",
+      "obsolete_after": "FLA-4",
+      "replacement": "bind_node, block_node, unblock_node, rework_node"
+    },
+    {
+      "item": "TaskSpaceControlResultR6V1 and integer partial_commit",
+      "obsolete_after": "FLA-5",
+      "replacement": "TaskSpaceControlResultV2 and boolean partial_commit=false"
+    }
+  ],
+  "phase_gate": "No FLA phase may start until all selected input artifacts for that phase have matching hashes and every earlier selected target is active in production. Experimental artifacts never satisfy a baseline phase gate."
+}

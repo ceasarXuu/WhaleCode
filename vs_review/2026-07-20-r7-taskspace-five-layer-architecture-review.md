@@ -1,13 +1,13 @@
 # Subagent VS Review: R7 TaskSpace 五层交互架构
 
 - Created: 2026-07-20T04:40:44+08:00
-- Updated: 2026-07-20T05:47:00+08:00
+- Updated: 2026-07-20T06:38:42+08:00
 - Report schema: adversarial-v1
 - Task: 对 R7 TaskSpace 五层交互架构执行独立、可追踪的设计对抗性审查
 - Report path: `vs_review/2026-07-20-r7-taskspace-five-layer-architecture-review.md`
 - Review mode: fresh internal subagent
 - Source session policy: no inherited main-agent context
-- Status: closed - passed after blocking closure
+- Status: complete - Round 8 PASS; frozen implementation-target baseline, production pending
 
 ## Round 1: 架构职责、暴露层次与最佳实践审查
 
@@ -410,3 +410,588 @@ wire composition, immutable Skill snapshots, result conformance, provider capabi
   [`24-r7-taskspace-five-layer-concrete-contract-draft.md`](../docs/v0.0.5/build-R7/24-r7-taskspace-five-layer-concrete-contract-draft.md)，
   逐字展示 L1/L2、L3 Skill、L4 action description/schema、L5 result/projection 与端到端 trace。架构职责的 blocking
   closure 仍有效，但产品内容改为 `concrete contract review required`；用户审阅前不得启动 FLA-2 之后的内容实施。
+
+## Round 4: 具体合同的可实施性与可评估性审查
+
+### Review Input
+
+#### Objective
+
+判断 R7 五层设计和具体合同是否已经达到“新实现者不依赖主 Agent 聊天背景，即可按文档完成生产路径实施、
+测试、日志和收益评估”。审查目标是寻找反例和隐藏决策，不是确认架构表述是否自洽。
+
+#### Review Target
+
+TaskSpace 五层提示词与工具链设计、具体 Agent-visible 合同、分阶段实施方案、验收与性能评测方案。
+
+#### Target Locations
+
+- `docs/v0.0.5/build-R7/23-r7-taskspace-five-layer-architecture-design.md`
+- `docs/v0.0.5/build-R7/24-r7-taskspace-five-layer-concrete-contract-draft.md`
+- `docs/v0.0.5/build-R7/00-r7-three-projection-policy-charter.md`
+- `docs/v0.0.5/build-R7/01-r7-phased-implementation-plan.md`
+- `third_party/codex-cli/codex-rs/protocol/src/prompts/base_instructions/whalecode_taskspace.md`
+- `third_party/codex-cli/codex-rs/tools/src/taskspace_tool.rs`
+- `third_party/codex-cli/codex-rs/tools/src/taskspace_tool_simple_actions.rs`
+- `third_party/codex-cli/codex-rs/core/src/tools/handlers/taskspace_control_args.rs`
+- `third_party/codex-cli/codex-rs/core/src/tools/handlers/taskspace_control_output.rs`
+- `third_party/codex-cli/codex-rs/core/src/tools/sequence_preflight.rs`
+- `third_party/codex-cli/codex-rs/core/src/provider_wire_sections.rs`
+- `third_party/codex-cli/codex-rs/core/src/action_map/projection.rs`
+- `third_party/codex-cli/codex-rs/core/src/action_map/projection_policy.rs`
+- `.agents/skills/observe-taskspace-performance/SKILL.md`
+
+#### Change Introduction
+
+设计把 TaskSpace 的 Agent 交互拆为 L1 Base、L2 常驻工作协议、L3 按需 Skill、L4 Tool contract 和
+L5 Runtime/事实反馈。新增的具体合同稿展示 L1/L2 逐字文本、Skill 正文、Tool action/schema 骨架、
+result/projection 样例和端到端调用路径。当前状态是尚未实施的设计候选。
+
+#### Risk Focus
+
+- 具体稿是否仍以“候选、骨架、示例”回避了实施必须做出的产品或数据合同决策。
+- 每个 FLA 阶段是否指定真实源码入口、产物、删除项、测试、日志、回滚基线和完成证据。
+- L1/L2/Skill/Tool/result 的逐字内容是否能直接进入版本化 artifact，还需要实现者补完隐藏语义。
+- Tool 读写拆分、action 改名、`required_next_call` 移除、strict 和 output schema 等待 A/B 项是否与主实施路径混在一起。
+- 数据结构、revision、partial commit、retry、resume/fork/compaction 和三种 projection 是否有唯一、可测的 oracle。
+- 评测是否有固定 sample ID、对照臂、主指标、阈值、重复数决策、失败归类、缓存计算和逐 request trace 证据。
+- 文档是否能阻止“只改提示词、只加 schema、只加测试脚手架”被误报为完成。
+
+#### User-Perspective Review Focus
+
+- Agent 能否从实际可见内容中理解 Map 价值、普通工作循环、高级 Skill 触发、Tool 参数与失败恢复。
+- 新实现者能否明确哪些文本是已选合同，哪些是独立实验，哪些不得进入当前阶段。
+- 失败结果是否给出足够事实供 Agent 自主修正，同时不会被 Runtime 诱导。
+
+#### Implementation Completeness Focus
+
+- 将 FLA-0 至 FLA-8 逐项对应到生产源码模块、集成入口、需新增或删除的 artifact、定向/端到端测试、trace/log 与可重现验收命令。
+- 检查具体合同中的所有 action/result/projection 形状是否覆盖完整，还是只展示了局部分支。
+- 检查计划是否显式要求生产路径连通，防止 protocol-only、schema-only、test-only 或 mock-only 产物被判定为完成。
+- 本轮不要求代码已实施，但要求文档能让实施者无需自行重新设计。
+
+#### Target Benefit Focus
+
+- 已声明的目标包括更低固定上下文、更高首次正确调用率、更少空转 request、不退化的任务正确性与缓存表现。
+- 检查每项是否有可重现基线、可预注册阈值、测量脚本/日志来源、对照证据和回归处理。
+- 未实施因此不要求已有收益结果，但“验收标准不可执行”应被视为设计缺口。
+
+#### Assumptions To Attack
+
+- 实施者可以从“骨架”和“候选”自行推导完整合同，而不引入新语义。
+- 现有 Runtime/Tool/projection 模块的边界恰好对应文档层次。
+- 将 L2 放在第二条 system 的首段不需要更具体的 composer 改动和 wire 回归测试。
+- 同一 action 同时参与 schema、parser、preflight、handler、result、projection 时，现有阶段顺序仍能保持单变量。
+- “后续用方差决定样本数”在缺少最小数值和决策公式时足够可执行。
+
+#### Adversarial Lenses
+
+- comprehension
+- implementation-completeness
+- requirements
+- state
+- failure
+- maintenance
+- testing
+- observability
+- target-benefit
+
+#### Verification Status
+
+- 具体合同的 13 个 JSON 示例已进行语法解析，Markdown 本地链接和代码块已检查。
+- 五层候选尚未进入产品代码，没有行为或性能收益证据。
+- 旧架构职责已通过 Round 1-3 审查，但本轮不得以旧结论替代对新增具体合同和实施细节的审查。
+
+#### Reviewer Instructions
+
+- 使用全新内部 subagent session，`fork_context=false`。
+- 只读目标文档和代码，不修改任何文件。
+- 不使用主 Agent 的聊天历史、推理、结论或完整 diff。
+- 以“新实施者能否直接执行”为主标准，不接受只有抽象层次的修复建议。
+- 每个 blocking/major finding 必须给出 broken assumption、failure scenario、trigger、impact、proof needed，
+  并引用文件与行号。
+- 输出 summary、blocking findings、non-blocking risks、user-perspective checks、implementation completeness table、
+  target benefit table、required fixes、missing tests、missing logs/observability 和 evidence。
+- 若发现 blocking，说明最小的设计级闭合产物，不以“实施时再决定”作为修复。
+
+### Reviewer Timeout Policy
+
+| Complexity | Initial Wait | Extension | Max Attempts Per Role | Blocking Closure Behavior |
+|---|---:|---:|---:|---|
+| complex | 20 minutes | one 10-minute extension if alive | 2 | accepted blockers require a fresh closure review |
+
+### Reviewer Selection
+
+| Reviewer | Reason Selected | Risk Area |
+|---|---|---|
+| documentation-skill-adversary | 具体合同必须能在无主线聊天背景的情况下指导新实施者和新 Agent，当前最高风险是隐含知识、触发不明和可执行性缺口 | 提示词、Skill、Tool 合同、文档可执行性、实施与验收完整性 |
+
+### Reviewer Launch Records
+
+| Reviewer | Internal Mechanism | Session / Job ID | Trace Source | Context Forked | Input Packet | Context Explicitly Excluded | Read-only |
+|---|---|---|---|---|---|---|---|
+| documentation-skill-adversary | `multi_agent_v1.spawn_agent`, `gpt-5.5` low, explorer | `019f7c60-3af4-7351-87fd-e2023c487667` (`Pasteur`) | spawn tool result and completion notification/transcript | `fork_context=false` | Round 4 Review Input plus the same neutral scope and output contract | main-agent history, hidden reasoning, prior conclusions, full diff | yes |
+
+### Reviewer Timeout Records
+
+| Reviewer Output Key | Reviewer Role | Attempt | Session / Job ID | Waited | Status | Reason | Action |
+|---|---|---:|---|---:|---|---|---|
+| R4-concrete-contract | documentation-skill-adversary | 1 | `019f7c60-3af4-7351-87fd-e2023c487667` | about 64 seconds | completed | independent review returned | triage and revise |
+
+### Reviewer Output
+
+#### R4-concrete-contract（完整 finding transcript；重复路径列表做排版归一）
+
+**Summary**
+
+Round 4 does not pass. A new implementer cannot deterministically implement, test, instrument, and evaluate the five-layer design
+from the current documents without making new contract decisions. The main blockers are contract authority conflicts, incomplete
+versioned artifacts, incomplete FLA-to-production mapping, and non-executable evaluation rules. Current production code also shows
+R7 work already exists while the concrete contract document still says all text/schema are unimplemented candidates.
+
+**Blocking Findings**
+
+**B4.1 - Contract authority is unresolved between “candidate/unimplemented” and already-completed implementation path**
+
+- Broken assumption: the documents identify one selected baseline contract.
+- Failure scenario: an implementer treats `24` as authoritative and implements `bind_node` / `taskspace_read` /
+  `TaskSpaceControlResultV2`, while production currently exposes `transition_node`, a single `taskspace_control`, and
+  `TaskSpaceControlResultR6V1`.
+- Trigger: starting FLA-4/FLA-5 from the concrete contract draft.
+- Impact: incompatible tool schema, parser, tests, logs, and benchmark reports can all be “correct” against different documents.
+- Proof needed: a frozen contract index marking each item as `selected`, `experimental`, `obsolete`, or `not implemented`, with
+  source artifact paths and hashes.
+- Affected phase/production path: FLA-4, FLA-5; `taskspace_tool.rs`, `taskspace_control_args.rs`, result formatter.
+- Evidence: `24...contract-draft.md:5-8`, `24...contract-draft.md:287-294`, `24...contract-draft.md:399-400`,
+  `01...plan.md:13`, `01...plan.md:478-498`, `taskspace_tool.rs:186-245`, `taskspace_tool.rs:343-349`,
+  `taskspace_control_args.rs:9`.
+
+**B4.2 - L4 action contract is not complete enough to become a versioned artifact**
+
+- Broken assumption: samples plus an action table are sufficient for implementation.
+- Failure scenario: implementer must invent missing `anyOf` branches, per-action descriptions, idempotency, boundary conditions,
+  read/write split behavior, and structured output coverage for all variants.
+- Trigger: implementing provider-visible schema from section 6.4.
+- Impact: parser/schema/preflight/handler drift; conformance tests cannot know whether failures are contract violations.
+- Proof needed: full generated provider schema artifact covering every action/result variant, plus conformance fixtures for every branch.
+- Affected phase/production path: FLA-4/FLA-5; tool schema, parser, preflight, handlers.
+- Evidence: `24...contract-draft.md:311-315`, `24...contract-draft.md:296-309`, `taskspace_tool.rs:331-340`,
+  `taskspace_control_args.rs:12-61`.
+
+**B4.3 - Result algebra is contradictory and incomplete**
+
+- Broken assumption: result shape is fixed and mechanically testable.
+- Failure scenario: tests assert `partial_commit: false` and `TaskSpaceControlResultV2`, while production emits
+  `partial_commit: 0` and `TaskSpaceControlResultR6V1`; rejected errors lack the draft’s `actual` / `expected` oracle in many paths.
+- Trigger: implementing FLA-5 result conformance.
+- Impact: Agent recovery semantics, observer classification, and benchmark eligibility become ambiguous.
+- Proof needed: one result schema version, typed `partial_commit`, complete status/error enum, and golden results for parse failure,
+  preflight failure, state-machine failure, resource failure, committed transition, and ordinary-tool-after-control failure.
+- Affected phase/production path: FLA-5; `taskspace_control_output.rs`, `taskspace_control_args.rs`, performance observer.
+- Evidence: `24...contract-draft.md:437-453`, `24...contract-draft.md:460-478`, `24...contract-draft.md:485-509`,
+  `taskspace_control_args.rs:337-352`, `taskspace_control_output.rs:53-75`, `taskspace_control_output.rs:209-224`.
+
+**B4.4 - FLA-0 through FLA-8 are not mapped to concrete implementation entries and reproducible commands**
+
+- Broken assumption: the FLA plan is executable by a new implementer.
+- Failure scenario: implementer cannot tell which modules to edit, which artifacts to add/remove, which commands to run, or what
+  exact evidence closes each FLA item.
+- Trigger: starting FLA implementation without prior chat context.
+- Impact: protocol-only, schema-only, mock-only, or prompt-only work can be counted as complete.
+- Proof needed: per-FLA checklist with production module, integration entry, artifact path, removal list, test command, log event,
+  benchmark command, rollback baseline, and completion evidence.
+- Affected phase/production path: all FLA phases.
+- Evidence: `23...architecture-design.md:33-36`, `23...architecture-design.md:530-613`, `01...plan.md:70-89`,
+  `01...plan.md:103-115`.
+
+**B4.5 - Evaluation contract is not executable enough to prove benefits or non-regression**
+
+- Broken assumption: “sample categories” and “at least 3 runs” are enough for evaluation.
+- Failure scenario: two implementers pick different `simple`, `complex`, `branch-join`, or held-out tasks and reach incompatible
+  default-policy conclusions.
+- Trigger: Phase G formal matrix.
+- Impact: default recommendation and benefit claims are not reproducible.
+- Proof needed: fixed sample IDs/prompts/repos, frozen arms, run order, seeds or pairing rule, primary metric, non-inferiority
+  thresholds, minimum sample-size formula, failure classification, cache price artifact, and anti-overfitting held-out set.
+- Affected phase/production path: FLA-0, FLA-8, Phase G, benchmark skill.
+- Evidence: `01...plan.md:131-175`, `01...plan.md:544-574`, `23...architecture-design.md:608-611`,
+  `23...architecture-design.md:650-655`, `.agents/skills/observe-taskspace-performance/SKILL.md:12-23`.
+
+**B4.6 - Resume/fork/compaction/retry oracles remain policy-level prose, not unique production tests**
+
+- Broken assumption: lifecycle edge cases are deterministic from the current docs.
+- Failure scenario: `map-append` retry dedup, compaction after old projections, forked session policy restoration, or
+  `map-request` stale read behavior are implemented differently but still defensible from prose.
+- Trigger: Phase E implementation.
+- Impact: cross-policy equivalence cannot be established; regressions may hide as allowed projection differences.
+- Proof needed: scripted event fixtures with expected canonical event hash, provider payload diff, policy cursor state, projection
+  sequence, and resume/fork/compaction outcomes.
+- Affected phase/production path: projection policy, composer, session state, provider observer.
+- Evidence: `00...policy-charter.md:223-241`, `01...plan.md:500-520`, `projection_policy.rs:90-160`,
+  `provider_wire_sections.rs:256-339`.
+
+**Non-blocking Risks**
+
+**N4.1 - Agent-visible L1/L2 comprehension is plausible but not proven after D.5 removed the separate developer protocol path**
+
+- Counterexample: `24` says L2 is second `system` first section, while D.5 says the independent Working Protocol developer
+  message was deleted.
+- Impact: readers may expect a distinct L2 artifact that current production no longer sends.
+- Proof needed: provider payload snapshot showing exact L1/L2 placement after D.5.
+- Evidence: `24...contract-draft.md:29-35`, `24...contract-draft.md:73-84`, `01...plan.md:485-492`.
+
+**N4.2 - Runtime semantic-neutrality is well stated but not enforced by a lintable rule set**
+
+- Counterexample: errors could add “please read_map” or “run tests next” without failing a contract test.
+- Impact: Runtime may gradually become semantic-guiding.
+- Proof needed: artifact ownership manifest and lints for forbidden advisory phrases in L5/tool results.
+- Evidence: `23...architecture-design.md:74-86`, `24...contract-draft.md:456-483`, `24...contract-draft.md:753-754`.
+
+**Implementation Completeness Table**
+
+| Plan item | Expected behavior | Production path | Integration entry | Tests | Runtime/log evidence | Mock/stub exposure | Status | Finding |
+|---|---|---|---|---|---|---|---|---|
+| FLA-0 | Freeze baseline/contracts | benchmark + contract artifacts | not fully fixed | categories only | incomplete | historical-only risk | Blocked | B4.5 |
+| FLA-1 | Ownership manifest | composer/contracts | unspecified | ownership lint described | unspecified | schema-only risk | Blocked | B4.4 |
+| FLA-2 | L1/L2 extraction | base instructions/provider composer | conflicted by D.5 | payload snapshot needed | base hash planned | prompt-only risk | Blocked | B4.1 |
+| FLA-3 | Advanced Skill lifecycle | bundled skills/snapshots | not mapped | lifecycle fixtures missing | catalog telemetry planned | doc-only risk | Blocked | B4.4 |
+| FLA-4 | Tool schema | `taskspace_tool.rs` | exists but differs | partial | tool hash exists | schema drift | Blocked | B4.2 |
+| FLA-5 | Result algebra | `taskspace_control_output.rs` | R6/V2 mismatch | incomplete | observer mentions R6 | result drift | Blocked | B4.3 |
+| FLA-6 | Tool candidates | split/strict/outputSchema | unresolved A/B | not fixed | not fixed | optional counted complete | Blocked | B4.1 |
+| FLA-7 | Projection lifecycle | policy/composer/observer | partial | unit tests partial | observer partial | lifecycle gaps | Blocked | B4.6 |
+| FLA-8 | Formal matrix | benchmark scripts/skill | categories only | no fixed IDs/rule | reports old fields | non-reproducible | Blocked | B4.5 |
+
+**Target Benefit Table**
+
+| Claimed benefit | Baseline | Target | Method | Evidence | Result | Regression | Status | Finding |
+|---|---|---|---|---|---|---|---|---|
+| Lower fixed context | Frozen R6/Standard | not pre-registered | four-arm matrix | categories only | unavailable | relocation misreport risk | Blocked | B4.5 |
+| Higher first correct call rate | Frozen R6 | not fixed | Docker samples | partial D.4/D.5 | not generalizable | overfit risk | Blocked | B4.5 |
+| Fewer empty requests | Standard/R6 | not fixed | request metrics | phase evidence | not formal | standalone transitions | Blocked | B4.5 |
+| No correctness regression | Standard + R6 | threshold missing | validators | categories | unavailable | failure reclassification | Blocked | B4.5 |
+| Cache performance | provider cache trace | threshold missing | request-2+ cache/LCP | report skill | incomplete | price missing | Blocked | B4.5 |
+
+**Required Fixes**
+
+- Create a single R7 contract authority artifact that marks every L1/L2/L3/L4/L5 decision as selected, optional experiment,
+  obsolete, or deferred.
+- Replace sample-only L4/L5 sections with full versioned schema/result artifacts and golden fixtures for every action/result variant.
+- Add an FLA-0 through FLA-8 implementation matrix with exact production paths, artifact paths, commands, logs, rollback baselines,
+  and completion evidence.
+- Freeze the formal evaluation packet: sample IDs, arms, run order, metrics, thresholds, sample-size rule, cache price artifact,
+  trace sources, and failure taxonomy.
+- Add deterministic lifecycle fixtures for retry, partial commit, ordinary-tool failure after committed control, resume, fork,
+  compaction, and each projection policy.
+
+**Missing Tests**
+
+- Full provider schema conformance for all `taskspace_control` branches.
+- Result algebra golden tests for every status/error class.
+- Cross-policy differential test with canonical event hash and allowed provider-payload diffs.
+- Payload snapshot tests proving exact L1/L2/Skill/tool/projection placement.
+- Benchmark harness self-test for fixed R7 arms, sample IDs and failure classification.
+
+**Missing Logs / Observability**
+
+- `effective_contract_identity` per request for L1/L2/L3/L4/L5.
+- Per-action result schema version and action/result variant counters.
+- Projection lifecycle logs for retry/resume/fork/compaction, not only provider request emission.
+- Explicit `unavailable` fields for missing cache, price, trace, validator, and Skill evidence.
+- Runtime-neutrality lint or log classification for advisory vs factual feedback.
+
+No files were edited.
+
+### Main Agent Response
+
+| Finding | 决定 | 设计级闭合 |
+|---|---|---|
+| B4.1 | 接受 | 新增唯一 authority manifest，逐项记录现行回滚基线、已选未实施目标、禁用实验、淘汰项、生产入口和 hash；主线明确保留单 Tool、`required_next_call`、`strict=false`。 |
+| B4.2 | 接受 | 新增完整 L4 内联 schema，覆盖 12 个 action 与 `read_output_ref` 四个 mode；文档中的两分支代码只标为非权威阅读摘录。 |
+| B4.3 | 接受 | 新增完整 `TaskSpaceControlResultV2` JSON Schema、固定错误码/消息合同和 `partial_commit=false` 原子性；旧 R6V1 明确到 FLA-5 同次删除。 |
+| B4.4 | 接受 | 新增 `25-r7-five-layer-executable-spec.md`，逐 FLA 写明生产文件、集成入口、新增/删除、测试、日志、smoke、回滚和完成证据。 |
+| B4.5 | 接受 | 新增机器评估合同，冻结 5 个 scenario 目录 hash、7/3 臂、固定 30 次配对、轮换顺序、95% paired bootstrap、阈值、失败分类和原始证据；金额在没有价格 artifact 时明确 unavailable，且不参与晋级。 |
+| B4.6 | 接受 | 新增 12 个生命周期 oracle、两份完整 canonical Map、冻结 state/event hash、retry/resume/fork/compaction 与三 policy 的唯一判定。 |
+| N4.1 | 接受 | `01` 号计划新增 supersession 说明：D.5 删除旧独立协议，FLA-2 新 L2 是现有 developer bundle 第一 section；`25` 号规格冻结两条 DeepSeek system 的准确位置。 |
+| N4.2 | 接受风险；拒绝自然语言关键词分类方案 | 使用封闭错误码、固定事实模板、完整结果 schema、golden snapshot 和 Runtime 静态边界审计约束反馈。禁止引入 advisory phrase classifier，因为它会让 Runtime/Composer 解释自然语言并产生新的语义边界。 |
+
+Required Fixes、Missing Tests 和 Missing Logs 全部接受，分别落入 `25` 号规格的 FLA-1 至 FLA-8 交付矩阵。
+这些测试和脚本被明确标记为实施阶段必须新增的生产验收能力；本轮没有把“设计了测试”误报为“测试已存在”。
+Round 4 reviewer 全程只读，未修改文件，也未运行构建或行为样本。
+
+## Round 5: 具体合同阻断项闭环复审
+
+### Closure Review Input
+
+#### Objective
+
+独立判断 Round 4 的 B4.1-B4.6 是否已在设计层形成唯一、可实施、可测试、可观测和可评估的闭环，并寻找修订
+引入的新阻断问题。不得因为文档数量增加或存在 schema 文件就默认通过。
+
+#### Target Locations
+
+- `benchmarks/taskspace/r7/five-layer-contract-authority-v1.json`
+- `benchmarks/taskspace/r7/five-layer-l1-taskspace-base-section-v2.md`
+- `benchmarks/taskspace/r7/five-layer-l2-core-protocol-v2.md`
+- `benchmarks/taskspace/r7/five-layer-l3-taskspace-advanced-v1.SKILL.md`
+- `benchmarks/taskspace/r7/five-layer-taskspace-control-v2.schema.json`
+- `benchmarks/taskspace/r7/five-layer-taskspace-result-v2.schema.json`
+- `benchmarks/taskspace/r7/five-layer-lifecycle-oracles-v1.json`
+- `benchmarks/taskspace/r7/five-layer-evaluation-contract-v1.json`
+- `docs/v0.0.5/build-R7/01-r7-phased-implementation-plan.md`
+- `docs/v0.0.5/build-R7/23-r7-taskspace-five-layer-architecture-design.md`
+- `docs/v0.0.5/build-R7/24-r7-taskspace-five-layer-concrete-contract-draft.md`
+- `docs/v0.0.5/build-R7/25-r7-five-layer-executable-spec.md`
+- 当前生产 Tool/parser/result/projection/provider wire/Skill 路径，仅用于核对 baseline 与 production target。
+
+#### Required Checks
+
+1. Authority 是否明确区分现行回滚基线、选定未实施目标、禁用实验和淘汰项，且 hash/生产入口没有冲突。
+2. L4 是否完整覆盖全部 action/mode，schema、表格、示例和主线单 Tool 选择一致。
+3. L5 是否有一个完整 V2 result algebra，`partial_commit`、失败分类、actual/expected、普通 Tool 后续失败语义唯一。
+4. FLA-0 至 FLA-8 是否逐项给出生产入口、删除项、测试、日志、命令、回滚和完成证据，能阻止文档/schema-only
+   被误报为完成。
+5. 评估合同是否冻结真实 scenario 目录、arms、顺序、重复数、统计判定、阈值、失败分类、cache/price unavailable
+   语义和 evidence，且运行者无需自行设计。
+6. 生命周期 oracle 是否给出可重算 canonical/event hash，并唯一规定 retry/resume/fork/compaction 和三策略差异。
+7. N4.1 的 D.5/L2 carrier 是否消歧；N4.2 是否在不引入 Runtime 自然语言解释器的前提下可回归验证。
+8. 精确文本、schema 与 executable spec 是否仍互相矛盾，或存在不可执行命令被写成已有能力的情况。
+
+#### Reviewer Instructions
+
+- 使用 fresh session，`fork_context=false`；只读，不修改文件。
+- 不依赖主 Agent 的聊天历史、推理或结论，直接读取上述 artifact 与必要源码。
+- 对 B4.1-B4.6、N4.1-N4.2 分别给出 CLOSED / OPEN 与证据。
+- 新 finding 必须给出 broken assumption、具体失败场景、触发条件、影响、需要的最小闭合产物和文件行号。
+- 区分“设计合同可执行”与“生产尚未实施”；后者本身不算本轮缺陷，但任何把未实施写成已验证的声明算缺陷。
+- 输出最终 PASS/FAIL、blocking findings、non-blocking risks、missing tests/logs 和是否允许作为实施基线。
+
+### Reviewer Timeout Policy
+
+| Complexity | Initial Wait | Extension | Max Attempts Per Role | Blocking Closure Behavior |
+|---|---:|---:|---:|---|
+| complex | 20 minutes | one 10-minute extension if alive | 2 | any open accepted blocker requires another fresh closure round |
+
+### Reviewer Selection
+
+| Reviewer | Reason Selected | Risk Area |
+|---|---|---|
+| implementation-contract-adversary | 本轮只审计文档是否足以驱动真实生产实施和可重复验收，不复审宏观愿景 | 合同权威、完整 schema、生命周期、实施矩阵、评估可执行性 |
+
+### Reviewer Launch Records
+
+| Reviewer | Internal Mechanism | Session / Job ID | Trace Source | Context Forked | Input Packet | Context Explicitly Excluded | Read-only |
+|---|---|---|---|---|---|---|---|
+| implementation-contract-adversary | `multi_agent_v1.spawn_agent`, `gpt-5.5` low, explorer | `019f7c7e-6fd6-7a13-8375-307d6dddf942` (`Sartre`) | spawn tool result and completion transcript | `fork_context=false` | Round 5 Closure Review Input | main-agent history, hidden reasoning, prior conclusions, full diff | yes |
+
+### Reviewer Timeout Records
+
+| Reviewer Output Key | Reviewer Role | Attempt | Session / Job ID | Waited | Status | Reason | Action |
+|---|---|---:|---|---:|---|---|---|
+| R5-implementation-closure | implementation-contract-adversary | 1 | `019f7c7e-6fd6-7a13-8375-307d6dddf942` | about 75 seconds | completed | independent closure review returned | fix B5.1 and re-review |
+
+### Reviewer Output
+
+**Verdict: FAIL.**
+
+| Item | Status | Evidence |
+|---|---|---|
+| B4.1 | CLOSED | Authority manifest selects one rollback baseline and one target set: rollback `48922ce9b`, single `taskspace_control`, `required_next_call` retained, `strict=false`, experiments disabled；hashes match disk. |
+| B4.2 | OPEN | Executable spec said `read_output_ref` uses `byte/line/continuation/full`, but authoritative input/result schemas use `head/tail/line_range/grep`. An implementer following the spec would create rejected fixtures. |
+| B4.3 | CLOSED | V2 result schema uniquely fixes boolean `partial_commit=false`, statuses, actual/expected and ordinary-tool-after-control semantics. |
+| B4.4 | CLOSED | FLA-0 through FLA-8 have production entries, removals, tests, logs, smoke/evidence, rollback and completion rules; doc/schema-only completion is forbidden. |
+| B4.5 | CLOSED | Evaluation freezes five scenario directories/hashes, arms, 30 repeats, order, seed, bootstrap, gates, unavailable semantics, artifacts and commands；reviewer independently verified hashes. |
+| B4.6 | CLOSED | Lifecycle artifact has 12 fixtures, canonical/event hashes, retry/resume/fork/compaction outcomes and required logs；reviewer independently recomputed hashes. |
+| N4.1 | CLOSED | D.5 removed the old independent protocol; FLA-2 L2 is explicitly the existing developer bundle first section and has exact DeepSeek placement. |
+| N4.2 | CLOSED | Neutrality uses ownership, fixed result schema/messages and static boundary audit without a Runtime natural-language classifier. |
+
+**B5.1 - `read_output_ref` mode contract is contradictory.**
+
+- Broken assumption: executable spec and schema name the same four branches.
+- Failure scenario: FLA-4 implementer writes `mode=full` or `mode=byte` fixtures from the spec; selected schema rejects them.
+- Trigger: parser/schema conformance or golden fixture implementation.
+- Impact: L4 still permits two incompatible implementations.
+- Minimum closure: make executable spec use exactly schema modes and refresh the governing artifact hash.
+- Evidence: executable spec line 99；input schema lines 229-278；result schema lines 166-175.
+
+Non-blocking risks: authority manifest need not hash itself but freeze tooling should record its external hash；projection payload goldens
+are correctly assigned to future implementation and do not yet exist. The four future scripts are explicitly marked “要求新增”，not
+falsely claimed as current evidence. Freeze decision: do not freeze until B5.1 is corrected and re-reviewed.
+
+### Main Agent Response
+
+| Finding | 决定 | 修订 |
+|---|---|---|
+| B5.1 | 接受 | 可执行规格改为与两个机器 schema 完全一致的 `head`、`tail`、`line_range`、`grep`；authority manifest 新增 `governing_documents` 并冻结修订后 executable spec SHA256。 |
+| Authority self-hash | 接受为非阻断观测要求 | authority 作为顶层索引不递归记录自身 hash；提交 hash 和后续 FLA-0 run manifest 负责记录其外部身份。 |
+| Projection golden | 接受为未来实施证据 | 保持 FLA-7 activation gate；未生成前不声称 lifecycle production verified。 |
+
+Round 5 reviewer 全程只读，未修改文件。B5.1 是接受的 blocking finding，因此必须启动全新 closure reviewer；
+不能由主线程自行宣告闭合。
+
+## Round 6: B5.1 最终闭环复审
+
+### Closure Review Input
+
+- Objective: 只判断 B5.1 是否闭合，并检查修订是否产生新的 L4/authority 矛盾。
+- Scope: `five-layer-contract-authority-v1.json`、两个 L4/L5 schema、`24` 号具体合同和 `25` 号可执行规格。
+- Required proof: 所有 Agent/implementer 可见位置只把 `read_output_ref` mode 定义为 `head`、`tail`、
+  `line_range`、`grep`；governing document hash 可重算；禁用读写拆分实验不改变这四种 mode。
+- Constraint: 生产尚未实施不算缺陷；本轮只审查设计合同唯一性。Reviewer 必须 fresh、`fork_context=false`、只读。
+
+### Reviewer Selection
+
+| Reviewer | Reason Selected | Risk Area |
+|---|---|---|
+| contract-closure-adversary | B5.1 是一个窄而机械的跨 artifact 合同漂移，需要独立 hash/schema/doc 终检 | mode enum、文档表述、authority hash、新冲突 |
+
+### Reviewer Launch Records
+
+| Reviewer | Internal Mechanism | Session / Job ID | Context Forked | Scope | Read-only |
+|---|---|---|---|---|---|
+| contract-closure-adversary | `multi_agent_v1.spawn_agent`, `gpt-5.5` low, explorer | `019f7c81-1469-72a3-843a-e93e2e2c343b` (`Heisenberg`) | `fork_context=false` | B5.1 and affected authority/schema/docs only | yes |
+
+### Reviewer Timeout Records
+
+| Reviewer Output Key | Reviewer Role | Attempt | Session / Job ID | Waited | Status | Reason | Action |
+|---|---|---:|---|---:|---|---|---|
+| R6-B5.1-closure | contract-closure-adversary | 1 | `019f7c81-1469-72a3-843a-e93e2e2c343b` | about 52 seconds | completed | independent closure review returned | fix remaining doc enum spelling and re-review |
+
+### Reviewer Output
+
+**Verdict: FAIL. B5.1 remains OPEN.** Input schema, result schema and executable spec all use `head`、`tail`、
+`line_range`、`grep`，and the executable spec hash matches authority. However, `24` 号具体合同表格 used natural-language
+`line range` instead of the exact enum `line_range`. An implementer could therefore write `mode: "line range"` and be rejected by
+the selected schema. The one-Tool baseline and disabled split experiment remain correct. No new blocker was found；`continuation`
+is correctly a result field rather than an input mode.
+
+### Main Agent Response
+
+| Finding | 决定 | 修订 |
+|---|---|---|
+| B5.1 residual | 接受 | `24` 号 action 表改为逐字枚举 `head`、`tail`、`line_range`、`grep`；不再用自然语言近义写法。 |
+| Governing artifact identity | 接受增强 | authority 的 `governing_documents` 同时冻结 `23`、`24`、`25` 三份文档 SHA256，避免低优先级文档在后续漂移。 |
+| continuation risk | 接受 | FLA-4/FLA-5 conformance 明确区分 input mode 与 read result continuation 字段；不新增 input mode。 |
+
+Round 6 reviewer 全程只读，未修改文件。B5.1 仍是接受的 blocking finding，需再次由 fresh reviewer 闭环。
+
+## Round 7: B5.1 精确枚举终检
+
+### Closure Review Input
+
+- Objective: 只判断所有权威和评审文本是否对 `read_output_ref` 使用唯一 input mode 集合
+  `head`、`tail`、`line_range`、`grep`，并确认 `continuation` 只作为结果字段。
+- Scope: authority manifest、L4/L5 schemas、`23`、`24`、`25` 三份治理文档。
+- Required proof: 搜索不存在 `mode=full/byte/continuation` 或把 `line range` 当成枚举的表述；三份 governing document
+  hash 可重算；单 Tool 主线与禁用拆分没有变化。
+- Reviewer policy: fresh、`fork_context=false`、只读；输出 PASS/FAIL、B5.1 CLOSED/OPEN、新 blocker 和 freeze decision。
+
+### Reviewer Selection
+
+| Reviewer | Reason Selected | Risk Area |
+|---|---|---|
+| enum-contract-adversary | 最后缺口只剩跨 schema/doc 的精确枚举一致性，适合窄范围机械终检 | enum spelling、result/input distinction、governing hashes |
+
+### Reviewer Launch Records
+
+| Reviewer | Internal Mechanism | Session / Job ID | Context Forked | Scope | Read-only |
+|---|---|---|---|---|---|
+| enum-contract-adversary | `multi_agent_v1.spawn_agent`, `gpt-5.5` low, explorer | `019f7c83-0abd-71e1-a65e-c5162bc66e93` (`Hume`) | `fork_context=false` | B5.1 exact enum closure only | yes |
+
+### Reviewer Timeout Records
+
+| Reviewer Output Key | Reviewer Role | Attempt | Session / Job ID | Waited | Status | Reason | Action |
+|---|---|---:|---|---:|---|---|---|
+| R7-B5.1-final | enum-contract-adversary | 1 | `019f7c83-0abd-71e1-a65e-c5162bc66e93` | about 74 seconds | completed | independent exact-enum review returned | accept PASS; close B5.1 |
+
+### Reviewer Output
+
+**Verdict: PASS. B5.1 CLOSED.** Input schema、result schema、`24` 号合同表格与 `25` 号规格均只使用
+`head`、`tail`、`line_range`、`grep`。`continuation` 只位于读取结果 envelope，不是 input mode。Reviewer
+独立重算 `23/24/25` governing document hashes 全部与 authority 一致；单 `taskspace_control` 主线、
+`required_next_call`、`strict=false` 和禁用读写拆分保持不变。New blockers: none。Freeze decision: 可作为本轮
+reviewed scope 的实施基线。
+
+Non-blocking risk：result schema 当时只把 `continuation` 限定为 object/null，内部字段尚未进一步约束。
+
+### Main Agent Response
+
+| Finding | 决定 | 修订 |
+|---|---|---|
+| B5.1 | 接受 PASS | 标记为 CLOSED；不再修改四个 input mode。 |
+| continuation shape | 接受非阻断改进 | Result V2 将非空 continuation 冻结为一份完整、可直接调用的 `read_output_ref line_range` 参数对象；无剩余行或其他 mode 时为 `null`。文档示例同步补全 action/output_ref/start/end/max_bytes。 |
+| 文档状态 | 接受 | `23/24/25` 更新为 frozen implementation/product baseline，同时仍明确 production pending；authority 状态改为 `frozen_design_target_not_implemented` 并刷新全部 hash。 |
+
+Round 7 reviewer 全程只读，未修改文件。由于 PASS 后又接受了非阻断合同补全并刷新 frozen 状态，启动最后一轮
+fresh review，避免未审的 continuation/status 变更混入冻结基线。
+
+## Round 8: 冻结基线最终一致性复审
+
+### Closure Review Input
+
+- Objective: 对最终冻结工件做一次全局机械一致性终检，不重新讨论已闭合的宏观架构。
+- Scope: authority、L1/L2/L3 exact artifacts、L4/L5 schemas、lifecycle/evaluation contracts、`23/24/25` 文档。
+- Required checks: authority 所有 baseline/selected/governing hashes 可重算；状态明确 frozen but production pending；
+  continuation 是完整 `line_range` next-call arguments 且通过 result schema；所有 12 action 和四个 mode 唯一；
+  没有新占位决策或把 future scripts 说成已实现；B4.1-B4.6/B5.1 不因最终改动重新打开。
+- Reviewer policy: fresh、`fork_context=false`、只读。输出 PASS/FAIL、open/new blockers、nonblocking risks、freeze decision。
+
+### Reviewer Selection
+
+| Reviewer | Reason Selected | Risk Area |
+|---|---|---|
+| final-contract-integrity-adversary | 冻结前检查最后的 hash、status 与 continuation 合同没有重开已闭合问题 | artifact identity、schema example conformance、implementation-status honesty |
+
+### Reviewer Launch Records
+
+| Reviewer | Internal Mechanism | Session / Job ID | Context Forked | Scope | Read-only |
+|---|---|---|---|---|---|
+| final-contract-integrity-adversary | `multi_agent_v1.spawn_agent`, `gpt-5.5` low, explorer | `019f7c86-95a6-7712-91ca-09e75d734b12` (`Bacon`) | `fork_context=false` | final frozen contract integrity | yes |
+
+### Reviewer Timeout Records
+
+| Reviewer Output Key | Reviewer Role | Attempt | Session / Job ID | Waited | Status | Reason | Action |
+|---|---|---:|---|---:|---|---|---|
+| R8-final-integrity | final-contract-integrity-adversary | 1 | `019f7c86-95a6-7712-91ca-09e75d734b12` | about 104 seconds | completed | final independent integrity review returned | accept PASS and freeze design baseline |
+
+### Reviewer Output
+
+**Verdict: PASS.** Open/new blockers: none. B4.1-B4.6 and B5.1 were not reopened.
+
+Reviewer independently confirmed:
+
+- Authority status is `frozen_design_target_not_implemented`；`23/24/25` all say production pending.
+- Every baseline、selected target and governing document SHA256 in authority recomputes successfully.
+- L4 compiles to one provider Tool、15 schema branches、12 unique actions and exactly four `read_output_ref` modes.
+- L5 compiles；the documented truncated-read result validates；continuation is a complete `line_range` next-call argument object.
+- Four FLA-6 experiments remain disabled，with single Tool、retained `required_next_call` and `strict=false` as baseline.
+- Lifecycle contract contains LC-01 through LC-12；evaluation freezes five samples、arm sets、3-run smoke and 30-run formal repeats.
+- Future benchmark/fixture scripts are not present and are accurately marked as implementation deliverables rather than current evidence.
+
+Non-blocking risk: this is a design/product/executable baseline freeze，not production verification. Production activation evidence
+remains assigned to FLA-0 through FLA-8.
+
+Freeze decision: accepted as final Round 8 implementation-target baseline；production activation remains pending.
+
+## Final Closure Status
+
+- Blocking findings found in concrete-contract review: B4.1-B4.6 and B5.1.
+- Accepted blocking findings fixed: yes.
+- Fresh blocking closure reviews completed: Round 5、Round 6、Round 7、Round 8.
+- Final blocking re-review passed: yes，Round 8.
+- New blockers in final round: none.
+- Rejected recommendation: advisory phrase classifier；replaced with typed contracts、fixed factual templates、goldens and static
+  Runtime boundary audit，avoiding natural-language interpretation in Runtime.
+- Deferred design decisions: none in the selected mainline.
+- Disabled experiments: read/write Tool split、`required_next_call` removal、MCP output schema、DeepSeek strict.
+- Missing production implementation: explicit and assigned to FLA-0 through FLA-8；not claimed complete.
+- Target benefits proven: no；evaluation contract is frozen，but production runs have not occurred.
+- Allowed to proceed: yes，as a frozen implementation-target baseline only.
+
+## Final Conclusion After Concrete Review
+
+R7 TaskSpace five-layer design is no longer only an abstract architecture description. The frozen baseline now includes exact L1/L2
+text、an exact L3 Skill、a complete L4 input schema、a complete L5 result schema、deterministic lifecycle oracles、a reproducible
+evaluation contract and an FLA-0 through FLA-8 production matrix. Independent Round 8 review passed with no open blockers.
+
+This conclusion does not claim that the five-layer refactor is implemented or beneficial. Those claims require the future production
+paths、tests、logs、Docker samples and formal matrix specified by the frozen executable contract.

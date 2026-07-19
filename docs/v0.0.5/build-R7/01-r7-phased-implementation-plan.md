@@ -4,6 +4,12 @@
 > DAG、Event Store、工具链和硬约束，只重构 projection 进入 provider context 的策略点。三种策略
 > 必须逐个接入同一基建、逐个验证，禁止并行演化三套架构。
 
+> 2026-07-20 后续专项：Phase D.5 是当前生产回滚基线；它删除的是旧版独立 Working Protocol 注入路径。
+> 五层重构选择的 L2 不是恢复该路径，而是作为现有 developer bundle 的首个版本化 section，按
+> [R7 五层架构可执行规格](25-r7-five-layer-executable-spec.md) 的 FLA-0 至 FLA-8 另行实施。涉及 L1-L5 的
+> 目标合同、生产入口和验收以 `25` 号规格及 authority manifest 为准；本计划中的 Phase E-H 继续描述 R7
+> projection 主线，不可替代五层专项的完成证据。
+
 ## 1.1 元数据
 
 ```text

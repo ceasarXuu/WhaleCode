@@ -1,0 +1,168 @@
+{
+  "schema_version": 1,
+  "contract_id": "r7-five-layer-evaluation-contract-v1",
+  "status": "selected_design_target_not_implemented",
+  "environment": {
+    "runner": "scripts/taskspace-benchmark/run-r7-five-layer-matrix.ps1",
+    "base_runner": "scripts/taskspace-benchmark/run-taskspace-benchmark.ps1",
+    "execution": "Docker only",
+    "image_identity": "record immutable image digest, WhaleCode commit, model identifier, provider endpoint family and tool profile in every run",
+    "api_key_source": ".env.local DEEPSEEK_API_KEY; never copy the value into artifacts or logs",
+    "concurrency": "parallelize repeats across isolated containers; serialize arms within each paired repeat unless the provider returns an explicit rate-limit-free capacity reservation",
+    "timeout_seconds_per_run": 1800
+  },
+  "samples": {
+    "development_smoke": ["single-file-fast-fix", "subscription-billing-repair"],
+    "held_out_formal": ["multi-file-order-pipeline", "count-call-stack", "large-output-ref-smoke"],
+    "held_out_rule": "Do not inspect candidate outcomes on held_out_formal before the FLA-8 decision run. Environment validation may execute fixtures without a model and may not score candidate behavior.",
+    "frozen_artifacts": [
+      {
+        "id": "single-file-fast-fix",
+        "path": "benchmarks/taskspace/scenarios/single-file-fast-fix",
+        "scenario_json_sha256": "a09de1f9ae40a40083fbb6de4e54c862ab2e9f819cc0b18ac286c490183c1069",
+        "directory_manifest_sha256": "169311238cecd872a063c3f253e2a11f27d99e96296a58203083df82d74bcdc6"
+      },
+      {
+        "id": "subscription-billing-repair",
+        "path": "benchmarks/taskspace/scenarios/subscription-billing-repair",
+        "scenario_json_sha256": "36c9c1a64bb0a4843e0f7ed362f2505eb407d6529745f4d67477ca9ec05b6065",
+        "directory_manifest_sha256": "6310d19e3d18a3502742b7e88184f6dd66903f6a3381442d99a56cde286fec91"
+      },
+      {
+        "id": "multi-file-order-pipeline",
+        "path": "benchmarks/taskspace/scenarios/multi-file-order-pipeline",
+        "scenario_json_sha256": "d451f65a2d390174e7cedab0c439ddd3f3c91851253fa1f5560c41f13173470b",
+        "directory_manifest_sha256": "73f4d9a17ea21076f93f08d6b3bfae67e166538a9af37649641f2bc93db5478a"
+      },
+      {
+        "id": "count-call-stack",
+        "path": "benchmarks/taskspace/scenarios/count-call-stack",
+        "scenario_json_sha256": "1921be13f21212d655d379a492fe7bc197a2c719459a7b1a7b9c12430d7ad635",
+        "directory_manifest_sha256": "4801f082dc87dfb76142afa7bafcd30ec857ea558e78e26ea6cf0d06777b0721"
+      },
+      {
+        "id": "large-output-ref-smoke",
+        "path": "benchmarks/taskspace/scenarios/large-output-ref-smoke",
+        "scenario_json_sha256": "236ef75d7de7e5b6a203e29e37ae9c87496755eb8a987083e1362f918cb40b94",
+        "directory_manifest_sha256": "74447a34c60b3283c87d3a1bd34a29229b16650fe096d1f3ffb7581424dfd18b"
+      }
+    ],
+    "directory_hash_rule": "From the repository root, sort all repository-relative file paths under the scenario directory bytewise, concatenate sha256sum lines in that order, then sha256 the resulting UTF-8 LF manifest. Prompt, fixture and validator bytes are therefore frozen together."
+  },
+  "arms": {
+    "shared_change_formal": [
+      "standard",
+      "map-always-frozen-baseline",
+      "map-always-candidate",
+      "map-append-frozen-baseline",
+      "map-append-candidate",
+      "map-request-frozen-baseline",
+      "map-request-candidate"
+    ],
+    "single_policy_experiment": ["standard", "affected-policy-frozen-baseline", "affected-policy-candidate"],
+    "baseline_identity": "The frozen baseline is commit 48922ce9b plus the exact environment and provider identities recorded by the run manifest.",
+    "candidate_identity": "One FLA phase commit or one FLA-6 experiment commit. Unrelated changes are forbidden."
+  },
+  "run_design": {
+    "smoke": {
+      "samples": "development_smoke",
+      "paired_repeats": 3,
+      "arm_order": [
+        ["standard", "frozen-baseline", "candidate"],
+        ["frozen-baseline", "candidate", "standard"],
+        ["candidate", "standard", "frozen-baseline"]
+      ],
+      "claim_limit": "Smoke may detect regressions but may not establish benefit or non-regression."
+    },
+    "formal": {
+      "samples": "development_smoke plus held_out_formal",
+      "paired_repeats_per_sample": 30,
+      "shared_change_arm_order_cycle": [
+        ["standard", "map-always-frozen-baseline", "map-always-candidate", "map-append-frozen-baseline", "map-append-candidate", "map-request-frozen-baseline", "map-request-candidate"],
+        ["map-always-frozen-baseline", "map-always-candidate", "map-append-frozen-baseline", "map-append-candidate", "map-request-frozen-baseline", "map-request-candidate", "standard"],
+        ["map-always-candidate", "map-append-frozen-baseline", "map-append-candidate", "map-request-frozen-baseline", "map-request-candidate", "standard", "map-always-frozen-baseline"],
+        ["map-append-frozen-baseline", "map-append-candidate", "map-request-frozen-baseline", "map-request-candidate", "standard", "map-always-frozen-baseline", "map-always-candidate"],
+        ["map-append-candidate", "map-request-frozen-baseline", "map-request-candidate", "standard", "map-always-frozen-baseline", "map-always-candidate", "map-append-frozen-baseline"],
+        ["map-request-frozen-baseline", "map-request-candidate", "standard", "map-always-frozen-baseline", "map-always-candidate", "map-append-frozen-baseline", "map-append-candidate"],
+        ["map-request-candidate", "standard", "map-always-frozen-baseline", "map-always-candidate", "map-append-frozen-baseline", "map-append-candidate", "map-request-frozen-baseline"]
+      ],
+      "single_policy_arm_order_cycle": [
+        ["standard", "affected-policy-frozen-baseline", "affected-policy-candidate"],
+        ["affected-policy-frozen-baseline", "affected-policy-candidate", "standard"],
+        ["affected-policy-candidate", "standard", "affected-policy-frozen-baseline"]
+      ],
+      "randomization": "Choose and record one seed before any candidate run. The seed determines sample order; arm order uses the applicable cycle by paired repeat index modulo cycle length.",
+      "stopping_rule": "Run all 30 complete paired repeats per sample. Do not inspect candidate aggregate gates or stop early. Evaluate once after the matrix is sealed; an interval crossing a threshold is inconclusive and does not promote.",
+      "confidence": "two-sided 95% paired bootstrap confidence interval with 10000 resamples, stratified by sample ID",
+      "multiple_candidates": "Holm-Bonferroni correction across candidates tested against the same frozen baseline within one FLA decision family"
+    }
+  },
+  "hard_gates": [
+    {"metric": "scenario_success", "rule": "candidate failures <= frozen-baseline failures and candidate success rate >= frozen-baseline success rate"},
+    {"metric": "semantic_integrity_violations", "rule": "candidate total equals 0"},
+    {"metric": "hard_contract_violations", "rule": "candidate total equals 0"},
+    {"metric": "schema_and_lifecycle_oracles", "rule": "100% pass"},
+    {"metric": "solo_nonterminal_transition", "rule": "0 for initialize_map, bind_node and complete_then_continue"}
+  ],
+  "non_inferiority_gates": [
+    {"metric": "provider_request_count_mean", "threshold": "candidate increase <= 10% versus paired frozen baseline"},
+    {"metric": "provider_request_count_median", "threshold": "candidate increase <= 1 request"},
+    {"metric": "provider_request_count_p95", "threshold": "candidate increase <= 2 requests"},
+    {"metric": "uncached_input_tokens_mean", "threshold": "candidate increase <= 10%"},
+    {"metric": "total_input_tokens_mean", "threshold": "candidate increase <= 15%"},
+    {"metric": "request_2_plus_cache_hit_rate", "threshold": "candidate decrease <= 2 percentage points"},
+    {"metric": "wall_time_mean", "threshold": "candidate increase <= 20%"},
+    {"metric": "combined_control_plus_next_rate", "threshold": "candidate decrease <= 2 percentage points"}
+  ],
+  "metric_definitions": {
+    "provider_request_count": "Count provider HTTP attempts excluding exact transport retries; report retries separately.",
+    "total_input_tokens": "Sum provider-reported prompt/input tokens for all non-retry provider requests.",
+    "cached_input_tokens": "Sum provider-reported prompt cache hit tokens. Missing telemetry is unavailable, never zero.",
+    "uncached_input_tokens": "total_input_tokens minus cached_input_tokens only when both values are provider-reported for the request.",
+    "request_2_plus_cache_hit_rate": "sum cached_input_tokens from non-retry requests ordinal >=2 divided by sum total_input_tokens from those requests.",
+    "combined_control_plus_next_rate": "eligible lifecycle control calls with their required real sibling in the same assistant response divided by all eligible calls.",
+    "wall_time": "monotonic elapsed time from first provider send to terminal scenario verdict; environment setup excluded.",
+    "monetary_cost": "Disabled unless a separate immutable price artifact pins model input, cache-hit input, output and reasoning prices. Missing price is unavailable, never inferred."
+  },
+  "failure_taxonomy": [
+    "environment_setup_failed",
+    "provider_auth_failed",
+    "provider_rate_limited",
+    "provider_transport_failed",
+    "provider_model_error",
+    "tool_argument_failed",
+    "taskspace_protocol_failed",
+    "taskspace_state_machine_failed",
+    "ordinary_tool_failed",
+    "scenario_assertion_failed",
+    "timeout",
+    "trace_incomplete"
+  ],
+  "attribution_rules": [
+    "Environment, auth and provider-capacity failures invalidate the pair and are rerun with the same pair ID; they are not model successes or failures.",
+    "Agent-generated invalid arguments, protocol violations, ordinary tool mistakes and wrong task outputs remain scored behavioral failures.",
+    "A trace missing token, cache, request or contract fields is trace_incomplete and cannot support a performance claim.",
+    "No run may be deleted as an outlier after outcomes are visible. Exclusions must match the taxonomy and remain in the raw manifest."
+  ],
+  "required_artifacts": [
+    "run-manifest.json with sample, pair, arm order, seed, commits, image digest, model and provider identities",
+    "requests.jsonl with one record per provider request and transport retry",
+    "tool-events.jsonl with ordered call/result envelopes and TaskSpace revisions",
+    "map-events.jsonl with canonical event hashes and projection emissions",
+    "scenario-verdict.json",
+    "summary.csv containing per-run and aggregate totals, means, medians, p95 and cache rates",
+    "paired-bootstrap.json containing confidence intervals and stopping decision"
+  ],
+  "commands": {
+    "validate_contracts": "pwsh scripts/taskspace-benchmark/test-r7-five-layer-contracts.ps1",
+    "smoke": "pwsh scripts/taskspace-benchmark/run-r7-five-layer-matrix.ps1 -Stage smoke -Candidate <commit> -Baseline 48922ce9b",
+    "formal": "pwsh scripts/taskspace-benchmark/run-r7-five-layer-matrix.ps1 -Stage formal -Candidate <commit> -Baseline 48922ce9b -Seed <recorded-int>",
+    "report": "pwsh scripts/taskspace-benchmark/report-r7-five-layer-matrix.ps1 -RunRoot <artifact-directory>"
+  },
+  "promotion_decision": {
+    "promote": "All hard gates pass and all corrected confidence bounds satisfy every non-inferiority threshold.",
+    "reject": "Any hard gate fails or a non-inferiority confidence bound is entirely outside its threshold after 30 repeats.",
+    "inconclusive": "Required telemetry is unavailable or a confidence interval crosses a threshold after 30 repeats; do not promote.",
+    "benefit_claim": "A positive benefit may be claimed only for a preregistered superiority metric whose corrected 95% interval excludes zero. Passing non-inferiority is not a benefit claim."
+  }
+}

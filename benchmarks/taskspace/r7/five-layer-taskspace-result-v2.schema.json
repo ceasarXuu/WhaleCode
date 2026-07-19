@@ -1,0 +1,302 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://whalecode.dev/schemas/r7/taskspace-control-result-v2.json",
+  "title": "TaskSpaceControlResultV2",
+  "description": "Local and model-visible result contract for every taskspace_control action. DeepSeek receives conforming JSON as a tool result; this schema is not advertised as provider-enforced output_schema.",
+  "type": "object",
+  "properties": {
+    "schema_version": {"const": "TaskSpaceControlResultV2"},
+    "action": {
+      "type": ["string", "null"],
+      "enum": [
+        "initialize_map",
+        "mutate_graph",
+        "bind_node",
+        "block_node",
+        "unblock_node",
+        "rework_node",
+        "complete_then_continue",
+        "complete_then_end",
+        "finish_end",
+        "expand_nodes",
+        "read_map",
+        "read_output_ref",
+        null
+      ]
+    },
+    "status": {
+      "enum": [
+        "committed",
+        "read_ok",
+        "argument_failed",
+        "protocol_failed",
+        "state_machine_failed",
+        "resource_failed"
+      ]
+    },
+    "success": {"type": "boolean"},
+    "state_commit": {"type": "boolean"},
+    "partial_commit": {"const": false},
+    "canonical_revision": {"type": ["integer", "null"], "minimum": 0},
+    "submitted_expected_revision": {"type": ["integer", "null"], "minimum": 0},
+    "committed_revision": {"type": ["integer", "null"], "minimum": 0},
+    "delta": {
+      "oneOf": [
+        {"type": "null"},
+        {
+          "type": "object",
+          "properties": {
+            "map_id": {"type": "string"},
+            "committed_revision": {"type": "integer", "minimum": 0},
+            "graph_event_refs": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "revision": {"type": "integer", "minimum": 0},
+                  "event_id": {"type": "string"},
+                  "event_type": {"type": ["string", "null"]}
+                },
+                "required": ["revision", "event_id", "event_type"],
+                "additionalProperties": false
+              }
+            },
+            "node_detail_event_refs": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "node_id": {"type": "string"},
+                  "expansion_event_id": {"type": "string"}
+                },
+                "required": ["node_id", "expansion_event_id"],
+                "additionalProperties": false
+              }
+            }
+          },
+          "required": ["map_id", "committed_revision", "graph_event_refs", "node_detail_event_refs"],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "steps": {
+      "type": "array",
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "kind": {"enum": ["map_initialized", "graph_mutation"]},
+              "map_id": {"type": "string"},
+              "revision": {"type": "integer", "minimum": 0}
+            },
+            "required": ["kind", "map_id", "revision"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {"enum": ["node_bound", "node_blocked", "node_unblocked", "node_reworked"]},
+              "map_id": {"type": "string"},
+              "node_id": {"type": "string"},
+              "status": {"enum": ["running", "blocked", "ready"]},
+              "revision": {"type": "integer", "minimum": 0}
+            },
+            "required": ["kind", "map_id", "node_id", "status", "revision"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {"const": "complete_then_continue"},
+              "map_id": {"type": "string"},
+              "current_node_id": {"type": "string"},
+              "next_node_id": {"type": "string"},
+              "revision": {"type": "integer", "minimum": 0}
+            },
+            "required": ["kind", "map_id", "current_node_id", "next_node_id", "revision"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {"enum": ["complete_then_end", "finish_end"]},
+              "map_id": {"type": "string"},
+              "finish_closed": {"const": true},
+              "root_closed": {"const": true},
+              "revision": {"type": "integer", "minimum": 0}
+            },
+            "required": ["kind", "map_id", "finish_closed", "root_closed", "revision"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {"const": "node_detail_expanded"},
+              "node_id": {"type": "string"},
+              "expansion_event_id": {"type": "string"},
+              "detail_ref": {"type": "string"},
+              "restored_detail_count": {"type": "integer", "minimum": 1},
+              "restored_details": {"type": "array", "minItems": 1, "items": {"type": "object"}}
+            },
+            "required": ["kind", "node_id", "expansion_event_id", "detail_ref", "restored_detail_count", "restored_details"],
+            "additionalProperties": false
+          }
+        ]
+      }
+    },
+    "read": {
+      "oneOf": [
+        {"type": "null"},
+        {
+          "type": "object",
+          "properties": {
+            "kind": {"const": "map_projection"},
+            "map_id": {"type": "string"},
+            "revision": {"type": "integer", "minimum": 0},
+            "canonical_sha256": {"type": "string"},
+            "content": {"type": "string"}
+          },
+          "required": ["kind", "map_id", "revision", "canonical_sha256", "content"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {"const": "output_range"},
+            "output_ref": {"type": "string"},
+            "mode": {"enum": ["head", "tail", "line_range", "grep"]},
+            "range": {"type": "object"},
+            "truncated": {"type": "boolean"},
+            "continuation": {
+              "oneOf": [
+                {"type": "null"},
+                {
+                  "type": "object",
+                  "properties": {
+                    "action": {"const": "read_output_ref"},
+                    "output_ref": {"type": "string"},
+                    "mode": {"const": "line_range"},
+                    "start_line": {"type": "integer", "minimum": 1},
+                    "end_line": {"type": "integer", "minimum": 1},
+                    "max_bytes": {"type": "integer", "minimum": 1}
+                  },
+                  "required": ["action", "output_ref", "mode", "start_line", "end_line", "max_bytes"],
+                  "additionalProperties": false
+                }
+              ]
+            },
+            "content": {"type": "string"}
+          },
+          "required": ["kind", "output_ref", "mode", "range", "truncated", "continuation", "content"],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "error": {
+      "oneOf": [
+        {"type": "null"},
+        {
+          "type": "object",
+          "properties": {
+            "class": {"enum": ["argument", "protocol", "state_machine", "resource"]},
+        "code": {
+          "enum": [
+            "TASKSPACE_INVALID_ARGUMENT",
+            "TASKSPACE_REQUIRED_SIBLING_MISSING",
+            "TASKSPACE_STALE_REVISION",
+            "TASKSPACE_GRAPH_INVARIANT",
+            "TASKSPACE_LIFECYCLE_INVARIANT",
+            "TASKSPACE_OUTPUT_REF_NOT_FOUND",
+            "TASKSPACE_RANGE_INVALID"
+          ]
+        },
+            "message": {"type": "string"},
+            "actual": {},
+            "expected": {}
+          },
+          "required": ["class", "code", "message", "actual", "expected"],
+          "additionalProperties": false
+        }
+      ]
+    }
+  },
+  "required": [
+    "schema_version",
+    "action",
+    "status",
+    "success",
+    "state_commit",
+    "partial_commit",
+    "canonical_revision",
+    "submitted_expected_revision",
+    "committed_revision",
+    "delta",
+    "steps",
+    "read",
+    "error"
+  ],
+  "additionalProperties": false,
+  "allOf": [
+    {
+      "if": {"properties": {"status": {"const": "committed"}}, "required": ["status"]},
+      "then": {
+        "properties": {
+          "success": {"const": true},
+          "state_commit": {"const": true},
+          "committed_revision": {"type": "integer"},
+          "delta": {"type": "object"},
+          "read": {"type": "null"},
+          "error": {"type": "null"}
+        }
+      }
+    },
+    {
+      "if": {"properties": {"status": {"const": "read_ok"}}, "required": ["status"]},
+      "then": {
+        "properties": {
+          "success": {"const": true},
+          "state_commit": {"const": false},
+          "committed_revision": {"type": "null"},
+          "delta": {"type": "null"},
+          "read": {"type": "object"},
+          "error": {"type": "null"}
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {"status": {"enum": ["argument_failed", "protocol_failed", "state_machine_failed", "resource_failed"]}},
+        "required": ["status"]
+      },
+      "then": {
+        "properties": {
+          "success": {"const": false},
+          "state_commit": {"const": false},
+          "committed_revision": {"type": "null"},
+          "delta": {"type": "null"},
+          "read": {"type": "null"},
+          "error": {"type": "object"}
+        }
+      }
+    }
+  ],
+  "x-taskspace-invariants": {
+    "partial_commit": "Always false for one taskspace_control call. Multiple control calls in one provider response each have an independent envelope.",
+    "ordinary_tool_failure_after_control": "The committed control result remains committed. The ordinary tool emits its own result. Runtime never combines or rolls back the two results.",
+    "actual_expected_direction": "actual contains Runtime-observed canonical facts; expected contains caller-declared or contract-required values.",
+    "message_policy": "Messages state the failed mechanical condition. They must not contain a recommended next action.",
+    "unknown_action": "action is null only when arguments cannot be parsed far enough to identify a supported action.",
+    "canonical_revision": "The latest observed canonical revision after the call, or null only when no Map exists or the Runtime cannot identify one before argument dispatch.",
+    "read_continuation": "A non-null continuation is a complete valid read_output_ref line_range argument object for the next exact range. It is non-null only when a line_range result was truncated and more retained lines exist; otherwise it is null.",
+    "error_contracts": {
+      "TASKSPACE_INVALID_ARGUMENT": {"status": "argument_failed", "class": "argument", "message": "arguments do not match the selected action schema"},
+      "TASKSPACE_REQUIRED_SIBLING_MISSING": {"status": "protocol_failed", "class": "protocol", "message_template": "{action} requires a following top-level {required_next_call} call in the same response"},
+      "TASKSPACE_STALE_REVISION": {"status": "state_machine_failed", "class": "state_machine", "message": "expected_revision does not match the current canonical revision"},
+      "TASKSPACE_GRAPH_INVARIANT": {"status": "state_machine_failed", "class": "state_machine", "message": "the submitted mutation violates a rooted DAG invariant"},
+      "TASKSPACE_LIFECYCLE_INVARIANT": {"status": "state_machine_failed", "class": "state_machine", "message": "the submitted transition is not valid from the observed lifecycle state"},
+      "TASKSPACE_OUTPUT_REF_NOT_FOUND": {"status": "resource_failed", "class": "resource", "message": "the requested retained output reference does not exist"},
+      "TASKSPACE_RANGE_INVALID": {"status": "argument_failed", "class": "argument", "message": "the requested retained output range is invalid"}
+    }
+  }
+}
